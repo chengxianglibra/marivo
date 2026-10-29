@@ -412,8 +412,8 @@ def test_sparse_shift_observes_raw_contributions_and_nominal_windows(
         },
     }
     ordinary = session.observe(observed, by=(calendar,)).compute()
-    values = ordinary.to_pandas()
-    assert values["calendar:week"].tolist() == ["2020-12-21", "2021-01-04"]
+    values = ordinary.to_pandas(time_details=True)
+    assert values["calendar:week.label"].tolist() == ["2020-12-21", "2021-01-04"]
     assert values["revenue"].tolist() == [40, 150]
     assert values["aov"].tolist() == [20.0, 50.0]
     assert values["customers"].tolist() == [2, 2]
@@ -478,17 +478,15 @@ def test_sparse_calendar_joint_groups_and_fixed_populations(
         .shift(mv.offset(years=1))
     )
     strict = amount.sum() / (amount.count() - 1)
-    assert session.observe({"strict": strict}, by=(calendar,)).compute().to_pandas()[
-        "strict"
-    ].tolist() == [40.0, 75.0]
+    assert session.observe({"strict": strict}, by=(calendar,)).compute().to_pandas(
+        time_details=True
+    )["strict"].tolist() == [40.0, 75.0]
     rows = (
         session.observe({"total": amount.sum()}, by=(calendar, region, channel))
         .compute()
-        .to_pandas()
+        .to_pandas(time_details=True)
     )
-    assert set(
-        rows[["sales.orders.region", "sales.orders.channel"]].itertuples(index=False, name=None)
-    ) == {
+    assert set(rows[["region", "channel"]].itertuples(index=False, name=None)) == {
         ("north", "web"),
         ("south", "shop"),
         ("new", "shop"),
@@ -496,7 +494,11 @@ def test_sparse_calendar_joint_groups_and_fixed_populations(
     assert len(rows) == 6
     gap = session.time_scope(start="2020-12-28", end="2021-01-04").by(mv.grain("week"))
     assert (
-        session.observe({"strict": strict}, by=(gap,)).compute().to_pandas()["strict"].isna().all()
+        session.observe({"strict": strict}, by=(gap,))
+        .compute()
+        .to_pandas(time_details=True)["strict"]
+        .isna()
+        .all()
     )
     pairs = mv.coordinates(by=(region, channel), keys=(("north", "web"), ("south", "shop")))
     explicit = (
@@ -504,9 +506,9 @@ def test_sparse_calendar_joint_groups_and_fixed_populations(
             {"total": amount.sum()}, by=mv.product(calendar, pairs), where=mv.in_population(pairs)
         )
         .compute()
-        .to_pandas()
+        .to_pandas(time_details=True)
     )
-    assert explicit[["calendar:week", "sales.orders.region", "sales.orders.channel"]].to_records(
+    assert explicit[["calendar:week.label", "region", "channel"]].to_records(
         index=False
     ).tolist() == [
         ("2020-12-21", "north", "web"),
@@ -524,7 +526,7 @@ def test_sparse_calendar_joint_groups_and_fixed_populations(
             where=mv.in_population(selected),
         )
         .compute()
-        .to_pandas()
+        .to_pandas(time_details=True)
     )
     assert filtered["total"].tolist() == [10, 20]
     assert filtered["history"].tolist() == [10, 20]
@@ -536,7 +538,7 @@ def test_sparse_calendar_joint_groups_and_fixed_populations(
             where=at >= datetime(2021, 1, 1, tzinfo=timezone.utc),
         )
         .compute()
-        .to_pandas()
+        .to_pandas(time_details=True)
     )
     assert hard["history"].to_dict() == {0: 0, 1: 150}
 
@@ -686,18 +688,16 @@ def test_calendar_population_axis_order(window_session: Session, calendar_first:
     calendar = session.time_scope(start="2026-10-07", end="2026-10-09").by(mv.grain("day"))
     domain = mv.product(calendar, customers) if calendar_first else mv.product(customers, calendar)
     completed = session.observe({"revenue": revenue}, by=domain).compute()
-    result = completed.to_pandas()
+    result = completed.to_pandas(time_details=True)
     assert result["revenue"].to_dict() == {0: 20, 1: 0, 2: 0, 3: 0}
     assert len(result) == 4
     days = [datetime(2026, 10, 7, tzinfo=timezone.utc), datetime(2026, 10, 8, tzinfo=timezone.utc)]
-    assert result["calendar:day"].tolist() == (
+    assert result["calendar:day.label"].tolist() == (
         ["2026-10-07"] * 2 + ["2026-10-08"] * 2
         if calendar_first
         else ["2026-10-07", "2026-10-08"] * 2
     )
-    assert result["sales.orders.customer"].tolist() == (
-        [7, 8, 7, 8] if calendar_first else [7, 7, 8, 8]
-    )
+    assert result["customer"].tolist() == ([7, 8, 7, 8] if calendar_first else [7, 7, 8, 8])
     calendar_axis = next(
         axis for axis in completed._schema.axes if isinstance(axis, CalendarDataAxis)
     )

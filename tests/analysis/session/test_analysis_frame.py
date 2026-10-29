@@ -101,7 +101,7 @@ def test_current_rows_select_where_top_reduce_and_presence(local: LocalFrameServ
     top = root.top(2, by=root["value"])
     filtered = top.where(top["value"] > 0)
     selected = filtered.select({"net": filtered["value"] - 1}).compute()
-    assert selected.to_pandas()[selected.axes[0].name].tolist() == ["A", "B"]
+    assert selected.to_pandas()[selected.axes[0].name.rsplit(".", 1)[-1]].tolist() == ["A", "B"]
     assert selected.to_pandas()["net"].tolist() == [99, 9]
     assert selected.to_pandas()["right_present"].tolist() == [True, False]
     assert selected.output_names == ("net",) and selected.presence_names == ("right_present",)
@@ -495,7 +495,7 @@ def test_flat_export_aliases_conflicts_and_preview(
         frame.to_pandas()
     assert caught.value.expected == "unique flat export column names"
     assert "axis_names" in caught.value.repair.action
-    rows = frame.to_pandas(axis_names={frame.axes[0]: "customer_region"})
+    rows = frame.to_pandas(axis_names={frame.axes[0].token: "customer_region"})
     assert rows.columns.tolist() == ["customer_region", "region", "right_present"]
     assert rows["customer_region"].tolist() == ["B", "A"]
     assert rows["region"].tolist() == [10, 100]
@@ -503,11 +503,11 @@ def test_flat_export_aliases_conflicts_and_preview(
     frame.show(n=1)
     preview = capsys.readouterr().out
     assert "region [coordinate axis.0]" in preview and "region [value]" in preview
-    with pytest.raises(CoreRuleError, match="exact Frame input"):
+    with pytest.raises(CoreRuleError, match="unambiguous current axis"):
         frame.to_pandas(axis_names={root.axes[0]: "customer_region"})
     for name in ("", " region", "region\n"):
         with pytest.raises(CoreRuleError, match="printable export name"):
-            root.to_pandas(axis_names={root.axes[0]: name})
+            root.to_pandas(axis_names={root.axes[0].token: name})
 
 
 def test_export_alias_validation_precedes_stored_payload_reads(
@@ -522,5 +522,27 @@ def test_export_alias_validation_precedes_stored_payload_reads(
     monkeypatch.setattr(LocalFrameServices, "read_data", forbidden)
     with pytest.raises(CoreRuleError, match="unique flat export column names"):
         frame.to_pandas()
-    with pytest.raises(CoreRuleError, match="exact Frame input"):
+    with pytest.raises(CoreRuleError, match="unambiguous current axis"):
         frame.to_pandas(axis_names={root.axes[0]: "name"})
+
+
+def test_string_export_alias_survives_compute_and_rejects_invalid_requests(
+    local: LocalFrameServices,
+) -> None:
+    root = _memory(local)
+    aliases = {root.axes[0].name: "member"}
+    pending = root.select({"amount": root["value"]})
+    with pytest.raises(CoreRuleError, match="complete memory or stored Frame"):
+        pending.to_pandas(axis_names=aliases)
+    fixed = pending.compute()
+    assert fixed.to_pandas(axis_names=aliases).columns.tolist() == [
+        "member",
+        "amount",
+        "right_present",
+    ]
+    for bad in ({"unknown.axis": "member"}, {fixed.axes[0]: "member"}):
+        with pytest.raises(CoreRuleError, match="unambiguous current axis"):
+            fixed.to_pandas(axis_names=bad)
+    for member in (fixed.to_pandas, fixed.read_page):
+        with pytest.raises(CoreRuleError, match="boolean time_details"):
+            member(time_details="yes")

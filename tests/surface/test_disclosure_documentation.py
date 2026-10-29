@@ -224,7 +224,10 @@ def test_public_composition_help_runs_its_actual_registry_examples_on_fixed_data
         else:
             assert isinstance(result, pd.DataFrame)
             assert result.columns.nlevels == 1
-            assert result.columns.tolist() == [frame.axes[0].name, *frame.output_names]
+            assert result.columns.tolist() == [
+                frame.axes[0].name.rsplit(".", 1)[-1],
+                *frame.output_names,
+            ]
             values = namespace["values"]
             assert isinstance(values, pd.Series)
             assert values.tolist() == [-1, 0, 3]
@@ -238,7 +241,7 @@ def test_public_composition_help_runs_its_actual_registry_examples_on_fixed_data
             assert result.attrs["units"] == (("value", None),)
             assert result.attrs["comparisons"] == ()
             assert result.attrs["frozen_coordinates"] == ()
-            assert result[frame.axes[0].name].tolist() == [
+            assert result[frame.axes[0].name.rsplit(".", 1)[-1]].tolist() == [
                 "east",
                 "north",
                 "west",
@@ -454,9 +457,9 @@ def test_documentation_scripts_run_without_fixture_model_loading(tmp_path: Path)
                 "\nassert len(daily.to_pandas()) == 31\n"
                 'assert rolling.to_pandas()["revenue"].iloc[4] == 100\n'
                 'assert month_to_date.to_pandas()["revenue"].iloc[14] == 200\n'
-                'assert sample_mean.to_pandas()["sales.orders.region"].tolist() == ["east", "west"]\n'
+                'assert sample_mean.to_pandas()["region"].tolist() == ["east", "west"]\n'
                 'assert sample_mean.to_pandas()["average"].tolist() == [100, 600]\n'
-                'assert adjusted.to_pandas()["sales.orders.region"].tolist() == ["east", "west"]\n'
+                'assert adjusted.to_pandas()["region"].tolist() == ["east", "west"]\n'
                 'assert adjusted.to_pandas()["average"].tolist() == [100, 600]\n'
             )
         write(tmp_path, filename, source)
@@ -499,8 +502,9 @@ def test_documentation_scripts_run_without_fixture_model_loading(tmp_path: Path)
         'assert abs(result["gross_margin_rate"].iloc[0] - 0.4) < 1e-12\n',
     )
     run_group(extended, ("seed.py", "add_cost.py", "check_metrics.py"))
+    # The first two blocks form the producer/reopen pair; later blocks are independent examples.
     for filename, source in zip(
-        ("save_ids.py", "reopen.py"), snippets("analysis/results.mdx"), strict=True
+        ("save_ids.py", "reopen.py"), snippets("analysis/results.mdx")[:2], strict=True
     ):
         if filename == "save_ids.py":
             # The identity block belongs in the producer, before that process exits.

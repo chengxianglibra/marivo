@@ -625,7 +625,7 @@ def test_group_and_entity_time_display_domains(analysis_dsl_case_factory: DslCas
         member: sorted(frame.loc[frame["member"] == member, "value"].tolist())
         for member in expected
     } == {member: sorted(values) for member, values in expected.items()}
-    assert frame.shape == (12, 8)
+    assert frame.shape == (12, 6)
 
 
 def test_public_undefined_ranks_and_strict_two_step_filter(

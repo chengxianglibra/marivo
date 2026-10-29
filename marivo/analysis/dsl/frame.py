@@ -1415,21 +1415,32 @@ class AnalysisFrame:
         return self._local.evidence(backing, input_id=self._input_id, limit=limit, cursor=cursor)
 
     def _export_axis_names(
-        self, axis_names: Mapping[FrameAxis, str] | None, member: str
+        self, axis_names: Mapping[str, str] | None, member: str
     ) -> tuple[str, ...]:
         if axis_names is not None and not isinstance(axis_names, Mapping):
             reject(
-                "a mapping from current Frame axes to export names",
+                "a mapping from axis names or tokens to export names",
                 type(axis_names).__name__,
-                "Pass axis_names={frame.axes[0]: 'name'} or omit axis_names.",
+                "Pass axis_names={'full.axis.name': 'name'}.",
                 f"frame.{member}",
                 canonical_id=f"analysis_frame.{member}",
             )
-        names = [axis.name for axis in self.axes]
-        for axis, name in (axis_names or {}).items():
-            index = self._axis_index(
-                axis, location=f"frame.{member}", canonical_id=f"analysis_frame.{member}"
-            )
+        names = [axis.name.rsplit(".", 1)[-1] for axis in self.axes]
+        assigned: set[int] = set()
+        for selector, name in (axis_names or {}).items():
+            matches = [
+                i
+                for i, axis in enumerate(self.axes)
+                if isinstance(selector, str) and selector in (axis.name, axis.token)
+            ]
+            if len(matches) != 1 or matches[0] in assigned:
+                reject(
+                    "one unambiguous current axis name or token, assigned once",
+                    repr(selector),
+                    f"Choose a full name or token from {tuple((a.name, a.token) for a in self.axes)!r}.",
+                    f"frame.{member}",
+                    canonical_id=f"analysis_frame.{member}",
+                )
             if type(name) is not str or not name or name != name.strip() or not name.isprintable():
                 reject(
                     "a nonempty printable export name without surrounding whitespace",
@@ -1438,8 +1449,19 @@ class AnalysisFrame:
                     f"frame.{member}",
                     canonical_id=f"analysis_frame.{member}",
                 )
-            names[index] = name
+            assigned.add(matches[0])
+            names[matches[0]] = name
         return tuple(names)
+
+    def _validate_time_details(self, time_details: bool, member: str) -> None:
+        if type(time_details) is not bool:
+            reject(
+                "a boolean time_details",
+                repr(time_details),
+                "Pass time_details=True or False.",
+                f"frame.{member}",
+                canonical_id=f"analysis_frame.{member}",
+            )
 
     def read_page(
         self,
@@ -1447,7 +1469,8 @@ class AnalysisFrame:
         columns: tuple[str, ...] | None = None,
         limit: int = 1000,
         cursor: str | None = None,
-        axis_names: Mapping[FrameAxis, str] | None = None,
+        axis_names: Mapping[str, str] | None = None,
+        time_details: bool = False,
     ) -> FramePage:
         """Read one projected ordered page from complete fixed data.
 
@@ -1456,7 +1479,8 @@ class AnalysisFrame:
                 an empty tuple selects coordinates only.
             limit: Integer 1..10000, excluding bool; default 1000.
             cursor: Previous page cursor or None; repeat the same request parameters.
-            axis_names: Optional aliases bound to axes of this exact Frame.
+            axis_names: Optional full axis name or token to export name mapping.
+            time_details: Include calendar labels and nominal boundaries; default False.
         Returns: Immutable FramePage with complete keys, layout and read statistics.
         Example: ``page = frame.compute().read_page(columns=('revenue',), limit=100)``.
         Constraints: Does not execute or persist expressions. Stored pages validate
@@ -1473,6 +1497,7 @@ class AnalysisFrame:
                 "frame.read_page",
                 canonical_id="analysis_frame.read_page",
             )
+        self._validate_time_details(time_details, "read_page")
         names = self._export_axis_names(axis_names, "read_page")
         assert isinstance(self._schema, DataSchema)
         return read_frame_page(
@@ -1484,28 +1509,33 @@ class AnalysisFrame:
             limit=limit,
             cursor=cursor,
             axis_names=names,
+            time_details=time_details,
         )
 
-    def to_pandas(self, *, axis_names: Mapping[FrameAxis, str] | None = None) -> pd.DataFrame:
+    def to_pandas(
+        self, *, axis_names: Mapping[str, str] | None = None, time_details: bool = False
+    ) -> pd.DataFrame:
         """Export complete fixed data as a readable, isolated flat table.
 
         Args:
-            axis_names: Optional names for axes from this exact Frame input. Names
+            axis_names: Optional full axis name or token to export name mapping. Names
                 must be nonempty printable strings without surrounding whitespace.
-                Defaults to the complete captured axis names.
+                Defaults to the final path component of each axis name.
+            time_details: Include calendar labels and nominal boundaries; default False.
 
         Returns:
             A pandas DataFrame with string columns: readable coordinates, full
             output names and independent boolean presence. Composite identities
-            remain tuples. Calendar coordinates include labels, actual_start,
-            actual_end and timezone; intervals include start/end/timezone. Paired
-            coordinates use left/right prefixes. Exact bounds are UTC timestamps.
+            remain tuples. Calendar and interval coordinates include start/end timestamps in their
+            captured axis timezone; mixed interval zones and sub-minute fixed offsets use UTC.
+            Calendar details add label/nominal_start/nominal_end.
+            Paired coordinates use left/right prefixes.
             attrs retain isolated axes, units, comparisons and frozen_coordinates.
 
         Example:
             ``fixed = frame.compute(); rows = fixed.to_pandas()``;
             ``amounts = rows["amount"]``. Rename an axis with
-            ``fixed.to_pandas(axis_names={fixed.axes[0]: "region"})``.
+            ``fixed.to_pandas(axis_names={"sales.region": "region"})``.
 
         Constraints:
             Pending expressions require compute/persist, including derivatives of
@@ -1528,16 +1558,21 @@ class AnalysisFrame:
                 "frame.to_pandas",
                 canonical_id="analysis_frame.to_pandas",
             )
+        self._validate_time_details(time_details, "to_pandas")
         names = self._export_axis_names(axis_names, "to_pandas")
         assert isinstance(self._schema, DataSchema)
-        export_names(self._schema, tuple(names))
+        export_names(self._schema, tuple(names), time_details=time_details)
         data = (
             self._local.read_data(self._backing)
             if isinstance(self._backing, StoredFrameBacking)
             else self._backing.data
         )
         return export_frame(
-            data.schema, data.copy_rows(), data.copy_attachments(), axis_names=tuple(names)
+            data.schema,
+            data.copy_rows(),
+            data.copy_attachments(),
+            axis_names=tuple(names),
+            time_details=time_details,
         )
 
     def show(self, *, n: int = 20, max_output_bytes: int | None = 8192) -> None:

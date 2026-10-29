@@ -118,8 +118,8 @@ change.show()  # Pending comparison; no evaluation.
 saved = change.persist()
 table = saved.to_pandas()
 assert table.columns.nlevels == 1
-assert table["sales.orders.region"].tolist() == ["east", "west"]
-assert table["interval.timezone"].tolist() == ["UTC", "UTC"]
+assert table["region"].tolist() == ["east", "west"]
+assert table["interval.start"].dtype.pyarrow_dtype.tz == "UTC"
 assert table["reference.absolute.revenue"].tolist() == [-100, -100]
 assert table["current.present"].all()
 assert table["reference.present"].all()
@@ -181,9 +181,11 @@ regional.show()
 
 导出要求已完成的 Frame。即使 `fixed` 已完成，`fixed.select(...)` 等派生仍然惰性：应对派生结果调用 `compute()` 并使用返回对象。短组合示例见 `analysis.analysis_frame.compute`、`analysis.analysis_frame.reduce` 和 `analysis.analysis_frame.over`。
 
-导出使用普通字符串列名：完整轴名、完整值名和独立布尔 presence 名。复合身份保持 tuple。日历轴提供可读标签及 `.actual_start`、`.actual_end`、`.timezone` 列；区间提供 `.start`、`.end`、`.timezone`；配对时间轴使用 `.left` 和 `.right` 前缀。边界为精确 UTC 时间戳，命名日历标签保留标量类型，无需自行解码坐标。
+导出默认使用轴路径末段、完整值名和独立布尔 presence 名；复合身份保持 tuple。日历和区间在所有粒度上统一导出实际半开区间 `.start`/`.end`，类型为轴捕获时区的时间戳。`time_details=True` 增加日历 `.label`、`.nominal_start`、`.nominal_end`；命名日历标签保留标量类型。配对轴使用 `.left`、`.right` 前缀。
 
-列名必须唯一。可以用 `saved.to_pandas(axis_names={saved.axis("sales.orders.region"): "region"})` 选择短轴名或解决冲突；轴须属于当前确切 Frame。别名只改变导出列名，捕获的轴元数据、值和 presence 名称不变，必要时通过 `select()` 重命名值。
+混合时区的合并区间轴统一使用 UTC 时间戳；原始边界时区保留在冻结元数据中。公共导出时区保存在区间轴描述中，空页同样使用该时区。固定偏移含非零秒数时也导出为 UTC，保持精确时间点；秒数为零时规范化为分钟偏移。详情列、分页和预览遵循相同规则，原始时区保留在冻结元数据中。
+
+列名必须唯一。用 `saved.to_pandas(axis_names={"sales.orders.region": "region"})` 按完整轴名或 schema 唯一 token 重命名，不接受 FrameAxis 键。冲突在读取载荷前报错。`read_page()` 使用相同选项，游标绑定这些选项。读取前须显式 `compute()` 或 `persist()`。
 
 `table.attrs["axes"]`、`units`、`comparisons` 和 `frozen_coordinates` 保留隔离的解释元数据；内部 descriptor 不承诺稳定的重新导入协议。导出保留物理数值、缺失和时间类型，不应统一强转 float 或将所有 NA 填零。后续 typed 分析从 Frame 继续。Help：`analysis.analysis_frame.to_pandas`。
 

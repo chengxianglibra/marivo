@@ -380,9 +380,9 @@ def test_public_month_region_share_journey_stays_fixed_after_source_offline(
     month = next(axis for axis in observed.axes if axis.role == "calendar")
     region = next(axis for axis in observed.axes if axis.name == "sales.customer.region")
     original = observed.to_pandas()
-    east = original.loc[original[region.name] == "east"]
+    east = original.loc[original[region.name.rsplit(".", 1)[-1]] == "east"]
     assert east["revenue"].tolist() == [200, 180, 230]
-    east_months = east[month.name].tolist()
+    east_months = east[month.name.rsplit(".", 1)[-1] + ".start"].tolist()
     case.database_path.rename(case.database_path.with_suffix(".offline"))
     (case.root / "models").rename(case.root / "models.offline")
 
@@ -402,13 +402,13 @@ def test_public_month_region_share_journey_stays_fixed_after_source_offline(
         }
     )
     selected_rows = selected.compute().to_pandas()
-    selected_east = selected_rows.loc[selected_rows[region.name] == "east"]
+    selected_east = selected_rows.loc[selected_rows[region.name.rsplit(".", 1)[-1]] == "east"]
     assert selected_east["total"].tolist() == [250, 180, 230]
     assert selected_east["share"].tolist() == [0.8, 1, 1]
     filtered = selected.where(selected["share"] > 0.8)
     fixed = filtered.compute().to_pandas()
-    assert fixed[month.name].tolist() == east_months[1:]
-    assert fixed[region.name].tolist() == ["east", "east"]
+    assert fixed[month.name.rsplit(".", 1)[-1] + ".start"].tolist() == east_months[1:]
+    assert fixed[region.name.rsplit(".", 1)[-1]].tolist() == ["east", "east"]
     assert fixed["total"].tolist() == [180, 230]
     assert fixed["share"].tolist() == [1, 1]
     saved = filtered.persist()

@@ -127,8 +127,8 @@ change.show()  # Pending comparison; no evaluation.
 saved = change.persist()
 table = saved.to_pandas()
 assert table.columns.nlevels == 1
-assert table["sales.orders.region"].tolist() == ["east", "west"]
-assert table["interval.timezone"].tolist() == ["UTC", "UTC"]
+assert table["region"].tolist() == ["east", "west"]
+assert table["interval.start"].dtype.pyarrow_dtype.tz == "UTC"
 assert table["reference.absolute.revenue"].tolist() == [-100, -100]
 assert table["current.present"].all()
 assert table["reference.present"].all()
@@ -194,9 +194,11 @@ To read individual records, provide complete Entity identities and named fields 
 
 Export requires a completed Frame. A derivation such as `fixed.select(...)` is lazy even when `fixed` is already complete: call `compute()` on the derivative and use the returned object. Short composition examples are available at `analysis.analysis_frame.compute`, `analysis.analysis_frame.reduce` and `analysis.analysis_frame.over`.
 
-The export has ordinary string columns: complete axis names, full value names and independent boolean presence names. Composite identities remain tuples. Calendar axes expose a readable label and `.actual_start`, `.actual_end`, `.timezone` columns; intervals expose `.start`, `.end`, `.timezone`. Paired time axes use `.left` and `.right` prefixes. Bounds are exact UTC timestamps, and named calendar labels retain their scalar types. No coordinate decoding is required.
+The export uses short axis names (final path components), full value names and independent boolean presence. Composite identities remain tuples. Calendar and interval axes expose actual half-open `.start`/`.end` timestamps in the captured axis timezone, at every grain. `time_details=True` adds calendar `.label`, `.nominal_start` and `.nominal_end`; named labels keep their scalar types. Paired axes use `.left` and `.right` prefixes.
 
-Names must be unique. To choose a short axis name or resolve a collision, use `saved.to_pandas(axis_names={saved.axis("sales.orders.region"): "region"})`. Axes must belong to this exact Frame. Aliases change export column names only; captured axis metadata, value and presence names are unchanged; rename values through `select()` when needed.
+Merged interval axes with multiple boundary timezones use UTC timestamps. The common export timezone is captured in the interval descriptor, including for empty pages. Fixed offsets with nonzero seconds also export in UTC without changing instants; zero seconds normalize to minute offsets. This applies to detail columns, pages and previews. Original zones remain in frozen metadata.
+
+Names must be unique. Use `saved.to_pandas(axis_names={"sales.orders.region": "region"})` to rename by full axis name or unique schema token; FrameAxis keys are rejected. Collisions fail before payload reads. `read_page()` shares these options and binds them into its cursor. Explicit `compute()` or `persist()` is required.
 
 `table.attrs["axes"]`, `units`, `comparisons` and `frozen_coordinates` retain isolated interpretation metadata. Internal descriptors are not a stable import protocol. Physical numeric, missing-value and temporal types are retained: do not coerce all columns to float or fill every NA with zero. Continue typed analysis from the Frame. Help: `analysis.analysis_frame.to_pandas`.
 

@@ -72,7 +72,7 @@ def test_numeric_column_supports_separate_dimension_and_measure_roles(
         {"mean": quantity.mean(), "sum": quantity.sum()}, by=(dimension,)
     ).compute()
     rows = frame.to_pandas()
-    axis_name = frame.axes[0].name
+    axis_name = frame.axes[0].name.rsplit(".", 1)[-1]
     expected = [4, 8] if derived else [2, 4]
     represented = rows.loc[rows[axis_name].notna()].sort_values(axis_name)
     assert represented[axis_name].tolist() == expected

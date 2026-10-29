@@ -148,6 +148,7 @@ def read_frame_page(
     limit: int,
     cursor: str | None,
     axis_names: tuple[str, ...],
+    time_details: bool = False,
 ) -> FramePage:
     """Validate one exact request before consuming its projected fixed data."""
     if (
@@ -163,7 +164,14 @@ def read_frame_page(
             canonical_id="analysis_frame.read_page",
         )
     requested = selected_columns(schema, columns)
-    layout = export_layout(schema, axis_names, columns, validate_names=True, member="read_page")
+    layout = export_layout(
+        schema,
+        axis_names,
+        columns,
+        validate_names=True,
+        member="read_page",
+        time_details=time_details,
+    )
     total = (
         backing.data.row_count
         if isinstance(backing, MemoryFrameBacking)
@@ -183,7 +191,16 @@ def read_frame_page(
     )
     binding = sha256(
         json.dumps(
-            ["frame-page-v1", input_id, version, total, selected_names, axis_names, limit],
+            [
+                "frame-page-v1",
+                input_id,
+                version,
+                total,
+                selected_names,
+                axis_names,
+                time_details,
+                limit,
+            ],
             separators=(",", ":"),
         ).encode()
     ).hexdigest()
@@ -205,6 +222,7 @@ def read_frame_page(
         axis_names=axis_names,
         columns=columns,
         include_attrs=False,
+        time_details=time_details,
     )
     position = start + len(rows)
     has_more = position < total

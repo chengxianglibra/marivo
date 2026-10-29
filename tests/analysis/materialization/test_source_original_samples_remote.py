@@ -214,16 +214,19 @@ def test_remote_selected_window_rollup_keeps_correlated_endpoint_and_parent_keys
         fixed = fine.top(3, by=fine["value"]).compute()
         frame = fixed.to_pandas()
         assert frame["value"].tolist() == [500, 500, 500]
-        assert frame[frame.attrs["axes"][1]["name"]].tolist() == ["A", "B", "A"]
+        assert frame[frame.attrs["axes"][1]["name"].rsplit(".", 1)[-1]].tolist() == ["A", "B", "A"]
         assert len(frame) == 3
         assert list(
             zip(
-                frame.iloc[:, 0], frame[frame.attrs["axes"][1]["name"]], frame["value"], strict=True
+                frame.iloc[:, 0],
+                frame[frame.attrs["axes"][1]["name"].rsplit(".", 1)[-1]],
+                frame["value"],
+                strict=True,
             )
         ) == [
-            ("2026-10-07", "A", 500),
-            ("2026-10-07", "B", 500),
-            ("2026-10-08", "A", 500),
+            (datetime(2026, 10, 7, tzinfo=timezone.utc), "A", 500),
+            (datetime(2026, 10, 7, tzinfo=timezone.utc), "B", 500),
+            (datetime(2026, 10, 8, tzinfo=timezone.utc), "A", 500),
         ]
         backing = fixed._backing
         assert isinstance(backing, MemoryFrameBacking)

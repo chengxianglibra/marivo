@@ -210,14 +210,14 @@ def test_roles_and_independent_read_paths(analysis_dsl_case_factory: DslCaseFact
     ).persist()
     current = current_frame.to_pandas(
         axis_names={
-            current_frame.axes[1]: "buyer_region",
-            current_frame.axes[2]: "recipient_region",
+            current_frame.axes[1].token: "buyer_region",
+            current_frame.axes[2].token: "recipient_region",
         }
     )
     baseline = baseline_frame.to_pandas(
         axis_names={
-            baseline_frame.axes[1]: "buyer_region",
-            baseline_frame.axes[2]: "recipient_region",
+            baseline_frame.axes[1].token: "buyer_region",
+            baseline_frame.axes[2].token: "recipient_region",
         }
     )
     current_values = current.set_index(["buyer_region", "recipient_region"])["value"]

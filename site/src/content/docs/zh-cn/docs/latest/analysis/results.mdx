@@ -120,7 +120,7 @@ if page.has_more:
 
 页面在 `coordinates` 中按 schema slot ID 保留每个完整轴键，可读坐标位于所选字段之前。
 使用完整 value/presence 名；`columns=()` 只读坐标。limit 是 1..10000 的整数，不接受
-bool。续读时重复相同 limit、columns 和轴别名。保存游标可在相同 Runtime 版本重新打开
+bool。续读时重复相同 limit、columns、轴别名和 `time_details`。保存游标可在相同 Runtime 版本重新打开
 同一提交后继续；内存游标限当前进程的同一固定输入。
 
 `layout` 解释实际导出列。页面导出是 attrs 为空的隔离副本，页面不保留完整父表。

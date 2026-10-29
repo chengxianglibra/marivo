@@ -85,7 +85,7 @@ def _mask(frame: pd.DataFrame) -> pd.DataFrame:
     """Keep the original three dates and apply a separate business policy."""
     result = frame.copy(deep=True)
     calendar = next(axis for axis in frame.attrs["axes"] if axis["role"] == "calendar")
-    uncovered = result[calendar["name"] + ".actual_start"] == START + timedelta(days=1)
+    uncovered = result[calendar["name"].rsplit(".", 1)[-1] + ".start"] == START + timedelta(days=1)
     assert uncovered.sum() == 3
     result.loc[uncovered, "value"] = pd.NA
     return result

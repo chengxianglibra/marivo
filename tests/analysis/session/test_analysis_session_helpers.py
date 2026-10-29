@@ -281,7 +281,7 @@ def test_members_consumes_resolved_entity_without_original_version_gate(
     assert isinstance(population._definition, PopulationProgram)
     assert isinstance(population._definition.root, SourceIdentities)
     assert population._definition.root.entity == entity_exact(older)
-    assert case.session.frame(population).compute().to_pandas()["sales.customer"].tolist() == [
+    assert case.session.frame(population).compute().to_pandas()["customer"].tolist() == [
         "A",
         "B",
         "C",

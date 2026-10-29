@@ -236,10 +236,10 @@ def test_previous_year_leap_day_is_missing_and_current_projection_is_exact(
             )
         }
     ).compute()
-    frame = result.to_pandas()
+    frame = result.to_pandas(time_details=True)
     mapping, left_directory, _ = comparison_tables(result, frame)
     assert set(mapping.iloc[:, 0]) == set(left_directory.iloc[:, 0])
-    assert frame["calendar:day"].tolist() == [
+    assert frame["calendar:day.label"].tolist() == [
         "2024-02-28",
         "2024-02-29",
     ]

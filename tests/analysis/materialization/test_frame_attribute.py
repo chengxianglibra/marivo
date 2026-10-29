@@ -295,7 +295,7 @@ def test_calendar_tuple_actual_domain_and_complete_fine_population(session: Sess
     metric = amount.sum(time=day)
     fine = session.observe({"q": metric}, by=(calendar, channel))
     parent = session.observe({"q": metric}, by=(calendar,)).compute()
-    first_day, second_day = parent.to_pandas().iloc[:, 0]
+    first_day, second_day = parent.to_pandas(time_details=True).iloc[:, 0]
     actual = parent.attribute(by=(channel,))
     actual = actual.select({"q": actual["contribution.q"]})
     candidates = mv.coordinates(by=(channel,), keys=(("A",), ("B",), ("C",), ("Z",)))
@@ -311,7 +311,7 @@ def test_calendar_tuple_actual_domain_and_complete_fine_population(session: Sess
             }
         )
         .compute()
-        .to_pandas()
+        .to_pandas(time_details=True)
     )
     # Comparison presence retains each input's row domain.
     values = {(first_day, "B"): 2, (first_day, "C"): 100, (second_day, "A"): 2}
@@ -342,9 +342,7 @@ def test_calendar_tuple_actual_domain_and_complete_fine_population(session: Sess
         assert (
             dict(
                 zip(
-                    domain[["calendar:day", "sales.facts.channel"]].itertuples(
-                        index=False, name=None
-                    ),
+                    domain[["calendar:day.start", "channel"]].itertuples(index=False, name=None),
                     domain[value],
                     strict=True,
                 )
@@ -459,7 +457,10 @@ def test_completed_calendar_top_retains_full_original_directory(session: Session
     binding = parent._derivation.outputs[0].target.current.binding
     assert len(binding.calendars[0].directory.rows) == 2
     report = parent.attribute(by=(channel,)).compute()
-    assert report.to_pandas()["calendar:day"].tolist() == ["2026-08-01", "2026-08-01"]
+    assert report.to_pandas(time_details=True)["calendar:day.label"].tolist() == [
+        "2026-08-01",
+        "2026-08-01",
+    ]
 
 
 def test_paired_missing_endpoint_rejects_contribution_and_remains_visible_in_investigation(
@@ -688,7 +689,7 @@ def test_member_count_compound_identity_and_nonleading_calendar_order(session: S
             {"q": members.where(mv.in_population(first)).count()}, by=(mv.identity(entity), channel)
         )
         .compute()
-        .to_pandas()
+        .to_pandas(time_details=True)
     )
     assert compound.iloc[:, 0].tolist() == [("t", 1)]
     assert compound["q"].tolist() == [1]
@@ -701,10 +702,15 @@ def test_member_count_compound_identity_and_nonleading_calendar_order(session: S
             {"q": members.where(mv.in_population(regions)).count()}, by=mv.product(parents, fine)
         )
         .compute()
-        .to_pandas()
+        .to_pandas(time_details=True)
     )
     assert rows.iloc[:, 0].tolist() == ["east"] * 4
-    assert rows["calendar:day"].tolist() == ["2026-08-01", "2026-08-01", "2026-08-02", "2026-08-02"]
+    assert rows["calendar:day.label"].tolist() == [
+        "2026-08-01",
+        "2026-08-01",
+        "2026-08-02",
+        "2026-08-02",
+    ]
     assert rows["q"].tolist() == [1, 1, 1, 1]
 
 

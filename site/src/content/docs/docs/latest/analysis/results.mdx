@@ -129,7 +129,7 @@ if page.has_more:
 Pages keep every complete axis key in `coordinates`, keyed by schema slot ID,
 and readable coordinates before selected fields. Use full value/presence names;
 `columns=()` reads coordinates only. Limits are integers 1..10000, excluding bool.
-Repeat the same limit, columns and axis aliases with a continuation cursor. Saved
+Repeat the same limit, columns, axis aliases and `time_details` with a continuation cursor. Saved
 cursors can continue after reopening the same commit with the same Runtime
 version; memory cursors belong to the same fixed input in the current process.
 

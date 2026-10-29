@@ -747,7 +747,7 @@ def infer_frame_combine_schema(
             "Use a closed calendar correspondence rule.",
             "frame.combine",
         )
-    left_axes: tuple[DataAxis | PendingDataAxis, ...] = left.axes
+    left_axes: list[DataAxis | PendingDataAxis] = list(left.axes)
     right_axes: tuple[DataAxis | PendingDataAxis, ...] = right.axes
     left_roles: tuple[AxisRole, ...] = tuple(
         a.role if isinstance(a, PendingDataAxis) else axis_role(a) for a in left_axes
@@ -839,6 +839,11 @@ def infer_frame_combine_schema(
                 repr(operation.match),
                 "Use ordinal for one declared interval on each side.",
                 "frame.combine",
+            )
+        if isinstance(axis, IntervalDataAxis):
+            assert isinstance(other, IntervalDataAxis)
+            left_axes[i] = replace(
+                axis, timezone=axis.timezone if axis.timezone == other.timezone else "UTC"
             )
         axis_columns.append(tuple(columns))
     calendars = tuple(i for i, role in enumerate(left_roles) if role in ("calendar", "interval"))

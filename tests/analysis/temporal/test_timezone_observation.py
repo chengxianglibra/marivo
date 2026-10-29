@@ -117,7 +117,7 @@ def _observe(session: Session, scope: TimeScope | CalendarAxis) -> mv.AnalysisFr
 def _values(query: mv.AnalysisFrame) -> dict[str, object]:
     frame = query.compute().to_pandas()
     member = next(axis for axis in frame.attrs["axes"] if axis["role"] == "identity")
-    identities = frame[member["name"]].tolist()
+    identities = frame[member["name"].rsplit(".", 1)[-1]].tolist()
     assert identities == sorted(identities)
     assert len(identities) == len(set(identities))
     return dict(zip(identities, frame["value"], strict=True))

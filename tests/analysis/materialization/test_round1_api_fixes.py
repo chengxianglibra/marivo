@@ -60,15 +60,15 @@ def test_calendar_products_keep_single_time_axis_descriptors_and_cold_metadata(
         pd.Timestamp("2026-03-29 22:00Z"),
     ]
     february_starts = [pd.Timestamp("2026-01-31 15:00Z"), pd.Timestamp("2026-02-01 15:00Z")]
-    frames = {name: value.to_pandas() for name, value in outputs.items()}
+    frames = {name: value.to_pandas(time_details=True) for name, value in outputs.items()}
     field = frames["field_calendar"]
     assert field.iloc[:, 0].tolist() == ["A"] * 3 + ["B"] * 3
-    assert field["calendar:day"].tolist() == ["2026-03-28", "2026-03-29", "2026-03-30"] * 2
+    assert field["calendar:day.label"].tolist() == ["2026-03-28", "2026-03-29", "2026-03-30"] * 2
     assert [axis["role"] for axis in field.attrs["axes"]] == ["field", "calendar"]
     tokyo = frames["tokyo_calendar"]
-    assert tokyo["calendar:day"].tolist() == ["2026-02-01", "2026-02-02"]
+    assert tokyo["calendar:day.label"].tolist() == ["2026-02-01", "2026-02-02"]
     assert [axis["descriptor"]["timezone"] for axis in tokyo.attrs["axes"]] == ["Asia/Tokyo"]
-    assert frames["source_calendar"]["calendar:day"].tolist() == [
+    assert frames["source_calendar"]["calendar:day.label"].tolist() == [
         "2026-03-28",
         "2026-03-29",
         "2026-03-30",
@@ -140,7 +140,7 @@ with pytest.MonkeyPatch.context() as patch:
     patch.setattr(mv.Session,'catalog',property(forbidden))
     session=mv.session.resume(state['session']); before=run_ids(session)
     for receipt in state['outputs'].values():
-        artifact=session.persisted_frame(receipt['artifact']); frame=artifact.to_pandas()
+        artifact=session.persisted_frame(receipt['artifact']); frame=artifact.to_pandas(time_details=True)
         assert snapshot(artifact,frame=frame)==receipt['snapshot']
         artifact.show(n=2)
     assert run_ids(session)==before and not session._runtime.store.resources(session.id)

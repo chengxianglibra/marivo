@@ -386,7 +386,7 @@ def test_independent_roots_and_temporal_fold(
                 ),
             ).persist()
             sample_rows = samples.to_pandas()
-            groups = sample_rows.groupby(sample_rows.attrs["axes"][1]["name"])
+            groups = sample_rows.groupby(sample_rows.attrs["axes"][1]["name"].rsplit(".", 1)[-1])
             assert groups.get_group("a")["value"].tolist() == [15, 21]
             assert groups.get_group("a")["count"].tolist() == [2, 2]
             assert groups.get_group("b")["value"].tolist() == [0, 0]

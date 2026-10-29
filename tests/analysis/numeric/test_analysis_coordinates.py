@@ -92,7 +92,7 @@ def _region(case: DslCase) -> mv.AnalysisFrame:
 def _dict(frame: pd.DataFrame, name: str = "value") -> dict[object, object]:
     coordinates = [axis for axis in frame.attrs["axes"] if axis["role"] != "interval"]
     assert len(coordinates) == 1
-    return dict(zip(frame[coordinates[0]["name"]], frame[name], strict=True))
+    return dict(zip(frame[coordinates[0]["name"].rsplit(".", 1)[-1]], frame[name], strict=True))
 
 
 def test_row_methods_source_and_fixed(analysis_dsl_case_factory: DslCaseFactory) -> None:
@@ -298,7 +298,7 @@ before = len(terminal_runs(session))
 frame = session.persisted_frame(sys.argv[2]).to_pandas()
 axes = [axis for axis in frame.attrs['axes'] if axis['role'] != 'interval']
 assert len(axes) == 1
-coordinate = axes[0]['name']
+coordinate = axes[0]['name'].rsplit('.', 1)[-1]
 assert set(frame.columns) == {coordinate, 'sum', 'count'}
 groups = frame[coordinate].tolist()
 assert dict(zip(groups, frame['sum'], strict=True)) == {'east': 140, 'south': 7}
@@ -340,7 +340,7 @@ def test_full_tuple_union_retains_denominator_only_and_cancelled_coordinates(
         grouped = _source(case, expression, by=(channel, status))
         saved = grouped.persist()
         rows = saved.to_pandas()
-        assert rows.set_index(["sales.order.channel", "sales.order.status"])["value"].to_dict() == {
+        assert rows.set_index(["channel", "status"])["value"].to_dict() == {
             ("mobile", "paid"): 0,
             ("web", "paid"): 1 if kind == "ratio" else 0,
         }
@@ -468,10 +468,12 @@ def test_invalid_classification_rejects(retained_coordinates_case: DslCase) -> N
         .compute()
         .to_pandas()
     )
-    assert grouped["value"].loc[grouped[grouped.attrs["axes"][1]["name"]] == "east"].tolist() == [
-        140
-    ]
-    assert grouped["value"].loc[grouped[grouped.attrs["axes"][1]["name"]].isna()].tolist() == [7]
+    assert grouped["value"].loc[
+        grouped[grouped.attrs["axes"][1]["name"].rsplit(".", 1)[-1]] == "east"
+    ].tolist() == [140]
+    assert grouped["value"].loc[
+        grouped[grouped.attrs["axes"][1]["name"].rsplit(".", 1)[-1]].isna()
+    ].tolist() == [7]
 
 
 def test_duplicate_classification_rejects_source_and_fixed(

@@ -42,9 +42,16 @@ def _axis_names(axis: DataAxis, name: str) -> tuple[str, ...]:
     return tuple(column.name for column in axis_export_layout(axis, name))
 
 
-def export_names(schema: DataSchema, axis_names: tuple[str, ...]) -> tuple[str, ...]:
+def export_names(
+    schema: DataSchema, axis_names: tuple[str, ...], *, time_details: bool = False
+) -> tuple[str, ...]:
     """Validate the flat namespace before reading a stored payload."""
-    return tuple(column.name for column in export_layout(schema, axis_names, validate_names=True))
+    return tuple(
+        column.name
+        for column in export_layout(
+            schema, axis_names, validate_names=True, time_details=time_details
+        )
+    )
 
 
 def _coordinate_rows(
@@ -62,32 +69,50 @@ def _time_columns(
     axis: CalendarDataAxis | IntervalDataAxis,
     keys: tuple[FrozenKey | None, ...],
     parts: dict[str, OutputAttachment],
+    time_details: bool,
 ) -> list[pd.Series]:
     assert axis.frozen is not None
     selected = _coordinate_rows(parts[axis.frozen.directory_name], axis.columns, keys)
-    if isinstance(axis, CalendarDataAxis):
+
+    zone = axis.timezone
+
+    if zone.startswith(("UTC+", "UTC-")):
+        zone = zone[3:]
+        if len(zone) == 9:
+            # Arrow/pandas timezone decoding supports minute offsets only.
+            # Keep exact instants in UTC for sub-minute offsets, never round them.
+            zone = zone[:6] if zone[-2:] == "00" else "UTC"
+
+    def stamp(name: str) -> pd.Series:
+        # Preserve Arrow precision and validity while displaying the captured axis timezone.
+        values = pa.array(selected[name])
+        assert pa.types.is_timestamp(values.type)
+        return pd.Series(
+            values.cast(pa.timestamp(values.type.unit, tz=zone)),
+            dtype=pd.ArrowDtype(pa.timestamp(values.type.unit, tz=zone)),
+        )
+
+    bounds = (
+        [stamp("actual_start"), stamp("actual_end")]
+        if isinstance(axis, CalendarDataAxis)
+        else [stamp("start"), stamp("end")]
+    )
+    if isinstance(axis, CalendarDataAxis) and time_details:
         labels = selected["nominal_label"]
-        assert axis.frozen is not None
         if isinstance(axis.frozen.definition, NamedCalendarData):
-            decoded: list[object] = []
-            for label in labels:
-                value: object = json.loads(label) if isinstance(label, str) else label
-                decoded.append(value)
-            labels = pd.Series(decoded, dtype=object)
-        return [
-            labels,
-            selected["actual_start"],
-            selected["actual_end"],
-            pd.Series(
-                [axis.timezone if key is not None else None for key in keys],
-                dtype="string[pyarrow]",
-            ),
-        ]
-    return [selected[name] for name in ("start", "end", "timezone")]
+            labels = pd.Series(
+                [json.loads(label) if isinstance(label, str) else label for label in labels],
+                dtype=object,
+            )
+        bounds.extend([labels, stamp("nominal_start"), stamp("nominal_end")])
+    return bounds
 
 
 def _coordinate_columns(
-    axis: DataAxis, rows: pd.DataFrame, parts: dict[str, OutputAttachment]
+    axis: DataAxis,
+    rows: pd.DataFrame,
+    parts: dict[str, OutputAttachment],
+    time_details: bool = False,
 ) -> list[pd.Series]:
     if isinstance(axis, PairedDataAxis):
         part = parts[axis.mapping_name]
@@ -102,10 +127,10 @@ def _coordinate_columns(
                 None if all(value is None for _, value in key) else key
                 for key in frozen_key_rows(mapped, columns)
             )
-            result.extend(_time_columns(endpoint, keys, parts))
+            result.extend(_time_columns(endpoint, keys, parts, time_details))
         return result
     if isinstance(axis, (CalendarDataAxis, IntervalDataAxis)):
-        return _time_columns(axis, frozen_key_rows(rows, axis.columns), parts)
+        return _time_columns(axis, frozen_key_rows(rows, axis.columns), parts, time_details)
     if len(axis.columns) == 1:
         return [rows[axis.columns[0].slot_id].reset_index(drop=True)]
     arrays = tuple(pa.array(rows[column.slot_id], from_pandas=True) for column in axis.columns)
@@ -131,16 +156,20 @@ def export_frame(
     axis_names: tuple[str, ...] | None = None,
     columns: tuple[str, ...] | None = None,
     include_attrs: bool = True,
+    time_details: bool = False,
 ) -> pd.DataFrame:
     """Copy readable coordinates, exact value arrays and inert interpretation."""
     names = tuple(
-        column.name for column in export_layout(schema, axis_names, columns, validate_names=True)
+        column.name
+        for column in export_layout(
+            schema, axis_names, columns, validate_names=True, time_details=time_details
+        )
     )
     parts = {part.name: part for part in attachments}
     series = [
         column.copy(deep=True)
         for axis in schema.axes
-        for column in _coordinate_columns(axis, rows, parts)
+        for column in _coordinate_columns(axis, rows, parts, time_details)
     ]
     series.extend(
         rows[column.slot_id].reset_index(drop=True).copy(deep=True)
@@ -198,7 +227,7 @@ def preview_table(
     origins: list[str] = []
     data_columns: list[list[str]] = []
     for axis in schema.axes:
-        axis_names = _axis_names(axis, axis.name)
+        axis_names = _axis_names(axis, axis.name.rsplit(".", 1)[-1])
         names.extend(axis_names)
         origins.extend([f"coordinate {axis.token}"] * len(axis_names))
         if type(axis) is DataAxis:
@@ -233,7 +262,9 @@ def preview_table(
             origins.append(role)
             # Keep the Arrow validity bit separate from valid NaN and temporal ticks.
             data_columns.append([_cell(array, i, column) for i in range(len(rows))])
-    counts = Counter(name for axis in schema.axes for name in _axis_names(axis, axis.name))
+    counts = Counter(
+        name for axis in schema.axes for name in _axis_names(axis, axis.name.rsplit(".", 1)[-1])
+    )
     counts.update(column.name for column in (*schema.values, *schema.presence))
     display_names = tuple(
         _text(name if counts[name] == 1 else f"{name} [{origin}]")

@@ -124,7 +124,7 @@ def test_period_outer_keeps_time_missing_and_original_keys(
     frame = fixed.to_pandas()
     assert len(frame) == 12
     assert [axis["role"] for axis in frame.attrs["axes"]] == ["calendar", "identity"]
-    assert set(frame["sales.customer"]) == {"A", "B", "C", "D"}
+    assert set(frame["customer"]) == {"A", "B", "C", "D"}
     assert frame["current.present"].sum() == lengths[0] * 4
     assert frame["reference.present"].sum() == lengths[1] * 4
     assert frame["reference.absolute.value"].dropna().sum() == 1
@@ -199,8 +199,8 @@ def test_grouped_grid_includes_empty_groups_and_propagates_both_values(
     _, baseline = period(case.session, 7, 3, metric=metric, grouped=True)
     observed = current.compute().to_pandas()
     assert len(observed) == 9
-    assert set(observed["sales.customer.region"]) == {"east", "south", "west"}
-    empty = observed[observed["sales.customer.region"].isin(("south", "west"))]
+    assert set(observed["region"]) == {"east", "south", "west"}
+    empty = observed[observed["region"].isin(("south", "west"))]
     assert len(empty) == 6 and empty["value"].eq(0).all()
     comparison = current.compare(
         {
@@ -278,7 +278,7 @@ def test_period_outer_distinguishes_absent_groups_from_zero_activity(
         .compute()
         .to_pandas()
     )
-    assert len(frame) == 6 and set(frame["sales.order.channel"]) == {"mobile", "web"}
+    assert len(frame) == 6 and set(frame["channel"]) == {"mobile", "web"}
     assert frame["reference.absolute.value"].isna().all()
     assert frame["current.present"].sum() == 3
     assert frame["reference.present"].sum() == 3
@@ -373,7 +373,7 @@ def test_period_source_values_match_independent_count_oracle(
         right = pair[baseline_column]
         a, b = pd.notna(left), pd.notna(right)
         position = left_ordinals[left] if a else right_ordinals[right]
-        customer = row["sales.customer"]
+        customer = row["customer"]
         assert row[presence[0]] == a
         assert row[presence[1]] == b
         expected = int(position == 0 and customer == "A")

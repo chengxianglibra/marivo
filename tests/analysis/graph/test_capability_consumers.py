@@ -285,7 +285,7 @@ def test_source_coordinates_statistics_and_original_state(
             differences = difference["reference.absolute.value"].tolist()
             assert dict(
                 zip(
-                    difference["sales.customer"],
+                    difference["customer"],
                     [None if pd.isna(value) else value for value in differences],
                     strict=True,
                 )

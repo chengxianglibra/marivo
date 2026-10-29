@@ -122,8 +122,8 @@ def test_reused_temporal_baseline_keeps_each_alias_projection(
     assert list(
         rows[
             [
-                rows.attrs["axes"][0]["name"] + (".start" if not calendar else ""),
-                "sales.facts.channel",
+                rows.attrs["axes"][0]["name"].rsplit(".", 1)[-1] + ".start",
+                "channel",
             ]
         ].itertuples(index=False, name=None)
     ) == [(key, channel) for key in compared.to_pandas().iloc[:, 0] for channel in ("A", "B")]

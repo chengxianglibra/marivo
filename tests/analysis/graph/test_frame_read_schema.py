@@ -122,7 +122,7 @@ def _time_axis(
             frozen=FrozenCalendarData(BuiltinCalendarData("day", 1), f"{token}.directory"),
         )
     return IntervalDataAxis(
-        token, (key,), name=token, frozen=FrozenIntervalData(f"{token}.directory")
+        token, (key,), name=token, frozen=FrozenIntervalData(f"{token}.directory"), timezone="UTC"
     )
 
 
@@ -136,11 +136,7 @@ def test_time_and_paired_export_layout_preserves_complete_axis_identity(
     schema = capture_schema("paired-input", DataSchema((pair,), ()))
     assert schema.axes[0].role == "paired"
     assert tuple(field.slot_id for field in schema.axes[0].keys) == ("pair.key",)
-    expected_parts = (
-        ("label", "actual_start", "actual_end", "timezone")
-        if kind == "calendar"
-        else ("start", "end", "timezone")
-    )
+    expected_parts = ("start", "end")
     assert tuple(column.part for column in schema.layout if column.kind == "coordinate") == (
         *expected_parts,
         *expected_parts,
@@ -322,7 +318,7 @@ def test_public_pages_preserve_reordered_presence_and_values_across_pages(
                 columns=("right_present", "revenue"),
                 limit=2,
                 cursor=cursor,
-                axis_names={frame.axes[0]: "member"},
+                axis_names={frame.axes[0].token: "member"},
             )
             assert page.input_id == frame.schema.input_id
             assert page.total_count == 5 and page.limit == 2

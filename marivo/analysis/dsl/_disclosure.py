@@ -629,8 +629,9 @@ def provider() -> DisclosureProvider:
             (
                 P(
                     "axis_names",
-                    "Optional {current FrameAxis: name}; None keeps full names. Nonempty printable names; no surrounding whitespace.",
+                    "{full axis name or token: alias}; default short names. Aliases: nonempty, printable, trimmed.",
                 ),
+                P("time_details", "Add calendar label/nominal_start/nominal_end; default False."),
             ),
             "pandas.DataFrame",
             "Export complete fixed data as an isolated readable flat table.",
@@ -638,11 +639,11 @@ def provider() -> DisclosureProvider:
             ("frame",),
             "results.inspect",
             (
-                "Example needs frame['value']. compute/persist first. No Catalog/source/method reads.",
-                "Keep fixed for typed work; for another process, persist it and retain exact IDs before exit.",
-                "Flat axis/value/presence names; composite tuples. Calendar: label, .actual_start/.actual_end/.timezone; interval: .start/.end/.timezone; paired: .left/.right. UTC bounds; typed named labels.",
-                "Resolve collisions with axis_names={axis: 'name'} or select(). Preserve order, physical types and NA; boolean presence differs from NA/zero.",
-                "Isolated attrs: axes, units, comparisons, frozen_coordinates; no stable import or typed authority.",
+                "Example needs frame['value']; compute/persist first. No source reads.",
+                "Typed work needs the Frame; cross-process reuse needs persisted IDs.",
+                "Axes precede fields; composite keys stay tuples. Time: .start/.end in axis timezone; mixed intervals/sub-minute offsets use UTC. Pairs: .left/.right.",
+                "Resolve name collisions with axis_names or select(). Preserve order/types/NA; presence is independent.",
+                "Isolated attrs retain frozen metadata; no reimport authority.",
             ),
         ),
         (

@@ -142,7 +142,9 @@ def main() -> None:
         rows = artifact.to_pandas()
         assert {
             (None if key is None or key is pd.NA else key): value
-            for key, value in zip(rows[rows.attrs["axes"][0]["name"]], rows["total"], strict=True)
+            for key, value in zip(
+                rows[rows.attrs["axes"][0]["name"].rsplit(".", 1)[-1]], rows["total"], strict=True
+            )
         } == {None: 5, "A": 9007199254740993}
         print(session.id, artifact.artifact_id)
         return
@@ -163,7 +165,9 @@ def main() -> None:
         assert {
             (None if key is None or key is pd.NA else key): value
             for key, value in zip(
-                frame[frame.attrs["axes"][0]["name"]], frame["total"], strict=True
+                frame[frame.attrs["axes"][0]["name"].rsplit(".", 1)[-1]],
+                frame["total"],
+                strict=True,
             )
         } == {None: 5, "A": 9007199254740993}
         assert dict(frame.attrs["units"])["total"] == "CNY"

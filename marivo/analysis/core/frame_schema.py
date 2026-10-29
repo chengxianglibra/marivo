@@ -166,7 +166,14 @@ class CoordinateExportColumn:
     name: str
     axis_token: str
     endpoint: Literal["self", "left", "right"]
-    part: Literal["key", "label", "start", "end", "actual_start", "actual_end", "timezone"]
+    part: Literal[
+        "key",
+        "label",
+        "start",
+        "end",
+        "nominal_start",
+        "nominal_end",
+    ]
     kind: Literal["coordinate"] = field(default="coordinate", init=False)
 
     def __repr__(self) -> str:
@@ -216,26 +223,35 @@ def axis_export_layout(
     *,
     token: str | None = None,
     endpoint: Literal["self", "left", "right"] = "self",
+    time_details: bool = False,
 ) -> tuple[CoordinateExportColumn, ...]:
     token = axis.token if token is None else token
     if isinstance(axis, PairedDataAxis):
         return (
-            *axis_export_layout(axis.left, f"{name}.left", token=token, endpoint="left"),
-            *axis_export_layout(axis.right, f"{name}.right", token=token, endpoint="right"),
+            *axis_export_layout(
+                axis.left, f"{name}.left", token=token, endpoint="left", time_details=time_details
+            ),
+            *axis_export_layout(
+                axis.right,
+                f"{name}.right",
+                token=token,
+                endpoint="right",
+                time_details=time_details,
+            ),
         )
-    if isinstance(axis, CalendarDataAxis):
-        return (
-            CoordinateExportColumn(name, token, endpoint, "label"),
-            CoordinateExportColumn(f"{name}.actual_start", token, endpoint, "actual_start"),
-            CoordinateExportColumn(f"{name}.actual_end", token, endpoint, "actual_end"),
-            CoordinateExportColumn(f"{name}.timezone", token, endpoint, "timezone"),
-        )
-    if isinstance(axis, IntervalDataAxis):
-        return (
+    if isinstance(axis, (CalendarDataAxis, IntervalDataAxis)):
+        bounds = (
             CoordinateExportColumn(f"{name}.start", token, endpoint, "start"),
             CoordinateExportColumn(f"{name}.end", token, endpoint, "end"),
-            CoordinateExportColumn(f"{name}.timezone", token, endpoint, "timezone"),
         )
+        if isinstance(axis, CalendarDataAxis) and time_details:
+            return (
+                *bounds,
+                CoordinateExportColumn(f"{name}.label", token, endpoint, "label"),
+                CoordinateExportColumn(f"{name}.nominal_start", token, endpoint, "nominal_start"),
+                CoordinateExportColumn(f"{name}.nominal_end", token, endpoint, "nominal_end"),
+            )
+        return bounds
     return (CoordinateExportColumn(name, token, endpoint, "key"),)
 
 
@@ -245,16 +261,21 @@ def export_layout(
     columns: tuple[str, ...] | None = None,
     *,
     validate_names: bool = False,
+    time_details: bool = False,
     member: Literal["to_pandas", "read_page"] = "to_pandas",
 ) -> tuple[FrameExportColumn, ...]:
     """Derive the one export layout; logical schema permits default name collisions."""
     fields = selected_columns(schema, columns)
-    aliases = tuple(axis.name for axis in schema.axes) if axis_names is None else axis_names
+    aliases = (
+        tuple(axis.name.rsplit(".", 1)[-1] for axis in schema.axes)
+        if axis_names is None
+        else axis_names
+    )
     layout: tuple[FrameExportColumn, ...] = (
         *(
             column
             for axis, alias in zip(schema.axes, aliases, strict=True)
-            for column in axis_export_layout(axis, alias)
+            for column in axis_export_layout(axis, alias, time_details=time_details)
         ),
         *(FieldExportColumn(column.name, column.slot_id) for column in fields),
     )
@@ -263,7 +284,7 @@ def export_layout(
         reject(
             "unique flat export column names",
             repr(duplicates),
-            "Pass axis_names={axis: 'unique_name'} using this Frame's axes; "
+            "Pass axis_names={'full.axis.name': 'unique_name'} or use an axis token; "
             "rename conflicting values with select().",
             f"frame.{member}",
             canonical_id=f"analysis_frame.{member}",

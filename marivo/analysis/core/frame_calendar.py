@@ -241,7 +241,13 @@ def freeze_interval(
         interval_directory_schema,
     )
 
-    axis = IntervalDataAxis(token, (key,), FrozenIntervalData(f"interval.{token}"), name=name)
+    axis = IntervalDataAxis(
+        token,
+        (key,),
+        FrozenIntervalData(f"interval.{token}"),
+        timezone=coordinate.timezone,
+        name=name,
+    )
     start, end = (
         datetime.fromisoformat(value.astimezone(timezone.utc).isoformat())
         for value in (coordinate.start, coordinate.end)

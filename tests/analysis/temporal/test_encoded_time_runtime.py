@@ -26,7 +26,9 @@ def _member_frame(frame: pd.DataFrame) -> pd.DataFrame:
     for axis in frame.attrs["axes"]:
         if axis["role"] == "interval":
             continue
-        result["coord_0" if axis["role"] == "calendar" else "member"] = frame[axis["name"]]
+        result["coord_0" if axis["role"] == "calendar" else "member"] = frame[
+            axis["name"].rsplit(".", 1)[-1] + (".label" if axis["role"] == "calendar" else "")
+        ]
     return result
 
 
@@ -97,7 +99,7 @@ def test_observation_preserves_population_windows_and_query_count(
                 by=mv.product(case.session.time_scope(start=start, end=end), population),
             )
             .compute()
-            .to_pandas()
+            .to_pandas(time_details=True)
             .pipe(_member_frame)
             .sort_values("member")
             .reset_index(drop=True)
@@ -146,7 +148,7 @@ def test_observation_preserves_population_windows_and_query_count(
             by=mv.product(case.session.time_scope(start="2026-08-01", end="2026-09-01"), orders),
         )
         .compute()
-        .to_pandas()
+        .to_pandas(time_details=True)
     )
     assert len(direct) == 5
     assert direct["value"].ne(0).sum() == 3
@@ -178,11 +180,14 @@ def test_grid_window_has_scan_envelope_and_preserves_cells(
                 by=mv.product(grid, population),
             )
             .compute()
-            .to_pandas()
+            .to_pandas(time_details=True)
         )
         # Check producer order before the separate membership normalization oracle.
-        assert rows["calendar:month"].tolist() == ["2026-08-01"] * 4 + ["2026-09-01"] * 4
-        assert rows[rows.attrs["axes"][1]["name"]].tolist() == ["A", "B", "C", "D"] * 2
+        assert rows["calendar:month.label"].tolist() == ["2026-08-01"] * 4 + ["2026-09-01"] * 4
+        assert (
+            rows[rows.attrs["axes"][1]["name"].rsplit(".", 1)[-1]].tolist()
+            == ["A", "B", "C", "D"] * 2
+        )
         directory = rows.attrs["frozen_coordinates"][0]["rows"]
         assert [stamp.isoformat() for stamp in directory["nominal_start"]] == [
             "2026-08-01T00:00:00+00:00",
@@ -260,7 +265,7 @@ def test_cumulative_grid_and_endpoint_match_original_temporal_filter(
 
     def execute() -> pd.DataFrame:
         query = case.session.observe({"value": metric}, by=(grid,))
-        return query.compute().to_pandas()
+        return query.compute().to_pandas(time_details=True)
 
     optimized = execute()
     assert optimized["value"].tolist() == [1077, 1176]
@@ -273,7 +278,7 @@ def test_cumulative_grid_and_endpoint_match_original_temporal_filter(
             {"value": metric}, by=(case.session.time_scope(start="2026-09-30", end="2026-10-01"),)
         )
         .compute()
-        .to_pandas()
+        .to_pandas(time_details=True)
     )
     assert scalar["value"].tolist() == [1176]
 
@@ -294,7 +299,7 @@ def test_event_column_on_relationship_destination_keeps_its_own_range(
                 ),
             )
             .compute()
-            .to_pandas()
+            .to_pandas(time_details=True)
             .pipe(_member_frame)
             .sort_values("member")
             .reset_index(drop=True)
@@ -326,7 +331,7 @@ def test_outside_window_relationship_mismatch_preserves_observation_scope(
                 ),
             )
             .compute()
-            .to_pandas()
+            .to_pandas(time_details=True)
             .pipe(_member_frame)
             .sort_values("member")
             .reset_index(drop=True)
@@ -370,7 +375,7 @@ def test_encoded_and_parsed_time_wide_sums_preserve_values_and_run_ownership(
                 ),
             )
             .compute()
-            .to_pandas()
+            .to_pandas(time_details=True)
         )
 
     # Both inverse-filter paths retain native Ibis's int64 transport boundary.

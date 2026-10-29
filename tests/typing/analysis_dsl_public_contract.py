@@ -105,7 +105,7 @@ if TYPE_CHECKING:
         assert_type(artifact.show(), None)
         assert_type(session.persisted_frame(artifact.artifact_id).to_pandas(), DataFrame)
         fixed = session.persisted_frame(artifact.artifact_id)
-        assert_type(fixed.to_pandas(axis_names={fixed.axes[0]: "region"}), DataFrame)
+        assert_type(fixed.to_pandas(axis_names={fixed.axes[0].token: "region"}), DataFrame)
         assert_type(artifact.findings(limit=20, cursor=None), mv.FindingPage)
         digest = artifact.evidence(limit=100)
         assert_type(digest, mv.EvidencePage)

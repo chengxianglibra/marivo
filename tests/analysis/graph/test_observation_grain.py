@@ -61,7 +61,7 @@ def _query(
 
 def _keyed(frame: pd.DataFrame, name: str = "value") -> dict[tuple[object, ...], object]:
     coordinates = [
-        axis["name"] + ".actual_start" if axis["role"] == "calendar" else axis["name"]
+        axis["name"].rsplit(".", 1)[-1] + (".start" if axis["role"] == "calendar" else "")
         for axis in frame.attrs["axes"]
         if axis["role"] in ("calendar", "field", "identity")
     ]
@@ -412,7 +412,9 @@ def test_explicit_business_coverage_masks_exported_values(
     complete_until = datetime(2026, 9, 1, tzinfo=timezone.utc)
     # Caller business coverage is an explicit pandas policy; Query has no four-state override.
     calendar = frame.attrs["axes"][0]
-    covered = frame["value"].where(frame[calendar["name"] + ".actual_start"] < complete_until)
+    covered = frame["value"].where(
+        frame[calendar["name"].rsplit(".", 1)[-1] + ".start"] < complete_until
+    )
     assert covered.iloc[0] == 1000 and pd.isna(covered.iloc[1])
     assert not hasattr(saved, "rollup")
 

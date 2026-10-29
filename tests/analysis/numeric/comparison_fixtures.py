@@ -70,7 +70,7 @@ def comparison_queries(session: mv.Session) -> dict[Operation, mv.AnalysisFrame]
 def assert_comparison(result: mv.AnalysisFrame, operation: Operation) -> None:
     frame = result.to_pandas()
     identity = next(axis for axis in result.axes if axis.role == "identity")
-    values = dict(zip(frame[identity.name], frame["value"], strict=True))
+    values = dict(zip(frame[identity.name.rsplit(".", 1)[-1]], frame["value"], strict=True))
     assert isinstance(result._schema, DataSchema)
     assert [
         column.dtype

@@ -254,7 +254,7 @@ def test_unary_float_selection_preserves_infinite_scores_without_new_checks(
         query = source.where(score > 100) if operation == "filter" else source.top(2, by=score)
         trace = capture_source(monkeypatch)
         actual = query.compute().to_pandas()
-        assert actual[actual.attrs["axes"][0]["name"]].tolist() == (
+        assert actual[actual.attrs["axes"][0]["name"].rsplit(".", 1)[-1]].tolist() == (
             [("t4", 4)] if operation == "filter" else [("t4", 4), ("t5", 5)]
         )
         assert terminal_runs(session) == ()

@@ -183,12 +183,14 @@ class FrozenIntervalData:
 
 @dataclass(frozen=True, slots=True)
 class IntervalDataAxis(DataAxis):
-    """Saved interval keys whose exact bounds and zones belong to the directory."""
+    """Saved interval keys with exact directory bounds and a common export timezone."""
 
     frozen: FrozenIntervalData
+    timezone: str
 
     def __post_init__(self) -> None:
         DataAxis.__post_init__(self)
+        require_data_text(self.timezone, "data.interval.timezone")
         if type(self.frozen) is not FrozenIntervalData:
             reject(
                 "a frozen interval descriptor",

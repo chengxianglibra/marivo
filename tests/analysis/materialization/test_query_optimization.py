@@ -241,7 +241,7 @@ def test_complete_literal_input_remains_checked_before_projection(
     )
     assert actual[literal.stage_id] == ("key.0", "value.0", "value.1", "value.2")
     result = query.compute().to_pandas()
-    assert result.columns.equals(pd.Index(["sales.orders.region", "kept"]))
+    assert result.columns.equals(pd.Index(["region", "kept"]))
     assert result["kept"].tolist() == [10, 20, 30]
 
 

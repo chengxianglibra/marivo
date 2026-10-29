@@ -944,12 +944,13 @@ def test_comparison_map_covers_current_domain_without_inventing_missing_targets(
 def test_interval_comparison_retains_current_coordinate_and_consumed_endpoint_map() -> None:
     key = DataColumn("key.current", "scope", ScalarDataType("int64"), False)
     current = IntervalDataAxis(
-        "current", (key,), FrozenIntervalData("interval.current"), name="scope"
+        "current", (key,), FrozenIntervalData("interval.current"), timezone="UTC", name="scope"
     )
     baseline = IntervalDataAxis(
         "comparison.reference.baseline",
         (replace(key, slot_id="key.baseline"),),
         FrozenIntervalData("interval.baseline"),
+        timezone="UTC",
         name="scope",
     )
     binding = IntervalComparisonBinding(current.token, baseline, "comparison.reference.map")

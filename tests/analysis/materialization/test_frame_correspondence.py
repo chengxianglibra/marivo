@@ -823,7 +823,7 @@ def test_different_name_align_and_explicit_attainment(local: LocalFrameServices)
     ).compute()
     table = ratio.to_pandas()
     assert table["attainment"].tolist() == [4.0, 3.0]
-    assert table[table.attrs["axes"][0]["name"]].tolist() == ["B", "A"]
+    assert table[table.attrs["axes"][0]["name"].rsplit(".", 1)[-1]].tolist() == ["B", "A"]
 
 
 def test_empty_values_do_not_qualify_for_compare(local: LocalFrameServices) -> None:
@@ -1128,7 +1128,7 @@ def test_comparison_select_retains_only_direct_bindings_and_exact_presence(
     presence_only = selected.select({}).compute()
     table = presence_only.to_pandas()
     assert presence_only.output_names == ()
-    assert table[presence_only.axes[0].name].tolist() == ["A", "B"]
+    assert table[presence_only.axes[0].name.rsplit(".", 1)[-1]].tolist() == ["A", "B"]
     assert table["current.present"].tolist() == [True, False]
     assert table["reference.present"].tolist() == [False, True]
     assert presence_only._schema.comparisons[0].values == ()

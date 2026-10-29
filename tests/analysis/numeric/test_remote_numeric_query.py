@@ -262,7 +262,9 @@ def test_clickhouse_dst_fold_preserves_instants_and_half_open_boundaries(
         assert scalar["total"].tolist() == native.total.tolist()
         assert scalar["count"].tolist() == native["count"].tolist()
         fine = session.observe({"total": amount.sum()}, by=(scope, happened)).compute().to_pandas()
-        assert fine[fine.attrs["axes"][1]["name"]].tolist() == [point[1] for point in points[:-1]]
+        assert fine[fine.attrs["axes"][1]["name"].rsplit(".", 1)[-1]].tolist() == [
+            point[1] for point in points[:-1]
+        ]
         assert fine["total"].tolist() == [1, 10, 20]
         assert artifact.to_pandas().equals(
             session.persisted_frame(artifact.artifact_id).to_pandas()
@@ -291,13 +293,17 @@ def test_public_native_numeric_query(
         )
         artifact = query.persist()
         frame = artifact.to_pandas()
-        nonnull = frame.loc[frame[frame.attrs["axes"][0]["name"]].notna()]
+        nonnull = frame.loc[frame[frame.attrs["axes"][0]["name"].rsplit(".", 1)[-1]].notna()]
         assert nonnull["total"].tolist() == [Decimal("4.00")]
         assert nonnull["minimum"].tolist() == [Decimal("1.25")]
         assert nonnull["maximum"].tolist() == [Decimal("2.75")]
         assert nonnull["count"].tolist() == [2]
         assert len(frame) == 2
-        assert frame.loc[frame[frame.attrs["axes"][0]["name"]].isna(), "total"].isna().all()
+        assert (
+            frame.loc[frame[frame.attrs["axes"][0]["name"].rsplit(".", 1)[-1]].isna(), "total"]
+            .isna()
+            .all()
+        )
         assert frame.equals(session.persisted_frame(artifact.artifact_id).to_pandas())
         members = session.members(session.catalog.get("entity:sales.facts").value)
         direct_query = session.read(
@@ -847,7 +853,7 @@ def test_same_source_read_filter_population_consumer(
         expected = {"string": 1, "null": 103, "nul": 0}[selection]
         assert result["weight"].tolist() == [expected]
         if selection != "nul":
-            coordinate = result[result.attrs["axes"][0]["name"]]
+            coordinate = result[result.attrs["axes"][0]["name"].rsplit(".", 1)[-1]]
             assert coordinate.isna().all() if selection == "null" else coordinate.tolist() == ["e"]
         else:
             assert all(chr(0) not in statement for statement in statements)

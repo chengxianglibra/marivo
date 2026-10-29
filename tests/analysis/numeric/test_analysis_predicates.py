@@ -89,7 +89,7 @@ def test_public_multi_input_source_and_exported_pandas(
         drop=True
     )
     assert selected.equals(matched)
-    assert set(selected[selected.attrs["axes"][1]["name"]]) == expected
+    assert set(selected[selected.attrs["axes"][1]["name"].rsplit(".", 1)[-1]]) == expected
 
 
 @pytest.mark.release
@@ -115,7 +115,7 @@ def test_nullable_selection_keeps_positive_values_and_offline_export(
     assert frame["value"].isna().sum() == 1
     selected = values.where(~values["value"].is_null())
     positive = selected.where(selected["value"] > 0).persist()
-    assert positive.to_pandas()[positive.axes[1].name].tolist() == ["A", "B"]
+    assert positive.to_pandas()[positive.axes[1].name.rsplit(".", 1)[-1]].tolist() == ["A", "B"]
     assert positive.to_pandas()["value"].tolist() == [60, 120]
     assert values.where(values["value"] > 0).compute().to_pandas().equals(positive.to_pandas())
     offline = case.database_path.with_suffix(".offline")
@@ -177,7 +177,7 @@ def test_public_decimal_field_comparison(
         if member is not None and str(occurred).startswith("2026-08"):
             totals[member] = totals.get(member, 0) + amount
     matched = values.where(values["value"] == values["value"]).compute()
-    assert set(matched.to_pandas()[matched.axes[1].name]) == set(totals)
+    assert set(matched.to_pandas()[matched.axes[1].name.rsplit(".", 1)[-1]]) == set(totals)
     threshold = Decimal("0.00")
     saved = values.where(values["value"] > threshold).persist()
     frame = saved.to_pandas()

@@ -132,7 +132,12 @@ def test_drill_after_original_operations_prepares_related_fields(
         members = None
     result = session.observe({name: metric}, by=(channel, added), where=where).compute().to_pandas()
     actual = list(
-        zip(result.iloc[:, 0], result[result.attrs["axes"][1]["name"]], result[name], strict=True)
+        zip(
+            result.iloc[:, 0],
+            result[result.attrs["axes"][1]["name"].rsplit(".", 1)[-1]],
+            result[name],
+            strict=True,
+        )
     )
     if operation == "direct":
         expected = [

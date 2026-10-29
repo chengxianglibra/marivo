@@ -100,7 +100,10 @@ seller = ms.relationship(name='seller', from_entity=orders, to_entity=people, ke
         actual = {
             "coordinates": list(
                 fixed.to_pandas(
-                    axis_names={fixed.axes[0]: "buyer_region", fixed.axes[1]: "seller_region"}
+                    axis_names={
+                        fixed.axes[0].token: "buyer_region",
+                        fixed.axes[1].token: "seller_region",
+                    }
                 ).itertuples(index=False, name=None)
             )
         }

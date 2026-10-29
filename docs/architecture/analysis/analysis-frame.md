@@ -57,13 +57,13 @@ session_id 在所有载体上返回捕获的所属 Session ID；artifact_id 仅�
 
 `schema.layout` 仅由结构派生。字段变体携带 name/kind="field"/slot_id，坐标变体携带
 name/kind="coordinate"/axis_token/endpoint/part。endpoint 为 self/left/right；part 为
-key/label/start/end/actual_start/actual_end/timezone，组合由轴角色决定。复合身份只导出
+key/label/start/end/nominal_start/nominal_end，组合由轴角色决定。复合身份只导出
 一个 tuple；paired 左右坐标属于同一完整轴。默认布局允许重名，实际导出在载荷读取前
-检查唯一性；使用精确 FrameAxis 的 axis_names 或 select 修复。别名不修改 schema。
+检查唯一性；使用字符串 axis_names 或 select 修复。别名不修改 schema。
 
-`read_page(*, columns=None, limit=1000, cursor=None, axis_names=None)` 只读取已完成数据。
+`read_page(*, columns=None, limit=1000, cursor=None, axis_names=None, time_details=False)` 只读取已完成数据。
 columns 接受完整 value/presence 名，None 为全部，() 为仅坐标；重复或未知名在读载荷前
-拒绝并给出真实候选。始终保留所有轴完整键和可读坐标，所选字段按声明顺序排列；内部
+拒绝并给出真实候选。始终保留所有轴完整键和所选布局的可读坐标，所选字段按声明顺序排列；内部
 可读取必要 presence 辅助列。limit 是 1..10000 的整数，不接受 bool。派生表达式仍需
 显式 compute/persist；读取不执行分析、不创建 Run、不自动保存或访问来源/Catalog。
 
@@ -128,31 +128,27 @@ axis_origins = lineage.axes[frame.axes[0].token]
 `to_pandas()` 只接受完整内存或持久 Frame，返回隔离副本；表达式须先显式
 `compute()` 或 `persist()` 并使用返回对象。固定数据上的派生运算同样保持惰性。
 
-导出只有一种可读平面表布局，列名为普通字符串。坐标在前，随后是完整值名称与独立
-presence 名称；presence 为非空布尔值，与值 NA 和合法零分开。
+导出为可读平面表，坐标在前，随后是完整值名和独立布尔 presence 名。
+普通轴默认取完整路径的末段；复合身份保持 tuple。全体列名必须唯一，冲突在读取载荷前报错。
+`axis_names={"full.axis.name": "name"}` 通过完整轴名或唯一 token 设置别名；不接受 FrameAxis、
+短名模糊匹配或重复指向同一轴的别名。重名轴使用 schema 中的唯一 token。别名只改变输出名称。
 
-| 轴 | 列与单元格含义 |
-| --- | --- |
-| 普通字段或身份 | 完整轴名；复合身份保持完整键 tuple |
-| 日历 | 轴名对应可读标签，另有 `.actual_start`、`.actual_end`、`.timezone` |
-| 区间 | `.start`、`.end`、`.timezone` |
-| 配对时间 | 分别以 `.left`、`.right` 为前缀应用对应端点布局 |
+日历和区间统一导出 `.start`、`.end`，表示实际观察的半开区间 [start, end)。
+两列均为带时区的 Arrow 时间戳，保留精度与缺失，使用轴捕获的时区；日、小时、分钟无需分支解析。
+部分桶直接暴露实际裁剪边界。配对轴分别使用 `.left`、`.right` 前缀，缺失端点为 NA。
+`time_details=True` 为日历增加 `.label`、`.nominal_start`、`.nominal_end`；命名日历标签
+保留原有标量类型。时区由时间戳类型携带，不额外导出 timezone 列。
+导出读取不会修改冻结数据或普通值列的类型；时间标签不授予跨 Frame 身份或观察范围等价性。
 
-时间坐标按完整冻结键映射，保留当前行序；缺配对端点为 NA，不代表完整结果行缺侧。
-实际边界为精确 UTC 时间戳，时区取自冻结说明；内置标签保留 ISO 文本，命名日历标签
-解码为原有标量类型。标签不授予跨 Frame 身份或观察范围等价性。
+`read_page()` 使用相同 axis_names 和 time_details 规则；游标绑定详情选项，续读重复同一请求。
+`schema.layout` 描述默认布局，`page.layout` 描述该次实际布局。page.to_pandas() 不再读取数据。
+完整导出 attrs 保留隔离的 axes、units、comparisons、frozen_coordinates；分页导出 attrs 为空。
+这些 attrs 不承诺稳定反序列化协议，导出的表不授予 typed 运算权限。
+导出保留行序、物理数值、NULL 和合法零，返回隔离副本；show 的有界预览复用默认坐标解释。
 
-`axis_names={frame_axis: "name"}` 可显式命名当前精确 Frame 输入上的轴；名称须为非空、
-无首尾空白的可打印字符串。生成列名必须唯一，冲突须通过 axis_names 或 select 重命名，
-不覆盖或自动编号。别名仅改变导出列名，不改写捕获的轴元数据；值和 presence 名不变。
-
-`df.attrs["axes"]` 保留 `token/name/role/key_names/at` 与内部 descriptor；`units`、
-`comparisons`、`frozen_coordinates` 保留冻结说明。它们均为隔离静态副本，不承诺稳定
-反序列化协议。普通表格使用无需解析这些 attrs，原始存储键由内部数据合同拥有。
-
-导出保留物理数值、缺失和时间载体，不统一转 float 或填零。修改数据和 attrs 不影响
-Frame，不恢复语义定义或计算权限；后续 typed 运算继续使用 Frame。
-show 的有界预览复用相同坐标解释，重名表头附加角色/token 标识，不调用全量导出。
+区间轴描述捕获公共导出时区，分页不从当前页推断。混合时区的合并区间轴统一使用 UTC 时间戳；原始边界时区保留在冻结目录中。
+固定偏移含非零秒数时也使用 UTC，以适配 Arrow/pandas 的时区解码，保持精确时间点；秒数为零时规范化为分钟偏移。此规则同样适用于详情列、分页和预览。
+本次接口调整在持久化区间轴描述中新增必需的 `timezone` 字段；冻结目录的边界数据不变，旧区间描述格式不提供兼容读取或迁移。
 
 ## 值、轴与句柄
 

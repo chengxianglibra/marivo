@@ -118,8 +118,8 @@ def test_observe_calendar_preserves_bucket_types_boundaries_and_windows(
         grid = scope.by(mv.grain("day"))
         trace = capture_source(monkeypatch)
         frame = session.observe({"total": metric}, by=(grid,)).compute()
-        result = frame.to_pandas()
-        assert result["calendar:day"].tolist() == ["2026-01-01", "2026-01-02", "2026-01-03"]
+        result = frame.to_pandas(time_details=True)
+        assert result["calendar:day.label"].tolist() == ["2026-01-01", "2026-01-02", "2026-01-03"]
         assert result["total"].tolist() == [15, 0, 30]
         assert result.attrs["axes"][0]["descriptor"]["timezone"] == "UTC"
         assert len(result.attrs["frozen_coordinates"][0]["rows"]["nominal_start"]) == 3
@@ -157,14 +157,14 @@ def test_observe_calendar_preserves_bucket_types_boundaries_and_windows(
         assert [row[1] for row in native] == expected_buckets
         assert {row[2] for row in native} == {"Nullable(Int64)"}
 
-        report = frame.attribute(by=(category,)).compute().to_pandas()
-        assert report["calendar:day"].tolist() == ["2026-01-01", "2026-01-03"]
+        report = frame.attribute(by=(category,)).compute().to_pandas(time_details=True)
+        assert report["calendar:day.label"].tolist() == ["2026-01-01", "2026-01-03"]
         assert report["contribution.total"].tolist() == [15, 30]
         assert report["total.total"].tolist() == [15, 30]
 
         filtered = session.observe({"total": metric}, by=(scope,)).compute()
-        assert filtered.to_pandas()["total"].tolist() == [45]
-        report = filtered.attribute(by=(category,)).compute().to_pandas()
+        assert filtered.to_pandas(time_details=True)["total"].tolist() == [45]
+        report = filtered.attribute(by=(category,)).compute().to_pandas(time_details=True)
         assert report["contribution.total"].tolist() == [45]
         assert report["total.total"].tolist() == [45]
         window = (
@@ -173,9 +173,9 @@ def test_observe_calendar_preserves_bucket_types_boundaries_and_windows(
                 by=(grid,),
             )
             .compute()
-            .to_pandas()
+            .to_pandas(time_details=True)
         )
-        assert window["calendar:day"].tolist() == result["calendar:day"].tolist()
+        assert window["calendar:day.label"].tolist() == result["calendar:day.label"].tolist()
         assert window["total"].tolist() == [115, 15, 30]
 
         # Nonempty time selections must not introduce Bool constant operands:

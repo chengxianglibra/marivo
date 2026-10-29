@@ -114,7 +114,7 @@ def spending_amount():
     )
     assert terminal_runs(session) == ()
     frame = spending.compute().to_pandas()
-    assert frame.set_index("sales.customer")["value"].to_dict() == {"A": 100, "C": 300}
+    assert frame.set_index("customer")["value"].to_dict() == {"A": 100, "C": 300}
 
 
 @pytest.mark.release

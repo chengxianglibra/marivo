@@ -59,7 +59,7 @@ whole-row preview with exact omission counts. ``show(n=0)`` reads metadata only;
 ``max_output_bytes=None`` removes the byte limit while preserving the row limit.
 ``schema`` returns captured immutable fields, exact types, complete axis keys and
 export layout without Store or payload I/O. ``read_page(columns=None, limit=1000,
-cursor=None, axis_names=None)`` reads complete fixed data in ordered projected
+cursor=None, axis_names=None, time_details=False)`` reads complete fixed data in ordered projected
 pages, retaining complete coordinate keys. Limits are integers 1..10000, excluding
 bool. FramePage exposes input_id, layout, coordinates, limit, total_count,
 has_more, next_cursor and read_stats; its ``to_pandas()`` copies only this page
@@ -257,14 +257,27 @@ Stored ``compute()`` and evaluated derivatives consume both current data and
 method facts. Damaged method payloads can therefore leave metadata and export
 usable while full consumers fail. Cards show only count, bounded origins and a
 getter pointer. Calling a fact's ``show(n=0)`` follows the explicit payload read.
-Export returns one readable flat table with full value/presence names and axis
-names, preserving row order, nullable types and isolated frozen-interpretation
-attrs. Calendar labels include actual bounds and timezone; intervals expose
-start/end/timezone; paired time coordinates expose both endpoints. Composite
-identities remain tuples. ``axis_names={axis: "name"}`` names axes from the exact
-Frame and resolves column collisions; duplicate names are rejected before reads.
-Exported attrs cannot reenter computation. Bounded show previews use the same
-coordinate interpretation without a full export.
+Export returns a flat table with short axis names (final path components), full
+value/presence names, nullable types and isolated interpretation attrs. Calendar
+and interval axes expose actual half-open ``.start``/``.end`` timestamps in their
+captured timezone. ``time_details=True`` adds calendar ``.label``,
+``.nominal_start`` and ``.nominal_end``; named labels retain scalar types.
+Paired time axes use left/right prefixes. Composite identities remain tuples.
+``axis_names={"full.axis.name": "name"}`` accepts full names or unique axis tokens;
+FrameAxis keys are rejected. Duplicate output names fail before payload reads.
+Full and paged exports share these rules; cursors bind time_details as well.
+Compute/persist remains explicit. Exported attrs cannot reenter computation.
+Bounded previews use the same default coordinate interpretation.
+
+Merged interval axes with multiple boundary timezones use UTC timestamps.
+The common export timezone is captured in the interval descriptor, including for
+empty pages. Fixed offsets with nonzero seconds also export in UTC without
+changing instants; zero seconds normalize to minute offsets. This applies to
+detail columns, pages and previews. Original zones remain in frozen metadata.
+
+The interval descriptor now requires a ``timezone`` field. Frozen boundary data
+is unchanged; older interval descriptor formats have no compatibility reader or
+migration.
 
 Explicit source investigation and contribution
 ----------------------------------------------

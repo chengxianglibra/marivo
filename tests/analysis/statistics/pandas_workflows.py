@@ -24,13 +24,11 @@ def plain(result: mv.AnalysisFrame) -> pd.DataFrame:
     frame = result.to_pandas()
     names: dict[str, str] = {}
     for index, axis in enumerate(result.axes):
-        column = (
-            axis.name if axis.role in ("field", "identity", "calendar") else axis.name + ".start"
-        )
+        column = axis.name.rsplit(".", 1)[-1]
         if axis.role == "paired":
-            column = axis.name + ".left"
-            if column not in frame.columns:
-                column += ".start"
+            column += ".left.start"
+        elif axis.role not in ("field", "identity"):
+            column += ".start"
         names[column] = f"key_{index}"
     names.update((name, "presence." + name) for name in result.presence_names)
     return frame.rename(columns=names)

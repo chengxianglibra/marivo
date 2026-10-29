@@ -79,7 +79,10 @@ def test_period_alignment_native_carriers(
         ).compute()
         frame = result.to_pandas()
         assert len(frame) == 6
-        assert set(frame[frame.attrs["axes"][1]["name"]]) == {("a", 1, 1), ("b", 2, 1)}
+        assert set(frame[frame.attrs["axes"][1]["name"].rsplit(".", 1)[-1]]) == {
+            ("a", 1, 1),
+            ("b", 2, 1),
+        }
         assert isinstance(result._schema, DataSchema)
         assert result._schema.axes[0].columns[0].dtype == ScalarDataType("int64")
         assert frame["left_present"].sum() == 4

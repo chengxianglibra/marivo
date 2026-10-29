@@ -110,7 +110,9 @@ def test_native_numeric_field_filters_and_top_preserve_nulls(
         trace = capture_source(monkeypatch)
         for query, identities in queries:
             frame = query.compute().to_pandas()
-            assert [key[-1] for key in frame[frame.attrs["axes"][0]["name"]]] == identities
+            assert [
+                key[-1] for key in frame[frame.attrs["axes"][0]["name"].rsplit(".", 1)[-1]]
+            ] == identities
         assert trace.uploaded_key_rows == []
 
 
@@ -144,7 +146,7 @@ def test_source_numeric_aggregate_frame_selection_and_explicit_bridge(
         consumer = session.observe({"n": big.count()}, where=mv.in_population(keys))
         trace = capture_source(monkeypatch)
         frame = fixed.to_pandas()
-        assert frame[frame.attrs["axes"][0]["name"]].tolist() == ["C"]
+        assert frame[frame.attrs["axes"][0]["name"].rsplit(".", 1)[-1]].tolist() == ["C"]
         assert frame["value"].tolist() == [
             {"sum": 110, "min": 50, "max": 60, "mean": 55, "weighted_mean": 55}[method]
         ]
@@ -265,7 +267,7 @@ def test_native_decimal_field_filter_keeps_actual_source_comparison(
         )
         trace = capture_source(monkeypatch)
         frame = source.where(source["amount"] > Decimal("2.5")).compute().to_pandas()
-        assert frame[frame.attrs["axes"][0]["name"]].tolist() == [("t3", 3)]
+        assert frame[frame.attrs["axes"][0]["name"].rsplit(".", 1)[-1]].tolist() == [("t3", 3)]
         assert frame["amount"].tolist() == [Decimal("3.75")]
 
 

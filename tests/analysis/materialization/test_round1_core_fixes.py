@@ -90,13 +90,20 @@ def test_nullable_integer_axis_preserves_explicit_source_and_reduction(
     artifact = drilled.persist()
     actual = artifact.to_pandas()
     assert actual.equals(direct)
-    assert actual[actual.attrs["axes"][0]["name"]].tolist() == ["A", "A", "B"]
-    assert actual[actual.attrs["axes"][1]["name"]].dropna().tolist() == [9007199254740993, 2]
-    assert actual[actual.attrs["axes"][1]["name"]].isna().tolist() == [False, True, False]
+    assert actual[actual.attrs["axes"][0]["name"].rsplit(".", 1)[-1]].tolist() == ["A", "A", "B"]
+    assert actual[actual.attrs["axes"][1]["name"].rsplit(".", 1)[-1]].dropna().tolist() == [
+        9007199254740993,
+        2,
+    ]
+    assert actual[actual.attrs["axes"][1]["name"].rsplit(".", 1)[-1]].isna().tolist() == [
+        False,
+        True,
+        False,
+    ]
     assert actual["total"].tolist() == [70, 30, 60]
     if small_first is not None:
         assert actual["small"].tolist() == [10, 0, 0]
-    assert str(actual[actual.attrs["axes"][1]["name"]].dtype) == "int64[pyarrow]"
+    assert str(actual[actual.attrs["axes"][1]["name"].rsplit(".", 1)[-1]].dtype) == "int64[pyarrow]"
     rolled = core_session.observe(metrics, by=(region,)).compute().to_pandas()
     assert rolled["total"].tolist() == [100, 60]
     assert artifact.to_pandas().equals(

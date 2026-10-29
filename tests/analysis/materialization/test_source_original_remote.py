@@ -95,7 +95,10 @@ def test_mysql_original_drill_and_share(
         actual = [
             (None if pd.isna(category_key) else category_key, tenant_key, value)
             for category_key, tenant_key, value in zip(
-                frame.iloc[:, 0], frame[frame.attrs["axes"][1]["name"]], frame["value"], strict=True
+                frame.iloc[:, 0],
+                frame[frame.attrs["axes"][1]["name"].rsplit(".", 1)[-1]],
+                frame["value"],
+                strict=True,
             )
         ]
         assert sorted(actual, key=lambda row: row[1]) == [

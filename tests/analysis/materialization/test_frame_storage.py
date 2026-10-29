@@ -1208,9 +1208,9 @@ def test_named_calendar_snapshot_and_level_roundtrip(local: LocalFrameServices) 
             metadata(),
         ),
     )
-    assert fixed.to_pandas()["day"].tolist() == ["P3", "P2", "P1"]
+    assert fixed.to_pandas(time_details=True)["day.label"].tolist() == ["P3", "P2", "P1"]
     saved = fixed.persist()
-    assert saved.to_pandas()["day"].tolist() == ["P3", "P2", "P1"]
+    assert saved.to_pandas(time_details=True)["day.label"].tolist() == ["P3", "P2", "P1"]
     value = decode(encode(manifest(saved)), ArtifactManifest)
     saved_axis = value.data.schema.axes[0]
     assert isinstance(saved_axis, CalendarDataAxis) and saved_axis.frozen is not None
@@ -1237,7 +1237,7 @@ def test_named_calendar_snapshot_and_level_roundtrip(local: LocalFrameServices) 
             ),
             metadata(),
         ),
-    ).to_pandas()["day"]
+    ).to_pandas(time_details=True)["day.label"]
     assert mixed.tolist() == ["1", True, 1]
     assert [type(value) for value in mixed] == [str, bool, int]
 
@@ -2328,7 +2328,7 @@ def test_stored_interval_reads_and_matches_without_current_timezone_rules(
     assert directory["start"].tolist() == [datetime(2024, 1, 1, tzinfo=timezone.utc)]
     assert directory["end"].tolist() == [datetime(2024, 1, 4, tzinfo=timezone.utc)]
     first.show(n=1)
-    assert "Asia/Shanghai" in capsys.readouterr().out
+    assert "+08:00" in capsys.readouterr().out
     assert len(first.align(first).compute().to_pandas()) == 1
     paired = first.compare(
         {"base": mv.baseline(second, match=CalendarCorrespondence("ordinal"))}
@@ -2848,33 +2848,34 @@ def test_readable_calendar_projection_uses_sparse_keys_and_current_order(
     root = calendar(local, 3)
     fixed = root.top(2, by=root["amount"]).compute()
     for frame in (fixed, fixed.persist()):
-        rows = frame.to_pandas(axis_names={frame.axes[0]: "date"})
+        rows = frame.to_pandas(axis_names={frame.axes[0].token: "date"}, time_details=True)
         assert rows.columns.tolist() == [
-            "date",
-            "date.actual_start",
-            "date.actual_end",
-            "date.timezone",
+            "date.start",
+            "date.end",
+            "date.label",
+            "date.nominal_start",
+            "date.nominal_end",
             "amount",
         ]
-        assert rows["date"].tolist() == ["2024-01-01", "2024-01-02"]
+        assert rows["date.label"].tolist() == ["2024-01-01", "2024-01-02"]
         assert rows["amount"].tolist() == [2, 1]
-        assert rows["date.actual_start"].tolist() == [
+        assert rows["date.start"].tolist() == [
             datetime(2024, 1, day, tzinfo=timezone.utc) for day in (1, 2)
         ]
-        assert rows["date.actual_end"].tolist() == [
+        assert rows["date.end"].tolist() == [
             datetime(2024, 1, day, tzinfo=timezone.utc) for day in (2, 3)
         ]
-        assert str(rows["date.actual_start"].dtype) == "timestamp[us, tz=UTC][pyarrow]"
-        assert rows["date.timezone"].tolist() == ["UTC", "UTC"]
+        assert str(rows["date.start"].dtype) == "timestamp[us, tz=UTC][pyarrow]"
         frame.show(n=1)
         preview = capsys.readouterr().out.split("preview:", 1)[1]
         assert "2024-01-01" in preview and "900000" not in preview
-    empty = root.top(0, by=root["amount"]).compute().to_pandas()
+    empty = root.top(0, by=root["amount"]).compute().to_pandas(time_details=True)
     assert empty.empty and empty.columns.tolist() == [
-        "day",
-        "day.actual_start",
-        "day.actual_end",
-        "day.timezone",
+        "day.start",
+        "day.end",
+        "day.label",
+        "day.nominal_start",
+        "day.nominal_end",
         "amount",
     ]
 
@@ -2884,13 +2885,13 @@ def test_readable_paired_calendar_keeps_endpoint_mapping_separate_from_row_prese
 ) -> None:
     root = calendar(local, 3)
     paired = root.align(calendar(local, 2), match=CalendarCorrespondence("ordinal")).compute()
-    rows = paired.to_pandas()
-    assert rows["day.left"].tolist() == ["2024-01-03", "2024-01-02", "2024-01-01"]
-    assert rows["day.right"].tolist() == [pd.NA, "2024-01-02", "2024-01-01"]
-    assert rows["day.right.actual_start"].isna().tolist() == [True, False, False]
+    rows = paired.to_pandas(time_details=True)
+    assert rows["day.left.label"].tolist() == ["2024-01-03", "2024-01-02", "2024-01-01"]
+    assert rows["day.right.label"].tolist() == [pd.NA, "2024-01-02", "2024-01-01"]
+    assert rows["day.right.start"].isna().tolist() == [True, False, False]
     assert rows["left_present"].tolist() == [True, True, True]
     assert rows["right_present"].tolist() == [False, True, True]
-    pd.testing.assert_frame_equal(rows, paired.persist().compute().to_pandas())
+    pd.testing.assert_frame_equal(rows, paired.persist().compute().to_pandas(time_details=True))
 
 
 def test_readable_partial_calendar_retains_actual_bounds(local: LocalFrameServices) -> None:
@@ -2912,10 +2913,10 @@ def test_readable_partial_calendar_retains_actual_bounds(local: LocalFrameServic
             backing.metadata,
         ),
     )
-    rows = frame.to_pandas()
-    assert rows["day"].tolist() == ["2024-01-01"]
-    assert rows["day.actual_start"].tolist() == [actual]
-    assert rows["day.actual_end"].tolist() == [datetime(2024, 1, 2, tzinfo=timezone.utc)]
+    rows = frame.to_pandas(time_details=True)
+    assert rows["day.label"].tolist() == ["2024-01-01"]
+    assert rows["day.start"].tolist() == [actual]
+    assert rows["day.end"].tolist() == [datetime(2024, 1, 2, tzinfo=timezone.utc)]
 
 
 def test_data_pages_preserve_projection_order_coordinates_and_cold_continuation(
@@ -2923,7 +2924,9 @@ def test_data_pages_preserve_projection_order_coordinates_and_cold_continuation(
 ) -> None:
     memory = ordinary(local, 5)
     for frame in (memory, memory.persist()):
-        page = frame.read_page(columns=("amount",), limit=2, axis_names={frame.axes[0]: "member"})
+        page = frame.read_page(
+            columns=("amount",), limit=2, axis_names={frame.axes[0].token: "member"}
+        )
         assert page.input_id == frame.schema.input_id
         assert page.total_count == 5 and page.limit == 2 and len(page) == 2
         assert page.coordinates["key"] == (4, 3)
@@ -2951,11 +2954,11 @@ def test_data_pages_preserve_projection_order_coordinates_and_cold_continuation(
                 columns=("amount",),
                 limit=2,
                 cursor=page.next_cursor,
-                axis_names={frame.axes[0]: "member"},
+                axis_names={frame.axes[0].token: "member"},
             )
             chunks.append(page.to_pandas())
         combined = pd.concat(chunks, ignore_index=True)
-        expected = frame.to_pandas(axis_names={frame.axes[0]: "member"})
+        expected = frame.to_pandas(axis_names={frame.axes[0].token: "member"})
         expected.attrs = {}
         pd.testing.assert_frame_equal(combined, expected)
         assert len(page) == 1 and page.next_cursor is None
@@ -2982,7 +2985,7 @@ def test_data_page_request_mismatch_precedes_payload_reads(
         {"cursor": "not a cursor"},
         {"cursor": page.next_cursor, "limit": 2},
         {"cursor": page.next_cursor, "limit": 1, "columns": ()},
-        {"cursor": page.next_cursor, "limit": 1, "axis_names": {saved.axes[0]: "alias"}},
+        {"cursor": page.next_cursor, "limit": 1, "axis_names": {saved.axes[0].token: "alias"}},
     ):
         with pytest.raises(AnalysisError):
             saved.read_page(**kwargs)
@@ -3120,11 +3123,11 @@ def test_small_page_detaches_large_primary_and_scans_coordinates_in_fixed_batche
         ),
     )
     for frame in (sparse, sparse.persist()):
-        page = frame.read_page(limit=1)
+        page = frame.read_page(limit=1, time_details=True)
         assert page.total_count == 1 and page.read_stats.coordinate_rows_read == directory_count
         assert page.read_stats.data_rows_read == 1
         assert len(page) == 1 and len(page.coordinates["bucket"]) == 1
-        assert page.to_pandas()["day"].tolist() == [
+        assert page.to_pandas()["day.label"].tolist() == [
             (datetime(2024, 1, 1) + timedelta(days=directory_count - 1)).date().isoformat()
         ]
     # A new copy also owns page-sized Arrow storage, rather than a parent view.
@@ -3209,3 +3212,178 @@ print(json.dumps({"keys": page.coordinates["key"], "values": page.to_pandas()["a
     )
     assert result.returncode == 0, result.stdout + result.stderr
     assert json.loads(result.stdout) == {"keys": [2, 1], "values": [2, 3], "total": 5, "more": True}
+
+
+def test_calendar_export_unifies_grains_and_preserves_clipped_timezone_bounds() -> None:
+    from marivo._temporal import CalendarAxis, _BuiltinGrain
+    from marivo._temporal_grid import bind_grid
+    from marivo.analysis.core.frame_calendar import freeze_calendar
+    from marivo.analysis.dsl.temporal import exact_scope
+    from marivo.analysis.materialization.pandas_export import export_frame
+
+    for unit, count in (("day", 1), ("minute", 5)):
+        scope = exact_scope("2026-10-25T00:02:00", "2026-10-25T04:00:00", "Europe/Berlin")
+        grid = bind_grid(
+            scope, _BuiltinGrain(unit=unit, count=count), report_timezone="Europe/Berlin"
+        )
+        frozen = freeze_calendar(
+            CalendarAxis(scope, grid)._binding,
+            token="axis.0",
+            name="report.time",
+            key=DataColumn("bucket", "bucket", ScalarDataType("int64"), False),
+        )
+        schema = DataSchema((frozen.axis,), ())
+        keys = frozen.directory.rows.loc[:, ["bucket"]]
+        rows = export_frame(schema, keys, frozen.attachments)
+        assert rows.columns.tolist() == ["time.start", "time.end"]
+        assert str(rows["time.start"].dtype) == "timestamp[us, tz=Europe/Berlin][pyarrow]"
+        assert rows["time.start"].iloc[0].isoformat() == "2026-10-25T00:02:00+02:00"
+        assert rows["time.end"].iloc[-1].isoformat() == "2026-10-25T04:00:00+01:00"
+        details = export_frame(schema, keys, frozen.attachments, time_details=True)
+        assert details.columns.tolist() == [
+            "time.start",
+            "time.end",
+            "time.label",
+            "time.nominal_start",
+            "time.nominal_end",
+        ]
+        assert details["time.nominal_start"].iloc[0].isoformat() == "2026-10-25T00:00:00+02:00"
+        pd.testing.assert_frame_equal(rows, details.loc[:, rows.columns])
+        empty = export_frame(schema, keys.iloc[:0], frozen.attachments)
+        assert empty.empty and empty.dtypes.equals(rows.dtypes)
+
+
+def test_calendar_page_details_match_export_and_bind_cursor(local: LocalFrameServices) -> None:
+    from marivo.analysis.core.model import CoreRuleError
+
+    frame = calendar(local, 3)
+    for fixed in (frame, frame.persist()):
+        page = fixed.read_page(limit=1, time_details=True)
+        expected = fixed.to_pandas(time_details=True)
+        expected.attrs = {}
+        pd.testing.assert_frame_equal(page.to_pandas(), expected.iloc[:1].reset_index(drop=True))
+        assert [column.name for column in page.layout] == expected.columns.tolist()
+        with pytest.raises(CoreRuleError, match="cursor"):
+            fixed.read_page(limit=1, cursor=page.next_cursor, time_details=False)
+        chunks = [page.to_pandas()]
+        if isinstance(fixed._backing, StoredFrameBacking):
+            backing = local.open_frame(fixed.artifact_id)
+            fixed = AnalysisFrame._from_stored(
+                local,
+                backing.data,
+                artifact_id=backing.artifact_id,
+                metadata=backing.metadata,
+                method_facts=backing.method_facts,
+            )
+        while page.has_more:
+            page = fixed.read_page(limit=1, cursor=page.next_cursor, time_details=True)
+            chunks.append(page.to_pandas())
+        pd.testing.assert_frame_equal(pd.concat(chunks, ignore_index=True), expected)
+
+
+def test_merged_interval_export_uses_common_utc_carrier(local: LocalFrameServices) -> None:
+    first = interval(local, 1, 2, zone="Asia/Shanghai")
+    second = interval(local, 2, 3, zone="America/New_York")
+    fixed = first.align(second).compute()
+    for frame in (fixed, fixed.persist()):
+        rows = frame.to_pandas()
+        assert rows.columns.tolist()[:2] == ["interval.start", "interval.end"]
+        assert str(rows["interval.start"].dtype) == "timestamp[us, tz=UTC][pyarrow]"
+        assert rows["interval.start"].tolist() == [
+            datetime(2024, 1, day, tzinfo=timezone.utc) for day in (1, 2)
+        ]
+        first_page = frame.read_page(limit=1)
+        assert first_page.to_pandas()["interval.start"].dtype == rows["interval.start"].dtype
+        assert first_page.next_cursor is not None
+        second_page = frame.read_page(limit=1, cursor=first_page.next_cursor)
+        assert second_page.to_pandas()["interval.start"].dtype == rows["interval.start"].dtype
+        expected = rows.copy()
+        expected.attrs = {}
+        pd.testing.assert_frame_equal(
+            pd.concat([first_page.to_pandas(), second_page.to_pandas()], ignore_index=True),
+            expected,
+        )
+        assert second_page.next_cursor is None
+        assert rows.attrs["frozen_coordinates"][0]["rows"]["timezone"].tolist() == [
+            "Asia/Shanghai",
+            "America/New_York",
+        ]
+
+
+@pytest.mark.parametrize(
+    ("zone", "offset_seconds", "export_zone"),
+    (
+        ("UTC+08:00:30", 28830, "UTC"),
+        ("UTC-00:00:30", -30, "UTC"),
+        ("UTC+08:00:00", 28800, "+08:00"),
+        ("UTC-03:30:00", -12600, "-03:30"),
+    ),
+)
+def test_fixed_offset_exports_are_readable_and_keep_exact_instants(
+    local: LocalFrameServices,
+    capsys: pytest.CaptureFixture[str],
+    zone: str,
+    offset_seconds: int,
+    export_zone: str,
+) -> None:
+    from marivo._temporal import CalendarAxis, _BuiltinGrain
+    from marivo._temporal_grid import bind_grid
+    from marivo.analysis.core.frame_calendar import freeze_calendar
+    from marivo.analysis.dsl.temporal import exact_scope
+
+    scope = exact_scope("2024-01-01T00:02:00", "2024-01-03T00:00:00", zone)
+    grid = bind_grid(scope, _BuiltinGrain(unit="day", count=1), report_timezone=zone)
+    frozen = freeze_calendar(
+        CalendarAxis(scope, grid)._binding,
+        token="day",
+        name="day",
+        key=DataColumn("bucket", "bucket", ScalarDataType("int64"), False),
+    )
+    daily = AnalysisFrame._from_memory(
+        local,
+        CompletedFrameResult(
+            CompletedFrameData(
+                DataSchema((frozen.axis,), ()),
+                frozen.directory.rows.loc[:, ["bucket"]],
+                frozen.attachments,
+            ),
+            metadata(),
+        ),
+    )
+    boundary_zone = timezone(timedelta(seconds=offset_seconds))
+    for root, name, start, end in (
+        (
+            daily,
+            "day",
+            datetime(2024, 1, 1, 0, 2, tzinfo=boundary_zone),
+            datetime(2024, 1, 3, tzinfo=boundary_zone),
+        ),
+        (
+            interval(local, 1, 3, zone=zone),
+            "interval",
+            datetime(2024, 1, 1, tzinfo=timezone.utc),
+            datetime(2024, 1, 3, tzinfo=timezone.utc),
+        ),
+    ):
+        for frame in (root, root.persist()):
+            rows = frame.to_pandas(time_details=True)
+            assert rows[f"{name}.start"].dtype == pd.ArrowDtype(pa.timestamp("us", tz=export_zone))
+            assert rows[f"{name}.start"].tolist()[0] == start
+            assert rows[f"{name}.end"].iloc[-1] == end
+            assert rows.attrs["axes"][0]["descriptor"]["timezone"] == zone
+            if name == "day":
+                assert rows["day.nominal_start"].iloc[0] == datetime(
+                    2024, 1, 1, tzinfo=boundary_zone
+                )
+            chunks = []
+            cursor = None
+            while True:
+                page = frame.read_page(limit=1, cursor=cursor, time_details=True)
+                chunks.append(page.to_pandas())
+                cursor = page.next_cursor
+                if cursor is None:
+                    break
+            rows.attrs = {}
+            pd.testing.assert_frame_equal(pd.concat(chunks, ignore_index=True), rows)
+            frame.show(n=1)
+            assert rows[f"{name}.start"].iloc[0].isoformat(sep=" ") in capsys.readouterr().out

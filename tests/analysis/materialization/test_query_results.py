@@ -196,7 +196,7 @@ def test_explicit_source_reads_selected_fibers_and_original_mean(result_session:
     )
     frame = drilled.compute().to_pandas()
     assert frame.iloc[:, 0].tolist() == ["A", "A"]
-    assert frame[frame.attrs["axes"][1]["name"]].tolist() == ["Store", "Web"]
+    assert frame[frame.attrs["axes"][1]["name"].rsplit(".", 1)[-1]].tolist() == ["Store", "Web"]
     assert frame["mean"].tolist() == [30.0, 10.0]
     assert session.observe(
         {"mean": amount.mean()}, by=(region,), where=mv.in_population(chosen)
@@ -275,7 +275,7 @@ amount=ms.measure_column(name='amount',entity=orders,column='amount',additivity=
         {"total": amount.sum()}, by=(region, channel), where=mv.in_population(chosen)
     )
     frame = drilled.compute().to_pandas()
-    assert frame[frame.attrs["axes"][1]["name"]].tolist() == ["Store", "Web"]
+    assert frame[frame.attrs["axes"][1]["name"].rsplit(".", 1)[-1]].tolist() == ["Store", "Web"]
     assert frame["total"].tolist() == [30, 10]
     assert session.observe(
         {"total": amount.sum()}, where=mv.in_population(chosen)
@@ -1226,7 +1226,9 @@ def test_explicit_domains_keep_joint_keys_and_empty_unit(result_session: Session
         .compute()
         .to_pandas()
     )
-    assert list(zip(rows.iloc[:, 0], rows[rows.attrs["axes"][1]["name"]], strict=True)) == [
+    assert list(
+        zip(rows.iloc[:, 0], rows[rows.attrs["axes"][1]["name"].rsplit(".", 1)[-1]], strict=True)
+    ) == [
         ("A", "Web"),
         ("B", "Store"),
     ]

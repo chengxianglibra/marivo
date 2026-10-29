@@ -114,9 +114,11 @@ def test_native_temporal_mean_int64_identities_and_independent_cold_reads(
             {"sum": total, "rows": amount.count(time=time)}, by=mv.product(calendar, members)
         ).persist()
         source_frame, spatial_frame, represented_frame, samples_frame = (
-            saved.to_pandas() for saved in (source, spatial, represented, samples)
+            saved.to_pandas(time_details=True) for saved in (source, spatial, represented, samples)
         )
-        assert source_frame[source_frame.attrs["axes"][1]["name"]].tolist() == list(subject_keys)
+        assert source_frame[
+            source_frame.attrs["axes"][1]["name"].rsplit(".", 1)[-1]
+        ].tolist() == list(subject_keys)
         assert isinstance(source._backing, StoredFrameBacking)
         assert source._backing.data.schema.axes[1].columns[0].dtype == ScalarDataType("int64")
         assert source_frame["value"].tolist() == [18.0, 150.0]
@@ -125,9 +127,12 @@ def test_native_temporal_mean_int64_identities_and_independent_cold_reads(
         assert spatial_frame["value"].tolist() == [168.0]
         # A reduction over the two already completed values is mean([18,150])=84.
         assert represented_frame["value"].tolist() == [84.0]
-        assert samples_frame["calendar:day"].tolist() == ["2026-08-01"] * 2 + ["2026-08-02"] * 2
         assert (
-            samples_frame[samples_frame.attrs["axes"][1]["name"]].tolist() == list(subject_keys) * 2
+            samples_frame["calendar:day.label"].tolist() == ["2026-08-01"] * 2 + ["2026-08-02"] * 2
+        )
+        assert (
+            samples_frame[samples_frame.attrs["axes"][1]["name"].rsplit(".", 1)[-1]].tolist()
+            == list(subject_keys) * 2
         )
         assert samples_frame["sum"].tolist() == [15, 100, 21, 200]
         assert samples_frame["rows"].tolist() == [2, 1, 2, 1]
@@ -199,7 +204,7 @@ with patch.object(ms,'load',forbidden), patch.object(SemanticProject,'load',forb
     for name,output in outputs.items():
         selected=obj(output)
         saved=session.persisted_frame(selected['artifact'])
-        frame=saved.to_pandas()
+        frame=saved.to_pandas(time_details=True)
         assert snapshot(saved,frame=frame)==selected['snapshot']
         frames[name]=frame
     assert frames['subjects'].iloc[:,1].tolist()==state['subject_keys']

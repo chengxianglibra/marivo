@@ -69,9 +69,9 @@ def test_report_day_buckets_preserve_declared_read_time_authority(
         {"value": session.catalog.get("metric:sales.revenue").value}, by=(grid,)
     )
     assert terminal_runs(session) == ()
-    result = logical.compute().to_pandas()
+    result = logical.compute().to_pandas(time_details=True)
     assert result["value"].tolist() == [1.0, 2.0]
-    assert result["calendar:day"].tolist() == ["2026-07-01", "2026-07-02"]
+    assert result["calendar:day.label"].tolist() == ["2026-07-01", "2026-07-02"]
     assert terminal_runs(session) == ()
     assert [
         value.isoformat()

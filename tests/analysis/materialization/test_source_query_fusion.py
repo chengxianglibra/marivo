@@ -362,7 +362,7 @@ def test_source_population_set_terminal_preserves_native_layout(
     assert tuple(outputs[0].table.columns) == ("key.0",)
     assert outputs[0].layout is None
     assert outputs[0].key_groups == ()
-    assert rows.columns.equals(pd.Index([result.axes[0].name]))
+    assert rows.columns.equals(pd.Index([result.axes[0].name.rsplit(".", 1)[-1]]))
     assert str(rows.dtypes.iloc[0]) == "int64[pyarrow]"
     assert all(column.nullable for column in outputs[0].columns)
     assert len(request.numeric_checks) == 2
@@ -827,7 +827,7 @@ def test_population_set_terminal_uses_complete_frame_keys(
         rows.iloc[:, 0].tolist()
         == {"union": [2, 3, 1], "intersection": [3], "difference": [2]}[operation]
     )
-    assert rows.columns.equals(pd.Index(["sales.orders"]))
+    assert rows.columns.equals(pd.Index(["orders"]))
     assert str(rows.dtypes.iloc[0]) == "int64[pyarrow]"
     assert trace.native_sql == []
     assert trace.uploaded_key_rows == []

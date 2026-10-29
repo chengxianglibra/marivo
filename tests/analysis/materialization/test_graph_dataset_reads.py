@@ -219,7 +219,7 @@ def test_cold_projection_reads_once_without_source(
     artifact = _capture(case, "top")
     frame = artifact.to_pandas()
     identity = next(axis for axis in artifact.axes if axis.role == "identity")
-    assert frame[identity.name].tolist() == ["B", "A"]
+    assert frame[identity.name.rsplit(".", 1)[-1]].tolist() == ["B", "A"]
     assert frame["value"].tolist() == [120.0, 60.0]
     expected = frame.to_json(orient="split", date_format="iso")
     assert isinstance(artifact._backing, StoredFrameBacking)

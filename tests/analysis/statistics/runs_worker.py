@@ -25,18 +25,20 @@ def segments(frame: pd.DataFrame, threshold: float = 0) -> pd.DataFrame:
     """Find consecutive qualifying cells using the exported actual calendar bounds."""
     axes = frame.attrs["axes"]
     calendar = next(axis for axis in axes if axis["role"] == "calendar")
-    calendar_column = calendar["name"]
-    group_columns = [axis["name"] for axis in axes if axis["role"] in ("identity", "field")]
+    calendar_column = calendar["name"].rsplit(".", 1)[-1]
+    group_columns = [
+        axis["name"].rsplit(".", 1)[-1] for axis in axes if axis["role"] in ("identity", "field")
+    ]
     partitions = (
         frame.groupby(group_columns, dropna=False, sort=False) if group_columns else (((), frame),)
     )
     records: list[dict[str, object]] = []
     for group, values in partitions:
         active: dict[str, object] | None = None
-        for _, row in values.sort_values(calendar_column).iterrows():
+        for _, row in values.sort_values(calendar_column + ".start").iterrows():
             bound = {
-                "actual_start": row[calendar_column + ".actual_start"],
-                "actual_end": row[calendar_column + ".actual_end"],
+                "actual_start": row[calendar_column + ".start"],
+                "actual_end": row[calendar_column + ".end"],
             }
             value = row["value"]
             qualifies = not pd.isna(value) and value > threshold

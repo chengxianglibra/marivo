@@ -225,7 +225,7 @@ _FIELDS = {
     ),
     "DataAxis": ("token", "columns", "kind", "name", "at"),
     "CalendarDataAxis": ("token", "columns", "kind", "name", "at", "timezone", "frozen"),
-    "IntervalDataAxis": ("token", "columns", "kind", "name", "at", "frozen"),
+    "IntervalDataAxis": ("token", "columns", "kind", "name", "at", "frozen", "timezone"),
     "FrozenIntervalData": ("directory_name", "rule_version"),
     "BuiltinCalendarData": ("unit", "step"),
     "NamedCalendarData": ("identity", "snapshot_digest", "level"),

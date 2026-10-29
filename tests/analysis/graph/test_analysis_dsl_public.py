@@ -137,7 +137,7 @@ def test_public_singleton_same_entity_observation_allows_omitted_route(
     window = session.time_scope(start="2026-08-01", end="2026-09-01")
     grouped = session.observe({"value": metric}, by=(window, channel))
     frame = grouped.persist().to_pandas()
-    assert dict(zip(frame["sales.order.channel"], frame["value"], strict=True)) == {
+    assert dict(zip(frame["channel"], frame["value"], strict=True)) == {
         "web": 850,
         "mobile": 150,
     }
@@ -162,7 +162,7 @@ def test_public_grouped_foreign_entity_observation_infers_unique_route(
     )
     assert terminal_runs(session) == before
     frame = query.persist().to_pandas()
-    assert dict(zip(frame["sales.customer.region"], frame["value"], strict=True)) == {
+    assert dict(zip(frame["region"], frame["value"], strict=True)) == {
         "east": 600,
         "south": 400,
         "west": 0,

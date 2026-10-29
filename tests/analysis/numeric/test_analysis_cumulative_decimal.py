@@ -112,10 +112,12 @@ def _schema(frame: mv.AnalysisFrame) -> DataSchema:
 
 
 def _by_day(frame: mv.AnalysisFrame) -> dict[str, Decimal | float | int]:
-    rows = frame.to_pandas()
+    rows = frame.to_pandas(time_details=True)
     if isinstance(_schema(frame).values[0].dtype, DecimalDataType):
         assert all(isinstance(value, Decimal) for value in rows["value"])
-    return dict(zip(rows[frame.axes[0].name], rows["value"], strict=True))
+    return dict(
+        zip(rows[frame.axes[0].name.rsplit(".", 1)[-1] + ".label"], rows["value"], strict=True)
+    )
 
 
 def _observe(
