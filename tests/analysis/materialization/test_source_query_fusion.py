@@ -895,3 +895,25 @@ def test_public_frame_bridge_evidence_keeps_producer_and_consumer_scopes(
             assert "paid" in str(read["filters"])
     assert starts == {(9, 10), (10, 11)}
     assert len(terminal_runs(session)) == 1
+
+
+def test_native_sample_domain_keeps_returned_string_identity(
+    collated_source_query_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from unittest.mock import Mock
+
+    from marivo.analysis.methods import _sample_numeric
+
+    session = collated_source_query_session
+    amount = catalog_value(session.catalog, "sales.orders.amount", kind="field")
+    region = catalog_value(session.catalog, "sales.orders.region", kind="field")
+    samples = mv.coordinates(by=(region,), keys=(("a",), ("A",), ("é",), ("Z",), (None,)))
+    trace = capture_source(monkeypatch)
+    reducer = Mock(wraps=_sample_numeric.reduce_samples)
+    monkeypatch.setattr(_sample_numeric, "reduce_samples", reducer)
+    rows = session.observe({"average": amount.sum().per(samples).mean()}).compute().to_pandas()
+    # Native source grouping merges a/A into a sum of 2. Completing the five
+    # exact returned sample keys adds one absent zero: [2, 0, 1, 1, 1].
+    assert rows["average"].tolist() == [1.0]
+    assert trace.returned_rows == [1]
+    assert not reducer.call_args_list

@@ -2602,7 +2602,7 @@ def _expression_capabilities() -> tuple[AuthoringCapability, ...]:
             elif method == "mean":
                 summary += (
                     "Mean skips NULLs and returns NA without valid inputs; it retains the declared mean type. "
-                    "Native time-sample AVG has no local fallback."
+                    "Qualified sample folds execute natively without failure fallback."
                 )
             elif method == "weighted_mean":
                 summary += (

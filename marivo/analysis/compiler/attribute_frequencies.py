@@ -73,7 +73,6 @@ def frequency_read(stage: SourceRead) -> SourceRead:
         or node.reducer not in ("median", "quantile", "count_distinct")
         or reduction.duration is not None
         or reduction.sampled
-        or reduction.mean_fold is not None
     ):
         raise AnalysisStageUnavailableError(
             stage="attribute_state_binding",
@@ -118,7 +117,6 @@ def share_frequency_reads(plan: QueryPlan) -> QueryPlan:
             reduction.calendars,
             reduction.sampled,
             reduction.provider,
-            reduction.mean_fold,
         )
 
     for stage in plan.stages:

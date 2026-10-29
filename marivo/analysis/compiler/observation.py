@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from datetime import datetime
 
 import ibis
@@ -74,7 +74,6 @@ class ReductionInput:
     calendars: tuple[tuple[str, CalendarCoordinate | IntervalCoordinate], ...] = ()
     sampled: bool = False
     provider: str = "duckdb"
-    mean_fold: tuple[str, str, str] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -89,7 +88,6 @@ class FormulaInput:
     keys: tuple[str, ...] = ()
     key_groups: tuple[tuple[str, ...], ...] = ()
     presence: str | None = None
-    folded_mean: tuple[int, ...] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -217,9 +215,6 @@ def lower_observation(
     frequency: bool = False,
 ) -> tuple[ir.Table, tuple[tuple[str, NumericCheck], ...]]:
     """Emit grouped nullable values and ephemeral check columns in one read."""
-    if prepared.mean_fold is not None and prepared.mean_fold[2] == "mean":
-        # Mean consumes represented samples without scheduled-clock completion.
-        prepared = replace(prepared, preserve_sample_presence=False)
     window_slot: str | None = None
     if prepared.window_key is not None:
         window_slot = "__marivo_window_key"
@@ -362,24 +357,6 @@ def lower_observation(
             ),
         )
         checks.extend((f"predicate_check.{i}", check) for i, check in enumerate(predicate_checks))
-    if prepared.mean_fold:
-        from marivo.analysis.compiler.sampled_mean import compact_extrema, compact_mean
-
-        if prepared.mean_fold[2] == "mean":
-            result = compact_mean(prepared, result, tuple(name for name, _ in checks))
-        else:
-            result = compact_extrema(prepared, result, tuple(name for name, _ in checks))
-        if "sample_check.null" in result.columns:
-            checks.append(
-                (
-                    "sample_check.null",
-                    NumericCheck(
-                        result["sample_check.null"],
-                        "non-NA internal samples",
-                        f"{prepared.mean_fold[2]}(nulls='error')",
-                    ),
-                )
-            )
     return result, tuple(checks)
 
 

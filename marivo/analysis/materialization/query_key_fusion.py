@@ -203,18 +203,9 @@ def _checked_value(
 
 def _distinct(expression: ir.Table, provider: str) -> ir.Table:
     """Deduplicate returned string tuples independently of source collations."""
-    if not any(expression[name].type().is_string() for name in expression.columns):
-        return expression.distinct()
-    groups: dict[str, ir.Value] = {}
-    strings: dict[str, ir.Value] = {}
-    for index, name in enumerate(expression.columns):
-        value = expression[name]
-        if value.type().is_string():
-            groups[f"__query_distinct_{index}"] = _string_bytes(value, provider)
-            strings[name] = value.min()
-        else:
-            groups[name] = value
-    return expression.aggregate(**strings, by=groups).select(*expression.columns)
+    from marivo.analysis.compiler.source_predicates import distinct_returned_keys
+
+    return distinct_returned_keys(expression, provider)
 
 
 @dataclass(frozen=True, slots=True)
@@ -1025,6 +1016,7 @@ def native_query_relation(
                     formula,
                     relations,
                     stage.keys,
+                    provider=owner.provider.name,
                     alignment="domain"
                     if owner.provider.name in ("trino", "clickhouse")
                     else "outer",

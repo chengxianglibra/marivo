@@ -1095,7 +1095,15 @@ def test_decimal_quantile_probability_boundaries_samples_and_strict_nulls(
         {"p95": value.sum(time=time).per(time).quantile(0.95)},
         by=(session.time_scope(start="2026-01-01", end="2026-01-05"),),
     )
-    assert sampled.compute().to_pandas()["p95"].tolist() == [Decimal("85.15")]
+    # The completed Decimal samples use the native interpolation and cast, including
+    # backend rounding loss; the optimizer must not replace it with a local finisher.
+    with duckdb.connect(str(session.catalog.workspace_dir / "optimization.duckdb")) as connection:
+        expected = connection.execute(
+            "SELECT CAST(quantile_cont(sample, 0.95) AS DECIMAL(38,2)) "
+            "FROM (SELECT SUM(exact) AS sample FROM orders GROUP BY ordered_at)"
+        ).fetchone()
+    assert expected is not None
+    assert sampled.compute().to_pandas()["p95"].tolist() == [expected[0]]
     with duckdb.connect(str(session.catalog.workspace_dir / "optimization.duckdb")) as connection:
         connection.execute("UPDATE orders SET exact=NULL WHERE id=4")
     strict = session.observe({"p95": value.quantile(0.95, time=time, nulls="error")})

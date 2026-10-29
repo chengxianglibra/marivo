@@ -35,7 +35,6 @@ from marivo.analysis.core.time_authority import SourceTimeAuthority
 from marivo.analysis.methods.physical import QUERY_COMBINE_KERNEL
 
 if TYPE_CHECKING:
-    from marivo._definition.observations import ContributionBinding, ObservationBinding
     from marivo._definition.types import CalendarCoordinate, IntervalCoordinate
     from marivo.analysis.compiler.attribute_inputs import AttributeRootLayout
     from marivo.analysis.compiler.native_query import NativeQueryFinish
@@ -88,59 +87,6 @@ class SourceSchema:
             "Prepare every field read by this contribution before planning.",
             "analysis.query_plan.source_schema",
         )
-
-
-def qualified_mean_fold(
-    contribution: ContributionBinding,
-    schema: SourceSchema,
-    observation: ObservationBinding | None,
-    candidate: tuple[tuple[int, ...], str, str] | None,
-    calendar: CalendarCoordinate | IntervalCoordinate | None,
-    *,
-    has_inputs: bool = False,
-) -> tuple[str, str, str] | None:
-    """Qualify one completed mean fold before coverage or source lowering."""
-    import ibis
-
-    from marivo._definition.expressions import SourceAggregate
-    from marivo._definition.types import field_read_key
-    from marivo.analysis.compiler.observation import duration_type, reduction_input
-    from marivo.analysis.core.value_types import ibis_type
-    from marivo.semantic._numeric_lowering import lower_row
-
-    reduction = reduction_input(contribution, "", calendar)
-    if (
-        candidate is None
-        or schema.provider not in {"duckdb", "postgres", "mysql", "trino", "clickhouse"}
-        or duration_type(
-            contribution.definition, {item.field: item.dtype for item in schema.fields}
-        )
-        is not None
-        or reduction.window_key is not None
-        or contribution.window_rule is not None
-        or observation is None
-        or observation.coordinates.population is not None
-        or observation.coordinates.parent_scope is not None
-        or not isinstance(contribution.definition, SourceAggregate)
-        or len(contribution.sample_axes) != 1
-        or len(reduction.axes) != contribution.output_axis_count + 1
-        or schema.parameters
-        or has_inputs
-        or schema.preparation_checks
-    ):
-        return None
-    sample_key, sample_path = reduction.axes[-1]
-    if sample_path != reduction.time_column:
-        return None
-    table = ibis.table({item.column: ibis_type(item.dtype) for item in schema.fields})
-    fields = {
-        field_read_key(read): table[schema.field(field_read_key(read)).column]
-        for read in contribution.reads
-    }
-    operand_type = lower_row(contribution.definition.operand, fields).value.type()
-    if not (operand_type.is_numeric() if candidate[2] == "mean" else operand_type.is_float64()):
-        return None
-    return sample_key, candidate[1], candidate[2]
 
 
 @dataclass(frozen=True, slots=True)
@@ -738,9 +684,6 @@ def _plan_query(
         else ()
     )
     calendar_key = "key.0"
-    from marivo.analysis.compiler.sampled_mean import mean_occurrences
-
-    mean_folds = mean_occurrences(graph.root.metrics, dict(graph.signature.declared_metrics))
     source_stages = tuple(stage for stage in base.stages if isinstance(stage, SourceRead))
     for stage, contribution in zip(source_stages, contributions, strict=True):
         reduction = reduction_input(contribution, f"{stage.stage_id}/value", calendar)
@@ -763,21 +706,6 @@ def _plan_query(
             ),
         )
         table = ibis.table({item.column: ibis_type(item.dtype) for item in schema.fields})
-        folded_mean = mean_folds.get(contribution.logical_occurrence or contribution.occurrence)
-        qualified = qualified_mean_fold(
-            contribution,
-            schema,
-            observation,
-            folded_mean,
-            calendar,
-            has_inputs=bool(stage.inputs or stage.parameters),
-        )
-        if qualified is not None:
-            reduction = replace(reduction, mean_fold=qualified)
-            if qualified[2] == "mean":
-                reduction = replace(reduction, preserve_sample_presence=False)
-        if reduction.mean_fold is None:
-            folded_mean = None
         expression, numeric_checks = lower_observation(
             reduction, table, dict(stage.field_columns), stage.predicates
         )
@@ -861,7 +789,7 @@ def _plan_query(
                     *(
                         DataColumn(name, name, ScalarDataType("boolean"), False)
                         for name in expression.columns
-                        if name.startswith("__sample_scope_") or name == "__mean_folded"
+                        if name.startswith("__sample_scope_")
                     ),
                 ),
                 keys=tuple(c.slot_id for c in stage_keys),
@@ -899,7 +827,6 @@ def _plan_query(
                 tuple((name, check.expected, check.received) for name, check in numeric_checks),
                 keys=tuple(c.slot_id for c in stage_keys),
                 key_groups=tuple(key_groups),
-                folded_mean=folded_mean[0] if folded_mean is not None else None,
             )
         )
     population_inputs: list[PopulationInput] = []

@@ -114,7 +114,6 @@ def _support(stage: QueryStage) -> set[str]:
                     "predicate_check.",
                     "__numeric_present",
                     "__sample_present",
-                    "__mean_folded",
                     "__sample_scope_",
                 )
             )
@@ -394,7 +393,7 @@ def _source_merge_issue(stage: SourceRead) -> str | None:
             "Window contributions retain their own period and grid.",
         ),
         (
-            bool(reduction.sampled or reduction.preserve_sample_presence or reduction.mean_fold),
+            bool(reduction.sampled or reduction.preserve_sample_presence),
             "Sample presence retains its own domain.",
         ),
         (reduction.duration is not None, "Duration reductions retain their exact tick completion."),
@@ -804,10 +803,7 @@ def retain_components(plan: QueryPlan, schemas: tuple[SourceSchema, ...]) -> Que
             for index, column in enumerate(schema.original_identity or schema.keys)
         )
         # Original-contribution consumers require every completed sample.
-        reduction = replace(require_reduction(stage), mean_fold=None)
-        stage = replace(
-            stage, columns=tuple(c for c in stage.columns if c.slot_id != "__mean_folded")
-        )
+        reduction = require_reduction(stage)
         layout = component_layout(
             reduction, stage.columns, identity, table, dict(stage.field_columns)
         )

@@ -141,7 +141,7 @@ def test_postgres_nullable_numeric_fields_keep_pandas_conversion_boundary(
     assert trace.uploaded_key_rows == []
 
 
-def test_postgres_large_nullable_integer_predicate_keeps_existing_conversion(
+def test_postgres_large_nullable_integer_predicate_preserves_actual_reader_values(
     postgres_query_session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     session = postgres_query_session
@@ -151,7 +151,10 @@ def test_postgres_large_nullable_integer_predicate_keeps_existing_conversion(
     )
     query = source.where(source["big"] > 2**53)
     optimized = query.compute().to_pandas()
-    assert optimized.empty
+    # The native Arrow reader retains nullable BIGINT exactly. Integer predicates
+    # must consume that actual carrier, rather than assume retired pandas rounding.
+    assert optimized["big"].tolist() == [2**53 + 1]
+    assert [key[-1] for key in optimized.iloc[:, 0]] == [1]
     trace = capture_source(monkeypatch)
-    assert query.compute().to_pandas().empty
+    assert query.compute().to_pandas()["big"].tolist() == [2**53 + 1]
     assert trace.uploaded_key_rows == []

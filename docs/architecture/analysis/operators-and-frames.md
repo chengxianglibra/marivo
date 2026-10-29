@@ -201,30 +201,30 @@ sample. It must not substitute an unordered backend first/last. include_null and
 strict sample policy remain attached to the original occurrence. Window overlap,
 per-sample keys and ordered sampling checks survive any legal optimization.
 
-Qualified direct min/max of Float64 time-sample means completes each child mean
-before the outer source aggregate on DuckDB, PostgreSQL, MySQL, Trino and
-ClickHouse. Strict outer NULL checks remain attached to their original domains;
-only bounded output summaries cross the boundary. Missing clocks are allowed,
-including when sample_interval declares a cadence. This does not admit arbitrary
-nested samples, Decimal/Duration or
-ordered first/last to the same optimization.
+Qualified numeric internal samples execute as nested native relations on DuckDB,
+PostgreSQL, MySQL, Trino and ClickHouse. Each layer completes its child Metric at
+its full external/internal key grain, including Metric arithmetic, before applying
+the outer reducer. SUM followed by sample AVG or quantile therefore retains the
+SUM sample boundary. Compatible summaries share one actual aggregate; multiple
+exact quantiles can share one native multi-quantile state. Only completed output
+values and required checks cross the source boundary.
 
-Qualified direct mean of numeric time-sample means also executes on those five
-providers. It computes each timestamp's source AVG, then an equal-weight outer
-AVG over those completed means. Both layers skip NULLs, return NA without valid
-inputs and enforce their captured strict assertions. Native AVG algorithms and
-overflow remain backend-owned. This route has no scheduled-clock coverage check, numeric safety
-windows, sample ranking or local fallback. Missing clocks do not become samples;
-off-grid represented timestamps remain samples. Integer and floating AVG has a
-declared Float64 output; Decimal AVG retains its declared precision and scale.
-Explicit result casts enforce these carriers after native AVG arithmetic.
-Duration, windows,
-explicit sample populations and unsupported nested or conditional formulas retain
-their existing qualified routes, including explicit local sample reduction where
-applicable. Every time-sample mean/weighted_mean uses represented samples without
-implicit scheduled-clock completion or coverage requirements. The policy belongs
-to each logical sample layer, not the optimizer. Explicit Population domains,
-NULL/weight policies and stricter nested reducers remain authoritative.
+Implicit field/TimeField samples retain their observed joint keys. Explicit
+Population domains and calendar Grain grids complete child values with their
+existing absence rules at each nested layer. Output calendar completion does not
+cross every bucket with every observed timestamp. Captured timezone, clipped
+bounds, memberships, NULL/weight assertions and unique first/last ordering retain
+their original owners. Native AVG, Decimal interpolation, casts, rounding loss and
+overflow follow the selected backend; no bitwise equivalence with local kernels
+is promised and execution failures do not retry locally.
+
+Qualification uses the completed child carrier and the existing native algorithm
+policy. Exact outer quantiles remain local on MySQL/Trino and for unsupported
+ClickHouse Decimal inputs. Duration retains its exact tick finisher. Cross-owner
+formulas, typed empty/local inputs and unqualified independent domains retain
+their existing local boundaries; qualified subtrees may still execute natively.
+Original-contribution consumers retain their demanded fine inputs. Completed or
+reopened Frames never enter this source rewrite or replay their producers.
 
 ## Current cells, original Metrics and windows
 

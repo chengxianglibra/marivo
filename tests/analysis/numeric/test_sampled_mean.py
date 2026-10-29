@@ -11,14 +11,15 @@ from unittest.mock import Mock
 
 import ibis
 import ibis.expr.operations as ops
+import ibis.expr.types as ir
 import pandas as pd
 import pytest
 
 import marivo.analysis as mv
-from marivo.analysis.compiler import sampled_mean
+from marivo.analysis.materialization import sample_fusion
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.session.core import Session
-from marivo.datasource.adapters import CompiledRead, SourceSession
+from marivo.datasource.adapters import SourceSession
 from marivo.datasource.ir import TableSourceIR
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.numeric.test_remote_numeric_query import _datasource_model
@@ -58,7 +59,6 @@ def test_sample_folds_compile_native_aggregates_without_clock_completion(
         "value",
         provider=backend,
         preserve_sample_presence=True,
-        mean_fold=("key.1", "error", reducer),
     )
     relation, checks = lower_observation(
         prepared,
@@ -70,17 +70,42 @@ def test_sample_folds_compile_native_aggregates_without_clock_completion(
         },
         (),
     )
-    sql = ibis.to_sql(relation, dialect=backend).lower()
+    from marivo._definition.expressions import PerReduce
+    from marivo._definition.types import AxisBinding
+    from marivo.analysis.compiler.observation import FormulaInput, FormulaProgram
+    from marivo.analysis.compiler.sample_reductions import SampleLowerer
+    from marivo.analysis.core.data_types import DataColumn, ScalarDataType
+
+    sample = AxisBinding(field.root, field.ref, (), "field")
+    node = PerReduce(prepared.node, (sample,), reducer, nulls="error")
+    binding = FormulaInput(
+        (0, 0),
+        "source",
+        DataColumn("value", "value", ScalarDataType("float64"), True),
+        False,
+        keys=("key.0", "key.1"),
+        key_groups=(("key.0",), ("key.1",)),
+    )
+
+    def unavailable(*args: object) -> ir.Table:
+        raise AssertionError("implicit samples must not synthesize a grid")
+
+    result = SampleLowerer(
+        FormulaProgram((("v", node),), (), (binding,)),
+        {"source": relation},
+        ("key.0",),
+        backend,
+        unavailable,
+        unavailable,
+    ).lower(node, (0,), ("key.0",))
+    sql = ibis.to_sql(result.table, dialect=backend).lower()
     assert "avg(" in sql
     assert f"{'avg' if reducer == 'mean' else reducer}(" in sql
-    assert "distinct" not in sql
     assert "row_number" not in sql
     assert "__coverage_" not in sql
-    assert "sample_check.null" in relation.columns
-    assert {name for name, _ in checks} == {"sample_check.null"}
-    assert relation["key.1"].type().nullable
-    if backend == "clickhouse":
-        assert "cast(null as datetime64" not in sql
+    assert len(result.checks) == 1
+    assert result.checks[0][1] == "non-NA internal samples"
+    assert "key.1" not in result.table.columns
 
 
 @contextmanager
@@ -99,6 +124,7 @@ def mean_session(
     alternate_clock: bool = False,
     nullable_amount: bool = True,
     sample_points: tuple[str, ...] | None = None,
+    sample_groups: int = 1,
 ) -> Iterator[tuple[Session, Case]]:
     times: tuple[str, ...] = ("00:00:00", "00:30:00", "00:30:00", "00:30:00", "01:00:00")
     if sample_count is not None:
@@ -110,15 +136,16 @@ def mean_session(
     timestamps = sample_points or tuple("2026-10-01 " + point for point in times)
     rows: list[dict[str, object]] = [
         {
-            "id": i,
+            "id": group * len(values) + i,
             "point": datetime.fromisoformat(timestamps[i]).replace(tzinfo=timezone.utc)
             if aware
             else timestamps[i],
-            "category": "A",
+            "category": chr(65 + group),
             "amount": Decimal(str(value))
             if amount_type == "DECIMAL(18,2)" and value is not None
             else value,
         }
+        for group in range(sample_groups)
         for i, value in enumerate(values)
     ]
     literals = [
@@ -136,7 +163,11 @@ def mean_session(
     )
     data = SourceData(
         f"id BIGINT, point {point_type}, category VARCHAR(8), amount {physical_amount}",
-        ",".join(f"({i},{points[i]},'A',{literal})" for i, literal in enumerate(literals)),
+        ",".join(
+            f"({group * len(values) + i},{points[i]},'{chr(65 + group)}',{literal})"
+            for group in range(sample_groups)
+            for i, literal in enumerate(literals)
+        ),
         "id Int64, point "
         + ("DateTime64(6, 'UTC')" if aware else "String")
         + ", category String, amount "
@@ -230,7 +261,7 @@ def test_exact_quantiles_with_cadence_finish_before_sample_mean(
             if amount_type != "DOUBLE":
                 assert isinstance(actual[0], Decimal) and actual[0].as_tuple().exponent == -2
         assert all("__quantile_count" not in columns for columns in trace.returned_columns)
-        assert trace.returned_rows == [3, 3]
+        assert trace.returned_rows == [1, 1]
         for metric in (
             amount.quantile(0.95, time=point, nulls="error").per(point).mean(),
             median.per(point).mean(nulls="error"),
@@ -286,7 +317,6 @@ def test_native_mean_preserves_sample_weighting_and_fixed_result(
         result = session.observe({"v": metric}, by=(scope, category)).compute()
         assert result.to_pandas()["v"].tolist() == pytest.approx([100 / 3])
         assert trace.returned_rows == [1]
-        assert "__mean_folded" in trace.returned_columns[0]
         mixed = session.observe(
             {
                 "v": amount.mean(time=point).where(amount >= 0).per(point).mean(),
@@ -297,7 +327,9 @@ def test_native_mean_preserves_sample_weighting_and_fixed_result(
         assert mixed.to_pandas()["v"].tolist() == pytest.approx([100 / 3])
         assert trace.returned_rows[-2:] == [1, 1]
         with monkeypatch.context() as legacy:
-            legacy.setattr(sampled_mean, "mean_occurrences", lambda *args: {})
+            legacy.setattr(
+                sample_fusion, "fuse_sample_reductions", lambda prepared, lowered: lowered
+            )
             old = session.observe({"v": metric}, by=(scope, category)).compute().to_pandas()
         assert old["v"].tolist() == pytest.approx([100 / 3])
         assert trace.returned_rows[-1] == 3
@@ -348,7 +380,6 @@ def test_native_mean_keeps_backend_null_and_large_value_results(
         value = query.compute().to_pandas()["v"].iloc[0]
         assert pd.isna(value) if expected is None else value == pytest.approx(expected)
         assert trace.returned_rows == [1]
-        assert "__mean_folded" in trace.returned_columns[0]
         assert not trace.uploaded_key_rows
 
 
@@ -438,7 +469,7 @@ def test_native_mean_uses_backend_large_value_arithmetic_without_local_retry(
             assert failure is None
             assert actual is not None
             index = next(
-                i for i, name in enumerate(trace.returned_columns[0]) if name.endswith("/value")
+                i for i, name in enumerate(trace.returned_columns[0]) if name.startswith("sample:")
             )
             expected = native[0][index]
             value = actual["v"].iloc[0]
@@ -449,7 +480,6 @@ def test_native_mean_uses_backend_large_value_arithmetic_without_local_retry(
             else:
                 assert value == expected
             assert trace.returned_rows == [1]
-            assert "__mean_folded" in trace.returned_columns[0]
         assert not trace.uploaded_key_rows
         assert len(trace.native_sql) == 1
         assert "__mean_safe" not in trace.native_sql[0]
@@ -518,7 +548,6 @@ def test_native_mean_finishes_integer_and_decimal_samples_in_one_row(
         else:
             assert rows["v"].tolist() == pytest.approx(expected)
         assert trace.returned_rows == [1, 1]
-        assert "__mean_folded" in trace.returned_columns[-1]
         assert not trace.uploaded_key_rows
         assert "ROW_NUMBER" not in trace.native_sql[0]
         assert "__coverage_" not in trace.native_sql[0]
@@ -572,7 +601,6 @@ def test_native_extrema_reduce_sparse_completed_means_with_null_checks(
         missing = session.time_scope(start="2026-10-01", end="2026-10-01T03:00:00")
         rows = session.observe({"v": metric}, by=(missing, category)).compute().to_pandas()
         assert rows["v"].tolist() == [expected]
-        assert all("__mean_folded" in columns for columns in trace.returned_columns)
         assert trace.returned_rows == [1, 1]
 
 
@@ -798,7 +826,7 @@ def test_native_sample_extrema_return_final_rows_at_scale(
         rows = result.to_pandas()
         assert rows["min"].tolist() == [0.0]
         assert rows["max"].tolist() == [10.0]
-        assert trace.returned_rows == [1, 1]
+        assert trace.returned_rows == [1]
         assert not trace.uploaded_key_rows
         trace.save(
             f"samples-extrema-{sample_count}",
@@ -852,7 +880,9 @@ def test_trino_four_day_mean_transport_and_cost(
             scope = session.time_scope(start="2026-10-01", end=f"2026-10-{1 + days:02}")
             with monkeypatch.context() as config:
                 if route == "legacy":
-                    config.setattr(sampled_mean, "mean_occurrences", lambda *args: {})
+                    config.setattr(
+                        sample_fusion, "fuse_sample_reductions", lambda prepared, lowered: lowered
+                    )
                 started = perf_counter()
                 frame = session.observe({"v": metric}, by=(scope,)).compute()
                 rows = frame.to_pandas()
@@ -915,15 +945,6 @@ def test_native_mean_checks_nulls_without_requiring_clock_coverage(
         semantic_project_factory,
         values=(0, None, None, None, 0),
     ) as (session, _):
-        original = SourceSession.execute
-
-        def checked(owner: SourceSession, read: CompiledRead) -> pd.DataFrame:
-            result = original(owner, read)
-            if "__mean_folded" in result:
-                assert result["__mean_folded"].all()
-            return result
-
-        monkeypatch.setattr(SourceSession, "execute", checked)
         trace = capture_source(monkeypatch)
         point = catalog_value(session.catalog, "sales.facts.point", kind="field")
         amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
@@ -1105,7 +1126,6 @@ def test_local_sample_mean_uses_observed_samples_for_excluded_native_shapes(
             [0.0, 100.0, 100.0, 100.0] if excluded == "population" else [50.0]
         )
         assert trace.returned_rows
-        assert all("__mean_folded" not in columns for columns in trace.returned_columns)
 
 
 @pytest.mark.parametrize(
@@ -1199,7 +1219,7 @@ def test_sparse_time_samples_preserve_nulls_and_native_extrema(
         trace = capture_source(monkeypatch)
         rows = session.observe({"latency": metric}, by=(scope, category)).compute().to_pandas()
         assert rows["latency"].tolist() == [20.0]
-        assert trace.returned_rows == ([1] if native else [2])
+        assert trace.returned_rows == ([2] if not native and backend in {"mysql", "trino"} else [1])
         assert not trace.uploaded_key_rows
 
 
@@ -1248,7 +1268,7 @@ def test_sparse_samples_exclude_filtered_clocks(
             .to_pandas()
         )
         assert rows["filtered"].tolist() == [30.0 if native else 29.5]
-        assert trace.returned_rows == ([1] if native else [2])
+        assert trace.returned_rows == ([2] if not native and backend in {"mysql", "trino"} else [1])
         assert not trace.uploaded_key_rows
 
 
@@ -1365,8 +1385,7 @@ def test_calendar_sample_folds_keep_joint_keys_without_cross_bucket_completion(
             assert absent[["p95", "ratio"]].isna().all().all()
             assert absent["count"].tolist() == [0] * len(absent)
             assert len(rows) == days * (24 if grain == "hour" else 1)
-            assert reducer.call_args_list
-            assert {len(call.args[1]) for call in reducer.call_args_list} == {2 if days == 1 else 5}
+            assert not reducer.call_args_list
 
 
 @pytest.mark.parametrize(
@@ -1507,7 +1526,7 @@ def test_time_samples_keep_empty_calendar_buckets(
         ("quantile", 95.0),
         ("count", 2),
         ("count_distinct", 2),
-        ("approx_median", 0.0),
+        ("approx_median", 50.0),
         ("approx_quantile", 100.0),
         ("first", 0.0),
         ("last", 100.0),
@@ -1542,8 +1561,325 @@ def test_all_time_sample_reducers_allow_missing_clocks_without_period(
         assert rows["v"].tolist() == pytest.approx([expected])
         if reducer in ("mean", "min", "max"):
             assert trace.returned_rows == [1]
-            assert "__mean_folded" in trace.returned_columns[0]
         assert all(
             "__coverage_" not in sql and "__sampling_" not in sql for sql in trace.native_sql
         )
         assert not trace.uploaded_key_rows
+
+
+@pytest.mark.parametrize(
+    "backend,profile",
+    source_params([("duckdb", "table"), ("postgres", "table"), ("clickhouse", "table")]),
+)
+def test_sample_summary_shares_one_native_read_and_returns_only_final_groups(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
+    backend: str,
+    profile: str,
+) -> None:
+    from marivo.analysis.methods import _sample_numeric
+
+    with mean_session(
+        backend,
+        profile,
+        tmp_path,
+        monkeypatch,
+        semantic_project_factory,
+        sample_count=7200,
+        sample_groups=8,
+        aware=True,
+    ) as (session, _):
+        amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+        point = catalog_value(session.catalog, "sales.facts.point", kind="field")
+        category = catalog_value(session.catalog, "sales.facts.category", kind="field")
+        calendar = session.time_scope(start="2026-10-01", end="2026-10-01T02:00:00").by(
+            mv.grain("hour")
+        )
+        samples = amount.sum(time=point).per(point)
+        for by, expected_means, count, size in (
+            ((calendar, category), [17988 / 3600] * 8 + [17997 / 3600] * 8, 3600, 16),
+            ((category,), [35985 / 7200] * 8, 7200, 8),
+        ):
+            with monkeypatch.context() as probe:
+                trace = capture_source(probe, measure_cost=True)
+                reducer = Mock(wraps=_sample_numeric.reduce_samples)
+                probe.setattr(_sample_numeric, "reduce_samples", reducer)
+                result = session.observe(
+                    {
+                        "average": samples.mean(),
+                        "p50": samples.quantile(0.5),
+                        "p95": samples.quantile(0.95),
+                        "p99": samples.quantile(0.99),
+                        "count": samples.count(),
+                    },
+                    by=by,
+                ).compute()
+                rows = result.to_pandas()
+                assert len(rows) == size
+                assert sorted(rows["average"].tolist()) == pytest.approx(expected_means)
+                assert rows["p50"].tolist() == [5.0] * size
+                assert rows["p95"].tolist() == [10.0] * size
+                assert rows["p99"].tolist() == [10.0] * size
+                assert rows["count"].tolist() == [count] * size
+                assert trace.returned_rows == [size]
+                assert not reducer.call_args_list
+                sql = trace.native_sql[0].lower()
+                assert sql.count("sum(") == 1
+                if backend == "clickhouse":
+                    assert "quantilesexactinclusive" in sql
+        stored = result.persist()
+
+        def offline(*args: object, **kwargs: object) -> None:
+            raise AssertionError("captured summaries must not replay their source")
+
+        monkeypatch.setattr(SourceSession, "execute", offline)
+        assert stored.to_pandas().equals(rows)
+
+
+@pytest.mark.runtime
+def test_distributed_sample_sum_finishes_globally_before_exact_fold(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
+) -> None:
+    from marivo.analysis.methods import _sample_numeric
+
+    with mean_session(
+        "clickhouse",
+        "distributed",
+        tmp_path,
+        monkeypatch,
+        semantic_project_factory,
+        values=(0, 10, 10, 100),
+        aware=True,
+    ) as (session, _):
+        amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+        point = catalog_value(session.catalog, "sales.facts.point", kind="field")
+        samples = amount.sum(time=point).per(point)
+        trace = capture_source(monkeypatch)
+        reducer = Mock(wraps=_sample_numeric.reduce_samples)
+        monkeypatch.setattr(_sample_numeric, "reduce_samples", reducer)
+        rows = (
+            session.observe({"average": samples.mean(), "p95": samples.quantile(0.95)})
+            .compute()
+            .to_pandas()
+        )
+        # The 00:30 sample spans both shards and completes to 120 before fold.
+        assert rows["average"].tolist() == [60.0]
+        assert rows["p95"].tolist() == [114.0]
+        assert trace.returned_rows == [1]
+        assert not reducer.call_args_list
+
+
+@pytest.mark.parametrize(
+    "backend,profile",
+    source_params(
+        [
+            ("duckdb", "table"),
+            ("postgres", "table"),
+            ("mysql", "table"),
+            ("trino", "iceberg"),
+            ("clickhouse", "table"),
+        ]
+    ),
+)
+def test_native_time_sample_fold_keeps_overlapping_window_occurrences(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
+    backend: str,
+    profile: str,
+) -> None:
+    from marivo.analysis.methods import _sample_numeric
+
+    with mean_session(
+        backend, profile, tmp_path, monkeypatch, semantic_project_factory, aware=backend != "mysql"
+    ) as (session, _):
+        amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+        point = catalog_value(session.catalog, "sales.facts.point", kind="field")
+        calendar = session.time_scope(start="2026-10-01", end="2026-10-01T02:00:00").by(
+            mv.grain("hour")
+        )
+        metric = (
+            amount.sum(time=point)
+            .per(point)
+            .mean()
+            .window(mv.trailing_duration(duration=timedelta(hours=2)))
+        )
+        trace = capture_source(monkeypatch)
+        reducer = Mock(wraps=_sample_numeric.reduce_samples)
+        monkeypatch.setattr(_sample_numeric, "reduce_samples", reducer)
+        rows = session.observe({"average": metric}, by=(calendar,)).compute().to_pandas()
+        # Each window independently completes the SUM samples: [0, 300] and [0, 300, 0].
+        assert rows["average"].tolist() == [150.0, 100.0]
+        assert trace.returned_rows == [2]
+        assert not reducer.call_args_list
+
+
+@pytest.mark.runtime
+def test_postgres_sample_domain_preserves_nonnullable_char_padding(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
+) -> None:
+    from psycopg import sql
+
+    from tests.datasource.environment import postgres_analysis as pg
+
+    with mean_session("postgres", "table", tmp_path, monkeypatch, semantic_project_factory) as (
+        session,
+        case,
+    ):
+        assert isinstance(case.source, TableSourceIR)
+        with pg.connection(admin=True) as connection:
+            connection.execute(
+                sql.SQL("DROP VIEW {}.{}").format(
+                    sql.Identifier(case.source.database or "public"),
+                    sql.Identifier(case.source.table + "_view"),
+                )
+            )
+            connection.execute(
+                sql.SQL(
+                    "ALTER TABLE {}.{} ALTER COLUMN category TYPE CHAR(2), ALTER COLUMN category SET NOT NULL"
+                ).format(
+                    sql.Identifier(case.source.database or "public"),
+                    sql.Identifier(case.source.table),
+                )
+            )
+        amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+        point = catalog_value(session.catalog, "sales.facts.point", kind="field")
+        category = catalog_value(session.catalog, "sales.facts.category", kind="field")
+        samples = mv.coordinates(by=(category,), keys=(("A ",),))
+        scope = session.time_scope(start="2026-10-01", end="2026-10-01T02:00:00")
+        trace = capture_source(monkeypatch)
+        rows = (
+            session.observe({"average": amount.sum(time=point).per(samples).mean()}, by=(scope,))
+            .compute()
+            .to_pandas()
+        )
+        assert rows["average"].tolist() == [300.0]
+        assert trace.returned_rows == [1]
+
+
+@pytest.mark.parametrize(
+    "backend,profile",
+    source_params(
+        [
+            ("duckdb", "table"),
+            ("postgres", "table"),
+            ("mysql", "table"),
+            ("trino", "iceberg"),
+            ("clickhouse", "table"),
+        ]
+    ),
+)
+def test_native_ordered_samples_preserve_null_endpoints_and_duplicate_time_checks(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
+    backend: str,
+    profile: str,
+) -> None:
+    from marivo.analysis.methods import _sample_numeric
+
+    with mean_session(
+        backend,
+        profile,
+        tmp_path,
+        monkeypatch,
+        semantic_project_factory,
+        values=(None, 20, 20, 20, None),
+        sample_groups=2,
+        aware=backend != "mysql",
+    ) as (session, _):
+        amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+        point = catalog_value(session.catalog, "sales.facts.point", kind="field")
+        category = catalog_value(session.catalog, "sales.facts.category", kind="field")
+        scope = session.time_scope(start="2026-10-01", end="2026-10-01T02:00:00")
+        samples = amount.mean(time=point).per(point)
+        trace = capture_source(monkeypatch)
+        reducer = Mock(wraps=_sample_numeric.reduce_samples)
+        monkeypatch.setattr(_sample_numeric, "reduce_samples", reducer)
+        rows = (
+            session.observe(
+                {
+                    "first": samples.first(),
+                    "first_null": samples.first(include_null=True),
+                    "last": samples.last(),
+                    "last_null": samples.last(include_null=True),
+                },
+                by=(scope,),
+            )
+            .compute()
+            .to_pandas()
+        )
+        assert rows["first"].tolist() == [20.0]
+        assert rows["last"].tolist() == [20.0]
+        assert rows[["first_null", "last_null"]].isna().all().all()
+        assert trace.returned_rows == [1, 1, 1, 1]
+        assert not reducer.call_args_list
+        duplicate = amount.mean(time=point).per((point, category)).first(order_by=point)
+        with pytest.raises(MaterializationError, match="one internal sample per time key"):
+            session.observe({"first": duplicate}, by=(scope,)).compute()
+
+
+@pytest.mark.parametrize(
+    "backend,profile",
+    source_params(
+        [
+            ("duckdb", "table"),
+            ("postgres", "table"),
+            ("mysql", "table"),
+            ("trino", "iceberg"),
+            ("clickhouse", "table"),
+        ]
+    ),
+)
+def test_nested_ordered_samples_keep_explicit_parent_domain(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
+    backend: str,
+    profile: str,
+) -> None:
+    from marivo.analysis.methods import _sample_numeric
+
+    with mean_session(
+        backend,
+        profile,
+        tmp_path,
+        monkeypatch,
+        semantic_project_factory,
+        values=(10, 20, 20, 20, 100),
+        aware=backend != "mysql",
+    ) as (session, _):
+        amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+        point = catalog_value(session.catalog, "sales.facts.point", kind="field")
+        category = catalog_value(session.catalog, "sales.facts.category", kind="field")
+        samples = amount.sum(time=point).per(point)
+        endpoints = {
+            "first": samples.first(order_by=point),
+            "last": samples.last(order_by=point),
+        }
+        reducer = Mock(wraps=_sample_numeric.reduce_samples)
+        monkeypatch.setattr(_sample_numeric, "reduce_samples", reducer)
+        for keys in ((("A",),), (("B",),), (("A",), ("B",))):
+            domain = mv.coordinates(by=(category,), keys=keys)
+            rows = (
+                session.observe(
+                    {name: value.per(domain).mean() for name, value in endpoints.items()}
+                )
+                .compute()
+                .to_pandas()
+            )
+            # Only A has facts: B contributes a missing endpoint, never A's value.
+            if keys == (("B",),):
+                assert rows.isna().all().all()
+            else:
+                assert rows["first"].tolist() == [10.0]
+                assert rows["last"].tolist() == [100.0]
+        assert not reducer.call_args_list
+        for endpoint in endpoints.values():
+            with pytest.raises(MaterializationError, match="non-NA internal samples"):
+                session.observe({"strict": endpoint.per(domain).mean(nulls="error")}).compute()

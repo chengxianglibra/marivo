@@ -6,12 +6,36 @@ from collections.abc import Mapping
 from typing import Literal
 
 import ibis
+import ibis.expr.operations as ops
 import ibis.expr.types as ir
 
 from marivo._definition.relations import AttributeKeys, PopulationProgram
 from marivo.analysis.compiler.observation import FormulaProgram
+from marivo.analysis.compiler.source_predicates import (
+    distinct_returned_keys,
+    postgres_returned_text,
+    same_returned_key,
+)
 from marivo.analysis.core.data_types import DurationDataType
-from marivo.semantic._numeric_lowering import NumericCheck, NumericValue, lower_metric_formula
+from marivo.analysis.core.value_types import data_type, ibis_type
+from marivo.semantic._numeric_lowering import (
+    NumericCheck,
+    NumericValue,
+    force_cast,
+    lower_metric_formula,
+)
+
+
+def normalized_returned_key(value: ir.Value, provider: str) -> ir.Value:
+    """Normalize numeric key widths without casting away string padding."""
+    if value.type().is_string() and provider == "postgres":
+        return postgres_returned_text(value)
+    dtype = ibis_type(data_type(value.type())).copy(nullable=value.type().nullable)
+    if dtype != value.type():
+        value = force_cast(value, dtype)
+    # NULLIF(value, NULL) is an identity with a nullable result. Unlike a text
+    # CAST, it preserves native CHAR padding before returned-byte comparisons.
+    return value if value.type().nullable else value.nullif(ibis.null())
 
 
 def align_native_inputs(
@@ -19,9 +43,14 @@ def align_native_inputs(
     keys: tuple[str, ...],
     zeros: tuple[str, ...],
     *,
+    provider: str,
     alignment: Literal["outer", "domain"] = "outer",
 ) -> ir.Table:
     """Align completed root results; never combine their raw contribution rows."""
+    tables = tuple(
+        table.mutate(**{key: normalized_returned_key(table[key], provider) for key in keys})
+        for table in tables
+    )
     markers = {name: f"__formula_present_{index}" for index, name in enumerate(zeros)}
     tables = tuple(
         table.mutate(
@@ -38,13 +67,15 @@ def align_native_inputs(
     if alignment == "domain" and keys and remaining:
         domain = combined.select(*keys)
         for table in remaining:
-            domain = domain.union(table.select(*keys), distinct=True)
+            domain = distinct_returned_keys(
+                domain.union(table.select(*keys), distinct=False), provider
+            )
         combined, remaining = domain, tables
     for table in remaining:
         combined, table = combined.view(), table.view()
         joined = combined.join(
             table,
-            [combined[key].identical_to(table[key]) for key in keys]
+            [same_returned_key(combined[key], table[key], provider) for key in keys]
             if keys
             else ibis.literal(True),
             how=("outer" if alignment == "outer" else "left") if keys else "inner",
@@ -73,6 +104,7 @@ def lower_native_formula(
     relations: Mapping[str, ir.Table],
     keys: tuple[str, ...],
     *,
+    provider: str,
     alignment: Literal["outer", "domain"] = "outer",
 ) -> tuple[ir.Table, tuple[tuple[str, NumericCheck], ...]] | str:
     """Compose qualified completed reductions with the owning numeric lowerer.
@@ -105,18 +137,21 @@ def lower_native_formula(
             return "formula has no exact complete Attribute parent relation"
     if not program.values:
         return "formula has no ordinary source reductions"
-    tables: list[ir.Table] = []
+    grouped_tables: dict[ops.Relation, tuple[ir.Table, list[str]]] = {}
     for binding in program.values:
         if isinstance(binding.column.dtype, DurationDataType):
             return "Duration requires its exact tick finisher"
         table = relations.get(binding.stage_id)
         if table is None or binding.keys != keys:
             return "formula inputs have different complete coordinate grids"
-        tables.append(table.select(*keys, binding.column.slot_id))
+        _, slots = grouped_tables.setdefault(table.op(), (table, []))
+        if binding.column.slot_id not in slots:
+            slots.append(binding.column.slot_id)
     combined = align_native_inputs(
-        tuple(tables),
+        tuple(table.select(*keys, *names) for table, names in grouped_tables.values()),
         keys,
         tuple(binding.column.slot_id for binding in program.values if binding.zero_when_absent),
+        provider=provider,
         alignment=alignment,
     )
     if parent is not None:

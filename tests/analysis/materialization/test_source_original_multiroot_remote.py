@@ -38,11 +38,18 @@ def test_domain_alignment_preserves_null_keys_without_full_outer_join() -> None:
         right = connection.create_table(
             "right_values", pd.DataFrame({"key": ["B", None], "y": [30, 40]})
         )
-        aligned = align_native_inputs((left, right), ("key",), ("x", "y"), alignment="domain")
+        aligned = align_native_inputs(
+            (left, right), ("key",), ("x", "y"), provider="duckdb", alignment="domain"
+        )
         frame = connection.execute(aligned.order_by(aligned.key.asc(nulls_first=True)))
         assert frame.x.tolist() == [20, 10, 0]
         assert frame.y.tolist() == [40, 0, 30]
-        sql = ibis.to_sql(aligned, dialect="mysql").upper()
+        sql = ibis.to_sql(
+            align_native_inputs(
+                (left, right), ("key",), ("x", "y"), provider="mysql", alignment="domain"
+            ),
+            dialect="mysql",
+        ).upper()
         assert "UNION" in sql and "LEFT OUTER JOIN" in sql
         assert "FULL OUTER" not in sql
     finally:

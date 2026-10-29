@@ -171,7 +171,6 @@ def prepare_native_game(
                     reduction.calendars,
                     reduction.sampled,
                     reduction.provider,
-                    reduction.mean_fold,
                 ),
             )
 

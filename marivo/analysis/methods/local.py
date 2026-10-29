@@ -140,23 +140,6 @@ def _combine_program(
     inputs = inputs[: len(program.values)]
     grouped: dict[tuple[int, ...], tuple[FormulaInput, list[pd.DataFrame]]] = {}
     for binding, frame in zip(program.values, inputs, strict=True):
-        if (
-            binding.folded_mean is not None
-            and "__mean_folded" in frame
-            and bool(frame["__mean_folded"].all())
-        ):
-            # The native source read completed the entire sample reducer.
-            # Retain the original graph; this occurrence supplies its value.
-            assert binding.folded_mean is not None
-            binding = replace(
-                binding,
-                occurrence=binding.folded_mean,
-                keys=tuple(key for key in binding.keys if key in keys),
-                key_groups=tuple(
-                    group for group in binding.key_groups if all(key in keys for key in group)
-                ),
-                folded_mean=None,
-            )
         if binding.presence is not None:
             frame = frame.copy()
             frame["__numeric_present"] = frame[binding.presence]

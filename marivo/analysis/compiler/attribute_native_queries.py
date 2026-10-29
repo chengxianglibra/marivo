@@ -215,7 +215,6 @@ def lower_native_coalition(
         window_key=None,
         sampled=False,
         preserve_sample_presence=False,
-        mean_fold=None,
     )
     expression, checks = lower_observation(reduction, rows, names, ())
     for summary in (ac, bc):

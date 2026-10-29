@@ -270,7 +270,9 @@ def prepare_frame_sources(captured: CapturedFrameInputs, stack: ExitStack) -> Pr
                 fuse_query_keys,
                 fuse_query_terminal,
             )
+            from marivo.analysis.materialization.sample_fusion import fuse_sample_reductions
 
+            lowered = fuse_sample_reductions(prepared, lowered)
             lowered = fuse_query_keys(prepared, lowered)
             lowered = fuse_query_terminal(prepared, lowered)
         if prepared is not None:

@@ -148,7 +148,9 @@ def test_native_presence_checks_boolean_value_for_default_filled_joins() -> None
     # The marker's truth, rather than its nullness, distinguishes absent sums.
     left = ibis.memtable({"key": ["A"], "a": [100.0]}, schema={"key": "string", "a": "float64"})
     right = ibis.memtable({"key": ["C"], "b": [None]}, schema={"key": "string", "b": "float64"})
-    aligned = align_native_inputs((left, right), ("key",), ("a", "b"), alignment="domain")
+    aligned = align_native_inputs(
+        (left, right), ("key",), ("a", "b"), provider="clickhouse", alignment="domain"
+    )
     sql = ibis.to_sql(aligned, dialect="clickhouse")
     assert '"__formula_present_0", FALSE)' in sql
     assert '"__formula_present_1", FALSE)' in sql

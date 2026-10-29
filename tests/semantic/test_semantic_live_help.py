@@ -694,7 +694,7 @@ def test_mean_help_discloses_fixed_null_rules_and_sampling(
     assert "asserts no NULLs on the demanded input" in page
     assert "empty input passes" in page
     assert "Successful values use the same computation" in page
-    assert "Native time-sample AVG has no local fallback" in page
+    assert "Qualified sample folds execute natively without failure fallback" in page
     if target == "semantic.metric_samples.mean":
         assert "without scheduled coverage or implicit fill" in page
         assert "independently of formula shape or execution route" in page

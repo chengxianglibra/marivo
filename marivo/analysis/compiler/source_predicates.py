@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 
 import ibis
 import ibis.expr.operations as ops
@@ -96,6 +96,13 @@ def string_bytes(value: ir.Value, provider: str) -> ir.Value:
     return value
 
 
+def postgres_returned_text(value: ir.Value) -> ir.Value:
+    """Preserve native CHAR padding before nullable text/key normalization."""
+    encoded = _POSTGRES_JSON(value)
+    assert isinstance(encoded, ir.JSONValue)
+    return encoded.unwrap_as("str")
+
+
 def string_without_collation(value: ir.Value, provider: str) -> ir.Value:
     """Preserve returned DuckDB strings while removing inherited SQL collations."""
     return _DUCKDB_DECODE(string_bytes(value, provider)) if provider == "duckdb" else value
@@ -136,3 +143,39 @@ def source_parameter_comparisons(expression: ir.Table, name: str, provider: str)
         if provider == "postgres"
         else expression
     )
+
+
+def same_returned_key(left: ir.Value, right: ir.Value, provider: str) -> ir.BooleanValue:
+    """Match complete returned keys independently of source string collations."""
+    if left.type().is_string() and right.type().is_string():
+        left, right = string_bytes(left, provider), string_bytes(right, provider)
+    result = left.identical_to(right)
+    assert isinstance(result, ir.BooleanValue)
+    return result
+
+
+def aggregate_returned_keys(
+    table: ir.Table,
+    keys: tuple[str, ...],
+    metrics: Mapping[str, ir.Value],
+    provider: str,
+) -> ir.Table:
+    """Aggregate completed values using the exact returned coordinate identities."""
+    groups: dict[str, ir.Value] = {}
+    aggregates = dict(metrics)
+    for index, name in enumerate(keys):
+        value = table[name]
+        if value.type().is_string():
+            groups[f"__returned_key_{index}"] = string_bytes(value, provider)
+            aggregates[name] = value.min()
+        else:
+            groups[name] = value
+    result = table.aggregate(**aggregates, by=groups)
+    return result.select(*keys, *metrics)
+
+
+def distinct_returned_keys(table: ir.Table, provider: str) -> ir.Table:
+    """Deduplicate returned tuples without inherited or session string collations."""
+    if not any(table[name].type().is_string() for name in table.columns):
+        return table.distinct()
+    return aggregate_returned_keys(table, tuple(table.columns), {}, provider)

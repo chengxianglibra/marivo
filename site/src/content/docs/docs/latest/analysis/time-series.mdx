@@ -139,6 +139,15 @@ requires no finite observation period; windows and calendar samples retain their
 own period requirements. Represented NULLs still follow `nulls`. Results describe
 the observed samples and do not prove completeness of the whole period.
 
+
+Qualified source-backed samples finish at the source: each timestamp's child
+Metric completes before the outer mean, quantile or other reducer. Compatible
+summaries share the inner calculation. For example, `amount.sum(time=order_date).per(order_date).quantile(0.95)` computes a quantile of completed daily sums.
+Explicit sample domains and calendar grids retain their own completion rules.
+Native arithmetic and Decimal rounding follow the backend; unsupported type or
+algorithm combinations retain their existing local route. A native failure does
+not trigger local recomputation. Completed Frames continue to use captured data.
+
 ## Fold Metrics over calendar cells
 
 Use a Grain in `Metric.per` to fold completed daily values without declaring
