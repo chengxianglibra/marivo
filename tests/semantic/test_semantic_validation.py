@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import textwrap
+from dataclasses import replace
 from datetime import timedelta
 from pathlib import Path
 
@@ -13,6 +14,8 @@ import marivo.analysis as mv
 import marivo.datasource as md
 import marivo.semantic as ms
 import marivo.semantic.validation as validation_module
+from marivo.datasource.inspection import SourceInspection, _ibis_table_type
+from marivo.datasource.metadata import ColumnMetadata
 from marivo.datasource.runtime import DatasourceConnectionService
 from marivo.refs import ref as ref_factory
 from marivo.semantic.catalog import SemanticCatalog
@@ -523,8 +526,16 @@ def test_validation_and_preview_recheck_measure_type_after_schema_drift(
         connection.close()
     schema = next(check for check in catalog.validate([amount]).checks if check.kind == "schema")
     assert schema.status == "failed"
-    with pytest.raises(SemanticRuntimeError, match="a numeric or duration physical type"):
+    assert schema.repair is not None
+    assert "ms.dimension_column(...)" in schema.repair.action
+    assert "dimension.count_distinct()" in schema.repair.action
+    with pytest.raises(SemanticRuntimeError, match="a numeric or duration physical type") as error:
         catalog.preview(amount, scope=md.unpruned(max_rows=5, timeout_seconds=5))
+    assert error.value.repair == schema.repair
+    session = mv.session.get_or_create("dimension-distinct-repair", timezone="UTC")
+    status = session.catalog.get("dimension:sales.orders.status").value
+    rows = session.observe({"distinct": status.count_distinct()}).compute().to_pandas()
+    assert rows["distinct"].tolist() == [2]
 
 
 def test_source_health_interface_is_removed() -> None:
@@ -556,7 +567,7 @@ def test_validation_accepts_native_duration_measure_carriers(
 
 
 def test_validation_uses_entity_and_field_output_types(
-    tmp_path: Path, semantic_project_factory
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, semantic_project_factory
 ) -> None:
     database_path = tmp_path / "physical.duckdb"
     connection = duckdb.connect(str(database_path))
@@ -597,3 +608,166 @@ def test_validation_uses_entity_and_field_output_types(
         ms.ref.measure("sales.events.amount"),
         scope=md.unpruned(max_rows=5, timeout_seconds=5),
     ).rows == ({"amount": 12.5},)
+
+    inspect_source = validation_module._inspect_in_project
+
+    def inspect_with_unavailable(*args: object, **kwargs: object) -> SourceInspection:
+        inspected = inspect_source(*args, **kwargs)
+        return replace(
+            inspected,
+            schema=(
+                *inspected.schema,
+                ColumnMetadata("protobuf", "unsupported_physical_type", True, None, 3),
+            ),
+        )
+
+    monkeypatch.setattr(validation_module, "_inspect_in_project", inspect_with_unavailable)
+    schema = next(
+        check
+        for check in catalog.validate([ms.ref.entity("sales.events")]).checks
+        if check.kind == "schema"
+    )
+    assert schema.status == "failed"
+    assert schema.observed["entity_output_established"] is False
+    assert schema.observed["missing_field_refs"] == []
+    assert schema.observed["field_types"] == {}
+    assert schema.observed["unavailable_columns"] == {"protobuf": "unsupported_physical_type"}
+    assert schema.observed["unavailable_field_refs"] == [
+        "measure:sales.events.amount",
+        "time_dimension:sales.events.point",
+    ]
+
+
+@pytest.mark.parametrize("engine", ("mysql", "postgres", "trino"))
+@pytest.mark.parametrize("column", ("protobuf", "status", "order_id"))
+def test_unavailable_column_preserves_other_field_checks_and_names_the_cause(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    semantic_project_factory,
+    column: str,
+    engine: str,
+) -> None:
+    catalog, _ = _catalog(tmp_path, monkeypatch, semantic_project_factory)
+    inspect_source = validation_module._inspect_in_project
+
+    def inspect_with_char(*args: object, **kwargs: object) -> SourceInspection:
+        inspected = inspect_source(*args, **kwargs)
+        columns = tuple(
+            replace(item, type="char(1)" if item.name == column else "string")
+            if item.name in (column, "amount")
+            else item
+            for item in inspected.schema
+        )
+        if column == "protobuf":
+            columns += (ColumnMetadata("protobuf", "char(1)", True, None, 6),)
+        return replace(inspected, schema=columns)
+
+    monkeypatch.setattr(validation_module, "_inspect_in_project", inspect_with_char)
+    # Exercise the real remote type mapper with injected catalog metadata;
+    # the local datasource supplies only the metadata/probe connection.
+    monkeypatch.setattr(
+        validation_module,
+        "_ibis_table_type",
+        lambda name, *, backend_type: _ibis_table_type(
+            name, backend_type=engine if name == "char(1)" else backend_type
+        ),
+    )
+    report = catalog.validate([ms.ref.entity("sales.orders")])
+    schema = next(check for check in report.checks if check.kind == "schema")
+    assert schema.status == "failed"
+    assert schema.observed["unavailable_columns"] == {column: "char(1)"}
+    assert schema.observed["reason"] == "declared_input_types_unusable"
+    assert schema.observed["missing_field_refs"] == []
+    assert "missing_output_primary_key" not in schema.observed
+    assert schema.observed["field_types"]["measure:sales.orders.amount"] == "string"
+    assert len(schema.observed["contract_violations"]) == 1
+    assert schema.observed["unavailable_field_refs"] == (
+        [] if column == "protobuf" else [f"dimension:sales.orders.{column}"]
+    )
+    assert all(not check.user_data_queried for check in report.checks)
+
+
+@pytest.mark.parametrize("engine", ("mysql", "postgres", "trino"))
+def test_fixed_char_type_is_not_guessed_as_variable_string(engine: str) -> None:
+    assert _ibis_table_type("char(1)", backend_type=engine) is None
+
+
+def test_unavailable_column_repair_identifies_physical_type(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, semantic_project_factory
+) -> None:
+    catalog, _ = _catalog(tmp_path, monkeypatch, semantic_project_factory)
+    inspect_source = validation_module._inspect_in_project
+
+    def inspect_with_char(*args: object, **kwargs: object) -> SourceInspection:
+        inspected = inspect_source(*args, **kwargs)
+        return replace(
+            inspected,
+            schema=(*inspected.schema, ColumnMetadata("protobuf", "char(1)", True, None, 6)),
+        )
+
+    monkeypatch.setattr(validation_module, "_inspect_in_project", inspect_with_char)
+    monkeypatch.setattr(
+        validation_module,
+        "_ibis_table_type",
+        lambda name, *, backend_type: _ibis_table_type(
+            name, backend_type="mysql" if name == "char(1)" else backend_type
+        ),
+    )
+    schema = next(
+        check
+        for check in catalog.validate([ms.ref.entity("sales.orders")]).checks
+        if check.kind == "schema"
+    )
+    assert schema.status == "failed"
+    assert schema.observed["contract_violations"] == []
+    assert schema.observed["field_types"]["measure:sales.orders.amount"] == "float32"
+    assert schema.repair is not None
+    assert "'protobuf' (char(1))" in schema.repair.action
+    assert "md.table(columns=...)" in schema.repair.action
+
+
+def test_unavailable_type_propagates_through_bound_dimension_dependencies(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, semantic_project_factory
+) -> None:
+    def project_with_bound_fields(files):
+        files["sales/model.py"] += textwrap.dedent("""
+            @ms.dimension(entity=orders)
+            def copied_status(rows):
+                return ms.bind(status, rows)
+
+            @ms.dimension(entity=orders)
+            def copied_again(rows):
+                return ms.bind(copied_status, rows)
+        """)
+        return semantic_project_factory(files)
+
+    catalog, _ = _catalog(tmp_path, monkeypatch, project_with_bound_fields)
+    inspect_source = validation_module._inspect_in_project
+
+    def inspect_with_unavailable(*args: object, **kwargs: object) -> SourceInspection:
+        inspected = inspect_source(*args, **kwargs)
+        return replace(
+            inspected,
+            schema=tuple(
+                replace(column, type="unsupported_physical_type")
+                if column.name == "status"
+                else column
+                for column in inspected.schema
+            ),
+        )
+
+    monkeypatch.setattr(validation_module, "_inspect_in_project", inspect_with_unavailable)
+    schema = next(
+        check
+        for check in catalog.validate([ms.ref.entity("sales.orders")]).checks
+        if check.kind == "schema"
+    )
+    assert schema.status == "failed"
+    assert schema.observed["unavailable_field_refs"] == [
+        "dimension:sales.orders.copied_again",
+        "dimension:sales.orders.copied_status",
+        "dimension:sales.orders.status",
+    ]
+    assert schema.observed["missing_field_refs"] == []
+    assert schema.observed["contract_violations"] == []
+    assert schema.observed["field_types"]["measure:sales.orders.amount"] == "float32"

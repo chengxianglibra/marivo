@@ -58,3 +58,16 @@ and their bounded scope. Omit `scope` when `checks` is empty. Build checks with
 native lookup symbols from `ms.ref` or an entry's `.ref`; closed `.value`
 expressions are not accepted by these builders. The [load and validate section](/docs/latest/modeling/semantic-layer/#load-and-validate)
 has the complete preview and online validation examples.
+
+## Unavailable physical types and string counts
+
+An unavailable physical type such as `char(1)` keeps the schema check failed.
+Read the schema check's `observed["unavailable_columns"]` for column names and raw
+types, and `observed["unavailable_field_refs"]` for skipped fields. Direct Entities
+still check other fields; expression Entities need the complete input schema.
+Expose supported types or explicitly select supported columns with
+`md.table(columns=...)`, then validate again.
+
+For a string identifier, declare a Dimension with `ms.dimension_column(...)` and
+use the closed field's `dimension.count_distinct()` to count different values.
+A string column cannot be bound as a numeric/duration Measure.

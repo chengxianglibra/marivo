@@ -89,7 +89,9 @@ def validate_field_type(
             f"a numeric or duration physical type for {ref.path}",
             f"{engine} physical_type={str(physical)!r}",
             f"Expose a numeric or duration Entity output for {ref.path!r}, or correct its Measure "
-            "binding, then reload the project and rerun catalog.validate().",
+            "binding. If the goal is to count distinct identifiers or categories, declare the column "
+            "with ms.dimension_column(...) and use dimension.count_distinct(). Then reload the "
+            "project and rerun catalog.validate().",
         )
     if issue is not None:
         _raise(

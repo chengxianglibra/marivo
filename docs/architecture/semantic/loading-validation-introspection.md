@@ -197,7 +197,18 @@ just the raw column names or datasource family. An already-aware timestamp
 rejects an explicit parser timezone, including when both zones are equal;
 ClickHouse native timestamps are aware even when Ibis omits the zone label.
 Reports retain physical types, affected refs, declaration locations and repairs.
-Unknown/unavailable types cannot produce a successful validation result.
+Unknown/unavailable types cannot produce a successful validation result. Schema
+checks expose `observed["unavailable_columns"]` as physical column names mapped to
+raw types and `observed["unavailable_field_refs"]` as fields whose type checks could
+not run. Direct Entities still validate fields independent of those columns;
+unavailable columns are not reported as missing. Expression Entities require a
+complete typed input to establish their transformed output and fail closed when
+that input is unavailable. Repairs identify the unavailable columns and suggest
+supported source types or explicit `md.table(columns=...)` projection.
+
+A string identifier or category belongs in a Dimension. To count its distinct
+values, use `dimension.count_distinct()` rather than binding it as a Measure;
+Measure physical outputs must remain numeric or duration.
 
 Without explicit data checks, validation forbids scope and reads no business
 rows. Preview and analysis share the same physical field checks when binding

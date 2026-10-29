@@ -3428,7 +3428,9 @@ def _build_registry() -> SemanticCapabilityRegistry:
             (
                 "Connect to the selected dependency closure and validate Entity outputs, "
                 "field bindings, numeric/duration types and temporal parser/timezone contracts against "
-                "real physical types. Preview and analysis reuse these field checks. "
+                "real physical types. Unavailable types disclose column names and raw types in "
+                'observed["unavailable_columns"]; direct Entities still check independent fields. '
+                "Preview and analysis reuse these field checks. "
                 "Explicit data expectations require a bounded scope. Does not change readiness "
                 "or qualify arbitrary analysis methods."
             ),

@@ -901,7 +901,7 @@ def _inspected_entity_output(
     *,
     entity_id: str,
     inspection: SourceInspection,
-) -> tuple[ir.Table | None, str | None]:
+) -> tuple[ir.Table | None, str | None, dict[str, str]]:
     """Bind the Entity output to inspected physical types without reading rows."""
     import ibis
 
@@ -909,20 +909,25 @@ def _inspected_entity_output(
     body = catalog._state.sidecar.bodies.get(entity_ref)
     engine = catalog._reg.datasources[catalog._reg.entities[entity_id].datasource].backend_type
     input_types: dict[str, str] = {}
+    unavailable: dict[str, str] = {}
     for column in inspection.schema:
         normalized = _ibis_table_type(
             column.type,
             backend_type=engine,
         )
         if normalized is None:
-            return None, "declared_input_types_unusable"
-        input_types[column.name] = normalized
+            unavailable[column.name] = column.type
+        else:
+            input_types[column.name] = normalized
+    reason = "declared_input_types_unusable" if unavailable else None
+    if unavailable and body is not None:
+        return None, reason, unavailable
     try:
         unbound = ibis.table(input_types, name=f"marivo_unbound_{entity_id}")
     except Exception:
-        return None, "declared_input_types_unusable"
+        return None, "declared_input_types_unusable", unavailable
     if body is None:
-        return unbound, None
+        return unbound, reason, unavailable
     try:
         result = evaluate_expression_body(
             catalog_definition_fingerprint=catalog.definition_fingerprint,
@@ -934,14 +939,18 @@ def _inspected_entity_output(
             table_result=True,
         )
     except Exception:
-        return None, "entity_expression_invalid"
+        return None, "entity_expression_invalid", unavailable
     if not isinstance(result, ibis.Table):
-        return None, "entity_expression_invalid"
-    return result, None
+        return None, "entity_expression_invalid", unavailable
+    return result, None, unavailable
 
 
 def _field_contracts(
-    catalog: SemanticCatalog, *, entity_id: str, table: ir.Table
+    catalog: SemanticCatalog,
+    *,
+    entity_id: str,
+    table: ir.Table,
+    unavailable_fields: Sequence[Ref[SemanticKindTag]],
 ) -> tuple[dict[str, str], tuple[SemanticError, ...]]:
     """Validate every field on the selected Entity's real output schema."""
     field_types: dict[str, str] = {}
@@ -952,6 +961,8 @@ def _field_contracts(
         if owner.path != entity_id:
             continue
         body = catalog._state.sidecar.bodies[field_ref]
+        if field_ref in unavailable_fields:
+            continue
         try:
             value = evaluate_expression_body(
                 catalog_definition_fingerprint=catalog.definition_fingerprint,
@@ -1528,7 +1539,7 @@ def run_validation(
                 continue
             inspections[entity_id] = inspection
             has_expression_body = catalog._state.sidecar.bodies.get(entity_ref) is not None
-            output, output_reason = _inspected_entity_output(
+            output, output_reason, unavailable_columns = _inspected_entity_output(
                 catalog, entity_id=entity_id, inspection=inspection
             )
             output_columns = tuple(output.columns) if output is not None else None
@@ -1553,12 +1564,44 @@ def run_validation(
                 # missing.
                 missing_fields = ()
             if output_columns is not None:
-                output_set = set(output_columns)
+                output_set = (
+                    _input_column_names(inspection)
+                    if not has_expression_body
+                    else set(output_columns)
+                )
                 missing_keys = tuple(key for key in entity.primary_key if key not in output_set)
             else:
                 missing_keys = ()
+            unavailable_roots = tuple(
+                field_ref
+                for field_ref, owner in catalog._state.sidecar.field_owners.items()
+                if owner.path == entity_id
+                and unavailable_columns
+                and (
+                    output is None
+                    or any(
+                        column in unavailable_columns
+                        for column in catalog._state.sidecar.bodies[field_ref].source_columns
+                    )
+                )
+            )
+            unavailable_dependents = (
+                set(_reverse_affected(catalog, unavailable_roots)) if unavailable_roots else set()
+            )
+            unavailable_fields = tuple(
+                field_ref
+                for field_ref, owner in sorted(
+                    catalog._state.sidecar.field_owners.items(), key=lambda item: item[0].key
+                )
+                if owner.path == entity_id and field_ref in unavailable_dependents
+            )
             field_types, contract_errors = (
-                _field_contracts(catalog, entity_id=entity_id, table=output)
+                _field_contracts(
+                    catalog,
+                    entity_id=entity_id,
+                    table=output,
+                    unavailable_fields=unavailable_fields,
+                )
                 if output is not None
                 else ({}, ())
             )
@@ -1603,6 +1646,9 @@ def run_validation(
                     for error in contract_errors
                 ],
             }
+            if unavailable_columns:
+                observed["unavailable_columns"] = dict(sorted(unavailable_columns.items()))
+                observed["unavailable_field_refs"] = [ref.key for ref in unavailable_fields]
             if missing_keys:
                 observed["missing_output_primary_key"] = list(missing_keys)
             if output_reason is not None:
@@ -1625,6 +1671,23 @@ def run_validation(
                     inspection=inspection,
                     observed=observed,
                     repair_value=(contract_errors[0].repair if contract_errors else None)
+                    or (
+                        repair(
+                            kind="reauthor",
+                            canonical_id="validate",
+                            action=(
+                                "Physical types are unavailable for "
+                                + ", ".join(
+                                    f"{name!r} ({kind})"
+                                    for name, kind in sorted(unavailable_columns.items())
+                                )
+                                + ". Expose supported physical types or explicitly project the needed "
+                                "supported columns with md.table(columns=...), then rerun catalog.validate()."
+                            ),
+                        )
+                        if unavailable_columns
+                        else None
+                    )
                     or _schema_repair(
                         schema_status=schema_status,
                         has_expression_body=has_expression_body,

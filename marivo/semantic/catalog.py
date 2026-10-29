@@ -3949,6 +3949,10 @@ class SemanticCatalog(RenderableResult):
         Constraints:
             This online check does not change readiness or certify arbitrary
             analysis methods. Unavailable physical types cannot pass validation.
+            Schema checks retain their column names and raw types in
+            ``observed["unavailable_columns"]`` and skipped fields in
+            ``observed["unavailable_field_refs"]``. Direct Entities still check
+            independent fields; expression Entities require complete input types.
         """
         self._require_ready()
         values = tuple(refs)

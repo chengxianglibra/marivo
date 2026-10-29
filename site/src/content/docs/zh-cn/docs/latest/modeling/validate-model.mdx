@@ -45,3 +45,15 @@ catalog.validate([amount_entry]).show()
 预览没有请求扫描行数或字节数上限，扫描统计保持 unknown。
 `catalog.validate(...)` 默认检查物理契约；只有显式传入检查规则及其有界范围时，才会读取业务数据。`checks` 为空时必须省略 `scope`。检查规则使用 `ms.ref` 或条目的 `.ref` 原生查找符号构造，不接受闭合的 `.value` 表达式。
 [加载与检查](/zh-cn/docs/latest/modeling/semantic-layer/#加载与检查)一节提供完整的预览和在线校验示例。
+
+## 不可用的物理类型与字符串计数
+
+`char(1)` 等不可用的物理类型会使 schema 检查保持失败。通过 schema 检查的
+`observed["unavailable_columns"]` 查看列名与原始类型，通过
+`observed["unavailable_field_refs"]` 查看跳过类型检查的字段。直接映射的 Entity
+仍会检查其他字段；表达式 Entity 需要完整的输入 schema。
+请提供受支持的物理类型，或用 `md.table(columns=...)` 显式选择受支持的列，再次校验。
+
+字符串标识应使用 `ms.dimension_column(...)` 声明为 Dimension；通过闭合字段的
+`dimension.count_distinct()` 统计不同值的数量。字符串列不能绑定为要求
+numeric/duration 类型的 Measure。
