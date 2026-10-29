@@ -53,11 +53,39 @@ use DuckDB. See [physical sources](/docs/latest/modeling/datasources/#connection
 
 ## Parameterized JSON
 
-Declare request values with `md.source_param(...)` and bind them for datasource
-sampling or Semantic preview. Public Analysis Sessions currently accept only
-local JSON sources using GET with no declared query parameters. For exact
-signatures, see `marivo.help("datasource.json")` and
-`marivo.help("datasource.source_param")`.
+Put concrete GET query parameters or POST body values directly in the semantic
+source definition. Use these descriptors as `source=` in `ms.entity(...)`, then
+define fields and Metrics normally. Their Analysis Frames use ordinary
+`compute()` or `persist()`:
+
+```python
+import marivo.datasource as md
+
+alerts = md.json(
+    "https://api.example/alerts",
+    query_params={"page_number": 1, "page_size": 100},
+    records_path="$.data.vcdn_list",
+    columns={"id": "id", "severity": "severity"},
+)
+changes = md.json(
+    "https://api.example/changes",
+    method="POST",
+    body={"filter": {"apps": ["app-a", "app-b"]}, "page_num": 1},
+    records_path="$.data.change_infos",
+    columns={"id": "change_id", "app_id": "specificsource[].appid"},
+)
+```
+
+Loading, construction and metadata display send no request. During evaluation,
+HTTP acquisition supplies both schema inference and subsequent computation;
+identical requests share one response across consumers and projections. Each new
+computation fetches again; completed/reopened Frames use fixed data. One page
+never proves collection completeness, and Marivo does not traverse pages.
+
+`md.source_param(...)` placeholders still support explicit datasource sampling
+and Semantic preview. Complete them with concrete values in the source definition
+before Analysis. Missing values in any pending dependency fail before any request.
+See `marivo.help("datasource.json")` and `marivo.help("datasource.source_param")`.
 
 ## Default datasource and host credentials
 

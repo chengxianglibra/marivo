@@ -211,9 +211,9 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "DatasourceFieldInvalid",
         "decorator",
         ("json", "source_param"),
-        "JSON sources keep stable output aliases and correlate one shared array traversal.",
+        "JSON sources keep stable output aliases and correlate one shared array traversal. Analysis requires concrete GET/POST values; each response is reused per evaluation without pagination.",
         "A stable physical request shape can be inspected without fetching data and bound without API-specific analysis arguments.",
-        "Use columns to map output names to JSON field paths, records_path to select wrapped records, and one flat non-empty scalar list when a request parameter needs repeated values.",
+        "Use columns for JSON field paths and records_path for wrapped records. Analysis requires concrete query/body values; md.source_param placeholders belong to explicit authoring reads. One evaluation reuses each response without pagination.",
         example=(
             'md.json("https://api.example/items", '
             'columns={"id": "id", "app_name": "apps[].name"}, '

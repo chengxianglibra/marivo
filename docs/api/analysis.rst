@@ -49,6 +49,12 @@ before counting members by it; projecting to the attribute alone counts categori
 
 Use the returned ``compute()`` Frame for complete fixed memory data and the
 returned ``persist()`` Frame for committed data. Derived operations remain lazy.
+DuckDB HTTP JSON inputs keep concrete GET/POST query and body values in their
+``md.json(...)`` semantic source definition. Evaluation checks all pending request
+parameters before acquisition, then reuses each response across consumers and
+projections in that evaluation. Requests can occur during schema preparation;
+no automatic pagination or cross-evaluation response reuse occurs. Completed and
+reopened Frames consume fixed data. No source arguments are added to these methods.
 Reopen with ``session.persisted_frame(artifact_id)`` in the exact Session; the ID
 must be a string. Every Frame exposes its captured ``session_id``. Stored roots
 expose ``artifact_id``, ``findings()`` and ``evidence()`` directly.

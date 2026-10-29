@@ -5,7 +5,9 @@ from __future__ import annotations
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass, field, replace
+from json import dumps
 from typing import TYPE_CHECKING, Literal, NoReturn
+from urllib.error import HTTPError
 from uuid import uuid4
 
 import ibis.expr.operations as ops
@@ -15,6 +17,7 @@ import pyarrow as pa
 from ibis.common.exceptions import IbisError
 
 from marivo._definition.types import IntervalCoordinate
+from marivo._errors import MarivoError
 from marivo.analysis.compiler.graph_plan import (
     AttributeCoalitionRead,
     AttributeFrequencyRead,
@@ -83,6 +86,8 @@ from marivo.datasource.adapters import (
     SourceSession,
     provider_for,
 )
+from marivo.datasource.ir import JsonSourceIR
+from marivo.datasource.json_source import JsonResponseCache
 from marivo.datasource.runtime import DatasourceConnectionService
 from marivo.semantic._compiled_state import CompiledSemanticState
 from marivo.semantic._numeric_lowering import NumericCheck
@@ -91,7 +96,7 @@ from marivo.semantic.validator import normalize_target_entity
 
 @dataclass(frozen=True, slots=True, eq=False)
 class PreparedSources:
-    """Schema-only bindings for one Query invocation and its open source session."""
+    """Prepared relations for one Query; HTTP JSON retains acquired response data."""
 
     source: SourceSession
     schemas: tuple[SourceSchema, ...]
@@ -434,7 +439,7 @@ def qualify_attribute_game_sources(prepared: PreparedSources, plan: QueryPlan) -
 def _preparation_error(
     expected: str,
     received: str,
-    repair: str = "Use a supported physical field type while preserving the requested key, time and unit contract; no business row was read.",
+    repair: str = "Use a supported physical field type while preserving the requested key, time and unit contract; no result was completed or published.",
 ) -> MaterializationError:
     return MaterializationError(
         expected=expected,
@@ -452,7 +457,7 @@ def _route_gap(expected: str, received: str, repair: str) -> NoReturn:
         stage="query_execution",
         expected=expected,
         received=received,
-        repair=f"{repair} No business row was read and no Run was admitted.",
+        repair=f"{repair} No result was completed or published.",
         target="analysis_frame.compute",
     )
 
@@ -469,7 +474,7 @@ def _validate_timestamp_precision(field: pa.Field, path: str) -> None:
         raise _preparation_error(
             f"{path}: a lossless timestamp[{original_unit.decode('ascii')}] source carrier",
             f"{path}: {physical} loses source precision",
-            f"Expose {path} through a source or Entity projection retaining the original timestamp unit; do not truncate identity values. No business row was read.",
+            f"Expose {path} through a source or Entity projection retaining the original timestamp unit; do not truncate identity values. No result was completed or published.",
         )
 
 
@@ -507,9 +512,9 @@ def admit_source_type(field: pa.Field, path: str) -> DataType:
         f"{path}: a column type in the supported stage type families",
         f"{path}: {physical}",
         (
-            f"Expose {path} as Decimal(20,0) in the source view or Entity body with raw[{path.rsplit('.', 1)[-1]!r}].cast('decimal(20,0)'); UInt64 requires an exact Decimal carrier, never float or unchecked int64. No business row was read."
+            f"Expose {path} as Decimal(20,0) in the source view or Entity body with raw[{path.rsplit('.', 1)[-1]!r}].cast('decimal(20,0)'); UInt64 requires an exact Decimal carrier, never float or unchecked int64. No result was completed or published."
             if physical == pa.uint64()
-            else f"Project {path} to a supported scalar type in the Entity body using an inline cast such as raw['column'].cast('string'), preserving its identity, time and unit meaning. Read marivo.help('semantic.entity.define'). No business row was read."
+            else f"Project {path} to a supported scalar type in the Entity body using an inline cast such as raw['column'].cast('string'), preserving its identity, time and unit meaning. Read marivo.help('semantic.entity.define'). No result was completed or published."
         ),
     )
 
@@ -660,7 +665,7 @@ def prepare_query_sources(
     memo: InvocationMemo | None = None,
     frame_schemas: Mapping[str, DataSchema] | None = None,
 ) -> PreparedSources:
-    """Prepare all physical fields and checked relationships without business reads."""
+    """Prepare fields and relationships, acquiring HTTP JSON to infer its types."""
     from marivo._definition.relations import ReadQuery
     from marivo.analysis.core.graph import read_input_graph
 
@@ -686,7 +691,26 @@ def prepare_query_sources(
     for path in _query_entities(graph, state):
         contract = normalize_target_entity(registry, path)
         owner = available[contract.datasource_ref.path]
-        bound = owner.bind(contract.source, source_identity=path)
+        try:
+            bound = owner.bind(contract.source, source_identity=path)
+        except MarivoError:
+            raise
+        except Exception as error:
+            if not isinstance(
+                contract.source, JsonSourceIR
+            ) or not contract.source.path.lower().startswith(("http://", "https://")):
+                raise
+            raise MaterializationError(
+                expected=f"{path}: a successful JSON response with the declared record and field paths",
+                received=f"HTTP status {error.code}"
+                if isinstance(error, HTTPError)
+                else str(error)
+                if isinstance(error, ValueError)
+                else type(error).__name__,
+                repair=f"Check {path}'s URL, GET/POST parameters, datasource credentials and response paths, then retry compute(); no result was completed or published.",
+                stage="json_acquisition",
+                help_target="analysis_frame.compute",
+            ) from error
         entities[path] = bind_entity_output(
             registry, sidecar, path, owner, bound, contract.dependency_fingerprint
         )
@@ -1052,24 +1076,30 @@ def prepare_source_free_populations(
     return tuple(schemas)
 
 
-@contextmanager
-def open_query_sources(
-    service: DatasourceConnectionService,
-    graph: BoundGraph,
-    state: CompiledSemanticState,
-    *,
-    memo: InvocationMemo | None = None,
-    frame_schemas: Mapping[str, DataSchema] | None = None,
-) -> Iterator[PreparedSources]:
-    """Open the declared datasource sessions used by this invocation."""
+def qualify_source_inputs(graph: BoundGraph, state: CompiledSemanticState) -> tuple[str, ...]:
+    """Check the closed source declarations without connections or HTTP requests."""
     entities = _query_entities(graph, state)
     from marivo.analysis.materialization.graph_preflight import _local_file
-    from marivo.datasource.ir import CsvSourceIR, JsonSourceIR
+    from marivo.datasource.ir import CsvSourceIR, json_source_param_names
 
     for path in entities:
         contract = normalize_target_entity(state.registry, path)
         physical = contract.source
         datasource = state.registry.datasources[contract.datasource_ref.path]
+        if isinstance(physical, JsonSourceIR):
+            missing = json_source_param_names(physical)
+            if missing:
+                raise MaterializationError(
+                    expected=f"{path}: concrete values for every JSON request parameter",
+                    received=f"{path}: missing_parameters={missing!r}",
+                    repair=f"Replace md.source_param(...) placeholders {missing!r} with concrete non-secret values in {path}'s md.json(query_params=..., body=...) definition; Analysis consumes complete source definitions. No request was sent.",
+                    stage="execute_preparation",
+                    help_target="analysis_frame.compute",
+                )
+            if datasource.backend_type == "duckdb" and physical.path.lower().startswith(
+                ("http://", "https://")
+            ):
+                continue
         if isinstance(physical, (CsvSourceIR, JsonSourceIR)) and (
             datasource.backend_type != "duckdb"
             or not _local_file(physical.path)
@@ -1089,12 +1119,28 @@ def open_query_sources(
                 else ""
             )
             raise MaterializationError(
-                expected="an existing local CSV or unparameterized GET JSON file on DuckDB",
+                expected="an existing local CSV/GET JSON file or a complete HTTP(S) JSON request on DuckDB",
                 received=f"{type(physical).__name__}: existing_local_file={_local_file(physical.path)}, backend={datasource.backend_type}{facts}",
-                repair="Use an existing local file without runtime request parameters, or a qualified table/Parquet source.",
+                repair="Use an existing local file, a complete GET/POST HTTP JSON source on DuckDB, or a qualified table/Parquet source.",
                 stage="execute_preparation",
                 help_target="analysis_frame.compute",
             )
+    return entities
+
+
+@contextmanager
+def open_query_sources(
+    service: DatasourceConnectionService,
+    graph: BoundGraph,
+    state: CompiledSemanticState,
+    *,
+    memo: InvocationMemo | None = None,
+    frame_schemas: Mapping[str, DataSchema] | None = None,
+    json_responses: dict[str, JsonResponseCache] | None = None,
+) -> Iterator[PreparedSources]:
+    """Open sources, sharing HTTP responses only inside the caller's evaluation."""
+    entities = qualify_source_inputs(graph, state)
+    responses = {} if json_responses is None else json_responses
     datasources = tuple(
         dict.fromkeys(state.registry.entities[path].datasource for path in entities)
     )
@@ -1103,8 +1149,18 @@ def open_query_sources(
         for name in datasources:
             datasource = state.registry.datasources[name]
             backend = stack.enter_context(service.use_backend(datasource.name, read_only=True))
+            namespace = dumps(
+                (name, datasource.backend_type, dict(datasource.fields), dict(datasource.env_refs)),
+                sort_keys=True,
+                allow_nan=False,
+            )
             sources[name] = stack.enter_context(
-                SourceSession(provider_for(datasource.backend_type), datasource, backend)
+                SourceSession(
+                    provider_for(datasource.backend_type),
+                    datasource,
+                    backend,
+                    json_responses=responses.setdefault(namespace, {}),
+                )
             )
         if not sources:
             _route_gap(

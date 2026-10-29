@@ -377,7 +377,7 @@ def _build_registry() -> DatasourceCapabilityRegistry:
         _capability(
             "source_param",
             "marivo.datasource.source.source_param",
-            "Declare one required runtime query-string or JSON-body value for a JSON source.",
+            "Declare a JSON request value for datasource sampling or Semantic preview.",
             output="SourceParameter",
             inputs=_inputs(("subject", "SourceParameterName")),
             example='md.source_param("start")',
@@ -385,7 +385,7 @@ def _build_registry() -> DatasourceCapabilityRegistry:
         _capability(
             "json",
             "marivo.datasource.source.json",
-            "Build a JSON source with inferred types, optional projected JSON paths, and scalar-or-list request bindings.",
+            "Build a JSON source with inferred types, JSON-path projections, and GET/POST request values.",
             output="TableSource",
             inputs=(
                 *_inputs(("subject", "SourcePath"), ("dependency", "ProjectionColumns")),
@@ -396,7 +396,7 @@ def _build_registry() -> DatasourceCapabilityRegistry:
                 'md.json("https://api.example/orders", '
                 'columns={"order_id": "id", "app_name": "apps[].name"}, '
                 'records_path="$.data", '
-                'query_params={"app": md.source_param("apps")})'
+                'query_params={"app": ["app-1", "app-2"]})'
             ),
         ),
         _capability(

@@ -5,7 +5,8 @@ from __future__ import annotations
 import json
 from collections.abc import Mapping, Sequence
 from math import isfinite
-from typing import cast
+from typing import TypeAlias, cast
+from urllib.error import HTTPError
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 from uuid import uuid4
@@ -27,6 +28,11 @@ from marivo.datasource.ir import (
 
 _POST_TIMEOUT_SECONDS = 30
 _MISSING = object()
+
+# Owned by one evaluation; headers keep credential contexts isolated in memory.
+JsonResponseCache: TypeAlias = dict[
+    tuple[str, str, bytes | None, str, tuple[tuple[str, str], ...]], object
+]
 
 
 class _NoRedirectHandler(HTTPRedirectHandler):
@@ -178,6 +184,7 @@ def _request_payload(
     backend: object,
     source: JsonSourceIR,
     supplied: Mapping[str, QueryParamScalar | QueryParamScalarList],
+    responses: JsonResponseCache | None = None,
 ) -> object:
     from marivo.datasource.capabilities import json_http_headers
 
@@ -187,15 +194,31 @@ def _request_payload(
     if source.method == "POST":
         body = _resolved_json_body(source, supplied).encode("utf-8")
         headers["Content-Type"] = "application/json"
+    key = (url, source.method, body, source.format, tuple(sorted(headers.items())))
+    if responses is not None and key in responses:
+        return responses[key]
     request = Request(url, data=body, headers=headers, method=source.method)
     opener = (
         _POST_OPENER
         if source.method == "POST" or json_http_headers(backend, url)
         else build_opener()
     )
-    with opener.open(request, timeout=_POST_TIMEOUT_SECONDS) as response:
-        encoding = response.headers.get_content_charset() or "utf-8"
-        raw = response.read().decode(encoding)
+    try:
+        with opener.open(request, timeout=_POST_TIMEOUT_SECONDS) as response:
+            encoding = response.headers.get_content_charset() or "utf-8"
+            raw = response.read().decode(encoding)
+    except HTTPError as error:
+        # HTTPError owns a response even when open() fails before entering with.
+        error.close()
+        raise
+    payload = _decode_payload(raw, source)
+    if responses is not None:
+        responses[key] = payload
+    return payload
+
+
+def _decode_payload(raw: str, source: JsonSourceIR) -> object:
+    """Decode one complete response without retaining malformed responses."""
     try:
         if source.format == "newline_delimited":
             return [json.loads(line) for line in raw.splitlines() if line.strip()]
@@ -448,10 +471,11 @@ def read_json_source(
     source: JsonSourceIR,
     *,
     source_params: Mapping[str, QueryParamScalar | QueryParamScalarList] | None = None,
+    responses: JsonResponseCache | None = None,
 ) -> ir.Table:
     """Read JSON once and infer projected physical types from returned values."""
     supplied = normalize_json_source_params(source, source_params)
     if source.path.lower().startswith(("http://", "https://")):
-        payload = _request_payload(backend, source, supplied)
+        payload = _request_payload(backend, source, supplied, responses)
         return _arrow_table(backend, _project_rows(payload, source), source)
     return _inferred_table(backend, source)

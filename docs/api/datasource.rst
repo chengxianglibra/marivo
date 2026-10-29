@@ -129,7 +129,11 @@ descriptor for internal tables/views inside supported datasources.
 ``md.parquet(...)`` and ``md.csv(...)`` remain DuckDB file sources.
 ``md.json(...)`` covers DuckDB JSON files and URLs, including a parameterized
 JSON-body POST request. These sources are used with a datasource ref in inspection and
-snapshot calls; they are not datasource declarations.
+snapshot calls; they are not datasource declarations. Analysis also consumes
+HTTP GET/POST sources whose request values are concrete in the Entity's source
+definition. Unresolved ``md.source_param(...)`` values remain supported by explicit
+sampling and Semantic preview, and reject Analysis before HTTP acquisition.
+Analysis reuses each response within one evaluation without automatic pagination.
 
 Metadata & sources
 ------------------

@@ -88,8 +88,8 @@ def test_file_construction_and_refusals_never_submit_business_rows(
             )
 
 
-@pytest.mark.parametrize("request_kind", ("http", "shadow-http", "parameterized"))
-def test_json_request_sources_are_refused_before_source_open(
+@pytest.mark.parametrize("request_kind", ("http", "post", "parameterized"))
+def test_unresolved_json_parameters_are_refused_before_source_open(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
@@ -105,14 +105,11 @@ def test_json_request_sources_are_refused_before_source_open(
         )
         model = tmp_path / "models/semantic/sales/models.py"
         original = f"md.json({str(file)!r})"
-        if request_kind == "shadow-http":
-            shadow = tmp_path / "http:/127.0.0.1:9/unfetched"
-            shadow.parent.mkdir(parents=True)
-            shadow.write_text("[]")
-            assert Path("http://127.0.0.1:9/unfetched").is_file()
         replacement = (
-            "md.json('http://127.0.0.1:9/unfetched')"
-            if request_kind in ("http", "shadow-http")
+            "md.json('http://127.0.0.1:9/unfetched', query_params={'page':md.source_param('page')})"
+            if request_kind == "http"
+            else "md.json('http://127.0.0.1:9/unfetched', method='POST', body={'page':md.source_param('page')})"
+            if request_kind == "post"
             else f"md.json({str(file)!r}, query_params={{'page':md.source_param('page')}})"
         )
         assert original in model.read_text()
@@ -131,8 +128,10 @@ def test_json_request_sources_are_refused_before_source_open(
             query.persist()
         error = caught.value
         assert calls == []
-        assert error.expected == "an existing local CSV or unparameterized GET JSON file on DuckDB"
-        assert error.received and "JsonSourceIR" in error.received
+        assert error.expected and "concrete values" in error.expected
+        assert (
+            error.received and "missing_parameters" in error.received and "page" in error.received
+        )
         assert error.repair is not None and error.repair.action
         target = error.repair.help_target.display
         assert target == "analysis.analysis_frame.compute"

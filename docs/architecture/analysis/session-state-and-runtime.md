@@ -85,6 +85,17 @@ Ibis executes through its declared datasource and returns pandas. Fixed reads
 consume complete memory/stored data; local operations reuse existing kernels.
 There is one prepared schedule, without recursive compute or a second local SQL executor.
 
+DuckDB HTTP JSON sources keep concrete GET/POST parameters in their semantic
+source definitions. Before acquisition, preparation checks all pending source
+dependencies for unresolved request placeholders. It then acquires each complete
+request once per evaluation and infers its schema from that response; API business
+rows can already have been read when a later preparation check fails. Shared
+requests across source Frames reuse the parsed response, including independent
+projections. This response reuse is owned only by the evaluation and preserves
+datasource/credential isolation. No automatic pagination or retry occurs.
+`compute()` and `persist()` retain their existing signatures. Fixed Frame
+operations and reopening never recover a request or read its API again.
+
 After Frame planning, a qualified pending field-read Top can bound the native
 read on DuckDB, PostgreSQL, MySQL, Trino or ClickHouse. The initial route requires
 one consumer, ordinary complete identity axes with integer/string keys, and a

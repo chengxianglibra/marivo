@@ -15,7 +15,7 @@ import pandas as pd
 import pytest
 
 import marivo.analysis as mv
-from marivo.analysis.errors import AnalysisError
+from marivo.datasource.adapters import SourceSession
 from marivo.datasource.ir import TableSourceIR
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.graph.reference_fixtures import reference_data
@@ -23,7 +23,6 @@ from tests.analysis.graph.source_fixtures import author_source_project
 from tests.analysis.materialization.domain_recovery_worker import snapshot
 from tests.analysis.materialization.file_fixtures import author_file_case, author_http_case
 from tests.datasource.source_cases import source_case
-from tests.shared_fixtures import terminal_runs
 from tests.support.json import Json
 from tests.support.paths import PROJECT_ROOT
 from tests.support.source_trace import SourceTrace
@@ -187,54 +186,35 @@ def test_native_producer_cold_continuation(
     )
 
 
-def test_http_source_remains_a_datasource_boundary(
+def test_http_source_supports_fixed_continuation(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
-    source_trace: SourceTrace,
 ) -> None:
-    profile = "http-json-public"
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("MARIVO_PROJECT_ROOT", str(tmp_path))
-    with source_case("duckdb", profile, tmp_path, monkeypatch, reference_data("duckdb")) as case:
-        case.session.bind(
-            case.source, source_identity="http_boundary.datasource", source_params=case.params
-        )
+    with source_case(
+        "duckdb", "http-json-public", tmp_path, monkeypatch, reference_data("duckdb")
+    ) as case:
         author_http_case(case, semantic_project_factory)
-        session = mv.session.get_or_create("http-boundary", timezone="UTC")
-        with pytest.raises(AnalysisError) as failure:
-            session.observe(
-                {"value": session.catalog.get("metric:sales.total").value},
-                by=session.members(session.catalog.get("entity:sales.facts").value),
-            ).compute()
-        error = failure.value
-        assert error.expected and error.received
-        assert "local" in error.expected.lower()
-        assert "existing_local_file=False" in error.received
-        assert "query_parameters=0" in error.received
-        assert error.repair is not None
-        assert not terminal_runs(session)
+        session = mv.session.get_or_create("http-producer", timezone="UTC")
+        fixed = session.observe(
+            {"value": session.catalog.get("metric:sales.total").value}
+        ).compute()
+        assert fixed.to_pandas()["value"].tolist() == [6]
+        saved = fixed.persist()
+
+        def forbidden(*args: object, **kwargs: object) -> None:
+            raise AssertionError("Fixed HTTP result attempted source access")
+
+        monkeypatch.setattr(SourceSession, "bind", forbidden)
+        assert session.persisted_frame(saved.artifact_id).compute().to_pandas()[
+            "value"
+        ].tolist() == [6]
+        assert fixed.select({"double": fixed["value"] * 2}).compute().to_pandas()[
+            "double"
+        ].tolist() == [12]
         assert session._runtime.store.resources(session.id) == ()
-        assert source_trace.native_sql == []
-        report = {
-            "environment": {**case.environment, "profile": profile},
-            "raw_rows": reference_data("duckdb").rows,
-            "declarations": {
-                str(path.relative_to(tmp_path)): hashlib.sha256(path.read_bytes()).hexdigest()
-                for path in (tmp_path / "models").rglob("*.py")
-            },
-            "source": "expected_refusal",
-            "fixed": "not_applicable_no_analysis_producer",
-            "cold": "not_applicable_no_analysis_producer",
-            "error": {"expected": error.expected, "received": error.received},
-            "runs": 0,
-            "resources": 0,
-            "native_business_submissions": 0,
-        }
-        if directory := os.environ.get("MARIVO_R93_EVIDENCE_DIR"):
-            Path(directory, "http-analysis-boundary-" + profile + ".json").write_text(
-                json.dumps(report, default=str, sort_keys=True)
-            )
 
 
 @pytest.mark.runtime

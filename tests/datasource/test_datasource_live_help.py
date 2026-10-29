@@ -25,6 +25,17 @@ from marivo.introspection.live.model import SURFACE_LIMITS, LiveHelpTarget
 from marivo.refs import ref as ref_factory
 
 
+def test_json_help_exposes_analysis_request_and_authoring_binding_boundaries() -> None:
+    text, _, _ = render_help_text("datasource.json")
+    callable_text, _, _ = render_help_text(md.json)
+    assert text == callable_text
+    for fact in ("concrete GET/POST values", "reused per evaluation", "without pagination"):
+        assert fact in text
+    parameters, _, _ = render_help_text("datasource.source_param")
+    assert "datasource sampling or Semantic preview" in parameters
+    assert len(text) <= SURFACE_LIMITS.focused_help_max_codepoints
+
+
 def test_trino_help_matches_source_native_quantile_capability() -> None:
     from marivo.datasource.engines import require_profile_for_backend_type
     from marivo.semantic._aggregate_accuracy import aggregate_repair

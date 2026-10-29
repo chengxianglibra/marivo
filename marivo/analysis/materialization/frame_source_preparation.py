@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from contextlib import ExitStack
 from dataclasses import dataclass, replace
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from marivo.analysis.compiler.frame_plan import (
@@ -54,7 +55,9 @@ from marivo.analysis.materialization.graph_source_execution import (
     prepare_attribute_endpoint,
     prepare_source_free_populations,
     qualify_query_sources,
+    qualify_source_inputs,
 )
+from marivo.datasource.json_source import JsonResponseCache
 
 if TYPE_CHECKING:
     from marivo.analysis.dsl.frame import AnalysisFrame
@@ -142,6 +145,14 @@ def prepare_frame_sources(captured: CapturedFrameInputs, stack: ExitStack) -> Pr
     fixed_frames = captured.fixed_frames
     expressions = captured.expressions
     requested = captured.requested
+    # Validate every dependency before any HTTP source can acquire business data.
+    for current in source_frames.values():
+        backing = current._backing
+        if isinstance(backing, ExpressionFrameBacking) and isinstance(
+            backing.root, SourceFrameBinding
+        ):
+            qualify_source_inputs(backing.root.graph, backing.root.state)
+    json_responses: dict[tuple[Path, int], dict[str, JsonResponseCache]] = {}
     prepared_by_input: dict[str, PreparedSources] = {}
     source_plans: dict[str, CompiledSourceFrame] = {}
     source_schemas: dict[str, DataSchema] = {}
@@ -170,7 +181,7 @@ def prepare_frame_sources(captured: CapturedFrameInputs, stack: ExitStack) -> Pr
                             stage="attribute_state_binding",
                             expected="a native physical table source for replacement-game capture",
                             received=f"{entity}: {type(physical).__name__}",
-                            repair="Use a qualified native table-backed source for attribution, or inspect the original observations. No business row was read.",
+                            repair="Use a qualified native table-backed source for attribution, or inspect the original observations. No result was completed or published.",
                             target="analysis_frame.attribute",
                         )
             key_schemas = {
@@ -188,6 +199,9 @@ def prepare_frame_sources(captured: CapturedFrameInputs, stack: ExitStack) -> Pr
                         binding.state,
                         memo=memo,
                         frame_schemas=key_schemas,
+                        json_responses=json_responses.setdefault(
+                            (binding.connection.project_root, id(binding.connection.resolver)), {}
+                        ),
                     )
                 )
                 prepared_by_input[input_id] = prepared

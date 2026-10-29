@@ -41,7 +41,8 @@ Approximate methods must be explicit. Quantiles use DuckDB `approx_quantile`, Tr
 `approx_count_distinct`, `approx_distinct`, or `uniqHLL12` respectively. PostgreSQL
 and MySQL reject both approximate families during compilation. Exact distinct uses
 `COUNT(DISTINCT ...)`, or ClickHouse `uniqExact`. Unsupported operations and types
-fail before business reads; exact and approximate algorithms never substitute.
+fail before aggregate query execution; HTTP JSON responses are already acquired
+during source preparation to infer types. Exact and approximate algorithms never substitute.
 Approximate results can differ, with no universal error bound. Other reductions
 remain subject to type and expression qualification.
 

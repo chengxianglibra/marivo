@@ -17,6 +17,7 @@ import marivo.datasource as md
 import marivo.semantic as ms
 from marivo.datasource import runtime as datasource_runtime
 from marivo.datasource.errors import DatasourceAuthoringError
+from marivo.datasource.json_source import JsonResponseCache
 from marivo.refs import ref as ref_factory
 from marivo.semantic.catalog import (
     DomainEntry,
@@ -424,7 +425,10 @@ def test_json_source_bindings_use_native_entity_pairs(
 
     captured: dict[str, object] = {}
 
-    def fake_read_json_source(backend, source, *, source_params=None):
+    def fake_read_json_source(
+        backend, source, *, source_params=None, responses: JsonResponseCache | None = None
+    ):
+        assert responses is None
         captured["params"] = source_params
         start = source_params["start"]
         return backend.create_table(

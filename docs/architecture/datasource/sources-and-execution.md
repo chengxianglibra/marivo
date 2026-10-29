@@ -143,8 +143,9 @@ changes = md.json(
     records_path="$.data.change_infos",
 )
 ```
-Parameterized API URLs keep their stable request shape in the semantic project
-and bind request-specific values at analysis time:
+Parameterized API URLs keep their stable request shape in the semantic project.
+For explicit datasource sampling or Semantic preview, placeholders accept
+request-specific values supplied to that authoring read:
 
 ```python
 samples = md.json(
@@ -167,9 +168,10 @@ and values and does not interpret substring templates. The URL may already
 contain unrelated fixed parameters, but declaring the same name in both the URL
 and `query_params` fails closed.
 
-A JSON-object body enables the minimal POST API case. The request remains lazy:
-it is sent when the DuckDB-backed table executes, not while the project is
-loaded or inspected. `POST` requires an HTTP(S) URL and `format="auto"`.
+A JSON-object body enables the minimal POST API case. Definition loading and
+metadata inspection do not send the request. An actual read acquires and parses
+the response before binding its inferred DuckDB relation; Analysis does this
+during evaluation preparation. `POST` requires an HTTP(S) URL and `format="auto"`.
 `md.source_param(...)` may occupy a complete value anywhere in the body,
 including inside an object or array, and may resolve to a scalar or flat,
 non-empty scalar list. It does not interpolate string fragments.
@@ -233,15 +235,32 @@ identity. A discovery snapshot is bounded physical evidence, not a typed
 Analysis input.
 
 Datasource sampling and Semantic preview accept explicit JSON parameter bindings.
-The public Analysis Session has no source_bindings context. Its source route
-admits local unparameterized GET JSON; remote HTTP, POST and parameterized JSON
-remain outside that route. A successful datasource read does not expand it.
+Analysis admits local unparameterized GET JSON and complete HTTP(S) GET/POST
+JSON sources on DuckDB. Declare concrete non-secret request values directly in
+`md.json(query_params=..., body=...)`; the Entity, its fields and Metrics retain
+that physical definition. `compute()` and `persist()` take no source parameters.
+Every pending source dependency is checked before any HTTP request; unresolved
+`md.source_param(...)` names fail with the owning Entity and a repair directing
+the author to complete its source definition.
+
+During one evaluation, HTTP JSON acquisition reuses the parsed response for the
+same datasource configuration, final URL, method, body, headers and format.
+Different projections may consume the same response. Schema inference, checks
+and multiple source Frames do not refetch it. Preparation can therefore have
+read API business rows before a later type or operation qualification fails;
+that failure returns no completed result. Owned connections and temporary tables
+close before success or failure. Re-evaluating a pending expression fetches again;
+completed and reopened Frames consume fixed data. There is no cross-evaluation
+response cache, automatic retry or page traversal. A requested page does not
+establish completeness of the API collection.
 
 ### Ibis-owned analysis reads and terminal raw SQL
 
 Marivo-managed backend instances inherit Ibis relational compilation with narrow
 native aggregate corrections. A shared source aggregate policy qualifies accuracy
-and actual input types before business reads. ClickHouse exact distinct/quantile
+and actual input types before executing aggregate queries. HTTP JSON acquisition
+already reads response rows during source preparation to infer those types.
+ClickHouse exact distinct/quantile
 map to `uniqExact`/`quantileExactInclusive`; PostgreSQL/MySQL reject unsupported
 approximation, and MySQL/Trino reject exact quantiles. These private compiler
 adapters do not mutate upstream global compilers, rewrite compiled SQL text, or
@@ -251,7 +270,8 @@ continue through Ibis; issued and executed SQL use the same instance compiler.
 Provider operation support and exact Analysis method qualification are separate.
 The selected engine provider registry is lazy. `SourceSession` binds table and
 view relations on DuckDB, PostgreSQL, MySQL, Trino, and ClickHouse, and DuckDB
-CSV, Parquet, local JSON, and uncredentialed HTTP JSON. It checks exact source
+CSV, Parquet, local JSON, and HTTP JSON with optional datasource-scoped credentials.
+It checks exact source
 identity, runtime JSON parameters, relation ancestry, additional physical
 inputs, and the bound relation schema before execution. DuckDB reads and qualified
 typed PostgreSQL Analysis `query.source_read` v1 reads call the native Ibis

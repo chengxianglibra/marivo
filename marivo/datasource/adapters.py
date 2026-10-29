@@ -42,6 +42,7 @@ from marivo.datasource.ir import (
     QueryParamScalarList,
     TableSourceIR,
 )
+from marivo.datasource.json_source import JsonResponseCache
 from marivo.datasource.table_source import table_source_expression
 
 DURATION_UNIT_METADATA_KEY = b"marivo:duration_unit"
@@ -210,6 +211,7 @@ class SourceSession:
         owns_backend: bool = True,
         backend_lease: BackendLease | None = None,
         project_root: Path | None = None,
+        json_responses: JsonResponseCache | None = None,
     ):
         if datasource.backend_type != provider.name:
             raise _invalid(provider.name, datasource.backend_type)
@@ -230,6 +232,7 @@ class SourceSession:
         self._token = object()
         self._issued: dict[int, tuple[CompiledRead, _IssuedRead]] = {}
         self._bindings_by_identity: dict[str, tuple[SourceIR, dict[str, object]]] = {}
+        self._json_responses = json_responses
         self._bound_sources: dict[str, BoundSource] = {}
         self._query_string_facts: dict[tuple[str, str], bool] = {}
         self._query_decoded_strings: dict[str, frozenset[str]] = {}
@@ -360,7 +363,9 @@ class SourceSession:
         elif isinstance(source, JsonSourceIR) and self.provider.name == "duckdb":
             from marivo.datasource.json_source import read_json_source
 
-            relation = read_json_source(self._backend, source, source_params=source_params)
+            relation = read_json_source(
+                self._backend, source, source_params=source_params, responses=self._json_responses
+            )
         else:
             raise _invalid("a source qualified for the selected backend", type(source).__name__)
         if not isinstance(relation, ir.Table):

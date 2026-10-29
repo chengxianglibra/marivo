@@ -38,7 +38,8 @@ description: 查询驱动、来源形式、分析方法和数值限制。
 或 ClickHouse `quantileTDigest`；去重估算分别使用 `approx_count_distinct`、
 `approx_distinct` 或 `uniqHLL12`。PostgreSQL 和 MySQL 在编译时拒绝这两类近似操作。
 精确去重使用 `COUNT(DISTINCT ...)` 或 ClickHouse `uniqExact`。不支持的操作与类型
-在读取业务数据前报错，精确与近似算法不会相互替换。近似结果可能因后端而异，没有
+在聚合查询执行前报错；HTTP JSON 已在源准备阶段获取响应，用于推断类型。
+精确与近似算法不会相互替换。近似结果可能因后端而异，没有
 统一误差界限；其他规约仍须满足类型与表达式的准入条件。
 
 贡献分析使用五类后端的合格来源路线，但仍受方法、类型、键和来源限制。父级总量与

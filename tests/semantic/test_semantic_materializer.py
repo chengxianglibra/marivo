@@ -14,6 +14,7 @@ import pytest
 
 import marivo.datasource as md
 import marivo.semantic as ms
+from marivo.datasource.json_source import JsonResponseCache
 from marivo.datasource.source import PartitionScope
 from marivo.semantic._deferred_semantics import consume_field, consume_row
 from marivo.semantic.catalog import SemanticCatalog, SemanticKind
@@ -432,7 +433,8 @@ def test_dataset_json_source_lowers_runtime_bindings_to_encoded_url(
 
     requests: list[str] = []
 
-    def request_payload(backend, source, supplied):
+    def request_payload(backend, source, supplied, responses: JsonResponseCache | None = None):
+        assert responses is None
         requests.append(json_source.json_source_url(source, supplied))
         return [{"value": 1.25}]
 

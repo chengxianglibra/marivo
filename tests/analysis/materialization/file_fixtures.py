@@ -33,7 +33,7 @@ def author_http_case(
             "sales/models.py": "import marivo.datasource as md\nimport marivo.semantic as ms\n"
             + f"facts=ms.entity(name='facts', datasource=ms.ref.datasource('warehouse'), source=md.json({url!r}), primary_key=['tenant','id','revision'])\n"
             + "amount=ms.measure_column(name='amount', entity=facts, column='amount', additivity=ms.additive_all())\n"
-            + "happened=ms.time_dimension_column(name='happened', entity=facts, column='happened', parse=ms.timestamp(timezone='UTC'), is_default=True)\n"
+            + "happened=ms.time_dimension_column(name='happened', entity=facts, column='happened', parse=ms.strptime('%Y-%m-%d %H:%M:%S', timezone='UTC'), is_default=True)\n"
             + "amount_value=amount\nhappened_value=happened\n"
             + "@ms.metric()\ndef total():\n    return amount_value.sum(time=happened_value)\n",
         }

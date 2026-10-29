@@ -249,7 +249,8 @@ ClickHouse Decimal 精确分位以及源侧 Duration 分位均在编译时拒绝
 `quantileTDigest`。精确去重使用 `count_distinct()`，显式估算使用 `approx_nunique()`；
 原生估算分别使用 DuckDB `approx_count_distinct`、Trino `approx_distinct` 或
 ClickHouse `uniqHLL12`。PostgreSQL/MySQL 拒绝这两类近似操作。算法不会相互替换，
-不支持的操作在读取业务数据前编译报错。空输入或全 NULL 输入返回 NA；
+不支持的操作在聚合查询执行前编译报错；HTTP JSON 已在源准备阶段获取响应并推断类型。
+空输入或全 NULL 输入返回 NA；
 `nulls="error"` 拒绝 NULL 贡献。近似结果可因后端而异，没有统一误差界限。
 `metric.per(time).mean()` 仍表示各时间键结果的等权均值。
 

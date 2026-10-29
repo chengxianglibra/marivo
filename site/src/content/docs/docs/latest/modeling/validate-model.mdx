@@ -35,7 +35,8 @@ connection.
 dependency closure and checks actual Entity output schemas, field bindings,
 numeric types and temporal parser/timezone contracts. Its report includes
 physical types, affected fields, declaration locations and repairs. Preview and
-analysis reuse the same field checks before reading business rows. A successful
+analysis reuse the same field checks before executing their queries. HTTP JSON
+acquires response rows during source preparation to infer physical types. A successful
 validation does not certify every analysis method, and later source changes are
 checked again at use.
 

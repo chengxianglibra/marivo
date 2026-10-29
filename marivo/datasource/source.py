@@ -312,7 +312,7 @@ def source_param(name: str, /) -> SourceParamIR:
     """Declare one required runtime request parameter for a physical source.
 
     Args:
-        name: Stable parameter name supplied by an analysis source-binding scope.
+        name: Stable parameter name supplied by datasource sampling or Semantic preview.
 
     Returns:
         A validated ``SourceParamIR`` for one complete query-string or JSON-body value.
@@ -475,6 +475,10 @@ def json(
         method="POST", body={"query": "{ items { id } }"}, records_path="$.data.items")``
 
     Constraints:
+        Analysis requires concrete GET/POST query and body values in this definition;
+        md.source_param(...) placeholders are bound only by explicit authoring reads.
+        HTTP responses are acquired during evaluation preparation and reused within
+        that evaluation, without automatic pagination.
         Types are inferred from the source during reading. Projected output names
         and paths must be non-empty strings. Multiple traversed fields must share
         one array path and are projected from the same array element; independent
@@ -482,7 +486,8 @@ def json(
         A declared records path must resolve to an array at execution; a missing
         path or non-array value fails instead of materializing zero rows.
         For wrapped records, requested fields are projected in mapping order;
-        missing fields fail when read and additional object fields are ignored.
+        missing fields become null and additional object fields are ignored.
+        A required field with no inferable physical type fails when consumed.
         Present field types are inferred from their values.
         A traversal path (``"a[].b"``) expands one row per element; a record
         whose traversal array is missing, empty, or null produces no rows, and

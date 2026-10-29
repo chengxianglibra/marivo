@@ -50,10 +50,35 @@ head:
 
 ## 参数化 JSON
 
-用 `md.source_param(...)` 声明请求值，并在数据源采样或语义层预览时绑定。
-公开分析会话目前仅接受使用 GET 且未声明查询参数的本地 JSON 来源。
-精确签名请查询 `marivo.help("datasource.json")` 和
-`marivo.help("datasource.source_param")`。
+将具体的 GET 查询参数或 POST 请求体值直接写入语义源定义。把这些描述符作为
+`ms.entity(...)` 的 `source=`，再正常定义字段和 Metric；对应的 Analysis Frame
+使用普通的 `compute()` 或 `persist()`：
+
+```python
+import marivo.datasource as md
+
+alerts = md.json(
+    "https://api.example/alerts",
+    query_params={"page_number": 1, "page_size": 100},
+    records_path="$.data.vcdn_list",
+    columns={"id": "id", "severity": "severity"},
+)
+changes = md.json(
+    "https://api.example/changes",
+    method="POST",
+    body={"filter": {"apps": ["app-a", "app-b"]}, "page_num": 1},
+    records_path="$.data.change_infos",
+    columns={"id": "change_id", "app_id": "specificsource[].appid"},
+)
+```
+
+加载、构造和元数据展示不发送请求。计算期间，HTTP 获取的响应同时用于类型推断和
+后续计算；相同请求在多个消费者和投影之间复用一份响应。每次重新计算都会重新获取；
+已完成或重新打开的 Frame 使用固定数据。单页不证明集合完整，Marivo 不自动遍历分页。
+
+`md.source_param(...)` 占位符仍可用于显式数据源采样和语义预览。交给 Analysis 前，
+请在源定义中填入具体值；任何待执行依赖存在缺失参数，都会在所有请求前报错。
+参阅 `marivo.help("datasource.json")` 和 `marivo.help("datasource.source_param")`。
 
 ## 默认数据源与宿主凭据
 
