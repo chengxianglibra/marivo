@@ -56,7 +56,7 @@ mtd_daily = session.observe({"revenue": month_to_date}, by=(days,)).compute()
 
 `trailing_duration` 按实际经过时长计算，七天即 168 小时。`to_date` 从每个所选自然月的起点重新累计。来源数据须包含窗口所需的回溯历史，因为滚动窗口可能早于展示期间。对每日结果行求和，不能代替在月粒度重新观察比率或去重数 Metric。
 
-`sample_interval` 声明预期的采样时刻，不会补齐缺失时钟。时间样本均值使用实际表示的样本；严格样本规约则会在有限期间内检查已声明时钟的覆盖情况。已表示时刻上的 NULL 与缺失时钟不同。详见[时间均值与样本覆盖](/zh-cn/docs/latest/analysis/time-series/#时间均值与采样覆盖)。
+`sample_interval` 声明预期的采样时刻，不会补齐缺失时钟。所有 TimeField 样本规约均使用实际出现的样本，允许缺点，与是否声明节拍无关。已表示时刻上的 NULL 与缺失时钟不同。详见[时间均值与样本覆盖](/zh-cn/docs/latest/analysis/time-series/#时间均值与采样覆盖)。
 
 ## 配对已经完成的端点
 

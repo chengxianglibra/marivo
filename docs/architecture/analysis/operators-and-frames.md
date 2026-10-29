@@ -203,10 +203,10 @@ per-sample keys and ordered sampling checks survive any legal optimization.
 
 Qualified direct min/max of Float64 time-sample means completes each child mean
 before the outer source aggregate on DuckDB, PostgreSQL, MySQL, Trino and
-ClickHouse. Strict outer NULL and scheduled-clock coverage checks remain
-attached to their original domains; only bounded output summaries cross the
-boundary. Failed coverage includes same-statement witnesses for at most six
-groups and three missing instants per group, without a source reread. This does not admit arbitrary nested samples, Decimal/Duration or
+ClickHouse. Strict outer NULL checks remain attached to their original domains;
+only bounded output summaries cross the boundary. Missing clocks are allowed,
+including when sample_interval declares a cadence. This does not admit arbitrary
+nested samples, Decimal/Duration or
 ordered first/last to the same optimization.
 
 Qualified direct mean of numeric time-sample means also executes on those five

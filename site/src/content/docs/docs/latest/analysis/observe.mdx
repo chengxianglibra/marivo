@@ -15,8 +15,8 @@ or `persist()` to complete and publish it.
 
 `by` selects output coordinates; `where` filters source contributions. The
 default `by=()` requests one overall cell and sets no time range. If a `Metric`'s
-sampling or window rules require a bounded period, include a `TimeScope` or
-`CalendarAxis` in `by`; sample-coverage checks specific to that `Metric` may
-still fail during `compute()` or `persist()`.
+window or calendar sample rules require a bounded period, include a `TimeScope`
+or `CalendarAxis` in `by`. Native TimeField sample reducers allow missing clocks
+and require no period solely because `sample_interval` is declared.
 
 See the [observe section of Analysis DSL](/docs/latest/analysis/dsl/#observe-metrics) for the full guide and example.

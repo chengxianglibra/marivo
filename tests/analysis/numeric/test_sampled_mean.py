@@ -1,4 +1,4 @@
-"""Native sample means preserve timestamp weighting and checked completion."""
+"""Native sample reducers preserve timestamp weighting and NULL checks."""
 
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
@@ -29,12 +29,11 @@ from tests.support.source_trace import capture_source
 
 @pytest.mark.parametrize("backend", ["duckdb", "postgres", "mysql", "trino", "clickhouse"])
 @pytest.mark.parametrize("reducer", ["mean", "min", "max"])
-def test_sample_folds_compile_completed_mean_and_coverage_summaries(
+def test_sample_folds_compile_native_aggregates_without_clock_completion(
     backend: str,
     reducer: str,
 ) -> None:
     from marivo._definition.expressions import RowField, SourceAggregate
-    from marivo._definition.observations import SampleCoverage
     from marivo._definition.types import ExactRef, SumAll
     from marivo.analysis.compiler.observation import ReductionInput, lower_observation
     from marivo.refs import ref
@@ -43,7 +42,6 @@ def test_sample_folds_compile_completed_mean_and_coverage_summaries(
         {
             "amount": "float64",
             "point": ibis.dtype("timestamp('UTC', 6)").copy(nullable=False),
-            "wall": ibis.dtype("timestamp('UTC', 6)").copy(nullable=False),
             "category": "string",
         },
         name="samples",
@@ -60,15 +58,6 @@ def test_sample_folds_compile_completed_mean_and_coverage_summaries(
         "value",
         provider=backend,
         preserve_sample_presence=True,
-        coverage=(
-            (
-                SampleCoverage(
-                    "key.1", (datetime(2026, 10, 1, tzinfo=timezone.utc),), wall_timezone="UTC"
-                ),
-            )
-            if reducer != "mean"
-            else ()
-        ),
         mean_fold=("key.1", "error", reducer),
     )
     relation, checks = lower_observation(
@@ -78,25 +67,17 @@ def test_sample_folds_compile_completed_mean_and_coverage_summaries(
             "sales.facts.amount": "amount",
             "category": "category",
             "point": "point",
-            "__coverage_key.1": "wall",
         },
         (),
     )
     sql = ibis.to_sql(relation, dialect=backend).lower()
     assert "avg(" in sql
     assert f"{'avg' if reducer == 'mean' else reducer}(" in sql
-    if reducer == "mean":
-        assert "distinct" not in sql
-        assert "row_number" not in sql
-        assert " over " not in sql
-        assert "__mean_safe" not in sql
-        assert "__coverage_" not in sql
-        assert "sample_check.null" in relation.columns
-        assert {name for name, _ in checks} == {"sample_check.null"}
-    else:
-        assert "distinct" in sql
-        assert "sample_check.coverage" in relation.columns
-        assert {name for name, _ in checks} >= {"sample_check.null", "sample_check.coverage"}
+    assert "distinct" not in sql
+    assert "row_number" not in sql
+    assert "__coverage_" not in sql
+    assert "sample_check.null" in relation.columns
+    assert {name for name, _ in checks} == {"sample_check.null"}
     assert relation["key.1"].type().nullable
     if backend == "clickhouse":
         assert "cast(null as datetime64" not in sql
@@ -557,7 +538,7 @@ def test_native_mean_finishes_integer_and_decimal_samples_in_one_row(
         ]
     ),
 )
-def test_native_extrema_reduce_completed_means_with_bounded_checks(
+def test_native_extrema_reduce_sparse_completed_means_with_null_checks(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
@@ -589,8 +570,9 @@ def test_native_extrema_reduce_completed_means_with_bounded_checks(
         assert trace.returned_rows == [1]
         assert "sample_check.null" not in trace.returned_columns[0]
         missing = session.time_scope(start="2026-10-01", end="2026-10-01T03:00:00")
-        with pytest.raises(MaterializationError, match="missing state sample"):
-            session.observe({"v": metric}, by=(missing, category)).compute()
+        rows = session.observe({"v": metric}, by=(missing, category)).compute().to_pandas()
+        assert rows["v"].tolist() == [expected]
+        assert all("__mean_folded" in columns for columns in trace.returned_columns)
         assert trace.returned_rows == [1, 1]
 
 
@@ -1160,7 +1142,6 @@ def test_time_means_share_observed_sample_policy_across_formulas(
                         "native": native,
                         "wrapped": native + 0,
                         "sum_mean": amount.sum(time=point).per(point).mean(),
-                        "quantile_mean": amount.quantile(0.95, time=point).per(point).mean(),
                         "weighted": amount.mean(time=point)
                         .per(point)
                         .weighted_mean(weight=amount.sum(time=point)),
@@ -1173,8 +1154,16 @@ def test_time_means_share_observed_sample_policy_across_formulas(
             assert frame["native"].tolist() == [15.0]
             assert frame["wrapped"].tolist() == [15.0]
             assert frame["sum_mean"].tolist() == [35.0]
-            assert frame["quantile_mean"].tolist() == [15.0]
             assert frame["weighted"].tolist() == pytest.approx([1300 / 70])
+            quantile = amount.quantile(0.95, time=point).per(point).mean()
+            if backend in {"mysql", "trino"}:
+                from marivo.analysis.errors import AnalysisStageUnavailableError
+
+                with pytest.raises(AnalysisStageUnavailableError, match=backend + ": quantile"):
+                    session.observe({"quantile_mean": quantile}, by=by).compute()
+            else:
+                rows = session.observe({"quantile_mean": quantile}, by=by).compute().to_pandas()
+                assert rows["quantile_mean"].tolist() == [15.0]
 
 
 @pytest.mark.parametrize(
@@ -1190,7 +1179,7 @@ def test_time_means_share_observed_sample_policy_across_formulas(
     ),
 )
 @pytest.mark.parametrize("native", [False, True])
-def test_sample_coverage_failure_has_exact_bounded_same_read_witnesses(
+def test_sparse_time_samples_preserve_nulls_and_native_extrema(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
@@ -1208,26 +1197,9 @@ def test_sample_coverage_failure_has_exact_bounded_same_read_witnesses(
         samples = amount.mean(time=point).per(point)
         metric = samples.max() if native else samples.quantile(0.95)
         trace = capture_source(monkeypatch)
-        with pytest.raises(MaterializationError, match="missing state sample") as captured:
-            session.observe({"latency": metric}, by=(scope, category)).compute()
-        context = captured.value.sampling_context
-        assert context is not None, str(captured.value)
-        assert context.metric == "latency"
-        assert context.field == "sales.facts.point"
-        assert context.reducer == ("max" if native else "quantile")
-        assert context.period.start == datetime(2026, 10, 1, tzinfo=timezone.utc)
-        assert len(context.groups) == 1 and not context.groups_truncated
-        group = context.groups[0]
-        assert group.coordinates == (("sales.facts.category", "A"),)
-        assert group.expected_count == 5 and group.observed_count == 1
-        assert group.missing_points == tuple(
-            datetime(2026, 10, 1, hour, tzinfo=timezone.utc) for hour in (1, 2, 3)
-        )
-        assert group.missing_truncated
-        assert "not hourly buckets" in str(captured.value)
-        assert len(trace.returned_rows) == 1
-        if native:
-            assert trace.returned_rows == [1]
+        rows = session.observe({"latency": metric}, by=(scope, category)).compute().to_pandas()
+        assert rows["latency"].tolist() == [20.0]
+        assert trace.returned_rows == ([1] if native else [2])
         assert not trace.uploaded_key_rows
 
 
@@ -1245,7 +1217,7 @@ def test_sample_coverage_failure_has_exact_bounded_same_read_witnesses(
     ),
 )
 @pytest.mark.parametrize("native", [False, True])
-def test_sampling_witnesses_exclude_filtered_clocks(
+def test_sparse_samples_exclude_filtered_clocks(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
@@ -1268,19 +1240,15 @@ def test_sampling_witnesses_exclude_filtered_clocks(
         scope = session.time_scope(start="2026-10-01", end="2026-10-01T03:00:00")
         samples = amount.mean(time=point).where(amount > 10).per(point)
         trace = capture_source(monkeypatch)
-        with pytest.raises(MaterializationError) as captured:
+        rows = (
             session.observe(
                 {"filtered": samples.max() if native else samples.quantile(0.95)}, by=(scope,)
-            ).compute()
-        context = captured.value.sampling_context
-        assert context is not None and context.metric == "filtered"
-        assert (context.groups[0].expected_count, context.groups[0].observed_count) == (3, 1)
-        assert context.groups[0].missing_points == tuple(
-            datetime(2026, 10, 1, hour, tzinfo=timezone.utc) for hour in (0, 2)
+            )
+            .compute()
+            .to_pandas()
         )
-        assert len(trace.returned_rows) == 1
-        if native:
-            assert trace.returned_rows == [1]
+        assert rows["filtered"].tolist() == [30.0 if native else 29.5]
+        assert trace.returned_rows == ([1] if native else [2])
         assert not trace.uploaded_key_rows
 
 
@@ -1311,6 +1279,8 @@ def test_time_mean_keeps_explicit_sample_domain_and_existing_null_policy(
                 {
                     "sum_samples": amount.sum(time=point).per(samples).mean(),
                     "mean_samples": amount.mean(time=point).per(samples).mean(),
+                    "min_sum": amount.sum(time=point).per(samples).min(),
+                    "p95_sum": amount.sum(time=point).per(samples).quantile(0.95),
                 }
             )
             .compute()
@@ -1318,6 +1288,8 @@ def test_time_mean_keeps_explicit_sample_domain_and_existing_null_policy(
         )
         assert frame["sum_samples"].tolist() == [5.0]
         assert frame["mean_samples"].tolist() == [10.0]
+        assert frame["min_sum"].tolist() == [0.0]
+        assert frame["p95_sum"].tolist() == [9.5]
         with pytest.raises(MaterializationError, match="non-NA"):
             session.observe(
                 {"strict": amount.mean(time=point).per(samples).mean(nulls="error")}
@@ -1400,7 +1372,7 @@ def test_calendar_sample_folds_keep_joint_keys_without_cross_bucket_completion(
 @pytest.mark.parametrize(
     "backend,profile", source_params([("duckdb", "table"), ("clickhouse", "table")])
 )
-def test_calendar_sample_domains_keep_coverage_explicit_keys_and_window_occurrences(
+def test_calendar_sample_domains_keep_sparse_samples_explicit_keys_and_windows(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
@@ -1435,14 +1407,15 @@ def test_calendar_sample_domains_keep_coverage_explicit_keys_and_window_occurren
             .to_pandas()
         )
         assert rows["p95"].tolist() == pytest.approx([19.0, 290.0])
-        with pytest.raises(MaterializationError, match="complete fixed-cadence") as captured:
+        filtered = (
             session.observe(
                 {"p95": total.where(amount > 0).per(point).quantile(0.95)},
                 by=(calendar, category),
-            ).compute()
-        context = captured.value.sampling_context
-        assert context is not None
-        assert context.groups[0].missing_points == (datetime(2026, 10, 1, 23, tzinfo=timezone.utc),)
+            )
+            .compute()
+            .to_pandas()
+        )
+        assert filtered["p95"].tolist() == pytest.approx([20.0, 290.0])
         explicit = mv.coordinates(
             by=(point,),
             keys=tuple(
@@ -1477,7 +1450,7 @@ def test_calendar_sample_domains_keep_coverage_explicit_keys_and_window_occurren
 )
 @pytest.mark.parametrize("aware", [False, True])
 @pytest.mark.parametrize("grain", ["day", "hour"])
-def test_calendar_sample_coverage_rejects_entirely_missing_bucket(
+def test_time_samples_keep_empty_calendar_buckets(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
@@ -1513,14 +1486,64 @@ def test_calendar_sample_coverage_rejects_entirely_missing_bucket(
         for nested in (False, True):
             metric = total.per(point).quantile(0.95)
             metric = metric.per(category).mean() if nested else metric
-            with pytest.raises(MaterializationError, match="complete fixed-cadence") as captured:
-                session.observe(
-                    {"p95": metric}, by=(calendar,) if nested else (category, calendar)
-                ).compute()
-            context = captured.value.sampling_context
-            assert context is not None and context.metric == "p95"
-            assert len(context.groups) == 1
-            group = context.groups[0]
-            assert (group.expected_count, group.observed_count) == (1, 0)
-            assert group.missing_points == (datetime(2026, 10, 2, tzinfo=timezone.utc),)
-            assert group.coordinates == (("sales.facts.category", "A"),)
+            rows = (
+                session.observe({"p95": metric}, by=(calendar,) if nested else (category, calendar))
+                .compute()
+                .to_pandas()
+            )
+            assert rows["p95"].iloc[0] == pytest.approx(19.0)
+            assert pd.isna(rows["p95"].iloc[1])
+
+
+@pytest.mark.parametrize("cadence", [False, True])
+@pytest.mark.parametrize(
+    "reducer,expected",
+    [
+        ("sum", 100.0),
+        ("mean", 50.0),
+        ("min", 0.0),
+        ("max", 100.0),
+        ("median", 50.0),
+        ("quantile", 95.0),
+        ("count", 2),
+        ("count_distinct", 2),
+        ("approx_median", 0.0),
+        ("approx_quantile", 100.0),
+        ("first", 0.0),
+        ("last", 100.0),
+    ],
+)
+def test_all_time_sample_reducers_allow_missing_clocks_without_period(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
+    cadence: bool,
+    reducer: str,
+    expected: float,
+) -> None:
+    with mean_session(
+        "duckdb",
+        "table",
+        tmp_path,
+        monkeypatch,
+        semantic_project_factory,
+        values=(0, 100, 100, 100, None),
+        cadence=cadence,
+    ) as (session, _):
+        amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+        point = catalog_value(session.catalog, "sales.facts.point", kind="field")
+        samples = amount.mean(time=point).per(point)
+        method = getattr(samples, reducer)
+        metric = method(0.95) if reducer in ("quantile", "approx_quantile") else method()
+        trace = capture_source(monkeypatch)
+        rows = session.observe({"v": metric}).compute().to_pandas()
+        # Complete each represented timestamp first: [0, 100, NULL]. The
+        # off-grid 00:30 participates; no hourly schedule is synthesized.
+        assert rows["v"].tolist() == pytest.approx([expected])
+        if reducer in ("mean", "min", "max"):
+            assert trace.returned_rows == [1]
+            assert "__mean_folded" in trace.returned_columns[0]
+        assert all(
+            "__coverage_" not in sql and "__sampling_" not in sql for sql in trace.native_sql
+        )
+        assert not trace.uploaded_key_rows

@@ -85,10 +85,10 @@ produces a zero-axis observation. CalendarAxis contributes its selected buckets.
 Ordinary reductions may omit a time axis and then receive no additional time
 constraint. A time role alone does not require a period.
 
-Windows and native TimeField-sample reductions other than mean and weighted_mean require an
-explicit observation endpoint in by. Native TimeField-sample mean and weighted_mean can use
-represented samples without a time axis; nested sample layers retain their own
-endpoint and coverage requirements. TimeField.within(scope) is a source predicate
+Windows require an explicit observation endpoint in by. All native TimeField
+sample reducers can use represented samples without a time axis, regardless of
+sample_interval. Calendar Grain samples require finite enclosing coordinates.
+TimeField.within(scope) is a source predicate
 and field.at(anchor) selects an attribute representation; neither supplies an
 observation endpoint. Membership time, attribute time, Metric observation time
 and output coordinates stay independent.

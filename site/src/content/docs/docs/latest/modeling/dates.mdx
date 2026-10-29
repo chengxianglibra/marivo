@@ -30,7 +30,7 @@ order_date = ms.time_dimension_column(
 
 Use `ms.time_dimension_column` for a physical column and `@ms.time_dimension` for a derived field. Native dates and aware timestamps need no parser; encoded strings or integers use `ms.strptime(...)`, while hour-only fields use `ms.hour_prefix(...)`. For naive timestamps, specify the source timezone when known or use the frozen reader authority. Choose at most one `is_default=True` time field per Entity. It selects the default Metric time role but does not set the observation range; supply a `TimeScope` for that range. See [business calendars](#business-calendars) for governed fiscal periods.
 
-When a sampling rule checks coverage, `sample_interval` declares exact expected clock points; it does not bucket or truncate timestamps. A missing point differs from a present row whose Metric is `NULL`.
+`sample_interval` describes source sampling cadence without bucketing or truncating timestamps. All TimeField sample reducers allow missing clocks. Represented NULLs retain their reducer policy; cadence does not assert source completeness.
 
 ## Derived time field: `ms.time_dimension`
 

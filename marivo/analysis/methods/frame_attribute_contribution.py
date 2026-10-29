@@ -363,7 +363,6 @@ def _original(
                 value,
                 column=replace(value.column, dtype=item.target.dtype),
                 keys=tuple(c.slot_id for c in keys),
-                coverage=(),
                 key_groups=(),
                 checks=(),
             )

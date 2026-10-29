@@ -69,11 +69,12 @@ policies remain operator-local strings; declaration-wide
 empty/null/zero-denominator policies, old factories and default folds are
 rejected with a concrete reauthoring action.
 
-Time-sample ``mean`` and ``weighted_mean`` use represented samples without
-scheduled-clock coverage checks or implicit zero/NULL completion. This policy is
-independent of formula shape and execution route; explicit Population domains
-and existing NULL/weight policies remain authoritative. Other sample reducers
-retain coverage checks. ``sample_interval`` never buckets timestamps.
+All native TimeField sample reducers use represented samples without
+scheduled-clock coverage checks or implicit zero/NULL completion, regardless of
+``sample_interval``. Cadence never buckets timestamps or requires an observation
+period. This policy is independent of formula shape and execution route; explicit
+Population and calendar Grain domains, NULL and weight policies remain authoritative.
+Windows and calendar samples retain their own period requirements.
 
 ``ms.rescale(expr, divisor=..., unit=...)`` explicitly divides a numeric Row or
 completed Metric by a finite positive constant and declares its target unit.

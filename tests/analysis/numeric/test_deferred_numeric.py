@@ -433,48 +433,6 @@ def test_native_function_chain_and_rounding_match_source_route() -> None:
         connection.disconnect()
 
 
-def test_state_sample_coverage_is_checked_only_when_per_value_is_demanded() -> None:
-    from datetime import datetime, timezone
-
-    from marivo._definition.expressions import PerReduce
-    from marivo._definition.types import AxisBinding
-    from marivo.analysis.binding.sampling import SampleCoverage
-
-    days = (datetime(2026, 1, 1, tzinfo=timezone.utc), datetime(2026, 1, 2, tzinfo=timezone.utc))
-    placeholder = SourceAggregate(RowExpression(resolver(ibis.literal(1)), ()), "sum", None)
-    axis = AxisBinding(
-        ExactRef(ref.entity("sales.facts"), "v1"),
-        ExactRef(ref.time_dimension("sales.facts.day"), "v1"),
-        (),
-        "field",
-    )
-    per = PerReduce(placeholder, (axis,), "mean")
-    column = DataColumn("a", "a", ScalarDataType("int64"), True)
-    binding = FormulaInput(
-        (0, 0),
-        "a",
-        column,
-        True,
-        keys=("key.0",),
-        coverage=(SampleCoverage("key.0", days),),
-        key_groups=(("key.0",),),
-    )
-    frame = pd.DataFrame(
-        {"key.0": [days[0]], "a": [10], "__numeric_present": [True], "__sample_present": [True]}
-    )
-    program = FormulaProgram((("mean", per),), (), (binding,))
-    stage = LocalCompute("combine", ("a",), formula_columns(program), (), program)
-    with pytest.raises(SemanticExpressionError, match="complete fixed-cadence state samples"):
-        query_combine(stage, (frame,))
-    value = Deferred(Variable("slot_0"))
-    guarded = MetricExpression(resolver(ibis.ifelse(False, value, 0)), (per,))
-    from dataclasses import replace
-
-    program = FormulaProgram((("mean", guarded),), (), (replace(binding, occurrence=(0, 0, 0)),))
-    stage = LocalCompute("combine", ("a",), formula_columns(program), (), program)
-    assert query_combine(stage, (frame,))["value.0"].tolist() == [0]
-
-
 def test_local_sample_accumulation_uses_native_sum_and_declared_decimal_finish() -> None:
     from marivo._definition.expressions import PerReduce, PerWeightedMean
     from marivo._definition.types import AxisBinding
@@ -520,42 +478,6 @@ def test_local_sample_accumulation_uses_native_sum_and_declared_decimal_finish()
         output_type=ScalarDataType("float64"),
     )
     assert result.value.tolist() == pytest.approx([(1.01 + 2 * 1.02) / 3])
-
-
-@pytest.mark.parametrize("calendar_slot,customer_slot", (("key.0", "key.1"), ("key.1", "key.0")))
-def test_sample_coverage_respects_calendar_axis_position(
-    calendar_slot: str, customer_slot: str
-) -> None:
-    from datetime import datetime, timezone
-
-    from marivo._definition.observations import SampleCoverage
-
-    days = (datetime(2026, 1, 1, tzinfo=timezone.utc), datetime(2026, 1, 2, tzinfo=timezone.utc))
-    node = SourceAggregate(RowExpression(resolver(ibis.literal(1)), ()), "sum", None)
-    keys = ("key.0", "key.1", "key.2")
-    binding = FormulaInput(
-        (0,),
-        "read",
-        DataColumn("a", "a", ScalarDataType("int64"), True),
-        True,
-        keys=keys,
-        coverage=(SampleCoverage("key.2", days, 0, calendar_slot),),
-    )
-    program = FormulaProgram((("value", node),), (), (binding,))
-    columns = tuple(DataColumn(key, key, ScalarDataType("string"), False) for key in keys)
-    stage = LocalCompute("combine", ("read",), (*columns, *formula_columns(program)), keys, program)
-    frame = pd.DataFrame(
-        {
-            customer_slot: ["alice"],
-            calendar_slot: [0],
-            "key.2": [days[0]],
-            "a": [10],
-            "__numeric_present": [True],
-            "__sample_present": [True],
-        }
-    )
-    with pytest.raises(SemanticExpressionError, match="complete fixed-cadence"):
-        query_combine(stage, (frame,))
 
 
 @pytest.mark.parametrize(

@@ -3,23 +3,15 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from datetime import timezone
 from decimal import Decimal
 from typing import TYPE_CHECKING, NoReturn
 
 import pandas as pd
 import pyarrow as pa
 
-from marivo._definition.observations import SampleCoverage
 from marivo.analysis.compiler.graph_plan import LocalCompute
 from marivo.analysis.compiler.observation import FormulaProgram
 from marivo.analysis.core.data_types import DataColumn, DecimalDataType, ScalarDataType
-from marivo.analysis.methods._sample_coverage import (
-    SamplingWitness,
-    record_witness,
-    sampling_context,
-    sampling_error,
-)
 
 if TYPE_CHECKING:
     from marivo.analysis.core.attribute import AttributeFormulaContext
@@ -79,20 +71,16 @@ def query_combine(
 
     program = stage.program
     assert isinstance(program, FormulaProgram)
-    sampling: dict[str, SamplingWitness] = {}
     frame, checks = _combine_program(
         program,
         inputs,
         stage.keys,
         stage.columns[len(stage.keys) :],
         attribute=attribute,
-        sampling=sampling,
     )
     for name, expected, received in checks:
         violation = frame[name].astype("boolean").fillna(False)
         if violation.any():
-            if received in sampling and not sampling[received].rows.empty:
-                raise sampling_error(sampling_context(sampling[received]))
             coordinates = frame.loc[violation, list(stage.keys)].head(6).to_dict(orient="records")
             numeric_failure(expected, f"{received}; coordinates={coordinates}")
     return frame.loc[:, [column.slot_id for column in stage.columns]]
@@ -105,8 +93,6 @@ def _combine_program(
     outputs: tuple[DataColumn, ...],
     forced_domain: pd.DataFrame | None = None,
     attribute: AttributeFormulaContext | None = None,
-    sampling: dict[str, SamplingWitness] | None = None,
-    coverage_domain: pd.DataFrame | None = None,
 ) -> tuple[pd.DataFrame, tuple[tuple[str, str, str], ...]]:
     """Keep sample checks as data until the enclosing formula demands them."""
 
@@ -134,7 +120,6 @@ def _combine_program(
     from marivo.analysis.compiler.observation import (
         FormulaInput,
         MemberInput,
-        coverage_field,
         duration_type,
         formula_columns,
     )
@@ -160,24 +145,6 @@ def _combine_program(
             and "__mean_folded" in frame
             and bool(frame["__mean_folded"].all())
         ):
-            if sampling is not None and "sample_check.coverage" in frame:
-                from marivo.analysis.methods._sample_coverage import native_sampling_witness
-
-                witness = native_sampling_witness(binding.coverage, frame)
-                if witness is not None:
-                    received = f"missing state sample; metric={witness.coverage.metric}; occurrence={binding.occurrence}"
-                    sampling[received] = witness
-                    binding = replace(
-                        binding,
-                        checks=tuple(
-                            (
-                                name,
-                                expected,
-                                received if name == "sample_check.coverage" else original,
-                            )
-                            for name, expected, original in binding.checks
-                        ),
-                    )
             # The native source read completed the entire sample reducer.
             # Retain the original graph; this occurrence supplies its value.
             assert binding.folded_mean is not None
@@ -188,7 +155,6 @@ def _combine_program(
                 key_groups=tuple(
                     group for group in binding.key_groups if all(key in keys for key in group)
                 ),
-                coverage=(),
                 folded_mean=None,
             )
         if binding.presence is not None:
@@ -205,12 +171,6 @@ def _combine_program(
         for item in grouped.values()
     ]
     program = replace(program, values=tuple(bindings))
-    coverage_frames: dict[tuple[int, ...], pd.DataFrame] = {}
-    for index, (binding, frame) in enumerate(zip(bindings, frames, strict=True)):
-        if "__coverage_row" in frame:
-            mask = frame["__coverage_row"].astype("boolean").fillna(False)
-            coverage_frames[binding.occurrence] = frame.loc[mask].copy()
-            frames[index] = frame.loc[~mask].copy()
     inputs = tuple(frames)
     if keys:
         domain = (
@@ -283,78 +243,6 @@ def _combine_program(
             if keys
             else pd.DataFrame(index=pd.RangeIndex(len(forced_domain)))
         )
-    wall_requirements: dict[tuple[tuple[int, ...], SampleCoverage], pd.DataFrame] = {}
-    for binding in bindings:
-        for coverage in binding.coverage:
-            if coverage.key not in keys:
-                continue
-            remaining_keys = [key for key in keys if key != coverage.key]
-            coordinates = domain.loc[:, remaining_keys].drop_duplicates()
-            if (
-                coverage_domain is not None
-                and coverage.output_key is not None
-                and coverage.output_slot in coverage_domain.columns
-            ):
-                # Coverage retains complete output buckets even when their samples are absent.
-                parent_keys = [key for key in remaining_keys if key in coverage_domain.columns]
-                parents = coverage_domain.loc[:, parent_keys].drop_duplicates()
-                if any(key not in parent_keys for key in remaining_keys):
-                    shared = [key for key in parent_keys if key != coverage.output_slot]
-                    samples = coordinates.drop(columns=coverage.output_slot).drop_duplicates()
-                    coordinates = (
-                        parents.merge(samples, on=shared)
-                        if shared
-                        else parents.merge(samples, how="cross")
-                    )
-                else:
-                    coordinates = parents
-            if coverage.output_key is not None:
-                coordinates = coordinates.loc[
-                    coordinates[coverage.output_slot] == coverage.output_key
-                ]
-            if not remaining_keys:
-                coordinates = pd.DataFrame(index=pd.RangeIndex(1))
-            expected_grid = pd.DataFrame({coverage.key: list(coverage.points)})
-            complete = coordinates.merge(expected_grid, how="cross")
-            if coverage.wall_timezone is not None:
-                from marivo.analysis.core.time_authority import time_zone
-
-                clock = coverage_field(coverage.key)
-                complete[clock] = pd.Series(
-                    [
-                        point.astimezone(time_zone(coverage.wall_timezone)).replace(
-                            tzinfo=timezone.utc
-                        )
-                        for point in complete[coverage.key]
-                    ],
-                    index=complete.index,
-                    dtype=object,
-                )
-                observed = (
-                    coverage_frames[binding.occurrence]
-                    .loc[:, [*remaining_keys, coverage.key, clock]]
-                    .drop_duplicates()
-                )
-                observed = observed.rename(columns={coverage.key: "__observed_sample"})
-                observed[clock] = observed[clock].astype(object)
-                observed["__wall_present"] = True
-                complete = complete.merge(
-                    observed, on=[*remaining_keys, clock], how="left", validate="one_to_one"
-                )
-                complete[coverage.key] = complete["__observed_sample"].where(
-                    complete["__wall_present"].notna(), complete[coverage.key]
-                )
-                complete["__wall_missing"] = complete["__wall_present"].isna()
-                wall_requirements[(binding.occurrence, coverage)] = (
-                    complete.loc[:, [*keys, "__wall_missing"]]
-                    .groupby(keys, dropna=False, as_index=False)
-                    .any()
-                )
-            domain = (
-                pd.concat([domain, complete.loc[:, keys]], ignore_index=True)
-                .drop_duplicates()
-                .reset_index(drop=True)
-            )
 
     def population_domain(definition: PopulationDependency, slots: tuple[str, ...]) -> pd.DataFrame:
         from marivo.analysis.dsl.population import population_keys
@@ -562,12 +450,7 @@ def _combine_program(
                                 occurrence=(operand_index, *binding.occurrence[len(prefix) :]),
                             )
                         )
-                        captured_coverage = coverage_frames.get(binding.occurrence)
-                        selected_frames.append(
-                            pd.concat([frame, captured_coverage], ignore_index=True)
-                            if captured_coverage is not None
-                            else frame
-                        )
+                        selected_frames.append(frame)
                         consumed.append(index)
             relevant_counts = {
                 child.population
@@ -635,23 +518,7 @@ def _combine_program(
                 complete_keys,
                 child_outputs,
                 complete_domain,
-                sampling=sampling,
-                coverage_domain=domain
-                if coverage_domain is None
-                or calendar_sample is not None
-                or any(
-                    isinstance(axis, CalendarCoordinate) and axis != program.calendar
-                    for axis in program.axes
-                )
-                else coverage_domain,
             )
-            if key_slots and any(binding.coverage for binding in selected_bindings):
-                # Required coverage coordinates must survive enclosing sample reductions.
-                domain = (
-                    pd.concat([domain, child_frame.loc[:, keys]], ignore_index=True)
-                    .drop_duplicates()
-                    .reset_index(drop=True)
-                )
             for child_column in child_outputs:
                 if isinstance(child_column.dtype, DurationDataType):
                     child_frame[child_column.slot_id] = pd.Series(
@@ -762,13 +629,11 @@ def _combine_program(
             # binding. Already typed stages keep their native carrier throughout.
             value = value.astype(object)
         name = f"input_{input_index}"
-        active_coverage = tuple(coverage for coverage in binding.coverage if coverage.key in keys)
         check_names = tuple(f"check_{input_index}_{i}" for i in range(len(binding.checks)))
-        coverage_names = tuple(f"coverage_{input_index}_{i}" for i in range(len(active_coverage)))
         table = ibis.table(
             {
                 name: ibis_type(binding.column.dtype),
-                **dict.fromkeys((*check_names, *coverage_names), "boolean"),
+                **dict.fromkeys(check_names, "boolean"),
             },
             name=f"_completed_{input_index}",
         )
@@ -778,55 +643,6 @@ def _combine_program(
         for key, (column_name, expected, received) in zip(check_names, binding.checks, strict=True):
             physical[key] = aligned[column_name].astype("boolean").fillna(False).astype(object)
             checks.append(NumericCheck(table[key], expected, received))
-        for key, coverage in zip(coverage_names, active_coverage, strict=True):
-            received = (
-                (
-                    f"missing state sample on {coverage.field}; metric={coverage.metric}; "
-                    f"layer={coverage.occurrence}; period={coverage.period}; key={coverage.key}; source={binding.stage_id}"
-                )
-                if coverage.field
-                else f"missing state sample on {coverage.key}"
-            )
-            if coverage.wall_timezone is not None:
-                requirements = wall_requirements[(binding.occurrence, coverage)]
-                wall_missing = (
-                    domain.merge(requirements, on=keys, how="left", validate="one_to_one")[
-                        "__wall_missing"
-                    ]
-                    .astype("boolean")
-                    .fillna(False)
-                )
-                physical[key] = wall_missing.astype(object)
-                if sampling is not None and coverage.field and wall_missing.any():
-                    sampling[received] = record_witness(coverage, domain, wall_missing, tuple(keys))
-                checks.append(
-                    NumericCheck(
-                        table[key],
-                        "complete fixed-cadence state samples",
-                        received,
-                    )
-                )
-                continue
-            required = domain[coverage.key].isin(coverage.points)
-            if coverage.output_key is not None:
-                required &= domain[coverage.output_slot] == coverage.output_key
-            present = (
-                aligned["__sample_present"].astype("boolean").fillna(False)
-                if "__sample_present" in aligned
-                else aligned["__present"].astype("boolean").fillna(False)
-            )
-            physical[key] = (required & ~present).astype(object)
-            if sampling is not None and coverage.field and (required & ~present).any():
-                sampling[received] = record_witness(
-                    coverage, domain, required & ~present, tuple(keys)
-                )
-            checks.append(
-                NumericCheck(
-                    table[key],
-                    "complete fixed-cadence state samples",
-                    received,
-                )
-            )
         values[binding.occurrence] = NumericValue(table[name], tuple(checks))
     declarations = dict(program.declared)
 
@@ -847,8 +663,6 @@ def _combine_program(
             check_name = f"formula.check.{len(retained)}"
             result[check_name] = violation
             retained.append((check_name, check.expected, check.received))
-            if sampling is not None and check.received in sampling:
-                sampling[check.received].demand(domain.loc[violation], tuple(keys))
             if attribute is not None and violation.any():
                 coordinates = domain.loc[violation, keys].head(6)
                 _attribute_formula_failure(

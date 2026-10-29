@@ -394,13 +394,8 @@ def _source_merge_issue(stage: SourceRead) -> str | None:
             "Window contributions retain their own period and grid.",
         ),
         (
-            bool(
-                reduction.sampled
-                or reduction.preserve_sample_presence
-                or reduction.coverage
-                or reduction.mean_fold
-            ),
-            "Sample coverage and presence retain their own grid.",
+            bool(reduction.sampled or reduction.preserve_sample_presence or reduction.mean_fold),
+            "Sample presence retains its own domain.",
         ),
         (reduction.duration is not None, "Duration reductions retain their exact tick completion."),
         (

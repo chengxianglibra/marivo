@@ -714,9 +714,9 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "time_fold_requires_sampled_time_field",
         "assembly",
         ("metric",),
-        "time_fold requires status_time_dimension to reference a sampled time dimension.",
-        "The fold operation compresses sampled status points, so the bound status axis must declare sample_interval.",
-        "Set status_time_dimension to a root entity time dimension with sample_interval, or remove time_fold for non-sampled status metrics.",
+        "Legacy time_fold declarations are retired; use explicit internal samples.",
+        "sample_interval describes source cadence without requiring complete clock coverage.",
+        "Replace time_fold with metric.per(time_field).reducer(); TimeField samples allow missing clocks.",
     ),
     ConstraintId.TIME_FOLD_MISSING: _constraint(
         ConstraintId.TIME_FOLD_MISSING,

@@ -2570,8 +2570,6 @@ def _required_coordinates(
     )
     if marker is not None:
         expression = expression.filter(expression[marker].fill_null(False))
-    if "__coverage_row" in expression.columns:
-        expression = expression.filter(~expression["__coverage_row"].fill_null(False))
     if keys:
         return expression.select(*keys).distinct()
     if marker is not None:

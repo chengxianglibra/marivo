@@ -3,11 +3,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
 from typing import Literal
 
 from marivo._definition.correspondence import ComparisonAxis
-from marivo._definition.expressions import MetricNode, PredicateExpression, Reducer, TimeBinding
+from marivo._definition.expressions import MetricNode, PredicateExpression, TimeBinding
 from marivo._definition.relations import (
     MembershipBinding,
     PopulationDependency,
@@ -26,33 +25,10 @@ from marivo._temporal import InstantAnchor
 
 @dataclass(frozen=True, slots=True)
 class SampleLayer:
-    """One occurrence's complete sample axes, allocation and coverage policy."""
+    """One occurrence's sample axes and membership allocation."""
 
     axes: tuple[AxisBinding | CalendarCoordinate | IntervalCoordinate, ...]
     memberships: tuple[MembershipBinding, ...]
-    occurrence: tuple[int, ...]
-    reducer: Reducer | Literal["weighted_mean"]
-
-    @property
-    def requires_coverage(self) -> bool:
-        return self.reducer not in ("mean", "weighted_mean")
-
-
-@dataclass(frozen=True, slots=True)
-class SampleCoverage:
-    """Expected samples and optional raw-wall coverage on one internal key."""
-
-    key: str
-    points: tuple[datetime, ...]
-    output_key: int | None = None
-    output_slot: str = "key.0"
-    wall_timezone: str | None = None
-    metric: str = ""
-    field: str = ""
-    reducer: str = ""
-    occurrence: tuple[int, ...] = ()
-    period: ObservationPeriod | None = None
-    coordinate_names: tuple[tuple[str, str], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -95,10 +71,8 @@ class ContributionBinding:
     memberships: tuple[MembershipBinding, ...] = ()
     output_axis_count: int = 0
     calendars: tuple[tuple[str, CalendarCoordinate | IntervalCoordinate], ...] = ()
-    coverage: tuple[SampleCoverage, ...] = ()
     population_reads: tuple[tuple[AxisBinding, FieldRead | IdentityRead], ...] = ()
     window_rule: ObservationWindow | None = None
-    sample_layers: tuple[SampleLayer, ...] = ()
     metric: str = ""
 
 

@@ -61,9 +61,9 @@ session = mv.session.get_or_create("revenue-review", timezone="UTC", domains="sa
 非 `None` 的 `question`、`timezone`、`domains` 必须与保存值一致。比较前会规范化时区偏移，并对域名称排序去重。冲突会在恢复之前抛出 `SessionStateError`；读取 `error.expected`、`error.received` 和 `error.repair.candidates`（已有 Session ID）即可程序化处理。可省略冲突配置、传入一致的值，或选择新名称。恢复使用与 `mv.session.resume(session_id)` 相同的 writer guard，存在活动 writer 时仍会拒绝。没有待恢复工作时，重复获取保持 `updated_at` 不变。Help：`analysis.session.get_or_create`。
 
 `session.observe(metrics, by=())` 请求一个零轴的整体单元，不提供观察时间范围。
-并非所有涉及时间的 Metric 都必须传 scope。时间样本 `mean` 和 `weighted_mean` 可以直接使用实际样本，无须在 `by` 中提供
-TimeScope 或 CalendarAxis；其他时间样本规约保留各自的范围要求。
-指标自身的样本覆盖要求仍然适用。部分检查只在 `compute()` 或 `persist()` 时执行，
+所有原生 TimeField 样本规约均可使用实际样本，无须在 `by` 中提供 TimeScope 或 CalendarAxis。
+`sample_interval` 描述节拍，不要求完整时钟覆盖；窗口和日历 Grain 样本保留各自的范围要求。
+部分检查只在 `compute()` 或 `persist()` 时执行，
 因此成功构造 Frame 并不能证明支持无范围观测。需要范围时，传入
 `by=(session.time_scope(start=..., end=...),)`。
 

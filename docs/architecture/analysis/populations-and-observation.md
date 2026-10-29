@@ -27,9 +27,10 @@ compositions at mv inherit their input owner when needed; cross-Session inputs f
 
 `session.observe(metrics, by=())` requests one overall, zero-axis cell; it does
 not supply an observation time range. A time-related Metric does not universally
-require a scope. Time-sample mean and weighted_mean can use represented samples without a
-TimeScope or CalendarAxis in `by`. Other time-sample reductions retain their
-period requirements. Metric-specific sample coverage requirements still apply. Some checks run
+require a scope. All native TimeField sample reducers use represented samples
+without a TimeScope or CalendarAxis in `by`; `sample_interval` describes cadence
+and does not require complete clock coverage. Windows and calendar Grain samples
+retain their own period requirements. Some checks run
 only during `compute()` or `persist()`, so successful capture alone does not prove
 that an unbounded observation is supported. When a period is required, pass
 `by=(session.time_scope(start=..., end=...),)`.
@@ -198,8 +199,8 @@ data without rechecking their original sources.
 internal key pair before applying the sample reducer. An average of per-customer
 ratios is not an overall ratio. Implicit field samples retain observed joint
 external/internal keys: completing output calendar buckets does not cross every
-bucket with every sample in the observation window. Declared sample coverage
-still completes and checks its required points within each contribution interval.
+bucket with every sample in the observation window. TimeField samples allow
+missing clocks even when sample_interval declares a cadence.
 A complete explicit internal domain retains empty
 samples under the child's empty policy; it may deliberately select a subset.
 Use a membership directly, an ordered nonempty tuple, P, or `(P, rule, ...)`.
@@ -217,8 +218,8 @@ or month; not week in month). Certified nesting follows snapshot containments.
 For a plain TimeScope, the inner grid tiles the whole interval. Actual edge
 bounds clip to the enclosing cell and scope; each clipped cell counts once,
 without prorating. Empty ratios remain NA and follow the sample reducer's NULL
-policy. Native TimeField coverage checks remain independent and run within the
-enclosing calendar sample. Nested Grain layers are supported. Supply the Grain
+policy. Native TimeField samples use represented timestamps within each
+enclosing calendar sample, without clock completion. Nested Grain layers are supported. Supply the Grain
 to per and the finite time coordinate in observe.by; a CalendarAxis is not a per
 argument. Missing time roles or finite coordinates produce typed repair errors.
 Semantic sample Grain lookups require the Session's current certified snapshot;

@@ -16,8 +16,8 @@ timezone, and `Session` reporting timezone as separate roles. Define business
 periods with an appropriate calendar and boundary timezone; model activities or
 holidays that can overlap as named occurrences. Workday counts need a schedule
 covering each selected date, including compensatory workdays; a missing status is
-unknown. Strict sample reducers check expected clock points only when a
-`TimeDimension` declares `sample_interval` and the observation range is finite. See
+unknown. All TimeField sample reducers allow missing clocks; `sample_interval`
+describes cadence without asserting complete coverage. See
 [Date and time definitions](/docs/latest/modeling/dates/) and
 [Time series and windows](/docs/latest/analysis/time-series/).
 

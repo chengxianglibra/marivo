@@ -8,7 +8,6 @@ from typing import TYPE_CHECKING, Literal, TypeAlias
 
 from marivo._definition.correspondence import coordinate_position
 from marivo._definition.expressions import PredicateExpression
-from marivo._definition.observations import SampleCoverage
 from marivo._definition.relations import PopulationDependency
 from marivo.analysis.compiler.query_program import (
     FrameCombineProgram,
@@ -76,7 +75,6 @@ class SourceSchema:
     inline_population: PopulationDependency | None = None
     original_identity: tuple[SourceField, ...] = ()
     binding_id: str = ""
-    coverage: tuple[SampleCoverage, ...] = ()
     time_authorities: tuple[SourceTimeAuthority, ...] = ()
     provider: str = "duckdb"
 
@@ -537,9 +535,7 @@ def _plan_source_reads(
                     *(
                         item.field
                         for item in schema.fields
-                        if item.field.startswith(
-                            ("__sample_assigned_", "__calendar_", "__coverage_")
-                        )
+                        if item.field.startswith(("__sample_assigned_", "__calendar_"))
                     ),
                 )
             )
@@ -754,13 +750,10 @@ def _plan_query(
             if item.source_id == stage.source_id
             and (item.occurrence is None or item.occurrence == stage.occurrence)
         )
-        contribution = replace(contribution, coverage=schema.coverage)
         reduction = replace(
             reduction,
             provider=schema.provider,
-            coverage=schema.coverage,
-            preserve_sample_presence=bool(schema.coverage)
-            or (
+            preserve_sample_presence=(
                 observation is not None
                 and observation.coordinates.population is not None
                 and (bool(stage.predicates) or not (reduction.axes or reduction.calendars))
@@ -870,21 +863,8 @@ def _plan_query(
                         for name in expression.columns
                         if name.startswith("__sample_scope_") or name == "__mean_folded"
                     ),
-                    *(
-                        DataColumn(name, name, data_type(expression[name].type()), True)
-                        for name in expression.columns
-                        if name.startswith("__coverage_")
-                    ),
-                    *(
-                        DataColumn(name, name, data_type(expression[name].type()), True)
-                        for name in expression.columns
-                        if name.startswith("__sampling_")
-                    ),
                 ),
-                keys=(
-                    *tuple(c.slot_id for c in stage_keys),
-                    *(name for name in expression.columns if name.startswith("__coverage_")),
-                ),
+                keys=tuple(c.slot_id for c in stage_keys),
                 program=ReductionRead(reduction),
             )
         )
@@ -918,7 +898,6 @@ def _plan_query(
                 ),
                 tuple((name, check.expected, check.received) for name, check in numeric_checks),
                 keys=tuple(c.slot_id for c in stage_keys),
-                coverage=reduction.coverage,
                 key_groups=tuple(key_groups),
                 folded_mean=folded_mean[0] if folded_mean is not None else None,
             )

@@ -273,7 +273,7 @@ def test_explicit_field_routes_and_during_none_are_frozen(
         consume_field(region.at(session.instant("2026-01-01")))
 
 
-def test_time_sample_requirement_is_checked_inside_formula_and_declared_closure(
+def test_time_samples_without_period_keep_formula_and_declared_closure(
     bound_catalog: BoundCatalogFactory,
 ) -> None:
     session = bound_catalog()
@@ -282,12 +282,11 @@ def test_time_sample_requirement_is_checked_inside_formula_and_declared_closure(
     mean = revenue.per((field,)).mean() * 0
     assert _captured_observation(session.observe({"zero": mean})).period is None
     nested = revenue.per((field,)).median() * 0
-    with pytest.raises(CoreRuleError, match="explicit observation period"):
-        session.observe({"zero": nested})
-    # A where time range is a contribution filter, not a substitute for sampling scope.
+    assert _captured_observation(session.observe({"zero": nested})).period is None
+    # A where time range remains a contribution filter, without an output interval.
     scope = session.time_scope(start="2026-01-01", end="2026-02-01")
-    with pytest.raises(CoreRuleError, match="explicit observation period"):
-        session.observe({"zero": nested}, where=field.within(scope))
+    query = session.observe({"zero": nested}, where=field.within(scope))
+    assert _captured_observation(query).period is None
     assert (
         _captured_graph(session.observe({"sample": nested}, by=(scope,))).signature.observation
         is not None
@@ -419,13 +418,13 @@ def test_to_many_scalar_path_is_rejected_without_source_reads(
     assert terminal_runs(session) == ()
 
 
-def test_sampled_time_requirement_survives_nested_declarations_and_zero(
+def test_sample_interval_does_not_require_period_for_nested_declarations(
     bound_catalog: BoundCatalogFactory,
 ) -> None:
     session = bound_catalog(sampled=True)
     net = session.catalog.get("metric:sales.net").value
-    with pytest.raises(CoreRuleError, match="sampled time"):
-        session.observe({"zero": net * 0})
+    query = session.observe({"zero": net * 0})
+    assert _captured_observation(query) is not None
     assert terminal_runs(session) == ()
 
 

@@ -98,9 +98,8 @@ def test_observe_help_distinguishes_field_axes_from_session_identity(
     assert "TimeScope/CalendarAxis: intervals/buckets" in text
     assert "P fixes joint keys" in text
     assert "by=() supplies no time range" in text
-    assert "finite TimeScope/CalendarAxis in by" in text
-    assert "qualified native means may omit it" in text
-    assert "Metric-specific sample coverage may still reject at compute/persist" in text
+    assert "Windows and calendar samples retain their period requirements" in text
+    assert "TimeField sample reducers allow missing clocks" in text
     assert "Input during:" not in text and "Input members:" not in text
     show_help("analysis.population.count")
     assert "declared identities without facts still count" in capsys.readouterr().out

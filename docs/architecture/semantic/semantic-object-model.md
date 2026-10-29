@@ -334,7 +334,8 @@ hh = ms.time_dimension_column(
   day and use a unique spelling: `(60, "minute")` requires `(1, "hour")`;
   `(24, "hour")` is outside this subday contract. DATE does not accept sampling;
   hour_prefix requires whole-hour spacing. Unknown native types are checked in
-  preparation. [Sampled expressions](expressions.md#internal-samples-and-windows)
+  preparation. Cadence does not assert complete source coverage; missing clocks
+  are allowed. [Sampled expressions](expressions.md#internal-samples-and-windows)
   own the reduction behavior.
 
 DATE contribution roles require day-or-coarser output/reset and finite boundaries

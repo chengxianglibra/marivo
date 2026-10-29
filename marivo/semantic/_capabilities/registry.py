@@ -2551,9 +2551,8 @@ def _expression_capabilities() -> tuple[AuthoringCapability, ...]:
                     "Nested calendar layers validate against their nearest enclosing cell. "
                     "Semantic Grain lookups bind the Session's current certified snapshot and require certification. "
                     "Windows inside calendar samples or wrapping calendar folds are unsupported and reject before execution. "
-                    "TimeField mean/weighted_mean use represented samples without scheduled coverage or implicit fill; "
-                    "other reducers retain coverage checks. sample_interval does not bucket timestamps. "
-                    "Coverage errors identify the Metric, time field, interval, groups and bounded missing instants."
+                    "TimeField sample reducers use represented samples without scheduled coverage or implicit fill; "
+                    "sample_interval describes cadence and does not bucket timestamps or require a finite observation period. "
                 )
             elif prefix == "Metric" and method == "where":
                 summary += (
@@ -2651,10 +2650,10 @@ def _expression_capabilities() -> tuple[AuthoringCapability, ...]:
                     )
                     + "Empty/all-NULL inputs return NA; no exact/approximate substitution is inferred."
                 )
-            if prefix == "MetricSamples" and method in {"mean", "weighted_mean"}:
+            if prefix == "MetricSamples":
                 summary += (
                     " Time samples use represented values without scheduled coverage or implicit fill, "
-                    "independently of formula shape or execution route. Explicit Population domains "
+                    "independently of formula shape or execution route. Explicit domains "
                     "and NULL/weight policies still apply."
                 )
             if prefix in {"row", "MetricSamples"} and method not in {"count", "count_distinct"}:

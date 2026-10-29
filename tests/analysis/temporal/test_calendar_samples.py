@@ -189,7 +189,9 @@ def test_calendar_sample_binding_errors_are_structured(calendar_session: Session
     assert 'mv.grain("day")' in semantic_error.value.repair.action
 
 
-def test_calendar_folding_retains_native_time_sample_coverage(calendar_session: Session) -> None:
+def test_calendar_folding_keeps_sparse_native_samples_and_empty_cells(
+    calendar_session: Session,
+) -> None:
     session = calendar_session
     amount = _field(session, "sales.facts.amount")
     sampled = _field(session, "sales.facts.sampled")
@@ -197,8 +199,7 @@ def test_calendar_folding_retains_native_time_sample_coverage(calendar_session: 
     scope = session.time_scope(start="2026-10-05", end="2026-10-07")
     assert session.observe({"v": p95}, by=(scope,)).compute().to_pandas()["v"].tolist() == [34]
     missing = session.time_scope(start="2026-10-05", end="2026-10-08")
-    with pytest.raises(MaterializationError, match="samples"):
-        session.observe({"v": p95}, by=(missing,)).compute()
+    assert session.observe({"v": p95}, by=(missing,)).compute().to_pandas()["v"].tolist() == [34]
 
 
 def test_published_calendar_metric_can_be_nested_under_another_calendar_layer(

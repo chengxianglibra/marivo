@@ -14,8 +14,7 @@ head:
 定义业务期间时，应使用合适的日历和边界时区；可能重叠的活动或节假日应建模为
 命名活动期间。
 统计工作日时，日程需覆盖所选范围内的每个日期，包括调休日；缺失状态表示未知。
-严格样本规约仅在 `TimeDimension` 声明 `sample_interval` 且观察范围有限时检查
-预期采样时刻。详见
+所有 TimeField 样本规约均允许缺点；`sample_interval` 描述节拍，不隐式断言完整覆盖。详见
 [日期与时间定义](/zh-cn/docs/latest/modeling/dates/)和
 [时间序列与窗口](/zh-cn/docs/latest/analysis/time-series/)。
 

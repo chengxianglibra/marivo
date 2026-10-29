@@ -117,7 +117,6 @@ def share_frequency_reads(plan: QueryPlan) -> QueryPlan:
             reduction.preserve_sample_presence,
             reduction.calendars,
             reduction.sampled,
-            reduction.coverage,
             reduction.provider,
             reduction.mean_fold,
         )

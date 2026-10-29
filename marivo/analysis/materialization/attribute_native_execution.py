@@ -170,7 +170,6 @@ def prepare_native_game(
                     reduction.preserve_sample_presence,
                     reduction.calendars,
                     reduction.sampled,
-                    reduction.coverage,
                     reduction.provider,
                     reduction.mean_fold,
                 ),

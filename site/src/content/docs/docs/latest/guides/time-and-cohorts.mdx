@@ -56,7 +56,7 @@ mtd_daily = session.observe({"revenue": month_to_date}, by=(days,)).compute()
 
 `trailing_duration` measures elapsed time, so seven days is 168 hours. `to_date` resets at the start of each selected calendar month. Include the required lookback history in the source: a rolling window can begin before the displayed period. Summing daily output rows is not a replacement for observing a ratio or distinct-count Metric at monthly grain.
 
-`sample_interval` declares an expected sample schedule; it does not fill missing clocks. Time-sample means use represented samples, while strict sample reducers check declared clock coverage over a finite period. A NULL at a represented time is different from a missing clock. See [time means and sample coverage](/docs/latest/analysis/time-series/#time-means-and-sample-coverage).
+`sample_interval` declares an expected sample schedule; it does not fill missing clocks. All TimeField sample reducers use represented samples and allow missing clocks, regardless of the declared cadence. A NULL at a represented time is different from a missing clock. See [time means and sample coverage](/docs/latest/analysis/time-series/#time-means-and-sample-coverage).
 
 ## Pair completed endpoints
 

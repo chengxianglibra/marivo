@@ -177,23 +177,6 @@ def bind_observation(
                 sample_layers,
             )
             return
-        if isinstance(node, (PerReduce, PerWeightedMean)) and (
-            period is None
-            and time_axis is None
-            and isinstance(node, PerReduce)
-            and node.reducer != "mean"
-            and isinstance(node.samples, tuple)
-            and any(
-                axis.field is not None and axis.field.ref.kind.value == "time_dimension"
-                for axis in node.samples
-            )
-        ):
-            reject(
-                "an explicit observation period for time samples",
-                f"None at {occurrence}",
-                "Pass by=(session.time_scope(...),).",
-                "session.observe",
-            )
         if isinstance(node, MemberCount):
             domain = node.population
             requested = tuple(dict.fromkeys((*axes, *sample_axes)))
@@ -267,8 +250,6 @@ def bind_observation(
                             SampleLayer(
                                 inner_axes,
                                 inner_memberships,
-                                occurrence,
-                                node.reducer if isinstance(node, PerReduce) else "weighted_mean",
                             ),
                         ),
                     )
@@ -334,20 +315,6 @@ def bind_observation(
             time_read = None
             if node.time is not None:
                 time_read = native_read(node.time.field, state.registry, resolver)
-                dimension = state.registry.dimensions[node.time.field.ref.path]
-                if (
-                    contribution_period is None
-                    and not coordinate_calendar_axes
-                    and dimension.sample_interval is not None
-                    and not (isinstance(node, SourceAggregate) and node.reducer == "mean")
-                    and not sample_layers
-                ):
-                    reject(
-                        "an explicit period for sampled time",
-                        f"None for {dimension.semantic_id} at {occurrence}",
-                        "Pass by=(session.time_scope(...),).",
-                        "session.observe",
-                    )
             reads = [
                 field.read or native_read(field.ref, state.registry, resolver) for field in fields
             ]
@@ -544,7 +511,6 @@ def bind_observation(
                     time,
                     contribution_period,
                     sample_axes=sample_axes,
-                    sample_layers=sample_layers,
                     metric=metrics[occurrence[0]][0],
                     memberships=all_memberships,
                     output_axis_count=output_axis_count,

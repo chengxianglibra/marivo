@@ -40,7 +40,6 @@ from marivo._definition.types import (
     field_read_key,
 )
 from marivo.analysis.binding.observe import ContributionBinding
-from marivo.analysis.binding.sampling import SampleCoverage
 from marivo.analysis.compiler.predicate import lower_condition
 from marivo.analysis.core.data_types import (
     DataColumn,
@@ -74,7 +73,6 @@ class ReductionInput:
     preserve_sample_presence: bool = False
     calendars: tuple[tuple[str, CalendarCoordinate | IntervalCoordinate], ...] = ()
     sampled: bool = False
-    coverage: tuple[SampleCoverage, ...] = ()
     provider: str = "duckdb"
     mean_fold: tuple[str, str, str] | None = None
 
@@ -89,7 +87,6 @@ class FormulaInput:
     zero_when_absent: bool
     checks: tuple[tuple[str, str, str], ...] = ()
     keys: tuple[str, ...] = ()
-    coverage: tuple[SampleCoverage, ...] = ()
     key_groups: tuple[tuple[str, ...], ...] = ()
     presence: str | None = None
     folded_mean: tuple[int, ...] | None = None
@@ -136,11 +133,6 @@ def calendar_field(slot: str) -> str:
     return f"__calendar_{slot}"
 
 
-def coverage_field(key: str) -> str:
-    """Identify a private observed wall-sample carrier."""
-    return f"__coverage_{key}"
-
-
 def reduction_input(
     contribution: ContributionBinding,
     slot: str,
@@ -176,7 +168,6 @@ def reduction_input(
         if contribution.time
         else None,
         window_key=contribution.window_key,
-        preserve_sample_presence=bool(contribution.coverage),
         calendars=calendars,
         sampled=bool(contribution.sample_axes),
     )
@@ -371,51 +362,6 @@ def lower_observation(
             ),
         )
         checks.extend((f"predicate_check.{i}", check) for i, check in enumerate(predicate_checks))
-    wall_keys = tuple(dict.fromkeys(item.key for item in prepared.coverage if item.wall_timezone))
-    if wall_keys:
-        # Coverage carries raw clocks separately from numeric grouping. Native
-        # projections may merge gap clocks or choose either repeated occurrence.
-        clocks = {coverage_field(key): filtered[columns[coverage_field(key)]] for key in wall_keys}
-        # Coverage consumes scheduled wall clocks only; off-grid observations
-        # remain numeric samples, but cannot satisfy any coverage requirement.
-        from marivo.analysis.compiler.sampled_mean import coverage_selection
-
-        expected = coverage_selection(
-            prepared.coverage, clocks, _reduction_axes(prepared, fields, window_slot)
-        )
-        observed = (
-            filtered.filter(expected)
-            .select(**_reduction_axes(prepared, fields, window_slot), **clocks)
-            .distinct()
-        )
-        # Synthetic NULLs require matching nullable types in both union arms.
-        normal = result.mutate(
-            **{
-                name: result[name].cast(result[name].type().copy(nullable=True))
-                for name in result.columns
-                if name not in observed.columns
-                and not result[name].type().is_boolean()
-                and not result[name].type().nullable
-            },
-            __coverage_row=ibis.literal(False),
-            **{
-                name: ibis.null().cast(value.type().copy(nullable=True))
-                for name, value in clocks.items()
-            },
-        )
-        coverage = observed.select(
-            **{
-                name: observed[name].cast(normal[name].type())
-                if name in observed.columns
-                else ibis.literal(True)
-                if name == "__coverage_row"
-                else ibis.literal(False)
-                if normal[name].type().is_boolean()
-                else ibis.null().cast(normal[name].type().copy(nullable=True))
-                for name in normal.columns
-            }
-        )
-        result = normal.union(coverage)
     if prepared.mean_fold:
         from marivo.analysis.compiler.sampled_mean import compact_extrema, compact_mean
 
@@ -431,19 +377,6 @@ def lower_observation(
                         result["sample_check.null"],
                         "non-NA internal samples",
                         f"{prepared.mean_fold[2]}(nulls='error')",
-                    ),
-                )
-            )
-        if prepared.mean_fold[2] != "mean":
-            checks.extend(
-                (
-                    (
-                        "sample_check.coverage",
-                        NumericCheck(
-                            result["sample_check.coverage"],
-                            "complete scheduled state samples",
-                            "missing state sample on the captured time axis",
-                        ),
                     ),
                 )
             )

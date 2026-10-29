@@ -30,7 +30,7 @@ order_date = ms.time_dimension_column(
 
 物理列使用 `ms.time_dimension_column`，派生字段使用 `@ms.time_dimension`。原生日期和带时区时间戳无需解析器；编码字符串或整数使用 `ms.strptime(...)`，只有小时的字段使用 `ms.hour_prefix(...)`。无时区时间戳应在来源时区已知时明确指定时区，否则使用冻结的读取时区。每个 Entity 最多设置一个 `is_default=True` 的时间字段。它指定 Metric 默认时间角色，但不设定观察范围；观察范围仍需通过 `TimeScope` 提供。财务期间参见[业务日历](#业务日历)。
 
-在采样规则检查覆盖时，`sample_interval` 声明预期的精确时钟点，不会把时间戳分桶或截断。缺少样本点与存在一行但 Metric 为 `NULL` 是两种情况。
+`sample_interval` 描述来源采样节拍，不会将时间戳截断或分桶。所有 TimeField 样本规约均允许缺点；已表示样本上的 NULL 遵循规约自身策略，声明节拍不代表来源完整。
 
 ## 派生时间字段：`ms.time_dimension`
 

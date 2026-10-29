@@ -800,7 +800,6 @@ def prepare_query_sources(
         table = prepared.table
         source_contract = replace(
             input_contract,
-            coverage=prepared.coverage,
             time_authorities=prepared.time_authorities,
         )
         schema = table.schema().to_pyarrow()
@@ -869,7 +868,6 @@ def prepare_query_sources(
             contribution.occurrence,
             prepared.checks,
             binding_id=binding_id,
-            coverage=prepared.coverage,
             time_authorities=prepared.time_authorities,
             provider=owners[root].provider.name,
             parameters=tuple(
@@ -1790,17 +1788,6 @@ def _validate_source_checks(
             continue
         violation = frame[name].astype("boolean").fillna(False)
         if violation.any():
-            reduction = read_reduction(stage)
-            if name == "sample_check.coverage" and reduction is not None:
-                from marivo.analysis.methods._sample_coverage import (
-                    native_sampling_witness,
-                    sampling_context,
-                    sampling_error,
-                )
-
-                sampling_witness = native_sampling_witness(reduction.coverage, frame)
-                if sampling_witness is not None:
-                    raise sampling_error(sampling_context(sampling_witness))
             finish = read_finish(stage)
             witness_slots = (
                 dict(finish.frame_top.numeric_witnesses).get(name)

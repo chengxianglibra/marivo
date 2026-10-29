@@ -693,6 +693,7 @@ def time_dimension_column(
             so agents do not guess raw semantic ids.
         column: Physical source column name to read with bracket access.
         sample_interval: Optional canonical minute/hour source sampling cadence.
+            Missing clock points are allowed; this does not assert complete coverage.
         parse: Optional parse variant such as ``ms.strptime(...)``.
         is_default: Whether this is the default time axis for the entity.
         domain: Override the active domain namespace with a ``DomainSymbol`` returned
@@ -789,6 +790,7 @@ def time_dimension(
         name: Dimension name. Defaults to the function name.
         entity: Owning entity ref returned by ``ms.entity(...)``.
         sample_interval: Optional canonical minute/hour source sampling cadence.
+            Missing clock points are allowed; this does not assert complete coverage.
         parse: Optional parse variant. Omit for native temporal columns (the parse
             is inferred at analysis time). Use ``ms.timestamp(timezone=...)``, ``ms.strptime(format)``, or
             ``ms.hour_prefix(prefix)`` when explicit configuration is needed.

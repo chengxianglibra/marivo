@@ -15,7 +15,7 @@ from marivo._definition.expressions import (
     SourceAggregate,
     TimeBinding,
 )
-from marivo._definition.observations import ObservationPeriod, SampleCoverage
+from marivo._definition.observations import ObservationPeriod
 from marivo._definition.relations import MembershipBinding
 from marivo._definition.types import (
     AxisBinding,
@@ -30,9 +30,7 @@ from marivo._definition.types import (
 from marivo.analysis.binding.observe import ContributionBinding
 from marivo.analysis.compiler.member_version import version_predicate
 from marivo.analysis.compiler.source_time import (
-    _hour_clock,
     localize,
-    parse_strptime,
     source_time,
     source_time_predicate,
     timestamp,
@@ -46,7 +44,6 @@ from marivo.semantic._numeric_lowering import numeric_failure
 from marivo.semantic._physical_contracts import validate_bound_field
 from marivo.semantic.ir import (
     HourPrefixParse,
-    StrptimeParse,
     TargetDimensionContract,
 )
 from marivo.semantic.validator import (
@@ -64,7 +61,6 @@ class PreparedFields:
     checks: tuple[tuple[str, str, str], ...]
     originals: tuple[tuple[str, ir.Value], ...]
     dependencies: tuple[ir.Value, ...]
-    coverage: tuple[SampleCoverage, ...] = ()
     time_authorities: tuple[SourceTimeAuthority, ...] = ()
 
 
@@ -86,7 +82,6 @@ class SourceInputContract:
     window_key: int | None
     sample_axes: tuple[AxisBinding | CalendarCoordinate | IntervalCoordinate, ...]
     calendars: tuple[tuple[str, CalendarCoordinate | IntervalCoordinate], ...]
-    coverage: tuple[SampleCoverage, ...]
     time_authorities: tuple[SourceTimeAuthority, ...]
 
     @classmethod
@@ -121,7 +116,6 @@ class SourceInputContract:
             contribution.window_key,
             contribution.sample_axes,
             contribution.calendars,
-            (),
             (),
         )
 
@@ -229,7 +223,6 @@ def prepare_fields(
             SourceTimeAuthority,
             ir.Value | None,
             TargetDimensionContract | None,
-            ir.Value | None,
         ],
     ] = {}
     zone = contribution.period.timezone if contribution.period is not None else "UTC"
@@ -295,30 +288,7 @@ def prepare_fields(
             )
             raw_prefix = prefix_input[0] if prefix_input is not None else None
             prefix_axis = prefix_input[1] if prefix_input is not None else None
-            clock: ir.Value | None = None
-            if (
-                authority.kind == "localizable"
-                and source_time_predicate(
-                    raw,
-                    axis,
-                    authority,
-                    start=None,
-                    end=datetime(2000, 1, 1),
-                    prefix=raw_prefix,
-                    prefix_axis=prefix_axis,
-                )
-                is not None
-            ):
-                if isinstance(axis.parse, HourPrefixParse):
-                    assert isinstance(prefix, ir.DateValue)
-                    clock = _hour_clock(raw, prefix, engine=engine)
-                elif isinstance(axis.parse, StrptimeParse):
-                    text = raw.cast("string")
-                    assert isinstance(text, ir.StringValue)
-                    clock = parse_strptime(engine, text, axis.parse).cast("timestamp")
-                else:
-                    clock = raw
-            time_encodings[path] = (raw, axis, authority, raw_prefix, prefix_axis, clock)
+            time_encodings[path] = (raw, axis, authority, raw_prefix, prefix_axis)
             if authority.kind == "civil_date":
                 from marivo.analysis.binding.windows import validate_date_contribution
 
@@ -373,7 +343,7 @@ def prepare_fields(
             time_encodings.get(contribution.time.field.ref.path) if contribution.time else None
         )
         if encoding is not None:
-            raw, axis, authority, prefix, prefix_axis, _ = encoding
+            raw, axis, authority, prefix, prefix_axis = encoding
             condition = source_time_predicate(
                 raw,
                 axis,
@@ -494,25 +464,9 @@ def prepare_fields(
     )
     if time_read is not None and time_read in reads:
         reads = (time_read, *(read for read in reads if read != time_read))
-    from marivo.analysis.compiler.observation import calendar_field, coverage_field, reduction_input
+    from marivo.analysis.compiler.observation import calendar_field, reduction_input
 
     physical_axes = reduction_input(contribution, "", None).axes
-    sample_rules = tuple(
-        layer
-        for layer in contribution.sample_layers
-        for axis in layer.axes
-        if not isinstance(axis, (CalendarCoordinate, IntervalCoordinate))
-    )
-    sampled_reads = {
-        field_read_key(read): slot
-        for index, read in enumerate(contribution.coordinates[contribution.output_axis_count :])
-        if (not sample_rules or sample_rules[index].requires_coverage)
-        and isinstance(read, FieldRead)
-        and registry.dimensions[read.field.ref.path].sample_interval is not None
-        for slot, path in physical_axes
-        if path == field_read_key(read)
-    }
-    wall_paths: set[str] = set()
     parts = tuple(
         (read, component, key)
         for read in reads
@@ -549,15 +503,6 @@ def prepare_fields(
                         expression, contribution.period.start, contribution.period.end, zone
                     )
                     extra_keys[name] = "__time_period"
-            if read_key in sampled_reads and isinstance(read, FieldRead):
-                encoding = time_encodings.get(read.field.ref.path)
-                if encoding is not None and encoding[5] is not None:
-                    name = unique("__sample_clock_" + str(index))
-                    # UTC is only the transport label for this private wall
-                    # clock; it is independent of the public native instant.
-                    extras[name] = localize("UTC", timestamp(encoding[5]))
-                    extra_keys[name] = coverage_field(sampled_reads[read_key])
-                    wall_paths.add(read.field.ref.path)
             originals.extend(extras.items())
             return extras
 
@@ -737,25 +682,11 @@ def prepare_fields(
                 if received not in condition_keys
             }
         )
-    from marivo.analysis.binding.sampling import sampling_coverage
-
-    authorities = {path: item[2] for path, item in time_encodings.items()}
-    coverage = (
-        sampling_coverage(
-            contribution, state, calendar=None, authorities=authorities, wall_paths=wall_paths
-        )
-        if not any(
-            isinstance(axis, CalendarCoordinate) and not axis.cells
-            for _, axis in contribution.calendars
-        )
-        else ()
-    )
     return PreparedFields(
         table,
         tuple(columns),
         tuple(checks),
         tuple(originals),
         tuple(dependencies),
-        coverage,
-        tuple(authorities.values()),
+        tuple(item[2] for item in time_encodings.values()),
     )

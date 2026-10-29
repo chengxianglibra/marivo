@@ -223,9 +223,8 @@ path. field.at(anchor) captures a versioned attribute instant. Neither reads
 attributes or proves a matching version exists. Source reductions, sample axes
 and sum-permission coordinates still require their native field forms.
 TimeField.within(scope) creates a half-open predicate; it does not supply the
-observation endpoint needed by a window or an endpoint-requiring time-sample
-reduction. Time-sample mean and weighted_mean can use represented samples without
-an observation endpoint.
+observation endpoint needed by a window. TimeField sample reducers can use
+represented samples without an observation endpoint.
 Exact grammar lives at semantic.predicate and semantic.field Help targets.
 
 ## Internal samples and windows
@@ -280,25 +279,20 @@ include_null policy. For a sampled status quantity, spatial reduction precedes
 temporal reduction, for example bandwidth.sum(time=sample_at).per(sample_at).quantile(0.95).
 Per-device P95 values cannot reconstruct the P95 of the combined time series.
 
-Field `sample_interval` supplies optional source coverage, independently of parse,
-for sample reducers that require it. Each native TimeField-sample `mean` or `weighted_mean`
-uses represented samples without scheduled coverage or implicit clock completion,
-regardless of arithmetic, conditionals, Duration, windows or native optimization.
-Explicit Population sample domains still retain their declared tuples and empty
-sample policy. Existing NULL policies and weighted valid-pair masks are unchanged.
-Other sample reducers retain their own coverage checks, including inside an outer
-mean. A time mean alone does not require a finite interval; windows and strict
-sample layers retain their endpoint and bounded-coverage requirements.
-Preparation freezes the sampling clock: naive values use parser timezone or
-reader authority; aware values use UTC. Output timezone only clips these points
-to the actual contribution intervals. The clock is never inferred from the first
-row. Missing expected points fail coverage; present points whose completed Metric
-is NULL retain the reducer's null policy. Same-time facts finish spatial
-reduction first. Without cadence, only represented samples are evaluated.
-Local DST gaps create no imaginary points and repeated hours retain distinct
-instants. Source wall clocks follow backend-native gap/fold interpretation; a
-native choice does not invent missing sample points. Complete sampling requires a bounded
-contribution interval. An aware non-UTC civil sampling plan is not supported.
+Field `sample_interval` describes the source's declared sampling cadence independently
+of parsing. All native TimeField sample reducers consume represented timestamps;
+missing clock points are allowed and are never implicitly filled with zero or NULL.
+The policy is independent of reducer, formula shape, Duration, windows and native
+optimization. Off-grid observations participate without truncation or bucketing.
+Same-time facts finish spatial reduction first. Represented NULLs retain the
+reducer's NULL policy; weighted means retain their common valid-pair mask.
+Explicit Population sample domains retain their declared tuples and empty-sample
+policy. Calendar Grain samples retain every declared calendar cell. TimeField
+samples alone require no observation period; windows and calendar samples retain
+their own endpoint and finite-coordinate requirements.
+Naive source values use parser timezone or reader authority; aware values use
+UTC. Source wall clocks follow backend-native DST gap/fold interpretation.
+Declaring cadence neither proves source completeness nor triggers a coverage scan.
 
 DuckDB, PostgreSQL, MySQL, Trino and ClickHouse finish a qualified direct numeric
 source mean followed by one internal time-sample mean in the source. The exact
@@ -315,15 +309,7 @@ native AVG arithmetic.
 Original-input consumers, Duration, windows, explicit sample populations
 and nested or conditional formulas retain their existing execution routes,
 including explicit local sample reduction where qualified. These choices do not
-change the time-mean coverage policy. Native floating order remains backend-dependent.
-
-A demanded coverage failure retains its Metric output name, sample layer, semantic
-time field, actual interval/timezone and complete group coordinates. Local and
-native compressed routes report up to six failed groups and three real missing
-instants per group, with expected/covered counts and truncation flags. NULL values
-at represented clocks are not missing clocks. Native witnesses come from the same
-statement, without a diagnostic reread. `sample_interval` declares clock points;
-it never truncates timestamps into hourly buckets.
+change the represented-sample policy. Native floating order remains backend-dependent.
 
 Membership allocation rules appear directly in observe.by or Metric.per inputs; they are independent at inner and outer levels. Correlated
 member fields stay in one tuple descriptor. [Observation](../analysis/populations-and-observation.md)

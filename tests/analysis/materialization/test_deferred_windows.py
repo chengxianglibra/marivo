@@ -119,8 +119,9 @@ def test_sampling_uses_source_clock_across_report_zones(
         scope = session.time_scope(
             start="2026-01-15T00:00Z", end="2026-01-15T03:00Z", timezone=zone
         )
-        with pytest.raises(AnalysisError, match=r"sample|coverage"):
-            session.observe({"mean": metric}, by=(scope,)).compute()
+        assert session.observe({"mean": metric}, by=(scope,)).compute().to_pandas()[
+            "mean"
+        ].tolist() == [20.0]
 
 
 @pytest.mark.parametrize("month", [1, 7])
@@ -153,8 +154,9 @@ def test_aware_two_hour_sampling_keeps_utc_phase(
         scope = session.time_scope(
             start=f"2026-{month:02d}-15T00:00Z", end=f"2026-{month:02d}-15T06:00Z", timezone=zone
         )
-        with pytest.raises(AnalysisError, match=r"sample|coverage"):
-            session.observe({"mean": metric}, by=(scope,)).compute()
+        assert session.observe({"mean": metric}, by=(scope,)).compute().to_pandas()[
+            "mean"
+        ].tolist() == [20.0]
 
 
 def test_sampling_encoding_null_and_duplicate_fact_contract(
@@ -184,10 +186,12 @@ def test_sampling_encoding_null_and_duplicate_fact_contract(
     with duckdb.connect(str(tmp_path / "windows.duckdb")) as connection:
         connection.execute("DELETE FROM orders WHERE id=3")
     for field in fields:
-        with pytest.raises(AnalysisError, match=r"sample|coverage"):
-            session.observe(
-                {"mean": amount.sum(time=field).per(field).median()}, by=(scope,)
-            ).compute()
+        rows = (
+            session.observe({"median": amount.sum(time=field).per(field).median()}, by=(scope,))
+            .compute()
+            .to_pandas()
+        )
+        assert rows["median"].tolist() == [20.0]
     unsampled = catalog_value(session.catalog, "sales.orders.ordered_at", kind="field")
     assert session.observe(
         {"mean": amount.sum(time=unsampled).per(unsampled).mean()}, by=(scope,)
@@ -282,7 +286,7 @@ def test_naive_source_sampling_uses_representable_wall_clocks(
     ].tolist() == [10.0]
 
     # DuckDB projects skipped 02:00 to the same instant as 03:00. That raw
-    # skipped clock must not satisfy a missing representable 03:00 sample.
+    # skipped clock remains a represented sample without clock completion.
     with duckdb.connect(str(tmp_path / "windows.duckdb")) as connection:
         connection.execute("DELETE FROM orders")
         connection.execute(
@@ -290,14 +294,8 @@ def test_naive_source_sampling_uses_representable_wall_clocks(
             "(1,'2026-03-08 00:00:00',10), (2,'2026-03-08 01:00:00',20), "
             "(3,'2026-03-08 02:00:00',30)"
         )
-    from marivo.analysis.materialization.errors import MaterializationError
-
-    with pytest.raises(MaterializationError, match=r"sample|coverage") as captured:
-        session.observe({"mean": metric}, by=(scope,)).compute()
-    assert captured.value.sampling_context is not None
-    assert captured.value.sampling_context.groups[0].missing_points == (
-        datetime(2026, 3, 8, 7, tzinfo=timezone.utc),
-    )
+    rows = session.observe({"median": metric}, by=(scope,)).compute().to_pandas()
+    assert rows["median"].tolist() == [20.0]
 
 
 @pytest.mark.parametrize(
@@ -868,13 +866,12 @@ def test_time_product_reuses_checked_domain_with_direct_count(
 
 
 @pytest.mark.parametrize("native", [False, True])
-def test_coverage_diagnostics_bound_groups_and_keep_exact_offgrid_clocks(
+def test_sparse_sample_reductions_keep_groups_and_offgrid_clocks(
     window_session: Session,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     native: bool,
 ) -> None:
-    from marivo.analysis.materialization.errors import MaterializationError
     from tests.support.source_trace import capture_source
 
     with duckdb.connect(str(tmp_path / "windows.duckdb")) as connection:
@@ -901,34 +898,24 @@ def test_coverage_diagnostics_bound_groups_and_keep_exact_offgrid_clocks(
         .tolist()
         == [10.0] * 8
     )
-    with pytest.raises(MaterializationError) as captured:
+    rows = (
         session.observe(
             {"peak": sample.max() if native else sample.quantile(0.95)}, by=(scope, region)
-        ).compute()
-    context = captured.value.sampling_context
-    assert context is not None and context.groups_truncated
-    assert len(context.groups) == 6
-    assert [group.coordinates for group in context.groups] == [
-        (("sales.orders.region", f"cluster-{i}"),) for i in range(6)
-    ]
-    for group in context.groups:
-        assert (group.expected_count, group.observed_count) == (3, 1)
-        assert group.missing_points == tuple(
-            datetime(2026, 1, 15, hour, tzinfo=timezone.utc) for hour in (0, 1)
         )
-        assert not group.missing_truncated
+        .compute()
+        .to_pandas()
+    )
+    assert rows["peak"].tolist() == [10.0] * 8
     assert len(trace.returned_rows) == 2
     if native:
         assert trace.returned_rows == [8, 8]
 
 
-def test_nested_sample_layers_keep_coverage_and_conditional_demand(
+def test_nested_sparse_sample_layers_keep_conditional_demand(
     window_session: Session,
     tmp_path: Path,
 ) -> None:
     import ibis
-
-    from marivo.analysis.materialization.errors import MaterializationError
 
     with duckdb.connect(str(tmp_path / "windows.duckdb")) as connection:
         connection.execute("DELETE FROM orders")
@@ -942,21 +929,21 @@ def test_nested_sample_layers_keep_coverage_and_conditional_demand(
     scope = session.time_scope(start="2026-01-15T00:00Z", end="2026-01-15T03:00Z")
     strict = amount.sum(time=point).per(point).quantile(0.95)
     nested = strict.per(region).mean()
-    with pytest.raises(MaterializationError) as captured:
-        session.observe({"nested": nested}, by=(scope,)).compute()
-    assert captured.value.sampling_context is not None
-    assert captured.value.sampling_context.reducer == "quantile"
-    assert captured.value.sampling_context.metric == "nested"
+    assert session.observe({"nested": nested}, by=(scope,)).compute().to_pandas()[
+        "nested"
+    ].tolist() == [29.0]
     guarded = ibis.ifelse(amount.sum(time=point) < 0, nested, 0)
     assert session.observe({"guarded": guarded}, by=(scope,)).compute().to_pandas()[
         "guarded"
     ].tolist() == [0.0]
-    with pytest.raises(MaterializationError) as demanded:
+    rows = (
         session.observe(
             {"guarded": ibis.ifelse(amount.sum(time=point) > 0, nested, 0)}, by=(scope,)
-        ).compute()
-    assert demanded.value.sampling_context is not None
-    assert demanded.value.sampling_context.metric == "guarded"
+        )
+        .compute()
+        .to_pandas()
+    )
+    assert rows["guarded"].tolist() == [29.0]
     # A bounded window changes the consumed interval, not the mean's sample policy.
     mean = (
         amount.sum(time=point)
@@ -984,11 +971,10 @@ def test_nested_sample_layers_keep_coverage_and_conditional_demand(
     assert formulas["conditional"].tolist() == [20.0]
     filtered = source.where(amount > 10).per(point)
     for metric in (filtered.max(), filtered.quantile(0.95)):
-        with pytest.raises(MaterializationError) as missing:
-            session.observe({"average": plain, "filtered": metric}, by=(scope,)).compute()
-        context = missing.value.sampling_context
-        assert context is not None and context.metric == "filtered"
-        assert (context.groups[0].expected_count, context.groups[0].observed_count) == (3, 1)
-        assert context.groups[0].missing_points == tuple(
-            datetime(2026, 1, 15, hour, tzinfo=timezone.utc) for hour in (0, 1)
+        rows = (
+            session.observe({"average": plain, "filtered": metric}, by=(scope,))
+            .compute()
+            .to_pandas()
         )
+        assert rows["average"].tolist() == [20.0]
+        assert rows["filtered"].tolist() == [30.0]

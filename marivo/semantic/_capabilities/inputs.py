@@ -124,7 +124,7 @@ _PARAMETERS: dict[str, tuple[str, str, tuple[LiveHelpTarget, ...]]] = {
     ),
     "sample_interval": (
         "tuple[int, minute | hour]",
-        "Omit for no declared cadence; otherwise pass a positive minute/hour interval represented by the source encoding.",
+        "Optional positive minute/hour source cadence. The encoding must represent the interval; missing clocks are allowed.",
         (),
     ),
     "boundary_timezone": (
