@@ -611,3 +611,6 @@ def test_projected_fixed_char_retains_observed_type(engine: str, physical: str) 
         md.table("orders", columns={"value": "value"}),
     )
     assert projected.columns[0].type == physical.lower()
+    from marivo.datasource.inspection import _ibis_table_type
+
+    assert _ibis_table_type(projected.columns[0].type, backend_type=engine) == "string"

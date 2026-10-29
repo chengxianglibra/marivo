@@ -3529,7 +3529,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
         _capability(
             "SemanticCatalog.get",
             "marivo.semantic.catalog.SemanticCatalog.get",
-            "Retrieve one immutable typed semantic object by canonical kind:path identity. Check object.kind before using kind-specific operations. No model calls or datasource reads; object.show() and object.definition disclose captured facts.",
+            "Retrieve one immutable typed semantic object by canonical kind:path identity string. ms.ref.* captures declaration references; get returns closed analysis inputs. Check object.kind before kind-specific operations. No model calls or datasource reads; object.show() and object.definition disclose captured facts.",
             kind="method",
             output="SemanticObject",
             inputs=(

@@ -242,7 +242,7 @@ def test_dst_mean_grid_and_cumulative_preserve_exact_windows(
     assert _values(running) == {"A": 928, "B": 60}
     output = gridded.compute().to_pandas()
     calendar = output.attrs["axes"][0]["descriptor"]
-    bounds = output.attrs["frozen_coordinates"][0]["rows"]
+    bounds = output.attrs["frozen_coordinates"][0]["rows"].to_pandas(types_mapper=pd.ArrowDtype)
     assert calendar["timezone"] == "America/New_York"
     assert (
         bounds["actual_end"].iloc[0] - bounds["actual_start"].iloc[0]
@@ -392,6 +392,7 @@ def test_timezone_mean_fixed_and_cold_preserve_authority_without_ambient_state(
     worker = """
 import json, sys
 import duckdb, ibis
+import pandas as pd
 import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.datasource.adapters import SourceSession
@@ -406,7 +407,7 @@ session = mv.session.resume(sys.argv[1])
 frame = session.persisted_frame(sys.argv[2]).to_pandas()
 assert frame['value'].tolist() == [20,60]
 calendar = frame.attrs['axes'][0]['descriptor']
-bounds = frame.attrs['frozen_coordinates'][0]['rows']
+bounds = frame.attrs['frozen_coordinates'][0]['rows'].to_pandas(types_mapper=pd.ArrowDtype)
 assert frame.attrs['axes'][0]['role'] == 'calendar' and calendar['timezone'] == 'Asia/Shanghai'
 assert bounds['actual_start'].iloc[0].isoformat() == '2026-07-31T16:00:00+00:00'
 assert bounds['actual_end'].iloc[0].isoformat() == '2026-08-01T16:00:00+00:00'

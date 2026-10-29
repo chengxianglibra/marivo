@@ -1433,11 +1433,17 @@ class AnalysisFrame:
                 if isinstance(selector, str) and selector in (axis.name, axis.token)
             ]
             if len(matches) != 1 or matches[0] in assigned:
+                guidance = f"Choose a full name or token from {tuple((a.name, a.token) for a in self.axes)!r}."
+                if isinstance(selector, FrameAxis):
+                    if selector._input_id == self._input_id:
+                        guidance = f"Pass axis_names={{{selector.token!r}: 'bucket'}}; use axis.token as the key."
+                    else:
+                        guidance = "Reacquire an axis from this Frame, then use its .token string as the key."
                 reject(
-                    "one unambiguous current axis name or token, assigned once",
-                    repr(selector),
-                    f"Choose a full name or token from {tuple((a.name, a.token) for a in self.axes)!r}.",
-                    f"frame.{member}",
+                    "one unambiguous current axis name or token string as an axis_names key, assigned once",
+                    f"{type(selector).__name__}: {selector!r}",
+                    guidance,
+                    f"frame.{member}.axis_names.key",
                     canonical_id=f"analysis_frame.{member}",
                 )
             if type(name) is not str or not name or name != name.strip() or not name.isprintable():
@@ -1445,7 +1451,7 @@ class AnalysisFrame:
                     "a nonempty printable export name without surrounding whitespace",
                     repr(name),
                     "Assign a distinct readable name to each renamed axis.",
-                    f"frame.{member}",
+                    f"frame.{member}.axis_names[{selector!r}]",
                     canonical_id=f"analysis_frame.{member}",
                 )
             assigned.add(matches[0])
@@ -1480,6 +1486,9 @@ class AnalysisFrame:
             cursor: Previous page cursor or None; repeat the same request parameters.
             axis_names: Optional full axis name or token to export name mapping.
             time_details: Include calendar labels and nominal boundaries; default False.
+                Calendar/interval axes export actual .start/.end; ordinary TimeFields
+                export one value. For clipped calendars, .nominal_start is the bucket
+                start and .start is the observation start. axis_names renames prefixes.
         Returns: Immutable FramePage with complete keys, layout and read statistics.
         Example: ``page = frame.compute().read_page(columns=('revenue',), limit=100)``.
         Constraints: Does not execute or persist expressions. Stored pages validate
@@ -1527,9 +1536,13 @@ class AnalysisFrame:
             output names and independent boolean presence. Composite identities
             remain tuples. Calendar and interval coordinates include start/end timestamps in their
             captured axis timezone; mixed interval zones and sub-minute fixed offsets use UTC.
-            Calendar details add label/nominal_start/nominal_end.
+            Ordinary TimeField coordinates remain one value column.
+            Calendar details add label/nominal_start/nominal_end. Actual .start may be
+            clipped; .nominal_start is the original bucket start. axis_names renames
+            prefixes only; select the desired exported column for a single start value.
             Paired coordinates use left/right prefixes.
-            attrs retain isolated axes, units, comparisons and frozen_coordinates.
+            attrs retain isolated axes, units, comparisons and frozen_coordinates;
+            frozen_coordinates entries store rows as immutable pyarrow.Table values.
 
         Example:
             ``fixed = frame.compute(); rows = fixed.to_pandas()``;

@@ -62,6 +62,13 @@ unknown; it is not filled from a user assertion. Unsupported necessary types fai
 when the execution closure consumes them. Unused columns do not add execution
 type restrictions.
 
+PostgreSQL, MySQL (including MariaDB), and Trino fixed-width CHAR/CHARACTER columns
+retain their observed physical type and width in inspection. Backend type mappers
+admit them as logical strings for Entity and Dimension validation, including
+expression Entity inputs and declared keys. This mapping adds no SQL cast,
+trimming, padding or collation emulation: source comparison, grouping and returned
+values follow the backend and reader. CHAR is not a numeric Measure type.
+
 Governed `SourceSession` reads, including `collect_bounded`, run through the
 selected Ibis backend and return a pandas DataFrame. Value conversion follows
 Ibis/provider behavior and may be

@@ -229,7 +229,7 @@ def test_registered_statements_are_pinned_by_snapshot() -> None:
         (
             "postgres",
             "postgres.columns",
-        ): "b46809c22735331fac831c188a7bfbcaac045d1dca5b990fd0583df78b2cea41",
+        ): "6f470b84ae33db84a5ca11e73b81c56ad4fabf9ab1ee989ab3395f46842c510a",
         (
             "postgres",
             "postgres.comment.columns",

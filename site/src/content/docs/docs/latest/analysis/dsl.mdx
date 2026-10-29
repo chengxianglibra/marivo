@@ -200,6 +200,10 @@ Merged interval axes with multiple boundary timezones use UTC timestamps. The co
 
 Names must be unique. Use `saved.to_pandas(axis_names={"sales.orders.region": "region"})` to rename by full axis name or unique schema token; FrameAxis keys are rejected. Collisions fail before payload reads. `read_page()` shares these options and binds them into its cursor. Explicit `compute()` or `persist()` is required.
 
+An ordinary TimeField axis exports one time-value coordinate column. Calendar/interval `.start` and `.end` describe the actual observation interval; for a clipped calendar bucket, use `time_details=True` and `.nominal_start` for its original bucket start. `axis_names` only renames prefixes. To obtain one column, select `table["bucket.start"]` and rename it; acquire that prefix with `fixed.to_pandas(axis_names={fixed.axes[0].token: "bucket"})`. Mapping keys must be full axis names or token strings. Reacquire axes from the receiving Frame before using their tokens.
+
+Each frozen-coordinate entry stores `rows` as an immutable `pyarrow.Table`, compatible with pandas metadata comparison. Use `part["rows"].to_pandas(types_mapper=pd.ArrowDtype)` when a pandas table is needed, preserving physical types and NULL.
+
 `table.attrs["axes"]`, `units`, `comparisons` and `frozen_coordinates` retain isolated interpretation metadata. Internal descriptors are not a stable import protocol. Physical numeric, missing-value and temporal types are retained: do not coerce all columns to float or fill every NA with zero. Continue typed analysis from the Frame. Help: `analysis.analysis_frame.to_pandas`.
 
 

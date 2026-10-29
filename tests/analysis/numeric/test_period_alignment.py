@@ -59,7 +59,10 @@ def paired_tables(frame: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame, pd.D
     axis = frame.attrs["axes"][0]
     assert axis["role"] == "paired"
     descriptor = axis["descriptor"]
-    parts = {part["name"]: part["rows"] for part in frame.attrs["frozen_coordinates"]}
+    parts = {
+        part["name"]: part["rows"].to_pandas(types_mapper=pd.ArrowDtype)
+        for part in frame.attrs["frozen_coordinates"]
+    }
     mapping = parts[descriptor["mapping_name"]]
     left = parts[descriptor["left"]["frozen"]["directory_name"]]
     right = parts[descriptor["right"]["frozen"]["directory_name"]]
@@ -79,7 +82,10 @@ def comparison_tables(
     current = next(axis for axis in schema.axes if axis.token == binding.current_axis_token)
     assert isinstance(current, CalendarDataAxis) and current.frozen is not None
     assert binding.baseline.frozen is not None
-    parts = {part["name"]: part["rows"] for part in frame.attrs["frozen_coordinates"]}
+    parts = {
+        part["name"]: part["rows"].to_pandas(types_mapper=pd.ArrowDtype)
+        for part in frame.attrs["frozen_coordinates"]
+    }
     return (
         parts[binding.mapping_name],
         parts[current.frozen.directory_name],

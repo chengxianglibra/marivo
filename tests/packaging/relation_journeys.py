@@ -180,7 +180,7 @@ def _frame(exported: pd.DataFrame) -> pd.DataFrame:
 def _frozen_tables(exported: pd.DataFrame) -> dict[str, pd.DataFrame]:
     parts: dict[str, pd.DataFrame] = {}
     for item in exported.attrs["frozen_coordinates"]:
-        name, rows = item["name"], item["rows"]
+        name, rows = item["name"], item["rows"].to_pandas(types_mapper=pd.ArrowDtype)
         assert isinstance(name, str) and isinstance(rows, pd.DataFrame)
         assert name not in parts
         parts[name] = rows

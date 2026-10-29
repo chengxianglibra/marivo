@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import duckdb
+import pandas as pd
 import pytest
 
 import marivo.analysis as mv
@@ -364,9 +365,9 @@ def test_wall_membership_calendar_windows_and_population_agree(
         .compute()
         .to_pandas()
     )
-    assert values.attrs["frozen_coordinates"][0]["rows"]["ordinal"].tolist() == list(
-        range(len(expected))
-    )
+    assert values.attrs["frozen_coordinates"][0]["rows"].to_pandas(types_mapper=pd.ArrowDtype)[
+        "ordinal"
+    ].tolist() == list(range(len(expected)))
     assert values["ordinary"].tolist() == expected
     assert values["history"].tolist() == [
         sum(expected[: index + 1]) for index in range(len(expected))

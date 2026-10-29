@@ -158,11 +158,15 @@ def provider() -> DisclosureProvider:
                     "Optional full axis name or token to export name mapping; defaults to final path components.",
                     ("analysis_frame.schema",),
                 ),
-                P("time_details", "Include calendar labels and nominal boundaries; default False."),
+                P(
+                    "time_details",
+                    "Include calendar labels and nominal boundaries; .nominal_start is the original bucket start, .start may be clipped; default False.",
+                ),
             ),
             output="FramePage",
             constraints=(
                 "Requires complete memory or stored data; compute/persist first. No execution, automatic persistence, Catalog or source reads.",
+                "Calendar/interval coordinates export actual .start/.end; ordinary TimeFields export one value. axis_names renames prefixes only.",
                 "Complete keys and coordinates precede requested fields. Selection preserves row order and total_count. No attrs on page exports.",
                 "Stored reads check consumed file receipts, selected fields and required coordinates. They do not certify unread semantic data or complete audit collections.",
                 "Cursors bind exact input, collection version, limit, projection, aliases and time_details. Stored reopen in the same Runtime version may continue; memory cursors belong to the same process/input.",

@@ -441,6 +441,8 @@ amount = amount_entry
 catalog.readiness(refs=[amount]).show()
 ```
 
+`catalog.get()` takes a `kind:path` identity string, for example `catalog.get("metric:sales.revenue")`. An `ms.ref.*` symbol captures a declaration reference; analysis consumes the closed object returned by the Catalog. Passing a bare symbol raises an error with its actual identity and an executable repair. That repair does not assert that the identity exists in the current loaded scope.
+
 Catalog search returns one page. Its card reports current-page rows shown and omitted, plus `next_cursor`; use `page.show(max_output_bytes=None)` or `page.items` for the complete current page. Follow `next_cursor` to retrieve later pages: removing the display budget does not fetch them.
 
 Ordinary Metric previews support DuckDB, PostgreSQL, MySQL, Trino and ClickHouse.

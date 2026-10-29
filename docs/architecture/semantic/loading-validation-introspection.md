@@ -68,7 +68,10 @@ retains the full API page. Resume with the same query and filters; stale cursors
 fail explicitly instead of silently reranking.
 
 `catalog.get("metric:sales.revenue")` retrieves one canonical `kind:path`
-identity. It returns a closed union: check `entry.kind` before using specialized
+identity. Pass the identity string, rather than an `ms.ref.*` lookup symbol.
+Symbols capture declaration references; a bare symbol rejection supplies its actual
+canonical identity and a `catalog.get(...)` repair without resolving it. The repair
+does not assert that the identity exists in this Catalog. It returns a closed union: check `entry.kind` before using specialized
 members and consume the object directly. Domain/Datasource have no arithmetic
 operations. Calendar and temporal-set objects retain
 certified period/occurrence operations.
@@ -202,6 +205,10 @@ just the raw column names or datasource family. An already-aware timestamp
 rejects an explicit parser timezone, including when both zones are equal;
 ClickHouse native timestamps are aware even when Ibis omits the zone label.
 Reports retain physical types, affected refs, declaration locations and repairs.
+Fixed CHAR/CHARACTER columns on PostgreSQL, MySQL/MariaDB and Trino have logical
+string types for schema validation while inspection retains physical widths.
+They can supply categorical fields and Entity keys, but cannot satisfy numeric
+Measure contracts. Backend padding and comparison semantics remain native.
 Unknown/unavailable types cannot produce a successful validation result. Schema
 checks expose `observed["unavailable_columns"]` as physical column names mapped to
 raw types and `observed["unavailable_field_refs"]` as fields whose type checks could

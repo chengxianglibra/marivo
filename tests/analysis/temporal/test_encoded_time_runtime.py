@@ -188,7 +188,9 @@ def test_grid_window_has_scan_envelope_and_preserves_cells(
             rows[rows.attrs["axes"][1]["name"].rsplit(".", 1)[-1]].tolist()
             == ["A", "B", "C", "D"] * 2
         )
-        directory = rows.attrs["frozen_coordinates"][0]["rows"]
+        directory = rows.attrs["frozen_coordinates"][0]["rows"].to_pandas(
+            types_mapper=pd.ArrowDtype
+        )
         assert [stamp.isoformat() for stamp in directory["nominal_start"]] == [
             "2026-08-01T00:00:00+00:00",
             "2026-09-01T00:00:00+00:00",

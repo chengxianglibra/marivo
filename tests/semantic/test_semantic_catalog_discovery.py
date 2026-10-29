@@ -410,3 +410,29 @@ def query_count():
         "count counts source rows; empty input returns zero" in rule
         for rule in count.definition.null_rules
     )
+
+
+@pytest.mark.parametrize(
+    "kind,path",
+    [
+        ("metric", "sales.revenue"),
+        ("entity", "sales.orders"),
+        ("dimension", "sales.orders.missing"),
+    ],
+)
+def test_get_lookup_symbol_repairs_use_the_actual_identity(
+    tmp_path: Path, kind: str, path: str
+) -> None:
+    write_minimal_catalog_project(tmp_path)
+    catalog = ms.load(workspace_dir=tmp_path)
+    symbol = getattr(ms.ref, kind)(path)
+    with pytest.raises(SemanticError) as caught:
+        catalog.get(symbol)
+    error = caught.value
+    assert f"{kind}:{path}" in str(error)
+    assert error.repair.snippet == f"subject = catalog.get('{kind}:{path}')"
+    assert error.repair.help_target.canonical_id == "semantic_catalog.get"
+    # A composed Deferred has no single canonical identity to suggest.
+    with pytest.raises(SemanticError) as composed:
+        catalog.get(ms.ref.metric("sales.revenue") + 1)
+    assert "subject = catalog.get(" not in str(composed.value)

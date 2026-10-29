@@ -18,6 +18,7 @@ from marivo.analysis.core.data_schema import (
     PairedDataAxis,
 )
 from marivo.analysis.core.data_types import DataColumn, DurationDataType, TimestampDataType
+from marivo.analysis.core.data_validation import stage_arrow_type
 from marivo.analysis.core.frame_schema import axis_export_layout, export_layout, selected_columns
 from marivo.analysis.core.frame_structure import axis_role
 from marivo.analysis.core.frozen_calendar import FrozenKey, frozen_key_rows
@@ -194,7 +195,24 @@ def export_frame(
         "units": tuple((column.name, column.unit) for column in schema.values),
         "comparisons": tuple(asdict(fact) for fact in schema.comparisons),
         "frozen_coordinates": tuple(
-            {"name": part.name, "schema": asdict(part.schema), "rows": part.rows.copy(deep=True)}
+            {
+                "name": part.name,
+                "schema": asdict(part.schema),
+                # Arrow equality is scalar, so pandas can compare copied attrs.
+                "rows": pa.Table.from_pandas(
+                    part.rows.copy(deep=True),
+                    schema=pa.schema(
+                        [
+                            pa.field(
+                                column.slot_id, stage_arrow_type(column.dtype), column.nullable
+                            )
+                            for column in part.schema.columns
+                        ]
+                    ),
+                    preserve_index=False,
+                    safe=True,
+                ).replace_schema_metadata(None),
+            }
             for part in attachments
         ),
     }

@@ -546,3 +546,54 @@ def test_string_export_alias_survives_compute_and_rejects_invalid_requests(
     for member in (fixed.to_pandas, fixed.read_page):
         with pytest.raises(CoreRuleError, match="boolean time_details"):
             member(time_details="yes")
+
+
+@pytest.mark.parametrize("member", ["to_pandas", "read_page"])
+def test_axis_alias_errors_distinguish_keys_values_and_foreign_axes(
+    local: LocalFrameServices, member: str
+) -> None:
+    frame = _memory(local)
+    export = getattr(frame, member)
+    with pytest.raises(CoreRuleError) as current:
+        export(axis_names={frame.axes[0]: "bucket"})
+    assert current.value.location.endswith(".axis_names.key")
+    assert "{'axis.0': 'bucket'}" in current.value.repair.action
+    other = _memory(local)
+    with pytest.raises(CoreRuleError) as foreign:
+        export(axis_names={other.axes[0]: "bucket"})
+    assert "Reacquire" in foreign.value.repair.action
+    assert "{'axis.0':" not in foreign.value.repair.action
+    with pytest.raises(CoreRuleError) as value:
+        export(axis_names={"axis.0": " invalid "})
+    assert value.value.location.endswith(".axis_names['axis.0']")
+
+
+def test_ordinary_time_coordinate_exports_one_value_with_aliases(local: LocalFrameServices) -> None:
+    from marivo.analysis.core.data_types import TimestampDataType
+
+    key = DataColumn("time", "event_date", TimestampDataType("us", "UTC"), False)
+    value = DataColumn("amount", "amount", ScalarDataType("int64"), True)
+    schema = DataSchema(
+        (DataAxis("axis.0", (key,), name="sales.events.event_date"),),
+        (value,),
+        value_paths=(("amount",),),
+    )
+    times = pd.Series(["2026-01-01T12:00:00Z"], dtype="timestamp[us, tz=UTC][pyarrow]")
+    data = CompletedFrameData(schema, pd.DataFrame({"time": times, "amount": [7]}))
+    metadata = FrameResultMetadata(
+        "time-export",
+        FrameAudit((), EvaluationRecord(datetime(2026, 1, 1, tzinfo=timezone.utc), (), ())),
+    )
+    frame = AnalysisFrame._from_memory(local, CompletedFrameResult(data, metadata))
+    for details in (False, True):
+        rows = frame.to_pandas(time_details=details)
+        assert rows.columns.tolist() == ["event_date", "amount"]
+        assert rows["event_date"].tolist() == times.tolist()
+        renamed = frame.to_pandas(axis_names={"axis.0": "event"}, time_details=details)
+        assert renamed.columns.tolist() == ["event", "amount"]
+        assert (
+            frame.read_page(axis_names={"axis.0": "event"}, time_details=details)
+            .to_pandas()["event"]
+            .tolist()
+            == times.tolist()
+        )

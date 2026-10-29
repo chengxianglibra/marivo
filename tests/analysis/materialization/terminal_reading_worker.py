@@ -95,7 +95,9 @@ def period_read(name: str, identities: list[str]) -> None:
         assert rows[["current.present", "reference.present"]].all().all()
         directories = rows.attrs["frozen_coordinates"]
         current_directory = next(
-            part["rows"] for part in directories if part["name"] == "calendar.axis.0"
+            part["rows"].to_pandas(types_mapper=pd.ArrowDtype)
+            for part in directories
+            if part["name"] == "calendar.axis.0"
         )
         assert current_directory["actual_start_civil"].tolist() == [
             "2027-01-01T00:00:00.000000+00:00",

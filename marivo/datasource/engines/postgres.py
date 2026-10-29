@@ -79,7 +79,7 @@ register_provider_statements(
         "columns": ProviderStatement(
             statement_id="postgres.columns",
             template=(
-                "SELECT column_name, data_type, is_nullable, ordinal_position, datetime_precision "
+                "SELECT column_name, data_type, is_nullable, ordinal_position, datetime_precision, character_maximum_length "
                 "FROM information_schema.columns "
                 "WHERE table_schema = {schema} "
                 "AND table_name = {table} "
@@ -247,6 +247,9 @@ def _inspect_postgres(
             name = str(row.get("column_name"))
             ordinal = row.get("ordinal_position")
             physical_type = str(row.get("data_type") or "")
+            width = row.get("character_maximum_length")
+            if physical_type == "character" and type(width) is int:
+                physical_type = f"character({width})"
             precision = row.get("datetime_precision")
             if physical_type.startswith("timestamp") and type(precision) is int:
                 physical_type = physical_type.replace("timestamp", f"timestamp({precision})", 1)

@@ -550,21 +550,35 @@ def test_exports_and_attrs_are_isolated(local: LocalFrameServices) -> None:
     for frame in (memory, saved):
         exported = frame.to_pandas()
         exported.loc[0, "amount"] = 999
-        exported.attrs["frozen_coordinates"][0]["rows"].iloc[0, 1] = "changed"
+        coordinates = exported.attrs["frozen_coordinates"][0]["rows"]
+        assert isinstance(coordinates, pa.Table)
+        copied = coordinates.to_pandas(types_mapper=pd.ArrowDtype)
+        copied.iloc[0, 1] = "changed"
+        exported.attrs["frozen_coordinates"][0]["rows"] = pa.table({"changed": [True]})
         again = frame.to_pandas()
         assert again.loc[0, "amount"] != 999
-        assert again.attrs["frozen_coordinates"][0]["rows"].iloc[0, 1] == "2024-01-01"
+        assert (
+            again.attrs["frozen_coordinates"][0]["rows"]
+            .to_pandas(types_mapper=pd.ArrowDtype)
+            .iloc[0, 1]
+            == "2024-01-01"
+        )
         branch = frame.select({"twice": frame["amount"] * 2}).compute()
         sibling = frame.where(frame["amount"] > 0).compute()
         exported_branch = branch.to_pandas()
         exported_branch.loc[0, "twice"] = 999
-        exported_branch.attrs["frozen_coordinates"][0]["rows"].iloc[0, 1] = "changed"
+        exported_branch.attrs["frozen_coordinates"][0]["rows"] = pa.table({"changed": [True]})
         assert branch.to_pandas()["twice"].tolist() == [0, 2, 4]
         assert sibling.to_pandas()["amount"].tolist() == [1, 2]
         for independent in (frame, branch, sibling):
             exported_again = independent.to_pandas()
             assert exported_again.iloc[0, -1] != 999
-            assert exported_again.attrs["frozen_coordinates"][0]["rows"].iloc[0, 1] == "2024-01-01"
+            assert (
+                exported_again.attrs["frozen_coordinates"][0]["rows"]
+                .to_pandas(types_mapper=pd.ArrowDtype)
+                .iloc[0, 1]
+                == "2024-01-01"
+            )
 
 
 @pytest.mark.parametrize("n", [True, -1, 1.5, "1"])
@@ -2323,7 +2337,7 @@ def test_stored_interval_reads_and_matches_without_current_timezone_rules(
     monkeypatch.setattr(_timezones, "ZoneInfo", unavailable)
     rows = first.to_pandas()
     assert rows["amount"].tolist() == [5]
-    directory = rows.attrs["frozen_coordinates"][0]["rows"]
+    directory = rows.attrs["frozen_coordinates"][0]["rows"].to_pandas(types_mapper=pd.ArrowDtype)
     assert directory["timezone"].tolist() == ["Asia/Shanghai"]
     assert directory["start"].tolist() == [datetime(2024, 1, 1, tzinfo=timezone.utc)]
     assert directory["end"].tolist() == [datetime(2024, 1, 4, tzinfo=timezone.utc)]
@@ -3304,7 +3318,9 @@ def test_merged_interval_export_uses_common_utc_carrier(local: LocalFrameService
             expected,
         )
         assert second_page.next_cursor is None
-        assert rows.attrs["frozen_coordinates"][0]["rows"]["timezone"].tolist() == [
+        assert rows.attrs["frozen_coordinates"][0]["rows"].to_pandas(types_mapper=pd.ArrowDtype)[
+            "timezone"
+        ].tolist() == [
             "Asia/Shanghai",
             "America/New_York",
         ]
@@ -3387,3 +3403,62 @@ def test_fixed_offset_exports_are_readable_and_keep_exact_instants(
             pd.testing.assert_frame_equal(pd.concat(chunks, ignore_index=True), rows)
             frame.show(n=1)
             assert rows[f"{name}.start"].iloc[0].isoformat(sep=" ") in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("kind", ["calendar", "interval", "paired"])
+def test_exported_frozen_metadata_allows_pandas_selection_and_concat(
+    local: LocalFrameServices, kind: str
+) -> None:
+    frame = calendar(local, 3)
+    if kind == "interval":
+        frame = interval(local, 1, 4)
+    elif kind == "paired":
+        frame = frame.compare(calendar(local, 3, offset=1)).compute()
+    for fixed in (frame, frame.persist()):
+        rows = fixed.to_pandas()
+        assert all(isinstance(part["rows"], pa.Table) for part in rows.attrs["frozen_coordinates"])
+        assert isinstance(rows.attrs == rows.copy(deep=True).attrs, bool)
+        assert rows.attrs == rows.copy(deep=True).attrs
+        assert rows.nlargest(2, "amount")["amount"].tolist() == (
+            [5] if kind == "interval" else [2, 1]
+        )
+        assert rows.sort_values("amount")["amount"].tolist() == (
+            [5] if kind == "interval" else [0, 1, 2]
+        )
+        joined = pd.concat([rows.iloc[:1], rows.iloc[-1:]], ignore_index=True)
+        assert joined["amount"].tolist() == ([5, 5] if kind == "interval" else [0, 2])
+
+
+def test_exported_coordinate_tables_keep_exact_carriers_and_nulls() -> None:
+    from decimal import Decimal
+
+    from marivo.analysis.core.data_types import DecimalDataType
+    from marivo.analysis.materialization.pandas_export import export_frame
+
+    columns = (
+        DataColumn("key", "key", ScalarDataType("int64"), True),
+        DataColumn("decimal", "decimal", DecimalDataType(18, 2), True),
+        DataColumn("stamp", "stamp", TimestampDataType("us", "UTC"), True),
+    )
+    directory = pd.DataFrame(
+        {
+            "key": pd.Series([2**53 + 1, None], dtype="int64[pyarrow]"),
+            "decimal": pd.Series(
+                [Decimal("1234567890123456.78"), None], dtype=pd.ArrowDtype(pa.decimal128(18, 2))
+            ),
+            "stamp": pd.Series(
+                pa.array([2**53 + 1, None], type=pa.timestamp("us", tz="UTC")),
+                dtype=pd.ArrowDtype(pa.timestamp("us", tz="UTC")),
+            ),
+        }
+    )
+    attachment = OutputAttachment(
+        "exact", DataSchema((), columns, value_paths=tuple((c.name,) for c in columns)), directory
+    )
+    rows = export_frame(DataSchema((), ()), pd.DataFrame(index=range(2)), (attachment,))
+    table = rows.attrs["frozen_coordinates"][0]["rows"]
+    assert table["key"].to_pylist() == [2**53 + 1, None]
+    assert table["decimal"].to_pylist() == [Decimal("1234567890123456.78"), None]
+    assert table["stamp"].type == pa.timestamp("us", tz="UTC")
+    assert table["stamp"].cast(pa.int64()).to_pylist() == [2**53 + 1, None]
+    assert rows.attrs == rows.copy(deep=True).attrs

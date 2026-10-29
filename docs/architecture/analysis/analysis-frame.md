@@ -142,7 +142,14 @@ axis_origins = lineage.axes[frame.axes[0].token]
 
 `read_page()` 使用相同 axis_names 和 time_details 规则；游标绑定详情选项，续读重复同一请求。
 `schema.layout` 描述默认布局，`page.layout` 描述该次实际布局。page.to_pandas() 不再读取数据。
+普通 TimeField 轴导出一个时间值坐标列；calendar/interval 的两列描述区间，不能互换。
+axis_names 只重命名导出前缀，不改变轴结构。需要单列时选择 `.start` 并在 pandas 中重命名；
+裁剪桶的 `.start` 是实际观察起点，原始桶起点使用 `time_details=True` 的 `.nominal_start`。
+
 完整导出 attrs 保留隔离的 axes、units、comparisons、frozen_coordinates；分页导出 attrs 为空。
+frozen_coordinates 每项的 rows 为不可变 pyarrow.Table，保留声明的列类型、精度与 NULL，
+且相等比较返回布尔值，兼容 pandas 的 attrs 比较。需要 pandas 表时显式调用
+`part["rows"].to_pandas(types_mapper=pd.ArrowDtype)`。
 这些 attrs 不承诺稳定反序列化协议，导出的表不授予 typed 运算权限。
 导出保留行序、物理数值、NULL 和合法零，返回隔离副本；show 的有界预览复用默认坐标解释。
 

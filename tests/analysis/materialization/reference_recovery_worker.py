@@ -63,7 +63,9 @@ def recipes(outputs: Mapping[str, mv.AnalysisFrame]) -> dict[str, Json]:
         pd.Timestamp("2026-08-01T00:00:00Z"): 6,
         pd.Timestamp("2026-08-02T00:00:00Z"): 0,
     }
-    directory = opportunities.attrs["frozen_coordinates"][0]["rows"]
+    directory = opportunities.attrs["frozen_coordinates"][0]["rows"].to_pandas(
+        types_mapper=pd.ArrowDtype
+    )
     assert directory["ordinal"].tolist() == [0, 1]
     assert directory["actual_start"].tolist() == [
         pd.Timestamp("2026-08-01T00:00:00Z"),

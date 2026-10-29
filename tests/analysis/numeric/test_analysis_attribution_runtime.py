@@ -391,9 +391,9 @@ def test_period_buckets_and_retained_coarsened_partition(
     assert compared.key_0.tolist() == ["A", "B", "C", "D"]
     assert compared.key_1.tolist() == ["web"] * 4
     directories = [
-        part["rows"]
+        part["rows"].to_pandas(types_mapper=pd.ArrowDtype)
         for part in result.to_pandas().attrs["frozen_coordinates"]
-        if "nominal_start" in part["rows"].columns
+        if "nominal_start" in part["rows"].to_pandas(types_mapper=pd.ArrowDtype).columns
     ]
     assert len(directories) == 2
     bounds = {

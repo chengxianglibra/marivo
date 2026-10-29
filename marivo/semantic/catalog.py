@@ -3205,6 +3205,23 @@ class SemanticCatalog(RenderableResult):
                     candidates=(id.id,),
                 ),
             )
+        symbolic = native_symbol_ref(id)
+        if symbolic is not None:
+            _raise(
+                ErrorKind.INVALID_REF,
+                "catalog.get(id) requires an identity string; a lookup symbol is not a closed analysis input.",
+                cls=SemanticRuntimeError,
+                refs=(symbolic.key,),
+                expected="canonical kind:path string",
+                received=f"lookup symbol ({symbolic.key})",
+                hint="Pass the symbol's canonical identity to acquire a closed object from this Catalog.",
+                repair_value=repair(
+                    kind="inspect",
+                    canonical_id="semantic_catalog.get",
+                    action="Pass the canonical identity string; lookup symbols capture declaration references.",
+                    snippet=f"subject = catalog.get({symbolic.key!r})",
+                ),
+            )
         if not isinstance(id, str) or id.count(":") != 1:
             _raise(
                 ErrorKind.INVALID_REF,
@@ -3233,7 +3250,9 @@ class SemanticCatalog(RenderableResult):
         Args: id: Canonical kind:path string returned by search or an object's id.
         Returns: A closed kind-discriminated immutable semantic object; narrow kind before composing.
         Example: ``entry = catalog.get("metric:sales.revenue")``.
-        Constraints: Exact lookup never uses fuzzy replacement or calls a model/source.
+        Constraints: Pass a canonical identity string, not an ms.ref.* lookup symbol.
+        Lookup symbols capture declaration references; the returned closed object is
+        directly usable in analysis. Exact lookup never uses fuzzy replacement or calls a model/source.
         """
         ref = self._ref_from_id(id)
         entry = self._index.entry(ref)

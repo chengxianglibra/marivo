@@ -186,6 +186,10 @@ regional.show()
 
 列名必须唯一。用 `saved.to_pandas(axis_names={"sales.orders.region": "region"})` 按完整轴名或 schema 唯一 token 重命名，不接受 FrameAxis 键。冲突在读取载荷前报错。`read_page()` 使用相同选项，游标绑定这些选项。读取前须显式 `compute()` 或 `persist()`。
 
+普通 TimeField 轴导出一个时间值坐标列。Calendar/interval 的 `.start` 和 `.end` 是实际观察区间；裁剪桶的原始桶起点用 `time_details=True` 的 `.nominal_start`。`axis_names` 只改导出前缀。需要单列时，可以选择 `table["bucket.start"]` 再重命名；`bucket` 来自 `fixed.to_pandas(axis_names={fixed.axes[0].token: "bucket"})`。映射键必须为完整轴名或 token 字符串；从其他 Frame 得到的 FrameAxis 应先从当前 Frame 重新获取。
+
+冻结坐标元数据中，每项 `rows` 是不可变的 `pyarrow.Table`，兼容 pandas 的元数据比较。需要 pandas 表时使用 `part["rows"].to_pandas(types_mapper=pd.ArrowDtype)`；它保留物理类型与 NULL。
+
 `table.attrs["axes"]`、`units`、`comparisons` 和 `frozen_coordinates` 保留隔离的解释元数据；内部 descriptor 不承诺稳定的重新导入协议。导出保留物理数值、缺失和时间类型，不应统一强转 float 或将所有 NA 填零。后续 typed 分析从 Frame 继续。Help：`analysis.analysis_frame.to_pandas`。
 
 

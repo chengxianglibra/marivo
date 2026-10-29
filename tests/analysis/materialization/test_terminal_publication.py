@@ -1138,7 +1138,7 @@ def test_public_calendar_uses_saved_instants_and_boundaries(
     (description,) = exported.attrs["axes"]
     assert description["role"] == "calendar" and description["descriptor"]["timezone"] == zone
     (part,) = exported.attrs["frozen_coordinates"]
-    bounds = part["rows"]
+    bounds = part["rows"].to_pandas(types_mapper=pd.ArrowDtype)
     assert len(bounds) == 3
     assert exported[description["name"].rsplit(".", 1)[-1] + ".label"].tolist() == [
         "2026-03-28",
@@ -1149,6 +1149,12 @@ def test_public_calendar_uses_saved_instants_and_boundaries(
         pd.Timestamp(cell.original_start) for cell in axis.grid.cells
     ]
     assert bounds["actual_start"].iloc[0] > bounds["nominal_start"].iloc[0]
+    prefix = description["name"].rsplit(".", 1)[-1]
+    assert exported[prefix + ".start"].iloc[0] == bounds["actual_start"].iloc[0]
+    assert exported[prefix + ".nominal_start"].iloc[0] == bounds["nominal_start"].iloc[0]
+    renamed = artifact.to_pandas(axis_names={artifact.axes[0].token: "bucket"}, time_details=True)
+    assert renamed["bucket.start"].tolist() == exported[prefix + ".start"].tolist()
+    assert renamed["bucket.nominal_start"].tolist() == exported[prefix + ".nominal_start"].tolist()
     original, consumed = OutputRead.select, []
 
     def tracked(self: OutputRead, layout: ReadLayout, keys: set[FrozenKey]) -> pd.DataFrame:

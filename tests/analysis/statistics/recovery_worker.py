@@ -69,7 +69,7 @@ def verify(frame: pd.DataFrame, mode: str, profile: dict[str, object]) -> None:
             descriptor = calendar["descriptor"]
             assert descriptor["timezone"] == zone
             directory = next(
-                part["rows"]
+                part["rows"].to_pandas(types_mapper=pd.ArrowDtype)
                 for part in frame.attrs["frozen_coordinates"]
                 if part["name"] == descriptor["frozen"]["directory_name"]
             )

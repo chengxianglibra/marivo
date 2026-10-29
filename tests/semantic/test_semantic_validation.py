@@ -710,32 +710,32 @@ def test_unavailable_column_preserves_other_field_checks_and_names_the_cause(
     catalog, _ = _catalog(tmp_path, monkeypatch, semantic_project_factory)
     inspect_source = validation_module._inspect_in_project
 
-    def inspect_with_char(*args: object, **kwargs: object) -> SourceInspection:
+    def inspect_with_unavailable(*args: object, **kwargs: object) -> SourceInspection:
         inspected = inspect_source(*args, **kwargs)
         columns = tuple(
-            replace(item, type="char(1)" if item.name == column else "string")
+            replace(item, type="unsupported_physical_type" if item.name == column else "string")
             if item.name in (column, "amount")
             else item
             for item in inspected.schema
         )
         if column == "protobuf":
-            columns += (ColumnMetadata("protobuf", "char(1)", True, None, 6),)
+            columns += (ColumnMetadata("protobuf", "unsupported_physical_type", True, None, 6),)
         return replace(inspected, schema=columns)
 
-    monkeypatch.setattr(validation_module, "_inspect_in_project", inspect_with_char)
+    monkeypatch.setattr(validation_module, "_inspect_in_project", inspect_with_unavailable)
     # Exercise the real remote type mapper with injected catalog metadata;
     # the local datasource supplies only the metadata/probe connection.
     monkeypatch.setattr(
         validation_module,
         "_ibis_table_type",
         lambda name, *, backend_type: _ibis_table_type(
-            name, backend_type=engine if name == "char(1)" else backend_type
+            name, backend_type=engine if name == "unsupported_physical_type" else backend_type
         ),
     )
     report = catalog.validate([catalog.get("entity:sales.orders")])
     schema = next(check for check in report.checks if check.kind == "schema")
     assert schema.status == "failed"
-    assert schema.observed["unavailable_columns"] == {column: "char(1)"}
+    assert schema.observed["unavailable_columns"] == {column: "unsupported_physical_type"}
     assert schema.observed["reason"] == "declared_input_types_unusable"
     assert schema.observed["missing_field_refs"] == []
     assert "missing_output_primary_key" not in schema.observed
@@ -747,30 +747,28 @@ def test_unavailable_column_preserves_other_field_checks_and_names_the_cause(
     assert all(not check.user_data_queried for check in report.checks)
 
 
-@pytest.mark.parametrize("engine", ("mysql", "postgres", "trino"))
-def test_fixed_char_type_is_not_guessed_as_variable_string(engine: str) -> None:
-    assert _ibis_table_type("char(1)", backend_type=engine) is None
-
-
 def test_unavailable_column_repair_identifies_physical_type(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, semantic_project_factory
 ) -> None:
     catalog, _ = _catalog(tmp_path, monkeypatch, semantic_project_factory)
     inspect_source = validation_module._inspect_in_project
 
-    def inspect_with_char(*args: object, **kwargs: object) -> SourceInspection:
+    def inspect_with_unavailable(*args: object, **kwargs: object) -> SourceInspection:
         inspected = inspect_source(*args, **kwargs)
         return replace(
             inspected,
-            schema=(*inspected.schema, ColumnMetadata("protobuf", "char(1)", True, None, 6)),
+            schema=(
+                *inspected.schema,
+                ColumnMetadata("protobuf", "unsupported_physical_type", True, None, 6),
+            ),
         )
 
-    monkeypatch.setattr(validation_module, "_inspect_in_project", inspect_with_char)
+    monkeypatch.setattr(validation_module, "_inspect_in_project", inspect_with_unavailable)
     monkeypatch.setattr(
         validation_module,
         "_ibis_table_type",
         lambda name, *, backend_type: _ibis_table_type(
-            name, backend_type="mysql" if name == "char(1)" else backend_type
+            name, backend_type="mysql" if name == "unsupported_physical_type" else backend_type
         ),
     )
     schema = next(
@@ -782,7 +780,7 @@ def test_unavailable_column_repair_identifies_physical_type(
     assert schema.observed["contract_violations"] == []
     assert schema.observed["field_types"]["measure:sales.orders.amount"] == "float32"
     assert schema.repair is not None
-    assert "'protobuf' (char(1))" in schema.repair.action
+    assert "'protobuf' (unsupported_physical_type)" in schema.repair.action
     assert "md.table(columns=...)" in schema.repair.action
 
 
@@ -831,3 +829,53 @@ def test_unavailable_type_propagates_through_bound_dimension_dependencies(
     assert schema.observed["missing_field_refs"] == []
     assert schema.observed["contract_violations"] == []
     assert schema.observed["field_types"]["measure:sales.orders.amount"] == "float32"
+
+
+@pytest.mark.parametrize("engine", ["mysql", "postgres", "trino"])
+@pytest.mark.parametrize("physical", ["char", "char(1)", "character(8)", "CHAR(8)"])
+def test_char_mapping_retains_physical_metadata(engine: str, physical: str) -> None:
+    from marivo.datasource.inspection import _canonical_catalog_type
+
+    assert _canonical_catalog_type(physical, backend_type=engine) == physical.lower()
+    assert _ibis_table_type(physical, backend_type=engine) == "string"
+    assert _ibis_table_type("unsupported_physical_type", backend_type=engine) is None
+
+
+@pytest.mark.parametrize("engine", ["mysql", "postgres", "trino"])
+@pytest.mark.parametrize("column", ["protobuf", "status", "order_id", "amount"])
+def test_char_columns_are_usable_but_not_numeric(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    semantic_project_factory,
+    engine: str,
+    column: str,
+) -> None:
+    catalog, _ = _catalog(tmp_path, monkeypatch, semantic_project_factory)
+    inspect_source = validation_module._inspect_in_project
+
+    def inspect_char(*args: object, **kwargs: object) -> SourceInspection:
+        inspected = inspect_source(*args, **kwargs)
+        columns = tuple(
+            replace(item, type="char(8)") if item.name == column else item
+            for item in inspected.schema
+        )
+        if column == "protobuf":
+            columns += (ColumnMetadata("protobuf", "char(8)", True, None, 6),)
+        return replace(inspected, schema=columns)
+
+    monkeypatch.setattr(validation_module, "_inspect_in_project", inspect_char)
+    monkeypatch.setattr(
+        validation_module,
+        "_ibis_table_type",
+        lambda name, *, backend_type: _ibis_table_type(
+            name, backend_type=engine if name == "char(8)" else backend_type
+        ),
+    )
+    report = catalog.validate([catalog.get("entity:sales.orders")])
+    schema = next(check for check in report.checks if check.kind == "schema")
+    assert not schema.observed.get("unavailable_columns")
+    assert schema.status == ("failed" if column == "amount" else "current")
+    if column == "amount":
+        assert schema.observed["field_types"]["measure:sales.orders.amount"] == "string"
+        assert schema.observed["contract_violations"]
+    assert all(not check.user_data_queried for check in report.checks)

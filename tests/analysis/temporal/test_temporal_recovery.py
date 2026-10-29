@@ -9,6 +9,7 @@ from contextlib import ExitStack
 from datetime import datetime, timezone
 from pathlib import Path
 
+import pandas as pd
 import pytest
 
 import marivo.analysis as mv
@@ -137,7 +138,9 @@ def test_native_temporal_mean_int64_identities_and_independent_cold_reads(
         assert samples_frame["sum"].tolist() == [15, 100, 21, 200]
         assert samples_frame["rows"].tolist() == [2, 1, 2, 1]
         calendar_metadata = samples_frame.attrs["axes"][0]["descriptor"]
-        directory = samples_frame.attrs["frozen_coordinates"][0]["rows"]
+        directory = samples_frame.attrs["frozen_coordinates"][0]["rows"].to_pandas(
+            types_mapper=pd.ArrowDtype
+        )
         assert calendar_metadata["timezone"] == "UTC"
         assert [
             (cell.actual_start, cell.actual_end) for cell in directory.itertuples(index=False)

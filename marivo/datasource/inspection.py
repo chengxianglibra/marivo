@@ -928,7 +928,14 @@ def _ibis_table_type(type_name: str, *, backend_type: str) -> str | None:
     if backend_type in {"postgres", "mysql", "trino"} and re.fullmatch(
         r"(?:char|character)(?:\(\d+\))?", canonical
     ):
-        return None
+        from ibis.backends.sql.datatypes import MySQLType, PostgresType, TrinoType
+
+        mapper = {"mysql": MySQLType, "postgres": PostgresType, "trino": TrinoType}[backend_type]
+        try:
+            dtype = mapper.from_string(canonical)
+        except (TypeError, ValueError, RuntimeError):
+            return None
+        return "string" if dtype.is_string() else None
     try:
         dtype = ibis.dtype(canonical)
     except (TypeError, ValueError, RuntimeError):

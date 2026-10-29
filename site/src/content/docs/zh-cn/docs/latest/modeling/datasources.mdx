@@ -177,3 +177,5 @@ md.inspect(warehouse, md.table("orders"), workspace_dir=".").show()
 ## 连接与物理来源
 
 `md.table(...)` 可在受支持的后端中选择表或视图。`md.parquet(...)` 和 `md.csv(...)` 描述由 DuckDB 读取的文件来源；`md.json(...)` 可描述文件或 HTTP 来源。这些都是来源描述符，不是新增的数据源类型。`md.inspect(...)` 读取物理元数据。若要采集行样本，请在 inspection 上调用 `inspection.sample(...)`，显式指定范围、列以及正数 `max_rows` 和 `timeout_seconds`。后端不支持的原生超时请求可能会跳过；`max_rows` 限制返回行数，不限制扫描字节数。样本值默认只保留在内存中；设置 `persist_values=True` 才会将有界样本以明文保存在项目状态中。Analysis 支持 DuckDB 本地 GET JSON，以及在源定义中写入具体请求值的 HTTP(S) GET/POST JSON。每次计算复用一份响应，不自动翻页；未填入的来源参数会在获取数据前报错。参见[有界数据源检查指南](/zh-cn/docs/latest/guides/datasources/#限制行数据证据)、[后端与方法限制](/zh-cn/docs/latest/reference/backends-and-limits/)，然后[定义 Entity](/zh-cn/docs/latest/modeling/semantic-layer/)。
+
+PostgreSQL、MySQL/MariaDB 和 Trino 的 CHAR/CHARACTER 列保留物理类型与长度，Entity/Dimension 验证将其映射为逻辑字符串；也支持表达式 Entity 输入与声明主键。该映射不增加 SQL cast、trim、补空格或排序规则模拟，读取、比较与分组遵循原生后端。CHAR 不能作为数值 Measure。

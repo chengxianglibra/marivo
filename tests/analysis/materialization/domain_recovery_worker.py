@@ -60,6 +60,8 @@ def _scalar(value: object) -> Json:
         if not all(isinstance(key, str) for key in value):
             raise TypeError("Frame evidence requires string metadata keys")
         return {key: _scalar(item) for key, item in value.items()}
+    if isinstance(value, pa.Table):
+        return _table(value.to_pandas(types_mapper=pd.ArrowDtype))
     if isinstance(value, pd.DataFrame):
         return _table(value)
     raise TypeError(f"Unexpected Frame evidence scalar: {type(value).__name__}")
