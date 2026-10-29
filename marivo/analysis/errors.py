@@ -240,8 +240,8 @@ class ArtifactNotFoundError(AnalysisError):
             received=ref,
             location="session.persisted_frame(artifact_id)",
             repair=_runtime_read_repair(
-                action="Use a retained Artifact ID from this Session. If the ID was lost, explicitly resubmit the analysis; results may differ and duplicate saved outputs.",
-                target="session.persisted_frame",
-                snippet="frame = session.persisted_frame('<retained_artifact_id>')",
+                action="Inspect session.persisted_frames() for committed descriptions and schemas, then pass a selected exact artifact_id to session.persisted_frame(). Ambiguous candidates require further inspection or caller selection.",
+                target="session.persisted_frames",
+                snippet="page = session.persisted_frames(); page.show()",
             ),
         )

@@ -216,6 +216,7 @@ class StoredFrameBacking:
     data: ArtifactData
     metadata: StoredFrameMetadata
     method_facts: tuple[SavedFrameMethodFacts, ...] = ()
+    description: str | None = None
 
     def __post_init__(self) -> None:
         if (
@@ -223,6 +224,7 @@ class StoredFrameBacking:
             or not self.artifact_id
             or type(self.data) is not ArtifactData
             or type(self.metadata) is not StoredFrameMetadata
+            or (self.description is not None and type(self.description) is not str)
             or type(self.method_facts) is not tuple
             or any(type(item) is not SavedFrameMethodFacts for item in self.method_facts)
             or len({item.origin_result_id for item in self.method_facts}) != len(self.method_facts)

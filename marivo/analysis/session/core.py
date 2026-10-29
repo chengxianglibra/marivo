@@ -21,6 +21,7 @@ if TYPE_CHECKING:
     from marivo.analysis.dsl.population import Population
     from marivo.analysis.dsl.source_capture import ValueRow
     from marivo.analysis.materialization.admission import DatasetRuntime
+    from marivo.analysis.session._lazy_read_model import PersistedFrameSummaryPage
     from marivo.semantic.expressions import Entity
 
 
@@ -430,6 +431,26 @@ class Session:
             rows=rows,
         )
 
+    def persisted_frames(
+        self, *, limit: int = 20, cursor: str | None = None
+    ) -> PersistedFrameSummaryPage:
+        """Discover committed Frames in this Session without reading their data.
+
+        Args:
+            limit: Page size from 1 through 100, default 20.
+            cursor: Preceding next_cursor for this Store, Session and page size, or None.
+        Returns: A PersistedFrameSummaryPage with descriptions and captured schemas.
+        Example: ``page = session.persisted_frames(limit=5); page.show()``.
+        Constraints: Newest commit time and ID first. Reads one metadata snapshot only;
+        no result files, Catalog, source, recovery, publication or Session update.
+        Continue with the same limit. New commits are discovered from the first page;
+        pages do not freeze history. Descriptions are caller claims; inspect ambiguous
+        candidates before selecting an exact ID for persisted_frame().
+        """
+        from marivo.analysis.session._lazy_frames import persisted_frames
+
+        return persisted_frames(self._runtime.local, limit=limit, cursor=cursor)
+
     def persisted_frame(self, artifact_id: str) -> AnalysisFrame:
         """Recover the Frame bound to one exact committed Artifact ID.
 
@@ -467,6 +488,7 @@ class Session:
             artifact_id=backing.artifact_id,
             metadata=backing.metadata,
             method_facts=backing.method_facts,
+            description=backing.description,
         )
 
     def population_from(

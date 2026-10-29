@@ -107,7 +107,7 @@ def reconcile(store: SessionStore, session: str, event: Callable[[str], None]) -
 
 
 def publish_completed(
-    local: LocalFrameServices, result: CompletedFrameResult
+    local: LocalFrameServices, result: CompletedFrameResult, *, description: str | None = None
 ) -> StoredFrameBacking:
     """Publish independent checked output; no evaluation or source access is possible."""
     if type(local) is not LocalFrameServices or type(result) is not CompletedFrameResult:
@@ -186,6 +186,7 @@ def publish_completed(
                 ArtifactData(data.schema, primary, tuple(attachments)),
                 terminal_store.describe(result.metadata),
                 tuple(saved_methods),
+                description=description,
             )
             _fsync_directory(staging)
             final.parent.mkdir(parents=True, exist_ok=True)
@@ -198,7 +199,7 @@ def publish_completed(
             committing = True
             terminal_store.publish(store, value, result.metadata, resources, _event)
             return StoredFrameBacking(
-                value.artifact_id, value.data, value.metadata, value.method_facts
+                value.artifact_id, value.data, value.metadata, value.method_facts, value.description
             )
         except BaseException as failure:
             if committing:
@@ -220,7 +221,11 @@ def publish_completed(
                                 terminal_store.audit_evidence(result.metadata),
                             )
                             return StoredFrameBacking(
-                                saved.artifact_id, saved.data, saved.metadata, saved.method_facts
+                                saved.artifact_id,
+                                saved.data,
+                                saved.metadata,
+                                saved.method_facts,
+                                saved.description,
                             )
                         if (
                             value is not None
@@ -236,7 +241,7 @@ def publish_completed(
                     raise RecoveryPendingError(
                         expected="a confirmed original terminal publication outcome",
                         received="commit acknowledgement or read-back is unavailable",
-                        repair=f"Publication may already have succeeded. Call mv.session.resume({session!r}) before explicitly resubmitting; resubmission may create duplicate saved outputs and reevaluation may read changed source data.",
+                        repair=f"Publication may already have succeeded. Call mv.session.resume({session!r}), then persisted_frames() to inspect committed outputs before explicitly resubmitting; resubmission may create duplicates or read changed source data.",
                         stage="terminal_commit_unknown",
                         help_target="session.resume",
                     ) from error

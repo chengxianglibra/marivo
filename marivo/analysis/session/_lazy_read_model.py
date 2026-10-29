@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime
 
 from marivo.analysis._pages import _BoundedPage
+from marivo.analysis.core.frame_schema import FrameSchema
 from marivo.analysis.materialization.contracts import invalid
 from marivo.render import Card, RenderableResult
 
@@ -63,7 +64,17 @@ class SessionSummary(RenderableResult):
 
     def _card(self) -> Card:
         return (
-            Card(identity=self._repr_identity(), available=(".show()",))
+            Card(
+                identity=self._repr_identity(),
+                available=(
+                    ".show()",
+                    *(
+                        (f"mv.session.resume({self.id!r}).persisted_frames()",)
+                        if self.artifact_count
+                        else ()
+                    ),
+                ),
+            )
             .field("question", self.question or "(none)")
             .field("created_at", self.created_at.isoformat())
             .field("updated_at", self.updated_at.isoformat())
@@ -79,6 +90,64 @@ class SessionSummaryPage(_BoundedPage[SessionSummary]):
         _page_fields(self.items, self.limit, self.has_more, self.next_cursor)
         if any(type(value) is not SessionSummary for value in self.items):
             raise invalid("Session page contains an unregistered summary value")
+
+
+@dataclass(frozen=True, repr=False, slots=True, kw_only=True)
+class PersistedFrameSummary(RenderableResult):
+    """One committed candidate; acquired from session.persisted_frames().items."""
+
+    artifact_id: str
+    committed_at: datetime
+    description: str | None
+    schema: FrameSchema
+
+    def __post_init__(self) -> None:
+        _identity(self.artifact_id)
+        _aware(self.committed_at)
+        if (self.description is not None and type(self.description) is not str) or type(
+            self.schema
+        ) is not FrameSchema:
+            raise invalid("invalid saved Frame description or captured schema")
+
+    def _repr_identity(self) -> str:
+        return f"PersistedFrameSummary artifact_id={self.artifact_id}"[:256]
+
+    def _card(self) -> Card:
+        return (
+            Card(identity=self._repr_identity(), available=(".schema", ".show()"))
+            .field("committed_at", self.committed_at.isoformat())
+            .field(
+                "description",
+                repr(self.description) if self.description is not None else "(not provided)",
+            )
+            .listing("outputs", self.schema.values)
+            .listing("axes", (f"{axis.name} ({axis.role})" for axis in self.schema.axes))
+        )
+
+
+@dataclass(frozen=True, repr=False, slots=True)
+class PersistedFrameSummaryPage(_BoundedPage[PersistedFrameSummary]):
+    """Bounded newest-committed-first Frame candidates with captured structure."""
+
+    def __post_init__(self) -> None:
+        _page_fields(self.items, self.limit, self.has_more, self.next_cursor)
+        if any(type(value) is not PersistedFrameSummary for value in self.items):
+            raise invalid("Frame page contains an unregistered summary value")
+
+    def _card(self) -> Card:
+        card = Card(identity=self._repr_identity(), available=(".items", ".next_cursor", ".show()"))
+        for item in self.items:
+            card.field("artifact_id", item.artifact_id)
+            card.field("committed_at", item.committed_at.isoformat())
+            card.field(
+                "description",
+                repr(item.description) if item.description is not None else "(not provided)",
+            )
+            card.listing("outputs", item.schema.values)
+            card.listing("axes", (f"{axis.name} ({axis.role})" for axis in item.schema.axes))
+        if self.next_cursor is not None:
+            card.field("next_cursor", self.next_cursor)
+        return card
 
 
 __all__: list[str] = []

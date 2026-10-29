@@ -164,6 +164,13 @@ def provider() -> DisclosureProvider:
         ),
         (
             Session,
+            "persisted_frames",
+            "PersistedFrameSummaryPage",
+            "result = session.persisted_frames(limit=5)\nresult.show()",
+            "Discover committed Frames by caller description and captured schema, without result files, Catalog or source reads. Select an exact artifact_id; inspect ambiguous candidates.",
+        ),
+        (
+            Session,
             "persisted_frame",
             "AnalysisFrame",
             "session = mv.session.resume(session_id)\n"
@@ -240,7 +247,7 @@ def provider() -> DisclosureProvider:
         "at": ("session.instant",),
         "on": ("FrameAxis", "inputs.catalog"),
         "session_id": ("session.recent",),
-        "artifact_id": ("analysis_frame.artifact_id", "analysis_frame.persist"),
+        "artifact_id": ("analysis_frame.artifact_id", "session.persisted_frames"),
     }
     for receiver, name, output, code, effect in operations:
         value = getattr(receiver, name)
@@ -262,8 +269,10 @@ def provider() -> DisclosureProvider:
                     if name in ("show", "render")
                     else "sessions"
                 ),
-                related=("session.resume",)
+                related=("session.resume", "session.persisted_frames")
                 if name == "persisted_frame"
+                else ("session.persisted_frame", "runtime.PersistedFrameSummaryPage")
+                if name == "persisted_frames"
                 else ("session.get_or_create", "analysis_frame.compute", "analysis_frame.persist")
                 if name == "observe"
                 else ("session.observe", "TimeScope.by")
@@ -280,6 +289,8 @@ def provider() -> DisclosureProvider:
                         if name == "get_or_create" and n == "timezone"
                         else "None selects all authoring domain directories on creation and retains the saved scope on recovery. An exact name or nonempty sequence selects only those directories, without dependency expansion. Non-None values must match the saved sorted, deduplicated scope; use a new name to widen it."
                         if name == "get_or_create" and n == "domains"
+                        else "Choose an integer from 1 through 100, excluding bool; default 20. Keep the same limit when continuing a cursor."
+                        if name == "persisted_frames" and n == "limit"
                         else "fields/Grouping/TimeScope/memberships, Population P or (P, rule, ...); () gives one zero-axis cell. P fixes joint keys; population.axes: no keys. Interleave fields; cover necessary output keys before sampling; extras empty. TimeScope/CalendarAxis: intervals/buckets."
                         if name == "observe" and n == "by"
                         else "Pass resolved fields or field or identity Grouping values; calendar and membership groupings are rejected. Use () for scalar literal rows."
@@ -314,6 +325,7 @@ def provider() -> DisclosureProvider:
                     "read",
                     "values",
                     "persisted_frame",
+                    "persisted_frames",
                     "population_from",
                 )
                 else (effect,),
@@ -372,6 +384,18 @@ def provider() -> DisclosureProvider:
             ("runtime.values.render", "runtime.values.show"),
         ),
         (
+            r.PersistedFrameSummaryPage,
+            "Call session.persisted_frames(); select a candidate from items using its description and schema.",
+            ("session.persisted_frames",),
+            ("runtime.PersistedFrameSummary", "session.persisted_frame"),
+        ),
+        (
+            r.PersistedFrameSummary,
+            "Read session.persisted_frames().items; inspect description and schema, then select an exact artifact_id.",
+            ("runtime.persisted_frame_summary_page.items",),
+            ("frame_schema", "session.persisted_frame"),
+        ),
+        (
             r.SessionSummaryPage,
             "Call mv.session.recent(); select an exact item from items.",
             ("session.recent",),
@@ -381,7 +405,7 @@ def provider() -> DisclosureProvider:
             r.SessionSummary,
             "Read a selected recent().items entry or inspect(identity); retain its id/name.",
             ("runtime.session_summary_page.items", "session.inspect"),
-            ("session.resume",),
+            ("session.resume", "session.persisted_frames"),
         ),
     )
     for value, acquisition_text, producers, consumers in nested_reads:
@@ -404,6 +428,8 @@ def provider() -> DisclosureProvider:
                 FrameReadStats,
                 r.SessionSummaryPage,
                 r.SessionSummary,
+                r.PersistedFrameSummaryPage,
+                r.PersistedFrameSummary,
                 e.OutputEvidence,
                 e.OutputCoordinate,
             )

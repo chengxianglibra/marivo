@@ -53,7 +53,11 @@ class LocalFrameServices:
 
         manifest = open_manifest(self.store, self.session_ref, backing.artifact_id)
         selected = StoredFrameBacking(
-            manifest.artifact_id, manifest.data, manifest.metadata, manifest.method_facts
+            manifest.artifact_id,
+            manifest.data,
+            manifest.metadata,
+            manifest.method_facts,
+            manifest.description,
         )
         if selected != backing:
             raise invalid("selected Frame commit metadata changed")
@@ -95,7 +99,9 @@ class LocalFrameServices:
         from marivo.analysis.materialization.graph_reading import open_manifest
 
         value = open_manifest(self.store, self.session_ref, artifact_id)
-        return StoredFrameBacking(value.artifact_id, value.data, value.metadata, value.method_facts)
+        return StoredFrameBacking(
+            value.artifact_id, value.data, value.metadata, value.method_facts, value.description
+        )
 
     def read_method_facts(self, backing: StoredFrameBacking) -> tuple[FrameMethodFacts, ...]:
         """Consume checked owned method payloads without reading current rows."""
@@ -121,8 +127,10 @@ class LocalFrameServices:
 
         return FrameReader(self.store, self.session_ref).preview(backing, n)
 
-    def publish(self, result: CompletedFrameResult) -> StoredFrameBacking:
+    def publish(
+        self, result: CompletedFrameResult, *, description: str | None = None
+    ) -> StoredFrameBacking:
         """Publish an already completed result through the original local Store."""
         from marivo.analysis.materialization.terminal_publication import publish_completed
 
-        return publish_completed(self, result)
+        return publish_completed(self, result, description=description)

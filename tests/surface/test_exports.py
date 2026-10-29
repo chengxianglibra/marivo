@@ -44,6 +44,8 @@ from tests.surface.exports import ANALYSIS_PUBLIC, DATASOURCE_PUBLIC, SEMANTIC_P
         (
             ma,
             (
+                "PersistedFrameSummary",
+                "PersistedFrameSummaryPage",
                 "FrameMethodValue",
                 "FrameMethodCoordinate",
                 "FrameMethodSupport",

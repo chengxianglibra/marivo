@@ -76,7 +76,7 @@ def test_session_creation_and_history_preserve_foreign_entries(
 ) -> None:
     monkeypatch.chdir(tmp_path)
     original = mv.session.get_or_create("first", timezone="UTC") if existing_session else None
-    foreign = [_foreign_entry(tmp_path, entry) for entry in ("v5", "v8", "v11", "README")]
+    foreign = [_foreign_entry(tmp_path, entry) for entry in ("v5", "v8", "v11", "v21", "README")]
     if original is None:
         with pytest.warns(UserWarning, match="Older Session Stores"):
             original = mv.session.get_or_create("first", timezone="UTC")
@@ -100,7 +100,7 @@ def test_session_creation_and_history_preserve_foreign_entries(
     assert mv.session.resume(second.id).id == second.id
     with pytest.raises(SessionNotFoundError):
         mv.session.resume("legacy-session")
-    assert first._runtime.store.layout.generation == 21
+    assert first._runtime.store.layout.generation == 22
     assert all(
         path is not None and path.read_bytes() == b"preserve-unreadable-legacy-bytes"
         for path in foreign
@@ -182,7 +182,7 @@ def test_missing_session_guidance_does_not_claim_old_id_ownership(
             with pytest.raises(SessionNotFoundError) as caught:
                 read("unknown-id")
             error = caught.value
-            assert "current v21 Store" in error.message
+            assert "current v22 Store" in error.message
             assert ("may belong" in error.message) is old_present
             assert error.repair is not None
             assert error.repair.candidates == (() if session is None else (session.id,))
@@ -248,7 +248,7 @@ def test_session_discovery_rejects_invalid_current_store_without_mutation(
         path.write_bytes(b"invalid-sqlite")
     elif state == "incomplete_schema":
         with sqlite3.connect(path) as connection:
-            connection.execute("PRAGMA user_version=21")
+            connection.execute("PRAGMA user_version=22")
     else:
         from marivo.analysis.materialization.store import SessionStore
 
@@ -265,7 +265,7 @@ def test_session_discovery_rejects_invalid_current_store_without_mutation(
         with pytest.raises(IntegrityError) as caught:
             read()
         if state == "incomplete_schema":
-            assert caught.value.received == "incomplete v21 schema"
+            assert caught.value.received == "incomplete v22 schema"
         assert _project_state(tmp_path) == before
 
 
@@ -287,7 +287,7 @@ def test_session_discovery_reports_store_access_failure(
         for read in (mv.session.recent,):
             with pytest.raises(IntegrityError) as caught:
                 read()
-            assert caught.value.received == "selected Store 21 is unavailable"
+            assert caught.value.received == "selected Store 22 is unavailable"
     assert _project_state(tmp_path) == before
 
 

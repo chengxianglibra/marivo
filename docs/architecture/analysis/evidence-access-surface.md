@@ -167,8 +167,8 @@ independent reopen cannot acquire source execution authority from them. Facts ex
 original total, rather than the current filtered or reduced values. They carry
 no Metric or source authority and expose no general lineage query.
 
-Memory roots retain the complete records. Store 21 uses marivo.frame_output/v10,
-frame.v10 and frame-output-v10. Stored manifests carry structure, lineage, result/evaluation/input/operation facts,
+Memory roots retain the complete records. Store 22 uses marivo.frame_output/v11,
+frame.v11 and frame-output-v11. Stored manifests carry structure, lineage, result/evaluation/input/operation facts,
 source/check/Finding counts, internal collection digests and owned-payload
 descriptors. Evidence and Finding bodies exist only in their SQLite record tables;
 opening a manifest never loads either collection. Atomic publication writes both

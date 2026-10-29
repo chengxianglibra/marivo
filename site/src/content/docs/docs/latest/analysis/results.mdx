@@ -1,6 +1,6 @@
 ---
 title: Results and evidence
-description: Save result identifiers, reopen data, export values, and inspect evidence.
+description: Save result identifiers, discover committed Frames, reopen data, and inspect evidence.
 ---
 
 Run the [analysis DSL example](/docs/latest/analysis/dsl/#complete-example-and-shared-inputs), which persists its comparison as `saved`. Use `compute()` for a completed Frame you will keep in the same Python process. Persist the result when you need to reopen it in another process.
@@ -36,6 +36,42 @@ rows.to_csv("comparison.csv", index=False)
 The two absolute changes remain -100 because this reads the saved comparison. Continue with supported Frame operations on `reopened`; call `persist()` on a derived Frame if you want to save another result. To use fresh source values, build and run an explicit source observation with the required definitions.
 
 `to_pandas()` returns an isolated flat table with readable coordinate and value names and separate presence columns. CSV is useful for sharing values but does not preserve typed analysis metadata or frozen time interpretation; keep the Frame for typed analysis. Check units and keys before joining exported tables.
+
+## Find a saved Frame when its ID is lost
+
+Recover the intended Session first, then inspect its committed Frame directory:
+
+```python
+session = mv.session.resume(session_id)
+page = session.persisted_frames(limit=20)
+page.show()
+```
+
+Each `page.items` entry provides `artifact_id`, `committed_at`, `description` and
+`schema`. Use the description, output columns and axes to identify candidates;
+open a selected ID with `session.persisted_frame(artifact_id)`. Inspect its
+`lineage` or saved evidence when needed. If candidates remain ambiguous, ask the
+caller to select rather than automatically choosing the newest result.
+
+Add a purpose when producing a result, when useful:
+
+```python
+saved = change.persist(description="Monthly revenue comparison")
+print(saved.description)
+```
+
+`description` is optional and defaults to `None`; text is saved unchanged in the
+same atomic commit. Missing descriptions are shown explicitly. They are caller
+claims, not verification of business meaning. A saved Frame retains its
+immutable description on repeated `persist()` calls; passing a different
+non-None description fails. A new commit requires a new explicit description.
+
+Discovery reads only current-generation Session metadata, without result files,
+models or sources. Recover the Session before checking an uncertain publication
+outcome. Continue with `session.persisted_frames(limit=20, cursor=page.next_cursor)`
+when `page.has_more` is true; retain the same limit. Limits are 1..100. Pages do
+not freeze concurrent history; start from the first page to discover new commits.
+Older generations remain independent and require a compatible environment.
 
 ## Read evidence in context
 

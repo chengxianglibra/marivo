@@ -382,7 +382,7 @@ Evaluation, publication and recovery
 
 Compute creates no Artifact or temporary saved result. Expression persist
 completes evaluation first, then publishes that existing result ID through the
-single Store 21 writer transaction. Memory persist never reevaluates. Stored
+single Store 22 writer transaction. Memory persist never reevaluates. Stored
 persist validates commit metadata and returns itself without another publication.
 A derived or computed memory Frame never exposes an ancestor commit identity. Unknown publication outcome is reconciled, not recomputed.
 
@@ -391,13 +391,31 @@ inherited source facts plus the current evaluation. It retains no producer,
 semantic graph, connection or hidden aggregate components. Read, evaluation and
 commit times remain separate. Publication records remain internal and do not
 promise complete data lineage. Retain Session and Artifact IDs for exact reopening.
-Lost return references require explicit resubmission, accepting duplicate saved
-outputs and possibly changed source data. There is no public result directory.
+If the Artifact ID is lost, recover the Session and call
+``session.persisted_frames(limit=20)``. Each immutable summary contains
+``artifact_id``, ``committed_at``, optional ``description`` and the existing
+``FrameSchema``. Inspect descriptions and structure before opening an exact ID
+with ``persisted_frame``. Ambiguous candidates require further inspection or
+caller selection; no implicit latest result is selected.
 
-Store 21 uses ``marivo.frame_output/v10``, ``frame.v10`` and ``frame-output-v10`` for
-all Frames, under ``.marivo/analysis/generations/v21/``. Owned method files share
+``frame.persist(description=None)`` optionally saves caller-supplied purpose text
+unchanged in the atomic commit. Read it through ``saved.description``; pending and
+memory Frames require explicit persistence first. Stored persist retains the
+original description for omitted/None or equal text and rejects a different
+non-None value. New commits do not inherit descriptions from input commits.
+Descriptions help identify results and do not certify their meaning.
+
+The directory reads one metadata snapshot with no result files, Catalog or
+source access, recovery, publication or Session update. Limits are 1..100; pages
+are ordered by commit time and ID descending. Continue with the returned
+``next_cursor`` and identical limit. Cursors bind Store, Session, operation and
+limit. New commits are discovered from the first page. Cards show bounded output
+names and axes; typed schemas remain complete. Corrupt metadata fails explicitly.
+
+Store 22 uses ``marivo.frame_output/v11``, ``frame.v11`` and ``frame-output-v11`` for
+all Frames, under ``.marivo/analysis/generations/v22/``. Owned method files share
 the existing atomic publication, receipt and unknown-commit reconciliation.
-Store 21 refuses older-generation Session/result/audit data unchanged, without
+Store 22 refuses older-generation Session/result/audit data unchanged, without
 migration or dual reads. Documented absent-current discovery may return None or
 empty. Current work may create a new named Session in the same project while
 older generations coexist unchanged; discovery warns about older paths. Preserve

@@ -36,7 +36,8 @@ captured state and structured repair disclosure.
 
 The root also links directly to `analysis.session.get_or_create` when context is
 missing. Session supplies ownership and frozen defaults; acquire its Catalog
-before searching project definitions. The sessions topic owns exact recovery.
+before searching project definitions. The sessions topic owns exact recovery and bounded committed Frame discovery by
+optional caller description and captured schema.
 
 Inputs routes to Catalog discovery, shared semantic expressions, Population,
 time, existing Frame handles and comparison inputs. `analysis.inputs.frame`

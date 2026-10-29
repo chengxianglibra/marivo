@@ -272,7 +272,7 @@ _PAGES = (
         guidance=(
             "Create or recover a repeatable name, discover retained IDs, inspect metadata or resume an exact existing ID. Session recovery restores context, not Python variables or unsaved Frames, and does not replay source observations.",
             "Reopen exact committed data with persisted_frame(id); read its committed audit directly. Continue fixed-data operations or explicitly construct new source inputs through operators.",
-            "Older Stores coexist unchanged with current work; read/export them in a compatible environment. Names, IDs and saved Frames remain independent across generations. A lost return reference requires explicit resubmission, which may duplicate outputs or read changed data.",
+            "Recover the Session before inspecting an uncertain publication. Discover lost Artifact IDs with persisted_frames(); compare descriptions and schema before selecting an exact ID. Older Stores coexist unchanged; read/export them in a compatible environment. Names, IDs and saved Frames remain independent across generations.",
         ),
         related=("operators",),
         route_summaries=(
@@ -283,6 +283,7 @@ _PAGES = (
             ("session.recent", "Discover retained Session IDs."),
             ("session.inspect", "Inspect an existing Session's metadata."),
             ("session.resume", "Recover one exact existing Session ID."),
+            ("session.persisted_frames", "Discover committed Frames by description and structure."),
             ("session.persisted_frame", "Reopen one exact committed Frame in this Session."),
             (
                 "operators",

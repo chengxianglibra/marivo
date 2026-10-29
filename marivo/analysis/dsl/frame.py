@@ -166,9 +166,10 @@ class AnalysisFrame:
         artifact_id: str,
         metadata: StoredFrameMetadata,
         method_facts: tuple[SavedFrameMethodFacts, ...] = (),
+        description: str | None = None,
         derivation: FrameDerivation | None = None,
     ) -> AnalysisFrame:
-        backing = StoredFrameBacking(artifact_id, data, metadata, method_facts)
+        backing = StoredFrameBacking(artifact_id, data, metadata, method_facts, description)
         identity = dumps(
             (local.store.store_id, local.session_ref, artifact_id), separators=(",", ":")
         )
@@ -1262,20 +1263,29 @@ class AnalysisFrame:
             return self._backing.method_facts
         return self._local.read_method_facts(self._backing)
 
-    def persist(self) -> AnalysisFrame:
+    def persist(self, *, description: str | None = None) -> AnalysisFrame:
         """Publish a completed result; exact stored roots return themselves.
 
-        Args: None.
+        Args: description: Optional caller-supplied purpose, saved unchanged with this commit.
         Returns: A stored AnalysisFrame owned by the same original local service.
-        Example: ``saved = frame.persist()``;
+        Example: ``saved = frame.persist(description='Monthly revenue by region')``;
         ``print({'session_id': saved.session_id, 'artifact_id': saved.artifact_id})``.
         Constraints: Pending evaluation completes before publication admission;
         memory publication does not reevaluate, and stored idempotence reads metadata only.
         For another process, output/save the returned Session and Artifact IDs before exit;
         no show call is required. An existing saved reference needs no new publication.
-        Lost return references require explicit
-        resubmission, which may duplicate saved outputs or read changed sources.
+        Discover lost commit IDs through session.persisted_frames(). A stored root
+        retains its description when omitted or None; a different non-None description
+        fails because commits are immutable. Descriptions do not certify data meaning.
         """
+        if description is not None and type(description) is not str:
+            reject(
+                "a description string or None",
+                type(description).__name__,
+                "Pass a purpose string or omit description.",
+                "frame.persist.description",
+                canonical_id="analysis_frame.persist",
+            )
         if isinstance(self._backing, StoredFrameBacking):
             selected = self._local.open_frame(self._backing.artifact_id)
             if selected != self._backing:
@@ -1286,16 +1296,26 @@ class AnalysisFrame:
                     "frame.persist",
                     canonical_id="analysis_frame.persist",
                 )
+            if description is not None and description != selected.description:
+                reject(
+                    "the immutable saved description or None",
+                    repr(description),
+                    "Omit description to retain the commit; use compute().persist(description=...) "
+                    "to publish a new commit with another description.",
+                    "frame.persist.description",
+                    canonical_id="analysis_frame.persist",
+                )
             return self
         completed = self.compute()
         assert isinstance(completed._backing, MemoryFrameBacking)
-        backing = self._local.publish(completed._backing.result)
+        backing = self._local.publish(completed._backing.result, description=description)
         return self._from_stored(
             self._local,
             backing.data,
             artifact_id=backing.artifact_id,
             metadata=backing.metadata,
             method_facts=backing.method_facts,
+            description=backing.description,
             derivation=completed._derivation,
         )
 
@@ -1332,6 +1352,18 @@ class AnalysisFrame:
         payload or source access; derived and computed memory Frames require persist.
         """
         return self._require_stored("artifact_id").artifact_id
+
+    @property
+    def description(self) -> str | None:
+        """Return the caller-supplied purpose of this exact saved commit.
+
+        Args: None.
+        Returns: The original description, or None when none was supplied.
+        Example: ``purpose = saved.description``.
+        Constraints: Stored roots only; metadata only, without Store or payload reads.
+        The text helps identify candidates and does not certify their data meaning.
+        """
+        return self._require_stored("description").description
 
     def findings(self, limit: int = 20, cursor: str | None = None) -> FindingPage:
         """Read a bounded page of this committed Frame's method Findings.
@@ -1666,6 +1698,10 @@ class AnalysisFrame:
             if isinstance(self._backing, StoredFrameBacking):
                 card.field("session_id", self.session_id)
                 card.field("artifact_id", self.artifact_id)
+                card.field(
+                    "description",
+                    repr(self.description) if self.description is not None else "(not provided)",
+                )
                 card.field("committed_at", self._local.committed_at(self._backing).isoformat())
             if isinstance(self._backing, StoredFrameBacking):
                 stored_metadata = self._backing.metadata

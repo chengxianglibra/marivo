@@ -24,6 +24,7 @@ def test_dir_advertises_intents_and_hides_plumbing(
         "members",
         "frame",
         "persisted_frame",
+        "persisted_frames",
         "catalog",
     ):
         assert advertised in names, f"missing advertised member: {advertised}"

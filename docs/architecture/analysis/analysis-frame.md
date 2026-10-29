@@ -315,7 +315,7 @@ TimeScope 在 by 中产生 interval 轴，保存精确 start/end 与边界时区
 不同期间可明确配对；过滤成一行不会把多区间目录改成单区间目录。
 interval/calendar/零轴不互转或广播；time×普通分类可使用上述完整默认配对，或显式给出完整 on。
 compare 保留当前 interval 及命名基期说明；align 的双端并集/paired 语义继续存在。
-Store 21 / marivo.frame_output/v10 保存目录、实际键引用与关系，冷恢复不重建 TimeScope。
+Store 22 / marivo.frame_output/v11 保存目录、实际键引用与关系，冷恢复不重建 TimeScope。
 
 ### Calendar matching
 

@@ -586,15 +586,20 @@ def provider() -> DisclosureProvider:
             AnalysisFrame,
             "analysis_frame",
             "persist",
-            (),
+            (
+                P(
+                    "description",
+                    "Optional caller-supplied purpose string, saved unchanged; None stores no description on a new commit and retains it on an existing commit.",
+                ),
+            ),
             "AnalysisFrame",
             "Commit evaluated data and return its stored Frame without recomputing a completed memory input.",
-            "result = frame.persist()\nprint(result.session_id)\nprint(result.artifact_id)",
+            "result = frame.persist(description='Monthly revenue')\nprint(result.session_id)\nprint(result.artifact_id)",
             ("frame",),
             "execution",
             (
                 "Pending inputs evaluate before publication admission; completed memory inputs are saved without reevaluation. A stored root checks commit metadata and returns itself. Only an explicit persist call saves a Frame.",
-                "Retain the returned Frame's session_id and artifact_id for reopening in another process; no show call or sidecar file is required. Failures and unknown publication outcomes require their structured repair, never automatic recomputation. Lost IDs may require explicit resubmission, which can duplicate saved outputs or read changed sources.",
+                "Retain session_id and artifact_id for reopening. Lost IDs can be discovered through session.persisted_frames(). Unknown publication outcomes require Session recovery first. Descriptions help select candidates; they do not certify meaning. Stored descriptions are immutable; a different non-None value rejects.",
             ),
         ),
         (
@@ -761,6 +766,7 @@ def provider() -> DisclosureProvider:
                     "analysis_frame.session_id",
                     "analysis_frame.artifact_id",
                     "session.persisted_frame",
+                    "session.persisted_frames",
                 )
                 if owner is AnalysisFrame and name == "persist"
                 else (),

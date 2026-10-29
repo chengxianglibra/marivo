@@ -127,8 +127,8 @@ is separate from fixed Frame inputs and local combination.
 
 ## Store generation and data layout
 
-Store 21 is under `<project_root>/.marivo/analysis/generations/v21/`. One closed
-`marivo.frame_output/v10` protocol stores values, complete axes, independent presence, typed
+Store 22 is under `<project_root>/.marivo/analysis/generations/v22/`. One closed
+`marivo.frame_output/v11` protocol stores values, complete axes, independent presence, typed
 frozen interval/calendar/map attachments, receipts and one audit. It stores no executable
 Python class path, source/Metric graph or hidden components. All analysis
 artifacts are Frame commits; stored Frames expose their identity and audit directly.
@@ -180,9 +180,9 @@ Failures clean only their Run's resources. Unknown commit acknowledgement is
 reconciled against that same transaction and identity; never reevaluate to settle
 it. Stored persist is idempotent only for that stored commit; publishing a memory
 root again may create a new commit without new evaluation. Retain the returned
-Session and Artifact IDs for exact reopening. Lost return references require
-explicit resubmission, accepting duplicate Artifacts and possible source changes;
-there is no result directory, public Run history or implicit latest result.
+Session and Artifact IDs for exact reopening. If an Artifact ID is lost, recover
+the Session and inspect `session.persisted_frames()` before selecting an exact
+commit. There is no public Run history or implicit latest result.
 Unknown outcomes must first pass Session recovery; resubmission never bypasses
 active writers, unresolved ownership or integrity checks.
 
@@ -215,6 +215,37 @@ Save Session ID and `saved.artifact_id`. Resume the same Session and call
 metadata without Catalog/model/source access or a payload scan. It does not
 recover original source objects or history. Missing/corrupt saved data fails;
 it is not a cache miss that authorizes recomputation.
+
+## Committed Frame discovery and descriptions
+
+`frame.persist(description=None)` optionally records the caller's purpose in the
+same atomic commit as its data and audit. The text is preserved unchanged and
+belongs to the commit, not the computed result or expression identity. Stored
+Frames expose read-only `description`; pending and memory Frames require an
+explicit persist first. Repeating stored persist with omitted/None or the same
+description validates and returns that commit. A different non-None description
+fails; use `compute().persist(description=...)` for a new commit. New commits do
+not inherit an ancestor's description.
+
+`session.persisted_frames(*, limit=20, cursor=None)` returns immutable
+`PersistedFrameSummaryPage` items with `artifact_id`, `committed_at`, optional
+`description` and the existing complete `FrameSchema`. It reads only successful
+current-generation commits from that Session, in one SQLite metadata snapshot,
+ordered by `(committed_at, artifact_id)` descending. Limits are 1..100, excluding
+bool. Cursors bind Store, Session, operation and page size; continue with the same
+limit. Pages do not freeze history across requests; discover new commits from
+the first page. Empty Sessions return empty pages.
+
+Discovery validates selected commit metadata without result-file reads, Catalog
+loads, source access, recovery, publication or Session updates. Corrupt metadata
+fails rather than disappearing from the directory. Summary and page cards show
+bounded descriptions, output names and axis names/roles; typed schemas remain
+complete. A Session summary with saved Artifacts points to resume and discovery.
+Descriptions are caller claims, not proof of business meaning or freshness.
+Missing descriptions are explicit; ambiguous candidates require further
+inspection or caller selection. Open a selected `artifact_id` through the
+existing `persisted_frame(id)` and inspect its schema, lineage or saved evidence.
+The directory does not establish which tool invocation created a candidate.
 
 ## Metadata opening, preview and complete export
 
@@ -279,8 +310,8 @@ method facts. A missing/corrupt method payload can leave metadata, previews and
 current-data export usable while full consumers fail. Cards show only count,
 bounded origins and the getter pointer, never full parents/coordinate rows.
 
-All Frames use `marivo.frame_output/v10`, `frame.v10` and `frame-output-v10` under
-`.marivo/analysis/generations/v21/`. Method files share the existing data receipt,
+All Frames use `marivo.frame_output/v11`, `frame.v11` and `frame-output-v11` under
+`.marivo/analysis/generations/v22/`. Method files share the existing data receipt,
 atomic publication/readback and unknown-commit reconciliation. A saved derivative
 owns its exact inherited payloads; deleting the original Artifact does not force
 an origin lookup or source/calendar rebuild. Origin explains the original total,
@@ -363,7 +394,7 @@ owns isolated export.
 
 Completed result metadata includes immutable, non-executable semantic column
 lineage. Pending Frames derive it from explicit inputs at construction; compute,
-publication and cold recovery preserve it. Store 21 / output v10 requires the
+publication and cold recovery preserve it. Store 22 / output v11 requires the
 complete value/axis/presence directories and their captured identities. Missing or
 invalid saved lineage is an integrity failure, rather than empty lineage. A saved
 derivative owns its complete lineage without requiring ancestor artifacts or the

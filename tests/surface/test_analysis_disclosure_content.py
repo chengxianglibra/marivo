@@ -633,6 +633,8 @@ def test_construction_type_families_and_retired_surface() -> None:
         "runtime.output_coordinate",
         "runtime.session_summary_page",
         "runtime.session_summary",
+        "runtime.persisted_frame_summary",
+        "runtime.persisted_frame_summary_page",
         "analysis_frame",
         "frame_lineage",
         "column_lineage",

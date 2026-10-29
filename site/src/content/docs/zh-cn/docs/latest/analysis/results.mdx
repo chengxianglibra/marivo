@@ -1,6 +1,6 @@
 ---
 title: 结果与证据
-description: 保存结果标识、恢复数据、导出数值并检查分析依据。
+description: 保存结果标识、发现已提交 Frame、恢复数据并查看证据。
 ---
 
 运行[分析 DSL 示例](/zh-cn/docs/latest/analysis/dsl/#完整示例与后续输入)，其中将比较结果持久化为 `saved`。`compute()` 会完成 Frame，供同一 Python 进程后续使用；需要在另一个进程中恢复时，使用 `persist()` 保存结果。
@@ -36,6 +36,39 @@ rows.to_csv("comparison.csv", index=False)
 两个绝对变化仍为 -100，因为这里读取的是保存的比较结果。可以继续对 `reopened` 执行支持的 Frame 运算；若要保存派生结果，对派生 Frame 显式调用 `persist()`。若需获取新的来源值，应基于所需定义构造并执行新的来源观测。
 
 `to_pandas()` 返回包含可读坐标名和值名称以及独立存在性列的平面表副本。CSV 适合分享数值，但不会保留类型化分析元数据或冻结时间解释；若要继续进行类型化分析，请保留原 Frame。合并导出表前检查单位与键。
+
+## Frame ID 丢失时查找已保存结果
+
+先恢复目标 Session，再查看它的已提交 Frame 目录：
+
+```python
+session = mv.session.resume(session_id)
+page = session.persisted_frames(limit=20)
+page.show()
+```
+
+每个 `page.items` 条目提供 `artifact_id`、`committed_at`、`description` 和
+`schema`。结合描述、输出列和分组轴辨认候选，再用
+`session.persisted_frame(artifact_id)` 打开选定 ID；必要时查看其 `lineage`
+或已保存证据。候选仍有歧义时，请调用者选择，不要自动采用最新结果。
+
+生产结果时，可以补充用途：
+
+```python
+saved = change.persist(description="Monthly revenue comparison")
+print(saved.description)
+```
+
+`description` 可选，默认 `None`；文本原样保存，与结果在同一事务中提交。
+未提供描述会明确显示。描述是调用者的声明，不是业务含义已经验证的证明。
+已保存 Frame 重复 `persist()` 会保留不可变的原描述；传入不同的非 `None`
+描述会报错。新提交需要重新显式指定描述。
+
+目录只读取当前代际的 Session 元数据，不读取结果文件、模型或源数据。
+提交结果未知时，先恢复 Session 再检查目录。`page.has_more` 为真时，使用
+`session.persisted_frames(limit=20, cursor=page.next_cursor)` 续页，并保持相同
+`limit`；范围为 1–100。多次分页不冻结并发历史，发现新提交时从首页开始。
+旧代际保持独立，需要兼容环境读取。
 
 ## 理解证据及其适用范围
 

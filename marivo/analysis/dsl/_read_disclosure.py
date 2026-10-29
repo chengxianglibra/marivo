@@ -36,7 +36,7 @@ def provider() -> DisclosureProvider:
         (
             FrameSchema,
             "frame_schema",
-            ("analysis_frame.schema",),
+            ("analysis_frame.schema", "runtime.persisted_frame_summary.schema"),
             ("frame_field", "frame_axis_schema", "field_export_column", "coordinate_export_column"),
         ),
         (

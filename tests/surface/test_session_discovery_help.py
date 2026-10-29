@@ -42,6 +42,26 @@ def test_session_help_explains_generation_isolation_and_uncertain_id_ownership()
         assert "without verifying ID ownership" in page
 
 
+def test_committed_frame_discovery_and_description_have_public_help() -> None:
+    assert "analysis.session.persisted_frames" in rendered_help("analysis.sessions")
+    page = rendered_help("analysis.session.persisted_frames")
+    assert page == rendered_help(mv.Session.persisted_frames)
+    assert "PersistedFrameSummaryPage" in page
+    assert "1 through 100" in page
+    assert "no result files" in page
+    assert "analysis.session.persisted_frames" in rendered_help("analysis.session.persisted_frame")
+    persist = rendered_help(mv.AnalysisFrame.persist)
+    assert "Input description:" in persist and "immutable" in persist
+    for target in (
+        "analysis.analysis_frame.description",
+        "analysis.runtime.persisted_frame_summary.description",
+        "analysis.runtime.persisted_frame_summary.schema",
+        "analysis.runtime.persisted_frame_summary_page.items",
+        "analysis.runtime.persisted_frame_summary_page.next_cursor",
+    ):
+        assert "Kind: attribute" in rendered_help(target)
+
+
 @pytest.mark.parametrize(
     ("target", "absence"),
     [
@@ -66,7 +86,7 @@ def test_session_discovery_help_describes_absence_without_creating_store(
     assert absence in text
     assert "No creation" in text
     assert old.read_bytes() == b"preserve-old-store"
-    assert not (old.parent.parent / "v21").exists()
+    assert not (old.parent.parent / "v22").exists()
 
 
 def test_observe_help_distinguishes_field_axes_from_session_identity(
