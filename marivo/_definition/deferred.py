@@ -404,6 +404,8 @@ def _captured_relationship(recipe: Resolver) -> bool:
 
 def _capture_sample(recipe: Resolver, path: tuple[str, ...]) -> None:
     """Validate the finite sample-parameter grammar without resolving fields."""
+    if isinstance(recipe, Just) and isinstance(recipe.value, (_BuiltinGrain, _SemanticGrain)):
+        return
     from marivo._definition.population_parameters import (
         IdentityParameter,
         MembershipParameter,
@@ -722,7 +724,16 @@ class _Inspector:
                 ),
             )
             return
-        if type(value) is AllHistory:
+        if isinstance(value, _BuiltinGrain):
+            self.token("grain", value.unit, str(value.count))
+        elif isinstance(value, _SemanticGrain):
+            self.token(
+                "grain",
+                value._calendar.key,
+                value.level,
+                "unbound" if value._snapshot is None else value._snapshot.snapshot_digest,
+            )
+        elif type(value) is AllHistory:
             self.token("window", "all_history")
         elif isinstance(value, TrailingDuration) and type(value) is TrailingDuration:
             self.token(

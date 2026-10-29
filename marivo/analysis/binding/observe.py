@@ -44,8 +44,10 @@ from marivo._definition.types import (
     field_read_key,
 )
 from marivo._temporal import (
+    Grain,
     PeriodCalendarSnapshotV2,
 )
+from marivo.analysis.binding.calendar_samples import bind_calendar_samples
 from marivo.analysis.binding.coordinates import (
     CoordinateBinding,
     bind_identity,
@@ -151,6 +153,7 @@ def bind_observation(
         reject("distinct output axes", repr(by), "Remove repeated axes.", "Session.observe")
     condition = where
     contributions: list[ContributionBinding] = []
+    calendar_samples: list[tuple[tuple[int, ...], CalendarCoordinate]] = []
     count_populations: dict[PopulationDependency, PopulationDependency] = {}
     resolver = _Resolver(state) if state is not None else None
     paths = RelationshipResolver.build(state.registry) if state is not None else None
@@ -212,9 +215,37 @@ def bind_observation(
             return
         if isinstance(node, (PerReduce, PerWeightedMean)):
             sample_domain = node.samples
-            inner_domain_axes = (
-                sample_domain if isinstance(sample_domain, tuple) else sample_domain.axes
-            )
+            inner_domain_axes: tuple[AxisBinding | CalendarCoordinate | IntervalCoordinate, ...]
+            if isinstance(sample_domain, Grain):
+                if not any(
+                    isinstance(child, (SourceAggregate, SourceWeightedMean, EntityCount))
+                    and child.time is not None
+                    for child in walk((node,), resolve=declared.get).order
+                ):
+                    reject(
+                        "a child Metric with a declared time role",
+                        type(node.operand).__name__
+                        if isinstance(node, PerReduce)
+                        else type(node.value).__name__,
+                        "Construct the child source reduction with time=field or declare its default time.",
+                        "Metric.per",
+                        canonical_id="session.observe",
+                    )
+                parent = next(
+                    (
+                        axis
+                        for axis in reversed(sample_axes)
+                        if isinstance(axis, (CalendarCoordinate, IntervalCoordinate))
+                    ),
+                    time_axis,
+                )
+                inner = bind_calendar_samples(sample_domain, parent, calendar_snapshots)
+                calendar_samples.append((occurrence, inner))
+                inner_domain_axes = (inner,)
+            else:
+                inner_domain_axes = (
+                    sample_domain if isinstance(sample_domain, tuple) else sample_domain.axes
+                )
             inner_axes = tuple(
                 axis
                 for axis in inner_domain_axes
@@ -580,4 +611,5 @@ def bind_observation(
         CoordinateBinding(tuple(axes), mode, population, memberships),
         bound_contributions,
         tuple(count_populations.items()),
+        tuple(calendar_samples),
     )

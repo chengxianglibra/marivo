@@ -155,7 +155,7 @@ INPUT_FAMILIES = frozenset(
         "ValidationCheckResult",
         "ReadinessInputSummary",
         "ReadinessIssue",
-        "Dimension | TimeField | Grouping | tuple[Dimension | TimeField | Grouping | Population, ...] | Population",
+        "Dimension | TimeField | Grouping | tuple[Dimension | TimeField | Grouping | Population, ...] | Population | Grain",
         "tuple[Grouping, ...]",
         "CatalogEntry | LookupSymbol",
         "str",
@@ -2496,8 +2496,10 @@ def _expression_capabilities() -> tuple[AuthoringCapability, ...]:
                     "where": ("predicate", "Deferred", "revenue.where(status == 'paid')"),
                     "per": (
                         "samples",
-                        "Dimension | TimeField | Grouping | tuple[Dimension | TimeField | Grouping | Population, ...] | Population",
-                        "revenue.per(customer_id)",
+                        "Dimension | TimeField | Grouping | tuple[Dimension | TimeField | Grouping | Population, ...] | Population | Grain",
+                        'weeks = session.time_scope(start="2026-10-05", end="2026-10-12").by(mv.grain("week"))\n'
+                        'daily_average = revenue.per(mv.grain("day")).mean()\n'
+                        'folded = session.observe({"daily_average": daily_average}, by=(weeks,)).compute()',
                     ),
                     "window": ("rule", "WindowRule", "revenue.window(mv.all_history())"),
                 }[method]
@@ -2541,7 +2543,15 @@ def _expression_capabilities() -> tuple[AuthoringCapability, ...]:
                     "Reject repeated first fields, overlapping rules and reordered member fields. "
                     "Internal P may select a subset; empty or unmatched samples retain external coordinates. "
                     "Each nested layer keeps its own domain and complete allocation rules. "
-                    "Time mean/weighted_mean use represented samples without scheduled coverage or implicit fill; "
+                    "A Grain uses every inner calendar cell, including empty cells under the child's empty policy. "
+                    "Each contribution uses its own declared time role. A finite observation TimeScope or CalendarAxis "
+                    "supplies timezone and calendar authority; pass the Grain, not scope.by(grain), to per. "
+                    "Inner grains must nest: day in week/month is valid; week in month is not. Certified grains "
+                    "retain exact snapshot containment. Partial edge cells clip actual bounds and each counts once. "
+                    "Nested calendar layers validate against their nearest enclosing cell. "
+                    "Semantic Grain lookups bind the Session's current certified snapshot and require certification. "
+                    "Windows inside calendar samples or wrapping calendar folds are unsupported and reject before execution. "
+                    "TimeField mean/weighted_mean use represented samples without scheduled coverage or implicit fill; "
                     "other reducers retain coverage checks. sample_interval does not bucket timestamps. "
                     "Coverage errors identify the Metric, time field, interval, groups and bounded missing instants."
                 )
@@ -2564,6 +2574,7 @@ def _expression_capabilities() -> tuple[AuthoringCapability, ...]:
                     "order_by may name an internal TimeField; when omitted, exactly one internal "
                     "TimeField must be inferable. Time keys must uniquely order the samples. "
                     "include_null defaults to False (skip NA); True retains the selected sample's NA."
+                    " Calendar Grain samples use captured cell order; omit order_by."
                 )
             elif prefix == "row" and method in {
                 "median",
@@ -3013,7 +3024,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
         _capability(
             "calendar_grain",
             "marivo.semantic._authoring_temporal.calendar_grain",
-            "Construct a source-free semantic Grain lookup for one governed calendar level. Metric windows bind it against the consuming Session's frozen certified scope; naming does not require a loaded calendar.",
+            "Construct a source-free semantic Grain lookup for one governed calendar level. Metric windows and calendar samples bind it against the consuming Session's frozen certified scope; naming does not require a loaded calendar.",
             output="Grain",
             inputs=(
                 _parameter_input("subject", "PeriodCalendarSymbol", "calendar"),

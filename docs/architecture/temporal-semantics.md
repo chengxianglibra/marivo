@@ -85,8 +85,8 @@ produces a zero-axis observation. CalendarAxis contributes its selected buckets.
 Ordinary reductions may omit a time axis and then receive no additional time
 constraint. A time role alone does not require a period.
 
-Windows and time-sample reductions other than mean and weighted_mean require an
-explicit observation endpoint in by. Time-sample mean and weighted_mean can use
+Windows and native TimeField-sample reductions other than mean and weighted_mean require an
+explicit observation endpoint in by. Native TimeField-sample mean and weighted_mean can use
 represented samples without a time axis; nested sample layers retain their own
 endpoint and coverage requirements. TimeField.within(scope) is a source predicate
 and field.at(anchor) selects an attribute representation; neither supplies an
@@ -122,6 +122,22 @@ A nominal day is not a fixed elapsed duration.
 
 For scope S and nominal bucket N(t), actual observation A(t)=N(t) intersect S.
 A clipped edge is partial even if its duration matches some other full period.
+
+`Metric.per(grain)` derives complete inner calendar cells from the nearest
+enclosing calendar sample or the observation's finite time coordinate. Each
+contribution buckets by its own declared time role. Inner nominal cells must
+nest in the enclosing nominal cell; actual bounds clip to the parent's actual
+bounds. Each nonempty clipped cell is one sample, including cells without
+contributions under the child Metric's empty policy. This adds no duration
+weighting or cadence inference. A plain TimeScope permits tiling the whole
+interval. See [internal samples](semantic/expressions.md#internal-samples-and-windows)
+for builtin and certified nesting rules.
+
+Semantic sample Grains resolve against the Session's frozen current certified
+snapshot and become declared calendar dependencies. Calendar sample layers do
+not support inner windows or wrapping windows; both raise a typed error before
+execution rather than discarding the window rule.
+
 The axis preserves these distinctions. An original scope is available through
 axis.scope; a shifted sparse axis may have scope=None. An envelope does not
 reconstruct its selected domain or authorize filling missing periods.

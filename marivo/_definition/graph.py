@@ -385,7 +385,7 @@ def direct_refs(root: DefinitionNode) -> frozenset[ExactRef]:
 
 
 def direct_calendar_refs(root: DefinitionNode) -> frozenset[Ref[PeriodCalendarKind]]:
-    """Calendar lookup dependencies of window rules, without definition versions.
+    """Calendar lookup dependencies of windows and samples, without definition versions.
 
     Declared Metric references remain edges to their own published dependencies.
     A Grain's captured snapshot is not an authored dependency graph.
@@ -398,11 +398,16 @@ def direct_calendar_refs(root: DefinitionNode) -> frozenset[Ref[PeriodCalendarKi
         if id(node) in seen:
             continue
         seen.add(id(node))
+        grain = None
         if isinstance(node, MetricWindow) and isinstance(node.rule, ToDate):
             grain = node.rule.grain
-            if grain.kind == "semantic":
-                assert grain._calendar is not None
-                found.add(grain._calendar)
+        elif isinstance(node, (PerReduce, PerWeightedMean)) and isinstance(
+            node.samples, TemporalGrain
+        ):
+            grain = node.samples
+        if grain is not None and grain.kind == "semantic":
+            assert grain._calendar is not None
+            found.add(grain._calendar)
         pending.extend(edge.child for edge in children(node))
     return frozenset(found)
 

@@ -124,3 +124,31 @@ adjusted.show()
 `samples.quantile(0.95)` 等严格样本规约会在时间字段声明 `sample_interval` 时检查
 预期时钟点；覆盖检查还要求有限观察期间。缺失时钟会出现在诊断信息中。未声明采样间隔时，
 没有预期时钟序列可供检查。已表示时刻上的 NULL 不等于缺失时钟。
+
+## 按日历单元折叠 Metric
+
+将 Grain 传给 `Metric.per`，无需另行声明 TimeDimension，就能折叠已完成的每日值。
+观察提供有限范围和时区，每个源分量使用自己声明的时间字段。每日收入的周均值包含全部
+七天；无收入当天的 sum 以零参与。
+
+{/* example: calendar-sample-fold */}
+
+```python
+weekly = august.by(mv.grain("week"))
+daily_average = revenue.per(mv.grain("day")).mean()
+folded = session.observe({"daily_average": daily_average}, by=(weekly, region)).compute()
+folded.show()
+```
+
+对于已完成的 `daily_p95`，在同一周轴下使用
+`daily_p95.per(mv.grain("day")).median()`。空比率和分位数保持 NA，遵循样本规约既有的
+NULL 策略。日历网格保留每个单元；TimeField 样本仍使用已表示的时间戳并保留既有采样覆盖
+检查。内层粒度必须嵌套：日可以嵌入周或月，周不能嵌入月。认证日历粒度使用已捕获快照的
+包含关系。支持多层 Grain 嵌套。外部只有 TimeScope 时，网格覆盖整个范围。边缘不完整单元
+裁剪到实际范围，每个单元计一个样本，不按时长加权。将 Grain 传给 `per`，将 CalendarAxis
+或 TimeScope 传给 `observe(by=...)`。帮助入口：`semantic.metric.per`。
+
+`ms.calendar_grain(...)` 创建的语义粒度绑定到 Session 当前的认证日历快照。
+声明的日历折叠指标要求日历已认证。日历样本内部的窗口，以及包裹日历折叠的窗口，
+目前都会抛出类型化错误。此类问题可先在 CalendarAxis 上直接观测窗口指标，再对已捕获的
+Frame 值显式规约。

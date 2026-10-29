@@ -138,3 +138,36 @@ points when the time field declares `sample_interval`; coverage checks require a
 finite observation period. Missing clocks appear in diagnostics. Without a
 cadence declaration, there is no expected schedule to check. A NULL at a
 represented time is not a missing clock.
+
+## Fold Metrics over calendar cells
+
+Use a Grain in `Metric.per` to fold completed daily values without declaring
+another TimeDimension. The observation supplies the finite scope and timezone;
+each source component uses its own declared time field. A weekly mean of daily
+revenue includes all seven days, with zero for an empty day's sum.
+
+{/* example: calendar-sample-fold */}
+
+```python
+weekly = august.by(mv.grain("week"))
+daily_average = revenue.per(mv.grain("day")).mean()
+folded = session.observe({"daily_average": daily_average}, by=(weekly, region)).compute()
+folded.show()
+```
+
+For a completed `daily_p95`, use `daily_p95.per(mv.grain("day")).median()`
+under the same weekly axis. Empty ratios and quantiles remain NA and follow the
+sample reducer's existing NULL policy. Calendar grids retain every cell;
+TimeField samples continue to use represented timestamps and existing cadence
+checks. Inner grains must nest: day in week/month is valid; week in month is
+rejected. Certified calendar grains use their captured snapshot's containment.
+Nested Grain layers are supported. With a plain TimeScope the grid tiles the
+whole scope. Partial edge cells clip to actual scope bounds and each counts once,
+without duration weighting. Pass the Grain to `per`, and the CalendarAxis or
+TimeScope to `observe(by=...)`. Help: `semantic.metric.per`.
+
+Semantic Grains from `ms.calendar_grain(...)` bind to the Session's current
+certified calendar snapshot. Declared calendar folds require calendar
+certification. Windows inside calendar samples and windows wrapping calendar
+folds currently raise a typed error. Observe the windowed Metric directly on a
+CalendarAxis and explicitly reduce the captured Frame values instead.

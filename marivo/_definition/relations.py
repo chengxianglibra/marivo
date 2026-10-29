@@ -38,7 +38,7 @@ from marivo.refs import SemanticKind
 
 if TYPE_CHECKING:
     from marivo._definition.expressions import MetricNode, PredicateExpression
-    from marivo._temporal import InstantAnchor
+    from marivo._temporal import Grain, InstantAnchor
 
 
 @dataclass(frozen=True, slots=True)
@@ -352,7 +352,7 @@ class PopulationParameter:
 
 
 def sample_population(
-    samples: tuple[AxisBinding, ...] | SampleDomain | LiteralPopulation | PopulationProgram,
+    samples: tuple[AxisBinding, ...] | SampleDomain | LiteralPopulation | PopulationProgram | Grain,
 ) -> PopulationDependency | None:
     """Return the separately captured finite sample domain, when supplied."""
     if isinstance(samples, SampleDomain):

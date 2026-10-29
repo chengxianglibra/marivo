@@ -27,7 +27,7 @@ from marivo._definition.types import (
     invalid,
 )
 from marivo._definition.windows import ObservationWindow
-from marivo._temporal import InstantAnchor
+from marivo._temporal import Grain, InstantAnchor
 from marivo.refs import DomainKind, Ref, SemanticKind, _validate_segment
 
 if TYPE_CHECKING:
@@ -220,7 +220,7 @@ class PerReduce:
     """Complete the child metric per internal sample, then reduce the samples."""
 
     operand: MetricNode
-    samples: tuple[AxisBinding, ...] | SampleDomain | LiteralPopulation | PopulationProgram
+    samples: tuple[AxisBinding, ...] | SampleDomain | LiteralPopulation | PopulationProgram | Grain
     reducer: Reducer
     q: float | None = None
     nulls: NullPolicy = "ignore"
@@ -238,7 +238,7 @@ class PerReduce:
 class PerWeightedMean:
     value: MetricNode
     weight: MetricNode
-    samples: tuple[AxisBinding, ...] | SampleDomain | LiteralPopulation | PopulationProgram
+    samples: tuple[AxisBinding, ...] | SampleDomain | LiteralPopulation | PopulationProgram | Grain
     nulls: NullPolicy = "ignore"
     rule_version: int = NUMERIC_RULE_VERSION
 

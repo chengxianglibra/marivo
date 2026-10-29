@@ -111,6 +111,7 @@ class ObservationBinding:
     coordinates: CoordinateBinding
     contributions: tuple[ContributionBinding, ...]
     count_populations: tuple[tuple[PopulationDependency, PopulationDependency], ...] = ()
+    calendar_samples: tuple[tuple[tuple[int, ...], CalendarCoordinate], ...] = ()
 
     @property
     def fingerprint(self) -> str:

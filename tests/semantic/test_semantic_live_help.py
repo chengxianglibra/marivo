@@ -784,7 +784,7 @@ def test_per_help_covers_observed_and_complete_sample_domains(
 ) -> None:
     marivo.help("semantic.metric.per")
     text = capsys.readouterr().out
-    for family in ("Dimension", "TimeField", "Grouping", "tuple[", "Population"):
+    for family in ("Dimension", "TimeField", "Grouping", "tuple[", "Population", "Grain"):
         assert family in text
     assert "Field samples use observed keys" in text
     assert "Population binds every compatible tuple, including empty samples" in text
@@ -793,6 +793,10 @@ def test_per_help_covers_observed_and_complete_sample_domains(
     assert "explicit non-first fields locate interleaved axes" in text
     assert "(P, rule, ...)" in text
     assert "parameters: memberships" not in text
+    assert "every inner calendar cell" in text
+    assert "week in month is not" in text
+    assert "Session's current certified snapshot" in text
+    assert "Windows inside calendar samples or wrapping calendar folds are unsupported" in text
 
 
 def test_semantic_concept_constructor_and_expression_role_share_one_navigation(

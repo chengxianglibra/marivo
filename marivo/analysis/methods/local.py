@@ -130,6 +130,7 @@ def _combine_program(
         sample_population,
     )
     from marivo._definition.types import AxisBinding, CalendarCoordinate, IntervalCoordinate
+    from marivo._temporal import Grain
     from marivo.analysis.compiler.observation import (
         FormulaInput,
         MemberInput,
@@ -289,7 +290,11 @@ def _combine_program(
                 continue
             remaining_keys = [key for key in keys if key != coverage.key]
             coordinates = domain.loc[:, remaining_keys].drop_duplicates()
-            if coverage_domain is not None and coverage.output_key is not None:
+            if (
+                coverage_domain is not None
+                and coverage.output_key is not None
+                and coverage.output_slot in coverage_domain.columns
+            ):
                 # Coverage retains complete output buckets even when their samples are absent.
                 parent_keys = [key for key in remaining_keys if key in coverage_domain.columns]
                 parents = coverage_domain.loc[:, parent_keys].drop_duplicates()
@@ -506,7 +511,13 @@ def _combine_program(
         if isinstance(node, (PerReduce, PerWeightedMean)):
             if any(binding.occurrence == occurrence for binding in bindings):
                 return
-            sample_axes = node.samples if isinstance(node.samples, tuple) else node.samples.axes
+            calendar_sample = dict(program.calendar_samples).get(occurrence)
+            sample_axes: tuple[AxisBinding | CalendarCoordinate | IntervalCoordinate, ...]
+            if isinstance(node.samples, Grain):
+                assert calendar_sample is not None
+                sample_axes = (calendar_sample,)
+            else:
+                sample_axes = node.samples if isinstance(node.samples, tuple) else node.samples.axes
             source_groups = next(
                 (
                     binding.key_groups
@@ -578,8 +589,39 @@ def _combine_program(
                 parent_slots=program.parent_slots,
                 # Output buckets are complete; internal samples keep their joint keys.
                 complete_calendar=False,
+                calendar_samples=tuple(
+                    ((index, *path[len(prefix) :]), coordinate)
+                    for index in range(len(operands))
+                    for prefix in ((*occurrence, index),)
+                    for path, coordinate in program.calendar_samples
+                    if path[: len(prefix)] == prefix
+                ),
             )
             complete_domain = None
+            if calendar_sample is not None:
+                parent_slot, parent_axis = next(
+                    (group[0], axis)
+                    for group, axis in reversed(
+                        tuple(zip(source_groups, program.axes, strict=False))
+                    )
+                    if isinstance(axis, (CalendarCoordinate, IntervalCoordinate))
+                )
+                parent_cells = (
+                    parent_axis.cells
+                    if isinstance(parent_axis, CalendarCoordinate)
+                    else ((parent_axis.start, parent_axis.end, parent_axis.start, parent_axis.end),)
+                )
+                pairs = pd.DataFrame(
+                    [
+                        (parent_index, index)
+                        for parent_index, cell in enumerate(parent_cells)
+                        for index, sample in enumerate(calendar_sample.cells)
+                        if cell[2] <= sample[2] and sample[3] <= cell[3]
+                    ],
+                    columns=[parent_slot, sample_keys[0]],
+                    dtype="int64[pyarrow]",
+                )
+                complete_domain = domain.merge(pairs, on=parent_slot, how="inner")
             sample_population_definition = sample_population(node.samples)
             if sample_population_definition is not None:
                 sample_domain = population_domain(sample_population_definition, sample_keys)
@@ -594,7 +636,14 @@ def _combine_program(
                 child_outputs,
                 complete_domain,
                 sampling=sampling,
-                coverage_domain=domain if coverage_domain is None else coverage_domain,
+                coverage_domain=domain
+                if coverage_domain is None
+                or calendar_sample is not None
+                or any(
+                    isinstance(axis, CalendarCoordinate) and axis != program.calendar
+                    for axis in program.axes
+                )
+                else coverage_domain,
             )
             if key_slots and any(binding.coverage for binding in selected_bindings):
                 # Required coverage coordinates must survive enclosing sample reductions.

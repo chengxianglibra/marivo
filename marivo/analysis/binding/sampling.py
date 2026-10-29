@@ -72,6 +72,14 @@ def sampling_coverage(
         dimension = state.registry.dimensions.get(read.field.ref.path)
         sampling = dimension.sample_interval if dimension is not None else None
         if sampling is not None:
+            enclosing_calendar = next(
+                (
+                    (slot, axis)
+                    for slot, axis in reversed(contribution.calendars)
+                    if int(slot.split(".")[1]) < offset
+                ),
+                outer_calendar,
+            )
             period = contribution.period
             if period is None or period.start is None:
                 reject(
@@ -118,8 +126,8 @@ def sampling_coverage(
                         if period.start <= later < period.end
                     )
                 )
-            if outer_calendar is not None and contribution.window_key is None:
-                output_slot, output_calendar = outer_calendar
+            if enclosing_calendar is not None and contribution.window_key is None:
+                output_slot, output_calendar = enclosing_calendar
                 result.extend(
                     SampleCoverage(
                         f"key.{offset}",

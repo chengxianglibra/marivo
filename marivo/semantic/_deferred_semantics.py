@@ -70,13 +70,16 @@ from marivo._definition.relations import (
 from marivo._definition.types import (
     Authorization,
     AxisBinding,
+    CalendarCoordinate,
     DefinitionGraphError,
     ExactRef,
     FieldRead,
+    IntervalCoordinate,
     SumNone,
     SumPermission,
 )
 from marivo._grouping import Grouping
+from marivo._temporal import Grain, TimeScope
 from marivo.refs import SemanticKind
 from marivo.refs import ref as ref_factory
 from marivo.semantic.errors import ErrorKind, SemanticExpressionError
@@ -116,7 +119,7 @@ class PredicateFacts:
 @dataclass(frozen=True, slots=True)
 class _Samples:
     metric: MetricFacts
-    axes: tuple[AxisBinding, ...] | LiteralPopulation | PopulationProgram | SampleDomain
+    axes: tuple[AxisBinding, ...] | LiteralPopulation | PopulationProgram | SampleDomain | Grain
 
 
 @dataclass(frozen=True, slots=True)
@@ -487,8 +490,11 @@ def _native_sample_axis(axis: ComparisonAxis) -> AxisBinding:
     ):
         _fail(
             "Internal samples require native Dimension or TimeField groupings.",
-            expected="native field or explicit Population",
-            received=repr(axis),
+            expected="native field, Grain or explicit Population",
+            received=f"{type(axis).__name__}: {axis!r}",
+            action='For calendar samples use m.per(mv.grain("day")).<reducer>(), inheriting the observation time coordinate.'
+            if isinstance(axis, (CalendarCoordinate, IntervalCoordinate))
+            else "Use a native Dimension/TimeField or an explicit Population as the sample domain.",
         )
     assert isinstance(axis, AxisBinding)
     return axis
@@ -496,8 +502,17 @@ def _native_sample_axis(axis: ComparisonAxis) -> AxisBinding:
 
 def _sample_domain(
     recipe: Resolver,
-) -> tuple[AxisBinding, ...] | LiteralPopulation | PopulationProgram | SampleDomain:
+) -> tuple[AxisBinding, ...] | LiteralPopulation | PopulationProgram | SampleDomain | Grain:
     domain = _constant(recipe)
+    if isinstance(domain, Grain):
+        return domain
+    if isinstance(domain, TimeScope):
+        _fail(
+            "Internal calendar samples take a Grain, not a time scope.",
+            expected="a Grain inheriting the observation time coordinate",
+            received=type(domain).__name__,
+            action='Use m.per(mv.grain("day")).<reducer>() and pass the finite scope in observe(by=...).',
+        )
     if isinstance(domain, PopulationParameter):
         return domain._definition
     if isinstance(recipe, Sequence) and recipe.typ is not tuple:
@@ -676,8 +691,21 @@ def _reduce(
                 expected="True or False",
                 received=str(include_null),
             )
-        sample_axes = receiver.axes if isinstance(receiver.axes, tuple) else receiver.axes.axes
+        sample_axes = (
+            ()
+            if isinstance(receiver.axes, Grain)
+            else receiver.axes
+            if isinstance(receiver.axes, tuple)
+            else receiver.axes.axes
+        )
         if name in {"first", "last"}:
+            if isinstance(receiver.axes, Grain) and "order_by" in kwargs:
+                _fail(
+                    "Calendar samples use their captured calendar order.",
+                    expected="calendar first/last without a field order_by",
+                    received="Grain samples with order_by",
+                    action="Omit order_by to use the calendar cell order.",
+                )
             if "order_by" in kwargs:
                 ordering = _consume(kwargs["order_by"])
                 if not isinstance(ordering, RowFacts) or ordering.field is None:
@@ -698,7 +726,7 @@ def _reduce(
                 )
                 if len(times) == 1:
                     order_by = times[0]
-            if (
+            if not isinstance(receiver.axes, Grain) and (
                 order_by is None
                 or order_by.ref.kind is not SemanticKind.TIME_DIMENSION
                 or order_by
@@ -1140,9 +1168,10 @@ def _consume(recipe: Resolver) -> _Facts:
             if name in _REDUCERS | {"weighted_mean"}:
                 if not isinstance(receiver, (RowFacts, _Samples)):
                     _fail(
-                        "Completed Metrics need per(...) before another reduction.",
+                        "The value is already a completed Metric; choose internal samples before another reduction.",
                         expected="row or internal samples",
-                        received=name,
+                        received=f"{type(receiver).__name__}.{name}",
+                        action=f"Use m.per(...).{name}(...) to reduce completed Metric samples.",
                     )
                 assert isinstance(receiver, (RowFacts, _Samples))
                 return _reduce(receiver, name, recipe.args, dict(recipe.kwargs))
@@ -1150,7 +1179,7 @@ def _consume(recipe: Resolver) -> _Facts:
                 if not isinstance(receiver, MetricFacts) or len(recipe.args) != 1 or recipe.kwargs:
                     _fail(
                         "per requires a Metric and one sample specification.",
-                        expected="Metric.per(field, membership, tuple or Population)",
+                        expected="Metric.per(field, membership, tuple, Population or Grain)",
                         received="invalid receiver or arguments",
                     )
                 assert isinstance(receiver, MetricFacts)

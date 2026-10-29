@@ -29,6 +29,7 @@ from marivo._definition.expressions import (
     SourceWeightedMean,
 )
 from marivo._definition.graph import children
+from marivo._temporal import Grain
 from marivo.datasource.ir import AiContextIR
 from marivo.refs import Ref, SemanticKind, SemanticKindTag
 from marivo.semantic._compiled_state import PublishedDeclaration
@@ -208,6 +209,8 @@ def _inert_text(value: object) -> str:
 
     if isinstance(value, ExactRef):
         return value.ref.key
+    if isinstance(value, Grain):
+        return repr(value)
     if isinstance(value, Enum):
         return _inert_text(value.value)
     if isinstance(value, (date, datetime, timedelta, Decimal)):

@@ -11,10 +11,12 @@ from marivo._definition.expressions import (
     EntityCount,
     MetricNode,
     MetricWindow,
+    PerReduce,
+    PerWeightedMean,
     SourceAggregate,
     SourceWeightedMean,
 )
-from marivo._definition.graph import DefinitionNode, children
+from marivo._definition.graph import DefinitionNode, children, walk
 from marivo._definition.types import CalendarCoordinate, ExactRef
 from marivo._definition.windows import (
     AllHistory,
@@ -37,6 +39,44 @@ from marivo.analysis.core.model import reject
 
 if TYPE_CHECKING:
     from marivo.analysis.binding.observe import ContributionBinding, ObservationPeriod
+
+
+def resolve_calendar_grain(
+    grain: Grain,
+    calendar_snapshots: tuple[PeriodCalendarSnapshotV2, ...],
+    *,
+    location: str,
+) -> Grain:
+    """Resolve a semantic level against the consuming Session's certified scope."""
+    if grain.kind != "semantic":
+        return grain
+    snapshot = next(
+        (item for item in calendar_snapshots if item.calendar_ref == grain._calendar), None
+    )
+    if snapshot is None:
+        reject(
+            "a current certified calendar in the completed Session scope",
+            repr(grain),
+            "Inspect calendar.details() and catalog.readiness(refs=[calendar.ref]); certify the calendar before creating a new Session handle.",
+            location,
+        )
+    captured = grain._snapshot
+    if captured is not None and captured.snapshot_digest != snapshot.snapshot_digest:
+        reject(
+            "the same certified snapshot for the explicit Grain and Session",
+            f"{grain!r}: captured={captured.snapshot_digest}; Session={snapshot.snapshot_digest}",
+            "Use ms.calendar_grain(...) for a scope lookup, or rebuild the Grain and observation in a new Session handle after certification.",
+            location,
+        )
+    if grain.level not in ("day", *snapshot.levels):
+        reject(
+            f"a calendar level in {('day', *snapshot.levels)!r}",
+            repr(grain.level),
+            "Use a level declared by the consumed calendar.",
+            location,
+        )
+    assert grain._calendar is not None and grain.level is not None
+    return semantic_grain(calendar=grain._calendar, level=grain.level, snapshot=snapshot)
 
 
 def _previous(value: datetime, grain: Grain) -> datetime:
@@ -193,11 +233,34 @@ def bind_windows(
             has_fact(edge.child) for edge in children(node)
         )
 
-    def visit(node: DefinitionNode, path: tuple[int, ...], rule: ObservationWindow | None) -> None:
+    def visit(
+        node: DefinitionNode,
+        path: tuple[int, ...],
+        rule: ObservationWindow | None,
+        in_calendar_sample: bool = False,
+    ) -> None:
         if isinstance(node, DeclaredMetricRef):
-            visit(declared[node.ref], (*path, 0), rule)
+            visit(declared[node.ref], (*path, 0), rule, in_calendar_sample)
             return
         if isinstance(node, MetricWindow):
+            if in_calendar_sample:
+                reject(
+                    "window endpoints supported by the source contribution binder",
+                    "a Metric window inside a calendar sample layer",
+                    "Observe the windowed Metric directly on a CalendarAxis, then explicitly reduce the captured Frame values; inner calendar-sample windows are not supported.",
+                    "Metric.window",
+                )
+            if any(
+                isinstance(child, (PerReduce, PerWeightedMean)) and isinstance(child.samples, Grain)
+                for child in walk((node.operand,), resolve=declared.get).order
+            ):
+                reject(
+                    "a window applied before calendar sample folding",
+                    "a Metric window wrapping a calendar fold",
+                    "Calendar folds cannot be windowed, and windows inside calendar samples are unsupported. "
+                    "Observe the windowed Metric directly on a CalendarAxis, then explicitly reduce the captured Frame values.",
+                    "Metric.window",
+                )
             if not has_fact(node.operand):
                 reject(
                     "fact contributions for a window",
@@ -214,33 +277,11 @@ def bind_windows(
                 )
             rule = node.rule
             if isinstance(rule, ToDate) and rule.grain.kind == "semantic":
-                grain = rule.grain
-                snapshot = next(
-                    (item for item in calendar_snapshots if item.calendar_ref == grain._calendar),
-                    None,
+                grain = resolve_calendar_grain(
+                    rule.grain, calendar_snapshots, location="Metric.window"
                 )
-                if snapshot is None:
-                    reject(
-                        "a current certified calendar in the completed Session scope",
-                        repr(grain),
-                        "Inspect calendar.details() and catalog.readiness(refs=[calendar.ref]); certify the calendar before creating a new Session handle.",
-                        "Metric.window",
-                    )
-                captured = grain._snapshot
-                if captured is not None and captured.snapshot_digest != snapshot.snapshot_digest:
-                    reject(
-                        "the same certified snapshot for the explicit Grain and Session",
-                        f"{grain!r}: captured={captured.snapshot_digest}; Session={snapshot.snapshot_digest}",
-                        "Use ms.calendar_grain(...) for a scope lookup, or rebuild the Grain and observation in a new Session handle after certification.",
-                        "Metric.window",
-                    )
-                if grain.level not in ("day", *snapshot.levels):
-                    reject(
-                        f"a calendar level in {('day', *snapshot.levels)!r}",
-                        repr(grain.level),
-                        "Use a level declared by the consumed calendar.",
-                        "Metric.window",
-                    )
+                snapshot = grain._snapshot
+                assert snapshot is not None
                 if (
                     calendar is not None
                     and calendar.snapshot is not None
@@ -253,14 +294,20 @@ def bind_windows(
                         "Build the output axis and Metric in the same completed Session scope.",
                         "Metric.window",
                     )
-                assert grain._calendar is not None and grain.level is not None
-                rule = ToDate(
-                    semantic_grain(calendar=grain._calendar, level=grain.level, snapshot=snapshot)
-                )
+                rule = ToDate(grain)
         if rule is not None:
             rules[path] = rule
         for edge in children(node):
-            visit(edge.child, (*path, edge.index), rule)
+            visit(
+                edge.child,
+                (*path, edge.index),
+                rule,
+                in_calendar_sample
+                or (
+                    isinstance(node, (PerReduce, PerWeightedMean))
+                    and isinstance(node.samples, Grain)
+                ),
+            )
 
     for index, (_, node) in enumerate(metrics):
         visit(node, (index,), None)

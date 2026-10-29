@@ -415,7 +415,7 @@ class _DeclarationExpressionBuilder:
 
         if type(value) is tuple:
             return tuple(self.dependency(item, node) for item in value)
-        if isinstance(value, (Grouping, PopulationParameter)):
+        if isinstance(value, (Grouping, PopulationParameter, Grain)):
             return value
         if isinstance(value, Deferred):
             self.capture(value)
@@ -438,7 +438,6 @@ class _DeclarationExpressionBuilder:
             date,
             datetime,
             timedelta,
-            Grain,
             TimeScope,
             InstantAnchor,
             AllHistory,

@@ -1040,6 +1040,7 @@ def _plan_query(
         complete_calendar=observation.coordinates.complete_calendar
         if observation is not None
         else True,
+        calendar_samples=observation.calendar_samples if observation is not None else (),
     )
     count_inputs = []
     for definition, member_population in (

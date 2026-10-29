@@ -230,11 +230,45 @@ Exact grammar lives at semantic.predicate and semantic.field Help targets.
 
 ## Internal samples and windows
 
-Metric.per accepts a field, a nonempty field/Grouping tuple or a complete
+Metric.per accepts a Grain, a field, a nonempty field/Grouping tuple or a complete
 Population, followed by a sample reducer. The entire child Metric completes for
 each (external coordinate, internal sample) before reduction. Field samples use
 observed keys. An explicit Population preserves its compatible tuples, including
 empty samples under the child's empty policy, and may select a subset.
+
+`revenue.per(mv.grain("day")).mean()` folds daily completed revenues. A finite
+observation TimeScope or CalendarAxis supplies the inner grid's timezone and
+calendar authority. Each source child buckets by its own declared time role;
+no separate time-field argument or repeated scope is needed. Every inner cell
+participates, including empty cells: sums/counts contribute typed zero, while
+ratios and other children keep their existing empty and NULL policies.
+
+Inner grains must nest in the nearest enclosing calendar cell: subday widths
+divide the enclosing width, day nests in week/month/quarter/year, month in
+quarter/year, and quarter in year. Equal grains are valid; week does not nest in
+month/quarter/year. Certified levels use the exact snapshot's containments;
+mixed calendars must tile exact nominal parent bounds. A plain TimeScope tiles
+the whole interval. Partial edge cells retain nominal bounds and clip actual
+bounds to the scope; each nonempty clipped cell counts once without weighting
+by duration. Nested calendar folds use the same rules at every layer.
+
+Semantic sample Grains authored with `ms.calendar_grain(...)` are calendar
+dependencies. Observation resolves them against the Session's current certified
+snapshot, as for semantic reset Grains in windows. Missing certification, an
+explicit Grain from a different snapshot, unknown levels and timezone mismatches
+reject before business reads.
+
+Windows inside calendar sample layers and windows wrapping calendar folds are
+currently unsupported and raise `CoreRuleError` before execution. The source
+window binder supplies output endpoints only; it cannot supply an independent
+window at each inner cell's actual end. Observe a windowed Metric directly on a
+CalendarAxis and explicitly reduce the captured Frame values instead. Windows
+on independent formula branches and existing field-sample windows retain their
+own semantics.
+
+Pass a Grain directly to per, not a CalendarAxis or TimeScope. Missing finite
+coordinates, missing child time roles and non-nesting grains raise typed repair
+errors. A completed Metric requires per before another reduction.
 
 Internal weighted means consume a completed Metric weight on the same sample
 domain. Row weighted means consume same-root row value/weight pairs. Both sums
@@ -247,7 +281,7 @@ temporal reduction, for example bandwidth.sum(time=sample_at).per(sample_at).qua
 Per-device P95 values cannot reconstruct the P95 of the combined time series.
 
 Field `sample_interval` supplies optional source coverage, independently of parse,
-for sample reducers that require it. Each time-sample `mean` or `weighted_mean`
+for sample reducers that require it. Each native TimeField-sample `mean` or `weighted_mean`
 uses represented samples without scheduled coverage or implicit clock completion,
 regardless of arithmetic, conditionals, Duration, windows or native optimization.
 Explicit Population sample domains still retain their declared tuples and empty

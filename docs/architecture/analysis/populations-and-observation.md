@@ -207,6 +207,26 @@ Each nested layer independently selects and completes samples. Even empty or
 entirely unmatched samples preserve necessary external coordinates, producing
 zero for empty sum children and NA where the reducer's empty policy requires it.
 
+`Metric.per(grain)` uses a complete calendar grid inside the observation's finite
+time coordinate. For example, `revenue.per(mv.grain("day")).mean()` under a weekly
+CalendarAxis includes all seven days, with typed zero for an empty revenue sum.
+Each source component uses its own declared time field. Calendar samples inherit
+the coordinate's timezone; certified grains retain exact snapshot authority.
+The inner grain must tile/nest the nearest enclosing calendar cell (day in week
+or month; not week in month). Certified nesting follows snapshot containments.
+For a plain TimeScope, the inner grid tiles the whole interval. Actual edge
+bounds clip to the enclosing cell and scope; each clipped cell counts once,
+without prorating. Empty ratios remain NA and follow the sample reducer's NULL
+policy. Native TimeField coverage checks remain independent and run within the
+enclosing calendar sample. Nested Grain layers are supported. Supply the Grain
+to per and the finite time coordinate in observe.by; a CalendarAxis is not a per
+argument. Missing time roles or finite coordinates produce typed repair errors.
+Semantic sample Grain lookups require the Session's current certified snapshot;
+declared folds include that calendar in readiness dependencies. Windows inside
+calendar samples or wrapping calendar folds are unsupported and reject before
+execution. Use a direct windowed observation and explicit captured Frame
+reductions for those questions.
+
 ## Fixed-data bridge to a new source question
 
 session.population_from(frame, on=...) projects complete ordinary axes, deduplicates
