@@ -53,6 +53,7 @@ from marivo.semantic.errors import (
 )
 from marivo.semantic.validator import (
     _return_expr,
+    _stable_ast_dump,
     validate_declaration_body_ast,
     validate_entity_table_body_ast,
     validate_metric_body_ast,
@@ -1106,7 +1107,7 @@ def _normalized_body_hash(
         symbol_tokens=symbol_tokens,
     ).visit(normalized)
     ast.fix_missing_locations(transformed)
-    encoded = ast.dump(transformed, include_attributes=False).encode()
+    encoded = _stable_ast_dump(transformed).encode()
     return f"sha256:{hashlib.sha256(encoded).hexdigest()}"
 
 
