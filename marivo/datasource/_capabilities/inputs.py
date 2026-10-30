@@ -39,10 +39,17 @@ _FACTS: dict[str, tuple[str, tuple[LiveHelpTarget, ...]]] = {
         _links("partition", "time_range", "unpruned"),
     ),
     "ProjectionColumns": (
-        "Map output column names to exact physical names; omit only where this source permits an unprojected relation.",
+        "Map output column names to exact physical names; omit for an unprojected source.",
         (),
     ),
-    "PhysicalColumnName": ("Use an exact observed name from this inspection.", _links("inspect")),
+    "JsonProjectionColumns": (
+        "Map output names to relative JSON field paths; omit for an unprojected source. Array traversal requires records_path; one shared traversal expands one row per element, and a missing, null or empty array yields no rows.",
+        (),
+    ),
+    "PhysicalColumnName": (
+        "Use an inspected physical name or an existing projected output alias.",
+        _links("inspect"),
+    ),
     "SourceParameters": (
         "Bind the declared JSON source parameters for this request; omit when no values are needed.",
         _links("source_param", "json"),
@@ -52,10 +59,13 @@ _FACTS: dict[str, tuple[str, tuple[LiveHelpTarget, ...]]] = {
         _links("source_param"),
     ),
     "Columns": (
-        "Choose exact inspected columns for the retained sample.",
-        _links("source_inspection.source_column"),
+        "Choose output column names from inspection.schema; for projected sources use the output aliases, not physical names.",
+        _links("source_inspection.schema"),
     ),
-    "TemporalColumn": ("Select an exact physical time column from metadata.", _links("inspect")),
+    "TemporalColumn": (
+        "Select a date or timestamp output column from inspection.schema; use its output alias for a projected source.",
+        _links("source_inspection.schema"),
+    ),
     "PartitionValues": (
         "Choose exact partition values from source metadata.",
         _links("source_inspection.partitions"),
@@ -69,7 +79,7 @@ _FACTS: dict[str, tuple[str, tuple[LiveHelpTarget, ...]]] = {
         (),
     ),
     "SnapshotPersistencePolicy": (
-        "persist_values=False retains no row values in project state; True explicitly permits retained plaintext sample values.",
+        "False keeps newly acquired profile values in process memory but does not expose retained rows; True retains named rows and stores bounded plaintext values in project state.",
         (),
     ),
 }
@@ -84,7 +94,7 @@ _BINDINGS: dict[str, dict[str, tuple[str, ...]]] = {
     "csv": {"SourcePath": ("path",), "ProjectionColumns": ("columns",)},
     "json": {
         "SourcePath": ("path",),
-        "ProjectionColumns": ("columns",),
+        "JsonProjectionColumns": ("columns",),
         "SourceParameter": ("query_params", "body"),
     },
     "source_param": {"SourceParameterName": ("name",)},

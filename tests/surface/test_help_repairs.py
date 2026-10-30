@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 
 import marivo.analysis as mv
+import marivo.datasource as md
 from marivo._help.model import MarivoHelpTargetError
 from marivo._help.render import render_help_text
 from marivo.analysis.core.frame_method_facts import (
@@ -382,7 +383,7 @@ def test_cli_routes_can_be_copied_without_python_help(capsys: pytest.CaptureFixt
     ("requested", "expected"),
     [
         ("semantic.readiness_report.show", "analysis.runtime.values.show"),
-        ("datasource.datasource_list.render", "analysis.runtime.values.render"),
+        ("datasource.datasource_list.render", "datasource.datasource_list"),
         ("semantic.semantic_catalog.show", "analysis.runtime.values.show"),
         ("semantic.metric.show", "semantic.metric"),
         ("analysis.time_scope.month", "analysis.time_scope"),
@@ -397,3 +398,44 @@ def test_member_repair_preserves_receiver_before_lexical_similarity(
     assert captured.value.candidates[0] == expected
     for candidate in captured.value.candidates:
         assert render_help_text(candidate)[0].startswith(f"Target: {candidate}\n")
+
+
+@pytest.mark.parametrize(
+    "target",
+    (
+        "datasource.duck_db_spec",
+        "datasource.datasource_catalog",
+        "datasource.datasource_list",
+        "datasource.source_inspection",
+        "datasource.discovery_snapshot",
+        "datasource.partition_scope",
+    ),
+)
+def test_datasource_type_pages_own_inherited_display_help(target: str) -> None:
+    page = render_help_text(target)[0]
+    for name in ("show", "render"):
+        assert f'{name}: marivo.help("{target}") (documented on this type page)' in page
+    assert ".show(*, max_output_bytes=8192) prints and returns None" in page
+    assert ".render(*, max_output_bytes=8192) returns text" in page
+    assert "Use None to remove the byte budget" in page
+
+
+def test_shared_display_method_help_covers_datasource_and_analysis_receivers() -> None:
+    for method in (md.DuckDBSpec.show, md.DuckDBSpec.render):
+        page = render_help_text(method)[0]
+        assert "retained Analysis Runtime values" in page
+        assert "Other receivers can read local metadata" in page
+        assert "Pure value rendering" not in page
+
+    catalog_page = render_help_text("datasource.datasource_catalog")[0]
+    assert "Display reads current local and configured datasource declarations" in catalog_page
+    sql_page = render_help_text("datasource.raw_sql_result")[0]
+    assert "n: Maximum displayed rows" in sql_page
+
+
+def test_snapshot_help_distinguishes_profile_values_and_retained_rows() -> None:
+    page = render_help_text("datasource.discovery_snapshot")[0]
+    assert "in-process cache retain profile summary values" in page
+    assert "retained_values is empty" in page
+    assert "persist_values=True retains named rows" in page
+    assert "coverage.retained_row_count alone does not mean rows can be read" in page

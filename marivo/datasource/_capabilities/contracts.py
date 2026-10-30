@@ -17,7 +17,6 @@ def repair_for_authoring_code(code: str) -> AuthoringRepair:
         )
     if code in {
         "source_mismatch",
-        "transformed_partition_unsupported",
         "native_timeout_configuration_failed",
     }:
         return repair(
@@ -25,6 +24,17 @@ def repair_for_authoring_code(code: str) -> AuthoringRepair:
             canonical_id="inspect",
             action="Inspect the datasource configuration before retrying this operation.",
             preserves_evidence=False,
+        )
+    if code == "transformed_partition_unsupported":
+        return repair(
+            kind="rescope",
+            canonical_id="time_range",
+            action=(
+                "If the inspected source exposes a date or timestamp output column and the "
+                "adapter supports predicate pushdown, rescope with md.time_range(...); "
+                "otherwise choose a source or scope with expressible partition predicates."
+            ),
+            preserves_evidence=True,
         )
     if code in {"selected_columns_required", "unknown_source_column"}:
         return repair(

@@ -240,9 +240,14 @@ reference and sorted field names. The host owns credential-service timeouts and 
 `md.SecretValue`; displays and serialization do not reveal it. Explicit resolvers
 never fall back to environment variables or the plaintext default cache, and
 injected values are not cached. An explicit conflicting resolver is rejected
-on an owner captured by another scope. Catalog, Session and operation owners
-retain their captured resolver after ambient scope exit. Callers that receive a
-raw backend through private test infrastructure own its direct driver calls.
+on an owner captured by another scope. A Semantic Catalog and Session retain their
+captured resolver after ambient scope exit. A `DatasourceCatalog` from `md.load()`
+binds its workspace, not a resolver: each later `test()` uses the scope active at
+that call. Likewise, `md.inspect()` and a later `SourceInspection.sample()` are
+separate operations: when a source read is needed, each uses the scope active at
+that call. A sample cache hit neither reads the source nor resolves credentials.
+Callers that receive a raw backend through private test infrastructure own its
+direct driver calls.
 
 Every project has `default`, a reserved, fresh in-memory DuckDB datasource.
 Discovery does not create files or open connections. Its memory is connection

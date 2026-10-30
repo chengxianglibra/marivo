@@ -414,9 +414,10 @@ def test_any_transformed_partition_blocks_even_when_capability_claims_support(
     assert exc_info.value.effect_observed is not None
     assert exc_info.value.effect_observed.query_executed is False
     assert exc_info.value.repair is not None
-    assert exc_info.value.repair.kind == "configure"
-    assert exc_info.value.repair.help_target.canonical_id == "inspect"
-    assert exc_info.value.repair.preserves_evidence is False
+    assert exc_info.value.repair.kind == "rescope"
+    assert exc_info.value.repair.help_target.canonical_id == "time_range"
+    assert "predicate pushdown" in exc_info.value.repair.action
+    assert exc_info.value.repair.preserves_evidence is True
 
 
 def test_time_range_allows_transformed_temporal_partition_and_pushes_half_open_filter(

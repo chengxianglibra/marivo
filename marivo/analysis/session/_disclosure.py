@@ -454,18 +454,19 @@ def provider() -> DisclosureProvider:
                 "value." + method_name,
                 bindings[0].implementation,
                 bindings=bindings,
-                summary="Render one immutable retained Runtime value within its byte budget.",
+                summary="Display a result within its byte budget.",
                 parameters=(
                     P(
                         "max_output_bytes",
-                        "Use the default 8192-byte budget or an explicit tighter bound.",
+                        "Use the default 8192-byte budget, another bound, or None for no byte limit.",
                     ),
                 ),
                 output=output,
                 constraints=(
-                    "Rendering retained metadata does not activate, recover or execute a Session.",
+                    "For retained Analysis Runtime values, display does not activate, recover or execute a Session.",
+                    "Other receivers can read local metadata, such as datasource declarations.",
                 ),
-                effects="Pure value rendering.",
+                effects="Reads depend on the receiver; retained Analysis Runtime values do not query sources.",
                 failures=("ValueError: use a valid output byte bound.",),
                 example=ExampleInput(
                     f"result = page.{method_name}()",

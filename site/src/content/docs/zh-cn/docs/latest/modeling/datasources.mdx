@@ -176,7 +176,7 @@ md.inspect(warehouse, md.table("orders"), workspace_dir=".").show()
 
 ## 连接与物理来源
 
-`md.table(...)` 可在受支持的后端中选择表或视图。`md.parquet(...)` 和 `md.csv(...)` 描述由 DuckDB 读取的文件来源；`md.json(...)` 可描述文件或 HTTP 来源。这些都是来源描述符，不是新增的数据源类型。`md.inspect(...)` 读取物理元数据。若要采集行样本，请在 inspection 上调用 `inspection.sample(...)`，显式指定范围、列以及正数 `max_rows` 和 `timeout_seconds`。后端不支持的原生超时请求可能会跳过；`max_rows` 限制返回行数，不限制扫描字节数。样本值默认只保留在内存中；设置 `persist_values=True` 才会将有界样本以明文保存在项目状态中。Analysis 支持 DuckDB 本地 GET JSON，以及在源定义中写入具体请求值的 HTTP(S) GET/POST JSON。每次计算复用一份响应，不自动翻页；未填入的来源参数会在获取数据前报错。参见[有界数据源检查指南](/zh-cn/docs/latest/guides/datasources/#限制行数据证据)、[后端与方法限制](/zh-cn/docs/latest/reference/backends-and-limits/)，然后[定义 Entity](/zh-cn/docs/latest/modeling/semantic-layer/)。
+`md.table(...)` 可在受支持的后端中选择表或视图。`md.parquet(...)` 和 `md.csv(...)` 描述由 DuckDB 读取的文件来源；`md.json(...)` 可描述文件或 HTTP 来源。这些都是来源描述符，不是新增的数据源类型。`md.inspect(...)` 读取物理元数据。若要采集行样本，请在 inspection 上调用 `inspection.sample(...)`，显式指定范围、`inspection.schema` 中的输出列以及正数 `max_rows` 和 `timeout_seconds`。后端不支持的原生超时请求可能会跳过；`max_rows` 限制返回行数，不限制扫描字节数。默认情况下，新采样的 profile 摘要值保留在当前进程中，但不会保留具名行。设置 `persist_values=True` 会提供有界具名行和 profile 值，并将它们以明文保存在项目状态中。即使匹配的快照已过期，默认仍会复用；使用 `refresh=True` 可重新读取。Analysis 支持 DuckDB 本地 GET JSON，以及在源定义中写入具体请求值的 HTTP(S) GET/POST JSON。每次计算复用一份响应，不自动翻页；未填入的来源参数会在获取数据前报错。参见[有界数据源检查指南](/zh-cn/docs/latest/guides/datasources/#限制行数据证据)、[后端与方法限制](/zh-cn/docs/latest/reference/backends-and-limits/)，然后[定义 Entity](/zh-cn/docs/latest/modeling/semantic-layer/)。
 
 HTTP JSON 中全部缺失或全为 null 的列保留 `null` 类型。未使用的列不会阻塞 Analysis、字段预览或按列采样；实际使用的输入仍须满足消费操作的类型要求，显式类型转换和空值判断遵循正常表达式规则。本地 JSON 保持 DuckDB 的原生类型推断。空记录数组可能因无法推断声明列类型而失败。
 

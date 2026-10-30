@@ -465,11 +465,12 @@ class SourceInspection(RenderableResult):
 
         Args:
             scope: One explicit partition, time-range, or unpruned acquisition scope.
-            columns: Non-empty tuple of inspected output columns to retain.
-            persist_values: Keep ``False`` for memory-only values in the current
-                process. Set ``True`` only when another process must recover
-                value projections or retained rows and plaintext project-local
-                persistence is acceptable.
+            columns: Non-empty tuple of output column names in ``inspection.schema``.
+                For a projected source, use its output aliases.
+            persist_values: Set ``True`` to retain named rows and bounded profile
+                values in plaintext project-local state. With ``False``, a fresh
+                acquisition keeps profile values in the current process, but
+                retained rows are unavailable even immediately after acquisition.
             refresh: Re-execute this exact bounded acquisition instead of reusing
                 a matching cached snapshot.
             source_params: Exact non-secret runtime values declared by
@@ -482,11 +483,14 @@ class SourceInspection(RenderableResult):
             ``snapshot = inspection.sample(scope=scope, columns=("id", "region"))``
 
         Constraints:
-            Missing or extra source parameters fail before acquisition. Values
-            are memory-only by default: a cold process recovers snapshot metadata
-            with ``value_evidence_state="value_evidence_unavailable"``. Explicit
-            value persistence stores only bounded retained evidence in plaintext
-            project-local state.
+            Missing or extra source parameters fail before acquisition. By default,
+            a matching cached snapshot is reused even when stale; use ``refresh=True``
+            to read the source again. Without value persistence, a cold process
+            recovers profile statistics without min/max, top values, display
+            samples or retained rows, and
+            ``value_evidence_state`` is ``"value_evidence_unavailable"``. The
+            retained row count describes rows used in profiling, not availability
+            of ``retained_values``.
         """
         _preflight_sample(self, scope=scope, columns=columns)
         return acquire_snapshot(

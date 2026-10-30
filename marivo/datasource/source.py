@@ -479,6 +479,8 @@ def json(
         md.source_param(...) placeholders are bound only by explicit authoring reads.
         HTTP responses are acquired during evaluation preparation and reused within
         that evaluation, without automatic pagination.
+        Array traversal requires records_path. POST requires an HTTP(S) path,
+        a JSON object body and format='auto'.
         Types are inferred from the source during reading. Projected output names
         and paths must be non-empty strings. Multiple traversed fields must share
         one array path and are projected from the same array element; independent

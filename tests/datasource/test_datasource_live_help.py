@@ -36,6 +36,50 @@ def test_json_help_exposes_analysis_request_and_authoring_binding_boundaries() -
     assert len(text) <= SURFACE_LIMITS.focused_help_max_codepoints
 
 
+def test_file_projection_help_matches_optional_source_specific_inputs() -> None:
+    json_help = render_help_text("datasource.json")[0]
+    csv_help = render_help_text("datasource.csv")[0]
+
+    assert "JsonProjectionColumns optional (parameters: columns)" in json_help
+    assert "relative JSON field paths" in json_help
+    assert "one row per element" in json_help
+    assert "Array traversal requires records_path" in json_help
+    assert "records_path selects an object-member path to an array" in json_help
+    assert "POST requires an HTTP(S) path, a JSON object body and format='auto'" in json_help
+    assert "placeholders are bound only by datasource sampling or Semantic preview" in json_help
+    assert "ProjectionColumns optional (parameters: columns)" in csv_help
+    assert md.json("events.json").columns == ()
+    assert md.csv("events.csv").columns == ()
+
+
+def test_sampling_help_describes_output_names_and_snapshot_reuse() -> None:
+    sample = render_help_text("datasource.source_inspection.sample")[0]
+    time_range = render_help_text("datasource.time_range")[0]
+    physical_column = render_help_text("datasource.source_inspection.source_column")[0]
+
+    assert "output column names from inspection.schema" in sample
+    assert "output aliases, not physical names" in sample
+    assert 'marivo.help("datasource.source_inspection.schema")' in sample
+    assert "output alias for a projected source" in time_range
+    assert "physical field name" in physical_column
+    assert "sample and time_range instead use inspected output names" in physical_column
+    assert "matching snapshot is reused" in sample
+    assert "expired snapshot marked stale" in sample
+    assert "refresh=True forces another read" in sample
+    assert "a cache hit does not resolve credentials" in sample
+    assert "does not expose retained rows" in sample
+
+
+def test_credential_help_distinguishes_operation_and_captured_scopes() -> None:
+    text = render_help_text("datasource.credential_scope")[0]
+
+    assert (
+        "DatasourceCatalog tests and SourceInspection source reads use the scope active at the call"
+        in text
+    )
+    assert "SemanticCatalog or Session retains its captured resolver" in text
+
+
 def test_trino_help_matches_source_native_quantile_capability() -> None:
     from marivo.datasource.engines import require_profile_for_backend_type
     from marivo.semantic._aggregate_accuracy import aggregate_repair

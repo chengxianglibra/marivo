@@ -252,9 +252,9 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "DatasourceFieldInvalid",
         "runtime",
         ("SourceInspection.sample",),
-        "Snapshot values are memory-only unless plaintext persistence is explicitly requested.",
-        "The default avoids writing observed values to project-local state, so another process can recover metadata but not retained value evidence.",
-        "Keep persist_values=False for same-process projections; use persist_values=True only when a later process needs value projections or retained-row certification and plaintext project-local caching is acceptable.",
+        "A fresh default sample keeps profile value fields in memory but not retained rows; persist_values=True saves bounded values and rows in plaintext.",
+        "The default avoids writing observed values to project-local state; a cold reload lacks min/max, top values, display samples and retained rows but keeps other profile statistics.",
+        "Use persist_values=True when retained rows or cross-process profile values are needed and plaintext project-local caching is acceptable.",
     ),
 }
 

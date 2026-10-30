@@ -71,7 +71,7 @@ def test_authoring_repair_mapping_is_exact() -> None:
         ("partition_state_unknown", "rescope", "source_inspection.partitions", True),
         ("incomplete_partition_fields", "rescope", "source_inspection.partitions", True),
         ("partition_predicate_unsupported", "rescope", "source_inspection.partitions", True),
-        ("transformed_partition_unsupported", "configure", "inspect", False),
+        ("transformed_partition_unsupported", "rescope", "time_range", True),
         ("native_timeout_configuration_failed", "configure", "inspect", False),
         ("acquisition_connection_failed", "reconnect", "datasource_catalog.test", True),
         ("acquisition_source_failed", "inspect", "inspect", True),
@@ -85,6 +85,15 @@ def test_authoring_repair_mapping_is_exact() -> None:
         assert result.kind == kind
         assert result.help_target.canonical_id == canonical_id
         assert result.preserves_evidence is preserves_evidence
+
+
+def test_transformed_partition_repair_is_conditional_on_supported_time_range() -> None:
+    result = repair_for_authoring_code("transformed_partition_unsupported")
+
+    assert "date or timestamp output column" in result.action
+    assert "predicate pushdown" in result.action
+    assert "md.time_range" in result.action
+    assert "otherwise" in result.action
 
 
 def test_execution_failure_repair_has_deterministic_stop_boundary() -> None:

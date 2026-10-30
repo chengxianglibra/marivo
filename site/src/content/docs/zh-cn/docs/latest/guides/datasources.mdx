@@ -38,10 +38,12 @@ head:
 
 ## 采集有界行样本
 
-通过 `marivo.help("datasource.inspection")` 选择范围和已检查到的列。调用
-`md.inspect(...)` 后，可在返回的 `SourceInspection` 对象上调用 `.sample(...)`。
-样本值默认只保留在内存中；显式设置 `persist_values=True` 会将有界样本值
-以明文保存在项目状态中。
+通过 `marivo.help("datasource.inspection")` 选择范围，并从 `inspection.schema`
+选择输出列名；投影来源使用输出别名。调用 `md.inspect(...)` 后，可在返回的
+`SourceInspection` 对象上调用 `.sample(...)`。默认情况下，新采样的 profile 摘要值
+保留在当前进程中，但不会保留具名行。设置 `persist_values=True` 会提供有界具名行
+和 profile 值，并将它们以明文保存在项目状态中。即使匹配的快照已标记为 stale，
+默认仍会复用；使用 `refresh=True` 可重新读取。
 
 ## 选择物理来源
 

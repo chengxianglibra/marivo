@@ -20,6 +20,7 @@ from ibis.backends import BaseBackend
 
 import marivo
 import marivo.datasource as md
+import marivo.semantic as ms
 from marivo._help.render import help as show_help
 from marivo.datasource import backends, credentials, manage, secrets
 from marivo.datasource.engines import require_profile_for_backend_type
@@ -82,6 +83,45 @@ def test_owned_backend_probes_and_no_default_cache(
     for path in tmp_path.rglob("*"):
         if path.is_file():
             assert resolver.value.encode() not in path.read_bytes()
+
+
+def test_datasource_catalog_and_inspection_use_operation_scope(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    register_project(tmp_path, monkeypatch)
+    csv_path = tmp_path / "orders.csv"
+    csv_path.write_text("order_id\n1\n", encoding="utf-8")
+    original = HostResolver("original-token")
+    current = HostResolver("current-token")
+
+    with md.credential_scope(resolver=original):
+        catalog = md.load(workspace_dir=tmp_path)
+        inspection = md.inspect(
+            ms.ref.datasource("warehouse"), md.csv(str(csv_path)), workspace_dir=tmp_path
+        )
+    assert len(original.requests) == 1
+
+    with md.credential_scope(resolver=current):
+        assert catalog.test("warehouse").ok
+        snapshot = inspection.sample(
+            scope=md.unpruned(max_rows=10, timeout_seconds=30),
+            columns=("order_id",),
+            refresh=True,
+        )
+
+    assert snapshot.coverage.retained_row_count == 1
+    assert len(original.requests) == 1
+    assert len(current.requests) == 2
+
+    cached_resolver = HostResolver("unused-token")
+    with md.credential_scope(resolver=cached_resolver):
+        cached = inspection.sample(
+            scope=md.unpruned(max_rows=10, timeout_seconds=30),
+            columns=("order_id",),
+        )
+    assert cached.id == snapshot.id
+    assert cached.cache_status == "cached"
+    assert cached_resolver.requests == []
 
 
 @pytest.mark.parametrize(

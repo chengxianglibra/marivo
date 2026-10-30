@@ -42,6 +42,7 @@ INPUT_FAMILIES = frozenset(
         "DatasourceCatalog",
         "TableSource",
         "ProjectionColumns",
+        "JsonProjectionColumns",
         "PhysicalColumnName",
         "PartitionScope",
         "UnprunedScope",
@@ -283,7 +284,9 @@ def _build_registry() -> DatasourceCapabilityRegistry:
         _capability(
             "credential_scope",
             "marivo.datasource.credentials.credential_scope",
-            "Select a host resolver for new operations/runtimes; exit restores selection only.",
+            "Select a host resolver for new operations/runtimes; exit restores selection only. "
+            "DatasourceCatalog tests and SourceInspection source reads use the scope active at the call; "
+            "a sample cache hit does not resolve credentials. A SemanticCatalog or Session retains its captured resolver.",
             output="CredentialScope",
             inputs=_inputs(("dependency", "CredentialResolver")),
             constraints=("credential_resolution", "credential_runtime_binding"),
@@ -371,7 +374,10 @@ def _build_registry() -> DatasourceCapabilityRegistry:
             "marivo.datasource.source.csv",
             "Build a CSV source descriptor with inferred types and an optional projection.",
             output="TableSource",
-            inputs=_inputs(("subject", "SourcePath"), ("dependency", "ProjectionColumns")),
+            inputs=(
+                *_inputs(("subject", "SourcePath")),
+                _optional_input("dependency", "ProjectionColumns"),
+            ),
             example='md.csv("data/orders.csv", columns={"order_id": "Order ID"})',
         ),
         _capability(
@@ -385,10 +391,14 @@ def _build_registry() -> DatasourceCapabilityRegistry:
         _capability(
             "json",
             "marivo.datasource.source.json",
-            "Build a JSON source with inferred types, JSON-path projections, and GET/POST request values.",
+            "Build a JSON source with inferred types, JSON-path projections, and GET/POST request values. "
+            "records_path selects an object-member path to an array of records; a missing or non-array "
+            "value fails. POST requires an HTTP(S) path, a JSON object body and format='auto'; GET does not accept a body. Query lists encode repeated keys; "
+            "source_param placeholders are bound only by datasource sampling or Semantic preview.",
             output="TableSource",
             inputs=(
-                *_inputs(("subject", "SourcePath"), ("dependency", "ProjectionColumns")),
+                *_inputs(("subject", "SourcePath")),
+                _optional_input("dependency", "JsonProjectionColumns"),
                 _optional_input("dependency", "SourceParameter"),
             ),
             constraints=("json_request_shape",),
@@ -539,7 +549,8 @@ def _build_registry() -> DatasourceCapabilityRegistry:
         _capability(
             "SourceInspection.source_column",
             "marivo.datasource.inspection.SourceInspection.source_column",
-            "Return one physical field name from inspected metadata without reading rows.",
+            "Return a table's physical field name from inspected metadata for constructing "
+            "md.table(columns=...); sample and time_range instead use inspected output names.",
             kind="method",
             output="PhysicalColumnName",
             inputs=_inputs(
@@ -560,7 +571,10 @@ def _build_registry() -> DatasourceCapabilityRegistry:
         _capability(
             "SourceInspection.sample",
             "marivo.datasource.inspection.SourceInspection.sample",
-            "Acquire scoped evidence; native query timeouts are optional and exclude connection/complete-call timing.",
+            "Acquire scoped evidence; native query timeouts are optional and exclude connection/complete-call timing. "
+            "By default a matching snapshot is reused, including an expired snapshot marked stale; "
+            "refresh=True forces another read. A source read uses the credential scope active at the call; "
+            "a cache hit does not resolve credentials.",
             kind="method",
             output="DiscoverySnapshot",
             inputs=(
@@ -868,6 +882,14 @@ def _type_contracts() -> Mapping[type, DatasourceTypeContract]:
         consumers: tuple[str, ...] = (),
         guidance: tuple[str, ...] = (),
     ) -> None:
+        if all(method in methods for method in show_render) and not type_page_methods:
+            type_page_methods = show_render
+            guidance = (
+                *guidance,
+                "Display: .show(*, max_output_bytes=8192) prints and returns None; "
+                ".render(*, max_output_bytes=8192) returns text. "
+                "Use None to remove the byte budget; output may omit details within a budget.",
+            )
         contracts[cls] = DatasourceTypeContract(
             name=name,
             producers=tuple(_target(canonical_target(value)) for value in producers),
@@ -926,6 +948,7 @@ def _type_contracts() -> Mapping[type, DatasourceTypeContract]:
         "DatasourceCatalog",
         ("load",),
         methods=("list", "describe", "test", *show_render),
+        guidance=("Display reads current local and configured datasource declarations.",),
     )
     add(
         DatasourceSummary,
@@ -1108,6 +1131,12 @@ def _type_contracts() -> Mapping[type, DatasourceTypeContract]:
             "retained_values",
         ),
         methods=show_render,
+        guidance=(
+            "With default persistence, a fresh acquisition and its in-process cache retain profile summary values, "
+            "but retained_values is empty and value_evidence_state is value_evidence_unavailable. "
+            "persist_values=True retains named rows and persists bounded values; "
+            "coverage.retained_row_count alone does not mean rows can be read.",
+        ),
     )
     return MappingProxyType(contracts)
 

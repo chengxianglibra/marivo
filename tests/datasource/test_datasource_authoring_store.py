@@ -353,7 +353,11 @@ def test_memory_hit_reuses_live_values_without_a_query(
 
     assert query_spy.user_data_queries == 1
     assert first.cache_status == "fresh"
+    assert first.retained_values == ()
+    assert first.value_evidence_state == "value_evidence_unavailable"
+    assert first.profiles[0].display_samples
     assert second.cache_status == "cached"
+    assert second.retained_values == ()
     assert second.value_evidence_state == "value_evidence_unavailable"
     assert second.profiles[0].display_samples == first.profiles[0].display_samples
 
@@ -373,6 +377,7 @@ def test_private_disk_reload_marks_values_unavailable_without_querying(
     assert query_spy.user_data_queries == 1
     assert reloaded.cache_status == "cached"
     assert reloaded.value_evidence_state == "value_evidence_unavailable"
+    assert reloaded.retained_values == ()
     assert reloaded.profiles[0].min_value is None
     assert reloaded.profiles[0].max_value is None
     assert reloaded.profiles[0].top_values is None

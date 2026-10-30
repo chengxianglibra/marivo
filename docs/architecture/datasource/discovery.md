@@ -88,11 +88,14 @@ not escape as raw driver exceptions.
 
 The snapshot card makes datasource/source/scope identity, selected columns,
 coverage, and value/cache state explicit; use `snapshot.show()` for
-these query-free mechanical read facts. Values default to memory-only. A later
-process can recover snapshot identity, profiles, and coverage but not retained
-values unless the original sample used `persist_values=True` with explicit
-acceptance of bounded plaintext project-local caching. When available, read a
-retained row by column name, for example
+these query-free mechanical read facts. By default, a fresh acquisition keeps
+profile values in the current process, but `retained_values` is empty and `value_evidence_state`
+is `value_evidence_unavailable` even for a fresh acquisition. The retained row
+count reports rows used in profiling, not the availability of named rows. A later
+process can recover snapshot identity, profile statistics, and coverage without
+min/max, top values, display samples or retained rows. `persist_values=True` makes bounded profile
+values and named rows available and stores them as plaintext in project-local
+state. When available, read a retained row by column name, for example
 `snapshot.retained_values[0]["order_id"]`. Uncommon formats, keys,
 timezones, aggregation, units, additivity, relationship cardinality, null
 semantics, and business meaning remain agent-owned. Marivo does not classify a
@@ -107,9 +110,11 @@ unsupported limits do not block reads. Reader cleanup and row/scope constraints
 remain mandatory. Shared connections are not altered.
 
 
-Reacquire evidence only when a required column or value was not captured, or
-when datasource/source/scope identity no longer matches. Snapshot age alone is
-not invalidation.
+Matching snapshots are reused by default, including expired snapshots marked
+`stale`; age alone does not cause another source read. Use `refresh=True` to
+reacquire an exact bounded sample when fresh evidence is needed. Reacquire also
+when a required column or value was not captured, or when datasource/source/scope
+identity no longer matches.
 
 For a declared-only projected binding, a successful bounded sample proves that
 the generated projection executed for the selected output aliases and scope. It

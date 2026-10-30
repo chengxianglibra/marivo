@@ -41,10 +41,13 @@ do not establish business meaning. See [Datasource configuration](/docs/latest/m
 
 ## Collect a bounded row sample
 
-Use `marivo.help("datasource.inspection")` to choose a scope and inspected columns.
+Use `marivo.help("datasource.inspection")` to choose a scope and output column
+names from `inspection.schema`; projected sources use their output aliases.
 After `md.inspect(...)`, call `.sample(...)` on the returned `SourceInspection`.
-Sample values stay in memory by default; `persist_values=True` explicitly saves
-bounded sample values as plaintext in project-local state.
+By default, a fresh sample keeps profile values in the current process, but named
+rows are not retained. `persist_values=True` makes bounded named rows and profile
+values available and saves them as plaintext in project-local state. Matching
+snapshots are reused even when marked stale; use `refresh=True` to read again.
 
 ## Choose physical sources
 
