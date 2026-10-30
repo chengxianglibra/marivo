@@ -405,6 +405,81 @@ def test_fixed_axes_and_later_normalization_keep_only_their_captured_ownership(
     assert new.align(new).compute().schema.value_contexts["left.share"] == context
 
 
+@pytest.mark.parametrize("kind", ["sum", "share_group", "share_along", "pair"])
+def test_pending_statistic_fixed_groups_rebind_without_replacing_operand_snapshots(
+    analysis_dsl_case_factory: DslCaseFactory, kind: str
+) -> None:
+    case = analysis_dsl_case_factory("j2")
+    region = catalog_value(case.catalog, "sales.customer.region", kind="field")
+    days = case.session.time_scope(start="2026-08-01", end="2026-08-04").by(mv.grain("day"))
+    source = case.session.observe(
+        {"q": case.catalog.get("metric:sales.revenue")}, by=(region, days)
+    )
+    if kind == "pair":
+        statistic = source.correlate(
+            source["q"], source["q"] * 2, method="pearson", by=(source.axes[0],)
+        )
+        name = "coefficient"
+    elif kind == "sum":
+        statistic = source.reduce({"total": source["q"].sum()}, by=(source.axes[0],))
+        name = "total"
+    else:
+        along = (source.axes[0 if kind == "share_along" else 1],)
+        statistic = source.select({"share": source["q"].share(along=along)})
+        name = "share"
+    current = statistic.fix(statistic.axes[0], "east")
+    baseline = statistic.fix(statistic.axes[0], "south")
+    captured = current.schema.value_contexts[name]
+
+    completed = current.compute()
+    fixed = completed.schema.fixed_axes[0]
+    context = completed.schema.value_contexts[name]
+    assert fixed.axis.keys[0].dtype == ScalarDataType("string")
+    assert fixed.axis.keys[0].nullable is True
+    assert isinstance(
+        context, (FrameStatisticContext, FrameShareContext, FramePairStatisticContext)
+    )
+    if isinstance(context, FrameShareContext):
+        assert isinstance(captured, FrameShareContext)
+        assert context.numerator == captured.numerator
+        assert isinstance(context.numerator, FrameNamedValueInput)
+        assert context.numerator.name == "q"
+        assert context.numerator.subject is not None
+        assert context.numerator.subject.path == "sales.revenue"
+        if kind == "share_along":
+            assert context.along == (FrameFixedGroup(fixed),)
+            assert context.groups == captured.groups
+        else:
+            assert context.groups == (FrameFixedGroup(fixed),)
+            assert context.along == captured.along
+        assert context.row_scope == captured.row_scope
+    else:
+        assert context.groups == (FrameFixedGroup(fixed),)
+        if isinstance(context, FramePairStatisticContext):
+            assert isinstance(captured, FramePairStatisticContext)
+            assert context.x == captured.x
+            assert context.y == captured.y
+
+    compared = current.compare(baseline).compute()
+    relation = compared.schema.comparisons[0]
+    assert relation.current_fixed_axes == (fixed,)
+    for endpoint, selections in (
+        (relation.groups[0].current_context, relation.current_fixed_axes),
+        (relation.groups[0].baseline_context, relation.baseline_fixed_axes),
+    ):
+        assert isinstance(
+            endpoint, (FrameStatisticContext, FrameShareContext, FramePairStatisticContext)
+        )
+        groups = (
+            endpoint.along
+            if kind == "share_along" and isinstance(endpoint, FrameShareContext)
+            else endpoint.groups
+        )
+        assert groups == (FrameFixedGroup(selections[0]),)
+        assert selections[0].axis.keys[0].dtype == ScalarDataType("string")
+        assert selections[0].axis.keys[0].nullable is True
+
+
 def test_nested_target_context_keeps_parent_axes_without_claiming_fine_axes(
     local: LocalFrameServices,
 ) -> None:

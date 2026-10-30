@@ -64,7 +64,10 @@ builtin(unit, step) 或 named(ref, level) 粒度；interval 轴记录公共导�
 
 `FrameSchema` 还包含 `fixed_axes`、`value_contexts`、`alignments`、`comparisons` 和 `decompositions`。
 fixed_axes 记录 `fix` 移除的普通轴、精确有序键与该轴的语义 origins；固定键不进入活动
-`slots`。value_contexts 按当前完整值名索引，只存可准确绑定的直接观察主体、时间依据、
+`slots`。compute 从已绑定输入闭合顶层及 comparison 两端固定轴的具体键类型、nullable
+和精确键表示；统计上下文中的固定组同步重绑到完成事实，保留捕获的操作数说明。
+这些事实不依赖先 compute 再 fix 的调用顺序。
+value_contexts 按当前完整值名索引，只存可准确绑定的直接观察主体、时间依据、
 显式窗口，或当前行统计/归一化种类、输入说明、父分组和 complete/restricted 行范围。无条目表示未提供
 额外说明，不能解释为“无筛选”“无窗口”“全量”或数值无效。
 

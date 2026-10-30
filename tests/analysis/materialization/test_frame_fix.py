@@ -23,6 +23,7 @@ from marivo.analysis.dsl.frame import AnalysisFrame
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.materialization.frame_services import LocalFrameServices
+from tests.shared_fixtures import DslCaseFactory, catalog_value
 
 
 @pytest.fixture
@@ -56,6 +57,112 @@ def axis(name: str, dtype: DataType | None = None, *, nullable: bool = True) -> 
     return DataAxis(
         name, (DataColumn(name, name, dtype or ScalarDataType("string"), nullable),), name=name
     )
+
+
+@pytest.mark.parametrize("key", ["east", "missing", None])
+def test_pending_fixed_axes_close_before_and_inside_comparison(
+    analysis_dsl_case_factory: DslCaseFactory, key: str | None
+) -> None:
+    from marivo.analysis.core.frame_interpretation import UnresolvedDataType
+
+    case = analysis_dsl_case_factory("j2")
+    region = catalog_value(case.catalog, "sales.customer.region", kind="field")
+    source = case.session.observe({"q": case.catalog.get("metric:sales.revenue")}, by=(region,))
+    current = source.fix(source.axes[0], key)
+    baseline = source.fix(source.axes[0], "south")
+    captured = current.schema.fixed_axes[0]
+    assert isinstance(captured.axis.keys[0].dtype, UnresolvedDataType)
+    assert captured.axis.keys[0].nullable is None
+
+    complete = source.compute()
+    expected = complete.fix(complete.axes[0], key).schema.fixed_axes[0]
+    fixed = current.compute().schema.fixed_axes[0]
+    assert fixed == expected
+    assert fixed.key == (key,)
+    assert fixed.axis.keys[0].dtype == ScalarDataType("string")
+    assert fixed.axis.keys[0].nullable is True
+    assert fixed.origins == captured.origins
+    assert current.schema.fixed_axes[0] == captured
+
+    compared = current.compare(baseline).compute()
+    relation = compared.schema.comparisons[0]
+    assert compared.schema.fixed_axes == ()
+    assert relation.current_fixed_axes == (expected,)
+    assert relation.baseline_fixed_axes == (
+        complete.fix(complete.axes[0], "south").schema.fixed_axes[0],
+    )
+    rows = compared.to_pandas()
+    assert rows["current.present"].tolist() == [key == "east"]
+    assert rows["reference.present"].tolist() == [True]
+    assert rows["reference.baseline.q"].tolist() == [50]
+    if key == "east":
+        assert rows["q"].tolist() == [610]
+        assert rows["reference.absolute.q"].tolist() == [560]
+    else:
+        assert rows["q"].isna().all()
+        assert rows["reference.absolute.q"].isna().all()
+
+
+@pytest.mark.parametrize(
+    ("dtype", "key"),
+    [
+        (DecimalDataType(12, 3), Decimal("2.125")),
+        (TimestampDataType("ns", "UTC"), pd.Timestamp(123, unit="ns", tz="UTC")),
+        (DurationDataType("ns"), pd.Timedelta(123, unit="ns")),
+    ],
+)
+def test_pending_composite_fixed_key_retains_exact_physical_types(
+    dtype: DataType, key: Decimal | pd.Timestamp | pd.Timedelta
+) -> None:
+    from marivo.analysis.compiler.frame_plan import frame_program
+    from marivo.analysis.core.frame_expression import infer_frame_schema
+    from marivo.analysis.core.frame_fix import FixFrameValues
+    from marivo.analysis.core.frame_structure import (
+        PendingDataAxis,
+        PendingDataColumn,
+        PendingDataSchema,
+    )
+
+    captured = PendingDataSchema(
+        (
+            PendingDataAxis(
+                "member",
+                "member",
+                "identity",
+                (
+                    PendingDataColumn("tenant", "tenant", "string", False),
+                    PendingDataColumn("id", "id", "unresolved", False),
+                ),
+            ),
+        ),
+        (),
+        value_paths=(),
+    )
+    concrete = DataSchema(
+        (
+            DataAxis(
+                "member",
+                (
+                    DataColumn("tenant", "tenant", ScalarDataType("string"), False),
+                    DataColumn("id", "id", dtype, False),
+                ),
+                kind="member",
+                name="member",
+            ),
+        ),
+        (),
+    )
+    operation = FixFrameValues(0, ("a", key))
+    program = frame_program(concrete, operation, infer_frame_schema(captured, operation))
+    fixed = program.output_schema.fixed_axes[0]
+    assert fixed.axis.keys[0].dtype == ScalarDataType("string")
+    assert fixed.axis.keys[1].dtype == dtype
+    assert all(field.nullable is False for field in fixed.axis.keys)
+    assert fixed.key[0] == "a"
+    if isinstance(key, Decimal):
+        assert fixed.key[1] == key
+    else:
+        assert fixed.key[1].value == key.value
 
 
 def test_fix_preserves_order_cells_and_complete_other_coordinates(
