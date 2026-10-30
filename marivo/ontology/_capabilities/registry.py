@@ -50,23 +50,23 @@ _DESCRIPTORS = (
         callable_path="marivo.ontology.load",
         summary="Load the one optional project ontology and validate every endpoint.",
         body=(
-            "Source: models/ontology.py",
-            "Construct edges only with mo.influences(...) or mo.related_to(...).",
-            "All endpoints are native Entity, Measure, or Metric lookup symbols.",
-            "Ontology supplies discovery context only; it cannot execute semantic meaning.",
+            "Author models/ontology.py with mo.influences(...) or mo.related_to(...).",
+            "The source module and its imports execute as Python; their effects are not limited by Marivo.",
+            "There is no public analysis-side hypothesis discovery entrypoint.",
             "Ontology and semantic catalog fingerprints jointly identify this association.",
         ),
         output_family="OntologyCatalog",
         constraints=(
-            "semantic must be an exact current SemanticCatalog.",
-            "Only models/ontology.py is read; an absent source returns configured=False.",
-            "Every endpoint must resolve in the supplied catalog; invalid sources return no partial catalog.",
+            "semantic must be the exact SemanticCatalog from ms.load() or session.catalog; it is not refreshed from disk.",
+            "The source is under that catalog's workspace; an absent source returns configured=False.",
+            "Every endpoint must resolve in the supplied catalog; invalid sources raise OntologyLoadError without a partial catalog. Inspect error.issues for each repair.",
             "Edges grant no causal, analysis-admission, or Artifact authority.",
         ),
         minimal_example=(
             "semantic_catalog = ms.load()\n"
             "ontology = mo.load(semantic=semantic_catalog)\n"
-            "ontology.show()"
+            "ontology.show()\n"
+            "marivo.help(type(ontology))"
         ),
         effects=_LOCAL,
     ),
@@ -76,19 +76,17 @@ _DESCRIPTORS = (
         callable_path="marivo.ontology.influences",
         summary="Author a directional driver hypothesis without asserting causality.",
         body=(
-            "driver: EntitySymbol | MeasureSymbol | MetricSymbol",
-            "outcome: EntitySymbol | MetricSymbol",
-            "ai_context: ms.ai_context(...) with a non-empty business_definition",
-            "Discovery matches the outcome and proposes the driver.",
-            "The relation is a hypothesis and does not assert causality.",
+            "The driver is a hypothesis about the outcome, not an assertion of causality.",
             "It does not encode effect size, confidence, evidence, joins, filters, or SQL.",
         ),
         output_family="SemanticEdgeRef",
         constraints=(
             "name is a unique lowercase dotted snake_case identity.",
-            "driver is an Entity, Measure, or Metric lookup symbol; outcome is an Entity or Metric lookup symbol.",
-            "ai_context requires a non-empty business_definition.",
-            "The declaration is valid only while mo.load(...) evaluates models/ontology.py.",
+            "Endpoints must be native ms.ref lookup symbols, not catalog values or internal refs.",
+            "driver accepts Entity, Measure, or Metric; outcome accepts Entity or Metric.",
+            'Construct endpoints with marivo.help("semantic.ref").',
+            'ai_context requires a non-empty business_definition; see marivo.help("semantic.ai_context").',
+            'Declare in models/ontology.py and load with marivo.help("ontology.authoring").',
         ),
         minimal_example=(
             "driver = ms.ref.metric('sales.refund_rate')\n"
@@ -110,18 +108,17 @@ _DESCRIPTORS = (
         callable_path="marivo.ontology.related_to",
         summary="Author a symmetric contextual relation between two semantic refs.",
         body=(
-            "left/right: EntitySymbol | MeasureSymbol | MetricSymbol",
-            "ai_context: ms.ai_context(...) with a non-empty business_definition",
-            "Discovery proposes the endpoint opposite exactly one matching source anchor.",
-            "Swapped endpoints are the same canonical pair; identical endpoints are rejected.",
+            "Swapped endpoints form the same pair; only one declaration per pair is allowed.",
             "It does not imply joinability or statistical association.",
         ),
         output_family="SemanticEdgeRef",
         constraints=(
             "name is a unique lowercase dotted snake_case identity.",
-            "left and right are distinct Entity, Measure, or Metric lookup symbols.",
-            "ai_context requires a non-empty business_definition.",
-            "The declaration is valid only while mo.load(...) evaluates models/ontology.py.",
+            "Endpoints must be distinct native ms.ref lookup symbols, not catalog values or internal refs.",
+            "Both endpoints accept Entity, Measure, or Metric.",
+            'Construct endpoints with marivo.help("semantic.ref").',
+            'ai_context requires a non-empty business_definition; see marivo.help("semantic.ai_context").',
+            'Declare in models/ontology.py and load with marivo.help("ontology.authoring").',
         ),
         minimal_example=(
             "left = ms.ref.metric('sales.refund_rate')\n"

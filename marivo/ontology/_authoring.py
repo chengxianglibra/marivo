@@ -204,7 +204,7 @@ def influences(
     Args:
         name: Unique lowercase dotted snake_case edge identity.
         driver: Entity, Measure, or Metric lookup symbol proposed as a driver.
-        outcome: Entity or Metric lookup symbol matched as the outcome anchor.
+        outcome: Entity or Metric lookup symbol that the hypothesis concerns.
         ai_context: Required business definition and optional edge guardrails.
 
     Returns:
@@ -221,7 +221,9 @@ def influences(
         ... )
 
     Constraints:
-        Represents discovery guidance only; it does not assert causality or executable semantics.
+        Declare in models/ontology.py for mo.load() to evaluate.
+        Endpoints must be native ms.ref lookup symbols in the supplied catalog.
+        Represents contextual guidance; it does not assert causality or executable semantics.
     """
     return _edge(
         name=name,
@@ -265,6 +267,9 @@ def related_to(
         ... )
 
     Constraints:
+        Declare in models/ontology.py for mo.load() to evaluate.
+        Endpoints must be distinct native ms.ref lookup symbols in the supplied catalog.
+        Only one declaration is allowed per unordered endpoint pair.
         Does not imply joinability, statistical association, or executable semantics.
     """
     return _edge(

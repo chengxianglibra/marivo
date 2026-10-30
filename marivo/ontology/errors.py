@@ -38,7 +38,7 @@ class OntologyLoadError(OntologyError):
             repair=AuthoringRepair(
                 kind="reauthor",
                 help_target=LiveHelpTarget(surface="ontology", canonical_id="authoring"),
-                action="Inspect every reported edge and repair the authored ontology source.",
+                action="Inspect error.issues for each failure and repair the authored ontology source.",
             ),
         )
 

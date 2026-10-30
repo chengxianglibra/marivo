@@ -17,6 +17,7 @@ from marivo.analysis._capabilities.dataset_model import CallableInput, Navigatio
 from marivo.analysis._capabilities.model import ANALYSIS_HELP_RENDER_BUDGETS
 from marivo.analysis._capabilities.registry import REGISTRY
 from marivo.datasource.adapters import SourceSession
+from marivo.semantic.errors import SemanticError
 from tests.shared_fixtures import DslCaseFactory
 
 
@@ -46,6 +47,17 @@ def test_global_roots_offer_only_the_owning_task_choices() -> None:
         "analysis.results",
         "analysis.session.get_or_create",
     )
+
+
+def test_authoring_distinguishes_result_and_error_inspection() -> None:
+    text = render_help_text("authoring")[0]
+    error = SemanticError(kind="example", message="A concrete failure")
+
+    assert "Current result: result.show(); marivo.help(type(result))" in text
+    assert "Structured error: print(error); marivo.help(type(error))" in text
+    assert "Inspect error.repair" in text
+    assert "A concrete failure" in str(error)
+    assert not hasattr(error, "show")
 
 
 def test_retired_task_topics_fail_without_aliases() -> None:

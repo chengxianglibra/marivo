@@ -126,6 +126,7 @@ def test_absent_empty_and_invalid_ontology_states_are_distinct(tmp_path) -> None
     )
     with pytest.raises(OntologyLoadError) as exc_info:
         mo.load(semantic=semantic)
+    assert "Inspect error.issues" in str(exc_info.value)
     assert exc_info.value.issues
     issue = exc_info.value.issues[0]
     assert issue.kind == "invalid_ontology_ref"
@@ -133,9 +134,14 @@ def test_absent_empty_and_invalid_ontology_states_are_distinct(tmp_path) -> None
     assert issue.received is not None
     assert issue.repair is not None
     assert issue.repair.help_target.canonical_id == "authoring"
+    assert "ms.ref.metric('<path>')" in issue.repair.action
 
     session = mv.session.get_or_create(name="invalid-ontology")
     assert not hasattr(session, "_ontology_state")
+
+    _write_ontology(tmp_path, _valid_ontology_source())
+    repaired = mo.load(semantic=semantic)
+    assert repaired.edge_count == 1
 
 
 def test_ontology_execution_error_issue_has_structured_repair(tmp_path) -> None:

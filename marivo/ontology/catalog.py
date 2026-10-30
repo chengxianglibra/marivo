@@ -29,7 +29,7 @@ _EDGE_PREVIEW_LIMIT = 8
 
 
 def _validation_error(
-    *, edge: SemanticEdgeIR, message: str, expected: str, received: str
+    *, edge: SemanticEdgeIR, kind: str, message: str, expected: str, received: str
 ) -> InvalidOntologyRefError:
     return InvalidOntologyRefError(
         kind="invalid_ontology_ref",
@@ -39,7 +39,8 @@ def _validation_error(
         expected=expected,
         received=received,
         repair=_repair(
-            "Replace the endpoint with the exact .ref from the supplied current semantic catalog."
+            f"Choose an existing {kind} path in the supplied semantic catalog and replace "
+            f"the endpoint with ms.ref.{kind}('<path>')."
         ),
     )
 
@@ -56,6 +57,7 @@ def _validate_edges(
                 issues.append(
                     _validation_error(
                         edge=edge,
+                        kind=endpoint.kind.value,
                         message=f"edge {edge.ref.path!r} {role} is absent from this semantic catalog",
                         expected=f"a current catalog {endpoint.kind.value} ref",
                         received=endpoint.key,
@@ -154,11 +156,15 @@ class OntologyCatalog(RenderableResult):
         return card
 
     def render(self, *, max_output_bytes: int | None = _DEFAULT_MAX_OUTPUT_BYTES) -> str:
-        """Render bounded deterministic configuration and edge summaries."""
+        """Render configuration and at most the first eight edges by name.
+
+        Edge summaries include business definitions and omit guardrails.
+        The byte budget can further limit this summary; it cannot expand it.
+        """
         return self._card().render(max_output_bytes=max_output_bytes)
 
     def show(self, *, max_output_bytes: int | None = _DEFAULT_MAX_OUTPUT_BYTES) -> None:
-        """Print the bounded ontology catalog summary."""
+        """Print the same bounded configuration and edge summary as render()."""
         print(self.render(max_output_bytes=max_output_bytes))
 
 
@@ -166,7 +172,8 @@ def load(*, semantic: SemanticCatalog) -> OntologyCatalog:
     """Load and validate the optional project ontology against a semantic catalog.
 
     Args:
-        semantic: The exact loaded SemanticCatalog that owns endpoint identities.
+        semantic: The loaded SemanticCatalog that owns endpoint identities and
+            selects the workspace. Its definitions are not refreshed from disk.
 
     Returns:
         An immutable OntologyCatalog; ``configured`` is false when no source exists.
@@ -176,8 +183,11 @@ def load(*, semantic: SemanticCatalog) -> OntologyCatalog:
         ontology.show()
 
     Constraints:
-        Reads only ``models/ontology.py`` under the semantic catalog workspace.
+        Executes ``models/ontology.py`` under the supplied catalog's workspace.
+        The authored module and its imports execute as Python and may have effects
+        beyond Marivo's own local metadata reads.
         Invalid sources raise OntologyLoadError; no partial catalog is returned.
+        Inspect each error.issues item for its concrete failure and repair.
         Edges grant no causal, computation, or Artifact authority.
     """
     if type(semantic) is not SemanticCatalog:

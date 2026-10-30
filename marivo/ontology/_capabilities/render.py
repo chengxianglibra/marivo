@@ -82,21 +82,25 @@ def _render_type(type_name: str, original: object | None) -> str:
         lines.append("  Public consumption: " + ", ".join(contract.public_methods))
     if "show" in contract.public_methods:
         lines.append("  Detail: call .show() for bounded readable state.")
+    if type_name == "OntologyCatalog":
+        lines.append(
+            "  .show() and .render() summarize at most the first 8 edges by name; guardrails are omitted."
+        )
+        lines.append("  There is no public edge search, full enumeration, or individual edge read.")
     if type_name == "SemanticEdgeRef":
         lines.append("  Serialization: call .to_dict() for marivo.ontology_ref/v1 identity.")
     return _bounded("\n".join(lines))
 
 
 def _render_error_contract(error_name: str) -> str:
-    return _bounded(
-        "\n".join(
-            (
-                f"ontology.{error_name}",
-                "  Ontology error contract.",
-                "  Concrete instances render their available message, expected, received, location, and structured repair fields.",
-            )
-        )
-    )
+    lines = [
+        f"ontology.{error_name}",
+        "  Ontology error contract.",
+        "  Concrete instances render their available message, expected, received, location, and structured repair fields.",
+    ]
+    if error_name == "OntologyLoadError":
+        lines.append("  Inspect error.issues and print each issue for its details and repair.")
+    return _bounded("\n".join(lines))
 
 
 def render_help_target(
@@ -125,10 +129,6 @@ def render_help_target(
             lines.append("  Contract:")
             lines.extend(f"    {line}" for line in descriptor.body)
         lines.append("  Example:")
-        if descriptor.canonical_id in {"influences", "related_to"}:
-            lines.append(
-                "    # Declaration fragment; execute only when mo.load() evaluates models/ontology.py."
-            )
         lines.extend(
             f"    {line}" if line else "" for line in descriptor.minimal_example.splitlines()
         )
