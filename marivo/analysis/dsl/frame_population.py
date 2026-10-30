@@ -124,6 +124,9 @@ def population_from(
                     "Map a complete identity axis with the target primary-key width.",
                     "frame.population",
                 )
+            from marivo.analysis.core.frame_interpretation import FrameRowAttributeTime
+
+            assert not isinstance(captured.at, FrameRowAttributeTime)
             at = anchor_from_datetime(captured.at) if captured.at is not None else None
             if (
                 at is not None

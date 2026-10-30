@@ -33,6 +33,7 @@ from marivo._definition.types import (
     IntervalCoordinate,
     LiteralValue,
     Owner,
+    fixed_attribute_time,
 )
 from marivo._grouping import Grouping
 from marivo._temporal import PeriodCalendarSnapshotV2, TimeScope
@@ -178,6 +179,15 @@ def capture_read(
     for name, value in fields.items():
         field = consume_field(value)
         read = field.field_read or FieldRead(field.reference, field.root)
+        from marivo._definition.types import RowAttributeTime
+
+        if isinstance(read.at, RowAttributeTime):
+            reject(
+                "a fixed InstantAnchor for session.read",
+                read.at.field.ref.key,
+                "Use observe by/where for fact-row attribute time, or pass session.instant(...) to read a fixed version.",
+                "session.read",
+            )
         if read.at is None and identity.at is not None and read.entity.ref == identity.entity.ref:
             from dataclasses import replace
 
@@ -451,7 +461,7 @@ def capture_metrics(
         if isinstance(axis, (CalendarCoordinate, IntervalCoordinate))
         else FieldRead(axis.field, axis.entity, axis.path, axis.at)
         if axis.field is not None
-        else IdentityRead(axis.entity, axis.path, axis.at)
+        else IdentityRead(axis.entity, axis.path, fixed_attribute_time(axis.at))
         for axis in source_axes
     )
     if _parent_filter is not None:

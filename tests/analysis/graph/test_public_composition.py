@@ -376,4 +376,4 @@ def test_public_parquet_spearman_retains_source_reads(
     oracle = pd.Series(amounts).rank().corr(pd.Series(counts).rank())
     assert values["revenue"].corr(values["count"], method="spearman") == pytest.approx(oracle)
     assert saved.source_reads
-    assert case.session._runtime.store.layout.generation == 25
+    assert case.session._runtime.store.layout.generation == 26

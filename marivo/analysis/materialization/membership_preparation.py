@@ -9,7 +9,7 @@ import ibis
 import ibis.expr.types as ir
 
 from marivo._definition.relations import MembershipBinding
-from marivo._definition.types import ExactRef, field_read_key
+from marivo._definition.types import ExactRef, field_read_key, fixed_attribute_time
 from marivo.analysis.binding.membership import membership_path, membership_reads
 from marivo.analysis.compiler.member_version import prepare_version_filter
 from marivo.analysis.core.model import reject
@@ -75,7 +75,7 @@ def prepare_memberships(
                         "Bind each member field at the same explicit instant.",
                         "membership.prepare",
                     )
-                anchor = next(iter(anchors))
+                anchor = fixed_attribute_time(next(iter(anchors)))
                 assert anchor is not None
                 selection = normalize_target_version_selection(
                     contract, boundary=anchor, interpretation="instant"

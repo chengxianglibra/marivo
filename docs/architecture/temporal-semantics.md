@@ -93,12 +93,29 @@ and field.at(anchor) selects an attribute representation; neither supplies an
 observation endpoint. Membership time, attribute time, Metric observation time
 and output coordinates stay independent.
 
-Versioned membership requires an exact instant anchor. Field.at selects the
-exact attribute instant, including a change at an excluded scope end. Internal
-before-endpoint consumers use strict left-limit semantics; they do not subtract
-a tick. [Entity versioning](semantic/semantic-object-model.md#versioning-snapshot-and-validity)
-owns snapshot and validity selection. Missing exact snapshots are not replaced
-with latest or last-known rows.
+Versioned membership requires an exact instant anchor. `field.at(anchor)` uses
+one fixed attribute version for the entire question, including changes exactly at
+that instant. `dimension.via((relationship,)).at(fact_time)` instead selects a
+version for each original fact in ordinary same-source, single-root observe
+classification (`by` and label `where`) on DuckDB and Trino. The control is one
+named, unanchored, path-free TimeDimension on an unversioned fact root. It does
+not replace the Metric's observation time or classify at bucket endpoints.
+
+DATE control selects the target snapshot business-day label and supports only
+DATE validity. Absolute timestamp control selects snapshot days in the target's
+business timezone or compares exact validity endpoints. Native absolute timestamps
+and UTC/fixed-offset local clocks are admitted. New IANA local-clock gap/fold
+combinations reject before business reads; existing fixed-anchor membership is
+unchanged. Timestamp validity requires timestamp control. Version conditions
+remain in the left join, retaining NULL control and missing representations as
+NULL attributes, with no latest/last-known fallback. Complete relationship keys
+and declared to-one cardinality remain authoritative. No source identity audit
+is added. Multi-root, read/classify, numeric reductions, windows and internal
+samples require fixed anchors in this release.
+
+Internal before-endpoint consumers retain strict left-limit semantics without
+subtracting a tick. [Entity versioning](semantic/semantic-object-model.md#versioning-snapshot-and-validity)
+owns snapshot and validity selection.
 
 ## Grain and bucket structure
 
@@ -220,23 +237,30 @@ Calendar certification does not certify business source coverage.
 
 ## Encoded event-time predicates
 
-ms.strptime(format) declares canonical widths, padding, literals and valid
-calendar values for every encoded field. Format validation does not validate
-source rows, including rows pruned out of a query. The supported encoding
-contract is owned by [TimeDimension](semantic/semantic-object-model.md#format-specifiers-python-strptime-vs-mysql).
+`ms.strptime(format)` parses encoded input before membership. SQL NULL remains
+NULL. DuckDB, Trino, ClickHouse and MySQL/MariaDB return NULL for rejected
+parsed data; PostgreSQL uses native `to_timestamp` and can fail the entire query
+on rejected data. There is no error-policy option. Invalid
+format, timezone, type and backend capability remain configuration/preparation
+errors. No trimming, guessing, retry or automatic quality scan is performed.
 
-For supported ordered compact/separated date or clock strings and compact
-integers, the compiler can invert an exact half-open window into raw-column
-comparisons. Each endpoint becomes its first representable point at or after
-that boundary: hour encoding over [10:30,11:30) selects >=11 and <12. Aligned
-exclusive upper bounds stay excluded. Nulls do not contribute, empty intervals
-stay empty, and physical limits/ceiling overflow do not create invalid literals.
+DuckDB uses `try_strptime`; Trino wraps parsing and conversion in `TRY`;
+ClickHouse uses `parseDateTimeOrNull`. PostgreSQL retains the native
+`to_timestamp` acceptance rules, including noncanonical separators and partial
+fields. MySQL-family SELECT parsing is followed by native zero-day arithmetic
+to reject impossible calendar carriers.
+Native parsers have different acceptance rules. Trino TRY can also suppress
+recoverable errors evaluating the parser input; other engines can propagate
+argument evaluation errors. Configuration and whole-query failures are not caught.
 
-Raw ordered clock encodings use the same wall-order boundary translation in
-named or fixed source zones. Hour-prefix composition can use lexicographic raw
-`(date, hour)` bounds when the date prefix and hour have admitted lineage.
-Non-ordered encodings and custom expressions retain native execution. Ordinary
-Ibis parser syntax alone does not establish canonical encoding or ordering.
+Encoded raw ranges cannot replace parsing or serve as extra necessary
+conditions without an equivalence proof. This includes calendar assignment,
+version coordinates and `hour_prefix` date dependencies. Parsed local clocks use
+the existing wall-order cutoff translation and physical precision; output
+projections retain native gap/fold interpretation. Independent physical filters
+remain eligible for pushdown. Parsing can increase scan and CPU costs; no source
+preflight is added. NULL event time has no period membership, while a NULL
+attribute control time preserves the fact under a NULL label.
 
 ## Physical time execution
 

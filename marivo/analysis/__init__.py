@@ -117,6 +117,9 @@ if TYPE_CHECKING:
         FramePairStatisticContext as FramePairStatisticContext,
     )
     from marivo.analysis.core.frame_interpretation import (
+        FrameRowAttributeTime as FrameRowAttributeTime,
+    )
+    from marivo.analysis.core.frame_interpretation import (
         FrameShareContext as FrameShareContext,
     )
     from marivo.analysis.core.frame_interpretation import (

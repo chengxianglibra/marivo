@@ -7,6 +7,7 @@ from marivo._definition.types import (
     ExactRef,
     FieldRead,
     IdentityRead,
+    RowAttributeTime,
 )
 from marivo.analysis.core.model import reject
 from marivo.analysis.errors import AnalysisError, AnalysisRepair
@@ -123,6 +124,27 @@ def bind_read(
             ),
         ) from error
     entity = registry.entities[read.entity.ref.path]
+    at = read.at
+    if isinstance(at, RowAttributeTime):
+        control = native_read(at.field, registry, resolver)
+        if (
+            control.entity.ref != root.ref
+            or registry.entities[root.ref.path].versioning is not None
+        ):
+            reject(
+                f"a native TimeDimension on unversioned fact root {root.ref.path}",
+                f"{at.field.ref.key} on {control.entity.ref.path}",
+                "Use a named TimeDimension on this fact root, or pass session.instant(...) for a fixed attribute time.",
+                "session.observe.at",
+            )
+        if read.field.ref.kind is not SemanticKind.DIMENSION:
+            reject(
+                "a categorical Dimension for row-time classification",
+                read.field.ref.key,
+                "Use row time only for observe by/where labels; use a fixed instant for other fields.",
+                "session.observe.at",
+            )
+        at = RowAttributeTime(control.field, control.entity)
     if entity.versioning is None and read.at is not None:
         reject(
             "a versioned field owner for an attribute anchor",
@@ -150,7 +172,7 @@ def bind_read(
                 "session.observe",
             )
     return FieldRead(
-        current.field, current.entity, tuple(resolver.exact(step) for step in path), read.at
+        current.field, current.entity, tuple(resolver.exact(step) for step in path), at
     )
 
 

@@ -1169,24 +1169,27 @@ class RowExpression(_ExpressionCarrier, Generic[_RowRoleT]):
             self._method("via", (path,)), _merge(self, path), cast("_RowRoleT", self._role)
         )
 
-    def at(self, anchor: InstantAnchor) -> RowExpression[_RowRoleT]:
-        """Capture a versioned field at one exact temporal anchor.
+    def at(self, anchor: InstantAnchor | TimeExpression) -> RowExpression[_RowRoleT]:
+        """Capture a versioned attribute at a fixed instant or each fact's time.
 
         Args:
-            anchor: The explicit anchor captured for this operation.
+            anchor: One InstantAnchor, or a named, unanchored TimeDimension on
+                the observation's fact root for per-row classification.
 
         Returns:
             A typed expression with the stage and role indicated by this method.
 
         Examples:
-            ``region.at(anchor)``.
+            ``region.via((buyer,)).at(order_time)``.
 
         Notes:
-            Constraints: Captures immutable inputs without source access. The receiving
-            scope validates roots, roles, units, time and operation-specific rules.
+            Constraints: A fixed instant applies one attribute definition to the
+            whole question. Row time supports same-source, single-root observe
+            classification on qualified backends; read, classify, windows and
+            internal samples require fixed anchors. Captures without source access.
         """
         return RowExpression(
-            self._method("at", (anchor,)), self._context, cast("_RowRoleT", self._role)
+            self._method("at", (anchor,)), _merge(self, anchor), cast("_RowRoleT", self._role)
         )
 
     def within(self: TimeExpression, scope: TimeScope) -> RowPredicate:

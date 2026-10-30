@@ -512,7 +512,7 @@ class TimestampParse:
 
 @dataclass(frozen=True)
 class StrptimeParse:
-    """Declare a canonical source encoding and explicit ``strptime`` parse."""
+    """Declare an explicit native ``strptime`` parse with rejected data becoming NULL."""
 
     format: str
     timezone: str | None = None

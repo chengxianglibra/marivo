@@ -24,6 +24,7 @@ from marivo._definition.types import (
     IdentityRead,
     InputContext,
     IntervalCoordinate,
+    fixed_attribute_time,
 )
 from marivo._grouping import Grouping
 from marivo.analysis.binding.attribute_rules import (
@@ -360,7 +361,7 @@ def source_inputs(
             if isinstance(axis, (CalendarCoordinate, IntervalCoordinate))
             else FieldRead(axis.field, axis.entity, axis.path, axis.at)
             if axis.field is not None
-            else IdentityRead(axis.entity, axis.path, axis.at)
+            else IdentityRead(axis.entity, axis.path, fixed_attribute_time(axis.at))
             for axis in axes
         )
         # Qualified source bundling uses the complete joint parent_scope, including

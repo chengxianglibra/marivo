@@ -155,8 +155,8 @@ is separate from fixed Frame inputs and local combination.
 
 ## Store generation and data layout
 
-Store 25 is under `<project_root>/.marivo/analysis/generations/v25/`. One closed
-`marivo.frame_output/v14` protocol stores values, complete axes, independent presence, typed
+Store 26 is under `<project_root>/.marivo/analysis/generations/v26/`. One closed
+`marivo.frame_output/v15` protocol stores values, complete axes, independent presence, typed
 frozen interval/calendar/map attachments, receipts and result metadata. It stores no executable
 Python class path, source/Metric graph or hidden components. All analysis
 artifacts are Frame commits; stored Frames expose their identity and source-read metadata directly.
@@ -347,8 +347,8 @@ method facts. A missing/corrupt method payload can leave metadata, previews and
 current-data export usable while full consumers fail. Cards show only count,
 bounded origins and the getter pointer, never full parents/coordinate rows.
 
-All Frames use `marivo.frame_output/v14` and `frame.v14` under
-`.marivo/analysis/generations/v25/`. Method files share the existing data receipt,
+All Frames use `marivo.frame_output/v15` and `frame.v15` under
+`.marivo/analysis/generations/v26/`. Method files share the existing data receipt,
 atomic publication/readback and unknown-commit reconciliation. A saved derivative
 owns its exact inherited payloads; deleting the original Artifact does not force
 an origin lookup or source/calendar rebuild. Origin explains the original total,
@@ -431,7 +431,7 @@ owns isolated export.
 
 Completed result metadata includes immutable, non-executable semantic column
 lineage and current-result interpretation. Pending Frames derive facts from explicit inputs and
-operation bindings; compute, publication and cold recovery preserve them. Store 25 / output v14
+operation bindings; compute, publication and cold recovery preserve them. Store 26 / output v15
 requires the complete value/axis/presence directories, fixed selections, typed value contexts,
 alignment/comparison/decomposition relations and their captured identities. Missing or
 invalid saved lineage is an integrity failure, rather than empty lineage. A saved

@@ -375,9 +375,9 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "time_dimension_pushdown_advisory",
         "assembly",
         ("time_dimension",),
-        "ms.strptime(format) requires canonical source encoding: directive widths, zero padding, exact separators and valid calendar values. Ordered encodings permit bare-column ranges without partition enumeration or validation queries; excluded values are not inspected for violations.",
-        "Ordered calendar encodings permit equivalent bare-column time ranges without partition enumeration or validation queries; unqualified inverses retain parsed filtering.",
-        "Declare the raw string/integer column with ms.strptime(format). Keep its values canonical; excluded values are not inspected for violations. Raw local-clock ranges use wall-order membership in the resolved source timezone; unsupported inverses retain native filtering.",
+        "ms.strptime(format) returns NULL for rejected data except on PostgreSQL, where native to_timestamp can fail the query. Parsing precedes membership; raw encoded ranges cannot replace parsing without equivalence proof. No partition enumeration or validation queries are added.",
+        "Preserve parsed time predicates and independent physical filters; NULL time has no period membership.",
+        "Declare the string/integer column with ms.strptime(format). Inspect raw inputs explicitly to measure rejected values. Parsed local clocks retain wall-order membership in the resolved source timezone; parsing can increase scan and CPU costs.",
     ),
     ConstraintId.TIME_DIMENSION_DTYPE_COMPAT: _constraint(
         ConstraintId.TIME_DIMENSION_DTYPE_COMPAT,

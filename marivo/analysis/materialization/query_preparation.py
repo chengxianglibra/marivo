@@ -7,23 +7,27 @@ from dataclasses import dataclass, replace
 from datetime import datetime
 
 import ibis
+import ibis.expr.operations as ops
 import ibis.expr.types as ir
 
 from marivo._definition.expressions import (
     EntityCount,
     PredicateExpression,
+    RowField,
     SourceAggregate,
     TimeBinding,
 )
 from marivo._definition.observations import ObservationPeriod
 from marivo._definition.relations import MembershipBinding
 from marivo._definition.types import (
+    AttributeTime,
     AxisBinding,
     CalendarCoordinate,
     ExactRef,
     FieldRead,
     IdentityRead,
     IntervalCoordinate,
+    RowAttributeTime,
     coordinate_read_keys,
     field_read_key,
 )
@@ -348,6 +352,9 @@ def prepare_fields(
                 raw,
                 axis,
                 authority,
+                engine=entity_engine(
+                    registry, normalize_target_entity(registry, axis.entity_ref.path)
+                ),
                 start=start.astimezone(time_zone(zone)).replace(tzinfo=None)
                 if start is not None and authority.kind == "civil_date"
                 else start,
@@ -400,9 +407,46 @@ def prepare_fields(
         table = table.filter(
             period_condition(time, contribution.period.start, contribution.period.end, zone)
         )
+    predicate_conditions = (
+        *contribution.intrinsic_conditions,
+        *((contribution.common_condition,) if contribution.common_condition is not None else ()),
+    )
+    if any(isinstance(read.at, RowAttributeTime) for read in scalar_reads):
+        from marivo._definition.graph import walk
+        from marivo._definition.relations import PopulationContains
+        from marivo.analysis.compiler.predicate import lower_condition
+
+        # Split only top-level AND. An OR containing a target label remains
+        # intact. Keep the full condition downstream as the authoritative filter.
+        for condition in predicate_conditions:
+            if any(isinstance(leaf, PopulationContains) for leaf in condition.inputs):
+                continue
+            fields = {}
+            for node in walk((condition,), resolve=lambda _: None).order:
+                if isinstance(node, RowField) and node.read is not None:
+                    read = node.read
+                    native = read.entity == contribution.root and not read.path and read.at is None
+                    relation = table if native else entities[read.entity.ref.path].view()
+                    fields[field_read_key(read)] = value(read.field.ref.path, relation)
+            lowered = lower_condition(condition, fields)
+            if lowered.checks:
+                continue
+            pending = [lowered.value.op()]
+            conjuncts: list[ir.BooleanValue] = []
+            while pending:
+                atom = pending.pop()
+                if isinstance(atom, ops.And):
+                    pending.extend((atom.left, atom.right))
+                elif atom.relations <= {table.op()}:
+                    expression = atom.to_expr()
+                    assert isinstance(expression, ir.BooleanValue)
+                    conjuncts.append(expression)
+            if conjuncts:
+                table = table.filter(*conjuncts)
     columns: list[tuple[str, str]] = []
     originals: list[tuple[str, ir.Value]] = []
     checks: list[tuple[str, str, str]] = []
+    routes: dict[tuple[ExactRef, tuple[ExactRef, ...], AttributeTime | None], ir.Table] = {}
     from marivo.analysis.binding.membership import membership_reads
     from marivo.analysis.materialization.membership_preparation import prepare_memberships
 
@@ -543,6 +587,14 @@ def prepare_fields(
             dependencies.append(expression)
             originals.append((slot, expression))
             table = table.mutate(**{slot: expression}, **time_columns(expression))
+        elif (read.entity, read.path, read.at) in routes:
+            # All target columns remain in the first left join. Reading a
+            # second attribute through its ancestor reuses that exact match.
+            target = routes[(read.entity, read.path, read.at)]
+            expression = read_value(target)
+            dependencies.append(expression)
+            originals.append((slot, expression))
+            table = table.mutate(**{slot: expression}, **time_columns(expression))
         else:
             current = {name: name for name in entities[contribution.root.ref.path].columns}
             steps = read.path or (None,)
@@ -557,23 +609,39 @@ def prepare_fields(
                     target_path = relation.to_entity_ref.path
                     keys = relation.keys
                 target = entities[target_path].view()
+                row_condition: ir.BooleanValue | None = None
                 for left, right in keys:
                     dependencies.extend((table[current[left]], target[right]))
                 if target_path == read.entity.ref.path and read.at is not None:
                     contract = normalize_target_entity(registry, target_path)
-                    selection = normalize_target_version_selection(
-                        contract, boundary=read.at, interpretation="instant"
-                    )
-                    version = contract.version
-                    version_condition = version_predicate(
-                        target,
-                        version,
-                        selection,
-                        state=state,
-                        reader=reader,
-                        dependencies=dependencies,
-                    )
-                    target = target.filter(version_condition)
+                    if isinstance(read.at, RowAttributeTime):
+                        from marivo.analysis.compiler.member_version import row_version_predicate
+
+                        control = value(read.at.field.ref.path, table)
+                        control_authority = time_encodings[read.at.field.ref.path][2]
+                        row_condition = row_version_predicate(
+                            target,
+                            contract.version,
+                            control,
+                            control_authority,
+                            engine=entity_engine(registry, contract),
+                            state=state,
+                            reader=reader,
+                            dependencies=dependencies,
+                        )
+                    else:
+                        selection = normalize_target_version_selection(
+                            contract, boundary=read.at, interpretation="instant"
+                        )
+                        version_condition = version_predicate(
+                            target,
+                            contract.version,
+                            selection,
+                            state=state,
+                            reader=reader,
+                            dependencies=dependencies,
+                        )
+                        target = target.filter(version_condition)
                 final = step_index == len(steps) - 1
                 if final:
                     expression = read_value(target)
@@ -586,7 +654,8 @@ def prepare_fields(
                 grouped = grouped.rename(**{new: old for old, new in renamed.items()})
                 joined = table.left_join(
                     grouped,
-                    [table[current[left]] == grouped[renamed[right]] for left, right in keys],
+                    [table[current[left]] == grouped[renamed[right]] for left, right in keys]
+                    + ([] if row_condition is None else [row_condition]),
                 )
                 table = joined.select(table, *(grouped[name] for name in grouped.columns))
                 current = renamed
@@ -595,6 +664,7 @@ def prepare_fields(
                         **{slot: table[renamed[slot]]},
                         **{name: table[renamed[name]] for name in extras},
                     )
+                    routes[(read.entity, read.path, read.at)] = target
         columns.append((read_key, slot))
         columns.extend((key, name) for name, key in extra_keys.items())
         if read == time_read and (read.path or read.at is not None) and selected_calendars:
@@ -666,12 +736,8 @@ def prepare_fields(
     table = prepared_memberships[0]
     columns.extend(prepared_memberships[1])
     originals.extend((slot, table[slot]) for _, slot in prepared_memberships[1])
-    predicate_conditions = (
-        *contribution.intrinsic_conditions,
-        *((contribution.common_condition,) if contribution.common_condition is not None else ()),
-    )
     if predicate_conditions and checks:
-        from marivo._definition.expressions import RowExpression, RowField
+        from marivo._definition.expressions import RowExpression
         from marivo._definition.graph import walk
         from marivo.analysis.compiler.predicate import lower_condition
 

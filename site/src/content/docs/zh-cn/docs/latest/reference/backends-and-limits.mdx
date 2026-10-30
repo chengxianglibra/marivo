@@ -45,8 +45,9 @@ description: 查询驱动、来源形式、分析方法和数值限制。
 贡献分析使用五类后端的合格来源路线，但仍受方法、类型、键和来源限制。父级总量与
 细分贡献独立读取，可能来自不同来源快照。`Attribute` 信任实体身份、关系基数和版本
 粒度声明；准入还会检查 membership/Population 覆盖与重叠、distinct 值的跨组分区、
-时间对应和数值闭合。只核对请求的最终目标与新读取的父级总量。Float64 闭合容差取
-目标绝对值的 1% 与数值舍入预算的较大值；其他类型使用各自规则。若目标不满足准入
+时间对应和数值闭合。只核对请求的最终目标与新读取的父级总量。未改变的 additive/level Float64 闭合容差取
+目标绝对值的 1% 与数值舍入预算的较大值；paired rate/mix 使用传播的舍入界，
+没有该 1% 业务容差；其他类型使用各自规则。若目标不满足准入
 条件，可通过显式观察和比较继续调查，但不能把结果当作贡献分解。
 
 远端 `Attribute` 要求直接物理有符号整数字段或字符串身份字段，以及合格的字符串
@@ -105,3 +106,12 @@ NULL；空输入通过此断言。对于 `amount.mean(time=point).per(point).mea
 `weighted_mean` 使用实际出现的样本。
 
 本地教程只演示其 DuckDB 路线。配置见[接入数据](/zh-cn/docs/latest/modeling/semantic-layer/#连接与检查)，具体失败见[故障排查](/zh-cn/docs/latest/reference/troubleshooting/)。
+
+
+## 逐行属性时间与容错解析
+
+逐行 as-of 的首轮范围为 DuckDB/Trino 同源、单事实根 observe 分类；版本连接保留 left join。同一目标、完整路径和控制时间共享连接，不同字段、固定锚点或路径角色保持独立。安全事实时间范围、独立物理条件与可证明的事实侧 AND 条件在连接前过滤；目标标签 OR 不拆分。目标分区包络裁剪尚未提供。
+
+`strptime` 在 DuckDB、Trino、ClickHouse 和 MySQL/MariaDB 上将拒绝的数据变为 NULL；PostgreSQL 使用原生 `to_timestamp`，被拒绝的数据可能使查询报错。DuckDB 用 try_strptime，Trino 用 TRY，ClickHouse 用 OrNull，MySQL/MariaDB 在 SELECT parser 后用零日算术排除无效日历载体。原生格式及精度限制继续生效。解析后的 membership 保持 wall-order，原始编码范围不能绕过解析，因此扫描成本可能上升；独立物理过滤仍可下推。Trino TRY 可捕获输入表达式内的部分错误，其他后端可能传播参数错误，不保证统一的上游错误隔离。
+
+Trino 不支持 `%U` 和 `%w` 的 strptime 格式；这类配置在 TRY 之前给出类型化错误，不会静默返回全列 NULL。

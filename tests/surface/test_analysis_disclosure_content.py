@@ -624,6 +624,7 @@ def test_construction_type_families_and_retired_surface() -> None:
         "frame_field",
         "frame_axis_schema",
         "frame_ordinary_axis_schema",
+        "frame_row_attribute_time",
         "frame_calendar_axis_schema",
         "frame_interval_axis_schema",
         "frame_paired_axis_schema",
@@ -722,7 +723,7 @@ def test_construction_type_families_and_retired_surface() -> None:
         "value_statistic",
         "column",
     }
-    assert len([name for name in mv.__all__ if isinstance(getattr(mv, name), type)]) == 68
+    assert len([name for name in mv.__all__ if isinstance(getattr(mv, name), type)]) == 69
     removed = {
         "before_end_boundary",
         "before_end_boundary.end",

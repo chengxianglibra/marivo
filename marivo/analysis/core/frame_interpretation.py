@@ -237,6 +237,27 @@ FrameTimeEndpoint: TypeAlias = FrameCalendarEndpoint | FrameIntervalEndpoint
 
 
 @dataclass(frozen=True, slots=True, repr=False)
+class FrameRowAttributeTime(_Fact):
+    """Per-fact attribute selection, acquired from an ordinary Frame axis's at field."""
+
+    field: SemanticObjectIdentity
+    kind: Literal["row"] = "row"
+
+    def __repr__(self) -> str:
+        return f"<FrameRowAttributeTime kind=row field={self.field.path[:120]!r}; use .show()>"
+
+    def show(self, *, max_output_bytes: int | None = 8192) -> None:
+        """Print the captured control-field identity.
+
+        Args: max_output_bytes: Optional display budget. Returns: None.
+
+        Example: ``frame.schema.axes[0].at.show()`` after checking its row kind.
+        Constraints: No source, Catalog or version matching is accessed.
+        """
+        print(self._card().render(max_output_bytes=max_output_bytes))
+
+
+@dataclass(frozen=True, slots=True, repr=False)
 class FrameAxisSchema(_Fact):
     """A complete current logical axis, acquired from FrameSchema.axes."""
 
@@ -244,7 +265,7 @@ class FrameAxisSchema(_Fact):
     name: str
     role: AxisRole
     keys: tuple[FrameField, ...]
-    at: datetime | None = field(default=None, kw_only=True)
+    at: datetime | FrameRowAttributeTime | None = field(default=None, kw_only=True)
 
     def render(self, *, max_output_bytes: int | None = 8192) -> str:
         """Return bounded captured axis facts without reading payloads."""
@@ -1476,7 +1497,10 @@ def _validate_fact(value: _Fact) -> None:
     if isinstance(value, FrameAxisSchema):
         text(value.token)
         text(value.name)
-        instant(value.at)
+        if not isinstance(value.at, FrameRowAttributeTime):
+            instant(value.at)
+        elif not isinstance(value, FrameOrdinaryAxisSchema):
+            _invalid("row attribute time on an ordinary classification axis")
         roles = {
             FrameOrdinaryAxisSchema: ("field", "identity"),
             FrameCalendarAxisSchema: ("calendar",),
@@ -1492,6 +1516,9 @@ def _validate_fact(value: _Fact) -> None:
             _invalid("a closed axis variant and its complete immutable key")
         if isinstance(value, (FrameCalendarAxisSchema, FrameIntervalAxisSchema)):
             text(value.timezone)
+    elif isinstance(value, FrameRowAttributeTime):
+        if type(value.field) is not SemanticObjectIdentity or value.field.kind != "time_dimension":
+            _invalid("a captured row-time TimeDimension identity")
     elif isinstance(value, (FrameCalendarEndpoint, FrameIntervalEndpoint)):
         text(value.name)
         text(value.timezone)

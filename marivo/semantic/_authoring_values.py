@@ -421,22 +421,21 @@ def strptime(
 
     Use as the ``parse=`` value on ``@ms.time_dimension(...)`` when the
     source column is a string or integer that must be parsed with a Python
-    strptime format. The physical column type (string or integer) is inferred
-    from the ibis expression at analysis time. Source values must use the
-    format's canonical encoding: fixed directive widths, zero padding, exact
-    separators and valid calendar values. For example, ``%Y%m%d`` requires
-    ``20260701``, not ``2026071``. Integer encodings use the corresponding
-    base-ten digits without losing leading zeros.
+    strptime format. SQL NULL stays NULL. DuckDB, Trino, ClickHouse and
+    MySQL/MariaDB return NULL for rejected parsed values; PostgreSQL uses
+    native ``to_timestamp`` and rejected data can fail the query. There is no
+    error-policy parameter, trimming, format guessing or retry. Backend parsers
+    can accept different noncanonical values. Configuration, type, connection
+    and resource failures remain errors.
 
-    Analysis can invert ordered calendar encodings into bare-column range
-    predicates without additional queries or source validation. Unsupported
-    inverses keep the parsed predicate. Ordered raw local-clock membership uses
-    wall order; projected values retain native gap/fold interpretation.
-    This guarantee assumes compliant source
-    values; values excluded by the range are not inspected for contract violations.
+    Membership parses before applying boundaries and retains local-clock wall
+    order; output projections keep native gap/fold behavior. Parsed predicates
+    can cost more than raw encoded ranges; use independent physical filters
+    where appropriate. Trino TRY can also catch recoverable errors in its input
+    expression; other backends can propagate argument evaluation failures.
 
     Args:
-        format: Python strptime format and canonical source encoding contract
+        format: Python strptime format
             (e.g. ``"%Y%m%d"``, ``"%Y-%m-%d %H:%M:%S"``). Must be ``%``-prefixed.
         timezone: Optional IANA timezone for time-bearing formats.
 

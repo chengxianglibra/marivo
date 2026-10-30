@@ -7,6 +7,7 @@ from typing import Literal
 
 import ibis
 import ibis.expr.datatypes as dt
+import ibis.expr.operations as ops
 import ibis.expr.types as ir
 
 from marivo.analysis.compiler.errors import DatasetCompilationError, compilation_error
@@ -50,16 +51,15 @@ _CLICKHOUSE_TRUNCATING_DIRECTIVES: frozenset[str] = frozenset({"%f"})
 #
 # A format missing a directive is *not* refused: ClickHouse fills the gap from
 # its own epoch (``%m`` alone answers year 2000, ``%Y`` alone month 1), exactly
-# as DuckDB fills 1900 and MySQL fills 0000. Only ClickHouse's fill is
-# documented here because its fill behavior differs from other engines.
+# while other engines retain their own native defaults. No library-level
+# date completion is added.
 _CLICKHOUSE_INEXACT_DIRECTIVES: frozenset[str] = frozenset({"%U", "%a", "%A", "%w"})
 
 # A real ``%<letter>`` directive, as opposed to an escaped literal percent.
 _STRPTIME_DIRECTIVE = re.compile(r"%[A-Za-z]")
 
-# Only complete, fixed-width, most-significant-first calendar encodings are
-# order preserving. The format declaration is the source contract, not a
-# runtime certification of source rows or partition metadata.
+# Calendar tick encodings for constant-side hour-prefix rounding. They never
+# authorize replacing parsing with raw encoded membership.
 _ORDERED_FORMATS: dict[str, int] = {
     "%Y%m%d": 86400,
     "%Y-%m-%d": 86400,
@@ -138,32 +138,9 @@ def _boundary_instant(bound: date | datetime, authority: SourceTimeAuthority) ->
     return point.astimezone(timezone.utc)
 
 
-def _scalar_cutoff(
-    raw: ir.Value, parse: StrptimeParse | None, point: datetime, *, inclusive: bool
-) -> ir.BooleanValue | None:
+def _scalar_cutoff(raw: ir.Value, point: datetime, *, inclusive: bool) -> ir.BooleanValue | None:
     """Compare a physical clock to one translated lower cutoff."""
     physical = raw.type()
-    if parse is not None:
-        if parse.format not in _ORDERED_FORMATS or not (
-            physical.is_string()
-            or (physical.is_integer() and parse.format.replace("%", "").isalpha())
-        ):
-            return None
-        text = ordered_time_literal(point, parse.format, strict=not inclusive)
-        if text is None:
-            return _nullable_constant(raw, False)
-        if physical.is_integer():
-            number = int(text)
-            assert isinstance(physical, dt.Integer)
-            minimum, maximum = physical.bounds
-            if number <= minimum:
-                return _nullable_constant(raw, True)
-            if number > maximum:
-                return _nullable_constant(raw, False)
-            literal = ibis.literal(number, type=physical)
-        else:
-            literal = ibis.literal(text, type=physical)
-        return raw >= literal
     if physical.is_date():
         midnight = point.replace(hour=0, minute=0, second=0, microsecond=0)
         try:
@@ -190,7 +167,6 @@ def _scalar_cutoff(
 def _composite_cutoff(
     raw: ir.Value,
     prefix: ir.Value,
-    prefix_axis: TargetDimensionContract,
     point: datetime,
     *,
     inclusive: bool,
@@ -198,11 +174,7 @@ def _composite_cutoff(
     physical = raw.type()
     if not (physical.is_integer() or physical.is_string()):
         return None
-    fmt = prefix_axis.parse
-    if isinstance(fmt, StrptimeParse):
-        if is_time_bearing_format(fmt.format):
-            return None
-    elif not prefix.type().is_date():
+    if not prefix.type().is_date():
         return None
     text = ordered_time_literal(point, "%Y%m%d%H", strict=not inclusive)
     if text is None:
@@ -211,9 +183,8 @@ def _composite_cutoff(
         return exhausted
     tick = datetime.strptime(text, "%Y%m%d%H")
     midnight = tick.replace(hour=0)
-    date_parse = fmt if isinstance(fmt, StrptimeParse) else None
-    at_day = _scalar_cutoff(prefix, date_parse, midnight, inclusive=True)
-    after_day = _scalar_cutoff(prefix, date_parse, midnight, inclusive=False)
+    at_day = _scalar_cutoff(prefix, midnight, inclusive=True)
+    after_day = _scalar_cutoff(prefix, midnight, inclusive=False)
     if at_day is None or after_day is None:
         return None
     on_day = at_day & ~after_day
@@ -221,7 +192,7 @@ def _composite_cutoff(
     result = after_day | (on_day & (raw >= hour))
     if tick.hour == 0 and tick.date() > date.min:
         previous = midnight - timedelta(days=1)
-        at_previous = _scalar_cutoff(prefix, date_parse, previous, inclusive=True)
+        at_previous = _scalar_cutoff(prefix, previous, inclusive=True)
         assert at_previous is not None
         last = ibis.literal("24" if physical.is_string() else 24, type=physical)
         result |= (at_previous & ~at_day) & (raw == last)
@@ -239,23 +210,34 @@ def source_time_comparison(
     comparison: TimeComparison,
     prefix: ir.Value | None = None,
     prefix_axis: TargetDimensionContract | None = None,
+    engine: str = "duckdb",
 ) -> ir.BooleanValue | None:
-    """Build an exact raw predicate, or leave a legal native expression alone.
+    """Build exact membership over parsed values or native physical clocks.
 
     Local source clocks use wall order, while physical instants and civil dates
     keep their own domains. Constants retain the raw type and precision. A
     composite prefix is its original DATE or canonical date encoding, not its
     already parsed projection.
     """
-    if not _raw_lineage(value) or (prefix is not None and not _raw_lineage(prefix)):
-        return None
     parse = axis.parse
+    if isinstance(parse, StrptimeParse):
+        text = value.cast("string")
+        assert isinstance(text, ir.StringValue)
+        value = parse_strptime(engine, text, parse)
+        parse = None
+    elif not _raw_lineage(value):
+        return None
     if isinstance(parse, HourPrefixParse):
         if prefix is None or prefix_axis is None:
             return None
+        if isinstance(prefix_axis.parse, StrptimeParse):
+            from dataclasses import replace
+
+            text = prefix.cast("string")
+            assert isinstance(text, ir.StringValue)
+            prefix = parse_strptime(engine, text, prefix_axis.parse)
+            prefix_axis = replace(prefix_axis, parse=None)
     elif parse is not None and not isinstance(parse, (TimestampParse, DateParse, StrptimeParse)):
-        return None
-    if isinstance(parse, StrptimeParse) and parse.format not in _ORDERED_FORMATS:
         return None
 
     def lower(strict: bool) -> ir.BooleanValue | None:
@@ -276,10 +258,8 @@ def source_time_comparison(
                 point, inclusive = instant, not strict
         if isinstance(parse, HourPrefixParse):
             assert prefix is not None and prefix_axis is not None
-            return _composite_cutoff(value, prefix, prefix_axis, point, inclusive=inclusive)
-        return _scalar_cutoff(
-            value, parse if isinstance(parse, StrptimeParse) else None, point, inclusive=inclusive
-        )
+            return _composite_cutoff(value, prefix, point, inclusive=inclusive)
+        return _scalar_cutoff(value, point, inclusive=inclusive)
 
     try:
         if comparison in (">=", "<"):
@@ -308,9 +288,13 @@ def source_time_predicate(
     end: date | datetime | None,
     prefix: ir.Value | None = None,
     prefix_axis: TargetDimensionContract | None = None,
+    engine: str = "duckdb",
 ) -> ir.BooleanValue | None:
-    """Build a half-open raw range with the same nullable comparison semantics."""
-    kwargs = {"prefix": prefix, "prefix_axis": prefix_axis}
+    """Build a half-open membership predicate retaining parsing and NULL."""
+    if start is None and end is None and isinstance(axis.parse, StrptimeParse):
+        text = value.cast("string")
+        assert isinstance(text, ir.StringValue)
+        return _nullable_constant(parse_strptime(engine, text, axis.parse), True)
     if start is None and end is None:
         if (
             not _raw_lineage(value)
@@ -321,32 +305,36 @@ def source_time_predicate(
         result = _nullable_constant(value, True)
         return result if prefix is None else result & _nullable_constant(prefix, True)
     first = (
-        source_time_comparison(value, axis, authority, bound=start, comparison=">=", **kwargs)
+        source_time_comparison(
+            value,
+            axis,
+            authority,
+            bound=start,
+            comparison=">=",
+            prefix=prefix,
+            prefix_axis=prefix_axis,
+            engine=engine,
+        )
         if start is not None
         else None
     )
     last = (
-        source_time_comparison(value, axis, authority, bound=end, comparison="<", **kwargs)
+        source_time_comparison(
+            value,
+            axis,
+            authority,
+            bound=end,
+            comparison="<",
+            prefix=prefix,
+            prefix_axis=prefix_axis,
+            engine=engine,
+        )
         if end is not None
         else None
     )
     if (start is not None and first is None) or (end is not None and last is None):
         return None
     return last if first is None else first if last is None else first & last
-
-
-def encoded_time_predicate(
-    value: ir.Value,
-    axis: TargetDimensionContract,
-    authority: SourceTimeAuthority,
-    *,
-    start: date | datetime | None,
-    end: date | datetime | None,
-) -> ir.BooleanValue | None:
-    """Build the qualified canonical-encoding half-open predicate without IO."""
-    if not isinstance(axis.parse, StrptimeParse):
-        return None
-    return source_time_predicate(value, axis, authority, start=start, end=end)
 
 
 def _parse_signature_zoned(text: str, fmt: str, zone: str) -> datetime:
@@ -357,11 +345,11 @@ def _parse_signature_clock(text: str, fmt: str) -> datetime:
     raise NotImplementedError("native canonical DuckDB time parse")
 
 
-# Preserve the declaration's canonical-encoding authority in the expression.
-# An arbitrary authored Ibis StringToTimestamp does not carry that promise.
+# Retain a compiler-owned parser, separate from arbitrary authored Ibis
+# StringToTimestamp expressions.
 _duckdb_strptime: Callable[[ir.StringValue, str], ir.TimestampValue] = ibis.udf.scalar.builtin(
     _parse_signature_clock,
-    name="strptime",
+    name="try_strptime",
     signature=((dt.string, dt.string), dt.Timestamp(timezone="UTC", scale=6)),
 )
 
@@ -394,6 +382,14 @@ def translated_strptime_format(engine: str, fmt: str) -> str:
     from marivo.datasource.engines import profile_for_backend_name
 
     profile = profile_for_backend_name(engine)
+    if engine == "trino":
+        unsupported = {"%U", "%w"} & set(_STRPTIME_DIRECTIVE.findall(fmt.replace("%%", "")))
+        if unsupported:
+            raise compilation_error(
+                "a format supported by Trino date_parse",
+                f"unsupported directive {sorted(unsupported)[0]} in {fmt[:200]!r}",
+                repair="Use calendar date directives such as %Y-%m-%d, or expose a native temporal column. Unsupported format configuration cannot be wrapped in TRY.",
+            )
     if engine == "clickhouse":
         # ``%%`` is an escaped literal percent, not a directive, so the scan
         # removes those pairs before looking for any directive. ``%%f`` parses
@@ -425,24 +421,77 @@ def _needs_naive_binding(fmt: str) -> bool:
     return "%z" not in fmt and "%Z" not in fmt
 
 
-def native_parse(engine: str, text: ir.StringValue, parse: StrptimeParse) -> ir.Value:
-    """Call *engine*'s native parser without the date-only civil cast.
+_postgres_strptime: Callable[[ir.StringValue, str], ir.TimestampValue] = ibis.udf.scalar.builtin(
+    _parse_signature_clock,
+    name="to_timestamp",
+    signature=((dt.string, dt.string), dt.Timestamp(timezone="UTC", scale=6)),
+)
 
-    Keeping this step separate lets the malformed-value assertion read the
-    parser result directly instead of the cast value.
-    """
+
+def _try_signature(value: datetime) -> datetime:
+    raise NotImplementedError("native Trino recoverable expression errors")
+
+
+_trino_try: Callable[[ir.TimestampValue], ir.TimestampValue] = ibis.udf.scalar.builtin(
+    _try_signature, name="try", signature=((dt.Timestamp(scale=6),), dt.Timestamp(scale=6))
+)
+
+
+def _mysql_guard_signature(value: datetime, span: timedelta) -> datetime:
+    raise NotImplementedError("native MySQL valid calendar carrier")
+
+
+_mysql_calendar_guard: Callable[[ir.TimestampValue, ir.IntervalValue], ir.TimestampValue] = (
+    ibis.udf.scalar.builtin(
+        _mysql_guard_signature,
+        name="date_add",
+        signature=((dt.Timestamp(scale=6), dt.Interval(unit="D")), dt.Timestamp(scale=6)),
+    )
+)
+
+_GOVERNED_PARSE_TYPES = (
+    type(_duckdb_strptime(ibis.literal("20000101"), "%Y%m%d").op()),
+    type(_postgres_strptime(ibis.literal("20000101"), "YYYYMMDD").op()),
+    type(_trino_try(ibis.timestamp("2000-01-01")).op()),
+    type(_mysql_calendar_guard(ibis.timestamp("2000-01-01"), ibis.interval(days=0)).op()),
+    type(_clickhouse_strptime(ibis.literal("20000101"), "%Y%m%d", "UTC").op()),
+)
+
+
+def governed_parse_operation(node: ops.Node) -> bool:
+    """Recognize this compiler's parsers for neutral-clock membership."""
+    return type(node) in _GOVERNED_PARSE_TYPES
+
+
+def native_parse(engine: str, text: ir.StringValue, parse: StrptimeParse) -> ir.Value:
+    """Parse data using the owning engine's error and argument boundary."""
     fmt = translated_strptime_format(engine, parse.format)
     if engine == "clickhouse":
         # The explicit zone argument keeps the parsed instant labelled UTC
         # whatever the session timezone is.
         return _clickhouse_strptime(text, fmt, "UTC")
-    parsed: ir.Value = _duckdb_strptime(text, fmt) if engine == "duckdb" else text.as_timestamp(fmt)
+    parsed: ir.Value = (
+        _duckdb_strptime(text, fmt)
+        if engine == "duckdb"
+        else _postgres_strptime(text, fmt)
+        if engine == "postgres"
+        else text.as_timestamp(fmt)
+    )
     if _needs_naive_binding(parse.format):
         # Ibis labels StringToTimestamp UTC although a parser without an
         # offset returns a naive timestamp. Bind its actual value domain at
         # microsecond scale: a bare TIMESTAMP becomes MySQL's DATETIME,
         # which silently drops the fraction the format may have parsed.
         parsed = parsed.cast(dt.Timestamp(scale=6))
+    if engine == "trino":
+        assert isinstance(parsed, ir.TimestampValue)
+        parsed = _trino_try(parsed)
+    elif engine == "mysql":
+        # SELECT STR_TO_DATE returns warnings/NULL for malformed fields, but
+        # MariaDB can retain impossible calendar dates. Native date arithmetic
+        # rejects those before they reach the temporal carrier/driver.
+        assert isinstance(parsed, ir.TimestampValue)
+        parsed = _mysql_calendar_guard(parsed, ibis.interval(days=0))
     return parsed
 
 
@@ -761,6 +810,7 @@ def calendar_wall_clock(
             comparison=">=",
             prefix=prefix,
             prefix_axis=prefix_axis,
+            engine=engine,
         )
         is None
     ):

@@ -1,4 +1,4 @@
-"""The sole Store25 protocol closes every field and refuses historical v1 bytes."""
+"""The sole Store26 protocol closes every field and refuses historical v1 bytes."""
 
 from dataclasses import fields, replace
 from datetime import datetime, timezone
@@ -75,7 +75,7 @@ def test_historical_output_envelope_is_rejected_without_rewrite(historical_forma
     historical = parse_json(FROZEN)
     assert isinstance(historical, dict)
     historical["format"] = historical_format
-    with pytest.raises(IntegrityError, match="expected Frame output v14"):
+    with pytest.raises(IntegrityError, match="expected Frame output v15"):
         protocol.decode(canonical_json(historical), ArtifactManifest)
     assert Path(__file__).with_name("terminal_v1_frozen.json").read_text().strip() == FROZEN
 
@@ -118,8 +118,8 @@ def test_one_explicit_closed_type_and_field_inventory() -> None:
     saved = manifest()
     assert protocol.decode(protocol.encode(saved), ArtifactManifest) == saved
     assert saved.result_id == saved.metadata.result_id
-    assert saved.semantics_version == "frame.v14"
-    assert protocol.FORMAT == "marivo.frame_output/v14"
+    assert saved.semantics_version == "frame.v15"
+    assert protocol.FORMAT == "marivo.frame_output/v15"
 
 
 @pytest.mark.parametrize(
@@ -490,7 +490,7 @@ def test_current_store_contains_no_record_collections(tmp_path: Path) -> None:
                 "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
             )
         }
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 25
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 26
     assert names == {
         "sessions",
         "analysis_action_runs",

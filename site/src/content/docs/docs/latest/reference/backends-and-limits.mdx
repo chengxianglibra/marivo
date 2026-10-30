@@ -52,8 +52,9 @@ independently and may come from different source snapshots. `Attribute` trusts d
 Entity identity, relationship cardinality and version grain; qualification also checks
 membership/Population coverage and overlap, distinct-value partitions, time correspondence
 and numeric closure. Only requested final targets are checked against fresh parent totals.
-Float64 closure allows a residual up to the greater of 1% of the target's absolute value
-and its numeric rounding budget; other types use their own rules. If a target is not
+Unchanged additive/level Float64 closure allows the greater of 1% of the target's
+absolute value and its numeric rounding budget. Paired rate/mix uses propagated
+roundoff bounds without that 1% business allowance; other types use their own rules. If a target is not
 admitted, use explicit observations and comparison to investigate it without treating the
 result as a contribution decomposition.
 
@@ -124,3 +125,25 @@ not the row-weighted mean `25`. Missing scheduled timestamps are not synthesized
 time-sample `mean` and `weighted_mean` use represented samples.
 
 The local tutorial demonstrates its DuckDB route only. [Connect data](/docs/latest/modeling/semantic-layer/) for setup and [troubleshoot](/docs/latest/reference/troubleshooting/) for concrete failures.
+
+
+## Row attribute time and tolerant parsing
+
+Per-row as-of initially qualifies same-source, single-fact-root observe classification
+on DuckDB/Trino. Version matching retains left joins. Identical targets, complete
+paths and control times share a join; different controls, fixed anchors and path
+roles retain separate identities. Safe fact time ranges, independent physical
+filters and proven fact-side AND conditions filter before joins; target-dependent
+OR conditions remain intact. Extra target partition-envelope pruning is deferred.
+
+`strptime` returns NULL for rejected parsed data on DuckDB, Trino, ClickHouse and
+MySQL/MariaDB. PostgreSQL uses native `to_timestamp`, so rejected data can fail
+the query. DuckDB uses try_strptime, Trino TRY, ClickHouse OrNull and
+MySQL/MariaDB zero-day arithmetic after SELECT parsing to reject impossible
+calendar carriers. Native format and precision restrictions
+remain. Parsed membership keeps wall order; raw encoded ranges cannot bypass
+parsing, so scan costs can increase. Independent physical filters still push down.
+Trino TRY can catch some input-expression failures; other backends can propagate
+argument errors. Uniform upstream error isolation is not promised.
+
+Trino strptime formats using `%U` or `%w` are rejected as configuration errors before TRY; unsupported configuration does not silently produce an all-NULL column.

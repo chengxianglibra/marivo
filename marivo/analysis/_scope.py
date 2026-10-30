@@ -30,7 +30,7 @@ from marivo._definition.relations import (
     SampleDomain,
     SourceIdentities,
 )
-from marivo._definition.types import AxisBinding
+from marivo._definition.types import AxisBinding, attribute_time_key
 
 
 def _bounded(text: str, limit: int) -> str:
@@ -97,7 +97,7 @@ def _axis_summary(axis: AxisBinding) -> str:
     return (
         f"{axis.role}:{target.ref.path}"
         + (f" via={tuple(item.ref.path for item in axis.path)}" if axis.path else "")
-        + (f" at={axis.at.isoformat()}" if axis.at else "")
+        + (f" at={attribute_time_key(axis.at)}" if axis.at else "")
     )
 
 

@@ -41,7 +41,9 @@ from marivo._definition.types import (
     FieldRead,
     IdentityRead,
     IntervalCoordinate,
+    RowAttributeTime,
     field_read_key,
+    fixed_attribute_time,
 )
 from marivo._temporal import (
     Grain,
@@ -343,7 +345,7 @@ def bind_observation(
                         read = (
                             FieldRead(axis.field, axis.entity, axis.path, axis.at)
                             if axis.field is not None
-                            else IdentityRead(axis.entity, axis.path, axis.at)
+                            else IdentityRead(axis.entity, axis.path, fixed_attribute_time(axis.at))
                         )
                         parent_read = next(
                             (
@@ -370,7 +372,9 @@ def bind_observation(
             bound = tuple(bind_read(read, root, state.registry, resolver, paths) for read in reads)
             if node.time is not None:
                 bound_time = bound[len(fields)]
-                time = TimeBinding(bound_time.field, bound_time.path, bound_time.at)
+                time = TimeBinding(
+                    bound_time.field, bound_time.path, fixed_attribute_time(bound_time.at)
+                )
             all_memberships = tuple(
                 dict.fromkeys(
                     (
@@ -387,7 +391,7 @@ def bind_observation(
                         tuple(
                             FieldRead(axis.field, axis.entity, axis.path, axis.at)
                             if axis.field is not None
-                            else IdentityRead(axis.entity, axis.path, axis.at)
+                            else IdentityRead(axis.entity, axis.path, fixed_attribute_time(axis.at))
                             for axis in layer.axes
                             if isinstance(axis, AxisBinding)
                         ),
@@ -524,6 +528,25 @@ def bind_observation(
 
     for index, (_, node) in enumerate(metrics):
         visit(node, (index,), ())
+    row_reads = tuple(
+        read
+        for contribution in contributions
+        for read in (*contribution.reads, *contribution.coordinates)
+        if isinstance(read.at, RowAttributeTime)
+    )
+    if row_reads:
+        from marivo._definition.expressions import MetricWindow
+
+        if len({item.root.ref for item in contributions}) != 1 or any(
+            isinstance(item, (MetricWindow, PerReduce, PerWeightedMean))
+            for item in walk((node for _, node in metrics), resolve=declared.get).order
+        ):
+            reject(
+                "single-root observe classification without windows or internal samples",
+                ", ".join(sorted({item.root.ref.path for item in contributions})),
+                "Use ordinary single-root observe with a fact-root TimeDimension, or use a fixed InstantAnchor for this composition.",
+                "session.observe.at",
+            )
     if memberships and not contributions:
         reject(
             "fact contributions for membership allocation",

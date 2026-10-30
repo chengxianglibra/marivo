@@ -227,7 +227,10 @@ static checks and captured NULL/domain checks even with boolean constants.
 - AnalysisFrame.where consumes a boolean Column from that exact input.
 
 Single-valued field.via((relationship, ...)) captures an explicit directed scalar
-path. field.at(anchor) captures a versioned attribute instant. Neither reads
+path. field.at(anchor) captures a fixed versioned attribute instant for the whole question.
+A Dimension can use field.at(fact_time) for per-row observe by/where classification
+on qualified same-source DuckDB/Trino inputs; the named TimeDimension must be native
+to the unversioned fact root, without its own path or anchor. Neither reads
 attributes or proves a matching version exists. Source reductions, sample axes
 and sum-permission coordinates still require their native field forms.
 TimeField.within(scope) creates a half-open predicate; it does not supply the

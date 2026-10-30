@@ -63,5 +63,10 @@ budget. Current-day files are not pruned, so a directory may exceed that size.
 
 Execution logs contain submitted SQL, which can include business conditions
 and literals. Usage telemetry excludes SQL text and exception messages, but can
-include Session questions, analysis purposes and the `reason` passed to
+include Session questions and the `reason` passed to
 `md.raw_sql`. Check both records for sensitive content before sharing them.
+
+
+Session `question=` records the investigation at creation; `frame.persist(description=...)`
+describes one saved result. Neither is a per-observe audit annotation.
+`analysis_purpose` has been removed; usage events are not a complete query audit.

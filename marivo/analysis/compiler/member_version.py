@@ -32,6 +32,7 @@ class _VersionValue:
     raw: ir.Value
     axis: TargetDimensionContract
     authority: SourceTimeAuthority
+    engine: str
     prefix: ir.Value | None = None
     prefix_axis: TargetDimensionContract | None = None
 
@@ -44,6 +45,7 @@ class _VersionValue:
             self.authority,
             bound=boundary,
             comparison=operator,
+            engine=self.engine,
             prefix=self.prefix,
             prefix_axis=self.prefix_axis,
         )
@@ -149,6 +151,9 @@ def _version_values(
             raw,
             axis,
             authority,
+            entity_engine(
+                state.registry, normalize_target_entity(state.registry, axis.entity_ref.path)
+            ),
             prefix.raw if prefix is not None else None,
             prefix.axis if prefix is not None else None,
         )
@@ -203,6 +208,7 @@ def version_predicate(
                 prepared.authority,
                 bound=period,
                 comparison="==",
+                engine=prepared.engine,
                 prefix=prepared.prefix,
                 prefix_axis=prepared.prefix_axis,
             )
@@ -221,6 +227,7 @@ def version_predicate(
                 prepared.authority,
                 start=snapshot_start,
                 end=snapshot_end,
+                engine=prepared.engine,
                 prefix=prepared.prefix,
                 prefix_axis=prepared.prefix_axis,
             )
@@ -281,3 +288,71 @@ def prepare_version_filter(
             table, version, selected, state=state, reader=reader, dependencies=dependencies
         )
     )
+
+
+def row_version_predicate(
+    table: ir.Table,
+    version: TargetSnapshotVersion | TargetValidityVersion | None,
+    control: ir.Value,
+    control_authority: SourceTimeAuthority,
+    *,
+    engine: str,
+    state: CompiledSemanticState,
+    reader: DatasourceEngineTimezone,
+    dependencies: list[ir.Value],
+) -> ir.BooleanValue:
+    """Match a fact's qualified time in the left join, preserving unmatched facts."""
+    from marivo.analysis.compiler.errors import compilation_error
+    from marivo.analysis.compiler.source_time import render, timestamp
+    from marivo.analysis.core.time_authority import time_zone
+
+    if engine not in ("duckdb", "trino"):
+        raise compilation_error(
+            "DuckDB or Trino for per-row observe attribute time",
+            engine,
+            repair="Use a fixed InstantAnchor on this backend, or observe through a qualified DuckDB/Trino source.",
+        )
+    if version is None:
+        raise compilation_error("a versioned target for row attribute time", "unversioned target")
+    values = _version_values(table, version, state, reader, dependencies)
+    for authority in (control_authority, *(item.authority for item in values)):
+        if authority.kind == "localizable" and (
+            authority.read_timezone is None
+            or time_zone(authority.read_timezone).utcoffset(None) is None
+        ):
+            raise compilation_error(
+                "DATE, native absolute timestamps, or UTC/fixed-offset local clocks for row attribute time",
+                f"{authority.axis}: {authority.physical_type}, timezone={authority.read_timezone}",
+                repair="Expose this time as a native absolute timestamp or a UTC/fixed-offset TimeDimension; use a fixed InstantAnchor for IANA local-clock matching.",
+            )
+    civil = control.type().is_date()
+    if isinstance(version, TargetSnapshotVersion):
+        selected = control if civil else render(version.timezone, timestamp(control)).date()
+        coordinate = values[0].value
+        if isinstance(coordinate, ir.TimestampValue):
+            coordinate = coordinate.date()
+        return coordinate == selected
+    start, end = values
+    if civil and not start.value.type().is_date():
+        raise compilation_error(
+            "an absolute timestamp control for timestamp validity",
+            f"{control_authority.axis}: DATE; {version.valid_from_ref.path}: {start.value.type()}",
+            repair="Use a fact-root timestamp TimeDimension, or DATE/DATE validity for civil-day control.",
+        )
+    point = control
+    left, right = start.value, end.value
+    if left.type().is_date() and not civil:
+        assert version.timezone is not None
+        point = render(version.timezone, timestamp(control))
+        left, right = left.cast("timestamp"), right.cast("timestamp")
+    elif not civil:
+        point = render("UTC", timestamp(control))
+        left, right = left.cast("timestamp"), right.cast("timestamp")
+    ending = right >= point if version.interval == "closed_closed" else right > point
+    for sentinel in version.open_end:
+        ending |= (
+            end.raw.isnull()
+            if sentinel is None
+            else end.raw == ibis.literal(sentinel).cast(end.raw.type())
+        )
+    return (left <= point) & ending

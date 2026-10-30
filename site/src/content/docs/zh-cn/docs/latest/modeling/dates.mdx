@@ -56,7 +56,7 @@ created_at = ms.time_dimension_column(
 
 | 参数 | 必填 | 默认值 | 语义 |
 | --- | --- | --- | --- |
-| `format` | 是 | — | Python `strptime` 格式。指令位宽、补零、分隔符和有效日历值共同定义预期来源编码。 |
+| `format` | 是 | — | Python `strptime` 格式；被拒绝的数据通常变为 NULL，PostgreSQL 可能使查询报错。 |
 | `timezone` | 否 | `None` | 带时间值可选的来源时区。纯日期格式不使用时区；省略时使用读取时区。 |
 
 
@@ -67,7 +67,7 @@ business_date = ms.time_dimension_column(
 )
 ```
 
-例如，`%Y%m%d` 要求 `20260801` 这类固定宽度并补零的值。带时间格式中，Python `%M` 表示分钟。声明格式定义所需编码，但不会扫描所有来源行来验证。
+例如 `%Y%m%d` 解析 `20260801`，Python `%M` 表示分钟。SQL NULL 保持 NULL。DuckDB、Trino、ClickHouse 和 MySQL/MariaDB 将解析器拒绝的数据变为 NULL；PostgreSQL 使用原生 `to_timestamp`，被拒绝的数据可能使查询报错。没有 `on_error`、trim、格式猜测或重试。不同后端可能接受不同的非规范编码。格式、时区、类型与能力错误仍报错。Trino TRY 可能同时捕获输入表达式中的可恢复错误，其他后端可能传播参数求值错误。时间谓词保留解析，可能增加扫描和 CPU 成本；需要时保留独立物理过滤并显式检查数据。NULL 事件时间不归属任何期间；仅用于属性控制时间时则保留事实及 NULL 标签。本地钟面 membership 保持 wall-order，输出投影保留原生解释。
 
 ## 独立小时列：`ms.hour_prefix`
 

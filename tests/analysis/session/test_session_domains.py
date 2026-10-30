@@ -69,7 +69,7 @@ def test_new_generation_preserves_old_store_bytes(
     with pytest.warns(UserWarning, match="v8"):
         session = mv.session.get_or_create("new")
     assert mv.session.resume(session.id).id == session.id
-    assert (old.parent.parent / "v25").exists()
+    assert (old.parent.parent / "v26").exists()
     assert old.read_bytes() == b"existing-generation-bytes"
 
 

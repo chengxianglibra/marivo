@@ -241,3 +241,9 @@ bool。续读时重复相同 limit、columns、轴别名和 `time_details`。保
 `read_stats` 统计实际检查的数据行、坐标行和收据哈希字节，不表示全部磁盘 I/O 或峰值
 内存；收据与坐标查找可能扫描完整文件。存储页面校验所选数据和必要坐标，完整存储 `to_pandas()`
 还会校验完整键、数据和映射。读取不会执行或保存待执行 Frame。
+
+
+## 属性时间与缺失值
+
+分类轴 `at` 为 `None`、固定 UTC datetime，或 acquired `FrameRowAttributeTime(kind="row", field=...)`；后者仅保存控制字段身份。schema、固定运算、保存和冷恢复不重查版本。
+使用 `pd.isna(value)`、`rows["value"].isna()` 或 `.notna()` 判断 Arrow 缺失值；不要让 `pd.NA` 参与 Python 布尔判断或默认填零。确需近似浮点计算时显式 `.astype("float64")`，接受大整数舍入与 NA 变成 NaN。

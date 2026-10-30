@@ -266,3 +266,14 @@ inspected data/coordinate rows and receipt hashing bytes, not all disk I/O or
 peak memory. Receipts and coordinate lookup may scan whole files. A page validates
 selected stored data and necessary coordinates; full stored `to_pandas()` additionally validates
 complete keys, data and mappings. Reading never executes or saves a pending Frame.
+
+
+## Attribute time and missing values
+
+An ordinary classification axis's `at` is `None`, a fixed UTC datetime or an acquired
+`FrameRowAttributeTime(kind="row", field=...)` containing only the control-field
+identity. Schema inspection, fixed operations, persistence and cold recovery do
+not rematch versions. Use `pd.isna(value)`, `rows["value"].isna()` or `.notna()` for
+Arrow missing values; do not coerce `pd.NA` to a Python boolean or fill it with
+zero automatically. Explicit `.astype("float64")` enables approximate arithmetic
+when large-integer rounding and NA becoming NaN are acceptable.

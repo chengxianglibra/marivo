@@ -21,7 +21,10 @@ from marivo.analysis.core.data_schema import (
     PairedDataAxis,
 )
 from marivo.analysis.core.data_types import DataColumn, require_data_text
-from marivo.analysis.core.frame_interpretation import FrameAlignment
+from marivo.analysis.core.frame_interpretation import (
+    FrameAlignment,
+    FrameRowAttributeTime,
+)
 from marivo.analysis.core.frame_interpretation import (
     FrameAxisSchema as FrameAxisSchema,
 )
@@ -427,6 +430,7 @@ def capture_grain(definition: BuiltinCalendarData | NamedCalendarData) -> FrameG
 
 
 def capture_endpoint(axis: CalendarDataAxis | IntervalDataAxis) -> FrameTimeEndpoint:
+    assert not isinstance(axis.at, FrameRowAttributeTime)
     if isinstance(axis, CalendarDataAxis):
         assert axis.frozen is not None
         return FrameCalendarEndpoint(

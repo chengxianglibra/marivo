@@ -127,6 +127,7 @@ OUTPUT_FAMILIES = frozenset(
 INPUT_FAMILIES = frozenset(
     {
         "InstantAnchor",
+        "InstantAnchor | TimeExpression",
         "TimeScope",
         "WindowRule",
         "Expression",
@@ -2703,7 +2704,7 @@ def _expression_capabilities() -> tuple[AuthoringCapability, ...]:
             "at",
             "Dimension | TimeField | Measure",
             "anchor",
-            "InstantAnchor",
+            "InstantAnchor | TimeExpression",
             "region.at(session.instant('2026-01-01'))",
         ),
         (
@@ -2720,7 +2721,7 @@ def _expression_capabilities() -> tuple[AuthoringCapability, ...]:
             _capability(
                 target,
                 f"marivo.semantic._expression_values.RowExpression.{_method}",
-                "Construct an immutable scalar field binding or half-open time predicate. Directed paths must be single-valued; at requires a versioned owner and an exact anchor. No schema or business reads.",
+                "Construct an immutable scalar field binding or half-open time predicate. Directed paths must be single-valued. at selects one fixed InstantAnchor for the whole question, or a native fact-root TimeDimension for same-source, single-root observe by/where on DuckDB/Trino. Row time excludes read/classify, windows, internal samples and IANA local clocks. DATE control selects target business dates; timestamp validity needs timestamp control. Missing versions and NULL control retain NULL labels. No schema or business reads.",
                 kind="method",
                 output="RowPredicate" if _method == "within" else "RowExpression",
                 inputs=(
@@ -3326,7 +3327,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
         _capability(
             "strptime",
             "marivo.semantic._authoring_values.strptime",
-            "Declare canonical source encoding. Date-only formats reject timezone; time-bearing values use parser or reader authority. Raw ordered local-clock membership uses wall order; projection remains backend-native.",
+            "Parse encoded time; PostgreSQL uses native to_timestamp and rejected values may fail the query. DuckDB, Trino, ClickHouse and MySQL/MariaDB return NULL for rejected data. Date-only formats reject timezone; time-bearing values use parser or reader authority. Parsed local-clock membership keeps wall order; projection remains backend-native. Trino TRY can catch input-expression errors; other engines may propagate them. No on_error, trimming, guessing or retry.",
             output="StrptimeSpec",
             effects=_AUTHOR,
             constraints=("time_dimension_partition_pushdown",),

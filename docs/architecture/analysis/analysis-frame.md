@@ -385,7 +385,7 @@ TimeScope 在 by 中产生 interval 轴，保存精确 start/end 与边界时区
 不同期间可明确配对；过滤成一行不会把多区间目录改成单区间目录。
 interval/calendar/零轴不互转或广播；time×普通分类可使用上述完整默认配对，或显式给出完整 on。
 compare 保留当前 interval 及命名基期说明；align 的双端并集/paired 语义继续存在。
-Store 25 / marivo.frame_output/v14 保存解释目录、实际键引用与关系，冷恢复不重建 TimeScope、
+Store 26 / marivo.frame_output/v15 保存解释目录、实际键引用与关系，冷恢复不重建 TimeScope、
 来源定义或祖先 Frame。所有新事实属于当前输入，不改变数值计算、过滤范围或方法文件合同。
 
 ### Calendar matching
@@ -515,3 +515,14 @@ Selecting an existing value Column preserves its captured values and null validi
 computed local expressions use the actual pandas/Arrow or Decimal scalar kernel,
 without extra overflow/finite scans, protective widening or retries. Intrinsic
 kernel errors and lossless storage-boundary checks still fail completion.
+
+### Row attribute time
+
+An ordinary classification axis's `at` is either its captured UTC datetime,
+`None`, or an immutable acquired `FrameRowAttributeTime(kind="row", field=...)`.
+The latter contains only the controlling TimeDimension's SemanticObjectIdentity;
+it is not an executable selector. Pending, computed, fixed-axis and saved schemas
+retain this fact. Axis context lineage includes the target, path and control.
+Schema/show, inert pandas attrs, fixed operations and cold recovery do not access
+Catalogs or rerun version matching. Store 26 / output v15 records this closed
+variant without older-format migration or dual reads.

@@ -34,7 +34,7 @@ def test_terminal_schema_and_manifest_authority_rejects_damage(
             (artifact_id,),
         ).fetchone()[0]
     body = json.loads(payload)
-    assert body["format"] == "marivo.frame_output/v14"
+    assert body["format"] == "marivo.frame_output/v15"
     assert "BoundGraph" not in payload and "fit_inputs" not in payload
     missing_value = deepcopy(body)
     schema = missing_value["value"]["fields"]["data"]["fields"]["schema"]["fields"]

@@ -47,4 +47,8 @@ enabled = "off"
 
 文件按 UTC 日分段，每段约 128 MiB。每个日志目录中的历史记录最多保留 14 天，并控制在 1 GiB 历史额度内。当天文件不参与清理，因此目录可能超过该大小。
 
-执行日志包含提交的 SQL，可能带有业务条件和字面值。使用遥测不含 SQL 文本或异常消息，但可能包含 Session 问题、分析用途，以及传给 `md.raw_sql` 的 `reason`。分享记录前请检查其中的敏感内容。
+执行日志包含提交的 SQL，可能带有业务条件和字面值。使用遥测不含 SQL 文本或异常消息，但可能包含 Session 问题以及传给 `md.raw_sql` 的 `reason`。分享记录前请检查其中的敏感内容。
+
+
+Session `question=` 记录创建时的调查问题；`frame.persist(description=...)` 描述一次保存结果。
+二者都不是每次 observe 的审计注释。`analysis_purpose` 已移除，使用遥测不是完整的查询审计日志。

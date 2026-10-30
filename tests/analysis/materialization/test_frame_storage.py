@@ -1,4 +1,4 @@
-"""Store25 Frame protocol, source-free lifecycle, sequence and atomic publication."""
+"""Store26 Frame protocol, source-free lifecycle, sequence and atomic publication."""
 
 from __future__ import annotations
 
@@ -476,8 +476,8 @@ with patch.object(Session, "catalog", property(forbidden)), patch.object(SourceS
 def test_sole_protocol_and_exact_closed_fields(local: LocalFrameServices) -> None:
     saved = ordinary(local).persist()
     value = manifest(saved)
-    assert FORMAT == "marivo.frame_output/v14"
-    assert local.store.layout.generation == 25
+    assert FORMAT == "marivo.frame_output/v15"
+    assert local.store.layout.generation == 26
     assert decode(encode(value), ArtifactManifest) == value
     assert value.result_id == value.metadata.result_id
     restored = terminal_store.complete_metadata(value)
@@ -887,7 +887,7 @@ def test_old_store_coexists_without_any_byte_changes(tmp_path: Path, generation:
     before = old.read_bytes()
     with pytest.raises(IntegrityError, match="absent"):
         SessionStore.open_existing(tmp_path)
-    assert not (old.parent.parent / "v25").exists()
+    assert not (old.parent.parent / "v26").exists()
     store = SessionStore(tmp_path)
     assert SessionStore.open_existing(tmp_path).db_path == store.db_path
     assert old.read_bytes() == before
@@ -1178,7 +1178,7 @@ def test_every_old_generation_entry_preserves_old_tree(
         if path.is_file()
     }
     assert after == before
-    assert (old.parent.parent / "v25").exists()
+    assert (old.parent.parent / "v26").exists()
 
 
 def test_old_manifest_cannot_enter_any_current_read(local: LocalFrameServices) -> None:

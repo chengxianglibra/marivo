@@ -107,6 +107,9 @@ from marivo.analysis.core.frame_interpretation import (
     FramePairStatisticContext as FramePairStatisticContext,
 )
 from marivo.analysis.core.frame_interpretation import (
+    FrameRowAttributeTime as FrameRowAttributeTime,
+)
+from marivo.analysis.core.frame_interpretation import (
     FrameShareContext as FrameShareContext,
 )
 from marivo.analysis.core.frame_interpretation import (
@@ -207,6 +210,7 @@ __all__ = [  # noqa: RUF022 - public order is contractual
     "FrameField",
     "FrameAxisSchema",
     "FrameOrdinaryAxisSchema",
+    "FrameRowAttributeTime",
     "FrameCalendarAxisSchema",
     "FrameIntervalAxisSchema",
     "FramePairedAxisSchema",

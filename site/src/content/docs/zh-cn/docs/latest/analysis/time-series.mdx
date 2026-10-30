@@ -163,3 +163,25 @@ NULL 策略。日历网格保留每个单元；TimeField 样本仍使用实际�
 声明的日历折叠指标要求日历已认证。日历样本内部的窗口，以及包裹日历折叠的窗口，
 目前都会抛出类型化错误。此类问题可先在 CalendarAxis 上直接观测窗口指标，再对已捕获的
 Frame 值显式规约。
+
+
+## 每条事实的历史分类
+
+以下片段要求模型中已声明版本化 `sales.profiles`、事实表 `sales.facts` 及完整键关系 `sales.profile`。
+控制时间和 Metric 时间角色是两个独立选择；这里显式使用同一字段。
+
+```python
+control = session.catalog.get("time_dimension:sales.facts.event_time")
+label = session.catalog.get("dimension:sales.profiles.label")
+route = session.catalog.get("relationship:sales.profile")
+amount = session.catalog.get("measure:sales.facts.amount")
+historical = label.via((route,)).at(control)
+days = session.time_scope(start="2026-08-25", end="2026-09-08").by(mv.grain("day"))
+daily = session.observe({"value": amount.sum(time=control)}, by=(days, historical)).compute()
+restated = session.observe(
+    {"value": amount.sum(time=control)},
+    by=(days, label.via((route,)).at(session.instant("2026-09-03T00:00:00+00:00"))),
+).compute()
+```
+
+逐行模式按每条事实的时间选属性；固定锚点给整个窗口统一口径。两笔事实 7/11 在变更前后对应 A/B 时，逐行得到 A=7、B=11，固定新口径得到 B=18。DuckDB/Trino 支持已认证的同源单根 observe by/where；NULL 控制或缺失版本保留 NULL 标签，不回退到最近版本。DATE 选择目标业务日；timestamp validity 要求 timestamp 控制。原生绝对时刻和 UTC/固定偏移本地钟面获准，IANA 本地钟面、read/classify、多根、window/per 组合使用固定锚点。每个桶端点重分类不属于这个语义。

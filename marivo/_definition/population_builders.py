@@ -40,6 +40,7 @@ from marivo._definition.types import (
     FieldRead,
     IntervalCoordinate,
     Owner,
+    RowAttributeTime,
     invalid,
 )
 from marivo._temporal import InstantAnchor
@@ -175,6 +176,13 @@ def product(factors: tuple[PopulationDependency, ...]) -> PopulationProgram:
 def classify(
     definition: PopulationDependency, values: tuple[ComparisonAxis, ...]
 ) -> PopulationProgram:
+    if any(
+        isinstance(value, AxisBinding) and isinstance(value.at, RowAttributeTime)
+        for value in values
+    ):
+        invalid(
+            "Per-row attribute time is supported only in observe by/where. Use a fixed InstantAnchor for classify."
+        )
     if (
         len(definition.axes) != 1
         or not isinstance(definition.axes[0], AxisBinding)

@@ -525,6 +525,7 @@ Canonical public exports
    FrameField
    FrameAxisSchema
    FrameOrdinaryAxisSchema
+   FrameRowAttributeTime
    FrameCalendarAxisSchema
    FrameIntervalAxisSchema
    FramePairedAxisSchema

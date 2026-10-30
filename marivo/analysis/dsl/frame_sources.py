@@ -9,7 +9,13 @@ from typing import Literal
 
 from ibis.common.deferred import Deferred
 
-from marivo._definition.types import AxisBinding, CalendarCoordinate, IntervalCoordinate, Owner
+from marivo._definition.types import (
+    AxisBinding,
+    CalendarCoordinate,
+    IntervalCoordinate,
+    Owner,
+    RowAttributeTime,
+)
 from marivo._grouping import Grouping
 from marivo._temporal import PeriodCalendarSnapshotV2, TimeScope
 from marivo.analysis.binding.lineage import observation_contexts
@@ -18,6 +24,7 @@ from marivo.analysis.core.calendar_keys import time_key_type
 from marivo.analysis.core.data_types import ScalarDataType
 from marivo.analysis.core.frame_calendar import FrozenSourceTime, freeze_calendar, freeze_interval
 from marivo.analysis.core.frame_data import LiteralFrameBinding, SourceFrameBinding
+from marivo.analysis.core.frame_interpretation import FrameRowAttributeTime
 from marivo.analysis.core.frame_structure import (
     PendingDataAxis,
     PendingDataColumn,
@@ -132,7 +139,15 @@ def pending_schema(
             else:
                 components = (name,)
                 role = "field"
-            at = _utc(axis.at)
+            at = (
+                FrameRowAttributeTime(
+                    SemanticObjectIdentity(
+                        "time_dimension", axis.at.field.ref.path, axis.at.field.version
+                    )
+                )
+                if isinstance(axis.at, RowAttributeTime)
+                else _utc(axis.at)
+            )
         else:
             reject(
                 "an original field, identity or calendar source axis",

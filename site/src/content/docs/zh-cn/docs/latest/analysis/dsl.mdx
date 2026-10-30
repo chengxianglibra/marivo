@@ -799,3 +799,8 @@ ranked.show()
 `frame.schema.value_contexts` 识别显式份额和配对统计，并保留捕获时的输入名。
 类型化查看与传播规则见[结果解释](/zh-cn/docs/latest/analysis/results/#解释对齐值归一化份额和配对统计)。
 读取这些元数据不会执行待计算 Frame，也不会使当前行统计成为合法的 attribute 目标。
+
+
+## 导出名称、字段身份与用途说明
+
+`observe` 的 `metrics` 接受命名 Mapping，`by` 使用 tuple 或 Population。逐行历史标签见[时间序列](../time-series/#每条事实的历史分类)。语义对象 `.id` 可作为字典键；对象本身的 `==` 构造谓词。导出别名是整个轴的前缀，用 `axis_names={axis.token: "day"}`；需要改单列时对隔离的 pandas 副本使用 `.rename(columns={...})`。`question=` 记录 Session 问题，`persist(description=...)` 描述一次保存结果，不是每次 observe 的审计注释。

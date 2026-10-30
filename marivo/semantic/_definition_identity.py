@@ -88,7 +88,7 @@ def definition_fingerprint(
             }
         )
     payload = {
-        "schema": "marivo.semantic_definition_graph/v1",
+        "schema": "marivo.semantic_definition_graph/v2",
         "selected_root_roles": list(selected_root_roles),
         "filtered_domains": sorted(filtered_domains),
         "definitions": records,

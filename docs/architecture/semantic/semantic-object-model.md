@@ -366,23 +366,19 @@ template pattern via `python_to_postgres_strptime`, ClickHouse
 (`parseDateTimeOrNull`) takes the MySQL form only when the format is exactly
 expressible there, and DuckDB receives Python strptime unchanged.
 
-`ms.strptime(format)` also declares canonical source encoding for every field,
-not just partition columns: directive widths and zero padding, literal separators,
-and valid calendar values must match the format. `%Y%m%d` requires eight digits
-such as `20260701`; `2026071` is outside the contract even if a backend accepts it.
-An integer encoding must have the same base-ten digits without losing leading
-zeros. Format validation does not certify source rows, and analysis does not add
-partition enumeration, validation queries, transactions or per-row round trips.
-Values excluded by a generated range are not checked for violations.
-
-For an explicit half-open consumer window, analysis can invert `%Y%m%d`,
-`%Y-%m-%d`, `%Y%m%d%H`, `%Y-%m-%d %H`, `%Y%m%d%H%M`, `%Y-%m-%d %H:%M`,
-`%Y%m%d%H%M%S`, and `%Y-%m-%d %H:%M:%S` into raw-column comparisons. Integer
-columns admit only the compact all-digit formats. Civil dates keep their date
-semantics; clock inverses require an existing UTC or fixed-offset authority.
-Other formats, non-integral representations, `hour_prefix`, and named-zone
-conversions without a fixed offset retain parsed filtering. Native parser
-support and precision restrictions still apply. No new parse parameter is needed.
+`ms.strptime(format)` preserves SQL NULL. DuckDB, Trino, ClickHouse and
+MySQL/MariaDB return NULL for rejected parsed data; PostgreSQL uses native
+`to_timestamp` and can fail the query on rejected input. Successful native
+parses retain their types and precision; accepted noncanonical encodings
+follow the native parser. Format/timezone/type/capability failures still report
+structured errors. There is no `on_error`, trimming, guessing or retry.
+Parsing precedes time predicates, calendars and version selection, including
+hour-prefix dependencies; raw encoded ranges cannot bypass it. Local-clock
+membership retains wall order while projection keeps native gap/fold behavior.
+Trino TRY can also catch recoverable input-expression failures; other engines
+can propagate them. See [temporal semantics](../temporal-semantics.md#encoded-event-time-predicates)
+for native paths and cost boundaries. Measure data quality explicitly when the
+NULL amount impact matters.
 
 The critical divergence is `%M`:
 
@@ -479,3 +475,14 @@ physical records are in [ir.py](../../../marivo/semantic/ir.py).
 relations, and [resolver.py](../../../marivo/semantic/resolver.py) resolves their
 dependencies. Analysis consumes these definitions through its explicit
 [Population and observation bindings](../analysis/populations-and-observation.md).
+
+### Fact-row attribute selection
+
+A fixed `field.at(session.instant(...))` applies one representation to the whole
+question. For ordinary observe classification, a Dimension can instead use
+`.via((relationship,)).at(fact_time)`, with one native fact-root TimeDimension.
+Same-source DuckDB/Trino joins preserve missing versions as NULL labels, keep
+complete relationship keys and do not change the Metric time role. DATE controls
+select business-day snapshots or DATE validity; timestamp validity needs a
+qualified timestamp control. See [temporal semantics](../temporal-semantics.md#output-axes-and-observation-time)
+for time qualification and excluded compositions.

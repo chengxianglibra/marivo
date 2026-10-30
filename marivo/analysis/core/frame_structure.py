@@ -23,6 +23,7 @@ from marivo.analysis.core.data_types import DurationDataType, ScalarDataType, Ti
 from marivo.analysis.core.frame_interpretation import (
     FrameDecomposition,
     FrameFixedAxis,
+    FrameRowAttributeTime,
     FrameValueContext,
 )
 from marivo.analysis.core.model import reject
@@ -150,7 +151,7 @@ class PendingDataAxis:
     name: str
     role: Literal["field", "identity"]
     columns: tuple[PendingDataColumn, ...]
-    at: datetime | None = None
+    at: datetime | FrameRowAttributeTime | None = None
 
     def __post_init__(self) -> None:
         if (
@@ -164,6 +165,7 @@ class PendingDataAxis:
             or any(type(column) is not PendingDataColumn for column in self.columns)
             or (
                 self.at is not None
+                and not isinstance(self.at, FrameRowAttributeTime)
                 and (type(self.at) is not datetime or self.at.tzinfo is not timezone.utc)
             )
         ):

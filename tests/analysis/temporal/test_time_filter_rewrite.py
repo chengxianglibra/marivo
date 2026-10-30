@@ -105,18 +105,6 @@ def test_selection_matches_native_gap_fold_and_non_hour_rules(
         backend.disconnect()
 
 
-def test_encoded_scan_guard_keeps_native_path_for_unrepresentable_literal() -> None:
-    # A candidate scan guard must never introduce an out-of-range literal on
-    # a narrow integer column, even when the exact semantic filter is empty.
-    import ibis.expr.operations as ops
-
-    table = ibis.table({"point": "int16"}, name="encoded")
-    guard = time_filter._encoded_guard(
-        table.point, "%Y%m%d", datetime(2025, 1, 1), ops.GreaterEqual
-    )
-    assert guard.equals(ibis.literal(True))
-
-
 @pytest.mark.parametrize("representation", ["utc", "fixed", "encoded", "civil_date"])
 def test_common_filter_reaches_parquet_scan(tmp_path: Path, representation: str) -> None:
     import pyarrow as pa
@@ -172,7 +160,13 @@ def test_common_filter_reaches_parquet_scan(tmp_path: Path, representation: str)
             return output
 
         native_scans = scans(plan)
-        assert native_scans and "Filters" in native_scans[0]["extra_info"]
+        assert native_scans
+        if representation in ("encoded", "civil_date"):
+            assert "try_strptime" in backend.compile(optimized).lower()
+            if "Filters" in native_scans[0]["extra_info"]:
+                assert "try_strptime" in str(native_scans[0]["extra_info"]["Filters"]).lower()
+        else:
+            assert "Filters" in native_scans[0]["extra_info"]
     finally:
         backend.disconnect()
 
@@ -215,9 +209,9 @@ def test_named_zone_with_raw_lineage_uses_exact_wall_bound() -> None:
     assert rewritten.equals(table.filter(table.point >= datetime(2049, 12, 31, 19)))
 
 
-@pytest.mark.parametrize("owned", [True, False])
+@pytest.mark.parametrize("owned", [True, False, "projected"])
 def test_gap_membership_rewrite_preserves_native_projection_and_unowned_fallback(
-    owned: bool,
+    owned: bool | str,
 ) -> None:
     table = ibis.memtable(
         {
@@ -231,7 +225,10 @@ def test_gap_membership_rewrite_preserves_native_projection_and_unowned_fallback
         },
         schema={"id": "int64", "point": "timestamp"},
     )
-    raw = table.point if owned else table.point.coalesce(datetime(2026, 3, 8, 2, 30))
+    raw = table.point if owned is True else table.point.coalesce(datetime(2026, 3, 8, 2, 30))
+    if owned == "projected":
+        table = table.mutate(derived=raw).view()
+        raw = table.derived
     value = localize("America/New_York", raw)
     start = datetime(2026, 3, 8, 7, tzinfo=timezone.utc)
     expression = table.filter((value >= start) & (value < start + timedelta(minutes=15))).select(
@@ -240,7 +237,7 @@ def test_gap_membership_rewrite_preserves_native_projection_and_unowned_fallback
     backend = ibis.duckdb.connect(TimeZone="UTC")
     try:
         result = backend.execute(lower_temporal(expression, "duckdb"))
-        if owned:
+        if owned is True:
             assert result.id.tolist() == [0, 1]
             assert result.projected.tolist() == [start + timedelta(minutes=30), start]
         else:

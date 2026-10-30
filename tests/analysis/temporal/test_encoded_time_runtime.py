@@ -3,7 +3,6 @@
 from dataclasses import replace
 
 import duckdb
-import ibis.expr.types as ir
 import pandas as pd
 import pytest
 import sqlglot
@@ -11,12 +10,9 @@ from sqlglot import expressions as sge
 
 import marivo.analysis as mv
 import marivo.semantic as ms
-from marivo.analysis.compiler import source_time
-from marivo.analysis.core.time_authority import SourceTimeAuthority
 from marivo.datasource import engines
 from marivo.datasource.adapters import CompiledRead, SourceSession
 from marivo.datasource.engines.base import PartitionProbeRequest, PartitionProbeResult
-from marivo.semantic.ir import TargetDimensionContract
 from tests.shared_fixtures import DslCase, DslCaseFactory, terminal_runs
 from tests.support.source_trace import SourceTrace
 
@@ -46,17 +42,6 @@ def _encode_orders(case: DslCase, fmt: str, *, integer: bool = False) -> None:
     parse = f"ms.strptime({fmt!r}" + (", timezone='UTC')" if "%H" in fmt else ")")
     path.write_text(path.read_text().replace("ms.timestamp()", parse))
     ms.load(workspace_dir=case.root)
-
-
-def _no_inverse(
-    value: ir.Value,
-    axis: TargetDimensionContract,
-    authority: SourceTimeAuthority,
-    *,
-    start: object,
-    end: object,
-) -> None:
-    return None
 
 
 def _forbid_partition_probe(request: PartitionProbeRequest) -> PartitionProbeResult:
@@ -106,8 +91,6 @@ def test_observation_preserves_population_windows_and_query_count(
         )
 
     optimized = observe("2026-08-01", "2026-09-01")
-    optimized_reads = tuple(reads)
-    native_count = len(source_trace.native_sql)
     assert optimized.member.tolist() == ["A", "B", "C", "D"]
     assert optimized.value.iloc[:3].tolist() == [450, 150, 400]
     assert optimized.value.iloc[3] == 0
@@ -116,25 +99,14 @@ def test_observation_preserves_population_windows_and_query_count(
     business = [sql for sql in stages if "ordered_at" in sql]
     assert len(business) == 1
     ast = sqlglot.parse_one(business[0], read="duckdb")
-    ranges = [
-        comparison
+    assert "TRY_STRPTIME" in ast.sql(dialect="duckdb")
+    assert not any(
+        isinstance(comparison.this, sge.Column)
+        and isinstance(comparison.expression, sge.Literal)
+        and comparison.expression.this in {"20260801", "20260901"}
         for where in ast.find_all(sge.Where)
         for comparison in where.find_all(sge.GTE, sge.LT)
-        if isinstance(comparison.expression, sge.Literal)
-        and comparison.expression.this in {"20260801", "20260901"}
-    ]
-    assert len(ranges) == 2
-    assert all(isinstance(item.this, sge.Column) for item in ranges)
-    assert "strptime" not in " ".join(where.sql() for where in ast.find_all(sge.Where)).lower()
-    reads.clear()
-    source_trace.native_sql.clear()
-    with monkeypatch.context() as baseline:
-        baseline.setattr(source_time, "encoded_time_predicate", _no_inverse)
-        previous = observe("2026-08-01", "2026-09-01")
-    pd.testing.assert_frame_equal(optimized, previous)
-    assert [purpose for purpose, _ in reads] == [purpose for purpose, _ in optimized_reads]
-    assert len(reads) > 0
-    assert len(source_trace.native_sql) == native_count
+    )
     september = observe("2026-09-01", "2026-10-01")
     assert september.member.tolist() == ["A", "B", "C", "D"]
     assert september.value.iloc[0] == 99
@@ -202,31 +174,14 @@ def test_grid_window_has_scan_envelope_and_preserves_cells(
         return _member_frame(rows).sort_values(["member", "coord_0"]).reset_index(drop=True)
 
     optimized = execute()
-    optimized_purposes = [purpose for purpose, _ in reads]
     assert len(optimized) == 8
     assert optimized.value.tolist() == [450, 99, 150, 0, 400, 0, 0, 0]
     sql = next(sql for purpose, sql in reads if purpose.startswith("query."))
     ast = sqlglot.parse_one(sql, read="duckdb")
-    ranges = [
-        comparison
-        for where in ast.find_all(sge.Where)
-        for comparison in where.find_all(sge.GTE, sge.LT)
-        if isinstance(comparison.expression, sge.Literal)
-        and comparison.expression.this in {"20260801", "20261001"}
-    ]
-    assert len(ranges) == 2
-    assert all(isinstance(item.this, sge.Column) for item in ranges)
-    # The raw scan envelope remains exact; selected period assignment now
-    # joins a typed frozen directory instead of enumerating ordinal CASE arms.
+    assert "TRY_STRPTIME" in ast.sql(dialect="duckdb")
     assert any(join.args.get("on") is not None for join in ast.find_all(sge.Join))
     assert all(len(node.args["ifs"]) <= 1 for node in ast.find_all(sge.Case))
     assert optimized.coord_0.tolist() == ["2026-08-01", "2026-09-01"] * 4
-    reads.clear()
-    with monkeypatch.context() as baseline:
-        baseline.setattr(source_time, "encoded_time_predicate", _no_inverse)
-        previous = execute()
-    pd.testing.assert_frame_equal(optimized, previous)
-    assert [purpose for purpose, _ in reads] == optimized_purposes
 
 
 def test_cumulative_grid_and_endpoint_match_original_temporal_filter(
@@ -243,10 +198,6 @@ def test_cumulative_grid_and_endpoint_match_original_temporal_filter(
 
     optimized = execute()
     assert optimized["value"].tolist() == [1077, 1176]
-    with monkeypatch.context() as baseline:
-        baseline.setattr(source_time, "encoded_time_predicate", _no_inverse)
-        previous = execute()
-    pd.testing.assert_frame_equal(optimized, previous)
     scalar = (
         case.session.observe(
             {"value": metric}, by=(case.session.time_scope(start="2026-09-30", end="2026-10-01"),)
@@ -281,10 +232,6 @@ def test_event_column_on_relationship_destination_keeps_its_own_range(
 
     optimized = execute()
     assert optimized.value.tolist() == [100, 60]
-    with monkeypatch.context() as baseline:
-        baseline.setattr(source_time, "encoded_time_predicate", _no_inverse)
-        previous = execute()
-    pd.testing.assert_frame_equal(optimized, previous)
 
 
 def test_outside_window_relationship_mismatch_preserves_observation_scope(
@@ -318,10 +265,6 @@ def test_outside_window_relationship_mismatch_preserves_observation_scope(
         "C": 400,
         "D": 0,
     }
-    with monkeypatch.context() as baseline:
-        baseline.setattr(source_time, "encoded_time_predicate", _no_inverse)
-        previous = execute()
-    pd.testing.assert_frame_equal(optimized, previous)
 
 
 def test_encoded_and_parsed_time_wide_sums_preserve_values_and_run_ownership(
@@ -352,13 +295,9 @@ def test_encoded_and_parsed_time_wide_sums_preserve_values_and_run_ownership(
             .to_pandas(time_details=True)
         )
 
-    # Both inverse-filter paths retain native Ibis's int64 transport boundary.
+    # Safe parsing retains native Ibis's int64 transport boundary.
     from marivo.analysis.errors import AnalysisError
 
     with pytest.raises(AnalysisError, match="Integer value out of bounds"):
         execute()
-    with monkeypatch.context() as baseline:
-        baseline.setattr(source_time, "encoded_time_predicate", _no_inverse)
-        with pytest.raises(AnalysisError, match="Integer value out of bounds"):
-            execute()
     assert terminal_runs(case.session) == ()

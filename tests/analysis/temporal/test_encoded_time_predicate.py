@@ -1,4 +1,4 @@
-"""Independent canonical point/range oracles and bare-column SQL constraints."""
+"""Independent canonical point/range oracles and safe parsing before membership."""
 
 from dataclasses import replace
 from datetime import date, datetime, timedelta
@@ -8,7 +8,7 @@ import pytest
 import sqlglot
 from sqlglot import expressions as sge
 
-from marivo.analysis.compiler.source_time import encoded_time_predicate, source_time
+from marivo.analysis.compiler.source_time import source_time, source_time_predicate
 from marivo.analysis.core.time_authority import SourceTimeAuthority
 from marivo.semantic.ir import StrptimeParse
 from tests.analysis.temporal.encoded_time_fixtures import axis
@@ -51,7 +51,7 @@ def test_inverse_matches_independently_parsed_canonical_points(fmt: str, kind: s
             _, authority = source_time(
                 table.point, field, boundary_timezone="UTC", read_timezone="UTC", engine="duckdb"
             )
-            predicate = encoded_time_predicate(table.point, field, authority, start=start, end=end)
+            predicate = source_time_predicate(table.point, field, authority, start=start, end=end)
             assert predicate is not None
             actual = backend.execute(table.filter(predicate)).point.tolist()
             expected = [
@@ -65,13 +65,13 @@ def test_inverse_matches_independently_parsed_canonical_points(fmt: str, kind: s
 
 
 @pytest.mark.parametrize("dialect", ["duckdb"])
-def test_filter_ast_uses_only_raw_column_comparisons(dialect: str) -> None:
+def test_filter_ast_retains_safe_parser(dialect: str) -> None:
     table = ibis.table({"point": "string"}, name="events")
     field = axis("%Y%m%d")
     parsed, authority = source_time(
         table.point, field, boundary_timezone="UTC", read_timezone="UTC", engine=dialect
     )
-    predicate = encoded_time_predicate(
+    predicate = source_time_predicate(
         table.point, field, authority, start=date(2026, 7, 1), end=date(2026, 8, 1)
     )
     assert predicate is not None
@@ -82,9 +82,8 @@ def test_filter_ast_uses_only_raw_column_comparisons(dialect: str) -> None:
     assert where is not None
     comparisons = list(where.find_all(sge.GTE, sge.LT))
     assert len(comparisons) == 2
-    assert all(isinstance(item.this, sge.Column) for item in comparisons)
-    assert {item.expression.this for item in comparisons} == {"20260701", "20260801"}
-    assert all(isinstance(function, sge.And) for function in where.find_all(sge.Func))
+    assert all("TRY_STRPTIME" in item.this.sql(dialect=dialect) for item in comparisons)
+    assert not any(isinstance(item.this, sge.Column) for item in comparisons)
 
 
 def test_fixed_offset_inverse_and_civil_date_do_not_adopt_report_zone() -> None:
@@ -93,7 +92,7 @@ def test_fixed_offset_inverse_and_civil_date_do_not_adopt_report_zone() -> None:
     _, authority = source_time(
         table.point, field, boundary_timezone="UTC", read_timezone="UTC+05:30", engine="duckdb"
     )
-    predicate = encoded_time_predicate(
+    predicate = source_time_predicate(
         table.point,
         field,
         authority,
@@ -102,8 +101,8 @@ def test_fixed_offset_inverse_and_civil_date_do_not_adopt_report_zone() -> None:
     )
     assert predicate is not None
     sql = ibis.to_sql(table.filter(predicate), dialect="duckdb")
-    assert "2026-07-01 05:31" in sql
-    assert "2026-07-01 06:30" in sql
+    assert "TRY_STRPTIME" in sql
+    assert "5, 30, 30" in sql and "6, 30, 0" in sql
     field = axis("%Y%m%d")
     _, authority = source_time(
         table.point,
@@ -112,11 +111,11 @@ def test_fixed_offset_inverse_and_civil_date_do_not_adopt_report_zone() -> None:
         read_timezone="UTC",
         engine="duckdb",
     )
-    predicate = encoded_time_predicate(
+    predicate = source_time_predicate(
         table.point, field, authority, start=date(2026, 7, 1), end=date(2026, 7, 2)
     )
     assert predicate is not None
-    assert "20260701" in ibis.to_sql(table.filter(predicate), dialect="duckdb")
+    assert "TRY_STRPTIME" in ibis.to_sql(table.filter(predicate), dialect="duckdb")
 
 
 @pytest.mark.parametrize(
@@ -127,17 +126,17 @@ def test_fixed_offset_inverse_and_civil_date_do_not_adopt_report_zone() -> None:
         ("%Y-%m-%d", "int64", "UTC"),
     ],
 )
-def test_unqualified_inverse_keeps_semantic_filter(fmt: str, kind: str, zone: str) -> None:
+def test_safe_membership_retains_nonordered_parser(fmt: str, kind: str, zone: str) -> None:
     table = ibis.table({"point": kind}, name="events")
     field = axis(fmt, zone)
     _, authority = source_time(
         table.point, field, boundary_timezone="UTC", read_timezone=zone, engine="duckdb"
     )
     assert (
-        encoded_time_predicate(
+        source_time_predicate(
             table.point, field, authority, start=datetime(2026, 3, 8), end=datetime(2026, 3, 9)
         )
-        is None
+        is not None
     )
 
 
@@ -151,7 +150,7 @@ def test_upper_ceiling_and_integer_limits_never_emit_overflow_literal() -> None:
         source="civil_date",
         boundary_timezone="UTC",
     )
-    predicate = encoded_time_predicate(
+    predicate = source_time_predicate(
         table.point,
         axis("%Y%m%d"),
         authority,
@@ -161,13 +160,13 @@ def test_upper_ceiling_and_integer_limits_never_emit_overflow_literal() -> None:
     assert predicate is not None
     sql = ibis.to_sql(table.filter(predicate), dialect="trino")
     assert "20260701" not in sql
-    assert "FALSE" in sql
+    assert "TRY_STRPTIME" in sql
     table = ibis.table({"point": "string"}, name="events")
     field = axis("%Y-%m-%d %H:%M:%S")
     _, authority = source_time(
         table.point, field, boundary_timezone="UTC", read_timezone="UTC", engine="duckdb"
     )
-    predicate = encoded_time_predicate(
+    predicate = source_time_predicate(
         table.point,
         field,
         authority,
@@ -184,7 +183,7 @@ def test_canonical_year_padding_and_open_lower_bound() -> None:
     _, authority = source_time(
         table.point, field, boundary_timezone="UTC", read_timezone="UTC", engine="duckdb"
     )
-    predicate = encoded_time_predicate(table.point, field, authority, start=None, end=date(1, 1, 2))
+    predicate = source_time_predicate(table.point, field, authority, start=None, end=date(1, 1, 2))
     assert predicate is not None
     backend = ibis.duckdb.connect()
     try:
@@ -193,9 +192,11 @@ def test_canonical_year_padding_and_open_lower_bound() -> None:
         backend.disconnect()
 
 
-def test_help_discloses_canonical_premise_without_runtime_certification() -> None:
+def test_help_discloses_null_parsing_and_membership_cost() -> None:
     text = rendered_help("semantic.strptime")
-    assert "canonical source encoding" in text
-    assert "zero padding" in text
-    assert "without partition enumeration or validation queries" in text
-    assert "excluded values are not inspected" in text
+    assert "NULL" in text
+    assert "PostgreSQL" in text
+    assert "fail the query" in text
+    assert "wall order" in text
+    assert "No partition enumeration or validation queries" in text
+    assert "on_error" in text

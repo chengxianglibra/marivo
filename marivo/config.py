@@ -21,7 +21,7 @@ SEMANTIC_DIR = "models/semantic"
 STATE_DIR = ".marivo"
 EVIDENCE_DIR = ".marivo/evidence"
 ANALYSIS_DIR = ".marivo/analysis"
-ANALYSIS_STORE_GENERATION: Literal[25] = 25
+ANALYSIS_STORE_GENERATION: Literal[26] = 26
 AUTHORING_DIR = ".marivo/authoring"
 AUTHORING_SNAPSHOT_DIR = ".marivo/authoring/snapshots"
 

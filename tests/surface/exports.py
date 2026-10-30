@@ -110,6 +110,7 @@ ANALYSIS_PUBLIC = (
     "FrameField",
     "FrameAxisSchema",
     "FrameOrdinaryAxisSchema",
+    "FrameRowAttributeTime",
     "FrameCalendarAxisSchema",
     "FrameIntervalAxisSchema",
     "FramePairedAxisSchema",

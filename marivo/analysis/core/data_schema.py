@@ -12,6 +12,7 @@ from marivo.analysis.core.frame_interpretation import (
     FrameAlignmentSide,
     FrameDecomposition,
     FrameFixedAxis,
+    FrameRowAttributeTime,
     FrameValueContext,
 )
 from marivo.analysis.core.lineage import SemanticObjectIdentity
@@ -26,19 +27,21 @@ class DataAxis:
     columns: tuple[DataColumn, ...]
     kind: Literal["field", "member", "correspondence"] = field(default="field", kw_only=True)
     name: str = field(default="", kw_only=True)
-    at: datetime | None = field(default=None, kw_only=True)
+    at: datetime | FrameRowAttributeTime | None = field(default=None, kw_only=True)
 
     def __post_init__(self) -> None:
         require_data_text(self.token, "data.axis")
         if self.name:
             require_data_text(self.name, "data.axis.name")
-        if self.at is not None and (
-            type(self.at) is not datetime or self.at.tzinfo is not timezone.utc
+        if (
+            self.at is not None
+            and not isinstance(self.at, FrameRowAttributeTime)
+            and (type(self.at) is not datetime or self.at.tzinfo is not timezone.utc)
         ):
             reject(
-                "an inert UTC datetime anchor or no anchor",
+                "an inert UTC datetime, captured FrameRowAttributeTime, or no attribute time",
                 repr(self.at),
-                "Freeze the captured instant as a plain UTC datetime.",
+                "Freeze the fixed instant as a plain UTC datetime or retain the acquired row-time field identity.",
                 "data.axis.at",
             )
         if (

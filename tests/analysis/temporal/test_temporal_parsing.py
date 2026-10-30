@@ -28,7 +28,7 @@ ENGINES = ("duckdb", "postgres", "mysql", "trino", "clickhouse")
 
 # The exact parser each engine must reach, taken from its own documentation.
 NATIVE_PARSER = {
-    "duckdb": "STRPTIME",
+    "duckdb": "TRY_STRPTIME",
     "postgres": "TO_TIMESTAMP",
     "mysql": "STR_TO_DATE",
     "trino": "DATE_PARSE",
@@ -85,7 +85,13 @@ def _parser_arguments(engine: str, fmt: str, *, timezone: str | None = None) -> 
     ``HH24:MI:SS`` template literal and MySQL/Trino expose the ``%T`` sqlglot
     rewrote for them.
     """
-    rendered = _parse_projection(engine, fmt, timezone=timezone).sql(dialect=engine)
+    projection = _parse_projection(engine, fmt, timezone=timezone)
+    parser = next(
+        node
+        for node in projection.find_all(sge.Func)
+        if node.sql(dialect=engine).lower().startswith(NATIVE_PARSER[engine].lower() + "(")
+    )
+    rendered = parser.sql(dialect=engine)
     literals = [match.group(1).replace("''", "'") for match in _STRING_LITERAL.finditer(rendered)]
     assert literals, f"{engine} emitted no literal parser argument in {rendered!r}"
     return literals
@@ -143,8 +149,12 @@ def test_naive_parses_reach_the_parser_at_microsecond_scale(engine: str) -> None
     ``DATETIME(6)`` preserves.
     """
     projection = _parse_projection(engine, "%Y-%m-%d %H:%M:%S", timezone="UTC")
-    assert isinstance(projection, sge.Cast), "the naive parse must bind an explicit scale"
-    assert projection.to.sql(dialect=engine) == NAIVE_TIMESTAMP_CAST[engine]
+    casts = [
+        node
+        for node in projection.find_all(sge.Cast)
+        if NATIVE_PARSER[engine].lower() in node.this.sql(dialect=engine).lower()
+    ]
+    assert any(node.to.sql(dialect=engine) == NAIVE_TIMESTAMP_CAST[engine] for node in casts)
 
 
 def test_trino_fractional_format_reaches_date_parse() -> None:
@@ -152,6 +162,12 @@ def test_trino_fractional_format_reaches_date_parse() -> None:
     assert _parser_arguments("trino", "%Y-%m-%d %H:%M:%S.%f", timezone="UTC")[0] == (
         "%Y-%m-%d %T.%f"
     )
+
+
+@pytest.mark.parametrize("fmt", ("%Y-%U", "%Y-%m-%d %w"))
+def test_trino_unsupported_format_is_configuration_error_before_try(fmt: str) -> None:
+    with pytest.raises(DatasetCompilationError, match="unsupported directive"):
+        _sql("trino", fmt)
 
 
 def test_clickhouse_refuses_subsecond_formats() -> None:

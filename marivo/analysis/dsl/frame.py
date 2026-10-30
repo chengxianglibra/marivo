@@ -1753,7 +1753,11 @@ class AnalysisFrame:
                     "; ".join(scopes) if scopes else "no captured filter or member restriction",
                 )
                 anchors = tuple(
-                    (frame._input_id, axis.token, axis.at.isoformat())
+                    (
+                        frame._input_id,
+                        axis.token,
+                        axis.at.isoformat() if isinstance(axis.at, datetime) else repr(axis.at),
+                    )
                     for frame, _ in sources
                     for axis in frame._schema.axes
                     if axis.at is not None

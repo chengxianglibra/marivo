@@ -11,22 +11,18 @@ import ibis.expr.types as ir
 
 from marivo.analysis.compiler._wall_order import wall_order_bound
 from marivo.analysis.compiler.source_time import (
-    _ORDERED_FORMATS,
     _complement,
-    _duckdb_strptime,
     _localize_native,
     _raw_lineage,
     _render_native,
     _scalar_cutoff,
-    ordered_time_literal,
+    governed_parse_operation,
 )
 from marivo.analysis.core.time_authority import time_zone
-from marivo.semantic.ir import StrptimeParse
 
 _PROBE = ibis.timestamp("2000-01-01")
 _LOCALIZE = type(_localize_native("UTC", _PROBE).op())
 _RENDER = type(_render_native("UTC", _PROBE).op())
-_PARSE = type(_duckdb_strptime(ibis.literal("20000101"), "%Y%m%d").op())
 _COMPARISONS = (ops.Equals, ops.NotEquals, ops.Greater, ops.GreaterEqual, ops.Less, ops.LessEqual)
 _DAY = timedelta(days=1)
 
@@ -85,6 +81,26 @@ def _raw_for(raw: ops.Value, parent: ops.Relation) -> ir.Value | None:
     return None
 
 
+def _parsed_for(raw: ops.Value, parent: ops.Relation) -> ir.Value | None:
+    """Rebind a governed parser to retained inputs without substituting raw ranges."""
+    raw = _resolved(raw)
+    parsed, missing = False, False
+
+    def rebind(node: ops.Node, _results: Mapping[ops.Node, ops.Node], **kwargs: object) -> ops.Node:
+        nonlocal parsed, missing
+        parsed |= governed_parse_operation(node)
+        if isinstance(node, ops.Field):
+            value = _raw_for(node, parent)
+            if value is None:
+                missing = True
+                return node
+            return value.op()
+        return node.copy(**kwargs)
+
+    result = raw.map(rebind, filter=ops.Value)[raw]
+    return result.to_expr() if parsed and not missing else None
+
+
 def _clock(node: ops.Value) -> tuple[str, ops.Value, timedelta, bool] | None:
     value = _resolved(node)
     if type(value) is _RENDER:
@@ -115,8 +131,6 @@ def _clock(node: ops.Value) -> tuple[str, ops.Value, timedelta, bool] | None:
                     )
                     raw = raw.left
             return zone, raw, shift, False
-    if _encoded(value) is not None:
-        return "UTC", value, timedelta(0), True
     return None
 
 
@@ -133,48 +147,6 @@ def _bound(node: ops.Value) -> datetime | None:
     return None
 
 
-def _encoded(node: ops.Value) -> tuple[ops.Value, str] | None:
-    node = _resolved(node)
-    while isinstance(node, ops.Cast) and (node.dtype.is_timestamp() or node.dtype.is_date()):
-        node = node.arg
-    if type(node) is not _PARSE:
-        return None
-    raw, format_node = node.args
-    if not isinstance(raw, ops.Value) or not isinstance(format_node, ops.Literal):
-        return None
-    fmt = format_node.value
-    if not isinstance(fmt, str) or fmt not in _ORDERED_FORMATS:
-        return None
-    if isinstance(raw, ops.Cast) and raw.dtype.is_string() and raw.arg.dtype.is_integer():
-        raw = raw.arg
-    if not (raw.dtype.is_string() or raw.dtype.is_integer()):
-        return None
-    return raw, fmt
-
-
-def _encoded_guard(
-    raw: ir.Value, fmt: str, boundary: datetime, operation: type[ops.Value]
-) -> ir.BooleanValue:
-    text = ordered_time_literal(boundary, fmt, strict=operation in (ops.Greater, ops.LessEqual))
-    if text is None:
-        return ibis.literal(True)
-    try:
-        literal = (
-            ibis.literal(int(text), type=raw.type())
-            if raw.type().is_integer()
-            else ibis.literal(text)
-        )
-    except (OverflowError, TypeError, ValueError):
-        return ibis.literal(True)
-    if operation in (ops.GreaterEqual, ops.Greater):
-        return raw >= literal
-    if operation in (ops.Less, ops.LessEqual):
-        return raw < literal
-    if datetime.strptime(text, fmt) != boundary:
-        return ibis.literal(True)
-    return raw == literal if operation is ops.Equals else raw != literal
-
-
 def _exact(node: ops.Value, parent: ops.Relation) -> ir.BooleanValue | None:
     """Translate only compiler-owned clocks with a retained physical field."""
     if not isinstance(node, _COMPARISONS):
@@ -187,9 +159,10 @@ def _exact(node: ops.Value, parent: ops.Relation) -> ir.BooleanValue | None:
     zone, raw_node, shift, civil = clock
     if civil and zone != "UTC":
         return None
-    encoded = _encoded(raw_node)
-    raw = _raw_for(encoded[0] if encoded else raw_node, parent)
+    raw = _raw_for(raw_node, parent)
     if raw is None or not _raw_lineage(raw):
+        raw = _parsed_for(raw_node, parent)
+    if raw is None:
         return None
     operation = type(node)
     if reverse:
@@ -204,7 +177,6 @@ def _exact(node: ops.Value, parent: ops.Relation) -> ir.BooleanValue | None:
         cutoff, inclusive = wall_order_bound(bound, time_zone(zone), strict=strict)
         return _scalar_cutoff(
             raw,
-            StrptimeParse(encoded[1]) if encoded else None,
             cutoff - shift,
             inclusive=inclusive,
         )
@@ -265,8 +237,7 @@ def _scan(node: ops.Value, parent: ops.Relation) -> ir.BooleanValue:
             else ibis.literal(True)
         )
     zone, raw_node, shift, civil = clock
-    encoded = _encoded(raw_node)
-    raw = _raw_for(encoded[0] if encoded else raw_node, parent)
+    raw = _raw_for(raw_node, parent)
     if raw is None:
         return ibis.literal(True)
     operation = type(node)
@@ -279,8 +250,6 @@ def _scan(node: ops.Value, parent: ops.Relation) -> ir.BooleanValue:
         }.get(operation, operation)
 
     def compare(cutoff: datetime, op: type[ops.Value]) -> ir.BooleanValue:
-        if encoded:
-            return _encoded_guard(raw, encoded[1], cutoff, op)
         result = op(raw.op(), ibis.literal(cutoff).op()).to_expr()
         assert isinstance(result, ir.BooleanValue)
         return result

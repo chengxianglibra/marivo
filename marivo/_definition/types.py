@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
-from typing import TYPE_CHECKING, Final, Literal, NoReturn, TypeAlias
+from typing import TYPE_CHECKING, Final, Literal, NoReturn, TypeAlias, overload
 
 from marivo._temporal import Grain, InstantAnchor, PeriodCalendarSnapshotV2
 from marivo.refs import Ref, SemanticKind, SemanticKindTag
@@ -191,6 +191,48 @@ class SourceLocation:
 
 
 @dataclass(frozen=True, slots=True)
+class RowAttributeTime:
+    """Closed control field on the contribution root, never an executable recipe."""
+
+    field: ExactRef
+    root: ExactRef
+
+    def __post_init__(self) -> None:
+        if self.field.ref.kind is not SemanticKind.TIME_DIMENSION:
+            invalid("Row attribute time requires a named TimeDimension.")
+        if self.root.ref.kind is not SemanticKind.ENTITY:
+            invalid("Row attribute time requires its declared Entity root.")
+
+
+AttributeTime: TypeAlias = InstantAnchor | RowAttributeTime
+
+
+def attribute_time_key(value: AttributeTime | None) -> str:
+    """Stable selection identity including the complete control-field binding."""
+    if isinstance(value, RowAttributeTime):
+        return repr(("row", value.field, value.root))
+    return "" if value is None else value.isoformat()
+
+
+@overload
+def fixed_attribute_time(value: AttributeTime) -> InstantAnchor: ...
+
+
+@overload
+def fixed_attribute_time(value: None) -> None: ...
+
+
+def fixed_attribute_time(value: AttributeTime | None) -> InstantAnchor | None:
+    """Require a fixed anchor at consumers outside per-row observe classification."""
+    if isinstance(value, RowAttributeTime):
+        invalid(
+            f"{value.field.ref.key} selects per-row attribute time, available only in observe by/where. "
+            "Use session.instant(...) for this operation."
+        )
+    return value
+
+
+@dataclass(frozen=True, slots=True)
 class AxisBinding:
     """One complete coordinate axis: Entity identity or one of its fields, with its path."""
 
@@ -198,7 +240,7 @@ class AxisBinding:
     field: ExactRef | None
     path: tuple[ExactRef, ...]
     role: Literal["identity", "field"]
-    at: InstantAnchor | None = None
+    at: AttributeTime | None = None
 
     def __post_init__(self) -> None:
         if self.entity.ref.kind is not SemanticKind.ENTITY:
@@ -217,12 +259,12 @@ class AxisBinding:
 
 @dataclass(frozen=True, slots=True)
 class FieldRead:
-    """Scalar field usage with its declared owner, directed path and exact anchor."""
+    """Scalar field usage with its declared owner, directed path and attribute time."""
 
     field: ExactRef
     entity: ExactRef
     path: tuple[ExactRef, ...] = ()
-    at: InstantAnchor | None = None
+    at: AttributeTime | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -252,7 +294,7 @@ def field_read_key(read: FieldRead | IdentityRead) -> str:
         (
             read.field.ref.path,
             tuple(step.ref.path for step in read.path),
-            read.at.isoformat() if read.at is not None else None,
+            attribute_time_key(read.at) if read.at is not None else None,
         )
     )
 

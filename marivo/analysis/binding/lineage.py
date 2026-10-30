@@ -14,7 +14,7 @@ from marivo._definition.relations import (
     PopulationProgram,
     ReadQuery,
 )
-from marivo._definition.types import ExactRef
+from marivo._definition.types import AxisBinding, ExactRef, FieldRead, RowAttributeTime
 from marivo._temporal import Grain
 from marivo.analysis.core.lineage import (
     ColumnLineage,
@@ -162,9 +162,29 @@ def source_lineage(
 
     collect, expression = _capture(root)
     graph = root.graph
-    axes = tuple(ColumnLineage(collect(axis)) for axis in graph.signature.axes)
-    domain = union(*(all_origins(axis) for axis in axes))
     observation = graph.signature.observation
+
+    def row_context(axis: AxisBinding) -> Origins:
+        field = axis.field
+        assert field is not None
+        reads = tuple(
+            read
+            for contribution in (() if observation is None else observation.contributions)
+            for read in contribution.coordinates
+            if isinstance(read, FieldRead)
+            and read.field.ref == field.ref
+            and read.at == axis.at
+            and (not axis.path or read.path == axis.path)
+        )
+        return collect((axis, reads))
+
+    axes = tuple(
+        ColumnLineage(collect(axis.field), row_context(axis))
+        if isinstance(axis, AxisBinding) and isinstance(axis.at, RowAttributeTime)
+        else ColumnLineage(collect(axis))
+        for axis in graph.signature.axes
+    )
+    domain = union(*(all_origins(axis) for axis in axes))
     population = observation.coordinates.population if observation is not None else None
     if isinstance(graph.root, ReadQuery):
         classified = graph.root.population

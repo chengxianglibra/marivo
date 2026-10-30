@@ -831,3 +831,14 @@ presence. `frame.schema.value_contexts` identifies explicit shares and paired
 statistics, including captured input names. See [result interpretation](/docs/latest/analysis/results/#interpret-aligned-values-shares-and-paired-statistics)
 for typed inspection and propagation rules. These metadata reads do not execute
 pending Frames or make current-row statistics valid attribute targets.
+
+
+## Export names, field identities and purpose
+
+`observe` accepts a named metrics Mapping; `by` remains a tuple or Population.
+See [time series](../time-series/#historical-classification-for-each-fact) for row-time
+labels. Use semantic objects' `.id` as dictionary keys; object `==` constructs a
+predicate. Export aliases rename an entire axis prefix via
+`axis_names={axis.token: "day"}`. Rename individual columns on the isolated pandas
+copy with `.rename(columns={...})`. Session `question=` records the investigation;
+`persist(description=...)` describes one saved result. Neither annotates every observe.

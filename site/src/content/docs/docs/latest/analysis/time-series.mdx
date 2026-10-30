@@ -186,3 +186,26 @@ certified calendar snapshot. Declared calendar folds require calendar
 certification. Windows inside calendar samples and windows wrapping calendar
 folds currently raise a typed error. Observe the windowed Metric directly on a
 CalendarAxis and explicitly reduce the captured Frame values instead.
+
+
+## Historical classification for each fact
+
+This fragment requires a declared versioned `sales.profiles`, fact Entity
+`sales.facts`, and complete-key relationship `sales.profile`. Control time and
+Metric time are independent choices; this example explicitly uses the same field.
+
+```python
+control = session.catalog.get("time_dimension:sales.facts.event_time")
+label = session.catalog.get("dimension:sales.profiles.label")
+route = session.catalog.get("relationship:sales.profile")
+amount = session.catalog.get("measure:sales.facts.amount")
+historical = label.via((route,)).at(control)
+days = session.time_scope(start="2026-08-25", end="2026-09-08").by(mv.grain("day"))
+daily = session.observe({"value": amount.sum(time=control)}, by=(days, historical)).compute()
+restated = session.observe(
+    {"value": amount.sum(time=control)},
+    by=(days, label.via((route,)).at(session.instant("2026-09-03T00:00:00+00:00"))),
+).compute()
+```
+
+Row time selects an attribute for each original fact; a fixed anchor restates the entire window under one definition. For contributions 7/11 with labels A/B before/after a change, row time gives A=7, B=11; a fixed new anchor gives B=18. Qualified same-source single-root observe by/where is supported on DuckDB/Trino. NULL control or missing versions preserve NULL labels without fallback. DATE selects target business dates; timestamp validity requires timestamp control. Native absolute timestamps and UTC/fixed-offset local clocks are admitted. IANA local clocks, read/classify, multiple roots and window/per compositions require fixed anchors. Bucket-end reclassification is a separate question.

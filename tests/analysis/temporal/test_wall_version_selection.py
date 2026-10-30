@@ -33,7 +33,8 @@ def test_validity_endpoints_keep_independent_authority_and_symbolic_before_end(
             "('after','2026-03-08 03:00','2026-03-08 08:00'),"
             "('ending','2026-03-08 01:00','2026-03-08 07:00'),"
             "('null','2026-03-08 00:00',NULL),"
-            "('sentinel','2026-03-08 00:00','open')"
+            "('sentinel','2026-03-08 00:00','open'),"
+            "('bad-end','2026-03-08 00:00','bad')"
         )
     semantic_project_factory(
         {

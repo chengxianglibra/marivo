@@ -77,8 +77,10 @@ from marivo._definition.types import (
     ExactRef,
     FieldRead,
     IntervalCoordinate,
+    RowAttributeTime,
     SumNone,
     SumPermission,
+    fixed_attribute_time,
 )
 from marivo._grouping import Grouping
 from marivo._temporal import Grain, TimeScope
@@ -663,6 +665,12 @@ def _time(recipe: Resolver | None, row: RowFacts) -> TimeBinding | None:
         )
     assert isinstance(value, RowFacts) and value.field is not None
     read = value.field.field_read
+    if read is not None and isinstance(read.at, RowAttributeTime):
+        _fail(
+            "Row attribute time is only available for observe classification.",
+            expected="a native time field or a fixed attribute anchor",
+            received=value.field.reference.ref.key,
+        )
     if value.root.ref != row.root.ref:
         _fail(
             "Time field belongs to another root.",
@@ -673,7 +681,7 @@ def _time(recipe: Resolver | None, row: RowFacts) -> TimeBinding | None:
     return TimeBinding(
         value.field.reference,
         read.path if read is not None else (),
-        read.at if read is not None else None,
+        fixed_attribute_time(read.at) if read is not None else None,
     )
 
 
@@ -1079,23 +1087,52 @@ def _consume(recipe: Resolver) -> _Facts:
                 from marivo._temporal import InstantAnchor
 
                 anchor = _constant(recipe.args[0]) if len(recipe.args) == 1 else None
+                if anchor is None and len(recipe.args) == 1:
+                    control = _consume(recipe.args[0])
+                    if (
+                        not isinstance(control, RowFacts)
+                        or control.field is None
+                        or control.field.reference.ref.kind is not SemanticKind.TIME_DIMENSION
+                        or (
+                            control.field.field_read is not None
+                            and (
+                                control.field.field_read.path
+                                or control.field.field_read.at is not None
+                            )
+                        )
+                        or control.field.versioned
+                    ):
+                        _fail(
+                            "Row attribute time requires one native, unanchored TimeDimension.",
+                            expected="a named TimeDimension on the unversioned fact root",
+                            received=control.field.reference.ref.key
+                            if isinstance(control, RowFacts) and control.field is not None
+                            else "a computed expression without a native field identity",
+                            action="Declare the derived time as a fact-root TimeDimension, without via/at, or use session.instant(...) for a fixed attribute time.",
+                        )
+                    assert isinstance(control, RowFacts) and control.field is not None
+                    anchor = RowAttributeTime(control.field.reference, control.field.root)
                 if (
                     not isinstance(receiver, RowFacts)
                     or receiver.field is None
                     or not receiver.field.versioned
-                    or not isinstance(anchor, InstantAnchor)
-                    or anchor.utcoffset() is None
+                    or not isinstance(anchor, (InstantAnchor, RowAttributeTime))
+                    or (isinstance(anchor, InstantAnchor) and anchor.utcoffset() is None)
+                    or (
+                        isinstance(anchor, RowAttributeTime)
+                        and receiver.field.reference.ref.kind is not SemanticKind.DIMENSION
+                    )
                     or recipe.kwargs
                 ):
                     _fail(
-                        "at requires a versioned semantic field and exact anchor.",
-                        expected="Field.at(session.instant(...)) on a versioned owner",
+                        "at requires a versioned field and a fixed instant or fact-row time.",
+                        expected="Dimension.at(session.instant(...)) or Dimension.at(fact_time)",
                         received="invalid field or anchor",
                     )
                 assert (
                     isinstance(receiver, RowFacts)
                     and receiver.field is not None
-                    and isinstance(anchor, InstantAnchor)
+                    and isinstance(anchor, (InstantAnchor, RowAttributeTime))
                 )
                 native = receiver.field.field_read or FieldRead(
                     receiver.field.reference, receiver.field.root
@@ -1104,6 +1141,7 @@ def _consume(recipe: Resolver) -> _Facts:
                 field = replace(receiver.field, field_read=read)
                 return replace(
                     receiver,
+                    root=anchor.root if isinstance(anchor, RowAttributeTime) else receiver.root,
                     field=field,
                     node=RowField(
                         field.reference,
@@ -1184,18 +1222,18 @@ def _consume(recipe: Resolver) -> _Facts:
                     relationships.append(relation)
                 if (
                     not relationships
-                    or relationships[-1].to_entity.ref != receiver.root.ref
+                    or relationships[-1].to_entity.ref != receiver.field.root.ref
                     or any(a.to_entity.ref != b.from_entity.ref for a, b in pairwise(relationships))
                 ):
                     _fail(
                         "via path does not connect to the field owner.",
                         kind=ErrorKind.INVALID_TIME_PATH,
-                        expected=receiver.root.ref.key,
+                        expected=receiver.field.root.ref.key,
                         received="disconnected or empty path",
                     )
                 read = FieldRead(
                     receiver.field.reference,
-                    receiver.root,
+                    receiver.field.root,
                     tuple(item.ref for item in relationships),
                     receiver.field.field_read.at if receiver.field.field_read is not None else None,
                 )

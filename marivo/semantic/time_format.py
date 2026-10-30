@@ -1,6 +1,6 @@
 """Python strptime validation for time fields.
 
-The ``format`` parameter of ``ms.strptime`` declares canonical source encoding
+The ``format`` parameter of ``ms.strptime`` selects native safe parsing
 and accepts Python strptime strings, validated by :func:`normalize_strptime`
 at authoring time. This validation checks the format, not source values.
 The validated format flows into ibis expressions and is emitted as backend SQL.

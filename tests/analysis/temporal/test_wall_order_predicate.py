@@ -335,7 +335,7 @@ def test_native_timestamp_precision_and_unowned_expression_fallback() -> None:
     assert caught.value.expected == "a civil-date hour prefix"
 
 
-def test_integer_domain_exhaustion_retains_unknown() -> None:
+def test_invalid_integer_encoding_keeps_nullable_comparison() -> None:
     table = ibis.memtable({"point": [1, None]}, schema={"point": "int16"})
     authority = SourceTimeAuthority(
         axis="sales.events.point",
@@ -352,7 +352,7 @@ def test_integer_domain_exhaustion_retains_unknown() -> None:
     backend = ibis.duckdb.connect()
     try:
         result = backend.execute(table.select(test=predicate, complement=~predicate))
-        assert result.iloc[0].tolist() == [False, True]
+        assert result.iloc[0].tolist() == [None, None]
         assert result.iloc[1].isna().all()
     finally:
         backend.disconnect()

@@ -40,12 +40,14 @@ from marivo._definition.types import (
     ExactRef,
     FieldRead,
     InputContext,
+    RowAttributeTime,
     SourceLocation,
     SumAll,
     SumAllExcept,
     SumAxes,
     SumNone,
     SumPermission,
+    attribute_time_key,
     check_literal,
     invalid,
     literal_token,
@@ -653,7 +655,10 @@ class _Inspector:
                 for step in read.path:
                     self.dependency(step)
                     self.token("via", *_reference(step))
-                self.token("at", "" if read.at is None else read.at.isoformat())
+                if isinstance(read.at, RowAttributeTime):
+                    self.dependency(read.at.field)
+                    self.dependency(read.at.root)
+                self.token("at", attribute_time_key(read.at))
             self.token("versioned", str(value.versioned))
             self.token("end_semantic")
         elif type(recipe) is RescaleResolver:
@@ -1143,11 +1148,19 @@ class _Inspector:
             if symbol == "per":
                 _capture_sample(recipe.args[0], (*path, "samples"))
             if symbol == "at" and (
-                not isinstance(recipe.args[0], Just)
-                or not isinstance(recipe.args[0].value, InstantAnchor)
-                or recipe.args[0].value.utcoffset() is None
+                not (
+                    isinstance(recipe.args[0], Just)
+                    and isinstance(recipe.args[0].value, InstantAnchor)
+                    and recipe.args[0].value.utcoffset() is not None
+                )
+                and _captured_field_kind(recipe.args[0]) is not SemanticKind.TIME_DIMENSION
             ):
-                invalid("at requires one exact InstantAnchor.", path=path)
+                invalid(
+                    "at requires session.instant(...) for a fixed attribute time, or a named "
+                    "fact-root TimeDimension for per-row observe classification. TimeScope "
+                    "and CalendarAxis do not select attribute versions.",
+                    path=path,
+                )
             if symbol == "within":
                 from marivo._temporal import TimeScope
 

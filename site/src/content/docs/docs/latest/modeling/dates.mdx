@@ -56,7 +56,7 @@ This example assumes a naive source timestamp in Shanghai time. An aware source 
 
 | Parameter | Required | Default | Meaning |
 | --- | --- | --- | --- |
-| `format` | Yes | — | Python `strptime` format. Directive widths, zero padding, separators and valid calendar values define the expected source encoding. |
+| `format` | Yes | — | Python `strptime` format; rejected data becomes NULL except on PostgreSQL, where it can fail the query. |
 | `timezone` | No | `None` | Optional source timezone for time-bearing values. Date-only formats do not use a timezone; omitted values use reader authority. |
 
 
@@ -67,7 +67,7 @@ business_date = ms.time_dimension_column(
 )
 ```
 
-For example, `%Y%m%d` expects a value such as `20260801` with fixed widths and zero padding. In time-bearing formats, Python `%M` means minutes. The declaration defines the required encoding; it does not scan every source row for violations.
+For example, `%Y%m%d` parses `20260801`; Python `%M` means minutes. SQL NULL remains NULL. DuckDB, Trino, ClickHouse and MySQL/MariaDB return NULL for rejected parsed data. PostgreSQL uses native `to_timestamp`; its rejected data can fail the query. There is no `on_error`, trimming, guessing or retry. Native backends can accept different noncanonical values. Invalid format, timezone, type and capability remain errors. Trino TRY can catch recoverable errors in the input expression; other engines may propagate argument evaluation errors. Parsing remains in membership predicates and can increase scan/CPU costs. Use independent physical filters and explicit data checks when needed. NULL event time has no period membership; NULL used only as attribute control preserves facts under a NULL label. Local-clock membership keeps wall order; native output projection is unchanged.
 
 ## Separate hour column: `ms.hour_prefix`
 

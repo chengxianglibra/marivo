@@ -14,7 +14,7 @@ from marivo._definition.relations import (
     PopulationProgram,
     SourceIdentities,
 )
-from marivo._definition.types import AxisBinding
+from marivo._definition.types import AxisBinding, fixed_attribute_time
 from marivo.analysis.compiler.member_version import prepare_version_filter
 from marivo.analysis.compiler.source_predicates import string_bytes
 from marivo.analysis.core.model import reject
@@ -72,11 +72,13 @@ def prepare_member_fields(
         source, _, _ = _identity_source(identity_node, entities, state)
     elif contract.version is not None:
         if axis.at is not None:
+            anchor = fixed_attribute_time(axis.at)
+            assert anchor is not None
             source = prepare_version_filter(
                 source,
                 contract.version,
                 normalize_target_version_selection(
-                    contract, boundary=axis.at, interpretation="instant"
+                    contract, boundary=anchor, interpretation="instant"
                 ),
                 state=state,
             )
@@ -226,7 +228,7 @@ def prepare_relationship_population(
             source,
             contract.version,
             normalize_target_version_selection(
-                contract, boundary=axis.at, interpretation="instant"
+                contract, boundary=fixed_attribute_time(axis.at), interpretation="instant"
             ),
             state=state,
         )
@@ -271,7 +273,7 @@ def prepare_relationship_population(
             if isinstance(node, PopulationPreimage) and final:
                 target_axis = node.targets.axes[0]
                 assert isinstance(target_axis, AxisBinding)
-                anchor = target_axis.at
+                anchor = fixed_attribute_time(target_axis.at)
             if anchor is None:
                 reject(
                     "an exact version anchor for every required attribute read",

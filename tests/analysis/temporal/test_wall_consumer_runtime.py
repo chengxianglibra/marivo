@@ -129,31 +129,34 @@ def test_mysql_public_native_projection_requires_selected_zone_before_read(
         monkeypatch.setattr(SourceSession, "execute", traced)
         members = session.members(session.catalog.get("entity:sales.events"))
         parsed = catalog_value(session.catalog, "sales.events.parsed", kind="field")
-        outcomes: dict[str, object] = {}
-        # This legal non-ordered parser keeps native fallback. Both filter and
-        # output conversions must reject missing tables before their read.
-        for use in ("filter", "output"):
-            probes.clear()
-            executed.clear()
-            with pytest.raises(DatasourceConnectionError) as failure:
-                if use == "filter":
-                    session.observe(
-                        {"value": amount.sum(time=clock)}, where=parsed.within(scope)
-                    ).compute()
-                else:
-                    session.read(members, {"clock": parsed}).compute()
-            assert failure.value.received == "America/New_York"
-            assert probes == ["America/New_York"]
-            assert all("CONVERT_TZ(" not in read.sql.upper() for read in executed)
-            if use == "filter":
-                assert executed == []
-            else:
-                assert len(executed) == 1  # Independent identity-domain read.
-            outcomes[use] = {
-                "probes": list(probes),
-                "executed_purposes": [read.purpose for read in executed],
-                "conversion_read_executed": False,
-            }
+        # Parsed wall membership compares the safe neutral clock and needs
+        # no native named-zone conversion. Output still requires that capability.
+        probes.clear()
+        executed.clear()
+        filtered = session.observe(
+            {"value": amount.sum(time=clock)}, where=parsed.within(scope)
+        ).compute()
+        assert filtered.to_pandas()["value"].tolist() == [30]
+        assert probes == []
+        assert len(executed) == 1 and "STR_TO_DATE" in executed[0].sql.upper()
+        # Unused native projections may remain in submitted subqueries; only
+        # the final projection closure owns timezone-table qualification.
+        outcomes: dict[str, object] = {
+            "filter": {"probes": [], "conversion_read_executed": False, "value": 30}
+        }
+        probes.clear()
+        executed.clear()
+        with pytest.raises(DatasourceConnectionError) as failure:
+            session.read(members, {"clock": parsed}).compute()
+        assert failure.value.received == "America/New_York"
+        assert probes == ["America/New_York"]
+        assert all("CONVERT_TZ(" not in read.sql.upper() for read in executed)
+        assert len(executed) == 1  # Independent identity-domain read.
+        outcomes["output"] = {
+            "probes": list(probes),
+            "executed_purposes": [read.purpose for read in executed],
+            "conversion_read_executed": False,
+        }
         receipt(
             "consumers-r1-mysql",
             {

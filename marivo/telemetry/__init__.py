@@ -394,9 +394,6 @@ def _session_attributes(arguments: Mapping[str, object]) -> dict[str, TelemetryV
         session_id = _safe_getattr(meta, "session_id") if meta is not None else None
         if isinstance(session_id, str) and session_id:
             attrs = {"marivo.session.id": session_id}
-            purpose = _safe_getattr(meta, "analysis_purpose")
-            if isinstance(purpose, str) and purpose:
-                attrs["marivo.analysis.purpose"] = purpose
             return attrs
     return {}
 
@@ -528,14 +525,11 @@ def _input_attributes(
     receiver = arguments.get("self")
     if receiver is not None:
         attrs.update(_safe_reference_attributes("marivo.input", receiver))
-    purpose = arguments.get("analysis_purpose")
-    if isinstance(purpose, str) and purpose:
-        attrs["marivo.analysis.purpose"] = purpose
     reason = arguments.get("reason")
     if capability_id == "raw_sql" and isinstance(reason, str) and reason:
         attrs["marivo.datasource.raw_sql.reason"] = reason
     for name, value in arguments.items():
-        if name in {"analysis_purpose", "question", "reason"}:
+        if name in {"question", "reason"}:
             continue
         if capability_id in {"session.resume", "session.inspect"} and name == "session_id":
             attrs["marivo.input.session_id.type"] = type(value).__name__
