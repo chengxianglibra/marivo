@@ -380,9 +380,8 @@ def timestamp(
 
     Use as the ``parse=`` value on ``@ms.time_dimension(...)`` when the
     source column is a native timestamp type. Projection follows the backend's
-    native interpretation. Constant-bound membership of a raw local clock uses
-    wall order: repeated clocks denote the later occurrence and skipped clocks
-    denote the transition instant.
+    native interpretation. Projection, filtering and calendar assignment use
+    the same executor's native gap/fold behavior.
     This parser affects only the TimeDimension projection; Entity primary keys retain
     their output values, including naive timestamps without an implicit timezone.
 
@@ -428,11 +427,11 @@ def strptime(
     can accept different noncanonical values. Configuration, type, connection
     and resource failures remain errors.
 
-    Membership parses before applying boundaries and retains local-clock wall
-    order; output projections keep native gap/fold behavior. Parsed predicates
-    can cost more than raw encoded ranges; use independent physical filters
-    where appropriate. Trino TRY can also catch recoverable errors in its input
-    expression; other backends can propagate argument evaluation failures.
+    Membership parses before applying boundaries and keeps native gap/fold
+    behavior, as do output projections. Parsed predicates can cost more than
+    raw encoded ranges; use independent physical filters where appropriate.
+    Trino TRY can also catch recoverable errors in its input expression; other
+    backends can propagate argument evaluation failures.
 
     Args:
         format: Python strptime format

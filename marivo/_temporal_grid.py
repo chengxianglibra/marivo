@@ -570,8 +570,8 @@ def bind_grid(
         lookback = timedelta(0) if authority.utcoffset(None) is not None else timedelta(days=2)
         cursor = _floor((start - lookback).astimezone(authority).replace(tzinfo=None), grain)
         # Enumerate civil boundaries, retaining both instants of repeated subday
-        # boundaries and skipping nonexistent ones. Source clocks retain their
-        # separate value-projection and wall-order membership contracts.
+        # boundaries and skipping nonexistent ones. This is captured selection
+        # intent; result evaluation resolves positions in its native executor.
         boundaries: set[datetime] = set()
         earliest: datetime | None = None
         while True:

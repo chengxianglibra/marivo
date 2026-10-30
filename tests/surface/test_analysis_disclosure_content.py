@@ -872,7 +872,7 @@ def test_fixed_read_surface_has_one_reachable_contract_per_entry() -> None:
         "frame_period_page.items",
         "frame_period_page.read_stats",
         "frame_calendar_period.key",
-        "frame_calendar_period.actual_start_civil",
+        "frame_calendar_period.selection",
         "frame_interval_period.key",
         "frame_paired_period.left",
         "frame_paired_period.right",

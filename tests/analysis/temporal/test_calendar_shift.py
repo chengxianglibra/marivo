@@ -254,8 +254,8 @@ def test_source_calendar_freezing_uses_original_captured_civil_facts(
 
     monkeypatch.setattr("marivo._temporal_grid.parse_timezone", refuse)
     _, directory = frozen(current)
-    assert directory.buckets[0].actual_end_civil == "2026-11-01T01:30:00.000000-04:00"
-    assert directory.buckets[0].actual_end.isoformat() == "2026-11-01T05:30:00+00:00"
+    assert directory.buckets[0].selection == "prefix"
+    assert directory.buckets[0].cutoff == "2026-11-01T01:30:00.000000"
 
 
 def test_frozen_prefix_matching_requires_exact_saved_progress_and_no_tz_lookup(
@@ -275,7 +275,7 @@ def test_frozen_prefix_matching_requires_exact_saved_progress_and_no_tz_lookup(
     )
     with pytest.raises(AnalysisError, match="progress"):
         build_partial_calendar_map(current, full, mv.offset(periods=-1))
-    with pytest.raises(AnalysisError, match="complete actual"):
+    with pytest.raises(AnalysisError, match="complete logical"):
         build_partial_calendar_map(current, baseline, mv.ordinal())
 
 

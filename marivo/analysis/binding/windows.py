@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING
@@ -220,6 +221,8 @@ def bind_windows(
     period: ObservationPeriod | None,
     calendar: CalendarCoordinate | None,
     calendar_snapshots: tuple[PeriodCalendarSnapshotV2, ...] = (),
+    *,
+    native_starts: Mapping[tuple[ObservationWindow, datetime], datetime] | None = None,
 ) -> tuple[ContributionBinding, ...]:
     """Expand each window usage into independent source reads per output endpoint."""
     from marivo.analysis.binding.observe import ObservationPeriod
@@ -314,9 +317,19 @@ def bind_windows(
     if not rules:
         return contributions
     if calendar is not None and not calendar.cells:
-        # Retain source type bindings, without inventing an endpoint. Exact
-        # calendar membership makes these schema-bearing reads empty.
-        return contributions
+        # Retain schema-bearing reads without creating window endpoints from O.
+        return tuple(
+            replace(
+                contribution,
+                calendars=tuple(
+                    (slot, replace(axis, ranges=())) if axis == calendar else (slot, axis)
+                    for slot, axis in contribution.calendars
+                ),
+            )
+            if contribution.occurrence in rules
+            else contribution
+            for contribution in contributions
+        )
     if period is None:
         reject(
             "an explicit window endpoint",
@@ -330,18 +343,17 @@ def bind_windows(
         if rule is None:
             result.append(contribution)
             continue
-        from marivo._temporal_grid import TimeCell
-
-        cells = (
-            tuple(
-                TimeCell(str(index), *cell, cell[0] != cell[2] or cell[1] != cell[3])
-                for index, cell in enumerate(calendar.cells)
-            )
-            if calendar is not None
-            else ()
-        )
-        endpoints = tuple(c.end for c in cells) if cells else (period.end,)
+        # Native keys need not bound the selected instants. In particular a
+        # repeated civil hour may localize to a key after the explicit end.
+        # Consume the captured endpoint without imposing TimeCell containment.
+        cells = calendar.cells if calendar is not None else ()
+        endpoints = tuple(cell[3] for cell in cells) if cells else (period.end,)
         for index, end in enumerate(endpoints):
+            native_start = (
+                native_starts.get((rule, calendar.cells[index][0]))
+                if native_starts is not None and calendar is not None
+                else None
+            )
             start: datetime | None
             if isinstance(rule, AllHistory):
                 start = None
@@ -350,70 +362,66 @@ def bind_windows(
             elif isinstance(rule, TrailingDuration):
                 start = end.astimezone(timezone.utc) - rule.duration
             elif isinstance(rule, ToDate):
-                start, right = _reset(end, rule.grain, period.timezone)
-                if (
-                    cells
-                    and not start
-                    <= cells[index].original_start
-                    < cells[index].original_end
-                    <= right
-                ):
-                    reject(
-                        "each nominal output bucket inside one reset period",
-                        repr(cells[index]),
-                        "Choose an output Grain contained by the reset Grain.",
-                        "Metric.window",
-                    )
+                if native_start is not None:
+                    start = native_start
+                else:
+                    start, right = _reset(end, rule.grain, period.timezone)
+                    if cells and not start <= cells[index][0] < cells[index][1] <= right:
+                        reject(
+                            "each nominal output bucket inside one reset period",
+                            repr(cells[index]),
+                            "Choose an output Grain contained by the reset Grain.",
+                            "Metric.window",
+                        )
             else:
                 assert isinstance(rule, TrailingPeriods)
-                if calendar is None or any(c.partial for c in cells):
+                if calendar is None or any(cell[:2] != cell[2:] for cell in cells):
                     reject(
                         "complete calendar buckets for trailing_periods",
                         "missing or partial CalendarAxis",
                         "Observe a complete CalendarAxis.",
                         "Metric.window",
                     )
-                grid = calendar
-                if grid.snapshot is not None:
-                    captured = grid.grain_spec
-                    assert captured._calendar is not None and captured.level is not None
-                    grain = semantic_grain(
-                        calendar=captured._calendar,
-                        level=captured.level,
-                        snapshot=grid.snapshot,
-                    )
-                    periods = _periods(grain, period.timezone)
-                    position = next(
-                        (
-                            i
-                            for i, p in enumerate(periods)
-                            if p == (cells[index].original_start, cells[index].original_end)
-                        ),
-                        -1,
-                    )
-                    if position < rule.count - 1:
-                        reject(
-                            "certified predecessor periods",
-                            str(rule.count),
-                            "Extend the certified calendar coverage.",
-                            "Metric.window",
-                        )
-                    start = periods[position - rule.count + 1][0]
+                if native_start is not None:
+                    start = native_start
                 else:
-                    grain = grid.grain_spec
-                    if grain.unit not in ("day", "week", "month", "quarter", "year"):
-                        reject(
-                            "day/week/month/quarter/year periods",
-                            grid.grain,
-                            "Use trailing_duration for elapsed subday windows.",
-                            "Metric.window",
+                    grid = calendar
+                    if grid.snapshot is not None:
+                        captured = grid.grain_spec
+                        assert captured._calendar is not None and captured.level is not None
+                        grain = semantic_grain(
+                            calendar=captured._calendar,
+                            level=captured.level,
+                            snapshot=grid.snapshot,
                         )
-                    local = cells[index].original_start.astimezone(
-                        parse_timezone(period.timezone)[1]
-                    )
-                    for _ in range(rule.count - 1):
-                        local = _previous(local, grain)
-                    start = instant(local.replace(tzinfo=None), period.timezone)
+                        periods = _periods(grain, period.timezone)
+                        position = next(
+                            (i for i, p in enumerate(periods) if p == cells[index][:2]),
+                            -1,
+                        )
+                        if position < rule.count - 1:
+                            reject(
+                                "certified predecessor periods",
+                                str(rule.count),
+                                "Extend the certified calendar coverage.",
+                                "Metric.window",
+                            )
+                        start = periods[position - rule.count + 1][0]
+                    else:
+                        grain = grid.grain_spec
+                        if grain.unit not in ("day", "week", "month", "quarter", "year"):
+                            reject(
+                                "day/week/month/quarter/year periods",
+                                grid.grain,
+                                "Use trailing_duration for elapsed subday windows.",
+                                "Metric.window",
+                            )
+                        local: datetime = cells[index][0].astimezone(
+                            parse_timezone(period.timezone)[1]
+                        )
+                        for _ in range(rule.count - 1):
+                            local = _previous(local, grain)
+                        start = instant(local.replace(tzinfo=None), period.timezone)
             if start is not None and start >= end:
                 reject(
                     "window start before each endpoint",

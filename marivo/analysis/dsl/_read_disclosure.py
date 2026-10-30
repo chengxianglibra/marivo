@@ -551,7 +551,7 @@ def provider() -> DisclosureProvider:
     page_constraints = {
         FrameReadStats: "Counts include scanned records and repeated scans, not all disk I/O, elapsed time or peak memory. Example: page.read_stats.show().",
         FramePage: "Retains only this page, with no Frame, reader or complete audit. Coordinates belong to input_id; RangeIndex is not a business key. Example: fixed.read_page(limit=100).to_pandas().",
-        FrameCalendarPeriod: "Contains complete keys, actual and nominal UTC bounds, original ordinals, timezone, labels and saved civil boundaries; current timezone rules and shift history are not reconstructed. Example: page.items[0].show().",
+        FrameCalendarPeriod: "Contains complete actual keys, original ordinals, timezone, civil labels and saved selection progress; current timezone rules and shift history are not reconstructed. Example: page.items[0].show().",
         FrameIntervalPeriod: "Contains complete keys, UTC bounds and boundary timezone; unsaved nominal or civil boundaries are not inferred. Example: page.items[0].show().",
         FramePairedPeriod: "An endpoint may be absent without a saved reason. Example: page.items[0].left.",
         FrameComparisonPeriod: "A missing baseline carries its saved reason, independently of row presence. Example: page.items[0].baseline.",
@@ -652,7 +652,7 @@ def provider() -> DisclosureProvider:
                 ),
                 P(
                     "time_details",
-                    "Include calendar labels and nominal boundaries; .nominal_start is the original bucket start, .start may be clipped; default False.",
+                    "Include calendar labels; calendar exports one actual key, interval exports .start/.end; default False.",
                 ),
             ),
             output="FramePage",

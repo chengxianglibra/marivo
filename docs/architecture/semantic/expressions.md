@@ -246,21 +246,20 @@ each (external coordinate, internal sample) before reduction. Field samples use
 observed keys. An explicit Population preserves its compatible tuples, including
 empty samples under the child's empty policy, and may select a subset.
 
-`revenue.per(mv.grain("day")).mean()` folds daily completed revenues. A finite
-observation TimeScope or CalendarAxis supplies the inner grid's timezone and
-calendar authority. Each source child buckets by its own declared time role;
-no separate time-field argument or repeated scope is needed. Every inner cell
-participates, including empty cells: sums/counts contribute typed zero, while
-ratios and other children keep their existing empty and NULL policies.
+`revenue.per(mv.grain("day")).mean()` folds actual daily completed revenues.
+A finite observation TimeScope or CalendarAxis supplies timezone and selection.
+Each source child uses its declared time role and actual executor. Presence,
+including an all-NULL contribution, creates a sample; an absent time bucket does
+not. Missing operands on an existing joint sample retain their owning empty and
+NULL policy. Explicit Population completion remains separate.
 
-Inner grains must nest in the nearest enclosing calendar cell: subday widths
-divide the enclosing width, day nests in week/month/quarter/year, month in
-quarter/year, and quarter in year. Equal grains are valid; week does not nest in
-month/quarter/year. Certified levels use the exact snapshot's containments;
-mixed calendars must tile exact nominal parent bounds. A plain TimeScope tiles
-the whole interval. Partial edge cells retain nominal bounds and clip actual
-bounds to the scope; each nonempty clipped cell counts once without weighting
-by duration. Nested calendar folds use the same rules at every layer.
+Static nesting permits equal builtin grains, divisible subday widths, day in
+week/month/quarter/year, month in quarter/year, and quarter in year. Week does not
+nest in month/quarter/year. Each layer keeps complete external, parent and child
+keys; a child label need not determine one global parent at a timezone anomaly.
+Custom hierarchies reject; one complete certified custom period can be sampled
+under an interval axis. There are no internal calendar grids or date-to-parent
+maps. Final output completion does not affect sample counts or means.
 
 Semantic sample Grains authored with `ms.calendar_grain(...)` are calendar
 dependencies. Observation resolves them against the Session's current certified

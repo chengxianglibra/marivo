@@ -141,7 +141,7 @@ MySQL/MariaDB. PostgreSQL uses native `to_timestamp`, so rejected data can fail
 the query. DuckDB uses try_strptime, Trino TRY, ClickHouse OrNull and
 MySQL/MariaDB zero-day arithmetic after SELECT parsing to reject impossible
 calendar carriers. Native format and precision restrictions
-remain. Parsed membership keeps wall order; raw encoded ranges cannot bypass
+remain. Parsed membership uses native gap/fold interpretation; raw encoded ranges cannot bypass
 parsing, so scan costs can increase. Independent physical filters still push down.
 Trino TRY can catch some input-expression failures; other backends can propagate
 argument errors. Uniform upstream error isolation is not promised.

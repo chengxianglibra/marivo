@@ -94,7 +94,11 @@ def _time_columns(
         )
 
     bounds = (
-        [stamp("actual_start"), stamp("actual_end")]
+        [
+            stamp(axis.columns[0].slot_id)
+            if pa.types.is_timestamp(pa.array(selected[axis.columns[0].slot_id]).type)
+            else selected[axis.columns[0].slot_id]
+        ]
         if isinstance(axis, CalendarDataAxis)
         else [stamp("start"), stamp("end")]
     )
@@ -105,7 +109,7 @@ def _time_columns(
                 [json.loads(label) if isinstance(label, str) else label for label in labels],
                 dtype=object,
             )
-        bounds.extend([labels, stamp("nominal_start"), stamp("nominal_end")])
+        bounds.append(labels)
     return bounds
 
 

@@ -1074,7 +1074,7 @@ def numeric_program_frame(
         observation=observation,
     )
     graph = BoundGraph(ObserveQuery(metrics, signature.axes, owner), signature)
-    schema, _ = pending_schema(graph, None)
+    schema = pending_schema(graph, None)
     return AnalysisFrame._from_expression(
         session._runtime.local, schema, LiteralFrameBinding(graph)
     )

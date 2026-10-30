@@ -214,11 +214,17 @@ def source_time_comparison(
 ) -> ir.BooleanValue | None:
     """Build exact membership over parsed values or native physical clocks.
 
-    Local source clocks use wall order, while physical instants and civil dates
+    Local source clocks retain native predicates, while physical instants and civil dates
     keep their own domains. Constants retain the raw type and precision. A
     composite prefix is its original DATE or canonical date encoding, not its
     already parsed projection.
     """
+    if (
+        authority.kind == "localizable"
+        and authority.read_timezone is not None
+        and time_zone(authority.read_timezone).utcoffset(None) is None
+    ):
+        return None
     parse = axis.parse
     if isinstance(parse, StrptimeParse):
         text = value.cast("string")
@@ -241,8 +247,6 @@ def source_time_comparison(
         return None
 
     def lower(strict: bool) -> ir.BooleanValue | None:
-        from marivo.analysis.compiler._wall_order import wall_order_bound
-
         if authority.kind == "civil_date":
             point = bound if isinstance(bound, datetime) else datetime.combine(bound, time())
             point = point.replace(tzinfo=None)
@@ -251,9 +255,8 @@ def source_time_comparison(
             instant = _boundary_instant(bound, authority)
             if authority.kind == "localizable":
                 assert authority.read_timezone is not None
-                point, inclusive = wall_order_bound(
-                    instant, time_zone(authority.read_timezone), strict=strict
-                )
+                point = instant.astimezone(time_zone(authority.read_timezone)).replace(tzinfo=None)
+                inclusive = not strict
             else:
                 point, inclusive = instant, not strict
         if isinstance(parse, HourPrefixParse):
@@ -781,57 +784,3 @@ def source_time(
         value if instant is None else render(boundary_timezone, instant),
         _retain_authority(authority, frozen),
     )
-
-
-def calendar_wall_clock(
-    raw: ir.Value,
-    axis: TargetDimensionContract,
-    authority: SourceTimeAuthority,
-    *,
-    bound: datetime,
-    engine: str,
-    prefix: ir.Value | None = None,
-    prefix_axis: TargetDimensionContract | None = None,
-) -> ir.Value | None:
-    """Retain admitted raw civil fields in a neutral carrier for bucket membership."""
-    from dataclasses import replace
-
-    if authority.kind != "localizable" or authority.read_timezone is None:
-        return None
-    zone = time_zone(authority.read_timezone)
-    if zone.utcoffset(None) is not None:
-        return None
-    if (
-        source_time_comparison(
-            raw,
-            axis,
-            authority,
-            bound=bound,
-            comparison=">=",
-            prefix=prefix,
-            prefix_axis=prefix_axis,
-            engine=engine,
-        )
-        is None
-    ):
-        return None
-    parse = axis.parse
-    neutral = (
-        replace(axis, parse=replace(parse, timezone="UTC"))
-        if isinstance(parse, (TimestampParse, StrptimeParse))
-        else axis
-    )
-    if prefix is not None and prefix_axis is not None:
-        prefix, _ = source_time(
-            prefix, prefix_axis, boundary_timezone="UTC", read_timezone="UTC", engine=engine
-        )
-    value, _ = source_time(
-        raw,
-        neutral,
-        boundary_timezone="UTC",
-        read_timezone="UTC",
-        engine=engine,
-        prefix=prefix,
-        prefix_timezone="UTC",
-    )
-    return value if value.type().timezone is not None else localize("UTC", timestamp(value))

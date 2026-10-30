@@ -420,7 +420,7 @@ def test_real_source_repeat_execution_and_nullable_local_combination(
     assert second.source_reads != first.source_reads
 
 
-def test_calendar_bounds_are_explicit_output_attachment(source_session: Session) -> None:
+def test_calendar_positions_are_explicit_output_attachment(source_session: Session) -> None:
     session = source_session
     metric = session.catalog.get("metric:sales.revenue")
     axis = session.time_scope(start="2026-01-01", end="2026-01-05").by(mv.grain("day"))
@@ -431,7 +431,7 @@ def test_calendar_bounds_are_explicit_output_attachment(source_session: Session)
     assert calendar_axis.frozen is not None
     assert attachment.name == calendar_axis.frozen.directory_name
     frame = read_output(session.project_root, attachment.schema, attachment.rows)
-    assert len(frame) == 4 and frame["actual_start"].iloc[0] == pd.Timestamp("2026-01-01", tz="UTC")
+    assert len(frame) == 4 and frame.iloc[0, 0] == pd.Timestamp("2026-01-01", tz="UTC")
     assert len(stored_frame(session, artifact)) == 4
 
 
@@ -468,19 +468,13 @@ assert type(manifest.data.schema.axes[0]) is CalendarDataAxis
 assert manifest.data.schema.axes[0].timezone == zone
 assert attachment.schema.axes[0].kind == "field"
 assert attachment.schema.axes[0].token == manifest.data.schema.axes[0].token
-assert all(column.dtype == TimestampDataType('us', 'UTC') for column in attachment.schema.values
-           if column.name in ('nominal_start', 'nominal_end', 'actual_start', 'actual_end'))
 frame = read_output(store.project_root, attachment.schema, attachment.rows)
 starts = pd.date_range('2026-03-28', periods=3, tz=zone).tolist()
-ends = pd.date_range('2026-03-29', periods=3, tz=zone).tolist()
-for name in ('nominal_start', 'actual_start'):
-    assert frame[name].tolist() == starts
-for name in ('nominal_end', 'actual_end'):
-    assert frame[name].tolist() == ends
-assert str(frame.actual_start.dtype.pyarrow_dtype.tz) == 'UTC'
-assert [(end-start).total_seconds()/3600 for start,end in zip(starts,ends)] == (
-    [24,23,24] if zone == 'Europe/Paris' else [24,24,24]
-)
+assert frame.iloc[:, 0].tolist() == starts
+assert frame.selection.tolist() == ['full'] * 3
+assert str(frame.iloc[:, 0].dtype.pyarrow_dtype.tz) == 'UTC'
+assert not {'nominal_start', 'nominal_end', 'actual_start', 'actual_end'} & set(frame.columns)
+
 """
     result = subprocess.run(
         [sys.executable, "-c", script, str(session.project_root), artifact.artifact_id, zone],
@@ -526,7 +520,7 @@ def test_current_names_are_independent_of_old_store(tmp_path: Path) -> None:
         assert record is not None
         assert record.session_ref == runtime.session_ref
     assert old.read_bytes() == before
-    assert (old.parent.parent / "v26").exists()
+    assert (old.parent.parent / "v27").exists()
 
 
 def test_private_cold_roundtrip_does_not_need_producer_or_catalog(
@@ -985,16 +979,15 @@ def test_public_calendar_uses_saved_instants_and_boundaries(
         "2026-03-29",
         "2026-03-30",
     ]
-    assert bounds["nominal_start"].tolist() == [
+    assert bounds.iloc[:, 0].tolist() == [
         pd.Timestamp(cell.original_start) for cell in axis.grid.cells
     ]
-    assert bounds["actual_start"].iloc[0] > bounds["nominal_start"].iloc[0]
+    assert bounds["selection"].tolist() == ["partial", "full", "full"]
     prefix = description["name"].rsplit(".", 1)[-1]
-    assert exported[prefix + ".start"].iloc[0] == bounds["actual_start"].iloc[0]
-    assert exported[prefix + ".nominal_start"].iloc[0] == bounds["nominal_start"].iloc[0]
+    assert exported[prefix].iloc[0] == bounds.iloc[0, 0]
     renamed = artifact.to_pandas(axis_names={artifact.axes[0].token: "bucket"}, time_details=True)
-    assert renamed["bucket.start"].tolist() == exported[prefix + ".start"].tolist()
-    assert renamed["bucket.nominal_start"].tolist() == exported[prefix + ".nominal_start"].tolist()
+    assert renamed["bucket"].tolist() == exported[prefix].tolist()
+    assert renamed["bucket.label"].tolist() == exported[prefix + ".label"].tolist()
     original, consumed = OutputRead.select, []
 
     def tracked(self: OutputRead, layout: ReadLayout, keys: set[FrozenKey]) -> pd.DataFrame:
@@ -1238,7 +1231,7 @@ def test_method_payload_is_owned_by_same_commit_and_zero_rows_are_checked(
     saved = AnalysisFrame._from_memory(session._runtime.local, result).persist()
     value = committed(saved)
     assert value.method_facts == saved._backing.method_facts
-    assert value.semantics_version == "frame.v15"
+    assert value.semantics_version == "frame.v16"
     descriptor = value.method_facts[0]
     assert descriptor.parent_count == (0 if empty else 1)
     assert descriptor.coordinate_count == descriptor.coordinate_row_count == 0

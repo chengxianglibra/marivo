@@ -26,8 +26,10 @@ def plain(result: mv.AnalysisFrame) -> pd.DataFrame:
     for index, axis in enumerate(result.axes):
         column = axis.name.rsplit(".", 1)[-1]
         if axis.role == "paired":
-            column += ".left.start"
-        elif axis.role not in ("field", "identity"):
+            column += ".left"
+            if frame.attrs["axes"][index]["descriptor"]["left"]["kind"] == "interval":
+                column += ".start"
+        elif axis.role == "interval":
             column += ".start"
         names[column] = f"key_{index}"
     names.update((name, "presence." + name) for name in result.presence_names)

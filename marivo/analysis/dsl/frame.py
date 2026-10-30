@@ -1478,10 +1478,9 @@ class AnalysisFrame:
             limit: Integer 1..10000, excluding bool; default 1000.
             cursor: Previous page cursor or None; repeat the same request parameters.
             axis_names: Optional full axis name or token to export name mapping.
-            time_details: Include calendar labels and nominal boundaries; default False.
-                Calendar/interval axes export actual .start/.end; ordinary TimeFields
-                export one value. For clipped calendars, .nominal_start is the bucket
-                start and .start is the observation start. axis_names renames prefixes.
+            time_details: Include calendar labels; default False.
+                Calendar axes export one actual key; interval axes export .start/.end.
+                Ordinary TimeFields export one value. axis_names renames prefixes.
         Returns: Immutable FramePage with complete keys, layout and read statistics.
         Example: ``page = frame.compute().read_page(columns=('revenue',), limit=100)``.
         Constraints: Does not execute or persist expressions. Stored pages validate
@@ -1578,17 +1577,18 @@ class AnalysisFrame:
             axis_names: Optional full axis name or token to export name mapping. Names
                 must be nonempty printable strings without surrounding whitespace.
                 Defaults to the final path component of each axis name.
-            time_details: Include calendar labels and nominal boundaries; default False.
+            time_details: Include calendar labels; default False.
 
         Returns:
             A pandas DataFrame with string columns: readable coordinates, full
             output names and independent boolean presence. Composite identities
-            remain tuples. Calendar and interval coordinates include start/end timestamps in their
-            captured axis timezone; mixed interval zones and sub-minute fixed offsets use UTC.
+            remain tuples. Calendar coordinates export one actual key timestamp; interval
+            coordinates export start/end timestamps in their captured timezone.
+            Mixed interval zones and sub-minute fixed offsets use UTC.
             Ordinary TimeField coordinates remain one value column.
-            Calendar details add label/nominal_start/nominal_end. Actual .start may be
-            clipped; .nominal_start is the original bucket start. axis_names renames
-            prefixes only; select the desired exported column for a single start value.
+            Calendar details add label. Actual keys do not describe complete bucket
+            membership intervals; read_periods() exposes saved selection progress.
+            axis_names renames prefixes only.
             Paired coordinates use left/right prefixes.
             attrs retain isolated axes, units, comparisons and frozen_coordinates;
             frozen_coordinates entries store rows as immutable pyarrow.Table values.

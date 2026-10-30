@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from datetime import datetime
 from typing import Literal
 
 import pandas as pd
@@ -177,17 +176,8 @@ def _calendar_keys(
         saved = read_calendar_directory(endpoint, original.schema, original.rows)
         fresh = read_calendar_directory(target.axis, target.directory.schema, target.directory.rows)
 
-        def facts(
-            bucket: FrozenCalendarBucket,
-        ) -> tuple[str, int, datetime, datetime, datetime, datetime]:
-            return (
-                bucket.nominal_label,
-                bucket.ordinal,
-                bucket.nominal_start,
-                bucket.nominal_end,
-                bucket.actual_start,
-                bucket.actual_end,
-            )
+        def facts(bucket: FrozenCalendarBucket) -> tuple[str, int, str, str | None]:
+            return bucket.nominal_label, bucket.ordinal, bucket.selection, bucket.cutoff
 
         if tuple(map(facts, saved.buckets)) != tuple(map(facts, fresh.buckets)):
             reject(

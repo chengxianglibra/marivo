@@ -400,11 +400,16 @@ def test_trino_row_version_join_and_daily_statement_count(
             frame = session.observe({"value": metric}, by=(days, label)).compute()
             assert frame.to_pandas()["value"].sum() == expected
             sql = trace.native_sql[before:]
-            assert len(sql) == 1
-            ast = sqlglot.parse_one(sql[0], read="trino")
+            assert len(sql) == 2  # One native output index and one business query.
+            index = sqlglot.parse_one(sql[0], read="trino")
+            assert not any(
+                table.name in (root.source.table, target.source.table)
+                for table in index.find_all(sge.Table)
+            )
+            ast = sqlglot.parse_one(sql[1], read="trino")
             assert sum(table.name == target.source.table for table in ast.find_all(sge.Table)) == 1
             assert sum(table.name == root.source.table for table in ast.find_all(sge.Table)) == 1
-            assert "UNION" not in sql[0].upper()
+            assert "UNION" not in sql[1].upper()
 
 
 def _assert_shared_routes(monkeypatch: pytest.MonkeyPatch, backend: str, target_table: str) -> None:

@@ -653,7 +653,7 @@ def test_observe_different_fields_share_one_actual_aggregate(
     assert len([stage for stage in plan.stages if isinstance(stage, SourceRead)]) == 1
     trace = capture_source(monkeypatch)
     result = query.compute().to_pandas()
-    assert len(trace.native_sql) == 1
+    assert len(trace.native_sql) == (2 if domain == "calendar" else 1)
     assert trace.uploaded_key_rows == []
     if domain == "overall" and width == 20:
         with duckdb.connect(str(tmp_path / "optimization.duckdb"), read_only=True) as connection:

@@ -197,6 +197,6 @@ def test_help_discloses_null_parsing_and_membership_cost() -> None:
     assert "NULL" in text
     assert "PostgreSQL" in text
     assert "fail the query" in text
-    assert "wall order" in text
+    assert "native gap/fold" in text
     assert "No partition enumeration or validation queries" in text
     assert "on_error" in text

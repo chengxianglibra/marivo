@@ -213,9 +213,13 @@ def test_date_contributions_reject_subday_and_non_midnight_windows(
     assert session.observe({"revenue": amount.sum()}, where=at.within(scope)).compute().to_pandas()[
         "revenue"
     ].tolist() == [20]
-    from marivo.datasource.adapters import SourceSession
+    from marivo.datasource.adapters import CompiledRead, SourceSession
 
-    def fail_read(*args: object, **kwargs: object) -> None:
+    execute = SourceSession.execute
+
+    def fail_read(owner: SourceSession, issued: CompiledRead) -> pd.DataFrame:
+        if issued.purpose in ("analysis.calendar_index", "analysis.window_endpoints"):
+            return execute(owner, issued)
         pytest.fail("invalid DATE contribution reached a business read")
 
     monkeypatch.setattr(SourceSession, "execute", fail_read)
@@ -331,7 +335,7 @@ def test_naive_source_sampling_uses_representable_wall_clocks(
             ),
             [1, 14],
             ("2026-03-08T07:00Z", "2026-03-08T07:30Z"),
-            [2, 3, 4],
+            [2, 4],
         ),
     ],
 )
@@ -657,9 +661,7 @@ def test_exact_reset_boundary_and_elapsed_dst_duration() -> None:
         )
 
 
-def test_hour_reset_preserves_both_aware_fold_buckets(
-    window_session: Session, tmp_path: Path
-) -> None:
+def test_hour_reset_uses_native_fold_endpoints(window_session: Session, tmp_path: Path) -> None:
     with duckdb.connect(str(tmp_path / "windows.duckdb")) as connection:
         connection.execute("DELETE FROM orders")
         connection.execute(
@@ -676,8 +678,87 @@ def test_hour_reset_preserves_both_aware_fold_buckets(
         .compute()
         .to_pandas()
     )
-    assert values["hourly"].tolist() == [0, 10, 30]
-    assert values["hourly"].iloc[1:].tolist() == [10, 30]
+    # Native local midnight -> 01:00 ends at the later fold occurrence.
+    # The two native endpoint windows are [04:00Z,06:00Z) and [06:00Z,07:00Z).
+    assert values["hourly"].tolist() == [10, 30]
+
+
+def test_hour_index_and_windows_use_native_gap_keys(
+    window_session: Session, tmp_path: Path
+) -> None:
+    with duckdb.connect(str(tmp_path / "windows.duckdb")) as connection:
+        connection.execute("DELETE FROM orders")
+        connection.execute(
+            "INSERT INTO orders (id, ordered_at, amount) VALUES "
+            "(1,'2026-03-08 05:30:00+00',5), (2,'2026-03-08 06:30:00+00',10), "
+            "(3,'2026-03-08 07:30:00+00',30), (4,'2026-03-08 08:30:00+00',100)"
+        )
+        # Independent native SQL: 02:00 and 03:00 resolve to the same instant.
+        native = connection.execute(
+            "WITH positions AS (SELECT DISTINCT timezone('America/New_York', wall) AS key "
+            "FROM generate_series(TIMESTAMP '2026-03-08 00:00:00', "
+            "TIMESTAMP '2026-03-08 04:00:00', INTERVAL 1 HOUR) AS p(wall)) "
+            "SELECT key, (SELECT sum(amount) FROM orders WHERE ordered_at < "
+            "timezone('America/New_York', timezone('America/New_York', key) + INTERVAL 1 HOUR)) "
+            "AS cumulative FROM positions ORDER BY key"
+        ).fetchall()
+    revenue = window_session.catalog.get("metric:sales.revenue")
+    hours = window_session.time_scope(
+        start="2026-03-08T05:00Z", end="2026-03-08T09:00Z", timezone="America/New_York"
+    ).by(mv.grain("hour"))
+    values = (
+        window_session.observe(
+            {"hourly": revenue, "cumulative": revenue.window(mv.all_history())}, by=(hours,)
+        )
+        .compute()
+        .to_pandas()
+    )
+    assert values["calendar:hour"].dt.tz_convert("UTC").tolist() == [
+        pd.Timestamp(row[0]).tz_convert("UTC") for row in native
+    ]
+    assert values["hourly"].tolist() == [5, 10, 30, 100]
+    assert values["cumulative"].tolist() == [row[1] for row in native] == [5, 15, 45, 145]
+
+
+@pytest.mark.parametrize("empty", [False, True])
+@pytest.mark.parametrize(
+    ("start", "end", "expected"),
+    [("05:00", "06:00", 10), ("05:15", "05:45", 10), ("06:00", "07:00", 30)],
+)
+def test_repeated_hour_selection_keeps_its_exact_scope_and_endpoint(
+    window_session: Session, tmp_path: Path, empty: bool, start: str, end: str, expected: int
+) -> None:
+    with duckdb.connect(str(tmp_path / "windows.duckdb")) as connection:
+        connection.execute("DELETE FROM orders")
+        if not empty:
+            connection.execute(
+                "INSERT INTO orders (id, ordered_at, amount) VALUES "
+                "(1,'2026-11-01 04:30:00+00',5), (2,'2026-11-01 05:30:00+00',10), "
+                "(3,'2026-11-01 06:30:00+00',30)"
+            )
+        key, cumulative = connection.execute(
+            "SELECT timezone('America/New_York', TIMESTAMP '2026-11-01 01:00:00'), "
+            "(SELECT coalesce(sum(amount),0) FROM orders WHERE ordered_at < CAST(? AS TIMESTAMPTZ))",
+            [f"2026-11-01T{end}:00Z"],
+        ).fetchone()
+    revenue = window_session.catalog.get("metric:sales.revenue")
+    hours = window_session.time_scope(
+        start=f"2026-11-01T{start}Z", end=f"2026-11-01T{end}Z", timezone="America/New_York"
+    ).by(mv.grain("hour"))
+    # Keep ordinary completion independently observable from the window domain.
+    ordinary = window_session.observe({"hourly": revenue}, by=(hours,)).compute().to_pandas()
+    history = (
+        window_session.observe({"cumulative": revenue.window(mv.all_history())}, by=(hours,))
+        .compute()
+        .to_pandas()
+    )
+    assert (
+        ordinary["calendar:hour"].dt.tz_convert("UTC").tolist()
+        == history["calendar:hour"].dt.tz_convert("UTC").tolist()
+        == [pd.Timestamp(key).tz_convert("UTC")]
+    )
+    assert ordinary["hourly"].tolist() == [0 if empty else expected]
+    assert history["cumulative"].tolist() == [cumulative]
 
 
 @pytest.mark.parametrize("calendar_first", [False, True])
@@ -710,7 +791,8 @@ def test_calendar_population_axis_order(window_session: Session, calendar_first:
         if part.name == calendar_axis.frozen.directory_name
     )
     directory = read_calendar_directory(calendar_axis, part.schema, part.rows)
-    assert [bucket.actual_start for bucket in directory.buckets] == days
+    assert part.rows[calendar_axis.columns[0].slot_id].tolist() == days
+    assert [bucket.selection for bucket in directory.buckets] == ["full", "full"]
 
 
 def test_per_calendar_population_retains_empty_samples(window_session: Session) -> None:

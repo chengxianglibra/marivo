@@ -529,7 +529,7 @@ def test_calendar_bucket_keeps_nullable_timestamp_and_unmatched_rows(
     key, calendar = contribution.calendars[0]
     assert isinstance(calendar, CalendarCoordinate)
     if not bucket_count:
-        calendar = replace(calendar, cells=(), civil_bounds=())
+        calendar = replace(calendar, cells=(), civil_bounds=(), ranges=())
     # A window input must classify rows outside the output grid as NULL instead
     # of filtering them away; exercise that preparation path without a read mask.
     contribution = replace(
@@ -601,7 +601,12 @@ def _calendar_sql(expression: ir.Table, dialect: str) -> str:
 
     from marivo.datasource.engines._aggregate_compilers import configure_aggregate_compiler
 
-    backend = import_module("ibis.backends." + dialect).Backend()
+    if dialect == "mysql":
+        from marivo.datasource.engines._mysql_backend import MySQLBackend
+
+        backend = MySQLBackend()
+    else:
+        backend = import_module("ibis.backends." + dialect).Backend()
     configure_aggregate_compiler(backend)
     return backend.compiler.to_sqlglot(expression.unbind()).sql(dialect=dialect)
 
@@ -669,6 +674,9 @@ def test_calendar_selection_preserves_membership_without_boolean_seeds(
                     calendar,
                     cells=tuple(calendar.cells[cell] for cell in selected),
                     civil_bounds=tuple(calendar.civil_bounds[cell] for cell in selected),
+                    ranges=tuple(
+                        (calendar.cells[cell][2], calendar.cells[cell][3]) for cell in selected
+                    ),
                 ),
             )
             for index, selected in enumerate(selections)

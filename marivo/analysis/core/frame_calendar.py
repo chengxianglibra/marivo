@@ -4,12 +4,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
-from typing import Literal, TypeAlias
+from typing import Literal
 
 import pandas as pd
 
 from marivo._definition.types import CalendarCoordinate, IntervalCoordinate
-from marivo._temporal import _BuiltinGrain, _key_token, _SemanticGrain, anchor_from_datetime
+from marivo._temporal import _BuiltinGrain, _key_token, _SemanticGrain
 from marivo._temporal_grid import TimeShiftAbsent, TimeShiftMatch, builtin_nominal_ordinal
 from marivo.analysis.core.artifact_data import (
     BuiltinCalendarData,
@@ -48,6 +48,50 @@ class FrozenSourceCalendar:
     @property
     def attachments(self) -> tuple[OutputAttachment, ...]:
         return (self.directory, *self.additional)
+
+
+def calendar_descriptor(
+    coordinate: CalendarCoordinate,
+    *,
+    token: str,
+    name: str,
+    key: DataColumn,
+    calendar_ref: SemanticObjectIdentity | None = None,
+) -> CalendarDataAxis:
+    """Capture a pending axis descriptor without freezing result positions."""
+    grain = coordinate.grain_spec
+    definition: BuiltinCalendarData | NamedCalendarData
+    if isinstance(grain, _BuiltinGrain):
+        definition = BuiltinCalendarData(_UNITS[grain.unit], grain.count)
+    else:
+        assert isinstance(grain, _SemanticGrain) and coordinate.snapshot_digest is not None
+        definition = NamedCalendarData(
+            grain._calendar.path, coordinate.snapshot_digest, grain.level, calendar_ref
+        )
+    origin = coordinate.origin
+    direct = (
+        FrozenCalendarOrigin(
+            calendar_descriptor(
+                origin.coordinate,
+                token=f"{token}.origin",
+                name=name,
+                key=replace(key, slot_id=f"{key.slot_id}.origin"),
+                calendar_ref=calendar_ref,
+            ),
+            f"shift.{token}",
+            origin.kind,
+            origin.by,
+        )
+        if origin is not None
+        else None
+    )
+    return CalendarDataAxis(
+        token,
+        (key,),
+        coordinate.timezone,
+        name=name,
+        frozen=FrozenCalendarData(definition, f"calendar.{token}", direct=direct),
+    )
 
 
 def freeze_calendar(
@@ -136,24 +180,7 @@ def freeze_calendar(
     additional: tuple[OutputAttachment, ...] = ()
     if coordinate.origin is not None:
         origin = coordinate.origin
-        grid = origin.grid
-        origin_coordinate = CalendarCoordinate(
-            grid.identity,
-            grid.grain_spec,
-            grid.boundary_timezone,
-            grid.snapshot_digest,
-            tuple(
-                (
-                    anchor_from_datetime(cell.original_start),
-                    anchor_from_datetime(cell.original_end),
-                    anchor_from_datetime(cell.start),
-                    anchor_from_datetime(cell.end),
-                )
-                for cell in grid.cells
-            ),
-            grid.calendar_snapshot,
-            civil_bounds=grid.civil_bounds,
-        )
+        origin_coordinate = origin.coordinate
         frozen_origin = freeze_calendar(
             origin_coordinate,
             token=f"{token}.origin",
@@ -202,30 +229,33 @@ def freeze_calendar(
             OutputAttachment(mapping_name, mapping_schema, mapping_rows),
         )
     schema = calendar_directory_schema(axis)
-    bounds = ("nominal_start", "nominal_end", "actual_start", "actual_end")
+    selections: list[str] = []
+    cutoffs: list[str | None] = []
+    for cell, civil in zip(coordinate.cells, coordinate.civil_bounds, strict=True):
+        full = cell[:2] == cell[2:]
+        prefix = cell[0] == cell[2] and not full
+        selections.append(
+            "unavailable"
+            if cell[0] == cell[1]
+            else "full"
+            if full
+            else "prefix"
+            if prefix
+            else "partial"
+        )
+        cutoffs.append(
+            datetime.fromisoformat(civil[3]).replace(tzinfo=None).isoformat(timespec="microseconds")
+            if prefix
+            else None
+        )
     rows = pd.DataFrame(
         {
             key.slot_id: time_key_series(coordinate),
             "nominal_label": pd.Series(labels, dtype="string[pyarrow]"),
             "ordinal": pd.Series(range(len(coordinate.cells)), dtype="int64[pyarrow]"),
             "nominal_ordinal": pd.Series(nominal_ordinals, dtype="int64[pyarrow]"),
-            **{
-                bound: pd.Series(
-                    [
-                        datetime.fromisoformat(cell[index].astimezone(timezone.utc).isoformat())
-                        for cell in coordinate.cells
-                    ],
-                    dtype="timestamp[us, tz=UTC][pyarrow]",
-                )
-                for index, bound in enumerate(bounds)
-            },
-            **{
-                f"{bound}_civil": pd.Series(
-                    [civil[index] for civil in coordinate.civil_bounds],
-                    dtype="string[pyarrow]",
-                )
-                for index, bound in enumerate(bounds)
-            },
+            "selection": pd.Series(selections, dtype="string[pyarrow]"),
+            "cutoff": pd.Series(cutoffs, dtype="string[pyarrow]"),
         }
     )
     return FrozenSourceCalendar(axis, OutputAttachment(directory_name, schema, rows), additional)
@@ -235,9 +265,6 @@ def freeze_calendar(
 class FrozenSourceInterval:
     axis: IntervalDataAxis
     directory: OutputAttachment
-
-
-FrozenSourceTime: TypeAlias = FrozenSourceCalendar | FrozenSourceInterval
 
 
 def freeze_interval(

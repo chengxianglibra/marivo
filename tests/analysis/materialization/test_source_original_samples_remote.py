@@ -242,29 +242,12 @@ def test_remote_selected_window_rollup_keeps_correlated_endpoint_and_parent_keys
             zip(
                 bounds[calendar_axis.columns[0].slot_id],
                 bounds["ordinal"],
-                bounds["nominal_start"],
-                bounds["nominal_end"],
-                bounds["actual_start"],
-                bounds["actual_end"],
+                bounds["selection"],
                 strict=True,
             )
         ) == [
-            (
-                datetime(2026, 10, 7, tzinfo=timezone.utc),
-                0,
-                datetime(2026, 10, 7, tzinfo=timezone.utc),
-                datetime(2026, 10, 8, tzinfo=timezone.utc),
-                datetime(2026, 10, 7, tzinfo=timezone.utc),
-                datetime(2026, 10, 8, tzinfo=timezone.utc),
-            ),
-            (
-                datetime(2026, 10, 8, tzinfo=timezone.utc),
-                1,
-                datetime(2026, 10, 8, tzinfo=timezone.utc),
-                datetime(2026, 10, 9, tzinfo=timezone.utc),
-                datetime(2026, 10, 8, tzinfo=timezone.utc),
-                datetime(2026, 10, 9, tzinfo=timezone.utc),
-            ),
+            (datetime(2026, 10, 7, tzinfo=timezone.utc), 0, "full"),
+            (datetime(2026, 10, 8, tzinfo=timezone.utc), 1, "full"),
         ]
 
 

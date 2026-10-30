@@ -228,7 +228,7 @@ def test_member_time_product_executes_on_frame(analysis_dsl_case_factory: DslCas
         == ["A", "B", "C", "D"] * 2
     )
     directory = frame.attrs["frozen_coordinates"][0]["rows"].to_pandas(types_mapper=pd.ArrowDtype)
-    assert directory["nominal_start"].tolist() == [
+    assert directory.iloc[:, 0].tolist() == [
         datetime(2026, 8, 1, tzinfo=timezone.utc),
         datetime(2026, 8, 2, tzinfo=timezone.utc),
     ]

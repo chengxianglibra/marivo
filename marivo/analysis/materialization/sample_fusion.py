@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from datetime import datetime
 
 import ibis
 import ibis.expr.operations as ops
@@ -176,25 +175,7 @@ def fuse_sample_reductions(prepared: PreparedSources, lowered: LoweredQuery) -> 
                 def literal(
                     names: tuple[str, ...],
                     rows: tuple[tuple[object, ...], ...],
-                    *,
-                    grid: bool = False,
                 ) -> ir.Table:
-                    if grid:
-                        from marivo.datasource._calendar_relations import calendar_data
-
-                        schema = ibis.schema(
-                            {
-                                name: ibis_type(columns[name].dtype)
-                                if name in columns
-                                else (
-                                    ibis.dtype("timestamp('UTC', 6)")
-                                    if any(isinstance(row[index], datetime) for row in rows)
-                                    else ibis.dtype("int64")
-                                )
-                                for index, name in enumerate(names)
-                            }
-                        )
-                        return calendar_data(schema, rows)
                     fields = tuple(columns[name] for name in names)
                     table = ibis.table(
                         {column.slot_id: ibis_type(column.dtype) for column in fields},
@@ -271,7 +252,6 @@ def fuse_sample_reductions(prepared: PreparedSources, lowered: LoweredQuery) -> 
                         original.keys,
                         owner.provider.name,
                         population,
-                        lambda names, rows: literal(names, rows, grid=True),
                         {
                             value.stage_id: lowered.plan.source_read(value.stage_id).binding_id
                             or value.stage_id

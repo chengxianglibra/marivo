@@ -374,7 +374,7 @@ follow the native parser. Format/timezone/type/capability failures still report
 structured errors. There is no `on_error`, trimming, guessing or retry.
 Parsing precedes time predicates, calendars and version selection, including
 hour-prefix dependencies; raw encoded ranges cannot bypass it. Local-clock
-membership retains wall order while projection keeps native gap/fold behavior.
+membership and projection retain native gap/fold behavior.
 Trino TRY can also catch recoverable input-expression failures; other engines
 can propagate them. See [temporal semantics](../temporal-semantics.md#encoded-event-time-predicates)
 for native paths and cost boundaries. Measure data quality explicitly when the

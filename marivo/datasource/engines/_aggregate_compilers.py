@@ -26,9 +26,9 @@ from ibis.common.exceptions import OperationNotDefinedError
 from marivo._source_aggregates import aggregate_repair_action, native_aggregate
 from marivo.datasource._calendar_relations import (
     CalendarData,
-    CalendarFloor,
+    CalendarRange,
     compile_calendar_data,
-    compile_calendar_floor,
+    compile_calendar_range,
 )
 from marivo.datasource.errors import DatasourceSourceCapabilityError, repair
 
@@ -80,13 +80,11 @@ def _reject(backend: str, node: ops.Node) -> NoReturn:
 # Ibis compiler classes are untyped. These subclasses retain its complete relational
 # compiler and override aggregate admission and private calendar operations on owned instances.
 class _PostgresCompiler(PostgresCompiler):  # type: ignore[misc]
+    def visit_CalendarRange(self, op: CalendarRange, **kwargs: object) -> sge.Expr:
+        return compile_calendar_range(op, "postgres")
+
     def visit_CalendarData(self, op: CalendarData, **kwargs: object) -> sge.Expr:
         return compile_calendar_data(op, "postgres")
-
-    def visit_CalendarFloor(
-        self, op: CalendarFloor, *, arg: sge.Expr, **kwargs: object
-    ) -> sge.Expr:
-        return compile_calendar_floor(op, arg, "postgres")
 
     UNSUPPORTED_OPS = (*PostgresCompiler.UNSUPPORTED_OPS, *_unsupported("postgres"))
 
@@ -95,13 +93,32 @@ class _PostgresCompiler(PostgresCompiler):  # type: ignore[misc]
 
 
 class _MySQLCompiler(MySQLCompiler):  # type: ignore[misc]
+    SIMPLE_OPS: ClassVar[dict[type[ops.Node], str]] = {
+        op: name for op, name in MySQLCompiler.SIMPLE_OPS.items() if op is not ops.IntervalMultiply
+    }
+
+    def visit_IntervalMultiply(
+        self, op: ops.IntervalMultiply, *, left: sge.Expr, right: sge.Expr
+    ) -> sge.Expr:
+        quantity = left.this if isinstance(left, sge.Interval) else left
+        return sge.Interval(
+            this=sge.Paren(this=sge.Mul(this=quantity, expression=sge.Paren(this=right))),
+            unit=sge.Var(this=op.dtype.unit.singular.upper()),
+        )
+
+    def visit_CalendarRange(self, op: CalendarRange, **kwargs: object) -> sge.Expr:
+        return compile_calendar_range(op, "mysql")
+
     def visit_DateTimestampTruncate(
         self, op: ops.DateTruncate | ops.TimestampTruncate, *, arg: sge.Expr, unit: object
     ) -> sge.Expr:
         if op.unit.short == "W":
-            result = self.f.date_sub(
-                self.f.date(arg),
-                sge.Interval(this=self.f.weekday(arg), unit=self.v.DAY),
+            result = sge.Anonymous(
+                this="DATE_SUB",
+                expressions=[
+                    self.cast(arg, dt.date),
+                    sge.Interval(this=self.f.weekday(arg), unit=self.v.DAY),
+                ],
             )
         else:
             result = super().visit_DateTimestampTruncate(op, arg=arg, unit=unit)
@@ -113,11 +130,6 @@ class _MySQLCompiler(MySQLCompiler):  # type: ignore[misc]
     def visit_CalendarData(self, op: CalendarData, **kwargs: object) -> sge.Expr:
         return compile_calendar_data(op, "mysql")
 
-    def visit_CalendarFloor(
-        self, op: CalendarFloor, *, arg: sge.Expr, **kwargs: object
-    ) -> sge.Expr:
-        return compile_calendar_floor(op, arg, "mysql")
-
     UNSUPPORTED_OPS = (*MySQLCompiler.UNSUPPORTED_OPS, *_unsupported("mysql"))
 
     def visit_Undefined(self, op: ops.Node, **kwargs: object) -> NoReturn:
@@ -125,6 +137,9 @@ class _MySQLCompiler(MySQLCompiler):  # type: ignore[misc]
 
 
 class _TrinoCompiler(TrinoCompiler):  # type: ignore[misc]
+    def visit_CalendarRange(self, op: CalendarRange, **kwargs: object) -> sge.Expr:
+        return compile_calendar_range(op, "trino")
+
     def visit_NonNullLiteral(
         self, op: ops.Literal, *, value: object, dtype: dt.DataType
     ) -> sge.Expr | None:
@@ -140,11 +155,6 @@ class _TrinoCompiler(TrinoCompiler):  # type: ignore[misc]
     def visit_CalendarData(self, op: CalendarData, **kwargs: object) -> sge.Expr:
         return compile_calendar_data(op, "trino")
 
-    def visit_CalendarFloor(
-        self, op: CalendarFloor, *, arg: sge.Expr, **kwargs: object
-    ) -> sge.Expr:
-        return compile_calendar_floor(op, arg, "trino")
-
     UNSUPPORTED_OPS = (*TrinoCompiler.UNSUPPORTED_OPS, *_unsupported("trino"))
 
     def visit_Undefined(self, op: ops.Node, **kwargs: object) -> NoReturn:
@@ -158,13 +168,37 @@ def _native_name(backend: str, reducer: str) -> str:
 
 
 class _ClickHouseCompiler(ClickHouseCompiler):  # type: ignore[misc]
-    def visit_CalendarData(self, op: CalendarData, **kwargs: object) -> sge.Expr:
-        return sge.to_table(op.name)
+    def visit_CalendarRange(self, op: CalendarRange, **kwargs: object) -> sge.Expr:
+        return compile_calendar_range(op, "clickhouse")
 
-    def visit_CalendarFloor(
-        self, op: CalendarFloor, *, arg: sge.Expr, **kwargs: object
+    def visit_CalendarData(self, op: CalendarData, **kwargs: object) -> sge.Expr:
+        return compile_calendar_data(op, "clickhouse")
+
+    def visit_IntervalMultiply(
+        self, op: ops.IntervalMultiply, *, left: sge.Expr, right: sge.Expr
     ) -> sge.Expr:
-        return compile_calendar_floor(op, arg, "clickhouse")
+        quantity = self.f.toInt64(left.this if isinstance(left, sge.Interval) else left)
+        return sge.Anonymous(
+            this=f"toInterval{op.dtype.unit.singular.title()}",
+            expressions=[sge.Mul(this=quantity, expression=sge.Paren(this=right))],
+        )
+
+    def visit_IdenticalTo(
+        self, op: ops.IdenticalTo, *, left: sge.Expr, right: sge.Expr
+    ) -> sge.Expr:
+        def boxed(value: sge.Expr) -> sge.Expr:
+            default = sge.Anonymous(
+                this="defaultValueOfArgumentType",
+                expressions=[sge.Anonymous(this="assumeNotNull", expressions=[value.copy()])],
+            )
+            return sge.Tuple(
+                expressions=[
+                    sge.Anonymous(this="isNull", expressions=[value.copy()]),
+                    sge.Anonymous(this="ifNull", expressions=[value.copy(), default]),
+                ]
+            )
+
+        return sge.EQ(this=boxed(left), expression=boxed(right))
 
     # Ibis generates SIMPLE_OPS visitors after class creation, overriding explicit
     # methods. Remove median entries before defining the parameterized visitors.
@@ -172,7 +206,7 @@ class _ClickHouseCompiler(ClickHouseCompiler):  # type: ignore[misc]
         **{
             op: name
             for op, name in ClickHouseCompiler.SIMPLE_OPS.items()
-            if op not in (ops.Median, ops.ApproxMedian)
+            if op not in (ops.Median, ops.ApproxMedian, ops.IntervalMultiply, ops.IdenticalTo)
         },
         ops.CountDistinct: _native_name("clickhouse", "count_distinct"),
     }
@@ -266,13 +300,11 @@ def compile_distributed_query(expression: ir.Table, params: Mapping[ir.Scalar, o
 
 
 class _DuckDBCompiler(DuckDBCompiler):  # type: ignore[misc]
+    def visit_CalendarRange(self, op: CalendarRange, **kwargs: object) -> sge.Expr:
+        return compile_calendar_range(op, "duckdb")
+
     def visit_CalendarData(self, op: CalendarData, **kwargs: object) -> sge.Expr:
         return sge.to_table(op.name)
-
-    def visit_CalendarFloor(
-        self, op: CalendarFloor, *, arg: sge.Expr, **kwargs: object
-    ) -> sge.Expr:
-        return compile_calendar_floor(op, arg, "duckdb")
 
 
 def configure_aggregate_compiler(backend: BaseBackend) -> None:

@@ -1,4 +1,4 @@
-# Unified Temporal Semantics
+# Temporal Semantics
 
 Status: implemented current contract.
 
@@ -49,21 +49,15 @@ kind and physical precision are checked independently. Unsupported exact
 conversion fails without truncation. Projected source values retain the backend's
 native gap/fold interpretation.
 
-Constant-bound membership of a source local clock with raw lineage uses wall
-order in its resolved source timezone. An ordinary clock denotes its unique
-instant, a repeated clock the later occurrence, and a skipped clock the transition
-instant. The compiler translates each exact boundary into the first qualifying
-wall clock, then rounds up to the physical representation. Filtering, calendar
-assignment, windows, Population and version selection share these boundaries.
-Consequently the first occurrence of a repeated reporting hour can be an empty
-cell; both instant coordinates remain in the calendar. Skipped source clocks
-violate the producer declaration but are placed deterministically without a row
-audit. Native projected values can differ from this membership at transitions.
-Expressions without admitted raw lineage keep native membership.
+Source projection, filtering and calendar assignment use the actual executor's
+native interpretation of local clocks. Gap/fold behavior can differ between
+backends and pandas; there is no shared wall-order emulation, timezone admission
+proof, or retry through another executor. Exact raw-column rewrites are retained
+only when equivalent to that interpretation.
 
 Session input boundaries and calendar construction retain their exact validation:
 unresolved ambiguous/nonexistent civil boundaries reject; aware instants remain
-exact. Reporting grids retain both occurrences of a repeated civil hour.
+exact. Output positions are evaluated by the same executor as the time operation.
 `hour_prefix(prefix)` combines a civil-date prefix and hour using the prefix's
 source context and reader default. A CivilDate has no intrinsic timezone; the
 composite does not copy the report timezone or introduce an independent parser
@@ -132,28 +126,43 @@ captured Grain. Scope.by requires a captured calendar Grain because it has no
 Session resolution authority.
 
 TimeScope.by(grain) constructs a CalendarAxis without business reads. It captures
-canonical bucket order, nominal bounds, actual clipped bounds, timezone and
-required snapshot identity. Within that axis identity, the physical bucket key
-is the nominal start as a UTC microsecond timestamp. Clipping or selecting cells
-does not renumber keys. `ordinal` retains selected order; `nominal_ordinal`
-retains its original calendar position. Keys alone do not establish compatibility:
-identity, grain, timezone, snapshot and actual boundaries remain authoritative.
-Calendar authority must cover the requested range.
-Builtin grids use report civil boundaries; DST days may span 23 or 25 hours.
+selection intent, timezone, grain and required snapshot identity. During result
+evaluation, the source backend generates its required output positions; original
+local time data uses pandas. Builtin day/week/month/quarter/year use native civil
+truncation. Subday widths align to local midnight and must divide a nominal day.
 A nominal day is not a fixed elapsed duration.
 
-For scope S and nominal bucket N(t), actual observation A(t)=N(t) intersect S.
-A clipped edge is partial even if its duration matches some other full period.
+Selected nominal starts determine the output candidates; an exclusive end that
+repeats an earlier civil clock does not erase the selection. The executor resolves
+each candidate and candidates sharing one native key describe one output position.
+Window parameters are evaluated from that native position, while explicit absolute
+selection bounds retain their instants. A native key need not precede the selected
+window endpoint. pandas ambiguity and nonexistent-time errors retain their defaults.
 
-`Metric.per(grain)` derives complete inner calendar cells from the nearest
-enclosing calendar sample or the observation's finite time coordinate. Each
-contribution buckets by its own declared time role. Inner nominal cells must
-nest in the enclosing nominal cell; actual bounds clip to the parent's actual
-bounds. Each nonempty clipped cell is one sample, including cells without
-contributions under the child Metric's empty policy. This adds no duration
-weighting or cadence inference. A plain TimeScope permits tiling the whole
-interval. See [internal samples](semantic/expressions.md#internal-samples-and-windows)
-for builtin and certified nesting rules.
+A calendar key is the executor's actual UTC microsecond bucket identity. It is
+not a promise that all members form one contiguous UTC interval. The completed
+attachment retains key, civil label, selected order, nominal ordinal and selection
+progress (`full`, `prefix`, `partial`, or `unavailable`, with a civil cutoff for a
+prefix). Labels and nominal ordinals may repeat for distinct actual keys. Genuine
+TimeScope, source-read and window ranges have independent owners.
+
+Ordinary output completes the union of generated positions S and observed keys O.
+Only missing S keys receive empty-result rows; additional O keys remain present.
+Window output instead uses its explicit endpoint domain. Calendar output never
+creates new category keys. Certified custom output supports exactly one complete
+period; partial, sparse and multiple-period selections reject before business
+reads. Certification remains necessary but does not create an execution map.
+
+`Metric.per(grain)` reduces actual internal time samples within its enclosing
+finite coordinate. Presence includes all-NULL samples; absent time buckets are
+not invented. Each source computes the complete external, parent and child key
+from the same fact time. Static nesting rules apply at every layer: subday widths
+divide the parent width, day nests in week/month/quarter/year, month in
+quarter/year, and quarter in year. Equal builtin grains are valid; week does not
+nest in month/quarter/year. Custom hierarchies have no implicit containment rule;
+one complete custom period may be sampled under an interval axis. Final output
+completion never changes an internal sample mean or count. See
+[internal samples](semantic/expressions.md#internal-samples-and-windows).
 
 Semantic sample Grains resolve against the Session's frozen current certified
 snapshot and become declared calendar dependencies. Calendar sample layers do
@@ -181,8 +190,8 @@ window. A seven-day duration is exactly 168 hours; seven calendar days can diffe
 across DST. Scalar to_date chooses the unique reset period with left < end <=
 right, so a month boundary endpoint uses the preceding complete month without
 epsilon arithmetic. Calendar output additionally requires compatible reset
-hierarchy. Every endpoint is the actual clipped right boundary, never the nominal
-end of a partial bucket. trailing_periods rejects partial first/last buckets and
+hierarchy. The owning executor evaluates output and reset endpoints before contribution
+windows are expanded. Each selected endpoint uses its captured clipping progress. trailing_periods rejects partial first/last buckets and
 uses complete calendar predecessors rather than positions in a sparse axis.
 Nested windows and missing required endpoints reject.
 
@@ -213,7 +222,7 @@ buckets, plus week/month/year prefixes with equal saved civil progress. Partial
 day/quarter and middle slices reject. Full months can differ in elapsed days.
 MTD/YTD progress uses civil positions, rather than equal seconds or ordinal day.
 
-mv.ordinal matches compatible full nominal partitions using their saved original
+mv.ordinal matches compatible full logical selections using their saved original
 ordinals, without compressing positions after where/top. It also pairs two
 single-record interval directories with the same boundary timezone. Named
 calendars support ordinal, without builtin offset semantics. Shift does not
@@ -229,11 +238,14 @@ actual baseline time rows to map into the current declared domain; general
 two-ended time unions belong to align. The complete correspondence and presence
 rules are owned by [AnalysisFrame](analysis/analysis-frame.md#correspondence-and-comparison).
 
-Frozen directories retain nominal/actual UTC and civil bounds, original ordinal,
-timezone, rule version, required endpoints and finite maps. Cold reads consume
-those records without current TZ, Catalog or source reconstruction. Missing or
-corrupt authority fails integrity checks; it is not a legitimate absent period.
-Calendar certification does not certify business source coverage.
+Frozen calendar directories retain actual keys, civil labels, order and selection
+progress, plus explicit finite shift correspondences. Equality compares actual
+keys under compatible axis/grain/timezone contracts. Offset and ordinal consume
+saved civil identity and progress without relocalizing old keys; ambiguous
+one-to-many civil matches reject only the affected comparison. Cold reads consume
+saved values without current timezone, Catalog or source reconstruction. Missing
+or corrupt required metadata fails integrity checks. Calendar certification does
+not certify business source coverage.
 
 ## Encoded event-time predicates
 
@@ -255,70 +267,49 @@ argument evaluation errors. Configuration and whole-query failures are not caugh
 
 Encoded raw ranges cannot replace parsing or serve as extra necessary
 conditions without an equivalence proof. This includes calendar assignment,
-version coordinates and `hour_prefix` date dependencies. Parsed local clocks use
-the existing wall-order cutoff translation and physical precision; output
-projections retain native gap/fold interpretation. Independent physical filters
-remain eligible for pushdown. Parsing can increase scan and CPU costs; no source
-preflight is added. NULL event time has no period membership, while a NULL
-attribute control time preserves the fact under a NULL label.
+version coordinates and `hour_prefix` date dependencies. Parsed local clocks
+and output projections retain native gap/fold interpretation. Independent physical
+filters remain eligible for pushdown. Parsing can increase scan and CPU costs;
+no source preflight is added. NULL event time has no period membership, while
+a NULL attribute control time preserves the fact under a NULL label.
 
 ## Physical time execution
 
 Production DuckDB connections use eight threads and UTC. The test suite's
 independent one-thread-per-worker cap is not a production connection setting.
 
-The compiler distinguishes three forms per predicate: an exact typed raw-column
-comparison (A), a safe coarse scan guard plus the exact native predicate (B), or
-native filtering (C). Missing an inverse is an optimization miss. For raw local
-clocks, A supplies governed wall-order membership and the native predicate must
-not be added back, since it can select skipped clocks differently. Other valid
-expressions continue through B/C when exact inversion is unavailable.
+The compiler distinguishes exact typed raw-column comparisons, a safe coarse
+scan guard plus the exact native predicate, and native filtering. An unavailable
+inverse is an optimization miss. Rewrites preserve kind, precision, endpoints and
+nullable truth values. Real TimeScope and contribution ranges remain half-open;
+one-sided windows need no invented lower bound.
 
-Native Instant/CivilDate rewrites preserve backend meaning, endpoints, precision
-and nullable truth values. Constants match the raw type; transformed aliases and
-implicit column casts do not establish A. A complete contiguous calendar uses
-a range guard. Sparse or clipped calendars join their selected typed directory
-by equality and check actual half-open bounds; the enclosing range alone never
-admits missing cells. TimeScope interval axes retain their original unit key and
-raw-bound predicates. One-sided windows need no invented lower bound or horizon
-enumeration.
+Calendar assignment emits native truncation or local-midnight subday arithmetic.
+It has no calendar directory JOIN, per-bucket CASE/UNION, global UTC lattice,
+parent/child execution map, or internal completion grid. Source-produced keys
+passed to pandas participate in exact-key alignment and arithmetic without being
+parsed or bucketed again. Different sources retain their own time execution.
 
-Calendar assignment has one private compiler entry. Builtin subday grids use
-native exact elapsed arithmetic on a lattice derived from frozen civil-midnight
-alignment. Irregular DST cells use a finer lattice and a unique equality map;
-90-second/90-minute grids and half-hour transitions retain their frozen starts.
-Civil day, ISO week, month, quarter and year use native calendar truncation with
-an equality directory retaining the exact UTC start. A skipped midnight maps
-to the preceding retained period. The directory covers the local dates at both
-included endpoints of a repeated-midnight bucket, even when the clock returns
-to the previous date. A matched row chooses between its frozen UTC starts.
-No backend is allowed to invent a nonexistent civil boundary. Raw local clocks admitted to wall-order
-membership use a unique civil-date offset map, retaining the later fold and
-transition-instant gap rules independently of native value projection.
+Required final output indexes use a compact native scalar range expression; this
+is result evaluation with O(N) output cost, not a timezone qualification query or
+a business-fact scan. Custom single-period output uses its certified range and a
+native constant key. No source calendar date directory is uploaded or reread.
 
-Certified custom calendars use one row per selected civil date, mapping that
-date to its frozen period start and actual bounds. They consume the captured
-snapshot, never reread its source, infer absent dates, or scan generic intervals.
-The date partition contract guarantees that an equality join cannot multiply
-facts. Internal samples, empty completion, parent/child maps and attribution
-share the same timestamp keys.
+Remaining finite mixed-key parameters use invocation-owned typed SQL relations.
+ClickHouse uses JSONExtract/arrayJoin inside SQL, including Distributed requests;
+it never turns these parameters into HTTP external data or multipart uploads.
+Timestamp wire values are exact integer microseconds, dates are decoded from
+strings, and nullable, decimal and special floating values retain their types.
+DuckDB retains invocation-owned Arrow registration; other providers retain their
+native JSON relation carriers. Complete request bytes, including FORMAT and
+repeated payload, count toward the existing SQL limit. Exceeding it fails without
+splitting, retrying, raising the limit, or falling back to multipart.
 
-Finite directories are invocation-owned Arrow relations in DuckDB and external
-data in ClickHouse (including completion grids). PostgreSQL uses one compact
-JSON payload through `jsonb_to_recordset`; MySQL/MariaDB materialize `JSON_TABLE`
-once for hash or indexed equality joins; Trino uses typed JSON extraction
-through `UNNEST`. Equal directories share a captured
-relation within a source query. SourceSession owns registration, submission and
-cleanup; capacities and read-only permissions remain unchanged. No per-bucket
-CASE/UNION or per-fact complete-calendar scan is emitted.
-
-Compiler-owned UTC cancellation preserves output type and precision. Existing
-safe envelopes remain useful for unsupported shapes. No source declaration audit,
-production EXPLAIN, generic inverse registry or backend policy replica is added.
-Scalar relationship uniqueness, sample completeness, version cardinality and
-other independent checks remain. Sampling on raw local clocks uses representable
-wall points under the same membership instead of requiring an indistinguishable
-first fold occurrence.
+Compiler-owned UTC cancellation and safe envelopes preserve native meaning.
+Existing ownership, scalar relationship, version cardinality, NULL and output
+integrity checks remain. No source declaration audit, generic inverse registry,
+or backend timezone policy replica is added. Native operation errors propagate
+through the existing materialization error boundary.
 
 Predicate shape alone does not establish physical pruning or index usage.
 Runtime evidence identifies the actual provider, connector and table; local SQL

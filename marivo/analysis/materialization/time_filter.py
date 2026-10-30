@@ -9,7 +9,6 @@ import ibis
 import ibis.expr.operations as ops
 import ibis.expr.types as ir
 
-from marivo.analysis.compiler._wall_order import wall_order_bound
 from marivo.analysis.compiler.source_time import (
     _complement,
     _localize_native,
@@ -156,8 +155,8 @@ def _exact(node: ops.Value, parent: ops.Relation) -> ir.BooleanValue | None:
         clock, bound, reverse = _clock(node.right), _bound(node.left), True
     if clock is None or bound is None:
         return None
-    zone, raw_node, shift, civil = clock
-    if civil and zone != "UTC":
+    zone, raw_node, shift, _civil = clock
+    if zone != "UTC":
         return None
     raw = _raw_for(raw_node, parent)
     if raw is None or not _raw_lineage(raw):
@@ -174,7 +173,7 @@ def _exact(node: ops.Value, parent: ops.Relation) -> ir.BooleanValue | None:
         }.get(operation, operation)
 
     def lower(strict: bool) -> ir.BooleanValue | None:
-        cutoff, inclusive = wall_order_bound(bound, time_zone(zone), strict=strict)
+        cutoff, inclusive = bound.astimezone(time_zone(zone)).replace(tzinfo=None), not strict
         return _scalar_cutoff(
             raw,
             cutoff - shift,

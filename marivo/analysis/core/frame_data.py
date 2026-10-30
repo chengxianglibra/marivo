@@ -20,7 +20,6 @@ from marivo.analysis.core.data_schema import (
     PairedDataAxis,
 )
 from marivo.analysis.core.data_validation import normalize_complete_frame
-from marivo.analysis.core.frame_calendar import FrozenSourceTime
 from marivo.analysis.core.frame_expression import FrameOperationKind
 from marivo.analysis.core.frame_metadata import FrameResultMetadata, StoredFrameMetadata
 from marivo.analysis.core.frame_method_facts import FrameMethodFacts
@@ -197,7 +196,6 @@ class SourceFrameBinding:
     graph: BoundGraph
     state: CompiledSemanticState
     connection: DatasourceConnectionConfig
-    calendars: tuple[FrozenSourceTime, ...] = ()
     frame_key_inputs: tuple[FrameKeyInput, ...] = ()
 
 

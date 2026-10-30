@@ -665,15 +665,18 @@ def test_calendar_freeze_preserves_dst_fold_and_partial_nominal_bounds() -> None
     assert rows["key.0"].tolist() == [
         datetime(2024, 11, 3, 4, tzinfo=timezone.utc) + timedelta(hours=i) for i in range(25)
     ]
-    assert all(not column.nullable for column in frozen.directory.schema.columns)
+    assert all(
+        not column.nullable for column in frozen.directory.schema.columns if column.name != "cutoff"
+    )
 
     partial = exact_scope("2026-08-15", "2026-09-01", "UTC").by(mv.grain("month"))
     coordinate = _calendar_population(partial)._definition.axes[0]
     assert isinstance(coordinate, CalendarCoordinate)
     rows = freeze_calendar(coordinate, token="axis.0", name="month", key=key).directory.rows
     assert rows["nominal_label"].tolist() == ["2026-08-01"]
-    assert rows["nominal_start"].iloc[0].isoformat() == "2026-08-01T00:00:00+00:00"
-    assert rows["actual_start"].iloc[0].isoformat() == "2026-08-15T00:00:00+00:00"
+    assert rows["key.0"].iloc[0].isoformat() == "2026-08-01T00:00:00+00:00"
+    assert rows["selection"].tolist() == ["partial"]
+    assert not {"nominal_start", "actual_start"} & set(rows.columns)
 
 
 def test_named_calendar_freeze_captures_exact_level_and_canonical_labels() -> None:
@@ -690,9 +693,9 @@ def test_named_calendar_freeze_captures_exact_level_and_canonical_labels() -> No
         levels={"short": "short", "long": "long"},
     )
     key = DataColumn("key.0", "bucket", TimestampDataType("us", "UTC"), False)
-    for level, labels in (("short", ["0", "1", "2", "3"]), ("long", ['"P0"', '"P1"'])):
+    for level, days, labels in (("short", 2, ["0"]), ("long", 4, ['"P0"'])):
         grain = semantic_grain(calendar=calendar, level=level, snapshot=snapshot)
-        axis = exact_scope(start, end, "UTC").by(grain)
+        axis = exact_scope(start, start + timedelta(days=days), "UTC").by(grain)
         coordinate = _calendar_population(axis)._definition.axes[0]
         assert isinstance(coordinate, CalendarCoordinate)
         frozen = freeze_calendar(coordinate, token="axis.0", name=level, key=key)
@@ -725,23 +728,22 @@ def test_source_top_keeps_entire_frozen_calendar_directory(
         by=(calendar,),
     )
 
-    def forbidden(*args: object, **kwargs: object) -> None:
-        raise AssertionError("calendar facts must already be frozen")
+    from marivo.analysis.core import frame_calendar
 
-    monkeypatch.setattr(frame_sources, "freeze_calendar", forbidden)
+    freeze = Mock(wraps=frame_calendar.freeze_calendar)
+    monkeypatch.setattr(frame_calendar, "freeze_calendar", freeze)
     source.show(n=20)
+    assert freeze.call_count == 0
     result = source.top(1, by=source["sales"]).compute()
     assert _memory(result).data.row_count == 1
     (directory,) = _memory(result).data.copy_attachments()
     assert directory.rows["ordinal"].tolist() == list(range(31))
     assert directory.rows["nominal_label"].tolist() == [f"2026-08-{day:02}" for day in range(1, 32)]
     assert directory.schema.axes[0].columns == result._schema.axes[0].columns
-    boundary_names = ("nominal_start", "nominal_end", "actual_start", "actual_end")
-    assert {
-        column.name: column.dtype
-        for column in directory.schema.values
-        if column.name in boundary_names
-    } == {name: TimestampDataType("us", "UTC") for name in boundary_names}
+    assert freeze.call_count == 1
+    assert not {"nominal_start", "nominal_end", "actual_start", "actual_end"} & set(
+        directory.rows.columns
+    )
 
 
 @pytest.mark.parametrize("descending", (True, False))

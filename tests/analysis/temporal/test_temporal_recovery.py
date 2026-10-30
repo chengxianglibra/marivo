@@ -143,13 +143,11 @@ def test_native_temporal_mean_int64_identities_and_independent_cold_reads(
         )
         assert calendar_metadata["timezone"] == "UTC"
         assert str(directory["key.0"].dtype) == "timestamp[us, tz=UTC][pyarrow]"
-        assert directory["key.0"].tolist() == directory["nominal_start"].tolist()
-        assert [
-            (cell.actual_start, cell.actual_end) for cell in directory.itertuples(index=False)
-        ] == [
-            (datetime(2026, 8, 1, tzinfo=timezone.utc), datetime(2026, 8, 2, tzinfo=timezone.utc)),
-            (datetime(2026, 8, 2, tzinfo=timezone.utc), datetime(2026, 8, 3, tzinfo=timezone.utc)),
+        assert directory["key.0"].tolist() == [
+            datetime(2026, 8, 1, tzinfo=timezone.utc),
+            datetime(2026, 8, 2, tzinfo=timezone.utc),
         ]
+        assert directory["selection"].tolist() == ["full", "full"]
         outputs: dict[str, Json] = {
             name: {"artifact": saved.artifact_id, "snapshot": snapshot(saved, frame=frame)}
             for name, saved, frame in (

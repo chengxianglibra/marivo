@@ -199,11 +199,15 @@ def _combine_program(
         ):
             buckets = pd.DataFrame({program.calendar_key: time_key_series(program.calendar)})
             field_keys = [key for key in keys if key != program.calendar_key]
-            domain = (
+            completed_domain = (
                 domain.loc[:, field_keys].drop_duplicates().merge(buckets, how="cross")
                 if field_keys
                 else buckets
             )
+            if domain.empty:
+                domain = completed_domain
+            elif not completed_domain.empty:
+                domain = pd.concat([completed_domain, domain], ignore_index=True).drop_duplicates()
             domain = domain.loc[:, keys]
         domain = domain.reset_index(drop=True)
     else:
@@ -466,38 +470,6 @@ def _combine_program(
                 ),
             )
             complete_domain = None
-            if calendar_sample is not None:
-                parent_slot, parent_axis = next(
-                    (group[0], axis)
-                    for group, axis in reversed(
-                        tuple(zip(source_groups, program.axes, strict=False))
-                    )
-                    if isinstance(axis, (CalendarCoordinate, IntervalCoordinate))
-                )
-                parent_cells = (
-                    parent_axis.cells
-                    if isinstance(parent_axis, CalendarCoordinate)
-                    else ((parent_axis.start, parent_axis.end, parent_axis.start, parent_axis.end),)
-                )
-                pairs = pd.DataFrame(
-                    [
-                        (cell[0] if isinstance(parent_axis, CalendarCoordinate) else 0, sample[0])
-                        for cell in parent_cells
-                        for sample in calendar_sample.cells
-                        if cell[2] <= sample[2] and sample[3] <= cell[3]
-                    ],
-                    columns=[parent_slot, sample_keys[0]],
-                )
-                pairs[parent_slot] = pd.Series(
-                    pairs[parent_slot],
-                    dtype="timestamp[us, tz=UTC][pyarrow]"
-                    if isinstance(parent_axis, CalendarCoordinate)
-                    else "int64[pyarrow]",
-                )
-                pairs[sample_keys[0]] = pd.Series(
-                    pairs[sample_keys[0]], dtype="timestamp[us, tz=UTC][pyarrow]"
-                )
-                complete_domain = domain.merge(pairs, on=parent_slot, how="inner")
             sample_population_definition = sample_population(node.samples)
             if sample_population_definition is not None:
                 sample_domain = population_domain(sample_population_definition, sample_keys)

@@ -52,7 +52,9 @@ def setup(*, port: int = PORT) -> dict[str, object]:
         cur.execute("GRANT SELECT ON analysis.* TO 'analysis_reader'@'%'")
     with connection(port=port) as con, con.cursor() as cur:
         cur.execute("SELECT VERSION(),CURRENT_USER()")
-        version, user = cur.fetchone()
+        row = cur.fetchone()
+        assert row is not None, "Expected server version and reader identity"
+        version, user = row
         denied = []
         for sql in (
             "CREATE TABLE forbidden(id INT)",

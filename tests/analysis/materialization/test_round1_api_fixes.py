@@ -90,28 +90,21 @@ def test_calendar_products_keep_single_time_axis_descriptors_and_cold_metadata(
             )
             assert part.schema.key_fields == tuple(column.slot_id for column in axis.columns)
             bounds = read_output(case.root, part.schema, part.rows)
-            assert bounds[part.schema.key_fields[0]].tolist() == list(range(len(bounds)))
+            assert bounds[part.schema.key_fields[0]].tolist() == (
+                march_starts if axis.timezone == "Europe/Paris" else february_starts
+            )
             assert bounds.ordinal.tolist() == list(range(len(bounds)))
             assert tuple(bounds.columns[1:]) == (
                 "nominal_label",
                 "ordinal",
                 "nominal_ordinal",
-                "nominal_start",
-                "nominal_end",
-                "actual_start",
-                "actual_end",
-                "nominal_start_civil",
-                "nominal_end_civil",
-                "actual_start_civil",
-                "actual_end_civil",
+                "selection",
+                "cutoff",
             )
-            assert bounds.actual_start.tolist() == (
-                march_starts if axis.timezone == "Europe/Paris" else february_starts
-            )
+            assert bounds.selection.tolist() == ["full"] * len(bounds)
             if axis.timezone == "Europe/Paris":
-                assert bounds.actual_end.iloc[1] - bounds.actual_start.iloc[1] == timedelta(
-                    hours=23
-                )
+                positions = bounds.iloc[:, 0]
+                assert positions.iloc[2] - positions.iloc[1] == timedelta(hours=23)
         assert decode(encode(manifest), type(manifest)) == manifest
         saved[name] = {
             "artifact": value.artifact_id,

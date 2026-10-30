@@ -162,8 +162,6 @@ class CoordinateExportColumn:
         "label",
         "start",
         "end",
-        "nominal_start",
-        "nominal_end",
     ]
     kind: Literal["coordinate"] = field(default="coordinate", init=False)
 
@@ -230,19 +228,18 @@ def axis_export_layout(
                 time_details=time_details,
             ),
         )
-    if isinstance(axis, (CalendarDataAxis, IntervalDataAxis)):
-        bounds = (
+    if isinstance(axis, CalendarDataAxis):
+        columns = (CoordinateExportColumn(name, token, endpoint, "key"),)
+        return (
+            (*columns, CoordinateExportColumn(f"{name}.label", token, endpoint, "label"))
+            if time_details
+            else columns
+        )
+    if isinstance(axis, IntervalDataAxis):
+        return (
             CoordinateExportColumn(f"{name}.start", token, endpoint, "start"),
             CoordinateExportColumn(f"{name}.end", token, endpoint, "end"),
         )
-        if isinstance(axis, CalendarDataAxis) and time_details:
-            return (
-                *bounds,
-                CoordinateExportColumn(f"{name}.label", token, endpoint, "label"),
-                CoordinateExportColumn(f"{name}.nominal_start", token, endpoint, "nominal_start"),
-                CoordinateExportColumn(f"{name}.nominal_end", token, endpoint, "nominal_end"),
-            )
-        return bounds
     return (CoordinateExportColumn(name, token, endpoint, "key"),)
 
 

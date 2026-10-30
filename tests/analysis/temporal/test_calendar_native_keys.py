@@ -1,7 +1,6 @@
 """Native equality buckets agree with frozen boundaries without SQL enumeration."""
 
 import os
-import re
 from collections.abc import Callable
 from datetime import date, datetime, timedelta, timezone
 from functools import partial
@@ -9,10 +8,11 @@ from pathlib import Path
 
 import pandas as pd
 import pytest
+import sqlglot.expressions as sge
 
 import marivo.analysis as mv
 from marivo._temporal import certify_period_calendar_rows, semantic_grain
-from marivo.analysis.compiler.calendar import bind_calendar, bind_wall_clock
+from marivo.analysis.compiler.calendar import bind_calendar
 from marivo.analysis.compiler.source_time import localize, timestamp
 from marivo.analysis.dsl.temporal import exact_scope
 from marivo.analysis.materialization.temporal_sql import lower_temporal
@@ -93,7 +93,7 @@ def _custom() -> mv.CalendarAxis:
             for i in range((stop - start).days)
         ),
     )
-    return exact_scope("2025-01-03T12:00:00", "2026-12-30T06:00:00", "Asia/Shanghai").by(
+    return exact_scope("2025-01-18", "2026-02-05", "Asia/Shanghai").by(
         semantic_grain(calendar=calendar, level="fiscal", snapshot=snapshot)
     )
 
@@ -110,27 +110,17 @@ def test_native_calendar_boundary_membership(
         exact_scope(start, end, zone).by(mv.grain(unit, count=count))
         for start, end, zone, unit, count in (
             ("2026-01-01T00:00:00.000001", "2026-01-01T00:06:00.000001", "UTC", "second", 90),
-            ("2026-03-08", "2026-03-09", "America/New_York", "minute", 90),
-            ("2026-11-01", "2026-11-02", "America/New_York", "minute", 90),
-            ("2026-04-05", "2026-04-06", "Australia/Lord_Howe", "hour", 1),
-            ("2026-10-04", "2026-10-05", "Australia/Lord_Howe", "minute", 90),
+            ("2026-01-01", "2026-01-02", "UTC+08:00", "hour", 6),
+            ("2026-01-01", "2026-01-02", "UTC+05:30", "hour", 1),
+            ("2026-01-01", "2026-01-03", "Asia/Shanghai", "day", 1),
             ("2025-12-28", "2026-01-06", "Asia/Shanghai", "week", 1),
-            ("2018-11-03", "2018-11-06", "America/Sao_Paulo", "day", 1),
-            ("2018-11-03", "2018-11-06", "America/Havana", "day", 1),
-            ("2009-10-31", "2009-11-02", "America/St_Johns", "day", 1),
-            ("2009-10-31", "2009-11-02", "America/St_Johns", "month", 1),
-            ("2020-10-31", "2020-11-03", "America/Havana", "month", 1),
             ("2025-12-30T06:00:00", "2026-02-02", "UTC", "month", 1),
             ("2025-12-30", "2026-04-02", "UTC", "quarter", 1),
             ("2025-12-30", "2026-01-02", "UTC", "year", 1),
         )
     ]
-    axes += [
-        exact_scope("2021-12-27", "2022-01-10", "UTC")
-        .by(mv.grain("week"))
-        .shift(mv.offset(years=-1)),
-        _custom(),
-    ]
+    axes.append(_custom())
+
     points: list[datetime | None] = sorted(
         {
             boundary + timedelta(microseconds=delta)
@@ -181,7 +171,7 @@ def test_native_calendar_boundary_membership(
                 else pd.Timestamp(value).tz_localize("UTC")
                 for value in actual.bucket
             ]
-            assert normalized == expected
+            assert normalized == expected, (axis._binding.grain, case.session.submissions[-1].sql)
             sql = case.session.submissions[-1].sql
             assert "UNION ALL" not in sql.upper()
             if backend == "clickhouse":
@@ -236,7 +226,7 @@ def test_calendar_capacity_and_sum_before_p95(
             result = session.observe({"total": amount.sum(time=point)}, by=(axis,)).compute()
             assert result.to_pandas().total.tolist() == [2] * (days * 288)
             sqls = trace.native_sql[before:]
-            assert len(sqls) == 1
+            assert len(sqls) == 2
             assert max(len(sql.encode()) for sql in sqls) < 65536
             evidence.append(
                 {
@@ -248,51 +238,30 @@ def test_calendar_capacity_and_sum_before_p95(
                 }
             )
         custom = _custom()
-        small = session.time_scope(
-            start=start, end=start + timedelta(days=14), timezone="Asia/Shanghai"
-        ).by(custom._binding.grain_spec)
-        plans = []
-        for custom_axis in (small, custom):
-            totals = (
-                session.observe({"total": amount.sum(time=point)}, by=(custom_axis,))
-                .compute()
-                .to_pandas()
-                .total.tolist()
-            )
-            assert sum(totals) == len(points)
-            assert totals == ([8064] if custom_axis is small else [0, 8064, 0])
-            if backend == "mysql":
-                with case.session._backend.raw_sql(
-                    "EXPLAIN FORMAT=JSON " + trace.native_sql[-1]
-                ) as cursor:
-                    plan = cursor.fetchone()[0]
-                # The constant date map must be built once and probed by key,
-                # rather than rescanned for every fact (including on MariaDB).
-                receipt(
-                    "calendar-plan-" + backend + "-" + profile + "-" + str(custom_axis is small),
-                    {"plan": plan},
-                )
-                assert "materialized" in plan
-                assert re.search(r'"access_type"\s*:\s*"ref"', plan) or "hash join" in plan.lower()
-                plans.append(plan)
-
-            evidence.append(
-                {
-                    "custom_days": 14 if custom_axis is small else 726,
-                    "sql_bytes": len(trace.native_sql[-1].encode()),
-                    "payload_bytes": trace.calendar_payload_bytes[-1],
-                    "source_seconds": trace.source_seconds[-1],
-                    "returned_rows": trace.returned_rows[-1],
-                }
-            )
-        # A complete internal grain includes one empty day, independently of
-        # source sample instants. This also exercises large completion payloads.
+        before = len(trace.native_sql)
+        totals = (
+            session.observe({"total": amount.sum(time=point)}, by=(custom,))
+            .compute()
+            .to_pandas()
+            .total.tolist()
+        )
+        assert totals == [8064]
+        assert all(len(sql.encode()) < 65536 for sql in trace.native_sql[before:])
+        assert all(
+            "JSONExtract" not in sql and "JSON_TABLE" not in sql
+            for sql in trace.native_sql[before:]
+        )
+        with pytest.raises(ValueError, match="one complete custom"):
+            session.time_scope(
+                start=start, end=start + timedelta(days=14), timezone="Asia/Shanghai"
+            ).by(custom._binding.grain_spec)
+        # Missing time buckets do not enter the internal reduction.
         before = len(trace.native_sql)
         scope = session.time_scope(start=start, end=start + timedelta(days=15))
         mean = amount.sum(time=point).per(mv.grain("minute", count=5)).mean()
         assert session.observe({"mean": mean}, by=(scope,)).compute().to_pandas()[
             "mean"
-        ].tolist() == pytest.approx([28 / 15])
+        ].tolist() == pytest.approx([2])
         submitted = trace.native_sql[before:]
         assert len(submitted) == 1
         if backend == "clickhouse":
@@ -318,7 +287,7 @@ def test_calendar_capacity_and_sum_before_p95(
                 )
                 assert values == [2] * (days * 288)
                 submitted = trace.native_sql[before:]
-                assert len(submitted) == 1 and len(submitted[0].encode()) < 65536
+                assert len(submitted) == 2 and all(len(sql.encode()) < 65536 for sql in submitted)
                 evidence.append(
                     {
                         "p95_days": days,
@@ -341,56 +310,8 @@ def test_calendar_capacity_and_sum_before_p95(
             ).first_row == (1, 262144)
         receipt(
             "calendar-capacity-" + backend + "-" + profile,
-            {"cases": evidence, "actual_sql": trace.native_sql, "query_plans": plans},
+            {"cases": evidence, "actual_sql": trace.native_sql},
         )
-
-
-@pytest.mark.parametrize("backend,profile", CASES)
-def test_calendar_wall_order_keeps_later_folds_and_transition_gaps(
-    backend: str,
-    profile: str,
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    _maria(profile, monkeypatch)
-    points = [
-        datetime.fromisoformat(value).replace(tzinfo=timezone.utc)
-        for value in (
-            "2026-03-08T01:59:59.999999",
-            "2026-03-08T02:00:00",
-            "2026-03-08T02:30:00",
-            "2026-03-08T02:59:59.999999",
-            "2026-03-08T03:00:00",
-            "2026-11-01T01:30:00",
-        )
-    ]
-    expected = [
-        datetime.fromisoformat(value).replace(tzinfo=timezone.utc)
-        for value in (
-            "2026-03-08T06:59:59.999999",
-            "2026-03-08T07:00:00",
-            "2026-03-08T07:00:00",
-            "2026-03-08T07:00:00",
-            "2026-03-08T07:00:00",
-            "2026-11-01T06:30:00",
-        )
-    ]
-    axis = exact_scope("2026-03-08", "2026-11-02", "America/New_York").by(mv.grain("day"))
-    with source_case(backend, profile, tmp_path, monkeypatch, _data(backend, points)) as case:
-        table = case.session.bind(case.source, source_identity="calendar-wall").relation
-        clock = (
-            table.point if table.point.type().timezone else localize("UTC", timestamp(table.point))
-        )
-        result = bind_wall_clock(table, clock, "America/New_York", axis._binding, "instant")
-        actual = case.session.collect_bounded(
-            lower_temporal(result.order_by("id"), backend), purpose="calendar.wall", max_rows=7
-        )
-        assert [
-            pd.Timestamp(value).tz_localize("UTC")
-            if pd.Timestamp(value).tzinfo is None
-            else pd.Timestamp(value).tz_convert("UTC")
-            for value in actual.instant
-        ] == expected
 
 
 @pytest.mark.parametrize("backend,profile", CASES)
@@ -437,23 +358,104 @@ def test_public_encoded_clocks_retain_wall_bucket_membership(
         )
         session = mv.session.get_or_create("wall-calendar", timezone="UTC")
         amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+        namespace = case.source.database
+        parts = (
+            namespace
+            if isinstance(namespace, tuple)
+            else (namespace,)
+            if namespace is not None
+            else ()
+        )
+        table_sql = sge.table_(
+            case.source.table,
+            db=parts[-1] if parts else None,
+            catalog=parts[0] if len(parts) == 2 else None,
+        ).sql(dialect=backend)
+        native_parse = {
+            "duckdb": "timezone('America/New_York', CAST(wall AS TIMESTAMP))",
+            "postgres": "CAST(wall AS TIMESTAMP) AT TIME ZONE 'America/New_York'",
+            "mysql": "CONVERT_TZ(CAST(wall AS DATETIME), 'America/New_York', '+00:00')",
+            "trino": "with_timezone(CAST(wall AS TIMESTAMP), 'America/New_York')",
+            "clickhouse": "toTimeZone(toDateTime64(wall, 6, 'America/New_York'), 'UTC')",
+        }[backend]
+        native_rows = case.session._backend.execute(
+            case.session._backend.sql(
+                f"SELECT {native_parse} AS point FROM {table_sql}",
+                schema={"point": "timestamp('UTC', 6)"},
+            )
+        )
+        instants = [
+            pd.Timestamp(value).tz_localize("UTC")
+            if pd.Timestamp(value).tzinfo is None
+            else pd.Timestamp(value).tz_convert("UTC")
+            for value in native_rows.point
+        ]
         for clock in ("wall", "encoded"):
             point = catalog_value(session.catalog, "sales.facts." + clock, kind="field")
-            for start, end, expected in (
-                ("2026-03-08T06:55Z", "2026-03-08T07:10Z", [1, 2, 0]),
-                ("2026-11-01T05:25Z", "2026-11-01T06:40Z", [0] * 13 + [1, 0]),
+            for start, end in (
+                ("2026-03-08T06:55Z", "2026-03-08T07:10Z"),
+                ("2026-11-01T05:25Z", "2026-11-01T06:40Z"),
             ):
+                expected = [
+                    sum(left <= instant < left + pd.Timedelta(minutes=5) for instant in instants)
+                    for left in pd.date_range(start, end, freq="5min", inclusive="left")
+                ]
                 axis = session.time_scope(start=start, end=end).by(mv.grain("minute", count=5))
-                actual = (
-                    session.observe({"total": amount.sum(time=point)}, by=(axis,))
-                    .compute()
-                    .to_pandas()
-                )
+                pending = session.observe({"total": amount.sum(time=point)}, by=(axis,))
+                if backend == "clickhouse" and case.session._backend.version.startswith("22."):
+                    from marivo.analysis.materialization.errors import MaterializationError
+
+                    # The existing format parser is unavailable on 22.3. Its native
+                    # failure must propagate, without a timezone qualification or retry.
+                    with pytest.raises(MaterializationError) as captured:
+                        pending.compute()
+                    assert "Unknown function parseDateTimeOrNull" in str(captured.value.received)
+                    continue
+                actual = pending.compute().to_pandas()
                 assert actual.total.tolist() == expected
 
 
 @pytest.mark.parametrize("backend,profile", CASES)
+@pytest.mark.parametrize(
+    "zone,day,clocks,ranges",
+    [
+        (
+            "America/St_Johns",
+            "2009-11-01",
+            (
+                "02:29:59.999999",
+                "02:30:00",
+                "02:30:59.999999",
+                "02:31:00",
+                "02:45:00",
+                "03:29:59.999999",
+                "03:30:00",
+                "03:30:00.000001",
+            ),
+            (("02:30", "03:30", 5), ("02:40", "03:00", 1)),
+        ),
+        (
+            "Antarctica/Casey",
+            "2010-03-04",
+            (
+                "12:59:59.999999",
+                "13:00:00",
+                "14:59:59.999999",
+                "15:00:00",
+                "15:30:00",
+                "15:59:59.999999",
+                "16:00:00",
+                "16:00:00.000001",
+            ),
+            (("13:00", "16:00", 5), ("15:00", "15:45", 2)),
+        ),
+    ],
+)
 def test_public_calendar_keeps_facts_when_midnight_fold_returns_to_previous_date(
+    zone: str,
+    day: str,
+    clocks: tuple[str, ...],
+    ranges: tuple[tuple[str, str, int], ...],
     backend: str,
     profile: str,
     tmp_path: Path,
@@ -461,20 +463,10 @@ def test_public_calendar_keeps_facts_when_midnight_fold_returns_to_previous_date
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
 ) -> None:
     _maria(profile, monkeypatch)
-    # At 02:31Z St Johns moves from Nov 1 00:01 back to Oct 31 23:01.
-    # The first Nov 1 midnight bucket is [02:30Z, 03:30Z), covering both dates.
+    # Both transitions revisit a civil date. Native bucket membership need not
+    # form one contiguous UTC interval; compare each executor to its own SQL.
     points = [
-        datetime.fromisoformat("2009-11-01T" + clock).replace(tzinfo=timezone.utc)
-        for clock in (
-            "02:29:59.999999",
-            "02:30:00",
-            "02:30:59.999999",
-            "02:31:00",
-            "02:45:00",
-            "03:29:59.999999",
-            "03:30:00",
-            "03:30:00.000001",
-        )
+        datetime.fromisoformat(day + "T" + clock).replace(tzinfo=timezone.utc) for clock in clocks
     ]
     monkeypatch.chdir(tmp_path)
     with source_case(
@@ -496,32 +488,215 @@ def test_public_calendar_keeps_facts_when_midnight_fold_returns_to_previous_date
         amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
         trace = capture_source(monkeypatch)
         for unit in ("day", "month"):
-            for start, end, expected in (
-                ("02:30", "03:30", 5),
-                ("02:40", "03:00", 1),
-            ):
+            for start, end, expected in ranges:
                 axis = session.time_scope(
-                    start="2009-11-01T" + start + "Z",
-                    end="2009-11-01T" + end + "Z",
-                    timezone="America/St_Johns",
+                    start=day + "T" + start + "Z",
+                    end=day + "T" + end + "Z",
+                    timezone=zone,
                 ).by(mv.grain(unit))
                 before = len(trace.native_sql)
                 result = session.observe({"total": amount.sum(time=point)}, by=(axis,)).compute()
                 rows = result.to_pandas(time_details=True)
-                assert rows.total.tolist() == [expected]
-                assert rows[f"calendar:{unit}.nominal_start"].dt.tz_convert("UTC").tolist() == [
-                    datetime(2009, 11, 1, 2, 30, tzinfo=timezone.utc)
-                ]
-                assert rows[f"calendar:{unit}.start"].dt.tz_convert("UTC").tolist() == [
-                    datetime.fromisoformat("2009-11-01T" + start + "+00:00")
-                ]
-                assert rows[f"calendar:{unit}.end"].dt.tz_convert("UTC").tolist() == [
-                    datetime.fromisoformat("2009-11-01T" + end + "+00:00")
-                ]
-                assert len(trace.native_sql) == before + 1
+                namespace = case.source.database
+                parts = (
+                    namespace
+                    if isinstance(namespace, tuple)
+                    else (namespace,)
+                    if namespace is not None
+                    else ()
+                )
+                table_sql = sge.table_(
+                    case.source.table,
+                    db=parts[-1] if parts else None,
+                    catalog=parts[0] if len(parts) == 2 else None,
+                ).sql(dialect=backend)
+                fmt = "%Y-%m-01 00:00:00" if unit == "month" else "%Y-%m-%d 00:00:00"
+                native_key = {
+                    "duckdb": f"timezone('{zone}', date_trunc('{unit}', timezone('{zone}', timezone('UTC', point))))",
+                    "postgres": f"date_trunc('{unit}', (point AT TIME ZONE 'UTC') AT TIME ZONE '{zone}') AT TIME ZONE '{zone}'",
+                    "mysql": f"CONVERT_TZ(DATE_FORMAT(CONVERT_TZ(point, '+00:00', '{zone}'), '{fmt}'), '{zone}', '+00:00')",
+                    "trino": f"with_timezone(date_trunc('{unit}', CAST(at_timezone(with_timezone(point, 'UTC'), '{zone}') AS TIMESTAMP(6))), '{zone}')",
+                    "clickhouse": f"toTimeZone(toDateTime64(toString(toDateTime64(dateTrunc('{unit}', toDateTime64(toString(point, '{zone}'), 6, 'UTC')), 6, 'UTC'), 'UTC'), 6, '{zone}'), 'UTC')",
+                }[backend]
+                lower, upper = (
+                    pd.Timestamp(day + " " + clock).isoformat(sep=" ") for clock in (start, end)
+                )
+                bound = lambda value: (
+                    f"toDateTime64('{value}', 6, 'UTC')"
+                    if backend == "clickhouse"
+                    else f"TIMESTAMP '{value}'"
+                )
+                sql = f"SELECT {native_key} AS bucket, count(*) AS total FROM {table_sql} WHERE point >= {bound(lower)} AND point < {bound(upper)} GROUP BY {native_key} ORDER BY bucket"
+                oracle = case.session._backend.execute(
+                    case.session._backend.sql(
+                        sql, schema={"bucket": "timestamp('UTC', 6)", "total": "int64"}
+                    )
+                )
+
+                def key(value: object) -> pd.Timestamp:
+                    stamp = pd.Timestamp(value)
+                    return (
+                        stamp.tz_localize("UTC")
+                        if stamp.tzinfo is None
+                        else stamp.tz_convert("UTC")
+                    )
+
+                actual = {
+                    key(bucket): total
+                    for bucket, total in zip(rows[f"calendar:{unit}"], rows.total, strict=True)
+                    if total != 0
+                }
+                assert actual == {
+                    key(bucket): total
+                    for bucket, total in zip(oracle.bucket, oracle.total, strict=True)
+                }
+                assert sum(actual.values()) == expected
+                columns = rows.attrs["frozen_coordinates"][0]["rows"].column_names
+                assert not set(columns) & {
+                    "nominal_start",
+                    "nominal_end",
+                    "actual_start",
+                    "actual_end",
+                }
+                assert len(trace.native_sql) >= before + 2
                 assert "UNION ALL" not in trace.native_sql[-1].upper()
                 if backend == "clickhouse":
                     assert len(trace.native_sql[-1].encode()) < 65536
         receipt(
-            "calendar-midnight-fold-" + backend + "-" + profile, {"actual_sql": trace.native_sql}
+            "calendar-midnight-fold-" + zone.replace("/", "-") + "-" + backend + "-" + profile,
+            {"actual_sql": trace.native_sql},
         )
+
+
+@pytest.mark.parametrize(
+    ("start", "end", "zone", "unit", "clocks", "error_name"),
+    [
+        (
+            "2010-03-03T13:00:00Z",
+            "2010-03-04T16:00:00Z",
+            "Antarctica/Casey",
+            "day",
+            ["2010-03-04", "2010-03-05"],
+            "AmbiguousTimeError",
+        ),
+        (
+            "2026-03-08T05:00Z",
+            "2026-03-08T09:00Z",
+            "America/New_York",
+            "hour",
+            ["2026-03-08 00:00", "2026-03-08 01:00", "2026-03-08 02:00"],
+            "NonExistentTimeError",
+        ),
+        (
+            "2026-11-01T05:00Z",
+            "2026-11-01T06:00Z",
+            "America/New_York",
+            "hour",
+            ["2026-11-01 01:00"],
+            "AmbiguousTimeError",
+        ),
+    ],
+)
+def test_source_free_calendar_preserves_pandas_native_ambiguity(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    start: str,
+    end: str,
+    zone: str,
+    unit: str,
+    clocks: list[str],
+    error_name: str,
+) -> None:
+    from pytz.exceptions import AmbiguousTimeError, NonExistentTimeError
+
+    from marivo.analysis.dsl.population import _calendar_population
+    from marivo.analysis.materialization.errors import MaterializationError
+
+    monkeypatch.chdir(tmp_path)
+    session = mv.session.get_or_create("pandas-native-calendar", timezone="UTC")
+    axis = session.time_scope(start=start, end=end, timezone=zone).by(mv.grain(unit))
+    error_type = AmbiguousTimeError if error_name == "AmbiguousTimeError" else NonExistentTimeError
+    with pytest.raises(error_type):
+        pd.DatetimeIndex(clocks).tz_localize(zone)
+    with pytest.raises(MaterializationError, match="pandas native calendar evaluation") as captured:
+        session.frame(_calendar_population(axis)).compute()
+    assert isinstance(captured.value.__cause__, error_type)
+
+
+@pytest.mark.parametrize("backend,profile", CASES)
+def test_public_hour_index_follows_native_gap_and_fold_interpretation(
+    backend: str,
+    profile: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
+) -> None:
+    _maria(profile, monkeypatch)
+    monkeypatch.chdir(tmp_path)
+    # The fact is outside every selection, but belongs to each all-history window.
+    with source_case(
+        backend,
+        profile,
+        tmp_path,
+        monkeypatch,
+        _data(backend, [datetime(2026, 1, 1, tzinfo=timezone.utc)]),
+    ) as case:
+        assert isinstance(case.source, TableSourceIR)
+        semantic_project_factory(
+            {
+                "datasources/warehouse.py": _datasource_model(backend, case, monkeypatch),
+                "sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales', owner='Test', default=True)\n",
+                "sales/facts.py": "import marivo.datasource as md\nimport marivo.semantic as ms\n"
+                + f"facts=ms.entity(name='facts', datasource=ms.ref.datasource('warehouse'), source=md.table({case.source.table!r}, database={case.source.database!r}), primary_key=['id'])\n"
+                + "point=ms.time_dimension_column(name='point', entity=facts, column='point')\n"
+                + "amount=ms.measure_column(name='amount', entity=facts, column='amount', additivity=ms.additive_all())\n",
+            }
+        )
+        session = mv.session.get_or_create("native-hour-index", timezone="UTC")
+        point = catalog_value(session.catalog, "sales.facts.point", kind="field")
+        amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+        for day, start, end, clocks in (
+            ("2026-03-08", "05:00", "09:00", ("00:00", "01:00", "02:00", "03:00", "04:00")),
+            ("2026-11-01", "05:00", "06:00", ("01:00",)),
+            ("2026-11-01", "05:15", "05:45", ("01:00",)),
+            ("2026-11-01", "06:00", "07:00", ("01:00",)),
+        ):
+            # Independent SQL delegates each civil candidate to the actual engine.
+            native = []
+            for clock in clocks:
+                wall = f"{day} {clock}:00"
+                key = {
+                    "duckdb": f"timezone('America/New_York', TIMESTAMP '{wall}')",
+                    "postgres": f"TIMESTAMP '{wall}' AT TIME ZONE 'America/New_York'",
+                    "mysql": f"CONVERT_TZ(CAST('{wall}' AS DATETIME(6)), 'America/New_York', '+00:00')",
+                    "trino": f"with_timezone(TIMESTAMP '{wall}', 'America/New_York')",
+                    "clickhouse": f"toTimeZone(toDateTime64('{wall}', 6, 'America/New_York'), 'UTC')",
+                }[backend]
+                native.append(f"SELECT {key} AS bucket")
+            oracle = case.session._backend.execute(
+                case.session._backend.sql(
+                    " UNION ALL ".join(native), schema={"bucket": "timestamp('UTC', 6)"}
+                )
+            )
+            expected = sorted(
+                {
+                    pd.Timestamp(value).tz_localize("UTC")
+                    if pd.Timestamp(value).tzinfo is None
+                    else pd.Timestamp(value).tz_convert("UTC")
+                    for value in oracle.bucket
+                }
+            )
+            axis = session.time_scope(
+                start=f"{day}T{start}Z", end=f"{day}T{end}Z", timezone="America/New_York"
+            ).by(mv.grain("hour"))
+            total = amount.sum(time=point)
+            rows = (
+                session.observe(
+                    {"total": total, "history": total.window(mv.all_history())}, by=(axis,)
+                )
+                .compute()
+                .to_pandas()
+            )
+            assert rows["calendar:hour"].dt.tz_convert("UTC").tolist() == expected
+            assert rows.total.tolist() == [0] * len(expected)
+            assert rows.history.tolist() == [1] * len(expected)

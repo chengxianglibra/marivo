@@ -342,7 +342,7 @@ def test_calendar_tuple_actual_domain_and_complete_fine_population(session: Sess
         assert (
             dict(
                 zip(
-                    domain[["calendar:day.start", "channel"]].itertuples(index=False, name=None),
+                    domain[["calendar:day", "channel"]].itertuples(index=False, name=None),
                     domain[value],
                     strict=True,
                 )
@@ -454,8 +454,7 @@ def test_completed_calendar_top_retains_full_original_directory(session: Session
     parent = session.observe({"q": amount.sum(time=day)}, by=(calendar,))
     parent = parent.top(1, by=parent["q"]).compute()
     assert parent._derivation is not None
-    binding = parent._derivation.outputs[0].target.current.binding
-    assert len(binding.calendars[0].directory.rows) == 2
+    assert len(parent.read_periods(parent.axes[0]).items) == 2
     report = parent.attribute(by=(channel,)).compute()
     assert report.to_pandas(time_details=True)["calendar:day.label"].tolist() == [
         "2026-08-01",

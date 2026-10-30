@@ -682,10 +682,10 @@ class TimeScope(BaseModel):
     end: date | datetime
 
     def by(self, grain: Grain) -> CalendarAxis:
-        """Bind this scope to a complete finite calendar.
+        """Capture finite calendar selection intent for this scope.
 
         Args: grain: A builtin Grain or a certified catalog calendar Grain.
-        Returns: An immutable CalendarAxis with nominal and actual boundaries.
+        Returns: An immutable CalendarAxis; result evaluation resolves native keys.
         Example: ``session.time_scope(start='2026-01-01', end='2026-02-01').by(mv.grain('day'))``.
         Constraints: Uses frozen scope timezone or certified calendar authority; no source reads.
         """
@@ -2845,7 +2845,7 @@ class CalendarAxis(Grouping):
 
     @property
     def _binding(self) -> CalendarCoordinate:
-        from marivo._definition.types import CalendarCoordinate
+        from marivo._definition.types import CalendarCoordinate, CalendarOrigin, _merge_time_ranges
 
         grid = self.grid
         return CalendarCoordinate(
@@ -2863,8 +2863,21 @@ class CalendarAxis(Grouping):
                 for c in grid.cells
             ),
             grid.calendar_snapshot,
-            grid.origin,
+            CalendarOrigin(
+                CalendarAxis(None, grid.origin.grid)._binding,
+                grid.origin.kind,
+                grid.origin.by,
+                grid.origin.entries,
+            )
+            if grid.origin is not None
+            else None,
             civil_bounds=grid.civil_bounds,
+            ranges=_merge_time_ranges(
+                tuple(
+                    (anchor_from_datetime(cell.start), anchor_from_datetime(cell.end))
+                    for cell in grid.cells
+                )
+            ),
         )
 
     def shift(self, rule: CalendarCorrespondence) -> CalendarAxis:
@@ -2951,4 +2964,19 @@ def calendar_axis(scope: TimeScope, grain: Grain) -> CalendarAxis:
     grid = bind_grid(
         scope, grain, report_timezone=zone, explicit_timezone=zone, snapshot=grain._snapshot
     )
+    if grain.kind == "semantic" and (len(grid.cells) != 1 or grid.cells[0].partial):
+        snapshot = grain._snapshot
+        assert snapshot is not None
+        periods = (
+            ", ".join(
+                f"[{period.start_date},{period.end_date})"
+                for period in snapshot.periods
+                if period.level_name == grain.level
+            )
+            if grain.level != "day"
+            else f"[{snapshot.coverage[0]},{snapshot.coverage[0] + timedelta(days=1)})"
+        )
+        raise ValueError(
+            f"Expected one complete custom calendar period; received {len(grid.cells)} selected periods or partial bounds. Select one exact certified range: {periods[:500]}."
+        )
     return CalendarAxis(scope, grid)

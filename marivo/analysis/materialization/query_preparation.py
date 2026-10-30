@@ -329,10 +329,10 @@ def prepare_fields(
         all(
             (contribution.period.start is None or contribution.period.start <= start)
             and end <= contribution.period.end
-            for _, _, start, end in (
-                calendar.cells
+            for start, end in (
+                calendar.ranges
                 if isinstance(calendar, CalendarCoordinate)
-                else ((calendar.start, calendar.end, calendar.start, calendar.end),)
+                else ((calendar.start, calendar.end),)
             )
         )
         for calendar in selected_calendars
@@ -373,12 +373,11 @@ def prepare_fields(
         # Boolean literal seeds can produce incompatible Bool columns on older ClickHouse builds.
         condition: ir.BooleanValue | None = None
         for calendar in selected_calendars:
-            cells = (
-                calendar.cells
+            intervals = (
+                calendar.ranges
                 if isinstance(calendar, CalendarCoordinate)
-                else ((calendar.start, calendar.end, calendar.start, calendar.end),)
+                else ((calendar.start, calendar.end),)
             )
-            intervals = [(cells[0][2], cells[-1][3])] if cells else []
             member: ir.BooleanValue | None = None
             for left, right in intervals:
                 predicate = period_condition(time, left, right, calendar.timezone)
@@ -490,7 +489,7 @@ def prepare_fields(
             strict=True,
         )
     )
-    pending_calendars: list[tuple[str, str, CalendarCoordinate, str | None]] = []
+    pending_calendars: list[tuple[str, str, CalendarCoordinate]] = []
     for index, (read, component, read_key) in enumerate(parts):
         extras: dict[str, ir.Value] = {}
         extra_keys: dict[str, str] = {}
@@ -508,35 +507,8 @@ def prepare_fields(
                     name = unique("__bucket_" + key.replace(".", "_"))
                     if isinstance(calendar, CalendarCoordinate):
                         extras[name] = ibis.null().cast("timestamp('UTC', 6)")
-                        clock_key, wall_zone = read_key, None
-                        encoded = (
-                            time_encodings.get(read.field.ref.path)
-                            if isinstance(read, FieldRead)
-                            else None
-                        )
-                        if encoded is not None and calendar.cells:
-                            from marivo.analysis.compiler.source_time import calendar_wall_clock
-
-                            raw, time_axis, authority, prefix, prefix_axis = encoded
-                            engine = entity_engine(
-                                registry,
-                                normalize_target_entity(registry, time_axis.entity_ref.path),
-                            )
-                            neutral = calendar_wall_clock(
-                                raw,
-                                time_axis,
-                                authority,
-                                bound=calendar.cells[0][2],
-                                engine=engine,
-                                prefix=prefix,
-                                prefix_axis=prefix_axis,
-                            )
-                            if neutral is not None:
-                                clock_key = unique("__calendar_wall")
-                                extras[clock_key] = neutral
-                                extra_keys[clock_key] = clock_key
-                                wall_zone = authority.read_timezone
-                        pending_calendars.append((name, clock_key, calendar, wall_zone))
+                        clock_key = read_key
+                        pending_calendars.append((name, clock_key, calendar))
                     else:
                         extras[name] = period_condition(
                             expression, calendar.start, calendar.end, calendar.timezone
@@ -678,14 +650,8 @@ def prepare_fields(
             table = table.filter(table[dict(columns)["__time_period"]])
     from marivo.analysis.compiler.calendar import bind_calendar
 
-    for name, time_key, calendar, wall_zone in pending_calendars:
+    for name, time_key, calendar in pending_calendars:
         clock = dict(columns)[time_key]
-        if wall_zone is not None:
-            from marivo.analysis.compiler.calendar import bind_wall_clock
-
-            normalized = unique("__calendar_instant")
-            table = bind_wall_clock(table, table[clock], wall_zone, calendar, normalized)
-            clock = normalized
         table = bind_calendar(table, table[clock], calendar, name)
         if calendar in selected_calendars:
             table = table.filter(table[name].notnull())

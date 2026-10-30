@@ -69,13 +69,14 @@ def manifest() -> ArtifactManifest:
         "marivo.frame_output/v11",
         "marivo.frame_output/v12",
         "marivo.frame_output/v13",
+        "marivo.frame_output/v14",
     ],
 )
 def test_historical_output_envelope_is_rejected_without_rewrite(historical_format: str) -> None:
     historical = parse_json(FROZEN)
     assert isinstance(historical, dict)
     historical["format"] = historical_format
-    with pytest.raises(IntegrityError, match="expected Frame output v15"):
+    with pytest.raises(IntegrityError, match="expected Frame output v16"):
         protocol.decode(canonical_json(historical), ArtifactManifest)
     assert Path(__file__).with_name("terminal_v1_frozen.json").read_text().strip() == FROZEN
 
@@ -118,8 +119,8 @@ def test_one_explicit_closed_type_and_field_inventory() -> None:
     saved = manifest()
     assert protocol.decode(protocol.encode(saved), ArtifactManifest) == saved
     assert saved.result_id == saved.metadata.result_id
-    assert saved.semantics_version == "frame.v15"
-    assert protocol.FORMAT == "marivo.frame_output/v15"
+    assert saved.semantics_version == "frame.v16"
+    assert protocol.FORMAT == "marivo.frame_output/v16"
 
 
 @pytest.mark.parametrize(
@@ -490,7 +491,7 @@ def test_current_store_contains_no_record_collections(tmp_path: Path) -> None:
                 "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
             )
         }
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 26
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 27
     assert names == {
         "sessions",
         "analysis_action_runs",

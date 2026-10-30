@@ -106,6 +106,7 @@ class PreparedSources:
     bound: dict[str, BoundSource]
     sources: dict[str, SourceSession] = field(default_factory=dict)
     entities: dict[str, ir.Table] = field(default_factory=dict)
+    graph: BoundGraph | None = None
     original_input_qualifications: dict[
         tuple[SourceSession, ops.Node], Literal["qualified", "other", "unavailable"]
     ] = field(default_factory=dict)
@@ -1201,14 +1202,18 @@ def open_query_sources(
                 "source-free query",
                 "Execute the local-only plan directly.",
             )
-        yield prepare_query_sources(
-            graph,
+        from marivo.analysis.materialization.native_calendar import bind_native_calendars
+
+        native_graph = bind_native_calendars(graph, state, sources)
+        prepared = prepare_query_sources(
+            native_graph,
             state,
             next(iter(sources.values())),
             sources=sources,
             memo=memo,
             frame_schemas=frame_schemas,
         )
+        yield replace(prepared, graph=native_graph)
 
 
 def _qualify_query_read(

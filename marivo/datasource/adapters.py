@@ -531,7 +531,7 @@ class SourceSession:
         """Issue a handle for one bound expression and unmodified Ibis SQL."""
         self._ensure_open()
         sources = (qualified,) if isinstance(qualified, QualifiedSource) else tuple(qualified)
-        if not sources or any(
+        if any(
             item._owner is not self._token or item.binding._owner is not self._token
             for item in sources
         ):
@@ -542,7 +542,7 @@ class SourceSession:
             raise _invalid("an Ibis expression", type(expression).__name__)
         from marivo.datasource._calendar_relations import CalendarData, memory_calendar
 
-        if self.provider.name in ("duckdb", "clickhouse"):
+        if self.provider.name == "duckdb":
             replacements = {}
             for directory in expression.op().find(CalendarData):
                 relation = memory_calendar(directory).op()

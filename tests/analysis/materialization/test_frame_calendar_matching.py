@@ -92,14 +92,6 @@ def memory(
         datetime.combine(date.fromisoformat(label), datetime.min.time(), timezone.utc)
         for label in labels
     )
-    stops = (
-        tuple(
-            datetime.combine(date.fromisoformat(label), datetime.min.time(), timezone.utc)
-            for label in ends
-        )
-        if ends
-        else tuple(start + timedelta(days=1) for start in starts)
-    )
     directory = pd.DataFrame(
         {
             "bucket": pd.Series(range(len(labels)), dtype="int64[pyarrow]"),
@@ -109,27 +101,11 @@ def memory(
                 [builtin_nominal_ordinal(unit, 1, start) for start in starts],
                 dtype="int64[pyarrow]",
             ),
-            **{
-                name: pd.Series(items, dtype="timestamp[us, tz=UTC][pyarrow]")
-                for name, items in (
-                    ("nominal_start", starts),
-                    ("nominal_end", stops),
-                    ("actual_start", (actual_start,) if actual_start is not None else starts),
-                    ("actual_end", stops),
-                )
-            },
-            **{
-                f"{name}_civil": pd.Series(
-                    [bound.isoformat(timespec="microseconds") for bound in items],
-                    dtype="string[pyarrow]",
-                )
-                for name, items in (
-                    ("nominal_start", starts),
-                    ("nominal_end", stops),
-                    ("actual_start", (actual_start,) if actual_start is not None else starts),
-                    ("actual_end", stops),
-                )
-            },
+            "selection": pd.Series(
+                ["partial" if actual_start is not None else "full"] * len(labels),
+                dtype="string[pyarrow]",
+            ),
+            "cutoff": pd.Series([None] * len(labels), dtype="string[pyarrow]"),
         }
     )
     axes: tuple[DataAxis, ...] = (axis,)
@@ -363,13 +339,28 @@ def test_equality_merges_complete_directory_without_renumbering_and_can_recombin
     recombined = output.align(output).compute()
     assert _memory_backing(recombined).data.copy_rows()["bucket"].tolist() == [1, 0]
     conflicting = memory(local, ("2026-08-02",), (0,), (1,))
-    with pytest.raises(AnalysisError, match="directory conflicts"):
-        left.align(conflicting).select({"one": 1}).compute()
+    assert left.align(conflicting).select({"one": 1}).compute().to_pandas()["one"].tolist() == [
+        1,
+        1,
+    ]
 
 
 def test_ordinary_equality_never_guesses_calendar_rule(local: LocalFrameServices) -> None:
     july = memory(local, ("2026-07-01",), (0,), (8,))
     august = memory(local, ("2026-08-01",), (0,), (4,))
+    backing = _memory_backing(july)
+    primary = backing.data.copy_rows()
+    primary["bucket"] += 100
+    part = backing.data.copy_attachments()[0]
+    directory_rows = part.rows.copy()
+    directory_rows["bucket"] += 100
+    july = AnalysisFrame._from_memory(
+        local,
+        CompletedFrameResult(
+            CompletedFrameData(backing.data.schema, primary, (replace(part, rows=directory_rows),)),
+            backing.metadata,
+        ),
+    )
     with pytest.raises(AnalysisError, match="actual baseline time row"):
         august.compare({"reference": mv.baseline(july)}).compute()
     matched = august.compare(
@@ -482,7 +473,7 @@ def test_source_plus_fixed_calendar_match_runs_one_existing_schedule(
         raise AssertionError("captured source calendar was reconstructed")
 
     monkeypatch.setattr(evaluator, "run_frame_plan", run)
-    monkeypatch.setattr(frame_sources, "freeze_calendar", forbidden)
+    monkeypatch.setattr(frame_sources, "calendar_descriptor", forbidden)
     pending = source.compare(
         {
             "reference": mv.baseline(fixed, match=CalendarCorrespondence("ordinal")),
@@ -682,6 +673,7 @@ def test_paired_mapping_preserves_valid_minimum_temporal_endpoint_keys(
 
 def test_source_completion_rejects_unused_corrupt_directory_before_top_zero(
     analysis_dsl_case_factory: DslCaseFactory,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from marivo.analysis.core.frame_data import SourceFrameBinding
     from marivo.analysis.dsl import frame_sources
@@ -697,7 +689,25 @@ def test_source_completion_rejects_unused_corrupt_directory_before_top_zero(
     assert isinstance(source._backing, ExpressionFrameBacking)
     binding = source._backing.root
     assert isinstance(binding, SourceFrameBinding)
-    binding.calendars[0].directory.rows.loc[30, "ordinal"] = 99
+    from marivo._definition.types import CalendarCoordinate
+    from marivo.analysis.core.frame_calendar import FrozenSourceCalendar, freeze_calendar
+    from marivo.analysis.core.lineage import SemanticObjectIdentity
+
+    def corrupt(
+        coordinate: CalendarCoordinate,
+        *,
+        token: str,
+        name: str,
+        key: DataColumn,
+        calendar_ref: SemanticObjectIdentity | None = None,
+    ) -> FrozenSourceCalendar:
+        frozen = freeze_calendar(
+            coordinate, token=token, name=name, key=key, calendar_ref=calendar_ref
+        )
+        frozen.directory.rows.loc[30, "ordinal"] = 99
+        return frozen
+
+    monkeypatch.setattr("marivo.analysis.core.frame_calendar.freeze_calendar", corrupt)
     with pytest.raises(AnalysisError, match="original ordinal"):
         source.top(0, by=source["amount"]).compute()
     assert terminal_runs(session) == ()
@@ -741,7 +751,7 @@ def test_captured_source_calendar_errors_precede_values_for_every_carrier(
         frozen += 1
         return original(coordinate, token=token, name=name, key=key, calendar_ref=calendar_ref)
 
-    monkeypatch.setattr(frame_sources, "freeze_calendar", freeze)
+    monkeypatch.setattr("marivo.analysis.core.frame_calendar.freeze_calendar", freeze)
 
     def source(grain: Literal["day", "hour", "month"], zone: str) -> AnalysisFrame:
         return frame_sources.observe(
@@ -770,7 +780,7 @@ def test_captured_source_calendar_errors_precede_values_for_every_carrier(
     def forbidden(*args: object, **kwargs: object) -> None:
         raise AssertionError("construction read beyond the current captured structure")
 
-    monkeypatch.setattr(frame_sources, "freeze_calendar", forbidden)
+    monkeypatch.setattr(frame_sources, "calendar_descriptor", forbidden)
     monkeypatch.setattr(
         "marivo.analysis.materialization.frame_source_preparation.open_query_sources", forbidden
     )
@@ -820,7 +830,7 @@ def test_pending_unary_shared_and_paired_axes_retain_exact_frozen_facts(
     def forbidden(*args: object, **kwargs: object) -> None:
         raise AssertionError("source calendar was frozen more than once")
 
-    monkeypatch.setattr(frame_sources, "freeze_calendar", forbidden)
+    monkeypatch.setattr(frame_sources, "calendar_descriptor", forbidden)
     shared = reduced.align(reduced)
     paired = reduced.align(reduced, match=CalendarCorrespondence("ordinal"))
     assert isinstance(shared._schema.axes[0], CalendarDataAxis)
@@ -880,7 +890,9 @@ def test_named_source_pending_interpretation_is_checked_before_value_names(
             {"amount": metric},
             calendar_snapshots=(captured,),
             by=(
-                session.time_scope(start=start, end=end).by(
+                session.time_scope(
+                    start=start, end=start + timedelta(days=2 if level == "short" else 4)
+                ).by(
                     semantic_grain(
                         calendar=ref_factory.period_calendar("sales.fiscal"),
                         level=level,
@@ -906,6 +918,19 @@ def test_named_source_pending_interpretation_is_checked_before_value_names(
         ),
         value_paths=(("amount",),),
     )
+    from marivo._definition.types import CalendarCoordinate
+    from marivo.analysis.core.frame_calendar import freeze_calendar
+
+    coordinate = binding.graph.signature.axes[0]
+    assert isinstance(coordinate, CalendarCoordinate) and endpoint.frozen is not None
+    assert isinstance(endpoint.frozen.definition, NamedCalendarData)
+    captured_calendar = freeze_calendar(
+        coordinate,
+        token=endpoint.token,
+        name=endpoint.name,
+        key=endpoint.columns[0],
+        calendar_ref=endpoint.frozen.definition.ref,
+    )
     frozen = AnalysisFrame._from_memory(
         session._runtime.local,
         CompletedFrameResult(
@@ -917,7 +942,7 @@ def test_named_source_pending_interpretation_is_checked_before_value_names(
                         "value.0": [2],
                     }
                 ),
-                tuple(calendar.directory for calendar in binding.calendars),
+                captured_calendar.attachments,
             ),
             FrameResultMetadata(
                 "named-literal",
@@ -933,7 +958,7 @@ def test_named_source_pending_interpretation_is_checked_before_value_names(
     def forbidden(*args: object, **kwargs: object) -> None:
         raise AssertionError("named construction consulted source state or rebuilt its calendar")
 
-    monkeypatch.setattr(frame_sources, "freeze_calendar", forbidden)
+    monkeypatch.setattr(frame_sources, "calendar_descriptor", forbidden)
     monkeypatch.setattr(
         "marivo.analysis.materialization.frame_source_preparation.open_query_sources", forbidden
     )

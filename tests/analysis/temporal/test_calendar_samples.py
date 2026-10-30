@@ -1,4 +1,4 @@
-"""Calendar samples complete child Metrics over a finite, clipped calendar grid."""
+"""Calendar samples reduce actual complete contribution keys without filling a grid."""
 
 from collections.abc import Callable
 from datetime import datetime, timedelta
@@ -83,7 +83,7 @@ def calendar_session(
     return mv.session.get_or_create("calendar-samples", timezone="UTC")
 
 
-def test_weekly_calendar_samples_include_empty_days_and_finish_daily_p95(
+def test_weekly_calendar_samples_use_actual_days_and_finish_daily_p95(
     calendar_session: Session,
 ) -> None:
     session = calendar_session
@@ -114,19 +114,18 @@ def test_weekly_calendar_samples_include_empty_days_and_finish_daily_p95(
         .compute()
         .to_pandas()
     )
-    # Daily sums [40, 60, 0, 160, 0, 0, 300]; daily P95 [29, 39, NA, 89, NA, NA, 159].
-    assert rows["mean"].tolist() == [80]
+    # Actual daily sums [40, 60, 160, 300]; daily P95 [29, 39, 89, 159].
+    assert rows["mean"].tolist() == [140]
     assert rows["p95_median"].tolist() == [64]
     assert rows["ratio_mean"].tolist() == [70]
     assert rows["weighted"].tolist() == [140]
     assert rows["first"].tolist() == [40]
     assert rows["last"].tolist() == [300]
-    assert rows["nested"].tolist() == pytest.approx([320 / 7])
-    with pytest.raises(MaterializationError, match="non-NA internal samples"):
-        session.observe(
-            {"v": (revenue / facts.count(time=point)).per(mv.grain("day")).mean(nulls="error")},
-            by=(weeks,),
-        ).compute()
+    assert rows["nested"].tolist() == pytest.approx([320 / 4])
+    assert session.observe(
+        {"v": (revenue / facts.count(time=point)).per(mv.grain("day")).mean(nulls="error")},
+        by=(weeks,),
+    ).compute().to_pandas()["v"].tolist() == [70]
 
 
 def test_calendar_samples_clip_partial_month_edges_and_plain_scope(
@@ -140,11 +139,11 @@ def test_calendar_samples_clip_partial_month_edges_and_plain_scope(
     monthly = (
         session.observe({"v": metric}, by=(scope.by(mv.grain("month")),)).compute().to_pandas()
     )
-    assert monthly["v"].tolist() == pytest.approx([550 / 27, 125])
+    assert monthly["v"].tolist() == pytest.approx([550 / 4, 125])
     whole = session.observe({"v": metric}, by=(scope,)).compute().to_pandas()
-    assert whole["v"].tolist() == pytest.approx([800 / 29])
+    assert whole["v"].tolist() == pytest.approx([800 / 6])
     empty = session.time_scope(start="2026-10-12", end="2026-10-19").by(mv.grain("week"))
-    assert session.observe({"v": metric}, by=(empty,)).compute().to_pandas()["v"].tolist() == [0]
+    assert session.observe({"v": metric}, by=(empty,)).compute().to_pandas()["v"].isna().all()
 
 
 def test_calendar_samples_bucket_each_component_by_its_own_clock(calendar_session: Session) -> None:
@@ -157,6 +156,62 @@ def test_calendar_samples_bucket_each_component_by_its_own_clock(calendar_sessio
     assert session.observe({"v": metric}, by=(scope,)).compute().to_pandas()["v"].tolist() == [300]
 
 
+def test_final_completion_keeps_empty_policies_and_historical_window_values(
+    calendar_session: Session,
+) -> None:
+    session = calendar_session
+    amount = _field(session, "sales.facts.amount")
+    point = _field(session, "sales.facts.point")
+    total = amount.sum(time=point)
+    days = session.time_scope(start="2026-10-12", end="2026-10-14").by(mv.grain("day"))
+    rows = (
+        session.observe(
+            {
+                "sum_plus_one": total + 1,
+                "mean_plus_one": amount.mean(time=point) + 1,
+                "sample_mean": total.per(mv.grain("hour")).mean(),
+                "history": total.window(mv.trailing_duration(duration=timedelta(days=2))),
+            },
+            by=(days,),
+        )
+        .compute()
+        .to_pandas()
+    )
+    assert rows["sum_plus_one"].tolist() == [1, 1]
+    assert rows["mean_plus_one"].isna().all() and rows["sample_mean"].isna().all()
+    assert rows["history"].tolist() == [300, 0]
+
+
+def test_actual_null_sample_is_retained_while_missing_samples_are_absent(
+    calendar_session: Session, tmp_path: Path
+) -> None:
+    backend = ibis.duckdb.connect(tmp_path / "warehouse.duckdb")
+    try:
+        backend.raw_sql("INSERT INTO facts VALUES (100, '2027-01-01', '2027-01-02', NULL, 'east')")
+    finally:
+        backend.disconnect()
+    session = calendar_session
+    amount = _field(session, "sales.facts.amount")
+    point = _field(session, "sales.facts.point")
+    metric = amount.sum(time=point)
+    days = session.time_scope(start="2027-01-01", end="2027-01-03").by(mv.grain("day"))
+    rows = session.observe({"v": metric + 1}, by=(days,)).compute().to_pandas()
+    assert pd.isna(rows.v.iloc[0]) and rows.v.iloc[1] == 1
+    strict = metric.per(mv.grain("hour")).mean(nulls="error")
+    with pytest.raises(MaterializationError, match="non-NA internal samples"):
+        session.observe(
+            {"v": strict}, by=(session.time_scope(start="2027-01-01", end="2027-01-02"),)
+        ).compute()
+    missing = (
+        session.observe(
+            {"v": strict}, by=(session.time_scope(start="2027-01-02", end="2027-01-03"),)
+        )
+        .compute()
+        .to_pandas()
+    )
+    assert missing.v.isna().all()
+
+
 def test_calendar_sample_binding_errors_are_structured(calendar_session: Session) -> None:
     session = calendar_session
     amount = _field(session, "sales.facts.amount")
@@ -165,7 +220,7 @@ def test_calendar_sample_binding_errors_are_structured(calendar_session: Session
     month = session.time_scope(start="2026-10-05", end="2026-11-02").by(mv.grain("month"))
     for value, by, expected, received in (
         (metric.per(mv.grain("day")).mean(), (), "finite", "None"),
-        (metric.per(mv.grain("week")).mean(), (month,), "nest", "week"),
+        (metric.per(mv.grain("week")).mean(), (month,), "static", "week"),
         (amount.sum().per(mv.grain("day")).mean(), (month,), "time role", "SourceAggregate"),
     ):
         with pytest.raises(CoreRuleError) as captured:
@@ -210,7 +265,7 @@ def test_published_calendar_metric_can_be_nested_under_another_calendar_layer(
     rows = (
         session.observe({"v": daily.per(mv.grain("week")).max()}, by=(scope,)).compute().to_pandas()
     )
-    assert rows["v"].tolist() == [80]
+    assert rows["v"].tolist() == [200]
 
 
 def test_calendar_sample_help_and_bilingual_examples_execute(calendar_session: Session) -> None:
@@ -238,10 +293,10 @@ def test_calendar_sample_help_and_bilingual_examples_execute(calendar_session: S
         exec(compile(source, "<calendar-sample-example>", "exec"), namespace)
         folded = namespace["folded"]
         assert isinstance(folded, mv.AnalysisFrame)
-        assert folded.to_pandas()["daily_average"].tolist() == [80]
+        assert folded.to_pandas()["daily_average"].tolist() == [140]
 
 
-def test_calendar_sample_grid_preserves_dst_hour_count(calendar_session: Session) -> None:
+def test_calendar_sample_mean_uses_present_hours_during_dst(calendar_session: Session) -> None:
     session = mv.session.get_or_create("calendar-new-york", timezone="America/New_York")
     amount = _field(session, "sales.facts.amount")
     point = _field(session, "sales.facts.point")
@@ -251,9 +306,7 @@ def test_calendar_sample_grid_preserves_dst_hour_count(calendar_session: Session
         .compute()
         .to_pandas()
     )
-    assert rows["v"].tolist() == [
-        2
-    ]  # UTC source clock: 50 over 25 New York hours, including empty hours.
+    assert rows["v"].tolist() == [50]  # Only the one represented hour contributes.
 
 
 @pytest.mark.parametrize("empty", [False, True])

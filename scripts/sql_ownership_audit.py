@@ -307,8 +307,19 @@ def _manifest() -> Manifest:
     )
     add(
         "datasource/_calendar_relations",
-        ("compile_calendar_floor",),
-        ("sge.Literal.string().sql", "sqlglot.parse_one", "sqlglot.parse_one().transform"),
+        ("compile_calendar_range",),
+        ("sqlglot.parse_one",),
+        calendar_compilation,
+    )
+    add(
+        "datasource/_calendar_relations",
+        ("_clickhouse_calendar_data",),
+        (
+            "ClickHouseType.from_ibis().sql",
+            "sge.to_identifier().sql",
+            "sge.Literal.string().sql",
+            "sqlglot.parse_one",
+        ),
         calendar_compilation,
     )
 

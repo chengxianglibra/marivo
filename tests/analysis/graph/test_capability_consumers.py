@@ -754,7 +754,7 @@ def test_certified_unequal_calendar_owns_native_boundaries(
         session = mv.session.get_or_create("r93-certified-calendar", timezone="UTC")
         scope = session.time_scope(
             start=datetime(2026, 7, 31, 16, tzinfo=timezone.utc),
-            end=datetime(2026, 8, 5, 16, tzinfo=timezone.utc),
+            end=datetime(2026, 8, 2, 16, tzinfo=timezone.utc),
             timezone="Asia/Shanghai",
         )
         grid = scope.by(grain)
@@ -769,12 +769,19 @@ def test_certified_unequal_calendar_owns_native_boundaries(
             {"value": session.catalog.get("metric:sales.total")}, by=mv.product(grid, members)
         )
         fixed = logical.persist()
-        assert len(fixed.to_pandas()) == 10
+        assert len(fixed.to_pandas()) == 5
         source_trace.record(fixed)
         grouped = session.observe(
             {"value": session.catalog.get("metric:sales.total")}, by=(grid,)
         ).persist()
-        assert _value(grouped).tolist() == [7, 41]
+        assert _value(grouped).tolist() == [7]
+        second = session.time_scope(
+            start="2026-08-03", end="2026-08-06", timezone="Asia/Shanghai"
+        ).by(grain)
+        other = session.observe(
+            {"value": session.catalog.get("metric:sales.total")}, by=(second,)
+        ).compute()
+        assert _value(other).tolist() == [41]
         assert session._runtime.store.resources(session._runtime.session_ref) == ()
         source_trace.save(
             f"c06-source-{backend}-certified-calendar",
@@ -783,7 +790,7 @@ def test_certified_unequal_calendar_owns_native_boundaries(
             {
                 "values": [7, 41],
                 "period_days": [2, 3],
-                "product_rows": 10,
+                "product_rows": 5,
                 "calendar_timezone": "Asia/Shanghai",
                 "report_timezone": "UTC",
                 "snapshot_current": True,

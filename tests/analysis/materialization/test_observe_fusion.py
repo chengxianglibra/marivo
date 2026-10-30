@@ -106,7 +106,7 @@ def test_multi_field_aggregate_keeps_nulls_types_and_empty_buckets(
         trace = capture_source(monkeypatch)
         result = query.compute().to_pandas()
         pd.testing.assert_frame_equal(result, baseline)
-        assert len(trace.native_sql) == 1
+        assert len(trace.native_sql) == (2 if calendar else 1)
         assert trace.uploaded_key_rows == []
         assert result["total"].iloc[0] == 40
         assert result["exact"].iloc[0] == Decimal("40.03")

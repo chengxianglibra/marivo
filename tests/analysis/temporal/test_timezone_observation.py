@@ -240,13 +240,14 @@ def test_dst_mean_grid_and_cumulative_preserve_exact_windows(
         by=mv.product(grid, members),
     )
     assert _values(running) == {"A": 928, "B": 60}
-    output = gridded.compute().to_pandas()
+    completed = gridded.compute()
+    output = completed.to_pandas()
     calendar = output.attrs["axes"][0]["descriptor"]
     bounds = output.attrs["frozen_coordinates"][0]["rows"].to_pandas(types_mapper=pd.ArrowDtype)
     assert calendar["timezone"] == "America/New_York"
-    assert (
-        bounds["actual_end"].iloc[0] - bounds["actual_start"].iloc[0]
-    ).total_seconds() == hours * 3600
+    assert "actual_start" not in bounds and "actual_end" not in bounds
+    assert bounds["selection"].tolist() == ["full"]
+    assert completed.persist().source_reads
 
 
 @pytest.mark.parametrize("read_zone", ("UTC", "Asia/Shanghai"))

@@ -138,7 +138,6 @@ def calendar(local: LocalFrameServices, count: int = 128, *, offset: int = 0) ->
     )
     start = datetime(2024, 1, 1, tzinfo=timezone.utc)
     starts = tuple(start + timedelta(days=i) for i in range(count))
-    ends = tuple(point + timedelta(days=1) for point in starts)
     keys = [900_000 + i * 17 for i in range(count)]
     directory = pd.DataFrame(
         {
@@ -150,27 +149,8 @@ def calendar(local: LocalFrameServices, count: int = 128, *, offset: int = 0) ->
             "nominal_ordinal": pd.Series(
                 [point.date().toordinal() - 1 for point in starts], dtype="int64[pyarrow]"
             ),
-            **{
-                name: pd.Series(
-                    [point.isoformat(timespec="microseconds") for point in values],
-                    dtype="string[pyarrow]",
-                )
-                for name, values in (
-                    ("nominal_start_civil", starts),
-                    ("nominal_end_civil", ends),
-                    ("actual_start_civil", starts),
-                    ("actual_end_civil", ends),
-                )
-            },
-            **{
-                name: pd.Series(values, dtype="timestamp[us, tz=UTC][pyarrow]")
-                for name, values in (
-                    ("nominal_start", starts),
-                    ("nominal_end", ends),
-                    ("actual_start", starts),
-                    ("actual_end", ends),
-                )
-            },
+            "selection": pd.Series(["full"] * count, dtype="string[pyarrow]"),
+            "cutoff": pd.Series([None] * count, dtype="string[pyarrow]"),
         }
     )
     value = DataColumn("amount", "amount", ScalarDataType("int64"), False)
@@ -476,8 +456,8 @@ with patch.object(Session, "catalog", property(forbidden)), patch.object(SourceS
 def test_sole_protocol_and_exact_closed_fields(local: LocalFrameServices) -> None:
     saved = ordinary(local).persist()
     value = manifest(saved)
-    assert FORMAT == "marivo.frame_output/v15"
-    assert local.store.layout.generation == 26
+    assert FORMAT == "marivo.frame_output/v16"
+    assert local.store.layout.generation == 27
     assert decode(encode(value), ArtifactManifest) == value
     assert value.result_id == value.metadata.result_id
     restored = terminal_store.complete_metadata(value)
@@ -645,7 +625,7 @@ def test_prefix_resolves_sparse_original_keys_and_only_selected_records(
     assert prefix.attachments[0].rows["ordinal"].tolist() == [126, 127]
     assert calls == [2]
     saved.show(n=1)
-    assert "2024-05-07" in capsys.readouterr().out
+    assert "902159" in capsys.readouterr().out
     assert counts(local) == (1, 1)
 
 
@@ -887,7 +867,7 @@ def test_old_store_coexists_without_any_byte_changes(tmp_path: Path, generation:
     before = old.read_bytes()
     with pytest.raises(IntegrityError, match="absent"):
         SessionStore.open_existing(tmp_path)
-    assert not (old.parent.parent / "v26").exists()
+    assert not (old.parent.parent / "v27").exists()
     store = SessionStore(tmp_path)
     assert SessionStore.open_existing(tmp_path).db_path == store.db_path
     assert old.read_bytes() == before
@@ -1178,7 +1158,7 @@ def test_every_old_generation_entry_preserves_old_tree(
         if path.is_file()
     }
     assert after == before
-    assert (old.parent.parent / "v26").exists()
+    assert (old.parent.parent / "v27").exists()
 
 
 def test_old_manifest_cannot_enter_any_current_read(local: LocalFrameServices) -> None:
@@ -2890,35 +2870,15 @@ def test_readable_calendar_projection_uses_sparse_keys_and_current_order(
     fixed = root.top(2, by=root["amount"]).compute()
     for frame in (fixed, fixed.persist()):
         rows = frame.to_pandas(axis_names={frame.axes[0].token: "date"}, time_details=True)
-        assert rows.columns.tolist() == [
-            "date.start",
-            "date.end",
-            "date.label",
-            "date.nominal_start",
-            "date.nominal_end",
-            "amount",
-        ]
+        assert rows.columns.tolist() == ["date", "date.label", "amount"]
         assert rows["date.label"].tolist() == ["2024-01-01", "2024-01-02"]
         assert rows["amount"].tolist() == [2, 1]
-        assert rows["date.start"].tolist() == [
-            datetime(2024, 1, day, tzinfo=timezone.utc) for day in (1, 2)
-        ]
-        assert rows["date.end"].tolist() == [
-            datetime(2024, 1, day, tzinfo=timezone.utc) for day in (2, 3)
-        ]
-        assert str(rows["date.start"].dtype) == "timestamp[us, tz=UTC][pyarrow]"
+        assert rows["date"].tolist() == [900000, 900017]
+        assert str(rows["date"].dtype) == "int64[pyarrow]"
         frame.show(n=1)
-        preview = capsys.readouterr().out.split("preview:", 1)[1]
-        assert "2024-01-01" in preview and "900000" not in preview
+        assert "900000" in capsys.readouterr().out
     empty = root.top(0, by=root["amount"]).compute().to_pandas(time_details=True)
-    assert empty.empty and empty.columns.tolist() == [
-        "day.start",
-        "day.end",
-        "day.label",
-        "day.nominal_start",
-        "day.nominal_end",
-        "amount",
-    ]
+    assert empty.empty and empty.columns.tolist() == ["day", "day.label", "amount"]
 
 
 def test_readable_paired_calendar_keeps_endpoint_mapping_separate_from_row_presence(
@@ -2929,22 +2889,18 @@ def test_readable_paired_calendar_keeps_endpoint_mapping_separate_from_row_prese
     rows = paired.to_pandas(time_details=True)
     assert rows["day.left.label"].tolist() == ["2024-01-03", "2024-01-02", "2024-01-01"]
     assert rows["day.right.label"].tolist() == [pd.NA, "2024-01-02", "2024-01-01"]
-    assert rows["day.right.start"].isna().tolist() == [True, False, False]
+    assert rows["day.right"].isna().tolist() == [True, False, False]
     assert rows["left_present"].tolist() == [True, True, True]
     assert rows["right_present"].tolist() == [False, True, True]
     pd.testing.assert_frame_equal(rows, paired.persist().compute().to_pandas(time_details=True))
 
 
-def test_readable_partial_calendar_retains_actual_bounds(local: LocalFrameServices) -> None:
+def test_readable_partial_calendar_retains_keys_and_selection(local: LocalFrameServices) -> None:
     root = calendar(local, 1)
     backing = _memory_backing(root)
     part = backing.data.copy_attachments()[0]
     directory = part.rows.copy()
-    actual = datetime(2024, 1, 1, 6, tzinfo=timezone.utc)
-    directory["actual_start"] = pd.Series([actual], dtype="timestamp[us, tz=UTC][pyarrow]")
-    directory["actual_start_civil"] = pd.Series(
-        [actual.isoformat(timespec="microseconds")], dtype="string[pyarrow]"
-    )
+    directory["selection"] = pd.Series(["partial"], dtype="string[pyarrow]")
     frame = AnalysisFrame._from_memory(
         local,
         CompletedFrameResult(
@@ -2956,8 +2912,9 @@ def test_readable_partial_calendar_retains_actual_bounds(local: LocalFrameServic
     )
     rows = frame.to_pandas(time_details=True)
     assert rows["day.label"].tolist() == ["2024-01-01"]
-    assert rows["day.start"].tolist() == [actual]
-    assert rows["day.end"].tolist() == [datetime(2024, 1, 2, tzinfo=timezone.utc)]
+    assert rows["day"].tolist() == [900000]
+    assert rows.columns.tolist() == ["day", "day.label", "amount"]
+    assert _period_page(frame, limit=1).items[0].selection == "partial"
 
 
 def test_data_pages_preserve_projection_order_coordinates_and_cold_continuation(
@@ -3276,19 +3233,11 @@ def test_calendar_export_unifies_grains_and_preserves_clipped_timezone_bounds() 
         schema = DataSchema((frozen.axis,), ())
         keys = frozen.directory.rows.loc[:, ["bucket"]]
         rows = export_frame(schema, keys, frozen.attachments)
-        assert rows.columns.tolist() == ["time.start", "time.end"]
-        assert str(rows["time.start"].dtype) == "timestamp[us, tz=Europe/Berlin][pyarrow]"
-        assert rows["time.start"].iloc[0].isoformat() == "2026-10-25T00:02:00+02:00"
-        assert rows["time.end"].iloc[-1].isoformat() == "2026-10-25T04:00:00+01:00"
+        assert rows.columns.tolist() == ["time"]
+        assert str(rows["time"].dtype) == "timestamp[us, tz=Europe/Berlin][pyarrow]"
+        assert rows["time"].iloc[0].isoformat() == "2026-10-25T00:00:00+02:00"
         details = export_frame(schema, keys, frozen.attachments, time_details=True)
-        assert details.columns.tolist() == [
-            "time.start",
-            "time.end",
-            "time.label",
-            "time.nominal_start",
-            "time.nominal_end",
-        ]
-        assert details["time.nominal_start"].iloc[0].isoformat() == "2026-10-25T00:00:00+02:00"
+        assert details.columns.tolist() == ["time", "time.label"]
         pd.testing.assert_frame_equal(rows, details.loc[:, rows.columns])
         empty = export_frame(schema, keys.iloc[:0], frozen.attachments)
         assert empty.empty and empty.dtypes.equals(rows.dtypes)
@@ -3398,7 +3347,7 @@ def test_fixed_offset_exports_are_readable_and_keep_exact_instants(
         (
             daily,
             "day",
-            datetime(2024, 1, 1, 0, 2, tzinfo=boundary_zone),
+            datetime(2024, 1, 1, tzinfo=boundary_zone),
             datetime(2024, 1, 3, tzinfo=boundary_zone),
         ),
         (
@@ -3410,14 +3359,12 @@ def test_fixed_offset_exports_are_readable_and_keep_exact_instants(
     ):
         for frame in (root, root.persist()):
             rows = frame.to_pandas(time_details=True)
-            assert rows[f"{name}.start"].dtype == pd.ArrowDtype(pa.timestamp("us", tz=export_zone))
-            assert rows[f"{name}.start"].tolist()[0] == start
-            assert rows[f"{name}.end"].iloc[-1] == end
+            key_name = name if name == "day" else f"{name}.start"
+            assert rows[key_name].dtype == pd.ArrowDtype(pa.timestamp("us", tz=export_zone))
+            assert rows[key_name].iloc[0] == start
+            if name == "interval":
+                assert rows[f"{name}.end"].iloc[-1] == end
             assert rows.attrs["axes"][0]["descriptor"]["timezone"] == zone
-            if name == "day":
-                assert rows["day.nominal_start"].iloc[0] == datetime(
-                    2024, 1, 1, tzinfo=boundary_zone
-                )
             chunks = []
             cursor = None
             while True:
@@ -3429,7 +3376,7 @@ def test_fixed_offset_exports_are_readable_and_keep_exact_instants(
             rows.attrs = {}
             pd.testing.assert_frame_equal(pd.concat(chunks, ignore_index=True), rows)
             frame.show(n=1)
-            assert rows[f"{name}.start"].iloc[0].isoformat(sep=" ") in capsys.readouterr().out
+            assert rows[key_name].iloc[0].isoformat(sep=" ") in capsys.readouterr().out
 
 
 @pytest.mark.parametrize("kind", ["calendar", "interval", "paired"])
@@ -3511,8 +3458,7 @@ def test_period_pages_keep_sparse_partial_directory_and_original_order(
     backing = _memory_backing(original)
     part = backing.data.copy_attachments()[0]
     directory = part.rows.copy()
-    directory.loc[0, "actual_start"] = datetime(2024, 1, 1, 12, tzinfo=timezone.utc)
-    directory.loc[0, "actual_start_civil"] = "2024-01-01T12:00:00.000000+00:00"
+    directory.loc[0, "selection"] = "partial"
     # Valid input attachment order is canonicalized once at completion.
     directory = directory.iloc[[2, 0, 3, 1]].reset_index(drop=True)
     sparse = AnalysisFrame._from_memory(
@@ -3543,9 +3489,8 @@ def test_period_pages_keep_sparse_partial_directory_and_original_order(
         first = page.items[0]
         assert isinstance(first, FrameCalendarPeriod)
         assert first.label == "2024-01-01" and first.ordinal == 0
-        assert first.start == datetime(2024, 1, 1, 12, tzinfo=timezone.utc)
-        assert first.nominal_start == datetime(2024, 1, 1, tzinfo=timezone.utc)
-        assert first.actual_start_civil == "2024-01-01T12:00:00.000000+00:00"
+        assert first.selection == "partial" and first.cutoff is None
+        assert not hasattr(first, "start") and not hasattr(first, "nominal_start")
         assert "FrameCalendarPeriod key=(900000)" in repr(first)
         assert ".show()" in repr(first) and "\n" not in repr(first)
         assert page.read_stats.data_rows_read == 0

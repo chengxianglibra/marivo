@@ -97,13 +97,13 @@ class FrozenCalendarData:
 
     definition: BuiltinCalendarData | NamedCalendarData
     directory_name: str
-    rule_version: Literal["calendar.v2"] = "calendar.v2"
+    rule_version: Literal["calendar.v3"] = "calendar.v3"
     direct: FrozenCalendarOrigin | None = None
 
     def __post_init__(self) -> None:
         if (
             type(self.definition) not in (BuiltinCalendarData, NamedCalendarData)
-            or self.rule_version != "calendar.v2"
+            or self.rule_version != "calendar.v3"
             or (self.direct is not None and type(self.direct) is not FrozenCalendarOrigin)
         ):
             reject(

@@ -548,7 +548,7 @@ def provider() -> DisclosureProvider:
             ("axis",),
             "inputs.time",
             (
-                "Builtin unit-step week/month/year; complete buckets or prefixes from their bucket starts. ordinal, named calendars, partial day/quarter and middle slices reject. Missing ISO week or civil cutoff has no target; no clamping or current-domain shortening. Selected targets may be sparse or empty; no envelope filling. Only the immediate origin is retained, with frozen UTC/civil bounds; the input stays unchanged. Nonzero DST gap/fold targets reject, while zero offset preserves the exact captured instant. No business data, Metric evaluation or source access.",
+                "Builtin unit-step week/month/year; complete buckets or prefixes from their bucket starts. ordinal, named calendars, partial day/quarter and middle slices reject. Missing ISO week or civil cutoff has no target; no clamping or current-domain shortening. Selected targets may be sparse or empty; no envelope filling. Only the immediate origin intent and explicit result correspondence are retained; the input stays unchanged. Nonzero DST gap/fold targets reject, while zero offset preserves the exact captured instant. No business data, Metric evaluation or source access.",
             ),
         ),
         (
@@ -631,7 +631,7 @@ def provider() -> DisclosureProvider:
                     "axis_names",
                     "Name/token string -> alias (nonempty, printable, trimmed); default short names.",
                 ),
-                P("time_details", "Calendar label/nominal bounds; default False."),
+                P("time_details", "Calendar label; default False."),
             ),
             "pandas.DataFrame",
             "Export complete, isolated data.",
@@ -640,10 +640,10 @@ def provider() -> DisclosureProvider:
             "results.inspect",
             (
                 "Example needs frame['value']; fixed only; no source reads. Typed: Frame; save IDs.",
-                "Axes first; composite tuples; TimeField: one value; calendar/interval: .start/.end, zone (mixed/sub-minute: UTC); pairs: .left/.right.",
+                "Axes first; composite tuples; TimeField/calendar: one key; interval: .start/.end, zone (mixed/sub-minute: UTC); pairs: .left/.right.",
                 "axis_names/select fix collisions; keep order/types/NA/presence.",
                 "Large int64[pyarrow] / float may raise ArrowInvalid; approx: values.astype('float64')/3600.0 (may round; pd.NA -> NaN).",
-                "Isolated attrs; frozen_coordinates rows: pyarrow.Table. .start may be clipped; .nominal_start: bucket start.",
+                "Isolated attrs; frozen_coordinates rows: pyarrow.Table. read_periods(): saved key/label/selection progress.",
             ),
         ),
         (

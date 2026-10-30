@@ -382,17 +382,11 @@ def _period(
         return FrameCalendarPeriod(
             key,
             axis.timezone,
-            bucket.actual_start,
-            bucket.actual_end,
             label,
             bucket.ordinal,
             bucket.nominal_ordinal,
-            bucket.nominal_start,
-            bucket.nominal_end,
-            bucket.nominal_start_civil,
-            bucket.nominal_end_civil,
-            bucket.actual_start_civil,
-            bucket.actual_end_civil,
+            bucket.selection,
+            bucket.cutoff,
         )
     return FrameIntervalPeriod(key, bucket.timezone, bucket.start, bucket.end)
 

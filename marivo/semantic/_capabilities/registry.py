@@ -2542,12 +2542,12 @@ def _expression_capabilities() -> tuple[AuthoringCapability, ...]:
                     "Reject repeated first fields, overlapping rules and reordered member fields. "
                     "Internal P may select a subset; empty or unmatched samples retain external coordinates. "
                     "Each nested layer keeps its own domain and complete allocation rules. "
-                    "A Grain uses every inner calendar cell, including empty cells under the child's empty policy. "
+                    "A Grain uses actual time samples, including all-NULL samples; absent time buckets are not created. "
                     "Each contribution uses its own declared time role. A finite observation TimeScope or CalendarAxis "
                     "supplies timezone and calendar authority; pass the Grain, not scope.by(grain), to per. "
-                    "Inner grains must nest: day in week/month is valid; week in month is not. Certified grains "
-                    "retain exact snapshot containment. Partial edge cells clip actual bounds and each counts once. "
-                    "Nested calendar layers validate against their nearest enclosing cell. "
+                    "Static nesting permits day in week/month, month in quarter/year and divisible subday widths; week in month rejects. "
+                    "Custom hierarchies reject; one complete custom period may be sampled under an interval. "
+                    "Each nested layer retains complete external, parent and child keys. "
                     "Semantic Grain lookups bind the Session's current certified snapshot and require certification. "
                     "Windows inside calendar samples or wrapping calendar folds are unsupported and reject before execution. "
                     "TimeField sample reducers use represented samples without scheduled coverage or implicit fill; "
@@ -3319,7 +3319,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
         _capability(
             "timestamp",
             "marivo.semantic._authoring_values.timestamp",
-            "Interpret a native timestamp using parser or resolved reader authority. Projection uses native gap/fold behavior; raw local-clock membership uses wall order (later fold occurrence, gap transition instant). Aware sources reject parser timezone. Applies only to the TimeDimension projection; it does not rewrite Entity primary_key. Naive identity keeps its original wall-clock value and precision.",
+            "Interpret a native timestamp using parser or resolved reader authority. Projection and raw local-clock membership use the executor's native gap/fold behavior. Aware sources reject parser timezone. Applies only to the TimeDimension projection; it does not rewrite Entity primary_key. Naive identity keeps its original wall-clock value and precision.",
             output="TimestampSpec",
             effects=_AUTHOR,
             example="ms.timestamp(timezone='UTC')",
@@ -3327,7 +3327,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
         _capability(
             "strptime",
             "marivo.semantic._authoring_values.strptime",
-            "Parse encoded time; PostgreSQL uses native to_timestamp and rejected values may fail the query. DuckDB, Trino, ClickHouse and MySQL/MariaDB return NULL for rejected data. Date-only formats reject timezone; time-bearing values use parser or reader authority. Parsed local-clock membership keeps wall order; projection remains backend-native. Trino TRY can catch input-expression errors; other engines may propagate them. No on_error, trimming, guessing or retry.",
+            "Parse encoded time; PostgreSQL uses native to_timestamp and rejected values may fail the query. DuckDB, Trino, ClickHouse and MySQL/MariaDB return NULL for rejected data. Date-only formats reject timezone; time-bearing values use parser or reader authority. Parsed local-clock membership and projection retain native gap/fold behavior. Trino TRY can catch input-expression errors; other engines may propagate them. No on_error, trimming, guessing or retry.",
             output="StrptimeSpec",
             effects=_AUTHOR,
             constraints=("time_dimension_partition_pushdown",),
@@ -3336,7 +3336,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
         _capability(
             "hour_prefix",
             "marivo.semantic._authoring_values.hour_prefix",
-            "Combine a 0..23 integer or canonical two-digit hour string with a civil-date prefix, inheriting its source timezone context and reader default. Raw local-clock membership uses wall order; no independent timezone parameter.",
+            "Combine a 0..23 integer or canonical two-digit hour string with a civil-date prefix, inheriting its source timezone context and reader default. Local-clock projection and membership use native interpretation; no independent timezone parameter.",
             output="HourPrefixSpec",
             effects=_AUTHOR,
             example="ms.hour_prefix(log_date)",

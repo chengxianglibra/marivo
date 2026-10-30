@@ -23,7 +23,7 @@ from marivo.analysis.compiler.graph_plan import (
     LocalCompute,
     SourceRead,
 )
-from marivo.analysis.core.frame_calendar import FrozenSourceCalendar
+from marivo.analysis.core.artifact_data import CalendarDataAxis, OutputAttachment
 from marivo.analysis.core.frame_data import (
     CompletedFrameData,
     CompletedFrameResult,
@@ -56,6 +56,7 @@ from marivo.analysis.materialization.graph_source_execution import (
 )
 from marivo.analysis.materialization.query_runtime_types import effective_frame_schema
 from marivo.analysis.methods.frame_method_facts import validate_method_facts
+from marivo.datasource.adapters import SourceSession
 from marivo.semantic.errors import SemanticExpressionError
 
 if TYPE_CHECKING:
@@ -259,6 +260,8 @@ def _evaluate_frame(
             for stage, expression in compiled.frame_operations
             if id(expression) in operation_inputs
         }
+        stage_inputs = dict(compiled.source_stages)
+        calendar_owners: dict[str, dict[str, dict[datetime, SourceSession]]] = {}
 
         def read_fixed(stage: FrameInput) -> CompletedFrameData:
             return read_input(stage.input_id).data
@@ -268,20 +271,20 @@ def _evaluate_frame(
             backing = current._backing
             assert isinstance(backing, ExpressionFrameBacking)
             binding = backing.root
-            attachments = (
-                tuple(
-                    attachment
-                    for calendar in binding.calendars
-                    for attachment in (
-                        calendar.attachments
-                        if isinstance(calendar, FrozenSourceCalendar)
-                        else (calendar.directory,)
-                    )
-                )
-                if isinstance(binding, SourceFrameBinding)
-                else ()
-            )
             schema = effective_frame_schema(source_schemas[input_id], output.columns)
+            attachments: tuple[OutputAttachment, ...] = ()
+            if isinstance(binding, SourceFrameBinding):
+                from marivo.analysis.materialization.native_calendar import freeze_output_calendars
+
+                owner = prepared_by_input.get(input_id)
+                native_graph = prepared.graphs[input_id]
+                schema, attachments = freeze_output_calendars(
+                    native_graph,
+                    schema,
+                    output.table,
+                    owner.source if owner is not None else None,
+                    calendar_owners.get(input_id, {}),
+                )
             completed = CompletedFrameData(
                 schema,
                 output.table.loc[:, [c.slot_id for c in schema.columns]],
@@ -301,6 +304,20 @@ def _evaluate_frame(
             )
 
         def observe_read(stage: SourceRead, request: LoweredRead, output: StageOutput) -> None:
+            input_id = stage_inputs.get(stage.stage_id)
+            # Native attribution coalitions consume fixed parent keys; they do
+            # not introduce reporting calendar positions for a source Frame.
+            if input_id is not None:
+                prepared_source = prepared_by_input[input_id]
+                source = prepared_source.sources.get(stage.source_id, prepared_source.source)
+                for axis in source_schemas[input_id].axes:
+                    if not isinstance(axis, CalendarDataAxis):
+                        continue
+                    slot = axis.columns[0].slot_id
+                    if slot in output.table:
+                        owners = calendar_owners.setdefault(input_id, {}).setdefault(axis.token, {})
+                        for value in output.table[slot].dropna().unique():
+                            owners.setdefault(_plain(value), source)
             scopes = tuple(
                 dict.fromkeys(
                     FrameSourceReadScope(

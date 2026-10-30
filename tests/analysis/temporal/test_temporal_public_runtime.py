@@ -74,9 +74,9 @@ def test_report_day_buckets_preserve_declared_read_time_authority(
     assert terminal_runs(session) == ()
     assert [
         value.isoformat()
-        for value in result.attrs["frozen_coordinates"][0]["rows"].to_pandas(
-            types_mapper=pd.ArrowDtype
-        )["nominal_start"]
+        for value in result.attrs["frozen_coordinates"][0]["rows"]
+        .to_pandas(types_mapper=pd.ArrowDtype)
+        .iloc[:, 0]
     ] == [
         "2026-06-30T16:00:00+00:00",
         "2026-07-01T16:00:00+00:00",

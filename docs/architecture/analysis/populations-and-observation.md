@@ -223,20 +223,18 @@ Each nested layer independently selects and completes samples. Even empty or
 entirely unmatched samples preserve necessary external coordinates, producing
 zero for empty sum children and NA where the reducer's empty policy requires it.
 
-`Metric.per(grain)` uses a complete calendar grid inside the observation's finite
-time coordinate. For example, `revenue.per(mv.grain("day")).mean()` under a weekly
-CalendarAxis includes all seven days, with typed zero for an empty revenue sum.
-Each source component uses its own declared time field. Calendar samples inherit
-the coordinate's timezone; certified grains retain exact snapshot authority.
-The inner grain must tile/nest the nearest enclosing calendar cell (day in week
-or month; not week in month). Certified nesting follows snapshot containments.
-For a plain TimeScope, the inner grid tiles the whole interval. Actual edge
-bounds clip to the enclosing cell and scope; each clipped cell counts once,
-without prorating. Empty ratios remain NA and follow the sample reducer's NULL
-policy. Native TimeField samples use represented timestamps within each
-enclosing calendar sample, without clock completion. Nested Grain layers are supported. Supply the Grain
-to per and the finite time coordinate in observe.by; a CalendarAxis is not a per
-argument. Missing time roles or finite coordinates produce typed repair errors.
+`Metric.per(grain)` folds actual time samples inside the finite observation
+coordinate. For example, a weekly `revenue.per(mv.grain("day")).mean()` uses only
+days with contributions, including all-NULL days. Missing days do not become zero
+samples. Each source component computes complete external, parent and child keys
+using its own time role and executor. Calendar samples inherit the coordinate's
+timezone; supported builtin nesting is static (day in week/month, month in
+quarter/year, divisible subday widths; never week in month). Undefined custom
+hierarchies reject; one complete certified custom period may be sampled under an
+interval axis. Final calendar completion is independent of internal sampling.
+Native TimeField samples likewise use represented timestamps without clock
+completion. A CalendarAxis is not a per argument. Missing time roles or finite
+coordinates produce typed repair errors.
 Semantic sample Grain lookups require the Session's current certified snapshot;
 declared folds include that calendar in readiness dependencies. Windows inside
 calendar samples or wrapping calendar folds are unsupported and reject before

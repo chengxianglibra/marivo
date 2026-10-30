@@ -44,7 +44,7 @@ def test_cluster_reader_policy_matches_single_node_deadline_controls() -> None:
             and node.args
             and isinstance(node.args[0], ast.Constant)
             and isinstance(node.args[0].value, str)
-            and node.args[0].value.startswith("ALTER USER analysis_reader SETTINGS ")
+            and node.args[0].value.startswith("ALTER USER analysis_reader SETTINGS readonly=1")
         ]
         assert len(settings) == 1
         entries = settings[0].removeprefix("ALTER USER analysis_reader SETTINGS ")

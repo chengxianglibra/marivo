@@ -140,7 +140,7 @@ def test_time_and_paired_export_layout_preserves_complete_axis_identity(
     assert schema.axes[0].left.kind == kind
     assert schema.axes[0].right.kind == kind
     assert tuple(field.slot_id for field in schema.axes[0].keys) == ("pair.key",)
-    expected_parts = ("start", "end")
+    expected_parts = ("key",) if kind == "calendar" else ("start", "end")
     assert tuple(column.part for column in schema.layout if column.kind == "coordinate") == (
         *expected_parts,
         *expected_parts,

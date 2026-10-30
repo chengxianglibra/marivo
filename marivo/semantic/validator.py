@@ -2125,9 +2125,9 @@ def assembly_validate(
                     message=(
                         f"Time field {f_id!r} casts or parses a partition-like source column. "
                         "For an encoded time axis, declare its raw string/integer column "
-                        "with ms.strptime(format) and canonical source values. Qualified "
-                        "ordered formats can use bare-column window comparisons without "
-                        "partition enumeration or validation queries."
+                        "with ms.strptime(format). Parsing remains in time predicates; "
+                        "retain independent physical filters where needed. No partition "
+                        "enumeration or validation queries are added."
                     ),
                     refs=(f_id,),
                     location=f_ir.location,

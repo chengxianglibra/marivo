@@ -349,7 +349,11 @@ def source_case(
 
     cluster = profile == "distributed"
     environment = ch.setup_cluster() if cluster else ch.setup()
-    ports = ch.CLUSTER_HTTP_PORTS if cluster else (18123,)
+    ports = (
+        ch.CLUSTER_HTTP_PORTS
+        if cluster
+        else (int(os.environ.get("MARIVO_CLICKHOUSE_TEST_PORT", "18123")),)
+    )
     database = "qualification_cluster" if cluster else "qualification"
     monkeypatch.setenv("MARIVO_SOURCE_PROFILE_PASSWORD", password())
     try:

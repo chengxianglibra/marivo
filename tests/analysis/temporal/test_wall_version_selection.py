@@ -1,4 +1,4 @@
-"""Version endpoints consume wall membership independently of native projection."""
+"""Version endpoints consume the same native time interpretation as projection."""
 
 from collections.abc import Callable
 from datetime import datetime, timezone
@@ -49,7 +49,7 @@ def test_validity_endpoints_keep_independent_authority_and_symbolic_before_end(
     session = mv.session.get_or_create("wall-version", timezone="Asia/Shanghai")
     entity = session.catalog.get("entity:sales.versions")
     boundary = datetime.fromisoformat("2026-03-08T07:00:00+00:00")
-    expected = ["after", "gap", "null", "sentinel"]
+    expected = ["after", "null", "sentinel"]
     if interval == "closed_closed":
         expected.insert(1, "ending")
     population = session.members(entity, at=session.instant(boundary))
@@ -77,13 +77,15 @@ def test_validity_endpoints_keep_independent_authority_and_symbolic_before_end(
         ]
     finally:
         backend.disconnect()
-    # The stored value retains the backend's native gap normalization.
+    # Observe the gap record at its native normalized instant.
+    later = session.instant("2026-03-08T07:15:00Z")
+    population = session.members(entity, at=later)
     projected = (
         session.read(
             population,
             {
                 "begins": catalog_value(session.catalog, "sales.versions.begins", kind="field").at(
-                    session.instant(boundary)
+                    later
                 )
             },
         )

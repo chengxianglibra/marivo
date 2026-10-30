@@ -21,6 +21,10 @@ def _zone_signature(value: datetime, zone: str) -> datetime:
     raise NotImplementedError("native timezone interpretation")
 
 
+def _clock_signature(value: str, precision: int, zone: str) -> datetime:
+    raise NotImplementedError("native microsecond clock interpretation")
+
+
 _mysql_convert: Callable[[ir.TimestampValue, str, str], ir.TimestampValue] = (
     ibis.udf.scalar.builtin(
         _convert_signature,
@@ -45,17 +49,25 @@ _trino_render: Callable[[ir.TimestampValue, str], ir.TimestampValue] = ibis.udf.
     name="at_timezone",
     signature=((dt.Timestamp(timezone="UTC"), dt.string), dt.Timestamp(timezone="UTC", scale=6)),
 )
-_clickhouse_localize: Callable[[ir.TimestampValue, str], ir.TimestampValue] = (
+_clickhouse_text: Callable[[ir.TimestampValue, str], ir.StringValue] = ibis.udf.scalar.builtin(
+    _zone_signature,
+    name="toString",
+    signature=((dt.Timestamp(timezone="UTC", scale=6), dt.string), dt.string),
+)
+_clickhouse_clock: Callable[[ir.StringValue, int, str], ir.TimestampValue] = (
     ibis.udf.scalar.builtin(
-        _zone_signature,
-        name="toUTCTimestamp",
-        signature=((dt.timestamp, dt.string), dt.Timestamp(timezone="UTC", scale=6)),
+        _clock_signature,
+        name="toDateTime64",
+        signature=((dt.string, dt.int64, dt.string), dt.Timestamp(timezone="UTC", scale=6)),
     )
 )
-_clickhouse_render: Callable[[ir.TimestampValue, str], ir.TimestampValue] = ibis.udf.scalar.builtin(
+_clickhouse_zone: Callable[[ir.TimestampValue, str], ir.TimestampValue] = ibis.udf.scalar.builtin(
     _zone_signature,
-    name="fromUTCTimestamp",
-    signature=((dt.Timestamp(timezone="UTC"), dt.string), dt.Timestamp(scale=6)),
+    name="toTimeZone",
+    signature=(
+        (dt.Timestamp(timezone="UTC", scale=6), dt.string),
+        dt.Timestamp(timezone="UTC", scale=6),
+    ),
 )
 _clickhouse_truncate: Callable[[str, ir.TimestampValue], ir.TimestampValue] = (
     ibis.udf.scalar.builtin(
@@ -123,9 +135,12 @@ def lower_temporal(expression: ir.Expr, engine: str) -> ir.Expr:
                     return _trino_localize(timestamp, zone).op()
                 return _trino_render(timestamp, zone).cast(dt.Timestamp(scale=6)).op()
             if engine == "clickhouse":
-                naive = ops.Cast(timestamp.op(), dt.Timestamp(scale=6)).to_expr()
-                assert isinstance(naive, ir.TimestampValue)
-                return (_clickhouse_localize if localize else _clickhouse_render)(naive, zone).op()
+                carrier = timestamp.cast(dt.Timestamp(timezone="UTC", scale=6))
+                assert isinstance(carrier, ir.TimestampValue)
+                text = _clickhouse_text(carrier, "UTC" if localize else zone)
+                converted = _clickhouse_clock(text, 6, zone if localize else "UTC")
+                result = _clickhouse_zone(converted, "UTC")
+                return result.op() if localize else result.cast(dt.Timestamp(scale=6)).op()
         if engine == "clickhouse" and isinstance(value, ops.TimestampTruncate):
             timestamp = value.arg.to_expr()
             assert isinstance(timestamp, ir.TimestampValue)

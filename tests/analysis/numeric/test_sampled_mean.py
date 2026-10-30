@@ -113,7 +113,6 @@ def test_sample_folds_compile_native_aggregates_without_clock_completion(
         ("key.0",),
         backend,
         unavailable,
-        unavailable,
     ).lower(node, (0,), ("key.0",))
     sql = ibis.to_sql(result.table, dialect=backend).lower()
     assert "avg(" in sql
@@ -175,7 +174,6 @@ def test_sample_presence_filters_rows_without_discarding_present_nulls(marker: s
         {"source": table},
         ("key.0",),
         "duckdb",
-        unavailable,
         unavailable,
     )
     result = lowerer.lower(node, (0,), ("key.0",))
@@ -1750,9 +1748,9 @@ def test_sample_summary_shares_one_native_read_and_returns_only_final_groups(
                 assert rows["p95"].tolist() == [10.0] * size
                 assert rows["p99"].tolist() == [10.0] * size
                 assert rows["count"].tolist() == [count] * size
-                assert trace.returned_rows == [size]
+                assert trace.returned_rows == ([2, size] if by[0] is calendar else [size])
                 assert not reducer.call_args_list
-                sql = trace.native_sql[0].lower()
+                sql = trace.native_sql[-1].lower()
                 assert sql.count("sum(") == 1
                 if backend == "clickhouse":
                     assert "quantilesexactinclusive" in sql
@@ -1841,7 +1839,7 @@ def test_native_time_sample_fold_keeps_overlapping_window_occurrences(
         rows = session.observe({"average": metric}, by=(calendar,)).compute().to_pandas()
         # Each window independently completes the SUM samples: [0, 300] and [0, 300, 0].
         assert rows["average"].tolist() == [150.0, 100.0]
-        assert trace.returned_rows == [2]
+        assert trace.returned_rows == [2, 2]
         assert not reducer.call_args_list
 
 
@@ -2128,7 +2126,6 @@ def test_native_ordered_concat_does_not_inherit_each_fragment_unique_time() -> N
         tables,
         ("key.0",),
         "duckdb",
-        unavailable,
         unavailable,
         unique_keys={
             name: UniqueKeys(tuple(table.columns), (("key.0", "key.1"),))

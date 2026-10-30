@@ -11,7 +11,7 @@ from marivo.analysis.core.data_types import ScalarDataType, TimestampDataType
 def time_key_type(
     axis: CalendarCoordinate | IntervalCoordinate,
 ) -> TimestampDataType | ScalarDataType:
-    """Calendar identities are nominal UTC starts; an interval retains its unit key."""
+    """Calendar identities are actual executor keys; an interval retains its unit key."""
     return (
         TimestampDataType("us", "UTC")
         if isinstance(axis, CalendarCoordinate)

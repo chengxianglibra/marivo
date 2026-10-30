@@ -163,14 +163,12 @@ def test_grid_window_has_scan_envelope_and_preserves_cells(
         directory = rows.attrs["frozen_coordinates"][0]["rows"].to_pandas(
             types_mapper=pd.ArrowDtype
         )
-        assert [stamp.isoformat() for stamp in directory["nominal_start"]] == [
+        assert [stamp.isoformat() for stamp in directory.iloc[:, 0]] == [
             "2026-08-01T00:00:00+00:00",
             "2026-09-01T00:00:00+00:00",
         ]
-        assert [stamp.isoformat() for stamp in directory["actual_end"]] == [
-            "2026-09-01T00:00:00+00:00",
-            "2026-10-01T00:00:00+00:00",
-        ]
+        assert directory["selection"].tolist() == ["full", "full"]
+        assert not {"nominal_start", "actual_end"} & set(directory.columns)
         return _member_frame(rows).sort_values(["member", "coord_0"]).reset_index(drop=True)
 
     optimized = execute()
@@ -179,7 +177,8 @@ def test_grid_window_has_scan_envelope_and_preserves_cells(
     sql = next(sql for purpose, sql in reads if purpose.startswith("query."))
     ast = sqlglot.parse_one(sql, read="duckdb")
     assert "TRY_STRPTIME" in ast.sql(dialect="duckdb")
-    assert any(join.args.get("on") is not None for join in ast.find_all(sge.Join))
+    # Native calendar assignment does not require a calendar directory JOIN.
+    assert not list(ast.find_all(sge.Join))
     assert all(len(node.args["ifs"]) <= 1 for node in ast.find_all(sge.Case))
     assert optimized.coord_0.tolist() == ["2026-08-01", "2026-09-01"] * 4
 

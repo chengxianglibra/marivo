@@ -67,7 +67,7 @@ business_date = ms.time_dimension_column(
 )
 ```
 
-For example, `%Y%m%d` parses `20260801`; Python `%M` means minutes. SQL NULL remains NULL. DuckDB, Trino, ClickHouse and MySQL/MariaDB return NULL for rejected parsed data. PostgreSQL uses native `to_timestamp`; its rejected data can fail the query. There is no `on_error`, trimming, guessing or retry. Native backends can accept different noncanonical values. Invalid format, timezone, type and capability remain errors. Trino TRY can catch recoverable errors in the input expression; other engines may propagate argument evaluation errors. Parsing remains in membership predicates and can increase scan/CPU costs. Use independent physical filters and explicit data checks when needed. NULL event time has no period membership; NULL used only as attribute control preserves facts under a NULL label. Local-clock membership keeps wall order; native output projection is unchanged.
+For example, `%Y%m%d` parses `20260801`; Python `%M` means minutes. SQL NULL remains NULL. DuckDB, Trino, ClickHouse and MySQL/MariaDB return NULL for rejected parsed data. PostgreSQL uses native `to_timestamp`; its rejected data can fail the query. There is no `on_error`, trimming, guessing or retry. Native backends can accept different noncanonical values. Invalid format, timezone, type and capability remain errors. Trino TRY can catch recoverable errors in the input expression; other engines may propagate argument evaluation errors. Parsing remains in membership predicates and can increase scan/CPU costs. Use independent physical filters and explicit data checks when needed. NULL event time has no period membership; NULL used only as attribute control preserves facts under a NULL label. Local-clock membership and output projection use the executor's native gap/fold interpretation.
 
 ## Separate hour column: `ms.hour_prefix`
 
@@ -212,6 +212,8 @@ For a working-day schedule, provide a status for every date in the counting rang
 ## Declaration-time grain: `ms.calendar_grain`
 
 `ms.calendar_grain(calendar=calendar_ref, level="week")` creates a source-free grain lookup during modeling. After certification, `calendar.grain("week")` returns a grain bound to that snapshot; use the bound grain with `scope.by(grain)` or a Metric window.
+
+Custom calendar output accepts exactly one complete certified period. Multiple, sparse or partial periods reject before business reads; custom sample hierarchies have no implicit nesting rule.
 
 ## Named occurrences: `ms.temporal_set`
 

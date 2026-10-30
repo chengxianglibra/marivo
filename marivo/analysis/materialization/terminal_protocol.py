@@ -137,7 +137,7 @@ from marivo.analysis.materialization.errors import IntegrityError
 
 def invalid(received: str) -> IntegrityError:
     return IntegrityError(
-        expected="a complete Store 26 Frame output v15 value",
+        expected="a complete Store 27 Frame output v16 value",
         received=received,
         repair="Preserve the selected Store and output files. Inspect the exact terminal record; old graph/continuation formats cannot be migrated or replayed.",
         stage="terminal_output",
@@ -264,7 +264,7 @@ _RECORDS = (
 )
 _TYPES = {record.__name__: record for record in _RECORDS}
 T = TypeVar("T", ArtifactManifest, InvocationInput)
-FORMAT = "marivo.frame_output/v15"
+FORMAT = "marivo.frame_output/v16"
 
 # One closed Store26 field inventory. No older field set or dataclass fallback.
 _FIELDS = {
@@ -699,10 +699,10 @@ def decode(text: str, expected: type[T]) -> T:
     try:
         raw_envelope = parse_json(text)
         if isinstance(raw_envelope, dict) and raw_envelope.get("format") != FORMAT:
-            raise invalid("expected Frame output v15; obsolete output format received")
+            raise invalid("expected Frame output v16; obsolete output format received")
         envelope = _obj(raw_envelope, "format contexts value")
         if envelope["format"] != FORMAT:
-            raise invalid("expected Frame output v15; obsolete output format received")
+            raise invalid("expected Frame output v16; obsolete output format received")
         contexts: list[FrameValueContext] = []
         for item in _array(envelope["contexts"]):
             context = _decode(item)
@@ -745,7 +745,7 @@ def decode_method_record(text: str, expected: type[MethodRecord]) -> MethodRecor
     try:
         envelope = _obj(parse_json(text), "format value")
         if envelope["format"] != FORMAT:
-            raise invalid("expected Frame output v15 method record")
+            raise invalid("expected Frame output v16 method record")
         value = _decode(envelope["value"])
         if type(value) is not expected:
             raise invalid("method payload has the wrong record root")

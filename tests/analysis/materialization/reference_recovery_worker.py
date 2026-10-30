@@ -67,7 +67,7 @@ def recipes(outputs: Mapping[str, mv.AnalysisFrame]) -> dict[str, Json]:
         types_mapper=pd.ArrowDtype
     )
     assert directory["ordinal"].tolist() == [0, 1]
-    assert directory["actual_start"].tolist() == [
+    assert directory.iloc[:, 0].tolist() == [
         pd.Timestamp("2026-08-01T00:00:00Z"),
         pd.Timestamp("2026-08-02T00:00:00Z"),
     ]

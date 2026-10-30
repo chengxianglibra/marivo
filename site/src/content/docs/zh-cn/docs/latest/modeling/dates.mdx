@@ -67,7 +67,7 @@ business_date = ms.time_dimension_column(
 )
 ```
 
-例如 `%Y%m%d` 解析 `20260801`，Python `%M` 表示分钟。SQL NULL 保持 NULL。DuckDB、Trino、ClickHouse 和 MySQL/MariaDB 将解析器拒绝的数据变为 NULL；PostgreSQL 使用原生 `to_timestamp`，被拒绝的数据可能使查询报错。没有 `on_error`、trim、格式猜测或重试。不同后端可能接受不同的非规范编码。格式、时区、类型与能力错误仍报错。Trino TRY 可能同时捕获输入表达式中的可恢复错误，其他后端可能传播参数求值错误。时间谓词保留解析，可能增加扫描和 CPU 成本；需要时保留独立物理过滤并显式检查数据。NULL 事件时间不归属任何期间；仅用于属性控制时间时则保留事实及 NULL 标签。本地钟面 membership 保持 wall-order，输出投影保留原生解释。
+例如 `%Y%m%d` 解析 `20260801`，Python `%M` 表示分钟。SQL NULL 保持 NULL。DuckDB、Trino、ClickHouse 和 MySQL/MariaDB 将解析器拒绝的数据变为 NULL；PostgreSQL 使用原生 `to_timestamp`，被拒绝的数据可能使查询报错。没有 `on_error`、trim、格式猜测或重试。不同后端可能接受不同的非规范编码。格式、时区、类型与能力错误仍报错。Trino TRY 可能同时捕获输入表达式中的可恢复错误，其他后端可能传播参数求值错误。时间谓词保留解析，可能增加扫描和 CPU 成本；需要时保留独立物理过滤并显式检查数据。NULL 事件时间不归属任何期间；仅用于属性控制时间时则保留事实及 NULL 标签。本地钟面的 membership 与输出投影都使用实际执行方的原生 gap/fold 解释。
 
 ## 独立小时列：`ms.hour_prefix`
 
@@ -212,6 +212,8 @@ period.show()
 ## 声明期日历粒度：`ms.calendar_grain`
 
 `ms.calendar_grain(calendar=calendar_ref, level="week")` 在建模时创建不读取来源的粒度查找。认证后，`calendar.grain("week")` 返回绑定到该快照的粒度；用此粒度调用 `scope.by(grain)` 或 Metric 窗口。
+
+自定义日历输出只接受一个完整的已认证期间。多期间、稀疏或局部选择在业务读取前拒绝；自定义样本层级没有隐式嵌套规则。
 
 ## 命名活动期间：`ms.temporal_set`
 

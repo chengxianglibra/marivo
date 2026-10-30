@@ -119,7 +119,8 @@ def test_observe_calendar_preserves_bucket_types_boundaries_and_windows(
         assert result["calendar:day.label"].tolist() == ["2026-01-01", "2026-01-02", "2026-01-03"]
         assert result["total"].tolist() == [15, 0, 30]
         assert result.attrs["axes"][0]["descriptor"]["timezone"] == "UTC"
-        assert len(result.attrs["frozen_coordinates"][0]["rows"]["nominal_start"]) == 3
+        assert len(result.attrs["frozen_coordinates"][0]["rows"]["key.0"]) == 3
+        assert "nominal_start" not in result.attrs["frozen_coordinates"][0]["rows"].column_names
 
         # Inspect actual submissions, preserving the regression's native boundary
         # and nullable-type coverage without requiring the retired CASE encoding.

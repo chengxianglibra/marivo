@@ -100,14 +100,12 @@ def period_read(name: str, identities: list[str]) -> None:
             for part in directories
             if part["name"] == "calendar.axis.0"
         )
-        assert current_directory["actual_start_civil"].tolist() == [
-            "2027-01-01T00:00:00.000000+00:00",
-            "2027-02-01T00:00:00.000000+00:00",
-        ]
-        assert current_directory["actual_start"].tolist() == [
+        assert current_directory["nominal_label"].tolist() == ["2027-01-01", "2027-02-01"]
+        assert current_directory.iloc[:, 0].tolist() == [
             pd.Timestamp("2027-01-01T00:00:00+00:00"),
             pd.Timestamp("2027-02-01T00:00:00+00:00"),
         ]
+        assert current_directory["selection"].tolist() == ["full", "full"]
         baseline.show(n=1)
         report.show(n=1)
         positive = report.where(report["base.absolute.total"] > 30)

@@ -133,7 +133,7 @@ def test_declared_and_adhoc_semantic_calendar_samples_bind_session_snapshot(
     calendar = _calendar(session.catalog)
     gmv = _metric(session.catalog, "sales.gmv")
     week = ms.calendar_grain(calendar=ms.ref.period_calendar("sales.fiscal"), level="fiscal_week")
-    scope = session.time_scope(start="2026-01-01", end="2026-03-01")
+    scope = session.time_scope(start="2026-01-01", end="2026-01-08")
     query = session.observe(
         {
             "declared": _metric(session.catalog, "sales.weekly_avg"),
@@ -141,24 +141,23 @@ def test_declared_and_adhoc_semantic_calendar_samples_bind_session_snapshot(
             "adhoc": gmv.per(week).mean(),
             "bound": gmv.per(calendar.grain("fiscal_week")).mean(),
         },
-        by=(scope.by(calendar.grain("fiscal_month")),),
+        by=(scope,),
     )
     with pytest.raises(CoreRuleError) as captured:
         session.observe(
             {"v": gmv.per(calendar.grain("fiscal_month")).mean()},
             by=(scope.by(calendar.grain("fiscal_week")),),
         )
-    assert "nest" in (captured.value.expected or "")
+    assert "static child-to-parent" in (captured.value.expected or "")
 
     def forbidden(*args: object, **kwargs: object) -> None:
         raise AssertionError("execution refreshed the frozen temporal scope")
 
     monkeypatch.setattr(TemporalSnapshotStore, "inspect_current", forbidden)
     rows = query.compute().to_pandas()
-    # January has five fiscal weeks with totals [100, 0, 0, 20, 0];
-    # February has four with [7, 0, 0, 0]. Empty weeks are samples.
+    # One complete certified week is the actual internal sample.
     for name in ("declared", "weighted", "adhoc", "bound"):
-        assert rows[name].tolist() == [24.0, 1.75]
+        assert rows[name].tolist() == [100.0]
 
 
 @pytest.mark.parametrize("case", ["missing", "level", "timezone", "snapshot"])
@@ -415,7 +414,7 @@ def test_current_named_axis_and_window_preserve_consumed_calendar_identity(
     session = mv.session.get_or_create("named-fact-identity", timezone="UTC")
     calendar = _calendar(session.catalog)
     metric = _metric(session.catalog, "sales.gmv")
-    scope = session.time_scope(start="2026-01-05", end="2026-01-27")
+    scope = session.time_scope(start="2026-01-05", end="2026-01-06")
     frame = session.observe(
         {"daily": metric, "reset": metric.window(mv.to_date(grain=calendar.grain("fiscal_month")))},
         by=(scope.by(calendar.grain("day")),),

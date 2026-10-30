@@ -46,8 +46,6 @@ from marivo.analysis.core.unique_keys import UNKNOWN_UNIQUE_KEYS, UniqueKeys
 
 FrozenScalar: TypeAlias = bool | str | int | float | date | Decimal
 FrozenKey: TypeAlias = tuple[tuple[DataType, FrozenScalar | None], ...]
-_BOUND_NAMES = ("nominal_start", "nominal_end", "actual_start", "actual_end")
-_CIVIL_NAMES = tuple(f"{name}_civil" for name in _BOUND_NAMES)
 
 
 def _fail(expected: str, received: str, *, match: bool = False) -> NoReturn:
@@ -75,15 +73,9 @@ class FrozenCalendarBucket:
     key: FrozenKey
     nominal_label: str
     ordinal: int
-    nominal_start: datetime
-    nominal_end: datetime
-    actual_start: datetime
-    actual_end: datetime
     nominal_ordinal: int
-    nominal_start_civil: str
-    nominal_end_civil: str
-    actual_start_civil: str
-    actual_end_civil: str
+    selection: Literal["full", "prefix", "partial", "unavailable"]
+    cutoff: str | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -147,13 +139,6 @@ def read_direct_mapping(
         or target.axis != axis
     ):
         _fail("the exact direct mapping layout and endpoint directories", repr(schema))
-    for directory in (origin, target):
-        if any(
-            before.nominal_end > after.nominal_start
-            or before.nominal_ordinal >= after.nominal_ordinal
-            for before, after in zip(directory.buckets, directory.buckets[1:], strict=False)
-        ):
-            _fail("ordered nonoverlapping direct endpoint selections", repr(directory.buckets))
     _layout(schema, rows)
     origins = frozen_key_rows(rows, origin.axis.columns)
     expected = tuple(bucket.key for bucket in origin.buckets)
@@ -194,14 +179,14 @@ def _calendar(axis: CalendarDataAxis) -> None:
 
 
 def calendar_directory_schema(axis: CalendarDataAxis) -> DataSchema:
-    """Build the calendar.v2 directory layout used by writers and readers."""
+    """Build the calendar.v3 directory layout used by writers and readers."""
     _calendar(axis)
     values = (
         DataColumn("nominal_label", "nominal_label", ScalarDataType("string"), False),
         DataColumn("ordinal", "ordinal", ScalarDataType("int64"), False),
         DataColumn("nominal_ordinal", "nominal_ordinal", ScalarDataType("int64"), False),
-        *(DataColumn(name, name, TimestampDataType("us", "UTC"), False) for name in _BOUND_NAMES),
-        *(DataColumn(name, name, ScalarDataType("string"), False) for name in _CIVIL_NAMES),
+        DataColumn("selection", "selection", ScalarDataType("string"), False),
+        DataColumn("cutoff", "cutoff", ScalarDataType("string"), True),
     )
     return DataSchema(
         (DataAxis(axis.token, axis.columns, name=axis.name, at=axis.at),),
@@ -592,7 +577,7 @@ def frozen_key_values(key: FrozenKey) -> tuple[FrameKeyScalar, ...]:
 
 
 def calendar_directory_rows(directory: FrozenCalendarDirectory) -> pd.DataFrame:
-    """Encode immutable directory records using the shared calendar.v2 layout."""
+    """Encode immutable directory records using the shared calendar.v3 layout."""
     rows = frozen_key_table(
         directory.axis.columns, tuple(bucket.key for bucket in directory.buckets)
     )
@@ -603,17 +588,8 @@ def calendar_directory_rows(directory: FrozenCalendarDirectory) -> pd.DataFrame:
     rows["nominal_ordinal"] = pd.Series(
         [b.nominal_ordinal for b in directory.buckets], dtype="int64[pyarrow]"
     )
-    for name, values in (
-        ("nominal_start", tuple(b.nominal_start for b in directory.buckets)),
-        ("nominal_end", tuple(b.nominal_end for b in directory.buckets)),
-        ("actual_start", tuple(b.actual_start for b in directory.buckets)),
-        ("actual_end", tuple(b.actual_end for b in directory.buckets)),
-    ):
-        rows[name] = pd.Series(values, dtype="timestamp[us, tz=UTC][pyarrow]")
-    for name in _CIVIL_NAMES:
-        rows[name] = pd.Series(
-            [getattr(b, name) for b in directory.buckets], dtype="string[pyarrow]"
-        )
+    rows["selection"] = pd.Series([b.selection for b in directory.buckets], dtype="string[pyarrow]")
+    rows["cutoff"] = pd.Series([b.cutoff for b in directory.buckets], dtype="string[pyarrow]")
     return rows
 
 
@@ -677,7 +653,7 @@ def read_calendar_records(
 ) -> tuple[FrozenCalendarBucket, ...]:
     """Validate consumed records without claiming the complete finite directory."""
     if schema != calendar_directory_schema(axis):
-        _fail("the exact calendar.v2 directory schema", repr(schema))
+        _fail("the exact calendar.v3 directory schema", repr(schema))
     _layout(schema, rows)
     arrays = {column.name: _array(rows, column) for column in schema.values}
     keys = frozen_key_rows(rows, axis.columns)
@@ -694,44 +670,38 @@ def read_calendar_records(
         ):
             _fail("nonnull labels and int64 ordinals", repr((label, ordinal, nominal_ordinal)))
         _label(label, axis)
-        start, end, actual_start, actual_end = tuple(
-            _datetime(arrays[name], i) for name in _BOUND_NAMES
-        )
-        if not start <= actual_start < actual_end <= end:
-            _fail(
-                "valid contained half-open nominal and actual bounds",
-                repr((start, end, actual_start, actual_end)),
-            )
-        civil = tuple(
-            _civil(arrays[name], i, bound)
-            for name, bound in zip(
-                _CIVIL_NAMES, (start, end, actual_start, actual_end), strict=True
-            )
-        )
         assert axis.frozen is not None
         definition = axis.frozen.definition
         if isinstance(
             definition, BuiltinCalendarData
         ) and nominal_ordinal != builtin_nominal_ordinal(
-            definition.unit, definition.step, datetime.fromisoformat(civil[0])
+            definition.unit, definition.step, datetime.fromisoformat(label)
         ):
             _fail("the stable builtin nominal period ordinal", repr(nominal_ordinal))
+        selection = arrays["selection"][i].as_py()
+        cutoff = arrays["cutoff"][i].as_py()
+        if selection not in ("full", "prefix", "partial", "unavailable") or (
+            selection == "prefix"
+        ) != isinstance(cutoff, str):
+            _fail("a closed captured period selection and prefix cutoff", repr((selection, cutoff)))
+        assert selection in ("full", "prefix", "partial", "unavailable")
+        assert cutoff is None or isinstance(cutoff, str)
+        if cutoff is not None:
+            try:
+                point = datetime.fromisoformat(cutoff)
+                if point.tzinfo is not None or point.isoformat(timespec="microseconds") != cutoff:
+                    raise ValueError("noncanonical civil cutoff")
+            except ValueError as error:
+                _fail("a captured civil prefix cutoff", str(error))
         buckets.append(
-            FrozenCalendarBucket(
-                key, label, ordinal, start, end, actual_start, actual_end, nominal_ordinal, *civil
-            )
+            FrozenCalendarBucket(key, label, ordinal, nominal_ordinal, selection, cutoff)
         )
-    labels = tuple(bucket.nominal_label for bucket in buckets)
     ordinals = tuple(bucket.ordinal for bucket in buckets)
-    if len(set(labels)) != len(labels):
-        _fail("unique nominal labels", repr(labels))
     if any(ordinal < 0 for ordinal in ordinals) or len(set(ordinals)) != len(ordinals):
         _fail("unique nonnegative original ordinals", repr(ordinals))
     nominal_ordinals = tuple(bucket.nominal_ordinal for bucket in buckets)
-    if any(value < 0 for value in nominal_ordinals) or len(set(nominal_ordinals)) != len(
-        nominal_ordinals
-    ):
-        _fail("unique nonnegative nominal ordinals", repr(nominal_ordinals))
+    if any(value < 0 for value in nominal_ordinals):
+        _fail("nonnegative nominal ordinals", repr(nominal_ordinals))
     return tuple(buckets)
 
 
@@ -957,17 +927,8 @@ def validate_frozen_coordinates(
 def require_matchable_calendar_directory(directory: FrozenCalendarDirectory) -> None:
     """Require a full nominal partition and full actual coverage of every bucket."""
     for bucket in directory.buckets:
-        if (bucket.actual_start, bucket.actual_end) != (bucket.nominal_start, bucket.nominal_end):
-            _fail(
-                "complete actual coverage of every nominal bucket", bucket.nominal_label, match=True
-            )
-    for before, after in zip(directory.buckets, directory.buckets[1:], strict=False):
-        if before.nominal_end != after.nominal_start:
-            _fail(
-                "a continuous nonoverlapping nominal partition",
-                repr((before.nominal_label, after.nominal_label)),
-                match=True,
-            )
+        if bucket.selection != "full":
+            _fail("captured complete logical periods", bucket.nominal_label, match=True)
 
 
 def require_compatible_calendar_axes(left: CalendarDataAxis, right: CalendarDataAxis) -> None:
@@ -1017,12 +978,10 @@ def calendar_match_intents(
     require_calendar_match_rule(directory.axis, rule)
     if rule.kind == "ordinal":
         _fail("an offset rule for civil intentions", repr(rule), match=True)
-    if any(
-        before.nominal_end > after.nominal_start
-        for before, after in zip(directory.buckets, directory.buckets[1:], strict=False)
-    ):
+    labels = tuple(bucket.nominal_label for bucket in directory.buckets)
+    if len(set(labels)) != len(labels):
         _fail(
-            "ordered nonoverlapping selected nominal buckets", repr(directory.buckets), match=True
+            "unambiguous civil period identities for one-to-one matching", repr(labels), match=True
         )
     assert directory.axis.frozen is not None
     definition = directory.axis.frozen.definition
@@ -1030,17 +989,19 @@ def calendar_match_intents(
     result: list[FrozenCalendarIntent] = []
     for bucket in directory.buckets:
         try:
+            bounds = _wall_bounds(directory.axis, bucket)
+            civil = (
+                bounds[0].replace(tzinfo=timezone.utc).isoformat(timespec="microseconds"),
+                bounds[1].replace(tzinfo=timezone.utc).isoformat(timespec="microseconds"),
+                bounds[2].replace(tzinfo=timezone.utc).isoformat(timespec="microseconds"),
+                bounds[3].replace(tzinfo=timezone.utc).isoformat(timespec="microseconds"),
+            )
             intent = civil_shift(
                 definition.unit,
                 definition.step,
                 rule.kind,
                 rule.by,
-                (
-                    bucket.nominal_start_civil,
-                    bucket.nominal_end_civil,
-                    bucket.actual_start_civil,
-                    bucket.actual_end_civil,
-                ),
+                civil,
             )
         except ValueError as error:
             _fail(
@@ -1050,13 +1011,31 @@ def calendar_match_intents(
     return tuple(result)
 
 
-def _wall_bounds(bucket: FrozenCalendarBucket) -> tuple[datetime, datetime, datetime, datetime]:
-    return (
-        datetime.fromisoformat(bucket.nominal_start_civil).replace(tzinfo=None),
-        datetime.fromisoformat(bucket.nominal_end_civil).replace(tzinfo=None),
-        datetime.fromisoformat(bucket.actual_start_civil).replace(tzinfo=None),
-        datetime.fromisoformat(bucket.actual_end_civil).replace(tzinfo=None),
-    )
+def _wall_bounds(
+    axis: CalendarDataAxis, bucket: FrozenCalendarBucket
+) -> tuple[datetime, datetime, datetime, datetime]:
+    """Read logical period identity and selection progress; never localize a key."""
+    assert axis.frozen is not None and isinstance(axis.frozen.definition, BuiltinCalendarData)
+    definition = axis.frozen.definition
+    if bucket.selection not in ("full", "prefix"):
+        _fail(
+            "captured complete periods or bucket-start prefixes", bucket.nominal_label, match=True
+        )
+    start = datetime.fromisoformat(bucket.nominal_label).replace(tzinfo=None)
+    unit = definition.unit
+    if unit in ("second", "minute", "hour", "day", "week"):
+        end = start + timedelta(
+            seconds={"second": 1, "minute": 60, "hour": 3600, "day": 86400, "week": 604800}[unit]
+            * definition.step
+        )
+    else:
+        months = {"month": 1, "quarter": 3, "year": 12}[unit] * definition.step
+        month = start.year * 12 + start.month - 1 + months
+        end = start.replace(year=month // 12, month=month % 12 + 1)
+    cutoff = datetime.fromisoformat(bucket.cutoff) if bucket.cutoff is not None else end
+    if not start < cutoff <= end:
+        _fail("a captured prefix inside its logical period", repr(cutoff), match=True)
+    return start, end, start, cutoff
 
 
 def build_partial_calendar_map(
@@ -1076,9 +1055,14 @@ def build_partial_calendar_map(
         # Validate target admission independently; never clip an aggregated target.
         calendar_match_intents(right, CalendarCorrespondence("periods", 0))
     ordinals = {bucket.ordinal: bucket for bucket in right.buckets}
-    nominal = {
-        (_wall_bounds(bucket)[0], _wall_bounds(bucket)[1]): bucket for bucket in right.buckets
-    }
+    nominal = (
+        {
+            (_wall_bounds(right.axis, bucket)[0], _wall_bounds(right.axis, bucket)[1]): bucket
+            for bucket in right.buckets
+        }
+        if rule.kind != "ordinal"
+        else {}
+    )
     result: list[FrozenBucketMatch] = []
     used: set[FrozenKey] = set()
     for i, bucket in enumerate(left.buckets):
@@ -1089,19 +1073,7 @@ def build_partial_calendar_map(
             partner = None
             if isinstance(intended, CivilShiftTarget):
                 partner = nominal.get((intended.bounds[0], intended.bounds[1]))
-                if partner is not None and (
-                    _wall_bounds(partner) != intended.bounds
-                    or (
-                        intended.exact_instants is not None
-                        and intended.exact_instants
-                        != (
-                            partner.nominal_start,
-                            partner.nominal_end,
-                            partner.actual_start,
-                            partner.actual_end,
-                        )
-                    )
-                ):
+                if partner is not None and (_wall_bounds(right.axis, partner) != intended.bounds):
                     _fail(
                         "the exact saved nominal and prefix progress boundaries",
                         partner.nominal_label,
@@ -1127,26 +1099,7 @@ def merge_equal_calendar_directories(
     require_compatible_calendar_axes(left.axis, right.axis)
     require_compatible_calendar_axes(left.axis, output_axis)
     by_key = {bucket.key: bucket for bucket in left.buckets}
-    by_label = {bucket.nominal_label: bucket for bucket in left.buckets}
-    by_ordinal = {bucket.ordinal: bucket for bucket in left.buckets}
     for bucket in right.buckets:
-        for old in (
-            by_key.get(bucket.key),
-            by_label.get(bucket.nominal_label),
-            by_ordinal.get(bucket.ordinal),
-        ):
-            if old is not None and old != bucket:
-                _fail(
-                    "equal frozen buckets without directory conflicts",
-                    repr((old, bucket)),
-                    match=True,
-                )
-        by_key[bucket.key] = bucket
-        by_label[bucket.nominal_label] = bucket
-        by_ordinal[bucket.ordinal] = bucket
-    buckets = tuple(sorted(by_key.values(), key=lambda bucket: bucket.ordinal))
-    if tuple(bucket.ordinal for bucket in buckets) != tuple(range(len(buckets))):
-        _fail(
-            "merged original ordinals without conflicts or renumbering", repr(buckets), match=True
-        )
-    return replace(left, axis=output_axis, buckets=buckets)
+        if bucket.key not in by_key:
+            by_key[bucket.key] = replace(bucket, ordinal=len(by_key))
+    return replace(left, axis=output_axis, buckets=tuple(by_key.values()))

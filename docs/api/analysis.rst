@@ -261,9 +261,11 @@ Missing ISO weeks/civil cutoffs have no target and never shorten the current
 domain. Nonzero target DST gaps/folds reject; zero offsets retain captured exact
 instants. Observe each endpoint's original Metric explicitly before comparison.
 
-Fixed-data matching consumes saved finite UTC/civil boundaries. Complete builtin
+Fixed-data calendar matching consumes actual keys, saved civil identities, order
+and selection progress, without relocalizing keys or reconstructing member
+intervals. Equality uses actual keys; explicit one-to-many civil matches reject. Complete builtin
 day/quarter offset matching remains supported; partial day/quarter reject.
-``ordinal`` requires compatible complete nominal partitions or a single interval
+``ordinal`` requires compatible complete logical periods or a single interval
 per side with the same boundary timezone. It never compresses positions after
 filtering and cannot construct a shifted source domain. Completed comparison
 facts/attachments explain saved values and endpoint presence, with no Metric,
@@ -317,9 +319,11 @@ usable while full consumers fail. Cards show only count, bounded origins and a
 getter pointer. Calling a fact's ``show(n=0)`` follows the explicit payload read.
 Export returns a flat table with short axis names (final path components), full
 value/presence names, nullable types and isolated interpretation attrs. Calendar
-and interval axes expose actual half-open ``.start``/``.end`` timestamps in their
-captured timezone. ``time_details=True`` adds calendar ``.label``,
-``.nominal_start`` and ``.nominal_end``; named labels retain scalar types.
+axes expose one actual key timestamp in their captured timezone. Interval axes
+expose genuine half-open ``.start``/``.end`` bounds. ``time_details=True`` adds
+calendar ``.label``; named labels retain scalar types. Calendar keys do not
+promise complete membership intervals. ``read_periods()`` discloses saved civil
+selection progress (selection and cutoff).
 Paired time axes use left/right prefixes. Composite identities remain tuples.
 ``axis_names={"full.axis.name": "name"}`` accepts full names or unique axis tokens;
 FrameAxis keys are rejected. Duplicate output names fail before payload reads.
@@ -453,7 +457,7 @@ Evaluation, publication and recovery
 
 Compute creates no Artifact or temporary saved result. Expression persist
 completes evaluation first, then publishes that existing result ID through the
-single Store 25 writer transaction. Memory persist never reevaluates. Stored
+single Store 27 writer transaction. Memory persist never reevaluates. Stored
 persist validates commit metadata and returns itself without another publication.
 A derived or computed memory Frame never exposes an ancestor commit identity. Unknown publication outcome is reconciled, not recomputed.
 
@@ -483,10 +487,10 @@ are ordered by commit time and ID descending. Continue with the returned
 limit. New commits are discovered from the first page. Cards show bounded output
 names and axes; typed schemas remain complete. Corrupt metadata fails explicitly.
 
-Store 25 uses ``marivo.frame_output/v14`` and ``frame.v14`` for
-all Frames, under ``.marivo/analysis/generations/v25/``. Owned method files share
+Store 27 uses ``marivo.frame_output/v16`` and ``frame.v16`` for
+all Frames, under ``.marivo/analysis/generations/v27/``. Owned method files share
 the existing atomic publication, receipt and unknown-commit reconciliation.
-Store 25 refuses older-generation Session/result data unchanged, without
+Store 27 refuses older-generation Session/result data unchanged, without
 migration or dual reads. Documented absent-current discovery may return None or
 empty. Current work may create a new named Session in the same project while
 older generations coexist unchanged; discovery warns about older paths. Preserve
