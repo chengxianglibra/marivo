@@ -263,6 +263,36 @@ def test_relative_game_normalizes_after_absolute_sampling(game_session: Session)
     )
 
 
+@pytest.mark.parametrize("route", ("state", "native"))
+def test_relative_zero_baseline_retains_target_and_structured_parent(
+    game_session: Session, tmp_path: Path, route: str
+) -> None:
+    from marivo.analysis.core.attribute_game_errors import AttributeGameError
+    from marivo.analysis.core.data_types import ScalarDataType
+
+    with duckdb.connect(str(tmp_path / "game.duckdb")) as connection:
+        connection.execute("UPDATE facts SET x=0 WHERE id<3")
+    x = catalog_value(game_session.catalog, "sales.facts.x", kind="field")
+    y = catalog_value(game_session.catalog, "sales.facts.y", kind="field")
+    identifier = catalog_value(game_session.catalog, "sales.facts.id", kind="field")
+    region = catalog_value(game_session.catalog, "sales.facts.region", kind="field")
+    player = catalog_value(game_session.catalog, "sales.facts.player", kind="field")
+    metric = x.sum() * y.sum() if route == "state" else x.quantile(0.5)
+    current = game_session.observe({"q": metric}, by=(region,), where=identifier >= 3)
+    baseline = game_session.observe({"q": metric}, by=(region,), where=identifier < 3)
+    compared = current.compare({"b": mv.baseline(baseline)})
+    target = compared.select({"growth": compared["b.relative.q"]})
+    with pytest.raises(AttributeGameError) as caught:
+        target.attribute(by=(player,), permutations=2).compute()
+    error = caught.value
+    assert error.metric == "q"
+    assert error.parent == ((ScalarDataType("string"), "east"),)
+    assert error.received is not None
+    assert "growth: baseline=0" in error.received
+    assert "parent=None" not in error.received
+    assert "baseline window" in error.received and "source retention/filter" in error.received
+
+
 def test_level_and_statically_partitioned_distinct_keep_exact_route(game_session: Session) -> None:
     identifier = catalog_value(game_session.catalog, "sales.facts.id", kind="field")
     player = catalog_value(game_session.catalog, "sales.facts.player", kind="field")

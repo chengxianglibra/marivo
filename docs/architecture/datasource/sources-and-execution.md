@@ -99,6 +99,13 @@ Missing selected optional drivers raise `DatasourceConnectionError` with the
 backend-specific `marivo[backend]` installation repair. Unselected drivers are
 not imported by provider discovery.
 
+Native Analysis reads containing a declared ClickHouse Distributed input use a statement-owned
+Ibis compiler for GLOBAL IN/JOIN. Subquery inputs are evaluated completely on the
+initiator and broadcast to shards, including when keys or groups span shards.
+The compiler preserves declared source tables, View predicates, parameters and
+native aggregate semantics; it does not change distributed_product_mode. Local
+MergeTree compilation continues through the ordinary instance compiler.
+
 Native temporal analysis admits PostgreSQL `timestamptz`, MySQL `TIMESTAMP`, and
 ClickHouse `DateTime64` through microseconds. MySQL `TIMESTAMP` and ClickHouse
 timestamp execution retain verified UTC session/reader requirements; source and

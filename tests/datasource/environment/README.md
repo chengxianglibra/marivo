@@ -50,6 +50,9 @@ only when deliberately changing the JDBC catalog format.
 Starting any of `trino`, `clickhouse`, or `clickhouse-cluster` stops the other two
 in this Compose project. PostgreSQL, MySQL and MariaDB analysis profiles have
 separate services and volumes.
+The single-node ClickHouse profile also declares `marivo_single_shard` over its
+loopback native endpoint for Distributed-to-View qualification. Distributed tests use GLOBAL IN/JOIN over the single-node and two-shard profiles.
+
 The cluster has no Keeper, replicated engines, or `ON CLUSTER` Distributed DDL;
 setup creates fixtures on each node directly. Hive uses the real Hive connector
 with Trino's file metastore at `local:///hive`, separate from Iceberg data in the

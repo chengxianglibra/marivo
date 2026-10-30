@@ -137,7 +137,7 @@ def _original_input_fact(
             ):
                 qualified = False
             elif owner.provider.name == "clickhouse":
-                qualified = owner.clickhouse_table_engine(bound) == "MergeTree"
+                qualified = owner.clickhouse_join_issue(bound) is None
             else:
                 qualified = owner.provider.name in ("postgres", "mysql", "trino")
             prepared.original_input_qualifications[key] = "qualified" if qualified else "other"
@@ -179,12 +179,12 @@ def qualify_original_strings(
                             from marivo.datasource.engines.clickhouse import decoded_string_columns
 
                             identity = bound.facts.source_identity
-                            if identity not in owner._query_decoded_strings:
-                                owner._query_decoded_strings[identity] = decoded_string_columns(
-                                    owner._backend, owner.datasource, bound.source
+                            if identity not in owner._original_decoded_strings:
+                                owner._original_decoded_strings[identity] = decoded_string_columns(
+                                    owner._backend, owner.datasource, bound.source, enums=True
                                 )
                             deterministic = (
-                                physical_field.name in owner._query_decoded_strings[identity]
+                                physical_field.name in owner._original_decoded_strings[identity]
                             )
                         elif owner.provider.name == "trino":
                             from marivo.datasource.engines.trino import (
@@ -238,10 +238,16 @@ def qualify_original_strings(
                 fact = prepared.collation_qualifications[key]
                 if fact == "unavailable":
                     return (
-                        "Remote original strings require visible deterministic collation metadata"
+                        "ClickHouse original strings require visible decoded-carrier metadata"
+                        if owner.provider.name == "clickhouse"
+                        else "Remote original strings require visible deterministic collation metadata"
                     )
                 if fact != "deterministic":
-                    return "Remote original strings retain a nondeterministic collation boundary"
+                    return (
+                        f"ClickHouse column {physical_field.name}: encoded string carrier is unsupported; use String or Enum8/Enum16 decoded values; FixedString is excluded from Attribute; Query preserves decoded string NUL padding"
+                        if owner.provider.name == "clickhouse"
+                        else "Remote original strings retain a nondeterministic collation boundary"
+                    )
             if not matched:
                 return "original string coordinate has an unqualified physical source"
     return None
@@ -295,6 +301,17 @@ def qualify_original_source(
     ):
         return "original fiber has no qualified physical backend route"
 
+    if owner.provider.name == "clickhouse":
+        for bound in prepared.bound.values():
+            if bound.relation.op() not in raw.op().find(ops.DatabaseTable):
+                continue
+            try:
+                issue = owner.clickhouse_join_issue(bound)
+            except Exception:
+                return "ClickHouse original inputs require visible system.tables topology metadata"
+            if issue is not None:
+                return issue
+
     def physical_value(value: ir.Value, *, role: Literal["identity", "recipe"]) -> bool:
         fields = physical_fields(value)
         if len(fields) != 1:
@@ -315,7 +332,9 @@ def qualify_original_source(
                 # Semantic primary_key owns identity integrity; nullable source
                 # metadata does not require an additional source-data preflight.
                 return bool(
-                    pa.types.is_signed_integer(physical.type) or pa.types.is_string(physical.type)
+                    pa.types.is_signed_integer(physical.type)
+                    or pa.types.is_string(physical.type)
+                    or physical.type == pa.date32()
                 )
             # Each recipe field has already passed source type admission. Its
             # numeric/result and control types are owned by the closed lowerer.
@@ -370,7 +389,9 @@ def qualify_original_source(
             not physical_value(raw[name], role="identity")
             for _, name in require_components(read).identity
         ):
-            return "Remote original identity requires direct physical integer or string keys"
+            return (
+                "Remote original identity requires direct physical integer, string or date32 keys"
+            )
         node = reduction.node
         if isinstance(node, EntityCount):
             continue
@@ -416,6 +437,16 @@ def qualify_attribute_game_sources(prepared: PreparedSources, plan: QueryPlan) -
             input_failure(
                 "unqualified_contribution_route", "replacement states require native tables"
             )
+        if owner.provider.name == "clickhouse":
+            try:
+                issue = owner.clickhouse_join_issue(bound)
+            except Exception:
+                input_failure(
+                    "unqualified_contribution_route",
+                    "ClickHouse replacement capture requires visible system.tables topology metadata",
+                )
+            if issue is not None:
+                input_failure("unqualified_contribution_route", issue)
         physical = tuple(bound.relation.op().find(ops.DatabaseTable))
         if not physical or any(
             _original_input_fact(prepared, owner, bound, leaf) != "qualified" for leaf in physical
@@ -1223,7 +1254,7 @@ def qualify_query_sources(prepared: PreparedSources, lowered: LoweredQuery) -> N
         expression = read.expression
         qualified = _qualify_query_read(prepared, stage, read)
         source = prepared.sources.get(stage.source_id, prepared.source)
-        _qualify_clickhouse_joins(source, qualified, expression)
+        _qualify_clickhouse_joins(source, qualified)
         try:
             source.compile(
                 qualified,
@@ -1240,30 +1271,14 @@ def qualify_query_sources(prepared: PreparedSources, lowered: LoweredQuery) -> N
 
 
 def _qualify_clickhouse_joins(
-    source: SourceSession, qualified: tuple[QualifiedSource, ...], expression: ir.Table
+    source: SourceSession, qualified: tuple[QualifiedSource, ...]
 ) -> None:
     """Qualify physical ClickHouse join topology without reading business rows."""
     if source.provider.name != "clickhouse" or not any(
         "join" in item.requirement.operations for item in qualified
     ):
         return
-    from marivo.datasource._calendar_relations import CalendarData
     from marivo.datasource.ir import TableSourceIR
-
-    def directory_only(relation: ops.Node) -> bool:
-        leaves = relation.find(ops.PhysicalTable)
-        return bool(leaves) and all(isinstance(leaf, CalendarData) for leaf in leaves)
-
-    calendar_joins = True
-    for chain in expression.op().find(ops.JoinChain):
-        left_directory = directory_only(chain.first)
-        for link in chain.rest:
-            right_directory = directory_only(link.table)
-            if not (left_directory or right_directory):
-                calendar_joins = False
-            left_directory = left_directory and right_directory
-    if expression.op().find(ops.InSubquery):
-        calendar_joins = False
 
     for item in qualified:
         physical = item.binding.source
@@ -1287,21 +1302,21 @@ def _qualify_clickhouse_joins(
                 item.binding.facts.source_identity,
                 "Use a source whose table profile is visible to the reader.",
             )
-        if engine == "Distributed" and calendar_joins:
-            # Invocation-owned external tables propagate to Distributed shards.
-            # Business-to-business joins still require their existing topology.
-            continue
-        if engine == "Distributed":
+        try:
+            issue = source.clickhouse_join_issue(item.binding)
+        except Exception as error:
             _route_gap(
-                "a qualified ClickHouse Distributed join route",
-                f"Distributed table {physical.table}: this Query requires IN/JOIN subqueries",
-                "Use a Query without Distributed joins, or an explicitly declared source with a qualified join topology. Marivo does not change distributed_product_mode or substitute local tables.",
+                "visible ClickHouse physical topology metadata for this join",
+                f"{physical.table}: {type(error).__name__}",
+                "Grant access to system.tables metadata for the declared source.",
             )
-        if not engine.endswith("MergeTree"):
+        if issue is not None:
             _route_gap(
-                "a qualified ClickHouse physical join topology",
-                f"{physical.table}: engine={engine}",
-                "Use a qualified physical MergeTree table for this join; a view or another engine does not establish its underlying join topology.",
+                "a qualified ClickHouse Distributed join route"
+                if engine == "Distributed"
+                else "a qualified ClickHouse physical join topology",
+                issue,
+                "Use a MergeTree or Distributed source. Marivo compiles GLOBAL IN/JOIN without changing distributed_product_mode or substituting local tables.",
             )
 
 

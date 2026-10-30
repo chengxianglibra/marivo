@@ -320,21 +320,23 @@ def report_attribute(
     target = program.operation.target
     assert target is not None
     level = target.mode == "level"
-    if target.mode == "relative" and any(
-        method.right.value == 0 for method in paired_parent_methods
-    ):
-        reject(
-            "a nonzero complete-parent baseline for a defined relative target",
-            ".".join(target.path),
-            "Select the absolute comparison output, or filter parents with a valid nonzero baseline before requesting attribution.",
-            "frame.attribute",
-            canonical_id="analysis_frame.attribute",
-        )
-    old = dict(zip(program.output_schema.value_paths, program.output_schema.values, strict=True))
-    output = dict(zip(report_schema.value_paths, report_schema.values, strict=True))
     parent_schema = program.input_program.parent_schema
     parent_columns = tuple(column for axis in parent_schema.axes for column in axis.columns)
     parent_keys = tuple(frozen_key_rows(parent.table, parent_columns))
+    if target.mode == "relative":
+        for index, parent_method in enumerate(paired_parent_methods):
+            if parent_method.right.value != 0:
+                continue
+            key = repr(parent_keys[index])[:256]
+            reject(
+                "a nonzero complete-parent baseline for a defined relative target",
+                f"{'.'.join(target.path)}: baseline=0; parent={key}",
+                "Check the baseline time window and source retention/filter conditions. Select the absolute comparison output, or filter parents with a valid nonzero baseline before requesting attribution.",
+                "frame.attribute",
+                canonical_id="analysis_frame.attribute",
+            )
+    old = dict(zip(program.output_schema.value_paths, program.output_schema.values, strict=True))
+    output = dict(zip(report_schema.value_paths, report_schema.values, strict=True))
     parent_indices = {key: index for index, key in enumerate(parent_keys)}
     fine_keys = tuple(frozen_key_rows(rows, parent_columns))
     fine_indices = tuple(parent_indices[key] for key in fine_keys)

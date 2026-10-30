@@ -297,6 +297,17 @@ Help: `analysis.analysis_frame.fix`.
 
 ## attribute — explain source contributions
 
+Remote attribution supports direct integer, string and Date primary keys. ClickHouse Enum8/Enum16 (including Nullable) can participate in filters and classifications; Attribute excludes FixedString; Query preserves NUL padding in decoded strings. Distributed tables support native joins across shards using `GLOBAL IN/JOIN`: complete subquery inputs are computed on the initiator and broadcast to shards. View filters remain effective; Marivo neither substitutes target tables nor changes `distributed_product_mode`. Physical engine metadata in `system.tables` must be visible. Query sorts Enum labels as decoded strings, independently of their numeric codes.
+
+A zero baseline makes relative attribution undefined. The error identifies the target, baseline value and parent coordinate. Check the baseline window and source retention/filter conditions, or select the absolute comparison output:
+
+```python
+absolute = target.select({"change": target["baseline.absolute.revenue"]})
+report = absolute.attribute(by=(region,)).compute()
+```
+
+Here `target` is a comparison with a `baseline` alias and a `revenue` Metric.
+
 Fixed constant division and Metric `ms.rescale` are supported before observation:
 
 ```python

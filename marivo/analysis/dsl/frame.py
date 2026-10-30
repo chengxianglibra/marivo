@@ -781,6 +781,13 @@ class AnalysisFrame:
         Each coalition and empty/full endpoint is evaluated once and cached. No shared
         snapshot, temporary materialization or drift audit is required; only visited
         native coalition values are validated.
+        Remote identity keys admit direct integer, string and date32 carriers.
+        ClickHouse Enum8/Enum16 decoded equality and filters are supported;
+        Attribute excludes FixedString; Query retains decoded string NUL padding.
+        Distributed queries compile
+        GLOBAL IN/JOIN across shards, preserving complete subquery inputs, the
+        declared table and target View filters without changing server settings.
+        A zero fresh relative baseline reports the target, value and parent key.
         Qualified physical tables use the native backend
         subject to its method, type and source restrictions. Independent
         reopen has no declaration; rebuild explicit source inputs using saved joint keys.

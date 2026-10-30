@@ -155,3 +155,24 @@ def test_native_aggregate_compiler_allowance_does_not_allow_another_patch(tmp_pa
         and not row.failed
         for row in report.records
     )
+
+
+def test_distributed_compilation_allowance_does_not_authorize_other_renderers(
+    tmp_path: Path,
+) -> None:
+    _module(
+        tmp_path,
+        "datasource/engines/_aggregate_compilers.py",
+        "def compile_distributed_query(query):\n    return query.sql()\n"
+        "def another_renderer(query):\n    return query.sql()\n",
+    )
+    report = audit(tmp_path)
+    assert [(row.symbol, row.call) for row in report.failures] == [
+        ("another_renderer", "query.sql")
+    ]
+    assert any(
+        row.symbol == "compile_distributed_query"
+        and row.category == "ibis_compilation"
+        and not row.failed
+        for row in report.records
+    )

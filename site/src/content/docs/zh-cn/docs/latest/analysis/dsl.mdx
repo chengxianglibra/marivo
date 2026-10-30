@@ -275,6 +275,17 @@ Help：`analysis.analysis_frame.fix`。
 
 ## attribute：解释来源贡献
 
+远端归因支持直接物理整数、字符串及 Date 主键。ClickHouse Enum8/Enum16（包括 Nullable）可用于过滤和分类；Attribute 不接纳 FixedString；Query 保留解码字符串中的 NUL 填充。Distributed 表通过 `GLOBAL IN/JOIN` 支持跨 shard 的原生查询：发起节点计算完整子查询输入并广播到各 shard。View 的过滤条件仍然生效；Marivo 不替换目标表，也不修改 `distributed_product_mode`。`system.tables` 中的物理引擎元数据仍须可见。Query 按解码字符串排序 Enum 标签，不按其数字编码排序。
+
+基线为 0 时，相对归因未定义。错误会指出目标、基线值和父坐标。请检查基线时间窗口及来源的保留/过滤条件，或选择绝对变化：
+
+```python
+absolute = target.select({"change": target["baseline.absolute.revenue"]})
+report = absolute.attribute(by=(region,)).compute()
+```
+
+这里的 `target` 是具有 `baseline` 别名及 `revenue` Metric 的比较结果。
+
 在观察前可以使用常数除法和 Metric `ms.rescale`：
 
 ```python

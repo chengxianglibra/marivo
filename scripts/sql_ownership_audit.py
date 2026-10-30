@@ -249,12 +249,13 @@ def _manifest() -> Manifest:
     )
     native_aggregates = Owner(
         "ibis_compilation",
-        "Instance-scoped native aggregate mappings and rejection rules inherit Ibis relational compilation; they add no SQL submission or compiled-text rewrite authority.",
+        "Instance-scoped aggregate/calendar mappings and statement-scoped Distributed GLOBAL IN/JOIN visitors inherit Ibis relational compilation; only SourceSession submits the resulting SQL, with no compiled-text rewrite authority.",
     )
     add(
         "datasource/engines/_aggregate_compilers",
         ("<module>",),
         (
+            "sqlglot",
             "sqlglot.expressions",
             "ibis.backends.sql.compilers.duckdb",
             "ibis.backends.sql.compilers.duckdb.DuckDBCompiler",
@@ -267,6 +268,12 @@ def _manifest() -> Manifest:
             "ibis.backends.sql.compilers.trino",
             "ibis.backends.sql.compilers.trino.TrinoCompiler",
         ),
+        native_aggregates,
+    )
+    add(
+        "datasource/engines/_aggregate_compilers",
+        ("compile_distributed_query",),
+        ("_DistributedClickHouseCompiler().to_sqlglot", "query.sql"),
         native_aggregates,
     )
     add(

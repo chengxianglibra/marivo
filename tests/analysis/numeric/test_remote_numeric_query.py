@@ -17,7 +17,7 @@ import marivo.analysis as mv
 from marivo.datasource.ir import TableSourceIR
 from marivo.semantic.reader import SemanticProject
 from tests.datasource.source_cases import Case, SourceData, source_case, source_params
-from tests.shared_fixtures import catalog_value, terminal_runs
+from tests.shared_fixtures import catalog_value
 
 CASES = [
     ("duckdb", "table"),
@@ -309,14 +309,6 @@ def test_public_native_numeric_query(
         direct_query = session.read(
             members, {"big": catalog_value(session.catalog, "sales.facts.big", kind="field")}
         )
-        if profile == "distributed":
-            from marivo.analysis.errors import AnalysisStageUnavailableError
-
-            before = terminal_runs(session)
-            with pytest.raises(AnalysisStageUnavailableError, match="Distributed join route"):
-                direct_query.compute()
-            assert terminal_runs(session) == before
-            return
         direct = direct_query.compute()
         returned = direct.to_pandas()["big"]
         assert returned.isna().sum() == 3

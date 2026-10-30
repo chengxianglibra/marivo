@@ -2210,3 +2210,27 @@ def test_current_decomposition_roles_keep_restricted_denominator_and_fixed_group
     assert reopened.schema.decompositions == projected.schema.decompositions
     assert reopened.schema.comparisons[0].groups == projected.schema.comparisons[0].groups
     assert reopened.lineage.input_id == reopened.schema.input_id
+
+
+def test_zero_baseline_reports_value_and_parent(session: Session) -> None:
+    from marivo.analysis.errors import AnalysisError
+
+    with duckdb.connect(str(session.project_root / "contribution.duckdb")) as connection:
+        connection.execute("UPDATE facts SET amount=0 WHERE phase='base'")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+    phase = catalog_value(session.catalog, "sales.facts.phase", kind="field")
+    region = catalog_value(session.catalog, "sales.facts.region", kind="field")
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
+    current = session.observe({"q": amount.sum()}, by=(region,), where=phase == "current").compute()
+    baseline = session.observe({"q": amount.sum()}, by=(region,), where=phase == "base").compute()
+    compared = current.compare({"base": mv.baseline(baseline)}).compute()
+    with pytest.raises(AnalysisError) as caught:
+        compared.attribute(by=(channel,)).compute()
+    text = str(caught.value)
+    assert "base.relative.q: baseline=0" in text, text
+    assert "parent=" in text and "east" in text
+    assert "baseline time window" in text and "source retention/filter" in text
+    absolute = compared.select({"change": compared["base.absolute.q"]})
+    assert absolute.attribute(by=(channel,)).compute().to_pandas()[
+        "contribution.change"
+    ].tolist() == [160, 80]

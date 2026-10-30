@@ -39,8 +39,12 @@ def qualify_query_source(
         for identity, bound in owner._bound_sources.items():
             if bound.relation.op() not in leaves:
                 continue
-            if owner.clickhouse_table_engine(bound) != "MergeTree":
-                return "ClickHouse Query fusion currently requires local MergeTree inputs"
+            try:
+                issue = owner.clickhouse_join_issue(bound)
+            except Exception:
+                return "ClickHouse Query fusion requires visible system.tables topology metadata"
+            if issue is not None:
+                return issue
             assert isinstance(bound.source, TableSourceIR)
             if identity not in owner._query_decoded_strings:
                 owner._query_decoded_strings[identity] = decoded_string_columns(

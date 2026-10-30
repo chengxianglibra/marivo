@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from datetime import datetime
 
 # Ibis visitor names include the operation class name.
@@ -10,6 +11,8 @@ from typing import ClassVar, NoReturn
 
 import ibis.expr.datatypes as dt
 import ibis.expr.operations as ops
+import ibis.expr.types as ir
+import sqlglot as sg
 import sqlglot.expressions as sge
 from ibis.backends import BaseBackend
 from ibis.backends.sql import SQLBackend
@@ -233,6 +236,33 @@ class _ClickHouseCompiler(ClickHouseCompiler):  # type: ignore[misc]
         where: sge.Expr | None,
     ) -> sge.Expr:
         return self._quantile(op, arg, sge.convert(0.5), where, approximate=True)
+
+
+class _DistributedClickHouseCompiler(_ClickHouseCompiler):
+    """Broadcast complete subquery inputs rather than evaluate shard-local subsets."""
+
+    def visit_JoinLink(
+        self, op: ops.JoinLink, *, how: str, table: sge.Expr, predicates: Sequence[sge.Expr]
+    ) -> sge.Join:
+        result = super().visit_JoinLink(op, how=how, table=table, predicates=predicates)
+        assert isinstance(result, sge.Join)
+        result.set("global_", "GLOBAL")
+        return result
+
+    def visit_InSubquery(self, op: ops.InSubquery, *, needle: sge.Expr, rel: sge.Expr) -> sge.Expr:
+        result = super().visit_InSubquery(op, needle=needle, rel=rel)
+        assert isinstance(result, sge.Expr)
+        for membership in result.find_all(sge.In):
+            if membership.args.get("query") is not None:
+                membership.set("is_global", True)
+        return result
+
+
+def compile_distributed_query(expression: ir.Table, params: Mapping[ir.Scalar, object]) -> str:
+    """Compile one Distributed read with a statement-owned Ibis compiler."""
+    query = _DistributedClickHouseCompiler().to_sqlglot(expression, params=params, limit=None)
+    assert isinstance(query, sge.Expr)
+    return str(query.sql(dialect="clickhouse", copy=False, unsupported_level=sg.ErrorLevel.RAISE))
 
 
 class _DuckDBCompiler(DuckDBCompiler):  # type: ignore[misc]

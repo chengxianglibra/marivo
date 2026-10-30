@@ -1116,7 +1116,11 @@ def assemble_game_report(
             if target.mode == "relative":
                 denominator = _number(abs(_number(baseline.values.iloc[0])))
                 if denominator == 0:
-                    _fail(f"parent={key!r}: relative attribution requires nonzero baseline")
+                    _fail(
+                        f"{'.'.join(target.path)}: baseline=0; relative attribution requires nonzero baseline; check the baseline window and source retention/filter conditions or select absolute change",
+                        metric=operation.games[0].metric,
+                        parent=key,
+                    )
                 total = _numeric_binary("div", change, _series(denominator, baseline.column))
                 relative_roundoff = tuple(
                     math.ulp(v / float(denominator))

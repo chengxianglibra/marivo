@@ -125,7 +125,7 @@ def test_remote_aggregate_frame_bridge_uses_typed_key_transport(
 
 
 @pytest.mark.parametrize("backend,profile", CASES)
-def test_remote_fixed_strings_keep_reader_bytes(
+def test_remote_fixed_strings_keep_native_padding(
     backend: str,
     profile: str,
     tmp_path: Path,
@@ -151,21 +151,33 @@ def test_remote_fixed_strings_keep_reader_bytes(
                 source.top(0, by=source["category"]),
             )
         ):
-            if backend == "clickhouse":
-                from marivo.analysis.materialization.errors import MaterializationError
-
-                with pytest.raises(MaterializationError, match="lossless string carrier"):
-                    query.compute()
-                continue
             rows = query.compute().to_pandas()
             if index == 0:
-                assert rows["category"].tolist() == ([] if backend == "trino" else ["a"])
+                assert rows["category"].tolist() == (
+                    [] if backend in ("trino", "clickhouse") else ["a"]
+                )
             elif index == 1:
                 assert rows["category"].tolist() == (
-                    ["ä   ", "z   "] if backend == "trino" else ["ä", "z"]
+                    ["ä   ", "z   "]
+                    if backend == "trino"
+                    else ["ä\x00\x00", "z\x00\x00\x00"]
+                    if backend == "clickhouse"
+                    else ["ä", "z"]
                 )
             else:
                 assert rows.empty
+        if backend == "clickhouse":
+            from marivo.analysis.errors import AnalysisError
+
+            entity = session.catalog.get("entity:sales.facts")
+            category = catalog_value(session.catalog, "sales.facts.category", kind="field")
+            parent = session.observe({"n": entity.count()}).compute()
+            with pytest.raises(AnalysisError) as caught:
+                parent.attribute(by=(category,)).compute()
+            text = str(caught.value)
+            assert "FixedString is excluded from Attribute" in text
+            assert "Query preserves decoded string NUL padding" in text
+            assert "arrives as bytes" not in text
 
 
 def test_mysql_native_collated_groups_keep_the_existing_source_membership(

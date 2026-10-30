@@ -236,6 +236,9 @@ class SourceSession:
         self._bound_sources: dict[str, BoundSource] = {}
         self._query_string_facts: dict[tuple[str, str], bool] = {}
         self._query_decoded_strings: dict[str, frozenset[str]] = {}
+        self._original_decoded_strings: dict[str, frozenset[str]] = {}
+        self._clickhouse_engines: dict[str, str | None] = {}
+        self._clickhouse_join_issues: dict[str, str | None] = {}
         self._key_relations: dict[str, ops.InMemoryTable] = {}
         self._key_request_limit: tuple[int, str] | None = None
         self._verified_source_timezones: set[str] = set()
@@ -472,8 +475,30 @@ class SourceSession:
             raise _invalid("a named ClickHouse table or view", repr(binding.source))
         from marivo.datasource.engines.clickhouse import table_engine
 
-        with cr.backend_errors(self._backend):
-            return table_engine(self._backend, self.datasource, binding.source)
+        identity = binding.facts.source_identity
+        if identity not in self._clickhouse_engines:
+            with cr.backend_errors(self._backend):
+                self._clickhouse_engines[identity] = table_engine(
+                    self._backend, self.datasource, binding.source
+                )
+        return self._clickhouse_engines[identity]
+
+    def clickhouse_join_issue(self, binding: BoundSource) -> str | None:
+        """Reuse invocation-owned physical topology facts for this exact binding."""
+        self._ensure_open()
+        if binding._owner is not self._token:
+            raise _invalid("a source bound by this session", "foreign source binding")
+        if self.provider.name != "clickhouse" or not isinstance(binding.source, TableSourceIR):
+            raise _invalid("a named ClickHouse table or view", repr(binding.source))
+        from marivo.datasource.engines.clickhouse import table_join_issue
+
+        identity = binding.facts.source_identity
+        if identity not in self._clickhouse_join_issues:
+            with cr.backend_errors(self._backend):
+                self._clickhouse_join_issues[identity] = table_join_issue(
+                    self._backend, self.datasource, binding.source
+                )
+        return self._clickhouse_join_issues[identity]
 
     def compile(
         self,
@@ -557,7 +582,20 @@ class SourceSession:
         if not actual_schema.equals(expected_schema, check_metadata=False):
             raise _invalid(str(actual_schema), str(expected_schema))
         supplied = dict(params or {})
-        sql = self._backend.compile(expression.as_table(), params=supplied, limit=None)
+        if (
+            self.provider.name == "clickhouse"
+            and all(
+                item.requirement.method_id == "query.source_read" and item.requirement.version == 1
+                for item in sources
+            )
+            and expression.op().find((ops.JoinChain, ops.InSubquery))
+            and any(self.clickhouse_table_engine(item.binding) == "Distributed" for item in sources)
+        ):
+            from marivo.datasource.engines._aggregate_compilers import compile_distributed_query
+
+            sql = compile_distributed_query(expression.as_table(), supplied)
+        else:
+            sql = self._backend.compile(expression.as_table(), params=supplied, limit=None)
         if not isinstance(sql, str) or not sql:
             raise _invalid("nonempty Ibis compiled SQL", type(sql).__name__)
         if self.provider.name == "clickhouse":

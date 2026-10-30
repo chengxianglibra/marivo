@@ -285,9 +285,9 @@ def table_engine(
 
 
 def decoded_string_columns(
-    backend: BaseBackend, datasource: DatasourceIR, source: TableSourceIR
+    backend: BaseBackend, datasource: DatasourceIR, source: TableSourceIR, *, enums: bool = False
 ) -> frozenset[str]:
-    """Find native String carriers; FixedString currently arrives as bytes."""
+    """Find decoded carriers; Enum equality is safe, but its native order is numeric."""
     rows = _clickhouse_rows(
         backend,
         "clickhouse.columns.fallback",
@@ -297,7 +297,25 @@ def decoded_string_columns(
         str(row["name"])
         for row in rows
         if str(row.get("type")) in ("String", "Nullable(String)", "LowCardinality(String)")
+        or (enums and re.fullmatch(r"(?:Nullable\()?Enum(?:8|16)\(.*\)\)?", str(row.get("type"))))
     )
+
+
+def table_join_issue(
+    backend: BaseBackend, datasource: DatasourceIR, source: TableSourceIR
+) -> str | None:
+    """Qualify a declared table's topology without substituting its remote target."""
+    rows = _clickhouse_rows(
+        backend,
+        "clickhouse.tables.full",
+        values={"table": source.table, "database": clickhouse_database(source, datasource)},
+    )
+    if len(rows) != 1 or not rows[0].get("engine"):
+        return f"{source.table}: physical table metadata is unavailable"
+    engine = str(rows[0]["engine"])
+    if engine.endswith("MergeTree") or engine == "Distributed":
+        return None
+    return f"{source.table}: engine={engine} does not establish its physical join topology"
 
 
 _CH_PARTITION_FUNC_RE = re.compile(r"^(\w+)\((\w+)\)$")

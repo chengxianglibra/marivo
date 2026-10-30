@@ -319,15 +319,26 @@ Python consumes aggregate keys, components and bounded diagnostics. Final closur
 neither replaces these operation checks nor proves consistency between reads.
 The existing rejection of incompatible non-temporal scopes within one root remains;
 such scopes are never merged merely because their root matches.
-Remote Attribute original-input admission requires direct physical integer or
-string identities and qualified string collations. Physical identity columns may
+Remote Attribute original-input admission requires direct physical integer,
+string or date32 identities and qualified string collations. Physical identity columns may
 be nullable in source metadata: the semantic `primary_key` declaration supplies
 the complete, non-null identity assumption. Attribute adds no full-source NULL or
 uniqueness precheck. Violating that declaration is not guaranteed to raise an
 error; use explicit `source_check` when source-data verification is required.
 Existing identity-output integrity and operation-specific checks remain required.
-Connector and engine restrictions, including ClickHouse Distributed join topology,
-also remain.
+ClickHouse Enum8/Enum16 (including Nullable wrappers) are decoded string inputs
+for Attribute equality, grouping and filters. This does not qualify their numeric
+native order as string order for Query Top, which sorts decoded strings.
+Attribute excludes FixedString; Query preserves NUL padding in decoded strings. ClickHouse MergeTree and Distributed inputs support native joins. Distributed
+statements compile IN subqueries and joins as GLOBAL IN/JOIN: the initiator
+computes complete subquery inputs and broadcasts them to shards, preserving
+cross-shard membership and join semantics. There is no shard-count restriction.
+The declared Distributed source and all target View filters remain effective;
+Marivo does not rewrite distributed_product_mode or substitute remote target tables.
+Physical engine metadata must remain visible through system.tables.
+Relative attribution rejects a zero fresh baseline with its target and first
+failing parent coordinate; inspect the baseline window and source retention/filter
+conditions, or select absolute change.
 Additive, direct ratio, native mean/weighted mean and captured fixed linear/window
 rules retain their owning numeric semantics. Fixed division and Metric rescale
 retain the original typed divisor and division order, including native Float64

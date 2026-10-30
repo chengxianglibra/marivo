@@ -1139,6 +1139,9 @@ def test_public_calendar_uses_saved_instants_and_boundaries(
     exported = session.persisted_frame(artifact.artifact_id).to_pandas(time_details=True)
     (description,) = exported.attrs["axes"]
     assert description["role"] == "calendar" and description["descriptor"]["timezone"] == zone
+    repr(exported)
+    print(exported)
+    assert len(pd.concat([exported, exported.copy()])) == 2 * len(exported)
     (part,) = exported.attrs["frozen_coordinates"]
     bounds = part["rows"].to_pandas(types_mapper=pd.ArrowDtype)
     assert len(bounds) == 3
