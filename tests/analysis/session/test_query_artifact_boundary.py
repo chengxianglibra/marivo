@@ -24,13 +24,10 @@ from marivo.analysis.core.artifact_data import (
     DataColumn,
     DataSchema,
     DecimalDataType,
-    OutputCoordinate,
-    OutputEvidence,
     ParquetHandle,
     ScalarDataType,
     TimestampDataType,
 )
-from marivo.analysis.core.frame_audit import EvaluationRecord, FrameAudit, FrameResultMetadata
 from marivo.analysis.core.frame_data import (
     CompletedFrameData,
     CompletedFrameResult,
@@ -38,6 +35,7 @@ from marivo.analysis.core.frame_data import (
     LiteralFrameBinding,
     SourceFrameBinding,
 )
+from marivo.analysis.core.frame_metadata import EvaluationRecord, FrameResultMetadata
 from marivo.analysis.core.graph import BoundGraph
 from marivo.analysis.core.lineage import empty as empty_lineage
 from marivo.analysis.core.model import BoundQuantity, CoreRuleError
@@ -46,7 +44,6 @@ from marivo.analysis.materialization.contracts import FileEntry, LocalReceipt
 from marivo.analysis.materialization.errors import IntegrityError
 from marivo.analysis.materialization.layout import MaterializationLayout
 from marivo.analysis.materialization.terminal_store import describe
-from marivo.analysis.refs import ArtifactRef
 from marivo.analysis.session.core import Session
 from marivo.semantic._deferred_semantics import consume_metric
 from marivo.semantic.reader import SemanticProject
@@ -74,9 +71,8 @@ def _manifest() -> ArtifactManifest:
             FrameResultMetadata(
                 "result_exact",
                 lineage=empty_lineage(schema),
-                audit=FrameAudit(
-                    (),
-                    EvaluationRecord(datetime(2026, 1, 1, tzinfo=timezone.utc), (), ("literal",)),
+                evaluation=EvaluationRecord(
+                    datetime(2026, 1, 1, tzinfo=timezone.utc), (), ("literal",)
                 ),
             )
         ),
@@ -244,7 +240,7 @@ def test_saved_frame_owns_identity_and_rejects_invalid_inputs(
     with pytest.raises(CoreRuleError, match="ID string"):
         session.persisted_frame(saved)  # type: ignore[arg-type]  # Recovery requires an exact ID string.
     with pytest.raises(CoreRuleError, match="ID string"):
-        session.persisted_frame(ArtifactRef(ref=saved.artifact_id))  # type: ignore[arg-type]  # Refs are not ID strings.
+        session.persisted_frame(object())  # type: ignore[arg-type]  # Arbitrary objects are not ID strings.
 
 
 def test_publication_tables_and_committed_data_have_distinct_contracts() -> None:
@@ -254,9 +250,7 @@ def test_publication_tables_and_committed_data_have_distinct_contracts() -> None
         CompletedFrameData(manifest.data.schema, frame),
         FrameResultMetadata(
             manifest.metadata.result_id,
-            audit=FrameAudit(
-                (), EvaluationRecord(manifest.metadata.evaluated_at, (), ("literal",))
-            ),
+            evaluation=EvaluationRecord(manifest.metadata.evaluated_at, (), ("literal",)),
             lineage=manifest.metadata.lineage,
         ),
     )
@@ -277,10 +271,6 @@ def test_publication_tables_and_committed_data_have_distinct_contracts() -> None
         replace(manifest.data, rows=frame)  # type: ignore[arg-type]  # Saved data requires a receipt.
     with pytest.raises(CoreRuleError):
         CompletedFrameData(manifest.data.schema, manifest.data.rows)  # type: ignore[arg-type]  # Completed data requires actual rows.
-    with pytest.raises(CoreRuleError, match="output scalar"):
-        OutputCoordinate("k0", _metric(1))  # type: ignore[arg-type]  # Inert audit rejects executable definitions.
-    with pytest.raises(CoreRuleError, match="output scalar"):
-        OutputEvidence("check", "invalid semantic payload", (("value", _metric(1)),))  # type: ignore[arg-type]  # Inert audit rejects executable definitions.
 
 
 def test_data_schema_preserves_composite_keys_types_and_output_order() -> None:
@@ -312,7 +302,7 @@ def test_session_reopen_remains_same_generation(
     resumed = mv.session.resume(first.id)
     named = mv.session.resume(first.id)
     assert resumed.id == named.id == first.id
-    assert MaterializationLayout(tmp_path).generation == 23
+    assert MaterializationLayout(tmp_path).generation == 24
     assert terminal_runs(resumed) == ()
 
 
@@ -361,7 +351,7 @@ def test_old_session_is_not_found_without_rewriting_files(
     assert caught.value.repair is not None
     assert "v11" in caught.value.repair.action
     assert path.read_bytes() == before and tuple(path.parent.iterdir()) == files
-    assert not (path.parent.parent / "v23").exists()
+    assert not (path.parent.parent / "v24").exists()
 
 
 @pytest.mark.parametrize("columns", (None, False, 0, {}))
@@ -409,15 +399,14 @@ def test_new_help_targets_resolve_and_disclose_phase_boundary(
         "analysis.frame_axis",
         "analysis.analysis_frame.artifact_id",
         "analysis.analysis_frame.session_id",
-        "analysis.analysis_frame.findings",
-        "analysis.analysis_frame.evidence",
+        "analysis.analysis_frame.source_reads",
     ):
         public_help(target)
         assert target in capsys.readouterr().out
     public_help(mv.AnalysisFrame)
     rendered = capsys.readouterr().out
-    assert "audit" in rendered.lower() and "AnalysisFrame" in rendered
-    assert "committed" in rendered
+    assert "source_reads" in rendered and "AnalysisFrame" in rendered
+    assert "stored" in rendered
 
 
 def test_lifecycle_help_discloses_actual_effects_for_string_and_callable(
@@ -438,7 +427,7 @@ def test_lifecycle_help_discloses_actual_effects_for_string_and_callable(
         assert "stored" in text and "returns itself" in text
 
 
-@pytest.mark.parametrize("name", ("show", "findings", "evidence"))
+@pytest.mark.parametrize("name", ("show",))
 def test_artifact_read_help_discloses_committed_reading_for_string_and_callable(
     capsys: pytest.CaptureFixture[str], name: str
 ) -> None:
@@ -450,41 +439,3 @@ def test_artifact_read_help_discloses_committed_reading_for_string_and_callable(
         text = capsys.readouterr().out
         assert "submission" in text or "committed" in text or "saved" in text
         assert "unavailable until" not in text
-
-
-@pytest.mark.parametrize(
-    ("value", "target", "fields"),
-    (
-        (
-            OutputEvidence("check", "Output checked.", (("rows", 1),)),
-            "runtime.output_evidence",
-            ("kind:", "summary:", "values:", "coordinates:"),
-        ),
-        (
-            OutputCoordinate("key.0", 1),
-            "runtime.output_coordinate",
-            ("slot_id:", "value:"),
-        ),
-    ),
-)
-def test_terminal_record_help_resolves_nested_types_and_methods(
-    value: OutputEvidence | OutputCoordinate,
-    target: str,
-    fields: tuple[str, ...],
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    from marivo._help.render import help as public_help
-
-    assert marivo.help is public_help
-    rendered = []
-    for form in (f"analysis.{target}", type(value)):
-        public_help(form)
-        text = capsys.readouterr().out
-        assert f"analysis.{target}" in text
-        assert all(field in text for field in fields)
-        rendered.append(text)
-    assert rendered[0] == rendered[1]
-    for method in (value.show, value.render):
-        public_help(method)
-        assert "analysis.runtime.values." in capsys.readouterr().out
-    assert type(value).__name__ not in mv.__all__

@@ -26,14 +26,12 @@ def _scalar_output(result: mv.AnalysisFrame, total: int | None) -> None:
     values = result.to_pandas()["value"]
     assert values.isna().all() if total is None else values.tolist() == [total]
     assert tuple(axis.role for axis in result.axes) in ((), ("interval",))
-    assert result._local._audit_manifest(result._require_stored("artifact_id")).data.schema.values[
+    assert result._local._manifest(result._require_stored("artifact_id")).data.schema.values[
         0
     ].dtype == ScalarDataType("int64")
     assert all(
         item.name != "original_state"
-        for item in result._local._audit_manifest(
-            result._require_stored("artifact_id")
-        ).data.attachments
+        for item in result._local._manifest(result._require_stored("artifact_id")).data.attachments
     )
 
 
@@ -72,8 +70,8 @@ def test_native_sum_reads_only_terminal_exchange_with_all_checks_and_fresh_runs(
         first, second = results
         assert first.artifact_id != second.artifact_id
         assert (
-            first._local._audit_manifest(first._require_stored("artifact_id")).run_id
-            != second._local._audit_manifest(second._require_stored("artifact_id")).run_id
+            first._local._manifest(first._require_stored("artifact_id")).run_id
+            != second._local._manifest(second._require_stored("artifact_id")).run_id
         )
         assert len(terminal_runs(work.session)) == 2
         assert _support(work).persist().to_pandas()["count"].tolist() == [61]
@@ -81,7 +79,7 @@ def test_native_sum_reads_only_terminal_exchange_with_all_checks_and_fresh_runs(
         frame = captured.to_pandas()
         assert [
             column.dtype
-            for column in captured._local._audit_manifest(captured._require_stored("artifact_id"))
+            for column in captured._local._manifest(captured._require_stored("artifact_id"))
             .data.schema.axes[1]
             .columns
         ] == [

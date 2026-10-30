@@ -25,8 +25,8 @@ from marivo.analysis.core.data_types import (
     ScalarDataType,
     TimestampDataType,
 )
-from marivo.analysis.core.frame_audit import EvaluationRecord, FrameAudit, FrameResultMetadata
 from marivo.analysis.core.frame_data import CompletedFrameData, CompletedFrameResult
+from marivo.analysis.core.frame_metadata import EvaluationRecord, FrameResultMetadata
 from marivo.analysis.dsl.frame import AnalysisFrame
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.materialization.errors import MaterializationError
@@ -71,9 +71,7 @@ def _frame(
             ),
             FrameResultMetadata(
                 "exact-temporal-input",
-                FrameAudit(
-                    (), EvaluationRecord(datetime(2026, 10, 20, tzinfo=timezone.utc), (), ())
-                ),
+                EvaluationRecord(datetime(2026, 10, 20, tzinfo=timezone.utc), (), ()),
             ),
         ),
     )
@@ -223,9 +221,7 @@ def test_timestamp_comparison_scales_units_without_int64_common_unit_cast(sessio
             ),
             FrameResultMetadata(
                 "mixed-ticks",
-                FrameAudit(
-                    (), EvaluationRecord(datetime(2026, 10, 20, tzinfo=timezone.utc), (), ())
-                ),
+                EvaluationRecord(datetime(2026, 10, 20, tzinfo=timezone.utc), (), ()),
             ),
         ),
     )
@@ -321,9 +317,7 @@ def test_timestamp_comparison_preserves_timezone_awareness_distinction(
             CompletedFrameData(schema, rows),
             FrameResultMetadata(
                 "awareness",
-                FrameAudit(
-                    (), EvaluationRecord(datetime(2026, 10, 20, tzinfo=timezone.utc), (), ())
-                ),
+                EvaluationRecord(datetime(2026, 10, 20, tzinfo=timezone.utc), (), ()),
             ),
         ),
     )

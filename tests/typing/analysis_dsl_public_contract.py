@@ -1,6 +1,6 @@
 """Static contracts for typed observations, coordinate domains and terminal reads."""
 
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING, Literal
 
@@ -100,7 +100,7 @@ if TYPE_CHECKING:
         assert_type(session.observe({"value": revenue}, by=complete), mv.AnalysisFrame)
         return session.frame(complete)
 
-    def terminal_reads(artifact: mv.AnalysisFrame) -> mv.EvidencePage:
+    def terminal_reads(artifact: mv.AnalysisFrame) -> tuple[mv.FrameSourceRead, ...]:
         from pandas import DataFrame
 
         assert_type(session.persisted_frame(artifact.artifact_id), mv.AnalysisFrame)
@@ -108,10 +108,20 @@ if TYPE_CHECKING:
         assert_type(session.persisted_frame(artifact.artifact_id).to_pandas(), DataFrame)
         fixed = session.persisted_frame(artifact.artifact_id)
         assert_type(fixed.to_pandas(axis_names={fixed.axes[0].token: "region"}), DataFrame)
-        assert_type(artifact.findings(limit=20, cursor=None), mv.FindingPage)
-        digest = artifact.evidence(limit=100)
-        assert_type(digest, mv.EvidencePage)
-        assert_type(digest.total_count, int)
+        reads = artifact.source_reads
+        assert_type(reads, tuple[mv.FrameSourceRead, ...])
+        for read in reads:
+            assert_type(read.read_id, str)
+            assert_type(read.completed_at, datetime)
+            assert_type(read.returned_rows, int | None)
+            assert_type(read.scopes, tuple[mv.FrameSourceReadScope, ...])
+            for scope in read.scopes:
+                assert_type(scope.source, str)
+                assert_type(scope.period, mv.FrameSourceReadPeriod | None)
+                if scope.period is not None:
+                    assert_type(scope.period.start, datetime | None)
+                    assert_type(scope.period.end, datetime)
+                    assert_type(scope.period.timezone, str)
         assert_type(artifact.schema, mv.FrameSchema)
         assert_type(artifact.schema.values["value"], mv.FrameField)
         assert_type(artifact.schema.axes, tuple[mv.FrameAxisSchema, ...])
@@ -120,7 +130,7 @@ if TYPE_CHECKING:
         assert_type(page.read_stats, mv.FrameReadStats)
         assert_type(page.total_count, int)
         assert_type(page.to_pandas(), DataFrame)
-        return digest
+        return reads
 
     def result_algebra(
         query: mv.AnalysisFrame, other: mv.AnalysisFrame, axis: mv.FrameAxis, field: ms.Dimension

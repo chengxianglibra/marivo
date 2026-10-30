@@ -96,7 +96,7 @@ def test_pandas_lag_shift_preserves_nominal_grid_distance(
     assert run_ids(case.session) == before
 
 
-@pytest.mark.parametrize("point", ("insert_evidence", "insert_findings", "before_commit"))
+@pytest.mark.parametrize("point", ("insert_artifact", "insert_terminal", "before_commit"))
 def test_statistical_failure_is_atomic(
     analysis_dsl_case_factory: DslCaseFactory, point: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:

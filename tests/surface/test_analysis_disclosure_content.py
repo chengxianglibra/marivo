@@ -617,7 +617,9 @@ def test_construction_type_families_and_retired_surface() -> None:
         "time_scope",
         "calendar_correspondence",
         "comparison_baseline",
-        "evidence_page",
+        "frame_source_read",
+        "frame_source_read_scope",
+        "frame_source_read_period",
         "frame_schema",
         "frame_field",
         "frame_axis_schema",
@@ -667,12 +669,7 @@ def test_construction_type_families_and_retired_surface() -> None:
         "frame_interval_period",
         "frame_paired_period",
         "frame_comparison_period",
-        "artifact_ref",
-        "finding",
-        "finding_page",
         "session",
-        "runtime.output_evidence",
-        "runtime.output_coordinate",
         "runtime.session_summary_page",
         "runtime.session_summary",
         "runtime.persisted_frame_summary",
@@ -718,7 +715,7 @@ def test_construction_type_families_and_retired_surface() -> None:
         "value_statistic",
         "column",
     }
-    assert len([name for name in mv.__all__ if isinstance(getattr(mv, name), type)]) == 62
+    assert len([name for name in mv.__all__ if isinstance(getattr(mv, name), type)]) == 61
     removed = {
         "before_end_boundary",
         "before_end_boundary.end",
@@ -763,7 +760,6 @@ def test_nested_metadata_help_keeps_read_boundaries() -> None:
         ("frame_method_facts.output_schema", "complete original saved output layout"),
         ("frame_method_coordinate.schema", "complete saved coordinate layout"),
         ("frame_method_value.column", "physical dtype, unit and nullability"),
-        ("finding.value", "finding_type/kind"),
     ):
         page = render_help_text("analysis." + target)[0]
         assert "Kind: attribute" in page and fact in page
@@ -801,8 +797,16 @@ def test_fixed_read_surface_has_one_reachable_contract_per_entry() -> None:
         "analysis_frame.schema",
         "analysis_frame.read_page",
         "analysis_frame.read_periods",
-        "analysis_frame.findings",
-        "analysis_frame.evidence",
+        "analysis_frame.source_reads",
+        "frame_source_read.read_id",
+        "frame_source_read.completed_at",
+        "frame_source_read.scopes",
+        "frame_source_read.returned_rows",
+        "frame_source_read_scope.source",
+        "frame_source_read_scope.period",
+        "frame_source_read_period.start",
+        "frame_source_read_period.end",
+        "frame_source_read_period.timezone",
         "frame_schema.input_id",
         "frame_schema.values",
         "frame_schema.presence",
@@ -844,10 +848,6 @@ def test_fixed_read_surface_has_one_reachable_contract_per_entry() -> None:
         "frame_paired_period.right",
         "frame_comparison_period.baseline",
         "frame_comparison_period.absent_reason",
-        "finding_page.total_count",
-        "finding_page.input_id",
-        "evidence_page.total_count",
-        "evidence_page.input_id",
         "frame_read_stats.receipt_bytes_hashed",
         "timestamp_data_type.timezone",
         "unresolved_data_type.kind",
@@ -856,6 +856,12 @@ def test_fixed_read_surface_has_one_reachable_contract_per_entry() -> None:
         text = render_help_text("analysis." + target)[0]
         assert "Target: analysis." + target in text
     for target in (
+        "analysis_frame.findings",
+        "analysis_frame.evidence",
+        "finding",
+        "finding_page",
+        "evidence_page",
+        "results.evidence",
         "analysis_frame.evidence_digest",
         "artifact_digest",
         "artifact_evidence_summary",
@@ -869,7 +875,21 @@ def test_fixed_read_surface_has_one_reachable_contract_per_entry() -> None:
     assert "analysis.analysis_frame.schema" in inspect
     assert "analysis.analysis_frame.read_page" in inspect
     assert "analysis.analysis_frame.read_periods" in inspect
-    assert "same limit" in render_help_text("analysis.analysis_frame.evidence")[0]
+    assert "analysis.analysis_frame.source_reads" in inspect
+    for member in ("findings", "evidence"):
+        assert not hasattr(mv.AnalysisFrame, member)
+    for name in ("Finding", "FindingPage", "EvidencePage"):
+        assert name not in mv.__all__
+    assert "Kind: attribute" in render_help_text("analysis.analysis_frame.source_reads")[0]
+    for target, meaning in (
+        ("frame_source_read.read_id", "preserved across inherited results"),
+        ("frame_source_read.completed_at", "not a database snapshot"),
+        ("frame_source_read.returned_rows", "None means unavailable"),
+        ("frame_source_read_scope.period", "does not imply an unfiltered"),
+        ("frame_source_read_period.start", "inclusive UTC lower bound"),
+        ("frame_source_read_period.end", "exclusive UTC upper bound"),
+    ):
+        assert meaning in render_help_text("analysis." + target)[0]
 
 
 def test_interpretation_facts_and_periods_share_canonical_display_contracts() -> None:

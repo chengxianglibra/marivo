@@ -1,4 +1,4 @@
-"""Store23 Frame protocol, source-free lifecycle, sequence and atomic publication."""
+"""Store24 Frame protocol, source-free lifecycle, sequence and atomic publication."""
 
 from __future__ import annotations
 
@@ -28,17 +28,10 @@ from marivo.analysis.core.artifact_data import (
     DurationDataType,
     FrozenCalendarData,
     OutputAttachment,
-    OutputEvidence,
     PairedDataAxis,
     SavedFrameMethodFacts,
     ScalarDataType,
     TimestampDataType,
-)
-from marivo.analysis.core.frame_audit import (
-    EvaluationRecord,
-    FrameAudit,
-    FrameResultMetadata,
-    StoredFrameMetadata,
 )
 from marivo.analysis.core.frame_data import (
     CompletedFrameData,
@@ -47,6 +40,11 @@ from marivo.analysis.core.frame_data import (
     MemoryFrameBacking,
     SourceFrameBinding,
     StoredFrameBacking,
+)
+from marivo.analysis.core.frame_metadata import (
+    EvaluationRecord,
+    FrameResultMetadata,
+    StoredFrameMetadata,
 )
 from marivo.analysis.core.frame_page import FramePeriodPage
 from marivo.analysis.core.frozen_calendar import (
@@ -74,7 +72,6 @@ from marivo.analysis.materialization.graph_reading import (
     OutputRead,
     PreviewRead,
     ReadLayout,
-    TerminalReader,
     open_manifest,
 )
 from marivo.analysis.materialization.store import SessionStore
@@ -107,10 +104,7 @@ def local(tmp_path: Path) -> LocalFrameServices:
 def metadata() -> FrameResultMetadata:
     return FrameResultMetadata(
         "completed-before-publication",
-        FrameAudit(
-            (OutputEvidence("read", "Exact original source fact", (("scope", "unaltered"),)),),
-            EvaluationRecord(datetime(2020, 1, 1, tzinfo=timezone.utc), (), ("literal",)),
-        ),
+        EvaluationRecord(datetime(2020, 1, 1, tzinfo=timezone.utc), (), ("literal",)),
     )
 
 
@@ -482,12 +476,11 @@ with patch.object(Session, "catalog", property(forbidden)), patch.object(SourceS
 def test_sole_protocol_and_exact_closed_fields(local: LocalFrameServices) -> None:
     saved = ordinary(local).persist()
     value = manifest(saved)
-    assert FORMAT == "marivo.frame_output/v12"
-    assert local.store.layout.generation == 23
+    assert FORMAT == "marivo.frame_output/v13"
+    assert local.store.layout.generation == 24
     assert decode(encode(value), ArtifactManifest) == value
     assert value.result_id == value.metadata.result_id
-    with local.store._read() as conn:
-        restored = terminal_store.complete_metadata(conn, value)
+    restored = terminal_store.complete_metadata(value)
     assert replace(restored, lineage=None) == metadata()
     assert value.metadata.lineage == saved.lineage
     assert tuple(field.name for field in fields(InvocationInput)) == ("result_id",)
@@ -631,15 +624,7 @@ def test_zero_preview_and_audit_do_not_open_payloads(
     monkeypatch.setattr(pq, "ParquetFile", forbidden)
     saved.show(n=0)
     saved.persist()
-    reader = TerminalReader(local.store)
-    assert (
-        reader.findings(manifest(saved), input_id=saved._input_id, limit=20, cursor=None).items
-        == ()
-    )
-    assert (
-        reader.evidence(manifest(saved), input_id=saved._input_id, limit=20, cursor=None).items
-        == metadata().audit.source_facts
-    )
+    assert saved.source_reads == ()
 
 
 def test_prefix_resolves_sparse_original_keys_and_only_selected_records(
@@ -784,8 +769,6 @@ def test_valid_minimum_temporal_ticks_survive_export_and_restore(
         "terminal_primary_written",
         "terminal_files_published",
         "insert_artifact",
-        "insert_evidence",
-        "insert_findings",
         "insert_terminal",
         "before_commit",
     ],
@@ -895,7 +878,7 @@ def test_sequence_spans_batches_and_row_groups(
         assert parquet.num_row_groups == 4
 
 
-@pytest.mark.parametrize("generation", [11, 12, 13, 14, 16])
+@pytest.mark.parametrize("generation", [11, 12, 13, 14, 16, 23])
 def test_old_store_coexists_without_any_byte_changes(tmp_path: Path, generation: int) -> None:
     old = tmp_path / f".marivo/analysis/generations/v{generation}/session_store.db"
     old.parent.mkdir(parents=True)
@@ -904,7 +887,7 @@ def test_old_store_coexists_without_any_byte_changes(tmp_path: Path, generation:
     before = old.read_bytes()
     with pytest.raises(IntegrityError, match="absent"):
         SessionStore.open_existing(tmp_path)
-    assert not (old.parent.parent / "v23").exists()
+    assert not (old.parent.parent / "v24").exists()
     store = SessionStore(tmp_path)
     assert SessionStore.open_existing(tmp_path).db_path == store.db_path
     assert old.read_bytes() == before
@@ -967,21 +950,6 @@ def test_paired_partial_records_reject_missing_and_false_presence(
     invalid[right_presence.slot_id] = pd.Series([True], dtype="bool[pyarrow]")
     with pytest.raises(AnalysisError, match="presence consistent"):
         validate_paired_presence(axis, prefix.schema, invalid, mapping.schema, mapping.rows)
-
-
-def test_inherited_coordinates_fail_before_run(local: LocalFrameServices) -> None:
-    from marivo.analysis.core.artifact_data import OutputCoordinate
-
-    frame = ordinary(local)
-    fact = OutputEvidence("read", "Invalid source scope", coordinates=(OutputCoordinate("key", 1),))
-    invalid = replace(
-        _memory_backing(frame).metadata,
-        audit=replace(_memory_backing(frame).metadata.audit, source_facts=(fact,)),
-    )
-    with pytest.raises(IntegrityError, match="source facts"):
-        local.publish(CompletedFrameResult(_memory_backing(frame).data, invalid))
-    assert counts(local) == (0, 0)
-    assert local.store.resources(local.session_ref) == ()
 
 
 def test_temporal_cold_reader_keeps_physical_ticks_nulls_and_detaches(
@@ -1170,7 +1138,7 @@ else:
     assert "cold-duplicate-rejected" in cold.stdout
 
 
-@pytest.mark.parametrize("generation", [11, 12, 13, 14, 16])
+@pytest.mark.parametrize("generation", [11, 12, 13, 14, 16, 23])
 def test_every_old_generation_entry_preserves_old_tree(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, generation: int
 ) -> None:
@@ -1210,7 +1178,7 @@ def test_every_old_generation_entry_preserves_old_tree(
         if path.is_file()
     }
     assert after == before
-    assert (old.parent.parent / "v23").exists()
+    assert (old.parent.parent / "v24").exists()
 
 
 def test_old_manifest_cannot_enter_any_current_read(local: LocalFrameServices) -> None:
@@ -1232,12 +1200,6 @@ def test_old_manifest_cannot_enter_any_current_read(local: LocalFrameServices) -
         lambda: saved.persist(),
         lambda: local.committed_at(_stored_backing(saved)),
         lambda: saved.show(n=0),
-        lambda: TerminalReader(local.store).findings(
-            current, input_id=saved._input_id, limit=1, cursor=None
-        ),
-        lambda: TerminalReader(local.store).evidence(
-            current, input_id=saved._input_id, limit=1, cursor=None
-        ),
         lambda: selected_manifest(local.store, current),
         lambda: terminal_protocol.decode(frozen, ArtifactManifest),
     )
@@ -1636,7 +1598,7 @@ for artifact_id, keys, others, scores in json.loads(sys.argv[3]):
 def test_stored_two_selects_keep_data_and_remove_duplicate_fixed_adaptation(
     local: LocalFrameServices, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from marivo.analysis.core.frame_audit import StoredInput
+    from marivo.analysis.core.frame_metadata import StoredInput
     from marivo.analysis.core.unique_keys import UNKNOWN_UNIQUE_KEYS, UniqueKeys
 
     saved = ordinary(local).persist()
@@ -1686,9 +1648,9 @@ def test_stored_two_selects_keep_data_and_remove_duplicate_fixed_adaptation(
         value_paths=(("adjusted",),),
     )
     assert _complete_schema(result).key_fields == ("key",)
-    audit = _memory_backing(result).metadata.audit
-    assert audit.evaluation.operations == ("select", "select")
-    assert audit.evaluation.inputs == (
+    metadata_result = _memory_backing(result).metadata
+    assert metadata_result.evaluation.operations == ("select", "select")
+    assert metadata_result.evaluation.inputs == (
         StoredInput(
             saved._input_id,
             _stored_backing(saved).metadata.result_id,
@@ -1697,7 +1659,7 @@ def test_stored_two_selects_keep_data_and_remove_duplicate_fixed_adaptation(
             saved.artifact_id,
         ),
     )
-    assert audit.source_facts == metadata().audit.source_facts
+    assert metadata_result.source_reads == metadata().source_reads
     assert counts(local) == (1, 1)
 
 
@@ -1714,7 +1676,7 @@ def test_actual_stored_inputs_derive_without_sources_and_republish_detached(
     from marivo.analysis.compiler.query_program import FrameProgram
     from marivo.analysis.core import frame_calendar
     from marivo.analysis.core.artifact_data import NamedCalendarData
-    from marivo.analysis.core.frame_audit import StoredInput
+    from marivo.analysis.core.frame_metadata import StoredInput
     from marivo.analysis.materialization import frame_source_preparation, graph_local_execution
     from marivo.analysis.materialization.graph_exchange import StageOutput
     from marivo.analysis.materialization.graph_local_execution import LocalKernel
@@ -1801,7 +1763,7 @@ def test_actual_stored_inputs_derive_without_sources_and_republish_detached(
     if kind == "ordinary":
         assert read_calls == 1 and release_checked
     assert result.to_pandas()["twice"].tolist() == [4, 2]
-    captured = _memory_backing(result).metadata.audit.evaluation.inputs
+    captured = _memory_backing(result).metadata.evaluation.inputs
     assert captured == (
         StoredInput(
             saved._input_id,
@@ -1927,7 +1889,6 @@ def test_pending_show_keeps_deep_shared_scope_and_stops_at_fixed_inputs(
     from marivo._definition.graph import DefinitionNode
     from marivo._definition.observations import ObservationBinding
     from marivo.analysis._scope import scope_summary
-    from marivo.analysis.core.frame_source_facts import captured_source_scopes
     from marivo.analysis.dsl import frame as frame_module
     from marivo.analysis.materialization import frame_evaluation, frame_source_preparation
     from marivo.analysis.session.core import Session
@@ -1945,11 +1906,6 @@ def test_pending_show_keeps_deep_shared_scope_and_stops_at_fixed_inputs(
     )
     assert isinstance(source._backing, ExpressionFrameBacking)
     assert isinstance(source._backing.root, SourceFrameBinding)
-    raw_scopes = captured_source_scopes(source._backing.root.graph)
-    assert all(
-        value in " ".join(raw_scopes)
-        for value in ("sales.customer.region", "east", "south", "west")
-    )
     memory = source.compute()
     saved = memory.persist()
     fixed_pending = tuple(fixed.select({"fixed": fixed["sales"]}) for fixed in (memory, saved))
@@ -2010,7 +1966,6 @@ def test_pending_read_label_and_derived_anchor_are_captured_without_execution(
     from marivo._definition.graph import DefinitionNode
     from marivo._definition.observations import ObservationBinding
     from marivo.analysis._scope import scope_summary
-    from marivo.analysis.core.frame_source_facts import captured_source_scopes
     from marivo.analysis.dsl import frame as frame_module
     from marivo.analysis.materialization import frame_evaluation, frame_source_preparation
     from marivo.analysis.session.core import Session
@@ -2032,7 +1987,6 @@ def test_pending_read_label_and_derived_anchor_are_captured_without_execution(
     assert isinstance(read._backing, ExpressionFrameBacking)
     assert isinstance(read._backing.root, SourceFrameBinding)
     graph = read._backing.root.graph
-    raw_scopes = captured_source_scopes(graph)
     read_scope = capture(graph.root, graph.signature.observation)
     observed: list[str] = []
 
@@ -2066,7 +2020,6 @@ def test_pending_read_label_and_derived_anchor_are_captured_without_execution(
     assert capsys.readouterr().out == card
     assert observed == [read_scope, read_scope, read_scope]
     assert capture(graph.root, graph.signature.observation) == read_scope
-    assert captured_source_scopes(graph) == raw_scopes
     anchored.show(n=0)
     card = capsys.readouterr().out
     assert "anchors:" in card and "2026-08-01T00:00:00+00:00" in card

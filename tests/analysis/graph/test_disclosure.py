@@ -53,8 +53,9 @@ REQUIRED_TARGETS = {
     "trailing_periods",
     "session",
     "analysis_frame.show",
-    "analysis_frame.findings",
-    "analysis_frame.evidence",
+    "frame_source_read",
+    "frame_source_read_scope",
+    "frame_source_read_period",
 }
 
 
@@ -65,6 +66,8 @@ def test_exact_export_bindings_and_required_native_targets() -> None:
     assert set(disclosure.canonical_ids()) >= REQUIRED_TARGETS
     attribute = disclosure.resolve("analysis_frame.artifact_id")
     assert attribute.kind == "attribute" and attribute.type_name == "analysis_frame"
+    reads = disclosure.resolve("analysis_frame.source_reads")
+    assert reads.kind == "attribute" and reads.type_name == "analysis_frame"
     assert tuple(mv.__all__) == ANALYSIS_PUBLIC
     for name, entry in actual.items():
         resolved = disclosure.resolve(

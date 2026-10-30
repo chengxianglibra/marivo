@@ -30,7 +30,6 @@ from marivo.analysis.core.data_schema import (
     OrdinaryComparisonBinding,
 )
 from marivo.analysis.core.data_types import ScalarDataType
-from marivo.analysis.core.frame_audit import EvaluationRecord, FrameAudit, FrameResultMetadata
 from marivo.analysis.core.frame_data import (
     CompletedFrameData,
     CompletedFrameResult,
@@ -39,6 +38,7 @@ from marivo.analysis.core.frame_data import (
     MemoryFrameBacking,
     required_attachments,
 )
+from marivo.analysis.core.frame_metadata import EvaluationRecord, FrameResultMetadata
 from marivo.analysis.core.frame_structure import (
     PendingDataAxis,
     PendingDataColumn,
@@ -62,7 +62,7 @@ NOW = datetime(2026, 10, 19, tzinfo=timezone.utc)
 
 
 def metadata(result_id: str) -> FrameResultMetadata:
-    return FrameResultMetadata(result_id, FrameAudit((), EvaluationRecord(NOW, (), ())))
+    return FrameResultMetadata(result_id, EvaluationRecord(NOW, (), ()))
 
 
 @pytest.fixture

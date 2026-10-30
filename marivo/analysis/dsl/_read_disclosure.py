@@ -69,6 +69,11 @@ from marivo.analysis.core.frame_schema import (
     FrameSchema,
     UnresolvedDataType,
 )
+from marivo.analysis.core.frame_source_reads import (
+    FrameSourceRead,
+    FrameSourceReadPeriod,
+    FrameSourceReadScope,
+)
 from marivo.analysis.dsl.frame import AnalysisFrame
 from marivo.render import RenderableResult
 
@@ -76,6 +81,24 @@ from marivo.render import RenderableResult
 def provider() -> DisclosureProvider:
     descriptors: list[Descriptor] = []
     types: tuple[tuple[type[object], str, tuple[str, ...], tuple[str, ...]], ...] = (
+        (
+            FrameSourceRead,
+            "frame_source_read",
+            ("analysis_frame.source_reads",),
+            ("frame_source_read_scope",),
+        ),
+        (
+            FrameSourceReadScope,
+            "frame_source_read_scope",
+            ("frame_source_read.scopes",),
+            ("frame_source_read_period",),
+        ),
+        (
+            FrameSourceReadPeriod,
+            "frame_source_read_period",
+            ("frame_source_read_scope.period",),
+            (),
+        ),
         (
             FrameSchema,
             "frame_schema",
@@ -399,7 +422,9 @@ def provider() -> DisclosureProvider:
                     *method_targets,
                 ),
                 constraints=(
-                    "Identities apply within one exact input. No source execution, Store lookup or data authority.",
+                    "Read identities survive inheritance across results; scopes retain original read bindings. No source execution, Store lookup or data authority."
+                    if owner in (FrameSourceRead, FrameSourceReadScope, FrameSourceReadPeriod)
+                    else "Identities apply within one exact input. No source execution, Store lookup or data authority.",
                 ),
             )
         )
@@ -429,7 +454,7 @@ def provider() -> DisclosureProvider:
                     summary="Display bounded captured read metadata.",
                     parameters=parameters,
                     output=output,
-                    constraints=("No further data or audit reads.",),
+                    constraints=("No further data reads.",),
                     effects="Display captured facts.",
                     failures=(),
                     example=ExampleInput(
@@ -470,7 +495,7 @@ def provider() -> DisclosureProvider:
                 "Requires complete memory or stored data; compute/persist first. No execution, automatic persistence, Catalog or source reads.",
                 "Calendar/interval coordinates export actual .start/.end; ordinary TimeFields export one value. axis_names renames prefixes only.",
                 "Complete keys and coordinates precede requested fields. Selection preserves row order and total_count. No attrs on page exports.",
-                "Stored reads check consumed file receipts, selected fields and required coordinates. They do not certify unread semantic data or complete audit collections.",
+                "Stored reads check consumed file receipts, selected fields and required coordinates. They do not certify unread semantic data or business completeness.",
                 "Cursors bind exact input, collection version, limit, projection, aliases and time_details. Stored reopen in the same Runtime version may continue; memory cursors belong to the same process/input.",
                 "Statistics count inspected data/coordinate records and receipt hashing bytes; they are not total I/O, latency or peak memory guarantees.",
             ),
@@ -551,6 +576,9 @@ def provider() -> DisclosureProvider:
         )
     )
     exported = {
+        FrameSourceRead,
+        FrameSourceReadScope,
+        FrameSourceReadPeriod,
         FrameSchema,
         FrameField,
         FrameAxisSchema,

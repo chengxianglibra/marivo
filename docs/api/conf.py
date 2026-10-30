@@ -8,12 +8,9 @@ published as a static subtree at ``/api/`` by the Astro site.
 """
 
 from importlib.metadata import version as _metadata_version
-from inspect import getattr_static
-from typing import get_type_hints
 
 from sphinx.application import Sphinx
 from sphinx.ext.autodoc import Options
-from sphinx.util.typing import stringify_annotation
 
 project = "Marivo"
 author = "Marivo contributors"
@@ -65,12 +62,6 @@ def _returned_type_signature(
     return_annotation: str | None,
 ) -> tuple[str, str | None] | None:
     """Analysis and Semantic classes describe acquired values, not internal init APIs."""
-    if name == "marivo.analysis.ArtifactRef" and isinstance(obj, type):
-        # Preserve the initializer parameter type when Sphinx renders this class
-        # alone: Pydantic's model field annotation describes the stored value.
-        app.env.current_document.autodoc_annotations[name]["ref"] = stringify_annotation(
-            get_type_hints(getattr_static(obj, "__init__"))["ref"]
-        )
     if (
         what == "class"
         and name.startswith(("marivo.analysis.", "marivo.semantic."))

@@ -1,7 +1,7 @@
 """Native reducer compilation and actual per-parent query cost ownership."""
 
 from dataclasses import replace
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 import duckdb
@@ -99,16 +99,20 @@ def test_native_parent_methods_keep_only_their_coalition_receipts(
     captures = {c.capture_id: c for method in methods for c in method.captures}
     assert len(trace.native_sql) == sum(c.source_reads for c in captures.values())
     assert sum(trace.returned_rows) == sum(c.returned_rows for c in captures.values())
-    evidence = report.persist().evidence(limit=100).items
-    checks = [
-        dict(f.values)
-        for f in evidence
-        if f.kind == "check" and dict(f.values).get("check") == "attribute_shapley"
-    ]
-    assert checks and all(c["evaluation"] == "native_queries" for c in checks)
-    reads = [
-        dict(f.values)
-        for f in evidence
-        if f.kind == "read" and ":native:" in str(dict(f.values).get("physical_stage", ""))
-    ]
-    assert reads and all(f["input_id"] and f["physical_stage"] in captures for f in reads)
+    saved = report.persist()
+    from marivo.analysis.core.frame_data import MemoryFrameBacking
+
+    assert isinstance(compared._backing, MemoryFrameBacking)
+    inherited = {read.read_id for read in compared._backing.metadata.source_reads}
+    reads = tuple(read for read in saved.source_reads if read.read_id not in inherited)
+    assert len(reads) == len(trace.native_sql)
+    assert [read.returned_rows for read in reads] == trace.returned_rows
+    assert all(read.scopes for read in reads)
+    completed = datetime.now(timezone.utc)
+    assert all(
+        start <= read.completed_at <= end
+        for read, start, end in zip(
+            reads, trace.started_at, (*trace.started_at[1:], completed), strict=True
+        )
+    )
+    assert len({read.read_id for read in saved.source_reads}) == len(saved.source_reads)

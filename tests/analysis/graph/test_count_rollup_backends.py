@@ -170,14 +170,12 @@ def test_native_count_rollup_and_group_state(
             "value"
         ].tolist() == [first_day_count]
         if key_type == "int64":
-            data = saved_groups._local._audit_manifest(
-                saved_groups._require_stored("artifact_id")
-            ).data
+            data = saved_groups._local._manifest(saved_groups._require_stored("artifact_id")).data
             forged = mv.AnalysisFrame._from_stored(
                 saved_groups._local,
                 replace(data, rows=replace(data.rows, payload_digest="0" * 64)),
                 artifact_id=saved_groups.artifact_id,
-                metadata=saved_groups._local._audit_manifest(
+                metadata=saved_groups._local._manifest(
                     saved_groups._require_stored("artifact_id")
                 ).metadata,
             )

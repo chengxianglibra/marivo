@@ -1,4 +1,4 @@
-"""Native disclosure for immutable data Frames and committed audit views."""
+"""Native disclosure for immutable data Frames and captured metadata."""
 
 from marivo._temporal import InstantAnchor, TimeScope
 from marivo.analysis._capabilities.dataset_model import (
@@ -76,8 +76,7 @@ def provider() -> DisclosureProvider:
                 "analysis_frame.to_pandas",
                 "analysis_frame.method_facts",
                 "analysis_frame.lineage",
-                "analysis_frame.findings",
-                "analysis_frame.evidence",
+                "analysis_frame.source_reads",
                 "analysis_frame.schema",
                 "analysis_frame.read_page",
                 "analysis_frame.read_periods",
@@ -615,12 +614,12 @@ def provider() -> DisclosureProvider:
                 ),
             ),
             "None",
-            "Print captured structure, bounded audit summaries and an existing result prefix without evaluation.",
+            "Print captured structure, bounded source-read summaries and an existing result prefix without evaluation.",
             "result = frame.show(n=0)",
             ("frame",),
             "results.inspect",
             (
-                "Validate controls before reads. Pending cards never evaluate. n=0: metadata only. Positive previews show complete rows and columns with exact omission counts; use show(n=26, max_output_bytes=None) for 26 untruncated rows. Completed cards summarize inputs/operations, source/check/Finding counts; stored cards add committed identity/time. No full audit or method payload reads. Positive previews resolve coordinates; receipt hashing may read whole files. Unread data is not certified.",
+                "Validate controls before reads. Pending cards never evaluate. n=0: metadata only. Positive previews show complete rows and columns with exact omission counts; use show(n=26, max_output_bytes=None) for 26 untruncated rows. Completed cards summarize inputs/operations, actual source-read counts and a bounded summary; stored cards add committed identity/time. No method payload reads. Positive previews resolve coordinates; receipt hashing may read whole files. Unread data is not certified.",
             ),
         ),
         (
@@ -679,43 +678,6 @@ def provider() -> DisclosureProvider:
             None,
             (
                 "The handle retains its exact Frame input; acquire a new handle after a carrier conversion creates a new input binding.",
-            ),
-        ),
-        (
-            AnalysisFrame,
-            "analysis_frame",
-            "findings",
-            (
-                P("limit", "Page size from 1 through 100."),
-                P(
-                    "cursor",
-                    "Previous page cursor or None; repeat the same limit for this exact Frame commit.",
-                ),
-            ),
-            "FindingPage",
-            "Read a bounded page of self-contained committed Findings.",
-            "result = frame.findings(limit=20)",
-            ("frame",),
-            "results.evidence",
-            (
-                "Requires a stored Frame root. Reads audit records without result tables, attachments, method payloads, source access or producer-graph restoration.",
-            ),
-        ),
-        (
-            AnalysisFrame,
-            "analysis_frame",
-            "evidence",
-            (
-                P("limit", "Page size from 1 through 100, excluding bool."),
-                P("cursor", "Previous cursor; repeat the same limit."),
-            ),
-            "EvidencePage",
-            "Read a bounded page of saved Evidence with collection count and commit identity.",
-            "result = frame.evidence(limit=20)",
-            ("frame",),
-            "results.evidence",
-            (
-                "Requires a stored Frame root. No result-table, attachment, other audit collection or method-payload reads. Only selected records are checked; no current-source freshness claim.",
             ),
         ),
     )

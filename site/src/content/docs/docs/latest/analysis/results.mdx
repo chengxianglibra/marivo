@@ -1,5 +1,5 @@
 ---
-title: Results and evidence
+title: Results and method facts
 description: Save result identifiers, discover committed Frames, reopen data, and inspect evidence.
 ---
 
@@ -56,7 +56,7 @@ page.show()
 Each `page.items` entry provides `artifact_id`, `committed_at`, `description` and
 `schema`. Use the description, output columns and axes to identify candidates;
 open a selected ID with `session.persisted_frame(artifact_id)`. Inspect its
-`lineage` or saved evidence when needed. If candidates remain ambiguous, ask the
+`lineage` or saved source_reads when needed. If candidates remain ambiguous, ask the
 caller to select rather than automatically choosing the newest result.
 
 Add a purpose when producing a result, when useful:
@@ -83,9 +83,19 @@ Older generations remain independent and require a compatible environment.
 
 An `AnalysisFrame` may be a pending expression, completed in-memory data, or a saved result. `compute()` completes a Frame in memory; `persist()` saves the completed result. `show()` is a bounded preview, while `to_pandas()` exports complete fixed data.
 
-On a saved Frame, `session_id` and `artifact_id` identify the committed result. `show(n=0)` displays metadata and audit summaries without reading result rows. Use `findings()` to read committed Findings and `evidence()` to read saved Evidence. A plain observation's saved audit records source and evaluation facts; it may have no Findings. Supported contribution analyses retain their method explanations in `method_facts`.
+On a saved Frame, `session_id` and `artifact_id` identify the committed result. `show(n=0)` displays evaluation/commit times and bounded actual-read summaries without result rows or method payloads. `source_reads` exposes actual source reads consumed by this result; supported contribution analyses retain original explanations in `method_facts`. Pending and memory Frames require explicit `persist()` before source_reads access; the property never executes or saves a result.
 
-Source read, evaluation, and commit times are distinct. Check the recorded source scope and times when judging freshness: a later observation may read changed data. The recorded scope describes the period, filters, and source constraints used for the read; it does not show that sources contain every relevant row or share a consistent snapshot. A contribution breakdown explains how the selected method allocates a change; it does not establish what caused that change.
+```python
+saved = pending.persist()
+for read in saved.source_reads:
+    print(read.read_id, read.completed_at, read.returned_rows)
+    for scope in read.scopes:
+        print(scope.source, scope.period)
+```
+
+Each successful actual read has one identity and UTC completion time. Shared reads have one record; fixed operations inherit records and deduplicate by identity. Scopes retain non-secret source identifiers and known original time restrictions (optional start, exclusive end), omitting complete historical filters, member domains and SQL. `period=None` means no captured period, not no constraints. Inherited reads do not describe a derived result's current filter domain. `returned_rows` is a reliable raw returned count, or None when unknown; 0 is known empty. It is neither scanned rows nor final Frame rows. Access uses loaded metadata without data/method files, Catalog or source reads.
+
+Source read, evaluation, and commit times are distinct. Check the recorded source scope and times when judging freshness: a later observation may read changed data. The recorded scope identifies the original sources and known captured time restrictions; complete historical filters and source/member constraints are absent. It does not show that sources contain every relevant row or share a consistent snapshot. A contribution breakdown explains how the selected method allocates a change; it does not establish what caused that change.
 
 ## Inspect semantic column origins
 
@@ -212,10 +222,3 @@ inspected data/coordinate rows and receipt hashing bytes, not all disk I/O or
 peak memory. Receipts and coordinate lookup may scan whole files. A page validates
 selected stored data and necessary coordinates; full stored `to_pandas()` additionally validates
 complete keys, data and mappings. Reading never executes or saves a pending Frame.
-
-Evidence and Findings each return `items`, `input_id`, `session_id`, `artifact_ref`,
-`limit`, `total_count`, `has_more` and `next_cursor`. Their limits are 1..100,
-default 20; repeat the same limit to continue. Each collection is read independently.
-A result can have saved Evidence and no Findings. Resolve record coordinate slots
-through the matching `schema.slots`; slots do not identify rows across results
-or automatically locate a unique row.

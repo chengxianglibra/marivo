@@ -38,7 +38,7 @@ def _assert_values(result: mv.AnalysisFrame) -> None:
     }
     assert [
         column.dtype
-        for column in result._local._audit_manifest(result._require_stored("artifact_id"))
+        for column in result._local._manifest(result._require_stored("artifact_id"))
         .data.schema.axes[0]
         .columns
     ] == [
@@ -83,8 +83,8 @@ def test_public_source_reexecution_and_terminal_read(
         first, second = captures
         assert first.artifact_id != second.artifact_id
         assert (
-            first._local._audit_manifest(first._require_stored("artifact_id")).run_id
-            != second._local._audit_manifest(second._require_stored("artifact_id")).run_id
+            first._local._manifest(first._require_stored("artifact_id")).run_id
+            != second._local._manifest(second._require_stored("artifact_id")).run_id
         )
         shared_result = shared.persist()
         _assert_ratio(shared_result)

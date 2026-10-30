@@ -26,64 +26,19 @@ from marivo.analysis.core.frame_page import (
     FramePeriodPage,
     FrameReadStats,
 )
-from marivo.analysis.evidence import _dataset_types as e
-from marivo.analysis.refs import ArtifactRef
+from marivo.analysis.core.frame_source_reads import (
+    FrameSourceRead,
+    FrameSourceReadPeriod,
+    FrameSourceReadScope,
+)
 from marivo.analysis.session import _lazy_read_model as r
 from marivo.analysis.session._method_disclosure import section as _doc_section
 from marivo.analysis.session.core import Session
-
-READ_TYPES: tuple[type[object], ...] = (
-    e.EvidencePage,
-    ArtifactRef,
-    e.Finding,
-    e.FindingPage,
-)
 
 
 def provider() -> DisclosureProvider:
     descriptors: list[Descriptor] = []
     exports: list[ExportInput] = []
-    acquisitions = {
-        "EvidencePage": (
-            "Call saved.evidence(); .items contains one bounded page of saved output facts.",
-            ("analysis_frame.evidence",),
-            ("runtime.OutputEvidence", "runtime.values.render", "runtime.values.show"),
-        ),
-        "ArtifactRef": (
-            "Read finding.artifact_ref or page.artifact_ref; pass its .ref string to session.persisted_frame; read the Frame audit directly.",
-            (
-                "finding.artifact_ref",
-                "evidence_page.artifact_ref",
-            ),
-            ("session.persisted_frame",),
-        ),
-        "Finding": (
-            "Select an exact self-contained output item from saved.findings().items.",
-            ("analysis_frame.findings",),
-            ("runtime.OutputCoordinate", "runtime.values.render", "runtime.values.show"),
-        ),
-        "FindingPage": (
-            "Call saved.findings(); retain next_cursor for this exact Frame commit.",
-            ("analysis_frame.findings",),
-            ("analysis_frame.findings",),
-        ),
-    }
-    for value in READ_TYPES:
-        descriptors.append(
-            value_type(
-                value.__name__,
-                value,
-                summary=f"Immutable {value.__name__} contract.",
-                acquisition=acquisitions[value.__name__][0]
-                + " Direct construction and extension are unsupported.",
-                producers=acquisitions[value.__name__][1],
-                consumers=acquisitions[value.__name__][2],
-                constraints=(
-                    "Retained metadata is not current source truth or a freshness verdict.",
-                ),
-            )
-        )
-        exports.append(ExportInput(value.__name__, value, value.__name__))
     descriptors.append(
         value_type(
             "Session",
@@ -183,7 +138,7 @@ def provider() -> DisclosureProvider:
             "AnalysisFrame",
             "session = mv.session.resume(session_id)\n"
             "result = session.persisted_frame(artifact_id)",
-            "Open one exact committed Frame ID in this Session using metadata only, without result rows, model, Catalog, schema or source access; the Frame exposes audit directly.",
+            "Open one exact committed Frame ID in this Session using metadata only, without result rows, model, Catalog, schema or source access; the Frame exposes captured source-read metadata directly.",
         ),
         (
             Session,
@@ -380,18 +335,6 @@ def provider() -> DisclosureProvider:
     # These are retained nested return values, not additional public exports.
     nested_reads = (
         (
-            e.OutputEvidence,
-            "Read artifact.evidence().items; each item is a saved declaration, read or check fact.",
-            ("evidence_page.items",),
-            ("runtime.OutputCoordinate", "runtime.values.render", "runtime.values.show"),
-        ),
-        (
-            e.OutputCoordinate,
-            "Read a saved Evidence or Finding .coordinates item; slot_id locates its output column and value is the saved scalar.",
-            ("runtime.output_evidence.coordinates", "finding.coordinates"),
-            ("runtime.values.render", "runtime.values.show"),
-        ),
-        (
             r.PersistedFrameSummaryPage,
             "Call session.persisted_frames(); select a candidate from items using its description and schema.",
             ("session.persisted_frames",),
@@ -431,7 +374,9 @@ def provider() -> DisclosureProvider:
         bindings = tuple(
             bind(getattr(value, method_name), value)
             for value in (
-                *READ_TYPES,
+                FrameSourceRead,
+                FrameSourceReadScope,
+                FrameSourceReadPeriod,
                 FramePage,
                 FrameReadStats,
                 FramePeriodPage,
@@ -443,8 +388,6 @@ def provider() -> DisclosureProvider:
                 r.SessionSummary,
                 r.PersistedFrameSummaryPage,
                 r.PersistedFrameSummary,
-                e.OutputEvidence,
-                e.OutputCoordinate,
             )
             if hasattr(value, method_name)
         )

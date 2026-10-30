@@ -114,10 +114,7 @@ def test_wide_mean_pending_completed_and_persisted_are_identical(
         result = _mean(frame)
         pd.testing.assert_frame_equal(result.to_pandas(), expected)
         assert isinstance(result._backing, MemoryFrameBacking)
-        assert (
-            result._backing.metadata.audit.source_facts
-            == memory._backing.metadata.audit.source_facts
-        )
+        assert result._backing.metadata.source_reads == memory._backing.metadata.source_reads
     assert terminal_runs(case.session) == published_runs
     saved_mean = _mean(memory).persist()
     pd.testing.assert_frame_equal(
@@ -185,11 +182,11 @@ def test_source_read_mean_retains_receipts_and_native_integer_sum(
     fixed = source.compute()
     assert trace.returned_rows == [2]
     assert isinstance(fixed._backing, MemoryFrameBacking)
-    assert fixed._backing.metadata.audit.source_facts
+    assert fixed._backing.metadata.source_reads
     mean = _mean(fixed)
     assert mean.to_pandas()["mean"].tolist() == [float(Fraction(2**63, 2))]
     assert isinstance(mean._backing, MemoryFrameBacking)
-    assert mean._backing.metadata.audit.source_facts == fixed._backing.metadata.audit.source_facts
+    assert mean._backing.metadata.source_reads == fixed._backing.metadata.source_reads
     for frame in (source, fixed):
         total = frame.reduce({"sum": frame["x"].sum()})
         assert total.compute().to_pandas()["sum"].tolist() == [-(2**63)]

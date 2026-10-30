@@ -124,6 +124,15 @@ if TYPE_CHECKING:
     from marivo.analysis.core.frame_schema import FrameAxisSchema as FrameAxisSchema
     from marivo.analysis.core.frame_schema import FrameField as FrameField
     from marivo.analysis.core.frame_schema import FrameSchema as FrameSchema
+    from marivo.analysis.core.frame_source_reads import (
+        FrameSourceRead as FrameSourceRead,
+    )
+    from marivo.analysis.core.frame_source_reads import (
+        FrameSourceReadPeriod as FrameSourceReadPeriod,
+    )
+    from marivo.analysis.core.frame_source_reads import (
+        FrameSourceReadScope as FrameSourceReadScope,
+    )
     from marivo.analysis.core.lineage import ColumnLineage as ColumnLineage
     from marivo.analysis.core.lineage import FrameLineage as FrameLineage
     from marivo.analysis.core.lineage import SemanticObjectIdentity as SemanticObjectIdentity
@@ -142,10 +151,6 @@ if TYPE_CHECKING:
     from marivo.analysis.dsl.population import membership as membership
     from marivo.analysis.dsl.population import product as product
     from marivo.analysis.dsl.temporal import CalendarAxis as CalendarAxis
-    from marivo.analysis.evidence._dataset_types import EvidencePage as EvidencePage
-    from marivo.analysis.evidence._dataset_types import Finding as Finding
-    from marivo.analysis.evidence._dataset_types import FindingPage as FindingPage
-    from marivo.analysis.refs import ArtifactRef as ArtifactRef
     from marivo.analysis.session.core import Session as Session
 
 

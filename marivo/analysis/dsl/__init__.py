@@ -1,1 +1,1 @@
-"""AnalysisFrame construction, data operations and committed audit access."""
+"""AnalysisFrame construction, data operations and captured result metadata."""

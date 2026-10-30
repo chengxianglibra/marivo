@@ -219,9 +219,6 @@ class SessionAlreadyExistsError(SessionStateError):
     """A Session name is already owned by an existing immutable identity."""
 
 
-class FindingNotFoundError(AnalysisError): ...
-
-
 def _runtime_read_repair(*, action: str, target: str, snippet: str | None = None) -> AnalysisRepair:
     return AnalysisRepair(
         kind="inspect",

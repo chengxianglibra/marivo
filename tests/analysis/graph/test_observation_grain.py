@@ -593,7 +593,7 @@ def test_complete_member_entity_keeps_compound_key(
     result = observed.persist()
     assert (
         len(
-            result._local._audit_manifest(result._require_stored("artifact_id"))
+            result._local._manifest(result._require_stored("artifact_id"))
             .data.schema.axes[0]
             .columns
         )

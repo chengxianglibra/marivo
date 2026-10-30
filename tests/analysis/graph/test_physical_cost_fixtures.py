@@ -79,7 +79,7 @@ def test_local_file_profiles_retain_full_original_facts_and_fixed_total(
         assert work.session.persisted_frame(captured.artifact_id).to_pandas().equals(frame)
         assert [
             column.dtype
-            for column in captured._local._audit_manifest(captured._require_stored("artifact_id"))
+            for column in captured._local._manifest(captured._require_stored("artifact_id"))
             .data.schema.axes[1]
             .columns
         ] == [

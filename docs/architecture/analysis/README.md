@@ -3,7 +3,7 @@
 Analysis separates explicit source questions, immutable data operations and
 publication. One AnalysisFrame type represents pending expressions, complete
 memory data and exact stored references. Persisted Frames expose their commit
-identity and audit directly; data and audit readers remain separate internally.
+identity and captured source-read metadata directly.
 
 ## Owning contracts
 
@@ -13,7 +13,7 @@ identity and audit directly; data and audit readers remain separate internally.
 | Frame structure, carriers, names, correspondence and row order | [AnalysisFrame](analysis-frame.md) |
 | Nullable values, physical numeric carriers and current-row statistics | [Operators and Frames](operators-and-frames.md) |
 | Session ownership, evaluation, Store publication/recovery and reads | [Session and Runtime](session-state-and-runtime.md) |
-| Source/evaluation audit, Findings and immutable method explanations | [Evidence access](evidence-access-surface.md) |
+| Actual source reads, evaluation metadata and immutable method explanations | [Result and method facts](result-and-method-facts.md) |
 | Runnable source/fixed-data workflows | [Examples](examples.md) |
 | Conditional mathematical laws and actual optimizer coverage | [Core algebra](algebra-theory.md) |
 
@@ -31,7 +31,7 @@ captured state and structured repair disclosure.
 | Governed inputs, question-scoped composition, member domain or time | `analysis.inputs` |
 | Observation, Frame construction, calculations, comparison or statistics | `analysis.operators` |
 | Complete memory values or a persisted result | `analysis.execution` |
-| Data inspection, export or saved audit | `analysis.results` |
+| Data inspection, export or saved metadata | `analysis.results` |
 | New or recovered Session and exact saved Frame | `analysis.sessions` |
 
 The root also links directly to `analysis.session.get_or_create` when context is
@@ -76,10 +76,10 @@ Session + resolved definitions / explicit literal domains
     -> Frame expression with exact Column and FrameAxis bindings
     -> compiler: required keys, values, checks and one stage schedule
     -> source Ibis reads + fixed inputs + pandas local kernels
-    -> complete immutable memory data and audit
+    -> complete immutable memory data and metadata
     -> Store transaction publishing that existing result
     -> stored Frame: source-free supported data operations
-    -> Frame identity / Findings / Evidence
+    -> Frame identity / source_reads / method_facts
 ```
 
 mv.* owns source-free descriptions and composition; session.* introduces Catalog,

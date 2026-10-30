@@ -56,7 +56,7 @@ def test_contract_cards_and_actions_without_source_reads_or_runs(
 
 
 @pytest.mark.parametrize("selection", ("members", "where"))
-def test_selected_member_scope_survives_contract_transform_and_saved_evidence(
+def test_selected_member_filter_applies_and_source_reads_survive_reopen(
     analysis_dsl_case_factory: DslCaseFactory,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -98,31 +98,26 @@ def test_selected_member_scope_survives_contract_transform_and_saved_evidence(
     # Complete output coordinates retain the two groups without selected facts;
     # their fixed sum is additive zero.
     assert output["revenue"].tolist() == [180, 0, 0]
-    reads = tuple(item for item in artifact.evidence(limit=100).items if item.kind == "read")
+    reads = artifact.source_reads
     assert reads
-    scoped_reads = tuple(
-        item for item in reads if {"source_scopes", "filters"} <= dict(item.values).keys()
-    )
-    assert scoped_reads
-    scope = "\n".join(
-        str(value)
-        for item in scoped_reads
-        for name, value in item.values
-        if name in ("source_scopes", "filters")
-    )
-    assert all(value in scope for value in ("sales.customer.region", "east", "south", "west"))
-    # These are captured read facts, not a reusable producer declaration.
-    # Reopening must preserve them exactly without consulting their source.
+    assert all(read.scopes and read.read_id for read in reads)
+    assert any(scope.source for read in reads for scope in read.scopes)
+    read = reads[0]
+    values = (read, read.scopes[0], read.scopes[0].period)
+    for value in values:
+        if value is None:
+            continue
+        assert "\n" not in repr(value) and ".show()" in repr(value)
+        assert len(value.render().encode()) <= 8192
+        assert rendered_help(value.show) == rendered_help("analysis.runtime.values.show")
+        assert rendered_help(value.render) == rendered_help("analysis.runtime.values.render")
+    # Complete filter JSON is intentionally absent; correct selected values above
+    # and exact cold metadata/data continuity remain independent contracts.
     monkeypatch.setattr(SourceSession, "__enter__", forbidden)
     monkeypatch.setattr(SourceSession, "execute", forbidden)
-    assert (
-        tuple(
-            item
-            for item in session.persisted_frame(artifact.artifact_id).evidence(limit=100).items
-            if item.kind == "read"
-        )
-        == reads
-    )
+    reopened = session.persisted_frame(artifact.artifact_id)
+    assert reopened.source_reads == reads
+    assert reopened.to_pandas()["revenue"].tolist() == [180, 0, 0]
 
 
 def test_population_scope_is_bounded_for_large_literal_and_nested_domains(
@@ -247,8 +242,9 @@ def test_frame_and_audit_cards_advertise_only_actual_state_continuations(
     saved.show(n=0)
     audit = capsys.readouterr().out
     assert saved.artifact_id in audit
-    assert "committed_at:" in audit and "source_facts: 0" in audit
-    assert "checks: 1" in audit and "findings: 0" in audit
+    assert "committed_at:" in audit and "source_reads: 0" in audit
+    assert "checks:" not in audit and "findings:" not in audit
+    assert ".source_reads" in audit and "evaluated_at:" in audit
     assert "Artifact.to_pandas" not in audit and "artifact.show(n=" not in audit
     case.session.show()
     recap = capsys.readouterr().out

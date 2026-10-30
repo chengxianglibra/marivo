@@ -174,10 +174,9 @@ def main() -> None:
             )
         } == {None: 5, "A": 9007199254740993}
         assert dict(frame.attrs["units"])["total"] == "CNY"
-        assert artifact.findings().items == ()
-        facts = artifact.evidence(limit=100)
-        assert any(item.kind == "read" for item in facts.items)
-        facts.show()
+        assert artifact.source_reads
+        for read in artifact.source_reads:
+            read.show()
         published = terminal_runs(session, status="succeeded")
         assert len(published) == 1
         assert published[0].lifecycle == "succeeded"
@@ -203,6 +202,7 @@ def main() -> None:
             lineage=replace(expected.lineage, input_id=copied._input_id),
         )
         assert copied._backing.metadata == expected
+        assert copied.source_reads == artifact.source_reads
         assert len(terminal_runs(session)) == before + 1
         print("public-cold-ok")
 

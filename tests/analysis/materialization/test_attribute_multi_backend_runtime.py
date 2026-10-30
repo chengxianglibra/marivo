@@ -84,6 +84,7 @@ def test_native_attribute_exact_additive_joint_keys_and_read_audit(
         parent = session.observe(
             {"decimal": amount.sum(), "integer": big.sum(), "count": entity.count()}
         ).compute()
+        inherited = parent.persist().source_reads
         trace = capture_source(monkeypatch)
         report = parent.attribute(by=(tenant, category)).compute()
         rows = report.to_pandas()
@@ -130,29 +131,11 @@ def test_native_attribute_exact_additive_joint_keys_and_read_audit(
         assert len(trace.native_sql) == 2 and trace.returned_rows == [1, 4]
         submissions = tuple(trace.native_sql)
         saved = report.persist()
-        facts = saved.evidence(limit=100).items
-        role_reads = [
-            dict(fact.values)
-            for fact in facts
-            if fact.kind == "read" and "attribute_read_role" in dict(fact.values)
-        ]
-        assert {fact["attribute_read_role"] for fact in role_reads} == {"parent", "fine"}
-        assert all(fact["attribute_read_policy"] == "independent_reads/v1" for fact in role_reads)
-        assert all(f"query.{fact['physical_stage']}" in purposes for fact in role_reads)
-        closures = [
-            dict(fact.values)
-            for fact in facts
-            if dict(fact.values).get("check") == "attribute_closure"
-        ]
-        assert {(fact["target"], fact["mode"], fact["parent_count"]) for fact in closures} == {
-            ("decimal", "level", 1),
-            ("integer", "level", 1),
-            ("count", "level", 1),
-        }
-        assert all(
-            fact["policy"] == "attribute_closure/v2" and fact["result"] == "passed"
-            for fact in closures
-        )
+        assert saved.source_reads[: len(inherited)] == inherited
+        added = saved.source_reads[len(inherited) :]
+        assert {read.read_id for read in added}.isdisjoint(read.read_id for read in inherited)
+        assert [read.returned_rows for read in added] == trace.returned_rows
+        assert len(added) == len(trace.native_sql)
         assert tuple(trace.native_sql) == submissions
 
 

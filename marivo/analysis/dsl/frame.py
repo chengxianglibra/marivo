@@ -33,12 +33,6 @@ from marivo._definition.relations import ReadQuery
 from marivo._definition.types import DefinitionGraphError, LiteralValue, check_literal
 from marivo.analysis._scope import scope_summary
 from marivo.analysis.core.artifact_data import ArtifactData, DataSchema, SavedFrameMethodFacts
-from marivo.analysis.core.frame_audit import (
-    MemoryInput,
-    SourceInput,
-    StoredFrameMetadata,
-    StoredInput,
-)
 from marivo.analysis.core.frame_data import (
     CompletedFrameData,
     CompletedFrameResult,
@@ -69,9 +63,16 @@ from marivo.analysis.core.frame_expression import (
 )
 from marivo.analysis.core.frame_fix import FixFrameValues
 from marivo.analysis.core.frame_interpretation import FrameComparison
+from marivo.analysis.core.frame_metadata import (
+    MemoryInput,
+    SourceInput,
+    StoredFrameMetadata,
+    StoredInput,
+)
 from marivo.analysis.core.frame_method_facts import FrameMethodFacts
 from marivo.analysis.core.frame_page import FramePage, FramePeriodPage
 from marivo.analysis.core.frame_schema import FrameAxisSchema, FrameSchema, capture_schema
+from marivo.analysis.core.frame_source_reads import FrameSourceRead
 from marivo.analysis.core.frame_structure import (
     PendingDataSchema,
     axis_role,
@@ -85,7 +86,6 @@ from marivo.analysis.dsl.baseline import ComparisonBaseline
 from marivo.analysis.dsl.baseline import baseline as declare_baseline
 from marivo.analysis.dsl.column import Column, _Statistic
 from marivo.analysis.dsl.frame_axis import FrameAxis
-from marivo.analysis.evidence._dataset_types import EvidencePage, FindingPage
 from marivo.analysis.materialization.frame_services import LocalFrameServices
 
 FrameBacking: TypeAlias = ExpressionFrameBacking | MemoryFrameBacking | StoredFrameBacking
@@ -1388,54 +1388,19 @@ class AnalysisFrame:
         """
         return self._require_stored("description").description
 
-    def findings(self, limit: int = 20, cursor: str | None = None) -> FindingPage:
-        """Read a bounded page of this committed Frame's method Findings.
+    @property
+    def source_reads(self) -> tuple[FrameSourceRead, ...]:
+        """Return captured actual source reads consumed by this saved result.
 
-        Args: limit: Page size from 1 through 100. cursor: Previous page cursor or None.
-        Returns: The commit-scoped FindingPage with immutable items and next_cursor.
-        Example: ``page = saved.findings(limit=20)``.
-        Constraints: Requires a stored root. Reads audit records without result rows,
-        coordinate attachments, method payloads, semantic definitions or sources.
-        The cursor belongs to this exact commit and selection.
+        Args: None.
+        Returns: Immutable reads in stable inherited-input and evaluation order.
+        Example: ``reads = pending.persist().source_reads``.
+        Constraints: Stored roots only; call persist() for pending or memory Frames.
+        Reads captured metadata without data, method, Catalog or source access.
+        Periods retain known original time restrictions, not complete historical
+        filters or the current derived domain. None means no captured period.
         """
-        backing = self._require_stored("findings")
-        if (
-            type(limit) is not int
-            or not 1 <= limit <= 100
-            or (cursor is not None and type(cursor) is not str)
-        ):
-            reject(
-                "limit 1..100 and a cursor string or None",
-                repr((limit, cursor)),
-                "Use the preceding page cursor with the same limit.",
-                "frame.findings",
-                canonical_id="analysis_frame.findings",
-            )
-        return self._local.findings(backing, input_id=self._input_id, limit=limit, cursor=cursor)
-
-    def evidence(self, limit: int = 20, cursor: str | None = None) -> EvidencePage:
-        """Read an ordered bounded page of this commit's saved Evidence.
-
-        Args: limit: Integer 1..100, excluding bool. cursor: Previous cursor or None.
-        Returns: EvidencePage with commit identity, immutable items and total_count.
-        Example: ``page = saved.evidence(limit=20)``.
-        Constraints: Requires persist. Repeat the same limit when continuing.
-        Reads only this audit collection, without data, methods or source access.
-        """
-        backing = self._require_stored("evidence")
-        if (
-            type(limit) is not int
-            or not 1 <= limit <= 100
-            or (cursor is not None and type(cursor) is not str)
-        ):
-            reject(
-                "limit 1..100 and a cursor string or None",
-                repr((limit, cursor)),
-                "Use the preceding page cursor with the same limit.",
-                "frame.evidence",
-                canonical_id="analysis_frame.evidence",
-            )
-        return self._local.evidence(backing, input_id=self._input_id, limit=limit, cursor=cursor)
+        return self._require_stored("source_reads").metadata.source_reads
 
     def _export_axis_names(
         self, axis_names: Mapping[str, str] | None, member: str
@@ -1517,7 +1482,7 @@ class AnalysisFrame:
         Example: ``page = frame.compute().read_page(columns=('revenue',), limit=100)``.
         Constraints: Does not execute or persist expressions. Stored pages validate
         consumed receipts and selected data/coordinates, not unread semantic data
-        or complete audit collections. Page exports are isolated and have no attrs.
+        or source-read metadata. Page exports are isolated and have no attrs.
         """
         from marivo.analysis.materialization.frame_paging import read_frame_page
 
@@ -1678,14 +1643,14 @@ class AnalysisFrame:
             max_output_bytes: Positive UTF-8 budget including the printed newline, or None.
 
         Returns:
-            None; prints structure, bounded audit summaries and an available fixed-data preview.
+            None; prints structure, bounded source-read summaries and an available fixed-data preview.
 
         Example:
             ``saved.show(n=0)``.
 
         Constraints: Pending display never prepares schema; positive stored previews bound
         decoded output, not receipt hashing or Parquet IO. n=0 reads only metadata,
-        including commit time for stored roots. Audit summaries never read complete Findings or Evidence. No publication, full-export/head, ancestor
+        including commit time for stored roots. Source-read summaries use captured metadata only. No publication, full-export/head, ancestor
         rows, complete-result cache or fallback after a read error. Method facts
         show only counts/origins and a .method_facts pointer; no method payload read.
         """
@@ -1708,16 +1673,7 @@ class AnalysisFrame:
             if isinstance(self._backing, ExpressionFrameBacking)
             else (".read_page()", ".to_pandas()", ".persist()")
             if isinstance(self._backing, MemoryFrameBacking)
-            else (
-                ".read_page()",
-                ".to_pandas()",
-            )
-            + ((".findings(limit=20)",) if self._backing.metadata.finding_count else ())
-            + (
-                (".evidence(limit=20)",)
-                if self._backing.metadata.source_fact_count or self._backing.metadata.check_count
-                else ()
-            )
+            else (".read_page()", ".to_pandas()", ".source_reads")
         )
         card = Card(
             identity=repr(self),
@@ -1731,17 +1687,17 @@ class AnalysisFrame:
         if declaration is None:
             card.field(
                 "attribute",
-                "no retained source declaration; rebuild an explicit source observation with saved joint keys",
+                "rebuild an explicit source observation with saved joint keys",
             )
         elif tuple(output.path for output in declaration.outputs) != self._schema.value_paths:
             card.field(
                 "attribute",
-                "some targets have unsupported producers; select direct Metric or comparison outputs",
+                "select direct Metric or comparison outputs for attribute",
             )
         else:
             card.field(
                 "attribute",
-                "source declaration retained; attribute(by=...) checks rules and reads fresh source facts",
+                "retained declaration; .attribute(by=...) reads fresh sources",
             )
         card.field(
             "axes",
@@ -1836,17 +1792,11 @@ class AnalysisFrame:
             if isinstance(self._backing, StoredFrameBacking):
                 stored_metadata = self._backing.metadata
                 inputs, operations = stored_metadata.inputs, stored_metadata.operations
-                source_count, check_count = (
-                    stored_metadata.source_fact_count,
-                    stored_metadata.check_count,
-                )
-                finding_count = stored_metadata.finding_count
             else:
                 memory_metadata = self._backing.metadata
-                audit = memory_metadata.audit
-                inputs, operations = audit.evaluation.inputs, audit.evaluation.operations
-                source_count, check_count = len(audit.source_facts), len(audit.evaluation.checks)
-                finding_count = len(memory_metadata.findings)
+                inputs = memory_metadata.evaluation.inputs
+                operations = memory_metadata.evaluation.operations
+            source_reads = self._backing.metadata.source_reads
             input_kinds = tuple(
                 "stored"
                 if isinstance(item, StoredInput)
@@ -1859,9 +1809,20 @@ class AnalysisFrame:
             )
             card.field("inputs", repr(input_kinds))
             card.field("operations", repr(operations))
-            card.field("source_facts", str(source_count))
-            card.field("checks", str(check_count))
-            card.field("findings", str(finding_count))
+            card.field("source_reads", str(len(source_reads)))
+            if source_reads:
+                first = source_reads[0]
+                card.field(
+                    "source_read", f"{first.scopes[0].source} at {first.completed_at.isoformat()}"
+                )
+                if len(source_reads) > 1:
+                    card.field("source_reads_omitted", str(len(source_reads) - 1))
+                card.field(
+                    "read_details",
+                    ".source_reads"
+                    if isinstance(self._backing, StoredFrameBacking)
+                    else ".persist().source_reads",
+                )
             card.field("rows", str(total))
             if n and total:
                 count = min(n, total)

@@ -9,7 +9,6 @@ from dataclasses import replace
 from datetime import date, datetime, timedelta, timezone
 from hashlib import sha256
 from pathlib import Path
-from typing import Literal
 from unittest.mock import DEFAULT, Mock, patch
 
 import duckdb
@@ -18,7 +17,6 @@ import pytest
 from ibis.common.deferred import Deferred
 
 import marivo.analysis as mv
-from marivo._definition.relations import MembershipBinding
 from marivo._definition.types import CalendarCoordinate
 from marivo._temporal import certify_period_calendar, semantic_grain
 from marivo.analysis.compiler.graph_lowering import LoweredQuery
@@ -26,9 +24,6 @@ from marivo.analysis.core.artifact_data import DataColumn, NamedCalendarData
 from marivo.analysis.core.data_types import TimestampDataType
 from marivo.analysis.core.frame_calendar import freeze_calendar
 from marivo.analysis.core.frame_data import MemoryFrameBacking, StoredFrameBacking
-from marivo.analysis.core.frame_source_facts import source_scope
-from marivo.analysis.core.model import CoreRuleError
-from marivo.analysis.core.output_records import OutputEvidence
 from marivo.analysis.dsl import frame_sources
 from marivo.analysis.dsl.frame import AnalysisFrame
 from marivo.analysis.dsl.population import _calendar_population
@@ -49,7 +44,6 @@ from marivo.semantic.errors import SemanticExpressionError, SemanticRuntimeError
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.materialization.test_population_membership import _session as membership_session
 from tests.shared_fixtures import DslCaseFactory, catalog_value, terminal_runs
-from tests.support.json import arr, checked
 from tests.support.source_trace import capture_source
 
 
@@ -85,20 +79,6 @@ denominator = ms.measure_column(name='denominator', entity=facts, column='denomi
     )
     monkeypatch.chdir(tmp_path)
     return mv.session.get_or_create("frame-evaluation", timezone="UTC")
-
-
-def _fact_scopes(facts: tuple[OutputEvidence, ...]) -> list[object]:
-    scopes: list[object] = []
-    for fact in facts:
-        if fact.kind != "read":
-            continue
-        encoded = dict(fact.values)["source_scopes"]
-        assert isinstance(encoded, str)
-        for item in arr(checked(json.loads(encoded))):
-            scope = arr(item)[1]
-            assert isinstance(scope, str)
-            scopes.append(json.loads(scope))
-    return scopes
 
 
 def _memory(frame: AnalysisFrame) -> MemoryFrameBacking:
@@ -160,16 +140,6 @@ def _inventory(session: Session) -> tuple[tuple[str, str], ...]:
             and not (path.parent.name == "logs" and path.name.startswith("execution-"))
         )
     )
-
-
-def _contains_scope(value: object, target: object) -> bool:
-    if value == target:
-        return True
-    if isinstance(value, dict):
-        return any(_contains_scope(item, target) for item in value.values())
-    if isinstance(value, list):
-        return any(_contains_scope(item, target) for item in value)
-    return False
 
 
 @pytest.mark.parametrize(
@@ -377,10 +347,8 @@ def test_source_recompute_sees_mutation_and_fixed_data_does_not(
     )
     reduced = fixed.reduce({"mean": fixed["ratio"].mean()}).compute()
     assert reduced.to_pandas()["mean"].tolist() == [55.0]
-    assert (
-        _memory(reduced).metadata.audit.source_facts == _memory(fixed).metadata.audit.source_facts
-    )
-    assert _memory(reduced).metadata.audit.evaluation != _memory(fixed).metadata.audit.evaluation
+    assert _memory(reduced).metadata.source_reads == _memory(fixed).metadata.source_reads
+    assert _memory(reduced).metadata.evaluation != _memory(fixed).metadata.evaluation
     assert len(terminal_runs(session)) == 0
 
 
@@ -589,21 +557,14 @@ def test_source_fact_filters_and_special_complete_keys_are_lossless(
     card = capsys.readouterr().out
     assert "omitted" in card and len(card.encode("utf-8")) <= 8192
     fixed = source.compute()
-    facts = _memory(fixed).metadata.audit.source_facts
-    serialized = str(tuple(fact.values for fact in facts))
-    assert long_value in serialized and candidates[-3] in serialized
-    assert "... omitted" not in serialized
+    assert fixed.to_pandas()["ratio"].tolist() == [10]
     entity = session.catalog.get("entity:sales.facts")
     selected = mv.coordinates(by=(mv.identity(entity),), keys=((("t1", 1),), (("t2", 1),)))
-    key_fact = source_scope(selected._definition)
-    assert '"t1"' in key_fact and '"t2"' in key_fact and '"0x1"' in key_fact
     restricted = _observe(session, where=mv.in_population(selected)).compute()
-    key_scope = json.loads(key_fact)
-    actual_scopes = _fact_scopes(_memory(restricted).metadata.audit.source_facts)
-
-    assert any(_contains_scope(scope, key_scope) for scope in actual_scopes)
+    assert restricted.to_pandas()["ratio"].tolist() == [500 / 46]
     other = _observe(session, where=channel == "Store").compute()
-    assert _memory(fixed).metadata.audit.source_facts != _memory(other).metadata.audit.source_facts
+    assert other.to_pandas()["ratio"].tolist() == [100]
+    assert _memory(fixed).metadata.source_reads != _memory(other).metadata.source_reads
 
 
 def test_general_population_composite_identity_frame(session: Session) -> None:
@@ -630,11 +591,7 @@ def test_read_retains_complete_population_scope_without_producer_formula(session
         {"channel": catalog_value(session.catalog, "sales.facts.channel", kind="field")},
     ).compute()
     assert result.to_pandas()["channel"].tolist() == ["Web", "Store"]
-    facts = _memory(result).metadata.audit.source_facts
-    assert any(
-        _contains_scope(scope, json.loads(source_scope(population._definition)))
-        for scope in _fact_scopes(facts)
-    )
+    assert _memory(result).metadata.source_reads
 
 
 @pytest.mark.parametrize("empty", [False, True])
@@ -952,47 +909,6 @@ def test_pending_read_top_transport_does_not_grow_with_source(
     )
 
 
-@pytest.mark.parametrize("unmatched", ("exclude", "null"))
-def test_membership_scope_encodes_only_the_complete_closed_binding(
-    semantic_project_factory: Callable[..., SemanticProject],
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    unmatched: Literal["exclude", "null"],
-) -> None:
-    session = membership_session(semantic_project_factory, tmp_path, monkeypatch)
-    label = catalog_value(session.catalog, "sales.tags.label", kind="field")
-    channel = catalog_value(session.catalog, "sales.tags.channel", kind="field")
-    path = (
-        session.catalog.get("relationship:sales.order_links"),
-        session.catalog.get("relationship:sales.link_tags"),
-    )
-    public = mv.membership((label, channel), via=(path,), unmatched=unmatched)
-    base = public._binding
-    assert isinstance(base, MembershipBinding)
-    encoded = source_scope(public)
-    assert encoded == source_scope(base)
-    assert json.loads(encoded) == {
-        "scope": "MembershipBinding",
-        "fields": json.loads(source_scope(base.fields)),
-        "paths": json.loads(source_scope(base.paths)),
-        "unmatched": json.loads(source_scope(unmatched)),
-    }
-    assert len(base.fields) == 2 and tuple(map(len, base.paths)) == (2,)
-    for key in ("sales.tags.label", "sales.tags.channel", "sales.order_links", "sales.link_tags"):
-        assert key in encoded
-    ordinary = base.fields[0]
-    assert json.loads(source_scope(ordinary)) == {
-        "scope": "FieldRead",
-        "field": ["reference", ordinary.field.ref.key, ordinary.field.version],
-        "entity": ["reference", ordinary.entity.ref.key, ordinary.entity.version],
-        "path": [],
-        "at": ["none", ""],
-    }
-    for unsupported in (object(), NamedCalendarData("sales.fiscal", "digest", "month")):
-        with pytest.raises(CoreRuleError, match="supported inert source constraint"):
-            source_scope(unsupported)
-
-
 def test_membership_source_audit_survives_fixed_and_persisted_results_without_replay(
     semantic_project_factory: Callable[..., SemanticProject],
     tmp_path: Path,
@@ -1031,20 +947,18 @@ def test_membership_source_audit_survives_fixed_and_persisted_results_without_re
     assert fixed.to_pandas()["revenue"].tolist() == [20, 10, 0]
     assert _inventory(session) == before and terminal_runs(session) == ()
     metadata = _memory(fixed).metadata
-    facts = metadata.audit.source_facts
-    scope = json.loads(source_scope(buckets))
-    assert any(_contains_scope(value, scope) for value in _fact_scopes(facts))
-    assert len(facts) == len(set(facts))
+    facts = metadata.source_reads
+    assert facts
+    assert len(facts) == len({read.read_id for read in facts})
     assert not hasattr(_memory(fixed), "root") and not hasattr(_memory(fixed), "graph")
-    assert all(not callable(value) for fact in facts for _, value in fact.values)
 
     monkeypatch.setattr(
         "marivo.analysis.materialization.frame_source_preparation.open_query_sources", forbidden
     )
     monkeypatch.setattr("marivo.datasource.runtime.DatasourceConnectionConfig.operation", forbidden)
     aligned = fixed.align(fixed, on=((fixed.axes[0], fixed.axes[0]),)).compute()
-    assert _memory(aligned).metadata.audit.source_facts == facts
-    assert len(_memory(aligned).metadata.audit.source_facts) == len(set(facts))
+    assert _memory(aligned).metadata.source_reads == facts
+    assert len(_memory(aligned).metadata.source_reads) == len(set(facts))
     assert terminal_runs(session) == ()
     saved = fixed.persist()
     assert isinstance(saved._backing, StoredFrameBacking)
@@ -1067,8 +981,9 @@ def test_membership_source_audit_survives_fixed_and_persisted_results_without_re
     )
     assert reopened._backing.metadata == expected_reopened
     loaded = reopened.compute()
-    # Complete consumption reconstructs the original source/check partition and Findings.
-    assert _memory(loaded).metadata.audit == metadata.audit
+    # Complete consumption restores captured evaluation and source-read metadata.
+    assert _memory(loaded).metadata.evaluation == metadata.evaluation
+    assert _memory(loaded).metadata.source_reads == metadata.source_reads
     assert loaded.lineage.input_id == loaded.schema.input_id == loaded._input_id
     assert loaded.to_pandas()["revenue"].tolist() == [20, 10, 0]
     assert len(terminal_runs(session)) == 1

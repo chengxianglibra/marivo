@@ -57,10 +57,10 @@ no automatic pagination or cross-evaluation response reuse occurs. Completed and
 reopened Frames consume fixed data. No source arguments are added to these methods.
 Reopen with ``session.persisted_frame(artifact_id)`` in the exact Session; the ID
 must be a string. Every Frame exposes its captured ``session_id``. Stored roots
-expose ``artifact_id``, ``findings()`` and ``evidence()`` directly.
-Pending and memory Frames require ``persist()`` for commit identity and audit reads.
+expose ``artifact_id`` and ``source_reads`` directly.
+Pending and memory Frames require ``persist()`` for commit identity and source-read metadata.
 Identity attributes perform no Store reads. There is no public Artifact wrapper.
-``show(n=20, max_output_bytes=8192)`` combines metadata, audit summaries and a
+``show(n=20, max_output_bytes=8192)`` combines metadata, source-read summaries and a
 whole-row preview with exact omission counts. ``show(n=0)`` reads metadata only;
 ``max_output_bytes=None`` removes the byte limit while preserving the row limit.
 ``schema`` returns captured immutable fields, exact types, complete axis keys and
@@ -83,10 +83,15 @@ and join to its coordinate slot values in ``read_page().coordinates``. Periods
 are independent of the current row domain; missing paired endpoints and saved
 comparison absence have their own distinct meanings. Limits and cursor bindings
 match the bounded ``read_page`` contract.
-``findings(limit=20, cursor=None)`` and ``evidence(limit=20, cursor=None)`` read
-independent saved audit collections with limits 1..100. Both return exact input,
-Session and Artifact identity, collection count and continuation state. No public
-digest or second complete Evidence reader exists. Full data export uses
+``source_reads`` returns ``tuple[FrameSourceRead, ...]`` from captured metadata,
+without data, method, Catalog or source reads. Each read retains ``read_id``, UTC
+``completed_at``, ordered ``scopes`` and reliable ``returned_rows`` (or None).
+Each ``FrameSourceReadScope`` retains ``source`` and an optional
+``FrameSourceReadPeriod(start, end, timezone)`` with exclusive end and optional
+start. None means no captured period, not no constraints. Records omit complete
+historical filters, member domains and SQL. Shared actual reads have one identity;
+fixed operations inherit records by read_id without relabeling their periods as
+current output scope. Independent reads remain distinct. Full data export uses
 ``to_pandas()`` and preserves its existing attrs snapshots and full validation.
 
 Public classes describe returned values; they do not authorize direct construction
@@ -263,9 +268,8 @@ uses COUNT(DISTINCT), or ClickHouse uniqExact. Unsupported operations/types fail
 before business reads; no source-ranked simulation or exact/approximate
 substitution is performed.
 
-``show(n=0)`` reads metadata and bounded audit summaries only, including stored
-commit time, inputs/operations and source-fact/check/Finding counts; it does not
-read full audit payloads. Positive show decodes the
+``show(n=0)`` reads captured metadata and bounded source-read summaries only,
+including stored commit time and inputs/operations; it reads no method payloads. Positive show decodes the
 saved prefix plus needed frozen coordinate records, without full export/head.
 Receipt verification or Parquet decompression can read more than that prefix.
 ``to_pandas()`` validates complete current data and its required attachments.
@@ -414,12 +418,12 @@ Evaluation, publication and recovery
 
 Compute creates no Artifact or temporary saved result. Expression persist
 completes evaluation first, then publishes that existing result ID through the
-single Store 23 writer transaction. Memory persist never reevaluates. Stored
+single Store 24 writer transaction. Memory persist never reevaluates. Stored
 persist validates commit metadata and returns itself without another publication.
 A derived or computed memory Frame never exposes an ancestor commit identity. Unknown publication outcome is reconciled, not recomputed.
 
-Completed data owns source-free values, coordinates, presence and one audit:
-inherited source facts plus the current evaluation. It retains no producer,
+Completed data owns source-free values, coordinates, presence and captured metadata:
+inherited actual source_reads plus the current evaluation. It retains no producer,
 semantic graph, connection or hidden aggregate components. Read, evaluation and
 commit times remain separate. Publication records remain internal and do not
 promise complete data lineage. Retain Session and Artifact IDs for exact reopening.
@@ -444,10 +448,10 @@ are ordered by commit time and ID descending. Continue with the returned
 limit. New commits are discovered from the first page. Cards show bounded output
 names and axes; typed schemas remain complete. Corrupt metadata fails explicitly.
 
-Store 23 uses ``marivo.frame_output/v12``, ``frame.v12`` and ``frame-output-v12`` for
-all Frames, under ``.marivo/analysis/generations/v23/``. Owned method files share
+Store 24 uses ``marivo.frame_output/v13`` and ``frame.v13`` for
+all Frames, under ``.marivo/analysis/generations/v24/``. Owned method files share
 the existing atomic publication, receipt and unknown-commit reconciliation.
-Store 23 refuses older-generation Session/result/audit data unchanged, without
+Store 24 refuses older-generation Session/result data unchanged, without
 migration or dual reads. Documented absent-current discovery may return None or
 empty. Current work may create a new named Session in the same project while
 older generations coexist unchanged; discovery warns about older paths. Preserve
@@ -479,7 +483,9 @@ Canonical public exports
    TimeScope
    InstantAnchor
    CalendarAxis
-   EvidencePage
+   FrameSourceRead
+   FrameSourceReadScope
+   FrameSourceReadPeriod
    FrameSchema
    FrameField
    FrameAxisSchema
@@ -522,9 +528,6 @@ Canonical public exports
    FrameIntervalPeriod
    FramePairedPeriod
    FrameComparisonPeriod
-   ArtifactRef
-   Finding
-   FindingPage
    Session
 
 .. autosummary::
@@ -598,8 +601,7 @@ contains no original value table or executable declaration.
 ``calendar_axis.grid`` contains frozen buckets/calendar interpretation.
 ``calendar_axis.scope`` reads the original scope after ``scope.by(grain)``;
 a shifted axis may have None, which is never filled from a grid envelope.
-``finding.value`` is saved content selected by finding_type/kind, including lag
-facts where applicable. Publication failures expose their phase and concrete
+Publication failures expose their phase and concrete
 repair directly through structured errors.
 These read-only paths do not open constructors for nested implementation types.
 

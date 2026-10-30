@@ -28,14 +28,6 @@ from marivo.analysis.core.artifact_data import (
     DataSchema,
     IntervalDataAxis,
 )
-from marivo.analysis.core.frame_audit import (
-    EvaluationInput,
-    FrameOperationName,
-    LiteralInput,
-    MemoryInput,
-    SourceInput,
-    StoredInput,
-)
 from marivo.analysis.core.frame_data import (
     ExpressionFrameBacking,
     LiteralFrameBinding,
@@ -43,7 +35,14 @@ from marivo.analysis.core.frame_data import (
     SourceFrameBinding,
     StoredFrameBacking,
 )
-from marivo.analysis.core.frame_source_facts import captured_source_scopes
+from marivo.analysis.core.frame_metadata import (
+    EvaluationInput,
+    FrameOperationName,
+    LiteralInput,
+    MemoryInput,
+    SourceInput,
+    StoredInput,
+)
 from marivo.analysis.core.frame_structure import PendingDataColumn, PendingDataSchema, axis_role
 from marivo.analysis.core.model import reject
 from marivo.analysis.materialization.errors import MaterializationError
@@ -70,7 +69,6 @@ class PreparedFrameSources:
     prepared: dict[str, PreparedSources]
     plans: dict[str, CompiledSourceFrame]
     schemas: dict[str, DataSchema]
-    scopes: dict[str, tuple[str, ...]]
     inputs: tuple[EvaluationInput, ...]
     operations: tuple[FrameOperationName, ...]
 
@@ -156,7 +154,6 @@ def prepare_frame_sources(captured: CapturedFrameInputs, stack: ExitStack) -> Pr
     prepared_by_input: dict[str, PreparedSources] = {}
     source_plans: dict[str, CompiledSourceFrame] = {}
     source_schemas: dict[str, DataSchema] = {}
-    scopes: dict[str, tuple[str, ...]] = {}
     key_schema_cache: dict[int, DataSchema] = {}
     inputs: list[EvaluationInput] = []
     operations = list(captured.operations)
@@ -210,7 +207,6 @@ def prepare_frame_sources(captured: CapturedFrameInputs, stack: ExitStack) -> Pr
                 schemas = prepare_source_free_populations(
                     binding.graph, binding.state, frame_schemas=key_schemas
                 )
-            scopes[input_id] = captured_source_scopes(binding.graph)
         if input_id in requested:
             assert prepared is not None and isinstance(binding, SourceFrameBinding)
             side, rules, mapping = requested[input_id]
@@ -327,5 +323,5 @@ def prepare_frame_sources(captured: CapturedFrameInputs, stack: ExitStack) -> Pr
                 )
             )
     return PreparedFrameSources(
-        prepared_by_input, source_plans, source_schemas, scopes, tuple(inputs), tuple(operations)
+        prepared_by_input, source_plans, source_schemas, tuple(inputs), tuple(operations)
     )

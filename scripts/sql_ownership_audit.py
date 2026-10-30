@@ -126,7 +126,7 @@ def _manifest() -> Manifest:
     add(
         "analysis/materialization/terminal_store",
         ("publish",),
-        ("conn.execute", "conn.executemany"),
+        ("conn.execute",),
         store,
     )
     add(

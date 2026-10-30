@@ -216,7 +216,7 @@ _PAGES = (
     ),
     NavigationInput(
         "results",
-        "Inspect captured facts, export fixed data or read saved evidence.",
+        "Inspect captured facts, source reads, original method facts or fixed data.",
         (),
         "decision_hub",
     ),
@@ -224,46 +224,31 @@ _PAGES = (
         "results.inspect",
         "Inspect Frame structure, read data or period pages, or export complete fixed values.",
         (),
-        related=("analysis_frame.schema",),
+        related=(
+            "analysis_frame.schema",
+            "analysis_frame.source_reads",
+            "analysis_frame.method_facts",
+            "analysis_frame.lineage",
+        ),
         guidance=(
-            "schema exposes captured types, complete keys, result contexts, comparisons and decompositions without reads. Pending show reports captured facts without evaluation. Fixed show displays a bounded prefix; read_page returns ordered projected data with complete keys, read_periods returns saved time periods and consumed endpoint correspondences, and to_pandas exports complete fixed data with isolated axis metadata. Other objects expose show/render through their type Help.",
+            "schema exposes captured types, complete keys, result contexts, comparisons and decompositions without reads. Pending show reports captured facts without evaluation. Fixed show displays a bounded prefix; read_page returns ordered projected data with complete keys, read_periods returns saved time periods and consumed endpoint correspondences, and to_pandas exports complete fixed data with isolated axis metadata. Saved source_reads retains original actual reads, not complete filters or the current derived domain; method_facts explains the original method and denominator. These facts establish neither freshness nor cause. Other objects expose show/render through their type Help.",
         ),
         discovery_group="results",
         route_summaries=(
             ("analysis_frame.show", "Inspect captured facts or a bounded fixed-data prefix."),
             ("analysis_frame.schema", "Inspect captured fields, exact types, keys and layout."),
+            (
+                "analysis_frame.source_reads",
+                "Read saved actual source-read identities, times, scopes and returned row counts.",
+            ),
+            (
+                "analysis_frame.method_facts",
+                "Read complete original method explanations on a fixed Frame.",
+            ),
+            ("analysis_frame.lineage", "Inspect captured semantic origins without data reads."),
             ("analysis_frame.read_page", "Read a projected page of fixed data and complete keys."),
             ("analysis_frame.read_periods", "Read saved periods or consumed time correspondences."),
             ("analysis_frame.to_pandas", "Export complete fixed data as an isolated DataFrame."),
-        ),
-    ),
-    NavigationInput(
-        "results.evidence",
-        "Read saved Frame audit or original method facts.",
-        (),
-        guidance=(
-            "A saved Frame provides committed audit directly; Frame.method_facts exposes original method facts. These facts do not establish a causal conclusion or current source freshness.",
-            "An unsaved result needs persist only when a committed result is required; inspecting current Frame facts does not require saving.",
-        ),
-        related=(
-            "analysis_frame.show",
-            "analysis_frame.method_facts",
-            "analysis_frame.lineage",
-            "FrameMethodFacts",
-            "analysis_frame.persist",
-        ),
-        discovery_group="results",
-        route_summaries=(
-            ("analysis_frame.show", "Inspect saved submission identity and audit summaries."),
-            ("analysis_frame.findings", "Read a bounded page of saved Findings."),
-            ("analysis_frame.evidence", "Read a bounded page of saved Evidence."),
-            ("analysis_frame.method_facts", "Access captured original method facts on this Frame."),
-            (
-                "analysis_frame.lineage",
-                "Inspect semantic origins of every output without reading data.",
-            ),
-            ("FrameMethodFacts", "Understand original method facts and their limits."),
-            ("analysis_frame.persist", "Save current results when a committed result is needed."),
         ),
     ),
     NavigationInput(
@@ -272,7 +257,7 @@ _PAGES = (
         (),
         guidance=(
             "Create or recover a repeatable name, discover retained IDs, inspect metadata or resume an exact existing ID. Session recovery restores context, not Python variables or unsaved Frames, and does not replay source observations.",
-            "Reopen exact committed data with persisted_frame(id); read its committed audit directly. Continue fixed-data operations or explicitly construct new source inputs through operators.",
+            "Reopen exact committed data with persisted_frame(id); read its captured metadata directly. Continue fixed-data operations or explicitly construct new source inputs through operators.",
             "Recover the Session before inspecting an uncertain publication. Discover lost Artifact IDs with persisted_frames(); compare descriptions and schema before selecting an exact ID. Older Stores coexist unchanged; read/export them in a compatible environment. Names, IDs and saved Frames remain independent across generations.",
         ),
         related=("operators",),
@@ -333,7 +318,7 @@ def navigation(providers: tuple[DisclosureProvider, ...]) -> tuple[NavigationInp
             "root",
             guidance=(
                 "Imports: import marivo.analysis as mv",
-                "Catalog: definitions. Session: context and ownership. Frame: pending/fixed data, saved identity and audit.",
+                "Catalog: definitions. Session: context and ownership. Frame: pending/fixed data, saved identity and captured metadata.",
                 "Use session.get_or_create for missing context and session.catalog for inputs. Related Frames share one explicit Session.",
                 "Enter known targets directly; otherwise choose the missing information.",
                 "Construction captures dependencies; compute fixes data; persist saves it. Continue with the returned Frame.",

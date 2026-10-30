@@ -18,7 +18,8 @@ import pytest
         "frame_data",
         "attribute",
         "artifact_data",
-        "frame_source_facts",
+        "frame_source_reads",
+        "frame_metadata",
     ),
 )
 def test_shared_value_rules_have_only_named_runtime_leaf_exceptions(module: str) -> None:
@@ -55,7 +56,6 @@ def test_shared_value_rules_have_only_named_runtime_leaf_exceptions(module: str)
         ("value_types", "marivo.semantic._numeric_lowering.NumericValue"),
         ("value_types", "marivo.semantic._numeric_lowering.numeric_binary"),
         ("artifact_data", "marivo.analysis.materialization.contracts.LocalReceipt"),
-        ("frame_source_facts", "marivo.analysis.materialization.contracts.canonical_json"),
     }
     for node in ast.walk(tree):
         if id(node) in annotation_nodes or not isinstance(node, (ast.Import, ast.ImportFrom)):

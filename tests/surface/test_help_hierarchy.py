@@ -81,6 +81,7 @@ def test_retired_task_topics_fail_without_aliases() -> None:
         "analysis.catalog.temporal",
         "analysis.entry",
         "analysis.evidence",
+        "analysis.results.evidence",
         "analysis.methods",
         "analysis.methods.attribute",
         "analysis.methods.compare",
@@ -156,8 +157,8 @@ def test_first_discovery_reaches_a_meaningful_exact_choice_within_four_reads() -
         (
             "analysis",
             "analysis.results",
-            "analysis.results.evidence",
-            "analysis.analysis_frame.persist",
+            "analysis.results.inspect",
+            "analysis.analysis_frame.source_reads",
         ),
     ):
         assert len(path) <= 4
@@ -193,7 +194,7 @@ def test_required_secondary_routes_keep_their_real_native_owners() -> None:
             "analysis.inputs.frame",
             ("analysis.column", "analysis.frame_axis", "analysis.value_statistic"),
         ),
-        ("analysis.results.evidence", ("analysis.analysis_frame.persist",)),
+        ("analysis.results.inspect", ("analysis.analysis_frame.source_reads",)),
         ("analysis.sessions", ("analysis.operators",)),
     ):
         links = _links(page)

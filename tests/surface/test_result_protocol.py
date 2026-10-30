@@ -7,11 +7,9 @@ from datetime import datetime
 
 import pytest
 
-import marivo.analysis as ma
 from marivo._compat import UTC
 from marivo._temporal import TimeScopeContractV1
 from marivo.analysis.dsl.temporal import exact_scope
-from marivo.analysis.evidence._dataset_types import EvidencePage
 from marivo.analysis.session._lazy_read_model import SessionSummary
 from marivo.datasource.errors import repair as datasource_repair
 from marivo.datasource.manage import (
@@ -234,7 +232,7 @@ def test_session_metadata_satisfies_terminal_protocol(
         {"revenue": catalog_value(case.catalog, "sales.revenue", kind="metric")}
     ).persist()
     assert case.session.persisted_frame(output.artifact_id).artifact_id == output.artifact_id
-    for candidate in (mv.session.inspect(case.session.id), mv.session.recent(), _evidence_page()):
+    for candidate in (mv.session.inspect(case.session.id), mv.session.recent()):
         assert_conforms(candidate)
         assert candidate.render() == candidate.render()
 
@@ -435,25 +433,6 @@ def test_time_scope_render_honors_output_budget(capsys: pytest.CaptureFixture[st
 def test_contract_str_renders_same_card(builder: Callable[[], object]) -> None:
     contract = builder()
     assert str(contract) == contract.render()  # type: ignore[attr-defined]
-
-
-def _evidence_page() -> EvidencePage:
-    return EvidencePage(
-        input_id="stored_abc",
-        session_id="session_abc",
-        artifact_ref=ma.ArtifactRef(ref="artifact_abc"),
-        items=(),
-        limit=20,
-        total_count=0,
-        has_more=False,
-        next_cursor=None,
-    )
-
-
-def test_evidence_page_result_protocol() -> None:
-    page = _evidence_page()
-    assert "EvidencePage" in repr(page)
-    assert_conforms(page)
 
 
 def _footer_entries(obj: object) -> tuple[str, ...]:

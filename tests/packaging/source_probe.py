@@ -485,8 +485,7 @@ def cold(project: Path) -> dict[str, object]:
         for name, result in saved.items():
             result.show(n=1)
             result.show(n=0)
-            result.findings()
-            result.evidence(limit=100)
+            assert isinstance(result.source_reads, tuple)
             continued = result.select({"value": result["value"]}).compute()
             pd.testing.assert_frame_equal(continued.to_pandas(), exports[name])
         assert len(terminal_runs(session)) == before_runs and publication_counts(session) == before

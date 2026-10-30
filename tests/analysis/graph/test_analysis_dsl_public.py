@@ -81,9 +81,7 @@ def test_public_contract_actions_and_result_card(
     saved = observed.persist()
     assert subject_key not in repr(saved) and ".show()" in repr(saved)
     assert (
-        saved._local._audit_manifest(saved._require_stored("artifact_id"))
-        .data.schema.values[0]
-        .unit
+        saved._local._manifest(saved._require_stored("artifact_id")).data.schema.values[0].unit
         == "CNY"
     )
     saved.show(n=2)
@@ -100,11 +98,11 @@ def test_public_contract_actions_and_result_card(
         reopened = case.session.persisted_frame(saved.artifact_id)
         reopened.show(n=2)
         reopened_card = capsys.readouterr().out
-        assert "source declaration retained" in card
-        assert "no retained source declaration" in reopened_card
+        assert "retained declaration; .attribute(by=...) reads fresh sources" in card
+        assert "rebuild an explicit source observation with saved joint keys" in reopened_card
         assert reopened_card == card.replace(
-            "source declaration retained; attribute(by=...) checks rules and reads fresh source facts",
-            "no retained source declaration; rebuild an explicit source observation with saved joint keys",
+            "retained declaration; .attribute(by=...) reads fresh sources",
+            "rebuild an explicit source observation with saved joint keys",
         )
         assert reopened.to_pandas().equals(saved.to_pandas())
     finally:

@@ -62,7 +62,7 @@ def test_artifact_metadata_rejects_graph_and_continuation_fields_without_writes(
     case = analysis_dsl_case_factory("j1")
     saved = _values(case).persist()
     value = saved
-    original = encode(value._local._audit_manifest(value._require_stored("artifact_id")))
+    original = encode(value._local._manifest(value._require_stored("artifact_id")))
     for field in ("definition_graph", "continuation"):
         payload = json.loads(original)
         payload["value"]["fields"][field] = {"record": "GroupDomain", "fields": {}}

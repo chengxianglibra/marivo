@@ -2,6 +2,7 @@
 
 import itertools
 import json
+import os
 import subprocess
 import sys
 from dataclasses import replace
@@ -128,8 +129,10 @@ def test_approximate_distinct_native_coalitions_preserve_where_nulls_cache_and_c
     saved = report.persist()
     code = """
 import sys
+from pathlib import Path
 from unittest.mock import patch
 import marivo.analysis as mv
+assert Path(mv.__file__).resolve().parents[2] == Path(sys.argv[4])
 from marivo.analysis.session.core import Session
 from marivo.datasource.adapters import SourceSession
 
@@ -145,8 +148,17 @@ with patch.object(Session, 'catalog', property(forbidden)), patch.object(SourceS
     assert frame.to_pandas()['total.q'].tolist() == [int(sys.argv[3])]*3
 """
     process = subprocess.run(
-        [sys.executable, "-c", code, saved.session_id, saved.artifact_id, str(total)],
+        [
+            sys.executable,
+            "-c",
+            code,
+            saved.session_id,
+            saved.artifact_id,
+            str(total),
+            str(Path(__file__).resolve().parents[3]),
+        ],
         cwd=tmp_path,
+        env={**os.environ, "PYTHONPATH": str(Path(__file__).resolve().parents[3])},
         capture_output=True,
         text=True,
     )

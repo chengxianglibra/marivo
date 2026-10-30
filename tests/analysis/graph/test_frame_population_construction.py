@@ -1,7 +1,6 @@
 """Explicit Frame key definitions retain live inputs outside semantic capture."""
 
 import gc
-import json
 import weakref
 from collections.abc import Callable
 from dataclasses import replace
@@ -44,14 +43,13 @@ from marivo.analysis.core.artifact_data import (
     ParquetHandle,
 )
 from marivo.analysis.core.data_types import ScalarDataType
-from marivo.analysis.core.frame_audit import EvaluationRecord, FrameAudit, FrameResultMetadata
 from marivo.analysis.core.frame_data import (
     CompletedFrameData,
     CompletedFrameResult,
     ExpressionFrameBacking,
     SourceFrameBinding,
 )
-from marivo.analysis.core.frame_source_facts import source_scope
+from marivo.analysis.core.frame_metadata import EvaluationRecord, FrameResultMetadata
 from marivo.analysis.core.frame_structure import PendingDataSchema
 from marivo.analysis.core.lineage import empty as empty_lineage
 from marivo.analysis.core.model import CoreRuleError
@@ -119,7 +117,7 @@ customer = ms.relationship(name='customer', from_entity=facts, to_entity=custome
 def _metadata(result_id: str = "fixed-selection") -> FrameResultMetadata:
     return FrameResultMetadata(
         result_id,
-        FrameAudit((), EvaluationRecord(datetime(2026, 10, 19, tzinfo=timezone.utc), (), ())),
+        EvaluationRecord(datetime(2026, 10, 19, tzinfo=timezone.utc), (), ()),
     )
 
 
@@ -206,8 +204,6 @@ def test_factory_is_metadata_only_and_definition_is_inert(
     encoded = canonical_bytes(_encode_fields(leaf, {})).decode()
     assert frame._input_id in encoded and "FrameKeys" in encoded
     assert all(word not in encoded for word in ("AnalysisFrame", "Session", "_rows", "connection"))
-    assert source_scope(population) == source_scope(Population(population._definition))
-    assert "FrameKeys" in source_scope(population._definition)
     population.show()
     assert "FrameKeys" in capsys.readouterr().out
 
@@ -306,7 +302,6 @@ def test_predicates_and_deferred_recipes_preserve_inputs_before_consumption(
     assert consumed.node.predicate == consume_predicate(condition).node
     tokens = canonical_recipe(metric._recipe)
     assert tokens and "FrameKeyInput" not in repr(tokens)
-    assert source_scope(consumed.node.predicate) == source_scope(consume_predicate(condition).node)
 
 
 def test_private_population_capture_fields_preserve_deferred_fingerprint() -> None:
@@ -547,7 +542,7 @@ def test_cross_session_inputs_reject_and_selected_frame_stays_alive(session: Ses
     assert reference() is retained.frame_key_inputs[0].frame
     live = reference()
     assert live is not None
-    assert json.loads(source_scope(retained.frame_key_inputs[0].input_id))[1] == live._input_id
+    assert retained.frame_key_inputs[0].input_id == live._input_id
 
 
 def test_mixed_native_predicate_and_declared_metric_retain_all_frame_inputs(

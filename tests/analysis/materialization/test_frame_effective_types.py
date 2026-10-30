@@ -132,7 +132,7 @@ def test_native_float_read_pending_chain_and_reducers(
     completed = _chain(fixed).compute()
     pd.testing.assert_frame_equal(pending.to_pandas(), completed.to_pandas())
     assert _schema(pending) == (ScalarDataType("float64"),) * 2
-    assert len(pending._backing.metadata.audit.source_facts) > 0
+    assert len(pending._backing.metadata.source_reads) > 0
     assert calls == [4, 4]
     for frame in (source, fixed):
         result = frame.reduce(

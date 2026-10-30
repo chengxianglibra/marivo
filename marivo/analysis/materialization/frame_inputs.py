@@ -11,9 +11,6 @@ from marivo.analysis.core.artifact_data import (
 )
 from marivo.analysis.core.attribute_game import AttributeGameValues
 from marivo.analysis.core.frame_attribute_merge import AttributeMergeValues
-from marivo.analysis.core.frame_audit import (
-    FrameOperationName,
-)
 from marivo.analysis.core.frame_data import (
     ExpressionFrameBacking,
     OperationFrameBinding,
@@ -31,6 +28,9 @@ from marivo.analysis.core.frame_expression import (
     SourceFrameInput,
 )
 from marivo.analysis.core.frame_fix import FixFrameValues
+from marivo.analysis.core.frame_metadata import (
+    FrameOperationName,
+)
 from marivo.analysis.core.model import reject
 from marivo.analysis.dsl._frame_inputs import FrameKeyInput, merge_frame_key_inputs
 

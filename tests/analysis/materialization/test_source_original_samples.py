@@ -1,6 +1,6 @@
 """Source regrouping preserves internal samples and bound window endpoints."""
 
-import json
+from datetime import datetime, timezone
 
 import duckdb
 import pyarrow as pa
@@ -38,12 +38,17 @@ def test_source_rollup_keeps_internal_identity_and_empty_samples(
     expected = 1000 / 3 if explicit else 1000
     assert frame["mean"].tolist() == [expected]
     assert not any("__original_value" in names for names in trace.returned_columns)
-    reads = [
-        dict(item.values) for item in artifact.evidence(limit=100).items if item.kind == "read"
-    ]
-    assert [item["returned_rows"] for item in reads] == trace.returned_rows
-    assert all(item["physical_stage"] for item in reads)
-    assert {item["source"] for item in reads} == {"sales.order"}
+    completed = datetime.now(timezone.utc)
+    reads = artifact.source_reads
+    assert [read.returned_rows for read in reads] == trace.returned_rows
+    assert len(reads) == len(trace.native_sql)
+    assert {scope.source for read in reads for scope in read.scopes} == {"sales.order"}
+    assert all(
+        start <= read.completed_at <= end
+        for read, start, end in zip(
+            reads, trace.started_at, (*trace.started_at[1:], completed), strict=True
+        )
+    )
 
 
 def test_source_rollup_finishes_each_sample_ratio_before_mean(
@@ -117,20 +122,12 @@ def test_multi_root_read_evidence_keeps_each_contribution_scope(
     metric = amount.sum().where(amount > 0) / count
     trace = capture_source(monkeypatch)
     artifact = session.observe({"ratio": metric}).persist()
-    reads = [
-        dict(item.values) for item in artifact.evidence(limit=100).items if item.kind == "read"
-    ]
-    assert len(reads) == 2
-    assert len({item["source"] for item in reads}) == 2
-    assert len({item["physical_stage"] for item in reads}) == 1
-    assert {item["returned_rows"] for item in reads} == {trace.returned_rows[0]}
+    reads = artifact.source_reads
+    assert len(reads) == 1
+    assert {scope.source for scope in reads[0].scopes} == {"sales.order", "sales.order_line"}
+    assert reads[0].returned_rows == 1
     assert trace.returned_rows == [1]
-    filtered: list[bool] = []
-    for item in reads:
-        predicate = item["filters"]
-        assert isinstance(predicate, str)
-        filtered.append(bool(json.loads(predicate)))
-    assert sorted(filtered) == [False, True]
+    assert trace.started_at[0] <= reads[0].completed_at <= datetime.now(timezone.utc)
     assert artifact.to_pandas()["ratio"].tolist() == [200 / 101]
 
 
@@ -194,3 +191,42 @@ def test_collated_original_keeps_its_existing_fine_grouping_boundary(
         .to_pandas()
     )
     assert result["total"].tolist() == [0]
+
+
+@pytest.mark.parametrize("unknown", [False, True])
+def test_empty_actual_read_retains_zero_or_unknown_original_count(
+    analysis_dsl_case_factory: DslCaseFactory, monkeypatch: pytest.MonkeyPatch, unknown: bool
+) -> None:
+    from dataclasses import replace
+
+    from marivo.analysis.compiler.graph_lowering import LoweredRead
+    from marivo.analysis.compiler.graph_plan import SourceRead
+    from marivo.analysis.materialization import graph_source_execution
+    from marivo.analysis.materialization.graph_exchange import StageOutput
+
+    case = analysis_dsl_case_factory("j1")
+    with duckdb.connect(str(case.database_path)) as connection:
+        connection.execute('DELETE FROM "order"')
+    amount = catalog_value(case.session.catalog, "sales.order.amount", kind="field")
+    customer = catalog_value(case.session.catalog, "sales.order.customer_id", kind="field")
+    original = graph_source_execution.read_stage
+
+    def without_count(
+        prepared: graph_source_execution.PreparedSources,
+        stage: SourceRead,
+        request: LoweredRead,
+        *,
+        value_keys: tuple[str, ...] = (),
+    ) -> StageOutput:
+        result = original(prepared, stage, request, value_keys=value_keys)
+        return replace(result, source_rows=None)
+
+    if unknown:
+        monkeypatch.setattr(graph_source_execution, "read_stage", without_count)
+    trace = capture_source(monkeypatch)
+    saved = case.session.observe({"total": amount.sum()}, by=(customer,)).persist()
+    assert len(saved.source_reads) == len(trace.native_sql) == 1
+    assert saved.source_reads[0].returned_rows == (None if unknown else trace.returned_rows[0])
+    assert trace.returned_rows == [0]
+    assert saved.to_pandas().empty
+    assert saved.compute().persist().source_reads == saved.source_reads

@@ -10,11 +10,6 @@ from types import TracebackType
 from typing import TYPE_CHECKING
 from uuid import uuid4
 
-import pyarrow as pa
-
-from marivo._definition.graph import computation_fingerprint
-from marivo._definition.query import PopulationValues
-from marivo._definition.relations import AttributeKeys, FrameKeys, PopulationProgram
 from marivo._errors import MarivoError
 from marivo.analysis.compiler.frame_plan import (
     CompiledFramePlan,
@@ -27,17 +22,6 @@ from marivo.analysis.compiler.graph_plan import (
     FrameInput,
     LocalCompute,
     SourceRead,
-    read_attribute,
-)
-from marivo.analysis.compiler.parameters import parameter_domains
-from marivo.analysis.compiler.query_program import ResultProgram
-from marivo.analysis.core.artifact_data import (
-    OutputEvidence,
-)
-from marivo.analysis.core.frame_audit import (
-    EvaluationRecord,
-    FrameAudit,
-    FrameResultMetadata,
 )
 from marivo.analysis.core.frame_calendar import FrozenSourceCalendar
 from marivo.analysis.core.frame_data import (
@@ -51,8 +35,17 @@ from marivo.analysis.core.frame_data import (
 from marivo.analysis.core.frame_expression import (
     FrameExpression,
 )
+from marivo.analysis.core.frame_metadata import (
+    EvaluationRecord,
+    FrameResultMetadata,
+)
 from marivo.analysis.core.frame_method_facts import FrameMethodFacts, same_method_facts
-from marivo.analysis.core.frame_source_facts import source_scope
+from marivo.analysis.core.frame_source_reads import (
+    FrameSourceRead,
+    FrameSourceReadPeriod,
+    FrameSourceReadScope,
+    merge_source_reads,
+)
 from marivo.analysis.core.model import reject
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.frame_inputs import capture_frame_inputs
@@ -213,7 +206,7 @@ def _evaluate_frame(
     expressions = captured.expressions
     collected = captured.collected
     fixed_method_facts: dict[str, tuple[FrameMethodFacts, ...]] = {}
-    fixed_source_facts: dict[str, tuple[OutputEvidence, ...]] = {}
+    fixed_source_reads: dict[str, tuple[FrameSourceRead, ...]] = {}
     method_productions: list[tuple[str, AttributeMethodPayload]] = []
 
     def read_input(input_id: str) -> CompletedFrameResult:
@@ -224,7 +217,7 @@ def _evaluate_frame(
         else:
             assert isinstance(backing, StoredFrameBacking)
             result = current._local.read_complete(backing)
-        fixed_source_facts[input_id] = result.metadata.audit.source_facts
+        fixed_source_reads[input_id] = result.metadata.source_reads
         for facts in result.method_facts:
             validate_method_facts(facts)
         if declaration_keys is not None:
@@ -242,15 +235,12 @@ def _evaluate_frame(
         # Scheduled inputs already supplied facts; retain no data for this late path.
         return read_input(input_id).method_facts
 
-    source_facts: list[OutputEvidence] = []
-    checks: list[OutputEvidence] = []
-    evaluated_keys: dict[str, str] = {}
+    source_reads: list[FrameSourceRead] = []
     with _SourceContexts() as stack:
         prepared = prepare_frame_sources(captured, stack)
         prepared_by_input = prepared.prepared
         source_plans = prepared.plans
         source_schemas = prepared.schemas
-        scopes = prepared.scopes
         inputs = prepared.inputs
         operations = prepared.operations
         compiled = plan_frame(captured.root, source_plans, frame_inputs=expressions)
@@ -261,7 +251,6 @@ def _evaluate_frame(
                 for input_id, source in prepared_by_input.items()
             },
         )
-        source_stage_ids = dict(compiled.source_stages)
         operation_inputs = {
             id(expression): identifier for identifier, expression in expressions.items()
         }
@@ -270,18 +259,6 @@ def _evaluate_frame(
             for stage, expression in compiled.frame_operations
             if id(expression) in operation_inputs
         }
-        applicable: dict[str, tuple[str, ...]] = {}
-        for stage in compiled.lowered.plan.stages:
-            if isinstance(stage, FrameInput):
-                applicable[stage.stage_id] = (stage.input_id,)
-            elif stage.stage_id in source_stage_ids:
-                applicable[stage.stage_id] = (source_stage_ids[stage.stage_id],)
-            else:
-                applicable[stage.stage_id] = tuple(
-                    dict.fromkeys(
-                        item for dependency in stage.inputs for item in applicable[dependency]
-                    )
-                )
 
         def read_fixed(stage: FrameInput) -> CompletedFrameData:
             return read_input(stage.input_id).data
@@ -324,94 +301,29 @@ def _evaluate_frame(
             )
 
         def observe_read(stage: SourceRead, request: LoweredRead, output: StageOutput) -> None:
-            origin = (stage.native_reads or (stage,))[0]
-            input_id = source_stage_ids[
-                stage.stage_id if stage.stage_id in source_stage_ids else origin.stage_id
-            ]
-            attribute_layout = read_attribute(stage)
-            for logical in stage.native_reads or (stage,):
-                logical_input = source_stage_ids.get(logical.stage_id, input_id)
-                binding = source_frames[logical_input]._backing
-                assert isinstance(binding, ExpressionFrameBacking)
-                dynamic = (
-                    tuple(
-                        evaluated_keys[computation_fingerprint(domain)]
-                        for domain in parameter_domains(binding.root.graph)
-                        if isinstance(domain.root, (FrameKeys, AttributeKeys))
+            scopes = tuple(
+                dict.fromkeys(
+                    FrameSourceReadScope(
+                        logical.source_id,
+                        None
+                        if logical.period is None
+                        else FrameSourceReadPeriod(
+                            None if logical.period.start is None else _plain(logical.period.start),
+                            _plain(logical.period.end),
+                            logical.period.timezone,
+                        ),
                     )
-                    if isinstance(binding.root, SourceFrameBinding)
-                    else ()
+                    for logical in stage.native_reads or (stage,)
                 )
-                period = logical.period
-                facts = OutputEvidence(
-                    "read",
-                    "Actual explicit source read; source completeness and cross-source snapshot consistency were not audited.",
-                    (
-                        ("input_id", logical_input),
-                        ("source", logical.source_id),
-                        ("physical_stage", stage.stage_id),
-                        ("read_completed_at", datetime.now(timezone.utc)),
-                        (
-                            "period_start",
-                            None
-                            if period is None or period.start is None
-                            else _plain(period.start),
-                        ),
-                        ("period_end", None if period is None else _plain(period.end)),
-                        ("timezone", None if period is None else period.timezone),
-                        ("filters", source_scope(logical.predicates)),
-                        ("source_scopes", source_scope((*scopes.get(logical_input, ()), *dynamic))),
-                        (
-                            "returned_rows",
-                            output.source_rows
-                            if output.source_rows is not None
-                            else len(output.table),
-                        ),
-                        *(
-                            (
-                                ("attribute_read_role", attribute_layout.scope),
-                                ("attribute_read_policy", "independent_reads/v1"),
-                            )
-                            if attribute_layout is not None
-                            else ()
-                        ),
-                    ),
+            )
+            source_reads.append(
+                FrameSourceRead(
+                    uuid4().hex,
+                    datetime.now(timezone.utc),
+                    scopes,
+                    output.source_rows,
                 )
-                source_facts.append(facts)
-            for name, check in request.numeric_checks:
-                if not any(column.slot_id == name for column in stage.columns):
-                    fact = OutputEvidence(
-                        "check",
-                        "Actual source numeric check passed.",
-                        (
-                            ("input_id", input_id),
-                            ("check", name),
-                            ("scope", stage.stage_id),
-                            ("expected", check.expected),
-                            ("result", "passed"),
-                        ),
-                    )
-                    source_facts.append(fact)
-                    checks.append(fact)
-            if attribute_layout is not None:
-                numeric_checks = {name for name, _ in request.numeric_checks}
-                for receipt in output.receipts:
-                    if receipt.check_id in numeric_checks:
-                        continue
-                    fact = OutputEvidence(
-                        "check",
-                        "Attribute operation constraint passed for this independent source read.",
-                        (
-                            ("input_id", input_id),
-                            ("check", receipt.check_id),
-                            ("stage", receipt.stage_id),
-                            ("attribute_read_role", attribute_layout.scope),
-                            ("policy", "independent_reads/v1"),
-                            ("result", "passed"),
-                        ),
-                    )
-                    source_facts.append(fact)
-                    checks.append(fact)
+            )
 
         def observe_local(
             stage: LocalCompute | FrameCompute | SourceRead, output: StageOutput
@@ -433,184 +345,6 @@ def _evaluate_frame(
                 )
             method_productions.extend(
                 (stage.stage_id, payload) for payload in output.attribute_methods
-            )
-            from marivo.analysis.compiler.graph_plan import AttributeCoalitionRead
-            from marivo.analysis.core.attribute import (
-                AttributeContributionProgram,
-                AttributeInputProgram,
-                AttributeProjectProgram,
-            )
-            from marivo.analysis.core.attribute_game import AttributeGameProgram
-
-            game_program = (
-                stage.program
-                if isinstance(stage, FrameCompute)
-                and isinstance(stage.program, AttributeGameProgram)
-                else stage.program.game
-                if isinstance(stage, SourceRead)
-                and isinstance(stage.program, AttributeCoalitionRead)
-                else None
-            )
-            if game_program is not None:
-                game_target = game_program.operation.target
-                query_game = isinstance(stage, SourceRead)
-                checks.append(
-                    OutputEvidence(
-                        "check",
-                        (
-                            "Independent native coalition queries returned valid visited values; cached endpoints and typed marginals passed numeric closure. Marginal SE does not isolate input changes or certify unvisited values."
-                            if query_game
-                            else "Fixed-state replacement domain and typed sampled marginals passed the versioned numeric closure policy; sampling error does not certify individual contribution accuracy."
-                        ),
-                        (
-                            ("stage", stage.stage_id),
-                            ("check", "attribute_shapley"),
-                            ("policy", "typed_marginal_float64_sum/v1"),
-                            ("evaluation", "native_queries" if query_game else "fixed_state"),
-                            ("target", ".".join(game_target.path)),
-                            ("mode", game_target.mode),
-                            (
-                                "parent_count",
-                                sum(len(payload.parents) for payload in output.attribute_methods),
-                            ),
-                            ("result", "passed"),
-                        ),
-                    )
-                )
-
-            if isinstance(stage, FrameCompute) and isinstance(stage.program, AttributeInputProgram):
-                for receipt in output.receipts:
-                    checks.append(
-                        OutputEvidence(
-                            "check",
-                            "Independent Attribute role inputs passed complete-key and source-use mapping into the fixed parent domain.",
-                            (
-                                ("check", receipt.check_id),
-                                ("stage", receipt.stage_id),
-                                ("policy", "independent_reads/v1"),
-                                ("result", "passed"),
-                            ),
-                        )
-                    )
-
-            if isinstance(stage, FrameCompute) and isinstance(
-                stage.program, AttributeContributionProgram
-            ):
-                from marivo.analysis.binding.attribute_rules import rule_effects
-
-                target = stage.program.operation.target
-                assert target is not None
-                rate_mix = target.mode != "level" and bool(
-                    rule_effects(stage.program.operation.rules[0][0][1])
-                )
-                checks.append(
-                    OutputEvidence(
-                        "check",
-                        (
-                            "Rate/mix components, supported original N/D, effect identities and final target passed the versioned numeric checks against independently read parent and fine inputs."
-                            if rate_mix
-                            else "Requested final Attribute target passed closure within the target tolerance against independently read parent totals; source consistency was not audited."
-                        ),
-                        (
-                            ("stage", stage.stage_id),
-                            ("check", "attribute_closure"),
-                            (
-                                "policy",
-                                "attribute_rate_mix/v1" if rate_mix else "attribute_closure/v2",
-                            ),
-                            ("target", ".".join(target.path)),
-                            ("mode", target.mode),
-                            (
-                                "parent_count",
-                                sum(len(payload.parents) for payload in output.attribute_methods),
-                            ),
-                            ("result", "passed"),
-                        ),
-                    )
-                )
-
-            if isinstance(stage, FrameCompute) and isinstance(
-                stage.program, AttributeProjectProgram
-            ):
-                identifier = stage.stage_id.removeprefix("attribute-bridge:")
-                records = tuple(
-                    tuple(row.values())
-                    for row in pa.Table.from_pandas(output.table, preserve_index=False).to_pylist()
-                )
-                if not output.columns:
-                    records = ((),) if len(output.table) else ()
-                evaluated_keys[identifier] = source_scope(
-                    (
-                        "attribute_parent_selection",
-                        stage.program.operation.side,
-                        output.columns,
-                        records,
-                    )
-                )
-            if (
-                isinstance(stage, LocalCompute)
-                and stage.stage_id.startswith("bridge:")
-                and isinstance(stage.program, ResultProgram)
-                and isinstance(stage.program.operation, PopulationValues)
-            ):
-                definition = stage.program.operation.definition
-                assert isinstance(definition, PopulationProgram) and isinstance(
-                    definition.root, FrameKeys
-                )
-                current = collected[definition.root.input_id].frame
-                backing = current._backing
-                kind = (
-                    "expression"
-                    if isinstance(backing, ExpressionFrameBacking)
-                    else "memory"
-                    if isinstance(backing, MemoryFrameBacking)
-                    else "stored"
-                )
-                result_id = (
-                    None
-                    if isinstance(backing, ExpressionFrameBacking)
-                    else backing.metadata.result_id
-                )
-                # Exact types are recorded in output.columns. Temporal cells
-                # use physical ticks so audit cannot alias valid minima to NaT
-                # or narrow the accepted range to Python datetime/date.
-                arrays = tuple(
-                    pa.array(output.table[column.slot_id], from_pandas=True)
-                    for column in output.columns
-                )
-                values = tuple(
-                    array.cast(pa.int32()).to_pylist()
-                    if pa.types.is_date32(array.type)
-                    else array.cast(pa.int64()).to_pylist()
-                    if pa.types.is_timestamp(array.type) or pa.types.is_duration(array.type)
-                    else array.to_pylist()
-                    for array in arrays
-                )
-                rows = (
-                    tuple(zip(*values, strict=True))
-                    if values
-                    else (((),) if len(output.table) else ())
-                )
-                evaluated_keys[computation_fingerprint(definition)] = source_scope(
-                    (
-                        "frame_key_selection",
-                        definition.root,
-                        kind,
-                        result_id,
-                        output.columns,
-                        rows,
-                    )
-                )
-            checks.append(
-                OutputEvidence(
-                    "check",
-                    "Current kernel output types, key uniqueness and demanded numerical checks passed.",
-                    (
-                        ("stage", stage.stage_id),
-                        ("inputs", source_scope(applicable[stage.stage_id])),
-                        ("result", "passed"),
-                    ),
-                )
             )
 
         try:
@@ -671,12 +405,8 @@ def _evaluate_frame(
     # Every owned source context has closed before result identity/success.
     metadata = FrameResultMetadata(
         "result_" + uuid4().hex,
-        FrameAudit(
-            tuple(dict.fromkeys(source_facts)),
-            EvaluationRecord(
-                datetime.now(timezone.utc), tuple(inputs), tuple(operations), tuple(checks)
-            ),
-        ),
+        EvaluationRecord(datetime.now(timezone.utc), tuple(inputs), tuple(operations)),
+        tuple(source_reads),
     )
     metadata = replace(metadata, lineage=frame.lineage)
     method_facts = _fold_method_facts(
@@ -687,12 +417,12 @@ def _evaluate_frame(
         metadata.result_id,
         input_facts,
     )
-    inherited = tuple(fact for input_id in fixed_frames for fact in fixed_source_facts[input_id])
+    inherited = tuple(
+        fixed_source_reads[input_id] for input_id in fixed_frames if input_id in fixed_source_reads
+    )
     metadata = replace(
         metadata,
-        audit=replace(
-            metadata.audit, source_facts=tuple(dict.fromkeys((*inherited, *source_facts)))
-        ),
+        source_reads=merge_source_reads(*inherited, tuple(source_reads)),
     )
     return CompletedFrameResult(data, metadata, method_facts)
 

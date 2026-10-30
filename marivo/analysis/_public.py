@@ -1,4 +1,4 @@
-"""Canonical AnalysisFrame construction, operations and audit reading surface."""
+"""Canonical AnalysisFrame construction, operations and metadata reading surface."""
 
 import marivo.analysis.session as session
 from marivo._definition.correspondence import CalendarCorrespondence as CalendarCorrespondence
@@ -114,6 +114,15 @@ from marivo.analysis.core.frame_page import FrameReadStats as FrameReadStats
 from marivo.analysis.core.frame_schema import FrameAxisSchema as FrameAxisSchema
 from marivo.analysis.core.frame_schema import FrameField as FrameField
 from marivo.analysis.core.frame_schema import FrameSchema as FrameSchema
+from marivo.analysis.core.frame_source_reads import (
+    FrameSourceRead as FrameSourceRead,
+)
+from marivo.analysis.core.frame_source_reads import (
+    FrameSourceReadPeriod as FrameSourceReadPeriod,
+)
+from marivo.analysis.core.frame_source_reads import (
+    FrameSourceReadScope as FrameSourceReadScope,
+)
 from marivo.analysis.core.lineage import ColumnLineage as ColumnLineage
 from marivo.analysis.core.lineage import FrameLineage as FrameLineage
 from marivo.analysis.core.lineage import SemanticObjectIdentity as SemanticObjectIdentity
@@ -137,10 +146,6 @@ from marivo.analysis.dsl.windows import since as since
 from marivo.analysis.dsl.windows import to_date as to_date
 from marivo.analysis.dsl.windows import trailing_duration as trailing_duration
 from marivo.analysis.dsl.windows import trailing_periods as trailing_periods
-from marivo.analysis.evidence._dataset_types import EvidencePage as EvidencePage
-from marivo.analysis.evidence._dataset_types import Finding as Finding
-from marivo.analysis.evidence._dataset_types import FindingPage as FindingPage
-from marivo.analysis.refs import ArtifactRef as ArtifactRef
 from marivo.analysis.session.core import Session as Session
 
 __all__ = [  # noqa: RUF022 - public order is contractual
@@ -174,6 +179,9 @@ __all__ = [  # noqa: RUF022 - public order is contractual
     "to_date",
     "trailing_duration",
     "trailing_periods",
+    "FrameSourceRead",
+    "FrameSourceReadScope",
+    "FrameSourceReadPeriod",
     "FrameSchema",
     "FrameField",
     "FrameAxisSchema",
@@ -216,10 +224,6 @@ __all__ = [  # noqa: RUF022 - public order is contractual
     "FrameIntervalPeriod",
     "FramePairedPeriod",
     "FrameComparisonPeriod",
-    "EvidencePage",
-    "ArtifactRef",
-    "Finding",
-    "FindingPage",
     "Session",
     "session",
 ]

@@ -18,7 +18,7 @@ from tests.shared_fixtures import DslCaseFactory, catalog_value, terminal_runs
 def _publications(session: mv.Session) -> tuple[int, ...]:
     counts: list[int] = []
     with session._runtime.store._connection() as connection:
-        for table in ("dataset_artifacts", "dataset_evidence", "findings"):
+        for table in ("dataset_artifacts",):
             row = connection.execute("SELECT COUNT(*) FROM " + table).fetchone()
             assert row is not None and isinstance(row[0], int)
             counts.append(row[0])
@@ -38,8 +38,8 @@ def test_public_schema_drift_rejects_before_business_read_and_retries(
     previous = logical.persist()
     frame = previous.to_pandas()
     assert frame["value"].tolist() == [1000]
-    manifest = previous._local._audit_manifest(previous._require_stored("artifact_id"))
-    evidence = previous.evidence(limit=100)
+    manifest = previous._local._manifest(previous._require_stored("artifact_id"))
+    evidence = previous.source_reads
     # A compatible physical carrier is requalified for this invocation.
     with duckdb.connect(str(case.database_path)) as connection:
         connection.execute(f'ALTER TABLE "{n.order}" ALTER "{n.amount}" TYPE DOUBLE')
@@ -72,8 +72,8 @@ def test_public_schema_drift_rejects_before_business_read_and_retries(
         assert terminal_runs(session) == before
         assert _publications(session) == published_before
         assert calls == []
-        assert previous._local._audit_manifest(previous._require_stored("artifact_id")) == manifest
-        assert previous.evidence(limit=100) == evidence
+        assert previous._local._manifest(previous._require_stored("artifact_id")) == manifest
+        assert previous.source_reads == evidence
         assert session.persisted_frame(previous.artifact_id).to_pandas().equals(frame)
         assert session._runtime.store.resources(session.id) == ()
     finally:
@@ -90,7 +90,7 @@ def test_public_schema_drift_rejects_before_business_read_and_retries(
             "compatible_value": 1000.0,
             "retry_value": 1000,
             "invalid_type_runs": 0,
-            "publication_delta": [0, 0, 0],
+            "publication_delta": [0],
             "business_calls": calls,
             "prior_artifact_preserved": True,
         }

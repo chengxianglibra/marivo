@@ -132,4 +132,4 @@ def test_named_and_anonymous_metrics_execute_and_reopen_without_semantic_reads(
     monkeypatch.setattr(Materializer, "entity", no_source_reads)
     reopened = session.persisted_frame(artifact.artifact_id)
     assert reopened.to_pandas().equals(expected)
-    assert reopened.findings().items == ()
+    assert reopened.source_reads == artifact.source_reads

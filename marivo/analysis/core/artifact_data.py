@@ -27,19 +27,10 @@ from marivo.analysis.core.data_types import DurationDataType as DurationDataType
 from marivo.analysis.core.data_types import ScalarDataType as ScalarDataType
 from marivo.analysis.core.data_types import TimestampDataType as TimestampDataType
 from marivo.analysis.core.data_types import require_data_text
-from marivo.analysis.core.frame_audit import StoredFrameMetadata
+from marivo.analysis.core.frame_metadata import StoredFrameMetadata
 from marivo.analysis.core.frame_method_facts import FrameMethodTarget
 from marivo.analysis.core.frame_structure import require_complete_structure
 from marivo.analysis.core.model import reject
-from marivo.analysis.core.output_records import (
-    OutputCoordinate as OutputCoordinate,
-)
-from marivo.analysis.core.output_records import (
-    OutputEvidence as OutputEvidence,
-)
-from marivo.analysis.core.output_records import (
-    OutputFinding as OutputFinding,
-)
 from marivo.analysis.materialization.contracts import LocalReceipt
 
 
@@ -222,7 +213,7 @@ class ArtifactManifest:
     metadata: StoredFrameMetadata
     method_facts: tuple[SavedFrameMethodFacts, ...] = ()
     description: str | None = None
-    semantics_version: Literal["frame.v12"] = "frame.v12"
+    semantics_version: Literal["frame.v13"] = "frame.v13"
 
     @property
     def result_id(self) -> str:
@@ -248,7 +239,7 @@ class ArtifactManifest:
             type(self.data) is not ArtifactData
             or type(self.metadata) is not StoredFrameMetadata
             or (self.description is not None and type(self.description) is not str)
-            or self.semantics_version != "frame.v12"
+            or self.semantics_version != "frame.v13"
             or type(self.method_facts) is not tuple
             or any(type(item) is not SavedFrameMethodFacts for item in self.method_facts)
         ):

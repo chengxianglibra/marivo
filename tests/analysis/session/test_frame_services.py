@@ -85,7 +85,7 @@ def test_local_metadata_reads_never_prepare_sources_mutate_or_read_payload(
     assert session.name == "local-services"
     saved = session.persisted_frame(artifact.artifact_id)
     reopened = saved
-    manifest = local._audit_manifest(local.open_frame(artifact.artifact_id))
+    manifest = local._manifest(local.open_frame(artifact.artifact_id))
     assert reopened.artifact_id == artifact.artifact_id
     assert manifest.artifact_id == reopened.artifact_id
     assert terminal_runs(local) == terminal_runs(session)
@@ -95,8 +95,7 @@ def test_local_metadata_reads_never_prepare_sources_mutate_or_read_payload(
     assert local.preview(backing, 0).rows.empty
     saved.show(n=0)
     reopened.show(n=0)
-    assert reopened.findings().items == ()
-    assert reopened.evidence(limit=100) == artifact.evidence(limit=100)
+    assert reopened.source_reads == artifact.source_reads == ()
     assert saved.persist() is saved
 
 
@@ -293,9 +292,7 @@ def test_frame_identity_and_audit_availability_follow_exact_carrier(
         with pytest.raises(CoreRuleError, match="persist"):
             _ = frame.artifact_id
         with pytest.raises(CoreRuleError, match="persist"):
-            frame.findings()
-        with pytest.raises(CoreRuleError, match="persist"):
-            frame.evidence(limit=100)
+            _ = frame.source_reads
 
 
 def test_show_zero_combines_audit_summary_without_reading_payloads(
@@ -308,8 +305,6 @@ def test_show_zero_combines_audit_summary_without_reading_payloads(
         "read_data",
         "read_complete",
         "read_method_facts",
-        "findings",
-        "evidence",
     ):
         monkeypatch.setattr(LocalFrameServices, member, _forbidden)
     saved.show(n=0)
@@ -321,21 +316,8 @@ def test_show_zero_combines_audit_summary_without_reading_payloads(
         "committed_at:",
         "inputs:",
         "operations:",
-        "source_facts:",
-        "checks:",
-        "findings:",
+        "source_reads:",
     ):
         assert field in text
     assert "preview: omitted by n=0" in text
-    assert ".evidence(limit=20)" in text
-    assert ".findings(limit=20)" not in text
-
-
-@pytest.mark.parametrize("limit,cursor", [(0, None), (101, None), (True, None), (1, 3)])
-def test_invalid_finding_request_precedes_store_reads(
-    session: Session, monkeypatch: pytest.MonkeyPatch, limit: int, cursor: object
-) -> None:
-    saved = _publish(session)
-    monkeypatch.setattr(SessionStore, "_read", _forbidden)
-    with pytest.raises(CoreRuleError, match=r"limit 1\.\.100"):
-        saved.findings(limit, cursor)  # type: ignore[arg-type]  # Invalid cursor is rejected before Store access.
+    assert ".source_reads" in text

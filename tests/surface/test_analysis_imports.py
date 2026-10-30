@@ -189,7 +189,7 @@ def test_analysis_keeps_subdomain_dtos_out_of_top_level() -> None:
     from marivo.datasource.metadata import TableMetadata
     from marivo.preview import PreviewResult
 
-    assert mv.Finding is not None
+    assert mv.FrameSourceRead is not None
     assert TableMetadata is not None
     assert PreviewResult is not None
     assert not hasattr(md, "TableMetadata")

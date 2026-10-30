@@ -116,7 +116,7 @@ fixed.show()
 
 The total is CNY 1,800, the sum of the six order amounts. Each run creates a new project-local Session.
 
-`compute()` returns a complete in-memory Frame. Continue calculations from `fixed` to use those values in this process. To reopen them in another process, persist `fixed` and keep the returned Frame's `session_id` and `artifact_id`; see [Results and evidence](/docs/latest/analysis/results/).
+`compute()` returns a complete in-memory Frame. Continue calculations from `fixed` to use those values in this process. To reopen them in another process, persist `fixed` and keep the returned Frame's `session_id` and `artifact_id`; see [Results and method facts](/docs/latest/analysis/results/).
 
 Here, `domains=None` loads every domain directory in this separate demo project. In a larger project, specify every domain the analysis needs; an explicit domain list does not expand to include dependencies.
 
