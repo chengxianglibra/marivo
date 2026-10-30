@@ -263,7 +263,8 @@ regional = session.observe({"revenue": revenue}, by=(period, region))
 chosen = regional.top(5, by=regional["revenue"]).compute()
 parents = session.population_from(chosen, on=((chosen.axes[1], region),))
 cities = session.observe(
-    {"revenue": revenue}, by=(period, region, city),
+    {"revenue": revenue},
+    by=(period, region, city),
     where=mv.in_population(parents),
 ).compute()
 ```

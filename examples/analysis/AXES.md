@@ -116,8 +116,10 @@ paired = series.align(
     match=None,
 ).compute()
 temporal_association = paired.correlate(
-    paired["left.value"], paired["right.value"],
-    method="pearson", by=(paired.axes[1],),
+    paired["left.value"],
+    paired["right.value"],
+    method="pearson",
+    by=(paired.axes[1],),
 ).compute()
 temporal_association.show()
 ```

@@ -16,7 +16,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import TypeAlias
 
-Json: TypeAlias = None | bool | int | float | str | list["Json"] | dict[str, "Json"]
+Json: TypeAlias = bool | int | float | str | list["Json"] | dict[str, "Json"] | None
 IGNORED_DIRECTORIES = frozenset({".git", ".venv", "__pycache__"})
 DISABLED_FEATURES = (
     "plugins",

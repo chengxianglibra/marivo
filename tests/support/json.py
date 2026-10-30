@@ -7,7 +7,7 @@ import json
 from pathlib import Path
 from typing import TypeAlias
 
-Json: TypeAlias = None | bool | int | float | str | list["Json"] | dict[str, "Json"]
+Json: TypeAlias = bool | int | float | str | list["Json"] | dict[str, "Json"] | None
 
 
 def digest(data: bytes) -> str:
