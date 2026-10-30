@@ -793,7 +793,7 @@ def test_numeric_boundary_facts(analysis_dsl_case_factory: DslCaseFactory, case_
         expected = (
             float("inf")
             if case_kind == "nonfinite"
-            else float(sum(numbers)) / len(numbers)
+            else sum(numbers) / len(numbers)
             if case_kind == "large_mean"
             else sum(numbers)
         )

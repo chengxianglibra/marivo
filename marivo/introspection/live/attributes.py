@@ -49,7 +49,7 @@ def public_attributes(type_obj: type) -> dict[str, AttributeHelp]:
     for base in reversed(type_obj.__mro__):
         if base is not type_obj and not base.__module__.startswith("marivo."):
             continue
-        annotations = base.__dict__.get("__annotations__", {})
+        annotations = inspect.get_annotations(base)
         if isinstance(annotations, dict):
             for name, annotation in annotations.items():
                 if (

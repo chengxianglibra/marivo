@@ -367,7 +367,7 @@ def _attribute_domain_data(
         index: dict[FrozenKey, int] = {}
         for row, (pkey, fine_key) in enumerate(zip(source_parents, fine_keys, strict=True)):
             if pkey in side_map:
-                index[(*side_map[pkey], *fine_key)] = row
+                index[side_map[pkey] + fine_key] = row
         fine_rows.append(index)
         full_keys.append(list(index))
     if program.operation.how == "exact" and parent_domains[0] != parent_domains[1]:

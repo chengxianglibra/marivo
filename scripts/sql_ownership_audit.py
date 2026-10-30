@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TypeAlias
 
-Json: TypeAlias = None | bool | int | str | list["Json"] | dict[str, "Json"]
+Json: TypeAlias = bool | int | str | list["Json"] | dict[str, "Json"] | None
 ROOT = Path(__file__).resolve().parents[1]
 RETIRED_MODULES = frozenset(
     {

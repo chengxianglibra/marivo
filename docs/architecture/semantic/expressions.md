@@ -16,21 +16,29 @@ import marivo.datasource as md
 import marivo.semantic as ms
 
 orders_ref = ms.entity(
-    name="orders", datasource=ms.ref.datasource("warehouse"),
-    source=md.table("orders"), primary_key=["order_id"],
+    name="orders",
+    datasource=ms.ref.datasource("warehouse"),
+    source=md.table("orders"),
+    primary_key=["order_id"],
 )
 amount_ref = ms.measure_column(
-    name="amount", entity=orders_ref, column="amount",
-    additivity=ms.additive_all(), unit="CNY",
+    name="amount",
+    entity=orders_ref,
+    column="amount",
+    additivity=ms.additive_all(),
+    unit="CNY",
 )
 status_ref = ms.dimension_column(name="status", entity=orders_ref, column="status")
 paid_at_ref = ms.time_dimension_column(
-    name="paid_at", entity=orders_ref, column="paid_at",
+    name="paid_at",
+    entity=orders_ref,
+    column="paid_at",
 )
 orders = orders_ref
 amount = amount_ref
 status = status_ref
 paid_at = paid_at_ref
+
 
 @ms.metric()
 def revenue():
@@ -135,7 +143,10 @@ declarations:
 ```python
 amount_axis = ms.dimension_column(name="amount_axis", entity=orders, column="amount")
 amount = ms.measure_column(
-    name="amount", entity=orders, column="amount", unit="CNY",
+    name="amount",
+    entity=orders,
+    column="amount",
+    unit="CNY",
     additivity=ms.additive_all(),
 )
 ```

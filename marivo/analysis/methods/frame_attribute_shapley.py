@@ -1024,18 +1024,21 @@ def attribute_game_data(
                         policy if leaf.kind == "weighted_mean" else "not_applicable",
                     )
                 )
+            current_path = ("detail", "current", *target.path)
+            baseline_path = ("detail", "baseline", *target.path)
+            absolute_path = ("detail", "absolute", *target.path)
             method = FrameShapleyMethod(
                 "shapley",
                 FrameMethodValue(
-                    output_columns[("detail", "current", *target.path)],
+                    output_columns[current_path],
                     _number(current.values.iloc[0]),
                 ),
                 FrameMethodValue(
-                    output_columns[("detail", "baseline", *target.path)],
+                    output_columns[baseline_path],
                     _number(baseline.values.iloc[0]),
                 ),
                 FrameMethodValue(
-                    output_columns[("detail", "absolute", *target.path)],
+                    output_columns[absolute_path],
                     _number(change.values.iloc[0]),
                 ),
                 operation.permutations,
@@ -1140,8 +1143,10 @@ def assemble_game_report(
                         "finite Float64 relative contributions, standard errors and roundoff",
                         f"baseline magnitude={denominator!r}",
                     )
-            total_column = output_columns[("total", *target.path)]
-            observed_column = output_columns[("observed_total", *target.path)]
+            total_path = ("total", *target.path)
+            observed_path = ("observed_total", *target.path)
+            total_column = output_columns[total_path]
+            observed_column = output_columns[observed_path]
             observed = _number(
                 parent.table[program.parent_schema.values[target.observed].slot_id].iloc[
                     parent_index
@@ -1198,7 +1203,7 @@ def assemble_game_report(
                     ),
                     (("contribution_std_error",), errors[index]),
                 ):
-                    record[output_columns[(*prefix, *target.path)].slot_id] = value
+                    record[output_columns[prefix + target.path].slot_id] = value
                 values = []
                 for source, schema, rows in (
                     (left, program.left_schema, current_rows),
@@ -1235,7 +1240,7 @@ def assemble_game_report(
                     ),
                     strict=True,
                 ):
-                    record[output_columns[(*detail_prefix, *target.path)].slot_id] = value
+                    record[output_columns[detail_prefix + target.path].slot_id] = value
                 for column, present in zip(
                     program.output_schema.presence,
                     (player in current_rows, player in baseline_rows),

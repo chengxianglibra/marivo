@@ -7,7 +7,7 @@ import math
 from json.encoder import encode_basestring_ascii
 from typing import TypeAlias
 
-CanonicalValue: TypeAlias = None | bool | int | float | str | tuple["CanonicalValue", ...]
+CanonicalValue: TypeAlias = bool | int | float | str | tuple["CanonicalValue", ...] | None
 
 
 def _canonical(value: CanonicalValue) -> str:

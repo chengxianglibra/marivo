@@ -120,7 +120,7 @@ def _report_method(
     """Retain parent scalar values in their matching lossless diagnostic carriers."""
 
     def value(captured: FrameMethodValue, *path: str) -> FrameMethodValue:
-        column = output[(*path, *target)]
+        column = output[path + target]
         aligned = replace(captured.column, dtype=column.dtype, nullable=column.nullable)
         return _scalar(_report_value(_series(captured), aligned), 0)
 
@@ -337,11 +337,15 @@ def report_attribute(
             )
     old = dict(zip(program.output_schema.value_paths, program.output_schema.values, strict=True))
     output = dict(zip(report_schema.value_paths, report_schema.values, strict=True))
+    total_path = ("total", *target.path)
+    contribution_path = ("contribution", *target.path)
+    observed_path = ("observed_total", *target.path)
+    share_path = ("contribution_share", *target.path)
     parent_indices = {key: index for index, key in enumerate(parent_keys)}
     fine_keys = tuple(frozen_key_rows(rows, parent_columns))
     fine_indices = tuple(parent_indices[key] for key in fine_keys)
     original = parent_schema.values[target.observed]
-    observed_column = output[("observed_total", *target.path)]
+    observed_column = output[observed_path]
     observed = _report_value(_Value(parent.table[original.slot_id], original), observed_column)
     result = rows.loc[:, list(report_schema.key_fields)].copy()
     mappings = [
@@ -429,11 +433,9 @@ def report_attribute(
             if target.mode == "relative":
                 baseline = _series(paired.right)
                 baseline = _Value(baseline.values.abs(), baseline.column)
-                fresh = _numeric_binary(
-                    "div", fresh, baseline, output=output[("total", *target.path)].dtype
-                )
+                fresh = _numeric_binary("div", fresh, baseline, output=output[total_path].dtype)
         methods.append(_report_method(method, output, target.path))
-        totals.append(_scalar(_report_value(fresh, output[("total", *target.path)]), 0))
+        totals.append(_scalar(_report_value(fresh, output[total_path]), 0))
     contribution_column = source_columns(rows, (old[("contribution", "target")],))[0]
     contributions = _Value(rows[contribution_column.slot_id], contribution_column)
     if target.mode == "relative":
@@ -442,22 +444,22 @@ def report_attribute(
         array = pa.array(baselines, type=stage_arrow_type(baseline_column.dtype))
         denominator = _Value(pd.Series(pd.arrays.ArrowExtensionArray(array)).abs(), baseline_column)
         contributions = _numeric_binary(
-            "div", contributions, denominator, output=output[("contribution", *target.path)].dtype
+            "div", contributions, denominator, output=output[contribution_path].dtype
         )
-    contributions = _report_value(contributions, output[("contribution", *target.path)])
-    result[output[("contribution", *target.path)].slot_id] = contributions.values
-    result[output[("total", *target.path)].slot_id] = pd.Series(
+    contributions = _report_value(contributions, output[contribution_path])
+    result[output[contribution_path].slot_id] = contributions.values
+    result[output[total_path].slot_id] = pd.Series(
         [totals[index].value for index in fine_indices], dtype=contributions.values.dtype
     )
     observed_values = observed.values.take(list(fine_indices)).reset_index(drop=True)
     result[observed_column.slot_id] = observed_values
-    share_column = output[("contribution_share", *target.path)]
+    share_column = output[share_path]
     if level:
-        total_series = result[output[("total", *target.path)].slot_id]
+        total_series = result[output[total_path].slot_id]
         shares = _numeric_binary(
             "div",
             contributions,
-            _Value(total_series, output[("total", *target.path)]),
+            _Value(total_series, output[total_path]),
             output=share_column.dtype,
         )
         result[share_column.slot_id] = shares.values
@@ -494,7 +496,7 @@ def report_attribute(
     for index, _key in enumerate(parent_keys):
         indices = [row for row, parent_index in enumerate(fine_indices) if parent_index == index]
         _closure(
-            _Value(contributions.values.take(indices), output[("contribution", *target.path)]),
+            _Value(contributions.values.take(indices), output[contribution_path]),
             totals[index],
             methods[index],
             relative=target.mode == "relative",

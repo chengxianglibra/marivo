@@ -193,7 +193,7 @@ def decode_receipt(value: object) -> LocalReceipt:
     )
 
 
-JsonValue: TypeAlias = str | int | float | bool | None | list["JsonValue"] | dict[str, "JsonValue"]
+JsonValue: TypeAlias = str | int | float | bool | list["JsonValue"] | dict[str, "JsonValue"] | None
 RunFailurePhase: TypeAlias = Literal[
     "authority_resolution",
     "semantic_validation",

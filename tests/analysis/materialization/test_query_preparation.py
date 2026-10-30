@@ -597,13 +597,9 @@ def _memory_calendars(expression: ir.Table) -> ir.Table:
 
 
 def _calendar_sql(expression: ir.Table, dialect: str) -> str:
-    from importlib import import_module
+    from tests.datasource.aggregate_fixtures import compiler_backend
 
-    from marivo.datasource.engines._aggregate_compilers import configure_aggregate_compiler
-
-    backend = import_module("ibis.backends." + dialect).Backend()
-    configure_aggregate_compiler(backend)
-    return backend.compiler.to_sqlglot(expression.unbind()).sql(dialect=dialect)
+    return compiler_backend(dialect).compiler.to_sqlglot(expression.unbind()).sql(dialect=dialect)
 
 
 def _assert_no_boolean_identity_operands(sql: str, dialect: str) -> None:
