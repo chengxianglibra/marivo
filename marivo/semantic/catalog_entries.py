@@ -16,16 +16,16 @@ from marivo.render import Card, RenderableResult
 from marivo.semantic.catalog_search import Retrieval, SearchHit
 from marivo.semantic.ir import EntityVersioningIR, SampleIntervalIR, SemanticParse
 
-JsonValue: TypeAlias = None | str | int | float | bool | list["JsonValue"] | dict[str, "JsonValue"]
+JsonValue: TypeAlias = str | int | float | bool | list["JsonValue"] | dict[str, "JsonValue"] | None
 
 FrozenJsonValue: TypeAlias = (
-    None
-    | str
+    str
     | int
     | float
     | bool
     | tuple["FrozenJsonValue", ...]
     | Mapping[str, "FrozenJsonValue"]
+    | None
 )
 
 

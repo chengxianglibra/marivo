@@ -165,10 +165,13 @@ snapshot period:
 user_profile_daily = ms.entity(
     name="user_profile_daily",
     datasource=warehouse,
-    source=md.table("user_profile_daily", columns={
-        "user_id": "user_id",
-        "dt": "dt",
-    }),
+    source=md.table(
+        "user_profile_daily",
+        columns={
+            "user_id": "user_id",
+            "dt": "dt",
+        },
+    ),
     primary_key=["user_id"],
     versioning=ms.snapshot(
         partition_field=ms.ref.time_dimension("sales.user_profile_daily.dt"),
@@ -214,11 +217,14 @@ observation does not certify real-world population completeness.
 user_history = ms.entity(
     name="user_history",
     datasource=warehouse,
-    source=md.table("user_history", columns={
-        "user_id": "user_id",
-        "valid_from": "valid_from",
-        "valid_to": "valid_to",
-    }),
+    source=md.table(
+        "user_history",
+        columns={
+            "user_id": "user_id",
+            "valid_from": "valid_from",
+            "valid_to": "valid_to",
+        },
+    ),
     primary_key=["user_id"],
     versioning=ms.validity(
         valid_from=valid_from,
@@ -323,12 +329,8 @@ time dimension — plain dimensions are never inferred as temporal from a name l
 `dt`.
 
 ```python
-dt = ms.time_dimension_column(
-    name="dt", entity=orders, column="dt", parse=ms.strptime("%Y%m%d")
-)
-hh = ms.time_dimension_column(
-    name="hh", entity=orders, column="hh", parse=ms.hour_prefix(dt)
-)
+dt = ms.time_dimension_column(name="dt", entity=orders, column="dt", parse=ms.strptime("%Y%m%d"))
+hh = ms.time_dimension_column(name="hh", entity=orders, column="hh", parse=ms.hour_prefix(dt))
 ```
 
 - **`parse`** interprets native temporal values or encoded values through

@@ -65,7 +65,8 @@ chosen = current.top(1, by=current["revenue"]).compute()
 parents = session.population_from(chosen, on=((chosen.axes[1], region),))
 parents.show()
 prior_for_chosen = session.observe(
-    {"revenue": revenue}, by=mv.product(july, parents),
+    {"revenue": revenue},
+    by=mv.product(july, parents),
     where=mv.in_population(parents),
 ).compute()
 prior_for_chosen.show()
@@ -101,11 +102,13 @@ identity can be in the domain without proving a source record exists.
 ## Compute statistics of represented rows
 
 ```python
-row_summary = current.reduce({
-    "mean_regional_revenue": current["revenue"].mean(),
-    "sum_regional_revenue": current["revenue"].sum(),
-    "regions": mv.row_count(),
-}).compute()
+row_summary = current.reduce(
+    {
+        "mean_regional_revenue": current["revenue"].mean(),
+        "sum_regional_revenue": current["revenue"].sum(),
+        "regions": mv.row_count(),
+    }
+).compute()
 row_summary.show()
 summary = row_summary.to_pandas()
 assert summary["mean_regional_revenue"].tolist() == [400]
@@ -123,7 +126,8 @@ Units retained by sum/mean describe dimension rather than semantic roll-up permi
 
 ```python
 budget = session.values(
-    by=(region,), columns={"budget": "CNY"},
+    by=(region,),
+    columns={"budget": "CNY"},
     rows=((("east",), {"budget": 250}), (("west",), {"budget": 650})),
 ).compute()
 regional = current.reduce({"revenue": current["revenue"].sum()}, by=(current.axes[1],)).compute()
@@ -133,7 +137,9 @@ variance.show()
 assert variance.to_pandas()["variance"].tolist() == [-50, -50]
 
 paired_statistics = joined.correlate(
-    joined["left.revenue"], joined["right.budget"], method="pearson",
+    joined["left.revenue"],
+    joined["right.budget"],
+    method="pearson",
 ).compute()
 paired_statistics.show()
 assert paired_statistics.to_pandas()["n_pairs"].tolist() == [2]

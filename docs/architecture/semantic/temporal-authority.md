@@ -54,7 +54,8 @@ from datetime import date
 import marivo.semantic as ms
 
 retail_calendar = ms.period_calendar(
-    name="retail_445", date=calendar_date,
+    name="retail_445",
+    date=calendar_date,
     boundary_timezone="Asia/Shanghai",
     coverage=(date(2025, 1, 1), date(2027, 1, 1)),
     levels={"year": fiscal_year_key, "month": fiscal_month_key},
@@ -128,7 +129,9 @@ page = calendar.periods("month", limit=20)
 campaigns = catalog.get("temporal_set:commerce.campaigns")
 occurrence = campaigns.occurrence("launch-2026")
 occurrences = campaigns.occurrences(
-    start=date(2026, 1, 1), end=date(2027, 1, 1), limit=20,
+    start=date(2026, 1, 1),
+    end=date(2027, 1, 1),
+    limit=20,
 )
 ```
 
