@@ -9,7 +9,9 @@ from __future__ import annotations
 
 import json
 import operator
+from bisect import bisect_left
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import TYPE_CHECKING, Literal, TypeAlias
 
 from ibis.common.deferred import BinaryOperator, Just, Resolver, UnaryOperator, Variable
@@ -93,7 +95,10 @@ def _coordinate_token(
             invalid("interval coordinates must come from their frozen TimeScope")
         return ("interval", str(value))
     if isinstance(axis, CalendarCoordinate):
-        if type(value) is not int or not 0 <= value < len(axis.cells):
+        if not isinstance(value, datetime) or value.tzinfo is None:
+            invalid("calendar coordinates must come from their frozen CalendarAxis")
+        index = bisect_left(axis.cells, value, key=lambda cell: cell[0])
+        if index == len(axis.cells) or axis.cells[index][0] != value:
             invalid("calendar coordinates must come from their frozen CalendarAxis")
         return ("calendar", str(value))
     entity = axis.entity.ref.key
@@ -398,7 +403,7 @@ def population_keys(
     if isinstance(node, IntervalKeys):
         return ((0,),)
     if isinstance(node, CalendarKeys):
-        return tuple((index,) for index in range(len(node.calendar.cells)))
+        return tuple((cell[0],) for cell in node.calendar.cells)
     if isinstance(node, PopulationFilter):
         source = population_keys(node.operand)
         domains = condition_populations(node.predicate)

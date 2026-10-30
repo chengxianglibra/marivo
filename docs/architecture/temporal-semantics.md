@@ -116,7 +116,12 @@ Session resolution authority.
 
 TimeScope.by(grain) constructs a CalendarAxis without business reads. It captures
 canonical bucket order, nominal bounds, actual clipped bounds, timezone and
-required snapshot identity. Calendar authority must cover the requested range.
+required snapshot identity. Within that axis identity, the physical bucket key
+is the nominal start as a UTC microsecond timestamp. Clipping or selecting cells
+does not renumber keys. `ordinal` retains selected order; `nominal_ordinal`
+retains its original calendar position. Keys alone do not establish compatibility:
+identity, grain, timezone, snapshot and actual boundaries remain authoritative.
+Calendar authority must cover the requested range.
 Builtin grids use report civil boundaries; DST days may span 23 or 25 hours.
 A nominal day is not a fixed elapsed duration.
 
@@ -247,9 +252,41 @@ expressions continue through B/C when exact inversion is unavailable.
 
 Native Instant/CivilDate rewrites preserve backend meaning, endpoints, precision
 and nullable truth values. Constants match the raw type; transformed aliases and
-implicit column casts do not establish A. Finite sparse calendars retain exact
-cell unions, and bucket CASE expressions use the same raw boundaries as filtering.
-One-sided windows need no invented lower bound or horizon enumeration.
+implicit column casts do not establish A. A complete contiguous calendar uses
+a range guard. Sparse or clipped calendars join their selected typed directory
+by equality and check actual half-open bounds; the enclosing range alone never
+admits missing cells. TimeScope interval axes retain their original unit key and
+raw-bound predicates. One-sided windows need no invented lower bound or horizon
+enumeration.
+
+Calendar assignment has one private compiler entry. Builtin subday grids use
+native exact elapsed arithmetic on a lattice derived from frozen civil-midnight
+alignment. Irregular DST cells use a finer lattice and a unique equality map;
+90-second/90-minute grids and half-hour transitions retain their frozen starts.
+Civil day, ISO week, month, quarter and year use native calendar truncation with
+an equality directory retaining the exact UTC start. A skipped midnight maps
+to the preceding retained period. The directory covers the local dates at both
+included endpoints of a repeated-midnight bucket, even when the clock returns
+to the previous date. A matched row chooses between its frozen UTC starts.
+No backend is allowed to invent a nonexistent civil boundary. Raw local clocks admitted to wall-order
+membership use a unique civil-date offset map, retaining the later fold and
+transition-instant gap rules independently of native value projection.
+
+Certified custom calendars use one row per selected civil date, mapping that
+date to its frozen period start and actual bounds. They consume the captured
+snapshot, never reread its source, infer absent dates, or scan generic intervals.
+The date partition contract guarantees that an equality join cannot multiply
+facts. Internal samples, empty completion, parent/child maps and attribution
+share the same timestamp keys.
+
+Finite directories are invocation-owned Arrow relations in DuckDB and external
+data in ClickHouse (including completion grids). PostgreSQL uses one compact
+JSON payload through `jsonb_to_recordset`; MySQL/MariaDB materialize `JSON_TABLE`
+once for hash or indexed equality joins; Trino uses typed JSON extraction
+through `UNNEST`. Equal directories share a captured
+relation within a source query. SourceSession owns registration, submission and
+cleanup; capacities and read-only permissions remain unchanged. No per-bucket
+CASE/UNION or per-fact complete-calendar scan is emitted.
 
 Compiler-owned UTC cancellation preserves output type and precision. Existing
 safe envelopes remain useful for unsupported shapes. No source declaration audit,

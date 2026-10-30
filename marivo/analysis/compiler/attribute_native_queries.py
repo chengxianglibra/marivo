@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import replace
+from datetime import datetime
 from typing import TYPE_CHECKING, NoReturn
 
 import ibis
@@ -88,6 +89,9 @@ def _selected_rows(
 
     reduction = read_reduction(stage)
     assert reduction is not None
+    from marivo.analysis.compiler.observation import bind_reduction_calendars
+
+    table, field_columns = bind_reduction_calendars(reduction, table, dict(stage.field_columns))
     original = table
     if stage.period is not None and not stage.period.predicate_prepared:
         time = table[stage.period.column]
@@ -97,11 +101,14 @@ def _selected_rows(
                 time >= temporal_bound(time, stage.period.start, stage.period.timezone)
             )
         table = table.filter(*conditions)
-    fields = {path: table[name] for path, name in stage.field_columns}
+    fields = {path: table[name] for path, name in field_columns.items()}
     window_slot = None
     if reduction.window_key is not None:
         window_slot = "__native_window"
-        fields[window_slot] = ibis.literal(reduction.window_key)
+        fields[window_slot] = ibis.literal(
+            reduction.window_key,
+            type="timestamp('UTC', 6)" if isinstance(reduction.window_key, datetime) else "int64",
+        )
     axes = _reduction_axes(reduction, fields, window_slot)
     selected = (
         ibis.or_(
@@ -119,7 +126,7 @@ def _selected_rows(
         else ibis.literal(False)
     )
     table = table.filter(selected)
-    fields = {path: table[name] for path, name in stage.field_columns}
+    fields = {path: table[name] for path, name in field_columns.items()}
     predicates = tuple(lower_condition(node, fields) for node in stage.predicates)
     checks = tuple(check for item in predicates for check in item.checks)
     summaries = {

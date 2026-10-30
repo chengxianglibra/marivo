@@ -519,8 +519,8 @@ def provider() -> DisclosureProvider:
             ),
             "CalendarAxis",
             "Construct nominal and actual buckets from the frozen scope.",
-            "result = scope.by(grain)",
-            ("scope", "grain"),
+            'result = scope.by(mv.grain("day"))',
+            ("scope",),
             "inputs.time",
             (
                 "Frozen scope and compatible Grain are required; semantic Grain must already capture a certified snapshot through calendar.grain(level).",

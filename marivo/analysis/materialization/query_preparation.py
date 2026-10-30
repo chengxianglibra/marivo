@@ -79,7 +79,7 @@ class SourceInputContract:
     predicates: tuple[PredicateExpression, ...]
     memberships: tuple[MembershipBinding, ...]
     population_reads: tuple[tuple[AxisBinding, FieldRead | IdentityRead], ...]
-    window_key: int | None
+    window_key: int | datetime | None
     sample_axes: tuple[AxisBinding | CalendarCoordinate | IntervalCoordinate, ...]
     calendars: tuple[tuple[str, CalendarCoordinate | IntervalCoordinate], ...]
     time_authorities: tuple[SourceTimeAuthority, ...]
@@ -362,31 +362,6 @@ def prepare_fields(
         upper = time < temporal_bound(time, end, zone)
         return upper if start is None else upper & (time >= temporal_bound(time, start, zone))
 
-    def calendar_bucket(
-        time: ir.Value, calendar: CalendarCoordinate | IntervalCoordinate
-    ) -> ir.Value:
-        cells = (
-            calendar.cells
-            if isinstance(calendar, CalendarCoordinate)
-            else ((calendar.start, calendar.end, calendar.start, calendar.end),)
-        )
-        return (
-            ibis.cases(
-                *(
-                    (
-                        period_condition(time, start, end, calendar.timezone),
-                        ibis.literal(index).cast("!int64"),
-                    )
-                    for index, (_, _, start, end) in enumerate(cells)
-                ),
-                # Type the non-null branches: some ClickHouse builds reject
-                # a cast of NULL to Nullable(Int64) in a column-dependent CASE.
-                else_=ibis.null(),
-            )
-            if cells
-            else ibis.null().cast("int64")
-        )
-
     def selected_time(time: ir.Value) -> ir.BooleanValue:
         # Boolean literal seeds can produce incompatible Bool columns on older ClickHouse builds.
         condition: ir.BooleanValue | None = None
@@ -396,12 +371,7 @@ def prepare_fields(
                 if isinstance(calendar, CalendarCoordinate)
                 else ((calendar.start, calendar.end, calendar.start, calendar.end),)
             )
-            intervals: list[tuple[datetime, datetime]] = []
-            for _, _, start, end in cells:
-                if intervals and intervals[-1][1] == start:
-                    intervals[-1] = (intervals[-1][0], end)
-                else:
-                    intervals.append((start, end))
+            intervals = [(cells[0][2], cells[-1][3])] if cells else []
             member: ir.BooleanValue | None = None
             for left, right in intervals:
                 predicate = period_condition(time, left, right, calendar.timezone)
@@ -476,6 +446,7 @@ def prepare_fields(
             strict=True,
         )
     )
+    pending_calendars: list[tuple[str, str, CalendarCoordinate, str | None]] = []
     for index, (read, component, read_key) in enumerate(parts):
         extras: dict[str, ir.Value] = {}
         extra_keys: dict[str, str] = {}
@@ -491,7 +462,41 @@ def prepare_fields(
             if read == time_read:
                 for key, calendar in contribution.calendars:
                     name = unique("__bucket_" + key.replace(".", "_"))
-                    extras[name] = calendar_bucket(expression, calendar)
+                    if isinstance(calendar, CalendarCoordinate):
+                        extras[name] = ibis.null().cast("timestamp('UTC', 6)")
+                        clock_key, wall_zone = read_key, None
+                        encoded = (
+                            time_encodings.get(read.field.ref.path)
+                            if isinstance(read, FieldRead)
+                            else None
+                        )
+                        if encoded is not None and calendar.cells:
+                            from marivo.analysis.compiler.source_time import calendar_wall_clock
+
+                            raw, time_axis, authority, prefix, prefix_axis = encoded
+                            engine = entity_engine(
+                                registry,
+                                normalize_target_entity(registry, time_axis.entity_ref.path),
+                            )
+                            neutral = calendar_wall_clock(
+                                raw,
+                                time_axis,
+                                authority,
+                                bound=calendar.cells[0][2],
+                                engine=engine,
+                                prefix=prefix,
+                                prefix_axis=prefix_axis,
+                            )
+                            if neutral is not None:
+                                clock_key = unique("__calendar_wall")
+                                extras[clock_key] = neutral
+                                extra_keys[clock_key] = clock_key
+                                wall_zone = authority.read_timezone
+                        pending_calendars.append((name, clock_key, calendar, wall_zone))
+                    else:
+                        extras[name] = period_condition(
+                            expression, calendar.start, calendar.end, calendar.timezone
+                        ).ifelse(ibis.literal(0).cast("!int64"), ibis.null())
                     extra_keys[name] = calendar_field(key)
                 if selected_calendars:
                     name = unique("__time_selected")
@@ -601,6 +606,19 @@ def prepare_fields(
             and not selected_owns_period
         ):
             table = table.filter(table[dict(columns)["__time_period"]])
+    from marivo.analysis.compiler.calendar import bind_calendar
+
+    for name, time_key, calendar, wall_zone in pending_calendars:
+        clock = dict(columns)[time_key]
+        if wall_zone is not None:
+            from marivo.analysis.compiler.calendar import bind_wall_clock
+
+            normalized = unique("__calendar_instant")
+            table = bind_wall_clock(table, table[clock], wall_zone, calendar, normalized)
+            clock = normalized
+        table = bind_calendar(table, table[clock], calendar, name)
+        if calendar in selected_calendars:
+            table = table.filter(table[name].notnull())
     for _, slot in columns:
         if table[slot].type().is_interval():
             from marivo.analysis.compiler.numeric_sql import duration_ticks, interval_part

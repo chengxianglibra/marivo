@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from math import isfinite
 from typing import TYPE_CHECKING
 
 import ibis
@@ -122,7 +123,40 @@ def instantiate(
         )
     import pandas as pd
 
+    from marivo.analysis.compiler.source_predicates import source_parameter_comparisons
+
+    if provider is not None:
+        expression = source_parameter_comparisons(expression, name, provider)
     records = tuple(output.table.loc[:, list(output.keys)].itertuples(index=False, name=None))
+    from marivo.analysis.core.data_types import DecimalDataType, TimestampDataType
+
+    if (
+        any(isinstance(column.dtype, TimestampDataType) for column in columns)
+        and all(
+            isinstance(column.dtype, (ScalarDataType, DecimalDataType))
+            or column.dtype == TimestampDataType("us", "UTC")
+            for column in columns
+        )
+        # JSON has no nonfinite numbers. Retain the existing generic key path
+        # when a mixed coordinate needs a native infinity, rather than rejecting it.
+        and (
+            provider in ("duckdb", "clickhouse")
+            or not any(
+                isinstance(value, float) and not isfinite(value) for row in records for value in row
+            )
+        )
+    ):
+        from marivo.datasource._calendar_relations import calendar_data
+
+        records = tuple(
+            tuple(row[column.slot_id] for column in columns)
+            for row in parameter_data(columns, output).to_pylist()
+        )
+        literal = calendar_data(
+            ibis.schema({column.slot_id: ibis_type(column.dtype) for column in columns}), records
+        )
+        return _replace_parameter(expression, name, literal)
+
     if provider == "mysql":
         # Native readers can return nullable integer keys as unambiguous floats.
         # Normalize against the planned key schema before forming JSON names.
@@ -193,9 +227,6 @@ def instantiate(
                 for index, column in enumerate(columns)
             }
         )
-        from marivo.analysis.compiler.source_predicates import source_parameter_comparisons
-
-        expression = source_parameter_comparisons(expression, name, provider)
         return _replace_parameter(expression, name, keys)
     expression = _tuple_predicates(
         expression, name, columns, records, provider=provider, source=source

@@ -313,7 +313,7 @@ def test_multiple_time_axes_do_not_infer_correspondence(local: LocalFrameService
             period._binding,
             token=f"axis{i}",
             name=f"day{i}",
-            key=DataColumn(f"key{i}", f"day{i}", ScalarDataType("int64"), False),
+            key=DataColumn(f"key{i}", f"day{i}", TimestampDataType("us", "UTC"), False),
         )
         for i in range(2)
     )
@@ -321,7 +321,13 @@ def test_multiple_time_axes_do_not_infer_correspondence(local: LocalFrameService
     schema = DataSchema((first.axis, second.axis), (value,), value_paths=(("amount",),))
     data = CompletedFrameData(
         schema,
-        pd.DataFrame({"key0": [0], "key1": [0], "amount": [1]}),
+        pd.DataFrame(
+            {
+                "key0": first.directory.rows["key0"].iloc[:1],
+                "key1": second.directory.rows["key1"].iloc[:1],
+                "amount": [1],
+            }
+        ),
         (*first.attachments, *second.attachments),
     )
     metadata = FrameResultMetadata(

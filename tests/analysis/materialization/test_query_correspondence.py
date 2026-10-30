@@ -16,7 +16,12 @@ from marivo._definition.types import CalendarCoordinate
 from marivo._temporal import anchor_from_datetime, builtin_grain
 from marivo.analysis.core.artifact_data import DataAxis, DataColumn, DataSchema, OutputAttachment
 from marivo.analysis.core.data_schema import PairedDataAxis
-from marivo.analysis.core.data_types import DataType, DecimalDataType, ScalarDataType
+from marivo.analysis.core.data_types import (
+    DataType,
+    DecimalDataType,
+    ScalarDataType,
+    TimestampDataType,
+)
 from marivo.analysis.core.frame_audit import EvaluationRecord, FrameAudit, FrameResultMetadata
 from marivo.analysis.core.frame_calendar import freeze_calendar
 from marivo.analysis.core.frame_data import CompletedFrameData, CompletedFrameResult
@@ -103,9 +108,14 @@ def _calendar(
         coordinate,
         token="calendar",
         name="period",
-        key=DataColumn("key.0", "bucket", INTEGER, False),
+        key=DataColumn("key.0", "bucket", TimestampDataType("us", "UTC"), False),
     )
-    return _memory(local, (frozen.axis,), rows, attachments=(frozen.directory,))
+    return _memory(
+        local,
+        (frozen.axis,),
+        tuple((coordinate.cells[int(row[0])][0], *row[1:]) for row in rows),
+        attachments=(frozen.directory,),
+    )
 
 
 def test_identity_outer_keeps_na_presence_and_complete_composite_keys(

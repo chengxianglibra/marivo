@@ -14,6 +14,7 @@ from marivo.analysis.core.attribute import (
     AttributeMatrixSource,
     AttributeProjectProgram,
 )
+from marivo.analysis.core.calendar_keys import time_key_type
 from marivo.analysis.core.data_schema import (
     CalendarDataAxis,
     DataSchema,
@@ -157,7 +158,7 @@ def _calendar_keys(
             operation.target_calendar,
             token="attribute.calendar",
             name="calendar",
-            key=DataColumn("calendar", "calendar", ScalarDataType("int64"), False),
+            key=DataColumn("calendar", "calendar", time_key_type(operation.target_calendar), False),
             calendar_ref=(
                 endpoint.frozen.definition.ref
                 if endpoint.frozen is not None

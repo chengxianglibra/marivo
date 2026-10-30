@@ -24,6 +24,13 @@ monthly_source = session.observe(
 monthly_source.show()
 ```
 
+Calendar buckets retain their nominal starts when the first or last bucket is
+clipped. Empty buckets remain present, and sparse selections retain only their
+selected periods. Builtin calendars use native calendar operations; certified
+custom calendars use a unique date-to-period mapping from the frozen snapshot.
+Neither route enumerates one SQL branch per bucket. Custom calendars still
+require one period per date and continuous, non-overlapping periods.
+
 {/* example: metric-window-query */}
 
 ```python

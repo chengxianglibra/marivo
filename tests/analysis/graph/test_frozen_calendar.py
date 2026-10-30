@@ -648,7 +648,7 @@ def test_two_hour_fold_writer_and_reader_preserve_distinct_nominal_starts() -> N
         CalendarAxis(scope, grid)._binding,
         token="axis.0",
         name="time",
-        key=DataColumn("key", "time", ScalarDataType("int64"), False),
+        key=DataColumn("key", "time", TimestampDataType("us", "UTC"), False),
     )
     recovered = read_calendar_directory(
         captured.axis, captured.directory.schema, captured.directory.rows
@@ -840,7 +840,7 @@ def test_selected_grid_is_sparse_or_empty_and_direct_origin_changes_identity() -
         coordinate,
         token="shifted",
         name="week",
-        key=DataColumn("key", "week", ScalarDataType("int64"), False),
+        key=DataColumn("key", "week", TimestampDataType("us", "UTC"), False),
     )
     validate_frozen_coordinates(
         DataSchema((frozen.axis,), ()),
@@ -862,7 +862,7 @@ def test_selected_grid_is_sparse_or_empty_and_direct_origin_changes_identity() -
         ),
         token="empty",
         name="week",
-        key=DataColumn("key", "week", ScalarDataType("int64"), False),
+        key=DataColumn("key", "week", TimestampDataType("us", "UTC"), False),
     )
     assert frozen_empty.directory.rows.empty
     validate_frozen_coordinates(

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Literal
 
 from marivo._definition.correspondence import ComparisonAxis
@@ -65,7 +66,7 @@ class ContributionBinding:
     period: ObservationPeriod | None
     physical_dtype: Literal["unresolved"] = "unresolved"
     logical_occurrence: tuple[int, ...] | None = None
-    window_key: int | None = None
+    window_key: int | datetime | None = None
     window_calendar_digest: str | None = None
     sample_axes: tuple[AxisBinding | CalendarCoordinate | IntervalCoordinate, ...] = ()
     memberships: tuple[MembershipBinding, ...] = ()

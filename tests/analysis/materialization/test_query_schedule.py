@@ -647,7 +647,7 @@ def test_calendar_fills_only_empty_reductions(warehouse_session: Session) -> Non
     amount, _ = _numeric_inputs(session)
     calendar = session.time_scope(start="2026-01-05", end="2026-01-09").by(mv.grain("day"))
     output = _compute(session, {"sum": amount.sum(), "mean": amount.mean()}, during=calendar)
-    assert output.table["key.0"].tolist() == [0, 1, 2, 3]
+    assert output.table["key.0"].tolist() == list(pd.date_range("2026-01-05", periods=4, tz="UTC"))
     assert output.table["value.0"].to_dict() == {0: 10, 1: None, 2: 30, 3: 0}
     assert pd.isna(output.table["value.1"].iloc[1]) and pd.isna(output.table["value.1"].iloc[3])
 
@@ -874,7 +874,7 @@ def test_source_free_constant_keeps_calendar(warehouse_session: Session) -> None
         lambda stage, inputs: run_local(stage, inputs),
     )
     assert output.keys == ("key.0",)
-    assert output.table["key.0"].tolist() == [0, 1, 2, 3]
+    assert output.table["key.0"].tolist() == list(pd.date_range("2026-01-05", periods=4, tz="UTC"))
     assert output.table["value.0"].tolist() == [7, 7, 7, 7]
 
 

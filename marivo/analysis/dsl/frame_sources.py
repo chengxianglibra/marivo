@@ -14,6 +14,7 @@ from marivo._grouping import Grouping
 from marivo._temporal import PeriodCalendarSnapshotV2, TimeScope
 from marivo.analysis.binding.lineage import observation_contexts
 from marivo.analysis.core.artifact_data import DataColumn
+from marivo.analysis.core.calendar_keys import time_key_type
 from marivo.analysis.core.data_types import ScalarDataType
 from marivo.analysis.core.frame_calendar import FrozenSourceTime, freeze_calendar, freeze_interval
 from marivo.analysis.core.frame_data import LiteralFrameBinding, SourceFrameBinding
@@ -99,7 +100,7 @@ def pending_schema(
                 axis,
                 token=f"axis.{index}",
                 name=name,
-                key=DataColumn(f"key.{offset}", name, ScalarDataType("int64"), False),
+                key=DataColumn(f"key.{offset}", name, time_key_type(axis), False),
                 calendar_ref=(
                     SemanticObjectIdentity(
                         "period_calendar",

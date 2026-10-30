@@ -250,7 +250,7 @@ def test_remote_selected_window_rollup_keeps_correlated_endpoint_and_parent_keys
             )
         ) == [
             (
-                0,
+                datetime(2026, 10, 7, tzinfo=timezone.utc),
                 0,
                 datetime(2026, 10, 7, tzinfo=timezone.utc),
                 datetime(2026, 10, 8, tzinfo=timezone.utc),
@@ -258,7 +258,7 @@ def test_remote_selected_window_rollup_keeps_correlated_endpoint_and_parent_keys
                 datetime(2026, 10, 8, tzinfo=timezone.utc),
             ),
             (
-                1,
+                datetime(2026, 10, 8, tzinfo=timezone.utc),
                 1,
                 datetime(2026, 10, 8, tzinfo=timezone.utc),
                 datetime(2026, 10, 9, tzinfo=timezone.utc),

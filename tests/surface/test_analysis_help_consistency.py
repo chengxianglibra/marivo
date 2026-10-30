@@ -288,3 +288,23 @@ def test_method_fact_help_keeps_details_with_their_owning_record() -> None:
     assert "Counts do not prove source qualification" in support
     assert "Decimal precision and integer time ticks" in value
     assert len(value) < 1500
+
+
+def test_time_scope_by_help_example_executes(analysis_dsl_case_factory: DslCaseFactory) -> None:
+    case = analysis_dsl_case_factory("j1")
+    scope = case.session.time_scope(start="2026-08-01", end="2026-08-03")
+    descriptor = REGISTRY.by_canonical_id("time_scope.by")
+    assert isinstance(descriptor, CallableInput)
+    namespace: dict[str, object] = {"scope": scope, "mv": mv}
+    exec(compile(descriptor.example.code, "<time-scope-by-help>", "exec"), namespace)
+    axis = namespace[descriptor.example.result]
+    assert isinstance(axis, mv.CalendarAxis)
+    rows = (
+        case.session.observe(
+            {"value": case.session.catalog.get("metric:sales.revenue")}, by=(axis,)
+        )
+        .compute()
+        .to_pandas(time_details=True)
+    )
+    assert rows["calendar:day.label"].tolist() == ["2026-08-01", "2026-08-02"]
+    assert rows["value"].tolist() == [450, 0]

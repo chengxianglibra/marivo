@@ -125,13 +125,15 @@ def calendar_constant(session: Session, calendar: mv.CalendarAxis) -> AnalysisFr
         coordinate,
         token="axis.0",
         name="period",
-        key=DataColumn("key.0", "period", ScalarDataType("int64"), False),
+        key=DataColumn("key.0", "period", TimestampDataType("us", "UTC"), False),
     )
     value = DataColumn("value.0", "value", ScalarDataType("int64"), False)
     schema = DataSchema((frozen.axis,), (value,), value_paths=(("value",),))
     rows = pd.DataFrame(
         {
-            "key.0": pd.Series(range(len(grid.cells)), dtype="int64[pyarrow]"),
+            "key.0": pd.Series(
+                [cell.original_start for cell in grid.cells], dtype="timestamp[us, tz=UTC][pyarrow]"
+            ),
             "value.0": pd.Series([7] * len(grid.cells), dtype="int64[pyarrow]"),
         }
     )

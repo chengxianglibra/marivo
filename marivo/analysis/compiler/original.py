@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
+from datetime import datetime
 from typing import TypeAlias
 
 import ibis
@@ -31,7 +32,6 @@ from marivo.analysis.compiler.observation import (
     common_slot,
     lower_common_observations,
     lower_observation,
-    temporal_bound,
 )
 from marivo.analysis.compiler.predicate import lower_condition
 from marivo.analysis.core.data_types import DataColumn
@@ -185,6 +185,9 @@ def lower_components(
     joined raw rows are used only by admitted later original Metric consumers.
     """
     reduction = layout.reduction
+    from marivo.analysis.compiler.observation import bind_reduction_calendars
+
+    table, field_columns = bind_reduction_calendars(reduction, table, field_columns)
     completed, checks = lower_observation(reduction, table, field_columns, predicates)
     fields = {path: table[name] for path, name in field_columns.items()}
     selected = tuple(lower_condition(node, fields).value for node in predicates)
@@ -197,28 +200,14 @@ def lower_components(
 
     for slot, calendar in calendars:
         if reduction.window_key is not None and calendar == reduction.calendar:
-            axes[slot] = ibis.literal(reduction.window_key)
+            axes[slot] = ibis.literal(
+                reduction.window_key,
+                type="timestamp('UTC', 6)"
+                if isinstance(reduction.window_key, datetime)
+                else "int64",
+            )
             continue
-        captured = fields.get(calendar_field(slot))
-        if captured is not None:
-            axes[slot] = captured
-            continue
-        assert reduction.time_column is not None
-        time = fields[reduction.time_column]
-        bucket: ir.Value = ibis.null().cast("int64")
-        from marivo._definition.types import CalendarCoordinate
-
-        cells = (
-            calendar.cells
-            if isinstance(calendar, CalendarCoordinate)
-            else ((calendar.start, calendar.end, calendar.start, calendar.end),)
-        )
-        for index, (_, _, start, end) in reversed(tuple(enumerate(cells))):
-            bucket = (
-                (time >= temporal_bound(time, start, calendar.timezone))
-                & (time < temporal_bound(time, end, calendar.timezone))
-            ).ifelse(index, bucket)
-        axes[slot] = bucket
+        axes[slot] = fields[calendar_field(slot)]
     projected = {
         **{f"__original_{slot}": expression for slot, expression in axes.items()},
         **{column.slot_id: filtered[name] for column, name in layout.identity},
@@ -265,6 +254,9 @@ def lower_common_components(
     predicates: tuple[PredicateExpression, ...],
 ) -> tuple[ir.Table, tuple[tuple[str, NumericCheck], ...]]:
     """One checked aggregate and raw projection for a compiled source block."""
+    from marivo.analysis.compiler.observation import bind_reduction_calendars
+
+    table, field_columns = bind_reduction_calendars(reductions[0], table, field_columns)
     completed, checks = lower_common_observations(reductions, table, field_columns, predicates)
     if not any(layout is not None for layout in layouts):
         return completed, checks

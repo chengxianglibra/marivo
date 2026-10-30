@@ -256,6 +256,8 @@ def _manifest() -> Manifest:
         ("<module>",),
         (
             "sqlglot.expressions",
+            "ibis.backends.sql.compilers.duckdb",
+            "ibis.backends.sql.compilers.duckdb.DuckDBCompiler",
             "ibis.backends.sql.compilers.clickhouse",
             "ibis.backends.sql.compilers.clickhouse.ClickHouseCompiler",
             "ibis.backends.sql.compilers.mysql",
@@ -278,6 +280,29 @@ def _manifest() -> Manifest:
         ("configure_aggregate_compiler",),
         ("backend.compiler",),
         native_aggregates,
+    )
+
+    calendar_compilation = Owner(
+        "ibis_compilation",
+        "Private typed calendar operations build SQL ASTs from fixed templates and encoded literals before Ibis compilation; only SourceSession submits the compiled read.",
+    )
+    add(
+        "datasource/_calendar_relations",
+        ("<module>",),
+        ("sqlglot", "sqlglot.expressions"),
+        calendar_compilation,
+    )
+    add(
+        "datasource/_calendar_relations",
+        ("compile_calendar_data",),
+        ("sge.Literal.string().sql", "sge.to_identifier().sql", "sqlglot.parse_one"),
+        calendar_compilation,
+    )
+    add(
+        "datasource/_calendar_relations",
+        ("compile_calendar_floor",),
+        ("sge.Literal.string().sql", "sqlglot.parse_one", "sqlglot.parse_one().transform"),
+        calendar_compilation,
     )
 
     provider = Owner(

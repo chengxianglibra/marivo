@@ -515,6 +515,17 @@ class SourceSession:
             raise _invalid("a nonempty read purpose", "empty purpose")
         if not isinstance(expression, ir.Expr):
             raise _invalid("an Ibis expression", type(expression).__name__)
+        from marivo.datasource._calendar_relations import CalendarData, memory_calendar
+
+        if self.provider.name in ("duckdb", "clickhouse"):
+            replacements = {}
+            for directory in expression.op().find(CalendarData):
+                relation = memory_calendar(directory).op()
+                (physical,) = relation.find(ops.InMemoryTable)
+                owned = self._key_relations.setdefault(directory.name, physical)
+                replacements[directory] = relation.replace({physical: owned})
+            if replacements:
+                expression = expression.op().replace(replacements).to_expr()
         relation_nodes = tuple(item.binding.relation.op() for item in sources)
         expression_relations = tuple(expression.op().find(ops.Relation))
         selected_ids = {item.binding.facts.source_identity for item in sources}
@@ -781,7 +792,7 @@ class SourceSession:
         self._bindings_by_identity.clear()
         self._bound_sources.clear()
         self._verified_source_timezones.clear()
-        for node in self._key_relations.values():
+        for node in self._key_relations.values() if self.provider.name == "duckdb" else ():
             try:
                 self._backend.drop_view(node.name, force=True)
             except BaseException as error:

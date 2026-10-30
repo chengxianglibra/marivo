@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
+from datetime import datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING, Literal, TypeAlias, overload
 
@@ -97,7 +98,7 @@ class AttributeFineFiber:
 @dataclass(frozen=True, slots=True)
 class AttributeWindowFiber:
     fiber: AttributeParentFiber | AttributeFineFiber
-    window_key: int
+    window_key: int | datetime
     period: ObservationPeriod
     time: TimeBinding
     calendar: CalendarCoordinate
@@ -170,7 +171,7 @@ class AttributeFailureContext:
 class AttributeWindowInput:
     """Captured fixed source fiber; actual coverage remains an execution check."""
 
-    window_key: int
+    window_key: int | datetime
     calendar_slot: str
     period: ObservationPeriod
     time: TimeBinding

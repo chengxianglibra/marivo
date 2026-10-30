@@ -19,8 +19,9 @@ from marivo._definition.relations import (
 )
 from marivo.analysis.compiler.graph_plan import FrameCompute, LocalCompute
 from marivo.analysis.compiler.query_program import FrameParameter, ResultProgram
+from marivo.analysis.core.calendar_keys import time_key_type
 from marivo.analysis.core.data_schema import DataSchema
-from marivo.analysis.core.data_types import DataColumn, ScalarDataType
+from marivo.analysis.core.data_types import DataColumn
 from marivo.analysis.core.frame_structure import axis_role, column_kind
 from marivo.analysis.core.model import reject
 from marivo.refs import SemanticKind
@@ -105,7 +106,9 @@ def frame_key_columns(
         )
     if isinstance(keys, AttributeKeys) and keys.calendar is not None:
         columns.append(
-            DataColumn(frame_key_groups(keys)[-1][0], "calendar", ScalarDataType("int64"), False)
+            DataColumn(
+                frame_key_groups(keys)[-1][0], "calendar", time_key_type(keys.calendar), False
+            )
         )
     return tuple(columns)
 

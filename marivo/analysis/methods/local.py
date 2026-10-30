@@ -11,6 +11,7 @@ import pyarrow as pa
 
 from marivo.analysis.compiler.graph_plan import LocalCompute
 from marivo.analysis.compiler.observation import FormulaProgram
+from marivo.analysis.core.calendar_keys import time_key_series
 from marivo.analysis.core.data_types import DataColumn, DecimalDataType, ScalarDataType
 
 if TYPE_CHECKING:
@@ -187,18 +188,7 @@ def _combine_program(
             and program.output_population is None
             and program.complete_calendar
         ):
-            buckets = pd.DataFrame(
-                {
-                    program.calendar_key: pd.Series(
-                        range(
-                            len(program.calendar.cells)
-                            if isinstance(program.calendar, CalendarCoordinate)
-                            else 1
-                        ),
-                        dtype="int64[pyarrow]",
-                    )
-                }
-            )
+            buckets = pd.DataFrame({program.calendar_key: time_key_series(program.calendar)})
             field_keys = [key for key in keys if key != program.calendar_key]
             domain = (
                 domain.loc[:, field_keys].drop_duplicates().merge(buckets, how="cross")
@@ -276,7 +266,7 @@ def _combine_program(
     def count_coordinates(count: MemberInput, members: pd.DataFrame) -> pd.DataFrame:
         classified = dict(count.axis_mapping)
         mapping: list[tuple[str, str]] = []
-        time_domains: list[tuple[str, int]] = []
+        time_domains: list[tuple[str, CalendarCoordinate | IntervalCoordinate]] = []
         offset = 0
         for axis in program.axes:
             if (
@@ -286,7 +276,7 @@ def _combine_program(
                 time_domains.append(
                     (
                         key_slots[offset],
-                        len(axis.cells) if isinstance(axis, CalendarCoordinate) else 1,
+                        axis,
                     )
                 )
                 offset += 1
@@ -300,8 +290,8 @@ def _combine_program(
                 offset += len(source_keys)
         selected = members.loc[:, [source for source, _ in mapping]].copy()
         selected.columns = [target for _, target in mapping]
-        for slot, size in time_domains:
-            selected = selected.merge(pd.DataFrame({slot: range(size)}), how="cross")
+        for slot, time_axis in time_domains:
+            selected = selected.merge(pd.DataFrame({slot: time_key_series(time_axis)}), how="cross")
         return selected
 
     count_data = {}
@@ -479,13 +469,21 @@ def _combine_program(
                 )
                 pairs = pd.DataFrame(
                     [
-                        (parent_index, index)
-                        for parent_index, cell in enumerate(parent_cells)
-                        for index, sample in enumerate(calendar_sample.cells)
+                        (cell[0] if isinstance(parent_axis, CalendarCoordinate) else 0, sample[0])
+                        for cell in parent_cells
+                        for sample in calendar_sample.cells
                         if cell[2] <= sample[2] and sample[3] <= cell[3]
                     ],
                     columns=[parent_slot, sample_keys[0]],
-                    dtype="int64[pyarrow]",
+                )
+                pairs[parent_slot] = pd.Series(
+                    pairs[parent_slot],
+                    dtype="timestamp[us, tz=UTC][pyarrow]"
+                    if isinstance(parent_axis, CalendarCoordinate)
+                    else "int64[pyarrow]",
+                )
+                pairs[sample_keys[0]] = pd.Series(
+                    pairs[sample_keys[0]], dtype="timestamp[us, tz=UTC][pyarrow]"
                 )
                 complete_domain = domain.merge(pairs, on=parent_slot, how="inner")
             sample_population_definition = sample_population(node.samples)

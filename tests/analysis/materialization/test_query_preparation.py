@@ -1,9 +1,11 @@
 """R2.4 physical preparation over declared fields, time and versioned paths."""
 
 from collections.abc import Callable
+from datetime import datetime, timezone
 from pathlib import Path
 
 import duckdb
+import ibis.expr.types as ir
 import pytest
 from ibis.common.deferred import Deferred
 
@@ -205,7 +207,10 @@ def test_parsed_and_civil_time_periods(prepared_session: Session, field: str) ->
     )
     calendar = session.time_scope(start="2026-01-01", end="2026-01-03").by(mv.grain("day"))
     output = compute(session, {"sum": amount.sum(time=time)}, during=calendar)
-    assert output.table["key.0"].tolist() == [0, 1]
+    assert output.table["key.0"].tolist() == [
+        datetime(2025, 12, 31, 16, tzinfo=timezone.utc),
+        datetime(2026, 1, 1, 16, tzinfo=timezone.utc),
+    ]
     assert output.table["value.0"].tolist() == [10, 20]
 
 
@@ -491,7 +496,7 @@ def test_version_axis_precision_is_checked_before_read(
 
 
 @pytest.mark.parametrize("bucket_count", (0, 1, 3, 129))
-def test_calendar_bucket_keeps_nullable_int64_without_casting_case_null(
+def test_calendar_bucket_keeps_nullable_timestamp_and_unmatched_rows(
     prepared_session: Session, bucket_count: int
 ) -> None:
     from dataclasses import replace
@@ -538,10 +543,18 @@ def test_calendar_bucket_keeps_nullable_int64_without_casting_case_null(
         end,
         None,
     ]
+    first_key = datetime(2025, 12, 31, 16, tzinfo=timezone.utc)
     expected = (
         [None] * 6
         if not bucket_count
-        else [None, 0, 1 if bucket_count > 1 else None, bucket_count - 1, None, None]
+        else [
+            None,
+            first_key,
+            first_key + timedelta(days=1) if bucket_count > 1 else None,
+            first_key + timedelta(days=bucket_count - 1),
+            None,
+            None,
+        ]
     )
     backend = ibis.duckdb.connect()
     try:
@@ -558,34 +571,39 @@ def test_calendar_bucket_keeps_nullable_int64_without_casting_case_null(
             session.catalog._state,
             DatasourceEngineTimezone("UTC", timezone.utc, "iana", "engine"),
         )
-        buckets = [value for name, value in prepared.originals if name.startswith("__bucket_")]
-        assert len(buckets) == 1
-        bucket = buckets[0]
-        assert bucket.type() == dt.Int64(nullable=True)
+        names = [name for name, _ in prepared.originals if name.startswith("__bucket_")]
+        assert len(names) == 1
+        bucket = prepared.table[names[0]]
+        assert bucket.type() == dt.Timestamp(timezone="UTC", scale=6, nullable=True)
         projection = prepared.table.select("id", bucket=bucket).order_by("id")
-        assert backend.to_pyarrow(projection).column("bucket").to_pylist() == expected
+        local = _memory_calendars(projection)
+        assert backend.to_pyarrow(local).column("bucket").to_pylist() == expected
         for dialect in ("clickhouse", "duckdb", "postgres", "mysql", "trino"):
-            ast = sqlglot.parse_one(ibis.to_sql(projection, dialect=dialect), read=dialect)
-            cases = [
-                alias.this
-                for alias in ast.find_all(sge.Alias)
-                if (alias.alias == "bucket" or alias.alias.startswith("__bucket_"))
-                and isinstance(alias.this, sge.Case)
-            ]
-            if not bucket_count:
-                assert not cases
-                continue
-            assert cases
-            for case in cases:
-                assert isinstance(case.args["default"], sge.Null)
-                assert len(case.args["ifs"]) == bucket_count
-                for branch in case.args["ifs"]:
-                    result = branch.args["true"]
-                    assert isinstance(result, sge.Cast)
-                    assert result.to.this == sge.DataType.Type.BIGINT
-                    assert not result.to.args.get("nullable")
+            expression = local if dialect in ("clickhouse", "duckdb") else projection
+            ast = sqlglot.parse_one(_calendar_sql(expression, dialect), read=dialect)
+            assert all(len(case.args["ifs"]) <= 1 for case in ast.find_all(sge.Case))
     finally:
         backend.disconnect()
+
+
+def _memory_calendars(expression: ir.Table) -> ir.Table:
+    from marivo.datasource._calendar_relations import CalendarData, memory_calendar
+
+    return (
+        expression.op()
+        .replace({node: memory_calendar(node).op() for node in expression.op().find(CalendarData)})
+        .to_expr()
+    )
+
+
+def _calendar_sql(expression: ir.Table, dialect: str) -> str:
+    from importlib import import_module
+
+    from marivo.datasource.engines._aggregate_compilers import configure_aggregate_compiler
+
+    backend = import_module("ibis.backends." + dialect).Backend()
+    configure_aggregate_compiler(backend)
+    return backend.compiler.to_sqlglot(expression.unbind()).sql(dialect=dialect)
 
 
 def _assert_no_boolean_identity_operands(sql: str, dialect: str) -> None:
@@ -682,15 +700,15 @@ def test_calendar_selection_preserves_membership_without_boolean_seeds(
             selected = prepared.table[selected_name]
             assert selected.type().is_boolean()
             projection = prepared.table.select("id", selected=selected).order_by("id")
-            result = backend.to_pyarrow(projection)
+            result = backend.to_pyarrow(_memory_calendars(projection))
             assert result.column("selected").to_pylist() == [True] * len(expected_ids)
         else:
             assert selected_name is None
             projection = prepared.table.select("id").order_by("id")
-            result = backend.to_pyarrow(projection)
+            result = backend.to_pyarrow(_memory_calendars(projection))
         assert result.column("id").to_pylist() == list(expected_ids)
         for dialect in ("clickhouse", "duckdb", "postgres", "mysql", "trino"):
-            _assert_no_boolean_identity_operands(ibis.to_sql(projection, dialect=dialect), dialect)
+            _assert_no_boolean_identity_operands(_calendar_sql(projection, dialect), dialect)
     finally:
         backend.disconnect()
 
@@ -744,10 +762,10 @@ def test_open_start_native_period_keeps_only_upper_bound(prepared_session: Sessi
         period = prepared.table[dict(prepared.columns)["__time_period"]]
         assert period.type().is_boolean()
         projection = prepared.table.select("id", period=period).order_by("id")
-        result = backend.to_pyarrow(projection)
+        result = backend.to_pyarrow(_memory_calendars(projection))
         assert result.column("id").to_pylist() == [0, 1]
         assert result.column("period").to_pylist() == [True, True]
         for dialect in ("clickhouse", "duckdb", "postgres", "mysql", "trino"):
-            _assert_no_boolean_identity_operands(ibis.to_sql(projection, dialect=dialect), dialect)
+            _assert_no_boolean_identity_operands(_calendar_sql(projection, dialect), dialect)
     finally:
         backend.disconnect()

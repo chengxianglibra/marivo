@@ -1,22 +1,32 @@
-"""Instance-scoped Ibis compiler corrections for native Marivo source aggregates."""
+"""Instance-scoped Ibis compilation of native aggregates and calendar operations."""
 
 from __future__ import annotations
 
+from datetime import datetime
+
 # Ibis visitor names include the operation class name.
-# ruff: noqa: N802
+# ruff: noqa: N802, N815
 from typing import ClassVar, NoReturn
 
+import ibis.expr.datatypes as dt
 import ibis.expr.operations as ops
 import sqlglot.expressions as sge
 from ibis.backends import BaseBackend
 from ibis.backends.sql import SQLBackend
 from ibis.backends.sql.compilers.clickhouse import ClickHouseCompiler
+from ibis.backends.sql.compilers.duckdb import DuckDBCompiler
 from ibis.backends.sql.compilers.mysql import MySQLCompiler
 from ibis.backends.sql.compilers.postgres import PostgresCompiler
 from ibis.backends.sql.compilers.trino import TrinoCompiler
 from ibis.common.exceptions import OperationNotDefinedError
 
 from marivo._source_aggregates import aggregate_repair_action, native_aggregate
+from marivo.datasource._calendar_relations import (
+    CalendarData,
+    CalendarFloor,
+    compile_calendar_data,
+    compile_calendar_floor,
+)
 from marivo.datasource.errors import DatasourceSourceCapabilityError, repair
 
 _OPERATIONS = {
@@ -65,8 +75,16 @@ def _reject(backend: str, node: ops.Node) -> NoReturn:
 
 
 # Ibis compiler classes are untyped. These subclasses retain its complete relational
-# compiler and override only aggregate mappings/admission on Marivo-owned instances.
+# compiler and override aggregate admission and private calendar operations on owned instances.
 class _PostgresCompiler(PostgresCompiler):  # type: ignore[misc]
+    def visit_CalendarData(self, op: CalendarData, **kwargs: object) -> sge.Expr:
+        return compile_calendar_data(op, "postgres")
+
+    def visit_CalendarFloor(
+        self, op: CalendarFloor, *, arg: sge.Expr, **kwargs: object
+    ) -> sge.Expr:
+        return compile_calendar_floor(op, arg, "postgres")
+
     UNSUPPORTED_OPS = (*PostgresCompiler.UNSUPPORTED_OPS, *_unsupported("postgres"))
 
     def visit_Undefined(self, op: ops.Node, **kwargs: object) -> NoReturn:
@@ -74,6 +92,29 @@ class _PostgresCompiler(PostgresCompiler):  # type: ignore[misc]
 
 
 class _MySQLCompiler(MySQLCompiler):  # type: ignore[misc]
+    def visit_DateTimestampTruncate(
+        self, op: ops.DateTruncate | ops.TimestampTruncate, *, arg: sge.Expr, unit: object
+    ) -> sge.Expr:
+        if op.unit.short == "W":
+            result = self.f.date_sub(
+                self.f.date(arg),
+                sge.Interval(this=self.f.weekday(arg), unit=self.v.DAY),
+            )
+        else:
+            result = super().visit_DateTimestampTruncate(op, arg=arg, unit=unit)
+        assert isinstance(result, sge.Expr)
+        return result
+
+    visit_DateTruncate = visit_TimestampTruncate = visit_DateTimestampTruncate
+
+    def visit_CalendarData(self, op: CalendarData, **kwargs: object) -> sge.Expr:
+        return compile_calendar_data(op, "mysql")
+
+    def visit_CalendarFloor(
+        self, op: CalendarFloor, *, arg: sge.Expr, **kwargs: object
+    ) -> sge.Expr:
+        return compile_calendar_floor(op, arg, "mysql")
+
     UNSUPPORTED_OPS = (*MySQLCompiler.UNSUPPORTED_OPS, *_unsupported("mysql"))
 
     def visit_Undefined(self, op: ops.Node, **kwargs: object) -> NoReturn:
@@ -81,6 +122,26 @@ class _MySQLCompiler(MySQLCompiler):  # type: ignore[misc]
 
 
 class _TrinoCompiler(TrinoCompiler):  # type: ignore[misc]
+    def visit_NonNullLiteral(
+        self, op: ops.Literal, *, value: object, dtype: dt.DataType
+    ) -> sge.Expr | None:
+        if isinstance(dtype, dt.Timestamp) and isinstance(value, datetime):
+            # The ordinary ISO parser returns timestamp(3), losing boundary
+            # microseconds before the outer cast can restore their precision.
+            result = self.cast(self.f.from_iso8601_timestamp_nanos(value.isoformat()), dtype)
+        else:
+            result = super().visit_NonNullLiteral(op, value=value, dtype=dtype)
+        assert result is None or isinstance(result, sge.Expr)
+        return result
+
+    def visit_CalendarData(self, op: CalendarData, **kwargs: object) -> sge.Expr:
+        return compile_calendar_data(op, "trino")
+
+    def visit_CalendarFloor(
+        self, op: CalendarFloor, *, arg: sge.Expr, **kwargs: object
+    ) -> sge.Expr:
+        return compile_calendar_floor(op, arg, "trino")
+
     UNSUPPORTED_OPS = (*TrinoCompiler.UNSUPPORTED_OPS, *_unsupported("trino"))
 
     def visit_Undefined(self, op: ops.Node, **kwargs: object) -> NoReturn:
@@ -94,6 +155,14 @@ def _native_name(backend: str, reducer: str) -> str:
 
 
 class _ClickHouseCompiler(ClickHouseCompiler):  # type: ignore[misc]
+    def visit_CalendarData(self, op: CalendarData, **kwargs: object) -> sge.Expr:
+        return sge.to_table(op.name)
+
+    def visit_CalendarFloor(
+        self, op: CalendarFloor, *, arg: sge.Expr, **kwargs: object
+    ) -> sge.Expr:
+        return compile_calendar_floor(op, arg, "clickhouse")
+
     # Ibis generates SIMPLE_OPS visitors after class creation, overriding explicit
     # methods. Remove median entries before defining the parameterized visitors.
     SIMPLE_OPS: ClassVar[dict[type[ops.Node], str]] = {
@@ -166,11 +235,23 @@ class _ClickHouseCompiler(ClickHouseCompiler):  # type: ignore[misc]
         return self._quantile(op, arg, sge.convert(0.5), where, approximate=True)
 
 
+class _DuckDBCompiler(DuckDBCompiler):  # type: ignore[misc]
+    def visit_CalendarData(self, op: CalendarData, **kwargs: object) -> sge.Expr:
+        return sge.to_table(op.name)
+
+    def visit_CalendarFloor(
+        self, op: CalendarFloor, *, arg: sge.Expr, **kwargs: object
+    ) -> sge.Expr:
+        return compile_calendar_floor(op, arg, "duckdb")
+
+
 def configure_aggregate_compiler(backend: BaseBackend) -> None:
     """Configure a backend instance without changing Ibis's global compilers."""
     if not isinstance(backend, SQLBackend):
         return
-    if backend.name == "postgres":
+    if backend.name == "duckdb":
+        backend.compiler = _DuckDBCompiler()
+    elif backend.name == "postgres":
         backend.compiler = _PostgresCompiler()
     elif backend.name == "mysql":
         backend.compiler = _MySQLCompiler()

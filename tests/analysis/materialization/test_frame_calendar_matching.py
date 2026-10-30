@@ -911,7 +911,12 @@ def test_named_source_pending_interpretation_is_checked_before_value_names(
         CompletedFrameResult(
             CompletedFrameData(
                 schema,
-                pd.DataFrame({endpoint.columns[0].slot_id: [0], "value.0": [2]}),
+                pd.DataFrame(
+                    {
+                        endpoint.columns[0].slot_id: [datetime(2026, 8, 1, tzinfo=timezone.utc)],
+                        "value.0": [2],
+                    }
+                ),
                 tuple(calendar.directory for calendar in binding.calendars),
             ),
             FrameResultMetadata(
@@ -953,7 +958,7 @@ def _captured_calendar_frame(
         calendar._binding,
         token="axis.0",
         name="period",
-        key=DataColumn("bucket", "period", ScalarDataType("int64"), False),
+        key=DataColumn("bucket", "period", TimestampDataType("us", "UTC"), False),
     )
     schema = DataSchema(
         (captured.axis,),
@@ -962,7 +967,10 @@ def _captured_calendar_frame(
     )
     rows = pd.DataFrame(
         {
-            "bucket": pd.Series(range(len(values)), dtype="int64[pyarrow]"),
+            "bucket": pd.Series(
+                [cell[0] for cell in calendar._binding.cells],
+                dtype="timestamp[us, tz=UTC][pyarrow]",
+            ),
             "amount": pd.Series(values, dtype="int64[pyarrow]"),
         }
     )
@@ -985,6 +993,10 @@ def test_named_compare_consumes_direct_frozen_relations_and_equivalent_explicit_
     current = _captured_calendar_frame(local, calendar, (12, 20))
     yoy = _captured_calendar_frame(local, calendar.shift(mv.offset(years=-1)), (4, 5))
     mom = _captured_calendar_frame(local, calendar.shift(mv.offset(periods=-1)), (6, 10))
+
+    wrong = _captured_calendar_frame(
+        local, exact_scope("2026-01-01", "2026-02-01", "UTC").by(mv.grain("month")), (12,)
+    )
 
     def forbidden(*args: object, **kwargs: object) -> None:
         raise AssertionError("fixed named comparison consulted live time authority")
@@ -1022,7 +1034,6 @@ def test_named_compare_consumes_direct_frozen_relations_and_equivalent_explicit_
         current.compare({"yoy": mv.baseline(yoy, match=mv.offset(periods=-1))}).select(
             {"ignored": 1}
         ).compute()
-    wrong = memory(local, ("2026-01-01",), (0,), (12,), unit="month", ends=("2026-02-01",))
     with pytest.raises(AnalysisError, match="immediate current origin domain"):
         wrong_compare = wrong.compare({"yoy": mv.baseline(yoy)})
         wrong_compare.top(0, by=wrong_compare["amount"]).compute()
@@ -1202,7 +1213,11 @@ def test_pending_source_comparison_continuations_match_completed_authority(
     compared = source.compare({"reference": mv.baseline(source)})
     selected = compared.select({"delta": compared["reference.absolute.amount"]})
     assert isinstance(selected._schema, PendingDataSchema)
-    extra = memory(session._runtime.local, ("2026-08-01", "2026-08-02"), (0, 1), (3, 4))
+    extra = _captured_calendar_frame(
+        session._runtime.local,
+        session.time_scope(start="2026-08-01", end="2026-08-03").by(mv.grain("day")),
+        (3, 4),
+    )
 
     def chain(frame: AnalysisFrame, *, displaced: bool) -> AnalysisFrame:
         if displaced:
@@ -1242,7 +1257,11 @@ def test_completed_align_prunes_comparison_contexts_after_calendar_domain_expand
         by=(session.time_scope(start="2026-08-01", end="2026-08-02").by(mv.grain("day")),),
     )
     compared = source.compare({"prior": mv.baseline(source)})
-    extra = memory(session._runtime.local, ("2026-08-01", "2026-08-03"), (0, 1), (3, 4))
+    extra = _captured_calendar_frame(
+        session._runtime.local,
+        session.time_scope(start="2026-08-01", end="2026-08-03").by(mv.grain("day")),
+        (3, 4),
+    )
     aligned = compared.align(extra, on=((compared.axes[0], extra.axes[0]),))
 
     pending_contexts = aligned.schema.value_contexts.values()
@@ -1296,13 +1315,10 @@ def test_pending_shifted_self_align_owns_only_paired_endpoint_facts(
     completed = fixed.align(fixed, match=mv.ordinal()).compute()
     assert completed._schema == output._schema
     pd.testing.assert_frame_equal(completed.to_pandas(), output.to_pandas())
-    extra = memory(
+    extra = _captured_calendar_frame(
         session._runtime.local,
-        ("2026-08-01", "2026-09-01"),
-        (0, 1),
+        session.time_scope(start="2026-08-01", end="2026-10-01").by(mv.grain("month")),
         (3, 4),
-        unit="month",
-        ends=("2026-09-01", "2026-10-01"),
     )
     expanded = source.align(extra)
     continued = expanded.select({"amount": expanded["left.amount"]}).compute()

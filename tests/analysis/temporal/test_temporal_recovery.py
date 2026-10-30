@@ -142,6 +142,8 @@ def test_native_temporal_mean_int64_identities_and_independent_cold_reads(
             types_mapper=pd.ArrowDtype
         )
         assert calendar_metadata["timezone"] == "UTC"
+        assert str(directory["key.0"].dtype) == "timestamp[us, tz=UTC][pyarrow]"
+        assert directory["key.0"].tolist() == directory["nominal_start"].tolist()
         assert [
             (cell.actual_start, cell.actual_end) for cell in directory.itertuples(index=False)
         ] == [
@@ -210,7 +212,7 @@ with patch.object(ms,'load',forbidden), patch.object(SemanticProject,'load',forb
         frame=saved.to_pandas(time_details=True)
         assert snapshot(saved,frame=frame)==selected['snapshot']
         frames[name]=frame
-    assert frames['subjects'].iloc[:,1].tolist()==state['subject_keys']
+    assert frames['subjects'][frames['subjects'].attrs['axes'][1]['name'].rsplit('.',1)[-1]].tolist()==state['subject_keys']
     assert frames['subjects']['value'].tolist()==[18.0,150.0]
     assert frames['spatial']['value'].tolist()==[168.0]
     assert frames['represented']['value'].tolist()==[84.0]

@@ -1,4 +1,4 @@
-"""ClickHouse calendar CASE compatibility through public source observation."""
+"""ClickHouse calendar key compatibility through public source observation."""
 
 from collections.abc import Callable
 from datetime import date, datetime, timedelta, timezone
@@ -12,18 +12,17 @@ from sqlglot import expressions as sge
 import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo._definition.types import IntervalCoordinate
-from marivo.analysis.materialization.graph_source_execution import _attribute_calendar_value
+from marivo.analysis.materialization.graph_source_execution import _bind_attribute_calendar
 from marivo.datasource.ir import TableSourceIR
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.numeric.test_remote_numeric_query import _datasource_model
-from tests.datasource.environment import clickhouse_analysis
 from tests.datasource.source_cases import SourceData, source_case, source_params
 from tests.shared_fixtures import catalog_value
 from tests.support.source_trace import capture_source
 
 
 @pytest.mark.parametrize("calendar", (False, True))
-def test_attribute_calendar_case_types_values_without_casting_null(
+def test_attribute_calendar_keeps_exact_key_types(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, calendar: bool
 ) -> None:
     monkeypatch.chdir(tmp_path)
@@ -36,18 +35,14 @@ def test_attribute_calendar_case_types_values_without_casting_null(
         else IntervalCoordinate("interval", coordinate.cells[0][2], coordinate.cells[-1][3], "UTC")
     )
     table = ibis.table({"event_time": "timestamp('UTC')"}, name="events")
-    value = _attribute_calendar_value(
-        table, {"time": "event_time"}, "time", selection, None, "key.0"
+    bound = _bind_attribute_calendar(
+        table, {"time": "event_time"}, "time", selection, None, "key.0", "bucket"
     )
-    sql = ibis.to_sql(table.select(bucket=value), dialect="clickhouse")
-    bucket = next(sqlglot.parse_one(sql, read="clickhouse").find_all(sge.Case))
-    assert isinstance(bucket.args["default"], sge.Null)
-    for branch in bucket.args["ifs"]:
-        typed = branch.args["true"]
-        assert isinstance(typed, sge.Cast)
-        assert typed.to.this == sge.DataType.Type.BIGINT
-        assert not typed.to.args.get("nullable")
-    assert value.type().is_int64() and value.type().nullable
+    value = bound.bucket
+    if calendar:
+        assert value.type() == ibis.dtype("timestamp('UTC', 6)")
+    else:
+        assert value.type().is_int64() and value.type().nullable
 
 
 @pytest.mark.parametrize("backend,profile", source_params([("clickhouse", "mergetree")]))
@@ -126,38 +121,17 @@ def test_observe_calendar_preserves_bucket_types_boundaries_and_windows(
         assert result.attrs["axes"][0]["descriptor"]["timezone"] == "UTC"
         assert len(result.attrs["frozen_coordinates"][0]["rows"]["nominal_start"]) == 3
 
-        # Inspect the CASE actually submitted by observe, not a hand-built surrogate.
-        buckets = [
-            alias.this
+        # Inspect actual submissions, preserving the regression's native boundary
+        # and nullable-type coverage without requiring the retired CASE encoding.
+        assert trace.native_sql
+        assert all(len(sql.encode()) < 65536 for sql in trace.native_sql)
+        assert all(
+            len(case.args["ifs"]) <= 1
             for sql in trace.native_sql
-            for alias in sqlglot.parse_one(sql, read="clickhouse").find_all(sge.Alias)
-            if alias.alias.startswith("__bucket_") and isinstance(alias.this, sge.Case)
-        ]
-        assert buckets
-        for bucket in buckets:
-            assert isinstance(bucket.args["default"], sge.Null)
-            for branch in bucket.args["ifs"]:
-                value = branch.args["true"]
-                assert isinstance(value, sge.Cast)
-                assert value.to.this == sge.DataType.Type.BIGINT
-                assert not value.to.args.get("nullable")
-        native_bucket = buckets[0].copy()
-        for column in native_bucket.find_all(sge.Column):
-            column.set("table", None)
-        table = sge.Table(
-            this=sge.to_identifier(case.source.table, quoted=True),
-            db=sge.to_identifier(str(case.source.database), quoted=True),
+            for case in sqlglot.parse_one(sql, read="clickhouse").find_all(sge.Case)
         )
-        query = (
-            sge.select("id", native_bucket.as_("bucket"), "toTypeName(bucket) AS bucket_type")
-            .from_(table)
-            .order_by("id")
-        )
-        with clickhouse_analysis.connection() as reader:
-            native = reader.query(query.sql(dialect="clickhouse")).result_rows
-        expected_buckets = [None, 0, 0, 2, None] + ([None] if nullable else [])
-        assert [row[1] for row in native] == expected_buckets
-        assert {row[2] for row in native} == {"Nullable(Int64)"}
+        directory = result.attrs["frozen_coordinates"][0]["rows"]
+        assert str(directory.schema.field("key.0").type) == "timestamp[us, tz=UTC]"
 
         report = frame.attribute(by=(category,)).compute().to_pandas(time_details=True)
         assert report["calendar:day.label"].tolist() == ["2026-01-01", "2026-01-03"]

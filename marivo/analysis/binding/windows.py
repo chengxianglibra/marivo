@@ -427,7 +427,9 @@ def bind_windows(
                     occurrence=(*contribution.occurrence, index),
                     logical_occurrence=contribution.occurrence,
                     window_rule=rule,
-                    window_key=index if contribution.calendars else None,
+                    window_key=(calendar.cells[index][0] if calendar is not None else index)
+                    if contribution.calendars
+                    else None,
                     window_calendar_digest=(
                         rule.grain._snapshot.snapshot_digest
                         if isinstance(rule, ToDate) and rule.grain._snapshot is not None

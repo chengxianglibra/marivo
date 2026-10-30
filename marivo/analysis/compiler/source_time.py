@@ -686,7 +686,7 @@ def source_time(
             instant = localize(adopted, timestamp(value.cast(dt.Timestamp(scale=6))))
         if engine == "mysql" and adopted == "UTC" and boundary_timezone == "UTC":
             # The UTC-zoned value already represents UTC. Rendering UTC is
-            # identity; these engines have no DuckDB/PostgreSQL timezone().
+            # identity; MySQL uses CONVERT_TZ only when conversion is required.
             value = timestamp(value.cast(dt.Timestamp(scale=6)))
             instant = None
         elif engine in ("clickhouse", "trino") and adopted == "UTC" and boundary_timezone == "UTC":
@@ -732,3 +732,56 @@ def source_time(
         value if instant is None else render(boundary_timezone, instant),
         _retain_authority(authority, frozen),
     )
+
+
+def calendar_wall_clock(
+    raw: ir.Value,
+    axis: TargetDimensionContract,
+    authority: SourceTimeAuthority,
+    *,
+    bound: datetime,
+    engine: str,
+    prefix: ir.Value | None = None,
+    prefix_axis: TargetDimensionContract | None = None,
+) -> ir.Value | None:
+    """Retain admitted raw civil fields in a neutral carrier for bucket membership."""
+    from dataclasses import replace
+
+    if authority.kind != "localizable" or authority.read_timezone is None:
+        return None
+    zone = time_zone(authority.read_timezone)
+    if zone.utcoffset(None) is not None:
+        return None
+    if (
+        source_time_comparison(
+            raw,
+            axis,
+            authority,
+            bound=bound,
+            comparison=">=",
+            prefix=prefix,
+            prefix_axis=prefix_axis,
+        )
+        is None
+    ):
+        return None
+    parse = axis.parse
+    neutral = (
+        replace(axis, parse=replace(parse, timezone="UTC"))
+        if isinstance(parse, (TimestampParse, StrptimeParse))
+        else axis
+    )
+    if prefix is not None and prefix_axis is not None:
+        prefix, _ = source_time(
+            prefix, prefix_axis, boundary_timezone="UTC", read_timezone="UTC", engine=engine
+        )
+    value, _ = source_time(
+        raw,
+        neutral,
+        boundary_timezone="UTC",
+        read_timezone="UTC",
+        engine=engine,
+        prefix=prefix,
+        prefix_timezone="UTC",
+    )
+    return value if value.type().timezone is not None else localize("UTC", timestamp(value))

@@ -266,7 +266,11 @@ def prepare_population(
     for index, axis in enumerate(definition.axes):
         if isinstance(axis, (CalendarCoordinate, IntervalCoordinate)):
             group = (f"__population_{index}_0",)
-            types[group[0]] = dt.int64
+            types[group[0]] = (
+                dt.Timestamp(timezone="UTC", scale=6)
+                if isinstance(axis, CalendarCoordinate)
+                else dt.int64
+            )
             groups.append(group)
             continue
         if not isinstance(axis, AxisBinding):

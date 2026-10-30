@@ -34,6 +34,7 @@ from marivo.analysis.compiler.source_predicates import (
     same_returned_key,
     string_bytes,
 )
+from marivo.analysis.core.calendar_keys import time_keys
 from marivo.analysis.core.data_types import DurationDataType
 from marivo.analysis.errors import AnalysisStageUnavailableError
 from marivo.semantic._numeric_lowering import (
@@ -99,7 +100,7 @@ class SampleLowerer:
         keys: tuple[str, ...],
         provider: str,
         population: Callable[[PopulationDependency, tuple[str, ...]], ir.Table],
-        grid: Callable[[tuple[str, ...], tuple[tuple[int, ...], ...]], ir.Table],
+        grid: Callable[[tuple[str, ...], tuple[tuple[object, ...], ...]], ir.Table],
         identities: Mapping[str, str] | None = None,
     ) -> None:
         self.program = program
@@ -356,9 +357,9 @@ class SampleLowerer:
                 and self.program.output_population is None
             ):
                 coordinate = self.program.calendar
-                size = len(coordinate.cells) if isinstance(coordinate, CalendarCoordinate) else 1
+                calendar_values = time_keys(coordinate)
                 slot = self.program.calendar_key
-                grid = self.grid((slot,), tuple((i,) for i in range(size)))
+                grid = self.grid((slot,), tuple((value,) for value in calendar_values))
                 fields = tuple(key for key in keys if key != slot)
                 parent = (
                     distinct_returned_keys(parent.select(*fields), self.provider).cross_join(grid)
@@ -396,9 +397,9 @@ class SampleLowerer:
                 else ((parent_axis.start, parent_axis.end, parent_axis.start, parent_axis.end),)
             )
             pairs = tuple(
-                (i, j)
-                for i, cell in enumerate(cells)
-                for j, sample in enumerate(calendar.cells)
+                (cell[0] if isinstance(parent_axis, CalendarCoordinate) else 0, sample[0])
+                for cell in cells
+                for sample in calendar.cells
                 if cell[2] <= sample[2] and sample[3] <= cell[3]
             )
             grid = self.grid((parent_slot, sample_keys[0]), pairs)

@@ -8,7 +8,7 @@ import pytest
 import marivo.analysis as mv
 from marivo._temporal_grid import CivilShiftAbsent, CivilShiftTarget, TimeShiftAbsent
 from marivo.analysis.core.data_schema import DataSchema
-from marivo.analysis.core.data_types import DataColumn, ScalarDataType
+from marivo.analysis.core.data_types import DataColumn, TimestampDataType
 from marivo.analysis.core.frame_calendar import FrozenSourceCalendar, freeze_calendar
 from marivo.analysis.core.frozen_calendar import (
     FrozenAttachment,
@@ -39,7 +39,7 @@ def frozen(
         axis._binding,
         token=token,
         name="period",
-        key=DataColumn(f"key.{token}", "period", ScalarDataType("int64"), False),
+        key=DataColumn(f"key.{token}", "period", TimestampDataType("us", "UTC"), False),
     )
     return captured, read_calendar_directory(
         captured.axis, captured.directory.schema, captured.directory.rows

@@ -69,7 +69,7 @@ class ReductionInput:
     calendar: CalendarCoordinate | IntervalCoordinate | None = None
     time_column: str | None = None
     duration: DurationDataType | None = None
-    window_key: int | None = None
+    window_key: int | datetime | None = None
     preserve_sample_presence: bool = False
     calendars: tuple[tuple[str, CalendarCoordinate | IntervalCoordinate], ...] = ()
     sampled: bool = False
@@ -171,6 +171,26 @@ def reduction_input(
     )
 
 
+def bind_reduction_calendars(
+    prepared: ReductionInput, table: ir.Table, columns: Mapping[str, str]
+) -> tuple[ir.Table, Mapping[str, str]]:
+    from marivo.analysis.compiler.calendar import bind_calendar
+
+    bound = dict(columns)
+    calendars = prepared.calendars or (
+        (("key.0", prepared.calendar),) if prepared.calendar is not None else ()
+    )
+    for slot, calendar in calendars:
+        field = calendar_field(slot)
+        if field in bound or (prepared.window_key is not None and calendar == prepared.calendar):
+            continue
+        assert prepared.time_column is not None
+        name = "__bound_calendar_" + slot.replace(".", "_")
+        table = bind_calendar(table, table[bound[prepared.time_column]], calendar, name)
+        bound[field] = name
+    return table, bound
+
+
 def _reduction_axes(
     prepared: ReductionInput, available: Mapping[str, ir.Value], window_slot: str | None = None
 ) -> dict[str, ir.Value]:
@@ -184,24 +204,7 @@ def _reduction_axes(
             assert window_slot is not None
             result[slot] = available[window_slot]
             continue
-        captured = available.get(calendar_field(slot))
-        if captured is not None:
-            result[slot] = captured
-            continue
-        assert prepared.time_column is not None
-        time = available[prepared.time_column]
-        bucket: ir.Value = ibis.null().cast("int64")
-        cells = (
-            calendar.cells
-            if isinstance(calendar, CalendarCoordinate)
-            else ((calendar.start, calendar.end, calendar.start, calendar.end),)
-        )
-        for i, (_, _, start, end) in reversed(tuple(enumerate(cells))):
-            bucket = (
-                (time >= temporal_bound(time, start, calendar.timezone))
-                & (time < temporal_bound(time, end, calendar.timezone))
-            ).ifelse(i, bucket)
-        result[slot] = bucket
+        result[slot] = available[calendar_field(slot)]
     return dict(sorted(result.items(), key=lambda item: int(item[0].split(".")[1])))
 
 
@@ -215,6 +218,7 @@ def lower_observation(
     frequency: bool = False,
 ) -> tuple[ir.Table, tuple[tuple[str, NumericCheck], ...]]:
     """Emit grouped nullable values and ephemeral check columns in one read."""
+    table, columns = bind_reduction_calendars(prepared, table, columns)
     window_slot: str | None = None
     if prepared.window_key is not None:
         window_slot = "__marivo_window_key"
@@ -222,7 +226,16 @@ def lower_observation(
             window_slot += "_"
         # Group a projected coordinate, preserving empty-input grouping and
         # avoiding SQL dialects interpreting an integer literal as a position.
-        table = table.mutate(**{window_slot: ibis.literal(prepared.window_key)}).view()
+        table = table.mutate(
+            **{
+                window_slot: ibis.literal(
+                    prepared.window_key,
+                    type="timestamp('UTC', 6)"
+                    if isinstance(prepared.window_key, datetime)
+                    else "int64",
+                )
+            }
+        ).view()
     fields = {path: table[name] for path, name in columns.items()}
     if window_slot is not None:
         fields[window_slot] = table[window_slot]
@@ -372,6 +385,7 @@ def lower_common_observations(
     predicates: tuple[PredicateExpression, ...],
 ) -> tuple[ir.Table, tuple[tuple[str, NumericCheck], ...]]:
     """Emit independent reductions and their checks in one native aggregate."""
+    table, columns = bind_reduction_calendars(reductions[0], table, columns)
     fields = {path: table[name] for path, name in columns.items()}
     selected = tuple(lower_condition(node, fields) for node in predicates)
     predicate_checks = tuple(check for item in selected for check in item.checks)
@@ -469,8 +483,10 @@ def temporal_bound(value: ir.Value, boundary: datetime, zone: str) -> ir.Value:
     if value.type().is_date():
         from marivo.analysis.core.time_authority import time_zone
 
-        return ibis.literal(boundary.astimezone(time_zone(zone)).replace(tzinfo=None))
-    return ibis.literal(boundary)
+        return ibis.literal(
+            boundary.astimezone(time_zone(zone)).replace(tzinfo=None), type="timestamp(6)"
+        )
+    return ibis.literal(boundary, type="timestamp('UTC', 6)")
 
 
 def duration_type(

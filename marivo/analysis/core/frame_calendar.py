@@ -21,6 +21,7 @@ from marivo.analysis.core.artifact_data import (
     NamedCalendarData,
     OutputAttachment,
 )
+from marivo.analysis.core.calendar_keys import time_key_series, time_keys
 from marivo.analysis.core.data_schema import FrozenCalendarOrigin
 from marivo.analysis.core.lineage import SemanticObjectIdentity
 from marivo.analysis.core.model import reject
@@ -172,11 +173,11 @@ def freeze_calendar(
             ),
         )
         mapping_schema = direct_mapping_schema(axis)
-        targets = {cell[0].isoformat(): i for i, cell in enumerate(coordinate.cells)}
+        targets = {cell[0].isoformat(): cell[0] for cell in coordinate.cells}
         mapping_rows = pd.DataFrame(
             {
                 frozen_origin.axis.columns[0].slot_id: pd.Series(
-                    range(len(origin.entries)), dtype="int64[pyarrow]"
+                    time_keys(origin_coordinate), dtype="timestamp[us, tz=UTC][pyarrow]"
                 ),
                 "target.0": pd.Series(
                     [
@@ -185,7 +186,7 @@ def freeze_calendar(
                         else None
                         for entry in origin.entries
                     ],
-                    dtype="int64[pyarrow]",
+                    dtype="timestamp[us, tz=UTC][pyarrow]",
                 ),
                 "reason": pd.Series(
                     [
@@ -204,7 +205,7 @@ def freeze_calendar(
     bounds = ("nominal_start", "nominal_end", "actual_start", "actual_end")
     rows = pd.DataFrame(
         {
-            key.slot_id: pd.Series(range(len(coordinate.cells)), dtype="int64[pyarrow]"),
+            key.slot_id: time_key_series(coordinate),
             "nominal_label": pd.Series(labels, dtype="string[pyarrow]"),
             "ordinal": pd.Series(range(len(coordinate.cells)), dtype="int64[pyarrow]"),
             "nominal_ordinal": pd.Series(nominal_ordinals, dtype="int64[pyarrow]"),

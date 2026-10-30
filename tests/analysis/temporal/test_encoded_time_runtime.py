@@ -216,38 +216,10 @@ def test_grid_window_has_scan_envelope_and_preserves_cells(
     ]
     assert len(ranges) == 2
     assert all(isinstance(item.this, sge.Column) for item in ranges)
-    bucket_cases = [
-        alias.this
-        for alias in ast.find_all(sge.Alias)
-        if alias.alias.startswith("__bucket_") and isinstance(alias.this, sge.Case)
-    ]
-    bucket_branches = [
-        branch
-        for node in bucket_cases
-        for branch in node.args["ifs"]
-        if isinstance(branch.args["true"], sge.Cast)
-        and isinstance(branch.args["true"].this, sge.Literal)
-        and branch.args["true"].this.this in {"0", "1"}
-    ]
-    bucket_branches.sort(key=lambda branch: int(branch.args["true"].this.this))
-    assert [branch.args["true"].this.this for branch in bucket_branches] == ["0", "1"]
-    assert all(
-        branch.args["true"].to.this == sge.DataType.Type.BIGINT for branch in bucket_branches
-    )
-    # Selection and bucket assignment use the same typed raw encoding bounds.
-    quote = "" if integer else "'"
-    expected_bounds = tuple(
-        (f"{quote}{start}{quote}", f"{quote}{end}{quote}")
-        for start, end in (("20260801", "20260901"), ("20260901", "20261001"))
-    )
-    for branch, (start, end) in zip(bucket_branches, expected_bounds, strict=True):
-        lower, upper = branch.this.find(sge.GTE), branch.this.find(sge.LT)
-        assert lower is not None and upper is not None
-        assert isinstance(lower.this, sge.Column) and lower.this == upper.this
-        assert lower.expression.sql(dialect="duckdb") == start
-        assert upper.expression.sql(dialect="duckdb") == end
-    for node in bucket_cases:
-        assert isinstance(node.args.get("default"), sge.Null)
+    # The raw scan envelope remains exact; selected period assignment now
+    # joins a typed frozen directory instead of enumerating ordinal CASE arms.
+    assert any(join.args.get("on") is not None for join in ast.find_all(sge.Join))
+    assert all(len(node.args["ifs"]) <= 1 for node in ast.find_all(sge.Case))
     assert optimized.coord_0.tolist() == ["2026-08-01", "2026-09-01"] * 4
     reads.clear()
     with monkeypatch.context() as baseline:

@@ -78,10 +78,8 @@ def governed_temporal_operation(node: ops.Node) -> bool:
 def lower_temporal(expression: ir.Expr, engine: str) -> ir.Expr:
     """Replace only the compiler's closed native temporal operations.
 
-    The rewrite reads every child through ``kwargs`` because the calendar
-    bucket's ``SearchedCase`` node itself carries a ``results`` argument, so a
-    positional ``results`` parameter would collide with the traversal's own
-    keyword of the same name.
+    The rewrite reads every child through ``kwargs``. Ibis operations may carry
+    a ``results`` argument, so the traversal's result map uses a distinct name.
     """
 
     from marivo.analysis.materialization.time_filter import cancel_utc, optimize_time

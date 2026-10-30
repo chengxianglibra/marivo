@@ -246,13 +246,13 @@ def period_endpoints(local: LocalFrameServices) -> tuple[AnalysisFrame, Analysis
             axis._binding,
             token="period",
             name="month",
-            key=DataColumn("bucket", "bucket", ScalarDataType("int64"), False),
+            key=DataColumn("bucket", "bucket", TimestampDataType("us", "UTC"), False),
         )
         value = DataColumn("amount", "amount", ScalarDataType("int64"), False, "CNY")
         schema = DataSchema((frozen.axis,), (value,), value_paths=(("amount",),))
         rows = pd.DataFrame(
             {
-                "bucket": pd.Series(range(2), dtype="int64[pyarrow]"),
+                "bucket": frozen.directory.rows["bucket"],
                 "amount": pd.Series(amounts, dtype="int64[pyarrow]"),
             }
         )
@@ -3281,7 +3281,7 @@ def test_calendar_export_unifies_grains_and_preserves_clipped_timezone_bounds() 
             CalendarAxis(scope, grid)._binding,
             token="axis.0",
             name="report.time",
-            key=DataColumn("bucket", "bucket", ScalarDataType("int64"), False),
+            key=DataColumn("bucket", "bucket", TimestampDataType("us", "UTC"), False),
         )
         schema = DataSchema((frozen.axis,), ())
         keys = frozen.directory.rows.loc[:, ["bucket"]]
@@ -3390,7 +3390,7 @@ def test_fixed_offset_exports_are_readable_and_keep_exact_instants(
         CalendarAxis(scope, grid)._binding,
         token="day",
         name="day",
-        key=DataColumn("bucket", "bucket", ScalarDataType("int64"), False),
+        key=DataColumn("bucket", "bucket", TimestampDataType("us", "UTC"), False),
     )
     daily = AnalysisFrame._from_memory(
         local,

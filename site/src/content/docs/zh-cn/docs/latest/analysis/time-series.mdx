@@ -24,6 +24,10 @@ monthly_source = session.observe(
 monthly_source.show()
 ```
 
+日历桶在首尾裁剪后仍保留名义起点。空桶继续保留，稀疏选择只包含选中的期间。
+内置日历使用原生日历运算；已认证的自定义日历使用冻结快照中的唯一日期到期间映射。
+两种路径都不再为每个桶展开一条 SQL 分支。自定义日历仍要求每天唯一归属，期间连续且不重叠。
+
 {/* example: metric-window-query */}
 
 ```python

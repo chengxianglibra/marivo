@@ -6,7 +6,7 @@ import weakref
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import replace
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from hashlib import sha256
 from pathlib import Path
 from typing import Literal
@@ -23,7 +23,7 @@ from marivo._definition.types import CalendarCoordinate
 from marivo._temporal import certify_period_calendar, semantic_grain
 from marivo.analysis.compiler.graph_lowering import LoweredQuery
 from marivo.analysis.core.artifact_data import DataColumn, NamedCalendarData
-from marivo.analysis.core.data_types import ScalarDataType, TimestampDataType
+from marivo.analysis.core.data_types import TimestampDataType
 from marivo.analysis.core.frame_calendar import freeze_calendar
 from marivo.analysis.core.frame_data import MemoryFrameBacking, StoredFrameBacking
 from marivo.analysis.core.frame_source_facts import source_scope
@@ -697,7 +697,7 @@ def test_calendar_freeze_preserves_dst_fold_and_partial_nominal_bounds() -> None
     assert isinstance(coordinate, CalendarCoordinate)
     assert coordinate.grain_spec is fold.grid.grain_spec
     assert coordinate.grain == fold.grid.grain_token == "hour"
-    key = DataColumn("key.0", "bucket", ScalarDataType("int64"), False)
+    key = DataColumn("key.0", "bucket", TimestampDataType("us", "UTC"), False)
     frozen = freeze_calendar(coordinate, token="axis.0", name="hour", key=key)
     rows = frozen.directory.rows
     labels = rows["nominal_label"].tolist()
@@ -705,7 +705,9 @@ def test_calendar_freeze_preserves_dst_fold_and_partial_nominal_bounds() -> None
     assert "2024-11-03T01:00:00.000000-04:00" in labels
     assert "2024-11-03T01:00:00.000000-05:00" in labels
     assert rows["ordinal"].tolist() == list(range(25))
-    assert rows["key.0"].tolist() == list(range(25))
+    assert rows["key.0"].tolist() == [
+        datetime(2024, 11, 3, 4, tzinfo=timezone.utc) + timedelta(hours=i) for i in range(25)
+    ]
     assert all(not column.nullable for column in frozen.directory.schema.columns)
 
     partial = exact_scope("2026-08-15", "2026-09-01", "UTC").by(mv.grain("month"))
@@ -730,7 +732,7 @@ def test_named_calendar_freeze_captures_exact_level_and_canonical_labels() -> No
         ),
         levels={"short": "short", "long": "long"},
     )
-    key = DataColumn("key.0", "bucket", ScalarDataType("int64"), False)
+    key = DataColumn("key.0", "bucket", TimestampDataType("us", "UTC"), False)
     for level, labels in (("short", ["0", "1", "2", "3"]), ("long", ['"P0"', '"P1"'])):
         grain = semantic_grain(calendar=calendar, level=level, snapshot=snapshot)
         axis = exact_scope(start, end, "UTC").by(grain)

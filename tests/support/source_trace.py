@@ -7,6 +7,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from time import perf_counter
 
+import ibis.expr.operations as ops
 import ibis.expr.types as ir
 import pandas as pd
 import pyarrow as pa
@@ -36,6 +37,7 @@ class SourceTrace:
     returned_columns: list[tuple[str, ...]] = field(default_factory=list)
     uploaded_key_rows: list[int] = field(default_factory=list)
     uploaded_key_bytes: list[int] = field(default_factory=list)
+    calendar_payload_bytes: list[int] = field(default_factory=list)
     source_seconds: list[float] = field(default_factory=list)
     returned_pandas_bytes: list[int] = field(default_factory=list)
     returned_arrow_bytes: list[int] = field(default_factory=list)
@@ -127,6 +129,16 @@ def capture_source(monkeypatch: pytest.MonkeyPatch, *, measure_cost: bool = Fals
                 trace.returned_arrow_bytes.append(
                     pa.Table.from_pandas(result, preserve_index=False).nbytes
                 )
+            from marivo.datasource._calendar_relations import CalendarData
+
+            trace.calendar_payload_bytes.append(
+                sum(len(node.payload.encode()) for node in read.expression.op().find(CalendarData))
+                + sum(
+                    node.data.to_pyarrow(node.schema).nbytes
+                    for node in read.expression.op().find(ops.InMemoryTable)
+                    if node.name.startswith("_marivo_calendar_")
+                )
+            )
             trace.returned_rows.append(len(result))
             trace.returned_columns.append(tuple(result.columns))
             return result

@@ -328,7 +328,7 @@ def optimize_time(expression: ir.Expr) -> ir.Expr:
                 )
                 return replacement.op() if replacement is not None else updated
 
-            predicates = tuple(p.map(exact)[p] for p in value.predicates)
+            predicates = tuple(p.map(exact, filter=ops.Value)[p] for p in value.predicates)
             value = ops.Filter(value.parent, predicates)
             guards = tuple(_scan(p, value.parent) for p in value.predicates)
             existing = (

@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass, field, replace
+from datetime import datetime
 from json import dumps
 from typing import TYPE_CHECKING, Literal, NoReturn
 from urllib.error import HTTPError
@@ -1221,7 +1222,7 @@ def qualify_query_sources(prepared: PreparedSources, lowered: LoweredQuery) -> N
         expression = read.expression
         qualified = _qualify_query_read(prepared, stage, read)
         source = prepared.sources.get(stage.source_id, prepared.source)
-        _qualify_clickhouse_joins(source, qualified)
+        _qualify_clickhouse_joins(source, qualified, expression)
         try:
             source.compile(
                 qualified,
@@ -1238,14 +1239,30 @@ def qualify_query_sources(prepared: PreparedSources, lowered: LoweredQuery) -> N
 
 
 def _qualify_clickhouse_joins(
-    source: SourceSession, qualified: tuple[QualifiedSource, ...]
+    source: SourceSession, qualified: tuple[QualifiedSource, ...], expression: ir.Table
 ) -> None:
     """Qualify physical ClickHouse join topology without reading business rows."""
     if source.provider.name != "clickhouse" or not any(
         "join" in item.requirement.operations for item in qualified
     ):
         return
+    from marivo.datasource._calendar_relations import CalendarData
     from marivo.datasource.ir import TableSourceIR
+
+    def directory_only(relation: ops.Node) -> bool:
+        leaves = relation.find(ops.PhysicalTable)
+        return bool(leaves) and all(isinstance(leaf, CalendarData) for leaf in leaves)
+
+    calendar_joins = True
+    for chain in expression.op().find(ops.JoinChain):
+        left_directory = directory_only(chain.first)
+        for link in chain.rest:
+            right_directory = directory_only(link.table)
+            if not (left_directory or right_directory):
+                calendar_joins = False
+            left_directory = left_directory and right_directory
+    if expression.op().find(ops.InSubquery):
+        calendar_joins = False
 
     for item in qualified:
         physical = item.binding.source
@@ -1269,6 +1286,10 @@ def _qualify_clickhouse_joins(
                 item.binding.facts.source_identity,
                 "Use a source whose table profile is visible to the reader.",
             )
+        if engine == "Distributed" and calendar_joins:
+            # Invocation-owned external tables propagate to Distributed shards.
+            # Business-to-business joins still require their existing topology.
+            continue
         if engine == "Distributed":
             _route_gap(
                 "a qualified ClickHouse Distributed join route",
@@ -2377,43 +2398,29 @@ def run_frame_plan(
     )
 
 
-def _attribute_calendar_value(
+def _bind_attribute_calendar(
     table: ir.Table,
     columns: dict[str, str],
     time_column: str,
     calendar: CalendarCoordinate | IntervalCoordinate,
-    window_key: int | None,
+    window_key: int | datetime | None,
     slot: str,
-) -> ir.Value:
+    name: str,
+) -> ir.Table:
     import ibis
 
-    from marivo.analysis.compiler.observation import calendar_field, temporal_bound
+    from marivo.analysis.compiler.calendar import bind_calendar
+    from marivo.analysis.compiler.observation import calendar_field
 
     if window_key is not None:
-        return ibis.literal(window_key).cast("int64")
-    if calendar_field(slot) in columns:
-        return table[columns[calendar_field(slot)]]
-    time = table[columns[time_column]]
-    if isinstance(calendar, IntervalCoordinate):
-        return ibis.ifelse(
-            (time >= temporal_bound(time, calendar.start, calendar.timezone))
-            & (time < temporal_bound(time, calendar.end, calendar.timezone)),
-            ibis.literal(0).cast("!int64"),
-            ibis.null(),
+        value = ibis.literal(
+            window_key,
+            type="timestamp('UTC', 6)" if isinstance(window_key, datetime) else "int64",
         )
-    return ibis.cases(
-        *(
-            (
-                (time >= temporal_bound(time, cell[2], calendar.timezone))
-                & (time < temporal_bound(time, cell[3], calendar.timezone)),
-                ibis.literal(index).cast("!int64"),
-            )
-            for index, cell in enumerate(calendar.cells)
-        ),
-        # Match ordinary observation: ClickHouse can reject a typed NULL in
-        # a column-dependent CASE, so type the non-null values instead.
-        else_=ibis.null(),
-    )
+        return table.mutate(**{name: value})
+    if calendar_field(slot) in columns:
+        return table.mutate(**{name: table[columns[calendar_field(slot)]]})
+    return bind_calendar(table, table[columns[time_column]], calendar, name)
 
 
 def prepare_attribute_endpoint(
@@ -2508,7 +2515,7 @@ def prepare_attribute_sources(
     for root, leaves in contributions.items():
         owner = prepared.sources.get(root, prepared.source)
         scope_groups: dict[
-            tuple[ObservationPeriod | None, int | None], list[ContributionBinding]
+            tuple[ObservationPeriod | None, int | datetime | None], list[ContributionBinding]
         ] = {}
         for leaf in leaves:
             scope_groups.setdefault((leaf.period, leaf.window_key), []).append(leaf)
@@ -2617,32 +2624,26 @@ def prepare_attribute_sources(
 
                 scoped = replace(
                     scoped,
-                    table=scoped.table.mutate(
-                        **{
-                            name: _attribute_calendar_value(
-                                scoped.table,
-                                scoped_map,
-                                reduction.time_column,
-                                calendar,
-                                first.window_key,
-                                slot,
-                            )
-                        }
+                    table=_bind_attribute_calendar(
+                        scoped.table,
+                        scoped_map,
+                        reduction.time_column,
+                        calendar,
+                        first.window_key,
+                        slot,
+                        name,
                     ),
                 )
                 classified = replace(
                     classified,
-                    table=classified.table.mutate(
-                        **{
-                            name: _attribute_calendar_value(
-                                classified.table,
-                                assigned_map,
-                                reduction.time_column,
-                                calendar,
-                                first.window_key,
-                                slot,
-                            )
-                        }
+                    table=_bind_attribute_calendar(
+                        classified.table,
+                        assigned_map,
+                        reduction.time_column,
+                        calendar,
+                        first.window_key,
+                        slot,
+                        name,
                     ),
                 )
                 parent_slots = (*parent_slots, (slot, name))

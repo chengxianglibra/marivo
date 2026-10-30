@@ -26,6 +26,7 @@ from marivo.analysis.core.attribute import (
     AttributeSourceParentBinding,
 )
 from marivo.analysis.core.attribute_game import AttributeGameProgram
+from marivo.analysis.core.calendar_keys import time_key_type
 from marivo.analysis.core.data_schema import DataSchema
 from marivo.analysis.core.data_types import DataColumn, DataType, DurationDataType, ScalarDataType
 from marivo.analysis.core.frame_attribute_merge import AttributeMergeProgram
@@ -676,7 +677,7 @@ def _plan_query(
                 f"calendar:{calendar.grain}"
                 if isinstance(calendar, CalendarCoordinate)
                 else "interval",
-                ScalarDataType("int64"),
+                time_key_type(calendar),
                 False,
             ),
         )
@@ -977,7 +978,7 @@ def _plan_query(
                         f"calendar:{axis.grain}"
                         if isinstance(axis, CalendarCoordinate)
                         else "interval",
-                        ScalarDataType("int64"),
+                        time_key_type(axis),
                         False,
                     )
                 )
