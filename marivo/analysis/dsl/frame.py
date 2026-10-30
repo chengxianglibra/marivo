@@ -456,7 +456,11 @@ class AnalysisFrame:
         return statistic
 
     def _derive(self, operation: FrameUnaryOperationKind) -> AnalysisFrame:
-        structure = infer_frame_schema(self._schema, operation)
+        from marivo.analysis.core.frame_interpretation import capture_value_inputs
+
+        structure = capture_value_inputs(
+            self._schema, self.lineage, infer_frame_schema(self._schema, operation), operation
+        )
         return self._from_expression(
             self._local, structure, OperationFrameBinding(operation, (self,))
         )
@@ -1677,12 +1681,19 @@ class AnalysisFrame:
         )
         card = Card(
             identity=repr(self),
-            available=available,
+            available=(*available, *((".schema.alignments",) if self._schema.alignments else ())),
             omission_recovery="max_output_bytes=None; .schema/.lineage for metadata; compute() for data"
             if isinstance(self._backing, ExpressionFrameBacking)
             else "max_output_bytes=None; .schema/.lineage for metadata; .read_page()/.to_pandas() for data",
         )
         card.field("values", repr(self.output_names)).field("presence", repr(self.presence_names))
+        if self._schema.alignments:
+            card.field("alignments.count", str(len(self._schema.alignments)))
+        for index, alignment in enumerate(self._schema.alignments[:3]):
+            summary = f"{alignment.alignment_id[:80]} left={alignment.left.values[:2]!r} right={alignment.right.values[:2]!r}"
+            card.field("alignments[" + str(index) + "]", summary[:320])
+        if len(self._schema.alignments) > 3:
+            card.field("alignments.more", str(len(self._schema.alignments) - 3) + " omitted")
         declaration = self._derivation
         if declaration is None:
             card.field(

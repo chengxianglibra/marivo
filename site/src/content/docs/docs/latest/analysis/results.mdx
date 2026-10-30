@@ -175,6 +175,50 @@ baseline column displayed on current time coordinates retains its baseline time
 basis in the comparison record. A ref does not copy business prose or grant
 source access.
 
+### Interpret aligned values, shares and paired statistics
+
+Using `current` from the DSL example, inspect interpretation before execution:
+
+```python
+aligned = current.align(current)
+for relation in aligned.schema.alignments:
+    assert relation.input_id == aligned.schema.input_id
+    print(relation.left.values, relation.left.presence, relation.left.coordinates)
+    print(relation.right.values, relation.right.presence, relation.right.coordinates)
+
+shares = current.select({"share": current["revenue"].share(along=current.axes)})
+share_context = shares.schema.value_contexts["share"]
+assert isinstance(share_context, mv.FrameShareContext)
+print(share_context.numerator, share_context.groups, share_context.along)
+
+named = current.select({"revenue": current["revenue"], "doubled": current["revenue"] * 2})
+association = named.correlate(named["revenue"], named["doubled"], method="pearson")
+pair_context = association.schema.value_contexts["coefficient"]
+assert isinstance(pair_context, mv.FramePairStatisticContext)
+print(pair_context.x, pair_context.y, pair_context.row_scope)
+```
+
+Alignment sides bind current value names to coordinates and presence chains;
+every flag in the chain must be true for that endpoint to exist. An NA value is
+not an absent endpoint, and equal value names do not certify business comparability.
+Renaming direct columns updates their bindings. An expression mixing endpoints
+has no direct endpoint role. Frozen time details remain available through
+`read_periods`; do not parse `left.` or `right.` prefixes to infer time.
+
+Share metadata identifies explicit normalization, including the denominator's
+partition and summed axes. It does not certify business contribution or a 0–100%
+range: signed shares can be negative or exceed one. A plain quotient has no share
+context. Filtering shares preserves their original denominator and marks
+`row_scope="restricted"`; complete outer alignment retains endpoint completeness,
+excluding other-side-only rows through presence. Arithmetic drops the direct context.
+
+Paired input names are snapshots, not references to columns in the coefficient
+result. Derived inputs provide origins without reconstructing a formula; name an
+expression with select first when a specific title is needed. Equal origins do not
+prove equal expressions. These facts survive compute, persist and independent
+recovery without accessing the original inputs or Catalog. They do not make shares
+or current-row statistics valid attribute targets.
+
 Read saved periods or consumed comparison endpoints separately from data pages:
 
 ```python

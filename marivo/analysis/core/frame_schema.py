@@ -21,6 +21,7 @@ from marivo.analysis.core.data_schema import (
     PairedDataAxis,
 )
 from marivo.analysis.core.data_types import DataColumn, require_data_text
+from marivo.analysis.core.frame_interpretation import FrameAlignment
 from marivo.analysis.core.frame_interpretation import (
     FrameAxisSchema as FrameAxisSchema,
 )
@@ -292,6 +293,7 @@ class FrameSchema:
     _value_contexts: tuple[tuple[str, FrameValueContext], ...] = ()
     comparisons: tuple[FrameComparison, ...] = ()
     decompositions: tuple[FrameDecomposition, ...] = ()
+    alignments: tuple[FrameAlignment, ...] = ()
 
     def __post_init__(self) -> None:
         require_data_text(self.input_id, "frame.schema.input_id")
@@ -364,6 +366,7 @@ class FrameSchema:
                 ".fixed_axes",
                 ".value_contexts",
                 ".comparisons",
+                ".alignments",
                 ".decompositions",
             ),
         )
@@ -374,6 +377,7 @@ class FrameSchema:
             ("fixed_axes", self.fixed_axes),
             ("value_contexts", self._value_contexts),
             ("comparisons", self.comparisons),
+            ("alignments", self.alignments),
             ("decompositions", self.decompositions),
         ):
             card.field(name + ".count", str(len(entries)))
@@ -408,6 +412,7 @@ def capture_schema(input_id: str, schema: LogicalSchema) -> FrameSchema:
         schema.value_contexts,
         capture_comparisons(input_id, schema),
         schema.decompositions,
+        tuple(FrameAlignment(input_id, a.alignment_id, a.left, a.right) for a in schema.alignments),
     )
 
 

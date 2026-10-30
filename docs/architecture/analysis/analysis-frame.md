@@ -62,16 +62,39 @@ builtin(unit, step) 或 named(ref, level) 粒度；interval 轴记录公共导�
 轴记录左右两个时间端点。named.ref 使用绑定时解析到的真实 `SemanticObjectIdentity`，
 不从快照摘要、字段名或当前 Catalog 推测。轴的 `at` 是已捕获锚点，不代表新鲜度。
 
-`FrameSchema` 还包含 `fixed_axes`、`value_contexts`、`comparisons` 和 `decompositions`。
+`FrameSchema` 还包含 `fixed_axes`、`value_contexts`、`alignments`、`comparisons` 和 `decompositions`。
 fixed_axes 记录 `fix` 移除的普通轴、精确有序键与该轴的语义 origins；固定键不进入活动
 `slots`。value_contexts 按当前完整值名索引，只存可准确绑定的直接观察主体、时间依据、
-显式窗口，或当前行统计种类、父分组和 complete/restricted 行范围。无条目表示未提供
+显式窗口，或当前行统计/归一化种类、输入说明、父分组和 complete/restricted 行范围。无条目表示未提供
 额外说明，不能解释为“无筛选”“无窗口”“全量”或数值无效。
+
+`FrameStatisticContext` 拥有 sum/mean/row_count；`FramePairStatisticContext` 拥有
+pearson/spearman/pair_count 及有序 x/y 输入说明。`FrameShareContext` 拥有 numerator、
+分母 groups 与求和 along。直接输入的 `FrameNamedValueInput.name` 是捕获时的完整名，
+不是当前值引用；`subject` 仅复制已有观察主体。`FrameDerivedValueInput.origins` 是该
+操作数的值来源，不能还原公式或证明两个表达式相同。需要准确标题时先 select 命名，
+再获取新 Column 计算。捕获发生在原输入 schema/lineage 可用的结果构建边界；物理准备、
+compute、persist 和冷恢复运输快照，不从合并后的 lineage 或当前 Catalog 重建输入说明。
+
+alignments 独立描述左右端的当前 values、由外向内的 presence 链和完整 coordinates。
+presence 全部为真才表示对应端存在；值 NA 不是缺侧证明。活动坐标由 axis_token 和
+self/left/right endpoint 绑定，fix 后的普通坐标使用固定轴事实。关系重绑当前 input_id，
+局部 alignment_id 不指向祖先 Artifact；同名值不证明业务可比性。直接改名/复制重映射
+值引用，裁掉两端全部值则移除关系；算术新值没有旧端认证。嵌套 align 加 namespace 和
+外层 presence，旧关系两端可同时映到新 paired 轴的同一外层端点。只在必需引用无法
+准确表达时删除旧关系，不因使用时间 match 自动删除。
+
+share/配对统计在 where/top 后为 restricted；fix 分组轴保留原范围，fix 非分组轴
+限制原表示域。完整键唯一、全轴对应的 outer 运算保留原端点全部行，因此保持原
+row_scope；对侧独有行由 presence 排除，不进入原分母/样本。restricted 不自动恢复。
+直接复制保留 context，算术及 reduce 新结果不继承旧认证，新统计按当前输入捕获。
+share 只来自显式 share 意图，普通比值不获得该类型；它不保证 `[0,1]` 或业务贡献。
 
 comparisons 记录当前 Frame 中真实存在的比较量、当前值角色、两端上下文、当前 presence
 和实际 calendar/interval 对应；不推断同比/环比，也不把显示在本期坐标上的基期值当作
 本期观察。decompositions 记录当前 level/change 目标、父组、输出角色及 complete/
-restricted 范围。所有字段名、轴 token、比较 ID、目标和输出引用必须属于同一精确输入。
+restricted 范围。所有当前字段引用、轴 token、比较 ID、目标和输出引用必须属于同一精确输入。
+统计输入的捕获名称属于快照，不要求仍出现在当前字段目录中。
 固定事实不悬挂活动 slot，分解需要的比较量即使对应值列删除也可保留；这不会保存隐藏值、
 补读历史或从贡献重新计算分母。无关关系随列裁剪而移除。
 
@@ -362,7 +385,7 @@ TimeScope 在 by 中产生 interval 轴，保存精确 start/end 与边界时区
 不同期间可明确配对；过滤成一行不会把多区间目录改成单区间目录。
 interval/calendar/零轴不互转或广播；time×普通分类可使用上述完整默认配对，或显式给出完整 on。
 compare 保留当前 interval 及命名基期说明；align 的双端并集/paired 语义继续存在。
-Store 24 / marivo.frame_output/v13 保存解释目录、实际键引用与关系，冷恢复不重建 TimeScope、
+Store 25 / marivo.frame_output/v14 保存解释目录、实际键引用与关系，冷恢复不重建 TimeScope、
 来源定义或祖先 Frame。所有新事实属于当前输入，不改变数值计算、过滤范围或方法文件合同。
 
 ### Calendar matching

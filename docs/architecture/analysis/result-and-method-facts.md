@@ -150,8 +150,8 @@ independent reopen cannot acquire source execution authority from them. Facts ex
 original total, rather than the current filtered or reduced values. They carry
 no Metric or source authority and expose no general lineage query.
 
-Memory roots retain complete result metadata and method records. Store 24 uses
-marivo.frame_output/v13 and frame.v13. One manifest contains
+Memory roots retain complete result metadata and method records. Store 25 uses
+marivo.frame_output/v14 and frame.v14. One manifest contains
 structure, interpretation, lineage, result/evaluation/input/operation facts,
 source_reads and owned-payload descriptors. Publication atomically commits that
 manifest and success; unknown acknowledgement is reconciled by exact complete

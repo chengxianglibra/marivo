@@ -18,6 +18,15 @@ if TYPE_CHECKING:
     from marivo._temporal import InstantAnchor as InstantAnchor
     from marivo.analysis import session as session
     from marivo.analysis.core.frame_interpretation import (
+        FrameAlignment as FrameAlignment,
+    )
+    from marivo.analysis.core.frame_interpretation import (
+        FrameAlignmentAxis as FrameAlignmentAxis,
+    )
+    from marivo.analysis.core.frame_interpretation import (
+        FrameAlignmentSide as FrameAlignmentSide,
+    )
+    from marivo.analysis.core.frame_interpretation import (
         FrameAllHistoryWindow as FrameAllHistoryWindow,
     )
     from marivo.analysis.core.frame_interpretation import (
@@ -63,6 +72,9 @@ if TYPE_CHECKING:
         FrameDecompositionField as FrameDecompositionField,
     )
     from marivo.analysis.core.frame_interpretation import (
+        FrameDerivedValueInput as FrameDerivedValueInput,
+    )
+    from marivo.analysis.core.frame_interpretation import (
         FrameFixedAxis as FrameFixedAxis,
     )
     from marivo.analysis.core.frame_interpretation import (
@@ -87,6 +99,9 @@ if TYPE_CHECKING:
         FrameNamedGrain as FrameNamedGrain,
     )
     from marivo.analysis.core.frame_interpretation import (
+        FrameNamedValueInput as FrameNamedValueInput,
+    )
+    from marivo.analysis.core.frame_interpretation import (
         FrameObservationContext as FrameObservationContext,
     )
     from marivo.analysis.core.frame_interpretation import (
@@ -97,6 +112,12 @@ if TYPE_CHECKING:
     )
     from marivo.analysis.core.frame_interpretation import (
         FramePairedAxisSchema as FramePairedAxisSchema,
+    )
+    from marivo.analysis.core.frame_interpretation import (
+        FramePairStatisticContext as FramePairStatisticContext,
+    )
+    from marivo.analysis.core.frame_interpretation import (
+        FrameShareContext as FrameShareContext,
     )
     from marivo.analysis.core.frame_interpretation import (
         FrameSinceWindow as FrameSinceWindow,

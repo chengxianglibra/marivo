@@ -18,6 +18,7 @@ from marivo._definition.query import (
     ValueExpression,
     ValueLiteral,
     ValuePartition,
+    ValueShare,
     ValueSlot,
     ValueUnary,
 )
@@ -94,6 +95,16 @@ def expression_value(
     for_type_inference: bool = False,
 ) -> ir.Value:
     """Resolve only the finite result grammar over typed scalar placeholders."""
+    if isinstance(expression, ValueShare):
+        from marivo.analysis.core.frame_expression import physical_expression
+
+        return expression_value(
+            physical_expression(expression, len(keys)),
+            values,
+            keys,
+            partition_type=partition_type,
+            for_type_inference=for_type_inference,
+        )
     if isinstance(expression, ValuePartition):
         if partition_type is None:
             reject(

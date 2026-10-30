@@ -791,3 +791,11 @@ large.show()
 ranked = current.top(1, by=current["revenue"]).compute()
 ranked.show()
 ```
+
+
+### 捕获的值解释
+
+`frame.schema.alignments` 将对齐值绑定到端点坐标和 presence；
+`frame.schema.value_contexts` 识别显式份额和配对统计，并保留捕获时的输入名。
+类型化查看与传播规则见[结果解释](/zh-cn/docs/latest/analysis/results/#解释对齐值归一化份额和配对统计)。
+读取这些元数据不会执行待计算 Frame，也不会使当前行统计成为合法的 attribute 目标。

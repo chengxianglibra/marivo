@@ -1,4 +1,4 @@
-"""Guarded Store 24 reconciliation never replays origins or publishes staging."""
+"""Guarded Store 25 reconciliation never replays origins or publishes staging."""
 
 from collections.abc import Callable
 

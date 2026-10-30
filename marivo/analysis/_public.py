@@ -8,6 +8,15 @@ from marivo._temporal import InstantAnchor as InstantAnchor
 from marivo._temporal import TimeScope as TimeScope
 from marivo.analysis import grain as grain
 from marivo.analysis.core.frame_interpretation import (
+    FrameAlignment as FrameAlignment,
+)
+from marivo.analysis.core.frame_interpretation import (
+    FrameAlignmentAxis as FrameAlignmentAxis,
+)
+from marivo.analysis.core.frame_interpretation import (
+    FrameAlignmentSide as FrameAlignmentSide,
+)
+from marivo.analysis.core.frame_interpretation import (
     FrameAllHistoryWindow as FrameAllHistoryWindow,
 )
 from marivo.analysis.core.frame_interpretation import (
@@ -53,6 +62,9 @@ from marivo.analysis.core.frame_interpretation import (
     FrameDecompositionField as FrameDecompositionField,
 )
 from marivo.analysis.core.frame_interpretation import (
+    FrameDerivedValueInput as FrameDerivedValueInput,
+)
+from marivo.analysis.core.frame_interpretation import (
     FrameFixedAxis as FrameFixedAxis,
 )
 from marivo.analysis.core.frame_interpretation import (
@@ -77,6 +89,9 @@ from marivo.analysis.core.frame_interpretation import (
     FrameNamedGrain as FrameNamedGrain,
 )
 from marivo.analysis.core.frame_interpretation import (
+    FrameNamedValueInput as FrameNamedValueInput,
+)
+from marivo.analysis.core.frame_interpretation import (
     FrameObservationContext as FrameObservationContext,
 )
 from marivo.analysis.core.frame_interpretation import (
@@ -87,6 +102,12 @@ from marivo.analysis.core.frame_interpretation import (
 )
 from marivo.analysis.core.frame_interpretation import (
     FramePairedAxisSchema as FramePairedAxisSchema,
+)
+from marivo.analysis.core.frame_interpretation import (
+    FramePairStatisticContext as FramePairStatisticContext,
+)
+from marivo.analysis.core.frame_interpretation import (
+    FrameShareContext as FrameShareContext,
 )
 from marivo.analysis.core.frame_interpretation import (
     FrameSinceWindow as FrameSinceWindow,
@@ -206,6 +227,13 @@ __all__ = [  # noqa: RUF022 - public order is contractual
     "FrameAxisGroup",
     "FrameFixedGroup",
     "FrameStatisticContext",
+    "FrameAlignment",
+    "FrameAlignmentAxis",
+    "FrameAlignmentSide",
+    "FrameNamedValueInput",
+    "FrameDerivedValueInput",
+    "FrameShareContext",
+    "FramePairStatisticContext",
     "FrameComparison",
     "FrameComparisonGroup",
     "FrameComparisonValue",

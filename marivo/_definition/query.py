@@ -57,6 +57,14 @@ class ValuePartition:
     positions: tuple[int, ...]
 
 
+@dataclass(frozen=True, slots=True)
+class ValueShare:
+    """Explicit logical normalization intent; physical preparation uses sum and divide."""
+
+    value: ValueExpression
+    positions: tuple[int, ...]
+
+
 ValueExpression: TypeAlias = (
     ValueSlot
     | CoordinateSlot
@@ -65,6 +73,7 @@ ValueExpression: TypeAlias = (
     | ValueUnary
     | ValueBinary
     | ValuePartition
+    | ValueShare
 )
 
 

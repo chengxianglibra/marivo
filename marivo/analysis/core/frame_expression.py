@@ -22,6 +22,7 @@ from marivo._definition.query import (
     ValueExpression,
     ValueLiteral,
     ValuePartition,
+    ValueShare,
     ValueSlot,
     ValueUnary,
 )
@@ -177,9 +178,97 @@ class FixedFrameInput:
 class FrameOperation:
     inputs: tuple[FrameExpression, ...]
     operation: FrameOperationKind
+    logical_schema: DataSchema | PendingDataSchema | None = None
 
 
 FrameExpression: TypeAlias = SourceFrameInput | FixedFrameInput | FrameOperation
+
+
+def physical_expression(value: ValueExpression, axis_count: int) -> ValueExpression:
+    """Expand explicit share intent once into the existing sum/partition/divide grammar."""
+    from dataclasses import replace
+
+    if isinstance(value, ValueShare):
+        numerator = physical_expression(value.value, axis_count)
+        groups = tuple(p for p in range(axis_count) if p not in value.positions)
+        return ValueBinary("div", numerator, ValuePartition(Statistic("sum", numerator), groups))
+    if isinstance(value, ValueUnary):
+        return replace(value, operand=physical_expression(value.operand, axis_count))
+    if isinstance(value, ValueBinary):
+        return replace(
+            value,
+            left=physical_expression(value.left, axis_count),
+            right=physical_expression(value.right, axis_count),
+        )
+    if isinstance(value, ValuePartition):
+        return replace(value, statistic=physical_statistic(value.statistic, axis_count))
+    return value
+
+
+def physical_statistic(
+    value: Statistic | PairStatistic, axis_count: int
+) -> Statistic | PairStatistic:
+    from dataclasses import replace
+
+    if isinstance(value, PairStatistic):
+        return replace(
+            value,
+            left=physical_expression(value.left, axis_count),
+            right=physical_expression(value.right, axis_count),
+        )
+    return replace(
+        value, value=None if value.value is None else physical_expression(value.value, axis_count)
+    )
+
+
+def physical_operation(
+    operation: FrameUnaryOperationKind, axis_count: int
+) -> FrameUnaryOperationKind:
+    """Prepare all expression positions, including predicates, scores and statistic operands."""
+    from dataclasses import replace
+
+    if isinstance(operation, SelectValues):
+        return replace(
+            operation,
+            values=tuple((n, physical_expression(v, axis_count)) for n, v in operation.values),
+        )
+    if isinstance(operation, ReduceValues):
+        return replace(
+            operation,
+            values=tuple((n, physical_statistic(v, axis_count)) for n, v in operation.values),
+        )
+    if isinstance(operation, FilterValues):
+        return replace(operation, predicate=physical_expression(operation.predicate, axis_count))
+    if isinstance(operation, TopValues):
+        return replace(operation, score=physical_expression(operation.score, axis_count))
+    return operation
+
+
+def transport_logical_facts(
+    physical: DataSchema, logical: DataSchema | PendingDataSchema | None
+) -> DataSchema:
+    """Close physical types while retaining snapshots captured at the public derive boundary."""
+    from dataclasses import replace
+
+    if logical is None:
+        return physical
+    from marivo.analysis.core.frame_interpretation import (
+        FramePairStatisticContext,
+        FrameShareContext,
+    )
+
+    # Completed coordinate domains can invalidate earlier comparison mappings.
+    # Physical inference owns those current bindings; only operand snapshots need
+    # the original logical result because share has already expanded to division.
+    contexts = dict(physical.value_contexts)
+    for name, context in logical.value_contexts:
+        if isinstance(context, (FrameShareContext, FramePairStatisticContext)):
+            contexts[name] = context
+    return replace(
+        physical,
+        fixed_axes=logical.fixed_axes,
+        value_contexts=tuple(contexts.items()),
+    )
 
 
 def admitted(expression: ValueExpression) -> None:
@@ -188,6 +277,8 @@ def admitted(expression: ValueExpression) -> None:
     elif isinstance(expression, ValueBinary):
         admitted(expression.left)
         admitted(expression.right)
+    elif isinstance(expression, ValueShare):
+        admitted(expression.value)
     elif isinstance(expression, ValuePartition):
         for value in statistic_expressions(expression.statistic):
             admitted(value)
@@ -270,6 +361,8 @@ def expression_column(
 
 
 def expression_unit(schema: DataSchema | PendingDataSchema, value: ValueExpression) -> str | None:
+    if isinstance(value, ValueShare):
+        return expression_unit(schema, physical_expression(value, len(schema.axes)))
     if isinstance(value, (ValueSlot, CoordinateSlot, PresenceSlot)):
         return expression_column(schema, value).unit
     if isinstance(value, ValuePartition):
@@ -317,6 +410,8 @@ def expression_type(schema: DataSchema, value: ValueExpression) -> DataType:
     from marivo.analysis.core.value_types import data_type, expression_value, ibis_type
 
     admitted(value)
+    if isinstance(value, ValueShare):
+        return expression_type(schema, physical_expression(value, len(schema.axes)))
     if isinstance(value, (ValueSlot, CoordinateSlot, PresenceSlot)):
         column = expression_column(schema, value)
         assert isinstance(column, DataColumn)
@@ -406,6 +501,8 @@ def expression_type(schema: DataSchema, value: ValueExpression) -> DataType:
 
 
 def _pending_kind(schema: PendingDataSchema, expression: ValueExpression) -> ValueKind:
+    if isinstance(expression, ValueShare):
+        return _pending_kind(schema, physical_expression(expression, len(schema.axes)))
     if isinstance(expression, (ValueSlot, CoordinateSlot, PresenceSlot)):
         return column_kind(expression_column(schema, expression))
     if isinstance(expression, ValuePartition):

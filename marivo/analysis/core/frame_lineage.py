@@ -8,20 +8,13 @@ from typing_extensions import assert_never
 
 from marivo._definition.expressions import SourceAggregate, SourceWeightedMean
 from marivo._definition.query import (
-    CoordinateSlot,
     FilterValues,
     PairStatistic,
-    PresenceSlot,
     ReduceValues,
     SelectValues,
     Statistic,
     TopValues,
-    ValueBinary,
     ValueExpression,
-    ValueLiteral,
-    ValuePartition,
-    ValueSlot,
-    ValueUnary,
 )
 from marivo.analysis.core.attribute_game import AttributeGameValues
 from marivo.analysis.core.frame_attribute_merge import AttributeMergeValues
@@ -40,7 +33,9 @@ from marivo.analysis.core.lineage import (
     SemanticObjectIdentity,
     all_origins,
     directory,
+    expression_lineage,
     merge,
+    statistic_lineage,
     union,
 )
 
@@ -61,33 +56,11 @@ def derive(
     presence = tuple(first.presence.values())
     domain = first._domain
 
-    def statistic(value: Statistic | PairStatistic) -> ColumnLineage:
-        operands = (
-            (value.left, value.right)
-            if isinstance(value, PairStatistic)
-            else (() if value.value is None else (value.value,))
-        )
-        return merge(*(expression(e) for e in operands), context=domain)
-
     def expression(value: ValueExpression) -> ColumnLineage:
-        if isinstance(value, ValueSlot):
-            return values[value.index]
-        if isinstance(value, CoordinateSlot):
-            return merge(axes[value.index], context=domain)
-        if isinstance(value, PresenceSlot):
-            return first.presence[".".join(value.path)]
-        if isinstance(value, ValueLiteral):
-            return ColumnLineage(context_origins=domain)
-        if isinstance(value, ValueUnary):
-            return expression(value.operand)
-        if isinstance(value, ValueBinary):
-            return merge(expression(value.left), expression(value.right))
-        if isinstance(value, ValuePartition):
-            return merge(
-                statistic(value.statistic),
-                context=union(*(all_origins(axes[p]) for p in value.positions)),
-            )
-        assert_never(value)
+        return expression_lineage(first, value)
+
+    def statistic(value: Statistic | PairStatistic) -> ColumnLineage:
+        return statistic_lineage(first, value)
 
     if isinstance(operation, SelectValues):
         values = tuple(expression(e) for _, e in operation.values)

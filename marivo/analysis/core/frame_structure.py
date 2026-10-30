@@ -10,6 +10,7 @@ from unicodedata import category
 from marivo.analysis.core.data_schema import (
     CalendarComparisonBinding,
     CalendarDataAxis,
+    DataAlignment,
     DataAxis,
     DataColumn,
     DataComparison,
@@ -197,6 +198,7 @@ class PendingDataSchema:
     fixed_axes: tuple[FrameFixedAxis, ...] = ()
     value_contexts: tuple[tuple[str, FrameValueContext], ...] = ()
     decompositions: tuple[FrameDecomposition, ...] = ()
+    alignments: tuple[DataAlignment, ...] = ()
 
     def __post_init__(self) -> None:
         if (
@@ -303,6 +305,7 @@ class PendingDataSchema:
             schema.fixed_axes == self.fixed_axes
             and schema.value_contexts == self.value_contexts
             and schema.decompositions == self.decompositions
+            and schema.alignments == self.alignments
         ):
             return schema
         return replace(
@@ -310,6 +313,7 @@ class PendingDataSchema:
             fixed_axes=self.fixed_axes,
             value_contexts=self.value_contexts,
             decompositions=self.decompositions,
+            alignments=self.alignments,
         )
 
 

@@ -25,6 +25,7 @@ from marivo._definition.query import (
     ValueExpression,
     ValueLiteral,
     ValuePartition,
+    ValueShare,
     ValueSlot,
     ValueUnary,
 )
@@ -125,6 +126,22 @@ def expression_series(
     *,
     evaluation: FrameEvaluation | None = None,
 ) -> pd.Series:
+    if isinstance(expression, ValueShare):
+        from marivo.analysis.core.frame_expression import physical_expression
+
+        if not isinstance(program, FrameProgram):
+            reject(
+                "a Frame-bound share expression",
+                repr(expression),
+                "Evaluate shares on their original AnalysisFrame input.",
+                "Column.share",
+            )
+        return expression_series(
+            physical_expression(expression, len(program.input_schema.axes)),
+            frame,
+            program,
+            evaluation=evaluation,
+        )
     if isinstance(expression, ValuePartition):
         if not isinstance(program, FrameProgram):
             reject(

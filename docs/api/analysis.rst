@@ -65,11 +65,46 @@ whole-row preview with exact omission counts. ``show(n=0)`` reads metadata only;
 ``max_output_bytes=None`` removes the byte limit while preserving the row limit.
 ``schema`` returns captured immutable fields, exact types, complete axis keys and
 export layout without Store or payload I/O. Its ``fixed_axes``, ``value_contexts``,
-``comparisons`` and ``decompositions`` expose only current result facts that were
-captured and remain bound to that input. Missing optional context is unspecified;
+``alignments``, ``comparisons`` and ``decompositions`` expose only current result
+facts that were captured and remain bound to that input. Missing optional context is unspecified;
 it does not mean unfiltered, complete or valid data. Axis variants retain their
 captured time grain, timezone and paired endpoints. Semantic refs are locators;
-read details separately through the Session Catalog. ``read_page(columns=None, limit=1000,
+read details separately through the Session Catalog.
+
+``schema.alignments`` describes current transported values independently of
+their value contexts. Each ``FrameAlignment`` binds its local ``alignment_id``
+to the current ``input_id``. Each side supplies current value names, an ordered
+outer-to-inner ``presence`` chain and complete coordinates. All presence flags
+must be true for that side to exist; nullable values do not replace these flags.
+``FrameAlignmentAxis.endpoint`` selects ``self`` for an ordinary or equal time
+axis, or the exact ``left``/``right`` paired time endpoint. A fixed coordinate is
+a ``FrameFixedGroup``. These relations do not certify that left and right values
+represent the same business metric.
+
+Explicit ``Column.share`` results carry ``FrameShareContext`` with a captured
+``numerator``, denominator partition ``groups``, normalization axes ``along``
+and ``row_scope``. Signed shares may be negative or exceed 100%. Filtering a
+captured share restricts its represented row scope without recomputing its
+denominator; ordinary division does not acquire share context.
+``FramePairStatisticContext`` identifies ``pearson``, ``spearman`` or
+``pair_count`` with ordered ``x`` and ``y`` input descriptions and complete
+parent groups. ``FrameStatisticContext`` covers ``sum``, ``mean`` and
+``row_count``. ``complete`` describes the represented construction domain,
+not source coverage or statistical validity.
+
+Inputs use ``FrameNamedValueInput`` for a direct column's captured complete name
+and explicitly observed subject, or ``FrameDerivedValueInput`` for a derived
+expression's value origins. Captured names need not remain current outputs.
+Descriptions contain no expression tree; equal descriptions do not certify
+equal formulas or samples and are not computation cache keys. For example::
+
+   shares = frame.select({"share": frame["revenue"].share(along=frame.axes)})
+   context = shares.schema.value_contexts["share"]
+   context.numerator.show()
+   aligned = shares.align(other, on=tuple(zip(shares.axes, other.axes)))
+   aligned.schema.alignments[0].left.show()
+
+``read_page(columns=None, limit=1000,
 cursor=None, axis_names=None, time_details=False)`` reads complete fixed data in ordered projected
 pages, retaining complete coordinate keys. Limits are integers 1..10000, excluding
 bool. FramePage exposes input_id, layout, coordinates, limit, total_count,
@@ -418,7 +453,7 @@ Evaluation, publication and recovery
 
 Compute creates no Artifact or temporary saved result. Expression persist
 completes evaluation first, then publishes that existing result ID through the
-single Store 24 writer transaction. Memory persist never reevaluates. Stored
+single Store 25 writer transaction. Memory persist never reevaluates. Stored
 persist validates commit metadata and returns itself without another publication.
 A derived or computed memory Frame never exposes an ancestor commit identity. Unknown publication outcome is reconciled, not recomputed.
 
@@ -448,10 +483,10 @@ are ordered by commit time and ID descending. Continue with the returned
 limit. New commits are discovered from the first page. Cards show bounded output
 names and axes; typed schemas remain complete. Corrupt metadata fails explicitly.
 
-Store 24 uses ``marivo.frame_output/v13`` and ``frame.v13`` for
-all Frames, under ``.marivo/analysis/generations/v24/``. Owned method files share
+Store 25 uses ``marivo.frame_output/v14`` and ``frame.v14`` for
+all Frames, under ``.marivo/analysis/generations/v25/``. Owned method files share
 the existing atomic publication, receipt and unknown-commit reconciliation.
-Store 24 refuses older-generation Session/result data unchanged, without
+Store 25 refuses older-generation Session/result data unchanged, without
 migration or dual reads. Documented absent-current discovery may return None or
 empty. Current work may create a new named Session in the same project while
 older generations coexist unchanged; discovery warns about older paths. Preserve
@@ -510,6 +545,13 @@ Canonical public exports
    FrameAxisGroup
    FrameFixedGroup
    FrameStatisticContext
+   FrameAlignment
+   FrameAlignmentAxis
+   FrameAlignmentSide
+   FrameNamedValueInput
+   FrameDerivedValueInput
+   FrameShareContext
+   FramePairStatisticContext
    FrameComparison
    FrameComparisonGroup
    FrameComparisonValue

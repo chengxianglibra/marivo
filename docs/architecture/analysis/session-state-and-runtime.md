@@ -155,8 +155,8 @@ is separate from fixed Frame inputs and local combination.
 
 ## Store generation and data layout
 
-Store 24 is under `<project_root>/.marivo/analysis/generations/v24/`. One closed
-`marivo.frame_output/v13` protocol stores values, complete axes, independent presence, typed
+Store 25 is under `<project_root>/.marivo/analysis/generations/v25/`. One closed
+`marivo.frame_output/v14` protocol stores values, complete axes, independent presence, typed
 frozen interval/calendar/map attachments, receipts and result metadata. It stores no executable
 Python class path, source/Metric graph or hidden components. All analysis
 artifacts are Frame commits; stored Frames expose their identity and source-read metadata directly.
@@ -347,8 +347,8 @@ method facts. A missing/corrupt method payload can leave metadata, previews and
 current-data export usable while full consumers fail. Cards show only count,
 bounded origins and the getter pointer, never full parents/coordinate rows.
 
-All Frames use `marivo.frame_output/v13` and `frame.v13` under
-`.marivo/analysis/generations/v24/`. Method files share the existing data receipt,
+All Frames use `marivo.frame_output/v14` and `frame.v14` under
+`.marivo/analysis/generations/v25/`. Method files share the existing data receipt,
 atomic publication/readback and unknown-commit reconciliation. A saved derivative
 owns its exact inherited payloads; deleting the original Artifact does not force
 an origin lookup or source/calendar rebuild. Origin explains the original total,
@@ -431,10 +431,17 @@ owns isolated export.
 
 Completed result metadata includes immutable, non-executable semantic column
 lineage and current-result interpretation. Pending Frames derive facts from explicit inputs and
-operation bindings; compute, publication and cold recovery preserve them. Store 24 / output v13
+operation bindings; compute, publication and cold recovery preserve them. Store 25 / output v14
 requires the complete value/axis/presence directories, fixed selections, typed value contexts,
-comparison/decomposition relations and their captured identities. Missing or
+alignment/comparison/decomposition relations and their captured identities. Missing or
 invalid saved lineage is an integrity failure, rather than empty lineage. A saved
 derivative owns its complete lineage without requiring ancestor artifacts or the
 original model. Reading frame.lineage does not consume rows, coordinate attachments,
 method payloads, or source connections. Older Store/output formats are not migrated.
+
+The schema saves named/derived statistic input snapshots and share contexts along
+with endpoint alignment relations. Reopening rebinds public relationship input IDs;
+input names and per-operand origins remain captured snapshots, even when those
+input columns or the original model no longer exist. Missing required interpretation
+fields or dangling current references are integrity failures. Store 24/output v13
+results require a compatible environment; no migration or dual-read path is provided.

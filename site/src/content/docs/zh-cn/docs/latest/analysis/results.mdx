@@ -162,6 +162,44 @@ for decomposition in schema.decompositions:
 基期列即使显示在本期时间坐标上，comparison 仍保留其基期时间依据。ref 不复制业务
 说明，也不授予来源读取能力。
 
+### 解释对齐值、归一化份额和配对统计
+
+使用 DSL 示例中的 `current`，可以在执行前查看解释：
+
+```python
+aligned = current.align(current)
+for relation in aligned.schema.alignments:
+    assert relation.input_id == aligned.schema.input_id
+    print(relation.left.values, relation.left.presence, relation.left.coordinates)
+    print(relation.right.values, relation.right.presence, relation.right.coordinates)
+
+shares = current.select({"share": current["revenue"].share(along=current.axes)})
+share_context = shares.schema.value_contexts["share"]
+assert isinstance(share_context, mv.FrameShareContext)
+print(share_context.numerator, share_context.groups, share_context.along)
+
+named = current.select({"revenue": current["revenue"], "doubled": current["revenue"] * 2})
+association = named.correlate(named["revenue"], named["doubled"], method="pearson")
+pair_context = association.schema.value_contexts["coefficient"]
+assert isinstance(pair_context, mv.FramePairStatisticContext)
+print(pair_context.x, pair_context.y, pair_context.row_scope)
+```
+
+alignment 的每端将当前值名绑定到坐标与 presence 链，链中全部标记为真才表示该端存在。
+值 NA 不代表缺侧，同名值也不证明业务可比性。直接列改名更新绑定；混合两端的计算值
+没有直接端点角色。冻结时间详情仍通过 `read_periods` 读取，不解析 `left.` 或 `right.`
+前缀猜测时间。
+
+share 元数据说明显式归一化的分母分区与求和轴，不证明业务贡献或 0–100% 范围：
+带符号份额可以为负或大于一。普通除法没有 share context。筛选份额保留原分母，
+并标记 `row_scope="restricted"`；完整 outer 对齐保留端点完整性，通过 presence 排除
+对侧独有行。后续算术移除直接 context。
+
+配对输入名是快照，不引用系数结果中的列。派生输入提供 origins，不恢复公式；
+需要准确标题时先 select 命名，再获取 Column。相同 origins 不证明表达式相同。
+这些事实经 compute、persist 和独立恢复后仍保留，无需访问原输入或 Catalog；
+它们不会使份额或当前行统计成为合法的 attribute 目标。
+
 期间页和数据页分别读取；comparison 页保留实际消费的端点对应：
 
 ```python

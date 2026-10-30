@@ -65,9 +65,11 @@ from marivo.analysis.core.frame_expression import (
     infer_frame_combine_schema,
     infer_frame_compare_schema,
     infer_frame_schema,
+    physical_operation,
     statistic_expressions,
+    transport_logical_facts,
 )
-from marivo.analysis.core.frame_structure import require_complete_structure
+from marivo.analysis.core.frame_structure import PendingDataSchema, require_complete_structure
 from marivo.analysis.core.model import reject
 
 
@@ -201,12 +203,20 @@ def _statistic_types(
     return () if statistic.value is None else (expression_type(schema, statistic.value),)
 
 
-def frame_program(schema: DataSchema, operation: FrameUnaryOperationKind) -> FrameProgram:
+def frame_program(
+    schema: DataSchema,
+    operation: FrameUnaryOperationKind,
+    logical_schema: DataSchema | PendingDataSchema | None = None,
+) -> FrameProgram:
     """Infer one unary program from the concrete types consumed by its kernel."""
+    logical_output = (
+        infer_frame_schema(schema, operation) if logical_schema is None else logical_schema
+    )
+    operation = physical_operation(operation, len(schema.axes))
     return FrameProgram(
         operation,
         schema,
-        infer_frame_schema(schema, operation),
+        transport_logical_facts(infer_frame_schema(schema, operation), logical_output),
         tuple(_statistic_types(schema, stat) for _, stat in operation.values)
         if isinstance(operation, ReduceValues)
         else (),
@@ -648,7 +658,9 @@ def plan_frame(
         if isinstance(node.operation, CompareFrameValues):
             resolved = tuple(visit(child) for child in node.inputs)
             schemas = tuple(schema for _, schema in resolved)
-            output_schema = infer_frame_compare_schema(schemas, node.operation)
+            output_schema = transport_logical_facts(
+                infer_frame_compare_schema(schemas, node.operation), node.logical_schema
+            )
             program_compare = FrameCompareProgram(node.operation, schemas, output_schema)
             compute = FrameCompute(
                 f"frame:{len(stages)}",
@@ -668,7 +680,10 @@ def plan_frame(
                 )
             left, left_schema = visit(node.inputs[0])
             right, right_schema = visit(node.inputs[1])
-            output_schema = infer_frame_combine_schema(left_schema, right_schema, node.operation)
+            output_schema = transport_logical_facts(
+                infer_frame_combine_schema(left_schema, right_schema, node.operation),
+                node.logical_schema,
+            )
             binary = FrameCombineProgram(node.operation, left_schema, right_schema, output_schema)
             compute = FrameCompute(f"frame:{len(stages)}", (left, right), binary)
             stages.append(compute)
@@ -683,7 +698,7 @@ def plan_frame(
             )
         source, schema = visit(node.inputs[0])
         assert not isinstance(node.operation, AttributeProjectValues)
-        program = frame_program(schema, node.operation)
+        program = frame_program(schema, node.operation, node.logical_schema)
         output_schema = program.output_schema
         compute = FrameCompute(f"frame:{len(stages)}", (source,), program)
         stages.append(compute)
@@ -790,5 +805,7 @@ def frame_expression_schema(
             if isinstance(expression.operation, CompareFrameValues)
             else infer_frame_schema(inputs[0], expression.operation)
         )
+    if isinstance(expression, FrameOperation):
+        result = transport_logical_facts(result, expression.logical_schema)
     memo[id(expression)] = result
     return result

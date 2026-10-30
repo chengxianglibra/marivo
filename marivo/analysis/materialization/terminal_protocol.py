@@ -34,6 +34,7 @@ from marivo.analysis.core.artifact_data import (
 from marivo.analysis.core.data_schema import (
     CalendarComparisonBinding,
     ComparisonValueBinding,
+    DataAlignment,
     DataComparison,
     EndpointPresence,
     FrozenCalendarOrigin,
@@ -41,6 +42,8 @@ from marivo.analysis.core.data_schema import (
     OrdinaryComparisonBinding,
 )
 from marivo.analysis.core.frame_interpretation import (
+    FrameAlignmentAxis,
+    FrameAlignmentSide,
     FrameAllHistoryWindow,
     FrameAxisGroup,
     FrameAxisSchema,
@@ -52,6 +55,7 @@ from marivo.analysis.core.frame_interpretation import (
     FrameComparedTime,
     FrameDecomposition,
     FrameDecompositionField,
+    FrameDerivedValueInput,
     FrameField,
     FrameFixedAxis,
     FrameFixedGroup,
@@ -60,14 +64,18 @@ from marivo.analysis.core.frame_interpretation import (
     FrameIntervalEndpoint,
     FrameLevelTarget,
     FrameNamedGrain,
+    FrameNamedValueInput,
     FrameObservationContext,
     FrameOrdinaryAxisSchema,
     FramePairedAxisSchema,
+    FramePairStatisticContext,
+    FrameShareContext,
     FrameSinceWindow,
     FrameStatisticContext,
     FrameToDateWindow,
     FrameTrailingDurationWindow,
     FrameTrailingPeriodsWindow,
+    FrameValueContext,
     UnresolvedDataType,
 )
 from marivo.analysis.core.frame_metadata import (
@@ -128,7 +136,7 @@ from marivo.analysis.materialization.errors import IntegrityError
 
 def invalid(received: str) -> IntegrityError:
     return IntegrityError(
-        expected="a complete Store 24 Frame output v13 value",
+        expected="a complete Store 25 Frame output v14 value",
         received=received,
         repair="Preserve the selected Store and output files. Inspect the exact terminal record; old graph/continuation formats cannot be migrated or replayed.",
         stage="terminal_output",
@@ -169,6 +177,12 @@ _RECORDS = (
     FrameTrailingDurationWindow,
     FrameTrailingPeriodsWindow,
     FrameObservationContext,
+    FrameAlignmentAxis,
+    FrameAlignmentSide,
+    FrameDerivedValueInput,
+    FrameNamedValueInput,
+    FrameShareContext,
+    FramePairStatisticContext,
     FrameAxisGroup,
     FrameFixedGroup,
     FrameStatisticContext,
@@ -196,6 +210,7 @@ _RECORDS = (
     CalendarComparisonBinding,
     IntervalComparisonBinding,
     DataComparison,
+    DataAlignment,
     PairedDataAxis,
     DataColumn,
     ScalarDataType,
@@ -247,9 +262,9 @@ _RECORDS = (
 )
 _TYPES = {record.__name__: record for record in _RECORDS}
 T = TypeVar("T", ArtifactManifest, InvocationInput)
-FORMAT = "marivo.frame_output/v13"
+FORMAT = "marivo.frame_output/v14"
 
-# One closed Store24 field inventory. No older field set or dataclass fallback.
+# One closed Store25 field inventory. No older field set or dataclass fallback.
 _FIELDS = {
     "UnresolvedDataType": ("kind",),
     "FrameField": ("slot_id", "name", "dtype", "nullable", "unit"),
@@ -275,6 +290,13 @@ _FIELDS = {
     "FrameAxisGroup": ("axis_token", "kind"),
     "FrameFixedGroup": ("fixed", "kind"),
     "FrameStatisticContext": ("statistic", "groups", "row_scope", "kind"),
+    "FrameNamedValueInput": ("name", "subject", "kind"),
+    "FrameDerivedValueInput": ("origins", "kind"),
+    "FrameShareContext": ("numerator", "groups", "along", "row_scope", "kind"),
+    "FramePairStatisticContext": ("statistic", "x", "y", "groups", "row_scope", "kind"),
+    "FrameAlignmentAxis": ("axis_token", "endpoint"),
+    "FrameAlignmentSide": ("values", "presence", "coordinates"),
+    "DataAlignment": ("alignment_id", "left", "right"),
     "FrameLevelTarget": ("name", "context", "kind"),
     "FrameChangeTarget": ("kind", "comparison_id", "group_id"),
     "FrameDecompositionField": ("field_kind", "role", "name"),
@@ -305,6 +327,7 @@ _FIELDS = {
         "fixed_axes",
         "value_contexts",
         "decompositions",
+        "alignments",
     ),
     "DataAxis": ("token", "columns", "kind", "name", "at"),
     "CalendarDataAxis": ("token", "columns", "kind", "name", "at", "timezone", "frozen"),
@@ -531,9 +554,17 @@ def _wire_fields(record: type[object]) -> tuple[str, ...]:
 
 def _encode(
     value: object,
-    contexts: dict[FrameObservationContext | FrameStatisticContext, int] | None = None,
+    contexts: dict[FrameValueContext, int] | None = None,
 ) -> object:
-    if contexts is not None and isinstance(value, (FrameObservationContext, FrameStatisticContext)):
+    if contexts is not None and isinstance(
+        value,
+        (
+            FrameObservationContext,
+            FrameStatisticContext,
+            FrameShareContext,
+            FramePairStatisticContext,
+        ),
+    ):
         if value not in contexts:
             contexts[value] = len(contexts)
         return {"context": contexts[value]}
@@ -592,9 +623,7 @@ def _construct(constructor: type[U], values: dict[str, object]) -> U:
     return constructor(**values)
 
 
-def _decode(
-    value: object, contexts: tuple[FrameObservationContext | FrameStatisticContext, ...] = ()
-) -> object:
+def _decode(value: object, contexts: tuple[FrameValueContext, ...] = ()) -> object:
     if value is None or type(value) in (str, int, float, bool):
         return value
     if type(value) is list:
@@ -654,7 +683,7 @@ def _decode(
 def encode(value: ArtifactManifest | InvocationInput) -> str:
     if type(value) not in (ArtifactManifest, InvocationInput):
         raise invalid("expected a terminal manifest or invocation root")
-    contexts: dict[FrameObservationContext | FrameStatisticContext, int] = {}
+    contexts: dict[FrameValueContext, int] = {}
     body = _encode(value, contexts)
     return canonical_json(
         {"format": FORMAT, "contexts": [_encode(c) for c in contexts], "value": body}
@@ -667,15 +696,23 @@ def decode(text: str, expected: type[T]) -> T:
     try:
         raw_envelope = parse_json(text)
         if isinstance(raw_envelope, dict) and raw_envelope.get("format") != FORMAT:
-            raise invalid("expected Frame output v13; obsolete output format received")
+            raise invalid("expected Frame output v14; obsolete output format received")
         envelope = _obj(raw_envelope, "format contexts value")
         if envelope["format"] != FORMAT:
-            raise invalid("expected Frame output v13; obsolete output format received")
-        contexts: list[FrameObservationContext | FrameStatisticContext] = []
+            raise invalid("expected Frame output v14; obsolete output format received")
+        contexts: list[FrameValueContext] = []
         for item in _array(envelope["contexts"]):
             context = _decode(item)
             if (
-                not isinstance(context, (FrameObservationContext, FrameStatisticContext))
+                not isinstance(
+                    context,
+                    (
+                        FrameObservationContext,
+                        FrameStatisticContext,
+                        FrameShareContext,
+                        FramePairStatisticContext,
+                    ),
+                )
                 or context in contexts
             ):
                 raise invalid("expected unique closed current contexts")
@@ -705,7 +742,7 @@ def decode_method_record(text: str, expected: type[MethodRecord]) -> MethodRecor
     try:
         envelope = _obj(parse_json(text), "format value")
         if envelope["format"] != FORMAT:
-            raise invalid("expected Frame output v13 method record")
+            raise invalid("expected Frame output v14 method record")
         value = _decode(envelope["value"])
         if type(value) is not expected:
             raise invalid("method payload has the wrong record root")

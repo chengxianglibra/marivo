@@ -93,7 +93,9 @@ def capture_frame_inputs(
             if isinstance(root, OperationFrameBinding):
                 dependencies[current._input_id] = tuple(child._input_id for child in root.inputs)
                 inputs = tuple(collect(child) for child in root.inputs)
-                expression: FrameExpression = FrameOperation(inputs, root.operation)
+                expression: FrameExpression = FrameOperation(
+                    inputs, root.operation, current._schema
+                )
                 operation: FrameOperationName = (
                     "attribute"
                     if isinstance(root.operation, (AttributeMergeValues, AttributeGameValues))

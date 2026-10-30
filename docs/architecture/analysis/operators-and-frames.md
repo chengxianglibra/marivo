@@ -282,6 +282,16 @@ remain valid NaN. The numeric implementation is owned by
 [frame_correlation.py](../../../marivo/analysis/methods/frame_correlation.py).
 Group coefficients and counts cannot reconstruct pooled correlation.
 
+The coefficient and pair count carry `FramePairStatisticContext`, including
+ordered x/y input descriptions, groups and row_scope. Direct input names are
+captured snapshots; they need not exist among the result's columns. Derived
+inputs retain their own semantic value origins, without a formula or inferred
+business label. Naming an expression with select before correlating makes that
+name available in the captured description. Equal descriptions are not proof
+of equal expressions or a common sample. Arithmetic on a coefficient does not
+retain its direct pair-statistic context.
+
+
 Within one current-input evaluation, paired statistics reuse successful endpoint
 expression evaluation and typed conversion. A coefficient and its pair count
 share each group's common valid samples. Both endpoints still complete their
@@ -321,6 +331,14 @@ input order. A zero-axis Frame rejects share; use an explicit / expression for
 a scalar ratio. Numeric and legal Duration sum/divide
 combinations retain their existing type rules; boolean, string and date reject.
 Unsupported carriers fail before execution rather than converting silently.
+
+Explicit share results carry `FrameShareContext`: numerator input description,
+denominator groups, normalization axes (along), and row_scope. A manually written
+quotient has no share context. Direct rename/copy retains it; subsequent arithmetic
+drops it. Filtering a completed share restricts its represented domain without
+recomputing the denominator. Complete outer correspondence preserves each endpoint's
+row_scope, using presence to exclude other-side-only rows. Metadata does not change
+attribute admission: shares and current-row statistics remain unsupported targets.
 
 Shares are signed ratios, not percentages, and may lie outside [0,1]. Zero
 partition totals, including cancellation of nonzero values, give NA. Known equal units cancel to `1`; unknown units remain

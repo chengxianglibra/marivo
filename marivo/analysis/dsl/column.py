@@ -464,14 +464,16 @@ class Column:
             )
         partitions = tuple(axis for index, axis in enumerate(frame.axes) if index not in positions)
         denominator = frame.over(self._statistic("sum", canonical_id="column.share"), by=partitions)
-        result = self / denominator
-        from marivo._definition.query import SelectValues
+        self / denominator
+        from marivo._definition.query import SelectValues, ValueShare
+
+        expression = ValueShare(self._expression, tuple(sorted(positions)))
         from marivo.analysis.core.frame_expression import infer_frame_schema
         from marivo.analysis.core.frame_structure import column_kind
 
-        schema = infer_frame_schema(frame._schema, SelectValues((("share", result._expression),)))
+        schema = infer_frame_schema(frame._schema, SelectValues((("share", expression),)))
         column = schema.values[0]
-        return Column(self._input_id, result._expression, column.unit, column_kind(column), frame)
+        return Column(self._input_id, expression, column.unit, column_kind(column), frame)
 
     def sum(self) -> _Statistic:
         """Request an ignore-NA sum, completed by AnalysisFrame.reduce or over.

@@ -48,6 +48,7 @@ from marivo.analysis.core.data_types import (
 from marivo.analysis.core.frame_expression import (
     infer_frame_combine_schema,
     infer_frame_compare_schema,
+    transport_logical_facts,
 )
 from marivo.analysis.core.value_types import data_type, expression_value, ibis_type
 from marivo.analysis.materialization.errors import MaterializationError
@@ -218,7 +219,11 @@ def effective_frame(stage: FrameCompute, inputs: tuple[StageOutput, ...]) -> Fra
         return replace(
             stage,
             program=FrameCompareProgram(
-                program.operation, schemas, infer_frame_compare_schema(schemas, program.operation)
+                program.operation,
+                schemas,
+                transport_logical_facts(
+                    infer_frame_compare_schema(schemas, program.operation), program.output_schema
+                ),
             ),
         )
     if isinstance(program, FrameCombineProgram):
@@ -234,13 +239,16 @@ def effective_frame(stage: FrameCompute, inputs: tuple[StageOutput, ...]) -> Fra
                 program.operation,
                 left,
                 right,
-                infer_frame_combine_schema(left, right, program.operation),
+                transport_logical_facts(
+                    infer_frame_combine_schema(left, right, program.operation),
+                    program.output_schema,
+                ),
             ),
         )
     schema = inputs[0].frame_schema or effective_frame_schema(
         program.input_schema, inputs[0].columns
     )
-    return replace(stage, program=frame_program(schema, program.operation))
+    return replace(stage, program=frame_program(schema, program.operation, program.output_schema))
 
 
 def source_value_keys(plan: QueryPlan) -> dict[str, tuple[str, ...]]:

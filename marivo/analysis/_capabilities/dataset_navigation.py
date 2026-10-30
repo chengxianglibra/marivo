@@ -231,7 +231,7 @@ _PAGES = (
             "analysis_frame.lineage",
         ),
         guidance=(
-            "schema exposes captured types, complete keys, result contexts, comparisons and decompositions without reads. Pending show reports captured facts without evaluation. Fixed show displays a bounded prefix; read_page returns ordered projected data with complete keys, read_periods returns saved time periods and consumed endpoint correspondences, and to_pandas exports complete fixed data with isolated axis metadata. Saved source_reads retains original actual reads, not complete filters or the current derived domain; method_facts explains the original method and denominator. These facts establish neither freshness nor cause. Other objects expose show/render through their type Help.",
+            "schema exposes captured types, complete keys, result contexts, alignments, comparisons and decompositions without reads. Pending show reports captured facts without evaluation. Fixed show displays a bounded prefix; read_page returns ordered projected data with complete keys, read_periods returns saved time periods and consumed endpoint correspondences, and to_pandas exports complete fixed data with isolated axis metadata. Saved source_reads retains original actual reads, not complete filters or the current derived domain; method_facts explains the original method and denominator. These facts establish neither freshness nor cause. Other objects expose show/render through their type Help.",
         ),
         discovery_group="results",
         route_summaries=(

@@ -133,6 +133,7 @@ class _Fact(RenderableResult):
                 "axis_token",
                 "name",
                 "comparison_id",
+                "alignment_id",
                 "decomposition_id",
                 "statistic",
                 "row_scope",
@@ -147,7 +148,17 @@ class _Fact(RenderableResult):
                 "level",
             ):
                 parts.append(f"{item.name}={str(getattr(self, item.name))[:40]}")
-            elif item.name in ("keys", "groups", "outputs", "values", "key"):
+            elif item.name in (
+                "keys",
+                "groups",
+                "along",
+                "origins",
+                "coordinates",
+                "presence",
+                "outputs",
+                "values",
+                "key",
+            ):
                 parts.append(f"{item.name}={len(getattr(self, item.name))}")
         if isinstance(self, FrameFixedAxis):
             parts.append(f"axis={self.axis.token[:40]}")
@@ -412,7 +423,7 @@ FrameGroup: TypeAlias = FrameAxisGroup | FrameFixedGroup
 class FrameStatisticContext(_Fact):
     """Current-row statistic and its complete parent groups."""
 
-    statistic: Literal["sum", "mean", "row_count", "pearson", "spearman", "pair_count"]
+    statistic: Literal["sum", "mean", "row_count"]
     groups: tuple[FrameGroup, ...] = field(
         metadata={
             "meaning": "Complete parent groups; see marivo.help('analysis.frame_statistic_context') for axis and fixed variants."
@@ -427,7 +438,140 @@ class FrameStatisticContext(_Fact):
     kind: Literal["statistic"] = field(default="statistic")
 
 
-FrameValueContext: TypeAlias = FrameObservationContext | FrameStatisticContext
+@dataclass(frozen=True, slots=True, repr=False)
+class FrameNamedValueInput(_Fact):
+    """The complete captured name and optional directly observed subject of an input."""
+
+    name: str = field(
+        metadata={
+            "meaning": "Complete input value name captured when this operation was built; a snapshot, not a current field reference."
+        }
+    )
+    subject: SemanticObjectIdentity | None = field(
+        metadata={
+            "meaning": "Direct observation subject when explicitly present on the input; None means no named subject was available."
+        }
+    )
+    kind: Literal["named"] = field(default="named")
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class FrameDerivedValueInput(_Fact):
+    """The captured value origins of an expression, without its formula or execution."""
+
+    origins: tuple[SemanticObjectIdentity, ...] = field(
+        metadata={
+            "meaning": "Sorted unique value origins of this operand; excludes context origins and does not identify a formula."
+        }
+    )
+    kind: Literal["derived"] = field(default="derived")
+
+
+FrameValueInput: TypeAlias = FrameNamedValueInput | FrameDerivedValueInput
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class FrameShareContext(_Fact):
+    """Explicit partition-sum normalization over the captured numerator and axes."""
+
+    numerator: FrameValueInput = field(
+        metadata={
+            "meaning": "Captured normalization input; see marivo.help('analysis.frame_named_value_input') and marivo.help('analysis.frame_derived_value_input') for variants."
+        }
+    )
+    groups: tuple[FrameGroup, ...] = field(
+        metadata={
+            "meaning": "Complete denominator partition axes or fixed coordinates; see marivo.help('analysis.frame_axis_group') and marivo.help('analysis.frame_fixed_group')."
+        }
+    )
+    along: tuple[FrameGroup, ...] = field(
+        metadata={
+            "meaning": "Nonempty normalization axes in original input order, or their retained fixed coordinates; disjoint from groups."
+        }
+    )
+    row_scope: Literal["complete", "restricted"] = field(
+        default="complete",
+        metadata={
+            "meaning": "Whether current valid endpoint rows still represent the full captured normalization domain; selection restricts without recomputing the denominator."
+        },
+    )
+    kind: Literal["share"] = field(default="share")
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class FramePairStatisticContext(_Fact):
+    """A current-row pair statistic over two ordered captured inputs."""
+
+    statistic: Literal["pearson", "spearman", "pair_count"]
+    x: FrameValueInput = field(
+        metadata={
+            "meaning": "First ordered actual operand captured as a named input or derived expression; see analysis.frame_named_value_input and analysis.frame_derived_value_input."
+        }
+    )
+    y: FrameValueInput = field(
+        metadata={
+            "meaning": "Second ordered actual operand captured independently of x; equality of descriptions does not certify the same calculation or sample."
+        }
+    )
+    groups: tuple[FrameGroup, ...] = field(
+        metadata={
+            "meaning": "Complete parent grouping axes or fixed coordinates; see marivo.help('analysis.frame_axis_group') and marivo.help('analysis.frame_fixed_group')."
+        }
+    )
+    row_scope: Literal["complete", "restricted"] = field(
+        default="complete",
+        metadata={
+            "meaning": "Whether current valid endpoint rows still represent the full captured statistic domain; does not certify source coverage, sample sufficiency or numerical validity."
+        },
+    )
+    kind: Literal["pair_statistic"] = field(default="pair_statistic")
+
+
+FrameValueContext: TypeAlias = (
+    FrameObservationContext | FrameStatisticContext | FrameShareContext | FramePairStatisticContext
+)
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class FrameAlignmentAxis(_Fact):
+    """A complete current coordinate and its exact time endpoint when paired."""
+
+    axis_token: str
+    endpoint: Literal["self", "left", "right"] = field(
+        metadata={
+            "meaning": "self selects an ordinary/unpaired axis; left and right select the corresponding endpoint of a paired time axis."
+        }
+    )
+
+
+FrameAlignmentCoordinate: TypeAlias = FrameAlignmentAxis | FrameFixedGroup
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class FrameAlignmentSide(_Fact):
+    """Direct current values, enclosing presence and complete coordinates of one side."""
+
+    values: tuple[str, ...]
+    presence: tuple[str, ...] = field(
+        metadata={
+            "meaning": "Nonempty current boolean presence names in outer-to-inner order; all must be True for this side to exist."
+        }
+    )
+    coordinates: tuple[FrameAlignmentCoordinate, ...] = field(
+        metadata={
+            "meaning": "Complete coordinates in relation creation order, using FrameAlignmentAxis or retained FrameFixedGroup variants."
+        }
+    )
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class FrameAlignment(_Fact):
+    """A current local alignment relationship, acquired from FrameSchema.alignments."""
+
+    input_id: str
+    alignment_id: str
+    left: FrameAlignmentSide
+    right: FrameAlignmentSide
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -590,7 +734,9 @@ def restrict_context(context: FrameValueContext) -> FrameValueContext:
 
     return (
         replace(context, row_scope="restricted")
-        if isinstance(context, FrameStatisticContext)
+        if isinstance(
+            context, (FrameStatisticContext, FrameShareContext, FramePairStatisticContext)
+        )
         else context
     )
 
@@ -603,15 +749,22 @@ def remap_context(
     """Keep only explanations whose current references have an exact local binding."""
     from dataclasses import replace
 
-    if isinstance(context, FrameStatisticContext):
-        if any(
-            isinstance(g, FrameAxisGroup) and g.axis_token not in tokens for g in context.groups
-        ):
+    if isinstance(context, (FrameStatisticContext, FrameShareContext, FramePairStatisticContext)):
+
+        def remapped(items: tuple[FrameGroup, ...]) -> tuple[FrameGroup, ...] | None:
+            if any(isinstance(g, FrameAxisGroup) and g.axis_token not in tokens for g in items):
+                return None
+            return tuple(
+                FrameAxisGroup(tokens[g.axis_token][0]) if isinstance(g, FrameAxisGroup) else g
+                for g in items
+            )
+
+        groups = remapped(context.groups)
+        if groups is None:
             return None
-        groups = tuple(
-            FrameAxisGroup(tokens[g.axis_token][0]) if isinstance(g, FrameAxisGroup) else g
-            for g in context.groups
-        )
+        if isinstance(context, FrameShareContext):
+            along = remapped(context.along)
+            return None if along is None else replace(context, groups=groups, along=along)
         return context if groups == context.groups else replace(context, groups=groups)
     if isinstance(context, FrameObservationContext):
         time = context.time
@@ -629,6 +782,116 @@ def remap_context(
     return None
 
 
+def capture_value_inputs(
+    schema: LogicalSchema,
+    lineage: FrameLineage,
+    output: LogicalSchema,
+    operation: FrameUnaryOperationKind,
+) -> LogicalSchema:
+    """Capture new explanation inputs once, while the original logical input is available."""
+    from dataclasses import replace
+
+    from marivo._definition.query import (
+        PairStatistic,
+        ReduceValues,
+        SelectValues,
+        ValuePartition,
+        ValueShare,
+        ValueSlot,
+    )
+    from marivo.analysis.core.lineage import expression_lineage
+
+    if not isinstance(operation, (SelectValues, ReduceValues)):
+        return output
+
+    def captured(value: ValueExpression) -> FrameValueInput:
+        if isinstance(value, ValueSlot):
+            name = schema.values[value.index].name
+            context = dict(schema.value_contexts).get(name)
+            subject = context.subject if isinstance(context, FrameObservationContext) else None
+            return FrameNamedValueInput(name, subject)
+        return FrameDerivedValueInput(expression_lineage(lineage, value).value_origins)
+
+    contexts = dict(output.value_contexts)
+    for name, value in operation.values:
+        if isinstance(value, ValueShare):
+            contexts[name] = FrameShareContext(
+                captured(value.value),
+                tuple(
+                    FrameAxisGroup(a.token)
+                    for p, a in enumerate(schema.axes)
+                    if p not in value.positions
+                ),
+                tuple(FrameAxisGroup(schema.axes[p].token) for p in value.positions),
+            )
+        else:
+            statistic = value.statistic if isinstance(value, ValuePartition) else value
+            if isinstance(statistic, PairStatistic):
+                positions = (
+                    value.positions
+                    if isinstance(value, ValuePartition)
+                    else operation.positions
+                    if isinstance(operation, ReduceValues)
+                    else ()
+                )
+                contexts[name] = FramePairStatisticContext(
+                    statistic.method,
+                    captured(statistic.left),
+                    captured(statistic.right),
+                    tuple(FrameAxisGroup(schema.axes[p].token) for p in positions),
+                )
+    return replace(output, value_contexts=tuple(contexts.items()))
+
+
+def transport_alignments(
+    schema: LogicalSchema,
+    output: LogicalSchema,
+    *,
+    namespace: str,
+    value_prefix: str,
+    presence_prefix: str,
+    enclosing: str,
+    tokens: dict[str, tuple[str, Literal["self", "left", "right"]]],
+    fixed: tuple[FrameFixedAxis, ...],
+) -> tuple[DataAlignment, ...]:
+    """Transport representable local relations through an actual binary endpoint mapping."""
+    from marivo.analysis.core.data_schema import DataAlignment, PairedDataAxis
+
+    axes = {a.token: a for a in output.axes}
+    values = {v.name for v in output.values}
+    presence = {v.name for v in output.presence}
+
+    def side(value: FrameAlignmentSide) -> FrameAlignmentSide | None:
+        coordinates: list[FrameAlignmentCoordinate] = []
+        for coordinate in value.coordinates:
+            if isinstance(coordinate, FrameFixedGroup):
+                if coordinate.fixed not in fixed:
+                    return None
+                coordinates.append(coordinate)
+                continue
+            target = tokens.get(coordinate.axis_token)
+            if target is None:
+                return None
+            token, endpoint = target
+            if coordinate.endpoint != "self":
+                if endpoint != "self" or not isinstance(axes.get(token), PairedDataAxis):
+                    return None
+                endpoint = coordinate.endpoint
+            coordinates.append(FrameAlignmentAxis(token, endpoint))
+        names = tuple(value_prefix + n for n in value.values)
+        flags = (enclosing, *(presence_prefix + n for n in value.presence))
+        if any(n not in values for n in names) or any(n not in presence for n in flags):
+            return None
+        return FrameAlignmentSide(names, flags, tuple(coordinates))
+
+    result: list[DataAlignment] = []
+    for relationship in schema.alignments:
+        left, right = side(relationship.left), side(relationship.right)
+        if left is not None and right is not None:
+            result.append(DataAlignment(namespace + "." + relationship.alignment_id, left, right))
+    return tuple(result)
+
+
 def unary_facts(
     schema: LogicalSchema, output: LogicalSchema, operation: FrameUnaryOperationKind
 ) -> LogicalSchema:
@@ -640,7 +903,6 @@ def unary_facts(
 
     from marivo._definition.query import (
         FilterValues,
-        PairStatistic,
         ReduceValues,
         SelectValues,
         Statistic,
@@ -656,6 +918,7 @@ def unary_facts(
     contexts = dict(schema.value_contexts)
     fixed = schema.fixed_axes
     decompositions = schema.decompositions
+    alignments = schema.alignments
     comparisons = output.comparisons
     if isinstance(operation, FixFrameValues):
         axis = schema.axes[operation.position]
@@ -679,6 +942,21 @@ def unary_facts(
         selected = FrameFixedAxis(description, key, operation.origins)
         fixed = (*fixed, selected)
 
+        def fixed_side(side: FrameAlignmentSide) -> FrameAlignmentSide:
+            return replace(
+                side,
+                coordinates=tuple(
+                    FrameFixedGroup(selected)
+                    if isinstance(c, FrameAlignmentAxis) and c.axis_token == axis.token
+                    else c
+                    for c in side.coordinates
+                ),
+            )
+
+        alignments = tuple(
+            replace(a, left=fixed_side(a.left), right=fixed_side(a.right)) for a in alignments
+        )
+
         def groups(items: tuple[FrameGroup, ...]) -> tuple[FrameGroup, ...]:
             return tuple(
                 FrameFixedGroup(selected)
@@ -687,25 +965,42 @@ def unary_facts(
                 for g in items
             )
 
+        def fixed_context(context: FrameValueContext | None) -> FrameValueContext | None:
+            if isinstance(context, FrameShareContext):
+                return replace(
+                    context,
+                    groups=groups(context.groups),
+                    along=groups(context.along),
+                    row_scope="restricted"
+                    if any(
+                        isinstance(g, FrameAxisGroup) and g.axis_token == axis.token
+                        for g in context.along
+                    )
+                    else context.row_scope,
+                )
+            if isinstance(context, FramePairStatisticContext):
+                return replace(
+                    context,
+                    groups=groups(context.groups),
+                    row_scope=context.row_scope
+                    if any(
+                        isinstance(g, FrameAxisGroup) and g.axis_token == axis.token
+                        for g in context.groups
+                    )
+                    else "restricted",
+                )
+            return (
+                replace(context, groups=groups(context.groups))
+                if isinstance(context, FrameStatisticContext)
+                else context
+            )
+
         contexts = {
-            n: replace(c, groups=groups(c.groups)) if isinstance(c, FrameStatisticContext) else c
-            for n, c in contexts.items()
+            n: c for n, value in contexts.items() if (c := fixed_context(value)) is not None
         }
         comparisons = tuple(
             replace(
-                f,
-                contexts=tuple(
-                    (
-                        p,
-                        replace(a, groups=groups(a.groups))
-                        if isinstance(a, FrameStatisticContext)
-                        else a,
-                        replace(b, groups=groups(b.groups))
-                        if isinstance(b, FrameStatisticContext)
-                        else b,
-                    )
-                    for p, a, b in f.contexts
-                ),
+                f, contexts=tuple((p, fixed_context(a), fixed_context(b)) for p, a, b in f.contexts)
             )
             for f in comparisons
         )
@@ -747,20 +1042,34 @@ def unary_facts(
                 direct[original] = (*direct.get(original, ()), name)
                 if original in contexts:
                     selected_contexts[name] = contexts[original]
-            elif isinstance(expression, ValuePartition):
+            elif isinstance(expression, ValuePartition) and isinstance(
+                expression.statistic, Statistic
+            ):
                 selected_contexts[name] = FrameStatisticContext(
                     expression.statistic.method,
                     tuple(FrameAxisGroup(schema.axes[p].token) for p in expression.positions),
                 )
-            elif isinstance(operation, ReduceValues) and isinstance(
-                expression, (Statistic, PairStatistic)
-            ):
+            elif isinstance(operation, ReduceValues) and isinstance(expression, Statistic):
                 selected_contexts[name] = FrameStatisticContext(
                     expression.method,
                     tuple(FrameAxisGroup(schema.axes[p].token) for p in operation.positions),
                 )
         contexts = selected_contexts
         if isinstance(operation, SelectValues):
+            from marivo.analysis.core.data_schema import DataAlignment
+
+            def selected_side(side: FrameAlignmentSide) -> FrameAlignmentSide:
+                retained_names = {n for old in side.values for n in direct.get(old, ())}
+                return replace(
+                    side, values=tuple(c.name for c in output.values if c.name in retained_names)
+                )
+
+            alignments = tuple(
+                DataAlignment(a.alignment_id, left, right)
+                for a in alignments
+                for left, right in ((selected_side(a.left), selected_side(a.right)),)
+                if left.values or right.values
+            )
             retained: list[FrameDecomposition] = []
             for decomposition in decompositions:
                 fields = tuple(
@@ -773,6 +1082,7 @@ def unary_facts(
             decompositions = tuple(retained)
         else:
             decompositions = ()
+            alignments = ()
     tokens: dict[str, tuple[str, Literal["self", "left", "right"]]] = {
         a.token: (a.token, "self") for a in output.axes
     }
@@ -815,10 +1125,13 @@ def unary_facts(
         value_contexts=resolved,
         decompositions=decompositions,
         comparisons=comparisons,
+        alignments=alignments,
     )
 
 
 if TYPE_CHECKING:
+    from marivo._definition.query import ValueExpression
+    from marivo.analysis.core.data_schema import DataAlignment
     from marivo.analysis.core.frame_expression import (
         AlignFrameValues,
         CompareFrameValues,
@@ -826,6 +1139,7 @@ if TYPE_CHECKING:
         FrameUnaryOperationKind,
     )
     from marivo.analysis.core.frame_schema import LogicalSchema
+    from marivo.analysis.core.lineage import FrameLineage
 
 
 def comparison_facts(
@@ -836,19 +1150,27 @@ def comparison_facts(
 
     from marivo.analysis.core.data_schema import (
         CalendarComparisonBinding,
+        CalendarDataAxis,
         IntervalComparisonBinding,
+        IntervalDataAxis,
     )
     from marivo.analysis.core.frame_schema import comparison_id
 
     current = inputs[0]
     contexts: dict[str, FrameValueContext] = {}
     facts = list(output.comparisons)
+    alignments: list[DataAlignment] = []
     common = tuple(f for f in current.fixed_axes if all(f in b.fixed_axes for b in inputs[1:]))
 
     def shared_context(context: FrameValueContext | None) -> FrameValueContext | None:
-        if isinstance(context, FrameStatisticContext) and any(
+        if isinstance(
+            context, (FrameStatisticContext, FrameShareContext, FramePairStatisticContext)
+        ) and any(
             isinstance(group, FrameFixedGroup) and group.fixed not in common
-            for group in context.groups
+            for group in (
+                *context.groups,
+                *(context.along if isinstance(context, FrameShareContext) else ()),
+            )
         ):
             return None
         return context
@@ -864,6 +1186,42 @@ def comparison_facts(
         baseline_tokens: dict[str, tuple[str, Literal["self", "left", "right"]]] = {
             baseline.axes[j].token: (output.axes[k].token, "self") for k, j in item.pairs
         }
+        if i == 0:
+            alignments.extend(
+                transport_alignments(
+                    current,
+                    output,
+                    namespace="current",
+                    value_prefix="",
+                    presence_prefix="current.presence.",
+                    enclosing="current.present",
+                    tokens=current_tokens,
+                    fixed=common,
+                )
+            )
+        alignment_baseline_tokens = dict(baseline_tokens)
+        for current_position, baseline_position in item.pairs:
+            baseline_axis = baseline.axes[baseline_position]
+            if not isinstance(baseline_axis, (CalendarDataAxis, IntervalDataAxis)):
+                continue
+            identity_mapping = item.match is None or (
+                baseline_axis == current.axes[current_position]
+                and (item.match.kind == "ordinal" or item.match.by == 0)
+            )
+            if not identity_mapping:
+                alignment_baseline_tokens.pop(baseline_axis.token, None)
+        alignments.extend(
+            transport_alignments(
+                baseline,
+                output,
+                namespace=item.alias,
+                value_prefix=item.alias + ".baseline.",
+                presence_prefix=item.alias + ".presence.",
+                enclosing=item.alias + ".present",
+                tokens=alignment_baseline_tokens,
+                fixed=common,
+            )
+        )
         captured: list[
             tuple[tuple[str, ...], FrameValueContext | None, FrameValueContext | None]
         ] = []
@@ -904,6 +1262,7 @@ def comparison_facts(
         fixed_axes=common,
         value_contexts=tuple(contexts.items()),
         decompositions=(),
+        alignments=tuple(alignments),
     )
 
 
@@ -913,10 +1272,11 @@ def align_facts(
     """Transport only local current contexts and common fixed choices through align."""
     from dataclasses import replace
 
-    from marivo.analysis.core.data_schema import PairedDataAxis
+    from marivo.analysis.core.data_schema import DataAlignment, PairedDataAxis
     from marivo.analysis.core.frame_schema import capture_comparisons, comparison_id
 
     result: list[tuple[str, FrameValueContext]] = []
+    alignments: list[DataAlignment] = []
     common = tuple(f for f in left.fixed_axes if f in right.fixed_axes)
     visible_comparisons = {
         fact.comparison_id for fact in capture_comparisons("align-output", output)
@@ -933,6 +1293,18 @@ def align_facts(
                 target.token,
                 endpoint if isinstance(target, PairedDataAxis) else "self",
             )
+        alignments.extend(
+            transport_alignments(
+                schema,
+                output,
+                namespace=side,
+                value_prefix=side + ".",
+                presence_prefix=side + ".",
+                enclosing=side + "_present",
+                tokens=tokens,
+                fixed=common,
+            )
+        )
         ids = {
             comparison_id(f): identity
             for f in schema.comparisons
@@ -940,14 +1312,42 @@ def align_facts(
         }
         for name, context in schema.value_contexts:
             rebound = remap_context(context, tokens, ids)
-            if isinstance(rebound, FrameStatisticContext) and any(
+            if isinstance(
+                rebound, (FrameStatisticContext, FrameShareContext, FramePairStatisticContext)
+            ) and any(
                 isinstance(group, FrameFixedGroup) and group.fixed not in common
-                for group in rebound.groups
+                for group in (
+                    *rebound.groups,
+                    *(rebound.along if isinstance(rebound, FrameShareContext) else ()),
+                )
             ):
                 rebound = None
             if rebound is not None:
                 result.append((side + "." + name, rebound))
-    return replace(output, fixed_axes=common, value_contexts=tuple(result), decompositions=())
+    if output.values:
+
+        def aligned_side(
+            side: Literal["left", "right"], schema: LogicalSchema
+        ) -> FrameAlignmentSide:
+            return FrameAlignmentSide(
+                tuple(side + "." + c.name for c in schema.values),
+                (side + "_present",),
+                tuple(
+                    FrameAlignmentAxis(a.token, side if isinstance(a, PairedDataAxis) else "self")
+                    for a in output.axes
+                ),
+            )
+
+        alignments.append(
+            DataAlignment("alignment", aligned_side("left", left), aligned_side("right", right))
+        )
+    return replace(
+        output,
+        fixed_axes=common,
+        value_contexts=tuple(result),
+        decompositions=(),
+        alignments=tuple(alignments),
+    )
 
 
 def decomposition_facts(
@@ -1057,14 +1457,21 @@ def _validate_fact(value: _Fact) -> None:
             _invalid("captured instants must be plain UTC datetimes")
 
     def groups(items: tuple[FrameGroup, ...]) -> None:
-        if type(items) is not tuple or any(
-            type(g) not in (FrameAxisGroup, FrameFixedGroup) for g in items
+        if (
+            type(items) is not tuple
+            or any(type(g) not in (FrameAxisGroup, FrameFixedGroup) for g in items)
+            or len(set(items)) != len(items)
         ):
-            _invalid("complete immutable axis or fixed parent groups")
+            _invalid("distinct complete immutable axis or fixed parent groups")
 
     def context(item: FrameValueContext | None) -> None:
-        if item is not None and type(item) not in (FrameObservationContext, FrameStatisticContext):
-            _invalid("one closed observation or statistic context")
+        if item is not None and type(item) not in (
+            FrameObservationContext,
+            FrameStatisticContext,
+            FrameShareContext,
+            FramePairStatisticContext,
+        ):
+            _invalid("one closed current value context")
 
     if isinstance(value, FrameAxisSchema):
         text(value.token)
@@ -1173,17 +1580,70 @@ def _validate_fact(value: _Fact) -> None:
     elif isinstance(value, FrameFixedGroup):
         if type(value.fixed) is not FrameFixedAxis:
             _invalid("an exact fixed parent coordinate")
-    elif isinstance(value, FrameStatisticContext):
-        if value.statistic not in (
-            "sum",
-            "mean",
-            "row_count",
-            "pearson",
-            "spearman",
-            "pair_count",
-        ) or value.row_scope not in ("complete", "restricted"):
-            _invalid("one supported current-row statistic and row scope")
+    elif isinstance(value, FrameNamedValueInput):
+        text(value.name)
+        if value.subject is not None and (
+            type(value.subject) is not SemanticObjectIdentity or value.subject.kind != "metric"
+        ):
+            _invalid("a named input with its directly observed Metric subject or None")
+    elif isinstance(value, FrameDerivedValueInput):
+        if (
+            type(value.origins) is not tuple
+            or any(type(o) is not SemanticObjectIdentity for o in value.origins)
+            or value.origins != union(value.origins)
+        ):
+            _invalid("stable sorted unique captured value origins")
+    elif isinstance(value, (FrameStatisticContext, FrameShareContext, FramePairStatisticContext)):
+        if value.row_scope not in ("complete", "restricted"):
+            _invalid("one closed represented row scope")
         groups(value.groups)
+        if isinstance(value, FrameStatisticContext):
+            if value.statistic not in ("sum", "mean", "row_count"):
+                _invalid("one supported current-row statistic")
+        elif isinstance(value, FramePairStatisticContext):
+            if value.statistic not in ("pearson", "spearman", "pair_count"):
+                _invalid("one supported ordered pair statistic")
+            if any(
+                type(i) not in (FrameNamedValueInput, FrameDerivedValueInput)
+                for i in (value.x, value.y)
+            ):
+                _invalid("two closed captured value inputs")
+        else:
+            if type(value.numerator) not in (FrameNamedValueInput, FrameDerivedValueInput):
+                _invalid("one closed captured numerator input")
+            groups(value.along)
+            if not value.along or set(value.groups) & set(value.along):
+                _invalid("nonempty normalization axes disjoint from denominator groups")
+    elif isinstance(value, FrameAlignmentAxis):
+        text(value.axis_token)
+        if value.endpoint not in ("self", "left", "right"):
+            _invalid("one closed current coordinate endpoint")
+    elif isinstance(value, FrameAlignmentSide):
+        for items in (value.values, value.presence):
+            if type(items) is not tuple or len(set(items)) != len(items):
+                _invalid("unique ordered current field names")
+            for name in items:
+                text(name)
+        if not value.presence:
+            _invalid("a nonempty ordered presence chain")
+        if (
+            type(value.coordinates) is not tuple
+            or any(type(c) not in (FrameAlignmentAxis, FrameFixedGroup) for c in value.coordinates)
+            or len(set(value.coordinates)) != len(value.coordinates)
+        ):
+            _invalid("unique complete current or fixed coordinates")
+    elif isinstance(value, FrameAlignment):
+        text(value.input_id)
+        text(value.alignment_id)
+        if (
+            type(value.left) is not FrameAlignmentSide
+            or type(value.right) is not FrameAlignmentSide
+        ):
+            _invalid("two closed alignment sides")
+        if (not value.left.values and not value.right.values) or set(value.left.values) & set(
+            value.right.values
+        ):
+            _invalid("disjoint alignment values with at least one retained value")
     elif isinstance(value, FrameComparisonValue):
         text(value.name)
         if value.role not in ("current", "baseline", "absolute", "relative"):
@@ -1251,7 +1711,12 @@ def validate_current_facts(schema: LogicalSchema) -> None:
     if len(comparisons) != len(schema.comparisons):
         _invalid("unique current comparison identities")
 
-    def context(item: FrameValueContext | None, selections: tuple[FrameFixedAxis, ...]) -> None:
+    def context(
+        item: FrameValueContext | None,
+        selections: tuple[FrameFixedAxis, ...],
+        *,
+        complete_active_axes: bool = False,
+    ) -> None:
         if isinstance(item, FrameObservationContext):
             time = item.time
             if isinstance(time, FrameAxisTime):
@@ -1262,8 +1727,25 @@ def validate_current_facts(schema: LogicalSchema) -> None:
                     _invalid("an observation time resolving to a current complete time endpoint")
             elif isinstance(time, FrameComparedTime) and time.comparison_id not in comparisons:
                 _invalid("an observation time resolving to a current comparison")
-        elif isinstance(item, FrameStatisticContext):
+        elif isinstance(
+            item, (FrameStatisticContext, FrameShareContext, FramePairStatisticContext)
+        ):
             group_refs(item.groups, selections)
+            if isinstance(item, FrameShareContext):
+                group_refs(item.along, selections)
+                active = tuple(
+                    g.axis_token
+                    for g in (*item.groups, *item.along)
+                    if isinstance(g, FrameAxisGroup)
+                )
+                if complete_active_axes and (
+                    len(set(active)) != len(active) or set(active) != set(axes)
+                ):
+                    _invalid(
+                        "normalization groups and along covering every current complete active axis exactly once"
+                    )
+        elif item is not None:
+            _invalid("one closed current value context")
 
     def group_refs(items: tuple[FrameGroup, ...], selections: tuple[FrameFixedAxis, ...]) -> None:
         for group in items:
@@ -1272,11 +1754,53 @@ def validate_current_facts(schema: LogicalSchema) -> None:
             if isinstance(group, FrameFixedGroup) and group.fixed not in selections:
                 _invalid("a retained exact fixed parent coordinate")
 
+    from marivo.analysis.core.data_schema import DataAlignment
+    from marivo.analysis.core.frame_structure import column_kind as column_kind_for_presence
+
+    if type(schema.alignments) is not tuple or any(
+        type(a) is not DataAlignment for a in schema.alignments
+    ):
+        _invalid("an immutable directory of closed current alignments")
+    if len({a.alignment_id for a in schema.alignments}) != len(schema.alignments):
+        _invalid("unique current local alignment identities")
+    for alignment in schema.alignments:
+        FrameAlignment("validation", alignment.alignment_id, alignment.left, alignment.right)
+        for side in (alignment.left, alignment.right):
+            active = tuple(
+                c.axis_token for c in side.coordinates if isinstance(c, FrameAlignmentAxis)
+            )
+            if len(set(active)) != len(active) or set(active) != set(axes):
+                _invalid(
+                    "alignment coordinates covering every current complete active axis exactly once"
+                )
+            if any(n not in values for n in side.values):
+                _invalid("alignment values resolving to exact current fields")
+            for name in side.presence:
+                columns = tuple(c for c in schema.presence if c.name == name)
+                if (
+                    not columns
+                    or columns[0].nullable is not False
+                    or column_kind_for_presence(columns[0]) != "boolean"
+                ):
+                    _invalid("alignment presence resolving to non-nullable boolean fields")
+            for coordinate in side.coordinates:
+                if isinstance(coordinate, FrameFixedGroup):
+                    if coordinate.fixed not in schema.fixed_axes:
+                        _invalid("a retained exact fixed alignment coordinate")
+                else:
+                    axis = axes.get(coordinate.axis_token)
+                    if axis is None or (
+                        (coordinate.endpoint == "self") == isinstance(axis, PairedDataAxis)
+                    ):
+                        _invalid(
+                            "an alignment coordinate resolving to the actual complete endpoint"
+                        )
+
     names = tuple(n for n, _ in schema.value_contexts)
     if len(set(names)) != len(names) or any(n not in values for n in names):
         _invalid("unique context bindings to current value fields")
     for _, item in schema.value_contexts:
-        context(item, schema.fixed_axes)
+        context(item, schema.fixed_axes, complete_active_axes=True)
     for fact in schema.comparisons:
         for _, current, baseline in fact.contexts:
             context(current, (*schema.fixed_axes, *fact.current_fixed_axes))

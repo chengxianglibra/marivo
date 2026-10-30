@@ -7,6 +7,21 @@ from dataclasses import dataclass
 from types import MappingProxyType
 from typing import TYPE_CHECKING
 
+from typing_extensions import assert_never
+
+from marivo._definition.query import (
+    CoordinateSlot,
+    PairStatistic,
+    PresenceSlot,
+    Statistic,
+    ValueBinary,
+    ValueExpression,
+    ValueLiteral,
+    ValuePartition,
+    ValueShare,
+    ValueSlot,
+    ValueUnary,
+)
 from marivo.analysis.core.model import reject
 from marivo.refs import SemanticKind
 
@@ -239,3 +254,47 @@ def validate(lineage: FrameLineage, schema: DataSchema | PendingDataSchema) -> N
         or tuple(lineage.presence) != tuple(".".join(p) for p in schema.presence_paths)
     ):
         _fail("lineage directories differ from output schema")
+
+
+def statistic_lineage(lineage: FrameLineage, value: Statistic | PairStatistic) -> ColumnLineage:
+    """Capture one statistic's operands using the same logical lineage traversal."""
+    operands = (
+        (value.left, value.right)
+        if isinstance(value, PairStatistic)
+        else (() if value.value is None else (value.value,))
+    )
+    return merge(*(expression_lineage(lineage, e) for e in operands), context=lineage._domain)
+
+
+def expression_lineage(lineage: FrameLineage, value: ValueExpression) -> ColumnLineage:
+    """Capture one actual operand without merging it with other result operands."""
+    values = tuple(lineage.values.values())
+    axes = tuple(lineage.axes.values())
+    if isinstance(value, ValueSlot):
+        return values[value.index]
+    if isinstance(value, CoordinateSlot):
+        return merge(axes[value.index], context=lineage._domain)
+    if isinstance(value, PresenceSlot):
+        return lineage.presence[".".join(value.path)]
+    if isinstance(value, ValueLiteral):
+        return ColumnLineage(context_origins=lineage._domain)
+    if isinstance(value, ValueUnary):
+        return expression_lineage(lineage, value.operand)
+    if isinstance(value, ValueBinary):
+        return merge(
+            expression_lineage(lineage, value.left), expression_lineage(lineage, value.right)
+        )
+    if isinstance(value, ValueShare):
+        return merge(
+            expression_lineage(lineage, value.value),
+            context=union(
+                lineage._domain,
+                *(all_origins(a) for p, a in enumerate(axes) if p not in value.positions),
+            ),
+        )
+    if isinstance(value, ValuePartition):
+        return merge(
+            statistic_lineage(lineage, value.statistic),
+            context=union(*(all_origins(axes[p]) for p in value.positions)),
+        )
+    assert_never(value)

@@ -14,7 +14,7 @@ class MaterializationLayout:
     project_root: Path
 
     @property
-    def generation(self) -> Literal[24]:
+    def generation(self) -> Literal[25]:
         return ANALYSIS_STORE_GENERATION
 
     def __post_init__(self) -> None:

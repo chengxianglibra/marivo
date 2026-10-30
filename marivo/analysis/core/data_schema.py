@@ -9,6 +9,7 @@ from typing import Literal
 from marivo.analysis.core.data_types import DataColumn as DataColumn
 from marivo.analysis.core.data_types import ScalarDataType, require_data_text
 from marivo.analysis.core.frame_interpretation import (
+    FrameAlignmentSide,
     FrameDecomposition,
     FrameFixedAxis,
     FrameValueContext,
@@ -372,6 +373,15 @@ class DataComparison:
 
 
 @dataclass(frozen=True, slots=True)
+class DataAlignment:
+    """One local alignment with current references, independent of a public input ID."""
+
+    alignment_id: str
+    left: FrameAlignmentSide
+    right: FrameAlignmentSide
+
+
+@dataclass(frozen=True, slots=True)
 class DataSchema:
     axes: tuple[DataAxis | CalendarDataAxis | IntervalDataAxis | PairedDataAxis, ...]
     values: tuple[DataColumn, ...]
@@ -383,6 +393,7 @@ class DataSchema:
     fixed_axes: tuple[FrameFixedAxis, ...] = ()
     value_contexts: tuple[tuple[str, FrameValueContext], ...] = ()
     decompositions: tuple[FrameDecomposition, ...] = ()
+    alignments: tuple[DataAlignment, ...] = ()
 
     def __post_init__(self) -> None:
         if (

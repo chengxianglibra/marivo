@@ -822,3 +822,12 @@ large.show()
 ranked = current.top(1, by=current["revenue"]).compute()
 ranked.show()
 ```
+
+
+### Captured value interpretation
+
+`frame.schema.alignments` binds aligned values to their endpoint coordinates and
+presence. `frame.schema.value_contexts` identifies explicit shares and paired
+statistics, including captured input names. See [result interpretation](/docs/latest/analysis/results/#interpret-aligned-values-shares-and-paired-statistics)
+for typed inspection and propagation rules. These metadata reads do not execute
+pending Frames or make current-row statistics valid attribute targets.
