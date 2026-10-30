@@ -14,6 +14,7 @@ from marivo.analysis.compiler.graph_plan import (
     AttributeFrequencyRead,
     AttributeRead,
     NativeRead,
+    ProjectionRead,
     QueryPlan,
     SourceRead,
     read_attribute,
@@ -26,6 +27,8 @@ from marivo.analysis.compiler.graph_plan import (
     require_components,
     require_reduction,
 )
+from marivo.analysis.compiler.unique_keys import relation_unique_keys
+from marivo.analysis.core.unique_keys import UniqueKeys
 from marivo.semantic._numeric_lowering import NumericCheck
 
 
@@ -299,6 +302,31 @@ def lower_query(plan: QueryPlan, relations: dict[str, ir.Table]) -> LoweredQuery
                 expression, table, (), stage.preparation_checks
             )
             lowered.append(LoweredRead(stage.stage_id, expression, checks))
+    # Facts describe the data relation, before diagnostic rows are separated by
+    # execution. Raw component and Attribute unions cannot use aggregate facts.
+    for read in lowered:
+        stage = effective_stages.get(read.stage_id, plan.source_read(read.stage_id))
+        source = relations.get(stage.stage_id)
+        if source is None:
+            source = relations[stage.source_id]
+        seeds = {}
+        if isinstance(stage.program, ProjectionRead) and stage.unique_keys.proves(stage.keys):
+            physical = dict(stage.program.projections)
+            seeds[source.op()] = UniqueKeys(
+                tuple(source.columns), (tuple(physical[key] for key in stage.keys),)
+            )
+        facts = relation_unique_keys(read.expression, seeds).project(
+            tuple(c.slot_id for c in stage.columns)
+        )
+        mixed = (
+            read_components(stage) is not None
+            or read_attribute(stage) is not None
+            or any(read_components(member) is not None for member in read_members(stage))
+        )
+        if not mixed:
+            for key in stage.unique_keys.keys:
+                facts = facts.add(key)
+        effective_stages[stage.stage_id] = replace(stage, unique_keys=facts)
     return LoweredQuery(
         replace(
             plan, stages=tuple(effective_stages.get(stage.stage_id, stage) for stage in plan.stages)

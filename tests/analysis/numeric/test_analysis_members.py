@@ -459,12 +459,10 @@ def test_exact_boundary_null_and_corrupt_subject(members_session: Session) -> No
     payload.write_bytes(b"corrupt complete identity")
     with pytest.raises(AnalysisError):
         session.persisted_frame(saved.artifact_id).to_pandas()
-    _replace_source(
-        session,
-        "UPDATE r52 SET finish = DATE '2026-09-02' WHERE id = 'A' AND day = DATE '2026-08-01'",
-    )
-    with pytest.raises(AnalysisError):
-        _read(session, members, f"{prefix}.valid.amount", at=boundary).compute()
+    assert _values(_read(session, members, f"{prefix}.valid.amount", at=boundary).compute()) == [
+        30,
+        20,
+    ]
 
 
 def test_wrong_role_and_many_mapping_reject_before_io(

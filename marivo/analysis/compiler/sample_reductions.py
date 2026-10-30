@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import ibis
 import ibis.expr.operations as ops
@@ -36,6 +36,7 @@ from marivo.analysis.compiler.source_predicates import (
 )
 from marivo.analysis.core.calendar_keys import time_keys
 from marivo.analysis.core.data_types import DurationDataType
+from marivo.analysis.core.unique_keys import UniqueKeys
 from marivo.analysis.errors import AnalysisStageUnavailableError
 from marivo.semantic._numeric_lowering import (
     NumericCheck,
@@ -55,6 +56,10 @@ class SampleRelation:
     value: str
     checks: tuple[tuple[str, str, str], ...] = ()
     zero_when_absent: bool = False
+    unique_keys: UniqueKeys = field(default_factory=UniqueKeys)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "unique_keys", self.unique_keys.project(tuple(self.table.columns)))
 
 
 class SampleReductionUnavailableError(AnalysisStageUnavailableError):
@@ -102,6 +107,7 @@ class SampleLowerer:
         population: Callable[[PopulationDependency, tuple[str, ...]], ir.Table],
         grid: Callable[[tuple[str, ...], tuple[tuple[object, ...], ...]], ir.Table],
         identities: Mapping[str, str] | None = None,
+        unique_keys: Mapping[str, UniqueKeys] | None = None,
     ) -> None:
         self.program = program
         self.relations = relations
@@ -110,6 +116,7 @@ class SampleLowerer:
         self.population = population
         self.grid = grid
         self.identities = identities or {}
+        self.unique_keys = unique_keys or {}
         self.declared = dict(program.declared)
         self.serial = 0
         self.cache: dict[
@@ -191,6 +198,16 @@ class SampleLowerer:
             )
         return result
 
+    @staticmethod
+    def aligned_keys(
+        table: ir.Table, values: tuple[SampleRelation, ...], keys: tuple[str, ...]
+    ) -> UniqueKeys:
+        """A distinct domain left join retains its key only for unique complete matches."""
+        return UniqueKeys(
+            tuple(table.columns),
+            (keys,) if all(value.unique_keys.proves(keys) for value in values) else (),
+        )
+
     def lower(
         self,
         node: MetricNode,
@@ -270,12 +287,21 @@ class SampleLowerer:
             table = tables[0]
             for other in tables[1:]:
                 table = table.union(other, distinct=False)
-            result = SampleRelation(table, value, checks, binding.zero_when_absent)
+            facts = (
+                self.unique_keys.get(binding.stage_id, UniqueKeys()).project(tuple(table.columns))
+                if len(bindings) == 1
+                else UniqueKeys(tuple(table.columns))
+            )
+            result = SampleRelation(table, value, checks, binding.zero_when_absent, facts)
             return (
                 result
                 if forced is None
                 else SampleRelation(
-                    self.align(forced, (result,), keys), value, checks, binding.zero_when_absent
+                    self.align(forced, (result,), keys),
+                    value,
+                    checks,
+                    binding.zero_when_absent,
+                    self.aligned_keys(forced, (result,), keys),
                 )
             )
         if isinstance(node, MemberCount):
@@ -315,6 +341,7 @@ class SampleLowerer:
                 ),
                 value,
                 checks,
+                unique_keys=self.aligned_keys(table, operands, keys),
             )
         if not isinstance(node, (PerReduce, PerWeightedMean)):
             raise SampleReductionUnavailableError(
@@ -480,15 +507,22 @@ class SampleLowerer:
                 raise SampleReductionUnavailableError(
                     "ordered samples have no unique bound time key"
                 )
-            # Window selection retains NULL endpoints; all samples still enter the uniqueness check.
-            name = self.name("check")
-            metrics[name] = (
-                table[order].nunique() + table[order].isnull().any().fill_null(False).ifelse(1, 0)
-                != table.count()
+            # The input relation must prove parent + order before NULL filtering.
+            input_facts = (
+                operands[0].unique_keys
+                if len(operands) == 1
+                else self.aligned_keys(table, operands, complete_keys)
             )
-            fold_checks.append(
-                (name, "one internal sample per time key", "first/last duplicate time keys")
-            )
+            if not input_facts.proves((*keys, order)):
+                name = self.name("check")
+                metrics[name] = (
+                    table[order].nunique()
+                    + table[order].isnull().any().fill_null(False).ifelse(1, 0)
+                    != table.count()
+                )
+                fold_checks.append(
+                    (name, "one internal sample per time key", "first/last duplicate time keys")
+                )
             candidate = table if node.include_null else table.filter(value.notnull())
             rank = self.name("rank")
             ordered = candidate.mutate(
@@ -510,18 +544,32 @@ class SampleLowerer:
             )
             selected = ordered.filter(ordered[rank] == 0)
             result = (
-                table.group_by(*keys).aggregate(**metrics) if keys else table.aggregate(**metrics)
+                table.group_by(*keys).aggregate(**metrics)
+                if keys
+                else table.aggregate(**metrics)
+                if metrics
+                else ibis.literal(True).name("__sample_unit").as_table()
             )
             endpoint = SampleRelation(
-                selected.select(*keys, **{output: selected[operands[0].value]}), output
+                selected.select(*keys, **{output: selected[operands[0].value]}),
+                output,
+                unique_keys=UniqueKeys((*keys, output), (keys,)),
             )
+            aligned = self.align(result, (endpoint,), keys)
             ordered_result = SampleRelation(
-                self.align(result, (endpoint,), keys), output, tuple(fold_checks)
+                aligned,
+                output,
+                tuple(fold_checks),
+                unique_keys=UniqueKeys(tuple(aligned.columns), (keys,)),
             )
             # An enclosing explicit domain may exclude observed parents or add
             # absent ones whose NULL endpoints must reach the outer reducer.
+            completed = self.align(parent, (ordered_result,), keys)
             return SampleRelation(
-                self.align(parent, (ordered_result,), keys), output, tuple(fold_checks)
+                completed,
+                output,
+                tuple(fold_checks),
+                unique_keys=UniqueKeys(tuple(completed.columns), (keys,)),
             )
         elif node.reducer in ("approx_median", "approx_quantile"):
             reduced = value.cast("float64").approx_quantile(node.q if node.q is not None else 0.5)
@@ -553,12 +601,30 @@ class SampleLowerer:
                 for binding in bindings
             )
         ):
-            return SampleRelation(result, output, tuple(fold_checks), zero)
+            return SampleRelation(
+                result, output, tuple(fold_checks), zero, UniqueKeys(tuple(result.columns), (keys,))
+            )
         # Preserve parent coordinates even if a selected sample domain is empty.
         completed = self.align(
-            parent, (SampleRelation(result, output, tuple(fold_checks), zero),), keys
+            parent,
+            (
+                SampleRelation(
+                    result,
+                    output,
+                    tuple(fold_checks),
+                    zero,
+                    UniqueKeys(tuple(result.columns), (keys,)),
+                ),
+            ),
+            keys,
         )
-        return SampleRelation(completed, output, tuple(fold_checks), zero)
+        return SampleRelation(
+            completed,
+            output,
+            tuple(fold_checks),
+            zero,
+            UniqueKeys(tuple(completed.columns), (keys,)),
+        )
 
     def enclosing_axes(
         self, path: tuple[int, ...]

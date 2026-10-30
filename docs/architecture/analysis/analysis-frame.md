@@ -22,6 +22,9 @@ AnalysisFrame
 observe/read/values/frame/attribute、align 和 compare 均返回同一种 AnalysisFrame。
 零轴 Frame 表示标量域；不通过公共子类区分计算阶段、比较、单位或日历形状。
 完成数据本身不保存生产图、原语义对象、来源连接或隐藏聚合组件。
+完整行键唯一是数据合同，可由已绑定的声明、分组/去重等受控算子或成功检查建立；
+它不要求每次内存交接重新扫描。唯一性事实只属于确切关系及其槽位，不能代替 NULL、
+presence、时间映射或覆盖检查。原始输入和首次存储读取保留各自检查，唯一性证明不写入 Store。
 Frame 实例可另持有捕获时的不可变来源声明与输出映射，用于显式 attribute 新读。
 compute 与同进程 persist 返回对象保留此引用；独立 reopen 不恢复该引用。
 声明不写入 Store，不从同 artifact ID 的其它实例或全局缓存取回。

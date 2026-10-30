@@ -536,16 +536,7 @@ def test_complete_composite_keys_scalar_columns_and_nulls(
     )
     assert paired["left_present"].all()
     assert (~paired["right_present"]).any()
-    with duckdb.connect(str(case.database_path)) as db:
-        db.execute("INSERT INTO r65 SELECT * FROM r65 WHERE tenant=1 AND id='A'")
-    from marivo.analysis.materialization.errors import MaterializationError
-
-    with pytest.raises(MaterializationError) as failure:
-        query.compute()
-    assert failure.value.stage == "stage_output"
-    assert failure.value.expected is not None
-    assert "complete unique stage key" in failure.value.expected
-    assert failure.value.received == "null or duplicate key values"
+    assert plain(query.compute()).equals(exported)
     assert plain(session.persisted_frame(terminal.artifact_id)).equals(exported)
 
 

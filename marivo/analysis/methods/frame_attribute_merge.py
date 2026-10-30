@@ -22,7 +22,10 @@ def merge_attribute_data(
         )
         for schema, item in zip(program.input_schemas, inputs, strict=True)
     )
-    if any(len(set(group)) != len(group) for group in keys):
+    if any(
+        not item.unique_keys.proves(schema.key_fields) and len(set(group)) != len(group)
+        for schema, item, group in zip(program.input_schemas, inputs, keys, strict=True)
+    ):
         reject(
             "one row per complete report key",
             "duplicate target report keys",

@@ -32,7 +32,7 @@ def original_source_session(
             "(3,'West','B','Web',300,6,'2026-01-01',2)"
         )
         connection.execute("CREATE TABLE profiles(id BIGINT,segment VARCHAR)")
-        connection.execute("INSERT INTO profiles VALUES (1,'Good'),(2,'Bad'),(2,'Duplicate')")
+        connection.execute("INSERT INTO profiles VALUES (1,'Good'),(2,'Bad')")
         connection.execute("CREATE TABLE snapshots(id BIGINT,day DATE,amount BIGINT)")
         connection.execute(
             "INSERT INTO snapshots VALUES (1,'2026-01-01',10),"
@@ -264,7 +264,7 @@ def test_rollup_then_drill_keeps_per_identity_after_key_renumbering(
     assert result["value"].tolist() == [30, 155]
 
 
-def test_drill_attribute_template_retains_complete_output_key_integrity(
+def test_drill_attribute_template_preserves_declared_single_matches(
     original_source_session: Session,
 ) -> None:
     session = original_source_session
@@ -276,8 +276,85 @@ def test_drill_attribute_template_retains_complete_output_key_integrity(
     assert rows["channel"].tolist() == ["Web", "Store"]
     assert rows["segment"].tolist() == ["Good", "Good"]
     west = session.members(session.catalog.get("entity:sales.orders"), where=region == "West")
-    with pytest.raises(AnalysisError, match="complete unique stage key"):
-        session.read(west, {"segment": segment}).compute()
+    western = session.read(west, {"segment": segment}).compute().to_pandas()
+    assert western.iloc[:, 0].tolist() == [3]
+    assert western["segment"].tolist() == ["Bad"]
+
+
+def test_versioned_members_and_read_select_the_same_exact_snapshot(
+    original_source_session: Session,
+) -> None:
+    session = original_source_session
+    entity = session.catalog.get("entity:sales.snapshots")
+    amount = catalog_value(session.catalog, "sales.snapshots.amount", kind="field")
+    for instant, identities, expected in (
+        ("2026-01-01", [1, 2], [10, 300]),
+        ("2026-01-02", [1], [30]),
+    ):
+        at = session.instant(instant)
+        members = session.members(entity, at=at)
+        assert session.frame(members).compute().to_pandas().iloc[:, 0].tolist() == identities
+        values = session.read(members, {"amount": amount.at(at)}).compute().to_pandas()
+        assert values.iloc[:, 0].tolist() == identities
+        assert values["amount"].tolist() == expected
+
+
+def test_original_contribution_and_projected_domain_skip_independent_proven_key_scans(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import ibis
+    import pandas as pd
+
+    from marivo._definition.expressions import EntityCount
+    from marivo._definition.types import ExactRef
+    from marivo.analysis.compiler.observation import ReductionInput
+    from marivo.analysis.compiler.original import component_layout
+    from marivo.analysis.core import data_validation
+    from marivo.analysis.core.data_types import DataColumn, ScalarDataType
+    from marivo.analysis.core.unique_keys import UniqueKeys
+    from marivo.analysis.materialization.errors import MaterializationError
+    from marivo.analysis.materialization.query_components import complete_components
+    from marivo.refs import ref
+
+    key = DataColumn("key.0", "group", ScalarDataType("string"), False)
+    value = DataColumn("value", "count", ScalarDataType("int64"), False)
+    identity = DataColumn("__original_id.0", "id", ScalarDataType("int64"), False)
+    layout = component_layout(
+        ReductionInput(EntityCount(ExactRef(ref.entity("sales.facts"), "v1"), None), (), "value"),
+        (key, value),
+        ((identity, "id"),),
+        ibis.table({"id": "int64"}),
+        {},
+    )
+    rows = pd.DataFrame(
+        {
+            "key.0": ["A", "A", "B"],
+            "value": [2, 2, 1],
+            "__original_id.0": [1, 2, 3],
+            "__original_present": [True, True, True],
+        }
+    )
+
+    def unexpected_scan(*args: object, **kwargs: object) -> None:
+        raise AssertionError("a producer-proven contribution or deduped domain was scanned")
+
+    with monkeypatch.context() as capture:
+        capture.setattr(data_validation, "_validate_stage_keys", unexpected_scan)
+        fine, component = complete_components(layout, rows)
+    assert fine["value"].tolist() == [2, 1]
+    assert list(component.table.itertuples(index=False, name=None)) == [
+        ("A", 1),
+        ("A", 2),
+        ("B", 3),
+    ]
+    assert component.coordinates["key.0"].tolist() == ["A", "B"]
+    assert not component.table_unique_keys.proves(("key.0",))
+    assert component.domain_unique_keys.proves(("key.0",))
+    from dataclasses import replace
+
+    unknown = replace(layout, table_unique_keys=UniqueKeys())
+    with pytest.raises(MaterializationError, match="unique stage key"):
+        complete_components(unknown, pd.concat([rows, rows.iloc[:1]], ignore_index=True))
 
 
 def test_current_row_mean_differs_from_explicit_source_mean(

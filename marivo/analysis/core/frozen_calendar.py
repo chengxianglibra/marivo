@@ -42,6 +42,7 @@ from marivo.analysis.core.data_types import (
 from marivo.analysis.core.frame_interpretation import FrameKeyScalar
 from marivo.analysis.core.frame_structure import coordinate_attachments
 from marivo.analysis.core.model import reject
+from marivo.analysis.core.unique_keys import UNKNOWN_UNIQUE_KEYS, UniqueKeys
 
 FrozenScalar: TypeAlias = bool | str | int | float | date | Decimal
 FrozenKey: TypeAlias = tuple[tuple[DataType, FrozenScalar | None], ...]
@@ -852,7 +853,11 @@ def validate_presence(schema: DataSchema, rows: pd.DataFrame) -> None:
 
 
 def validate_frozen_coordinates(
-    schema: DataSchema, rows: pd.DataFrame, attachments: tuple[FrozenAttachment, ...]
+    schema: DataSchema,
+    rows: pd.DataFrame,
+    attachments: tuple[FrozenAttachment, ...],
+    *,
+    unique_keys: UniqueKeys = UNKNOWN_UNIQUE_KEYS,
 ) -> tuple[FrozenKey, ...]:
     """Validate complete coordinate closure, all attachments and primary references."""
     validate_presence(schema, rows)
@@ -867,7 +872,8 @@ def validate_frozen_coordinates(
     _layout(schema, rows)
     columns = tuple(c for axis in schema.axes for c in axis.columns)
     complete_keys = frozen_key_rows(rows, columns)
-    _unique(complete_keys, "row")
+    if not unique_keys.proves(schema.key_fields):
+        _unique(complete_keys, "row")
     positions = {column.slot_id: index for index, column in enumerate(columns)}
     primary_keys = {
         axis.token: tuple(

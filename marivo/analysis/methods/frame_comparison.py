@@ -58,6 +58,7 @@ from marivo.analysis.core.frozen_calendar import (
     require_compatible_calendar_axes,
     validate_frozen_coordinates,
 )
+from marivo.analysis.core.unique_keys import UniqueKeys
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.methods.numeric_state import (
     duration_arithmetic,
@@ -126,17 +127,22 @@ def combine_frame_data(
     program: FrameCombineProgram,
     inputs: tuple[pd.DataFrame, ...],
     attachments: tuple[tuple[OutputAttachment, ...], ...],
+    *,
+    unique_keys: tuple[UniqueKeys, ...] = (),
 ) -> tuple[pd.DataFrame, tuple[OutputAttachment, ...], DataSchema]:
     """Resolve frozen coordinates, then reuse the complete joint-key/value kernel."""
     if len(inputs) != 2 or len(attachments) != 2:
         _fail("two complete Frame inputs with their attachments", str(len(inputs)))
     validated: list[tuple[Key, ...] | None] = []
-    for schema, rows, tables in zip(
-        (program.left_schema, program.right_schema), inputs, attachments, strict=True
+    for index, (schema, rows, tables) in enumerate(
+        zip((program.left_schema, program.right_schema), inputs, attachments, strict=True)
     ):
         validated.append(
             validate_frozen_coordinates(
-                schema, rows, tuple(FrozenAttachment(a.name, a.schema, a.rows) for a in tables)
+                schema,
+                rows,
+                tuple(FrozenAttachment(a.name, a.schema, a.rows) for a in tables),
+                unique_keys=unique_keys[index] if unique_keys else UniqueKeys(),
             )
         )
     sources = tuple({table.name: table for table in group} for group in attachments)
@@ -548,15 +554,22 @@ def compare_frame_data(
     program: FrameCompareProgram,
     inputs: tuple[pd.DataFrame, ...],
     attachments: tuple[tuple[OutputAttachment, ...], ...],
+    *,
+    unique_keys: tuple[UniqueKeys, ...] = (),
 ) -> tuple[pd.DataFrame, tuple[OutputAttachment, ...], DataSchema]:
     """Compare all named baselines against one current actual full-key index."""
     if len(inputs) != len(program.input_schemas) or len(attachments) != len(inputs):
         _fail("one current input followed by every named baseline", str(len(inputs)))
     validated = tuple(
         validate_frozen_coordinates(
-            schema, rows, tuple(FrozenAttachment(a.name, a.schema, a.rows) for a in group)
+            schema,
+            rows,
+            tuple(FrozenAttachment(a.name, a.schema, a.rows) for a in group),
+            unique_keys=unique_keys[index] if unique_keys else UniqueKeys(),
         )
-        for schema, rows, group in zip(program.input_schemas, inputs, attachments, strict=True)
+        for index, (schema, rows, group) in enumerate(
+            zip(program.input_schemas, inputs, attachments, strict=True)
+        )
     )
     current = program.input_schemas[0]
     output = program.output_schema

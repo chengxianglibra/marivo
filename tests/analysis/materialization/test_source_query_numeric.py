@@ -194,7 +194,7 @@ def test_native_integer_predicate_uses_actual_source_value_before_pandas_roundin
 
 @pytest.mark.parametrize("backend,profile", source_params(CASES))
 @pytest.mark.parametrize("boundary", ("overflow", "strict", "zero"))
-def test_native_numeric_parent_failures_survive_top_zero(
+def test_native_numeric_parent_obligations_survive_top_zero(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
@@ -220,13 +220,26 @@ def test_native_numeric_parent_failures_survive_top_zero(
         fine = session.observe({"value": metric}, by=(category,))
         trace = capture_source(monkeypatch)
         if boundary == "overflow":
+            table = case.session.bind(case.source, source_identity="sum-overflow-oracle").relation
+            expression = table.group_by(table.category).aggregate(value=table.big.sum())
+            try:
+                native = case.session._backend.execute(expression)
+            except Exception as error:
+                if "overflow" not in str(error).lower():
+                    raise
+                with pytest.raises(MaterializationError, match=r"overflow|Overflow"):
+                    fine.top(0, by=fine["value"]).compute()
+            else:
+                assert isinstance(native, pd.DataFrame)
+                actual = fine.compute().to_pandas()["value"]
+                assert actual.tolist() == native.sort_values("category")["value"].tolist()
+                assert fine.top(0, by=fine["value"]).compute().to_pandas().empty
+        elif boundary == "zero":
             actual = fine.compute().to_pandas()["value"]
-            assert actual.iloc[0] == Decimal(2**63)
+            assert pa.array(actual, from_pandas=False).null_count == len(actual)
             assert fine.top(0, by=fine["value"]).compute().to_pandas().empty
         else:
-            with pytest.raises(
-                MaterializationError, match={"strict": "non-NA", "zero": "zero"}[boundary]
-            ):
+            with pytest.raises(MaterializationError, match="non-NA"):
                 fine.top(0, by=fine["value"]).compute()
 
 
@@ -271,22 +284,28 @@ def test_native_decimal_field_filter_keeps_actual_source_comparison(
         assert frame["amount"].tolist() == [Decimal("3.75")]
 
 
-@pytest.mark.parametrize("backend,profile", source_params(CASES))
-def test_numeric_attribute_output_key_failure_survives_empty_top(
+@pytest.mark.parametrize("backend,profile", source_params([("duckdb", "table"), *CASES]))
+@pytest.mark.parametrize("carrier", ("float", "decimal"))
+def test_numeric_attribute_where_and_empty_top_preserve_valid_keys(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
     backend: str,
     profile: str,
+    carrier: str,
 ) -> None:
 
     data = _data()
-    data = SourceData(
-        data.columns,
-        data.values + ",(1,'t1','A',9.5,10,1,DATE '2026-07-01')",
-        data.clickhouse_columns,
-        [*data.rows, {**data.rows[0], "amount": 9.5}],
-    )
+    if carrier == "decimal":
+        data = SourceData(
+            data.columns.replace("amount DOUBLE", "amount DECIMAL(12,2)"),
+            data.values,
+            data.clickhouse_columns.replace("Float64", "Decimal(12,2)"),
+            [
+                {**row, "amount": None if row["amount"] is None else Decimal(str(row["amount"]))}
+                for row in data.rows
+            ],
+        )
     monkeypatch.chdir(tmp_path)
     with source_case(backend, profile, tmp_path, monkeypatch, data) as case:
         _project(backend, case, monkeypatch, semantic_project_factory)
@@ -295,13 +314,22 @@ def test_numeric_attribute_output_key_failure_survives_empty_top(
             session.members(session.catalog.get("entity:sales.facts")),
             {"amount": catalog_value(session.catalog, "sales.facts.amount", kind="field")},
         )
-        filtered = source.where(source["amount"] > 100.5)
+        filtered = source.where(
+            source["amount"] > (Decimal("100.5") if carrier == "decimal" else 100.5)
+        )
         query = filtered.top(0, by=filtered["amount"])
-        with pytest.raises(MaterializationError, match="complete unique stage key"):
-            query.compute()
+        assert query.compute().to_pandas().empty
         trace = capture_source(monkeypatch)
-        with pytest.raises(MaterializationError, match="complete unique stage key"):
-            query.compute()
+        assert query.compute().to_pandas().empty
+        assert source.compute().to_pandas()["amount"].isna().tolist() == [
+            False,
+            True,
+            True,
+            False,
+            False,
+            False,
+        ]
+        assert trace.uploaded_key_rows == []
 
 
 @pytest.mark.parametrize("backend,profile", source_params(CASES))
@@ -346,7 +374,7 @@ def test_native_integer_overflow_keeps_backend_behavior_and_fixed_values(
     backend: str,
     profile: str,
 ) -> None:
-    """Native wrapping is an accepted value, while fixed integer arithmetic is checked."""
+    """Source and fixed integer arithmetic retain their actual kernel behavior."""
     monkeypatch.chdir(tmp_path)
     with source_case(backend, profile, tmp_path, monkeypatch, _data("overflow")) as case:
         _project(backend, case, monkeypatch, semantic_project_factory)
@@ -364,15 +392,25 @@ def test_native_integer_overflow_keeps_backend_behavior_and_fixed_values(
             selected = selected.top(1, by=selected["value"])
             saved = selected.persist()
             values = saved.to_pandas()["value"]
-            assert values.tolist() == [Decimal(-(2**63) + 3)]
-            assert str(values.dtype) == "decimal128(38, 0)[pyarrow]"
+            assert values.tolist() == [-(2**63) + 3]
+            assert str(values.dtype) == "int64[pyarrow]"
             assert session.persisted_frame(saved.artifact_id).to_pandas().equals(saved.to_pandas())
             assert trace.native_sql
         fixed = session.read(
             session.members(session.catalog.get("entity:sales.facts")), {"big": big}
         ).compute()
-        with pytest.raises(MaterializationError, match="overflow"):
-            fixed.select({"value": fixed["big"] + 1}).compute()
+        # The public fixed operation uses its ordinary pandas/Arrow kernel;
+        # independently run that kernel instead of imposing a wider carrier.
+        try:
+            native_fixed = fixed.to_pandas()["big"] + 1
+        except pa.ArrowInvalid as error:
+            assert "overflow" in str(error).lower()
+            with pytest.raises(MaterializationError, match="overflow"):
+                fixed.select({"value": fixed["big"] + 1}).compute()
+        else:
+            actual_fixed = fixed.select({"value": fixed["big"] + 1}).compute().to_pandas()["value"]
+            assert actual_fixed.tolist() == native_fixed.tolist()
+            assert str(actual_fixed.dtype) == str(native_fixed.dtype)
 
 
 @pytest.mark.parametrize(

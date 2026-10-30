@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import TypeAlias
 
@@ -35,6 +35,7 @@ from marivo.analysis.compiler.observation import (
 )
 from marivo.analysis.compiler.predicate import lower_condition
 from marivo.analysis.core.data_types import DataColumn
+from marivo.analysis.core.unique_keys import UniqueKeys
 from marivo.analysis.core.value_types import data_type
 from marivo.semantic._numeric_lowering import (
     NumericCheck,
@@ -75,6 +76,8 @@ class ComponentLayout:
     identity: tuple[tuple[DataColumn, str], ...]
     payload: ComponentPayload
     present: str = "__original_present"
+    table_unique_keys: UniqueKeys = field(default_factory=UniqueKeys)
+    domain_unique_keys: UniqueKeys = field(default_factory=UniqueKeys)
 
     @property
     def keys(self) -> tuple[str, ...]:
@@ -153,7 +156,19 @@ def component_layout(
             )
         else:
             payload = AggregatePayload(column)
-    return ComponentLayout(reduction, columns, identity, payload)
+    layout = ComponentLayout(reduction, columns, identity, payload)
+    from dataclasses import replace
+
+    # Identity is the full version-row grain. Membership preparation has
+    # distinct root-identity/bucket pairs; expansion retains the whole tuple.
+    return replace(
+        layout,
+        table_unique_keys=UniqueKeys(
+            tuple(c.slot_id for c in layout.raw_columns),
+            ((*layout.keys, *(c.slot_id for c, _ in identity)),),
+        ),
+        domain_unique_keys=UniqueKeys(layout.keys, (layout.keys,)),
+    )
 
 
 def require_original_formula(node: MetricNode, declared: Mapping[ExactRef, MetricNode]) -> None:

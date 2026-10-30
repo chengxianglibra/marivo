@@ -19,7 +19,7 @@ from tests.support.source_trace import SourceTrace
 
 
 @pytest.mark.release
-@pytest.mark.parametrize("kind", ["snapshot", "duplicate", "null_tenant"])
+@pytest.mark.parametrize("kind", ["snapshot", "null_tenant"])
 def test_complete_versioned_members(
     kind: str,
     tmp_path: Path,
@@ -37,8 +37,6 @@ def test_complete_versioned_members(
         (9007199254740993, "b", "2026-08-01", None, 30),
         (9007199254740992, "a", "2026-09-01", None, 40),
     ]
-    if kind == "duplicate":
-        rows.append(rows[0])
     if kind == "null_tenant":
         rows.append((9007199254740994, None, "2026-08-01", None, 50))
     data = SourceData(
@@ -142,11 +140,6 @@ def test_complete_versioned_members(
             for name in ("amount", "tenant", "enabled", "beginning")
         }
         values = session.read(current, fields)
-        if kind == "duplicate":
-            with pytest.raises(AnalysisError):
-                values.compute()
-            assert session._runtime.store.resources(session.id) == ()
-            return
         result = values.persist()
         read = result.to_pandas()
         keyed = read.set_index(read.columns[0])
@@ -231,9 +224,7 @@ def test_scalar_path_scopes_complete_keys_and_trusts_cardinality(
         (9007199254740993, "a", None),
         (9007199254740993, "b", 30),
         (9, "unrelated", 1),
-        (9, "unrelated", 2),
     ]
-    targets.append((9007199254740993, "b", 99))
 
     def data(rows: list[tuple[int, str, int | None]]) -> SourceData:
         return SourceData(
@@ -317,7 +308,13 @@ def test_scalar_path_scopes_complete_keys_and_trusts_cardinality(
         assert len(scoped) == 2
         assert scoped["value"].dropna().tolist() == [10]
         assert scoped.loc[scoped["value"].isna()].iloc[:, 0].tolist() == [(9007199254740993, "a")]
-        with pytest.raises(AnalysisError):
-            explicit.compute()
+        complete = explicit.compute().to_pandas()
+        assert complete.iloc[:, 0].tolist() == [
+            (9007199254740992, "a"),
+            (9007199254740993, "a"),
+            (9007199254740993, "b"),
+        ]
+        assert complete["value"].isna().tolist() == [False, True, False]
+        assert complete["value"].dropna().tolist() == [10, 30]
         assert session._runtime.store.resources(session.id) == ()
         assert trace.native_sql

@@ -75,6 +75,7 @@ from marivo.analysis.core.data_types import (
 from marivo.analysis.core.frame_data import CompletedFrameData
 from marivo.analysis.core.graph import BoundGraph
 from marivo.analysis.core.model import reject
+from marivo.analysis.core.unique_keys import UniqueKeys
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.graph_exchange import StageOutput, source_columns
 from marivo.analysis.materialization.graph_preflight import bind_entity_output, relation_operations
@@ -1518,7 +1519,7 @@ def read_stage(
         from marivo.analysis.compiler.attribute_inputs import original_input_slot
 
         layout = require_attribute(stage)
-        originals: dict[tuple[int, str], pd.DataFrame] = {}
+        originals: dict[tuple[int, str], StageOutput] = {}
         for kind, keys in (
             ((1, layout.parent_keys),) if layout.scope == "parent" else ((0, layout.keys),)
         ):
@@ -1537,15 +1538,21 @@ def read_stage(
                 }
                 names.update({name: name for name in (*keys, reduction.value_slot)})
                 raw = selected.loc[:, list(names)].rename(columns=names)
+                original_columns = tuple(
+                    column
+                    for column in leaf.read.columns
+                    if column.slot_id not in leaf.read.keys or column.slot_id in keys
+                )
                 original_stage = replace(
                     leaf.read,
                     keys=keys,
-                    columns=tuple(
-                        column
-                        for column in leaf.read.columns
-                        if column.slot_id not in leaf.read.keys or column.slot_id in keys
-                    ),
+                    columns=original_columns,
                     program=ReductionRead(require_reduction(leaf.read)),
+                    # The original value is the actual aggregate for this
+                    # selected kind and fiber, grouped at these exact keys.
+                    unique_keys=UniqueKeys(
+                        tuple(column.slot_id for column in original_columns), (keys,)
+                    ),
                 )
                 checks = tuple(
                     (name.removeprefix(prefix), check)
@@ -1553,7 +1560,7 @@ def read_stage(
                     if name.startswith(prefix)
                 )
                 completed = _complete_source_frame(original_stage, raw, checks)
-                originals[(kind, reduction.value_slot)] = completed.table
+                originals[(kind, reduction.value_slot)] = completed
         # Formula originals are actual native outputs of this same statement.
         # Capture their physical carriers before the root normalizer consumes
         # any conservative compiler metadata.
@@ -1575,6 +1582,9 @@ def read_stage(
             receipts=inputs.receipts,
             attribute_inputs=(inputs,),
             source_rows=len(frame),
+            unique_keys=(
+                inputs.parent_unique_keys if layout.scope == "parent" else inputs.fine_unique_keys
+            ),
         )
     if read_members(stage):
         output = _complete_common_read(stage, frame, lowered.numeric_checks)
@@ -1820,7 +1830,7 @@ def _validate_source_checks(
         layout = read_attribute(stage)
         if layout is not None:
             from marivo.analysis.core.attribute import AttributeCheckWitness
-            from marivo.analysis.core.data_validation import normalize_stage_frame
+            from marivo.analysis.core.data_validation import normalize_stage_columns
             from marivo.analysis.core.frozen_calendar import frozen_key_rows
             from marivo.analysis.materialization.query_components import (
                 attribute_failure_context,
@@ -1842,8 +1852,8 @@ def _validate_source_checks(
                 failing = scoped.loc[scoped[name].astype("boolean").fillna(False)]
                 if len(failing):
                     columns = descriptor.columns
-                    coordinates = normalize_stage_frame(
-                        failing.loc[:, [column.slot_id for column in columns]], columns, ()
+                    coordinates = normalize_stage_columns(
+                        failing.loc[:, [column.slot_id for column in columns]], columns
                     )
                     coordinates = coordinates.iloc[
                         list(attribute_witness_order(coordinates, columns))[:6]
@@ -2032,6 +2042,7 @@ def _complete_source_frame(
         components=components,
         value_keys=value_keys,
         source_rows=source_rows,
+        unique_keys=stage.unique_keys,
     )
     if read_finish(stage) is not None:
         completed = replace(completed, layout=require_finish(stage).layout)
@@ -2122,7 +2133,15 @@ def _complete_common_read(
         for other in tables[1:]:
             result = (
                 result.merge(
-                    other, on=list(stage.keys), how="outer", validate="one_to_one", sort=False
+                    other,
+                    on=list(stage.keys),
+                    how="outer",
+                    # Members were normalized on their own exact keys. A finer
+                    # member key does not prove the common alignment key.
+                    validate=None
+                    if all(member.keys == stage.keys for member in members)
+                    else "one_to_one",
+                    sort=False,
                 )
                 if stage.keys
                 else result.join(other)
@@ -2147,6 +2166,7 @@ def _complete_common_read(
         stage.keys,
         components=tuple(components),
         source_rows=len(frame),
+        unique_keys=stage.unique_keys,
     )
 
 

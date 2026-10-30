@@ -108,7 +108,12 @@ After Frame planning, a qualified pending field-read Top can bound the native
 read on DuckDB, PostgreSQL, MySQL, Trino or ClickHouse. The initial route requires
 one consumer, ordinary complete identity axes with integer/string keys, and a
 direct int64 score. Native ordering preserves NA-last and complete-key ties.
-Full-input numeric and Frame integrity checks precede cropping, including Top-0.
+Demanded full-input numeric, nonnullable and other retained integrity checks
+precede cropping, including Top-0. When the input relation proves its complete
+key unique, native and local Top omit duplicate-key auditing. Unknown inputs
+must complete their key check before cropping; Top-0 or Top-1 output cardinality
+cannot prove input uniqueness. Top does not certify source declarations; use
+explicit source_check to audit them. Source row-count summaries remain.
 Completed and reopened inputs continue through fixed-data execution without
 source reads or uploads. Unsupported expressions retain their local stages.
 
@@ -130,7 +135,11 @@ Compatible stored handles share exact Store/Session/Artifact input identity;
 equal fingerprints or names cannot substitute an input. Completed data contains
 no source graph, internal aggregation state or semantic object.
 
-Fixed inputs retain complete validation of rows, keys and frozen attachments.
+Fixed memory inputs reuse established key facts while preserving independent
+rows and frozen-attachment obligations. Newly read stored inputs validate their
+keys before establishing facts for this reading's downstream consumers. Bounded
+stored pages retain page-local checks; full reads also detect cross-page repeats.
+No saved checksum or historical compiler fact substitutes for those checks.
 Each exact scheduled input is read once and adapted without an intermediate
 complete-data carrier. The scheduler holds data through its actual consumers;
 method history retains validated immutable payloads separately. Terminal memory
@@ -322,8 +331,9 @@ transaction confirmation and required recovery retain complete-record and
 collection checks, reconstructing source facts and checks from saved partitions.
 Saved derived results remain self-contained without ancestor or source reads.
 
-`to_pandas()` validates all current data, complete key uniqueness, all related
-coordinates and mapping authority. It does not consume complete audit or method
+Stored `to_pandas()` validates all current data, complete key uniqueness, all
+related coordinates and mapping authority. Memory exports reuse their established
+key facts. Neither consumes complete audit or method
 payloads. It returns isolated flat coordinates, full value names and independent
 presence columns. Its existing attrs snapshot contains axes, units, comparisons
 and isolated frozen coordinate tables; it is not a stable deserialization

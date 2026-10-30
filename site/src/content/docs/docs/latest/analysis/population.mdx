@@ -36,6 +36,12 @@ assert requested_count.to_pandas()["members"].tolist() == [4]
 
 Source-backed populations follow the identity, relationship-cardinality, and version-grain declarations in the semantic model. Use an explicit [online validation check](/docs/latest/modeling/semantic-layer/#load-and-validate) to test data conditions such as uniqueness or relationship cardinality. If a scalar lookup finds no matching row, `session.read` and `P.classify` keep the requested identity, with `NULL` for the missing attributes.
 
+These declarations and actual set/grouping operations can establish complete-key
+uniqueness without another duplicate scan. Ordinary members, read, classify and
+Top are not source-quality audits. Literal Frame data and unknown relations keep
+their ingress key checks; NULL identity and operation-specific coverage checks
+remain independent.
+
 ## Identity grouping: `mv.identity`
 
 | Parameter | Required | Default | Meaning |

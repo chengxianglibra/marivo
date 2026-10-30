@@ -108,15 +108,31 @@ identity remains available in output keys, Population tuple predicates and expor
 select an existing single-field axis when a scalar coordinate value is needed.
 
 Nullable pandas/Arrow carriers preserve integer and Decimal precision. Stage
-normalization checks complete column order, types, nullability, timezones and
-unique full keys. Safe storage conversion rejects lossy values rather than
+normalization checks complete column order, types, nullability and timezones.
+Full keys must be unique; a bound relation's private candidate-key facts can
+discharge the duplicate scan. Unknown inputs are checked before their successful
+output supplies that fact to downstream consumers. Safe storage conversion rejects lossy values rather than
 casting them back after loss. Datasource schema metadata remains authoritative
 when a provider exposes a different Timestamp or Duration carrier. Source
 admission and saved-output export are separate guarantees.
 
-Completed immutable Frame data already owns these integrity checks. Internal
-stage handoff copies its rows and attachments without repeating normalization;
-new stage results and newly read stored data retain their owning checks.
+Completed immutable Frame data owns its established key facts. Internal handoff,
+filtering, ordering and complete key projections retain them; computing or
+replacing a candidate-key component invalidates that candidate. Restricting a
+complete coordinate with fix can remove its fixed components. Actual grouping
+establishes the full grouping key, including nullable categories; a global group
+establishes at most one row. DISTINCT proves only its actual deduplicated columns,
+so DISTINCT(id, value) does not prove id unique. Concat and unknown rewrites
+discard cross-part uniqueness. Controlled joins retain a side's keys only when
+their matching semantics cannot multiply that side's rows. NULL-safe full-key
+alignment requires both input keys to be unique.
+
+These invocation-local facts have no public API or persisted representation.
+They discharge only uniqueness, including the at-most-one-row zero-axis rule;
+they do not discharge NULL, presence, coordinate reference, coverage or numeric
+obligations. Original-contribution tables/domains and Attribute parent/fine
+tables carry separate facts at their own grains. Storage publication and freshly
+read stored data retain independent integrity checks.
 
 Source arithmetic uses admitted native Ibis operations with bound result types
 and provider-specific output bindings. Integer SUM uses native Ibis SUM without an
@@ -196,10 +212,14 @@ algorithm. Algorithms and results may differ across backends; no universal error
 bound is promised. These routes do not expand original-input attribution or
 physical join topology qualification.
 
-Ordered first/last uses a unique declared time order after completing each child
-sample. It must not substitute an unordered backend first/last. include_null and
-strict sample policy remain attached to the original occurrence. Window overlap,
-per-sample keys and ordered sampling checks survive any legal optimization.
+Ordered first/last uses a unique time order within each external parent after
+completing each child sample. Proven uniqueness of parent keys plus the order
+slot removes the duplicate-order scan before include_null filtering. A finer
+sample key containing another axis, or uniqueness of separate concatenated
+parts, does not establish that order. Unknown relations retain the check.
+It must not substitute an unordered backend first/last. include_null and strict
+sample policy remain attached to the original occurrence. Window overlap and
+per-sample keys retain their independent obligations.
 
 Qualified numeric internal samples execute as nested native relations on DuckDB,
 PostgreSQL, MySQL, Trino and ClickHouse. Each layer completes its child Metric at

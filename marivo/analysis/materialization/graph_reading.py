@@ -53,6 +53,7 @@ from marivo.analysis.core.frozen_calendar import (
     validate_presence,
 )
 from marivo.analysis.core.model import reject
+from marivo.analysis.core.unique_keys import UniqueKeys
 from marivo.analysis.errors import ArtifactNotFoundError
 from marivo.analysis.evidence._dataset_types import EvidencePage, Finding, FindingPage
 from marivo.analysis.materialization import terminal_store
@@ -408,7 +409,15 @@ class FrameReader:
                 )
                 for part in value.data.attachments
             )
-            return CompletedFrameData(value.data.schema, rows, parts)
+            schema = value.data.schema
+            return CompletedFrameData(
+                schema,
+                rows,
+                parts,
+                unique_keys=UniqueKeys(
+                    tuple(c.slot_id for c in schema.columns), (schema.key_fields,)
+                ),
+            )
 
     def range(
         self,

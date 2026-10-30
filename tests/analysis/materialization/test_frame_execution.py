@@ -90,6 +90,56 @@ def test_completed_stage_handoff_keeps_independent_typed_rows() -> None:
     pd.testing.assert_frame_equal(data.copy_rows(), original)
 
 
+def test_completed_chain_and_memory_page_do_not_rescan_proven_keys(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from marivo.analysis.core import data_validation, frozen_calendar
+    from marivo.analysis.materialization.frame_paging import memory_preview
+
+    data = _data()
+
+    def unexpected_scan(*args: object, **kwargs: object) -> None:
+        raise AssertionError("an already proven complete key was scanned again")
+
+    monkeypatch.setattr(data_validation, "_validate_stage_keys", unexpected_scan)
+    monkeypatch.setattr(frozen_calendar, "_unique", unexpected_scan)
+    _, rows = _run(
+        data,
+        FilterValues(ValueBinary("ge", ValueSlot(1), ValueLiteral(20))),
+        SelectValues((("kept", ValueSlot(1)),)),
+        TopValues(2, ValueSlot(0), True),
+    )
+    assert _keys(rows) == [None, "B"]
+    assert rows["value.0"].tolist() == [40, 30]
+    completed = CompletedFrameData(data.schema, data.copy_rows(), unique_keys=data.unique_keys)
+    page = memory_preview(completed, 2)
+    assert _keys(page.rows) == ["C", "A"]
+    page.rows.loc[0, "a"] = 999
+    assert completed.copy_rows()["a"].tolist() == [10, 10, pd.NA, 5]
+
+
+def test_top_zero_rejects_unknown_duplicate_input_before_cropping() -> None:
+    from marivo.analysis.compiler.graph_plan import FrameCompute
+    from marivo.analysis.compiler.query_program import FrameProgram
+    from marivo.analysis.core.unique_keys import UniqueKeys
+    from marivo.analysis.materialization.graph_local_execution import run_local
+
+    data = _data()
+    checked = StageOutput.from_completed(data)
+    unknown = replace(
+        checked,
+        table=pd.concat([checked.table.iloc[:1], checked.table.iloc[:1]], ignore_index=True),
+        unique_keys=UniqueKeys(),
+    )
+    stage = FrameCompute(
+        "top",
+        ("unknown",),
+        FrameProgram(TopValues(0, ValueSlot(0), True), data.schema, data.schema),
+    )
+    with pytest.raises(AnalysisError, match="unique complete row keys"):
+        run_local(stage, (unknown,))
+
+
 def _run(
     data: CompletedFrameData, *operations: FrameOperationKind
 ) -> tuple[DataSchema, pd.DataFrame]:

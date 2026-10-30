@@ -1643,6 +1643,7 @@ def fuse_query_terminal(prepared: PreparedSources, lowered: LoweredQuery) -> Low
             (),
             None,
             preparation_checks=preparation,
+            unique_keys=endpoint.unique_keys,
             native_reads=_logical_reads(
                 tuple(lowered.plan.source_read(read.stage_id) for read in native.sources)
             ),

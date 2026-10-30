@@ -36,6 +36,10 @@ assert requested_count.to_pandas()["members"].tolist() == [4]
 
 来源驱动的 Population 遵循语义模型中声明的身份、关系基数和版本粒度。需要检查数据唯一性或关系基数等条件时，可运行[在线校验](/zh-cn/docs/latest/modeling/semantic-layer/#加载与检查)并明确指定检查项。标量查询找不到关联行时，`session.read` 和 `P.classify` 会保留请求的身份，缺失属性的值为 `NULL`。
 
+这些声明以及实际集合/分组算子可以建立完整键唯一性，无需再做一次重复扫描。
+普通 members、read、classify 和 Top 不承担来源质量审计。字面 Frame 数据和未知关系保留
+入口键检查；NULL 身份及算子必要覆盖检查仍是独立义务。
+
 ## 身份分组：`mv.identity`
 
 | 参数 | 必填 | 默认值 | 语义 |

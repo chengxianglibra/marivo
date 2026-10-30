@@ -32,6 +32,7 @@ from marivo.analysis.compiler.graph_plan import (
     SourceRead,
     read_attribute,
     require_attribute,
+    with_unique_keys,
 )
 from marivo.analysis.compiler.observation import FormulaProgram
 from marivo.analysis.compiler.optimization import FusionGroup, RuleDecision
@@ -708,7 +709,7 @@ def plan_frame(
         optimization_decisions=tuple(decisions),
     )
     return CompiledFramePlan(
-        LoweredQuery(plan, tuple(reads)),
+        LoweredQuery(with_unique_keys(plan), tuple(reads)),
         schema,
         tuple(owners),
         tuple(boundaries),

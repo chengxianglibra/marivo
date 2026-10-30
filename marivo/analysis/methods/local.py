@@ -13,6 +13,7 @@ from marivo.analysis.compiler.graph_plan import LocalCompute
 from marivo.analysis.compiler.observation import FormulaProgram
 from marivo.analysis.core.calendar_keys import time_key_series
 from marivo.analysis.core.data_types import DataColumn, DecimalDataType, ScalarDataType
+from marivo.analysis.core.unique_keys import UniqueKeys
 
 if TYPE_CHECKING:
     from marivo.analysis.core.attribute import AttributeFormulaContext
@@ -66,6 +67,7 @@ def query_combine(
     inputs: tuple[pd.DataFrame, ...],
     *,
     attribute: AttributeFormulaContext | None = None,
+    unique_keys: tuple[UniqueKeys, ...] = (),
 ) -> pd.DataFrame:
     """Combine completed Metric samples and check only demanded numeric values."""
     from marivo.semantic._numeric_lowering import numeric_failure
@@ -78,6 +80,7 @@ def query_combine(
         stage.keys,
         stage.columns[len(stage.keys) :],
         attribute=attribute,
+        unique_keys=unique_keys,
     )
     for name, expected, received in checks:
         violation = frame[name].astype("boolean").fillna(False)
@@ -94,6 +97,7 @@ def _combine_program(
     outputs: tuple[DataColumn, ...],
     forced_domain: pd.DataFrame | None = None,
     attribute: AttributeFormulaContext | None = None,
+    unique_keys: tuple[UniqueKeys, ...] = (),
 ) -> tuple[pd.DataFrame, tuple[tuple[str, str, str], ...]]:
     """Keep sample checks as data until the enclosing formula demands them."""
 
@@ -140,7 +144,11 @@ def _combine_program(
     population_frames = inputs[len(program.values) :]
     inputs = inputs[: len(program.values)]
     grouped: dict[tuple[int, ...], tuple[FormulaInput, list[pd.DataFrame]]] = {}
-    for binding, frame in zip(program.values, inputs, strict=True):
+    grouped_keys: dict[tuple[int, ...], list[UniqueKeys]] = {}
+    for index, (binding, frame) in enumerate(zip(program.values, inputs, strict=True)):
+        grouped_keys.setdefault(binding.occurrence, []).append(
+            unique_keys[index] if unique_keys else UniqueKeys()
+        )
         if binding.presence is not None:
             frame = frame.copy()
             frame["__numeric_present"] = frame[binding.presence]
@@ -154,6 +162,7 @@ def _combine_program(
         pd.concat(item[1], ignore_index=True) if len(item[1]) > 1 else item[1][0]
         for item in grouped.values()
     ]
+    frame_keys = [facts[0] if len(facts) == 1 else UniqueKeys() for facts in grouped_keys.values()]
     program = replace(program, values=tuple(bindings))
     inputs = tuple(frames)
     if keys:
@@ -363,6 +372,7 @@ def _combine_program(
                 )
             )
             frames.append(counted)
+            frame_keys.append(UniqueKeys(tuple(str(c) for c in counted.columns), (key_slots,)))
             return
         if isinstance(node, (SourceAggregate, SourceWeightedMean, EntityCount)):
             return
@@ -412,6 +422,7 @@ def _combine_program(
             operands = (node.operand,) if isinstance(node, PerReduce) else (node.value, node.weight)
             selected_bindings: list[FormulaInput] = []
             selected_frames: list[pd.DataFrame] = []
+            selected_keys: list[UniqueKeys] = []
             consumed: list[int] = []
             for operand_index, _ in enumerate(operands):
                 prefix = (*occurrence, operand_index)
@@ -424,6 +435,7 @@ def _combine_program(
                             )
                         )
                         selected_frames.append(frame)
+                        selected_keys.append(frame_keys[index])
                         consumed.append(index)
             relevant_counts = {
                 child.population
@@ -499,6 +511,7 @@ def _combine_program(
                 complete_keys,
                 child_outputs,
                 complete_domain,
+                unique_keys=tuple(selected_keys),
             )
             for child_column in child_outputs:
                 if isinstance(child_column.dtype, DurationDataType):
@@ -547,10 +560,14 @@ def _combine_program(
                 order_key=order_key,
                 exact_duration=isinstance(dtype, DurationDataType),
                 output_type=dtype,
+                unique_keys=UniqueKeys(
+                    tuple(str(c) for c in child_frame.columns), (complete_keys,)
+                ),
             )
             for index in sorted(set(consumed), reverse=True):
                 bindings.pop(index)
                 frames.pop(index)
+                frame_keys.pop(index)
             slot = "sample:" + ".".join(str(part) for part in occurrence)
             reduced = reduced.rename(columns={"value": slot})
             bindings.append(
@@ -564,6 +581,7 @@ def _combine_program(
                 )
             )
             frames.append(reduced)
+            frame_keys.append(UniqueKeys(tuple(str(c) for c in reduced.columns), (key_slots,)))
             return
         for edge in children(node):
             if isinstance(edge.child, MetricNode):
@@ -589,7 +607,13 @@ def _combine_program(
             )
         if keys:
             marked = frame.assign(**{"__present": True})
-            merged = domain.merge(marked, on=keys, how="left", validate="one_to_one", sort=False)
+            merged = domain.merge(
+                marked,
+                on=keys,
+                how="left",
+                validate=None if frame_keys[input_index].proves(key_slots) else "many_to_one",
+                sort=False,
+            )
             value = merged[slot]
             if binding.zero_when_absent:
                 value = value.mask(

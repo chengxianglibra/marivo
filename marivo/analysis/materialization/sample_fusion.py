@@ -278,6 +278,7 @@ def fuse_sample_reductions(prepared: PreparedSources, lowered: LoweredQuery) -> 
                             for value in program.values
                             if value.stage_id in sources
                         },
+                        {identifier: source.unique_keys for identifier, source in sources.items()},
                     )
                     lowerers[owner] = lowerer
                 result = lowerer.lower(node, path, keys)
@@ -341,6 +342,9 @@ def fuse_sample_reductions(prepared: PreparedSources, lowered: LoweredQuery) -> 
                     inputs=tuple(dependencies),
                     parameters=tuple(dependencies.values()),
                     native_reads=tuple(dict.fromkeys(source_stages)),
+                    unique_keys=result.unique_keys.project(
+                        tuple(column.slot_id for column in output_columns), {result.value: slot}
+                    ),
                 )
                 replacements.append(source)
                 reads.append(LoweredRead(identifier, expression, checks))

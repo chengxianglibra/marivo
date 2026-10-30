@@ -135,6 +135,46 @@ def test_combine_checks_only_demanded_completed_slots() -> None:
         query_combine(stage, (left, right))
 
 
+def test_local_alignment_consumes_only_facts_for_its_actual_merge_keys(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from marivo.analysis.core.unique_keys import UniqueKeys
+
+    metric = SourceAggregate(RowExpression(resolver(ibis.literal(1)), ()), "sum", None)
+    value = FormulaInput(
+        (0,),
+        "a",
+        DataColumn("a", "a", ScalarDataType("int64"), True),
+        True,
+        keys=("key.0",),
+    )
+    program = FormulaProgram((("value", metric),), (), (value,))
+    key = DataColumn("key.0", "key", ScalarDataType("string"), False)
+    stage = LocalCompute("combine", ("a",), (key, *formula_columns(program)), ("key.0",), program)
+    frame = pd.DataFrame({"key.0": ["x", "y"], "a": [10, 20]})
+    merge = pd.DataFrame.merge
+    validations: list[object] = []
+
+    def captured_merge(left: pd.DataFrame, right: pd.DataFrame, **kwargs: object) -> pd.DataFrame:
+        validations.append(kwargs.get("validate"))
+        return merge(left, right, **kwargs)
+
+    with monkeypatch.context() as capture:
+        capture.setattr(pd.DataFrame, "merge", captured_merge)
+        result = query_combine(
+            stage, (frame,), unique_keys=(UniqueKeys(("key.0", "a"), (("key.0",),)),)
+        )
+    assert result["value.0"].tolist() == [10, 20]
+    assert validations == [None]
+    finer = pd.DataFrame({"key.0": ["x", "x"], "key.1": [1, 2], "a": [10, 20]})
+    with pytest.raises(pd.errors.MergeError, match="not a many-to-one merge"):
+        query_combine(
+            stage,
+            (finer,),
+            unique_keys=(UniqueKeys(("key.0", "key.1", "a"), (("key.0", "key.1"),)),),
+        )
+
+
 @pytest.mark.parametrize("operation", ("add", "subtract", "multiply", "divide"))
 def test_float64_arithmetic_rounds_large_integer_operands(operation: str) -> None:
     table = ibis.table({"large": "int64", "floating": "float64"})

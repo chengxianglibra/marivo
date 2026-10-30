@@ -121,7 +121,12 @@ def _memory_range(
 ) -> tuple[FramePreview, FrameReadStats]:
     names = [column.slot_id for column in columns]
     rows = detached_rows(data._rows.iloc[start : start + limit].loc[:, names])
-    rows = normalize_complete_frame(rows, columns, data.schema.key_fields)
+    rows = normalize_complete_frame(
+        rows,
+        columns,
+        data.schema.key_fields,
+        unique_keys=data.unique_keys.project(tuple(c.slot_id for c in columns)),
+    )
     coordinate_rows_read = 0
     saved = {part.name: part for part in data._attachments}
 

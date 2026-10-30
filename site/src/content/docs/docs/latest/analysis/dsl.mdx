@@ -17,6 +17,8 @@ non-null, unique keys. Use explicit [online validation checks](/docs/latest/mode
 to test those expectations on a chosen scope.
 Nullable metadata alone does not disqualify a source binding or add a full-source
 NULL or uniqueness precheck. Existing identity-output and operation-specific checks remain.
+Complete-key uniqueness can follow from declarations and controlled operations,
+so ordinary reads and rankings do not promise to detect duplicate source identities.
 
 The operators below follow this order. Their `by` arguments have different owners: observe/attribute take semantic domains, while correlate/reduce take axes from the exact input Frame.
 
@@ -783,9 +785,14 @@ assert coordinates_only.presence_names == saved.presence_names
 
 | Parameter | Required | Default | Meaning |
 | --- | --- | --- | --- |
-| `n` | Yes | — | Nonnegative finite number of rows to retain globally. |
+| `n` | Yes | — | Nonnegative integer number of rows to retain globally; bool is rejected. |
 | `by` | Yes | — | Ranking Column from the exact input Frame. |
 | `descending` | No | `True` | True selects largest values first; False selects smallest first. |
+
+Top preserves complete-key ties and places NA scores last. Proven input keys
+avoid duplicate scans, including `top(0)`; unknown inputs retain their key check
+before selection. Required NULL, numeric and domain checks still apply. Use an
+explicit source check to validate declared source uniqueness.
 
 ## Filter and rank
 

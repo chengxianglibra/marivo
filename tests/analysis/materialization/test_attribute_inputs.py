@@ -137,6 +137,130 @@ def test_same_root_ratio_has_direct_parent_and_fine_reads_per_endpoint(
     assert len(prepared.table) == 2
 
 
+def test_attribute_subtables_originals_and_fibers_consume_exact_key_facts(
+    session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from dataclasses import replace
+
+    from marivo.analysis.compiler.graph_plan import FrameCompute, LocalCompute
+    from marivo.analysis.core import data_validation
+    from marivo.analysis.core.attribute import AttributeInputProgram
+    from marivo.analysis.errors import AnalysisError
+    from marivo.analysis.materialization import graph_local_execution
+    from marivo.analysis.materialization.graph_exchange import StageOutput
+    from marivo.analysis.materialization.graph_local_execution import LocalKernel
+    from marivo.analysis.materialization.query_components import select_attribute_root
+    from marivo.analysis.methods import frame_attribute
+
+    scans: list[tuple[tuple[str, ...], tuple[str, ...]]] = []
+    scan = data_validation._validate_stage_keys
+    run = graph_local_execution.run_local
+    assembled: list[tuple[AttributeInputProgram, tuple[StageOutput, ...]]] = []
+
+    def scanned(rows: pd.DataFrame, keys: tuple[str, ...]) -> None:
+        scans.append((tuple(str(c) for c in rows.columns), keys))
+        scan(rows, keys)
+
+    def captured(
+        stage: LocalCompute | FrameCompute,
+        inputs: tuple[StageOutput, ...],
+        kernel: LocalKernel | None = None,
+    ) -> StageOutput:
+        if isinstance(stage, FrameCompute) and isinstance(stage.program, AttributeInputProgram):
+            assembled.append((stage.program, inputs))
+        return run(stage, inputs, kernel)
+
+    monkeypatch.setattr(data_validation, "_validate_stage_keys", scanned)
+    monkeypatch.setattr(graph_local_execution, "run_local", captured)
+    value = catalog_value(session.catalog, "sales.facts.value", kind="field")
+    weight = catalog_value(session.catalog, "sales.facts.weight", kind="field")
+    region = catalog_value(session.catalog, "sales.facts.region", kind="field")
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
+    prepared = evaluate_attribute_inputs(
+        _comparison_inputs(
+            session.observe({"q": value.sum() / weight.sum()}, by=(region,)),
+            session.observe({"q": value.sum() / weight.sum()}, by=(region,)),
+            by=(channel,),
+        )
+    )
+    assert len(prepared.table) == 3
+    forbidden = set()
+    parent_values = set()
+    for root in prepared.attribute_inputs:
+        table = root.parent if root.layout.scope == "parent" else root.fine
+        keys = root.layout.parent_keys if root.layout.scope == "parent" else root.layout.keys
+        forbidden.add((tuple(str(c) for c in table.columns), keys))
+        for leaf in root.layout.leaves:
+            forbidden.add(
+                (
+                    tuple(
+                        c.slot_id
+                        for c in leaf.read.columns
+                        if c.slot_id not in leaf.read.keys or c.slot_id in keys
+                    ),
+                    keys,
+                )
+            )
+            if root.layout.scope == "parent":
+                parent_values.add(
+                    tuple(sorted(root.parent[require_reduction(leaf.read).value_slot]))
+                )
+    assert parent_values == {(10, 30), (3, 10)}
+    assert forbidden.isdisjoint(scans), scans
+    program, inputs = assembled[-1]
+    inputs = (
+        inputs[0],
+        replace(
+            inputs[1],
+            attribute_inputs=tuple(
+                root for root in prepared.attribute_inputs if root.layout.side == "left"
+            ),
+        ),
+        replace(
+            inputs[2],
+            attribute_inputs=tuple(
+                root for root in prepared.attribute_inputs if root.layout.side == "right"
+            ),
+        ),
+        inputs[3],
+        inputs[4],
+    )
+    item = next(item for item in program.matrix if item.scope == "fine")
+    source = item.sources[0]
+    root = select_attribute_root(prepared.attribute_inputs, item.scope, source)
+    projection = inputs[3 if item.side == "left" else 4]
+
+    def unexpected_scan(*args: object, **kwargs: object) -> None:
+        raise AssertionError("an injective single fiber performed a mapped-key duplicate scan")
+
+    with monkeypatch.context() as capture:
+        capture.setattr(frame_attribute, "set", unexpected_scan, raising=False)
+        active = frame_attribute.attribute_source_values(
+            program, root, projection, source, item.scope
+        )
+    assert len(active.table) == 3
+    collapsed = projection.table.copy()
+    for column in projection.columns:
+        if column.slot_id not in projection.keys:
+            collapsed[column.slot_id] = (
+                collapsed[column.slot_id].take([0] * len(collapsed)).reset_index(drop=True)
+            )
+    with pytest.raises(AnalysisError, match="one actual source value per complete active fiber"):
+        frame_attribute.attribute_source_values(
+            program, root, replace(projection, table=collapsed), source, item.scope
+        )
+    repeated = replace(item, sources=(*item.sources, *item.sources))
+    collision = replace(
+        program,
+        matrix=tuple(repeated if candidate is item else candidate for candidate in program.matrix),
+    )
+    with pytest.raises(
+        AnalysisError, match="exactly one expanded source for each active complete fiber"
+    ):
+        frame_attribute.attribute_input_frame_data(collision, inputs[:5])
+
+
 @pytest.mark.parametrize("weighted", (False, True))
 def test_native_components_share_exact_effective_mask(session: Session, weighted: bool) -> None:
     value = catalog_value(session.catalog, "sales.facts.value", kind="field")
@@ -648,53 +772,40 @@ def test_complete_compound_identity_parent_mapping(session: Session) -> None:
         assert root.parent.iloc[:, :2].values.tolist() == [["t", 1], ["t", 3]]
 
 
-def test_duplicate_complete_compound_parent_aggregate_is_rejected(
-    session: Session, monkeypatch: pytest.MonkeyPatch
+def test_unknown_duplicate_complete_compound_parent_aggregate_is_rejected(
+    session: Session,
 ) -> None:
+    from dataclasses import replace
+
+    from marivo.analysis.core.unique_keys import UniqueKeys
     from marivo.analysis.materialization.errors import MaterializationError
-    from marivo.datasource.adapters import SourceSession
+    from marivo.analysis.materialization.graph_exchange import StageOutput
+    from marivo.analysis.materialization.query_components import complete_attribute_parent_domain
 
-    execute = SourceSession.execute
-    duplicated: list[tuple[object, object]] = []
-
-    def read(self: SourceSession, issued: CompiledRead) -> pd.DataFrame:
-        rows = execute(self, issued)
-        if duplicated or "__attribute_kind" not in rows:
-            return rows
-        selected = rows.loc[
-            (rows["__attribute_kind"] == 1) & (rows["key.0"] == "t") & (rows["key.1"] == 1)
-        ]
-        assert len(selected) == 1
-        corrupted = pd.concat([rows, selected.copy()], ignore_index=True)
-        pd.testing.assert_frame_equal(corrupted.iloc[: len(rows)], rows.reset_index(drop=True))
-        pd.testing.assert_frame_equal(
-            corrupted.iloc[len(rows) :].reset_index(drop=True), selected.reset_index(drop=True)
-        )
-        duplicated.append((selected["key.0"].iloc[0], selected["key.1"].iloc[0]))
-        return corrupted
-
-    monkeypatch.setattr(SourceSession, "execute", read)
     value = catalog_value(session.catalog, "sales.facts.value", kind="field")
     channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
     entity = session.catalog.get("entity:sales.facts")
     parents = mv.coordinates(by=(mv.identity(entity),), keys=((("t", 1),), (("t", 3),)))
-    with pytest.raises(MaterializationError) as caught:
-        evaluate_attribute_inputs(
-            _level_inputs(
-                session.observe({"q": value.sum()}, by=parents, where=mv.in_population(parents)),
-                by=(channel,),
-            )
+    prepared = evaluate_attribute_inputs(
+        _level_inputs(
+            session.observe({"q": value.sum()}, by=parents, where=mv.in_population(parents)),
+            by=(channel,),
         )
-    assert duplicated == [("t", 1)]
+    )
+    root = next(root for root in prepared.attribute_inputs if root.layout.scope == "parent")
+    keys = root.layout.parent_keys
+    columns = tuple(c for c in root.layout.columns if c.slot_id in keys)
+    projection = StageOutput.from_frame(root.parent.loc[:, list(keys)], columns, keys)
+    unknown = replace(
+        root,
+        parent=pd.concat([root.parent, root.parent.iloc[:1]], ignore_index=True),
+        parent_unique_keys=UniqueKeys(),
+    )
+    with pytest.raises(MaterializationError) as caught:
+        complete_attribute_parent_domain(unknown, projection)
     assert caught.value.stage == "stage_output"
-    assert caught.value.location == "dataset.stage_output"
     assert caught.value.expected == "a complete unique stage key ('key.0', 'key.1')"
     assert caught.value.received == "null or duplicate key values"
-    assert caught.value.repair is not None
-    assert (
-        caught.value.repair.action
-        == "Correct the source field type or stage layout; Marivo does not cast lossy values back."
-    )
 
 
 def test_missing_checked_parent_aggregate_cannot_turn_into_known_empty(

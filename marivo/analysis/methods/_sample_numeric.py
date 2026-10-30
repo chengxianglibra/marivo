@@ -13,6 +13,7 @@ import pyarrow.compute as pc
 from marivo._definition.expressions import PerReduce, PerWeightedMean
 from marivo.analysis.core.data_types import DataType, DecimalDataType
 from marivo.analysis.core.data_validation import typed_null_mask
+from marivo.analysis.core.unique_keys import UNKNOWN_UNIQUE_KEYS, UniqueKeys
 from marivo.semantic._numeric_lowering import numeric_failure
 
 
@@ -25,6 +26,7 @@ def reduce_samples(
     inherited: tuple[tuple[str, str, str], ...],
     *,
     order_key: str | None = None,
+    unique_keys: UniqueKeys = UNKNOWN_UNIQUE_KEYS,
     exact_duration: bool = False,
     output_type: DataType,
 ) -> tuple[pd.DataFrame, tuple[tuple[str, str, str], ...]]:
@@ -130,7 +132,9 @@ def reduce_samples(
                 )
             elif node.reducer in ("first", "last"):
                 assert order_key is not None
-                record["sample.order"] = bool(group[order_key].duplicated().any())
+                record["sample.order"] = not unique_keys.proves((*keys, order_key)) and bool(
+                    group[order_key].duplicated().any()
+                )
                 ordered = group.sort_values(order_key, kind="stable")
                 if not node.include_null:
                     ordered = ordered.loc[~typed_null_mask(ordered[value_names[0]])]

@@ -16,6 +16,7 @@ description: 按 observe、compare、attribute、correlate、align、reduce 了�
 可在选定范围内检验这些条件。
 nullable 元数据本身不会阻止来源绑定，也不会引入全量 NULL 或唯一性预检。
 现有身份输出边界与算子必要检查继续保留。
+完整键唯一性可以由声明及受控算子建立，因此普通读取和排名不承诺发现重复来源身份。
 
 下文按以下顺序介绍算子。它们的 `by` 参数含义不同：observe/attribute 使用语义域，correlate/reduce 使用当前输入 Frame 的轴。
 
@@ -754,9 +755,13 @@ assert coordinates_only.presence_names == saved.presence_names
 
 | 参数 | 必填 | 默认值 | 语义 |
 | --- | --- | --- | --- |
-| `n` | 是 | — | 全局保留的非负有限行数。 |
+| `n` | 是 | — | 全局保留的非负整数行数；不接受 bool。 |
 | `by` | 是 | — | 来自确切输入 Frame 的排名 Column。 |
 | `descending` | 否 | `True` | True 优先选择大值，False 优先选择小值。 |
+
+Top 按完整键裁决并列，NA 分数排在最后。输入键已证明唯一时，包括 `top(0)` 在内，
+均可省略重复键扫描；未知输入仍在选择前检查完整键。必要的 NULL、数值和域检查继续保留。
+需要检验来源声明的唯一性时，使用显式来源检查。
 
 ## 常用筛选与排序
 

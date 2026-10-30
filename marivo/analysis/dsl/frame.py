@@ -586,6 +586,9 @@ class AnalysisFrame:
             ``leaders = frame.top(5, by=frame['revenue'])``.
 
         Constraints: NA last; no partition parameter or source regrouping.
+            Proven complete input keys avoid duplicate scans, including n=0;
+            unknown input keys and retained NULL/numeric obligations are checked
+            before cropping. Use explicit source_check to audit declarations.
         """
         if type(n) is not int or n < 0 or type(descending) is not bool:
             reject(

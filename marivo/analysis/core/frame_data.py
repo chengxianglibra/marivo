@@ -29,6 +29,7 @@ from marivo.analysis.core.frozen_calendar import FrozenAttachment, validate_froz
 from marivo.analysis.core.graph import BoundGraph
 from marivo.analysis.core.lineage import empty, validate
 from marivo.analysis.core.model import reject
+from marivo.analysis.core.unique_keys import UNKNOWN_UNIQUE_KEYS, UniqueKeys
 
 if TYPE_CHECKING:
     from marivo.analysis.dsl._frame_inputs import FrameKeyInput
@@ -37,7 +38,9 @@ if TYPE_CHECKING:
     from marivo.semantic._compiled_state import CompiledSemanticState
 
 
-def _table(schema: DataSchema, rows: pd.DataFrame) -> pd.DataFrame:
+def _table(
+    schema: DataSchema, rows: pd.DataFrame, unique_keys: UniqueKeys = UNKNOWN_UNIQUE_KEYS
+) -> pd.DataFrame:
     if not isinstance(rows, pd.DataFrame) or tuple(rows.columns) != tuple(
         column.slot_id for column in schema.columns
     ):
@@ -53,8 +56,10 @@ def _table(schema: DataSchema, rows: pd.DataFrame) -> pd.DataFrame:
         {column.slot_id: rows[column.slot_id].array.copy() for column in schema.columns},
         index=pd.RangeIndex(len(rows)),
     )
-    result = normalize_complete_frame(independent, schema.columns, schema.key_fields)
-    if not schema.axes and len(result) > 1:
+    result = normalize_complete_frame(
+        independent, schema.columns, schema.key_fields, unique_keys=unique_keys
+    )
+    if not schema.axes and not unique_keys.proves(()) and len(result) > 1:
         reject(
             "at most one row in a zero-axis domain",
             str(len(result)),
@@ -79,7 +84,11 @@ def _attachments(schema: DataSchema, names: tuple[str, ...]) -> None:
 
 
 def normalize_completed_data(
-    schema: DataSchema, rows: pd.DataFrame, attachments: tuple[OutputAttachment, ...]
+    schema: DataSchema,
+    rows: pd.DataFrame,
+    attachments: tuple[OutputAttachment, ...],
+    *,
+    unique_keys: UniqueKeys = UNKNOWN_UNIQUE_KEYS,
 ) -> tuple[pd.DataFrame, tuple[OutputAttachment, ...]]:
     """Validate complete data and detach its typed rows and coordinate tables."""
     require_complete_structure(schema)
@@ -91,7 +100,7 @@ def normalize_completed_data(
             "frame.attachments",
         )
     _attachments(schema, tuple(attachment.name for attachment in attachments))
-    normalized_rows = _table(schema, rows)
+    normalized_rows = _table(schema, rows, unique_keys)
     normalized_attachments = tuple(
         OutputAttachment(
             attachment.name, attachment.schema, _table(attachment.schema, attachment.rows)
@@ -102,6 +111,7 @@ def normalize_completed_data(
         schema,
         normalized_rows,
         tuple(FrozenAttachment(a.name, a.schema, a.rows) for a in normalized_attachments),
+        unique_keys=UniqueKeys(tuple(c.slot_id for c in schema.columns), (schema.key_fields,)),
     )
     # Calendar pages address the validated original ordinal by physical offset.
     # Canonicalize once at the completed-data boundary, including directories
@@ -143,16 +153,27 @@ class CompletedFrameData:
     schema: DataSchema
     _rows: pd.DataFrame
     _attachments: tuple[OutputAttachment, ...]
+    unique_keys: UniqueKeys
 
     def __init__(
-        self, schema: DataSchema, rows: pd.DataFrame, attachments: tuple[OutputAttachment, ...] = ()
+        self,
+        schema: DataSchema,
+        rows: pd.DataFrame,
+        attachments: tuple[OutputAttachment, ...] = (),
+        *,
+        unique_keys: UniqueKeys = UNKNOWN_UNIQUE_KEYS,
     ) -> None:
         normalized_rows, normalized_attachments = normalize_completed_data(
-            schema, rows, attachments
+            schema, rows, attachments, unique_keys=unique_keys
         )
         object.__setattr__(self, "schema", schema)
         object.__setattr__(self, "_rows", normalized_rows)
         object.__setattr__(self, "_attachments", normalized_attachments)
+        object.__setattr__(
+            self,
+            "unique_keys",
+            unique_keys.project(tuple(c.slot_id for c in schema.columns)).add(schema.key_fields),
+        )
 
     @property
     def row_count(self) -> int:

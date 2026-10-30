@@ -107,7 +107,10 @@ def run_local(
             attribute_methods = (payload,)
         elif isinstance(stage.program, AttributeProjectProgram):
             frame = project_attribute_parents(
-                stage.program, inputs[0].table, inputs[0].frame_attachments
+                stage.program,
+                inputs[0].table,
+                inputs[0].frame_attachments,
+                unique_keys=inputs[0].unique_keys,
             )
             attachments = ()
         elif isinstance(stage.program, AttributeInputProgram):
@@ -154,12 +157,14 @@ def run_local(
                 stage.program,
                 tuple(item.table for item in inputs),
                 tuple(item.frame_attachments for item in inputs),
+                unique_keys=tuple(item.unique_keys for item in inputs),
             )
         elif isinstance(stage.program, FrameCombineProgram):
             frame, attachments, resolved_schema = combine_frame_data(
                 stage.program,
                 tuple(item.table for item in inputs),
                 tuple(item.frame_attachments for item in inputs),
+                unique_keys=tuple(item.unique_keys for item in inputs),
             )
         else:
             validate_frozen_coordinates(
@@ -168,6 +173,7 @@ def run_local(
                 tuple(
                     FrozenAttachment(a.name, a.schema, a.rows) for a in inputs[0].frame_attachments
                 ),
+                unique_keys=inputs[0].unique_keys,
             )
             frame = evaluate_frame(stage.program, tuple(item.table for item in inputs))
             attachments = tuple(a for a in inputs[0].frame_attachments if a.name in required)
@@ -194,11 +200,13 @@ def run_local(
             attribute_methods=attribute_methods,
             attribute_inputs=attribute_inputs,
             frame_schema=stage.program.output_schema,
+            unique_keys=stage.unique_keys,
         )
         validate_frozen_coordinates(
             stage.program.output_schema,
             output.table,
             tuple(FrozenAttachment(a.name, a.schema, a.rows) for a in attachments),
+            unique_keys=output.unique_keys,
         )
         if isinstance(stage.program, AttributeInputProgram):
             from dataclasses import replace
@@ -229,6 +237,8 @@ def run_local(
         if isinstance(stage.program, FormulaProgram)
         else ()
     )
+    from marivo.analysis.methods.local import query_combine
+
     if kernel is None:
         if isinstance(stage.program, ResultProgram):
             from marivo.analysis.methods.query_values import evaluate_result
@@ -240,6 +250,7 @@ def run_local(
             kernel = query_combine
     with pd.option_context("mode.copy_on_write", True):
         views = tuple(item.table.copy(deep=False) for item in inputs)
+        view_keys = [item.unique_keys for item in inputs]
         if isinstance(stage.program, FormulaProgram) and stage.attribute is not None:
             selected_views = list(views)
             for index, binding in enumerate(stage.program.values):
@@ -265,6 +276,7 @@ def run_local(
                 reduction = read_reduction(leaf.read)
                 assert reduction is not None
                 view = views[index]
+                fixed_slots: tuple[str, ...] = ()
                 if reduction.window_key is not None:
                     slot = next(
                         slot
@@ -272,6 +284,7 @@ def run_local(
                         if calendar == reduction.calendar
                     )
                     view = view.loc[view[slot] == reduction.window_key]
+                    fixed_slots = (slot,)
                 names = tuple(
                     dict.fromkeys(
                         (
@@ -287,6 +300,11 @@ def run_local(
                     )
                 )
                 selected_views[index] = view.loc[:, list(names)].copy(deep=False)
+                view_keys[index] = (
+                    view_keys[index]
+                    .project(tuple(str(c) for c in views[index].columns))
+                    .fixed(names, fixed_slots)
+                )
             views = tuple(selected_views)
         if stage.attribute is not None:
             from marivo.analysis.core.attribute import AttributeFormulaContext
@@ -311,7 +329,14 @@ def run_local(
                     formula_binding.source_parent_columns,
                 ),
             )
-            frame = query_combine(stage, views, attribute=context)
+            frame = query_combine(
+                stage,
+                views,
+                attribute=context,
+                unique_keys=tuple(view_keys),
+            )
+        elif isinstance(stage.program, FormulaProgram) and kernel is query_combine:
+            frame = query_combine(stage, views, unique_keys=tuple(view_keys))
         else:
             frame = kernel(stage, views)
     if not isinstance(frame, pd.DataFrame) or any(
@@ -351,6 +376,7 @@ def run_local(
                 for capture in source.attribute_state_captures
             }.values()
         ),
+        unique_keys=stage.unique_keys,
         attribute_frequencies=tuple(
             {
                 (capture.stage_id, capture.value_slot): capture

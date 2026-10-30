@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Literal
 
 import pandas as pd
@@ -17,7 +17,8 @@ from marivo.analysis.compiler.original import (
     ComponentLayout,
 )
 from marivo.analysis.core.data_types import DataColumn, DurationDataType, ScalarDataType
-from marivo.analysis.core.data_validation import normalize_stage_frame
+from marivo.analysis.core.data_validation import normalize_stage_columns, normalize_stage_frame
+from marivo.analysis.core.unique_keys import UniqueKeys
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.graph_exchange import source_columns
 
@@ -37,6 +38,8 @@ class ComponentFrame:
     layout: ComponentLayout
     table: pd.DataFrame
     domain: pd.DataFrame | None = None
+    table_unique_keys: UniqueKeys = field(default_factory=UniqueKeys)
+    domain_unique_keys: UniqueKeys = field(default_factory=UniqueKeys)
 
     def __post_init__(self) -> None:
         expected = tuple(column.slot_id for column in self.layout.raw_columns)
@@ -45,6 +48,10 @@ class ComponentFrame:
         # complete_components owns carrier, nullability and complete-key validation.
         if self.domain is not None and tuple(self.domain.columns) != self.layout.keys:
             raise _invalid("original coordinate support differs from the complete fine keys")
+        object.__setattr__(self, "table_unique_keys", self.table_unique_keys.project(expected))
+        object.__setattr__(
+            self, "domain_unique_keys", self.domain_unique_keys.project(self.layout.keys)
+        )
 
     @property
     def coordinates(self) -> pd.DataFrame:
@@ -124,17 +131,24 @@ def complete_components(
             for column in layout.raw_columns
         ),
         (*layout.keys, *(column.slot_id for column, _ in layout.identity)),
+        unique_keys=layout.table_unique_keys,
+    )
+    raw_keys = UniqueKeys(tuple(str(name) for name in raw.columns)).add(
+        (*layout.keys, *(column.slot_id for column, _ in layout.identity))
     )
     domain_columns = tuple(column for column in layout.columns if column.slot_id in layout.keys)
     domain = normalize_stage_frame(
-        fine.loc[:, list(layout.keys)].reset_index(drop=True),
+        fine.loc[:, list(layout.keys)].drop_duplicates().reset_index(drop=True),
         domain_columns,
         layout.keys,
+        unique_keys=UniqueKeys(tuple(layout.keys), (layout.keys,)),
     )
     return fine, ComponentFrame(
         layout,
         raw.reset_index(drop=True),
         domain,
+        raw_keys,
+        UniqueKeys(tuple(layout.keys), (layout.keys,)),
     )
 
 
@@ -148,6 +162,20 @@ class AttributeRootInputs:
     fine: pd.DataFrame
     receipts: tuple[CheckReceipt, ...]
     parent_state: tuple[Literal["present", "known_empty"], ...] = ()
+    parent_unique_keys: UniqueKeys = field(default_factory=UniqueKeys)
+    fine_unique_keys: UniqueKeys = field(default_factory=UniqueKeys)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "parent_unique_keys",
+            self.parent_unique_keys.project(tuple(str(c) for c in self.parent.columns)),
+        )
+        object.__setattr__(
+            self,
+            "fine_unique_keys",
+            self.fine_unique_keys.project(tuple(str(c) for c in self.fine.columns)),
+        )
 
 
 def attribute_witness_order(rows: pd.DataFrame, columns: tuple[DataColumn, ...]) -> tuple[int, ...]:
@@ -229,7 +257,7 @@ def complete_attribute_inputs(
     layout: AttributeRootLayout,
     stage_id: str,
     frame: pd.DataFrame,
-    originals: dict[tuple[int, str], pd.DataFrame],
+    originals: dict[tuple[int, str], StageOutput],
 ) -> tuple[pd.DataFrame, AttributeRootInputs]:
     """Finish aggregate inputs and consume bounded backend failure witnesses."""
     from marivo.analysis.compiler.attribute_inputs import input_failure
@@ -248,8 +276,8 @@ def complete_attribute_inputs(
     if not uncovered.empty:
         from marivo.analysis.core.attribute import AttributeAggregateWitness
 
-        actual = normalize_stage_frame(
-            uncovered.loc[:, [c.slot_id for c in full_columns]], full_columns, ()
+        actual = normalize_stage_columns(
+            uncovered.loc[:, [c.slot_id for c in full_columns]], full_columns
         )
         leaves = tuple(
             leaf for leaf in layout.leaves if leaf.fiber == uncovered[layout.fiber].iloc[0]
@@ -284,16 +312,16 @@ def complete_attribute_inputs(
                 witness_columns = identity
                 uses = leaves
             context_columns = (*parent_columns, *witness_columns)
-            normalized = normalize_stage_frame(
-                failed.loc[:, [c.slot_id for c in context_columns]], context_columns, ()
+            normalized = normalize_stage_columns(
+                failed.loc[:, [c.slot_id for c in context_columns]], context_columns
             )
             key = frozen_key_rows(normalized.iloc[:1], witness_columns)[0]
             witness: AttributeWitness
             if kind == 2:
                 witness = AttributeCoverageWitness(key)
             else:
-                groups = normalize_stage_frame(
-                    failed.loc[:, [c.slot_id for c in full_columns]], full_columns, ()
+                groups = normalize_stage_columns(
+                    failed.loc[:, [c.slot_id for c in full_columns]], full_columns
                 )
                 witness = AttributePartitionWitness(
                     "distinct" if kind == 5 else "root",
@@ -332,12 +360,13 @@ def complete_attribute_inputs(
     kind, target, keys = (
         (1, parent, parent_columns) if layout.scope == "parent" else (0, fine, full_columns)
     )
-    key_frame = normalize_stage_frame(target.loc[:, [c.slot_id for c in keys]], keys, ())
+    key_frame = normalize_stage_columns(target.loc[:, [c.slot_id for c in keys]], keys)
     target_key_rows = frozen_key_rows(key_frame, keys)
     for leaf in layout.leaves:
         reduction = require_reduction(leaf.read)
         slot = reduction.value_slot
-        completed = originals[(kind, slot)]
+        completed_output = originals[(kind, slot)]
+        completed = completed_output.table
         completed_keys = frozen_key_rows(completed, keys)
         by_key = {key: index for index, key in enumerate(completed_keys)}
         active = tuple(
@@ -347,7 +376,10 @@ def complete_attribute_inputs(
             or target[reduction.calendars[0][0]].iloc[i] == reduction.window_key
         )
         target_keys = tuple(target_key_rows[i] for i in active)
-        if len(by_key) != len(completed_keys) or by_key.keys() != set(target_keys):
+        if (
+            not completed_output.unique_keys.proves(tuple(c.slot_id for c in keys))
+            and len(by_key) != len(completed_keys)
+        ) or by_key.keys() != set(target_keys):
             raise _invalid("finished original values differ from their complete aggregate keys")
         restored = pd.Series([pd.NA] * len(target), dtype=completed[slot].dtype)
         for index, key in zip(active, target_keys, strict=True):
@@ -372,11 +404,16 @@ def complete_attribute_inputs(
     columns.update(actual_columns)
     if layout.scope == "parent":
         parent = normalize_stage_frame(
-            parent, tuple(columns[name] for name in parent.columns), layout.parent_keys
+            parent,
+            tuple(columns[name] for name in parent.columns),
+            layout.parent_keys,
+            unique_keys=layout.parent_unique_keys,
         )
         fine = parent.iloc[:0].copy()
     else:
-        fine = normalize_stage_frame(fine, layout.columns, layout.keys)
+        fine = normalize_stage_frame(
+            fine, layout.columns, layout.keys, unique_keys=layout.fine_unique_keys
+        )
         parent = fine.iloc[:0].loc[:, parent_names].copy()
     receipts = (
         *receipts,
@@ -396,7 +433,18 @@ def complete_attribute_inputs(
         for _, row in parent.iterrows()
     )
     return (parent if layout.scope == "parent" else fine), AttributeRootInputs(
-        layout, stage_id, parent, fine, receipts, states
+        layout,
+        stage_id,
+        parent,
+        fine,
+        receipts,
+        states,
+        UniqueKeys(tuple(str(c) for c in parent.columns), (layout.parent_keys,))
+        if layout.scope == "parent"
+        else UniqueKeys(tuple(str(c) for c in parent.columns), ((),)),
+        UniqueKeys(tuple(str(c) for c in fine.columns), (layout.keys,))
+        if layout.scope == "fine"
+        else UniqueKeys(tuple(str(c) for c in fine.columns), ((),)),
     )
 
 
@@ -424,8 +472,20 @@ def complete_attribute_parent_domain(
     selected = projection.table.loc[:, list(projection.keys)].copy()
     selected.columns = list(projection_order)
     selected = selected.loc[:, list(root.layout.parent_keys)]
+    selected_proof = projection.unique_keys.project(
+        root.layout.parent_keys, dict(zip(projection.keys, projection_order, strict=True))
+    )
+    selected = normalize_stage_frame(
+        selected, parent_columns, root.layout.parent_keys, unique_keys=selected_proof
+    )
+    parent = normalize_stage_frame(
+        root.parent,
+        tuple(columns[str(name)] for name in root.parent.columns),
+        root.layout.parent_keys,
+        unique_keys=root.parent_unique_keys,
+    )
     expected = tuple(frozen_key_rows(selected, parent_columns))
-    actual = tuple(frozen_key_rows(root.parent, parent_columns))
+    actual = tuple(frozen_key_rows(parent, parent_columns))
     if not root.layout.parent_keys and expected and not actual:
         from marivo.analysis.compiler.attribute_inputs import input_failure
 
@@ -467,9 +527,21 @@ def complete_attribute_parent_domain(
         }
     )
     parent = normalize_stage_frame(
-        result, tuple(columns[name] for name in result.columns), root.layout.parent_keys
+        result,
+        tuple(columns[name] for name in result.columns),
+        root.layout.parent_keys,
+        unique_keys=UniqueKeys(
+            tuple(str(name) for name in result.columns), (root.layout.parent_keys,)
+        ),
     )
-    return replace(root, parent=parent, parent_state=tuple(states))
+    return replace(
+        root,
+        parent=parent,
+        parent_state=tuple(states),
+        parent_unique_keys=UniqueKeys(
+            tuple(str(name) for name in parent.columns), (root.layout.parent_keys,)
+        ),
+    )
 
 
 def _empty_native_value(

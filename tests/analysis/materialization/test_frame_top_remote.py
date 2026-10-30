@@ -173,28 +173,29 @@ def test_filtered_native_read_top_reuses_its_exact_member_scope(
 
 @pytest.mark.parametrize(
     "backend,profile",
-    source_params([("postgres", "table"), ("mysql", "innodb-table"), ("trino", "iceberg")]),
+    source_params(
+        [
+            ("duckdb", "table"),
+            ("postgres", "table"),
+            ("mysql", "innodb-table"),
+            ("trino", "iceberg"),
+        ]
+    ),
 )
 @pytest.mark.parametrize("n", (0, 1))
-@pytest.mark.parametrize("invalid", ("duplicate", "null_identity"))
-def test_native_read_top_preserves_full_input_key_errors(
+def test_native_read_top_preserves_full_input_nonnull_identity_errors(
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     backend: str,
     profile: str,
     n: int,
-    invalid: str,
 ) -> None:
     source = _data()
     extra = (
-        "(2,'a','x',1,1,1,DATE '2026-07-01')"
-        if invalid == "duplicate"
-        else (
-            "(NULL,'a','x',1,0,1,DATE '2026-07-01')"
-            if backend in ("postgres", "trino")
-            else "(0,NULL,'x',1,0,1,DATE '2026-07-01')"
-        )
+        "(NULL,'a','x',1,0,1,DATE '2026-07-01')"
+        if backend in ("postgres", "trino")
+        else "(0,NULL,'x',1,0,1,DATE '2026-07-01')"
     )
     monkeypatch.chdir(tmp_path)
     with source_case(
@@ -213,12 +214,8 @@ def test_native_read_top_preserves_full_input_key_errors(
         with pytest.raises(MaterializationError) as failure:
             pending.top(n, by=pending["score"]).compute()
         assert failure.value.expected is not None
-        if invalid == "duplicate":
-            assert failure.value.stage == "stage_output"
-            assert "unique stage key" in failure.value.expected
-        else:
-            assert "identity" in failure.value.expected
-            assert "non-null" in failure.value.expected
+        assert "identity" in failure.value.expected
+        assert "non-null" in failure.value.expected
         assert trace.returned_rows == [1] and trace.uploaded_key_rows == []
 
 

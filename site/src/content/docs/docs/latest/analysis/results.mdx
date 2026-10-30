@@ -37,6 +37,12 @@ The two absolute changes remain -100 because this reads the saved comparison. Co
 
 `to_pandas()` returns an isolated flat table with readable coordinate and value names and separate presence columns. CSV is useful for sharing values but does not preserve typed analysis metadata or frozen time interpretation; keep the Frame for typed analysis. Check units and keys before joining exported tables.
 
+Memory operations reuse established complete-key uniqueness without repeatedly
+auditing rows. Saving still checks the actual output independently. Reopening
+does not restore a compiler proof: stored pages check their selected keys, and a
+full read also checks complete-key uniqueness across pages, together with required
+coordinates and presence. These checks do not certify source data quality.
+
 ## Find a saved Frame when its ID is lost
 
 Recover the intended Session first, then inspect its committed Frame directory:
@@ -204,7 +210,7 @@ version; memory cursors belong to the same fixed input in the current process.
 with empty attrs; the page retains no full parent table. `read_stats` counts
 inspected data/coordinate rows and receipt hashing bytes, not all disk I/O or
 peak memory. Receipts and coordinate lookup may scan whole files. A page validates
-selected data and necessary coordinates; full `to_pandas()` additionally validates
+selected stored data and necessary coordinates; full stored `to_pandas()` additionally validates
 complete keys, data and mappings. Reading never executes or saves a pending Frame.
 
 Evidence and Findings each return `items`, `input_id`, `session_id`, `artifact_ref`,

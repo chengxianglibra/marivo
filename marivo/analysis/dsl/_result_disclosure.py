@@ -570,6 +570,8 @@ def provider() -> DisclosureProvider:
                     if name == "share"
                     else "Example needs numeric frame['value']. Names use bound value slots/schema, never variables/dependencies. Reject duplicate/invalid names at capture; use distinct legal Mapping keys. Names/order stay fixed through compute/persist. Use exact-input statistics after derivation. Independent NA masks. Sum/mean retain expression units, not original Metric additivity or rollup."
                     if name == "reduce"
+                    else "Use a same-input score. Proven complete input keys omit duplicate scans, including n=0; unknown keys are checked before cropping. Required NULL, numeric and domain checks remain. Use explicit source_check to audit source declarations."
+                    if name == "top"
                     else "Columns and statistics retain one exact Frame input; Artifact cannot enter computation. Current-row statistics do not acquire original Metric authority.",
                 ),
                 effects=(

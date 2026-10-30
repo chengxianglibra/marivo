@@ -59,14 +59,22 @@ grain. Physical identity columns may be nullable in source metadata: semantic
 observations, shared aggregates and original Metric evaluation as well as Attribute.
 Nullable metadata alone does not disqualify an otherwise qualified source binding.
 Analysis adds no full-source NULL or uniqueness precheck; declaration violations
-are not guaranteed to raise an error in every aggregate path.
+are not guaranteed to raise an error in ordinary members, read, classify,
+aggregation or Top paths. Complete identities in the resolved relation and
+declared to-one traversals can establish logical unique keys without scanning
+the source to re-prove those declarations. Versioned relations require the
+selected version or the complete retained version grain; membership expansion
+does not automatically retain the root identity key.
 Scalar reads join directly without rechecking uniqueness or requiring a
 matching record. Missing scalar matches produce NULL; read/classify retain the
 requested identity domain with NULL attributes. Relationship traversal uses its
 actual joins and set semantics when a source record is absent. Invalid declared
 uniqueness can multiply contributions; analysis does not repair it by choosing an
 arbitrary row. Use explicit source_check for source data-quality expectations.
-Actual identity outputs must still be non-null complete keys. Required type,
+Actual identity outputs must still be non-null complete keys. Their logical
+uniqueness may follow from declarations or controlled operators; it does not
+promise repeated duplicate detection. Literal Session.values ingress and
+unknown relations still validate their requested complete keys. Required type,
 captured NULL/domain, operation-specific coverage and stored-output integrity
 checks remain. Their numeric requirements follow the owning
 [arithmetic and method contracts](operators-and-frames.md#null-empty-and-arithmetic-policies),

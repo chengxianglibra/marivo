@@ -13,6 +13,7 @@ from marivo.analysis.core.data_types import (
     ScalarDataType,
     TimestampDataType,
 )
+from marivo.analysis.core.unique_keys import UNKNOWN_UNIQUE_KEYS, UniqueKeys
 from marivo.analysis.materialization.errors import MaterializationError
 
 
@@ -142,14 +143,8 @@ def _stage_column(series: pd.Series, column: DataColumn) -> pd.Series:
     return pd.Series(pd.arrays.ArrowExtensionArray(exact), name=column.slot_id)
 
 
-def normalize_stage_frame(
-    frame: pd.DataFrame, columns: tuple[DataColumn, ...], keys: tuple[str, ...]
-) -> pd.DataFrame:
-    """Return a new exact-typed stage frame; source and local outputs share this entry.
-
-    Column order, complete keys, dtype, timezone and NA are checked against the
-    planned slots. Lossy conversions fail instead of being cast back afterward.
-    """
+def normalize_stage_columns(frame: pd.DataFrame, columns: tuple[DataColumn, ...]) -> pd.DataFrame:
+    """Normalize exact carriers and column order without a relation-key obligation."""
     expected = tuple(column.slot_id for column in columns)
     if tuple(frame.columns) != expected:
         raise _stage_error(
@@ -161,32 +156,61 @@ def normalize_stage_frame(
         {column.slot_id: _stage_column(frame[column.slot_id], column) for column in columns},
         columns=list(expected),
     )
-    if keys:
-        arrays = tuple(pa.array(result[key], from_pandas=True) for key in keys)
-        seen: set[tuple[pa.Scalar | None, ...]] = set()
-        for cells in zip(*arrays, strict=True):
-            # Arrow preserves valid minimum temporal ticks separately from null.
-            # Keep pandas' repeated-NaN identity without conflating Arrow nulls.
-            key = tuple(
-                None
-                if pa.types.is_floating(cell.type) and cell.is_valid and pc.is_nan(cell).as_py()
-                else cell
-                for cell in cells
-            )
-            if key in seen:
-                raise _stage_error(
-                    f"a complete unique stage key {keys!r}", "null or duplicate key values"
-                )
-            seen.add(key)
     return result
 
 
+def normalize_stage_frame(
+    frame: pd.DataFrame,
+    columns: tuple[DataColumn, ...],
+    keys: tuple[str, ...],
+    *,
+    unique_keys: UniqueKeys = UNKNOWN_UNIQUE_KEYS,
+) -> pd.DataFrame:
+    """Return a new exact-typed stage frame; source and local outputs share this entry.
+
+    Column order, dtype, timezone and NA are checked against planned slots.
+    Complete keys are scanned only without exact producer or prior-check facts.
+    Lossy conversions fail instead of being cast back afterward.
+    """
+    expected = tuple(column.slot_id for column in columns)
+    result = normalize_stage_columns(frame, columns)
+    if keys and not unique_keys.project(expected).proves(keys):
+        _validate_stage_keys(result, keys)
+    return result
+
+
+def _validate_stage_keys(result: pd.DataFrame, keys: tuple[str, ...]) -> None:
+    """Scan complete typed keys when no producer or prior check proves uniqueness."""
+    arrays = tuple(pa.array(result[key], from_pandas=True) for key in keys)
+    seen: set[tuple[pa.Scalar | None, ...]] = set()
+    for cells in zip(*arrays, strict=True):
+        # Arrow preserves valid minimum temporal ticks separately from null.
+        # Keep pandas' repeated-NaN identity without conflating Arrow nulls.
+        key = tuple(
+            None
+            if pa.types.is_floating(cell.type) and cell.is_valid and pc.is_nan(cell).as_py()
+            else cell
+            for cell in cells
+        )
+        if key in seen:
+            raise _stage_error(
+                f"a complete unique stage key {keys!r}", "null or duplicate key values"
+            )
+        seen.add(key)
+
+
 def normalize_complete_frame(
-    frame: pd.DataFrame, columns: tuple[DataColumn, ...], keys: tuple[str, ...]
+    frame: pd.DataFrame,
+    columns: tuple[DataColumn, ...],
+    keys: tuple[str, ...],
+    *,
+    unique_keys: UniqueKeys = UNKNOWN_UNIQUE_KEYS,
 ) -> pd.DataFrame:
     """Validate exact carriers, layout and complete keys before consumption.
 
     Backend floating values retain their validity, including NaN and infinity;
     Arrow nulls remain distinct missing values.
     """
-    return normalize_stage_frame(frame, columns, keys)
+    if not keys and len(frame) > 1:
+        raise _stage_error("at most one row for a zero-axis Frame", f"{len(frame)} rows")
+    return normalize_stage_frame(frame, columns, keys, unique_keys=unique_keys)

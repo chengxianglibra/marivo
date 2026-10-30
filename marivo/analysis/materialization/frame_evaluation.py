@@ -306,7 +306,10 @@ def _evaluate_frame(
             )
             schema = effective_frame_schema(source_schemas[input_id], output.columns)
             completed = CompletedFrameData(
-                schema, output.table.loc[:, [c.slot_id for c in schema.columns]], attachments
+                schema,
+                output.table.loc[:, [c.slot_id for c in schema.columns]],
+                attachments,
+                unique_keys=output.unique_keys,
             )
             if declaration_keys is not None:
                 from marivo.analysis.core.frame_derivation import key_checkpoint
@@ -421,7 +424,12 @@ def _evaluate_frame(
                 from marivo.analysis.core.frame_derivation import key_checkpoint
 
                 declaration_keys[operation_stages[stage.stage_id]] = key_checkpoint(
-                    CompletedFrameData(output.frame_schema, output.table, output.frame_attachments)
+                    CompletedFrameData(
+                        output.frame_schema,
+                        output.table,
+                        output.frame_attachments,
+                        unique_keys=output.unique_keys,
+                    )
                 )
             method_productions.extend(
                 (stage.stage_id, payload) for payload in output.attribute_methods
@@ -649,6 +657,7 @@ def _evaluate_frame(
             output.frame_schema or effective_frame_schema(compiled.schema, output.columns),
             output.table,
             output.frame_attachments,
+            unique_keys=output.unique_keys,
         )
         associations, reachable = _attribute_associations(
             compiled, tuple((identifier, expressions[identifier]) for identifier in collected)

@@ -1121,6 +1121,9 @@ def rewrite_primary(saved: AnalysisFrame, rows: pd.DataFrame) -> StoredFrameBack
 
 
 def test_full_read_rejects_duplicate_keys_beyond_a_valid_prefix(local: LocalFrameServices) -> None:
+    import subprocess
+    import sys
+
     saved = ordinary(local).persist()
     rows = _memory_backing(saved.compute()).data.copy_rows()
     rows["key"] = pd.Series([2, 2, 0], dtype="int64[pyarrow]")
@@ -1134,6 +1137,37 @@ def test_full_read_rejects_duplicate_keys_beyond_a_valid_prefix(local: LocalFram
         reopened.read_page(limit=2)
     with pytest.raises(MaterializationError, match="unique stage key"):
         local.read_complete(backing)
+    script = """
+import sys
+from pathlib import Path
+from marivo.analysis.materialization.errors import MaterializationError
+from marivo.analysis.materialization.frame_services import LocalFrameServices
+from marivo.analysis.materialization.store import SessionStore
+local = LocalFrameServices(SessionStore.open_existing(Path(sys.argv[1])), sys.argv[2])
+backing = local.open_frame(sys.argv[3])
+try:
+    local.read_complete(backing)
+except MaterializationError as error:
+    assert "unique stage key" in str(error)
+    print("cold-duplicate-rejected")
+else:
+    raise AssertionError("cold storage input inherited a stale uniqueness proof")
+"""
+    cold = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            script,
+            str(local.store.project_root),
+            local.session_ref,
+            saved.artifact_id,
+        ],
+        cwd=Path(__file__).resolve().parents[3],
+        text=True,
+        capture_output=True,
+    )
+    assert cold.returncode == 0, cold.stdout + cold.stderr
+    assert "cold-duplicate-rejected" in cold.stdout
 
 
 @pytest.mark.parametrize("generation", [11, 12, 13, 14, 16])
@@ -1603,6 +1637,7 @@ def test_stored_two_selects_keep_data_and_remove_duplicate_fixed_adaptation(
     local: LocalFrameServices, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from marivo.analysis.core.frame_audit import StoredInput
+    from marivo.analysis.core.unique_keys import UNKNOWN_UNIQUE_KEYS, UniqueKeys
 
     saved = ordinary(local).persist()
     first = saved.select({"twice": saved["amount"] * 2})
@@ -1617,9 +1652,11 @@ def test_stored_two_selects_keep_data_and_remove_duplicate_fixed_adaptation(
         schema: DataSchema,
         rows: pd.DataFrame,
         attachments: tuple[OutputAttachment, ...] = (),
+        *,
+        unique_keys: UniqueKeys = UNKNOWN_UNIQUE_KEYS,
     ) -> None:
         calls["construct"] += 1
-        construct(data, schema, rows, attachments)
+        construct(data, schema, rows, attachments, unique_keys=unique_keys)
 
     def copied(data: CompletedFrameData) -> pd.DataFrame:
         calls["copy_rows"] += 1

@@ -42,16 +42,23 @@ from marivo.analysis.core.frozen_calendar import (
     validate_frozen_coordinates,
 )
 from marivo.analysis.core.model import reject
+from marivo.analysis.core.unique_keys import UNKNOWN_UNIQUE_KEYS, UniqueKeys
 from marivo.analysis.materialization.graph_exchange import StageOutput
 from marivo.analysis.materialization.query_components import AttributeRootInputs
 from marivo.analysis.methods.frame_comparison import _take
 
 
 def _validated(
-    schema: DataSchema, rows: pd.DataFrame, attachments: tuple[OutputAttachment, ...]
+    schema: DataSchema,
+    rows: pd.DataFrame,
+    attachments: tuple[OutputAttachment, ...],
+    unique_keys: UniqueKeys = UNKNOWN_UNIQUE_KEYS,
 ) -> None:
     validate_frozen_coordinates(
-        schema, rows, tuple(FrozenAttachment(a.name, a.schema, a.rows) for a in attachments)
+        schema,
+        rows,
+        tuple(FrozenAttachment(a.name, a.schema, a.rows) for a in attachments),
+        unique_keys=unique_keys,
     )
 
 
@@ -215,9 +222,14 @@ def _projected(
     schema: DataSchema,
     rows: pd.DataFrame,
     attachments: tuple[OutputAttachment, ...],
+    unique_keys: UniqueKeys = UNKNOWN_UNIQUE_KEYS,
 ) -> tuple[tuple[FrozenKey, tuple[FrozenScalar | None, ...] | None], ...]:
-    _validated(schema, rows, attachments)
-    parent_keys, _ = _index(rows, tuple(c for a in schema.axes for c in a.columns))
+    _validated(schema, rows, attachments, unique_keys)
+    parent_keys, _ = _index(
+        rows,
+        tuple(c for a in schema.axes for c in a.columns),
+        UniqueKeys(tuple(c.slot_id for c in schema.columns), (schema.key_fields,)),
+    )
     calendar = (
         _calendar_keys(operation, schema, attachments) if operation.calendar is not None else {}
     )
@@ -257,9 +269,13 @@ def _projected(
 
 
 def project_attribute_parents(
-    program: AttributeProjectProgram, rows: pd.DataFrame, attachments: tuple[OutputAttachment, ...]
+    program: AttributeProjectProgram,
+    rows: pd.DataFrame,
+    attachments: tuple[OutputAttachment, ...],
+    *,
+    unique_keys: UniqueKeys = UNKNOWN_UNIQUE_KEYS,
 ) -> pd.DataFrame:
-    projected = _projected(program.operation, program.input_schema, rows, attachments)
+    projected = _projected(program.operation, program.input_schema, rows, attachments, unique_keys)
     selected = [(i, value) for i, (_, value) in enumerate(projected) if value is not None]
     columns = tuple(c for axis in program.output_schema.axes for c in axis.columns)
     result = frozen_key_table(
@@ -287,7 +303,7 @@ def _attribute_domain_data(
         program.right_schema,
     )
     for schema, source in zip(schemas, inputs[:5], strict=True):
-        _validated(schema, source.table, source.frame_attachments)
+        _validated(schema, source.table, source.frame_attachments, source.unique_keys)
     parent_schema = program.parent_schema
     calendar = next(
         (
@@ -301,7 +317,9 @@ def _attribute_domain_data(
     original_order = (*ordinary, *((calendar,) if calendar is not None else ()))
     maps: list[dict[FrozenKey, FrozenKey]] = []
     structural: list[set[FrozenKey]] = []
-    parent_keys, _ = _index(parent.table, tuple(c for a in parent_schema.axes for c in a.columns))
+    parent_keys, _ = _index(
+        parent.table, tuple(c for a in parent_schema.axes for c in a.columns), parent.unique_keys
+    )
     for projection in (left_projection, right_projection):
         columns = {c.slot_id: c for c in projection.columns}
         groups = projection.key_groups
@@ -336,7 +354,9 @@ def _attribute_domain_data(
         side_map = maps[side_index]
         domain_schema = schemas[1 + side_index]
         domain_groups = tuple(domain_schema.axes[i] for i in positions)
-        domain_keys, _ = _index(domain.table, tuple(c for a in domain_groups for c in a.columns))
+        domain_keys, _ = _index(
+            domain.table, tuple(c for a in domain_groups for c in a.columns), domain.unique_keys
+        )
         parent_domains.append({side_map[key] for key in domain_keys if key in side_map})
         parent_columns = tuple(c for i in positions for c in schema.axes[i].columns)
         source_parents, _ = _index_allow_duplicate(source.table, parent_columns)
@@ -382,11 +402,13 @@ def _index_allow_duplicate(
 
 
 def _index(
-    frame: pd.DataFrame, columns: tuple[DataColumn, ...]
+    frame: pd.DataFrame,
+    columns: tuple[DataColumn, ...],
+    unique_keys: UniqueKeys = UNKNOWN_UNIQUE_KEYS,
 ) -> tuple[list[FrozenKey], dict[FrozenKey, int]]:
     keys = list(frozen_key_rows(frame, columns))
     result = {key: i for i, key in enumerate(keys)}
-    if len(result) != len(keys):
+    if not unique_keys.proves(tuple(c.slot_id for c in columns)) and len(result) != len(keys):
         reject(
             "unique complete coordinate tuples",
             "duplicate complete keys",
@@ -459,7 +481,7 @@ def attribute_source_values(
     projection: StageOutput,
     source: AttributeMatrixSource,
     scope: Literal["parent", "fine"],
-) -> pd.DataFrame:
+) -> StageOutput:
     """Map one exact active source fiber to canonical original-parent keys."""
     schema = program.left_schema if source.use.endpoint == "left" else program.right_schema
     mapping = program.operation.mapping
@@ -497,7 +519,14 @@ def attribute_source_values(
         if parent in parent_map
     ]
     keys = tuple(key for _, key in selected)
-    if len(set(keys)) != len(keys):
+    source_key_slots = tuple(
+        c.slot_id for c in (*source_parent, *(source_fine if scope == "fine" else ()))
+    )
+    source_proof = root.parent_unique_keys if scope == "parent" else root.fine_unique_keys
+    active_parents = {parent for parent in pkeys if parent in parent_map}
+    injective = len({parent_map[parent] for parent in active_parents}) == len(active_parents)
+    proven = source_proof.proves(source_key_slots) and injective
+    if not proven and len(set(keys)) != len(keys):
         reject(
             "one actual source value per complete active fiber",
             repr(source.use),
@@ -507,7 +536,17 @@ def attribute_source_values(
         )
     result = frozen_key_table((*output_parent, *output_fine), keys)
     result[source.source] = _take(table, source.source, [i for i, _ in selected])
-    return result
+    value_column = next(column for column in root.layout.columns if column.slot_id == source.source)
+    columns = (*output_parent, *output_fine, value_column)
+    output_keys = tuple(c.slot_id for c in (*output_parent, *output_fine))
+    # The check above establishes the same postcondition for an unknown or
+    # noninjective mapping, without sharing another subtable's facts.
+    return StageOutput.from_frame(
+        result,
+        columns,
+        output_keys,
+        unique_keys=UniqueKeys(tuple(c.slot_id for c in columns), (output_keys,)),
+    )
 
 
 def attribute_input_frame_data(
@@ -592,6 +631,9 @@ def attribute_input_frame_data(
                     for a in source.frame_attachments
                     if a.name in coordinate_attachments(domain_schema)
                 ),
+                unique_keys=UniqueKeys(
+                    tuple(c.slot_id for c in domain_schema.columns), (domain_schema.key_fields,)
+                ),
             )
         )
     skeleton_schema = replace(program.output_schema, values=(), value_paths=())
@@ -612,6 +654,7 @@ def attribute_input_frame_data(
             frame_attachments=tuple(
                 a for a in source.frame_attachments if a.name in coordinate_attachments(schema)
             ),
+            unique_keys=source.unique_keys.project(tuple(c.slot_id for c in schema.columns)),
         )
         for source, schema in zip((left, right), empty_schemas, strict=True)
     )
@@ -640,16 +683,20 @@ def attribute_input_frame_data(
     for item in program.matrix:
         projection = left_projection if item.side == "left" else right_projection
         mapped: list[pd.DataFrame] = []
+        mapped_proofs: list[UniqueKeys] = []
         for entry in item.sources:
             from marivo.analysis.materialization.query_components import select_attribute_root
 
             root = select_attribute_root(sources[item.side].attribute_inputs, item.scope, entry)
             active = attribute_source_values(program, root, projection, entry, item.scope)
-            mapped.append(active.rename(columns={entry.source: item.target.slot_id}))
+            mapped.append(active.table.rename(columns={entry.source: item.target.slot_id}))
+            mapped_proofs.append(active.unique_keys)
         table = pd.concat(mapped, ignore_index=True)
         key_columns = output_parent if item.scope == "parent" else (*output_parent, *output_fine)
         actual_keys = tuple(frozen_key_rows(table, key_columns))
-        if len(set(actual_keys)) != len(actual_keys):
+        if (
+            len(mapped) != 1 or not mapped_proofs[0].proves(tuple(c.slot_id for c in key_columns))
+        ) and len(set(actual_keys)) != len(actual_keys):
             reject(
                 "exactly one expanded source for each active complete fiber",
                 repr(item.occurrence),

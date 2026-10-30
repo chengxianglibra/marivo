@@ -67,6 +67,7 @@ from marivo.analysis.core.frame_structure import (
     PendingDataSchema,
 )
 from marivo.analysis.core.graph import BoundGraph
+from marivo.analysis.core.unique_keys import UniqueKeys
 from marivo.analysis.dsl.frame import AnalysisFrame
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.materialization.graph_exchange import StageOutput
@@ -94,13 +95,25 @@ def _schema() -> DataSchema:
 
 
 @pytest.mark.parametrize("provider", ("duckdb", "postgres", "mysql", "trino", "clickhouse"))
-def test_pending_field_top_dialects_use_direct_ordered_limit(provider: str) -> None:
+@pytest.mark.parametrize("proven", [False, True])
+def test_pending_field_top_dialects_use_direct_ordered_limit(provider: str, proven: bool) -> None:
     import sqlglot
 
     schema = _schema()
     table = ibis.table({"key": "int64", "amount": "int64"}, name="native_top")
     stage = SourceRead(
-        "source", "source", (), schema.columns, schema.key_fields, NativeRead(()), (), (), None
+        "source",
+        "source",
+        (),
+        schema.columns,
+        schema.key_fields,
+        NativeRead(()),
+        (),
+        (),
+        None,
+        unique_keys=UniqueKeys(tuple(c.slot_id for c in schema.columns), (schema.key_fields,))
+        if proven
+        else UniqueKeys(),
     )
     _, lowered = _bounded_read(
         stage, LoweredRead("source", table), schema, TopValues(1, ValueSlot(0), True), provider
@@ -113,7 +126,9 @@ def test_pending_field_top_dialects_use_direct_ordered_limit(provider: str) -> N
     assert len(bounded) == 1
     assert bounded[0].args.get("order") is not None
     assert bounded[0].args["limit"].expression.this == "1"
-    assert "__frame_top_duplicate" in lowered.expression.columns
+    assert ("__frame_top_duplicate" in lowered.expression.columns) is not proven
+    assert "__frame_top_null_0" in lowered.expression.columns
+    assert "__frame_top_input_count" in lowered.expression.columns
 
 
 def test_fixed_top_declines_native_rewrite_with_an_internal_reason() -> None:

@@ -67,24 +67,27 @@ def _bounded_read(
             )
         )
     summary = expression.aggregate(**summaries)
-    keys = data.select(
-        **{
-            key: string_bytes(data[key], provider) if data[key].type().is_string() else data[key]
-            for key in stage.keys
-        }
-    )
-    counted = keys.group_by(*stage.keys).aggregate(__frame_top_key_count=keys.count())
-    duplicate = counted.aggregate(
-        __frame_top_duplicate=(counted["__frame_top_key_count"] > 1).any().fill_null(False)
-    )
-    summary = summary.cross_join(duplicate)
-    integrity.append(
-        (
-            "__frame_top_duplicate",
-            f"a complete unique stage key {stage.keys!r}",
-            "null or duplicate key values",
+    if not stage.unique_keys.proves(stage.keys):
+        keys = data.select(
+            **{
+                key: string_bytes(data[key], provider)
+                if data[key].type().is_string()
+                else data[key]
+                for key in stage.keys
+            }
         )
-    )
+        counted = keys.group_by(*stage.keys).aggregate(__frame_top_key_count=keys.count())
+        duplicate = counted.aggregate(
+            __frame_top_duplicate=(counted["__frame_top_key_count"] > 1).any().fill_null(False)
+        )
+        summary = summary.cross_join(duplicate)
+        integrity.append(
+            (
+                "__frame_top_duplicate",
+                f"a complete unique stage key {stage.keys!r}",
+                "null or duplicate key values",
+            )
+        )
     assert isinstance(operation.score, ValueSlot)
     score = data[schema.values[operation.score.index].slot_id]
     order = (
@@ -205,7 +208,7 @@ def bound_pending_frame_top(
                                 "pending_frame_top",
                                 "adopted",
                                 (source.stage_id, top.stage_id),
-                                f"{provider} returns bounded rows after full-input numeric and Frame integrity summaries; local Top restores order.",
+                                f"{provider} returns bounded rows after required full-input numeric and NULL summaries; proven complete keys omit duplicate aggregation; local Top restores order.",
                             )
                         )
                         continue

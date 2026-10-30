@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from datetime import datetime
 from typing import TYPE_CHECKING, Literal, TypeAlias
 
@@ -33,6 +33,7 @@ from marivo.analysis.core.frame_attribute_merge import AttributeMergeProgram
 from marivo.analysis.core.graph import BoundGraph
 from marivo.analysis.core.model import reject
 from marivo.analysis.core.time_authority import SourceTimeAuthority
+from marivo.analysis.core.unique_keys import UniqueKeys
 from marivo.analysis.methods.physical import QUERY_COMBINE_KERNEL
 
 if TYPE_CHECKING:
@@ -199,6 +200,12 @@ class SourceRead:
     attribute_input_types: tuple[tuple[str, tuple[DataType, ...]], ...] = ()
     attribute_native: bool = False
     native_relation_id: str = ""
+    unique_keys: UniqueKeys = field(default_factory=UniqueKeys)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self, "unique_keys", self.unique_keys.project(tuple(c.slot_id for c in self.columns))
+        )
 
 
 def read_reduction(stage: SourceRead) -> ReductionInput | None:
@@ -294,6 +301,12 @@ class LocalCompute:
     keys: tuple[str, ...]
     program: FormulaProgram | ResultProgram | FusedLocalProgram
     attribute: AttributeFormulaBinding | None = None
+    unique_keys: UniqueKeys = field(default_factory=UniqueKeys)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self, "unique_keys", self.unique_keys.project(tuple(c.slot_id for c in self.columns))
+        )
 
     @property
     def kernel(self) -> str:
@@ -326,6 +339,10 @@ class FrameInput:
     inputs: tuple[str, ...] = ()
 
     @property
+    def unique_keys(self) -> UniqueKeys:
+        return UniqueKeys(tuple(c.slot_id for c in self.columns), (self.keys,))
+
+    @property
     def columns(self) -> tuple[DataColumn, ...]:
         return self.schema.columns
 
@@ -351,6 +368,13 @@ class FrameCompute:
         | AttributeGameProgram
     )
 
+    unique_keys: UniqueKeys = field(default_factory=UniqueKeys)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self, "unique_keys", self.unique_keys.project(tuple(c.slot_id for c in self.columns))
+        )
+
     @property
     def columns(self) -> tuple[DataColumn, ...]:
         return self.program.output_schema.columns
@@ -367,6 +391,10 @@ class FrameKeysInput:
     stage_id: str
     parameter: FrameParameter
     inputs: tuple[str, ...] = ()
+
+    @property
+    def unique_keys(self) -> UniqueKeys:
+        return UniqueKeys(tuple(c.slot_id for c in self.columns), (self.keys,))
 
     @property
     def columns(self) -> tuple[DataColumn, ...]:
@@ -544,6 +572,14 @@ def _plan_source_reads(
                 period,
                 preparation_checks=schema.preparation_checks,
                 binding_id=schema.binding_id,
+                unique_keys=UniqueKeys(tuple(c.slot_id for c in columns), (key_slots,))
+                if not contribution.memberships
+                and (
+                    not schema.original_identity
+                    or tuple(k.column for k in schema.keys)
+                    == tuple(k.column for k in schema.original_identity)
+                )
+                else UniqueKeys(),
             )
         )
     stages: tuple[QueryStage, ...] = tuple(reads)
@@ -602,11 +638,11 @@ def _plan_bound_query(
     if isinstance(graph.root, ResultQuery):
         from marivo.analysis.compiler.queries import plan_literal
 
-        return plan_literal(graph, graph.root.operation, schemas)
+        return with_unique_keys(plan_literal(graph, graph.root.operation, schemas))
     if isinstance(graph.root, ReadQuery):
         from marivo.analysis.compiler.queries import plan_read
 
-        return plan_read(graph, schemas, memo=memo)
+        return with_unique_keys(plan_read(graph, schemas, memo=memo))
 
     from marivo.analysis.compiler.parameters import plan_parameters
 
@@ -614,8 +650,8 @@ def _plan_bound_query(
     if require_original:
         from marivo.analysis.compiler.optimization import retain_components
 
-        return retain_components(planned, schemas)
-    return planned
+        return with_unique_keys(retain_components(planned, schemas))
+    return with_unique_keys(planned)
 
 
 def _plan_query(
@@ -794,6 +830,9 @@ def _plan_query(
                     ),
                 ),
                 keys=tuple(c.slot_id for c in stage_keys),
+                unique_keys=UniqueKeys(
+                    tuple(expression.columns), (tuple(c.slot_id for c in stage_keys),)
+                ),
                 program=ReductionRead(reduction),
             )
         )
@@ -925,6 +964,7 @@ def _plan_query(
                     (),
                     None,
                     preparation_checks=population_schema.preparation_checks,
+                    unique_keys=UniqueKeys(slots, (slots,)),
                 )
             )
         population_inputs.append(
@@ -1072,3 +1112,86 @@ def _plan_query(
         combine.stage_id,
         original=program,
     )
+
+
+def with_unique_keys(plan: QueryPlan) -> QueryPlan:
+    """Bind controlled operation facts, using upstream checks only as postconditions."""
+    from marivo._definition.query import (
+        FilterValues,
+        KeyImage,
+        PopulationValues,
+        ReadFields,
+        ReduceValues,
+        SelectValues,
+        TopValues,
+        ValueSlot,
+    )
+    from marivo.analysis.compiler.observation import FormulaProgram
+    from marivo.analysis.core.frame_fix import FixFrameValues
+
+    stages: list[QueryStage] = []
+    by_id: dict[str, QueryStage] = {}
+    for stage in plan.stages:
+        if isinstance(stage, (LocalCompute, FrameCompute)):
+            slots = tuple(c.slot_id for c in stage.columns)
+            facts = stage.unique_keys.project(slots)
+            source = by_id.get(stage.inputs[0]) if stage.inputs else None
+            # A consumer runs only after the input's normalization has succeeded.
+            incoming = source.unique_keys if source is not None else UniqueKeys()
+            if source is not None and source.keys:
+                incoming = incoming.add(source.keys)
+            program = stage.program
+            if isinstance(program, (FrameCombineProgram, FrameCompareProgram)):
+                # Their kernels complete required mapping/domain checks before
+                # constructing one row per unioned complete output coordinate.
+                facts = UniqueKeys(slots, (stage.keys,))
+            elif isinstance(program, FormulaProgram):
+                # Formula completion builds a distinct domain and aligns one value per full key.
+                facts = UniqueKeys(slots, (stage.keys,))
+            elif isinstance(program, (ResultProgram, FrameProgram)):
+                operation = program.operation
+                if isinstance(operation, (ReduceValues, PopulationValues, KeyImage, ReadFields)):
+                    # These controlled producers group, project/distinct, or read single-valued attributes.
+                    facts = UniqueKeys(slots, (stage.keys,))
+                elif isinstance(operation, (FilterValues, TopValues)):
+                    facts = incoming.project(slots)
+                    if isinstance(operation, TopValues) and operation.n <= 1:
+                        facts = facts.add(())
+                elif isinstance(operation, SelectValues):
+                    input_values = (
+                        program.input_schema.values
+                        if isinstance(program, FrameProgram)
+                        else program.input_layout.values
+                        if program.input_layout is not None
+                        else tuple(c for c in program.columns if c.slot_id not in program.keys)
+                    )
+                    output_values = (
+                        program.output_schema.values
+                        if isinstance(program, FrameProgram)
+                        else program.output_layout.values
+                        if program.output_layout is not None
+                        else tuple(c for c in stage.columns if c.slot_id not in stage.keys)
+                    )
+                    mapping = {
+                        input_values[expression.index].slot_id: column.slot_id
+                        for (_, expression), column in zip(
+                            operation.values, output_values, strict=True
+                        )
+                        if isinstance(expression, ValueSlot)
+                    }
+                    value_slots = {column.slot_id for column in input_values}
+                    retained = tuple(
+                        slot
+                        for slot in incoming.slots
+                        if slot not in value_slots or slot in mapping
+                    )
+                    facts = incoming.project(retained).project(slots, mapping)
+                elif isinstance(operation, FixFrameValues) and isinstance(program, FrameProgram):
+                    fixed = tuple(
+                        c.slot_id for c in program.input_schema.axes[operation.position].columns
+                    )
+                    facts = incoming.fixed(slots, fixed)
+            stage = replace(stage, unique_keys=facts)
+        stages.append(stage)
+        by_id[stage.stage_id] = stage
+    return replace(plan, stages=tuple(stages))

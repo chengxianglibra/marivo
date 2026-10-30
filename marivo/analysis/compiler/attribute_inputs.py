@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import operator
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Literal, NoReturn
 
 import ibis
@@ -37,6 +37,7 @@ from marivo.analysis.core.attribute import (
     AttributeUseContext,
 )
 from marivo.analysis.core.data_types import DataColumn, DurationDataType, ScalarDataType
+from marivo.analysis.core.unique_keys import UniqueKeys
 from marivo.analysis.core.value_types import data_type, ibis_type
 from marivo.semantic._numeric_lowering import (
     NumericCheck,
@@ -166,6 +167,8 @@ class AttributeRootLayout:
     checks: tuple[AttributeCheckLayout, ...] = ()
     parent_context: AttributeParentContext | None = None
     native_formulas: tuple[AttributeNativeFormula, ...] = ()
+    parent_unique_keys: UniqueKeys = field(default_factory=UniqueKeys)
+    fine_unique_keys: UniqueKeys = field(default_factory=UniqueKeys)
 
     @property
     def keys(self) -> tuple[str, ...]:
@@ -415,6 +418,15 @@ def bundle_attribute_plan(
             native_formulas=tuple(native_formulas),
             population=population_parameter,
         )
+        # Every fiber groups independently. A later UNION ALL cannot inherit
+        # per-fiber uniqueness without a separate disjointness proof.
+        if len({leaf.fiber for leaf in leaves}) == 1:
+            slots = tuple(c.slot_id for c in layout.columns)
+            layout = replace(
+                layout,
+                parent_unique_keys=UniqueKeys(slots, (layout.parent_keys,)),
+                fine_unique_keys=UniqueKeys(slots, (layout.keys,)),
+            )
         bundles[first.stage_id] = replace(
             first,
             columns=layout.columns,
@@ -422,6 +434,7 @@ def bundle_attribute_plan(
                 dict(pair for member in members for pair in member.field_columns).items()
             ),
             program=AttributeRead(layout, require_reduction(first), read_members(first)),
+            unique_keys=UniqueKeys(),
             inputs=(
                 *first.inputs,
                 *((population_parameter.stage_id,) if population_parameter is not None else ()),

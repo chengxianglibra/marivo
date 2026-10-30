@@ -1909,7 +1909,26 @@ def test_native_ordered_samples_preserve_null_endpoints_and_duplicate_time_check
     backend: str,
     profile: str,
 ) -> None:
+    from marivo._definition.expressions import MetricNode, PerReduce
+    from marivo.analysis.compiler.sample_reductions import SampleLowerer, SampleRelation
     from marivo.analysis.methods import _sample_numeric
+
+    ordered_checks: list[tuple[tuple[str, str, str], ...]] = []
+    original_lower = SampleLowerer.lower
+
+    def capture_ordered(
+        lowerer: SampleLowerer,
+        node: MetricNode,
+        path: tuple[int, ...],
+        keys: tuple[str, ...],
+        forced: ir.Table | None = None,
+    ) -> SampleRelation:
+        result = original_lower(lowerer, node, path, keys, forced)
+        if isinstance(node, PerReduce) and node.reducer in ("first", "last"):
+            ordered_checks.append(result.checks)
+        return result
+
+    monkeypatch.setattr(SampleLowerer, "lower", capture_ordered)
 
     with mean_session(
         backend,
@@ -1947,9 +1966,21 @@ def test_native_ordered_samples_preserve_null_endpoints_and_duplicate_time_check
         assert rows[["first_null", "last_null"]].isna().all().all()
         assert trace.returned_rows == [1, 1, 1, 1]
         assert not reducer.call_args_list
+        assert ordered_checks
+        assert all(
+            expected != "one internal sample per time key"
+            for checks in ordered_checks
+            for _, expected, _ in checks
+        )
+        ordered_checks.clear()
         duplicate = amount.mean(time=point).per((point, category)).first(order_by=point)
         with pytest.raises(MaterializationError, match="one internal sample per time key"):
             session.observe({"first": duplicate}, by=(scope,)).compute()
+        assert any(
+            expected == "one internal sample per time key"
+            for checks in ordered_checks
+            for _, expected, _ in checks
+        )
 
 
 @pytest.mark.parametrize(
@@ -2011,3 +2042,103 @@ def test_nested_ordered_samples_keep_explicit_parent_domain(
         for endpoint in endpoints.values():
             with pytest.raises(MaterializationError, match="non-NA internal samples"):
                 session.observe({"strict": endpoint.per(domain).mean(nulls="error")}).compute()
+
+
+@pytest.mark.parametrize("native", [True, False])
+@pytest.mark.parametrize("sample_axis", ["point", "calendar"])
+def test_ordered_single_axis_proofs_reach_native_and_local_consumers(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
+    native: bool,
+    sample_axis: str,
+) -> None:
+    from marivo.analysis.methods import _sample_numeric
+
+    with mean_session(
+        "duckdb",
+        "table",
+        tmp_path,
+        monkeypatch,
+        semantic_project_factory,
+        values=(10, 20, 20, 20, 100),
+        aware=True,
+    ) as (session, _):
+        amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+        point = catalog_value(session.catalog, "sales.facts.point", kind="field")
+        scope = session.time_scope(start="2026-10-01", end="2026-10-01T02:00:00")
+        samples = amount.sum(time=point).per(point if sample_axis == "point" else mv.grain("hour"))
+        if not native:
+            monkeypatch.setattr(
+                sample_fusion, "fuse_sample_reductions", lambda prepared, lowered: lowered
+            )
+        reducer = Mock(wraps=_sample_numeric.reduce_samples)
+        monkeypatch.setattr(_sample_numeric, "reduce_samples", reducer)
+        rows = (
+            session.observe({"first": samples.first(), "last": samples.last()}, by=(scope,))
+            .compute()
+            .to_pandas()
+        )
+        assert rows["first"].tolist() == [10.0 if sample_axis == "point" else 70.0]
+        assert rows["last"].tolist() == [100.0]
+        assert bool(reducer.call_args_list) is not native
+        for call in reducer.call_args_list:
+            assert call.kwargs["unique_keys"].proves((*call.args[2], call.kwargs["order_key"]))
+
+
+def test_native_ordered_concat_does_not_inherit_each_fragment_unique_time() -> None:
+    from marivo._definition.expressions import PerReduce, RowField, SourceAggregate
+    from marivo._definition.types import AxisBinding, ExactRef, SumAll
+    from marivo.analysis.compiler.observation import FormulaInput, FormulaProgram
+    from marivo.analysis.compiler.sample_reductions import SampleLowerer
+    from marivo.analysis.core.data_types import DataColumn, ScalarDataType
+    from marivo.analysis.core.unique_keys import UniqueKeys
+    from marivo.refs import ref
+
+    field = RowField(
+        ExactRef(ref.measure("sales.facts.amount"), "v1"),
+        ExactRef(ref.entity("sales.facts"), "v1"),
+        None,
+        SumAll(),
+    )
+    leaf = SourceAggregate(field, "mean", None)
+    axis = AxisBinding(field.root, field.ref, (), "field")
+    node = PerReduce(leaf, (axis,), "first", order_by=field.ref)
+    tables = {
+        name: ibis.memtable({"key.0": [1], "key.1": [10], "value": [value]})
+        for name, value in (("first", 1.0), ("second", 2.0))
+    }
+    bindings = tuple(
+        FormulaInput(
+            (0, 0, index),
+            name,
+            DataColumn("value", "value", ScalarDataType("float64"), True),
+            False,
+            keys=("key.0", "key.1"),
+            key_groups=(("key.0",), ("key.1",)),
+        )
+        for index, name in enumerate(tables)
+    )
+
+    def unavailable(*args: object) -> ir.Table:
+        raise AssertionError("implicit sample concat must not create a grid")
+
+    result = SampleLowerer(
+        FormulaProgram((("v", node),), (), bindings),
+        tables,
+        ("key.0",),
+        "duckdb",
+        unavailable,
+        unavailable,
+        unique_keys={
+            name: UniqueKeys(tuple(table.columns), (("key.0", "key.1"),))
+            for name, table in tables.items()
+        },
+    ).lower(node, (0,), ("key.0",))
+    order_flags = tuple(
+        name
+        for name, expected, _ in result.checks
+        if expected == "one internal sample per time key"
+    )
+    assert len(order_flags) == 1
+    assert result.table.execute()[order_flags[0]].tolist() == [True]

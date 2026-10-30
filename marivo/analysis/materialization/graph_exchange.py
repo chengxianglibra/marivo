@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 import pandas as pd
@@ -21,6 +21,7 @@ from marivo.analysis.core.data_validation import (
     _stage_error,
     normalize_stage_frame,
 )
+from marivo.analysis.core.unique_keys import UNKNOWN_UNIQUE_KEYS, UniqueKeys
 
 if TYPE_CHECKING:
     from marivo.analysis.compiler.attribute_frequencies import (
@@ -121,6 +122,8 @@ class StageOutput:
     attribute_frequencies: tuple[AttributeFrequencyCapture, ...] = ()
     attribute_state_captures: tuple[AttributeStateCapture, ...] = ()
 
+    unique_keys: UniqueKeys = field(default_factory=UniqueKeys)
+
     def __post_init__(self) -> None:
         if self._token is not _NORMALIZED:
             raise _stage_error(
@@ -153,11 +156,19 @@ class StageOutput:
         frame_schema: DataSchema | None = None,
         attribute_frequencies: tuple[AttributeFrequencyCapture, ...] = (),
         attribute_state_captures: tuple[AttributeStateCapture, ...] = (),
+        *,
+        unique_keys: UniqueKeys = UNKNOWN_UNIQUE_KEYS,
     ) -> StageOutput:
+        normalized = normalize_stage_frame(frame, columns, keys, unique_keys=unique_keys)
+        facts = unique_keys.project(tuple(column.slot_id for column in columns))
+        if not keys and frame_schema is not None and len(frame) > 1:
+            raise _stage_error("at most one row for a zero-axis Frame", f"{len(frame)} rows")
+        if keys or len(frame) <= 1 or facts.proves(()):
+            facts = facts.add(keys)
         return cls(
             columns,
             keys,
-            normalize_stage_frame(frame, columns, keys),
+            normalized,
             receipts,
             _NORMALIZED,
             key_groups,
@@ -171,6 +182,7 @@ class StageOutput:
             frame_schema,
             attribute_frequencies,
             attribute_state_captures,
+            facts,
         )
 
     @classmethod
@@ -185,6 +197,7 @@ class StageOutput:
             key_groups=tuple(tuple(c.slot_id for c in axis.columns) for axis in schema.axes),
             frame_attachments=data.copy_attachments(),
             frame_schema=schema,
+            unique_keys=data.unique_keys,
         )
 
     @classmethod
@@ -197,11 +210,17 @@ class StageOutput:
         components: tuple[ComponentFrame, ...] = (),
         value_keys: tuple[str, ...] = (),
         source_rows: int | None = None,
+        unique_keys: UniqueKeys = UNKNOWN_UNIQUE_KEYS,
     ) -> StageOutput:
         """Accept native source numeric types without casting back to declarations."""
         effective = source_columns(
             frame, columns, tuple(key for key in keys if key not in value_keys)
         )
         return cls.from_frame(
-            frame, effective, keys, components=components, source_rows=source_rows
+            frame,
+            effective,
+            keys,
+            components=components,
+            source_rows=source_rows,
+            unique_keys=unique_keys,
         )

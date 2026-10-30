@@ -245,3 +245,13 @@ def test_lookup_miss_protocol_is_adapted_to_structured_resolve_error() -> None:
         assert caught.value.expected and caught.value.received and caught.value.repair
         for candidate in caught.value.repair.candidates:
             registry.resolve(candidate)
+
+
+def test_top_discloses_proof_based_uniqueness_without_public_proof_api() -> None:
+    registry = prepare()
+    text = render(registry, "analysis_frame.top")
+    assert "Proven complete input keys omit duplicate scans" in text
+    assert "unknown keys" in text and "NULL" in text
+    assert "unique_keys" not in mv.__all__
+    with pytest.raises(HelpTargetError):
+        registry.resolve("unique_keys")

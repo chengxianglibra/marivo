@@ -288,7 +288,9 @@ def _mapped_source(
 
         root = select_attribute_root(prepared.attribute_inputs, item.scope, source)
         frames.append(
-            attribute_source_values(program.input_program, root, projection, source, item.scope)
+            attribute_source_values(
+                program.input_program, root, projection, source, item.scope
+            ).table
         )
     return tuple(frames)
 

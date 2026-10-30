@@ -268,6 +268,7 @@ def key_checkpoint(data: CompletedFrameData) -> CompletedFrameData:
         schema,
         data.copy_rows().loc[:, list(schema.key_fields)],
         tuple(a for a in data.copy_attachments() if a.name in names),
+        unique_keys=data.unique_keys.project(tuple(c.slot_id for c in schema.columns)),
     )
 
 

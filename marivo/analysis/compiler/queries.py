@@ -30,6 +30,7 @@ from marivo.analysis.core.data_types import (
 )
 from marivo.analysis.core.graph import BoundGraph, read_input_graph
 from marivo.analysis.core.model import reject
+from marivo.analysis.core.unique_keys import UniqueKeys
 from marivo.analysis.core.value_types import data_type
 
 if TYPE_CHECKING:
@@ -164,6 +165,7 @@ def plan_read(
             groups,
             (key_names,),
         ),
+        unique_keys=UniqueKeys(tuple(c.slot_id for c in (*keys, *values)), (key_names,)),
     )
     stages = (*plan.stages, stage)
     return QueryPlan(
