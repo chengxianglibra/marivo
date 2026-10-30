@@ -82,7 +82,7 @@ def reconcile(store: SessionStore, session: str, event: Callable[[str], None]) -
                 saved = terminal_store.manifest(store, conn, run.output_artifact_ref)
                 if saved is None:
                     raise invalid("succeeded Run lacks committed terminal output")
-                terminal_store.complete_metadata(conn, saved)
+                terminal_store.complete_metadata(saved)
             elif (
                 _one(
                     conn,
@@ -125,7 +125,7 @@ def publish_completed(
     data = CompletedFrameData(
         result.data.schema, result.data.copy_rows(), result.data.copy_attachments()
     )
-    terminal_store.validate_result_records(data.schema, result.metadata)
+    terminal_store.validate_result_metadata(data.schema, result.metadata)
     for facts in result.method_facts:
         validate_method_facts(facts)
     method_tables = tuple(method_payload(facts) for facts in result.method_facts)
@@ -223,12 +223,6 @@ def publish_completed(
                             )
                             if saved is None or saved != value:
                                 raise invalid("original publication read-back differs")
-                            terminal_store.confirm_records(
-                                conn,
-                                saved.artifact_id,
-                                result.metadata.findings,
-                                terminal_store.audit_evidence(result.metadata),
-                            )
                             return StoredFrameBacking(
                                 saved.artifact_id,
                                 saved.data,

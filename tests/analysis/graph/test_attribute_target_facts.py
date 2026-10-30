@@ -119,8 +119,8 @@ def test_level_facts_survive_independent_store_read_and_reject_changed_payload(t
     import pandas as pd
     import pyarrow.parquet as pq
 
-    from marivo.analysis.core.frame_audit import EvaluationRecord, FrameAudit, FrameResultMetadata
     from marivo.analysis.core.frame_data import CompletedFrameData, CompletedFrameResult
+    from marivo.analysis.core.frame_metadata import EvaluationRecord, FrameResultMetadata
     from marivo.analysis.errors import AnalysisError
     from marivo.analysis.materialization.admission import DatasetRuntime
     from marivo.analysis.materialization.graph_reading import open_manifest
@@ -139,9 +139,7 @@ def test_level_facts_survive_independent_store_read_and_reject_changed_payload(t
     )
     metadata = FrameResultMetadata(
         facts.origin_result_id,
-        FrameAudit(
-            (), EvaluationRecord(datetime(2026, 10, 21, tzinfo=timezone.utc), (), ("literal",))
-        ),
+        EvaluationRecord(datetime(2026, 10, 21, tzinfo=timezone.utc), (), ("literal",)),
     )
     saved = local.publish(
         CompletedFrameResult(CompletedFrameData(facts.output_schema, rows), metadata, (facts,))

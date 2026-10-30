@@ -1,4 +1,4 @@
-"""Separate completed Frame payload reads and metadata-only Artifact audit reads."""
+"""Separate completed Frame payload reads and metadata-only Artifact reads."""
 
 from __future__ import annotations
 
@@ -17,7 +17,6 @@ from marivo.analysis.core.artifact_data import (
     ArtifactManifest,
     DataSchema,
     OutputAttachment,
-    OutputFinding,
     ParquetHandle,
 )
 from marivo.analysis.core.data_schema import (
@@ -55,9 +54,7 @@ from marivo.analysis.core.frozen_calendar import (
 from marivo.analysis.core.model import reject
 from marivo.analysis.core.unique_keys import UniqueKeys
 from marivo.analysis.errors import ArtifactNotFoundError
-from marivo.analysis.evidence._dataset_types import EvidencePage, Finding, FindingPage
 from marivo.analysis.materialization import terminal_store
-from marivo.analysis.materialization.contracts import parse_timestamp
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.frame_method_facts import decode_method_payload
 from marivo.analysis.materialization.storage import (
@@ -69,7 +66,6 @@ from marivo.analysis.materialization.store import SessionStore, _one, _text
 from marivo.analysis.materialization.terminal_protocol import invalid
 from marivo.analysis.materialization.terminal_storage import POLICY, arrow_schema, physical_schema
 from marivo.analysis.methods.frame_method_facts import validate_method_facts
-from marivo.analysis.refs import ArtifactRef
 
 
 @dataclass(frozen=True, slots=True)
@@ -376,11 +372,7 @@ class FrameReader:
 
     def complete(self, backing: StoredFrameBacking) -> CompletedFrameResult:
         value = self.manifest(backing)
-        with self.store._read() as conn:
-            selected = terminal_store.manifest(self.store, conn, value.artifact_id)
-            if selected != value:
-                raise invalid("selected Frame metadata changed before complete consumption")
-            metadata = terminal_store.complete_metadata(conn, value)
+        metadata = terminal_store.complete_metadata(value)
         return CompletedFrameResult(self.data(backing), metadata, self.method_facts(backing))
 
     def method_facts(self, backing: StoredFrameBacking) -> tuple[FrameMethodFacts, ...]:
@@ -628,78 +620,3 @@ def selected_coordinates(
         ):
             raise invalid("row presence contradicts an absent comparison endpoint")
     return tuple(parts.values())
-
-
-@dataclass(frozen=True, slots=True)
-class TerminalReader:
-    """Artifact commit/audit authority; never opens Frame payloads."""
-
-    store: SessionStore
-
-    def findings(
-        self, manifest: ArtifactManifest, *, input_id: str, limit: int, cursor: str | None
-    ) -> FindingPage:
-        page = terminal_store.records_page(
-            self.store,
-            manifest.artifact_id,
-            kind="finding",
-            limit=limit,
-            cursor=cursor,
-            input_id=input_id,
-            expected_manifest=manifest,
-        )
-        committed_at = parse_timestamp(page.committed_at)
-        findings: list[Finding] = []
-        for item in page.items:
-            if not isinstance(item, OutputFinding):
-                raise invalid("terminal Finding page contains another record kind")
-            findings.append(
-                Finding(
-                    finding_id=item.finding_id,
-                    artifact_ref=ArtifactRef(ref=manifest.artifact_id),
-                    session_id=manifest.session_id,
-                    value=item.value,
-                    coordinates=item.coordinates,
-                    committed_at=committed_at,
-                )
-            )
-        return FindingPage(
-            items=tuple(findings),
-            limit=limit,
-            has_more=page.next_cursor is not None,
-            next_cursor=page.next_cursor,
-            input_id=input_id,
-            session_id=manifest.session_id,
-            artifact_ref=ArtifactRef(ref=manifest.artifact_id),
-            total_count=page.total_count,
-        )
-
-    def evidence(
-        self, manifest: ArtifactManifest, *, input_id: str, limit: int, cursor: str | None
-    ) -> EvidencePage:
-        page = terminal_store.records_page(
-            self.store,
-            manifest.artifact_id,
-            kind="evidence",
-            limit=limit,
-            cursor=cursor,
-            input_id=input_id,
-            expected_manifest=manifest,
-        )
-        items = []
-        from marivo.analysis.core.artifact_data import OutputEvidence
-
-        for item in page.items:
-            if not isinstance(item, OutputEvidence):
-                raise invalid("terminal Evidence page contains another record kind")
-            items.append(item)
-        return EvidencePage(
-            items=tuple(items),
-            limit=limit,
-            has_more=page.next_cursor is not None,
-            next_cursor=page.next_cursor,
-            input_id=input_id,
-            session_id=manifest.session_id,
-            artifact_ref=ArtifactRef(ref=manifest.artifact_id),
-            total_count=page.total_count,
-        )

@@ -312,8 +312,6 @@ def test_invalid_select_name_keeps_its_owner_through_shared_name_validation(
         ("compute", "read_complete"),
         ("to_pandas", "read_data"),
         ("persist", "open_frame"),
-        ("findings", "findings"),
-        ("evidence", "evidence"),
         ("method_facts", "read_method_facts"),
         ("show", "preview"),
     ),
@@ -439,3 +437,31 @@ def test_snapshot_help_distinguishes_profile_values_and_retained_rows() -> None:
     assert "retained_values is empty" in page
     assert "persist_values=True retains named rows" in page
     assert "coverage.retained_row_count alone does not mean rows can be read" in page
+
+
+def test_source_reads_requires_explicit_persist_and_reads_captured_metadata_only(
+    literal_frame: mv.AnalysisFrame,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    pending = literal_frame.select({"value": literal_frame["value"]})
+    for frame in (pending, literal_frame):
+        with pytest.raises(CoreRuleError) as captured:
+            _ = frame.source_reads
+        _assert_repair(captured.value, "analysis.analysis_frame.source_reads")
+        assert "persist()" in captured.value.repair.action
+    saved = literal_frame.persist()
+
+    def forbidden(*args: object, **kwargs: object) -> None:
+        raise AssertionError("source_reads performed I/O or publication")
+
+    for name in (
+        "open_frame",
+        "read_data",
+        "read_method_facts",
+        "preview",
+        "read_complete",
+        "publish",
+    ):
+        monkeypatch.setattr(LocalFrameServices, name, forbidden)
+    monkeypatch.setattr(mv.Session, "catalog", property(forbidden))
+    assert saved.source_reads == ()

@@ -24,12 +24,12 @@ from marivo.analysis.core.data_types import (
     ScalarDataType,
     TimestampDataType,
 )
-from marivo.analysis.core.frame_audit import EvaluationRecord, FrameAudit, FrameResultMetadata
 from marivo.analysis.core.frame_data import (
     CompletedFrameData,
     CompletedFrameResult,
     MemoryFrameBacking,
 )
+from marivo.analysis.core.frame_metadata import EvaluationRecord, FrameResultMetadata
 from marivo.analysis.core.frame_structure import PendingDataSchema
 from marivo.analysis.dsl import frame_sources
 from marivo.analysis.dsl.column import row_count
@@ -78,7 +78,7 @@ def _memory(
     data = CompletedFrameData(schema, pd.DataFrame({"key": keys, "amount": values}, dtype=object))
     metadata = FrameResultMetadata(
         "manual",
-        FrameAudit((), EvaluationRecord(datetime(2026, 10, 19, tzinfo=timezone.utc), (), ())),
+        EvaluationRecord(datetime(2026, 10, 19, tzinfo=timezone.utc), (), ()),
     )
     return AnalysisFrame._from_memory(local, CompletedFrameResult(data, metadata))
 
@@ -114,8 +114,8 @@ def test_self_compare_reads_shared_input_and_records_binary_operation(
     output = frame.compare(
         {"reference": mv.baseline(frame, on=((frame.axes[0], frame.axes[0]),))}
     ).compute()
-    assert len(_memory_backing(output).metadata.audit.evaluation.inputs) == 1
-    assert _memory_backing(output).metadata.audit.evaluation.operations == ("compare",)
+    assert len(_memory_backing(output).metadata.evaluation.inputs) == 1
+    assert _memory_backing(output).metadata.evaluation.operations == ("compare",)
     assert output.to_pandas()["reference.absolute.amount"].tolist() == [0, 0]
 
 
@@ -141,7 +141,7 @@ def _data_frame(
     )
     metadata = FrameResultMetadata(
         "manual",
-        FrameAudit((), EvaluationRecord(datetime(2026, 10, 19, tzinfo=timezone.utc), (), ())),
+        EvaluationRecord(datetime(2026, 10, 19, tzinfo=timezone.utc), (), ()),
     )
     return AnalysisFrame._from_memory(local, CompletedFrameResult(data, metadata))
 
@@ -332,7 +332,7 @@ def test_multiple_time_axes_do_not_infer_correspondence(local: LocalFrameService
     )
     metadata = FrameResultMetadata(
         "manual",
-        FrameAudit((), EvaluationRecord(datetime(2026, 10, 19, tzinfo=timezone.utc), (), ())),
+        EvaluationRecord(datetime(2026, 10, 19, tzinfo=timezone.utc), (), ()),
     )
     frame = AnalysisFrame._from_memory(local, CompletedFrameResult(data, metadata))
     with pytest.raises(AnalysisError) as comparison:
@@ -1005,7 +1005,7 @@ def _interval(
     )
     metadata = FrameResultMetadata(
         "interval-manual",
-        FrameAudit((), EvaluationRecord(datetime(2026, 10, 19, tzinfo=timezone.utc), (), ())),
+        EvaluationRecord(datetime(2026, 10, 19, tzinfo=timezone.utc), (), ()),
     )
     return AnalysisFrame._from_memory(local, CompletedFrameResult(data, metadata))
 

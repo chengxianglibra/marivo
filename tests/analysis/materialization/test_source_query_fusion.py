@@ -2,7 +2,6 @@
 
 from collections.abc import Callable
 from dataclasses import replace
-from datetime import datetime
 from pathlib import Path
 
 import duckdb
@@ -880,19 +879,16 @@ def test_public_frame_bridge_evidence_keeps_producer_and_consumer_scopes(
     )
     trace = capture_source(monkeypatch)
     saved = query.persist()
-    reads = [dict(item.values) for item in saved.evidence(limit=100).items if item.kind == "read"]
+    reads = saved.source_reads
     assert len(reads) == 2
-    assert len({(read["period_start"], read["period_end"]) for read in reads}) == 2
-    starts = set()
-    for read in reads:
-        start, end = read["period_start"], read["period_end"]
-        assert isinstance(start, datetime) and isinstance(end, datetime)
-        starts.add((start.month, end.month))
-        assert isinstance(read["returned_rows"], int)
-        assert read["returned_rows"] >= 0
-        assert read["returned_rows"] in trace.returned_rows
-        if start.month == 9:
-            assert "paid" in str(read["filters"])
+    periods = tuple(scope.period for read in reads for scope in read.scopes)
+    assert all(period is not None for period in periods)
+    starts = {
+        (period.start.month, period.end.month)
+        for period in periods
+        if period is not None and period.start is not None
+    }
+    assert [read.returned_rows for read in reads] == trace.returned_rows
     assert starts == {(9, 10), (10, 11)}
     assert len(terminal_runs(session)) == 1
 

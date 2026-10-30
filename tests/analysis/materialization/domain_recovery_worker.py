@@ -14,8 +14,8 @@ import pandas as pd
 import pyarrow as pa
 
 import marivo.analysis as mv
-from marivo.analysis.core.frame_audit import FrameResultMetadata
 from marivo.analysis.core.frame_data import MemoryFrameBacking, StoredFrameBacking
+from marivo.analysis.core.frame_metadata import FrameResultMetadata
 from tests.support.json import Json
 
 
@@ -84,23 +84,19 @@ def _table(rows: pd.DataFrame) -> dict[str, Json]:
 
 
 def _result_facts(metadata: FrameResultMetadata) -> dict[str, Json]:
-    evaluation = metadata.audit.evaluation
+    evaluation = metadata.evaluation
     return {
         "result_id": metadata.result_id,
         "evaluated_at": _scalar(metadata.evaluated_at),
-        "audit": {
-            "source_facts": [_scalar(asdict(fact)) for fact in metadata.audit.source_facts],
-            "evaluation": {
-                "completed_at": _scalar(evaluation.completed_at),
-                "inputs": [
-                    {"kind": type(value).__name__, "facts": _scalar(asdict(value))}
-                    for value in evaluation.inputs
-                ],
-                "operations": list(evaluation.operations),
-                "checks": [_scalar(asdict(check)) for check in evaluation.checks],
-            },
+        "source_reads": [_scalar(asdict(read)) for read in metadata.source_reads],
+        "evaluation": {
+            "completed_at": _scalar(evaluation.completed_at),
+            "inputs": [
+                {"kind": type(value).__name__, "facts": _scalar(asdict(value))}
+                for value in evaluation.inputs
+            ],
+            "operations": list(evaluation.operations),
         },
-        "findings": [_scalar(asdict(finding)) for finding in metadata.findings],
     }
 
 

@@ -1,6 +1,5 @@
 """Frame selections feed explicit source reads through one checked schedule."""
 
-import json
 from collections.abc import Callable, Mapping
 from datetime import datetime, timezone
 from pathlib import Path
@@ -25,7 +24,6 @@ from marivo.analysis.compiler.graph_plan import (
 )
 from marivo.analysis.core.artifact_data import DataAxis, DataColumn, DataSchema
 from marivo.analysis.core.data_types import ScalarDataType
-from marivo.analysis.core.frame_audit import EvaluationRecord, FrameAudit, FrameResultMetadata
 from marivo.analysis.core.frame_data import (
     CompletedFrameData,
     CompletedFrameResult,
@@ -33,6 +31,7 @@ from marivo.analysis.core.frame_data import (
     MemoryFrameBacking,
     SourceFrameBinding,
 )
+from marivo.analysis.core.frame_metadata import EvaluationRecord, FrameResultMetadata
 from marivo.analysis.core.model import CoreRuleError
 from marivo.analysis.dsl import frame_sources
 from marivo.analysis.dsl.frame import AnalysisFrame
@@ -119,7 +118,7 @@ def _memory(
     )
     metadata = FrameResultMetadata(
         "selected-result",
-        FrameAudit((), EvaluationRecord(datetime(2026, 10, 19, tzinfo=timezone.utc), (), ())),
+        EvaluationRecord(datetime(2026, 10, 19, tzinfo=timezone.utc), (), ()),
     )
     return AnalysisFrame._from_memory(session._runtime.local, CompletedFrameResult(data, metadata))
 
@@ -431,28 +430,9 @@ def test_exact_evaluated_key_audit_is_not_truncated(session: Session) -> None:
         ),
     )
     result = _observe(session, _population(session, selected)).compute()
-    scopes = [
-        dict(fact.values)["source_scopes"]
-        for fact in _memory_backing(result).metadata.audit.source_facts
-        if fact.kind == "read"
-    ]
-    decoded = []
-    for value in scopes:
-        assert isinstance(value, str)
-        decoded.append(json.loads(value))
-    dynamic = [
-        json.loads(token[1])
-        for scope in decoded
-        for token in scope
-        if "frame_key_selection" in token[1]
-    ]
-    assert dynamic
-    assert any(
-        long in json.dumps(value)
-        and selected._input_id in json.dumps(value)
-        and "selected-result" in json.dumps(value)
-        for value in dynamic
-    )
+    assert result.to_pandas().iloc[:, -1].tolist() == [101]
+    assert _memory_backing(result).metadata.source_reads
+    assert long not in repr(_memory_backing(result).metadata.source_reads)
 
 
 def test_full_fixed_validation_precedes_projection_and_business_read(
@@ -632,7 +612,7 @@ def test_source_relationship_preimage_retains_frame_target_keys(
     schema = DataSchema((DataAxis("tags", (column,), name="tag", kind="member"),), ())
     metadata = FrameResultMetadata(
         "tag-selection",
-        FrameAudit((), EvaluationRecord(datetime(2026, 10, 19, tzinfo=timezone.utc), (), ())),
+        EvaluationRecord(datetime(2026, 10, 19, tzinfo=timezone.utc), (), ()),
     )
     fixed = AnalysisFrame._from_memory(
         session._runtime.local,

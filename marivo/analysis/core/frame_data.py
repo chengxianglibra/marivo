@@ -20,9 +20,9 @@ from marivo.analysis.core.data_schema import (
     PairedDataAxis,
 )
 from marivo.analysis.core.data_validation import normalize_complete_frame
-from marivo.analysis.core.frame_audit import FrameResultMetadata, StoredFrameMetadata
 from marivo.analysis.core.frame_calendar import FrozenSourceTime
 from marivo.analysis.core.frame_expression import FrameOperationKind
+from marivo.analysis.core.frame_metadata import FrameResultMetadata, StoredFrameMetadata
 from marivo.analysis.core.frame_method_facts import FrameMethodFacts
 from marivo.analysis.core.frame_structure import coordinate_attachments, require_complete_structure
 from marivo.analysis.core.frozen_calendar import FrozenAttachment, validate_frozen_coordinates

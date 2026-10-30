@@ -24,4 +24,4 @@ tutorial: true
 
 在[六笔订单的 DSL 示例](/zh-cn/docs/latest/analysis/dsl/#完整示例与后续输入)中，7 月收入为 1,000 CNY，8 月为 800 CNY。`east` 和 `west` 各变化 -100 CNY，合计为 -200 CNY。要求 Agent 说明这是算术分解，不能据此断定变化原因，并指出重要的数据缺失和方法限制。
 
-追问时说明保持哪些范围不变。需要在另一进程中恢复同一结果时，让 Agent 保存结果并保留 `session_id` 和 `artifact_id`，详见[结果与证据](/zh-cn/docs/latest/analysis/results/)。只需一次性回答时不必保存。需要当前来源值时，要求 Agent 重新观测。例如：“保持 west 地区不变，按客户类型进一步比较。”
+追问时说明保持哪些范围不变。需要在另一进程中恢复同一结果时，让 Agent 保存结果并保留 `session_id` 和 `artifact_id`，详见[结果与方法事实](/zh-cn/docs/latest/analysis/results/)。只需一次性回答时不必保存。需要当前来源值时，要求 Agent 重新观测。例如：“保持 west 地区不变，按客户类型进一步比较。”

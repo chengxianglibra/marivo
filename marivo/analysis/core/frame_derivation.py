@@ -18,8 +18,8 @@ from marivo.analysis.core.frame_expression import (
 from marivo.analysis.core.frame_fix import FixFrameValues
 
 if TYPE_CHECKING:
-    from marivo.analysis.core.frame_audit import FrameResultMetadata
     from marivo.analysis.core.frame_data import CompletedFrameData, FrameExpressionRoot
+    from marivo.analysis.core.frame_metadata import FrameResultMetadata
     from marivo.analysis.core.frame_structure import PendingDataSchema
 
 

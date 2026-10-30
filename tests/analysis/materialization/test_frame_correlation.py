@@ -26,13 +26,13 @@ from marivo.analysis.core.data_types import (
     DurationDataType,
     ScalarDataType,
 )
-from marivo.analysis.core.frame_audit import EvaluationRecord, FrameAudit, FrameResultMetadata
 from marivo.analysis.core.frame_data import (
     CompletedFrameData,
     CompletedFrameResult,
     ExpressionFrameBacking,
     MemoryFrameBacking,
 )
+from marivo.analysis.core.frame_metadata import EvaluationRecord, FrameResultMetadata
 from marivo.analysis.core.frame_structure import PendingDataSchema
 from marivo.analysis.dsl.frame import AnalysisFrame
 from marivo.analysis.errors import AnalysisError
@@ -61,7 +61,7 @@ def local(tmp_path: Path) -> LocalFrameServices:
 def _memory(local: LocalFrameServices, schema: DataSchema, rows: pd.DataFrame) -> AnalysisFrame:
     metadata = FrameResultMetadata(
         "correlation-input",
-        FrameAudit((), EvaluationRecord(datetime(2026, 10, 20, tzinfo=timezone.utc), (), ())),
+        EvaluationRecord(datetime(2026, 10, 20, tzinfo=timezone.utc), (), ()),
     )
     return AnalysisFrame._from_memory(
         local, CompletedFrameResult(CompletedFrameData(schema, rows), metadata)

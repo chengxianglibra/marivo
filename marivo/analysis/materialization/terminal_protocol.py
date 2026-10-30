@@ -24,9 +24,6 @@ from marivo.analysis.core.artifact_data import (
     FrozenIntervalData,
     IntervalDataAxis,
     NamedCalendarData,
-    OutputCoordinate,
-    OutputEvidence,
-    OutputFinding,
     PairedDataAxis,
     ParquetHandle,
     SavedAttachment,
@@ -42,13 +39,6 @@ from marivo.analysis.core.data_schema import (
     FrozenCalendarOrigin,
     IntervalComparisonBinding,
     OrdinaryComparisonBinding,
-)
-from marivo.analysis.core.frame_audit import (
-    LiteralInput,
-    MemoryInput,
-    SourceInput,
-    StoredFrameMetadata,
-    StoredInput,
 )
 from marivo.analysis.core.frame_interpretation import (
     FrameAllHistoryWindow,
@@ -80,6 +70,13 @@ from marivo.analysis.core.frame_interpretation import (
     FrameTrailingPeriodsWindow,
     UnresolvedDataType,
 )
+from marivo.analysis.core.frame_metadata import (
+    LiteralInput,
+    MemoryInput,
+    SourceInput,
+    StoredFrameMetadata,
+    StoredInput,
+)
 from marivo.analysis.core.frame_method_facts import (
     FrameAdditiveMethod,
     FrameAttributeMetric,
@@ -110,14 +107,13 @@ from marivo.analysis.core.frame_method_facts import (
     FrameShapleyQueryGame,
     FrameShapleyReduction,
 )
+from marivo.analysis.core.frame_source_reads import (
+    FrameSourceRead,
+    FrameSourceReadPeriod,
+    FrameSourceReadScope,
+)
 from marivo.analysis.core.lineage import ColumnLineage, FrameLineage, SemanticObjectIdentity
 from marivo.analysis.errors import AnalysisError
-from marivo.analysis.evidence._dataset_types import (
-    AssociationFindingValueV1,
-    AssociationLagV1,
-    ForecastPointFindingValueV1,
-    NoAssociationLagV1,
-)
 from marivo.analysis.materialization.contracts import (
     FileEntry,
     LocalReceipt,
@@ -132,7 +128,7 @@ from marivo.analysis.materialization.errors import IntegrityError
 
 def invalid(received: str) -> IntegrityError:
     return IntegrityError(
-        expected="a complete Store 23 Frame output v12 value",
+        expected="a complete Store 24 Frame output v13 value",
         received=received,
         repair="Preserve the selected Store and output files. Inspect the exact terminal record; old graph/continuation formats cannot be migrated or replayed.",
         stage="terminal_output",
@@ -239,25 +235,21 @@ _RECORDS = (
     FrameShapleyReduction,
     LocalReceipt,
     FileEntry,
-    OutputCoordinate,
-    OutputFinding,
-    OutputEvidence,
     InvocationInput,
     StoredFrameMetadata,
+    FrameSourceRead,
+    FrameSourceReadPeriod,
+    FrameSourceReadScope,
     SourceInput,
     LiteralInput,
     MemoryInput,
     StoredInput,
-    AssociationFindingValueV1,
-    ForecastPointFindingValueV1,
-    AssociationLagV1,
-    NoAssociationLagV1,
 )
 _TYPES = {record.__name__: record for record in _RECORDS}
-T = TypeVar("T", ArtifactManifest, OutputFinding, OutputEvidence, InvocationInput)
-FORMAT = "marivo.frame_output/v12"
+T = TypeVar("T", ArtifactManifest, InvocationInput)
+FORMAT = "marivo.frame_output/v13"
 
-# One closed Store23 field inventory. No older field set or dataclass fallback.
+# One closed Store24 field inventory. No older field set or dataclass fallback.
 _FIELDS = {
     "UnresolvedDataType": ("kind",),
     "FrameField": ("slot_id", "name", "dtype", "nullable", "unit"),
@@ -514,55 +506,22 @@ _FIELDS = {
         "parquet_contract_version",
     ),
     "FileEntry": ("relative_path", "size_bytes"),
-    "OutputCoordinate": ("slot_id", "value"),
-    "OutputFinding": ("finding_id", "value", "coordinates"),
-    "OutputEvidence": ("kind", "summary", "values", "coordinates"),
     "InvocationInput": ("result_id",),
     "StoredFrameMetadata": (
         "result_id",
         "evaluated_at",
         "inputs",
         "operations",
-        "source_fact_count",
-        "check_count",
-        "finding_count",
-        "evidence_digest",
-        "finding_set_digest",
+        "source_reads",
         "lineage",
     ),
+    "FrameSourceRead": ("read_id", "completed_at", "scopes", "returned_rows"),
+    "FrameSourceReadScope": ("source", "period"),
+    "FrameSourceReadPeriod": ("start", "end", "timezone"),
     "SourceInput": ("input_id",),
     "LiteralInput": ("input_id",),
     "MemoryInput": ("input_id", "result_id"),
     "StoredInput": ("input_id", "result_id", "store_id", "session_id", "artifact_id"),
-    "AssociationFindingValueV1": (
-        "method",
-        "coefficient",
-        "input_observation_count",
-        "null_pair_count",
-        "complete_pair_count",
-        "lag",
-        "causal_claim",
-        "kind",
-    ),
-    "ForecastPointFindingValueV1": (
-        "model",
-        "interval_level",
-        "horizon_ordinal",
-        "forecast_value",
-        "interval_lower",
-        "interval_upper",
-        "training_row_count",
-        "interval_method",
-        "kind",
-    ),
-    "AssociationLagV1": (
-        "lag_offset",
-        "selected_for_pair",
-        "matched_observation_count",
-        "lag_boundary_drop_count",
-        "kind",
-    ),
-    "NoAssociationLagV1": ("kind",),
 }
 
 
@@ -692,9 +651,9 @@ def _decode(
     return _construct(record, decoded)
 
 
-def encode(value: ArtifactManifest | OutputFinding | OutputEvidence | InvocationInput) -> str:
-    if type(value) not in (ArtifactManifest, OutputFinding, OutputEvidence, InvocationInput):
-        raise invalid("expected a terminal manifest, finding, evidence or invocation root")
+def encode(value: ArtifactManifest | InvocationInput) -> str:
+    if type(value) not in (ArtifactManifest, InvocationInput):
+        raise invalid("expected a terminal manifest or invocation root")
     contexts: dict[FrameObservationContext | FrameStatisticContext, int] = {}
     body = _encode(value, contexts)
     return canonical_json(
@@ -703,15 +662,15 @@ def encode(value: ArtifactManifest | OutputFinding | OutputEvidence | Invocation
 
 
 def decode(text: str, expected: type[T]) -> T:
-    if expected not in (ArtifactManifest, OutputFinding, OutputEvidence, InvocationInput):
+    if expected not in (ArtifactManifest, InvocationInput):
         raise invalid("method facts are readable only through their owned payload")
     try:
         raw_envelope = parse_json(text)
         if isinstance(raw_envelope, dict) and raw_envelope.get("format") != FORMAT:
-            raise invalid("expected Frame output v12; obsolete output format received")
+            raise invalid("expected Frame output v13; obsolete output format received")
         envelope = _obj(raw_envelope, "format contexts value")
         if envelope["format"] != FORMAT:
-            raise invalid("expected Frame output v12; obsolete output format received")
+            raise invalid("expected Frame output v13; obsolete output format received")
         contexts: list[FrameObservationContext | FrameStatisticContext] = []
         for item in _array(envelope["contexts"]):
             context = _decode(item)
@@ -746,7 +705,7 @@ def decode_method_record(text: str, expected: type[MethodRecord]) -> MethodRecor
     try:
         envelope = _obj(parse_json(text), "format value")
         if envelope["format"] != FORMAT:
-            raise invalid("expected Frame output v12 method record")
+            raise invalid("expected Frame output v13 method record")
         value = _decode(envelope["value"])
         if type(value) is not expected:
             raise invalid("method payload has the wrong record root")

@@ -135,7 +135,7 @@ assert table["reference.absolute.revenue"].tolist() == [-100, -100]
 assert table["current.present"].all()
 assert table["reference.present"].all()
 saved.show()
-saved.show(n=0)  # Submission and audit only.
+saved.show(n=0)  # Commit and source-read metadata only.
 reopened = session.persisted_frame(saved.artifact_id)
 assert reopened.to_pandas().equals(table)
 saved_session_id = session.id

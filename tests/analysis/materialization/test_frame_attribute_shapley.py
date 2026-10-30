@@ -11,6 +11,7 @@ import duckdb
 import pytest
 
 import marivo.analysis as mv
+from marivo.analysis.core.frame_data import MemoryFrameBacking
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.session.core import Session
 from marivo.semantic.reader import SemanticProject
@@ -869,6 +870,17 @@ def test_native_coalition_queries_are_cached_and_costs_follow_unique_masks(
         assert method.captured_source_reads == sum(item.source_reads for item in method.captures)
     assert methods[0].captured_source_reads < methods[1].captured_source_reads
     assert len(trace.native_sql) == sum(method.captured_source_reads for method in methods)
+    assert isinstance(target._backing, MemoryFrameBacking)
+    inherited = {read.read_id for read in target._backing.metadata.source_reads}
+    observed = [
+        read
+        for report in reports
+        for read in report.persist().source_reads
+        if read.read_id not in inherited
+    ]
+    assert len(observed) == len(trace.native_sql)
+    assert [read.returned_rows for read in observed] == trace.returned_rows
+    assert len({read.read_id for read in observed}) == len(observed)
 
 
 def test_native_game_preserves_null_parent_and_player_keys(

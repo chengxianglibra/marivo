@@ -116,7 +116,7 @@ fixed.show()
 
 总额为 CNY 1,800，即六笔订单金额之和。每次运行都会创建一个新的项目内 Session。
 
-`compute()` 返回包含完整结果的内存 Frame。在当前进程中继续从 `fixed` 计算，可使用这次观测的值。需要在另一个进程中恢复这些值时，持久化 `fixed` 并保留返回 Frame 的 `session_id` 和 `artifact_id`；详见[结果与证据](/zh-cn/docs/latest/analysis/results/)。
+`compute()` 返回包含完整结果的内存 Frame。在当前进程中继续从 `fixed` 计算，可使用这次观测的值。需要在另一个进程中恢复这些值时，持久化 `fixed` 并保留返回 Frame 的 `session_id` 和 `artifact_id`；详见[结果与方法事实](/zh-cn/docs/latest/analysis/results/)。
 
 本例中的 `domains=None` 会加载这个独立演示项目的全部语义域目录。较大的项目应指定分析所需的全部领域；显式领域列表不会自动扩展其依赖。
 

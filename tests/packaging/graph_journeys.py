@@ -497,7 +497,7 @@ def journey(phase: str, project: Path, scenario_name: str, source: str) -> dict[
             "source_offline": not (project / "models").exists()
             and not (project / "source_files").exists(),
             "artifact": saved.artifact_id,
-            "run": saved._local._audit_manifest(saved._require_stored("artifact_id")).run_id,
+            "run": saved._local._manifest(saved._require_stored("artifact_id")).run_id,
             "rows": obj(obj(state["snapshots"])["value"])["rows"],
             "snapshots": state["snapshots"],
             "derived": derived,

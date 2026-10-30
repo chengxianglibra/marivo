@@ -1243,10 +1243,8 @@ with patch.object(Session,'catalog',property(forbidden)), patch.object(SourceSes
     assert method.left.value==Decimal('240.500000000')
     assert method.change.value==Decimal('41')
     assert saved.compute().method_facts==saved.method_facts
-    checks=[dict(item.values) for item in saved.evidence(limit=100).items if item.kind=='check']
-    ids={item.get('check') for item in checks}
-    assert {'attribute.complete_key_mapping','attribute_closure'} <= ids
-    assert not {'attribute.scoped_identity_coverage','attribute.disjoint_joint_partition'} & ids
+    assert saved.source_reads
+    assert saved.compute().persist().source_reads == saved.source_reads
 """
         cold = subprocess.run(
             [sys.executable, "-c", code, session.id, saved.artifact_id, str(checkout)],
@@ -1529,43 +1527,13 @@ def test_independent_endpoint_drift_checks_only_requested_final_target(
         assert rows["contribution.q"].tolist() == [0, 10]
         assert rows["total.q"].tolist() == [10, 10]
         assert rows["observed_total.q"].tolist() == [10, 10]
-        audit = _memory(report).metadata.audit
-        read_facts = [dict(fact.values) for fact in audit.source_facts if fact.kind == "read"]
-        assert {
-            fact["attribute_read_role"] for fact in read_facts if "attribute_read_role" in fact
-        } == {"parent", "fine"}
-        closures = [
-            dict(check.values)
-            for check in audit.evaluation.checks
-            if dict(check.values).get("check") == "attribute_closure"
-        ]
-        assert len(closures) == 1
-        assert {
-            key: closures[0][key] for key in ("policy", "target", "mode", "parent_count", "result")
-        } == {
-            "policy": "attribute_closure/v2",
-            "target": "q",
-            "mode": "absolute",
-            "parent_count": 1,
-            "result": "passed",
-        }
-        semantic = [
-            dict(fact.values)
-            for fact in audit.source_facts
-            if fact.kind == "check"
-            and str(dict(fact.values).get("check", "")).startswith("attribute.")
-        ]
-        assert semantic == []
-        mappings = [
-            dict(check.values)
-            for check in audit.evaluation.checks
-            if dict(check.values).get("check") == "attribute.complete_key_mapping"
-        ]
-        assert len(mappings) == 1 and mappings[0]["result"] == "passed"
+        metadata = _memory(report).metadata
+        assert metadata.source_reads
         saved = report.persist()
         reopened = session.persisted_frame(saved.artifact_id)
         completed = reopened.compute()
-        assert _memory(completed).metadata.audit == audit
+        assert _memory(completed).metadata.source_reads == metadata.source_reads
+        assert _memory(completed).metadata.evaluation == metadata.evaluation
         before = roles.copy()
         assert completed.to_pandas().equals(rows)
         assert roles == before
@@ -1899,10 +1867,7 @@ def test_exact_rate_mix_ratio_witness_and_relative_effects(
     assert isinstance(method, FrameRatioMethod)
     assert method.rule_version == "symmetric_rate_mix/v1"
     persisted = fixed.persist()
-    checks = [
-        dict(item.values) for item in persisted.evidence(limit=100).items if item.kind == "check"
-    ]
-    assert any(item.get("policy") == "attribute_rate_mix/v1" for item in checks)
+    assert persisted.source_reads
     reopened = session.persisted_frame(persisted.artifact_id)
     assert reopened.to_pandas().equals(rows)
     assert reopened.method_facts == fixed.method_facts

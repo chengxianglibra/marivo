@@ -201,7 +201,7 @@ def test_every_native_discovery_target_resolves_from_its_secondary_tree() -> Non
 @pytest.mark.parametrize(
     "target",
     (
-        "analysis.results.evidence",
+        "analysis.results.inspect",
         "analysis.sessions",
         "analysis.operators",
     ),
@@ -214,7 +214,7 @@ def test_analysis_task_navigation_targets_resolve(target: str) -> None:
 
 def test_analysis_task_members_resolve_independently() -> None:
     for owner in (
-        "results.evidence",
+        "results.inspect",
         "sessions",
         "operators",
     ):

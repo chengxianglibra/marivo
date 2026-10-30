@@ -34,7 +34,7 @@ population = session.members(resolved_entity)
 session.members(ms.ref.metric('sales.revenue'))  # invalid: entity kind
 mv.identity(ms.ref.datasource('warehouse'))  # invalid: Entity identity role
 
-def rejected(query: mv.AnalysisFrame, artifact: mv.ArtifactRef, field: ms.Dimension, metric: ms.Metric, relationship: Relationship) -> None:
+def rejected(query: mv.AnalysisFrame, artifact: object, field: ms.Dimension, metric: ms.Metric, relationship: Relationship) -> None:
     session.observe({'value': artifact})  # invalid: terminal metric input
     session.observe({'value': metric}, by=(artifact,))  # invalid: grouping stage
     session.observe({'value': metric}, via=(relationship,))  # invalid: observer route injection
@@ -90,7 +90,9 @@ def rejected(query: mv.AnalysisFrame, artifact: mv.ArtifactRef, field: ms.Dimens
     session.query(population)  # invalid: retired constructor
     session.artifact('id')  # invalid: retired data reopening
     session.persisted_frame(artifact)  # invalid: audit object is not ID
-    session.persisted_frame(mv.ArtifactRef('id'))  # invalid: ref object is not ID
+    session.persisted_frame(object())  # invalid: object is not ID
+    query.findings()  # invalid: retired Finding reader
+    query.evidence()  # invalid: retired Evidence reader
     query.execute()  # invalid: retired execution
     query.population()  # invalid: retired implicit source bridge
     query.rollup()  # invalid: retired original Metric receiver
@@ -189,7 +191,7 @@ def positive(session: mv.Session, members: mv.Population, field: ms.Dimension, o
     assert_type(frame.corr(method="kendall", numeric_only=True), pd.DataFrame)
     assert_type(frame.describe(), pd.DataFrame)
 
-def rejected(session: mv.Session, members: mv.Population, query: mv.AnalysisFrame, other: mv.AnalysisFrame, artifact: mv.ArtifactRef, field: ms.Dimension) -> None:
+def rejected(session: mv.Session, members: mv.Population, query: mv.AnalysisFrame, other: mv.AnalysisFrame, artifact: object, field: ms.Dimension) -> None:
 """
     calls = (
         "query.deviation(method='zscore')",

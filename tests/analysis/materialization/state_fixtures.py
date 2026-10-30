@@ -26,8 +26,6 @@ def _snapshot(store: SessionStore) -> tuple[tuple[tuple[object, ...], ...], ...]
                 "analysis_action_runs",
                 "analysis_action_run_terminals",
                 "dataset_artifacts",
-                "dataset_evidence",
-                "findings",
                 "action_resource_journal",
             )
         )

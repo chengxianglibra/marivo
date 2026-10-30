@@ -10,12 +10,12 @@ import pytest
 
 from marivo.analysis.core.artifact_data import DataAxis, DataColumn, DataSchema
 from marivo.analysis.core.data_types import ScalarDataType
-from marivo.analysis.core.frame_audit import EvaluationRecord, FrameAudit, FrameResultMetadata
 from marivo.analysis.core.frame_data import (
     CompletedFrameData,
     CompletedFrameResult,
     MemoryFrameBacking,
 )
+from marivo.analysis.core.frame_metadata import EvaluationRecord, FrameResultMetadata
 from marivo.analysis.core.lineage import empty as empty_lineage
 from marivo.analysis.core.model import CoreRuleError
 from marivo.analysis.dsl.column import row_count
@@ -48,7 +48,7 @@ def _memory(local: LocalFrameServices) -> AnalysisFrame:
     )
     metadata = FrameResultMetadata(
         "original-result",
-        FrameAudit((), EvaluationRecord(datetime(2026, 10, 19, tzinfo=timezone.utc), (), ())),
+        EvaluationRecord(datetime(2026, 10, 19, tzinfo=timezone.utc), (), ()),
     )
     return AnalysisFrame._from_memory(local, CompletedFrameResult(data, metadata))
 
@@ -77,8 +77,8 @@ def test_literal_compute_is_runless_and_memory_compute_returns_self(
     assert memory.to_pandas()["value"].tolist() == [7]
     assert tuple(terminal_runs(local)) == before
     assert isinstance(memory._backing, MemoryFrameBacking)
-    assert memory._backing.metadata.audit.evaluation.operations == ("literal",)
-    assert memory._backing.metadata.audit.source_facts == ()
+    assert memory._backing.metadata.evaluation.operations == ("literal",)
+    assert memory._backing.metadata.source_reads == ()
     second = pending.compute()
     second.select({"twice": second["value"] * 2}).compute().to_pandas()
     assert {
@@ -582,7 +582,7 @@ def test_ordinary_time_coordinate_exports_one_value_with_aliases(local: LocalFra
     data = CompletedFrameData(schema, pd.DataFrame({"time": times, "amount": [7]}))
     metadata = FrameResultMetadata(
         "time-export",
-        FrameAudit((), EvaluationRecord(datetime(2026, 1, 1, tzinfo=timezone.utc), (), ())),
+        EvaluationRecord(datetime(2026, 1, 1, tzinfo=timezone.utc), (), ()),
     )
     frame = AnalysisFrame._from_memory(local, CompletedFrameResult(data, metadata))
     for details in (False, True):

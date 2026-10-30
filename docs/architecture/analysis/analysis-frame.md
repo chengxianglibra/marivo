@@ -15,7 +15,7 @@ AnalysisFrame
   optional process-local source declaration and output mapping
   backing:
     expression: explicit source/literal/fixed inputs and operations
-    memory: complete immutable data and audit
+    memory: complete immutable data and captured metadata
     stored: exact committed reference and bounded descriptor
 ```
 
@@ -29,25 +29,24 @@ Frame 实例可另持有捕获时的不可变来源声明与输出映射，用�
 compute 与同进程 persist 返回对象保留此引用；独立 reopen 不恢复该引用。
 声明不写入 Store，不从同 artifact ID 的其它实例或全局缓存取回。
 
-| 载体 | compute | persist | artifact_id / findings / evidence | to_pandas |
+| 载体 | compute | persist | artifact_id / source_reads | to_pandas |
 | --- | --- | --- | --- | --- |
 | 表达式 | 求值并返回完整内存根 | 完整求值后发布 | 要求先 persist | 要求先 compute/persist |
 | 内存 | 返回自身 | 发布已有完成结果 | 要求先 persist | 隔离副本 |
-| 持久引用 | 完整验证并加载内存根 | 验证提交元数据后返回自身 | 同一提交的身份与审计读取 | 验证并导出当前数据 |
+| 持久引用 | 完整验证并加载内存根 | 验证提交元数据后返回自身 | 同一提交的身份与源读取元信息 | 验证并导出当前数据 |
 
 只有使用返回的完成根才固定值与键；重用待执行来源表达式可看到变化后的数据。
 内存根只在其 Python 进程内可用。跨脚本继续须在生产进程退出前 persist 并输出或保存
 Session/Artifact ID；仅导出 DataFrame、打印内存卡片或恢复 Session 不保留该内存根。
 持续进程保留返回对象即可，一次性完成的问题无需保存；已有精确保存引用无需再次发布。
 派生运算保持惰性，其 artifact_id 不返回祖先提交身份，导出也不自动执行。
-载体转换保留结果身份/求值审计；多次发布一个内存根可以产生不同提交。
+载体转换保留结果身份/计算元信息；多次发布一个内存根可以产生不同提交。
 已完成的 where/top 选择由完整父键、旧值和冻结时间对应固定；后续 attribute 不重跑历史筛选。
 保留声明不改变当前数据操作的读取基础，原值与本次新读父值分别通过 observed_total 与 total 展示。
 
 session_id 在所有载体上返回捕获的所属 Session ID；artifact_id 仅对持久根返回提交 ID，
-两个属性均不读取 Store。未保存根的 artifact_id、findings 和 evidence 给出 persist 修复。
-持久根 compute 返回的内存根没有提交身份。show 展示有界输入、操作和来源事实/检查/Finding
-数量，持久根另展示提交时间；show(n=0) 不读取结果行、坐标附件或完整方法/审计载荷。
+两个属性均不读取 Store。未保存根的 artifact_id 和 source_reads 给出 persist 修复。
+持久根 compute 返回的内存根没有提交身份。show 展示有界输入、操作和实际源读取摘要，持久根另展示提交时间；show(n=0) 不读取结果行、坐标附件或完整方法载荷。
 
 ## 稳定结构与有界读取
 
@@ -274,7 +273,7 @@ where/select/global top、已有完整轴 reduce/correlate、分区 over/Column.
 相容完整域的预算参照可显式 align 后做列算术；它不自动证明贡献包含或业务份额。
 
 完整不可执行 method_facts 解释原 Attribute 结果；筛选和规约不改其原分母或认证新分解。
-它与当前值表、Artifact 审计分别读取，详见[方法与审计事实](evidence-access-surface.md)。
+它与当前值表、源读取元信息分别读取，详见[结果与方法事实](result-and-method-facts.md)。
 
 ## 分区归约、广播与当前值份额
 
@@ -363,7 +362,7 @@ TimeScope 在 by 中产生 interval 轴，保存精确 start/end 与边界时区
 不同期间可明确配对；过滤成一行不会把多区间目录改成单区间目录。
 interval/calendar/零轴不互转或广播；time×普通分类可使用上述完整默认配对，或显式给出完整 on。
 compare 保留当前 interval 及命名基期说明；align 的双端并集/paired 语义继续存在。
-Store 23 / marivo.frame_output/v12 保存解释目录、实际键引用与关系，冷恢复不重建 TimeScope、
+Store 24 / marivo.frame_output/v13 保存解释目录、实际键引用与关系，冷恢复不重建 TimeScope、
 来源定义或祖先 Frame。所有新事实属于当前输入，不改变数值计算、过滤范围或方法文件合同。
 
 ### Calendar matching

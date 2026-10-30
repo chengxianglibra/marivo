@@ -146,9 +146,7 @@ def test_exact_artifact_corruption_blocks_consumed_output_without_new_runs(
     store = case.session._runtime.store
     before = terminal_runs(case.session)
     if corruption == "rows":
-        receipt = saved._local._audit_manifest(
-            saved._require_stored("artifact_id")
-        ).data.rows.receipt
+        receipt = saved._local._manifest(saved._require_stored("artifact_id")).data.rows.receipt
         (
             case.root / receipt.project_relative_path / receipt.file_manifest[0].relative_path
         ).unlink()
@@ -187,9 +185,7 @@ def test_session_recovery_retains_internal_publication_safety(
     current, _ = _observations(case)
     saved = current.persist()
     session, store = case.session, case.session._runtime.store
-    run = terminal_run(
-        session, saved._local._audit_manifest(saved._require_stored("artifact_id")).run_id
-    )
+    run = terminal_run(session, saved._local._manifest(saved._require_stored("artifact_id")).run_id)
     assert run.lifecycle == "succeeded"
     assert isinstance(run.dataset_input, InvocationInput)
     assert mv.session.resume(session.id).id == session.id
@@ -358,7 +354,7 @@ def test_large_integer_threshold_retains_exact_comparison(
     assert values.where(values["large"] == 2**63 + 1).persist().to_pandas().empty
 
 
-def test_public_parquet_spearman_has_separate_source_evidence(
+def test_public_parquet_spearman_retains_source_reads(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     from dataclasses import replace
@@ -379,5 +375,5 @@ def test_public_parquet_spearman_has_separate_source_evidence(
     counts = {key: sum(row[1] == key for row in facts.orders) for key, _ in facts.customers}
     oracle = pd.Series(amounts).rank().corr(pd.Series(counts).rank())
     assert values["revenue"].corr(values["count"], method="spearman") == pytest.approx(oracle)
-    assert saved.evidence(limit=100).total_count > 0
-    assert case.session._runtime.store.layout.generation == 23
+    assert saved.source_reads
+    assert case.session._runtime.store.layout.generation == 24

@@ -159,7 +159,7 @@ def test_public_required_output_receipts_block_consumption_without_new_work(
         assert frame["value"].sum() == 6
         assert frame["base.baseline.value"].sum() == 0
         assert frame[["current.present", "base.present"]].all().all()
-        data = previous._local._audit_manifest(previous._require_stored("artifact_id")).data
+        data = previous._local._manifest(previous._require_stored("artifact_id")).data
         assert any(item.name.startswith("calendar.") for item in data.attachments)
         saved = snapshot(previous, frame=frame)
         before = run_ids(session)

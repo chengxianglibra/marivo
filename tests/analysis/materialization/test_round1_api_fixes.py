@@ -76,7 +76,7 @@ def test_calendar_products_keep_single_time_axis_descriptors_and_cold_metadata(
     assert frames["source_calendar"]["value"].tolist() == [0, 0, 0]
     saved: dict[str, object] = {}
     for name, value in outputs.items():
-        manifest = value._local._audit_manifest(value._require_stored("artifact_id"))
+        manifest = value._local._manifest(value._require_stored("artifact_id"))
         data = manifest.data
         calendars = tuple(axis for axis in data.schema.axes if isinstance(axis, CalendarDataAxis))
         assert all(axis.frozen is not None for axis in calendars)
@@ -164,7 +164,7 @@ def test_calendar_descriptor_and_boundary_receipt_are_validated(
     first = session.time_scope(start="2026-01-01", end="2026-01-03").by(mv.grain("day"))
     unit = mv.coordinates(by=(), keys=((),))
     artifact = session.frame(mv.product(first, unit)).persist()
-    manifest = artifact._local._audit_manifest(artifact._require_stored("artifact_id"))
+    manifest = artifact._local._manifest(artifact._require_stored("artifact_id"))
     (part0,) = manifest.data.attachments
     for broken in (
         replace(part0, name="calendar_bounds"),

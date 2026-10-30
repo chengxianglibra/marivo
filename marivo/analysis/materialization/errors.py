@@ -51,7 +51,7 @@ class IntegrityError(MaterializationError):
 
 
 class StorageAccessError(IntegrityError):
-    """A safe storage classification, independent of Artifact and Evidence integrity."""
+    """A safe storage classification, independent of Frame integrity."""
 
     def __init__(
         self,

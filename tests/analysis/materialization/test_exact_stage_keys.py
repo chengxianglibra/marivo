@@ -24,12 +24,12 @@ from marivo.analysis.core.data_types import (
     TimestampDataType,
 )
 from marivo.analysis.core.data_validation import normalize_stage_frame
-from marivo.analysis.core.frame_audit import EvaluationRecord, FrameAudit, FrameResultMetadata
 from marivo.analysis.core.frame_data import (
     CompletedFrameData,
     CompletedFrameResult,
     MemoryFrameBacking,
 )
+from marivo.analysis.core.frame_metadata import EvaluationRecord, FrameResultMetadata
 from marivo.analysis.core.model import CoreRuleError
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.graph_exchange import StageOutput
@@ -235,9 +235,7 @@ def test_exact_temporal_keys_persist_reopen_and_continue(
     )
     metadata = FrameResultMetadata(
         "exact-temporal-result",
-        FrameAudit(
-            (), EvaluationRecord(datetime(2020, 1, 1, tzinfo=timezone.utc), (), ("literal",))
-        ),
+        EvaluationRecord(datetime(2020, 1, 1, tzinfo=timezone.utc), (), ("literal",)),
     )
     memory = mv.AnalysisFrame._from_memory(
         session._runtime.local, CompletedFrameResult(CompletedFrameData(schema, rows), metadata)

@@ -22,8 +22,8 @@ def method_result(
 ) -> CompletedFrameResult:
     """Small complete downstream fixture shared by publication and worker checks."""
     from marivo.analysis.core.artifact_data import DataColumn, DataSchema, ScalarDataType
-    from marivo.analysis.core.frame_audit import EvaluationRecord, FrameAudit, FrameResultMetadata
     from marivo.analysis.core.frame_data import CompletedFrameData, CompletedFrameResult
+    from marivo.analysis.core.frame_metadata import EvaluationRecord, FrameResultMetadata
     from marivo.analysis.core.frame_method_facts import (
         FrameAdditiveMethod,
         FrameAttributeMetric,
@@ -132,9 +132,7 @@ def method_result(
     )
     metadata = FrameResultMetadata(
         "result_worker_method",
-        FrameAudit(
-            (), EvaluationRecord(datetime(2020, 1, 1, tzinfo=timezone.utc), (), ("attribute",))
-        ),
+        EvaluationRecord(datetime(2020, 1, 1, tzinfo=timezone.utc), (), ("attribute",)),
     )
     return CompletedFrameResult(CompletedFrameData(schema, rows), metadata, (facts,))
 

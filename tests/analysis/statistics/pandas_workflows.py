@@ -170,7 +170,4 @@ def assert_clean(session: mv.Session, *, artifacts: int) -> None:
         assert (
             connection.execute("SELECT COUNT(*) FROM dataset_artifacts").fetchone()[0] == artifacts
         )
-        assert (
-            connection.execute("SELECT COUNT(*) FROM dataset_evidence").fetchone()[0] == artifacts
-        )
         assert connection.execute("SELECT COUNT(*) FROM action_resource_journal").fetchone()[0] == 0

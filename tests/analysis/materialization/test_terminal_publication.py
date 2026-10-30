@@ -13,7 +13,7 @@ from datetime import date, datetime, timezone
 from decimal import Decimal
 from pathlib import Path
 from types import TracebackType
-from typing import TYPE_CHECKING, Literal, NoReturn, overload
+from typing import TYPE_CHECKING, Literal, NoReturn
 
 import duckdb
 import pandas as pd
@@ -32,24 +32,20 @@ from marivo.analysis.core.artifact_data import (
     DataSchema,
     DecimalDataType,
     DurationDataType,
-    OutputCoordinate,
-    OutputEvidence,
-    OutputFinding,
     ScalarDataType,
     TimestampDataType,
 )
-from marivo.analysis.core.frame_audit import EvaluationRecord, FrameAudit, FrameResultMetadata
 from marivo.analysis.core.frame_data import (
     CompletedFrameData,
     CompletedFrameResult,
     MemoryFrameBacking,
     StoredFrameBacking,
 )
+from marivo.analysis.core.frame_metadata import EvaluationRecord, FrameResultMetadata
 from marivo.analysis.core.frozen_calendar import FrozenKey
 from marivo.analysis.core.lineage import empty as empty_lineage
 from marivo.analysis.dsl.frame import AnalysisFrame
 from marivo.analysis.errors import AnalysisError
-from marivo.analysis.evidence._dataset_types import AssociationFindingValueV1, NoAssociationLagV1
 from marivo.analysis.materialization import terminal_publication, terminal_store
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.materialization.errors import (
@@ -85,16 +81,10 @@ def committed(frame: AnalysisFrame) -> ArtifactManifest:
     return open_manifest(frame._local.store, frame._local.session_ref, frame._backing.artifact_id)
 
 
-def result_metadata(
-    *, findings: tuple[OutputFinding, ...] = (), checks: tuple[OutputEvidence, ...] = ()
-) -> FrameResultMetadata:
+def result_metadata() -> FrameResultMetadata:
     return FrameResultMetadata(
         "existing-result",
-        FrameAudit(
-            (),
-            EvaluationRecord(datetime(2020, 1, 1, tzinfo=timezone.utc), (), ("literal",), checks),
-        ),
-        findings,
+        EvaluationRecord(datetime(2020, 1, 1, tzinfo=timezone.utc), (), ("literal",)),
     )
 
 
@@ -153,35 +143,6 @@ def stored_frame(session: Session, artifact: AnalysisFrame) -> pd.DataFrame:
     return read_output(store.project_root, manifest.data.schema, manifest.data.rows)
 
 
-@overload
-def records(
-    session: Session, artifact: AnalysisFrame, kind: Literal["evidence"] = "evidence"
-) -> tuple[OutputEvidence, ...]: ...
-
-
-@overload
-def records(
-    session: Session, artifact: AnalysisFrame, kind: Literal["finding"]
-) -> tuple[OutputFinding, ...]: ...
-
-
-def records(
-    session: Session,
-    artifact: AnalysisFrame,
-    kind: Literal["finding", "evidence"] = "evidence",
-) -> tuple[OutputFinding | OutputEvidence, ...]:
-    items: list[OutputFinding | OutputEvidence] = []
-    cursor = None
-    while True:
-        page = terminal_store.records_page(
-            session._runtime.store, artifact.artifact_id, kind=kind, limit=1, cursor=cursor
-        )
-        cursor = page.next_cursor
-        items.extend(page.items)
-        if cursor is None:
-            return tuple(items)
-
-
 def test_public_constant_executes_each_invocation_and_reads_committed_output(
     session: Session,
 ) -> None:
@@ -196,15 +157,11 @@ def test_public_constant_executes_each_invocation_and_reads_committed_output(
         terminal_run(session, committed(first).run_id).dataset_input.result_id
         == committed(first).metadata.result_id
     )
-    assert records(session, first, "finding") == ()
-    assert all(item.kind != "read" for item in records(session, first))
+    assert first.source_reads == ()
     for artifact in (first, session.persisted_frame(first.artifact_id)):
         assert artifact.to_pandas()["answer"].tolist() == [7]
         artifact.show()
-        assert artifact.findings().items == ()
-        digest = artifact.evidence()
-        assert digest.input_id == artifact.schema.input_id
-        assert not any(item.kind == "read" for item in digest.items)
+        assert artifact.source_reads == ()
     published = terminal_runs(session, status="succeeded")
     assert all(run.lifecycle == "succeeded" for run in published)
     assert {run.output_artifact_ref for run in published if run.lifecycle == "succeeded"} == {
@@ -341,90 +298,6 @@ def test_zero_axis_zero_value_unit_rows(tmp_path: Path, count: int) -> None:
     assert exported.attrs["units"] == ()
 
 
-@pytest.mark.release
-def test_records_codec_and_transaction_are_self_contained(session: Session) -> None:
-    store = session._runtime.store
-    schema = DataSchema(
-        (),
-        (DataColumn("v0", "correlation", ScalarDataType("float64"), True),),
-        value_paths=(("correlation",),),
-    )
-    finding = OutputFinding(
-        "finding_exact",
-        AssociationFindingValueV1(
-            method="pearson",
-            coefficient=0.5,
-            input_observation_count=3,
-            null_pair_count=0,
-            complete_pair_count=3,
-            lag=NoAssociationLagV1(),
-        ),
-        (OutputCoordinate("v0", Decimal("0.5")),),
-    )
-    evidence = tuple(
-        OutputEvidence(
-            "check",
-            f"Check {i}",
-            (
-                ("result", "passed"),
-                ("decimal", Decimal("1.00")),
-                ("day", date(2026, 1, 1)),
-                ("instant", datetime(2026, 1, 1, tzinfo=timezone.utc)),
-            ),
-        )
-        for i in range(101)
-    )
-    assert decode(encode(finding), OutputFinding) == finding
-    assert all(decode(encode(item), OutputEvidence) == item for item in evidence)
-    saved_findings = tuple(replace(finding, finding_id=f"finding_{index}") for index in range(3))
-    fixed = AnalysisFrame._from_memory(
-        session._runtime.local,
-        CompletedFrameResult(
-            CompletedFrameData(schema, pd.DataFrame({"v0": [0.5]})),
-            result_metadata(findings=saved_findings, checks=evidence),
-        ),
-    )
-    artifact_handle = fixed.persist()
-    artifact = artifact_handle.artifact_id
-    assert records(session, artifact_handle, "finding") == saved_findings
-    assert records(session, artifact_handle) == evidence
-    public = session.persisted_frame(artifact)
-    evidence_page = public.evidence(limit=100)
-    evidence_tail = public.evidence(limit=100, cursor=evidence_page.next_cursor)
-    assert (*evidence_page.items, *evidence_tail.items) == evidence
-    assert evidence_page.total_count == 101
-    assert evidence_tail.total_count == 101
-    assert evidence_page.input_id == public.schema.input_id
-    page = public.findings(limit=1)
-    assert page.items[0].value == finding.value
-    assert page.items[0].coordinates == finding.coordinates
-    assert not hasattr(page.items[0], "derivation")
-    assert not hasattr(page.items[0], "subject")
-    assert "coefficient: 0.5" in page.items[0].render()
-    assert "v0" in page.items[0].render()
-    page_two = public.findings(limit=1, cursor=page.next_cursor)
-    page_three = public.findings(limit=1, cursor=page_two.next_cursor)
-    assert [item.finding_id for item in (*page.items, *page_two.items, *page_three.items)] == [
-        item.finding_id for item in saved_findings
-    ]
-    assert not page_three.has_more and page_three.next_cursor is None
-    foreign = constant(session).persist()
-    with pytest.raises(IntegrityError):
-        foreign.findings(limit=1, cursor=page.next_cursor)
-    public.evidence().show()
-
-    cursor = terminal_store.records_page(store, artifact, kind="evidence", limit=1).next_cursor
-    with pytest.raises(IntegrityError):
-        terminal_store.records_page(store, artifact, kind="finding", cursor=cursor)
-    with store._write() as conn:
-        conn.execute(
-            "UPDATE output_evidence SET body_payload=? WHERE artifact_ref=? AND evidence_ordinal=0",
-            (encode(OutputEvidence("read", "altered")), artifact),
-        )
-    with pytest.raises(IntegrityError):
-        terminal_store.records_page(store, artifact, kind="evidence")
-
-
 @pytest.mark.parametrize(
     "point",
     (
@@ -433,8 +306,6 @@ def test_records_codec_and_transaction_are_self_contained(session: Session) -> N
         "terminal_method_written",
         "terminal_files_published",
         "insert_artifact",
-        "insert_evidence",
-        "insert_findings",
         "insert_terminal",
         "before_commit",
     ),
@@ -457,7 +328,6 @@ def test_faults_never_expose_partial_output_or_delete_prior_commit(
     assert session._runtime.store.resources(session.id) == ()
     with session._runtime.store._read() as conn:
         assert conn.execute("SELECT count(*) FROM dataset_artifacts").fetchone()[0] == 1
-        assert conn.execute("SELECT count(*) FROM dataset_evidence").fetchone()[0] == 1
     assert len(list(session._runtime.store.layout.session_dir(session.id).glob("artifacts/*"))) == 1
 
 
@@ -535,11 +405,8 @@ def test_real_source_repeat_execution_and_nullable_local_combination(
         for key, value in zip(frame["key.0"], frame["value.0"], strict=True)
     } == {None: 5, "A": 9007199254740993}
     assert frame["value.2"].isna().all()
-    facts = records(session, first)
-    reads = [dict(item.values) for item in facts if item.kind == "read"]
-    assert reads and all(
-        item["period_start"] is None and item["period_end"] is None for item in reads
-    )
+    assert first.source_reads
+    assert all(scope.period is None for read in first.source_reads for scope in read.scopes)
     with duckdb.connect(str(session.project_root / "warehouse.duckdb")) as conn:
         conn.execute("UPDATE orders SET amount=10 WHERE id=1")
     second = query.persist()
@@ -550,7 +417,7 @@ def test_real_source_repeat_execution_and_nullable_local_combination(
         for key, value in zip(updated["key.0"], updated["value.0"], strict=True)
     } == {None: 5, "A": 10}
     pd.testing.assert_frame_equal(stored_frame(session, first), frame)
-    assert records(session, second, "finding") == ()
+    assert second.source_reads != first.source_reads
 
 
 def test_calendar_bounds_are_explicit_output_attachment(source_session: Session) -> None:
@@ -584,7 +451,7 @@ def test_calendar_timezone_survives_private_cold_read(
         artifact = calendar_constant(session, axis).persist()
     if not from_source:
         assert session._catalog_value is None
-        assert not any(item.kind == "read" for item in records(session, artifact))
+        assert artifact.source_reads == ()
     script = """from pathlib import Path
 import sys
 import pandas as pd
@@ -638,58 +505,13 @@ def test_read_evidence_preserves_nested_predicate_groups(source_session: Session
         (region == "A") | (region.isnull() & (amount < 10)),
         ~((region == "A") | region.isnull()) & (amount < 10),
     )
-    expected_shapes = (
-        (
-            "and",
-            "or",
-            "equal",
-            "end_call",
-            "isnull",
-            "end_call",
-            "end_call",
-            "less",
-            "end_call",
-            "end_call",
-        ),
-        (
-            "or",
-            "equal",
-            "end_call",
-            "and",
-            "isnull",
-            "end_call",
-            "less",
-            "end_call",
-            "end_call",
-            "end_call",
-        ),
-        (
-            "and",
-            "not",
-            "or",
-            "equal",
-            "end_call",
-            "isnull",
-            "end_call",
-            "end_call",
-            "end_call",
-            "less",
-            "end_call",
-            "end_call",
-        ),
-    )
-    for predicate, expected, total in zip(predicates, expected_shapes, (5, 15, 0), strict=True):
+    for predicate, total in zip(predicates, (5, 15, 0), strict=True):
         artifact = session.observe({"total": amount.sum()}, where=predicate).persist()
         assert stored_frame(session, artifact)["value.0"].tolist() == [total]
-        facts = records(session, artifact)
-        (scope,) = [dict(item.values)["filters"] for item in facts if item.kind == "read"]
-        assert isinstance(scope, str)
-        (captured_condition,) = json.loads(scope)
-        (captured_field,) = captured_condition["inputs"]
-        assert captured_condition["scope"] == captured_field["scope"] == "filter"
-        operators = {"and", "or", "not", "equal", "isnull", "less", "end_call"}
-        assert tuple(token for token in captured_field["tokens"] if token in operators) == expected
-        assert "sales.orders.region" in scope and "sales.orders.amount" in scope
+        assert artifact.source_reads
+        assert {scope.source for read in artifact.source_reads for scope in read.scopes} == {
+            "sales.orders"
+        }
 
 
 def test_current_names_are_independent_of_old_store(tmp_path: Path) -> None:
@@ -704,7 +526,7 @@ def test_current_names_are_independent_of_old_store(tmp_path: Path) -> None:
         assert record is not None
         assert record.session_ref == runtime.session_ref
     assert old.read_bytes() == before
-    assert (old.parent.parent / "v23").exists()
+    assert (old.parent.parent / "v24").exists()
 
 
 def test_private_cold_roundtrip_does_not_need_producer_or_catalog(
@@ -720,8 +542,8 @@ store=SessionStore.open_existing(Path(sys.argv[1]))
 with store._read() as conn:
     manifest=terminal_store.manifest(store,conn,sys.argv[2])
 assert read_output(store.project_root,manifest.data.schema,manifest.data.rows)["value.0"].tolist()==[7]
-assert terminal_store.records_page(store,sys.argv[2],kind="finding").items==()
-assert terminal_store.records_page(store,sys.argv[2],kind="evidence").items
+assert manifest.metadata.source_reads==()
+assert terminal_store.complete_metadata(manifest).source_reads==()
 """
     result = subprocess.run(
         [sys.executable, "-c", script, str(tmp_path), artifact.artifact_id],
@@ -739,7 +561,6 @@ assert terminal_store.records_page(store,sys.argv[2],kind="evidence").items
         "terminal_primary_written",
         "terminal_method_written",
         "terminal_files_published",
-        "insert_evidence",
         "before_commit",
         "after_commit",
     ),
@@ -861,10 +682,8 @@ def test_pure_source_publication_has_no_synthetic_local_check(source_session: Se
     metric = source_session.catalog.get("metric:sales.revenue")
     artifact = source_session.observe({"revenue": metric}).persist()
     assert stored_frame(source_session, artifact)["value.0"].tolist() == [9007199254740998]
-    facts = records(source_session, artifact)
-    assert sum(item.kind == "read" for item in facts) == 1
-    assert not any("Local numeric" in item.summary for item in facts)
-    assert all(dict(item.values)["source"] for item in facts if item.kind == "read")
+    assert len(artifact.source_reads) == 1
+    assert artifact.source_reads[0].scopes[0].source == "sales.orders"
 
 
 def test_explicit_numeric_error_prevents_admission_and_publication(
@@ -923,19 +742,34 @@ def test_source_disconnect_failure_prevents_publication(
         assert conn.execute("SELECT count(*) FROM dataset_artifacts").fetchone()[0] == 0
 
 
-def test_lost_ack_with_missing_records_is_recovery_pending(
-    session: Session, monkeypatch: pytest.MonkeyPatch
+def test_lost_ack_with_changed_source_metadata_is_recovery_pending(
+    source_session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    session = source_session
     store = session._runtime.store
-    fixed = constant(session).compute()
+    amount = catalog_value(session.catalog, "sales.orders.amount", kind="field")
+    fixed = session.observe({"total": amount.sum()}).compute()
     assert isinstance(fixed._backing, MemoryFrameBacking)
-    assert fixed._backing.metadata.audit.evaluation.checks
 
     def corrupt(point: str) -> None:
         if point == "after_commit":
             with store._write() as conn:
-                conn.execute("DELETE FROM output_evidence")
-            raise OSError("lost acknowledgement with contradictory records")
+                row = conn.execute(
+                    "SELECT artifact_ref, descriptor_payload FROM dataset_artifacts"
+                ).fetchone()
+                assert row is not None
+                value = decode(row["descriptor_payload"], ArtifactManifest)
+                (read,) = value.metadata.source_reads
+                assert read.returned_rows is not None
+                altered_read = replace(read, returned_rows=read.returned_rows + 1)
+                altered = replace(
+                    value, metadata=replace(value.metadata, source_reads=(altered_read,))
+                )
+                conn.execute(
+                    "UPDATE dataset_artifacts SET descriptor_payload=? WHERE artifact_ref=?",
+                    (encode(altered), row["artifact_ref"]),
+                )
+            raise OSError("lost acknowledgement with contradictory source metadata")
 
     monkeypatch.setattr(terminal_publication, "_event", corrupt)
     with pytest.raises(RecoveryPendingError):
@@ -994,9 +828,11 @@ def test_metadata_and_records_need_no_parquet_or_current_model(
     assert reopened.artifact_id == artifact.artifact_id and "AnalysisFrame" in repr(reopened)
     reopened.show(n=0)
     assert "rows" in capsys.readouterr().out
-    assert reopened.findings().items == ()
-    facts = reopened.evidence().items
-    assert any(item.kind == "read" for item in facts)
+    assert reopened.source_reads == artifact.source_reads
+    assert reopened.source_reads
+    with monkeypatch.context() as no_io:
+        no_io.setattr(SessionStore, "_read", forbidden)
+        assert reopened.source_reads == artifact.source_reads
     publishing = terminal_run(session, committed(artifact).run_id)
     assert publishing.lifecycle == "succeeded"
     assert publishing.output_artifact_ref == artifact.artifact_id
@@ -1104,10 +940,9 @@ def test_preview_decodes_only_requested_rows_and_skips_unused_parts(
         stream.write(b"!")
     with pytest.raises(IntegrityError):
         artifact.to_pandas()
-    assert artifact.findings().items == ()
-    artifact.evidence()
+    assert artifact.source_reads == ()
     # Unused attachments are no longer legal: exact attachment closure is tested
-    # by Store23 protocol/frozen-coordinate tests, rather than retaining a bypass.
+    # by Store24 protocol/frozen-coordinate tests, rather than retaining a bypass.
 
 
 def test_wide_artifact_truncation_routes_to_callable_reads(
@@ -1120,10 +955,10 @@ def test_wide_artifact_truncation_routes_to_callable_reads(
     text = capsys.readouterr().out
     assert "omitted" in text or "truncated" in text
     assert "max_output_bytes=None" in text
-    assert ".to_pandas()" in text and ".evidence(limit=20)" in text
+    assert ".to_pandas()" in text and ".source_reads" in text
     assert len(text.encode()) <= 8192
     assert artifact.to_pandas().shape == (1, 60)
-    artifact.evidence()
+    assert artifact.source_reads == ()
 
 
 @pytest.mark.parametrize("zone", ("Europe/Paris", "UTC+05:30"))
@@ -1400,7 +1235,7 @@ def test_method_payload_is_owned_by_same_commit_and_zero_rows_are_checked(
     saved = AnalysisFrame._from_memory(session._runtime.local, result).persist()
     value = committed(saved)
     assert value.method_facts == saved._backing.method_facts
-    assert value.semantics_version == "frame.v12"
+    assert value.semantics_version == "frame.v13"
     descriptor = value.method_facts[0]
     assert descriptor.parent_count == (0 if empty else 1)
     assert descriptor.coordinate_count == descriptor.coordinate_row_count == 0
@@ -1515,177 +1350,3 @@ def test_manifest_rejects_foreign_duplicate_internal_producer(session: Session) 
         )
     with pytest.raises(IntegrityError, match="duplicate producer"):
         session.persisted_frame(value.artifact_id)
-
-
-def test_metadata_and_audit_pages_do_not_scan_other_collections(
-    session: Session, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    count = 10001
-    checks = tuple(OutputEvidence("check", f"saved check {i}") for i in range(count))
-    fixed = constant(session).compute()
-    assert isinstance(fixed._backing, MemoryFrameBacking)
-    original = fixed._backing.result
-    metadata = replace(
-        original.metadata,
-        audit=replace(
-            original.metadata.audit,
-            evaluation=replace(original.metadata.audit.evaluation, checks=checks),
-        ),
-    )
-    saved = AnalysisFrame._from_memory(
-        session._runtime.local, replace(original, metadata=metadata)
-    ).persist()
-    queries: list[str] = []
-    from contextlib import contextmanager
-
-    read = SessionStore._read
-
-    @contextmanager
-    def traced(store: SessionStore) -> Iterator[sqlite3.Connection]:
-        with read(store) as conn:
-            conn.set_trace_callback(queries.append)
-            yield conn
-
-    monkeypatch.setattr(SessionStore, "_read", traced)
-    reopened = session.persisted_frame(saved.artifact_id)
-    reopened.show(n=0)
-    assert not any("FROM findings" in sql or "FROM output_evidence" in sql for sql in queries)
-    queries.clear()
-    page = reopened.evidence(limit=2)
-    assert page.items == checks[:2]
-    assert page.total_count == count
-    assert not any("FROM findings" in sql or "count(*)" in sql.lower() for sql in queries)
-    assert all(
-        "LIMIT 3" in sql or "evidence_ordinal<2" in sql
-        for sql in queries
-        if "FROM output_evidence" in sql
-    )
-    assert "saved check" not in encode(committed(saved))
-    with pytest.raises(IntegrityError, match="page size") as mismatch:
-        reopened.evidence(limit=3, cursor=page.next_cursor)
-    assert "cursor=None" in mismatch.value.repair.action
-    assert "evidence" in mismatch.value.repair.action
-    with pytest.raises(IntegrityError, match="collection"):
-        reopened.findings(limit=2, cursor=page.next_cursor)
-    cold = session.persisted_frame(saved.artifact_id)
-    assert cold.evidence(limit=2, cursor=page.next_cursor).items == checks[2:4]
-    script = """
-import os, sys
-os.environ["MARIVO_PROJECT_ROOT"] = sys.argv[1]
-import marivo.analysis as mv
-session = mv.session.resume(sys.argv[2])
-frame = session.persisted_frame(sys.argv[3])
-page = frame.evidence(limit=2, cursor=sys.argv[4])
-assert page.input_id == sys.argv[5]
-assert tuple(item.summary for item in page.items) == ("saved check 2", "saved check 3")
-print("cold-audit-cursor")
-"""
-    cold_process = subprocess.run(
-        [
-            sys.executable,
-            "-c",
-            script,
-            str(session.project_root),
-            session.id,
-            saved.artifact_id,
-            page.next_cursor or "",
-            page.input_id,
-        ],
-        cwd=Path(__file__).resolve().parents[3],
-        text=True,
-        capture_output=True,
-    )
-    assert cold_process.returncode == 0, cold_process.stdout + cold_process.stderr
-    assert "cold-audit-cursor" in cold_process.stdout
-
-
-def test_unread_audit_corruption_is_deferred_until_consumption(session: Session) -> None:
-    checks = tuple(OutputEvidence("check", f"check {i}") for i in range(5))
-    fixed = constant(session).compute()
-    assert isinstance(fixed._backing, MemoryFrameBacking)
-    result = fixed._backing.result
-    metadata = replace(
-        result.metadata,
-        audit=replace(
-            result.metadata.audit,
-            evaluation=replace(result.metadata.audit.evaluation, checks=checks),
-        ),
-    )
-    saved = AnalysisFrame._from_memory(
-        session._runtime.local, replace(result, metadata=metadata)
-    ).persist()
-    with session._runtime.store._write() as conn:
-        conn.execute(
-            "UPDATE output_evidence SET body_payload=? WHERE artifact_ref=? AND evidence_ordinal=4",
-            (encode(OutputEvidence("check", "changed")), saved.artifact_id),
-        )
-    reopened = session.persisted_frame(saved.artifact_id)
-    assert reopened.evidence(limit=2).items == checks[:2]
-    assert reopened.findings().total_count == 0
-    assert reopened.to_pandas()["answer"].tolist() == [7]
-    with pytest.raises(IntegrityError):
-        reopened.compute()
-    second = reopened.evidence(limit=2, cursor=reopened.evidence(limit=2).next_cursor)
-    with pytest.raises(IntegrityError):
-        reopened.evidence(limit=2, cursor=second.next_cursor)
-
-
-@pytest.mark.parametrize("damage", ("gap", "extra"))
-def test_record_page_rejects_declared_range_gaps_and_extra_tail(
-    session: Session, damage: str
-) -> None:
-    saved = constant(session).persist()
-    with session._runtime.store._write() as conn:
-        if damage == "gap":
-            conn.execute(
-                "DELETE FROM output_evidence WHERE artifact_ref=? AND evidence_ordinal=0",
-                (saved.artifact_id,),
-            )
-        else:
-            metadata = committed(saved).metadata
-            ordinal = metadata.source_fact_count + metadata.check_count
-            body = encode(OutputEvidence("check", "extra undeclared check"))
-            from marivo.analysis.materialization.contracts import digest
-
-            conn.execute(
-                "INSERT INTO output_evidence VALUES(?,?,?,?)",
-                (saved.artifact_id, ordinal, body, digest(body)),
-            )
-    with pytest.raises(IntegrityError, match="missing, duplicate, out-of-order or extra"):
-        saved.evidence(limit=100)
-
-
-@pytest.mark.parametrize("stored_side", ("left", "right"))
-@pytest.mark.parametrize("empty_projection", (False, True))
-def test_mixed_fixed_carriers_preserve_source_fact_encounter_order(
-    session: Session, stored_side: str, empty_projection: bool
-) -> None:
-    def with_fact(name: str) -> AnalysisFrame:
-        computed = constant(session).compute()
-        assert isinstance(computed._backing, MemoryFrameBacking)
-        result = computed._backing.result
-        metadata = replace(
-            result.metadata,
-            audit=replace(result.metadata.audit, source_facts=(OutputEvidence("read", name),)),
-        )
-        return AnalysisFrame._from_memory(
-            session._runtime.local, replace(result, metadata=metadata)
-        )
-
-    left, right = with_fact("left source"), with_fact("right source")
-    if stored_side == "left":
-        left = left.persist()
-    else:
-        right = right.persist()
-    pending = left.align(right)
-    completed = (pending.select({}) if empty_projection else pending).compute()
-    assert isinstance(completed._backing, MemoryFrameBacking)
-    assert tuple(fact.summary for fact in completed._backing.metadata.audit.source_facts) == (
-        "left source",
-        "right source",
-    )
-    saved = completed.persist()
-    assert tuple(fact.summary for fact in saved.evidence().items[:2]) == (
-        "left source",
-        "right source",
-    )

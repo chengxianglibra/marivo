@@ -155,11 +155,7 @@ def test_busy_contender_preserves_real_producer(
     completed = snapshot(runtime)
     assert completed["analysis_action_runs"] == completed["analysis_action_run_terminals"] == 2
     assert completed["dataset_artifacts"] == 2
-    assert completed["dataset_evidence"] == 2
-    assert (
-        committed.evidence(limit=100).total_count > 0
-        and produced.evidence(limit=100).total_count > 0
-    )
+    assert committed.source_reads and produced.source_reads
     assert completed["action_resource_journal"] == 0
     produced_reads = len(reads) - initial_reads
     retry = logical.persist()
@@ -192,7 +188,7 @@ def test_busy_contender_preserves_real_producer(
         )
         assert retried_contender.to_pandas()["value"].sum() == 4
         evidence["contender_retry_artifact"] = retried_contender.artifact_id
-        evidence["contender_retry_run"] = retried_contender._local._audit_manifest(
+        evidence["contender_retry_run"] = retried_contender._local._manifest(
             retried_contender._require_stored("artifact_id")
         ).run_id
     _evidence(f"contention-{key}-{mode}", evidence)
@@ -427,7 +423,7 @@ def test_different_sessions_overlap_inside_real_duckdb_queries(
             "query_threads": sorted(query_threads),
             "sessions": [runtime.session_ref for runtime in runtimes],
             "runs": [
-                value._local._audit_manifest(value._require_stored("artifact_id")).run_id
+                value._local._manifest(value._require_stored("artifact_id")).run_id
                 for value in results
             ],
         },

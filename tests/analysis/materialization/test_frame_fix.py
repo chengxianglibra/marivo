@@ -17,8 +17,8 @@ from marivo.analysis.core.data_types import (
     ScalarDataType,
     TimestampDataType,
 )
-from marivo.analysis.core.frame_audit import EvaluationRecord, FrameAudit, FrameResultMetadata
 from marivo.analysis.core.frame_data import CompletedFrameData, CompletedFrameResult
+from marivo.analysis.core.frame_metadata import EvaluationRecord, FrameResultMetadata
 from marivo.analysis.dsl.frame import AnalysisFrame
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.materialization.admission import DatasetRuntime
@@ -47,7 +47,7 @@ def memory(
     data = CompletedFrameData(schema, rows)
     metadata = FrameResultMetadata(
         "manual",
-        FrameAudit((), EvaluationRecord(datetime(2026, 10, 26, tzinfo=timezone.utc), (), ())),
+        EvaluationRecord(datetime(2026, 10, 26, tzinfo=timezone.utc), (), ()),
     )
     return AnalysisFrame._from_memory(local, CompletedFrameResult(data, metadata))
 

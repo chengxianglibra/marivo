@@ -1,5 +1,5 @@
 ---
-title: 结果与证据
+title: 结果与方法事实
 description: 结合审计记录和方法说明，理解已保存的分析结果。
 pagefind: false
 head:
@@ -9,28 +9,6 @@ head:
       content: noindex
 ---
 
-完成计算后的分析结果（`AnalysisFrame`）保存本次得到的数值；已保存的 Frame 还关联该结果的
-审计记录。对于依赖来源数据的结果，应将其视为特定来源读取和分析范围下的结果，
-而不是当前数据的实时视图。
+已保存 Frame 的数值、当前 schema/lineage、实际读取元信息 `source_reads` 和原始方法说明 `method_facts` 各有明确含义。读取时间、计算完成时间和提交时间彼此独立；新近提交不证明业务数据及时到达。固定操作继承原读取记录，记录不代表当前过滤域，时间限制也不包含完整历史条件。
 
-## 查看已保存结果
-
-对已保存的 `AnalysisFrame`，`show()` 提供有界预览；`show(n=0)` 展示元数据和审计摘要。
-`to_pandas()` 将全部固定数值导出为平面表。继续进行类型化分析时，请保留 `AnalysisFrame`。
-若要在另一个进程中重新打开同一结果，请使用对应的 `session_id` 和 `artifact_id`。
-
-[结果指南](/zh-cn/docs/latest/analysis/results/#恢复已保存的数据)说明如何保存并重新打开结果，
-以及如何导出数值。
-
-## 结合上下文阅读证据
-
-已保存的审计信息分别记录来源读取与范围（如有）、计算及其检查，以及提交信息（`Session` 和
-`Artifact`）。`evidence()` 读取已保存的 Evidence 事实；`findings()` 读取此次提交关联的
-`Finding`。普通观测可以包含来源和计算事实，但不一定产生 Finding。
-
-来源读取、计算完成和提交时间彼此独立。判断数据是否新鲜时，应查看记录的来源范围和读取时间；
-仅有较新的提交时间不能证明来源数据较新。若要分析来源中的当前值，应重新捕获观测。
-
-受支持的 `attribute()` 分析完成后，`AnalysisFrame` 会提供 `method_facts`，说明所选方法如何
-在记录范围和假设下拆解目标结果。这些事实描述的是分析方法，不是观测值或变化的原因。参阅
-[如何阅读证据](/zh-cn/docs/latest/analysis/results/#理解证据及其适用范围)。
+参阅[结果与方法事实](/zh-cn/docs/latest/analysis/results/)。

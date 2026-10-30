@@ -22,9 +22,9 @@ from marivo.analysis.core.data_types import (
     ScalarDataType,
     TimestampDataType,
 )
-from marivo.analysis.core.frame_audit import EvaluationRecord, FrameAudit, FrameResultMetadata
 from marivo.analysis.core.frame_calendar import freeze_calendar
 from marivo.analysis.core.frame_data import CompletedFrameData, CompletedFrameResult
+from marivo.analysis.core.frame_metadata import EvaluationRecord, FrameResultMetadata
 from marivo.analysis.dsl.temporal import exact_scope
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.materialization.admission import DatasetRuntime
@@ -67,7 +67,7 @@ def _memory(
     )
     metadata = FrameResultMetadata(
         "oracle",
-        FrameAudit((), EvaluationRecord(datetime(2026, 1, 1, tzinfo=timezone.utc), (), ())),
+        EvaluationRecord(datetime(2026, 1, 1, tzinfo=timezone.utc), (), ()),
     )
     return mv.AnalysisFrame._from_memory(local, CompletedFrameResult(data, metadata))
 

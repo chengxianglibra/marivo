@@ -210,7 +210,6 @@ RunFailurePhase: TypeAlias = Literal[
     "storage_staging",
     "storage_finalization",
     "quality",
-    "evidence",
     "publication",
     "cleanup",
     "presentation",

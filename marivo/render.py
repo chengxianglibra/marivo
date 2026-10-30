@@ -81,8 +81,8 @@ def result_repr(identity: str) -> str:
         ``"<{identity}; call .show() to inspect>"``.
 
     Example:
-        >>> result_repr("EvidencePage ref=artifact_ab12 items=7")
-        '<EvidencePage ref=artifact_ab12 items=7; call .show() to inspect>'
+        >>> result_repr("FrameSourceRead read_id='read_ab12' scopes=1")
+        "<FrameSourceRead read_id='read_ab12' scopes=1; call .show() to inspect>"
 
     Constraints:
         identity must not contain a newline.

@@ -30,7 +30,6 @@ def snapshot(runtime: DatasetRuntime) -> dict[str, int]:
                 "analysis_action_runs",
                 "analysis_action_run_terminals",
                 "dataset_artifacts",
-                "dataset_evidence",
                 "action_resource_journal",
             )
         }

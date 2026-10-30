@@ -7,7 +7,7 @@ description: Use when a user wants to answer a business question or continue a M
 
 ## Purpose and ownership
 
-Answer the business question with bounded, governed Evidence. The agent owns
+Answer the business question with bounded, governed facts. The agent owns
 method choice, interpretation and completion; semantic objects own reusable
 meaning, and the Analysis DSL owns typed computation.
 
@@ -162,8 +162,11 @@ Logical construction alone does not establish that business rows were read.
 
 ### Read the result and update the answer
 
-Inspect the returned Frame with `.show()`; read its audit directly when committed. Follow
-`marivo help analysis.results.evidence` when additional evidence detail is needed.
+Inspect the returned Frame with `.show()` and follow
+`marivo help analysis.results.inspect` for captured result facts. Use saved actual
+source reads to understand when and where inputs were read, and original method
+facts to understand method assumptions. Inherited reads retain their original
+scope; they do not restate the current filtered domain or complete conditions.
 Assess the facts that could change the conclusion: exact identity and scope,
 comparison alignment, completeness, missingness, reconciliation,
 uncertainty, and material warnings. Consider whether few observations, extreme
@@ -226,16 +229,16 @@ formatting saved values are presentation.
 Numerical arithmetic is not automatically presentation.
 For a method outside the installed surface, first complete supported upstream
 work, then preserve exact inputs, assumptions and rerunnable external calculations.
-External outputs do not inherit typed Evidence guarantees. Exported tables and
+External outputs do not inherit typed Frame guarantees. Exported tables and
 attrs cannot restore semantic objects, source history or typed authority. The
-saved Frame remains available for supported data operations and committed audit reads.
+saved Frame remains available for supported data operations and captured source-read metadata.
 
 Use `md.raw_sql(...)` only for a concrete source-specific question public
 inspection cannot answer, or provisional terminal analysis when typed inputs
 cannot be established. Read `marivo help datasource.raw_sql`, preserve access
 budgets, and disclose scope, truncation, and semantic gaps. Raw SQL cannot replace
 available governed definitions or settle missing business meaning. Keep its
-provisional results separate from canonical Evidence.
+provisional results separate from canonical Frame results.
 
 ### Evidence continuity
 

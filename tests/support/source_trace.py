@@ -4,6 +4,7 @@ import json
 import os
 from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 from time import perf_counter
 
@@ -39,6 +40,7 @@ class SourceTrace:
     uploaded_key_bytes: list[int] = field(default_factory=list)
     calendar_payload_bytes: list[int] = field(default_factory=list)
     source_seconds: list[float] = field(default_factory=list)
+    started_at: list[datetime] = field(default_factory=list)
     returned_pandas_bytes: list[int] = field(default_factory=list)
     returned_arrow_bytes: list[int] = field(default_factory=list)
     owners: list[SourceSession] = field(default_factory=list)
@@ -121,6 +123,7 @@ def capture_source(monkeypatch: pytest.MonkeyPatch, *, measure_cost: bool = Fals
     def captured_execute(owner: SourceSession, read: CompiledRead) -> pd.DataFrame:
         submitted_before = len(owner.submissions)
         started = perf_counter()
+        trace.started_at.append(datetime.now(timezone.utc))
         try:
             result = execute(owner, read)
             trace.source_seconds.append(perf_counter() - started)

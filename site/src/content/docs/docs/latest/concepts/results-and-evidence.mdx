@@ -1,6 +1,6 @@
 ---
-title: Results and evidence
-description: Read saved results, audit records, and method explanations in context.
+title: Results and method facts
+description: Read saved results, actual source reads and method explanations in context.
 pagefind: false
 head:
   - tag: meta
@@ -9,36 +9,6 @@ head:
       content: noindex
 ---
 
-A completed `AnalysisFrame` holds the values produced by its evaluation. A saved
-Frame also carries the audit record for that result. For source-backed results,
-read it as the outcome of captured source reads and scope, not a live view of
-current data.
+Saved Frame values, current schema/lineage, actual-read metadata `source_reads` and original `method_facts` have distinct purposes. Read completion, evaluation completion and commit times are separate; a recent commit does not prove business freshness. Fixed operations inherit original reads, which do not describe the current filter domain or complete historical conditions.
 
-## Inspect the saved result
-
-On a saved Frame, `show()` gives a bounded preview; `show(n=0)` displays metadata
-and audit summaries. `to_pandas()` exports all fixed values as a flat table.
-Keep the Frame for typed analysis. To reopen the exact result in another
-process, use its `session_id` and `artifact_id`.
-
-The [results guide](/docs/latest/analysis/results/#reopen-the-saved-data) shows
-how to save and reopen a result, and how to export its values.
-
-## Read evidence in context
-
-Saved audit records separate source reads and scope (when applicable), the
-evaluation and its checks, and the committed Session and Artifact.
-`evidence()` reads the saved Evidence facts; `findings()` reads Findings
-attached to the commit. An ordinary observation can have source and evaluation
-facts without producing Findings.
-
-Source-read, evaluation-completion, and commit times are distinct. Use the
-recorded source scope and read time to judge freshness; a recent commit alone
-does not establish fresh source data. To analyze current source values, capture
-a new observation.
-
-After a successful supported `attribute()` analysis, the Frame exposes
-`method_facts` that explain how the selected method decomposes an output within
-its recorded scope and assumptions. They describe the analysis method, not the
-cause behind an observed value or change. See
-[how to read evidence](/docs/latest/analysis/results/#read-evidence-in-context).
+See [Results and method facts](/docs/latest/analysis/results/).

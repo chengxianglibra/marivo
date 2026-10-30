@@ -480,7 +480,7 @@ For an unqualified state route or missing declarations, continue ordinary
 investigation explicitly: population_from on governed ordinary parent axes,
 in_population to restrict facts, then observe and compare/align. A multi-time parent
 requires its complete period-specific joint keys, not a global region projection.
-[Evidence and method facts](evidence-access-surface.md) owns cold explanatory reads.
+[Result metadata and method facts](result-and-method-facts.md) owns cold explanatory reads.
 
 ## Implementation map
 

@@ -34,13 +34,13 @@ from marivo.analysis.core.data_types import (
     ScalarDataType,
     TimestampDataType,
 )
-from marivo.analysis.core.frame_audit import EvaluationRecord, FrameAudit, FrameResultMetadata
 from marivo.analysis.core.frame_data import (
     CompletedFrameData,
     CompletedFrameResult,
     ExpressionFrameBacking,
     MemoryFrameBacking,
 )
+from marivo.analysis.core.frame_metadata import EvaluationRecord, FrameResultMetadata
 from marivo.analysis.core.frame_structure import PendingDataSchema
 from marivo.analysis.core.frozen_calendar import calendar_directory_schema
 from marivo.analysis.dsl.column import row_count
@@ -156,7 +156,7 @@ def memory(
     )
     metadata = FrameResultMetadata(
         "literal",
-        FrameAudit((), EvaluationRecord(datetime(2026, 10, 19, tzinfo=timezone.utc), (), ())),
+        EvaluationRecord(datetime(2026, 10, 19, tzinfo=timezone.utc), (), ()),
     )
     return AnalysisFrame._from_memory(local, CompletedFrameResult(complete, metadata))
 
@@ -921,9 +921,7 @@ def test_named_source_pending_interpretation_is_checked_before_value_names(
             ),
             FrameResultMetadata(
                 "named-literal",
-                FrameAudit(
-                    (), EvaluationRecord(datetime(2026, 10, 19, tzinfo=timezone.utc), (), ())
-                ),
+                EvaluationRecord(datetime(2026, 10, 19, tzinfo=timezone.utc), (), ()),
             ),
         ),
     )
@@ -978,7 +976,7 @@ def _captured_calendar_frame(
         CompletedFrameData(schema, rows, captured.attachments),
         FrameResultMetadata(
             "captured",
-            FrameAudit((), EvaluationRecord(datetime(2026, 10, 19, tzinfo=timezone.utc), (), ())),
+            EvaluationRecord(datetime(2026, 10, 19, tzinfo=timezone.utc), (), ()),
         ),
     )
     return AnalysisFrame._from_memory(local, result)

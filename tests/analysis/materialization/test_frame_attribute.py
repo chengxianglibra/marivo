@@ -673,7 +673,7 @@ def test_fixed_report_method_facts_survive_named_multi_baseline_compare(session:
     for alias in ("one", "two"):
         assert rows[alias + ".absolute.detail.value.q"].dropna().eq(0).all()
     assert isinstance(compared._backing, MemoryFrameBacking)
-    assert len(compared._backing.metadata.audit.evaluation.inputs) == 1
+    assert len(compared._backing.metadata.evaluation.inputs) == 1
 
 
 def test_member_count_compound_identity_and_nonleading_calendar_order(session: Session) -> None:

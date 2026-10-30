@@ -605,8 +605,8 @@ def test_sampled_facts_store_roundtrip_is_source_offline_and_checks_logical_dige
     import pyarrow.parquet as pq
 
     from marivo.analysis.core.data_schema import DataAxis
-    from marivo.analysis.core.frame_audit import EvaluationRecord, FrameAudit, FrameResultMetadata
     from marivo.analysis.core.frame_data import CompletedFrameData, CompletedFrameResult
+    from marivo.analysis.core.frame_metadata import EvaluationRecord, FrameResultMetadata
     from marivo.analysis.materialization.admission import DatasetRuntime
     from marivo.analysis.materialization.frame_method_facts import decode_method_payload
     from marivo.analysis.materialization.graph_reading import open_manifest
@@ -677,9 +677,7 @@ def test_sampled_facts_store_roundtrip_is_source_offline_and_checks_logical_dige
     local = DatasetRuntime.create(tmp_path, "sampled-facts", timezone="UTC").local
     metadata = FrameResultMetadata(
         facts.origin_result_id,
-        FrameAudit(
-            (), EvaluationRecord(datetime(2026, 10, 28, tzinfo=timezone.utc), (), ("literal",))
-        ),
+        EvaluationRecord(datetime(2026, 10, 28, tzinfo=timezone.utc), (), ("literal",)),
     )
     saved = local.publish(
         CompletedFrameResult(CompletedFrameData(facts.output_schema, rows), metadata, (facts,))

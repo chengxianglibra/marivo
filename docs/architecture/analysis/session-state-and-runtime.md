@@ -3,7 +3,7 @@
 Session owns exact project execution/persistence context. Evaluation produces
 complete data; publication commits that existing result. The
 [Frame contract](analysis-frame.md) owns structure and
-[Evidence](evidence-access-surface.md) owns interpretation of saved audit/method facts.
+[Result and method facts](result-and-method-facts.md) owns source-read metadata and method explanations.
 
 ## Session and invocation ownership
 
@@ -155,11 +155,11 @@ is separate from fixed Frame inputs and local combination.
 
 ## Store generation and data layout
 
-Store 23 is under `<project_root>/.marivo/analysis/generations/v23/`. One closed
-`marivo.frame_output/v12` protocol stores values, complete axes, independent presence, typed
-frozen interval/calendar/map attachments, receipts and one audit. It stores no executable
+Store 24 is under `<project_root>/.marivo/analysis/generations/v24/`. One closed
+`marivo.frame_output/v13` protocol stores values, complete axes, independent presence, typed
+frozen interval/calendar/map attachments, receipts and result metadata. It stores no executable
 Python class path, source/Metric graph or hidden components. All analysis
-artifacts are Frame commits; stored Frames expose their identity and audit directly.
+artifacts are Frame commits; stored Frames expose their identity and source-read metadata directly.
 
 Closed method facts distinguish level, absolute and relative targets, retaining
 their explicit output paths and observed versus newly evaluated parent totals.
@@ -197,10 +197,10 @@ archive or delete the old generation themselves.
 
 ## Concurrent writers and atomic publication
 
-Evaluation produces complete data and audit before the existing writer guard
+Evaluation produces complete data and metadata before the existing writer guard
 admits a publishing Run. Publication allocates Artifact identity, writes owned
-files/receipts, and atomically commits manifest, audit records and Run success.
-No partial successful Frame/Artifact/Finding/Evidence combination is visible.
+files/receipts, and atomically commits the complete manifest and Run success.
+No partial successful Frame commit is visible.
 Memory results and prior commits remain usable after publication failure.
 
 Retain the existing Store writer guard, resource journal and success transaction.
@@ -247,7 +247,7 @@ it is not a cache miss that authorizes recomputation.
 ## Committed Frame discovery and descriptions
 
 `frame.persist(description=None)` optionally records the caller's purpose in the
-same atomic commit as its data and audit. The text is preserved unchanged and
+same atomic commit as its data and metadata. The text is preserved unchanged and
 belongs to the commit, not the computed result or expression identity. Stored
 Frames expose read-only `description`; pending and memory Frames require an
 explicit persist first. Repeating stored persist with omitted/None or the same
@@ -280,10 +280,9 @@ The directory does not establish which tool invocation created a candidate.
 Pending Frame.show discloses captured structure and pending operations without
 parent row reads/schema preparation. All show calls validate nonnegative integer
 n (excluding bool) before reads. Memory/stored show(n=0) gives metadata only;
-Completed cards include bounded inputs/operations and source-fact/check/Finding
-counts; stored cards add commit time. Summaries never load complete audit or
-method payloads. Frame Findings and Evidence reads do not read Parquet or
-coordinate attachments.
+Completed cards include bounded inputs/operations and actual source-read summaries;
+stored cards add commit time and a source_reads pointer. Summaries never load
+method payloads, Parquet or coordinate attachments.
 
 Positive show and read_page share the internal ordered range reader and resolve
 only necessary coordinates. They validate consumed file receipts, selected field
@@ -299,8 +298,8 @@ read_page always retains full axis keys and readable coordinates, with optional
 full-name value/presence projection. Primary reads use selected columns and
 bounded batches; coordinate lookup scans fixed batches and retains only required
 records. Detached pages retain no whole parent Arrow buffer, coordinate directory,
-reader, audit or method facts. Stored totals come from receipts; audit counts come
-from saved collection descriptors. Receipt hashing and coordinate lookup may
+reader or method facts. Stored totals come from receipts; source-read summaries
+come from captured metadata. Receipt hashing and coordinate lookup may
 scan whole files, so bounded memory does not imply bounded total I/O. Captured
 read_stats records actual decoded/checked data rows, coordinate rows and receipt
 hash bytes. It does not measure peak memory or all disk I/O.
@@ -319,28 +318,24 @@ decoded coordinate records and receipt-hash bytes; receipt checks and endpoint l
 files, so page size is not a total-I/O bound.
 
 Persisted descriptors include structure, lineage, evaluation/input/operation facts,
-collection counts/digests and owned payload descriptors, without audit bodies.
-Opening and show(n=0) check commit ownership/version, bounded descriptors, receipt
-locations and collection metadata in SQLite, without complete records or method
-files. Findings and Evidence each read their own ordered page in a single SQLite
-snapshot, checking each body's digest/types/identity/slots plus a bounded next
-record probe. They never scan count(*) or recompute full collection digests.
-Expected missing, duplicate, disordered or extra tail records fail explicitly.
-Publication atomically writes descriptors and records. Full audit consumers,
-transaction confirmation and required recovery retain complete-record and
-collection checks, reconstructing source facts and checks from saved partitions.
-Saved derived results remain self-contained without ancestor or source reads.
+complete immutable source_reads and owned payload descriptors. Opening validates
+commit ownership/version, closed metadata and receipt locations without payload,
+Catalog, model or source reads. source_reads uses the loaded descriptor directly.
+Publication atomically commits the complete manifest. Unknown acknowledgement is
+confirmed by exact manifest equality; no separate audit collection is queried.
+Cold recovery and fixed derivatives use their own complete metadata without
+requiring ancestor Artifacts or restoring source authority.
 
 Stored `to_pandas()` validates all current data, complete key uniqueness, all
 related coordinates and mapping authority. Memory exports reuse their established
-key facts. Neither consumes complete audit or method
+key facts. Neither consumes complete method
 payloads. It returns isolated flat coordinates, full value names and independent
 presence columns. Its existing attrs snapshot contains axes, units, comparisons
 and isolated frozen coordinate tables; it is not a stable deserialization
 protocol. FramePage.to_pandas only copies this page, with empty attrs. Both use
 the same layout and coordinate decoding. Stable clients use schema/layout and
 exact coordinates instead of attrs. Complete stored compute/fixed-input evaluation
-consumes data, required method facts and complete audit. Neither boundary proves
+consumes data, required method facts and captured metadata. Neither boundary proves
 business completeness or current source state.
 
 `method_facts` explicitly consumes complete immutable explanation payloads only,
@@ -352,8 +347,8 @@ method facts. A missing/corrupt method payload can leave metadata, previews and
 current-data export usable while full consumers fail. Cards show only count,
 bounded origins and the getter pointer, never full parents/coordinate rows.
 
-All Frames use `marivo.frame_output/v12`, `frame.v12` and `frame-output-v12` under
-`.marivo/analysis/generations/v23/`. Method files share the existing data receipt,
+All Frames use `marivo.frame_output/v13` and `frame.v13` under
+`.marivo/analysis/generations/v24/`. Method files share the existing data receipt,
 atomic publication/readback and unknown-commit reconciliation. A saved derivative
 owns its exact inherited payloads; deleting the original Artifact does not force
 an origin lookup or source/calendar rebuild. Origin explains the original total,
@@ -436,7 +431,7 @@ owns isolated export.
 
 Completed result metadata includes immutable, non-executable semantic column
 lineage and current-result interpretation. Pending Frames derive facts from explicit inputs and
-operation bindings; compute, publication and cold recovery preserve them. Store 23 / output v12
+operation bindings; compute, publication and cold recovery preserve them. Store 24 / output v13
 requires the complete value/axis/presence directories, fixed selections, typed value contexts,
 comparison/decomposition relations and their captured identities. Missing or
 invalid saved lineage is an integrity failure, rather than empty lineage. A saved

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import subprocess
 import sys
 from collections.abc import Callable
@@ -26,13 +25,13 @@ from marivo.analysis.core.data_types import (
     ScalarDataType,
     TimestampDataType,
 )
-from marivo.analysis.core.frame_audit import EvaluationRecord, FrameAudit, FrameResultMetadata
 from marivo.analysis.core.frame_data import (
     CompletedFrameData,
     CompletedFrameResult,
     MemoryFrameBacking,
     StoredFrameBacking,
 )
+from marivo.analysis.core.frame_metadata import EvaluationRecord, FrameResultMetadata
 from marivo.analysis.dsl.frame import AnalysisFrame
 from marivo.analysis.dsl.frame_axis import FrameAxis
 from marivo.analysis.dsl.population import Population
@@ -113,9 +112,7 @@ def _frame(
             CompletedFrameData(schema, rows),
             FrameResultMetadata(
                 "temporal-selected",
-                FrameAudit(
-                    (), EvaluationRecord(datetime(2026, 10, 20, tzinfo=timezone.utc), (), ())
-                ),
+                EvaluationRecord(datetime(2026, 10, 20, tzinfo=timezone.utc), (), ()),
             ),
         ),
     )
@@ -345,34 +342,11 @@ def test_explicit_source_key_transport_preserves_minimum_tick_and_null(
     assert computed.to_pandas()["amount"].tolist() == [50]
     assert terminal_runs(session) == ()
     assert isinstance(computed._backing, MemoryFrameBacking)
-    facts = computed._backing.metadata.audit.source_facts
-    scopes_by_fact: list[str] = []
-    for fact in facts:
-        if fact.kind == "read":
-            scopes = dict(fact.values)["source_scopes"]
-            assert isinstance(scopes, str)
-            scopes_by_fact.append(scopes)
-    selections = [
-        json.loads(item[1])
-        for scopes in scopes_by_fact
-        for item in json.loads(scopes)
-        if "frame_key_selection" in item[1]
-    ]
-    assert len(selections) == 1
-    selection = selections[0]
-    assert selection[-1] == [
-        [["int", "-0x8000000000000000"], ["str", "A"]],
-        [["int", "0x0"], ["str", "B"]],
-        [["none", ""], ["str", "C"]],
-    ]
-    assert selection[-2][0]["dtype"] == {
-        "scope": "TimestampDataType",
-        "unit": ["str", "us"],
-        "timezone": ["str", "UTC"],
-    }
+    facts = computed._backing.metadata.source_reads
+    assert facts
     saved = computed.persist()
     reopened = session.persisted_frame(saved.artifact_id)
     assert isinstance(reopened._backing, StoredFrameBacking)
     completed = reopened.compute()
     assert isinstance(completed._backing, MemoryFrameBacking)
-    assert completed._backing.metadata.audit.source_facts == facts
+    assert completed._backing.metadata.source_reads == facts

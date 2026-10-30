@@ -70,7 +70,7 @@ def test_terminal_reader_failure_stops_pandas_scoring_without_run(
                 deviation(plain(artifact), "zscore")
         assert closed == [True]
         assert run_ids(case.session) == before
-        assert_clean(case.session, artifacts=1)
+    assert_clean(case.session, artifacts=1)
 
 
 def test_decimal_sum_uses_arrow_native_accumulator_and_storage_boundary(
@@ -140,7 +140,7 @@ def test_local_failure_releases_prepared_sources_and_preserves_prior_artifact(
     assert run_ids(case.session) == before
 
 
-@pytest.mark.parametrize("point", ("insert_findings", "before_commit"))
+@pytest.mark.parametrize("point", ("insert_artifact", "before_commit"))
 def test_transaction_failure_has_no_partial_success(
     analysis_dsl_case_factory: DslCaseFactory,
     point: str,
@@ -205,10 +205,8 @@ def test_lost_commit_ack_returns_committed_output_without_source_replay(
     assert runs[0].lifecycle == "succeeded"
     assert runs[0].output_artifact_ref == artifact.artifact_id
     assert (
-        artifact._local._audit_manifest(artifact._require_stored("artifact_id")).run_id
-        == runs[0].run_ref
+        artifact._local._manifest(artifact._require_stored("artifact_id")).run_id == runs[0].run_ref
     )
-    assert artifact.findings(limit=100).total_count == 0
     assert_clean(case.session, artifacts=1)
     before = run_ids(case.session)
     deviation(plain(artifact), "zscore")

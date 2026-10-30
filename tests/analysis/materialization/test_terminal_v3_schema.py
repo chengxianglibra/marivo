@@ -1,4 +1,4 @@
-"""The sole Store23 protocol closes every field and refuses historical v1 bytes."""
+"""The sole Store24 protocol closes every field and refuses historical v1 bytes."""
 
 from dataclasses import fields, replace
 from datetime import datetime, timezone
@@ -15,7 +15,7 @@ from marivo.analysis.core.artifact_data import (
     ParquetHandle,
     ScalarDataType,
 )
-from marivo.analysis.core.frame_audit import EvaluationRecord, FrameAudit, FrameResultMetadata
+from marivo.analysis.core.frame_metadata import EvaluationRecord, FrameResultMetadata
 from marivo.analysis.core.lineage import empty as empty_lineage
 from marivo.analysis.materialization import terminal_protocol as protocol
 from marivo.analysis.materialization.contracts import (
@@ -41,9 +41,7 @@ def manifest() -> ArtifactManifest:
     )
     metadata = FrameResultMetadata(
         "result",
-        FrameAudit(
-            (), EvaluationRecord(datetime(2020, 1, 1, tzinfo=timezone.utc), (), ("literal",))
-        ),
+        EvaluationRecord(datetime(2020, 1, 1, tzinfo=timezone.utc), (), ("literal",)),
     )
     return ArtifactManifest(
         "store",
@@ -69,13 +67,14 @@ def manifest() -> ArtifactManifest:
         "marivo.frame_output/v9",
         "marivo.frame_output/v10",
         "marivo.frame_output/v11",
+        "marivo.frame_output/v12",
     ],
 )
 def test_historical_output_envelope_is_rejected_without_rewrite(historical_format: str) -> None:
     historical = parse_json(FROZEN)
     assert isinstance(historical, dict)
     historical["format"] = historical_format
-    with pytest.raises(IntegrityError, match="expected Frame output v12"):
+    with pytest.raises(IntegrityError, match="expected Frame output v13"):
         protocol.decode(canonical_json(historical), ArtifactManifest)
     assert Path(__file__).with_name("terminal_v1_frozen.json").read_text().strip() == FROZEN
 
@@ -118,8 +117,8 @@ def test_one_explicit_closed_type_and_field_inventory() -> None:
     saved = manifest()
     assert protocol.decode(protocol.encode(saved), ArtifactManifest) == saved
     assert saved.result_id == saved.metadata.result_id
-    assert saved.semantics_version == "frame.v12"
-    assert protocol.FORMAT == "marivo.frame_output/v12"
+    assert saved.semantics_version == "frame.v13"
+    assert protocol.FORMAT == "marivo.frame_output/v13"
 
 
 @pytest.mark.parametrize(
@@ -199,7 +198,7 @@ def test_saved_context_pool_is_shared_and_does_not_grow_with_rows(tmp_path: Path
         )
         metadata = FrameResultMetadata(
             "pool",
-            FrameAudit((), EvaluationRecord(datetime(2026, 10, 29, tzinfo=timezone.utc), (), ())),
+            EvaluationRecord(datetime(2026, 10, 29, tzinfo=timezone.utc), (), ()),
         )
         source = AnalysisFrame._from_memory(
             local,
@@ -230,3 +229,115 @@ def test_saved_context_pool_is_shared_and_does_not_grow_with_rows(tmp_path: Path
         contexts = restored.data.schema.value_contexts
         assert contexts[0][1] is contexts[1][1]
     assert counts == [1, 1]
+
+
+@pytest.mark.parametrize("rows", (0, None, 12))
+def test_source_reads_are_embedded_closed_manifest_metadata(rows: int | None) -> None:
+    from marivo.analysis.core.frame_source_reads import (
+        FrameSourceRead,
+        FrameSourceReadPeriod,
+        FrameSourceReadScope,
+    )
+
+    instant = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    reads = (
+        FrameSourceRead("read_first", instant, (FrameSourceReadScope("sales.orders", None),), rows),
+        FrameSourceRead(
+            "read_second",
+            instant,
+            (
+                FrameSourceReadScope(
+                    "sales.orders", FrameSourceReadPeriod(None, instant, "Asia/Shanghai")
+                ),
+                FrameSourceReadScope("sales.lines", None),
+            ),
+            rows,
+        ),
+    )
+    value = manifest()
+    value = replace(value, metadata=replace(value.metadata, source_reads=reads))
+    assert protocol.decode(protocol.encode(value), ArtifactManifest) == value
+    assert protocol._FIELDS["StoredFrameMetadata"] == (
+        "result_id",
+        "evaluated_at",
+        "inputs",
+        "operations",
+        "source_reads",
+        "lineage",
+    )
+    assert {"OutputFinding", "OutputEvidence", "OutputCoordinate"}.isdisjoint(protocol._FIELDS)
+
+
+@pytest.mark.parametrize(
+    "damage", ("list", "count_bool", "scope", "period", "naive", "conflicting_id", "duplicate_id")
+)
+def test_corrupt_nested_source_reads_cannot_become_empty(damage: str) -> None:
+    from copy import deepcopy
+
+    from marivo.analysis.core.frame_source_reads import FrameSourceRead, FrameSourceReadScope
+
+    instant = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    read = FrameSourceRead("read_first", instant, (FrameSourceReadScope("sales.orders", None),), 3)
+    value = manifest()
+    value = replace(value, metadata=replace(value.metadata, source_reads=(read,)))
+    wire = parse_json(protocol.encode(value))
+    assert isinstance(wire, dict)
+    root = wire["value"]
+    assert isinstance(root, dict)
+    fields = root["fields"]
+    assert isinstance(fields, dict)
+    metadata = fields["metadata"]
+    assert isinstance(metadata, dict)
+    metadata_fields = metadata["fields"]
+    assert isinstance(metadata_fields, dict)
+    reads = metadata_fields["source_reads"]
+    assert isinstance(reads, list)
+    current = reads[0]
+    assert isinstance(current, dict)
+    read_fields = current["fields"]
+    assert isinstance(read_fields, dict)
+    if damage == "list":
+        metadata_fields["source_reads"] = None
+    elif damage == "count_bool":
+        read_fields["returned_rows"] = True
+    elif damage == "scope":
+        read_fields["scopes"] = ["sales.orders"]
+    elif damage == "period":
+        read_fields["scopes"] = [
+            {
+                "record": "FrameSourceReadScope",
+                "fields": {"source": "sales.orders", "period": "2026-01-01"},
+            }
+        ]
+    elif damage == "naive":
+        read_fields["completed_at"] = {"scalar": "datetime", "value": "2026-01-01T00:00:00"}
+    else:
+        duplicate = deepcopy(current)
+        duplicate_fields = duplicate["fields"]
+        assert isinstance(duplicate_fields, dict)
+        if damage == "conflicting_id":
+            duplicate_fields["returned_rows"] = 4
+        reads.append(duplicate)
+    with pytest.raises(IntegrityError):
+        protocol.decode(canonical_json(wire), ArtifactManifest)
+
+
+def test_current_store_contains_no_record_collections(tmp_path: Path) -> None:
+    from marivo.analysis.materialization.store import SessionStore
+
+    store = SessionStore(tmp_path)
+    with store._read() as connection:
+        names = {
+            row[0]
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
+            )
+        }
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 24
+    assert names == {
+        "sessions",
+        "analysis_action_runs",
+        "analysis_action_run_terminals",
+        "dataset_artifacts",
+        "action_resource_journal",
+    }

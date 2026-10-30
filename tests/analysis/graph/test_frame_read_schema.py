@@ -28,8 +28,8 @@ from marivo.analysis.core.data_types import (
     ScalarDataType,
     TimestampDataType,
 )
-from marivo.analysis.core.frame_audit import EvaluationRecord, FrameAudit, FrameResultMetadata
 from marivo.analysis.core.frame_data import CompletedFrameData, CompletedFrameResult
+from marivo.analysis.core.frame_metadata import EvaluationRecord, FrameResultMetadata
 from marivo.analysis.core.frame_schema import (
     CoordinateExportColumn,
     FieldExportColumn,
@@ -63,7 +63,7 @@ def local(tmp_path: Path) -> LocalFrameServices:
 def _metadata() -> FrameResultMetadata:
     return FrameResultMetadata(
         "read-schema-result",
-        FrameAudit((), EvaluationRecord(datetime(2026, 10, 28, tzinfo=timezone.utc), (), ())),
+        EvaluationRecord(datetime(2026, 10, 28, tzinfo=timezone.utc), (), ()),
     )
 
 
@@ -271,7 +271,6 @@ def test_public_schema_uses_captured_facts_for_every_carrier_without_io(
     monkeypatch.setattr(FrameReader, "data", forbidden)
     monkeypatch.setattr(FrameReader, "complete", forbidden)
     monkeypatch.setattr(FrameReader, "method_facts", forbidden)
-    monkeypatch.setattr(terminal_store, "confirm_records", forbidden)
     monkeypatch.setattr(terminal_store, "complete_metadata", forbidden)
     for frame, captured in zip(frames, expected, strict=True):
         assert frame.schema == captured
