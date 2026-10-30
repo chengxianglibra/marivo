@@ -486,7 +486,9 @@ def test_sole_protocol_and_exact_closed_fields(local: LocalFrameServices) -> Non
     assert tuple(field.name for field in fields(InvocationInput)) == ("result_id",)
     run = terminal_run(local, value.run_id)
     assert run.dataset_input == InvocationInput(metadata().result_id)
-    assert value.metadata.evaluated_at < datetime.fromisoformat(run.admitted_at)
+    assert value.metadata.evaluated_at < datetime.fromisoformat(
+        run.admitted_at.replace("Z", "+00:00")
+    )
     assert counts(local) == (1, 1)
     assert "display_order" not in encode(value)
 
