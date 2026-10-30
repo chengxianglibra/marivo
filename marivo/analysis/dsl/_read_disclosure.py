@@ -541,6 +541,7 @@ def provider() -> DisclosureProvider:
             output="pandas.DataFrame",
             constraints=(
                 "Isolated page rows follow layout exactly; attrs are empty. The RangeIndex is not a business key.",
+                "Large int64[pyarrow] mixed with float may raise ArrowInvalid. For approximate arithmetic: result['value'].astype('float64') / 3600.0; integers may round and pd.NA becomes NaN.",
             ),
             effects="Copy page data only.",
             failures=(),

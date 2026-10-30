@@ -24,7 +24,8 @@ Physical constructors return native typed Deferred symbols. The loader binds
 its complete dependency scope and publishes ten immutable named objects:
 Domain, Datasource, Entity, Dimension, TimeDimension, Measure, Metric,
 Relationship, PeriodCalendar and TemporalSet. `SemanticObject` is their closed
-union. `catalog.get("kind:path")` requires a canonical identity string;
+union. `catalog.get("kind:path")` accepts a canonical identity string or an
+uncomposed `ms.ref.*` lookup symbol;
 `search(kind=...)` retains a kind-specific page type. Check `.kind` or use
 `isinstance` to narrow a retrieved object, then consume it directly.
 

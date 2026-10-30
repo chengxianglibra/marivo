@@ -640,11 +640,11 @@ def provider() -> DisclosureProvider:
             ("frame",),
             "results.inspect",
             (
-                "Example needs frame['value']; compute/persist first; no source reads. Typed work: Frame; cross-process: persisted IDs.",
-                "Axes first, composite keys as tuples. TimeField: one value. Calendar/interval: .start/.end in axis timezone; mixed/sub-minute zones: UTC. Pairs: .left/.right.",
-                "axis_names renames prefixes; it or select() fixes collisions. Keeps order/types/NA/presence.",
-                "Isolated attrs; frozen_coordinates rows: pyarrow.Table.",
-                ".nominal_start is bucket start; .start may be clipped.",
+                "Example needs frame['value']; fixed only; no source reads. Typed: Frame; save IDs.",
+                "Axes first; composite tuples; TimeField: one value; calendar/interval: .start/.end, zone (mixed/sub-minute: UTC); pairs: .left/.right.",
+                "axis_names/select fix collisions; keep order/types/NA/presence.",
+                "Large int64[pyarrow] / float may raise ArrowInvalid; approx: values.astype('float64')/3600.0 (may round; pd.NA -> NaN).",
+                "Isolated attrs; frozen_coordinates rows: pyarrow.Table. .start may be clipped; .nominal_start: bucket start.",
             ),
         ),
         (

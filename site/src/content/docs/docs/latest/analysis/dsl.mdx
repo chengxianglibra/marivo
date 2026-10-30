@@ -206,6 +206,8 @@ Each frozen-coordinate entry stores `rows` as an immutable `pyarrow.Table`, comp
 
 `table.attrs["axes"]`, `units`, `comparisons` and `frozen_coordinates` retain isolated interpretation metadata. Internal descriptors are not a stable import protocol. Physical numeric, missing-value and temporal types are retained: do not coerce all columns to float or fill every NA with zero. Continue typed analysis from the Frame. Help: `analysis.analysis_frame.to_pandas`.
 
+Large `int64[pyarrow]` values mixed with floats can raise `ArrowInvalid`. When approximate arithmetic is acceptable, convert the relevant column explicitly, for example `hours = table["seconds"].astype("float64") / 3600.0`. This conversion can round large integers and represents `pd.NA` as `NaN`. The same applies to tables returned by `page.to_pandas()`.
+
 
 Next, [compare two periods](/docs/latest/analysis/dsl/#compare-and-align) or [save the result](/docs/latest/analysis/results/).
 

@@ -32,6 +32,8 @@ def test_every_loaded_kind_has_one_immutable_canonical_entry(tmp_path: Path) -> 
     }
     for entry in page.items:
         assert catalog.get(entry.id) is entry
+        symbol = getattr(ms.ref, entry.kind)(entry.path)
+        assert catalog.get(symbol) is entry
         assert entry.id == f"{entry.kind}:{entry.path}"
         assert len(repr(entry).encode()) < 200
         assert "show" in repr(entry)
@@ -47,7 +49,7 @@ def test_every_loaded_kind_has_one_immutable_canonical_entry(tmp_path: Path) -> 
 def test_object_kind_narrowing_exposes_direct_typed_operations(tmp_path: Path) -> None:
     write_minimal_catalog_project(tmp_path)
     catalog = ms.load(workspace_dir=tmp_path)
-    metric = catalog.get("metric:sales.revenue")
+    metric = catalog.get(ms.ref.metric("sales.revenue"))
     assert metric.kind == "metric"
     assert isinstance(metric, ms.MetricExpression)
     assert consume_metric(metric).roots[0].ref.key == "entity:sales.orders"
@@ -74,13 +76,20 @@ def test_get_requires_a_canonical_kind_and_complete_path(tmp_path: Path, identit
 def test_get_preserves_requested_kind_and_relevant_repair(tmp_path: Path) -> None:
     write_minimal_catalog_project(tmp_path)
     catalog = ms.load(workspace_dir=tmp_path)
-    with pytest.raises(SemanticRuntimeError) as wrong:
-        catalog.get("measure:sales.orders.status")
-    assert wrong.value.kind == ErrorKind.NOT_FOUND
-    assert wrong.value.details["reason"] == "wrong_kind"
-    assert wrong.value.repair is not None
-    assert wrong.value.repair.candidates == ("dimension:sales.orders.status",)
-    with pytest.raises(SemanticRuntimeError) as typo:
-        catalog.get("metric:sales.reveneu")
-    assert typo.value.repair is not None
-    assert typo.value.repair.candidates[0] == "metric:sales.revenue"
+    for identity in ("measure:sales.orders.status", ms.ref.measure("sales.orders.status")):
+        with pytest.raises(SemanticRuntimeError) as wrong:
+            catalog.get(identity)
+        assert wrong.value.kind == ErrorKind.NOT_FOUND
+        assert wrong.value.details["reason"] == "wrong_kind"
+        assert wrong.value.received == "measure:sales.orders.status"
+        assert wrong.value.semantic_refs == ("measure:sales.orders.status",)
+        assert wrong.value.repair is not None
+        assert wrong.value.repair.candidates == ("dimension:sales.orders.status",)
+    for identity in ("metric:sales.reveneu", ms.ref.metric("sales.reveneu")):
+        with pytest.raises(SemanticRuntimeError) as typo:
+            catalog.get(identity)
+        assert typo.value.details["reason"] == "not_found"
+        assert typo.value.received == "metric:sales.reveneu"
+        assert typo.value.semantic_refs == ("metric:sales.reveneu",)
+        assert typo.value.repair is not None
+        assert typo.value.repair.candidates[0] == "metric:sales.revenue"

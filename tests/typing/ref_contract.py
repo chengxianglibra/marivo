@@ -89,6 +89,9 @@ def _catalog_entry_contract(catalog: SemanticCatalog) -> None:
 
 
 def _native_selector_roundtrip(catalog: SemanticCatalog, ordinary: Deferred) -> None:
+    assert_type(catalog.get(ms.ref.metric("sales.revenue")), ms.SemanticObject)
+    assert_type(catalog.get(ms.ref.entity("sales.orders")), ms.SemanticObject)
+    assert_type(catalog.get(ms.ref.measure("sales.orders.amount")), ms.SemanticObject)
     for entry in catalog.search().items:
         assert_type(entry, ms.SemanticObject)
         catalog.get(entry.id)
@@ -102,5 +105,5 @@ def _native_selector_roundtrip(catalog: SemanticCatalog, ordinary: Deferred) -> 
     report = catalog.readiness(refs=[entity])
     for selector in report.analysis_ready_inputs:
         assert_type(selector, ms.SemanticObject)
-    catalog.get(ordinary)  # type: ignore[arg-type]  # Exact lookup requires a canonical identity string.
+    catalog.get(ordinary)  # type: ignore[arg-type]  # Only a native lookup leaf is accepted.
     catalog.get(ms.ref.measure("sales.orders.amount") + 1)  # type: ignore[arg-type]

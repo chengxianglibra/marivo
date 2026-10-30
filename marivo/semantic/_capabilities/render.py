@@ -450,7 +450,7 @@ def _render_type(type_name: str, original: object | None) -> str:
     if type_name == "ref":
         lines.append(
             "  Construction namespace: use ms.ref.<kind>(path); every factory returns "
-            "one immutable native Deferred lookup symbol. The loader binds authoring recipes; catalog.get(kind:path) returns typed objects for direct consumption after kind narrowing."
+            "one immutable native Deferred lookup symbol. The loader binds authoring recipes; catalog.get(symbol) or catalog.get(kind:path) returns typed objects for direct consumption after kind narrowing."
         )
     if type_name == "SourceCheckNamespace":
         lines.append(

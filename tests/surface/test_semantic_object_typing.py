@@ -17,7 +17,7 @@ import marivo.semantic as ms
 def rejected(session: mv.Session, metric: ms.Metric, amount: ms.Measure, dimension: ms.Dimension) -> None:
     metric.value  # invalid: removed conversion
     metric.ref  # invalid: removed conversion
-    session.catalog.get(metric)  # invalid: exact string only
+    session.catalog.get(metric)  # invalid: object is already closed
     metric + amount  # invalid: stage mismatch
     dimension + 1  # invalid: classification is not a quantity
     dimension.sum()  # invalid: classification has no sum permission

@@ -106,6 +106,9 @@ class FramePage(RenderableResult):
         Returns: A DataFrame in layout order, with empty attrs and a page-local RangeIndex.
         Example: ``rows = page.to_pandas()``.
         Constraints: Reads no files and does not change captured read_stats.
+        Large int64[pyarrow] values mixed with floats may raise ArrowInvalid.
+        For approximate arithmetic, use ``rows["value"].astype("float64") / 3600.0``;
+        this may round integers and represent pd.NA as NaN.
         """
         return detached_rows(self._rows)
 

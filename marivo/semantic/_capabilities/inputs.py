@@ -65,6 +65,10 @@ _FAMILIES: dict[str, tuple[str, tuple[LiveHelpTarget, ...]]] = {
         "Acquire the current project snapshot before lookup or validation.",
         _links("load"),
     ),
+    "str | LookupSymbol": (
+        "Pass a canonical kind:path identity or a single native ms.ref.* lookup symbol.",
+        _links("ref", "SemanticCatalog.search"),
+    ),
     "SemanticObject": (
         "Get or search named objects in the same project; the receiving Catalog owns resolution and accepted kinds.",
         _links("SemanticCatalog.get", "SemanticCatalog.search"),

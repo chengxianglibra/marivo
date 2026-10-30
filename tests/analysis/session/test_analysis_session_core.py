@@ -420,7 +420,7 @@ def test_analysis_input_roles_reject_authoring_and_wrong_stage_with_parameter_pa
     _write_object_model(tmp_path)
     monkeypatch.chdir(tmp_path)
     session = mv.session.get_or_create("role-boundaries")
-    metric = session.catalog.get("metric:sales.revenue")
+    metric = session.catalog.get(ms.ref.metric("sales.revenue"))
     entity = session.catalog.get("entity:sales.facts")
     assert isinstance(metric, ms.Metric) and isinstance(entity, ms.Entity)
     with pytest.raises(AnalysisError, match="metrics"):

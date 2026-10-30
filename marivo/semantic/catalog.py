@@ -3191,10 +3191,10 @@ class SemanticCatalog(RenderableResult):
         if isinstance(id, _SemanticObject):
             _raise(
                 ErrorKind.INVALID_REF,
-                "catalog.get(id) requires an identity string; the supplied object is already directly usable.",
+                "catalog.get(id) requires an identity or lookup symbol; the supplied object is already directly usable.",
                 cls=SemanticRuntimeError,
                 refs=(id.id,),
-                expected="canonical kind:path string",
+                expected="canonical kind:path string or native lookup symbol",
                 received=f"{type(id).__name__}({id.id})",
                 hint="Use the object directly; pass object.id only to acquire the receiving Catalog's definition.",
                 repair_value=repair(
@@ -3207,27 +3207,13 @@ class SemanticCatalog(RenderableResult):
             )
         symbolic = native_symbol_ref(id)
         if symbolic is not None:
-            _raise(
-                ErrorKind.INVALID_REF,
-                "catalog.get(id) requires an identity string; a lookup symbol is not a closed analysis input.",
-                cls=SemanticRuntimeError,
-                refs=(symbolic.key,),
-                expected="canonical kind:path string",
-                received=f"lookup symbol ({symbolic.key})",
-                hint="Pass the symbol's canonical identity to acquire a closed object from this Catalog.",
-                repair_value=repair(
-                    kind="inspect",
-                    canonical_id="semantic_catalog.get",
-                    action="Pass the canonical identity string; lookup symbols capture declaration references.",
-                    snippet=f"subject = catalog.get({symbolic.key!r})",
-                ),
-            )
+            return symbolic
         if not isinstance(id, str) or id.count(":") != 1:
             _raise(
                 ErrorKind.INVALID_REF,
-                "catalog.get(id) requires a canonical kind:path identity.",
+                "catalog.get(id) requires a canonical kind:path identity or native lookup symbol.",
                 cls=SemanticRuntimeError,
-                expected="canonical kind:path string",
+                expected="canonical kind:path string or native lookup symbol",
                 received=id if isinstance(id, str) else type(id).__name__,
                 hint="Choose an id from catalog.search().items.",
             )
@@ -3244,17 +3230,19 @@ class SemanticCatalog(RenderableResult):
                 hint="Choose an id from catalog.search().items.",
             )
 
-    def get(self, id: str, /) -> SemanticObject:
+    def get(self, id: str | LookupSymbol, /) -> SemanticObject:
         """Get one directly usable named object by its exact canonical identity.
 
-        Args: id: Canonical kind:path string returned by search or an object's id.
+        Args: id: Canonical kind:path string or an uncomposed native ms.ref.* symbol.
         Returns: A closed kind-discriminated immutable semantic object; narrow kind before composing.
-        Example: ``entry = catalog.get("metric:sales.revenue")``.
-        Constraints: Pass a canonical identity string, not an ms.ref.* lookup symbol.
-        Lookup symbols capture declaration references; the returned closed object is
-        directly usable in analysis. Exact lookup never uses fuzzy replacement or calls a model/source.
+        Example: ``entry = catalog.get(ms.ref.metric("sales.revenue"))``.
+        Constraints: Lookup symbols capture declaration references; get resolves one
+        symbol against this Catalog, returning a closed object usable in analysis.
+        Composite Deferred expressions are not identities. Exact lookup never uses
+        fuzzy replacement or calls a model/source.
         """
         ref = self._ref_from_id(id)
+        identity = ref.key
         entry = self._index.entry(ref)
         if entry is not None:
             return cast("SemanticObject", entry)
@@ -3262,17 +3250,17 @@ class SemanticCatalog(RenderableResult):
         if known_outside:
             _raise(
                 ErrorKind.NOT_FOUND,
-                f"Canonical identity {id!r} is referenced but outside this Catalog's loaded scope.",
+                f"Canonical identity {identity!r} is referenced but outside this Catalog's loaded scope.",
                 cls=SemanticRuntimeError,
-                refs=(id,),
+                refs=(identity,),
                 expected="a required identity included in the explicit load scope",
-                received=id,
+                received=identity,
                 hint="Create a new Catalog with ms.load(domains=...) including the required domain and its dependencies.",
                 repair_value=repair(
                     kind="reload",
                     canonical_id="load",
                     action="Explicitly reload with the referenced domain and its required dependency domains; the current Catalog is unchanged.",
-                    candidates=(id,),
+                    candidates=(identity,),
                 ),
                 details={"reason": "outside_scope", "loaded_domains": self._scope.domains},
             )
@@ -3286,11 +3274,11 @@ class SemanticCatalog(RenderableResult):
         )
         _raise(
             ErrorKind.NOT_FOUND,
-            f"Canonical identity {id!r} was not found in this loaded Catalog.",
+            f"Canonical identity {identity!r} was not found in this loaded Catalog.",
             cls=SemanticRuntimeError,
-            refs=(id,),
+            refs=(identity,),
             expected="an exact loaded kind:path identity",
-            received=id,
+            received=identity,
             hint="Use catalog.search(query, kind=...) to discover current identities.",
             repair_value=repair(
                 kind="inspect",

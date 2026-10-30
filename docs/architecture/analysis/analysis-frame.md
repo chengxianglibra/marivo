@@ -191,6 +191,9 @@ frozen_coordinates 每项的 rows 为不可变 pyarrow.Table，保留声明的�
 `part["rows"].to_pandas(types_mapper=pd.ArrowDtype)`。
 这些 attrs 不承诺稳定反序列化协议，导出的表不授予 typed 运算权限。
 导出保留行序、物理数值、NULL 和合法零，返回隔离副本；show 的有界预览复用默认坐标解释。
+完整和分页导出后的大 `int64[pyarrow]` 值与浮点数混算可能触发 `ArrowInvalid`。
+接受近似结果时，可先显式使用 `rows["value"].astype("float64") / 3600.0`；该转换可能
+舍入大整数，并将 `pd.NA` 表示为 `NaN`。
 
 区间轴描述捕获公共导出时区，分页不从当前页推断。混合时区的合并区间轴统一使用 UTC 时间戳；原始边界时区保留在冻结目录中。
 固定偏移含非零秒数时也使用 UTC，以适配 Arrow/pandas 的时区解码，保持精确时间点；秒数为零时规范化为分钟偏移。此规则同样适用于详情列、分页和预览。

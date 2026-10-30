@@ -181,8 +181,8 @@ When current source or data drift matters, run
 types and temporal parser/timezone contracts without querying user data and
 therefore forbids scope. Preview and analysis share these field checks. Null, enum, uniqueness, freshness,
 relationship, and cardinality expectations exist only when explicitly built
-with `ms.source_check` using native lookup symbols or Catalog entries' `.ref`,
-not their closed `.value`; those data-reading checks require an exact bounded
+with `ms.source_check` using native lookup symbols or named field and relationship
+objects from the Catalog directly; those data-reading checks require an exact bounded
 scope and disclose it in every result. Online validation is ephemeral and never
 changes readiness or semantic source. A passing relationship-match check covers
 only the selected source rows. It cannot decide whether a consuming operation

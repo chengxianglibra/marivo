@@ -1625,6 +1625,9 @@ class AnalysisFrame:
             collisions with axis_names or select(). Saved reads fully validate current
             data without Catalog, source or method-payload reads. Value types, NA,
             presence and row order are preserved; no float coercion or zero filling.
+            Large int64[pyarrow] values mixed with floats may raise ArrowInvalid.
+            For approximate arithmetic, use ``rows["value"].astype("float64") / 3600.0``;
+            this may round integers and represent pd.NA as NaN.
             Exported data and attrs grant no typed computation authority or stable
             deserialization protocol. Continue typed analysis from the Frame.
             Retain that Frame for typed operations; a DataFrame does not retain it.

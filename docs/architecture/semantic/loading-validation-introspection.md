@@ -68,10 +68,10 @@ retains the full API page. Resume with the same query and filters; stale cursors
 fail explicitly instead of silently reranking.
 
 `catalog.get("metric:sales.revenue")` retrieves one canonical `kind:path`
-identity. Pass the identity string, rather than an `ms.ref.*` lookup symbol.
-Symbols capture declaration references; a bare symbol rejection supplies its actual
-canonical identity and a `catalog.get(...)` repair without resolving it. The repair
-does not assert that the identity exists in this Catalog. It returns a closed union: check `entry.kind` before using specialized
+identity. Alternatively pass one uncomposed `ms.ref.*` lookup symbol, such as
+`catalog.get(ms.ref.metric("sales.revenue"))`. The lookup resolves the symbol's
+identity in this Catalog; composite Deferred expressions are not identities.
+It returns a closed union: check `entry.kind` before using specialized
 members and consume the object directly. Domain/Datasource have no arithmetic
 operations. Calendar and temporal-set objects retain
 certified period/occurrence operations.

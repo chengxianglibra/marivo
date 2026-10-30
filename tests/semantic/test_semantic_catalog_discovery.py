@@ -239,10 +239,14 @@ ms.relationship(name="external_users", from_entity=orders, to_entity=ms.ref.enti
     assert related.outside_scope == ("entity:ops.users",)
     assert related.retrieval.mode == "related"
     assert not related.matches
-    with pytest.raises(SemanticError) as lookup:
-        catalog.get(related.outside_scope[0])
-    assert lookup.value.details["reason"] == "outside_scope"
-    assert lookup.value.repair is not None and lookup.value.repair.kind == "reload"
+    for identity in (related.outside_scope[0], ms.ref.entity("ops.users")):
+        with pytest.raises(SemanticError) as lookup:
+            catalog.get(identity)
+        assert lookup.value.details["reason"] == "outside_scope"
+        assert lookup.value.received == "entity:ops.users"
+        assert lookup.value.semantic_refs == ("entity:ops.users",)
+        assert lookup.value.repair is not None and lookup.value.repair.kind == "reload"
+        assert lookup.value.repair.candidates == ("entity:ops.users",)
     report = catalog.readiness(refs=[entry])
     assert report.status == "blocked"
     assert "entity:ops.users" in report.checked_ids
@@ -412,26 +416,9 @@ def query_count():
     )
 
 
-@pytest.mark.parametrize(
-    "kind,path",
-    [
-        ("metric", "sales.revenue"),
-        ("entity", "sales.orders"),
-        ("dimension", "sales.orders.missing"),
-    ],
-)
-def test_get_lookup_symbol_repairs_use_the_actual_identity(
-    tmp_path: Path, kind: str, path: str
-) -> None:
+def test_get_rejects_composed_deferred_without_guessing_an_identity(tmp_path: Path) -> None:
     write_minimal_catalog_project(tmp_path)
     catalog = ms.load(workspace_dir=tmp_path)
-    symbol = getattr(ms.ref, kind)(path)
-    with pytest.raises(SemanticError) as caught:
-        catalog.get(symbol)
-    error = caught.value
-    assert f"{kind}:{path}" in str(error)
-    assert error.repair.snippet == f"subject = catalog.get('{kind}:{path}')"
-    assert error.repair.help_target.canonical_id == "semantic_catalog.get"
     # A composed Deferred has no single canonical identity to suggest.
     with pytest.raises(SemanticError) as composed:
         catalog.get(ms.ref.metric("sales.revenue") + 1)
