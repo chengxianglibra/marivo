@@ -54,7 +54,12 @@ def render(registry: DatasetDisclosureRegistry, target: object = "") -> str:
             from marivo.introspection.live.model import EnvironmentFingerprint
             from marivo.introspection.live.render import render_fingerprint
 
-            lines.insert(0, render_fingerprint(EnvironmentFingerprint.current(), reveal=True))
+            lines.insert(
+                0,
+                render_fingerprint(
+                    EnvironmentFingerprint.current(), reveal=True, include_version=False
+                ),
+            )
         render_class = descriptor.render_class
         routes = descriptor.members + descriptor.related
         lines.extend(descriptor.guidance)

@@ -415,8 +415,13 @@ def _render_factory_descriptor(descriptor: AuthoringCapability, type_name: str) 
         line
         for line in _render_type(type_name, None).splitlines()[1:]
         if not line.startswith("  Public consumption:")
+        and not (type_name == "SourceCheckNamespace" and line.startswith("  Consumers:"))
     )
     lines = [descriptor.canonical_id, *type_lines]
+    if type_name == "SourceCheckNamespace":
+        contract = _contract_for_name(type_name)
+        lines.append("  Check factories: " + _route_list(descriptor.see_also))
+        lines.append("  Validation: " + _route_list(contract.consumers))
     return _bounded("\n".join(lines))
 
 

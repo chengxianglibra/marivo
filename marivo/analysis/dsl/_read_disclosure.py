@@ -1,6 +1,6 @@
 """Native contracts for captured structure and bounded fixed-data reads."""
 
-from inspect import signature
+from inspect import cleandoc, signature
 
 from marivo.analysis._capabilities.dataset_model import (
     Descriptor,
@@ -154,7 +154,7 @@ def provider() -> DisclosureProvider:
             FrameCalendarAxisSchema,
             "frame_calendar_axis_schema",
             ("frame_schema.axes",),
-            ("frame_period_page",),
+            ("frame_period_page", "frame_builtin_grain", "frame_named_grain"),
         ),
         (
             FrameIntervalAxisSchema,
@@ -171,13 +171,21 @@ def provider() -> DisclosureProvider:
         (
             FrameBuiltinGrain,
             "frame_builtin_grain",
-            ("frame_calendar_axis_schema.grain", "frame_to_date_window.grain"),
+            (
+                "frame_calendar_axis_schema.grain",
+                "frame_calendar_endpoint.grain",
+                "frame_to_date_window.grain",
+            ),
             (),
         ),
         (
             FrameNamedGrain,
             "frame_named_grain",
-            ("frame_calendar_axis_schema.grain", "frame_to_date_window.grain"),
+            (
+                "frame_calendar_axis_schema.grain",
+                "frame_calendar_endpoint.grain",
+                "frame_to_date_window.grain",
+            ),
             ("semantic_object_identity",),
         ),
         (
@@ -188,7 +196,7 @@ def provider() -> DisclosureProvider:
                 "frame_paired_axis_schema.right",
                 "frame_calendar_comparison_binding.baseline",
             ),
-            ("frame_period_page",),
+            ("frame_period_page", "frame_builtin_grain", "frame_named_grain"),
         ),
         (
             FrameIntervalEndpoint,
@@ -216,7 +224,12 @@ def provider() -> DisclosureProvider:
             (),
         ),
         (FrameSinceWindow, "frame_since_window", ("frame_observation_context.window",), ()),
-        (FrameToDateWindow, "frame_to_date_window", ("frame_observation_context.window",), ()),
+        (
+            FrameToDateWindow,
+            "frame_to_date_window",
+            ("frame_observation_context.window",),
+            ("frame_builtin_grain", "frame_named_grain"),
+        ),
         (
             FrameTrailingDurationWindow,
             "frame_trailing_duration_window",
@@ -233,7 +246,18 @@ def provider() -> DisclosureProvider:
             FrameObservationContext,
             "frame_observation_context",
             ("frame_schema.value_contexts",),
-            ("frame_comparison_group", "frame_level_target"),
+            (
+                "frame_axis_time",
+                "frame_compared_time",
+                "frame_fixed_time",
+                "frame_all_history_window",
+                "frame_since_window",
+                "frame_to_date_window",
+                "frame_trailing_duration_window",
+                "frame_trailing_periods_window",
+                "frame_comparison_group",
+                "frame_level_target",
+            ),
         ),
         (
             FrameAxisGroup,
@@ -251,7 +275,12 @@ def provider() -> DisclosureProvider:
             FrameStatisticContext,
             "frame_statistic_context",
             ("frame_schema.value_contexts",),
-            ("frame_comparison_group", "frame_level_target"),
+            (
+                "frame_axis_group",
+                "frame_fixed_group",
+                "frame_comparison_group",
+                "frame_level_target",
+            ),
         ),
         (
             FrameComparisonValue,
@@ -317,7 +346,13 @@ def provider() -> DisclosureProvider:
             FrameDecomposition,
             "frame_decomposition",
             ("frame_schema.decompositions",),
-            ("frame_decomposition_field", "frame_level_target", "frame_change_target"),
+            (
+                "frame_decomposition_field",
+                "frame_level_target",
+                "frame_change_target",
+                "frame_axis_group",
+                "frame_fixed_group",
+            ),
         ),
         (
             FieldExportColumn,
@@ -404,17 +439,36 @@ def provider() -> DisclosureProvider:
             return "frame_axis_schema." + name
         return target + "." + name
 
+    page_summaries = {
+        FrameCalendarPeriod: "One saved calendar period.",
+        FrameIntervalPeriod: "One saved interval.",
+        FramePairedPeriod: "A saved pair and its complete owning key.",
+        FramePeriodPage: "One bounded immutable period page.",
+    }
+    page_constraints = {
+        FrameReadStats: "Counts include scanned records and repeated scans, not all disk I/O, elapsed time or peak memory. Example: page.read_stats.show().",
+        FramePage: "Retains only this page, with no Frame, reader or complete audit. Coordinates belong to input_id; RangeIndex is not a business key. Example: fixed.read_page(limit=100).to_pandas().",
+        FrameCalendarPeriod: "Contains complete keys, actual and nominal UTC bounds, original ordinals, timezone, labels and saved civil boundaries; current timezone rules and shift history are not reconstructed. Example: page.items[0].show().",
+        FrameIntervalPeriod: "Contains complete keys, UTC bounds and boundary timezone; unsaved nominal or civil boundaries are not inferred. Example: page.items[0].show().",
+        FramePairedPeriod: "An endpoint may be absent without a saved reason. Example: page.items[0].left.",
+        FrameComparisonPeriod: "A missing baseline carries its saved reason, independently of row presence. Example: page.items[0].baseline.",
+        FramePeriodPage: "Retains this page and its endpoints only; period keys join to read_page().coordinates and selected periods need not have current rows. Example: fixed.read_periods(fixed.axes[0], limit=100).",
+    }
     for owner, target, producers, consumers in types:
         method_targets = tuple(
             method_target(owner, target, name)
             for name in ("show", "render")
             if getattr(owner, name, None) is not None
+            and getattr(owner, name) is not getattr(RenderableResult, name, None)
         )
         descriptors.append(
             value_type(
                 target,
                 owner,
-                summary=owner.__doc__ or owner.__name__,
+                summary=page_summaries.get(
+                    owner,
+                    cleandoc(owner.__doc__).splitlines()[0] if owner.__doc__ else owner.__name__,
+                ),
                 acquisition=f"Read {producers[0]}; returned immutable facts only. Direct construction and extension are unsupported.",
                 producers=producers,
                 consumers=(
@@ -425,7 +479,8 @@ def provider() -> DisclosureProvider:
                     "Read identities survive inheritance across results; scopes retain original read bindings. No source execution, Store lookup or data authority."
                     if owner in (FrameSourceRead, FrameSourceReadScope, FrameSourceReadPeriod)
                     else "Identities apply within one exact input. No source execution, Store lookup or data authority.",
-                ),
+                )
+                + ((page_constraints[owner],) if owner in page_constraints else ()),
             )
         )
         for method_name in ("show", "render"):

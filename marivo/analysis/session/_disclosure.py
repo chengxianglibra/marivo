@@ -236,7 +236,11 @@ def provider() -> DisclosureProvider:
                 if name == "persisted_frame"
                 else ("session.persisted_frame", "runtime.PersistedFrameSummaryPage")
                 if name == "persisted_frames"
-                else ("session.get_or_create", "analysis_frame.compute", "analysis_frame.persist")
+                else (
+                    "analysis_frame.compute",
+                    "analysis_frame.persist",
+                    "semantic.source_check",
+                )
                 if name == "observe"
                 else ("session.observe", "TimeScope.by")
                 if name in ("instant", "time_scope")

@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from decimal import Decimal
-from typing import TYPE_CHECKING, Literal, TypeAlias
+from typing import TYPE_CHECKING, Literal, TypeAlias, get_args
 
 import pyarrow as pa
 
@@ -81,8 +81,16 @@ class FrameField:
     slot_id: str
     name: str
     dtype: FrameDataType
-    nullable: bool | None
-    unit: str | None
+    nullable: bool | None = field(
+        metadata={
+            "meaning": "Whether values may be Null; None means unknown and is allowed only for an unresolved pending field."
+        }
+    )
+    unit: str | None = field(
+        metadata={
+            "meaning": "Declared unit; None means no unit was declared, while '1' means dimensionless."
+        }
+    )
 
     def __post_init__(self) -> None:
         require_data_text(self.slot_id, "frame.schema.slot_id")
@@ -196,7 +204,11 @@ class FrameCalendarEndpoint(_Fact):
     name: str
     at: datetime | None
     timezone: str
-    grain: FrameGrain
+    grain: FrameGrain = field(
+        metadata={
+            "meaning": "Captured nominal grain; see marivo.help('analysis.frame_calendar_endpoint') for builtin and named variants."
+        }
+    )
     kind: Literal["calendar"] = field(default="calendar")
 
 
@@ -248,7 +260,11 @@ class FrameCalendarAxisSchema(FrameAxisSchema):
     """Calendar key, timezone and captured nominal grain."""
 
     timezone: str
-    grain: FrameGrain
+    grain: FrameGrain = field(
+        metadata={
+            "meaning": "Captured nominal grain; see marivo.help('analysis.frame_calendar_axis_schema') for builtin and named variants."
+        }
+    )
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -322,7 +338,11 @@ class FrameSinceWindow(_Fact):
 class FrameToDateWindow(_Fact):
     """An explicitly attached reset grain."""
 
-    grain: FrameGrain
+    grain: FrameGrain = field(
+        metadata={
+            "meaning": "Captured reset grain; see marivo.help('analysis.frame_to_date_window') for builtin and named variants."
+        }
+    )
     kind: Literal["to_date"] = field(default="to_date")
 
 
@@ -356,8 +376,16 @@ class FrameObservationContext(_Fact):
     """Direct observation subject, time basis and explicitly attached window."""
 
     subject: SemanticObjectIdentity | None
-    time: FrameAxisTime | FrameComparedTime | FrameFixedTime | None
-    window: FrameObservationWindow | None
+    time: FrameAxisTime | FrameComparedTime | FrameFixedTime | None = field(
+        metadata={
+            "meaning": "Captured time basis, if available. See marivo.help('analysis.frame_observation_context') for the time variants."
+        }
+    )
+    window: FrameObservationWindow | None = field(
+        metadata={
+            "meaning": "Explicitly attached window, if available. See marivo.help('analysis.frame_observation_context') for the window variants."
+        }
+    )
     kind: Literal["observation"] = field(default="observation")
 
 
@@ -385,8 +413,17 @@ class FrameStatisticContext(_Fact):
     """Current-row statistic and its complete parent groups."""
 
     statistic: Literal["sum", "mean", "row_count", "pearson", "spearman", "pair_count"]
-    groups: tuple[FrameGroup, ...]
-    row_scope: Literal["complete", "restricted"] = "complete"
+    groups: tuple[FrameGroup, ...] = field(
+        metadata={
+            "meaning": "Complete parent groups; see marivo.help('analysis.frame_statistic_context') for axis and fixed variants."
+        }
+    )
+    row_scope: Literal["complete", "restricted"] = field(
+        default="complete",
+        metadata={
+            "meaning": "Complete retains the represented statistic's full parent row scope; restricted means the current result may represent only part of that scope. Filtering or ranking does not recompute the captured statistic."
+        },
+    )
     kind: Literal["statistic"] = field(default="statistic")
 
 
@@ -518,7 +555,13 @@ class FrameDecompositionField(_Fact):
     """One current value or presence field and its actual decomposition role."""
 
     field_kind: Literal["value", "presence"]
-    role: FrameDecompositionRole
+    role: FrameDecompositionRole = field(
+        metadata={
+            "meaning": "Role of this retained output: "
+            + ", ".join(get_args(FrameDecompositionRole))
+            + ". See marivo.help('analysis.analysis_frame.attribute') for the decomposition contract."
+        }
+    )
     name: str
 
 
@@ -528,8 +571,16 @@ class FrameDecomposition(_Fact):
 
     decomposition_id: str
     target: FrameLevelTarget | FrameChangeTarget
-    groups: tuple[FrameGroup, ...]
-    row_scope: Literal["complete", "restricted"]
+    groups: tuple[FrameGroup, ...] = field(
+        metadata={
+            "meaning": "Complete parent groups; see marivo.help('analysis.frame_decomposition') for axis and fixed variants."
+        }
+    )
+    row_scope: Literal["complete", "restricted"] = field(
+        metadata={
+            "meaning": "Complete retains the represented decomposition's full parent row scope; restricted means the current result may represent only part of that scope. Filtering or ranking does not recompute the captured decomposition."
+        }
+    )
     outputs: tuple[FrameDecompositionField, ...]
 
 

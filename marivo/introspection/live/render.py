@@ -7,18 +7,20 @@ import hashlib
 from marivo.introspection.live.model import SURFACE_LIMITS, EnvironmentFingerprint
 
 
-def render_fingerprint(fp: EnvironmentFingerprint, *, reveal: bool) -> str:
+def render_fingerprint(
+    fp: EnvironmentFingerprint, *, reveal: bool, include_version: bool = True
+) -> str:
     """Render the environment fingerprint.
 
     When ``reveal`` is True (root help and explicit environment-mismatch
     diagnostics), exact interpreter and package paths are shown. When
     ``reveal`` is False, exact paths are hidden via :func:`mask_fingerprint`.
+    Omit the revealed version when the surrounding Help header already owns it.
     """
     if not reveal:
         return mask_fingerprint(fp)
-    return (
-        f"Marivo: {fp.marivo_version}\nPython: {fp.python_executable}\nPackage: {fp.package_path}"
-    )
+    version = f"Marivo: {fp.marivo_version}\n" if include_version else ""
+    return f"{version}Python: {fp.python_executable}\nPackage: {fp.package_path}"
 
 
 def _opaque_id(fp: EnvironmentFingerprint) -> str:

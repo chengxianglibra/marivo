@@ -79,7 +79,7 @@ def provider() -> DisclosureProvider:
         ),
         (
             in_population,
-            "Deferred",
+            "RowPredicate | Deferred",
             "Capture a native boolean membership leaf over complete null-safe tuples; combine with field conditions using &, | and ~. See semantic.predicate.",
             "result = mv.in_population(population)",
             ("population",),
@@ -221,7 +221,7 @@ def provider() -> DisclosureProvider:
         (
             Population,
             "count",
-            "Deferred",
+            "NumericMetric",
             "Count complete distinct tuples as a lazy Metric; declared identities without facts still count. Group only by existing domain coordinates.",
             "result = population.count()",
             ("population",),

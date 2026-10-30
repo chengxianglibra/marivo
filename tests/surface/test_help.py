@@ -55,6 +55,13 @@ def test_default_root_advertises_a_resolvable_canonical_target() -> None:
     assert help_render.render_help_text(target)[0] == text
 
 
+def test_analysis_root_displays_one_version_and_the_environment() -> None:
+    text, _, _ = help_render.render_help_text("analysis")
+    assert text.count(f"Marivo: {marivo.__version__}") == 1
+    assert f"Python: {sys.executable}" in text
+    assert f"Package: {marivo.__file__}" in text
+
+
 _REGISTRIES: dict[HelpSurface, LiveSurfaceRegistry[ResolvableHelpDescriptor]] = {
     "datasource": DATASOURCE_REGISTRY,
     "semantic": SEMANTIC_REGISTRY,

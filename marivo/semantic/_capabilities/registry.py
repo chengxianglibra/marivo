@@ -4188,6 +4188,7 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
         "SourceCheckNamespace",
         ("source_check",),
         methods=factory_methods("source_check"),
+        consumers=("validate",),
     )
     add(
         ReadinessInputSummary,
