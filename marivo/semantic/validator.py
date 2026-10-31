@@ -12,6 +12,7 @@ import ast
 import builtins
 import hashlib
 import inspect
+import sys
 import textwrap
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field, replace
@@ -1113,11 +1114,27 @@ def validate_declaration_body_ast(function: ast.FunctionDef, *, symbols: frozens
         raise validator.errors[0]
 
 
+def _stable_ast_dump(node: ast.AST) -> str:
+    """Dump an AST using the Python 3.12 field layout.
+
+    Identity hashes keep that text on every supported interpreter. Python 3.13
+    omits empty lists unless ``show_empty`` is set, and Python 3.10 function
+    and class nodes have no ``type_params`` field.
+    """
+    if sys.version_info >= (3, 13):
+        text = ast.dump(node, include_attributes=False, show_empty=True)
+    else:
+        text = ast.dump(node, include_attributes=False)
+    if sys.version_info < (3, 12):
+        text = text.replace(", decorator_list=[])", ", decorator_list=[], type_params=[])")
+    return text
+
+
 def _body_hash_without_docstring(func_node: ast.FunctionDef) -> str:
     body = list(func_node.body)
     if body and _is_docstring_stmt(body[0]):
         body = body[1:]
-    normalized = ast.dump(ast.Module(body=body, type_ignores=[]), include_attributes=False)
+    normalized = _stable_ast_dump(ast.Module(body=body, type_ignores=[]))
     return hashlib.sha256(normalized.encode()).hexdigest()[:16]
 
 
