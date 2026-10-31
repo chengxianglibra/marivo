@@ -86,7 +86,15 @@ def test_session_creation_and_history_preserve_foreign_entries(
     with warnings.catch_warnings(record=True) as notices:
         warnings.simplefilter("always")
         second = mv.session.get_or_create("second", timezone="UTC")
-    assert len(notices) == int(existing_session)
+    # Count only the prior-generation notice. simplefilter("always") also
+    # records ResourceWarnings if SQLite connections are collected here.
+    prior_notices = [
+        notice
+        for notice in notices
+        if issubclass(notice.category, UserWarning)
+        and "Older Session Stores" in str(notice.message)
+    ]
+    assert len(prior_notices) == int(existing_session)
 
     page = mv.session.recent(limit=1)
     assert [item.id for item in page.items] == [second.id]
