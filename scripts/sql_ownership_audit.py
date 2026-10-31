@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TypeAlias
 
-Json: TypeAlias = None | bool | int | str | list["Json"] | dict[str, "Json"]
+Json: TypeAlias = bool | int | str | list["Json"] | dict[str, "Json"] | None
 ROOT = Path(__file__).resolve().parents[1]
 RETIRED_MODULES = frozenset(
     {
@@ -269,6 +269,15 @@ def _manifest() -> Manifest:
             "ibis.backends.sql.compilers.trino.TrinoCompiler",
         ),
         native_aggregates,
+    )
+    add(
+        "datasource/engines/_aggregate_compilers",
+        ("_DuckDBCompiler.to_sqlglot",),
+        ("super().to_sqlglot",),
+        Owner(
+            "ibis_compilation",
+            "SourceSession-scoped DuckDB memo delegates exact expressions to the inherited Ibis compiler and returns isolated AST copies; it grants no SQL rewrite or submission authority.",
+        ),
     )
     add(
         "datasource/engines/_aggregate_compilers",

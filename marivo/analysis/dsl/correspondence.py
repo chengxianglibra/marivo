@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import overload
+from typing_extensions import overload
 
 from marivo._definition.correspondence import CalendarCorrespondence
 from marivo.analysis.core.model import reject

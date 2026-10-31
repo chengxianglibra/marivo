@@ -457,16 +457,16 @@ def run_native_game(
             _series(sample.baseline.value, sample.baseline.column),
         )
         facts = tuple(receipts.values())
+        target_path = program.operation.target.path
+        current_path = ("detail", "current", *target_path)
+        baseline_path = ("detail", "baseline", *target_path)
+        absolute_path = ("detail", "absolute", *target_path)
         method = FrameShapleyMethod(
             "shapley",
+            FrameMethodValue(paths[current_path], sample.current.value),
+            FrameMethodValue(paths[baseline_path], sample.baseline.value),
             FrameMethodValue(
-                paths[("detail", "current", *program.operation.target.path)], sample.current.value
-            ),
-            FrameMethodValue(
-                paths[("detail", "baseline", *program.operation.target.path)], sample.baseline.value
-            ),
-            FrameMethodValue(
-                paths[("detail", "absolute", *program.operation.target.path)],
+                paths[absolute_path],
                 _number(change.values.iloc[0]),
             ),
             program.operation.permutations,

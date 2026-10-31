@@ -597,17 +597,9 @@ def _memory_calendars(expression: ir.Table) -> ir.Table:
 
 
 def _calendar_sql(expression: ir.Table, dialect: str) -> str:
-    from importlib import import_module
+    from tests.datasource.aggregate_fixtures import compiler_backend
 
-    from marivo.datasource.engines._aggregate_compilers import configure_aggregate_compiler
-
-    if dialect == "mysql":
-        from marivo.datasource.engines._mysql_backend import MySQLBackend
-
-        backend = MySQLBackend()
-    else:
-        backend = import_module("ibis.backends." + dialect).Backend()
-    configure_aggregate_compiler(backend)
+    backend = compiler_backend(dialect)
     return backend.compiler.to_sqlglot(expression.unbind()).sql(dialect=dialect)
 
 

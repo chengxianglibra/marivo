@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, replace
 from decimal import Decimal, localcontext
 from math import fsum, isfinite, ulp
@@ -300,6 +301,7 @@ def _original(
     inputs: tuple[StageOutput, ...],
     side: Literal["left", "right"],
     scope: Literal["parent", "fine"],
+    mapped_source: Callable[[AttributeMatrixColumn], tuple[pd.DataFrame, ...]],
 ) -> pd.DataFrame:
     formula = program.originals[0 if side == "left" else 1]
     keys = tuple(
@@ -323,7 +325,7 @@ def _original(
             and any(source.source == value.column.slot_id for source in item.sources)
         )
         source = item.sources[0]
-        frame = _mapped_source(program, inputs, item)[0]
+        frame = mapped_source(item)[0]
         if scope == "fine":
             # Preserve explicit output candidates. Activation uses the structural
             # parent/window mapping, never the original value's NA state.
@@ -335,7 +337,7 @@ def _original(
                 and m.role in ("value", "native_value")
                 and m.sources[0].source == source.source
             )
-            active = _mapped_source(program, inputs, parent_item)[0]
+            active = mapped_source(parent_item)[0]
             parent_columns = tuple(
                 c for a in program.input_program.parent_schema.axes for c in a.columns
             )
@@ -456,8 +458,18 @@ def attribute_contribution_data(
     fine_parents = tuple(frozen_key_rows(prepared.table, parent_columns))
     parent_indices = {key: i for i, key in enumerate(parent_rows)}
     fine_to_parent = [parent_indices[key] for key in fine_parents]
+    # These checked inputs stay immutable throughout this contribution invocation.
+    # Originals, fine activation and arithmetic can consume the same matrix column.
+    mapped: dict[int, tuple[pd.DataFrame, ...]] = {}
+
+    def mapped_source(item: AttributeMatrixColumn) -> tuple[pd.DataFrame, ...]:
+        key = id(item)
+        if key not in mapped:
+            mapped[key] = _mapped_source(program, inputs, item)
+        return mapped[key]
+
     originals: dict[tuple[str, str], pd.DataFrame] = {
-        (side, scope): _original(program, inputs, side, scope)
+        (side, scope): _original(program, inputs, side, scope, mapped_source)
         for side in sides
         for scope in ("parent", "fine")
     }
@@ -466,7 +478,7 @@ def attribute_contribution_data(
         if item.scope == "fine":
             series = prepared.table[item.target.slot_id]
         else:
-            frames = _mapped_source(program, inputs, item)
+            frames = mapped_source(item)
             cells: dict[FrozenKey, object] = {}
             for source, frame in zip(item.sources, frames, strict=True):
                 for i, key in enumerate(frozen_key_rows(frame, parent_columns)):

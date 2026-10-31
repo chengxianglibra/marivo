@@ -1297,3 +1297,72 @@ def test_disabled_load_preserves_execution_context_and_resets_after_failure(
     assert telemetry._CURRENT_OPERATION.get() is None
     assert telemetry._LOAD_POLICY.get() is None
     assert not (telemetry_project / ".marivo" / "telemetry").exists()
+
+
+def test_operation_captures_execution_context_once(
+    telemetry_project: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from marivo import _execution_log as log
+    from marivo.telemetry import _Operation
+
+    snapshot = log.snapshot
+    captured: list[log.ExecutionContext] = []
+
+    def capture(project_root: Path | None = None) -> log.ExecutionContext:
+        context = snapshot(project_root)
+        captured.append(context)
+        return context
+
+    with log.scope(telemetry_project, operation_id="parent", session_id="session"):
+        monkeypatch.setattr(log, "snapshot", capture)
+        with _Operation("analysis", "observe", "constructor", telemetry_project, {}, mode="off"):
+            assert len(captured) == 1
+            assert captured[0].fields["parent_operation_id"] == "parent"
+            assert captured[0].fields["session_id"] == "session"
+
+
+@pytest.mark.parametrize("enabled", [False, True])
+@pytest.mark.parametrize("same_root", [False, True])
+def test_operation_scope_preserves_root_parent_annotations_and_exception_cleanup(
+    telemetry_project: Path, enabled: bool, same_root: bool
+) -> None:
+    from marivo import _execution_log as log
+    from marivo.telemetry import _CURRENT_OPERATION, _Operation
+    from tests.support.execution_logs import execution_records
+
+    root = telemetry_project if same_root else telemetry_project / "other"
+    root.mkdir(exist_ok=True)
+    alias = telemetry_project / "alias"
+    alias.symlink_to(root, target_is_directory=True)
+    before = _CURRENT_OPERATION.get()
+    with log.scope(telemetry_project, operation_id="parent", session_id="outer"):
+        operation = _Operation(
+            "analysis",
+            "scope_test",
+            "operator",
+            alias,
+            {"marivo.session.id": "inner"},
+            mode="on" if enabled else "off",
+        )
+        with pytest.raises(RuntimeError, match="scope failure"), operation:
+            log.annotate(run_id="inner-run", optional=None)
+            with log.QueryLog("SELECT 1", backend="duckdb", purpose="scope.test") as query:
+                query.rows = 1
+            assert log.snapshot().root == root.resolve()
+            assert _CURRENT_OPERATION.get() is operation
+            raise RuntimeError("scope failure")
+        restored = log.snapshot()
+        assert restored.fields == {"operation_id": "parent", "session_id": "outer"}
+        assert _CURRENT_OPERATION.get() is before
+    records = execution_records(root)
+    assert [record["event"] for record in records] == ["query.submitted", "query.completed"]
+    for record in records:
+        assert record["operation_id"] == operation.operation_id
+        assert record["session_id"] == "inner"
+        assert record["run_id"] == "inner-run"
+        assert record["optional"] is None
+        if same_root:
+            assert record["parent_operation_id"] == "parent"
+        else:
+            assert "parent_operation_id" not in record
+    assert (root / ".marivo" / "telemetry").exists() is enabled

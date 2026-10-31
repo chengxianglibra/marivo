@@ -20,7 +20,9 @@ MYPY_PYTHON_VERSION ?= 3.10
 TYPECHECK_TARGETS ?= marivo tests/typing
 LINT_TARGETS ?= .
 RUNTIME_WORKERS ?= 2
-PYTEST_WORKERS ?= 8
+# Bound worker and nested native-thread contention on ordinary developer hosts.
+PYTEST_WORKERS ?= 4
+PYTEST_NATIVE_THREADS ?= 1
 
 PYTEST_FLAGS := -q --tb=short --maxfail=5
 MYPY_FLAGS := --no-pretty --no-color-output --no-warn-unused-configs
@@ -28,6 +30,9 @@ RUFF_FLAGS := --output-format concise
 
 PYPI_DIST_DIR := dist/pypi
 
+test: export OPENBLAS_NUM_THREADS = $(PYTEST_NATIVE_THREADS)
+test: export OMP_NUM_THREADS = $(PYTEST_NATIVE_THREADS)
+test: export ARROW_IO_THREADS = $(PYTEST_NATIVE_THREADS)
 test:
 	@./scripts/require-venv.sh pytest
 	@$(VENV_PYTEST) $(PYTEST_FLAGS) -n $(if $(findstring ::,$(TESTS)),0,$(PYTEST_WORKERS)) $(TESTS)

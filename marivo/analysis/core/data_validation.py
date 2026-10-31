@@ -152,6 +152,27 @@ def normalize_stage_columns(frame: pd.DataFrame, columns: tuple[DataColumn, ...]
         )
     if not columns:
         return pd.DataFrame(index=pd.RangeIndex(len(frame)))
+    if all(
+        isinstance(frame[column.slot_id].dtype, pd.ArrowDtype)
+        and frame[column.slot_id].dtype == pd.ArrowDtype(stage_arrow_type(column.dtype))
+        for column in columns
+    ):
+        # Exact Arrow carriers already encode type, precision and timezone.
+        # Retain validity checks and independent pandas wrappers, without
+        # reconstructing every column through Arrow and Series again.
+        for column in columns:
+            if not column.nullable:
+                nulls = pa.array(frame[column.slot_id]).null_count
+                if nulls:
+                    raise _stage_error(
+                        f"{column.slot_id}: a nonnullable column without NA",
+                        f"{nulls} NA values",
+                    )
+        result = frame.copy()
+        result.index = pd.RangeIndex(len(frame))
+        result.columns = pd.Index(expected)
+        result.attrs = {}
+        return result
     result = pd.DataFrame(
         {column.slot_id: _stage_column(frame[column.slot_id], column) for column in columns},
         columns=list(expected),

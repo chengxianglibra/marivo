@@ -2,13 +2,19 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+import threading
+from collections import OrderedDict
+from collections.abc import Iterator, Mapping, Sequence
+from contextlib import contextmanager
+from contextvars import ContextVar
+from dataclasses import dataclass, field
 from datetime import datetime
 
 # Ibis visitor names include the operation class name.
 # ruff: noqa: N802, N815
-from typing import ClassVar, NoReturn
+from typing import ClassVar, Literal, NoReturn
 
+import ibis
 import ibis.expr.datatypes as dt
 import ibis.expr.operations as ops
 import ibis.expr.types as ir
@@ -299,9 +305,80 @@ def compile_distributed_query(expression: ir.Table, params: Mapping[ir.Scalar, o
     return str(query.sql(dialect="clickhouse", copy=False, unsupported_level=sg.ErrorLevel.RAISE))
 
 
+@dataclass
+class DuckDBCompilationMemo:
+    """SQL ASTs retained only by one source session, never by an Ibis backend."""
+
+    compiler: object
+    entries: dict[tuple[ops.Node, int | None, bool], sge.Expr] = field(default_factory=dict)
+
+    @contextmanager
+    def activate(self) -> Iterator[None]:
+        token = _duckdb_compilation_memo.set(self)
+        try:
+            yield
+        finally:
+            _duckdb_compilation_memo.reset(token)
+
+
+_duckdb_compilation_memo: ContextVar[DuckDBCompilationMemo | None] = ContextVar(
+    "duckdb_compilation_memo", default=None
+)
+
+
+# Immutable SQL ASTs for equal unparameterized DuckDB expressions. Each
+# source session still owns its memo and receives a private copy, so one
+# session cannot mutate another's tree. The bound keeps repeated test and
+# analysis compiles from re-running Ibis lowering.
+_RENDERED_DUCKDB_SQL: OrderedDict[tuple[ops.Node, bool, bool], sge.Expr] = OrderedDict()
+_RENDERED_DUCKDB_SQL_MAX = 2048
+_RENDERED_DUCKDB_LOCK = threading.Lock()
+
+
 class _DuckDBCompiler(DuckDBCompiler):  # type: ignore[misc]
     def visit_CalendarRange(self, op: CalendarRange, **kwargs: object) -> sge.Expr:
         return compile_calendar_range(op, "duckdb")
+
+    def translate(self, op: ops.Node, *, params: Mapping[ir.Expr, object]) -> sge.Expr:
+        if params:
+            result = super().translate(op, params=params)
+            assert isinstance(result, sge.Expr)
+            return result
+        key = (op, ibis.options.sql.fuse_selects, self.quoted)
+        with _RENDERED_DUCKDB_LOCK:
+            cached = _RENDERED_DUCKDB_SQL.get(key)
+            if cached is not None:
+                _RENDERED_DUCKDB_SQL.move_to_end(key)
+                return cached.copy()
+        result = super().translate(op, params=params)
+        assert isinstance(result, sge.Expr)
+        with _RENDERED_DUCKDB_LOCK:
+            _RENDERED_DUCKDB_SQL[key] = result
+            _RENDERED_DUCKDB_SQL.move_to_end(key)
+            while len(_RENDERED_DUCKDB_SQL) > _RENDERED_DUCKDB_SQL_MAX:
+                _RENDERED_DUCKDB_SQL.popitem(last=False)
+        return result.copy()
+
+    def to_sqlglot(
+        self,
+        expr: ir.Expr,
+        *,
+        limit: Literal["default"] | int | None = None,
+        params: Mapping[ir.Expr, object] | None = None,
+    ) -> sge.Expr:
+        memo = _duckdb_compilation_memo.get()
+        if memo is None or memo.compiler is not self or params:
+            result = super().to_sqlglot(expr, limit=limit, params=params)
+            assert isinstance(result, sge.Expr)
+            return result
+        resolved_limit = ibis.options.sql.default_limit if limit == "default" else limit
+        key = (expr.as_table().op(), resolved_limit, ibis.options.sql.fuse_selects)
+        if key not in memo.entries:
+            result = super().to_sqlglot(expr, limit=resolved_limit, params=params)
+            assert isinstance(result, sge.Expr)
+            memo.entries[key] = result
+        # Ibis renders with copy=False, so no caller may mutate the retained AST.
+        return memo.entries[key].copy()
 
     def visit_CalendarData(self, op: CalendarData, **kwargs: object) -> sge.Expr:
         return sge.to_table(op.name)

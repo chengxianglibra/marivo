@@ -14,7 +14,7 @@ from ibis.common.collections import FrozenDict
 from ibis.common.deferred import deferrable
 from ibis.expr.operations.udf import _UDF, InputType, ScalarUDF
 
-LiteralValue: TypeAlias = str | int | float | bool | None | tuple["LiteralValue", ...]
+LiteralValue: TypeAlias = str | int | float | bool | tuple["LiteralValue", ...] | None
 
 
 def _nested_code(function: object, *names: str) -> CodeType:
