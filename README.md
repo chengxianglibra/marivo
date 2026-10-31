@@ -198,6 +198,7 @@ Use the repository entrypoints for checks:
 make lint
 make typecheck
 make test
+make check-fast
 make check
 ```
 
@@ -206,15 +207,20 @@ owned by the change. `make format` formats the whole checkout.
 `make test` runs the daily local regression suite, including slow-marked cases
 unless they are also marked `release`. Measured high-cost subprocess, CPU-bound,
 typing, and query/recovery cases keep their assertions in `make release-check`;
-the daily runtime target is under three minutes. The Make target defaults to 4
-pytest-xdist workers; use `PYTEST_WORKERS=<count> make test` to override. A single
+the daily runtime target is under three minutes. The Make target uses one
+pytest-xdist worker per logical CPU (`nproc` on Linux, `sysctl -n hw.ncpu` on
+macOS), capped at 8. Use `PYTEST_WORKERS=<count> make test` to override. A single
 selected node runs serially. Native thread budgets default to 1 for the test process
 and its children; override with `PYTEST_NATIVE_THREADS=<count>`. Output is compact,
 tracebacks are short, and the run
 stops after five failures. Runtime and release cases use separate entrypoints.
 `make typecheck` also uses compact output; all commands preserve check failures
-and exit status. `make check` combines the local suite,
-static checks, and API documentation checks. Ordinary commits keep their
+and exit status. `make check-fast` is the local inner loop: it reruns lint,
+typecheck, only the tests pytest-testmon sees as affected by edits, and an
+incremental API docs build, in parallel. It does not track subprocess-executed
+code or SQL and data file changes. `make check` remains the full gate — the
+whole local suite, static checks, and a clean API docs build — and must pass
+before pushing. Ordinary commits keep their
 installed hooks and do not run the full Runtime suite.
 
 The local suite includes embedded DuckDB, local files, loopback HTTP fixtures,

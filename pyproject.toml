@@ -66,6 +66,7 @@ dev = [
     "clickhouse-connect>=1.4.0",  # Ships PEP 561 type information for datasource test helpers.
     "pytest>=8",
     "pytest-xdist>=3.2.1",
+    "pytest-testmon>=2.2.0",  # Affected-test selection for make check-fast.
     "pytest-cov>=5.0",
     "scipy>=1.11",  # Pandas rank correlation used by analysis tests.
     "ruff>=0.3.0",
