@@ -495,8 +495,18 @@ def _arrow_type(dtype: DataType) -> pa.DataType:
 
 def _array(rows: pd.DataFrame, column: DataColumn) -> pa.Array:
     try:
-        values = pa.array(rows[column.slot_id], from_pandas=True)
+        series = rows[column.slot_id]
         expected = _arrow_type(column.dtype)
+        arrow_values = getattr(series, "array", None)
+        values: pa.Array
+        if isinstance(arrow_values, pd.arrays.ArrowExtensionArray):
+            arrow = arrow_values.__arrow_array__()
+            candidate = arrow.combine_chunks() if isinstance(arrow, pa.ChunkedArray) else arrow
+            if candidate.type == pa.large_string() and expected == pa.string():
+                candidate = candidate.cast(expected)
+            values = candidate if candidate.type == expected else pa.array(series, from_pandas=True)
+        else:
+            values = pa.array(series, from_pandas=True)
         # pandas' Arrow string extension uses large_string for the same string
         # type. No other physical conversion may erase exact units or precision.
         if values.type == pa.large_string() and expected == pa.string():

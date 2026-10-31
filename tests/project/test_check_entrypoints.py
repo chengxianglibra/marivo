@@ -233,7 +233,7 @@ def test_default_test_workers_are_overridable(tmp_path: Path) -> None:
 
 def test_default_pytest_config_includes_slow_and_excludes_external_suites() -> None:
     configuration = (_ROOT / "pytest.ini").read_text()
-    assert 'addopts = -n auto --dist=worksteal -m "not release and not runtime"' in configuration
+    assert 'addopts = -n 4 --dist=worksteal -m "not release and not runtime"' in configuration
     assert "not slow" not in configuration
 
 

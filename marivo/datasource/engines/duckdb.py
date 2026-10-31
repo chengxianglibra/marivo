@@ -228,6 +228,33 @@ def http_credentials(
     )
 
 
+def _reuse_described_schemas(backend: BaseBackend) -> None:
+    """Remember table descriptions for one owned connection.
+
+    The next open sees physical changes. Repeated binds of the same table
+    during a single read do not issue another DESCRIBE.
+    """
+    original = getattr(backend, "get_schema", None)
+    if not callable(original):
+        return
+    cache: dict[tuple[str, str | None, str | None], object] = {}
+
+    def get_schema(
+        table_name: str,
+        *,
+        catalog: str | None = None,
+        database: str | None = None,
+    ) -> object:
+        key = (table_name, catalog, database)
+        schema = cache.get(key)
+        if schema is None:
+            schema = original(table_name, catalog=catalog, database=database)
+            cache[key] = schema
+        return schema
+
+    backend.get_schema = get_schema
+
+
 def connect(name: str, kwargs: Mapping[str, object]) -> BaseBackend:
     import ibis
 
@@ -236,13 +263,17 @@ def connect(name: str, kwargs: Mapping[str, object]) -> BaseBackend:
     connect_kwargs.pop("path", None)
     connect_kwargs["database"] = path
     connect_kwargs["threads"] = 8
-    connect_kwargs["TimeZone"] = "UTC"
+    # Ibis sets the session time zone to UTC after connect. Passing TimeZone
+    # in DuckDB's startup config reloads ICU data and makes every connection
+    # several times slower without changing the resulting UTC setting.
+    connect_kwargs.pop("TimeZone", None)
     if "read_only" in connect_kwargs:
         connect_kwargs["read_only"] = bool(connect_kwargs["read_only"])
     memory_read_only = path == ":memory:" and bool(connect_kwargs.get("read_only"))
     if memory_read_only:
         connect_kwargs["read_only"] = False
     backend = ibis.duckdb.connect(**connect_kwargs)
+    _reuse_described_schemas(backend)
     if memory_read_only:
         try:
             execute_provider_statement(
