@@ -6,7 +6,10 @@ Internal module: public symbols are re-exported from
 
 from __future__ import annotations
 
+import ast
+import hashlib
 from collections.abc import Callable
+from pathlib import Path
 from typing import Literal, overload
 
 import ibis.expr.types as ibis_ir
@@ -85,16 +88,34 @@ from marivo.semantic.ir import (
 )
 from marivo.semantic.typing import AiContextValue
 
+_PARSED_SOURCES: dict[str, ast.AST] = {}
+
+
+def _parsed_source(path: Path) -> ast.AST | None:
+    """Parse one model file, reusing an identical text already seen in-process."""
+    try:
+        text = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError):
+        return None
+    digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
+    cached = _PARSED_SOURCES.get(digest)
+    if cached is not None:
+        return cached
+    try:
+        tree = ast.parse(text)
+    except SyntaxError:
+        return None
+    _PARSED_SOURCES[digest] = tree
+    return tree
+
 
 def _reject_named_entity_decorator() -> None:
     """Reject direct-constructor decorator syntax before Deferred can absorb it."""
-    import ast
     from pathlib import Path
 
     location = _caller_location()
-    try:
-        tree = ast.parse(Path(location.file).read_text(encoding="utf-8"))
-    except (OSError, SyntaxError, UnicodeError):
+    tree = _parsed_source(Path(location.file))
+    if tree is None:
         return
     for node in ast.walk(tree):
         if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):

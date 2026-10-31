@@ -123,7 +123,12 @@ def _validate_segment(value: object, *, role: str = "semantic path segment") -> 
     return value
 
 
+_VALID_REF_PATHS: set[tuple[SemanticKind, str]] = set()
+
+
 def _validate_ref_path(kind: SemanticKind, path: object) -> str:
+    if type(kind) is SemanticKind and type(path) is str and (kind, path) in _VALID_REF_PATHS:
+        return path
     if type(kind) is not SemanticKind:
         raise TypeError(f"ref kind must be SemanticKind; received {type(kind).__name__}")
     if type(path) is not str:
@@ -141,6 +146,7 @@ def _validate_ref_path(kind: SemanticKind, path: object) -> str:
         )
     for part in parts:
         _validate_segment(part, role=f"{kind.value} ref path segment")
+    _VALID_REF_PATHS.add((kind, path))
     return path
 
 

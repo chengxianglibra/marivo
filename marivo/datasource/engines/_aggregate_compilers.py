@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import threading
+from collections import OrderedDict
 from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from contextvars import ContextVar
@@ -290,7 +292,36 @@ _duckdb_compilation_memo: ContextVar[DuckDBCompilationMemo | None] = ContextVar(
 )
 
 
+# Immutable SQL ASTs for equal unparameterized DuckDB expressions. Each
+# source session still owns its memo and receives a private copy, so one
+# session cannot mutate another's tree. The bound keeps repeated test and
+# analysis compiles from re-running Ibis lowering.
+_RENDERED_DUCKDB_SQL: OrderedDict[tuple[ops.Node, bool, bool], sge.Expr] = OrderedDict()
+_RENDERED_DUCKDB_SQL_MAX = 2048
+_RENDERED_DUCKDB_LOCK = threading.Lock()
+
+
 class _DuckDBCompiler(DuckDBCompiler):  # type: ignore[misc]
+    def translate(self, op: ops.Node, *, params: Mapping[ir.Expr, object]) -> sge.Expr:
+        if params:
+            result = super().translate(op, params=params)
+            assert isinstance(result, sge.Expr)
+            return result
+        key = (op, ibis.options.sql.fuse_selects, self.quoted)
+        with _RENDERED_DUCKDB_LOCK:
+            cached = _RENDERED_DUCKDB_SQL.get(key)
+            if cached is not None:
+                _RENDERED_DUCKDB_SQL.move_to_end(key)
+                return cached.copy()
+        result = super().translate(op, params=params)
+        assert isinstance(result, sge.Expr)
+        with _RENDERED_DUCKDB_LOCK:
+            _RENDERED_DUCKDB_SQL[key] = result
+            _RENDERED_DUCKDB_SQL.move_to_end(key)
+            while len(_RENDERED_DUCKDB_SQL) > _RENDERED_DUCKDB_SQL_MAX:
+                _RENDERED_DUCKDB_SQL.popitem(last=False)
+        return result.copy()
+
     def to_sqlglot(
         self,
         expr: ir.Expr,

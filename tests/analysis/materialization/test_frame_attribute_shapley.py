@@ -998,8 +998,10 @@ def test_native_reads_can_change_between_queries_while_players_and_endpoints_sta
         if ":native:" in read.purpose:
             native_queries.append(read.purpose)
             if len(native_queries) == 1:
+                # Startup config must match the open read connection. UTC is
+                # applied after connect, so it is not part of that config.
                 with duckdb.connect(
-                    str(tmp_path / "game.duckdb"), config={"threads": 1, "TimeZone": "UTC"}
+                    str(tmp_path / "game.duckdb"), config={"threads": 1}
                 ) as connection:
                     connection.execute("UPDATE facts SET x=x+10 WHERE id>=3")
                     connection.execute("INSERT INTO facts(id,player,x,y) VALUES (6,'new',1000,1)")
