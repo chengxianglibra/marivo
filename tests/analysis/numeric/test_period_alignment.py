@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from typing import Literal
 
 import pandas as pd
 import pytest
@@ -124,48 +123,52 @@ def test_period_outer_keeps_time_missing_and_original_keys(
         difference = aligned.select(
             {"change": aligned["left.value"] - aligned["right.value"]}
         ).compute()
-        assert difference.to_pandas()["change"].dropna().sum() == 1
-        return
-    fixed = comparison.compute()
-    frame = fixed.to_pandas()
-    assert len(frame) == 12
-    assert [axis["role"] for axis in frame.attrs["axes"]] == ["calendar", "identity"]
-    assert set(frame["customer"]) == {"A", "B", "C", "D"}
-    assert frame["current.present"].sum() == lengths[0] * 4
-    assert frame["reference.present"].sum() == lengths[1] * 4
-    assert frame["reference.absolute.value"].dropna().sum() == 1
-    tail = frame[~frame["reference.present"]]
-    assert len(tail) == 4
-    for field in ("absolute", "relative"):
-        assert tail["reference." + field + ".value"].isna().all()
-    result = fixed.persist()
-    recovered = case.session.persisted_frame(result.artifact_id)
-    pd.testing.assert_frame_equal(recovered.to_pandas(), frame)
+        changes = difference.to_pandas()
+        assert changes["change"].dropna().sum() == 1
+        current_column, baseline_column = "left.0", "right.0"
+        presence = ("left_present", "right_present")
+    else:
+        fixed = comparison.compute()
+        frame = fixed.to_pandas()
+        assert len(frame) == 12
+        assert [axis["role"] for axis in frame.attrs["axes"]] == ["calendar", "identity"]
+        assert set(frame["customer"]) == {"A", "B", "C", "D"}
+        assert frame["current.present"].sum() == lengths[0] * 4
+        assert frame["reference.present"].sum() == lengths[1] * 4
+        assert frame["reference.absolute.value"].dropna().sum() == 1
+        tail = frame[~frame["reference.present"]]
+        assert len(tail) == 4
+        for field in ("absolute", "relative"):
+            assert tail["reference." + field + ".value"].isna().all()
+        assert frame["current.present"].tolist() == [True] * 12
+        assert frame["reference.present"].tolist() == [True] * 8 + [False] * 4
+        assert terminal_runs(case.session) == ()
+        mapping, left_directory, right_directory = comparison_tables(fixed, frame)
+        current_column, baseline_column = mapping.columns[0], "baseline.0"
+        presence = ("current.present", "reference.present")
+        changes = frame.rename(columns={"reference.absolute.value": "change"})
+        result = fixed.persist()
+        recovered = case.session.persisted_frame(result.artifact_id)
+        pd.testing.assert_frame_equal(recovered.to_pandas(), frame)
 
-
-def test_period_outer_retains_unequal_calendars(
-    analysis_dsl_case_factory: DslCaseFactory,
-) -> None:
-    case = analysis_dsl_case_factory("j2")
-    _, current = period(case.session, 8, 3)
-    _, baseline = period(case.session, 7, 2)
-    result = (
-        current.compare(
-            {
-                "reference": mv.baseline(
-                    baseline,
-                    match=mv.ordinal(),
-                    on=tuple(zip(current.axes, baseline.axes, strict=True)),
-                )
-            }
-        )
-        .compute()
-        .to_pandas()
-    )
-    assert len(result) == 12
-    assert result["current.present"].tolist() == [True] * 12
-    assert result["reference.present"].tolist() == [True] * 8 + [False] * 4
-    assert terminal_runs(case.session) == ()
+    left_ordinals = dict(zip(left_directory.iloc[:, 0], left_directory["ordinal"], strict=True))
+    right_ordinals = dict(zip(right_directory.iloc[:, 0], right_directory["ordinal"], strict=True))
+    pairs = mapping.set_index(mapping.columns[0])
+    keys = temporal_keys(aligned if lengths[1] > lengths[0] else fixed)
+    for key, (index, row) in zip(keys, frame.iterrows(), strict=True):
+        pair = pairs.loc[key]
+        left = key if current_column == mapping.columns[0] else pair[current_column]
+        right = pair[baseline_column]
+        a, b = pd.notna(left), pd.notna(right)
+        position = left_ordinals[left] if a else right_ordinals[right]
+        customer = row["customer"]
+        assert row[presence[0]] == a
+        assert row[presence[1]] == b
+        expected = int(position == 0 and customer == "A")
+        if a and b:
+            assert changes.loc[index, "change"] == expected
+        else:
+            assert pd.isna(changes.loc[index, "change"])
 
 
 def test_selected_periods_keep_original_positions_and_nullable_values(
@@ -184,21 +187,21 @@ def test_selected_periods_keep_original_positions_and_nullable_values(
             )
         }
     )
-    frame = paired.compute().to_pandas()
+    fixed = paired.compute()
+    frame = fixed.to_pandas()
     assert len(frame) == 12
     assert frame["current.present"].sum() == 1
     assert frame["reference.present"].all()
     assert frame["reference.absolute.value"].dropna().tolist() == [1]
     for field in ("absolute", "relative"):
-        view = paired.select({"value": paired["reference." + field + ".value"]})
+        view = fixed.select({"value": fixed["reference." + field + ".value"]})
         defined = view.where(~view["value"].is_null())
         assert len(defined.compute().to_pandas()) == (1 if field == "absolute" else 0)
 
 
 @pytest.mark.parametrize("metric", ["order_count", "revenue"])
-@pytest.mark.parametrize("how", ["exact", "outer"])
 def test_grouped_grid_includes_empty_groups_and_propagates_both_values(
-    analysis_dsl_case_factory: DslCaseFactory, metric: str, how: Literal["exact", "outer"]
+    analysis_dsl_case_factory: DslCaseFactory, metric: str
 ) -> None:
     case = analysis_dsl_case_factory("j2")
     _, current = period(case.session, 8, 3, metric=metric, grouped=True)
@@ -329,61 +332,3 @@ def test_period_saved_output_checks_endpoint_projections_and_presence(
     with pytest.raises(AnalysisError):
         replace(data.schema, presence=(replace(data.schema.presence[0], nullable=True),))
     assert len(data.schema.values) == 4 and len(data.schema.presence) == 2
-
-
-@pytest.mark.parametrize("lengths", [(3, 2), (2, 3)])
-def test_period_source_values_match_independent_count_oracle(
-    analysis_dsl_case_factory: DslCaseFactory, lengths: tuple[int, int]
-) -> None:
-    case = analysis_dsl_case_factory("j2")
-    _, current = period(case.session, 8, lengths[0])
-    _, baseline = period(case.session, 7, lengths[1])
-    comparison = current.compare(
-        {
-            "reference": mv.baseline(
-                baseline,
-                match=mv.ordinal(),
-                on=tuple(zip(current.axes, baseline.axes, strict=True)),
-            )
-        }
-    )
-    if lengths[1] > lengths[0]:
-        with pytest.raises(AnalysisError, match="actual baseline time row"):
-            comparison.compute()
-        aligned = current.align(
-            baseline, match=mv.ordinal(), on=tuple(zip(current.axes, baseline.axes, strict=True))
-        ).compute()
-        frame = aligned.to_pandas()
-        mapping, left_directory, right_directory = paired_tables(frame)
-        current_column, baseline_column = "left.0", "right.0"
-        presence = ("left_present", "right_present")
-        changes = (
-            aligned.select({"change": aligned["left.value"] - aligned["right.value"]})
-            .compute()
-            .to_pandas()
-        )
-    else:
-        fixed = comparison.compute()
-        frame = fixed.to_pandas()
-        mapping, left_directory, right_directory = comparison_tables(fixed, frame)
-        current_column, baseline_column = mapping.columns[0], "baseline.0"
-        presence = ("current.present", "reference.present")
-        changes = frame.rename(columns={"reference.absolute.value": "change"})
-    left_ordinals = dict(zip(left_directory.iloc[:, 0], left_directory["ordinal"], strict=True))
-    right_ordinals = dict(zip(right_directory.iloc[:, 0], right_directory["ordinal"], strict=True))
-    pairs = mapping.set_index(mapping.columns[0])
-    keys = temporal_keys(aligned if lengths[1] > lengths[0] else fixed)
-    for key, (index, row) in zip(keys, frame.iterrows(), strict=True):
-        pair = pairs.loc[key]
-        left = key if current_column == mapping.columns[0] else pair[current_column]
-        right = pair[baseline_column]
-        a, b = pd.notna(left), pd.notna(right)
-        position = left_ordinals[left] if a else right_ordinals[right]
-        customer = row["customer"]
-        assert row[presence[0]] == a
-        assert row[presence[1]] == b
-        expected = int(position == 0 and customer == "A")
-        if a and b:
-            assert changes.loc[index, "change"] == expected
-        else:
-            assert pd.isna(changes.loc[index, "change"])

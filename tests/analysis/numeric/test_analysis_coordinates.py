@@ -322,30 +322,20 @@ def test_full_tuple_union_retains_denominator_only_and_cancelled_coordinates(
     session = case.session
     channel = catalog_value(session.catalog, "sales.order.channel", kind="field")
     status = catalog_value(session.catalog, "sales.order.status", kind="field")
-    customer = catalog_value(session.catalog, "sales.order.customer_id", kind="field")
     count = session.catalog.get("metric:sales.order_count")
     web = count.where(channel == "web")
-    for kind, expression in (("ratio", web / count), ("linear", count - count)):
-        observed = session.observe(
-            {"value": expression},
-            by=(
-                session.time_scope(start="2026-08-01", end="2026-09-01"),
-                customer,
-                channel,
-                status,
-            ),
-        )
-        grouped = _source(case, expression, by=(channel, status))
-        saved = grouped.persist()
-        rows = saved.to_pandas()
-        assert rows.set_index(["channel", "status"])["value"].to_dict() == {
+    expressions = {"ratio": web / count, "linear": count - count}
+    scope = session.time_scope(start="2026-08-01", end="2026-09-01")
+    saved = session.observe(expressions, by=(scope, channel, status)).persist()
+    rows = saved.to_pandas()
+    overall = session.observe(expressions, by=(scope,)).compute().to_pandas()
+    for kind in expressions:
+        assert rows.set_index(["channel", "status"])[kind].to_dict() == {
             ("mobile", "paid"): 0,
             ("web", "paid"): 1 if kind == "ratio" else 0,
         }
-        assert _source(case, expression).compute().to_pandas()["value"].tolist() == pytest.approx(
-            [2 / 3] if kind == "ratio" else [0]
-        )
-        assert session.persisted_frame(saved.artifact_id).to_pandas().equals(saved.to_pandas())
+        assert overall[kind].tolist() == pytest.approx([2 / 3] if kind == "ratio" else [0])
+    assert session.persisted_frame(saved.artifact_id).to_pandas().equals(rows)
 
 
 def test_required_terminal_data_damage_revokes_reads(retained_coordinates_case: DslCase) -> None:

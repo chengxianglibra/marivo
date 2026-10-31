@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import json
 import os
 import shlex
 import subprocess
 import sys
 from pathlib import Path
+
+import pytest
 
 from tests.support.paths import PROJECT_ROOT
 
@@ -22,6 +25,7 @@ def _run_make(
     tests: str = "",
     pytest_workers: int | None = None,
     runtime_workers: int | None = None,
+    pytest_native_threads: int | None = None,
 ) -> tuple[subprocess.CompletedProcess[str], list[list[str]]]:
     directory.mkdir(parents=True, exist_ok=True)
     (directory / "Makefile").write_bytes((_ROOT / "Makefile").read_bytes())
@@ -36,11 +40,14 @@ def _run_make(
         tool = bin_dir / name
         tool.write_text(
             f"#!{sys.executable}\n"
-            "import os, shlex, sys\n"
+            "import json, os, shlex, sys\n"
             "from pathlib import Path\n"
             "name = Path(sys.argv[0]).name\n"
             "with Path(os.environ['MARIVO_CHECK_TEST_LOG']).open('a') as log:\n"
             "    log.write(shlex.join([name, *sys.argv[1:]]) + '\\n')\n"
+            "if name == 'pytest':\n"
+            "    Path('native-threads.json').write_text(json.dumps({key: os.environ.get(key) "
+            "for key in ('OPENBLAS_NUM_THREADS', 'OMP_NUM_THREADS', 'ARROW_IO_THREADS')}))\n"
             "if name == 'ruff' and sys.argv[1:3] == ['format', '--check']:\n"
             "    sys.exit(int(os.environ['MARIVO_CHECK_FORMAT_FAILURE']))\n"
         )
@@ -49,7 +56,15 @@ def _run_make(
     environment = {
         key: value
         for key, value in os.environ.items()
-        if key not in {"MAKEFLAGS", "MFLAGS", "MAKELEVEL", "PYTEST_WORKERS", "RUNTIME_WORKERS"}
+        if key
+        not in {
+            "MAKEFLAGS",
+            "MFLAGS",
+            "MAKELEVEL",
+            "PYTEST_WORKERS",
+            "RUNTIME_WORKERS",
+            "PYTEST_NATIVE_THREADS",
+        }
     }
     environment.update(
         MARIVO_CHECK_TEST_LOG=str(log),
@@ -60,6 +75,8 @@ def _run_make(
         arguments.append(f"PYTEST_WORKERS={pytest_workers}")
     if runtime_workers is not None:
         arguments.append(f"RUNTIME_WORKERS={runtime_workers}")
+    if pytest_native_threads is not None:
+        arguments.append(f"PYTEST_NATIVE_THREADS={pytest_native_threads}")
     result = subprocess.run(
         arguments,
         cwd=directory,
@@ -78,7 +95,7 @@ def test_daily_checks_exclude_runtime_and_release(tmp_path: Path) -> None:
     assert result.returncode == 0, result.stderr
     pytest_commands = [command for command in commands if command[0] == "pytest"]
     assert len(pytest_commands) == 1
-    assert pytest_commands[0][1:] == ["-q", "--tb=short", "--maxfail=5", "-n", "8"]
+    assert pytest_commands[0][1:] == ["-q", "--tb=short", "--maxfail=5", "-n", "4"]
     assert "-m" not in pytest_commands[0]
     mypy_command = next(command for command in commands if command[0] == "mypy")
     assert mypy_command[1:4] == [
@@ -109,7 +126,7 @@ def test_release_runs_all_suites_even_after_a_focused_daily_run(tmp_path: Path) 
     assert result.returncode == 0, result.stderr
     pytest_commands = [command for command in commands if command[0] == "pytest"]
     assert len(pytest_commands) == 3
-    assert pytest_commands[0] == ["pytest", "-q", "--tb=short", "--maxfail=5", "-n", "8"]
+    assert pytest_commands[0] == ["pytest", "-q", "--tb=short", "--maxfail=5", "-n", "4"]
     assert pytest_commands[1] == [
         "pytest",
         "-q",
@@ -193,7 +210,7 @@ def test_default_test_runs_slow_cases_without_marker_narrowing(tmp_path: Path) -
 
 
 def test_default_test_workers_are_overridable(tmp_path: Path) -> None:
-    for workers in (None, 4):
+    for workers in (None, 8):
         result, commands = _run_make(
             tmp_path / str(workers),
             "test",
@@ -208,7 +225,7 @@ def test_default_test_workers_are_overridable(tmp_path: Path) -> None:
                 "--tb=short",
                 "--maxfail=5",
                 "-n",
-                str(8 if workers is None else workers),
+                str(4 if workers is None else workers),
                 "tests/focused.py",
             ]
         ]
@@ -249,3 +266,17 @@ def test_runtime_workers_are_bounded_and_overridable(
             str(2 if workers is None else workers),
             "tests/focused.py",
         ]
+
+
+@pytest.mark.parametrize("native_threads", [None, 2])
+def test_unit_native_thread_budget_is_inherited_and_overridable(
+    tmp_path: Path, native_threads: int | None
+) -> None:
+    result, _ = _run_make(tmp_path, "test", pytest_native_threads=native_threads)
+    assert result.returncode == 0, result.stderr
+    budget = str(1 if native_threads is None else native_threads)
+    assert json.loads((tmp_path / "native-threads.json").read_text()) == {
+        "OPENBLAS_NUM_THREADS": budget,
+        "OMP_NUM_THREADS": budget,
+        "ARROW_IO_THREADS": budget,
+    }

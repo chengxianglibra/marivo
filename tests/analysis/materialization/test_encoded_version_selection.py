@@ -158,8 +158,12 @@ def test_row_attribute_time_preserves_facts_and_explains_current_axis(
                 {"value": session.catalog.get("measure:sales.facts.amount").sum()}, by=(label,)
             ).compute()
         return
-    _assert_row_result(tmp_path)
+    # Encoding-specific selection and SQL remain covered for every carrier.
+    # Composition and source-offline recovery share the completed frame contract.
+    _assert_row_result(tmp_path, extended=time_kind == "date")
     _assert_shared_routes(monkeypatch, "duckdb", "profiles")
+    if time_kind != "date":
+        return
     model = tmp_path / "models/semantic/sales/models.py"
     model.write_text(
         "\n".join(
@@ -225,13 +229,29 @@ def _row_project(
     )
 
 
-def _assert_row_result(tmp_path: Path) -> None:
+def _assert_row_result(tmp_path: Path, *, extended: bool = True) -> None:
     session = mv.session.get_or_create("row-version", timezone="UTC")
     label = session.catalog.get("dimension:sales.profiles.label")
     control = session.catalog.get("time_dimension:sales.facts.event_time")
     route = session.catalog.get("relationship:sales.profile")
     metric = session.catalog.get("measure:sales.facts.amount").sum()
     historical = label.via((route,)).at(control)
+    pending = session.observe({"value": metric}, by=(historical,))
+    assert isinstance(pending.schema.axes[0].at, mv.FrameRowAttributeTime)
+    complete = pending.compute()
+    data = complete.to_pandas(axis_names={complete.axes[0].token: "label"})
+    assert data.loc[data.label.notna()].set_index("label")["value"].to_dict() == {
+        "A": 7,
+        "B": 11,
+        "tenant2": 19,
+    }
+    assert data.loc[data.label.isna(), "value"].tolist() == [30]
+    selected = session.observe(
+        {"value": metric}, by=(historical,), where=historical == "B"
+    ).compute()
+    assert selected.to_pandas()["value"].tolist() == [11]
+    if not extended:
+        return
     facts = session.members(session.catalog.get("entity:sales.facts"))
     with pytest.raises((AnalysisError, SemanticExpressionError), match="fixed InstantAnchor"):
         session.read(facts, {"label": historical})
@@ -250,23 +270,9 @@ def _assert_row_result(tmp_path: Path) -> None:
     other = mv.session.get_or_create("other-row-owner", timezone="UTC")
     shared_control = other.catalog.get("time_dimension:sales.facts.event_time")
     session.observe({"value": metric}, by=(label.via((route,)).at(shared_control),))
-    pending = session.observe({"value": metric}, by=(historical,))
-    assert isinstance(pending.schema.axes[0].at, mv.FrameRowAttributeTime)
-    complete = pending.compute()
-    data = complete.to_pandas(axis_names={complete.axes[0].token: "label"})
-    assert data.loc[data.label.notna()].set_index("label")["value"].to_dict() == {
-        "A": 7,
-        "B": 11,
-        "tenant2": 19,
-    }
-    assert data.loc[data.label.isna(), "value"].tolist() == [30]
     domain = mv.coordinates(by=(historical,), keys=(("A",), ("B",), ("tenant2",), (None,)))
     covered = session.observe({"value": metric}, by=domain).compute()
     assert covered.to_pandas()["value"].sum() == 67
-    selected = session.observe(
-        {"value": metric}, by=(historical,), where=historical == "B"
-    ).compute()
-    assert selected.to_pandas()["value"].tolist() == [11]
     authored = session.observe(
         {"value": session.catalog.get("metric:sales.historical_b")}, by=(historical,)
     ).compute()

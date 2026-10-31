@@ -817,9 +817,7 @@ class _SemanticObject(RenderableResult, Generic[CatalogEntryKindT]):
     @property
     def definition(self) -> EntryDefinition:
         """Complete kind-specific captured definition; no source data is read."""
-        from marivo.semantic._catalog_definition import definition_for
-
-        return definition_for(self._catalog, self._ref)
+        return self._catalog._definition(self._ref)
 
     @property
     def provenance(self) -> EntryProvenance:
@@ -3082,7 +3080,16 @@ class SemanticCatalog(RenderableResult):
         read business datasources. Named objects compose and enter consumers directly.
     """
 
-    __slots__ = ("_documents", "_index", "_project", "_reg", "_scope", "_search_config", "_state")
+    __slots__ = (
+        "_definitions",
+        "_documents",
+        "_index",
+        "_project",
+        "_reg",
+        "_scope",
+        "_search_config",
+        "_state",
+    )
 
     _project: SemanticProject
     _state: CompiledSemanticState
@@ -3090,6 +3097,7 @@ class SemanticCatalog(RenderableResult):
     _index: _CatalogIndex
     _search_config: SearchConfig
     _documents: tuple[SearchDocument, ...]
+    _definitions: dict[Ref[SemanticKindTag], EntryDefinition]
     _scope: CatalogScope
 
     def __init__(self, project: SemanticProject) -> None:
@@ -3098,6 +3106,7 @@ class SemanticCatalog(RenderableResult):
         object.__setattr__(self, "_project", project)
         object.__setattr__(self, "_state", project._compiled_state)
         object.__setattr__(self, "_reg", self._state.registry)
+        object.__setattr__(self, "_definitions", {})
         object.__setattr__(self, "_index", _CatalogIndex(self, project, self._reg))
         from marivo.config import AUTHORED_DIR, load_semantic_layer_paths
 
@@ -3305,6 +3314,18 @@ class SemanticCatalog(RenderableResult):
                 )
             )
         return tuple(sorted(dependencies, key=lambda item: item.key))
+
+    def _definition(self, ref: Ref[SemanticKindTag]) -> EntryDefinition:
+        from marivo.semantic._catalog_definition import definition_for
+
+        # Temporal certification is inspected on every read. All other facts
+        # belong to this immutable loaded scope and can reuse their projection.
+        if ref.kind in {SemanticKind.PERIOD_CALENDAR, SemanticKind.TEMPORAL_SET}:
+            return definition_for(self, ref)
+        definition = self._definitions.get(ref)
+        if definition is None:
+            definition = self._definitions[ref] = definition_for(self, ref)
+        return definition
 
     def _search_documents(self) -> tuple[SearchDocument, ...]:
         from marivo.semantic._catalog_definition import context_for

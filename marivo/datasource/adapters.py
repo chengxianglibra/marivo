@@ -219,7 +219,10 @@ class SourceSession:
             raise _invalid(provider.name, backend.name)
         if backend_lease is not None and (not owns_backend or backend_lease.backend is not backend):
             raise _invalid("an owned lease for this exact backend", "borrowed or mismatched lease")
-        from marivo.datasource.engines._aggregate_compilers import configure_aggregate_compiler
+        from marivo.datasource.engines._aggregate_compilers import (
+            DuckDBCompilationMemo,
+            configure_aggregate_compiler,
+        )
 
         configure_aggregate_compiler(backend)
         self._log_context = _execution_log.snapshot(project_root)
@@ -231,6 +234,7 @@ class SourceSession:
         self._backend_disconnected = False
         self._token = object()
         self._issued: dict[int, tuple[CompiledRead, _IssuedRead]] = {}
+        self._compilation_memo = DuckDBCompilationMemo(getattr(backend, "compiler", None))
         self._bindings_by_identity: dict[str, tuple[SourceIR, dict[str, object]]] = {}
         self._json_responses = json_responses
         self._bound_sources: dict[str, BoundSource] = {}
@@ -510,7 +514,7 @@ class SourceSession:
         expected_schema: pa.Schema,
     ) -> CompiledRead:
         """Issue a handle for one bound expression and unmodified Ibis SQL."""
-        with cr.backend_errors(self._backend):
+        with cr.backend_errors(self._backend), self._compilation_memo.activate():
             return self._compile_read(
                 qualified,
                 expression,
@@ -677,7 +681,7 @@ class SourceSession:
         )
         self._query_logs[id(submission)] = query
         try:
-            with cr.backend_errors(self._backend):
+            with cr.backend_errors(self._backend), self._compilation_memo.activate():
                 table = proof.expression.as_table()
                 if self.provider.name == "mysql":
                     from marivo.datasource.engines._mysql_backend import convert_mysql_frame
@@ -827,6 +831,7 @@ class SourceSession:
         self._closed = True
         failure: BaseException | None = None
         self._issued.clear()
+        self._compilation_memo.entries.clear()
         self._bindings_by_identity.clear()
         self._bound_sources.clear()
         self._verified_source_timezones.clear()

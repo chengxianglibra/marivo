@@ -35,8 +35,9 @@ def _module_prefix(root: Path) -> str:
 
 
 def _purge_synthetic_modules(prefix: str) -> None:
+    descendant_prefix = prefix + "."
     for name in list(sys.modules):
-        if name == prefix or name.startswith(f"{prefix}."):
+        if name == prefix or name.startswith(descendant_prefix):
             del sys.modules[name]
 
 

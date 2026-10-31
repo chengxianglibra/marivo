@@ -203,6 +203,179 @@ def test_compiled_read_executes_through_ibis_and_returns_pandas(
     assert records[1]["consumed_rows"] == 2
 
 
+def test_duckdb_compile_reuses_sql_but_rechecks_each_issued_read(
+    session: SourceSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    bound = session.bind(TableSourceIR("facts"), source_identity="facts@v1")
+    qualified = session.qualify(
+        bound, PhysicalRequirement("basic.rows", 1, frozenset({"scan", "filter"}))
+    )
+    expression = bound.relation.filter(bound.relation.amount >= 2)
+    schema = expression.schema().to_pyarrow()
+    compile_sql = Mock(wraps=session._backend.compiler.translate)
+    monkeypatch.setattr(session._backend.compiler, "translate", compile_sql)
+    prepared = session.compile(
+        qualified, expression, purpose="query.prepare", expected_schema=schema
+    )
+    actual = session.compile(qualified, expression, purpose="query.read", expected_schema=schema)
+    assert compile_sql.call_count == 1
+    assert actual is not prepared and actual.sql == prepared.sql
+    assert actual.purpose == "query.read" and prepared.purpose == "query.prepare"
+    for qualifications, purpose, expected_schema in (
+        ((), "query.read", schema),
+        ((qualified,), "", schema),
+        ((qualified,), "query.read", pa.schema([("wrong", pa.int64())])),
+    ):
+        with pytest.raises(DatasourceSourceCapabilityError):
+            session.compile(
+                qualifications, expression, purpose=purpose, expected_schema=expected_schema
+            )
+    assert compile_sql.call_count == 1
+    assert session.execute(actual).to_dict(orient="records") == [
+        {"id": 10, "amount": 2},
+        {"id": 11, "amount": 3},
+    ]
+    assert compile_sql.call_count == 1
+    assert session.submissions[-1].purpose == "query.read"
+    assert session.submissions[-1].sql == actual.sql
+
+
+def test_duckdb_compile_memo_distinguishes_expressions_and_excludes_parameters(
+    session: SourceSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    bound = session.bind(TableSourceIR("facts"), source_identity="facts@v1")
+    qualified = session.qualify(
+        bound, PhysicalRequirement("basic.rows", 1, frozenset({"scan", "filter"}))
+    )
+    compile_sql = Mock(wraps=session._backend.compiler.translate)
+    monkeypatch.setattr(session._backend.compiler, "translate", compile_sql)
+    reads = []
+    for threshold in (2, 3, 2):
+        expression = bound.relation.filter(bound.relation.amount >= threshold)
+        reads.append(
+            session.compile(
+                qualified,
+                expression,
+                purpose="query.read",
+                expected_schema=expression.schema().to_pyarrow(),
+            )
+        )
+    assert compile_sql.call_count == 2
+    parameter = ibis.param("int64")
+    expression = bound.relation.filter(bound.relation.amount >= parameter)
+    for threshold in (2, 3, 2):
+        reads.append(
+            session.compile(
+                qualified,
+                expression,
+                params={parameter: threshold},
+                purpose="query.parameter",
+                expected_schema=expression.schema().to_pyarrow(),
+            )
+        )
+    assert compile_sql.call_count == 5
+    assert [session.execute(read)["id"].tolist() for read in reads] == [
+        [10, 11],
+        [11],
+        [10, 11],
+        [10, 11],
+        [11],
+        [10, 11],
+    ]
+
+
+def test_duckdb_compile_memo_is_released_with_its_source_session(
+    session: SourceSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Borrowing the same backend must not inherit the previous owner's SQL memo.
+    for _ in range(2):
+        with SourceSession(
+            session.provider, session.datasource, session._backend, owns_backend=False
+        ) as borrowed:
+            compile_sql = Mock(wraps=borrowed._backend.compiler.translate)
+            monkeypatch.setattr(borrowed._backend.compiler, "translate", compile_sql)
+            _read(borrowed)
+            _read(borrowed)
+            assert compile_sql.call_count == 1
+        assert borrowed._compilation_memo.entries == {}
+
+
+def test_duckdb_compilation_memo_isolates_ast_mutation_limits_and_compilers(
+    session: SourceSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    expression = session.bind(TableSourceIR("facts"), source_identity="facts@v1").relation
+    compiler = session._backend.compiler
+    translate = Mock(wraps=compiler.translate)
+    monkeypatch.setattr(compiler, "translate", translate)
+    with session._compilation_memo.activate():
+        first = compiler.to_sqlglot(expression, limit=1)
+        original_sql = first.sql(dialect="duckdb")
+        first.set("limit", None)
+        second = compiler.to_sqlglot(expression, limit=1)
+        assert second is not first
+        assert second.sql(dialect="duckdb") == original_sql
+        assert "LIMIT 1" in original_sql
+        assert translate.call_count == 1
+        unlimited = compiler.to_sqlglot(expression, limit=None)
+        assert "LIMIT" not in unlimited.sql(dialect="duckdb")
+        assert translate.call_count == 2
+        # A different compiler cannot consume this owner's memo even in its context.
+        foreign = type(compiler)()
+        foreign_translate = Mock(wraps=foreign.translate)
+        monkeypatch.setattr(foreign, "translate", foreign_translate)
+        foreign.to_sqlglot(expression, limit=1)
+        foreign.to_sqlglot(expression, limit=1)
+        assert foreign_translate.call_count == 2
+    compiler.to_sqlglot(expression, limit=1)
+    assert translate.call_count == 3
+
+
+def test_duckdb_compilation_memo_restores_nested_context_after_exceptions(
+    session: SourceSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from marivo.datasource.engines._aggregate_compilers import DuckDBCompilationMemo
+
+    expression = session.bind(TableSourceIR("facts"), source_identity="facts@v1").relation
+    compiler = session._backend.compiler
+    translate = Mock(wraps=compiler.translate)
+    monkeypatch.setattr(compiler, "translate", translate)
+    inner = DuckDBCompilationMemo(compiler)
+    with pytest.raises(RuntimeError, match="outer failure"), session._compilation_memo.activate():
+        expected = compiler.to_sqlglot(expression).sql(dialect="duckdb")
+        with pytest.raises(RuntimeError, match="inner failure"), inner.activate():
+            assert compiler.to_sqlglot(expression).sql(dialect="duckdb") == expected
+            assert translate.call_count == 2
+            raise RuntimeError("inner failure")
+        assert compiler.to_sqlglot(expression).sql(dialect="duckdb") == expected
+        assert translate.call_count == 2
+        raise RuntimeError("outer failure")
+    assert compiler.to_sqlglot(expression).sql(dialect="duckdb") == expected
+    assert translate.call_count == 3
+    assert inner.entries is not session._compilation_memo.entries
+
+
+def test_duckdb_compilation_memo_tracks_current_fusion_and_default_limit_options(
+    session: SourceSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    table = session.bind(TableSourceIR("facts"), source_identity="facts@v1").relation
+    projected = table.select(table.id, doubled=table.amount * 2)
+    expression = projected.filter(projected.doubled > 2)
+    compiler = session._backend.compiler
+    # The independent cold compiler observes each current Ibis option combination.
+    cold = type(compiler)()
+    translate = Mock(wraps=compiler.translate)
+    monkeypatch.setattr(compiler, "translate", translate)
+    with session._compilation_memo.activate():
+        for fuse, limit, compilations in ((True, 1, 1), (False, 1, 2), (False, 2, 3), (True, 1, 3)):
+            monkeypatch.setattr(ibis.options.sql, "fuse_selects", fuse)
+            monkeypatch.setattr(ibis.options.sql, "default_limit", limit)
+            actual = compiler.to_sqlglot(expression, limit="default").sql(dialect="duckdb")
+            expected = cold.to_sqlglot(expression, limit="default").sql(dialect="duckdb")
+            assert actual == expected
+            assert f"LIMIT {limit}" in actual
+            assert translate.call_count == compilations
+
+
 def test_basic_group_and_count_use_the_bound_expression(session: SourceSession) -> None:
     bound = session.bind(TableSourceIR("facts"), source_identity="facts@v1")
     qualified = session.qualify(

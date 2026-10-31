@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, is_dataclass
 from datetime import date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
-from types import UnionType
+from functools import cache
+from types import MappingProxyType, UnionType
 from typing import Literal, TypeVar, Union, get_args, get_origin, get_type_hints
 
 import pyarrow as pa
@@ -626,6 +628,13 @@ def _construct(constructor: type[U], values: dict[str, object]) -> U:
     return constructor(**values)
 
 
+@cache
+def _record_hints(record: type[object]) -> Mapping[str, object]:
+    # Only closed protocol record classes reach this metadata cache. Payloads
+    # still pass exact field matching and their constructors on every decode.
+    return MappingProxyType(get_type_hints(record))
+
+
 def _decode(value: object, contexts: tuple[FrameValueContext, ...] = ()) -> object:
     if value is None or type(value) in (str, int, float, bool):
         return value
@@ -676,7 +685,7 @@ def _decode(value: object, contexts: tuple[FrameValueContext, ...] = ()) -> obje
     if record is None:
         raise invalid("unknown terminal record; graph formats are not supported")
     body = _obj(obj["fields"], " ".join(_wire_fields(record)))
-    hints = get_type_hints(record)
+    hints = _record_hints(record)
     decoded = {name: _decode(item, contexts) for name, item in body.items()}
     if any(not _matches(item, hints[name]) for name, item in decoded.items()):
         raise invalid("terminal record field differs from its exact type")

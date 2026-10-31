@@ -338,3 +338,53 @@ def test_definition_layer_imports_no_semantic_analysis_or_engine_modules() -> No
         [sys.executable, "-c", probe], capture_output=True, text=True, check=True
     )
     assert result.stdout.strip() == "[]"
+
+
+def test_encoded_fingerprints_match_original_recursive_canonical_encoder(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from dataclasses import fields, is_dataclass
+    from datetime import date, timedelta
+
+    from marivo._definition import graph
+    from marivo._definition.types import invalid, literal_token
+    from marivo._temporal import Grain
+    from marivo.refs import Ref
+
+    def legacy_encode(value: object, memo: dict[int, str], payloads: object = None) -> object:
+        # Keep the original dispatch and recursive payload construction as an
+        # independent compatibility oracle for the optimized encoder.
+        if graph._is_node(value):
+            return graph._fingerprint_node(value, memo)
+        if isinstance(value, Ref):
+            return ["ref", value.key]
+        if isinstance(value, timedelta):
+            return ["timedelta", value.days, value.seconds, value.microseconds]
+        if isinstance(value, Grain):
+            return graph.canonical_value(value)
+        if value is None or isinstance(value, (str, int, float, Decimal, date)):
+            return list(literal_token(value))
+        if isinstance(value, tuple):
+            return [legacy_encode(item, memo) for item in value]
+        if is_dataclass(value) and not isinstance(value, type):
+            return {
+                "type": type(value).__name__,
+                **{
+                    field.name: legacy_encode(getattr(value, field.name), memo)
+                    for field in fields(value)
+                },
+            }
+        invalid(f"unsupported definition value type: {type(value).__name__}")
+
+    definitions = (
+        _margin(),
+        _combine(_constant(1), _constant(1.0)),
+        _divide(_constant(Decimal("123456789.012300")), _constant(3)),
+        _constant(-0.0),
+    )
+    with monkeypatch.context() as original:
+        # Use the unchanged public encoder at every recursive definition node.
+        original.setattr(graph, "_encoded_fingerprint", graph.fingerprint)
+        original.setattr(graph, "_encode", legacy_encode)
+        expected = tuple(graph.computation_fingerprint(value) for value in definitions)
+    assert tuple(graph.computation_fingerprint(value) for value in definitions) == expected

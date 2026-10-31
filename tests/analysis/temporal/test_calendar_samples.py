@@ -83,8 +83,22 @@ def calendar_session(
     return mv.session.get_or_create("calendar-samples", timezone="UTC")
 
 
+@pytest.mark.parametrize(
+    "name,expected",
+    [
+        ("mean", 80),
+        ("p95_median", 64),
+        ("ratio_mean", 70),
+        ("weighted", 140),
+        ("first", 40),
+        ("last", 300),
+        ("nested", 320 / 7),
+    ],
+)
 def test_weekly_calendar_samples_include_empty_days_and_finish_daily_p95(
     calendar_session: Session,
+    name: str,
+    expected: float,
 ) -> None:
     session = calendar_session
     amount = _field(session, "sales.facts.amount")
@@ -96,37 +110,27 @@ def test_weekly_calendar_samples_include_empty_days_and_finish_daily_p95(
     revenue = amount.sum(time=point)
     daily_p95 = revenue.per(point).quantile(0.95)
     weeks = session.time_scope(start="2026-10-05", end="2026-10-12").by(mv.grain("week"))
-    rows = (
-        session.observe(
-            {
-                "mean": revenue.per(mv.grain("day")).mean(),
-                "p95_median": daily_p95.per(mv.grain("day")).median(),
-                "ratio_mean": (revenue / facts.count(time=point)).per(mv.grain("day")).mean(),
-                "weighted": revenue.per(mv.grain("day")).weighted_mean(
-                    weight=facts.count(time=point)
-                ),
-                "first": revenue.per(mv.grain("day")).first(),
-                "last": revenue.per(mv.grain("day")).last(),
-                "nested": revenue.per(mv.grain("hour")).max().per(mv.grain("day")).mean(),
-            },
-            by=(weeks, region),
-        )
-        .compute()
-        .to_pandas()
-    )
+    # Each reducer has its own independent oracle. Compiling all seven into
+    # one graph multiplies unrelated compiler work; mixed outputs are covered
+    # by test_observe_different_fields_share_one_actual_aggregate.
+    metrics = {
+        "mean": revenue.per(mv.grain("day")).mean(),
+        "p95_median": daily_p95.per(mv.grain("day")).median(),
+        "ratio_mean": (revenue / facts.count(time=point)).per(mv.grain("day")).mean(),
+        "weighted": revenue.per(mv.grain("day")).weighted_mean(weight=facts.count(time=point)),
+        "first": revenue.per(mv.grain("day")).first(),
+        "last": revenue.per(mv.grain("day")).last(),
+        "nested": revenue.per(mv.grain("hour")).max().per(mv.grain("day")).mean(),
+    }
+    rows = session.observe({name: metrics[name]}, by=(weeks, region)).compute().to_pandas()
     # Daily sums [40, 60, 0, 160, 0, 0, 300]; daily P95 [29, 39, NA, 89, NA, NA, 159].
-    assert rows["mean"].tolist() == [80]
-    assert rows["p95_median"].tolist() == [64]
-    assert rows["ratio_mean"].tolist() == [70]
-    assert rows["weighted"].tolist() == [140]
-    assert rows["first"].tolist() == [40]
-    assert rows["last"].tolist() == [300]
-    assert rows["nested"].tolist() == pytest.approx([320 / 7])
-    with pytest.raises(MaterializationError, match="non-NA internal samples"):
-        session.observe(
-            {"v": (revenue / facts.count(time=point)).per(mv.grain("day")).mean(nulls="error")},
-            by=(weeks,),
-        ).compute()
+    assert rows[name].tolist() == (pytest.approx([expected]) if name == "nested" else [expected])
+    if name == "ratio_mean":
+        with pytest.raises(MaterializationError, match="non-NA internal samples"):
+            session.observe(
+                {"v": (revenue / facts.count(time=point)).per(mv.grain("day")).mean(nulls="error")},
+                by=(weeks,),
+            ).compute()
 
 
 def test_calendar_samples_clip_partial_month_edges_and_plain_scope(

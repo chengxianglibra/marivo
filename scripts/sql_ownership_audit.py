@@ -272,6 +272,15 @@ def _manifest() -> Manifest:
     )
     add(
         "datasource/engines/_aggregate_compilers",
+        ("_DuckDBCompiler.to_sqlglot",),
+        ("super().to_sqlglot",),
+        Owner(
+            "ibis_compilation",
+            "SourceSession-scoped DuckDB memo delegates exact expressions to the inherited Ibis compiler and returns isolated AST copies; it grants no SQL rewrite or submission authority.",
+        ),
+    )
+    add(
+        "datasource/engines/_aggregate_compilers",
         ("compile_distributed_query",),
         ("_DistributedClickHouseCompiler().to_sqlglot", "query.sql"),
         native_aggregates,
