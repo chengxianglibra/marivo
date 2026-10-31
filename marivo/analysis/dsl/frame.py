@@ -7,10 +7,11 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from hashlib import sha256
 from json import dumps
-from typing import TYPE_CHECKING, Literal, TypeAlias, overload
+from typing import TYPE_CHECKING, Literal, TypeAlias
 from uuid import uuid4
 
 import pandas as pd
+from typing_extensions import overload as _public_overload
 
 from marivo._definition.correspondence import CalendarCorrespondence
 from marivo._definition.query import (
@@ -1108,7 +1109,7 @@ class AnalysisFrame:
             self._local, schema, OperationFrameBinding(operation, (self, other))
         )
 
-    @overload
+    @_public_overload
     def compare(
         self,
         baselines: AnalysisFrame,
@@ -1117,7 +1118,7 @@ class AnalysisFrame:
         match: CalendarCorrespondence | None = None,
     ) -> AnalysisFrame: ...
 
-    @overload
+    @_public_overload
     def compare(self, baselines: Mapping[str, ComparisonBaseline]) -> AnalysisFrame: ...
 
     def compare(
