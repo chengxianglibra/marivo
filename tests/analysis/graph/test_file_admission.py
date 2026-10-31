@@ -3,6 +3,7 @@
 import os
 from collections.abc import Callable
 from dataclasses import replace
+from importlib.util import cache_from_source
 from pathlib import Path
 
 import pytest
@@ -114,6 +115,9 @@ def test_unresolved_json_parameters_are_refused_before_source_open(
         )
         assert original in model.read_text()
         model.write_text(model.read_text().replace(original, replacement))
+        # The generated file can retain both its byte length and integer mtime.
+        # Remove its initial import's pyc so this case tests the edited request.
+        Path(cache_from_source(str(model))).unlink(missing_ok=True)
         session = mv.session.get_or_create("r94-json-request-refusal", timezone="UTC")
         calls: list[str] = []
 

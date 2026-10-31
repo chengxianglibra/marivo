@@ -718,12 +718,24 @@ class InvocationMemo:
 
     def __init__(self) -> None:
         self._binding: tuple[Owner, tuple[SourceSchema, ...]] | None = None
+        self._fingerprints: dict[int, tuple[BoundGraph, str]] = {}
         self._plans: dict[MemoSlot, QueryPlan] = {}
         self._lowered: dict[MemoSlot, LoweredQuery] = {}
         self._captures: dict[MemoSlot, BoundGraph] = {}
         self._keys: dict[MemoSlot, CompilationKey] = {}
         self.hits = 0
         self.misses = 0
+
+    def fingerprint(self, graph: BoundGraph) -> str:
+        """Reuse a frozen graph's canonical identity only within this invocation."""
+        key = id(graph)
+        cached = self._fingerprints.get(key)
+        if cached is None:
+            # Retain the exact graph so Python cannot recycle its ID. This is
+            # independent of physical source schemas and contains no read data.
+            cached = (graph, graph.fingerprint)
+            self._fingerprints[key] = cached
+        return cached[1]
 
     def _bind(self, key: CompilationKey) -> None:
         binding = (key.owner, key.schemas)

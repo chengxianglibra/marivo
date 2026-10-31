@@ -282,3 +282,28 @@ def test_live_load_help_discloses_restart_and_execution_diagnostics(
     assert "Restart Python" in help_text
     assert "ordinary imports are not guaranteed to hot-reload" in help_text
     assert "exception_type" in help_text and "traceback" in help_text
+
+
+@pytest.mark.parametrize("loader_name", ("marivo.semantic.loader", "marivo.datasource.loader"))
+@pytest.mark.parametrize("root_present", (False, True))
+def test_synthetic_purge_keeps_prefix_neighbors_and_removes_orphan_descendants(
+    loader_name: str, root_present: bool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from importlib import import_module
+    from types import ModuleType, SimpleNamespace
+
+    loader = import_module(loader_name)
+    prefix = "_marivo_test_owned"
+    neighbor = ModuleType(prefix + "_other")
+    names: dict[str, ModuleType | None] = {
+        prefix + ".child": ModuleType(prefix + ".child"),
+        prefix + ".child.failed": None,
+        prefix + "_other": neighbor,
+        "ordinary": ModuleType("ordinary"),
+    }
+    if root_present:
+        names[prefix] = ModuleType(prefix)
+    monkeypatch.setattr(loader, "sys", SimpleNamespace(modules=names))
+    loader._purge_synthetic_modules(prefix)
+    assert tuple(names) == (prefix + "_other", "ordinary")
+    assert names[prefix + "_other"] is neighbor

@@ -423,3 +423,79 @@ def test_get_rejects_composed_deferred_without_guessing_an_identity(tmp_path: Pa
     with pytest.raises(SemanticError) as composed:
         catalog.get(ms.ref.metric("sales.revenue") + 1)
     assert "subject = catalog.get(" not in str(composed.value)
+
+
+def test_static_definitions_are_built_once_per_catalog_and_reload_is_independent(
+    tmp_path: Path,
+) -> None:
+    from dataclasses import FrozenInstanceError
+    from unittest.mock import patch
+
+    from marivo.semantic import _catalog_definition
+
+    write_minimal_catalog_project(tmp_path)
+    with patch.object(
+        _catalog_definition, "definition_for", wraps=_catalog_definition.definition_for
+    ) as build:
+        original = ms.load(workspace_dir=tmp_path)
+        revenue = original.get("metric:sales.revenue")
+        assert revenue.kind == "metric"
+        assert revenue.definition.unit == "USD"
+        revenue.render()
+        payload = revenue.to_dict()
+        definition_payload = payload["definition"]
+        assert isinstance(definition_payload, dict)
+        definition_payload["unit"] = "modified export"
+        for target, attribute in (
+            (revenue.definition, "unit"),
+            (revenue.definition.context, "business_definition"),
+        ):
+            with pytest.raises(FrozenInstanceError):
+                setattr(target, attribute, "modified definition")
+        assert revenue.definition.unit == "USD"
+        original.search("revenue")
+        calls = [call for call in build.call_args_list if call.args[1].key == revenue.id]
+        assert len(calls) == 1
+
+    source = tmp_path / "models/semantic/sales/objects.py"
+    source.write_text(source.read_text().replace('unit="USD"', 'unit="EUR"') + "\n")
+    current = ms.load(workspace_dir=tmp_path)
+    changed = current.get("metric:sales.revenue")
+    assert changed.kind == "metric"
+    assert changed.definition.unit == "EUR"
+    assert revenue.definition.unit == "USD"
+    assert original.definition_fingerprint != current.definition_fingerprint
+    assert original.get("metric:sales.revenue").definition == revenue.definition
+
+
+def test_new_resolvers_reuse_only_their_captured_state_definition_versions(tmp_path: Path) -> None:
+    from unittest.mock import patch
+
+    from marivo.refs import ref as ref_factory
+    from marivo.semantic import _definition_identity
+    from marivo.semantic.expressions import _Resolver
+
+    write_minimal_catalog_project(tmp_path)
+    original = ms.load(workspace_dir=tmp_path)
+    target = ref_factory.metric("sales.revenue")
+    with patch.object(
+        _definition_identity,
+        "scoped_definition_fingerprint",
+        wraps=_definition_identity.scoped_definition_fingerprint,
+    ) as fingerprint:
+        first = _Resolver(original._state).exact(target)
+        assert _Resolver(original._state).exact(target) == first
+        assert fingerprint.call_count <= 1
+
+    source = tmp_path / "models/semantic/sales/objects.py"
+    source.write_text(
+        source.read_text().replace("return amount_value.sum()", "return amount_value.sum() * 2")
+    )
+    current = ms.load(workspace_dir=tmp_path)
+    current_version = _Resolver(current._state).exact(target)
+    assert current_version != first
+    assert _Resolver(original._state).exact(target) == first
+    source.write_text(source.read_text().replace('md.table("orders")', 'md.table("orders_v2")'))
+    changed_source = ms.load(workspace_dir=tmp_path)
+    assert _Resolver(changed_source._state).exact(target) != current_version
+    assert _Resolver(current._state).exact(target) == current_version

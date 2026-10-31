@@ -764,36 +764,42 @@ def test_valid_minimum_temporal_ticks_survive_export_and_restore(
         _assert_valid_minimum_temporal_ticks_survive_export_and_restore(local, dtype, composite)
 
 
-@pytest.mark.parametrize(
-    "point",
-    [
+def test_publication_fault_is_atomic_and_preserves_original_memory(
+    local: LocalFrameServices, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    memory = ordinary(local)
+    previous = memory.persist()
+    before = previous.to_pandas()
+    for point in (
         "publication_admitted",
         "terminal_primary_written",
         "terminal_files_published",
         "insert_artifact",
         "insert_terminal",
         "before_commit",
-    ],
-)
-def test_publication_fault_is_atomic_and_preserves_original_memory(
-    local: LocalFrameServices, monkeypatch: pytest.MonkeyPatch, point: str
-) -> None:
-    memory = ordinary(local)
-    previous = memory.persist()
-    before = previous.to_pandas()
+    ):
+        prior_runs = {run.run_ref: run for run in terminal_runs(local)}
+        reached: list[str] = []
 
-    def fault(event: str) -> None:
-        if event == point:
-            raise OSError(point)
+        def fault(event: str, point: str = point, reached: list[str] = reached) -> None:
+            if event == point:
+                reached.append(event)
+                raise OSError(point)
 
-    monkeypatch.setattr(terminal_publication, "_event", fault)
-    with pytest.raises(MaterializationError):
-        memory.persist()
-    assert counts(local) == (2, 1)
-    assert local.store.resources(local.session_ref) == ()
-    pd.testing.assert_frame_equal(previous.to_pandas(), before)
-    pd.testing.assert_frame_equal(memory.to_pandas(), before)
-    assert any(run.lifecycle == "failed" for run in terminal_runs(local))
+        with monkeypatch.context() as patch:
+            patch.setattr(terminal_publication, "_event", fault)
+            with pytest.raises(MaterializationError):
+                memory.persist()
+        assert reached == [point]
+        runs = {run.run_ref: run for run in terminal_runs(local)}
+        assert {ref: runs[ref] for ref in prior_runs} == prior_runs
+        new_runs = [run for ref, run in runs.items() if ref not in prior_runs]
+        assert len(new_runs) == 1 and new_runs[0].lifecycle == "failed"
+        assert counts(local) == (len(prior_runs) + 1, 1)
+        assert local.store.resources(local.session_ref) == ()
+        assert len(list(local.store.layout.session_dir(local.session_ref).glob("artifacts/*"))) == 1
+        pd.testing.assert_frame_equal(previous.to_pandas(), before)
+        pd.testing.assert_frame_equal(memory.to_pandas(), before)
 
 
 def test_lost_commit_ack_returns_original_without_evaluation(
@@ -1396,16 +1402,11 @@ def test_zero_column_preview_preserves_empty_vs_singleton(
         assert "omitted by n=0" in capsys.readouterr().out
 
 
-@pytest.mark.parametrize(
-    "dtype",
-    _EXTREME_TYPED_KEY_DTYPES,
-)
-@pytest.mark.parametrize("composite", [False, True])
-def test_reduce_retains_exact_extreme_and_null_complete_keys(
+def _reduce_extreme_keys(
     local: LocalFrameServices,
     dtype: TimestampDataType | DurationDataType | ScalarDataType,
     composite: bool,
-) -> None:
+) -> tuple[str, int]:
     from marivo.analysis.dsl.column import row_count
 
     if isinstance(dtype, TimestampDataType):
@@ -1455,57 +1456,67 @@ def test_reduce_retains_exact_extreme_and_null_complete_keys(
     assert stored_export["rows"].tolist() == [1, 2]
     assert stored_export["total"].tolist() == [pd.NA, 10]
 
-    if composite:
-        import subprocess
-        import sys
-
-        script = """
-import sys
-from pathlib import Path
-import pyarrow as pa
-from marivo.analysis.materialization.frame_services import LocalFrameServices
-from marivo.analysis.materialization import terminal_store
-from marivo.analysis.materialization.store import SessionStore
-local = LocalFrameServices(SessionStore.open_existing(Path(sys.argv[1])), sys.argv[2])
-result = local.read_complete(local.open_frame(sys.argv[3]))
-rows = result.data.copy_rows()
-key = pa.array(rows["key"])
-integer = pa.int32() if pa.types.is_date32(key.type) else pa.int64()
-assert key.cast(integer).to_pylist() == [None, int(sys.argv[4])]
-assert rows["other"].tolist() == ["x", "x"]
-values = result.data.schema.values
-assert pa.array(rows[values[0].slot_id]).to_pylist() == [1, 2]
-assert pa.array(rows[values[1].slot_id]).to_pylist() == [None, 10]
-"""
-        cold = subprocess.run(
-            [
-                sys.executable,
-                "-c",
-                script,
-                str(local.store.project_root),
-                local.session_ref,
-                saved.artifact_id,
-                str(minimum),
-            ],
-            cwd=Path(__file__).resolve().parents[3],
-            text=True,
-            capture_output=True,
-        )
-        assert cold.returncode == 0, cold.stdout + cold.stderr
+    return saved.artifact_id, minimum
 
 
-@pytest.mark.parametrize(
-    "dtype",
-    _EXTREME_TYPED_KEY_DTYPES,
-)
-def test_top_orders_exact_extreme_null_composite_keys_and_scores(
-    local: LocalFrameServices,
-    dtype: TimestampDataType | DurationDataType | ScalarDataType,
+@pytest.mark.parametrize("composite", [False, True])
+def test_reduce_retains_exact_extreme_and_null_complete_keys(
+    local: LocalFrameServices, composite: bool
 ) -> None:
     import json
     import subprocess
     import sys
 
+    cases = [_reduce_extreme_keys(local, dtype, composite) for dtype in _EXTREME_TYPED_KEY_DTYPES]
+    if not composite:
+        return
+    script = """
+import json, sys
+from pathlib import Path
+import pyarrow as pa
+from marivo.analysis.materialization.frame_services import LocalFrameServices
+from marivo.analysis.materialization import terminal_store
+from marivo.analysis.materialization.store import SessionStore
+from marivo.analysis.session.core import Session
+from marivo.datasource.adapters import SourceSession
+from marivo.semantic.reader import SemanticProject
+def forbidden(*args, **kwargs):
+    raise AssertionError("cold typed read accessed source or semantic state")
+Session.catalog = property(forbidden)
+SourceSession.__init__ = forbidden
+SemanticProject.load = forbidden
+for artifact_id, minimum in json.loads(sys.argv[3]):
+    local = LocalFrameServices(SessionStore.open_existing(Path(sys.argv[1])), sys.argv[2])
+    result = local.read_complete(local.open_frame(artifact_id))
+    rows = result.data.copy_rows()
+    key = pa.array(rows["key"])
+    integer = pa.int32() if pa.types.is_date32(key.type) else pa.int64()
+    assert key.cast(integer).to_pylist() == [None, minimum]
+    assert rows["other"].tolist() == ["x", "x"]
+    values = result.data.schema.values
+    assert pa.array(rows[values[0].slot_id]).to_pylist() == [1, 2]
+    assert pa.array(rows[values[1].slot_id]).to_pylist() == [None, 10]
+"""
+    cold = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            script,
+            str(local.store.project_root),
+            local.session_ref,
+            json.dumps(cases),
+        ],
+        cwd=Path(__file__).resolve().parents[3],
+        text=True,
+        capture_output=True,
+    )
+    assert cold.returncode == 0, cold.stdout + cold.stderr
+
+
+def _top_extreme_keys(
+    local: LocalFrameServices,
+    dtype: TimestampDataType | DurationDataType | ScalarDataType,
+) -> list[tuple[str, list[int | None], list[str], list[int | None]]]:
     if isinstance(dtype, TimestampDataType):
         physical, integer, minimum = pa.timestamp(dtype.unit, dtype.timezone), pa.int64(), -(2**63)
     elif isinstance(dtype, DurationDataType):
@@ -1564,6 +1575,19 @@ def test_top_orders_exact_extreme_null_composite_keys_and_scores(
         assert pa.array(cutoff_rows["key"]).cast(integer).to_pylist() == keys[:2]
         assert cutoff_rows["other"].tolist() == others[:2]
         saved_cases.append((saved.artifact_id, keys, others, scores))
+    return saved_cases
+
+
+def test_top_orders_exact_extreme_null_composite_keys_and_scores(
+    local: LocalFrameServices,
+) -> None:
+    import json
+    import subprocess
+    import sys
+
+    saved_cases = [
+        case for dtype in _EXTREME_TYPED_KEY_DTYPES for case in _top_extreme_keys(local, dtype)
+    ]
     script = """
 import json, sys
 from pathlib import Path
@@ -1571,8 +1595,16 @@ import pyarrow as pa
 from marivo.analysis.materialization.frame_services import LocalFrameServices
 from marivo.analysis.materialization import terminal_store
 from marivo.analysis.materialization.store import SessionStore
-local = LocalFrameServices(SessionStore.open_existing(Path(sys.argv[1])), sys.argv[2])
+from marivo.analysis.session.core import Session
+from marivo.datasource.adapters import SourceSession
+from marivo.semantic.reader import SemanticProject
+def forbidden(*args, **kwargs):
+    raise AssertionError("cold typed read accessed source or semantic state")
+Session.catalog = property(forbidden)
+SourceSession.__init__ = forbidden
+SemanticProject.load = forbidden
 for artifact_id, keys, others, scores in json.loads(sys.argv[3]):
+    local = LocalFrameServices(SessionStore.open_existing(Path(sys.argv[1])), sys.argv[2])
     result = local.read_complete(local.open_frame(artifact_id))
     rows = result.data.copy_rows()
     key = pa.array(rows["key"])
@@ -3786,47 +3818,66 @@ def test_period_page_retains_only_selected_records_and_uses_bounded_batches(
     assert detached.items[0].key == (900_000,)
 
 
-@pytest.mark.parametrize("case", ["bool", "zero", "large", "cursor", "limit", "other", "ordinary"])
 def test_period_page_request_rejection_precedes_payload_reads(
     local: LocalFrameServices,
     monkeypatch: pytest.MonkeyPatch,
-    case: str,
 ) -> None:
     from marivo.analysis.materialization.frame_paging import read_frame_periods
 
     frame = calendar(local, 3).persist()
     page = _period_page(frame, limit=1)
-    target = frame.schema.axes[0]
-    limit: int = 1
-    cursor = None
-    if case == "bool":
-        limit = True
-    elif case == "zero":
-        limit = 0
-    elif case == "large":
-        limit = 10001
-    elif case == "cursor":
-        cursor = "invalid"
-    elif case == "limit":
-        limit, cursor = 2, page.next_cursor
-    elif case == "other":
-        frame = calendar(local, 3).persist()
-        target, cursor = frame.schema.axes[0], page.next_cursor
-    else:
-        frame = ordinary(local).persist()
-        target = frame.schema.axes[0]
+    other = calendar(local, 3).persist()
+    ordinary_frame = ordinary(local).persist()
 
     def forbidden(*args: object, **kwargs: object) -> None:
         raise AssertionError("invalid period request opened a payload")
 
     monkeypatch.setattr(OutputRead, "_open", forbidden)
-    with pytest.raises(AnalysisError):
-        read_frame_periods(
-            input_id=frame._input_id,
-            schema=_complete_schema(frame),
-            backing=_stored_backing(frame),
-            local=local,
-            target=target,
-            limit=limit,
-            cursor=cursor,
+    for candidate, limit, cursor in (
+        (frame, True, None),
+        (frame, 0, None),
+        (frame, 10001, None),
+        (frame, 1, "invalid"),
+        (frame, 2, page.next_cursor),
+        (other, 1, page.next_cursor),
+        (ordinary_frame, 1, None),
+    ):
+        with pytest.raises(AnalysisError):
+            read_frame_periods(
+                input_id=candidate._input_id,
+                schema=_complete_schema(candidate),
+                backing=_stored_backing(candidate),
+                local=local,
+                target=candidate.schema.axes[0],
+                limit=limit,
+                cursor=cursor,
+            )
+
+
+def test_complete_read_validates_manifest_once_and_rechecks_next_call(
+    local: LocalFrameServices, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    saved = ordinary(local).persist()
+    backing = _stored_backing(saved)
+    original = FrameReader.manifest
+    reads = 0
+
+    def tracked(reader: FrameReader, selected: StoredFrameBacking) -> ArtifactManifest:
+        nonlocal reads
+        reads += 1
+        return original(reader, selected)
+
+    monkeypatch.setattr(FrameReader, "manifest", tracked)
+    complete = local.read_complete(backing)
+    assert complete.data.copy_rows()["amount"].tolist() == [pd.NA, 1, 2]
+    assert reads == 1
+    local.read_complete(backing)
+    assert reads == 2
+    with local.store._write() as conn:
+        conn.execute(
+            "UPDATE dataset_artifacts SET descriptor_payload=? WHERE artifact_ref=?",
+            ("{}", saved.artifact_id),
         )
+    with pytest.raises(IntegrityError):
+        local.read_complete(backing)
+    assert reads == 3

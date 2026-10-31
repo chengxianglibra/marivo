@@ -762,28 +762,6 @@ def _sets(session: Session, operation: str) -> mv.Population:
     )
 
 
-@pytest.mark.parametrize("operation", ("union", "intersection", "difference"))
-def test_population_set_algebra_keeps_complete_frame_keys(
-    source_query_session: Session, monkeypatch: pytest.MonkeyPatch, operation: str
-) -> None:
-    session = source_query_session
-    members = session.members(
-        session.catalog.get("entity:sales.orders"),
-        where=mv.in_population(_sets(session, operation)),
-    )
-    rows = (
-        session.observe(
-            {"total": catalog_value(session.catalog, "sales.orders.amount", kind="field").sum()},
-            where=mv.in_population(members),
-        )
-        .compute()
-        .to_pandas()
-    )
-    assert rows["total"].tolist() == [
-        {"union": 60, "intersection": 20, "difference": 30}[operation]
-    ]
-
-
 def test_grouped_shared_population_consumers_keep_independent_grids(
     source_query_session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -830,6 +808,23 @@ def test_population_set_terminal_uses_complete_frame_keys(
     assert str(rows.dtypes.iloc[0]) == "int64[pyarrow]"
     assert trace.native_sql == []
     assert trace.uploaded_key_rows == []
+
+    # Reuse the same fixed producers to check the explicit source consumer too.
+    session = source_query_session
+    members = session.members(
+        session.catalog.get("entity:sales.orders"), where=mv.in_population(selected)
+    )
+    rows = (
+        session.observe(
+            {"total": catalog_value(session.catalog, "sales.orders.amount", kind="field").sum()},
+            where=mv.in_population(members),
+        )
+        .compute()
+        .to_pandas()
+    )
+    assert rows["total"].tolist() == [
+        {"union": 60, "intersection": 20, "difference": 30}[operation]
+    ]
 
 
 @pytest.mark.parametrize("operation", ("product", "project", "filter"))

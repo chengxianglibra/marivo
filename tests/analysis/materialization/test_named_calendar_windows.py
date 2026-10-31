@@ -415,7 +415,9 @@ def test_current_named_axis_and_window_preserve_consumed_calendar_identity(
     session = mv.session.get_or_create("named-fact-identity", timezone="UTC")
     calendar = _calendar(session.catalog)
     metric = _metric(session.catalog, "sales.gmv")
-    scope = session.time_scope(start="2026-01-05", end="2026-01-27")
+    # Two daily cells suffice for consumed identity and persistence. The
+    # window value tests above retain the longer history and reset boundaries.
+    scope = session.time_scope(start="2026-01-25", end="2026-01-27")
     frame = session.observe(
         {"daily": metric, "reset": metric.window(mv.to_date(grain=calendar.grain("fiscal_month")))},
         by=(scope.by(calendar.grain("day")),),

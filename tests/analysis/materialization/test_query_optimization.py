@@ -201,7 +201,7 @@ def _execute(
 
 def _same(
     session: Session, query: AnalysisFrame
-) -> tuple[QueryPlan, tuple[str, ...], dict[str, tuple[str, ...]]]:
+) -> tuple[StageOutput, QueryPlan, tuple[str, ...], dict[str, tuple[str, ...]]]:
     baseline, original, _, _ = _execute(session, query, optimized=False)
     result, planned, events, actual = _execute(session, query, optimized=True)
     pd.testing.assert_frame_equal(result.table, baseline.table)
@@ -209,7 +209,7 @@ def _same(
     assert result.columns == baseline.columns
     assert result.layout == baseline.layout
     assert not original.required_slots and not original.fusion_groups
-    return planned, events, actual
+    return result, planned, events, actual
 
 
 def _wide(session: Session) -> AnalysisFrame:
@@ -230,7 +230,7 @@ def test_complete_literal_input_remains_checked_before_projection(
 ) -> None:
     source = _wide(optimization_session)
     query = source.select({"kept": source["a"]})
-    plan, _, actual = _same(optimization_session, query)
+    _, plan, _, actual = _same(optimization_session, query)
     literal = next(
         stage
         for stage in plan.stages
@@ -251,7 +251,7 @@ def test_repeated_consumers_share_complete_input_without_mutation(
     left = source.select({"left": source["a"]})
     right = source.select({"right": source["b"]})
     query = left.align(right, on=tuple(zip(left.axes, right.axes, strict=True)))
-    plan, _, actual = _same(optimization_session, query)
+    result, plan, _, actual = _same(optimization_session, query)
     literals = [
         stage
         for stage in plan.stages
@@ -261,9 +261,9 @@ def test_repeated_consumers_share_complete_input_without_mutation(
     ]
     assert len(literals) == 1
     assert actual[literals[0].stage_id] == ("key.0", "value.0", "value.1", "value.2")
-    rows = query.compute().to_pandas()
-    assert rows["left.left"].tolist() == [10, 20, 30]
-    assert rows["right.right"].tolist() == [100, 200, 300]
+    rows = result.table
+    assert rows["value.0"].tolist() == [10, 20, 30]
+    assert rows["value.1"].tolist() == [100, 200, 300]
 
 
 def test_source_attributes_keep_complete_keys_and_inherited_checks(
@@ -305,10 +305,10 @@ def test_current_frame_filters_preserve_real_source_domain(optimization_session:
     source = optimization_session.observe({"sales": amount.sum()}, by=(region,))
     first = source.where(source["sales"] >= 0)
     second = first.where(first["sales"] < 35)
-    plan, events, _ = _same(optimization_session, second)
+    result, plan, events, _ = _same(optimization_session, second)
     filters = [stage for stage in plan.stages if isinstance(stage, FrameCompute)]
     assert len(filters) == 2 and all(stage.stage_id in events for stage in filters)
-    assert second.compute().to_pandas()["sales"].tolist() == [20]
+    assert result.table["value.0"].tolist() == [20]
 
 
 def test_multiple_consumers_keep_independent_filter_domains(optimization_session: Session) -> None:
@@ -320,11 +320,11 @@ def test_multiple_consumers_keep_independent_filter_domains(optimization_session
     left = left_input.select({"left": left_input["a"]})
     right = right.select({"right": right["a"]})
     query = left.align(right, on=tuple(zip(left.axes, right.axes, strict=True)))
-    _same(optimization_session, query)
-    result = query.compute().to_pandas()
-    assert result["left.left"].iloc[:2].tolist() == [10, 20]
-    assert result["right.right"].iloc[1:].tolist() == [20, 30]
-    assert pd.isna(result["left.left"].iloc[2]) and pd.isna(result["right.right"].iloc[0])
+    result, _, _, _ = _same(optimization_session, query)
+    rows = result.table
+    assert rows["value.0"].iloc[:2].tolist() == [10, 20]
+    assert rows["value.1"].iloc[1:].tolist() == [20, 30]
+    assert pd.isna(rows["value.0"].iloc[2]) and pd.isna(rows["value.1"].iloc[0])
 
 
 def test_top_and_explicit_source_denominator_preserve_values(optimization_session: Session) -> None:
@@ -332,8 +332,8 @@ def test_top_and_explicit_source_denominator_preserve_values(optimization_sessio
     top = source.top(2, by=source["a"])
     selected = top.where(top["a"] > 0)
     query = selected.select({"kept": selected["a"]})
-    _same(optimization_session, query)
-    assert query.compute().to_pandas()["kept"].tolist() == [30, 20]
+    result, _, _, _ = _same(optimization_session, query)
+    assert result.table["value.0"].tolist() == [30, 20]
     amount = catalog_value(optimization_session.catalog, "sales.orders.amount", kind="field")
     region = catalog_value(optimization_session.catalog, "sales.orders.region", kind="field")
     denominator = (
@@ -351,16 +351,16 @@ def test_nullable_integer_filters_preserve_true_only_mask(optimization_session: 
     source = optimization_session.observe({"smallest": amount.min()}, by=(region,))
     first = source.where(source["smallest"] >= 0)
     query = first.where(first["smallest"] < 25)
-    _same(optimization_session, query)
-    assert query.compute().to_pandas().iloc[:, 0].tolist() == ["A", "B"]
+    result, _, _, _ = _same(optimization_session, query)
+    assert result.table.iloc[:, 0].tolist() == ["A", "B"]
 
 
 def test_dynamic_predicate_checks_before_empty_filter(optimization_session: Session) -> None:
     source = _wide(optimization_session)
     first = source.where(source["a"] > 0)
     query = first.where(first["b"] / first["a"] > 1)
-    _same(optimization_session, query)
-    assert query.compute().to_pandas()["a"].tolist() == [10, 20, 30]
+    result, _, _, _ = _same(optimization_session, query)
+    assert result.table["value.0"].tolist() == [10, 20, 30]
 
 
 def test_unselected_native_branch_keeps_its_dynamic_checks_masked(
@@ -381,7 +381,7 @@ def test_explicit_source_occurrences_and_formula_finish_are_never_collapsed(
     amount = catalog_value(optimization_session.catalog, "sales.orders.amount", kind="field")
     total = amount.sum()
     query = optimization_session.observe({"twice": total + total, "shifted": total + 10})
-    plan, _, _ = _same(optimization_session, query)
+    result, plan, _, _ = _same(optimization_session, query)
     reads = [
         item
         for stage in plan.stages
@@ -389,9 +389,9 @@ def test_explicit_source_occurrences_and_formula_finish_are_never_collapsed(
         for item in (read_members(stage) or (stage,))
     ]
     assert len(reads) == 3 and len({stage.occurrence for stage in reads}) == 3
-    frame = query.compute().to_pandas()
-    assert frame["twice"].tolist() == [120]
-    assert frame["shifted"].tolist() == [70]
+    frame = result.table
+    assert frame["value.0"].tolist() == [120]
+    assert frame["value.1"].tolist() == [70]
 
 
 def test_actual_plan_memo_hits_and_binding_changes_invalidate(
@@ -534,11 +534,11 @@ def test_explicit_empty_source_sum_and_ratio_keep_one_nullable_cell(
     query = optimization_session.observe(
         {"sum": total, "ratio": total / amount.count()}, where=amount > 1000
     )
-    _same(optimization_session, query)
-    frame = query.compute().to_pandas()
+    result, _, _, _ = _same(optimization_session, query)
+    frame = result.table
     assert len(frame) == 1
-    assert frame["sum"].tolist() == [0]
-    assert frame["ratio"].isna().all()
+    assert frame["value.0"].tolist() == [0]
+    assert frame["value.1"].isna().all()
 
 
 @pytest.mark.parametrize("field", ("amount", "exact"))
@@ -624,12 +624,14 @@ def test_float_source_reductions_share_aggregate_without_reassociation(
 ) -> None:
     value = catalog_value(optimization_session.catalog, "sales.orders.approximate", kind="field")
     query = optimization_session.observe({"a": value.sum(), "b": value.sum()})
-    plan, _, _ = _same(optimization_session, query)
+    _, plan, _, _ = _same(optimization_session, query)
     assert any(group.law == "source_block" for group in plan.fusion_groups)
 
 
-@pytest.mark.parametrize("domain", ("overall", "interval", "calendar"))
-@pytest.mark.parametrize("width", (5, 20))
+# Width stresses repeated occurrences; each domain separately covers all five reducers.
+@pytest.mark.parametrize(
+    ("domain", "width"), (("overall", 5), ("overall", 20), ("interval", 5), ("calendar", 5))
+)
 def test_observe_different_fields_share_one_actual_aggregate(
     optimization_session: Session,
     monkeypatch: pytest.MonkeyPatch,
@@ -649,7 +651,7 @@ def test_observe_different_fields_share_one_actual_aggregate(
         else (scope if domain == "interval" else scope.by(mv.grain("day")),)
     )
     query = session.observe({f"v{index}": metrics[index % 5] for index in range(width)}, by=by)
-    plan, _, _ = _same(session, query)
+    _, plan, _, _ = _same(session, query)
     assert len([stage for stage in plan.stages if isinstance(stage, SourceRead)]) == 1
     trace = capture_source(monkeypatch)
     result = query.compute().to_pandas()
@@ -681,7 +683,7 @@ def test_null_empty_policy_and_different_source_fibers_remain_independent(
     region = catalog_value(session.catalog, "sales.orders.region", kind="field")
     detail = catalog_value(session.catalog, "sales.orders.detail", kind="field")
     query = session.observe({"sum": amount.sum()})
-    plan, _, _ = _same(session, query)
+    result, plan, _, _ = _same(session, query)
     assert not any(group.law == "L8" for group in plan.fusion_groups)
     entity = session.catalog.get("entity:sales.orders")
     one = session.observe(
@@ -693,9 +695,8 @@ def test_null_empty_policy_and_different_source_fibers_remain_independent(
         where=mv.in_population(mv.coordinates(by=(mv.identity(entity),), keys=(((2,),),))),
     )
     query = one.align(two, on=tuple(zip(one.axes, two.axes, strict=True)))
-    plan, _, _ = _same(session, query)
+    result, plan, _, _ = _same(session, query)
     assert not any(group.law == "source_block" for group in plan.fusion_groups)
-    result, _, _, _ = _execute(session, query, optimized=True)
     assert result.table["value.0"].tolist() == [10]
     assert result.table["value.1"].tolist() == [30]
 
@@ -714,7 +715,7 @@ def test_mixed_observation_executes_once_per_contribution_domain(
             "selected_exact": exact.sum().where(amount > 15),
         }
     )
-    plan, _, _ = _same(session, query)
+    _, plan, _, _ = _same(session, query)
     assert any(
         "predicates" in item.reason
         for item in plan.optimization_decisions
@@ -771,7 +772,7 @@ def test_internal_samples_and_windows_keep_their_physical_boundaries(
         metric = amount.sum(time=time).window(mv.all_history())
         source = session.observe({"a": metric, "b": metric}, by=(calendar, region, detail))
         query = source
-    plan, _, _ = _same(session, query)
+    _, plan, _, _ = _same(session, query)
     assert not any(group.law in ("L8", "source_block") for group in plan.fusion_groups)
 
 
@@ -788,9 +789,8 @@ def test_common_block_keeps_same_period_filter_and_exact_checks(
         by=(region,),
         where=(amount > 0) & time.within(scope),
     )
-    plan, _, _ = _same(session, query)
+    result, plan, _, _ = _same(session, query)
     assert any(group.law == "source_block" for group in plan.fusion_groups)
-    result, _, _, _ = _execute(session, query, optimized=True)
     assert result.table["value.0"].tolist() == [10, 20]
     assert result.table["value.1"].tolist() == [1, 1]
     query = session.observe(
@@ -798,7 +798,7 @@ def test_common_block_keeps_same_period_filter_and_exact_checks(
         by=(region,),
         where=amount > 0,
     )
-    plan, _, _ = _same(session, query)
+    result, plan, _, _ = _same(session, query)
     assert not any(group.law == "source_block" for group in plan.fusion_groups)
 
 
@@ -812,8 +812,7 @@ def test_decimal_column_division_finishes_once_in_declared_float_carrier(
     region = catalog_value(session.catalog, "sales.orders.region", kind="field")
     source = session.observe({"a": exact.sum(), "b": exact.count()}, by=(region,))
     query = source.select({"ratio": source["a"] / source["b"]})
-    _same(session, query)
-    result, _, _, _ = _execute(session, query, optimized=True)
+    result, _, _, _ = _same(session, query)
     assert result.table["value.0"].dtype == "double[pyarrow]"
     assert result.table["value.0"].iloc[0] == float(Fraction(Decimal("40.03")) / 2)
 
@@ -825,11 +824,10 @@ def test_same_shape_different_datasources_never_share_a_physical_block(
     amount = catalog_value(session.catalog, "sales.orders.amount", kind="field")
     other = catalog_value(session.catalog, "sales.other.amount", kind="field")
     query = session.observe({"primary": amount.sum(), "other": other.sum()})
-    plan, _, _ = _same(session, query)
+    result, plan, _, _ = _same(session, query)
     reads = tuple(stage for stage in plan.stages if isinstance(stage, SourceRead))
     assert len(reads) == 2 and len({stage.binding_id for stage in reads}) == 2
     assert not any(group.law == "source_block" for group in plan.fusion_groups)
-    result, _, _, _ = _execute(session, query, optimized=True)
     assert result.table["value.0"].tolist() == [60]
     assert result.table["value.1"].tolist() == [600]
 
@@ -921,8 +919,8 @@ def test_explicit_source_weights_preserve_standardized_and_fixed_results(
         {"inspected": inspected, "failed": failed, "rate": failed / inspected},
         by=(region, detail),
     )
-    _same(session, cells)
-    rows = cells.compute().to_pandas()
+    result, _, _, _ = _same(session, cells)
+    rows = result.table
     sizes = session.observe({"inspected": inspected}, by=(detail,)).compute().to_pandas()
     denominator = (
         session.observe({"inspected": inspected}).compute().to_pandas()["inspected"].iloc[0]
@@ -947,7 +945,7 @@ def test_explicit_source_weights_preserve_standardized_and_fixed_results(
     fixed_weights = dict(zip(fixed.iloc[:, 0], fixed["weight"], strict=True))
     standardized: dict[str, float] = {}
     fixed_totals: dict[str, float] = {}
-    for key, category, rate in zip(rows.iloc[:, 0], rows.iloc[:, 1], rows["rate"], strict=True):
+    for key, category, rate in zip(rows.iloc[:, 0], rows.iloc[:, 1], rows["value.2"], strict=True):
         standardized[key] = standardized.get(key, 0) + rate * weights[category]
         fixed_totals[key] = fixed_totals.get(key, 0) + rate * float(fixed_weights[category])
     assert list(standardized) == ["A", "B"]
@@ -986,10 +984,10 @@ def test_decimal_source_quantile_keeps_native_precision_through_windows(
     # as original recomputation, including backend precision loss.
     native = Decimal("85.14" if precision == 12 else "123456789012345675254913246067970539.52")
     for query, target in ((direct, native),):
-        _same(session, query)
-        result = query.compute().to_pandas()
-        assert result["p95"].tolist() == [target]
-        assert str(result["p95"].dtype) == f"decimal128({precision}, 2)[pyarrow]"
+        result, _, _, _ = _same(session, query)
+        rows = result.table
+        assert rows["value.0"].tolist() == [target]
+        assert str(rows["value.0"].dtype) == f"decimal128({precision}, 2)[pyarrow]"
     days = session.time_scope(start="2026-01-01", end="2026-01-03").by(mv.grain("day"))
     windowed = session.observe(
         {"p95": quantile.window(mv.trailing_periods(count=2))}, by=(days, region)
@@ -1126,10 +1124,10 @@ def test_decimal_repeating_result_mean_finishes_before_comparison(
         ),
     )
     mean = values.reduce({"mean": values["value"].mean()})
-    _same(session, mean)
-    frame = mean.compute().to_pandas()
-    assert frame["mean"].tolist() == [Decimal("33.33")]
-    assert str(frame["mean"].dtype) == "decimal128(5, 2)[pyarrow]"
+    result, _, _, _ = _same(session, mean)
+    frame = result.table
+    assert frame["value.0"].tolist() == [Decimal("33.33")]
+    assert str(frame["value.0"].dtype) == "decimal128(5, 2)[pyarrow]"
     comparison = (
         mean.compare({"base": mv.baseline(mean, on=tuple(zip(mean.axes, mean.axes, strict=True)))})
         .compute()
