@@ -498,3 +498,28 @@ def installed_multisource_wheel(installed_wheel: InstalledWheel) -> InstalledWhe
         "native-dependency-check", [str(installed_wheel.interpreter), "-m", "pip", "check"]
     )
     return installed_wheel
+
+
+def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
+    """Drop release and runtime tests unless the caller passed ``-m``.
+
+    The default suite is ``not release and not runtime``. That filter used to
+    live in ``pytest.ini`` ``addopts``. pytest-testmon refuses affected-test
+    selection when ``-m`` is set at all, so ``make check-fast`` would rerun
+    the whole suite. ``make runtime-test`` and ``make release-test`` pass
+    their own ``-m`` and keep that selection unchanged.
+    """
+    if config.getoption("markexpr"):
+        return
+    kept: list[pytest.Item] = []
+    dropped: list[pytest.Item] = []
+    for item in items:
+        external = item.get_closest_marker("release") or item.get_closest_marker("runtime")
+        if external is not None:
+            dropped.append(item)
+        else:
+            kept.append(item)
+    if not dropped:
+        return
+    config.hook.pytest_deselected(items=dropped)
+    items[:] = kept
