@@ -363,7 +363,7 @@ def test_public_parquet_spearman_retains_source_reads(
     export_dsl_parquet_models(case, case.root)
     case = replace(
         case,
-        catalog=ms.load(workspace_dir=case.root),
+        _catalog=ms.load(workspace_dir=case.root),
         session=mv.session.get_or_create("parquet", timezone="UTC"),
     )
     saved = _correlation_input(case).persist()

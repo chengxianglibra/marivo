@@ -176,3 +176,29 @@ def test_distributed_compilation_allowance_does_not_authorize_other_renderers(
         and not row.failed
         for row in report.records
     )
+
+
+def test_duckdb_memo_compilation_allowance_keeps_exact_method_owner(tmp_path: Path) -> None:
+    _module(
+        tmp_path,
+        "datasource/engines/_aggregate_compilers.py",
+        "class _DuckDBCompiler:\n"
+        "    def to_sqlglot(self, expression):\n"
+        "        return super().to_sqlglot(expression)\n"
+        "    def another_renderer(self, expression):\n"
+        "        return super().to_sqlglot(expression)\n"
+        "class AnotherCompiler:\n"
+        "    def to_sqlglot(self, expression):\n"
+        "        return super().to_sqlglot(expression)\n",
+    )
+    report = audit(tmp_path)
+    assert [(row.symbol, row.call) for row in report.failures] == [
+        ("_DuckDBCompiler.another_renderer", "super().to_sqlglot"),
+        ("AnotherCompiler.to_sqlglot", "super().to_sqlglot"),
+    ]
+    assert any(
+        row.symbol == "_DuckDBCompiler.to_sqlglot"
+        and row.category == "ibis_compilation"
+        and not row.failed
+        for row in report.records
+    )

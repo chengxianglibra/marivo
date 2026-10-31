@@ -50,6 +50,8 @@ def test_pending_attribute_component_units_allow_direct_composition(
     pending = session.observe({"q": metric}).attribute(by=(channel,))
     fixed = pending.compute()
     for frame in (pending, fixed):
+        if method == "mean":
+            assert not any(name.startswith("effect.") for name in frame.output_names)
         numerator = frame["component.value.numerator.q"]
         denominator = frame["component.value.denominator.q"]
         difference = numerator / denominator - frame["detail.value.q"]
@@ -401,7 +403,11 @@ def test_additive_exact_values_and_independent_role_reads(
     assert reads == []
     from unittest.mock import patch
 
-    from marivo.analysis.core.attribute import AttributeContributionProgram, AttributeMethodPayload
+    from marivo.analysis.core.attribute import (
+        AttributeContributionProgram,
+        AttributeMatrixColumn,
+        AttributeMethodPayload,
+    )
     from marivo.analysis.materialization.graph_exchange import StageOutput
     from marivo.analysis.methods import frame_attribute_contribution
 
@@ -410,13 +416,32 @@ def test_additive_exact_values_and_independent_role_reads(
     def preserve_order(
         program: AttributeContributionProgram, inputs: tuple[StageOutput, ...]
     ) -> tuple[pd.DataFrame, AttributeMethodPayload]:
-        with patch.object(
-            pd.DataFrame, "sort_values", side_effect=AssertionError("contribution sorted")
+        mapped_columns: set[int] = set()
+        original_mapping = frame_attribute_contribution._mapped_source
+
+        def map_once(
+            current: AttributeContributionProgram,
+            current_inputs: tuple[StageOutput, ...],
+            item: AttributeMatrixColumn,
+        ) -> tuple[pd.DataFrame, ...]:
+            # Originals, activation and arithmetic share one checked mapping per invocation.
+            assert id(item) not in mapped_columns
+            mapped_columns.add(id(item))
+            return original_mapping(current, current_inputs, item)
+
+        with (
+            patch.object(
+                pd.DataFrame, "sort_values", side_effect=AssertionError("contribution sorted")
+            ),
+            patch.object(frame_attribute_contribution, "_mapped_source", map_once),
         ):
             return contribute(program, inputs)
 
     monkeypatch.setattr(frame_attribute_contribution, "attribute_contribution_data", preserve_order)
-    result = pending.compute().to_pandas()
+    assert not any(name.startswith("effect.") for name in pending.output_names)
+    fixed = pending.compute()
+    assert not any(name.startswith("effect.") for name in fixed.output_names)
+    result = fixed.to_pandas()
     assert len(reads) == 6
     assert result["contribution.q"].tolist() == [60, -20]
     assert result["contribution_share.q"].tolist() == [1.5, -0.5]
@@ -1259,20 +1284,6 @@ with patch.object(Session,'catalog',property(forbidden)), patch.object(SourceSes
     )
 
 
-def test_captured_frame_attribute_absolute(session: Session) -> None:
-    from marivo.analysis.binding.frame_attribute import attribute
-
-    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
-    phase = catalog_value(session.catalog, "sales.facts.phase", kind="field")
-    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
-    current = session.observe({"q": amount.sum()}, where=phase == "current")
-    baseline = session.observe({"q": amount.sum()}, where=phase == "base")
-    comparison = current.compare({"base": mv.baseline(baseline)})
-    selected = comparison.select({"change": comparison["base.absolute.q"]}).compute()
-    result = attribute(selected, by=(channel,)).compute().to_pandas()
-    assert result["contribution.change"].tolist() == [60, -20]
-
-
 def test_captured_frame_attribute_level(session: Session, monkeypatch: pytest.MonkeyPatch) -> None:
     from marivo.analysis.binding.frame_attribute import attribute
     from marivo.datasource.adapters import SourceSession
@@ -1320,7 +1331,28 @@ def test_captured_frame_attribute_preserves_observed_total_on_new_read(session: 
     assert result["contribution_share.change"].tolist() == [1.5, -0.5]
 
 
-def test_captured_rule_families(session: Session) -> None:
+def test_captured_rule_families(session: Session, monkeypatch: pytest.MonkeyPatch) -> None:
+    from marivo.analysis.compiler.graph_plan import FrameCompute, LocalCompute
+    from marivo.analysis.core.attribute import AttributeInputProgram
+    from marivo.analysis.materialization import graph_local_execution
+    from marivo.analysis.materialization.graph_exchange import StageOutput
+    from marivo.analysis.materialization.graph_local_execution import LocalKernel
+
+    prepared: list[tuple[tuple[str, ...], AttributeInputProgram]] = []
+    run_local = graph_local_execution.run_local
+
+    def prepare_once(
+        stage: LocalCompute | FrameCompute,
+        inputs: tuple[StageOutput, ...],
+        kernel: LocalKernel | None = None,
+    ) -> StageOutput:
+        if isinstance(stage, FrameCompute) and isinstance(stage.program, AttributeInputProgram):
+            identity = (stage.inputs, stage.program)
+            assert identity not in prepared
+            prepared.append(identity)
+        return run_local(stage, inputs, kernel)
+
+    monkeypatch.setattr(graph_local_execution, "run_local", prepare_once)
     from marivo.analysis.binding.frame_attribute import attribute
 
     amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
@@ -1770,6 +1802,14 @@ def test_fix_attribute_composition_and_absent_members(session: Session, stage: s
         compared = compared.persist()
     rows = compared.attribute(by=(channel,)).compute().to_pandas()
     assert rows["contribution.base.absolute.q"].tolist() == [60, -20]
+
+
+def test_fix_absent_member_keeps_empty_attribute_domain(session: Session) -> None:
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+    phase = catalog_value(session.catalog, "sales.facts.phase", kind="field")
+    region = catalog_value(session.catalog, "sales.facts.region", kind="field")
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
+    frame = session.observe({"q": amount.sum()}, by=(phase, region))
     missing = frame.fix(frame.axes[0], "absent")
     assert len(missing.attribute(by=(channel,)).compute().to_pandas()) == 0
 
@@ -1999,21 +2039,6 @@ def test_exact_rate_mix_rejects_small_component_drift_before_final_closure(
     assert error.value.reason == "component_mismatch"
     assert error.value.attribute_context is not None
     assert isinstance(error.value.attribute_context.fiber, AttributeParentFiber)
-
-
-def test_exact_level_and_additive_outputs_have_no_synthetic_effects(session: Session) -> None:
-    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
-    phase = catalog_value(session.catalog, "sales.facts.phase", kind="field")
-    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
-    level = session.observe({"q": amount.mean()}, where=phase == "current").attribute(by=(channel,))
-    additive = _contribution(
-        session.observe({"q": amount.sum()}, where=phase == "current"),
-        session.observe({"q": amount.sum()}, where=phase == "base"),
-        by=(channel,),
-    )
-    for pending in (level, additive):
-        assert not any(name.startswith("effect.") for name in pending.output_names)
-        assert not any(name.startswith("effect.") for name in pending.compute().output_names)
 
 
 def test_exact_rate_mix_rejects_original_fine_ratio_drift(

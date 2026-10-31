@@ -20,7 +20,7 @@ from marivo.introspection.live.resolve import (
     LiveSurface,
     ResolvedLiveTarget,
     resolve_live_target,
-    try_resolve_live_string_target,
+    try_resolve_live_target,
 )
 from marivo.introspection.live.targets import canonical_target
 
@@ -83,19 +83,8 @@ def _suggestions(errors: Iterable[Exception]) -> tuple[str, ...]:
 
 
 def _resolve_one(target: object, owner: HelpSurface) -> NativeHelpRoute | None:
-    surface = _native_surface(owner)
-    if isinstance(target, str):
-        resolved = try_resolve_live_string_target(target, surface)
-        if resolved is None:
-            return None
-        return NativeHelpRoute(
-            owner=owner,
-            resolved=resolved,
-            original_target=target,
-        )
-    try:
-        resolved = resolve_live_target(target, surface)
-    except _native_target_error(owner):
+    resolved = try_resolve_live_target(target, _native_surface(owner))
+    if resolved is None:
         return None
     return NativeHelpRoute(
         owner=owner,

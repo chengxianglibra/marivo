@@ -286,6 +286,13 @@ approximation, and MySQL/Trino reject exact quantiles. These private compiler
 adapters do not mutate upstream global compilers, rewrite compiled SQL text, or
 add submission authority. Filtering, joins, grouping and scalar expressions
 continue through Ibis; issued and executed SQL use the same instance compiler.
+Within one source session, identical unparameterized DuckDB expressions can reuse
+their compiled syntax tree. The memo belongs to the exact compiler instance,
+distinguishes limits and compilation options, and is cleared on session close.
+Each rendering receives an independent tree; qualification, schema and ownership
+checks still run for every issued read. Parameterized reads retain ordinary
+compilation, and execution still uses native Ibis hooks and Arrow conversion.
+This memo contains no query results and is not shared between source sessions.
 
 Provider operation support and exact Analysis method qualification are separate.
 The selected engine provider registry is lazy. `SourceSession` binds table and

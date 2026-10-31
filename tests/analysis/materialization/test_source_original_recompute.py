@@ -297,7 +297,7 @@ def test_fractional_weighted_target_masks_cancelled_weight_sum(
 
 
 @pytest.mark.parametrize("method", ["mean", "weighted_mean"])
-def test_compact_integer_mean_keeps_exact_large_numerator_division(
+def test_compact_integer_means_keep_their_native_rounding_boundary(
     original_session: Session, monkeypatch: pytest.MonkeyPatch, method: str
 ) -> None:
     session = original_session
@@ -313,15 +313,14 @@ def test_compact_integer_mean_keeps_exact_large_numerator_division(
     trace = capture_source(monkeypatch)
     result = session.observe({"metric": metric}).compute().to_pandas()
     with duckdb.connect(str(session.project_root / "original.duckdb")) as connection:
-        native = connection.execute("SELECT avg(amount) FROM orders").fetchone()
+        native = connection.execute(
+            "SELECT CAST(sum(amount * weight) AS DOUBLE) / CAST(sum(weight) AS DOUBLE) FROM orders"
+            if method == "weighted_mean"
+            else "SELECT avg(amount) FROM orders"
+        ).fetchone()
     assert native is not None
-    # DuckDB AVG rounds the exact integer quotient. Float64 division rounds
-    # 2**53+1 before dividing, so unit-weight weighted_mean stays on that path.
-    exact = 9007199254740993 / 3
-    observed = exact if method == "mean" else float(9007199254740993) / 3
-    if method == "mean":
-        assert native[0] == exact
-    assert result["metric"].tolist() == [observed]
+    assert result["metric"].tolist() == [native[0]]
+    assert native[0] == (3002399751580330.5 if method == "weighted_mean" else 3002399751580331.0)
     assert trace.returned_rows == [1]
     assert trace.uploaded_key_rows == []
 

@@ -242,6 +242,7 @@ def plan_frame(
     native_sources: dict[str, CompiledSourceFrame] = {}
     operations: dict[int, tuple[str, DataSchema]] = {}
     operation_nodes: dict[int, FrameOperation] = {}
+    attribute_preparations: list[FrameCompute] = []
 
     def visit(node: FrameExpression) -> tuple[str, DataSchema]:
         if isinstance(node, (SourceFrameInput, FixedFrameInput)) and node.input_id in leaves:
@@ -647,11 +648,17 @@ def plan_frame(
                         )
                         direct_reads.append(updated_source.stage_id)
             input_program = replace(input_program, reads=tuple(read_bindings))
-            compute = FrameCompute(
-                f"frame:{len(stages)}",
-                (parent, left, right, *bridges, *direct_reads),
-                input_program,
-            )
+            inputs = (parent, left, right, *bridges, *direct_reads)
+            # Absolute and relative targets can consume the same checked preparation.
+            # Keep every input identity and the complete program, including schemas,
+            # source indices and role bindings, in the equivalence check.
+            for prepared_stage in attribute_preparations:
+                if prepared_stage.inputs == inputs and prepared_stage.program == input_program:
+                    result = (prepared_stage.stage_id, input_program.output_schema)
+                    operations[id(node)] = result
+                    return result
+            compute = FrameCompute(f"frame:{len(stages)}", inputs, input_program)
+            attribute_preparations.append(compute)
             stages.append(compute)
             operations[id(node)] = (compute.stage_id, input_program.output_schema)
             return compute.stage_id, input_program.output_schema

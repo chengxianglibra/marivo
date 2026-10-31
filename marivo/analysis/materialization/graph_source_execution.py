@@ -106,6 +106,7 @@ class PreparedSources:
     bound: dict[str, BoundSource]
     sources: dict[str, SourceSession] = field(default_factory=dict)
     entities: dict[str, ir.Table] = field(default_factory=dict)
+    native_expressions: dict[tuple[str, ops.Node], ir.Table] = field(default_factory=dict)
     original_input_qualifications: dict[
         tuple[SourceSession, ops.Node], Literal["qualified", "other", "unavailable"]
     ] = field(default_factory=dict)
@@ -979,6 +980,7 @@ def prepare_query_sources(
             relations[source_id] = prepared_population.table
             owners[source_id] = owners[required[0]] if required else source
     own_schemas = []
+    scope_id = graph.fingerprint if memo is None else memo.fingerprint(graph)
     population_definitions = {
         "population:" + computation_fingerprint(population): population
         for population in _query_populations(graph)
@@ -1006,7 +1008,7 @@ def prepare_query_sources(
         own_schemas.append(
             replace(
                 schema,
-                scope_id=graph.fingerprint,
+                scope_id=scope_id,
                 parameters=tuple(
                     parameter for parameter in parameters if parameter.placeholder in names
                 ),
@@ -1359,6 +1361,12 @@ def _native_query_expression(
     from marivo.analysis.materialization.temporal_sql import lower_temporal
 
     source = prepared.sources.get(stage.source_id, prepared.source)
+    # Qualification and execution consume the same immutable tree. Stage IDs
+    # are insufficient: bound parameters can change the expression within a stage.
+    key = (source.provider.name, read.expression.op())
+    cached = prepared.native_expressions.get(key)
+    if cached is not None:
+        return cached
     expression = lower_temporal(read.expression, source.provider.name)
     assert isinstance(expression, ir.Table)
     if source.provider.name == "mysql":
@@ -1412,6 +1420,7 @@ def _native_query_expression(
         rewritten = expression.op().replace(exact_nodes).to_expr()
         assert isinstance(rewritten, ir.Table)
         expression = rewritten
+    prepared.native_expressions[key] = expression
     return expression
 
 

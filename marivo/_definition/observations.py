@@ -90,6 +90,6 @@ class ObservationBinding:
 
     @property
     def fingerprint(self) -> str:
-        from marivo._definition.graph import _encode, fingerprint
+        from marivo._definition.graph import _encode, _encoded_fingerprint
 
-        return fingerprint(_encode(self, {}))
+        return _encoded_fingerprint(_encode(self, {}))

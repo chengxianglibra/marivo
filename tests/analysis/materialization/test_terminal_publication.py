@@ -298,9 +298,13 @@ def test_zero_axis_zero_value_unit_rows(tmp_path: Path, count: int) -> None:
     assert exported.attrs["units"] == ()
 
 
-@pytest.mark.parametrize(
-    "point",
-    (
+def test_faults_never_expose_partial_output_or_delete_prior_commit(
+    session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    saved = constant(session).persist()
+    memory = AnalysisFrame._from_memory(session._runtime.local, method_result())
+    before = memory.to_pandas()
+    for point in (
         "publication_admitted",
         "terminal_primary_written",
         "terminal_method_written",
@@ -308,27 +312,33 @@ def test_zero_axis_zero_value_unit_rows(tmp_path: Path, count: int) -> None:
         "insert_artifact",
         "insert_terminal",
         "before_commit",
-    ),
-)
-def test_faults_never_expose_partial_output_or_delete_prior_commit(
-    session: Session, point: str, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    saved = constant(session).persist()
+    ):
+        prior_runs = {run.run_ref: run for run in terminal_runs(session)}
+        reached: list[str] = []
 
-    def fail(current: str) -> None:
-        if current == point:
-            raise OSError(point)
+        def fail(current: str, point: str = point, reached: list[str] = reached) -> None:
+            if current == point:
+                reached.append(current)
+                raise OSError(point)
 
-    monkeypatch.setattr(terminal_publication, "_event", fail)
-    with pytest.raises(MaterializationError):
-        AnalysisFrame._from_memory(session._runtime.local, method_result()).persist()
-    monkeypatch.setattr(terminal_publication, "_event", lambda event: None)
-    assert stored_frame(session, saved)["value.0"].tolist() == [7]
-    assert {run.lifecycle for run in terminal_runs(session)} == {"succeeded", "failed"}
-    assert session._runtime.store.resources(session.id) == ()
-    with session._runtime.store._read() as conn:
-        assert conn.execute("SELECT count(*) FROM dataset_artifacts").fetchone()[0] == 1
-    assert len(list(session._runtime.store.layout.session_dir(session.id).glob("artifacts/*"))) == 1
+        with monkeypatch.context() as patch:
+            patch.setattr(terminal_publication, "_event", fail)
+            with pytest.raises(MaterializationError):
+                memory.persist()
+        assert reached == [point]
+        runs = {run.run_ref: run for run in terminal_runs(session)}
+        assert {ref: runs[ref] for ref in prior_runs} == prior_runs
+        new_runs = [run for ref, run in runs.items() if ref not in prior_runs]
+        assert len(new_runs) == 1 and new_runs[0].lifecycle == "failed"
+        assert stored_frame(session, saved)["value.0"].tolist() == [7]
+        pd.testing.assert_frame_equal(memory.to_pandas(), before)
+        assert session._runtime.store.resources(session.id) == ()
+        with session._runtime.store._read() as conn:
+            assert conn.execute("SELECT count(*) FROM dataset_artifacts").fetchone()[0] == 1
+        assert (
+            len(list(session._runtime.store.layout.session_dir(session.id).glob("artifacts/*")))
+            == 1
+        )
 
 
 def test_lost_commit_ack_returns_original_without_reexecution(
@@ -436,22 +446,17 @@ def test_calendar_bounds_are_explicit_output_attachment(source_session: Session)
 
 
 @pytest.mark.parametrize("zone", ("Europe/Paris", "UTC+05:30"))
-@pytest.mark.parametrize("from_source", (False, True))
-def test_calendar_timezone_survives_private_cold_read(
-    source_session: Session, zone: str, from_source: bool
-) -> None:
+def test_calendar_timezone_survives_private_cold_read(source_session: Session, zone: str) -> None:
     session = source_session
     axis = session.time_scope(start="2026-03-28", end="2026-03-31", timezone=zone).by(
         mv.grain("day")
     )
-    if from_source:
-        metric = session.catalog.get("metric:sales.revenue")
-        artifact = session.observe({"value": metric}, by=(axis,)).persist()
-    else:
-        artifact = calendar_constant(session, axis).persist()
-    if not from_source:
-        assert session._catalog_value is None
-        assert artifact.source_reads == ()
+    # Both producers enter the same fresh reader process for this timezone.
+    constant = calendar_constant(session, axis).persist()
+    assert session._catalog_value is None
+    assert constant.source_reads == ()
+    metric = session.catalog.get("metric:sales.revenue")
+    sourced = session.observe({"value": metric}, by=(axis,)).persist()
     script = """from pathlib import Path
 import sys
 import pandas as pd
@@ -460,30 +465,39 @@ from marivo.analysis.materialization.store import SessionStore
 from marivo.analysis.materialization import terminal_store, terminal_publication
 from marivo.analysis.materialization.terminal_storage import read_output
 store = SessionStore.open_existing(Path(sys.argv[1]))
-with store._read() as conn:
-    manifest = terminal_store.manifest(store, conn, sys.argv[2])
-attachment, = manifest.data.attachments
-zone = sys.argv[3]
-assert type(manifest.data.schema.axes[0]) is CalendarDataAxis
-assert manifest.data.schema.axes[0].timezone == zone
-assert attachment.schema.axes[0].kind == "field"
-assert attachment.schema.axes[0].token == manifest.data.schema.axes[0].token
-assert all(column.dtype == TimestampDataType('us', 'UTC') for column in attachment.schema.values
-           if column.name in ('nominal_start', 'nominal_end', 'actual_start', 'actual_end'))
-frame = read_output(store.project_root, attachment.schema, attachment.rows)
-starts = pd.date_range('2026-03-28', periods=3, tz=zone).tolist()
-ends = pd.date_range('2026-03-29', periods=3, tz=zone).tolist()
-for name in ('nominal_start', 'actual_start'):
-    assert frame[name].tolist() == starts
-for name in ('nominal_end', 'actual_end'):
-    assert frame[name].tolist() == ends
-assert str(frame.actual_start.dtype.pyarrow_dtype.tz) == 'UTC'
-assert [(end-start).total_seconds()/3600 for start,end in zip(starts,ends)] == (
-    [24,23,24] if zone == 'Europe/Paris' else [24,24,24]
-)
+for artifact_id in sys.argv[3:]:
+    with store._read() as conn:
+        manifest = terminal_store.manifest(store, conn, artifact_id)
+    attachment, = manifest.data.attachments
+    zone = sys.argv[2]
+    assert type(manifest.data.schema.axes[0]) is CalendarDataAxis
+    assert manifest.data.schema.axes[0].timezone == zone
+    assert attachment.schema.axes[0].kind == "field"
+    assert attachment.schema.axes[0].token == manifest.data.schema.axes[0].token
+    assert all(column.dtype == TimestampDataType('us', 'UTC') for column in attachment.schema.values
+               if column.name in ('nominal_start', 'nominal_end', 'actual_start', 'actual_end'))
+    frame = read_output(store.project_root, attachment.schema, attachment.rows)
+    starts = pd.date_range('2026-03-28', periods=3, tz=zone).tolist()
+    ends = pd.date_range('2026-03-29', periods=3, tz=zone).tolist()
+    for name in ('nominal_start', 'actual_start'):
+        assert frame[name].tolist() == starts
+    for name in ('nominal_end', 'actual_end'):
+        assert frame[name].tolist() == ends
+    assert str(frame.actual_start.dtype.pyarrow_dtype.tz) == 'UTC'
+    assert [(end-start).total_seconds()/3600 for start,end in zip(starts,ends)] == (
+        [24,23,24] if zone == 'Europe/Paris' else [24,24,24]
+    )
 """
     result = subprocess.run(
-        [sys.executable, "-c", script, str(session.project_root), artifact.artifact_id, zone],
+        [
+            sys.executable,
+            "-c",
+            script,
+            str(session.project_root),
+            zone,
+            constant.artifact_id,
+            sourced.artifact_id,
+        ],
         cwd=Path(__file__).resolve().parents[3],
         text=True,
         capture_output=True,

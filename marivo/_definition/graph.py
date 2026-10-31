@@ -13,7 +13,7 @@ import json
 import math
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, fields, is_dataclass
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from enum import Enum
 from typing import Literal, TypeAlias, TypeGuard, get_args
@@ -67,12 +67,14 @@ from marivo._definition.types import (
     NUMERIC_RULE_VERSION,
     RULE_VERSION,
     ExactRef,
+    LiteralValue,
     Owner,
     invalid,
     literal_token,
 )
 from marivo._definition.windows import ToDate
 from marivo._temporal import Grain as TemporalGrain
+from marivo._temporal import InstantAnchor
 from marivo.refs import PeriodCalendarKind, Ref
 
 DefinitionNode: TypeAlias = (
@@ -273,9 +275,27 @@ def _is_node(value: object) -> TypeGuard[DefinitionNode]:
     return isinstance(value, _NODE_TYPES)
 
 
-def _encode(value: object, memo: dict[int, str]) -> object:
+_PLAIN_LITERAL_TYPES = frozenset({str, bool, int, float, Decimal, date, datetime, InstantAnchor})
+_EncodingPayloads: TypeAlias = dict[int, tuple[object, dict[str, object]]]
+
+
+def _plain_literal(value: object) -> TypeGuard[LiteralValue]:
+    return value is None or type(value) in _PLAIN_LITERAL_TYPES
+
+
+def _encode(
+    value: object, memo: dict[int, str], payloads: _EncodingPayloads | None = None
+) -> object:
+    if payloads is None:
+        payloads = {}
+    # Calendar cells and literal leaves do not need the full definition-node
+    # dispatch. Exact types leave Enum and other subclass semantics unchanged.
+    if _plain_literal(value):
+        return list(literal_token(value))
+    if type(value) is tuple:
+        return [_encode(item, memo, payloads) for item in value]
     if _is_node(value):
-        return _fingerprint_node(value, memo)
+        return _fingerprint_node(value, memo, payloads)
     if isinstance(value, Ref):
         return ["ref", value.key]
     if isinstance(value, timedelta):
@@ -285,24 +305,54 @@ def _encode(value: object, memo: dict[int, str]) -> object:
     if value is None or isinstance(value, (str, int, float, Decimal, date)):
         return list(literal_token(value))
     if isinstance(value, tuple):
-        return [_encode(item, memo) for item in value]
+        return [_encode(item, memo, payloads) for item in value]
     if is_dataclass(value) and not isinstance(value, type):
-        return {
+        key = id(value)
+        cached = payloads.get(key)
+        if cached is not None:
+            return cached[1]
+        encoded = {
             "type": type(value).__name__,
-            **{field.name: _encode(getattr(value, field.name), memo) for field in fields(value)},
+            **{
+                field.name: _encode(getattr(value, field.name), memo, payloads)
+                for field in fields(value)
+            },
         }
+        # Captured dataclasses are immutable. Keep the input alive against ID
+        # reuse and share this read-only payload only until this encoding ends.
+        payloads[key] = (value, encoded)
+        return encoded
     invalid(f"unsupported definition value type: {type(value).__name__}")
 
 
-def _fingerprint_node(node: DefinitionNode, memo: dict[int, str]) -> str:
+def _encoded_fingerprint(value: object) -> str:
+    """Hash an already encoded definition without a second Python tree walk.
+
+    Only `_encode` and `_encode_fields` outputs are admitted here. Their keys
+    and values are JSON-compatible; JSON's recursive key ordering matches the
+    public canonical encoder while preserving its exact byte representation.
+    """
+    payload = json.dumps(
+        value, ensure_ascii=False, allow_nan=False, separators=(",", ":"), sort_keys=True
+    ).encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()
+
+
+def _fingerprint_node(
+    node: DefinitionNode, memo: dict[int, str], payloads: _EncodingPayloads | None = None
+) -> str:
     cached = memo.get(id(node))
     if cached is None:
-        cached = fingerprint(_encode_fields(node, memo))
+        cached = _encoded_fingerprint(_encode_fields(node, memo, payloads))
         memo[id(node)] = cached
     return cached
 
 
-def _encode_fields(node: DefinitionNode, memo: dict[int, str]) -> dict[str, object]:
+def _encode_fields(
+    node: DefinitionNode, memo: dict[int, str], payloads: _EncodingPayloads | None = None
+) -> dict[str, object]:
+    if payloads is None:
+        payloads = {}
     if isinstance(node, (RowExpression, PredicateExpression, MetricExpression)):
         from marivo._definition.deferred import canonical_recipe
 
@@ -314,12 +364,12 @@ def _encode_fields(node: DefinitionNode, memo: dict[int, str]) -> dict[str, obje
             "recipe": canonical_recipe(
                 node.recipe, slots=tuple(f"slot_{index}" for index in range(len(inputs)))
             ),
-            "inputs": [_encode(item, memo) for item in inputs],
+            "inputs": [_encode(item, memo, payloads) for item in inputs],
         }
     return {
         "node": type(node).__name__,
         **{
-            field.name: _encode(getattr(node, field.name), memo)
+            field.name: _encode(getattr(node, field.name), memo, payloads)
             for field in fields(node)
             if field.name != "origins"
         },

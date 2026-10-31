@@ -383,3 +383,20 @@ def test_attribute_access_uses_owning_frozen_model_contracts() -> None:
     assert (
         public_attributes(Unspecified)["value"].access == "readable; write policy is not declared"
     )
+
+
+def test_known_callable_routing_does_not_build_discarded_suggestions(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from marivo.introspection.live import resolve
+    from marivo.introspection.live.resolve import LiveSuggestionIndex
+    from marivo.semantic.catalog import SemanticCatalog
+
+    def unexpected(query: str, index: LiveSuggestionIndex) -> tuple[str, ...]:
+        raise AssertionError(f"known callable requested fuzzy suggestions: {query}")
+
+    monkeypatch.setattr(resolve, "suggestions_for", unexpected)
+    route = route_help_target(SemanticCatalog.get)
+    assert isinstance(route, NativeHelpRoute)
+    assert route.owner == "semantic"
+    assert route.resolved.canonical_id == "semantic_catalog.get"

@@ -670,12 +670,15 @@ class _Resolver:
 
         cached = self._versions.get(target)
         if cached is None:
-            version = scoped_definition_fingerprint(
-                root=target,
-                definitions=self._state.definitions,
-                dependencies=self._state.dependencies,
-                sidecar=self._state.sidecar,
-            )
+            if isinstance(self._state, CompiledSemanticState):
+                version = self._state._definition_version(target)
+            else:
+                version = scoped_definition_fingerprint(
+                    root=target,
+                    definitions=self._state.definitions,
+                    dependencies=self._state.dependencies,
+                    sidecar=self._state.sidecar,
+                )
             cached = self._versions[target] = ExactRef(target, version)
         return cached
 

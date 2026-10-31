@@ -864,12 +864,10 @@ def test_time_product_reuses_checked_domain_with_direct_count(
         frame.compute()
 
 
-@pytest.mark.parametrize("native", [False, True])
 def test_sparse_sample_reductions_keep_groups_and_offgrid_clocks(
     window_session: Session,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
-    native: bool,
 ) -> None:
     from tests.support.source_trace import capture_source
 
@@ -897,17 +895,11 @@ def test_sparse_sample_reductions_keep_groups_and_offgrid_clocks(
         .tolist()
         == [10.0] * 8
     )
-    rows = (
-        session.observe(
-            {"peak": sample.max() if native else sample.quantile(0.95)}, by=(scope, region)
-        )
-        .compute()
-        .to_pandas()
-    )
-    assert rows["peak"].tolist() == [10.0] * 8
-    assert len(trace.returned_rows) == 2
-    if native:
-        assert trace.returned_rows == [8, 8]
+    for metric in (sample.max(), sample.quantile(0.95)):
+        rows = session.observe({"peak": metric}, by=(scope, region)).compute().to_pandas()
+        assert rows["peak"].tolist() == [10.0] * 8
+    assert len(trace.returned_rows) == 3
+    assert trace.returned_rows[:2] == [8, 8]
 
 
 def test_nested_sparse_sample_layers_keep_conditional_demand(

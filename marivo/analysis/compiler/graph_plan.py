@@ -657,6 +657,8 @@ def _plan_bound_query(
 def _plan_query(
     graph: BoundGraph,
     schemas: tuple[SourceSchema, ...],
+    *,
+    scope_id: str,
 ) -> QueryPlan:
     """Fix ordinary numeric source and local routes before any business read."""
     import ibis
@@ -1090,7 +1092,7 @@ def _plan_query(
             original=replace(program, values=(replace(program.values[0], column=columns[0]),)),
         )
     combine = LocalCompute(
-        "local:combine:" + graph.fingerprint,
+        "local:combine:" + scope_id,
         tuple(stage.stage_id for stage in (*reads, *population_stages)),
         (*keys, *columns),
         tuple(c.slot_id for c in keys),

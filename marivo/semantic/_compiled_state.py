@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Literal, cast
 
@@ -51,6 +51,23 @@ class CompiledSemanticState:
     definitions: Mapping[Ref[SemanticKindTag], object]
     dependencies: Mapping[Ref[SemanticKindTag], tuple[Ref[SemanticKindTag], ...]]
     sidecar: CompiledExpressionSidecar
+    _scoped_fingerprints: dict[Ref[SemanticKindTag], str] = field(
+        default_factory=dict, init=False, repr=False, compare=False
+    )
+
+    def _definition_version(self, root: Ref[SemanticKindTag]) -> str:
+        from marivo.semantic._definition_identity import scoped_definition_fingerprint
+
+        version = self._scoped_fingerprints.get(root)
+        if version is None:
+            version = scoped_definition_fingerprint(
+                root=root,
+                definitions=self.definitions,
+                dependencies=self.dependencies,
+                sidecar=self.sidecar,
+            )
+            self._scoped_fingerprints[root] = version
+        return version
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "selected_roots", tuple(self.selected_roots))

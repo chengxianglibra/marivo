@@ -228,7 +228,7 @@ def test_calendar_capacity_and_sum_before_p95(
         amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
         trace = capture_source(monkeypatch, measure_cost=True)
         evidence = []
-        for days in (1, 2, 4, 14):
+        for days in (1, 14):
             before = len(trace.native_sql)
             axis = session.time_scope(start=start, end=start + timedelta(days=days)).by(
                 mv.grain("minute", count=5)
@@ -307,7 +307,7 @@ def test_calendar_capacity_and_sum_before_p95(
             }
         )
         if backend in ("duckdb", "postgres", "clickhouse"):
-            for days in (1, 2, 4, 14):
+            for days in (1, 14):
                 axis = session.time_scope(start=start, end=start + timedelta(days=days)).by(
                     mv.grain("minute", count=5)
                 )

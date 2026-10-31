@@ -729,20 +729,22 @@ class _Operation:
     enabled: bool = False
 
     def __enter__(self) -> _Operation:
-        parent = _execution_log.snapshot(self.root).fields.get("operation_id")
-        self._log_scope = _execution_log.scope(
-            self.root,
-            operation_id=self.operation_id,
-            parent_operation_id=parent,
-            session_id=(
+        # Scope owns one fresh snapshot, including canonical root resolution.
+        # Read the inherited parent before installing this operation's fields.
+        self._log_scope = _execution_log.scope(self.root)
+        context = self._log_scope.__enter__()
+        fields: dict[str, _execution_log.LogValue] = {
+            "operation_id": self.operation_id,
+            "parent_operation_id": context.fields.get("operation_id"),
+            "session_id": (
                 value
                 if isinstance(value := self.attributes.get("marivo.session.id"), str)
                 else None
             ),
-            capability=self.capability_id,
-            surface=self.surface,
-        )
-        self._log_scope.__enter__()
+            "capability": self.capability_id,
+            "surface": self.surface,
+        }
+        context.fields.update({key: value for key, value in fields.items() if value is not None})
         self.mode = _mode(self.root) if self.mode is None else self.mode
         self.enabled = self.mode != "off" and self.capture != "none"
         if not self.enabled:

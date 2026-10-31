@@ -373,10 +373,12 @@ class FrameReader:
     def complete(self, backing: StoredFrameBacking) -> CompletedFrameResult:
         value = self.manifest(backing)
         metadata = terminal_store.complete_metadata(value)
-        return CompletedFrameResult(self.data(backing), metadata, self.method_facts(backing))
+        return CompletedFrameResult(self._data(value), metadata, self._method_facts(value))
 
     def method_facts(self, backing: StoredFrameBacking) -> tuple[FrameMethodFacts, ...]:
-        value = self.manifest(backing)
+        return self._method_facts(self.manifest(backing))
+
+    def _method_facts(self, value: ArtifactManifest) -> tuple[FrameMethodFacts, ...]:
         reader = OutputRead(self.store.project_root)
         with _frame_read_boundary():
             result: list[FrameMethodFacts] = []
@@ -389,7 +391,9 @@ class FrameReader:
             return tuple(result)
 
     def data(self, backing: StoredFrameBacking) -> CompletedFrameData:
-        value = self.manifest(backing)
+        return self._data(self.manifest(backing))
+
+    def _data(self, value: ArtifactManifest) -> CompletedFrameData:
         reader = OutputRead(self.store.project_root)
         with _frame_read_boundary():
             rows = reader.read(ReadLayout(value.data.schema, value.data.rows), ExportRead())

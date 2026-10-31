@@ -645,9 +645,8 @@ def test_comparison_construction_is_lazy_and_shared_source_runs_once(
     assert _plain(comparison.compute())["reference.absolute.value"].tolist() == [-40, 20, -50, 0]
 
 
-@pytest.mark.parametrize("kind", ["ratio", "linear", "weighted"])
 def test_comparison_of_float_original_expression_operands(
-    analysis_dsl_case_factory: DslCaseFactory, kind: str
+    analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     case = analysis_dsl_case_factory("j2")
     _numeric_source(case, "DOUBLE", False)
@@ -666,17 +665,15 @@ def test_comparison_of_float_original_expression_operands(
         for name in ("amount", "ordered_at")
     )
     base = session.catalog.get("metric:sales.revenue")
-    metric = (
-        base / base
-        if kind == "ratio"
-        else base + base
-        if kind == "linear"
-        else amount.weighted_mean(weight=amount, time=time)
-    )
+    metrics = {
+        "ratio": base / base,
+        "linear": base + base,
+        "weighted": amount.weighted_mean(weight=amount, time=time),
+    }
 
-    def observe(month: int, metric: Deferred = metric) -> mv.AnalysisFrame:
+    def observe(month: int) -> mv.AnalysisFrame:
         return session.observe(
-            {"value": metric},
+            metrics,
             where=mv.in_population(members),
             by=mv.product(
                 session.time_scope(start=f"2026-{month:02}-01", end=f"2026-{month + 1:02}-01"),
@@ -692,9 +689,9 @@ def test_comparison_of_float_original_expression_operands(
             )
         }
     ).persist()
-    assert _plain(result)["reference.absolute.value"].tolist() == [
-        {"ratio": 0.0, "linear": -80.0, "weighted": -40.0}[kind]
-    ]
+    frame = _plain(result)
+    for kind, expected in {"ratio": 0.0, "linear": -80.0, "weighted": -40.0}.items():
+        assert frame["reference.absolute." + kind].tolist() == [expected]
     pd.testing.assert_frame_equal(
         result.to_pandas(), session.persisted_frame(result.artifact_id).to_pandas()
     )
@@ -875,21 +872,22 @@ def test_float_row_statistic_comparison_uses_stable_value_reduction(
         )
     _numeric_source(case, "DOUBLE", True)
     observed = _monthly(case, 8)
-    for name, statistic in (("sum", observed["value"].sum()), ("mean", observed["value"].mean())):
-        reduced = observed.reduce({"value": statistic})
-        value = _plain(reduced.compute()).value.iloc[0]
-        assert value == (2.0 if name == "sum" else 0.5)
-        compared = _plain(
-            reduced.compare(
-                {
-                    "reference": mv.baseline(
-                        reduced, on=tuple(zip(reduced.axes, reduced.axes, strict=True))
-                    )
-                }
-            ).compute()
-        )
-        assert compared["reference.absolute.value"].tolist() == [0.0]
-        assert compared["reference.relative.value"].tolist() == [0.0]
+    reduced = observed.reduce({"sum": observed["value"].sum(), "mean": observed["value"].mean()})
+    frame = _plain(reduced.compute())
+    assert frame["sum"].tolist() == [2.0]
+    assert frame["mean"].tolist() == [0.5]
+    compared = _plain(
+        reduced.compare(
+            {
+                "reference": mv.baseline(
+                    reduced, on=tuple(zip(reduced.axes, reduced.axes, strict=True))
+                )
+            }
+        ).compute()
+    )
+    for name in ("sum", "mean"):
+        assert compared["reference.absolute." + name].tolist() == [0.0]
+        assert compared["reference.relative." + name].tolist() == [0.0]
 
 
 def test_stable_float_row_statistics_and_pandas_handoff(

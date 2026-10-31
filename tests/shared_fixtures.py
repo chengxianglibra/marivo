@@ -9,6 +9,7 @@ from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager, suppress
 from dataclasses import dataclass
 from datetime import date, timedelta
+from functools import lru_cache
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, Protocol
 from unittest.mock import patch
@@ -256,8 +257,13 @@ class DslCase:
     names: DslNames
     root: Path
     database_path: Path
-    catalog: SemanticCatalog
+    _catalog: SemanticCatalog | None
     session: Session
+
+    @property
+    def catalog(self) -> SemanticCatalog:
+        """Use the Session catalog unless a journey supplied a separate capture."""
+        return self.session.catalog if self._catalog is None else self._catalog
 
 
 def export_dsl_parquet_models(case: DslCase, project: Path) -> None:
@@ -499,16 +505,35 @@ def analysis_dsl_rows(scenario: DslScenario) -> DslRows:
 def seed_analysis_dsl_database(
     path: Path, names: DslNames, rows: DslRows, *, float_amount: bool
 ) -> None:
-    """Write one isolated DuckDB source file and close its only seed connection."""
+    """Copy closed immutable source bytes into each case's private database."""
+    with path.open("xb") as output:
+        output.write(_analysis_dsl_database_template("v1", names, rows, float_amount))
+
+
+@lru_cache(maxsize=32)
+def _analysis_dsl_database_template(
+    version: Literal["v1"], names: DslNames, rows: DslRows, float_amount: bool
+) -> bytes:
+    """Cache only physical fixture data, never a Session or semantic state."""
+    with tempfile.TemporaryDirectory(prefix=f"marivo-dsl-{version}-") as directory:
+        path = Path(directory) / "source.duckdb"
+        _build_analysis_dsl_database(path, names, rows, float_amount=float_amount)
+        return path.read_bytes()
+
+
+def _build_analysis_dsl_database(
+    path: Path, names: DslNames, rows: DslRows, *, float_amount: bool
+) -> None:
+    """Seed the template through DuckDB with the complete original schema and rows."""
 
     def quoted(value: str) -> str:
         return '"' + value.replace('"', '""') + '"'
 
     n = names
     numeric_type = "DOUBLE" if float_amount else "BIGINT"
-    conn = duckdb.connect(str(path))
+    conn = duckdb.connect(str(path), config={"threads": 1})
     try:
-        conn.execute("SET threads = 1")
+        conn.begin()
         conn.execute(
             f"CREATE TABLE {quoted(n.customer)} ("
             f"{quoted(n.customer_id)} VARCHAR, {quoted(n.region)} VARCHAR)"
@@ -532,6 +557,7 @@ def seed_analysis_dsl_database(
             )
         if rows.lines:
             conn.executemany(f"INSERT INTO {quoted(n.order_line)} VALUES (?, ?, ?)", rows.lines)
+        conn.commit()
     finally:
         conn.close()
 
