@@ -84,6 +84,20 @@ def lower_temporal(expression: ir.Expr, engine: str) -> ir.Expr:
 
     from marivo.analysis.materialization.time_filter import cancel_utc, optimize_time
 
+    # Most numeric reads have no temporal rewrite. Inspect without rebuilding
+    # the whole graph three times, including its ordinary filter predicates.
+    candidates = expression.op().find((_LOCALIZE, _RENDER, ops.Literal, ops.TimestampTruncate))
+    if not any(
+        governed_temporal_operation(node)
+        or (
+            isinstance(node, ops.Literal)
+            and isinstance(node.dtype, dt.Timestamp)
+            and node.dtype.scale is None
+        )
+        or (engine == "clickhouse" and isinstance(node, ops.TimestampTruncate))
+        for node in candidates
+    ):
+        return expression
     expression = optimize_time(cancel_utc(expression))
 
     def rewrite(

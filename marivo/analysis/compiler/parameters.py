@@ -64,11 +64,12 @@ def plan_parameters(
     from marivo._definition.relations import ObserveQuery
 
     assert isinstance(graph.root, ObserveQuery)
-    own = tuple(schema for schema in schemas if schema.scope_id in ("", graph.fingerprint))
+    scope_id = graph.fingerprint if memo is None else memo.fingerprint(graph)
+    own = tuple(schema for schema in schemas if schema.scope_id in ("", scope_id))
     parameters = {
         parameter.placeholder: parameter for schema in own for parameter in schema.parameters
     }
-    base = _plan_query(graph, own)
+    base = _plan_query(graph, own, scope_id=scope_id)
     output = next(stage for stage in base.stages if stage.stage_id == base.publish)
     if graph.root.population is not None:
         schema = next(

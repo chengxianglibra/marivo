@@ -599,7 +599,8 @@ def _memory_calendars(expression: ir.Table) -> ir.Table:
 def _calendar_sql(expression: ir.Table, dialect: str) -> str:
     from tests.datasource.aggregate_fixtures import compiler_backend
 
-    return compiler_backend(dialect).compiler.to_sqlglot(expression.unbind()).sql(dialect=dialect)
+    backend = compiler_backend(dialect)
+    return backend.compiler.to_sqlglot(expression.unbind()).sql(dialect=dialect)
 
 
 def _assert_no_boolean_identity_operands(sql: str, dialect: str) -> None:

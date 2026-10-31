@@ -306,9 +306,8 @@ def plan_literal(
                 "Session.values",
             )
 
-    schema = next(
-        (item for item in schemas if item.source_id == "literal:" + graph.fingerprint), None
-    )
+    source_id = "literal:" + graph.fingerprint
+    schema = next((item for item in schemas if item.source_id == source_id), None)
     groups: list[tuple[str, ...]] = []
     columns: list[DataColumn] = []
     for index, axis in enumerate(graph.signature.axes):
@@ -356,7 +355,7 @@ def plan_literal(
         )
     )
     stage = LocalCompute(
-        "literal:" + graph.fingerprint,
+        source_id,
         (),
         tuple(columns),
         keys,

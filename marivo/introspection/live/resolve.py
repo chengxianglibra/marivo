@@ -105,19 +105,28 @@ def resolve_live_target(
     surface: LiveSurface[DescriptorT],
 ) -> ResolvedLiveTarget[DescriptorT]:
     """Resolve an allowlisted target without invoking domain behavior."""
+    resolved = try_resolve_live_target(target, surface)
+    if resolved is not None:
+        return resolved
+    _raise(surface, target)
+
+
+def try_resolve_live_target(
+    target: object,
+    surface: LiveSurface[DescriptorT],
+) -> ResolvedLiveTarget[DescriptorT] | None:
+    """Probe exact ownership without constructing unconsumed repair suggestions."""
     if isinstance(target, str):
-        return _resolve_string(target, surface)
+        return try_resolve_live_string_target(target, surface)
     if not isinstance(target, type) and not callable(target):
-        _raise(surface, target)
+        return None
     if surface.enrich is not None:
         enriched = surface.enrich(target)
         if enriched is not None:
             return enriched
     if isinstance(target, type):
         return _resolve_type(target, surface)
-    if callable(target):
-        return _resolve_callable(target, surface)
-    _raise(surface, target)
+    return _resolve_callable(target, surface)
 
 
 def _resolved_descriptor(
@@ -130,16 +139,6 @@ def _resolved_descriptor(
         canonical_id=descriptor.canonical_id,
         descriptor=descriptor,
     )
-
-
-def _resolve_string(
-    target: str,
-    surface: LiveSurface[DescriptorT],
-) -> ResolvedLiveTarget[DescriptorT]:
-    resolved = try_resolve_live_string_target(target, surface)
-    if resolved is not None:
-        return resolved
-    _raise(surface, target)
 
 
 def try_resolve_live_string_target(
@@ -222,17 +221,17 @@ def build_string_target_index(
 def _resolve_callable(
     target: object,
     surface: LiveSurface[DescriptorT],
-) -> ResolvedLiveTarget[DescriptorT]:
+) -> ResolvedLiveTarget[DescriptorT] | None:
     try:
         return _resolved_descriptor(surface.registry.by_callable(target), surface)
     except KeyError:
-        _raise(surface, target)
+        return None
 
 
 def _resolve_type(
     target: type,
     surface: LiveSurface[DescriptorT],
-) -> ResolvedLiveTarget[DescriptorT]:
+) -> ResolvedLiveTarget[DescriptorT] | None:
     if issubclass(target, surface.error_base):
         # Private failure subclasses share their nearest registered error
         # contract. Never advertise a new string target just from a class name.
@@ -246,7 +245,7 @@ def _resolve_type(
             None,
         )
         if error_name is None:
-            _raise(surface, target)
+            return None
         return ResolvedLiveTarget(
             kind="error_contract",
             surface=surface.registry.surface,
@@ -279,7 +278,7 @@ def _resolve_type(
             surface=surface.registry.surface,
             type_name=type_name,
         )
-    _raise(surface, target)
+    return None
 
 
 def _raise(surface: LiveSurface[DescriptorT], target: object) -> NoReturn:
@@ -360,10 +359,18 @@ def suggestions_for(query: str, index: LiveSuggestionIndex) -> tuple[str, ...]:
     normalized_query = _normalize_token(query)
     if not query_tokens and not normalized_query:
         return ()
+    ratios: dict[tuple[str, str], float] = {}
+
+    def similarity(left: str, right: str) -> float:
+        key = (left, right)
+        if key not in ratios:
+            ratios[key] = difflib.SequenceMatcher(None, left, right).ratio()
+        return ratios[key]
+
     scored = [
         (score, target)
         for target in index._all_targets
-        if (score := _score_target(target, query_tokens, normalized_query, index)) > 0.0
+        if (score := _score_target(target, query_tokens, normalized_query, index, similarity)) > 0.0
     ]
     # A typo within an exact namespace should lead to that namespace's closest
     # leaf before a shorter family/root name that shares more generic tokens.
@@ -376,12 +383,7 @@ def suggestions_for(query: str, index: LiveSuggestionIndex) -> tuple[str, ...]:
                 + (
                     200.0 * ratio
                     if parent == target.rpartition(".")[0]
-                    and (
-                        ratio := difflib.SequenceMatcher(
-                            None, leaf, target.rpartition(".")[2]
-                        ).ratio()
-                    )
-                    >= 0.7
+                    and (ratio := similarity(leaf, target.rpartition(".")[2])) >= 0.7
                     else 0.0
                 ),
                 target,
@@ -397,13 +399,14 @@ def _score_target(
     query_tokens: frozenset[str],
     normalized_query: str,
     index: LiveSuggestionIndex,
+    similarity: Callable[[str, str], float],
 ) -> float:
     target_tokens = index._target_tokens[target]
     normalized_target = index._normalized_targets[target]
     score = 100.0 * len(query_tokens & target_tokens)
     if normalized_query and len(normalized_query) >= 3:
         ratios = (
-            difflib.SequenceMatcher(None, normalized_query, token).ratio()
+            similarity(normalized_query, token)
             for token in target_tokens
             if len(token) >= 3 and token != normalized_query
         )
@@ -423,7 +426,7 @@ def _score_target(
     if overlap:
         score += 20.0 * len(overlap) / len(query_tokens | target_tokens)
     if score == 0.0 and normalized_query and normalized_target:
-        full_ratio = difflib.SequenceMatcher(None, normalized_query, normalized_target).ratio()
+        full_ratio = similarity(normalized_query, normalized_target)
         if full_ratio > 0.6:
             score += full_ratio * 10.0
     return score

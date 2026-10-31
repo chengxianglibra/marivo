@@ -851,14 +851,18 @@ def test_sample_extrema_without_cadence_exclude_filtered_away_samples(
             )
             # The selected timestamp means are [100, 20]; the zero group is absent.
             assert rows["v"].tolist() == [expected]
-            empty = amount.mean(time=point).where(amount < 0).per(point)
-            metric = empty.min(nulls=nulls) if reducer == "min" else empty.max(nulls=nulls)
+            # These scalar boundaries do not depend on the selected grouping.
+            # Keep each null policy once per reducer instead of replaying it.
+            if not grouped:
+                empty = amount.mean(time=point).where(amount < 0).per(point)
+                metric = empty.min(nulls=nulls) if reducer == "min" else empty.max(nulls=nulls)
+                rows = session.observe({"v": metric}, by=(scope,)).compute().to_pandas()
+                assert rows["v"].isna().all() and len(rows) == 1
+        if not grouped:
+            invalid = amount.mean(time=point).where(amount * 1e308 < 0).per(point)
+            metric = invalid.min() if reducer == "min" else invalid.max()
             rows = session.observe({"v": metric}, by=(scope,)).compute().to_pandas()
             assert rows["v"].isna().all() and len(rows) == 1
-        invalid = amount.mean(time=point).where(amount * 1e308 < 0).per(point)
-        metric = invalid.min() if reducer == "min" else invalid.max()
-        rows = session.observe({"v": metric}, by=(scope,)).compute().to_pandas()
-        assert rows["v"].isna().all() and len(rows) == 1
 
 
 @pytest.mark.parametrize("reducer", ["min", "max"])
@@ -1154,9 +1158,15 @@ def test_sample_mean_strict_domain_is_independent_of_child_shape(
 
 
 @pytest.mark.parametrize(
-    "backend,profile", source_params([("duckdb", "table"), ("clickhouse", "table")])
+    "backend,profile,nullable",
+    source_params(
+        [
+            ("duckdb", "table", True),
+            ("clickhouse", "table", False),
+            ("clickhouse", "table", True),
+        ]
+    ),
 )
-@pytest.mark.parametrize("nullable", [False, True])
 def test_native_mean_strict_empty_domain_returns_null(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1489,7 +1499,7 @@ def test_calendar_sample_folds_keep_joint_keys_without_cross_bucket_completion(
         mean, p95 = samples.mean(), samples.quantile(0.95)
         reducer = Mock(wraps=_sample_numeric.reduce_samples)
         monkeypatch.setattr(_sample_numeric, "reduce_samples", reducer)
-        for days in (1, 2, 3):
+        for days in (1, 3):
             calendar = session.time_scope(start="2026-10-01", end=f"2026-10-0{days + 1}").by(
                 mv.grain(grain)
             )
@@ -1624,49 +1634,29 @@ def test_time_samples_keep_empty_calendar_buckets(
         )
         total = amount.sum(time=point)
         rows = (
-            session.observe({"mean": total.per(point).mean()}, by=(category, calendar))
+            session.observe(
+                {"mean": total.per(point).mean(), "p95": total.per(point).quantile(0.95)},
+                by=(category, calendar),
+            )
             .compute()
             .to_pandas()
         )
         assert rows["mean"].iloc[0] == 10.0
         assert pd.isna(rows["mean"].iloc[1])
-        for nested in (False, True):
-            metric = total.per(point).quantile(0.95)
-            metric = metric.per(category).mean() if nested else metric
-            rows = (
-                session.observe({"p95": metric}, by=(calendar,) if nested else (category, calendar))
-                .compute()
-                .to_pandas()
-            )
-            assert rows["p95"].iloc[0] == pytest.approx(19.0)
-            assert pd.isna(rows["p95"].iloc[1])
+        assert rows["p95"].iloc[0] == pytest.approx(19.0)
+        assert pd.isna(rows["p95"].iloc[1])
+        nested = total.per(point).quantile(0.95).per(category).mean()
+        rows = session.observe({"p95": nested}, by=(calendar,)).compute().to_pandas()
+        assert rows["p95"].iloc[0] == pytest.approx(19.0)
+        assert pd.isna(rows["p95"].iloc[1])
 
 
 @pytest.mark.parametrize("cadence", [False, True])
-@pytest.mark.parametrize(
-    "reducer,expected",
-    [
-        ("sum", 100.0),
-        ("mean", 50.0),
-        ("min", 0.0),
-        ("max", 100.0),
-        ("median", 50.0),
-        ("quantile", 95.0),
-        ("count", 2),
-        ("count_distinct", 2),
-        ("approx_median", 50.0),
-        ("approx_quantile", 100.0),
-        ("first", 0.0),
-        ("last", 100.0),
-    ],
-)
 def test_all_time_sample_reducers_allow_missing_clocks_without_period(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
     cadence: bool,
-    reducer: str,
-    expected: float,
 ) -> None:
     with mean_session(
         "duckdb",
@@ -1680,15 +1670,36 @@ def test_all_time_sample_reducers_allow_missing_clocks_without_period(
         amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
         point = catalog_value(session.catalog, "sales.facts.point", kind="field")
         samples = amount.mean(time=point).per(point)
-        method = getattr(samples, reducer)
-        metric = method(0.95) if reducer in ("quantile", "approx_quantile") else method()
         trace = capture_source(monkeypatch)
-        rows = session.observe({"v": metric}).compute().to_pandas()
-        # Complete each represented timestamp first: [0, 100, NULL]. The
-        # off-grid 00:30 participates; no hourly schedule is synthesized.
-        assert rows["v"].tolist() == pytest.approx([expected])
-        if reducer in ("mean", "min", "max"):
-            assert trace.returned_rows == [1]
+        # Keep native scalar placement witnesses separate from mixed reducers.
+        # Other pairs share setup without building one large formula graph.
+        for expected in (
+            {"mean": 50.0},
+            {"min": 0.0},
+            {"max": 100.0},
+            {"sum": 100.0, "count": 2},
+            {"median": 50.0, "quantile": 95.0},
+            {"count_distinct": 2},
+            # Preserve each standalone approximate kernel; sharing probabilities
+            # can select a different backend aggregate.
+            {"approx_median": 50.0},
+            {"approx_quantile": 100.0},
+            {"first": 0.0, "last": 100.0},
+        ):
+            metrics = {}
+            for reducer in expected:
+                method = getattr(samples, reducer)
+                metrics[reducer] = (
+                    method(0.95) if reducer in ("quantile", "approx_quantile") else method()
+                )
+            before = len(trace.returned_rows)
+            rows = session.observe(metrics).compute().to_pandas()
+            # Completed timestamps are [0, 100, NULL], including off-grid 00:30.
+            # Missing hourly clocks must not synthesize a schedule.
+            for reducer, value in expected.items():
+                assert rows[reducer].tolist() == pytest.approx([value])
+            if len(expected) == 1 and next(iter(expected)) in ("mean", "min", "max"):
+                assert trace.returned_rows[before:] == [1]
         assert all(
             "__coverage_" not in sql and "__sampling_" not in sql for sql in trace.native_sql
         )

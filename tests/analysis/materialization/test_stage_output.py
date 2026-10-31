@@ -191,3 +191,40 @@ def test_native_date_representation_is_normalized_without_truncating_time() -> N
         StageOutput.from_source_frame(
             pd.DataFrame({"day": pd.to_datetime(["2026-07-01 12:00:00"])}), (column,), ()
         )
+
+
+def test_exact_stage_carriers_copy_without_rebuilding_columns(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from marivo.analysis.core import data_validation
+
+    frame = pd.DataFrame(
+        {
+            "k.0": pd.Series([1, 2], dtype="int64[pyarrow]"),
+            "r.0": pd.Series([9007199254740993, None], dtype="int64[pyarrow]"),
+        }
+    )
+    frame.index = pd.Index([7, 9], name="source_index")
+    calls: list[str] = []
+    original = data_validation._stage_column
+
+    def observe(series: pd.Series, column: DataColumn) -> pd.Series:
+        calls.append(column.slot_id)
+        return original(series, column)
+
+    monkeypatch.setattr(data_validation, "_stage_column", observe)
+    result = normalize_stage_frame(frame, (KEY, VALUE), ("k.0",))
+    assert calls == []
+    assert result.index.equals(pd.RangeIndex(2)) and result.index.name is None
+    assert result["r.0"].iloc[0] == 9007199254740993
+    assert pd.isna(result["r.0"].iloc[1])
+    result.loc[0, "r.0"] = 4
+    assert frame.loc[7, "r.0"] == 9007199254740993
+    frame.loc[9, "r.0"] = 5
+    assert pd.isna(result.loc[1, "r.0"])
+    frame.loc[9, "k.0"] = 1
+    with pytest.raises(MaterializationError, match="unique stage key"):
+        normalize_stage_frame(frame, (KEY, VALUE), ("k.0",))
+    frame.loc[9, "k.0"] = None
+    with pytest.raises(MaterializationError, match="nonnullable"):
+        normalize_stage_frame(frame, (KEY, VALUE), ("k.0",))

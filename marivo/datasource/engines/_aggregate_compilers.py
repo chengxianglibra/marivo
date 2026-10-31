@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterator, Mapping, Sequence
+from contextlib import contextmanager
+from contextvars import ContextVar
+from dataclasses import dataclass, field
 from datetime import datetime
 
 # Ibis visitor names include the operation class name.
 # ruff: noqa: N802, N815
-from typing import ClassVar, NoReturn
+from typing import ClassVar, Literal, NoReturn
 
+import ibis
 import ibis.expr.datatypes as dt
 import ibis.expr.operations as ops
 import ibis.expr.types as ir
@@ -265,7 +269,49 @@ def compile_distributed_query(expression: ir.Table, params: Mapping[ir.Scalar, o
     return str(query.sql(dialect="clickhouse", copy=False, unsupported_level=sg.ErrorLevel.RAISE))
 
 
+@dataclass
+class DuckDBCompilationMemo:
+    """SQL ASTs retained only by one source session, never by an Ibis backend."""
+
+    compiler: object
+    entries: dict[tuple[ops.Node, int | None, bool], sge.Expr] = field(default_factory=dict)
+
+    @contextmanager
+    def activate(self) -> Iterator[None]:
+        token = _duckdb_compilation_memo.set(self)
+        try:
+            yield
+        finally:
+            _duckdb_compilation_memo.reset(token)
+
+
+_duckdb_compilation_memo: ContextVar[DuckDBCompilationMemo | None] = ContextVar(
+    "duckdb_compilation_memo", default=None
+)
+
+
 class _DuckDBCompiler(DuckDBCompiler):  # type: ignore[misc]
+    def to_sqlglot(
+        self,
+        expr: ir.Expr,
+        *,
+        limit: Literal["default"] | int | None = None,
+        params: Mapping[ir.Expr, object] | None = None,
+    ) -> sge.Expr:
+        memo = _duckdb_compilation_memo.get()
+        if memo is None or memo.compiler is not self or params:
+            result = super().to_sqlglot(expr, limit=limit, params=params)
+            assert isinstance(result, sge.Expr)
+            return result
+        resolved_limit = ibis.options.sql.default_limit if limit == "default" else limit
+        key = (expr.as_table().op(), resolved_limit, ibis.options.sql.fuse_selects)
+        if key not in memo.entries:
+            result = super().to_sqlglot(expr, limit=resolved_limit, params=params)
+            assert isinstance(result, sge.Expr)
+            memo.entries[key] = result
+        # Ibis renders with copy=False, so no caller may mutate the retained AST.
+        return memo.entries[key].copy()
+
     def visit_CalendarData(self, op: CalendarData, **kwargs: object) -> sge.Expr:
         return sge.to_table(op.name)
 

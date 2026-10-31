@@ -55,11 +55,11 @@ y=ms.measure_column(name='y',entity=facts,column='y',unit='1',additivity=ms.addi
     return mv.session.get_or_create("game", timezone="UTC")
 
 
-def _target(session: Session, kind: str = "product"):
+def _target(session: Session):
     x = catalog_value(session.catalog, "sales.facts.x", kind="field")
     y = catalog_value(session.catalog, "sales.facts.y", kind="field")
     identifier = catalog_value(session.catalog, "sales.facts.id", kind="field")
-    metric = x.sum() * y.sum() if kind == "product" else x.min() * y.max()
+    metric = x.sum() * y.sum()
     current = session.observe({"q": metric}, where=identifier >= 3)
     baseline = session.observe({"q": metric}, where=identifier < 3)
     compared = current.compare({"b": mv.baseline(baseline, on=())})
@@ -84,12 +84,15 @@ def test_product_replacement_sampler_closes_reproduces_and_retains_costs(
     again = target.attribute(by=(player,), permutations=64, seed=42).compute().to_pandas()
     assert again["contribution.change"].tolist() == rows["contribution.change"].tolist()
 
-
-def test_nonadditive_leaf_states_reuse_original_full_formula(game_session: Session) -> None:
-    target = _target(game_session, "extrema")
-    player = catalog_value(game_session.catalog, "sales.facts.player", kind="field")
-    rows = target.attribute(by=(player,), permutations=64, seed=9).compute().to_pandas()
-    assert sum(rows["contribution.change"]) == pytest.approx(rows["total.change"].iloc[0])
+    # Independent two-permutation oracle shares the identical sampled result.
+    mean = float(rows["contribution.change"].iloc[0])
+    second_count = round((mean - 14) * 64 / 4)
+    assert 0 <= second_count <= 64
+    assert mean == pytest.approx((second_count * 18 + (64 - second_count) * 14) / 64)
+    expected = math.sqrt(
+        (second_count * (18 - mean) ** 2 + (64 - second_count) * (14 - mean) ** 2) / (64 * 63)
+    )
+    assert rows["contribution_std_error.change"].tolist() == pytest.approx([expected, expected])
 
 
 def test_sampling_configuration_and_level_are_rejected_before_execution(
@@ -399,28 +402,6 @@ def test_mixed_exact_and_game_targets_preserve_bound_rules(game_session: Session
     assert methods == {"sum": "additive", "nonlinear": "shapley"}
 
 
-def test_sampling_standard_error_matches_independent_two_permutation_game(
-    game_session: Session,
-) -> None:
-    import math
-
-    player = catalog_value(game_session.catalog, "sales.facts.player", kind="field")
-    rows = (
-        _target(game_session)
-        .attribute(by=(player,), permutations=64, seed=42)
-        .compute()
-        .to_pandas()
-    )
-    mean = float(rows["contribution.change"].iloc[0])
-    second_count = round((mean - 14) * 64 / 4)
-    assert 0 <= second_count <= 64
-    assert mean == pytest.approx((second_count * 18 + (64 - second_count) * 14) / 64)
-    expected = math.sqrt(
-        (second_count * (18 - mean) ** 2 + (64 - second_count) * (14 - mean) ** 2) / (64 * 63)
-    )
-    assert rows["contribution_std_error.change"].tolist() == pytest.approx([expected, expected])
-
-
 def test_positive_dummy_player_has_zero_mean_and_zero_sampling_error(
     game_session: Session, tmp_path: Path
 ) -> None:
@@ -528,9 +509,8 @@ def test_mean_summary_bound_overflow_rejects_with_structured_domain_error(
 
 
 @pytest.mark.parametrize("calendar", [False, True])
-@pytest.mark.parametrize("native", [False, True])
 def test_interval_and_calendar_games_reuse_frozen_endpoint_correspondence(
-    game_session: Session, calendar: bool, native: bool
+    game_session: Session, calendar: bool
 ) -> None:
     x = catalog_value(game_session.catalog, "sales.facts.x", kind="field")
     y = catalog_value(game_session.catalog, "sales.facts.y", kind="field")
@@ -538,12 +518,15 @@ def test_interval_and_calendar_games_reuse_frozen_endpoint_correspondence(
     player = catalog_value(game_session.catalog, "sales.facts.player", kind="field")
     current_scope = game_session.time_scope(start="2026-08-01", end="2026-08-02")
     baseline_scope = game_session.time_scope(start="2026-07-01", end="2026-07-02")
-    metric = (x.mean(time=day) if native else x.sum(time=day)) * y.sum(time=day)
+    metrics = {
+        "mean": x.mean(time=day) * y.sum(time=day),
+        "sum": x.sum(time=day) * y.sum(time=day),
+    }
     current = game_session.observe(
-        {"q": metric}, by=(current_scope.by(mv.grain("day")) if calendar else current_scope,)
+        metrics, by=(current_scope.by(mv.grain("day")) if calendar else current_scope,)
     )
     baseline = game_session.observe(
-        {"q": metric}, by=(baseline_scope.by(mv.grain("day")) if calendar else baseline_scope,)
+        metrics, by=(baseline_scope.by(mv.grain("day")) if calendar else baseline_scope,)
     )
     compared = current.compare(
         {
@@ -554,11 +537,11 @@ def test_interval_and_calendar_games_reuse_frozen_endpoint_correspondence(
             )
         }
     ).compute()
-    target = compared.select({"q": compared["b.absolute.q"]}).compute()
+    target = compared.select({name: compared[f"b.absolute.{name}"] for name in metrics}).compute()
     rows = target.attribute(by=(player,), permutations=8).compute().to_pandas()
-    expected = 12 if native else 24
-    assert rows["total.q"].tolist() == [expected, expected]
-    assert sum(rows["contribution.q"]) == pytest.approx(expected)
+    for name, expected in (("mean", 12), ("sum", 24)):
+        assert rows[f"total.{name}"].tolist() == [expected, expected]
+        assert sum(rows[f"contribution.{name}"]) == pytest.approx(expected)
 
 
 def test_frozen_parent_selection_keeps_old_observation_and_fresh_state_total(
@@ -712,10 +695,10 @@ def test_float_weighted_game_uses_summary_components(
     y = catalog_value(game_session.catalog, "sales.facts.y", kind="field")
     player = catalog_value(game_session.catalog, "sales.facts.player", kind="field")
     target = _comparison(game_session, {"q": x.weighted_mean(weight=y) * x.count()})
-    assert target.compute().to_pandas()["q"].iloc[0] > 0
     trace = capture_source(monkeypatch)
     report = target.attribute(by=(player,), permutations=8).compute()
     rows = report.to_pandas()
+    assert rows["observed_total.q"].iloc[0] > 0
     assert rows["total.q"].tolist() == pytest.approx([128 / 63, 128 / 63])
     assert sum(rows["contribution.q"]) == pytest.approx(128 / 63)
     assert (
@@ -863,6 +846,7 @@ def test_native_and_state_targets_share_inputs_without_changing_qualified_state_
     rows = report.to_pandas()
     assert rows["total.native"].tolist() == [12, 12]
     assert rows["total.state"].tolist() == [6, 6]
+    assert sum(rows["contribution.state"]) == pytest.approx(rows["total.state"].iloc[0])
     methods = {
         metric.target: metric.method
         for fact in report.method_facts

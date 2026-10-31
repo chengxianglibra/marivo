@@ -7,6 +7,7 @@ import re
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol
 
+import duckdb
 import ibis
 import pytest
 
@@ -57,12 +58,27 @@ def _duckdb_connect_single_thread(*args: object, **kwargs: object) -> object:
 
 ibis.duckdb.connect = _duckdb_connect_single_thread
 
+# Direct fixture connections otherwise start a native thread pool before a
+# later SET threads command can shrink it. Honor explicit concurrency tests.
+_original_native_duckdb_connect = duckdb.connect
+
+
+def _native_duckdb_connect_single_thread(
+    database: str | Path = ":memory:",
+    read_only: bool = False,
+    config: dict[str, str | bool | int | float | list[str]] | None = None,
+) -> duckdb.DuckDBPyConnection:
+    settings: dict[str, str | bool | int | float | list[str]] = {"threads": 1, **(config or {})}
+    return _original_native_duckdb_connect(database, read_only=read_only, config=settings)
+
+
+duckdb.connect = _native_duckdb_connect_single_thread
+
 
 @pytest.fixture
 def analysis_dsl_case_factory(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> DslCaseFactory:
     """Load one real DSL declaration project per isolated source and Session."""
     import marivo.analysis.session as session_attach
-    import marivo.semantic as ms
 
     next_index = 0
 
@@ -95,10 +111,9 @@ def analysis_dsl_case_factory(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
             )
             destination.parent.mkdir(parents=True, exist_ok=True)
             destination.write_text(source)
-        catalog = ms.load(workspace_dir=root)
         monkeypatch.setenv("MARIVO_PROJECT_ROOT", str(root))
         session = session_attach.get_or_create(f"dsl-{scenario}", timezone="UTC")
-        return DslCase(scenario, names, root, database_path, catalog, session)
+        return DslCase(scenario, names, root, database_path, None, session)
 
     return build
 
