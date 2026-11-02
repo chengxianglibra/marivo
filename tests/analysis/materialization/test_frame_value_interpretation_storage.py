@@ -64,12 +64,19 @@ assert pairs.x.name == 'orders'
 assert isinstance(pairs.y, mv.FrameDerivedValueInput)
 assert 'sales.revenue' in {o.path for o in pairs.y.origins}
 assert saved.schema.alignments[0].right.values == ('right.derived', 'right.literal')
+assert len(saved.schema.source_times) == 1
+clock = saved.schema.source_times[0]
+assert isinstance(clock, mv.FrameInstantSourceTime)
+assert clock.axis == 'sales.order.ordered_at', repr(clock)
+assert clock.consumption_timezone == 'UTC'
+assert saved.schema.source_times == parent.schema.source_times
 axis = next(a for a in saved.axes if a.role == 'calendar')
 print(json.dumps({
     'artifact': saved.artifact_id,
     'parent': parent.artifact_id,
     'fixed_artifact': fixed.artifact_id,
     'comparison_artifact': comparison.artifact_id,
+    'source_times': [asdict(fact) for fact in saved.schema.source_times],
     'contexts': {name: asdict(context) for name, context in contexts.items()},
     'alignments': [asdict(a) for a in saved.schema.alignments],
     'periods': [asdict(p) for p in saved.read_periods(axis).items],
@@ -116,6 +123,7 @@ def forbidden(*args, **kwargs):
 ms.load = forbidden
 SourceSession.__enter__ = forbidden
 SourceSession.execute = forbidden
+read_data = FrameReader.data
 FrameReader.data = forbidden
 FrameReader.method_facts = forbidden
 open_payload = OutputRead._open
@@ -139,12 +147,17 @@ for selections, context, key in (
     assert context.groups[0].fixed == selected
 saved = session.persisted_frame(expected['artifact'])
 schema = saved.schema
+assert [asdict(fact) for fact in schema.source_times] == expected['source_times']
+assert saved.select({'doubled': saved['left.share'] * 2}).schema.source_times == schema.source_times
 assert json.loads(json.dumps({name: asdict(c) for name, c in schema.value_contexts.items()}, default=str, sort_keys=True)) == expected['contexts']
 assert json.loads(json.dumps([asdict(a) for a in schema.alignments], default=str, sort_keys=True)) == expected['alignments']
 assert all(a.input_id == schema.input_id for a in schema.alignments)
 schema.show()
 saved.show(n=0)
 OutputRead._open = open_payload
+FrameReader.data = read_data
+derived = saved.select({'doubled': saved['left.share'] * 2}).compute()
+assert derived.schema.source_times == schema.source_times
 axis = next(a for a in saved.axes if a.role == 'calendar')
 assert json.loads(json.dumps([asdict(p) for p in saved.read_periods(axis).items], default=str, sort_keys=True)) == expected['periods']
 assert saved.read_page().to_pandas().to_json(orient='split', date_format='iso') == expected['rows']
@@ -160,7 +173,7 @@ print('cold-value-interpretation-ok')
             str(PROJECT_ROOT),
         ],
         cwd=case.root,
-        env={**os.environ, "PYTHONPATH": str(PROJECT_ROOT)},
+        env={**os.environ, "PYTHONPATH": str(PROJECT_ROOT), "TZ": "America/New_York"},
         capture_output=True,
         text=True,
         timeout=60,

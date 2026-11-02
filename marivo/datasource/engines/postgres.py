@@ -476,6 +476,7 @@ def native_query_timeout(backend: BaseBackend, timeout_seconds: int) -> Iterator
 
 
 PROFILE = EngineProfile(
+    native_localization_total=True,
     name="postgres",
     aliases=("postgresql", "redshift"),
     authoring_func="postgres",

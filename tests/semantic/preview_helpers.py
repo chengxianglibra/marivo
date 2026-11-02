@@ -46,7 +46,7 @@ def certified_project(
         {
             "datasources/warehouse.py": (
                 "import marivo.datasource as md\n"
-                f"md.duckdb(name='warehouse', path={str(database_path)!r})\n"
+                f"md.duckdb(name='warehouse', wall_clock_timezone='UTC', path={str(database_path)!r})\n"
             ),
             "sales/_domain.py": (
                 "import marivo.semantic as ms\n"
@@ -60,7 +60,7 @@ def certified_project(
                 calendar_date = ms.time_dimension_column(name="calendar_date", entity=calendar, column="calendar_date")
                 week = ms.dimension_column(name="week", entity=calendar, column="week")
                 is_working = ms.dimension_column(name="is_working", entity=calendar, column="is_working")
-                fiscal = ms.period_calendar(name="fiscal", date=calendar_date, boundary_timezone="UTC", coverage=(__import__("datetime").date(2026, 1, 1), __import__("datetime").date(2026, 1, 5)), levels={"week": week})
+                fiscal = ms.period_calendar(name="fiscal", date=calendar_date, coverage=(__import__("datetime").date(2026, 1, 1), __import__("datetime").date(2026, 1, 5)), levels={"week": week})
                 campaigns = ms.entity(name="campaigns", datasource=ms.ref.datasource("warehouse"), source=md.table("campaigns"))
                 campaign_id = ms.dimension_column(name="campaign_id", entity=campaigns, column="campaign_id")
                 category = ms.dimension_column(name="category", entity=campaigns, column="category")

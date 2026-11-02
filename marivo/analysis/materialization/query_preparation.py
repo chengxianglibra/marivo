@@ -28,24 +28,26 @@ from marivo._definition.types import (
     IdentityRead,
     IntervalCoordinate,
     RowAttributeTime,
+    TimeScopeFieldRead,
     coordinate_read_keys,
     field_read_key,
 )
 from marivo.analysis.binding.observe import ContributionBinding
 from marivo.analysis.compiler.member_version import version_predicate
-from marivo.analysis.compiler.source_time import (
-    localize,
-    source_time,
-    source_time_predicate,
-    timestamp,
+from marivo.analysis.compiler.source_time import source_time, source_time_predicate
+from marivo.analysis.core.frame_interpretation import (
+    FrameSourceTime,
+    capture_source_times,
+    merge_source_times,
 )
-from marivo.analysis.core.time_authority import SourceTimeAuthority, time_zone
-from marivo.datasource.timezone import DatasourceEngineTimezone
+from marivo.analysis.core.time_authority import SourceTimeAuthority
+from marivo.datasource._temporal_expressions import localize, timestamp
 from marivo.refs import SemanticKind, ref
 from marivo.semantic._compiled_state import CompiledSemanticState
 from marivo.semantic._expression_binding import evaluate_expression_body
 from marivo.semantic._numeric_lowering import numeric_failure
 from marivo.semantic._physical_contracts import validate_bound_field
+from marivo.semantic._source_timezone import effective_source_timezone
 from marivo.semantic.ir import (
     HourPrefixParse,
     TargetDimensionContract,
@@ -66,6 +68,7 @@ class PreparedFields:
     originals: tuple[tuple[str, ir.Value], ...]
     dependencies: tuple[ir.Value, ...]
     time_authorities: tuple[SourceTimeAuthority, ...] = ()
+    source_times: tuple[FrameSourceTime, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -168,9 +171,9 @@ def prepare_fields(
     contribution: ContributionBinding,
     entities: Mapping[str, ir.Table],
     state: CompiledSemanticState,
-    reader: DatasourceEngineTimezone,
     *,
     root_table: ir.Table | None = None,
+    consumption_timezone: str = "UTC",
 ) -> PreparedFields:
     """Prepare expressions and declared many-to-one joins without reading values."""
     registry = state.registry
@@ -229,12 +232,14 @@ def prepare_fields(
             TargetDimensionContract | None,
         ],
     ] = {}
-    zone = contribution.period.timezone if contribution.period is not None else "UTC"
+    zone = contribution.period.timezone if contribution.period is not None else consumption_timezone
+    source_times: list[FrameSourceTime] = []
 
     def value(
         path: str,
         table: ir.Table,
         authority_zone: str | None = None,
+        time_scope: TimeScopeFieldRead | None = None,
     ) -> ir.Value:
         is_measure = path in registry.measures
         owner = registry.measures[path].entity if is_measure else registry.dimensions[path].entity
@@ -266,8 +271,11 @@ def prepare_fields(
         dependencies.append(result)
         if target.kind is SemanticKind.TIME_DIMENSION:
             axis = normalize_target_dimension(registry, path, prepared_column=path)
+            consumed_zone = (
+                time_scope.scope_timezone if time_scope is not None else authority_zone or zone
+            )
             prefix = (
-                value(axis.parse.prefix, table, authority_zone)
+                value(axis.parse.prefix, table, consumed_zone)
                 if isinstance(axis.parse, HourPrefixParse)
                 else None
             )
@@ -284,19 +292,41 @@ def prepare_fields(
                 result,
                 axis,
                 boundary_timezone="UTC",
-                read_timezone=reader.engine_timezone_name,
-                read_source=reader.read_tz_resolution,
+                source_timezone=effective_source_timezone(registry, axis),
                 engine=engine,
                 prefix=prefix,
-                prefix_timezone=reader.engine_timezone_name if prefix is not None else None,
             )
             raw_prefix = prefix_input[0] if prefix_input is not None else None
             prefix_axis = prefix_input[1] if prefix_input is not None else None
             time_encodings[path] = (raw, axis, authority, raw_prefix, prefix_axis)
+            source_times.extend(
+                capture_source_times((authority,), consumption_timezone=consumed_zone)
+            )
             if authority.kind == "civil_date":
                 from marivo.analysis.binding.windows import validate_date_contribution
 
                 validate_date_contribution(contribution, path)
+                if time_scope is not None:
+                    from marivo._timezones import normalize_timezone
+                    from marivo.analysis.core.model import reject
+
+                    timezone = normalize_timezone(time_scope.scope_timezone).tz
+                    if any(
+                        bound.astimezone(timezone).time() != datetime.min.time()
+                        for bound in (time_scope.scope_start, time_scope.scope_end)
+                    ):
+                        reject(
+                            "civil DATE within a complete-day scope in its consumption timezone",
+                            f"{path}: source timezone {authority.timezone}; "
+                            f"scope timezone {time_scope.scope_timezone}",
+                            "Use complete civil-day boundaries in the scope timezone, "
+                            "or use a timestamp TimeField for a subday scope.",
+                            "TimeField.within",
+                        )
+                if time_scope is not None or (
+                    contribution.time is not None and contribution.time.field.ref.path == path
+                ):
+                    result = localize(authority.timezone, timestamp(result))
             if authority.kind != "civil_date" and result.type().timezone is None:
                 scale = result.type().scale
                 if scale is not None and scale > 6:
@@ -318,6 +348,7 @@ def prepare_fields(
         return name
 
     table = entities[contribution.root.ref.path].view() if root_table is None else root_table
+    reserved.update(table.columns)
     # Calendar membership is independent of the enclosing source read period.
     # Window bindings own their contribution period instead of the output cells.
     selected_calendars = tuple(
@@ -348,6 +379,7 @@ def prepare_fields(
         )
         if encoding is not None:
             raw, axis, authority, prefix, prefix_axis = encoding
+            source_times.extend(capture_source_times((authority,), consumption_timezone=zone))
             condition = source_time_predicate(
                 raw,
                 axis,
@@ -355,12 +387,8 @@ def prepare_fields(
                 engine=entity_engine(
                     registry, normalize_target_entity(registry, axis.entity_ref.path)
                 ),
-                start=start.astimezone(time_zone(zone)).replace(tzinfo=None)
-                if start is not None and authority.kind == "civil_date"
-                else start,
-                end=end.astimezone(time_zone(zone)).replace(tzinfo=None)
-                if authority.kind == "civil_date"
-                else end,
+                start=start,
+                end=end,
                 prefix=prefix,
                 prefix_axis=prefix_axis,
             )
@@ -426,7 +454,11 @@ def prepare_fields(
                     read = node.read
                     native = read.entity == contribution.root and not read.path and read.at is None
                     relation = table if native else entities[read.entity.ref.path].view()
-                    fields[field_read_key(read)] = value(read.field.ref.path, relation)
+                    fields[field_read_key(read)] = value(
+                        read.field.ref.path,
+                        relation,
+                        time_scope=read if isinstance(read, TimeScopeFieldRead) else None,
+                    )
             lowered = lower_condition(condition, fields)
             if lowered.checks:
                 continue
@@ -470,6 +502,7 @@ def prepare_fields(
             read
             for read in reads
             if isinstance(read, FieldRead)
+            and not isinstance(read, TimeScopeFieldRead)
             and contribution.time is not None
             and read.field == contribution.time.field
         ),
@@ -538,6 +571,7 @@ def prepare_fields(
             return value(
                 read.field.ref.path,
                 relation,
+                time_scope=read if isinstance(read, TimeScopeFieldRead) else None,
             )
 
         slot = unique(f"__field_{index}")
@@ -598,8 +632,8 @@ def prepare_fields(
                             control_authority,
                             engine=entity_engine(registry, contract),
                             state=state,
-                            reader=reader,
                             dependencies=dependencies,
+                            source_times=source_times,
                         )
                     else:
                         selection = normalize_target_version_selection(
@@ -610,8 +644,8 @@ def prepare_fields(
                             contract.version,
                             selection,
                             state=state,
-                            reader=reader,
                             dependencies=dependencies,
+                            source_times=source_times,
                         )
                         target = target.filter(version_condition)
                 final = step_index == len(steps) - 1
@@ -651,6 +685,12 @@ def prepare_fields(
     from marivo.analysis.compiler.calendar import bind_calendar
 
     for name, time_key, calendar in pending_calendars:
+        if contribution.time is not None:
+            encoding = time_encodings.get(contribution.time.field.ref.path)
+            if encoding is not None:
+                source_times.extend(
+                    capture_source_times((encoding[2],), consumption_timezone=calendar.timezone)
+                )
         clock = dict(columns)[time_key]
         table = bind_calendar(table, table[clock], calendar, name)
         if calendar in selected_calendars:
@@ -689,6 +729,7 @@ def prepare_fields(
         value,
         unique,
         sample_positions=sample_positions,
+        source_times=source_times,
     )
     table = members.table
     columns.extend(members.columns)
@@ -739,4 +780,5 @@ def prepare_fields(
         tuple(originals),
         tuple(dependencies),
         tuple(item[2] for item in time_encodings.values()),
+        merge_source_times(tuple(source_times)),
     )

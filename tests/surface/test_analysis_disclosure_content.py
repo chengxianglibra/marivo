@@ -617,6 +617,9 @@ def test_construction_type_families_and_retired_surface() -> None:
         "time_scope",
         "calendar_correspondence",
         "comparison_baseline",
+        "frame_instant_source_time",
+        "frame_wall_clock_source_time",
+        "frame_civil_date_source_time",
         "frame_source_read",
         "frame_source_read_scope",
         "frame_source_read_period",
@@ -723,7 +726,7 @@ def test_construction_type_families_and_retired_surface() -> None:
         "value_statistic",
         "column",
     }
-    assert len([name for name in mv.__all__ if isinstance(getattr(mv, name), type)]) == 69
+    assert len([name for name in mv.__all__ if isinstance(getattr(mv, name), type)]) == 72
     removed = {
         "before_end_boundary",
         "before_end_boundary.end",

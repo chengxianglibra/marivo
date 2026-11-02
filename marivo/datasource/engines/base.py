@@ -135,6 +135,7 @@ class EngineProfile:
     native_query_timeout: NativeQueryTimeout | None
     connection_conflict: Callable[[Exception], bool] = no_connection_conflict
     http_credentials: Callable[..., ProviderHttpCredentials | None] | None = None
+    native_localization_total: bool = False
 
     def __post_init__(self) -> None:
         timeout_enforced = self.native_query_timeout is not None

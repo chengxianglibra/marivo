@@ -35,10 +35,6 @@ from marivo.datasource.ir import (
     QueryParamScalar,
     QueryParamScalarList,
 )
-from marivo.datasource.timezone import (
-    DatasourceEngineTimezone,
-    probe_engine_timezone,
-)
 
 DEFAULT_CONNECTION_TIMEOUT_SECONDS = 30
 _ResultT = TypeVar("_ResultT")
@@ -195,7 +191,6 @@ class DatasourceConnectionService:
         self._session_backends: dict[str, Any] = {}
         self._leases: dict[str, BackendLease] = {}
         self._source_sessions: dict[str, SourceSession] = {}
-        self._engine_timezones: dict[str, DatasourceEngineTimezone] = {}
 
     @property
     def project_root(self) -> Path | None:
@@ -305,13 +300,11 @@ class DatasourceConnectionService:
             self._session_backends,
             self._leases,
             self._source_sessions,
-            self._engine_timezones,
             self._terminal_timeout_seconds,
         )
         self._session_backends = {}
         self._leases = {}
         self._source_sessions = {}
-        self._engine_timezones = {}
         self._terminal_timeout_seconds = timeout_seconds
         try:
             yield
@@ -323,7 +316,6 @@ class DatasourceConnectionService:
                     self._session_backends,
                     self._leases,
                     self._source_sessions,
-                    self._engine_timezones,
                     self._terminal_timeout_seconds,
                 ) = previous
 
@@ -400,17 +392,6 @@ class DatasourceConnectionService:
             raise TypeError("source collection must produce a pandas DataFrame")
         return frame
 
-    def engine_timezone(self, name: str) -> DatasourceEngineTimezone:
-        """Return the cached engine timezone for a datasource session backend."""
-        datasource_name = _storage_name(name)
-        resolved = self._engine_timezones.get(datasource_name)
-        if resolved is None:
-            backend = self.session_backend(datasource_name)
-            with cr.backend_errors(backend):
-                resolved = probe_engine_timezone(backend)
-            self._engine_timezones[datasource_name] = resolved
-        return resolved
-
     def close_all(self) -> None:
         """Disconnect all cached session backends and clear the cache."""
         failure: BaseException | None = None
@@ -443,6 +424,5 @@ class DatasourceConnectionService:
         self._source_sessions.clear()
         self._session_backends.clear()
         self._leases.clear()
-        self._engine_timezones.clear()
         if failure is not None:
             raise failure

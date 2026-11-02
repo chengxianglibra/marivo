@@ -69,7 +69,7 @@ def _catalog(
         {
             "datasources/warehouse.py": (
                 "import marivo.datasource as md\n"
-                f"md.duckdb(name='warehouse', path={str(database_path)!r})\n"
+                f"md.duckdb(name='warehouse', wall_clock_timezone='UTC', path={str(database_path)!r})\n"
             ),
             "sales/_domain.py": (
                 "import marivo.semantic as ms\n"
@@ -640,7 +640,7 @@ def test_validation_uses_entity_and_field_output_types(
         {
             "datasources/warehouse.py": (
                 "import marivo.datasource as md\n"
-                f"md.duckdb(name='warehouse', path={str(database_path)!r})\n"
+                f"md.duckdb(name='warehouse', wall_clock_timezone='UTC', path={str(database_path)!r})\n"
             ),
             "sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales', owner='Data', default=True)\n",
             "sales/model.py": textwrap.dedent("""\

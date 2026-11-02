@@ -375,7 +375,7 @@ def source_session(
         )
     semantic_project_factory(
         {
-            "datasources/warehouse.py": f"import marivo.datasource as md\nmd.duckdb(name='warehouse',path={str(database)!r})\n",
+            "datasources/warehouse.py": f"import marivo.datasource as md\nmd.duckdb(wall_clock_timezone='UTC', name='warehouse',path={str(database)!r})\n",
             "sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales',owner='Analytics',default=True)\n",
             "sales/models.py": """import marivo.datasource as md
 import marivo.semantic as ms
@@ -533,7 +533,7 @@ def test_current_names_are_independent_of_old_store(tmp_path: Path) -> None:
         assert record is not None
         assert record.session_ref == runtime.session_ref
     assert old.read_bytes() == before
-    assert (old.parent.parent / "v27").exists()
+    assert (old.parent.parent / "v28").exists()
 
 
 def test_private_cold_roundtrip_does_not_need_producer_or_catalog(
@@ -949,7 +949,7 @@ def test_preview_decodes_only_requested_rows_and_skips_unused_parts(
         artifact.to_pandas()
     assert artifact.source_reads == ()
     # Unused attachments are no longer legal: exact attachment closure is tested
-    # by Store26 protocol/frozen-coordinate tests, rather than retaining a bypass.
+    # by Store28 protocol/frozen-coordinate tests, rather than retaining a bypass.
 
 
 def test_wide_artifact_truncation_routes_to_callable_reads(
@@ -1244,7 +1244,7 @@ def test_method_payload_is_owned_by_same_commit_and_zero_rows_are_checked(
     saved = AnalysisFrame._from_memory(session._runtime.local, result).persist()
     value = committed(saved)
     assert value.method_facts == saved._backing.method_facts
-    assert value.semantics_version == "frame.v16"
+    assert value.semantics_version == "frame.v17"
     descriptor = value.method_facts[0]
     assert descriptor.parent_count == (0 if empty else 1)
     assert descriptor.coordinate_count == descriptor.coordinate_row_count == 0

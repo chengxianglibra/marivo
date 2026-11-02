@@ -5,7 +5,6 @@ import shutil
 import subprocess
 import sys
 from collections.abc import Callable
-from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal
@@ -85,7 +84,7 @@ def _project(
     )
     factory(
         {
-            "datasources/warehouse.py": f"import marivo.datasource as md\nmd.{backend}(name='warehouse', path={str(database)!r})\n",
+            "datasources/warehouse.py": f"import marivo.datasource as md\nmd.{backend}(wall_clock_timezone='UTC', name='warehouse', path={str(database)!r})\n",
             "sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales', owner='Test', default=True)\n",
             "sales/models.py": "import marivo.datasource as md\nimport marivo.semantic as ms\n"
             f"customers=ms.entity(name='customers', datasource=ms.ref.datasource('warehouse'), source={customer_source}, primary_key=['id'])\n"
@@ -325,38 +324,28 @@ def test_explicit_instant_bounds_do_not_erase_report_identity(
     assert boundaries[0][2] != boundaries[1][2]
 
 
-def test_failed_reader_timezone_probe_does_not_fall_back(
+def test_missing_source_timezone_rejects_before_business_read(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
 ) -> None:
-    from marivo.datasource import timezone as datasource_timezone
+    import marivo.semantic as ms
+    from marivo.semantic.errors import SourceTimezoneMissing
 
     _project(tmp_path, monkeypatch, semantic_project_factory, read_zone=None)
-    session = mv.session.get_or_create("engine-change", timezone="Asia/Shanghai")
+    datasource_path = tmp_path / "models/datasources/warehouse.py"
+    datasource_path.write_text(
+        datasource_path.read_text().replace("wall_clock_timezone='UTC', ", "")
+    )
+    ms.load(workspace_dir=tmp_path)
+    session = mv.session.get_or_create("missing-source", timezone="Asia/Shanghai")
     value = _observe(session, session.time_scope(start="2026-08-01", end="2026-08-02"))
-    original = datasource_timezone.probe_engine_timezone
-
-    def changed(backend: object) -> datasource_timezone.DatasourceEngineTimezone:
-        current = original(backend)
-        name, zone = datasource_timezone.parse_timezone("Asia/Shanghai")
-        return replace(current, engine_timezone_name=name, engine_timezone_tz=zone)
-
-    # Physical authority is prepared at compute, so constructing a Frame does
-    # not freeze an unprobed reader assumption. A failed probe never falls back.
-    def failed(backend: object) -> datasource_timezone.DatasourceEngineTimezone:
-        raise AnalysisError(message="timezone probe unavailable")
-
-    monkeypatch.setattr(datasource_timezone, "probe_engine_timezone", failed)
-    with pytest.raises(AnalysisError, match="timezone probe unavailable"):
+    with pytest.raises(SourceTimezoneMissing) as caught:
         value.compute()
+    assert caught.value.details["query_executed"] is False
     assert terminal_runs(session) == ()
-    monkeypatch.setattr(datasource_timezone, "probe_engine_timezone", changed)
-    assert _values(value) == {"A": 465, "B": 60}
 
 
-@pytest.mark.release
-@pytest.mark.slow
 def test_timezone_mean_fixed_and_cold_preserve_authority_without_ambient_state(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

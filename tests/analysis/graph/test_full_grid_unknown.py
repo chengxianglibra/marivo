@@ -53,7 +53,7 @@ def coverage_project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     datasources.mkdir()
     (tmp_path / "marivo.toml").write_text('[project]\nname = "business-coverage"\n')
     (datasources / "warehouse.py").write_text(
-        "import marivo.datasource as md\nmd.duckdb(name='warehouse', path=':memory:')\n"
+        "import marivo.datasource as md\nmd.duckdb(wall_clock_timezone='UTC', name='warehouse', path=':memory:')\n"
     )
     (semantic / "_domain.py").write_text(
         "import marivo.semantic as ms\nms.domain(name='sales', owner='Fixture', default=True)\n"

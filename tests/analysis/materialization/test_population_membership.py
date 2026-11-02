@@ -58,7 +58,7 @@ def _session(
     datasource_dir = root / "models" / "datasources"
     datasource_dir.mkdir(parents=True)
     (datasource_dir / "warehouse.py").write_text(
-        f"import marivo.datasource as md\nmd.duckdb(name='warehouse', path={str(database)!r})\n"
+        f"import marivo.datasource as md\nmd.duckdb(wall_clock_timezone='UTC', name='warehouse', path={str(database)!r})\n"
     )
     factory(
         {

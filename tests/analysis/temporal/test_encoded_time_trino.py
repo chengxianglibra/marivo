@@ -11,6 +11,7 @@ import pytest
 from marivo.analysis.compiler.source_time import source_time, source_time_predicate
 from tests.analysis.temporal.encoded_time_fixtures import axis
 from tests.datasource.environment.trino_analysis import connection
+from tests.shared_fixtures import declared_test_timezone
 
 pytestmark = pytest.mark.runtime
 
@@ -57,7 +58,11 @@ def test_native_partition_constraints_and_scanned_rows(connector: str, integer: 
             )
             field = axis("%Y%m%d")
             parsed, authority = source_time(
-                table.point, field, boundary_timezone="UTC", read_timezone="UTC", engine="trino"
+                table.point,
+                field,
+                boundary_timezone="UTC",
+                source_timezone=declared_test_timezone(field, "UTC"),
+                engine="trino",
             )
             raw = source_time_predicate(
                 table.point,

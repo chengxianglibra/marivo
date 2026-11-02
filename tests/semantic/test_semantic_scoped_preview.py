@@ -53,7 +53,7 @@ def scoped_catalog(
         {
             "datasources/warehouse.py": (
                 "import marivo.datasource as md\n"
-                f"md.duckdb(name='warehouse', path={str(database_path)!r})\n"
+                f"md.duckdb(name='warehouse', wall_clock_timezone='UTC', path={str(database_path)!r})\n"
             ),
             "sales/_domain.py": (
                 "import marivo.semantic as ms\n"
@@ -228,14 +228,20 @@ def test_scope_row_guard_reports_real_truncation(scoped_catalog) -> None:
     assert "scope_coverage: truncated/sample_only" in card
 
 
-def test_time_dimension_reports_native_naive_parse_risk(scoped_catalog) -> None:
+def test_time_dimension_reports_declared_native_naive_authority(scoped_catalog) -> None:
     catalog, _root = scoped_catalog
     time_ref = catalog.get("time_dimension:sales.orders.occurred_at")
     before = catalog.readiness(refs=[time_ref]).to_dict()
     result = catalog.preview(time_ref, scope=default_scope())
     after = catalog.readiness(refs=[time_ref]).to_dict()
 
-    assert [warning.kind for warning in result.warnings] == ["time_parse_risk"]
+    assert result.warnings == ()
+    assert result.timezones["occurred_at"] == {
+        "kind": "wall_clock",
+        "timezone": "UTC",
+        "origin": "datasource",
+        "inherited_from": None,
+    }
     before.pop("checked_at")
     after.pop("checked_at")
     assert after == before
@@ -337,7 +343,7 @@ def test_cross_datasource_preview_fails_before_connection(
         {
             "datasources/warehouse.py": (
                 "import marivo.datasource as md\n"
-                f"md.duckdb(name='warehouse', path={str(tmp_path / 'warehouse.duckdb')!r})\n"
+                f"md.duckdb(name='warehouse', wall_clock_timezone='UTC', path={str(tmp_path / 'warehouse.duckdb')!r})\n"
             ),
             "datasources/finance.py": (
                 "import marivo.datasource as md\n"
@@ -388,7 +394,7 @@ def test_json_source_bindings_use_native_entity_pairs(
         {
             "datasources/warehouse.py": (
                 "import marivo.datasource as md\n"
-                f"md.duckdb(name='warehouse', path={str(tmp_path / 'json.duckdb')!r})\n"
+                f"md.duckdb(name='warehouse', wall_clock_timezone='UTC', path={str(tmp_path / 'json.duckdb')!r})\n"
             ),
             "sales/_domain.py": (
                 "import marivo.semantic as ms\n"

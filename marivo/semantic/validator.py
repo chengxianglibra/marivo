@@ -19,7 +19,6 @@ from dataclasses import dataclass, field, replace
 from datetime import datetime, time, timedelta
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Literal, NoReturn, cast
-from zoneinfo import ZoneInfo
 
 from ibis.common.deferred import Deferred
 
@@ -245,7 +244,11 @@ def normalize_target_dimension(
         sample_interval=dimension.sample_interval,
         parse=parse,
         is_default=dimension.is_default,
-        timezone=(parse.timezone if isinstance(parse, TimestampParse | StrptimeParse) else None),
+        timezone=(
+            parse.timezone
+            if isinstance(parse, DateParse | TimestampParse | StrptimeParse)
+            else None
+        ),
     )
 
 
@@ -321,6 +324,19 @@ def normalize_target_entity(registry: Registry, entity_id: str) -> TargetEntityC
                 constraint_id=ConstraintId.ENTITY_VERSION_KEY_SEPARATE,
                 location=entity.location,
             )
+        if axis.logical_type == "date":
+            from marivo.semantic._source_timezone import require_source_timezone
+            from marivo.semantic.errors import DeclaredTimezoneContradiction
+
+            zone = require_source_timezone(registry, axis, physical_type="date")
+            if zone.timezone != authored.timezone:
+                raise DeclaredTimezoneContradiction(
+                    ref=entity_id,
+                    declarations=(
+                        (axis.ref.path, zone.timezone, zone.origin),
+                        (entity_id, authored.timezone, "snapshot"),
+                    ),
+                )
         version = TargetSnapshotVersion(
             axis.ref,
             axis.source_column,
@@ -362,20 +378,22 @@ def normalize_target_entity(registry: Registry, entity_id: str) -> TargetEntityC
                 received=f"{start.logical_type}/{end.logical_type}",
                 action="Declare validity endpoints with the same logical temporal kind.",
             )
-        if "timestamp" in (start.logical_type, end.logical_type) and authored.timezone is not None:
-            _target_error(
-                ref=entity_id,
-                expected="timestamp validity without business timezone",
-                received=authored.timezone,
-                action="Remove timezone from ms.validity; declare a naive source timezone on its parser, and omit parser timezone for aware sources.",
-            )
-        if "date" in (start.logical_type, end.logical_type) and authored.timezone is None:
-            _target_error(
-                ref=entity_id,
-                expected="an explicit business timezone for DATE validity",
-                received="timezone=None",
-                action="Set timezone on ms.validity to the business day timezone.",
-            )
+        timezone = None
+        if "date" in (start.logical_type, end.logical_type):
+            from marivo.semantic._source_timezone import require_source_timezone
+            from marivo.semantic.errors import DeclaredTimezoneContradiction
+
+            start_zone = require_source_timezone(registry, start, physical_type="date")
+            end_zone = require_source_timezone(registry, end, physical_type="date")
+            if start_zone.timezone != end_zone.timezone:
+                raise DeclaredTimezoneContradiction(
+                    ref=entity_id,
+                    declarations=(
+                        (start.ref.path, start_zone.timezone, start_zone.origin),
+                        (end.ref.path, end_zone.timezone, end_zone.origin),
+                    ),
+                )
+            timezone = start_zone.timezone
         version = TargetValidityVersion(
             start.ref,
             end.ref,
@@ -383,7 +401,7 @@ def normalize_target_entity(registry: Registry, entity_id: str) -> TargetEntityC
             end.source_column,
             authored.interval,
             authored.open_end,
-            authored.timezone,
+            timezone,
         )
         row_key = (*key, start.source_column) if key else ()
     datasource = registry.datasources.get(entity.datasource)
@@ -515,7 +533,9 @@ def normalize_target_version_selection(
             received="unversioned Entity or unsupported interpretation",
             action="Supply a versioned Entity and an instant or before-endpoint boundary.",
         )
-    zone = ZoneInfo(version.timezone or "UTC")
+    from marivo._timezones import normalize_timezone
+
+    zone = normalize_timezone(version.timezone or "UTC").tz
     localized = (
         boundary.replace(tzinfo=zone) if boundary.tzinfo is None else boundary.astimezone(zone)
     )
@@ -1890,6 +1910,14 @@ def assembly_validate(
                 )
             )
             continue
+        from marivo.semantic._source_timezone import period_calendar_timezone
+
+        owner = registry.entities.get(date_field.entity)
+        if owner is not None and owner.datasource in registry.datasources:
+            try:
+                period_calendar_timezone(registry, calendar)
+            except SemanticError as error:
+                errors.append(error)
         for level, level_ref in calendar.levels:
             field = registry.dimensions.get(level_ref)
             if field is None or field.is_time_dimension or field.entity != date_field.entity:
@@ -1975,6 +2003,33 @@ def assembly_validate(
                     received=f"start={start_encoding}, end={end_encoding}",
                 )
             )
+
+        if start_encoding == "date" and end_encoding == "date":
+            from marivo.semantic._source_timezone import require_source_timezone
+            from marivo.semantic.errors import DeclaredTimezoneContradiction
+
+            try:
+                start_zone = require_source_timezone(
+                    registry,
+                    normalize_target_dimension(registry, temporal_set.start),
+                    physical_type="date",
+                )
+                end_zone = require_source_timezone(
+                    registry,
+                    normalize_target_dimension(registry, temporal_set.end),
+                    physical_type="date",
+                )
+                declarations = (
+                    (temporal_set.start, start_zone.timezone, start_zone.origin),
+                    (temporal_set.end, end_zone.timezone, end_zone.origin),
+                    (set_id, temporal_set.boundary_timezone, "temporal_set"),
+                )
+                if len({zone for _path, zone, _origin in declarations}) > 1:
+                    errors.append(
+                        DeclaredTimezoneContradiction(ref=set_id, declarations=declarations)
+                    )
+            except SemanticError as error:
+                errors.append(error)
 
     # -- Validate measure entity refs -----------------------------------------
     errors.extend(_validate_measure_refs(registry))

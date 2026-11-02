@@ -862,14 +862,14 @@ def test_civil_date_grid_keeps_date_keys_on_foreign_zone(
         grouped = session.observe(
             {"value": session.catalog.get("metric:sales.total")}, by=(grid,)
         ).persist()
-        assert _value(grouped).tolist() == [2, 5]
+        assert _value(grouped).tolist() == [5, 99]
         assert session._runtime.store.resources(session._runtime.session_ref) == ()
         source_trace.save(
             f"c06-source-{backend}-civil-date-grid",
             {**case.environment, "profile": profile},
             {"columns": data.columns, "values": data.values},
             {
-                "values": [2, 5],
+                "values": [5, 99],
                 "product_rows": 8,
                 "source_role": "civil_date",
                 "report_timezone": "UTC",
@@ -955,10 +955,8 @@ def test_native_timestamp_retains_reader_and_grid_authority(
         )
         grid = scope.by(mv.grain("day"))
         members = session.members(session.catalog.get("entity:sales.facts"))
-        from marivo.datasource.timezone import probe_engine_timezone
 
-        reader = probe_engine_timezone(case.session._backend)
-        reader_zone = reader.engine_timezone_name if reader is not None else None
+        reader_zone = "UTC"
         logical = session.observe(
             {"value": session.catalog.get("metric:sales.total")}, by=mv.product(grid, members)
         )

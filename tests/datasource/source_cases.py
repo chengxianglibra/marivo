@@ -83,6 +83,7 @@ def datasource(
         semantic_id="source_profile",
         name="source_profile",
         backend_type=backend,
+        wall_clock_timezone="UTC",
         fields=fields,
         env_refs=env or {},
         ai_context=AiContextIR(),

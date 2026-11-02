@@ -10,6 +10,21 @@ Datasource owns physical access and connection identity. Business meaning belong
 A datasource is one typed spec per backend. The constructor validates a
 lowercase snake_case name matching `[a-z][a-z0-9_]*` and splits the
 declared fields into literal connection `fields` and secret `env_refs`.
+All five constructors and Specs also accept `wall_clock_timezone: str | None = None`.
+This first-class declaration supplies the source timezone for time dimensions
+without their own parser timezone: naive timestamps, supported encoded local
+clocks, DATE business days and inherited `hour_prefix` clocks. It accepts
+IANA names or fixed offsets, normalized at construction. The built-in `default`
+has no declared timezone. Missing declarations are never filled from the reader,
+host or report timezone. Physical instants (including MySQL TIMESTAMP and
+ClickHouse DateTime/DateTime64) retain their native meaning.
+
+`wall_clock_timezone` is stored separately from connection `fields` and secret
+`env_refs`, and is never a driver kwarg. It participates in semantic dependency
+and definition fingerprints, while raw acquisition evidence identity excludes
+it. Changing it can invalidate certification even for an aware-only Entity.
+Trino has no public `timezone` parameter; its private UTC connection setting
+only stabilizes transport.
 
 ```python
 # models/datasources/warehouse.py
@@ -41,7 +56,8 @@ used everywhere downstream.
 MySQL and MariaDB use PyMySQL through a private Ibis SQL backend adapter.
 `marivo[mysql]` includes RSA authentication dependencies and needs no local
 MySQL/MariaDB client C library. Ibis still owns MySQL SQL compilation.
-Connections retain autocommit enabled by default and initialize the reader to UTC.
+Connections retain autocommit enabled by default and initialize the connection to UTC
+for transport.
 MySQL reader initialization uses the fixed offset `+00:00`, so connecting does not
 require populated named time zone tables. Native conversions involving named
 source timezones still require the selected names in those tables.
@@ -66,7 +82,7 @@ connection builders live in `marivo/datasource/engines/` and are internal — th
 public surface is the spec constructors and `DatasourceSymbol`.
 
 Every spec has a bounded, decision-first `show()` / `render()` card. It exposes
-the declared state, exact ref, core connection target, credential field names,
+the declared state, exact ref, core connection target, declared wall-clock timezone, credential field names,
 and only a count for additional configuration. It never expands resolved
 secrets, session/settings maps, `extra`, or AI context. Read `.fields` and
 `.env_refs` only when exact configuration is needed. The default repr is a

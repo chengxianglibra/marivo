@@ -89,7 +89,7 @@ def _author(root: Path) -> None:
     datasource.mkdir(parents=True)
     (root / "marivo.toml").write_text('[project]\nname="runs-export"\n')
     (datasource / "warehouse.py").write_text(
-        "import marivo.datasource as md\nmd.duckdb(name='warehouse', path='warehouse.duckdb')\n"
+        "import marivo.datasource as md\nmd.duckdb(wall_clock_timezone='UTC', name='warehouse', path='warehouse.duckdb')\n"
     )
     (semantic / "_domain.py").write_text(
         "import marivo.semantic as ms\nms.domain(name='sales', owner='Fixture', default=True)\n"
@@ -103,7 +103,7 @@ time_ref = ms.time_dimension_column(name="time", entity=orders, column="time", i
 calendar = ms.entity(name="calendar", datasource=ms.ref.datasource("warehouse"), source=md.parquet("calendar.parquet"), primary_key=["calendar_date"])
 calendar_date = ms.time_dimension_column(name="calendar_date", entity=calendar, column="calendar_date")
 period = ms.dimension_column(name="period", entity=calendar, column="period")
-unequal = ms.period_calendar(name="unequal", date=calendar_date, boundary_timezone="UTC", coverage=(date(2026, 8, 1), date(2026, 8, 7)), levels={"period": period})
+unequal = ms.period_calendar(name="unequal", date=calendar_date, coverage=(date(2026, 8, 1), date(2026, 8, 7)), levels={"period": period})
 amount = amount_ref
 time = time_ref
 @ms.metric()

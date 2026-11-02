@@ -5,6 +5,11 @@ description: 按日历期间分组，计算滚动窗口与累计值。
 
 先完成[分析 DSL 示例](/zh-cn/docs/latest/analysis/dsl/#完整示例与后续输入)。将下面代码保存为同一项目中的新脚本。本例使用全部六笔模拟订单与 UTC 报告时间，包含起点、不包含终点。按顺序执行各节。
 
+本例的 Session 满足 `session.timezone == "UTC"` 和
+`session.timezone_origin == "explicit"`。新 Session 也接受
+`timezone="+08:00"` 这样的显式偏移。省略时区时，仅在创建时严格解析一次系统 IANA
+时区；含糊的 `TZ` 或 localtime 状态要求显式传值。恢复保留已存时区及其来源，不再检查宿主机。
+
 ## 按日与月观察
 
 ```python
@@ -186,3 +191,22 @@ restated = session.observe(
 ```
 
 逐行模式按每条事实的时间选属性；固定锚点给整个窗口统一口径。两笔事实 7/11 在变更前后对应 A/B 时，逐行得到 A=7、B=11，固定新口径得到 B=18。事实 Entity 可以未版本化，也可以声明 snapshot；原生快照分区 TimeDimension 可作为控制字段，同一稳定业务键跨日的记录各自保留当天贡献，无需逐日查询。DuckDB/Trino 支持已认证的同源单根 observe by/where；NULL 控制或缺失版本保留 NULL 标签，不回退到最近版本。DATE 选择目标业务日；timestamp validity 要求 timestamp 控制。原生绝对时刻和 UTC/固定偏移本地钟面获准，validity 事实根、IANA 本地钟面、read/classify、多根、window/per 组合使用固定锚点。每个桶端点重分类不属于这个语义。
+
+
+## 检查捕获的源时间解释
+
+计算 `daily` 后，读取 `daily.schema.source_times` 或调用 `daily.show(n=0)`。
+每条不可变记录标识实际消费的源字段、物理类型与消费时区。`instant` 不需要源时区声明；
+`wall_clock` 和 `civil_date` 保存最终生效的源时区及其 `field` 或 `datasource` 来源。
+hour-prefix 时钟还保存 `inherited_from`。待执行结果的显示不为补齐这些事实打开源连接。
+
+这些记录解释已消费的输入。固定数据 select、rename、filter、fix、算术和 reduce 保留它们；
+组合操作按完整记录合并，同一路径的不同解释也会并存。业务日的源时区与消费时区不同，
+按业务日起点归属；业务日汇总不能重建事件日汇总。持久化后的冷恢复保留这些事实、
+已捕获绝对范围与桶键，即使宿主机时区变化、源和模型不可用，也不转换或重新分桶。
+
+```python
+facts = daily.schema.source_times
+for fact in facts:
+    print(fact.axis, fact.kind, fact.consumption_timezone)
+```

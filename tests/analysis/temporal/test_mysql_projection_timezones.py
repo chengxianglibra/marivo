@@ -3,9 +3,9 @@
 import ibis
 import pytest
 
-from marivo.analysis.compiler.source_time import localize
 from marivo.analysis.materialization.graph_source_execution import _mysql_source_timezones
 from marivo.analysis.materialization.temporal_sql import lower_temporal
+from marivo.datasource._temporal_expressions import localize
 
 
 @pytest.mark.parametrize(

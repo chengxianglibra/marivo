@@ -18,10 +18,11 @@ from marivo.analysis.compiler.source_time import (
     source_time_comparison,
     source_time_predicate,
 )
-from marivo.analysis.core.time_authority import SourceTimeAuthority
+from marivo.analysis.core.time_authority import CivilDateSourceTime
 from marivo.analysis.materialization.temporal_sql import lower_temporal
 from marivo.semantic.ir import DateParse, HourPrefixParse, TimestampParse
 from tests.analysis.temporal.encoded_time_fixtures import axis
+from tests.shared_fixtures import declared_test_timezone
 
 
 @pytest.mark.parametrize(
@@ -58,7 +59,11 @@ def test_named_clock_membership_matches_independent_native_projection(
     )
     field = replace(axis("%Y%m%d%H%M"), parse=TimestampParse(timezone=zone))
     normalized, authority = source_time(
-        table.point, field, boundary_timezone="UTC", read_timezone="UTC", engine="duckdb"
+        table.point,
+        field,
+        boundary_timezone="UTC",
+        source_timezone=declared_test_timezone(field, "UTC"),
+        engine="duckdb",
     )
     backend = ibis.duckdb.connect()
     try:
@@ -142,12 +147,11 @@ def test_hour_prefix_preserves_hour_24_and_inherited_source_zone(
         table.point,
         field,
         boundary_timezone="UTC",
-        read_timezone="UTC",
+        source_timezone=declared_test_timezone(field, "America/New_York"),
         prefix=prepared_prefix,
-        prefix_timezone="America/New_York",
         engine="duckdb",
     )
-    assert authority.read_timezone == "America/New_York"
+    assert authority.timezone == "America/New_York"
     predicate = source_time_predicate(
         table.point,
         field,
@@ -157,7 +161,7 @@ def test_hour_prefix_preserves_hour_24_and_inherited_source_zone(
         prefix=table.day,
         prefix_axis=prefix_axis,
     )
-    assert predicate is None
+    assert predicate is not None
     predicate = (normalized >= ibis.timestamp("2026-03-08 05:00:00")) & (
         normalized < ibis.timestamp("2026-03-08 08:00:00")
     )
@@ -173,7 +177,11 @@ def test_native_timestamp_precision_and_unowned_expression_fallback() -> None:
     table = ibis.table({"point": dt.Timestamp(scale=0)}, name="events")
     field = replace(axis("%Y%m%d%H"), parse=TimestampParse(timezone="UTC"))
     _, authority = source_time(
-        table.point, field, boundary_timezone="UTC", read_timezone="UTC", engine="duckdb"
+        table.point,
+        field,
+        boundary_timezone="UTC",
+        source_timezone=declared_test_timezone(field, "UTC"),
+        engine="duckdb",
     )
     predicate = source_time_predicate(
         table.point,
@@ -194,14 +202,16 @@ def test_native_timestamp_precision_and_unowned_expression_fallback() -> None:
             start=datetime(2026, 1, 1),
             end=None,
         )
-        is None
+        is not None
     )
     with pytest.raises(DatasetCompilationError) as caught:
         source_time(
             table.point,
             replace(field, parse=HourPrefixParse(prefix="bad")),
             boundary_timezone="UTC",
-            read_timezone="UTC",
+            source_timezone=declared_test_timezone(
+                replace(field, parse=HourPrefixParse(prefix="bad")), "UTC"
+            ),
             prefix=table.point,
             engine="duckdb",
         )
@@ -210,13 +220,12 @@ def test_native_timestamp_precision_and_unowned_expression_fallback() -> None:
 
 def test_invalid_integer_encoding_keeps_nullable_comparison() -> None:
     table = ibis.memtable({"point": [1, None]}, schema={"point": "int16"})
-    authority = SourceTimeAuthority(
+    authority = CivilDateSourceTime(
         axis="sales.events.point",
         physical_type="int16",
         kind="civil_date",
-        read_timezone=None,
-        source="civil_date",
-        boundary_timezone="UTC",
+        timezone="UTC",
+        origin="datasource",
     )
     predicate = source_time_predicate(
         table.point, axis("%Y%m%d"), authority, start=date(2026, 1, 1), end=None
@@ -235,7 +244,11 @@ def test_transparent_source_view_retains_raw_lineage() -> None:
     table = ibis.table({"point": "timestamp"}, name="events").view()
     field = replace(axis("%Y%m%d%H"), parse=TimestampParse(timezone="America/New_York"))
     _, authority = source_time(
-        table.point, field, boundary_timezone="UTC", read_timezone="UTC", engine="duckdb"
+        table.point,
+        field,
+        boundary_timezone="UTC",
+        source_timezone=declared_test_timezone(field, "UTC"),
+        engine="duckdb",
     )
     assert (
         source_time_predicate(
@@ -245,5 +258,5 @@ def test_transparent_source_view_retains_raw_lineage() -> None:
             start=datetime(2026, 3, 8, 7, tzinfo=timezone.utc),
             end=None,
         )
-        is None
+        is not None
     )

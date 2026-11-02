@@ -63,6 +63,20 @@ builtin(unit, step) 或 named(ref, level) 粒度；interval 轴记录公共导�
 不从快照摘要、字段名或当前 Catalog 推测。轴的 `at` 是已捕获锚点，不代表新鲜度。
 
 `FrameSchema` 还包含 `fixed_axes`、`value_contexts`、`alignments`、`comparisons` 和 `decompositions`。
+
+`source_times` 是本结果实际消费输入的源时间解释事实，不是当前输出列的可执行语义能力。
+它是不变元组，元素为封闭的 `FrameInstantSourceTime`、`FrameWallClockSourceTime` 或
+`FrameCivilDateSourceTime`：三者均捕获 axis、physical_type 和 consumption_timezone；
+wall_clock/civil_date 另存最终生效的声明 timezone 与 origin（field/datasource），
+hour_prefix 另存 inherited_from。pending 和无源 literal 不为填充这些事实打开连接。
+源准备确定物理类别之后，compute/persist 捕获解释；固定 select/rename/filter/fix、
+算术和 reduce 保留全部已消费输入事实，align/compare/attribute 合并完整记录去重。
+相同 axis 的声明或消费时区不同，记录并存，不按字段名覆盖或拒绝。
+`.show()` 按 axis、kind、时区和消费时区稳定排序并有界显示；typed tuple 保留完整内容。
+DATE 的源时区与消费时区不同，按业务日起点归属；元数据明确不能由业务日汇总重建事件日汇总。
+Store 28 / output v17 必须包含 source_times 字段；冷恢复、schema/show 和固定派生不读取
+源或当前模型，也不随宿主机 TZ 转换范围、重分桶或重解释捕获事实。旧格式和缺字段显式拒绝。
+
 fixed_axes 记录 `fix` 移除的普通轴、精确有序键与该轴的语义 origins；固定键不进入活动
 `slots`。compute 从已绑定输入闭合顶层及 comparison 两端固定轴的具体键类型、nullable
 和精确键表示；统计上下文中的固定组同步重绑到完成事实，保留捕获的操作数说明。
@@ -387,7 +401,7 @@ TimeScope 在 by 中产生 interval 轴，保存精确 start/end 与边界时区
 不同期间可明确配对；过滤成一行不会把多区间目录改成单区间目录。
 interval/calendar/零轴不互转或广播；time×普通分类可使用上述完整默认配对，或显式给出完整 on。
 compare 保留当前 interval 及命名基期说明；align 的双端并集/paired 语义继续存在。
-Store 27 / marivo.frame_output/v16 保存解释目录、实际键引用与关系，冷恢复不重建 TimeScope、
+Store 28 / marivo.frame_output/v17 保存解释目录、实际键引用与关系，冷恢复不重建 TimeScope、
 来源定义或祖先 Frame。所有新事实属于当前输入，不改变数值计算、过滤范围或方法文件合同。
 
 ### Calendar matching
@@ -527,5 +541,5 @@ The latter contains only the controlling TimeDimension's SemanticObjectIdentity;
 it is not an executable selector. Pending, computed, fixed-axis and saved schemas
 retain this fact. Axis context lineage includes the target, path and control.
 Schema/show, inert pandas attrs, fixed operations and cold recovery do not access
-Catalogs or rerun version matching. Store 27 / output v16 records this closed
+Catalogs or rerun version matching. Store 28 / output v17 records this closed
 variant without older-format migration or dual reads.

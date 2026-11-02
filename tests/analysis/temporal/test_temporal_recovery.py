@@ -197,7 +197,7 @@ root=Path(sys.argv[1])
 os.chdir(root)
 os.environ['MARIVO_PROJECT_ROOT']=str(root)
 state=read(root/'temporal-recovery.json')
-with patch.object(ms,'load',forbidden), patch.object(SemanticProject,'load',forbidden), patch.object(SourceSession,'__init__',forbidden), patch.object(duckdb,'connect',forbidden), patch.object(ibis.duckdb,'connect',forbidden), patch.object(source_timezone,'probe_engine_timezone',forbidden), patch.object(source_timezone,'_resolve_system_timezone',forbidden):
+with patch.object(ms,'load',forbidden), patch.object(SemanticProject,'load',forbidden), patch.object(SourceSession,'__init__',forbidden), patch.object(duckdb,'connect',forbidden), patch.object(ibis.duckdb,'connect',forbidden):
     session=mv.session.resume(state['session'])
     before=run_ids(session)
     assert sorted(before)==state['runs']

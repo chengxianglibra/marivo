@@ -19,6 +19,7 @@ from tests.analysis.numeric.test_remote_numeric_query import _datasource_model
 from tests.analysis.temporal.encoded_time_fixtures import axis
 from tests.analysis.temporal.test_calendar_native_keys import _maria
 from tests.datasource.source_cases import SourceData, source_case, source_params
+from tests.shared_fixtures import declared_test_timezone
 
 CASES = source_params(
     [
@@ -73,7 +74,11 @@ def test_postgres_parser_preserves_native_relaxed_dates(
 
         field = axis("%Y-%m-%d")
         _, authority = source_time(
-            table.point, field, boundary_timezone="UTC", read_timezone="UTC", engine="postgres"
+            table.point,
+            field,
+            boundary_timezone="UTC",
+            source_timezone=declared_test_timezone(field, "UTC"),
+            engine="postgres",
         )
         predicate = source_time_predicate(
             table.point,
@@ -142,7 +147,11 @@ def test_postgres_parser_propagates_invalid_data(
         else:
             field = axis("%Y-%m-%d")
             _, authority = source_time(
-                table.point, field, boundary_timezone="UTC", read_timezone="UTC", engine="postgres"
+                table.point,
+                field,
+                boundary_timezone="UTC",
+                source_timezone=declared_test_timezone(field, "UTC"),
+                engine="postgres",
             )
             predicate = source_time_predicate(
                 table.point,
@@ -270,7 +279,11 @@ def test_safe_membership_excludes_invalid_calendar_and_keeps_native_noncanonical
         table = case.session.bind(case.source, source_identity="parser-membership").relation
         field = axis(fmt)
         _, authority = source_time(
-            table.point, field, boundary_timezone="UTC", read_timezone="UTC", engine=backend
+            table.point,
+            field,
+            boundary_timezone="UTC",
+            source_timezone=declared_test_timezone(field, "UTC"),
+            engine=backend,
         )
         predicate = source_time_predicate(
             table.point,
@@ -294,7 +307,11 @@ def test_parsed_gap_membership_retains_native_predicate() -> None:
     )
     field = axis("%Y-%m-%d %H:%M", "America/New_York")
     projected, authority = source_time(
-        table.point, field, boundary_timezone="UTC", read_timezone="UTC", engine="duckdb"
+        table.point,
+        field,
+        boundary_timezone="UTC",
+        source_timezone=declared_test_timezone(field, "UTC"),
+        engine="duckdb",
     )
     predicate = source_time_predicate(
         table.point,
@@ -303,7 +320,7 @@ def test_parsed_gap_membership_retains_native_predicate() -> None:
         start=datetime(2026, 3, 8, 7, tzinfo=timezone.utc),
         end=datetime(2026, 3, 8, 7, 10, tzinfo=timezone.utc),
     )
-    assert predicate is None
+    assert predicate is not None
     backend = ibis.duckdb.connect()
     try:
         assert backend.execute(

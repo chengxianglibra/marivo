@@ -56,7 +56,7 @@ def test_observe_uses_registered_global_datasource(
         expected = row[0]
     finally:
         connection.close()
-    md.register(md.DuckDBSpec(name="warehouse", path=str(alternate)))
+    md.register(md.DuckDBSpec(name="warehouse", path=str(alternate), wall_clock_timezone="UTC"))
     model = authoring_evidence_project / "models/semantic/sales/models.py"
     model.write_text(
         model.read_text()

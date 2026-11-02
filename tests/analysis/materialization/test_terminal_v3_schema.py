@@ -1,4 +1,4 @@
-"""The sole Store26 protocol closes every field and refuses historical v1 bytes."""
+"""The sole Store28 protocol closes every field and refuses historical v1 bytes."""
 
 from dataclasses import fields, replace
 from datetime import datetime, timezone
@@ -70,13 +70,15 @@ def manifest() -> ArtifactManifest:
         "marivo.frame_output/v12",
         "marivo.frame_output/v13",
         "marivo.frame_output/v14",
+        "marivo.frame_output/v15",
+        "marivo.frame_output/v16",
     ],
 )
 def test_historical_output_envelope_is_rejected_without_rewrite(historical_format: str) -> None:
     historical = parse_json(FROZEN)
     assert isinstance(historical, dict)
     historical["format"] = historical_format
-    with pytest.raises(IntegrityError, match="expected Frame output v16"):
+    with pytest.raises(IntegrityError, match="expected Frame output v17"):
         protocol.decode(canonical_json(historical), ArtifactManifest)
     assert Path(__file__).with_name("terminal_v1_frozen.json").read_text().strip() == FROZEN
 
@@ -119,8 +121,8 @@ def test_one_explicit_closed_type_and_field_inventory() -> None:
     saved = manifest()
     assert protocol.decode(protocol.encode(saved), ArtifactManifest) == saved
     assert saved.result_id == saved.metadata.result_id
-    assert saved.semantics_version == "frame.v16"
-    assert protocol.FORMAT == "marivo.frame_output/v16"
+    assert saved.semantics_version == "frame.v17"
+    assert protocol.FORMAT == "marivo.frame_output/v17"
 
 
 @pytest.mark.parametrize(
@@ -491,7 +493,7 @@ def test_current_store_contains_no_record_collections(tmp_path: Path) -> None:
                 "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
             )
         }
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 27
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 28
     assert names == {
         "sessions",
         "analysis_action_runs",
@@ -499,3 +501,32 @@ def test_current_store_contains_no_record_collections(tmp_path: Path) -> None:
         "dataset_artifacts",
         "action_resource_journal",
     }
+
+
+@pytest.mark.parametrize("damage", ("missing", "kind", "timezone", "origin", "duplicate"))
+def test_source_time_records_have_required_closed_fields(damage: str) -> None:
+    from marivo.analysis.core.frame_interpretation import FrameCivilDateSourceTime
+
+    saved = manifest()
+    clock = FrameCivilDateSourceTime("sales.business_day", "date", "Asia/Tokyo", "UTC", "field")
+    schema = replace(saved.data.schema, source_times=(clock,))
+    saved = replace(saved, data=replace(saved.data, schema=schema))
+    payload = protocol.encode(saved)
+    assert protocol.decode(payload, ArtifactManifest).data.schema.source_times == (clock,)
+    if damage == "missing":
+        payload = payload.replace('"source_times":', '"retired_source_times":')
+    elif damage == "kind":
+        payload = payload.replace('"kind":"civil_date"', '"kind":"wall_clock"')
+    elif damage == "timezone":
+        payload = payload.replace('"timezone":"UTC"', '"timezone":"No/Such_Zone"')
+    elif damage == "origin":
+        payload = payload.replace('"origin":"field"', '"origin":"session"')
+    else:
+        encoded = protocol._encode(clock)
+        clock_json = canonical_json(encoded)
+        payload = payload.replace(
+            '"source_times":[' + clock_json + "]",
+            '"source_times":[' + clock_json + "," + clock_json + "]",
+        )
+    with pytest.raises(IntegrityError):
+        protocol.decode(payload, ArtifactManifest)

@@ -40,7 +40,7 @@ def window_session(
     datasources = tmp_path / "models" / "datasources"
     datasources.mkdir(parents=True)
     (datasources / "warehouse.py").write_text(
-        f"import marivo.datasource as md\nmd.duckdb(name='warehouse', path={str(database)!r})\n"
+        f"import marivo.datasource as md\nmd.duckdb(wall_clock_timezone='UTC', name='warehouse', path={str(database)!r})\n"
     )
     semantic_project_factory(
         {

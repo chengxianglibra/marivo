@@ -35,6 +35,7 @@ from marivo.analysis.core.frame_data import (
     SourceFrameBinding,
     StoredFrameBacking,
 )
+from marivo.analysis.core.frame_interpretation import FrameSourceTime, merge_source_times
 from marivo.analysis.core.frame_metadata import (
     EvaluationInput,
     FrameOperationName,
@@ -75,7 +76,9 @@ class PreparedFrameSources:
     graphs: dict[str, BoundGraph]
 
 
-def _schema(frame: AnalysisFrame, plan: QueryPlan) -> DataSchema:
+def _schema(
+    frame: AnalysisFrame, plan: QueryPlan, source_times: tuple[FrameSourceTime, ...] = ()
+) -> DataSchema:
     graph = (
         frame._backing.root.graph
         if isinstance(frame._backing, ExpressionFrameBacking)
@@ -135,7 +138,9 @@ def _schema(frame: AnalysisFrame, plan: QueryPlan) -> DataSchema:
         replace(column, name=constraint.name, unit=constraint.unit)
         for column, constraint in zip(layout.values, frame._schema.values, strict=True)
     )
-    schema = DataSchema(tuple(axes), values, value_paths=frame._schema.value_paths)
+    schema = DataSchema(
+        tuple(axes), values, value_paths=frame._schema.value_paths, source_times=source_times
+    )
     return frame._schema.complete(schema)
 
 
@@ -168,6 +173,7 @@ def prepare_frame_sources(captured: CapturedFrameInputs, stack: ExitStack) -> Pr
         active_graph = binding.graph
         memo = InvocationMemo()
         prepared = None
+        key_schemas: dict[str, DataSchema] = {}
         schemas: tuple[SourceSchema, ...] = ()
         if isinstance(binding, SourceFrameBinding):
             if input_id in captured.games:
@@ -199,6 +205,7 @@ def prepare_frame_sources(captured: CapturedFrameInputs, stack: ExitStack) -> Pr
                         binding.graph,
                         binding.state,
                         memo=memo,
+                        consumption_timezone=current._local.record().report_timezone_name,
                         frame_schemas=key_schemas,
                         json_responses=json_responses.setdefault(
                             (binding.connection.project_root, id(binding.connection.resolver)), {}
@@ -306,7 +313,14 @@ def prepare_frame_sources(captured: CapturedFrameInputs, stack: ExitStack) -> Pr
                 input_failure(
                     "unqualified_contribution_route", f"{error.expected}; {error.received}"
                 )
-        schema = _schema(current, lowered.plan)
+        schema = _schema(
+            current,
+            lowered.plan,
+            merge_source_times(
+                () if prepared is None else prepared.source_times,
+                *(schema.source_times for schema in key_schemas.values()),
+            ),
+        )
         source_graphs[input_id] = active_graph
         source_schemas[input_id] = schema
         source_plans[input_id] = CompiledSourceFrame(

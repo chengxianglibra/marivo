@@ -50,16 +50,16 @@ def test_encoded_daily_snapshot_selects_same_identity_and_version(
         connection.execute("CREATE TABLE links(id BIGINT, profile_id BIGINT, profile_code BIGINT)")
         connection.execute("INSERT INTO links VALUES (100,1,11)")
     parse = (
-        ""
+        ", parse=ms.date(timezone='Asia/Shanghai')"
         if encoding == "date"
         else ", parse=ms.timestamp(timezone='Europe/Berlin')"
         if encoding == "timestamp"
-        else ", parse=ms.strptime('%Y%m%d')"
+        else ", parse=ms.strptime('%Y%m%d', timezone='Asia/Shanghai')"
     )
     semantic_project_factory(
         {
             "datasources/warehouse.py": "import marivo.datasource as md\n"
-            + f"md.duckdb(name='warehouse', path={str(database)!r})\n",
+            + f"md.duckdb(wall_clock_timezone='UTC', name='warehouse', path={str(database)!r})\n",
             "sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales', owner='Analytics', default=True)\n",
             "sales/models.py": "import marivo.datasource as md\nimport marivo.semantic as ms\n"
             + "profiles=ms.entity(name='profiles', datasource=ms.ref.datasource('warehouse'), source=md.table('profiles'), primary_key=['id'], versioning=ms.snapshot(partition_field=ms.ref.time_dimension('sales.profiles.point'), timezone='Asia/Shanghai'))\n"
@@ -138,7 +138,7 @@ def test_row_attribute_time_preserves_facts_and_explains_current_axis(
             connection.execute("UPDATE facts SET event_time='bad' WHERE id=4")
     _row_project(
         version,
-        f"import marivo.datasource as md\nmd.duckdb(name='warehouse',path={str(database)!r})\n",
+        f"import marivo.datasource as md\nmd.duckdb(wall_clock_timezone='UTC', name='warehouse',path={str(database)!r})\n",
         "md.table('profiles')",
         "md.table('facts')",
         semantic_project_factory,
@@ -221,7 +221,7 @@ def test_snapshot_fact_partition_controls_row_attribute_time(
             connection.execute(f"INSERT INTO {name} VALUES {data.values}")
     _row_project(
         version,
-        f"import marivo.datasource as md\nmd.duckdb(name='warehouse',path={str(database)!r})\n",
+        f"import marivo.datasource as md\nmd.duckdb(wall_clock_timezone='UTC', name='warehouse',path={str(database)!r})\n",
         "md.table('profiles')",
         "md.table('facts')",
         semantic_project_factory,
@@ -270,7 +270,7 @@ def test_snapshot_row_attribute_time_retains_control_boundaries(
 ) -> None:
     _row_project(
         "snapshot",
-        "import marivo.datasource as md\nmd.duckdb(name='warehouse')\n",
+        "import marivo.datasource as md\nmd.duckdb(wall_clock_timezone='UTC', name='warehouse')\n",
         "md.table('profiles')",
         "md.table('facts')",
         semantic_project_factory,
@@ -312,12 +312,14 @@ def _row_project(
     declaration = (
         "ms.snapshot(partition_field=ms.ref.time_dimension('sales.profiles.point'),timezone='Asia/Shanghai')"
         if version == "snapshot"
-        else "ms.validity(valid_from=ms.ref.time_dimension('sales.profiles.point'),valid_to=ms.ref.time_dimension('sales.profiles.ending'),interval='closed_open',open_end=(None,),timezone='Asia/Shanghai')"
+        else "ms.validity(valid_from=ms.ref.time_dimension('sales.profiles.point'),valid_to=ms.ref.time_dimension('sales.profiles.ending'),interval='closed_open',open_end=(None,))"
     )
     if time_kind == "instant" and version == "validity":
         declaration = declaration.replace(",timezone='Asia/Shanghai'", "")
     control_parse = (
-        ",parse=ms.strptime('%Y%m%d')"
+        ",parse=ms.date(timezone='Asia/Shanghai')"
+        if time_kind == "date"
+        else ",parse=ms.strptime('%Y%m%d')"
         if time_kind == "parsed"
         else ",parse=ms.timestamp(timezone='America/New_York')"
         if time_kind == "iana"
@@ -326,22 +328,23 @@ def _row_project(
     fact_versioning = (
         ",versioning=ms.snapshot(partition_field=ms.ref.time_dimension('sales.facts.event_time'),timezone='Asia/Shanghai')"
         if fact_version == "snapshot"
-        else ",versioning=ms.validity(valid_from=ms.ref.time_dimension('sales.facts.event_time'),valid_to=ms.ref.time_dimension('sales.facts.ending'),interval='closed_open',open_end=(None,),timezone='Asia/Shanghai')"
+        else ",versioning=ms.validity(valid_from=ms.ref.time_dimension('sales.facts.event_time'),valid_to=ms.ref.time_dimension('sales.facts.ending'),interval='closed_open',open_end=(None,))"
         if fact_version == "validity"
         else ""
     )
     fact_ending = (
-        "fact_ending=ms.time_dimension_column(name='ending',entity=facts,column='ending')\n"
+        "fact_ending=ms.time_dimension_column(name='ending',entity=facts,column='ending',parse=ms.date(timezone='Asia/Shanghai'))\n"
         if fact_version == "validity"
         else ""
     )
+    profile_parse = "" if time_kind == "instant" else ",parse=ms.date(timezone='Asia/Shanghai')"
     semantic_project_factory(
         {
             "datasources/warehouse.py": datasource_model,
             "sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales',owner='Test',default=True)\n",
             "sales/models.py": "import marivo.datasource as md\nimport marivo.semantic as ms\n"
             + f"profiles=ms.entity(name='profiles',datasource=ms.ref.datasource('warehouse'),source={profiles_source},primary_key=['tenant','id'],versioning={declaration})\n"
-            + "point=ms.time_dimension_column(name='point',entity=profiles,column='point')\nending=ms.time_dimension_column(name='ending',entity=profiles,column='ending')\n"
+            + f"point=ms.time_dimension_column(name='point',entity=profiles,column='point'{profile_parse})\nending=ms.time_dimension_column(name='ending',entity=profiles,column='ending'{profile_parse})\n"
             + "label=ms.dimension_column(name='label',entity=profiles,column='label')\npid=ms.dimension_column(name='id',entity=profiles,column='id')\nptenant=ms.dimension_column(name='tenant',entity=profiles,column='tenant')\n"
             + f"facts=ms.entity(name='facts',datasource=ms.ref.datasource('warehouse'),source={facts_source},primary_key=['id']{fact_versioning})\n"
             + fact_ending

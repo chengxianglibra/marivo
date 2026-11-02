@@ -10,6 +10,7 @@ from marivo._temporal import (
     Grain,
     PeriodCalendarSnapshotV2,
 )
+from marivo._timezones import normalize_timezone
 from marivo.analysis.binding.windows import resolve_calendar_grain
 from marivo.analysis.core.model import reject
 
@@ -79,11 +80,9 @@ def bind_calendar_samples(
     if isinstance(parent, CalendarCoordinate):
         cells, civil, ranges = parent.cells, parent.civil_bounds, parent.ranges
     else:
-        from marivo.analysis.core.time_authority import time_zone
-
         cells = ((parent.start, parent.end, parent.start, parent.end),)
         ranges = ((parent.start, parent.end),)
-        zone = time_zone(parent.timezone)
+        zone = normalize_timezone(parent.timezone).tz
         start = parent.start.astimezone(zone).isoformat(timespec="microseconds")
         end = parent.end.astimezone(zone).isoformat(timespec="microseconds")
         civil = ((start, end, start, end),)

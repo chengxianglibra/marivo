@@ -41,7 +41,6 @@ def period_calendar(
     *,
     name: str,
     date: Deferred | TimeDimensionSymbol,
-    boundary_timezone: str,
     coverage: tuple[_datetime.date, _datetime.date],
     levels: Mapping[str, Deferred | DimensionSymbol],
     domain: DomainSymbol | None = None,
@@ -56,13 +55,12 @@ def period_calendar(
     Args:
         name: Calendar name.
         date: Native day TimeField or explicit lookup symbol.
-        boundary_timezone: IANA boundary zone.
         coverage: Half-open civil-date coverage tuple.
         levels: Level names mapped to native Dimensions or lookup symbols.
         domain: Optional domain lookup symbol.
         ai_context: Optional business context.
     Returns: A typed calendar lookup symbol, validated with the physical closure.
-    Example: ``ms.period_calendar(name="fiscal", date=day, boundary_timezone="UTC", coverage=coverage, levels={"week": week})``.
+    Example: ``ms.period_calendar(name="fiscal", date=day, coverage=coverage, levels={"week": week})``.
     Constraints: Fields resolve by kind/path in the completed calendar scope; lookup symbols support forward references.
     """
     ctx = _require_ctx()
@@ -74,7 +72,6 @@ def period_calendar(
             cls=SemanticDecoratorError,
         )
     date_id = _require_ref_id(date, parameter="date", expected=(SemanticKind.TIME_DIMENSION,))
-    _validate_timezone(boundary_timezone)
     if (
         type(coverage) is not tuple
         or len(coverage) != 2
@@ -116,7 +113,6 @@ def period_calendar(
             domain=resolved_domain,
             name=name,
             date=date_id,
-            boundary_timezone=boundary_timezone,
             coverage=(coverage[0].isoformat(), coverage[1].isoformat()),
             levels=tuple(normalized),
             ai_context=_build_ai_context(ai_context),
@@ -174,7 +170,7 @@ def temporal_set(
         occurrence_id: Native identity Dimension or lookup symbol.
         start: Native start TimeField or lookup symbol.
         end: Native end TimeField or lookup symbol.
-        boundary_timezone: IANA boundary zone.
+        boundary_timezone: IANA or fixed-offset coverage boundary zone. DATE fields must declare the same zone.
         coverage: Half-open civil-date coverage tuple.
         category: Optional native category Dimension or lookup symbol.
         domain: Optional domain lookup symbol.
@@ -211,7 +207,7 @@ def temporal_set(
         if category is None
         else _require_ref_id(category, parameter="category", expected=(SemanticKind.DIMENSION,))
     )
-    _validate_timezone(boundary_timezone)
+    boundary_timezone = _validate_timezone(boundary_timezone)
     if (
         type(coverage) is not tuple
         or len(coverage) != 2

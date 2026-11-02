@@ -314,8 +314,9 @@ Explicit Population sample domains retain their declared tuples and empty-sample
 policy. Calendar Grain samples consume actual represented bucket keys. TimeField
 samples alone require no observation period; windows and calendar samples retain
 their own endpoint and finite-coordinate requirements.
-Naive source values use parser timezone or reader authority; aware values use
-UTC. Source wall clocks follow backend-native DST gap/fold interpretation.
+Naive source values use parser timezone or Datasource wall_clock_timezone;
+missing declarations reject before reading rows. Aware values retain their
+physical instant. Source wall clocks follow backend-native DST gap/fold interpretation.
 Declaring cadence neither proves source completeness nor triggers a coverage scan.
 
 DuckDB, PostgreSQL, MySQL, Trino and ClickHouse finish a qualified direct numeric

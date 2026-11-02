@@ -1,4 +1,4 @@
-"""Store26 Frame protocol, source-free lifecycle, sequence and atomic publication."""
+"""Store28 Frame protocol, source-free lifecycle, sequence and atomic publication."""
 
 from __future__ import annotations
 
@@ -456,8 +456,8 @@ with patch.object(Session, "catalog", property(forbidden)), patch.object(SourceS
 def test_sole_protocol_and_exact_closed_fields(local: LocalFrameServices) -> None:
     saved = ordinary(local).persist()
     value = manifest(saved)
-    assert FORMAT == "marivo.frame_output/v16"
-    assert local.store.layout.generation == 27
+    assert FORMAT == "marivo.frame_output/v17"
+    assert local.store.layout.generation == 28
     assert decode(encode(value), ArtifactManifest) == value
     assert value.result_id == value.metadata.result_id
     restored = terminal_store.complete_metadata(value)
@@ -866,7 +866,7 @@ def test_sequence_spans_batches_and_row_groups(
         assert parquet.num_row_groups == 4
 
 
-@pytest.mark.parametrize("generation", [11, 12, 13, 14, 16, 23, 24])
+@pytest.mark.parametrize("generation", [11, 12, 13, 14, 16, 23, 24, 27])
 def test_old_store_coexists_without_any_byte_changes(tmp_path: Path, generation: int) -> None:
     old = tmp_path / f".marivo/analysis/generations/v{generation}/session_store.db"
     old.parent.mkdir(parents=True)
@@ -875,7 +875,7 @@ def test_old_store_coexists_without_any_byte_changes(tmp_path: Path, generation:
     before = old.read_bytes()
     with pytest.raises(IntegrityError, match="absent"):
         SessionStore.open_existing(tmp_path)
-    assert not (old.parent.parent / "v27").exists()
+    assert not (old.parent.parent / "v28").exists()
     store = SessionStore(tmp_path)
     assert SessionStore.open_existing(tmp_path).db_path == store.db_path
     assert old.read_bytes() == before
@@ -1126,7 +1126,7 @@ else:
     assert "cold-duplicate-rejected" in cold.stdout
 
 
-@pytest.mark.parametrize("generation", [11, 12, 13, 14, 16, 23, 24])
+@pytest.mark.parametrize("generation", [11, 12, 13, 14, 16, 23, 24, 27])
 def test_every_old_generation_entry_preserves_old_tree(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, generation: int
 ) -> None:
@@ -1166,7 +1166,7 @@ def test_every_old_generation_entry_preserves_old_tree(
         if path.is_file()
     }
     assert after == before
-    assert (old.parent.parent / "v27").exists()
+    assert (old.parent.parent / "v28").exists()
 
 
 def test_old_manifest_cannot_enter_any_current_read(local: LocalFrameServices) -> None:
@@ -2413,7 +2413,7 @@ def attribute_session(
     semantic_project_factory(
         {
             "datasources/warehouse.py": "import marivo.datasource as md\n"
-            + f"md.duckdb(name='warehouse', path={str(database)!r})\n",
+            + f"md.duckdb(wall_clock_timezone='UTC', name='warehouse', path={str(database)!r})\n",
             "sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales', owner='Analytics', default=True)\n",
             "sales/model.py": """import marivo.datasource as md
 import marivo.semantic as ms
@@ -3337,12 +3337,12 @@ def test_merged_interval_export_uses_common_utc_carrier(local: LocalFrameService
 
 
 @pytest.mark.parametrize(
-    ("zone", "offset_seconds", "export_zone"),
+    ("zone", "offset_seconds", "export_zone", "calendar_zone"),
     (
-        ("UTC+08:00:30", 28830, "UTC"),
-        ("UTC-00:00:30", -30, "UTC"),
-        ("UTC+08:00:00", 28800, "+08:00"),
-        ("UTC-03:30:00", -12600, "-03:30"),
+        ("UTC+08:00:30", 28830, "UTC", "UTC+08:00:30"),
+        ("UTC-00:00:30", -30, "UTC", "UTC-00:00:30"),
+        ("UTC+08:00:00", 28800, "+08:00", "UTC+08:00"),
+        ("UTC-03:30:00", -12600, "-03:30", "UTC-03:30"),
     ),
 )
 def test_fixed_offset_exports_are_readable_and_keep_exact_instants(
@@ -3351,6 +3351,7 @@ def test_fixed_offset_exports_are_readable_and_keep_exact_instants(
     zone: str,
     offset_seconds: int,
     export_zone: str,
+    calendar_zone: str,
 ) -> None:
     from marivo._temporal import CalendarAxis, _BuiltinGrain
     from marivo._temporal_grid import bind_grid
@@ -3398,7 +3399,9 @@ def test_fixed_offset_exports_are_readable_and_keep_exact_instants(
             assert rows[key_name].iloc[0] == start
             if name == "interval":
                 assert rows[f"{name}.end"].iloc[-1] == end
-            assert rows.attrs["axes"][0]["descriptor"]["timezone"] == zone
+            assert rows.attrs["axes"][0]["descriptor"]["timezone"] == (
+                calendar_zone if name == "day" else zone
+            )
             chunks = []
             cursor = None
             while True:

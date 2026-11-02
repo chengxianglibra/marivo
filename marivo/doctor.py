@@ -11,9 +11,11 @@ from dataclasses import dataclass, field
 from importlib import import_module
 from pathlib import Path
 from typing import Literal
+from zoneinfo import ZoneInfoNotFoundError
 
 from marivo import __version__
 from marivo._compat import tomllib
+from marivo._timezones import normalize_timezone
 from marivo.config import (
     AGENTS_SKILLS_DIR,
     AUTHORED_DIR,
@@ -657,12 +659,38 @@ def _static_datasource_from_call(
             line=call.lineno,
         )
 
+    declared_timezone = kwargs.pop("wall_clock_timezone", None)
+    wall_clock_timezone: str | None = None
+    if declared_timezone is not None:
+        try:
+            if not isinstance(declared_timezone, str):
+                raise TypeError("wall_clock_timezone must be a string or None")
+            wall_clock_timezone = normalize_timezone(declared_timezone).name
+        except (TypeError, ValueError, ZoneInfoNotFoundError):
+            return None, _datasource_parse_check(
+                filepath,
+                "wall_clock_timezone must be an IANA timezone name or fixed offset",
+                line=call.lineno,
+            )
+    if backend_type == "trino" and "timezone" in kwargs:
+        return None, _datasource_parse_check(
+            filepath,
+            "Trino has no timezone parameter; declare source wall_clock_timezone explicitly",
+            line=call.lineno,
+        )
+
     extra = kwargs.pop("extra", None)
     if extra is not None:
         if not isinstance(extra, dict) or not all(isinstance(key, str) for key in extra):
             return None, _datasource_parse_check(
                 filepath,
                 "datasource extra must be a literal dict with string keys for static inspection",
+                line=call.lineno,
+            )
+        if "wall_clock_timezone" in extra or (backend_type == "trino" and "timezone" in extra):
+            return None, _datasource_parse_check(
+                filepath,
+                "source timezone declarations cannot be supplied through extra",
                 line=call.lineno,
             )
         kwargs.update(extra)
@@ -699,6 +727,7 @@ def _static_datasource_from_call(
             semantic_id=name,
             name=name,
             backend_type=backend_type,
+            wall_clock_timezone=wall_clock_timezone,
             fields=fields,
             env_refs=env_refs,
             ai_context=AiContextIR(),

@@ -257,6 +257,7 @@ def transport_logical_facts(
         FrameGroup,
         FramePairStatisticContext,
         FrameShareContext,
+        merge_source_times,
     )
 
     def fixed_group(group: FrameGroup) -> FrameGroup:
@@ -294,6 +295,7 @@ def transport_logical_facts(
     return replace(
         physical,
         value_contexts=tuple(contexts.items()),
+        source_times=merge_source_times(physical.source_times, logical.source_times),
     )
 
 

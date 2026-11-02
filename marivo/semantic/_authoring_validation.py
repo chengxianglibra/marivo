@@ -9,7 +9,6 @@ from __future__ import annotations
 import hashlib
 import re
 from typing import Literal
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from marivo.semantic._authoring_context import _register_authoring_file
 from marivo.semantic._dsl_authoring import (
@@ -42,7 +41,7 @@ def _validate_time_parse(parse: SemanticParse | None) -> None:
     ):
         _raise(
             ErrorKind.INVALID_REF,
-            "time_dimension(parse=...) accepts ms.timestamp(...), "
+            "time_dimension(parse=...) accepts ms.date(...), ms.timestamp(...), "
             "ms.strptime(...), ms.hour_prefix(...), or None.",
             cls=SemanticDecoratorError,
             constraint_id=ConstraintId.REF_SHAPE,
@@ -114,7 +113,7 @@ def _normalize_sample_interval_value(
         if isinstance(parse, HourPrefixParse) and unit != "hour":
             raise ValueError("hour_prefix encodings can represent only whole-hour samples")
         return sample
-    except (TypeError, ValueError) as cause:
+    except (TypeError, ValueError, KeyError) as cause:
         _raise(
             ErrorKind.INVALID_SAMPLE_INTERVAL,
             f"time dimension {semantic_id!r}: {cause}. Declare a representable canonical minute/hour sample_interval on the time field.",
@@ -124,14 +123,16 @@ def _normalize_sample_interval_value(
         )
 
 
-def _validate_timezone(timezone: str) -> None:
-    """Validate that timezone is a valid IANA timezone name."""
+def _validate_timezone(timezone: str) -> str:
+    """Normalize one shared IANA or fixed-offset timezone declaration."""
+    from marivo._timezones import normalize_timezone
+
     try:
-        ZoneInfo(timezone)
-    except ZoneInfoNotFoundError:
+        return normalize_timezone(timezone).name
+    except (TypeError, ValueError, KeyError):
         _raise(
             ErrorKind.INVALID_REF,
-            f"timezone {timezone!r} is not a valid IANA timezone name.",
+            f"timezone {timezone!r} must be a valid IANA or fixed-offset timezone.",
             cls=SemanticDecoratorError,
             constraint_id=ConstraintId.REF_SHAPE,
         )

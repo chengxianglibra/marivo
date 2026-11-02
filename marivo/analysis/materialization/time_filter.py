@@ -9,15 +9,13 @@ import ibis
 import ibis.expr.operations as ops
 import ibis.expr.types as ir
 
-from marivo.analysis.compiler.source_time import (
-    _complement,
+from marivo._timezones import normalize_timezone
+from marivo.analysis.compiler.source_time import _complement, _raw_lineage, _scalar_cutoff
+from marivo.datasource._temporal_expressions import (
     _localize_native,
-    _raw_lineage,
     _render_native,
-    _scalar_cutoff,
     governed_parse_operation,
 )
-from marivo.analysis.core.time_authority import time_zone
 
 _PROBE = ibis.timestamp("2000-01-01")
 _LOCALIZE = type(_localize_native("UTC", _PROBE).op())
@@ -173,7 +171,10 @@ def _exact(node: ops.Value, parent: ops.Relation) -> ir.BooleanValue | None:
         }.get(operation, operation)
 
     def lower(strict: bool) -> ir.BooleanValue | None:
-        cutoff, inclusive = bound.astimezone(time_zone(zone)).replace(tzinfo=None), not strict
+        cutoff, inclusive = (
+            bound.astimezone(normalize_timezone(zone).tz).replace(tzinfo=None),
+            not strict,
+        )
         return _scalar_cutoff(
             raw,
             cutoff - shift,

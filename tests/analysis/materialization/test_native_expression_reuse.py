@@ -14,12 +14,12 @@ from ibis.backends.duckdb import Backend as DuckDBBackend
 
 from marivo.analysis.compiler.graph_lowering import LoweredRead
 from marivo.analysis.compiler.graph_plan import ProjectionRead, SourceRead
-from marivo.analysis.compiler.source_time import localize
 from marivo.analysis.materialization import temporal_sql
 from marivo.analysis.materialization.graph_source_execution import (
     PreparedSources,
     _native_query_expression,
 )
+from marivo.datasource._temporal_expressions import localize
 from marivo.datasource.adapters import SourceSession, provider_for
 from tests.datasource.source_cases import datasource
 

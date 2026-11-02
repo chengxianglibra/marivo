@@ -61,7 +61,7 @@ def test_session_catalog_loads_external_semantic_layer(
         datasource_dir.mkdir(parents=True, exist_ok=True)
         semantic_dir.mkdir(parents=True, exist_ok=True)
         (datasource_dir / f"{datasource}.py").write_text(
-            f"import marivo.datasource as md\nmd.duckdb(name={datasource!r}, path=':memory:')\n",
+            f"import marivo.datasource as md\nmd.duckdb(wall_clock_timezone='UTC', name={datasource!r}, path=':memory:')\n",
             encoding="utf-8",
         )
         (semantic_dir / "_domain.py").write_text(
@@ -129,7 +129,7 @@ def test_session_observe_uses_external_layer_datasource(
     datasource_dir.mkdir(parents=True, exist_ok=True)
     semantic_dir.mkdir(parents=True, exist_ok=True)
     (datasource_dir / "warehouse.py").write_text(
-        f"import marivo.datasource as md\nmd.duckdb(name='warehouse', path={str(db_path)!r})\n",
+        f"import marivo.datasource as md\nmd.duckdb(wall_clock_timezone='UTC', name='warehouse', path={str(db_path)!r})\n",
         encoding="utf-8",
     )
     (semantic_dir / "_domain.py").write_text(
@@ -188,7 +188,7 @@ def _write_object_model(
             )
     (root / "marivo.toml").write_text('[project]\nname = "object-consumption"\n')
     (source / "warehouse.py").write_text(
-        f"import marivo.datasource as md\nmd.duckdb(name='warehouse', path={str(database)!r})\n"
+        f"import marivo.datasource as md\nmd.duckdb(wall_clock_timezone='UTC', name='warehouse', path={str(database)!r})\n"
     )
     (semantic / "_domain.py").write_text(
         "import marivo.semantic as ms\nms.domain(name='sales', owner='Analytics', default=True)\n"

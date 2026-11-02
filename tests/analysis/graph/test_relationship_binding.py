@@ -437,7 +437,7 @@ def test_timed_classification_cannot_remove_consumed_contributions(
         "source=md.table('product'), primary_key=['id'], versioning=ms.validity("
         "valid_from=ms.ref.time_dimension('sales.product.beginning'), "
         "valid_to=ms.ref.time_dimension('sales.product.ending'), "
-        "interval='closed_open', open_end=(None,), timezone='UTC'))",
+        "interval='closed_open', open_end=(None,)))",
     )
     fields = "product_beginning = ms.time_dimension_column(name='beginning', entity=product, column='beginning')\nproduct_ending = ms.time_dimension_column(name='ending', entity=product, column='ending')\n"
     model.write_text(contents.replace("# Named expressions", fields + "# Named expressions", 1))

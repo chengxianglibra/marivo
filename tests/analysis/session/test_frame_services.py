@@ -152,7 +152,7 @@ def test_local_reads_reject_foreign_session_and_store(session: Session, tmp_path
         session._runtime.local.open_frame("missing-artifact")
 
     other_store = SessionStore(tmp_path / "other-project")
-    other_store.create_session("same-id", session_ref=session.id)
+    other_store.create_session("same-id", session_ref=session.id, report_timezone_origin="explicit")
     same_id = LocalFrameServices(other_store, session.id)
     assert same_id.owner != session._runtime.local.owner
     with pytest.raises(ArtifactNotFoundError):

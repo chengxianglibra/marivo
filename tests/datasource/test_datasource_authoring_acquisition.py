@@ -467,38 +467,42 @@ def test_time_range_accepts_raw_clickhouse_temporal_type_spellings(
     inspection: SourceInspection,
     clickhouse_type: str,
 ) -> None:
+    from marivo.datasource.inspection import _preflight_scope
+
     transformed = replace(
         inspection,
+        _backend_type="clickhouse",
         partitioning=replace(
             inspection.partitioning,
             state="known",
-            fields=(
-                PartitionMetadata(
-                    name="ts",
-                    type=clickhouse_type,
-                    transform="toYYYYMMDD",
-                ),
-            ),
+            fields=(PartitionMetadata(name="ts", type=clickhouse_type, transform="toYYYYMMDD"),),
         ),
         schema=tuple(
             replace(column, type=clickhouse_type) if column.name == "ts" else column
             for column in inspection.schema
         ),
     )
-
-    snapshot = transformed.sample(
+    _preflight_scope(
+        transformed,
         scope=md.time_range(
             "ts",
-            start="2026-07-10T00:00:00",
-            end="2026-07-11T00:00:00",
+            start="2026-07-10T00:00:00Z",
+            end="2026-07-11T00:00:00Z",
             max_rows=10,
             timeout_seconds=30,
         ),
-        columns=("order_id",),
-        refresh=True,
     )
-
-    assert snapshot.coverage.observed_row_count == 2
+    with pytest.raises(DatasourceAuthoringError, match="time_range_boundary_mismatch"):
+        _preflight_scope(
+            transformed,
+            scope=md.time_range(
+                "ts",
+                start="2026-07-10T00:00:00",
+                end="2026-07-11T00:00:00",
+                max_rows=10,
+                timeout_seconds=30,
+            ),
+        )
 
 
 def test_time_range_uses_projected_temporal_alias(

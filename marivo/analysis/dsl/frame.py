@@ -1688,6 +1688,20 @@ class AnalysisFrame:
             else "max_output_bytes=None; .schema/.lineage for metadata; .read_page()/.to_pandas() for data",
         )
         card.field("values", repr(self.output_names)).field("presence", repr(self.presence_names))
+        if self._schema.source_times:
+            from marivo.analysis.core.frame_interpretation import source_time_summary
+
+            card.field(
+                "source_times",
+                "\n".join(
+                    source_time_summary(fact)[:640] for fact in self._schema.source_times[:12]
+                ),
+            )
+            if len(self._schema.source_times) > 12:
+                card.field(
+                    "source_times.more",
+                    f"{len(self._schema.source_times) - 12} omitted; read .schema.source_times",
+                )
         if self._schema.alignments:
             card.field("alignments.count", str(len(self._schema.alignments)))
         for index, alignment in enumerate(self._schema.alignments[:3]):

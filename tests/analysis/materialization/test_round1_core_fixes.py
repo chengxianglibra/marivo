@@ -47,7 +47,7 @@ def core_session(
     semantic_project_factory(
         {
             "datasources/warehouse.py": "import marivo.datasource as md\n"
-            + f"md.duckdb(name='warehouse', path={str(database)!r})\n",
+            + f"md.duckdb(wall_clock_timezone='UTC', name='warehouse', path={str(database)!r})\n",
             "sales/_domain.py": "import marivo.semantic as ms\n"
             + "ms.domain(name='sales', owner='Core Review', default=True)\n",
             "sales/model.py": "import marivo.datasource as md\nimport marivo.semantic as ms\n"

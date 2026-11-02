@@ -5,16 +5,17 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date, datetime, time
 from typing import TYPE_CHECKING, Literal
-from zoneinfo import ZoneInfo
+
+from marivo._timezones import normalize_timezone
 
 if TYPE_CHECKING:
-    from marivo.datasource.timezone import DatasourceEngineTimezone
     from marivo.semantic._compiled_state import CompiledSemanticState
 
 import ibis
 import ibis.expr.types as ir
 
 from marivo.analysis.compiler.source_time import source_time_comparison, source_time_predicate
+from marivo.analysis.core.frame_interpretation import FrameSourceTime, capture_source_times
 from marivo.analysis.core.time_authority import SourceTimeAuthority
 from marivo.analysis.datasets.errors import DatasetConstructionError
 from marivo.semantic.ir import (
@@ -51,14 +52,19 @@ class _VersionValue:
         )
         if result is not None:
             return result
-        bound = _bound(self.value, boundary)
+        value = self.value
+        if self.authority.kind == "civil_date":
+            from marivo.datasource._temporal_expressions import localize, timestamp
+
+            value = localize(self.authority.timezone, timestamp(value))
+        bound = _bound(value, boundary)
         if operator == "<":
-            return self.value < bound
+            return value < bound
         if operator == "<=":
-            return self.value <= bound
+            return value <= bound
         if operator == ">":
-            return self.value > bound
-        return self.value >= bound
+            return value > bound
+        return value >= bound
 
 
 def _bound(column: ir.Value, boundary: datetime) -> ir.Value:
@@ -83,17 +89,17 @@ def _version_values(
     table: ir.Table,
     version: TargetSnapshotVersion | TargetValidityVersion,
     state: CompiledSemanticState,
-    reader: DatasourceEngineTimezone | None,
     dependencies: list[ir.Value] | None,
+    source_times: list[FrameSourceTime] | None,
 ) -> tuple[_VersionValue, ...]:
     """Prepare every version consumer with the same physical parser and authority."""
     from marivo.analysis.compiler.source_time import entity_engine, source_time
-    from marivo.datasource.timezone import probe_engine_timezone
     from marivo.refs import ref
     from marivo.semantic._expression_binding import evaluate_expression_body
+    from marivo.semantic._physical_contracts import validate_bound_field
+    from marivo.semantic._source_timezone import effective_source_timezone
     from marivo.semantic.validator import normalize_target_dimension, normalize_target_entity
 
-    resolved_reader = reader if reader is not None else probe_engine_timezone(table._find_backend())
     paths = (
         (version.coordinate_ref.path,)
         if isinstance(version, TargetSnapshotVersion)
@@ -123,6 +129,7 @@ def _version_values(
             entity_refs=(ref.entity(axis.entity_ref.path),),
             aliases=(table,),
         )
+        validate_bound_field(raw, ref=ref.time_dimension(axis.ref.path), registry=state.registry)
         if dependencies is not None:
             dependencies.append(raw)
         parsed_input = raw
@@ -138,14 +145,14 @@ def _version_values(
             parsed_input,
             axis,
             boundary_timezone=zone,
-            read_timezone=resolved_reader.engine_timezone_name,
-            read_source=resolved_reader.read_tz_resolution,
+            source_timezone=effective_source_timezone(state.registry, axis),
             engine=entity_engine(
                 state.registry, normalize_target_entity(state.registry, axis.entity_ref.path)
             ),
             prefix=prefix.value if prefix is not None else None,
-            prefix_timezone=resolved_reader.engine_timezone_name if prefix is not None else None,
         )
+        if source_times is not None:
+            source_times.extend(capture_source_times((authority,), consumption_timezone=zone))
         return _VersionValue(
             result,
             raw,
@@ -170,13 +177,6 @@ def _version_values(
                 repair="Declare validity endpoints with the same temporal kind.",
                 location="analysis.members.version",
             )
-        if kinds[0] == "date" and version.timezone is None:
-            raise DatasetConstructionError(
-                expected="an explicit business timezone for DATE validity",
-                received="timezone=None",
-                repair="Set timezone on ms.validity to the business day timezone.",
-                location="analysis.members.version",
-            )
         if kinds[0] == "timestamp" and version.timezone is not None:
             raise DatasetConstructionError(
                 expected="timestamp validity without a business timezone",
@@ -193,12 +193,12 @@ def version_predicate(
     selected: TargetSnapshotSelection | TargetValiditySelection | None,
     *,
     state: CompiledSemanticState,
-    reader: DatasourceEngineTimezone | None = None,
     dependencies: list[ir.Value] | None = None,
+    source_times: list[FrameSourceTime] | None = None,
 ) -> ir.BooleanValue:
     """Build exact snapshot or symbolic validity predicates through Ibis."""
     if isinstance(version, TargetSnapshotVersion) and isinstance(selected, TargetSnapshotSelection):
-        prepared = _version_values(table, version, state, reader, dependencies)[0]
+        prepared = _version_values(table, version, state, dependencies, source_times)[0]
         column = prepared.value
         period = date.fromisoformat(selected.period)
         if column.type().is_date():
@@ -218,7 +218,7 @@ def version_predicate(
         if column.type().is_timestamp():
             from datetime import timedelta
 
-            zone = ZoneInfo(version.timezone)
+            zone = normalize_timezone(version.timezone).tz
             snapshot_start = datetime.combine(period, time(), zone)
             snapshot_end = datetime.combine(period + timedelta(days=1), time(), zone)
             raw = source_time_predicate(
@@ -243,7 +243,7 @@ def version_predicate(
             location="analysis.members.version",
         )
     if isinstance(version, TargetValidityVersion) and isinstance(selected, TargetValiditySelection):
-        start, end = _version_values(table, version, state, reader, dependencies)
+        start, end = _version_values(table, version, state, dependencies, source_times)
         raw_end = end.raw
         boundary = datetime.fromisoformat(selected.boundary)
         left = (
@@ -279,13 +279,18 @@ def prepare_version_filter(
     selected: TargetSnapshotSelection | TargetValiditySelection | None,
     *,
     state: CompiledSemanticState,
-    reader: DatasourceEngineTimezone | None = None,
     dependencies: list[ir.Value] | None = None,
+    source_times: list[FrameSourceTime] | None = None,
 ) -> ir.Table:
     """Select versions with each endpoint's captured source-time authority."""
     return table.filter(
         version_predicate(
-            table, version, selected, state=state, reader=reader, dependencies=dependencies
+            table,
+            version,
+            selected,
+            state=state,
+            dependencies=dependencies,
+            source_times=source_times,
         )
     )
 
@@ -298,13 +303,12 @@ def row_version_predicate(
     *,
     engine: str,
     state: CompiledSemanticState,
-    reader: DatasourceEngineTimezone,
     dependencies: list[ir.Value],
+    source_times: list[FrameSourceTime] | None = None,
 ) -> ir.BooleanValue:
     """Match a fact's qualified time in the left join, preserving unmatched facts."""
     from marivo.analysis.compiler.errors import compilation_error
-    from marivo.analysis.compiler.source_time import render, timestamp
-    from marivo.analysis.core.time_authority import time_zone
+    from marivo.datasource._temporal_expressions import render, timestamp
 
     if engine not in ("duckdb", "trino"):
         raise compilation_error(
@@ -314,23 +318,32 @@ def row_version_predicate(
         )
     if version is None:
         raise compilation_error("a versioned target for row attribute time", "unversioned target")
-    values = _version_values(table, version, state, reader, dependencies)
+    values = _version_values(table, version, state, dependencies, source_times)
     for authority in (control_authority, *(item.authority for item in values)):
-        if authority.kind == "localizable" and (
-            authority.read_timezone is None
-            or time_zone(authority.read_timezone).utcoffset(None) is None
+        if authority.kind == "wall_clock" and (
+            normalize_timezone(authority.timezone).kind == "iana" and authority.timezone != "UTC"
         ):
             raise compilation_error(
                 "DATE, native absolute timestamps, or UTC/fixed-offset local clocks for row attribute time",
-                f"{authority.axis}: {authority.physical_type}, timezone={authority.read_timezone}",
+                f"{authority.axis}: {authority.physical_type}, timezone={authority.timezone}",
                 repair="Expose this time as a native absolute timestamp or a UTC/fixed-offset TimeDimension; use a fixed InstantAnchor for IANA local-clock matching.",
             )
     civil = control.type().is_date()
+    if civil:
+        from marivo.datasource._temporal_expressions import localize
+
+        assert control_authority.kind == "civil_date"
+        control = localize(control_authority.timezone, timestamp(control))
     if isinstance(version, TargetSnapshotVersion):
-        selected = control if civil else render(version.timezone, timestamp(control)).date()
+        selected = render(version.timezone, timestamp(control)).date()
         coordinate = values[0].value
         if isinstance(coordinate, ir.TimestampValue):
-            coordinate = coordinate.date()
+            # Same-fixed-zone preparation already returns a local clock.
+            coordinate = (
+                coordinate.date()
+                if coordinate.type().timezone is None
+                else render(version.timezone, coordinate).date()
+            )
         return coordinate == selected
     start, end = values
     if civil and not start.value.type().is_date():
@@ -341,11 +354,13 @@ def row_version_predicate(
         )
     point = control
     left, right = start.value, end.value
-    if left.type().is_date() and not civil:
-        assert version.timezone is not None
-        point = render(version.timezone, timestamp(control))
-        left, right = left.cast("timestamp"), right.cast("timestamp")
-    elif not civil:
+    if left.type().is_date():
+        from marivo.datasource._temporal_expressions import localize
+
+        assert start.authority.kind == "civil_date" and end.authority.kind == "civil_date"
+        left = localize(start.authority.timezone, timestamp(left))
+        right = localize(end.authority.timezone, timestamp(right))
+    else:
         point = render("UTC", timestamp(control))
         left, right = left.cast("timestamp"), right.cast("timestamp")
     ending = right >= point if version.interval == "closed_closed" else right > point

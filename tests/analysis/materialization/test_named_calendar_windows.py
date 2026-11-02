@@ -61,7 +61,7 @@ def calendar_window_project(
         )
     files = fiscal_analysis_project_files()
     files["datasources/warehouse.py"] = (
-        f"import marivo.datasource as md\nmd.duckdb(name='warehouse', path={str(database)!r})\n"
+        f"import marivo.datasource as md\nmd.duckdb(wall_clock_timezone='UTC', name='warehouse', path={str(database)!r})\n"
     )
     files["sales/metrics.py"] = (
         files["sales/metrics.py"]

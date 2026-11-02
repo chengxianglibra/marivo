@@ -37,7 +37,7 @@ def test_report_day_buckets_preserve_declared_read_time_authority(
     semantic.mkdir(parents=True)
     (tmp_path / "marivo.toml").write_text('[project]\nname = "temporal-cutover"\n')
     (datasource / "warehouse.py").write_text(
-        f"import marivo.datasource as md\nmd.duckdb(name='warehouse', path={str(database)!r})\n"
+        f"import marivo.datasource as md\nmd.duckdb(wall_clock_timezone='UTC', name='warehouse', path={str(database)!r})\n"
     )
     (semantic / "_domain.py").write_text(
         "import marivo.semantic as ms\nms.domain(name='sales', owner='Data', default=True)\n"

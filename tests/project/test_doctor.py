@@ -1363,3 +1363,47 @@ def test_test_no_persist_uses_project_root_and_suppresses_disconnect_errors(
     assert backend.queries == ["SELECT 1"]
     assert backend.disconnect_calls == 1
     assert load_calls == [("warehouse", tmp_path)]
+
+
+@pytest.mark.parametrize("value", ("+08:00", "Etc/GMT-8", "UTC+08:00:00"))
+def test_static_datasource_timezone_is_normalized_outside_connection_fields(
+    tmp_path: Path, value: str
+) -> None:
+    from marivo.doctor import _static_datasources_from_file
+
+    path = tmp_path / "warehouse.py"
+    path.write_text(
+        "import marivo.datasource as md\n"
+        f"md.duckdb(name='warehouse', wall_clock_timezone={value!r})\n"
+        "raise RuntimeError('must not execute')\n"
+    )
+    result = _static_datasources_from_file(path)
+    assert not result.diagnostics
+    assert len(result.datasources) == 1
+    datasource = result.datasources[0]
+    assert datasource.wall_clock_timezone == "UTC+08:00"
+    assert "wall_clock_timezone" not in datasource.fields
+    assert "wall_clock_timezone" not in datasource.env_refs
+
+
+@pytest.mark.parametrize(
+    "declaration",
+    (
+        "md.duckdb(name='warehouse', wall_clock_timezone='localtime')",
+        "md.duckdb(name='warehouse', wall_clock_timezone=8)",
+        "md.duckdb(name='warehouse', extra={'wall_clock_timezone': 'UTC'})",
+        "md.trino(name='warehouse', timezone='UTC')",
+        "md.trino(name='warehouse', extra={'timezone': 'UTC'})",
+    ),
+)
+def test_static_datasource_rejects_invalid_or_retired_timezone_authority(
+    tmp_path: Path, declaration: str
+) -> None:
+    from marivo.doctor import _static_datasources_from_file
+
+    path = tmp_path / "warehouse.py"
+    path.write_text("import marivo.datasource as md\n" + declaration + "\n")
+    result = _static_datasources_from_file(path)
+    assert not result.datasources
+    assert len(result.diagnostics) == 1
+    assert result.diagnostics[0].id == "datasource.parse_error.warehouse"

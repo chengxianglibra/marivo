@@ -17,6 +17,7 @@ from marivo._definition.relations import (
 from marivo._definition.types import AxisBinding, fixed_attribute_time
 from marivo.analysis.compiler.member_version import prepare_version_filter
 from marivo.analysis.compiler.source_predicates import string_bytes
+from marivo.analysis.core.frame_interpretation import FrameSourceTime
 from marivo.analysis.core.model import reject
 from marivo.analysis.materialization.population_preparation import (
     PreparedPopulation,
@@ -37,6 +38,9 @@ def prepare_member_fields(
     entities: Mapping[str, ir.Table],
     state: CompiledSemanticState,
     groups: tuple[tuple[str, ...], ...],
+    *,
+    source_times: list[FrameSourceTime] | None = None,
+    consumption_timezone: str = "UTC",
 ) -> PreparedPopulation:
     """Read scalar attributes only after limiting the complete requested identities."""
     from dataclasses import replace
@@ -46,9 +50,14 @@ def prepare_member_fields(
     from marivo._definition.types import field_read_key
     from marivo.analysis.materialization.population_preparation import _domain_table
     from marivo.analysis.materialization.query_preparation import prepare_fields
-    from marivo.datasource.timezone import probe_engine_timezone
 
-    identities = prepare_population(node.operand, entities, state)
+    identities = prepare_population(
+        node.operand,
+        entities,
+        state,
+        source_times=source_times,
+        consumption_timezone=consumption_timezone,
+    )
     axis = node.operand.axes[0]
     assert isinstance(axis, AxisBinding)
     entity = axis.entity.ref.path
@@ -69,7 +78,13 @@ def prepare_member_fields(
     )
     direct_members = identity_node is not None
     if identity_node is not None:
-        source, _, _ = _identity_source(identity_node, entities, state)
+        source, _, _ = _identity_source(
+            identity_node,
+            entities,
+            state,
+            source_times=source_times,
+            consumption_timezone=consumption_timezone,
+        )
     elif contract.version is not None:
         if axis.at is not None:
             anchor = fixed_attribute_time(axis.at)
@@ -81,6 +96,7 @@ def prepare_member_fields(
                     contract, boundary=anchor, interpretation="instant"
                 ),
                 state=state,
+                source_times=source_times,
             )
         elif all(
             read.at is not None and not read.path and read.entity.ref == axis.entity.ref
@@ -122,9 +138,11 @@ def prepare_member_fields(
         contribution,
         entities,
         state,
-        probe_engine_timezone(original._find_backend()),
         root_table=source,
+        consumption_timezone=consumption_timezone,
     )
+    if source_times is not None:
+        source_times.extend(prepared.source_times)
     table = prepared.table
     prepared_checks = prepared.checks
     columns = dict(prepared.columns)
@@ -199,9 +217,18 @@ def prepare_relationship_population(
     entities: Mapping[str, ir.Table],
     state: CompiledSemanticState,
     key_groups: tuple[tuple[str, ...], ...],
+    *,
+    source_times: list[FrameSourceTime] | None = None,
+    consumption_timezone: str = "UTC",
 ) -> PreparedPopulation:
     """Keep source identity separately while traversing declared key mappings."""
-    operand = prepare_population(node.operand, entities, state)
+    operand = prepare_population(
+        node.operand,
+        entities,
+        state,
+        source_times=source_times,
+        consumption_timezone=consumption_timezone,
+    )
     axis = node.operand.axes[0]
     assert isinstance(axis, AxisBinding)
     contract = normalize_target_entity(state.registry, axis.entity.ref.path)
@@ -215,7 +242,13 @@ def prepare_relationship_population(
         else None
     )
     if identity_node is not None:
-        source, _, _ = _identity_source(identity_node, entities, state)
+        source, _, _ = _identity_source(
+            identity_node,
+            entities,
+            state,
+            source_times=source_times,
+            consumption_timezone=consumption_timezone,
+        )
     elif contract.version is not None:
         if axis.at is None:
             reject(
@@ -231,6 +264,7 @@ def prepare_relationship_population(
                 contract, boundary=fixed_attribute_time(axis.at), interpretation="instant"
             ),
             state=state,
+            source_times=source_times,
         )
     # The receiver limits the relation before traversal; this never discovers
     # additional source identities outside the requested finite domain.
@@ -288,6 +322,7 @@ def prepare_relationship_population(
                     target_contract, boundary=anchor, interpretation="instant"
                 ),
                 state=state,
+                source_times=source_times,
             )
         renamed = {name: f"__image_{index}_{name}" for name in target.columns}
         target = target.rename(**{new: old for old, new in renamed.items()})
@@ -298,7 +333,13 @@ def prepare_relationship_population(
         current = renamed
         result_columns = tuple(current[key] for key in target_keys)
     if isinstance(node, PopulationPreimage):
-        targets = prepare_population(node.targets, entities, state)
+        targets = prepare_population(
+            node.targets,
+            entities,
+            state,
+            source_times=source_times,
+            consumption_timezone=consumption_timezone,
+        )
         renamed_targets = targets.table.select(
             **{
                 f"__image_target_{index}": targets.table[column]

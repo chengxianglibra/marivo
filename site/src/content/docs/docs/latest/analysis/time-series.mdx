@@ -5,6 +5,12 @@ description: Group by calendar periods and calculate rolling and cumulative valu
 
 Complete the [analysis DSL example](/docs/latest/analysis/dsl/#complete-example-and-shared-inputs) first. Save the following in a new script in the same project. This uses the six-order dataset and UTC reporting time. The start is included and the end is excluded. Run each section in order.
 
+The example Session has `session.timezone == "UTC"` and
+`session.timezone_origin == "explicit"`. A new Session also accepts an explicit
+offset such as `timezone="+08:00"`. Omitting the timezone strictly resolves the
+system IANA zone once; ambiguous `TZ` or localtime state requires an explicit
+value. Recovery keeps the saved timezone and origin without checking the host.
+
 ## Observe days and months
 
 ```python
@@ -209,3 +215,27 @@ restated = session.observe(
 ```
 
 Row time selects an attribute for each original fact; a fixed anchor restates the entire window under one definition. For contributions 7/11 with labels A/B before/after a change, row time gives A=7, B=11; a fixed new anchor gives B=18. The fact Entity may be unversioned or snapshot-versioned. Its native snapshot partition TimeDimension can control matching, so the same stable key on different days retains each day's contribution without a daily query loop. Qualified same-source single-root observe by/where is supported on DuckDB/Trino. NULL control or missing versions preserve NULL labels without fallback. DATE selects target business dates; timestamp validity requires timestamp control. Native absolute timestamps and UTC/fixed-offset local clocks are admitted. Validity fact roots, IANA local clocks, read/classify, multiple roots and window/per compositions require fixed anchors. Bucket-end reclassification is a separate question.
+
+
+## Inspect captured source time interpretations
+
+After computing `daily`, inspect `daily.schema.source_times` or call
+`daily.show(n=0)`. Each immutable record identifies the consumed source field,
+physical type and consumption timezone. `instant` needs no source declaration;
+`wall_clock` and `civil_date` retain the effective source timezone and its
+`field` or `datasource` origin. Hour-prefix clocks also record `inherited_from`.
+Pending display never opens a source to obtain these facts.
+
+The records describe consumed inputs. Fixed selection, renaming, filtering,
+fixing, arithmetic and reduction retain them; combinations merge complete
+records, including different interpretations of the same field path. A business
+date whose source and consumption zones differ is assigned by its day start;
+business-day totals cannot reconstruct event-day totals. Persisted Frames keep
+these facts, captured absolute ranges and bucket keys unchanged during cold
+recovery, even when the host timezone changes or sources and models are offline.
+
+```python
+facts = daily.schema.source_times
+for fact in facts:
+    print(fact.axis, fact.kind, fact.consumption_timezone)
+```

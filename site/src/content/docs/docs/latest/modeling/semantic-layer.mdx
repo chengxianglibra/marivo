@@ -528,3 +528,5 @@ Connection settings and inspection: [Datasource configuration](/docs/latest/mode
 <a id="business-calendars"></a>
 
 Calendar declarations and certification: [Date and time definitions](/docs/latest/modeling/dates/).
+
+Time fields declare source timezone on `ms.date`, `ms.timestamp` or `ms.strptime`, with Datasource `wall_clock_timezone` as the default. `ms.hour_prefix` inherits its prefix. DATE validity derives the common endpoint zone; period calendars derive the date-field zone. Neither constructor accepts a separate timezone override. Snapshot and temporal-set coverage still retain their own boundary declarations.

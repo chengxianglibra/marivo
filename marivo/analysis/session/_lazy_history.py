@@ -59,6 +59,8 @@ def _summary(store: SessionStore, conn: sqlite3.Connection, row: sqlite3.Row) ->
         id=record.session_ref,
         name=record.name,
         question=record.question,
+        timezone=record.report_timezone_name,
+        timezone_origin=record.report_timezone_origin,
         created_at=aware_datetime(record.created_at),
         updated_at=aware_datetime(record.updated_at),
         artifact_count=count(

@@ -31,6 +31,7 @@ if TYPE_CHECKING:
     from marivo.analysis.materialization.terminal_store import TerminalRun
     from marivo.analysis.session.core import Session
     from marivo.datasource.ir import DatasourceIR
+    from marivo.semantic._source_timezone import DeclaredSourceTimezone
     from marivo.semantic.catalog import SemanticCatalog, SemanticObject
     from marivo.semantic.expressions import ResolvedValue
     from marivo.semantic.ir import TargetDimensionContract
@@ -125,7 +126,7 @@ def in_memory_datasource_ir(name: str) -> DatasourceIR:
 
     from marivo.datasource._builtin import default_datasource
 
-    return replace(default_datasource(), semantic_id=name, name=name)
+    return replace(default_datasource(), semantic_id=name, name=name, wall_clock_timezone="UTC")
 
 
 def captured_catalog(
@@ -185,6 +186,23 @@ def resolve_test_symbol(catalog: SemanticCatalog, value: object) -> ResolvedValu
     return resolve(catalog, reference)
 
 
+def declared_test_timezone(
+    axis: TargetDimensionContract, fallback: str | None = "UTC", inherited_from: str | None = None
+) -> DeclaredSourceTimezone | None:
+    """Supply explicit timezone declarations to focused compiler input fixtures."""
+    from marivo.semantic._source_timezone import DeclaredSourceTimezone
+    from marivo.semantic.ir import DateParse, StrptimeParse, TimestampParse
+
+    parse = axis.parse
+    zone = parse.timezone if isinstance(parse, (DateParse, TimestampParse, StrptimeParse)) else None
+    timezone = zone or fallback
+    return (
+        None
+        if timezone is None
+        else DeclaredSourceTimezone(timezone, "field" if zone else "datasource", inherited_from)
+    )
+
+
 def observation_temporal(
     axis: TargetDimensionContract, physical_type: str = "timestamp('UTC', 6)"
 ) -> TemporalExecution:
@@ -194,7 +212,11 @@ def observation_temporal(
 
     value = ibis.table({axis.source_column: physical_type})[axis.source_column]
     _, authority = source_time(
-        value, axis, boundary_timezone="UTC", read_timezone="UTC", engine="duckdb"
+        value,
+        axis,
+        boundary_timezone="UTC",
+        source_timezone=declared_test_timezone(axis, "UTC"),
+        engine="duckdb",
     )
     return TemporalExecution(report=ReportTimeAuthority(), axes=(authority,))
 
@@ -364,7 +386,7 @@ def {n.aov}():
     return {
         "datasources/warehouse.py": (
             "import marivo.datasource as md\n"
-            f"md.duckdb(name='warehouse', path={str(database_path)!r})\n"
+            f"md.duckdb(name='warehouse', wall_clock_timezone='UTC', path={str(database_path)!r})\n"
         ),
         f"{n.domain}/_domain.py": (
             "import marivo.semantic as ms\n"
@@ -599,7 +621,7 @@ def fiscal_analysis_project_files() -> dict[str, str]:
             "calendar_date = ms.time_dimension_column(name='calendar_date', entity=calendar, column='calendar_date')\n"
             "fiscal_week = ms.dimension_column(name='fiscal_week', entity=calendar, column='fiscal_week')\n"
             "fiscal_month = ms.dimension_column(name='fiscal_month', entity=calendar, column='fiscal_month')\n"
-            "fiscal = ms.period_calendar(name='fiscal', date=calendar_date, boundary_timezone='UTC', coverage=(__import__('datetime').date(2026, 1, 1), __import__('datetime').date(2026, 3, 1)), levels={'fiscal_week': fiscal_week, 'fiscal_month': fiscal_month})\n"
+            "fiscal = ms.period_calendar(name='fiscal', date=calendar_date, coverage=(__import__('datetime').date(2026, 1, 1), __import__('datetime').date(2026, 3, 1)), levels={'fiscal_week': fiscal_week, 'fiscal_month': fiscal_month})\n"
         ),
         "sales/metrics.py": (
             "import marivo.datasource as md\n"
@@ -627,6 +649,7 @@ def publish_fiscal_calendar_artifact(catalog: SemanticCatalog) -> None:
     )
     from marivo.refs import ref as ref_factory
     from marivo.semantic._definition_identity import scoped_definition_fingerprint
+    from marivo.semantic._source_timezone import period_calendar_timezone
 
     rows: list[dict[str, str]] = []
     cursor = date(2026, 1, 1)
@@ -645,7 +668,7 @@ def publish_fiscal_calendar_artifact(catalog: SemanticCatalog) -> None:
     calendar = catalog._require_ready().period_calendars[calendar_ref.path]
     snapshot = certify_period_calendar_rows(
         calendar_ref=calendar_ref,
-        boundary_timezone=calendar.boundary_timezone,
+        boundary_timezone=period_calendar_timezone(catalog._require_ready(), calendar),
         coverage=(
             date.fromisoformat(calendar.coverage[0]),
             date.fromisoformat(calendar.coverage[1]),
@@ -668,7 +691,7 @@ def publish_fiscal_calendar_artifact(catalog: SemanticCatalog) -> None:
         snapshot,
         definition_digest=period_calendar_definition_digest(
             calendar_ref=calendar_ref,
-            boundary_timezone=calendar.boundary_timezone,
+            boundary_timezone=period_calendar_timezone(catalog._require_ready(), calendar),
             coverage=calendar.coverage,
             levels=calendar.levels,
             dependency_digest=dependency_digest,
@@ -819,7 +842,7 @@ def sales_project_template(*, with_time: bool = True) -> Path:
     datasource_dir = building / "models" / "datasources"
     datasource_dir.mkdir(parents=True, exist_ok=True)
     (datasource_dir / "warehouse.py").write_text(
-        "import marivo.datasource as md\nmd.duckdb(name='warehouse', path=':memory:')\n"
+        "import marivo.datasource as md\nmd.duckdb(name='warehouse', wall_clock_timezone='UTC', path=':memory:')\n"
     )
     (semantic_dir / "__init__.py").write_text("")
     (semantic_dir / "_domain.py").write_text(
@@ -915,7 +938,7 @@ def load_inline_semantic(
         datasource_dir = tmp_path / "models" / "datasources"
         datasource_dir.mkdir(parents=True)
         (datasource_dir / "wh.py").write_text(
-            "import marivo.datasource as md\nmd.duckdb(name='wh', path=':memory:')\n"
+            "import marivo.datasource as md\nmd.duckdb(name='wh', wall_clock_timezone='UTC', path=':memory:')\n"
         )
         (semantic_dir / "__init__.py").write_text("")
         (semantic_dir / "_domain.py").write_text(
@@ -943,7 +966,7 @@ def bootstrap_multi_metric_sales_project(tmp_path: Path) -> None:
     datasource_dir = tmp_path / "models" / "datasources"
     datasource_dir.mkdir(parents=True, exist_ok=True)
     (datasource_dir / "warehouse.py").write_text(
-        "import marivo.datasource as md\nmd.duckdb(name='warehouse', path=':memory:')\n"
+        "import marivo.datasource as md\nmd.duckdb(name='warehouse', wall_clock_timezone='UTC', path=':memory:')\n"
     )
     (semantic_dir / "__init__.py").write_text("")
     (semantic_dir / "_domain.py").write_text(
@@ -1140,5 +1163,5 @@ def revenue():
     datasource = tmp_path / "models" / "datasources"
     datasource.mkdir()
     (datasource / "warehouse.py").write_text(
-        'import marivo.datasource as md\nmd.duckdb(name="warehouse", path=":memory:")\n'
+        'import marivo.datasource as md\nmd.duckdb(name="warehouse", wall_clock_timezone="UTC", path=":memory:")\n'
     )

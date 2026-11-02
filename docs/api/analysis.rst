@@ -142,6 +142,14 @@ timezone name and sorted, deduplicated domain scope; conflicts raise
 existing Session ID. Acquisition sets no current Session and never rewrites
 saved configuration. Recovery without pending work preserves ``updated_at``.
 
+``session.timezone`` is the normalized saved report timezone and
+``session.timezone_origin`` is ``explicit`` or ``system``; Session repr, show and
+summary reads expose both. Explicit offsets such as ``timezone="+08:00"`` are
+accepted. New Sessions with no explicit timezone require a strict system IANA
+identity; ambiguous ``TZ`` or localtime state raises ``ReportTimezoneUnresolved``
+with an explicit-input repair. Recovery never resolves the host timezone. UTC
+aliases match saved UTC, while other IANA links retain distinct identities.
+
 Current data operations
 -----------------------
 
@@ -457,7 +465,7 @@ Evaluation, publication and recovery
 
 Compute creates no Artifact or temporary saved result. Expression persist
 completes evaluation first, then publishes that existing result ID through the
-single Store 27 writer transaction. Memory persist never reevaluates. Stored
+single Store 28 writer transaction. Memory persist never reevaluates. Stored
 persist validates commit metadata and returns itself without another publication.
 A derived or computed memory Frame never exposes an ancestor commit identity. Unknown publication outcome is reconciled, not recomputed.
 
@@ -487,10 +495,26 @@ are ordered by commit time and ID descending. Continue with the returned
 limit. New commits are discovered from the first page. Cards show bounded output
 names and axes; typed schemas remain complete. Corrupt metadata fails explicitly.
 
-Store 27 uses ``marivo.frame_output/v16`` and ``frame.v16`` for
-all Frames, under ``.marivo/analysis/generations/v27/``. Owned method files share
+``frame.schema.source_times`` is the complete immutable tuple of captured consumed
+source interpretations. ``FrameInstantSourceTime`` records ``axis``,
+``physical_type`` and ``consumption_timezone``. ``FrameWallClockSourceTime`` and
+``FrameCivilDateSourceTime`` also record the effective declaration ``timezone``
+and ``origin`` (``field`` or ``datasource``); wall clocks additionally capture
+``inherited_from`` for hour-prefix parsing. These explain consumed inputs and
+provide no executable field or source authority. Pending display does not open a
+source to resolve missing physical types; literal inputs have no source facts.
+Fixed-data selection, renaming, filtering, fixing, arithmetic and reduction retain
+these facts. Combinations merge distinct complete records, preserving changed
+same-path declarations and consumption timezones. ``show()`` lists bounded,
+deterministically ordered fields; the typed tuple retains every record.
+Cross-zone business dates are assigned by business-day start and cannot
+reconstruct event-day totals. Persistence and cold recovery retain these facts
+without source reads, timezone conversion or rebucketing.
+
+Store 28 uses ``marivo.frame_output/v17`` and ``frame.v17`` for
+all Frames, under ``.marivo/analysis/generations/v28/``. Owned method files share
 the existing atomic publication, receipt and unknown-commit reconciliation.
-Store 27 refuses older-generation Session/result data unchanged, without
+Store 28 refuses older-generation Session/result data unchanged, without
 migration or dual reads. Documented absent-current discovery may return None or
 empty. Current work may create a new named Session in the same project while
 older generations coexist unchanged; discovery warns about older paths. Preserve
@@ -526,6 +550,9 @@ Canonical public exports
    FrameSourceReadScope
    FrameSourceReadPeriod
    FrameSchema
+   FrameInstantSourceTime
+   FrameWallClockSourceTime
+   FrameCivilDateSourceTime
    FrameField
    FrameAxisSchema
    FrameOrdinaryAxisSchema

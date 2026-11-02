@@ -24,13 +24,20 @@ Time dimension 声明观察、窗口和日历使用的时间角色。将普通 D
 
 ```python
 order_date = ms.time_dimension_column(
-    name="order_date", entity=orders, column="order_date", is_default=True
+    name="order_date", entity=orders, column="order_date", parse=ms.date(timezone="UTC"), is_default=True
 )
 ```
 
-物理列使用 `ms.time_dimension_column`，派生字段使用 `@ms.time_dimension`。原生日期和带时区时间戳无需解析器；编码字符串或整数使用 `ms.strptime(...)`，只有小时的字段使用 `ms.hour_prefix(...)`。无时区时间戳应在来源时区已知时明确指定时区，否则使用冻结的读取时区。每个 Entity 最多设置一个 `is_default=True` 的时间字段。它指定 Metric 默认时间角色，但不设定观察范围；观察范围仍需通过 `TimeScope` 提供。财务期间参见[业务日历](#业务日历)。
+物理列使用 `ms.time_dimension_column`，派生字段使用 `@ms.time_dimension`。原生日期和带时区时间戳无需解析器；编码字符串或整数使用 `ms.strptime(...)`，只有小时的字段使用 `ms.hour_prefix(...)`。DATE、无时区时间戳和编码时间必须在解析器或 Datasource `wall_clock_timezone` 上声明源时区；两者都缺失时在读取业务数据前拒绝。原生带时区时间戳忽略 Datasource 默认值。每个 Entity 最多设置一个 `is_default=True` 的时间字段。它指定 Metric 默认时间角色，但不设定观察范围；观察范围仍需通过 `TimeScope` 提供。财务期间参见[业务日历](#业务日历)。
 
 `sample_interval` 描述来源采样节拍，不会将时间戳截断或分桶。所有 TimeField 样本规约均允许缺点；已表示样本上的 NULL 遵循规约自身策略，声明节拍不代表来源完整。
+
+### 原生日期：`ms.date`
+
+`ms.date(timezone="UTC")` 声明原生 DATE 的业务日时区。省略时使用 Datasource
+`wall_clock_timezone`，省略 `parse` 时也一样。时区统一接受 IANA 名和固定偏移量。
+投影保持 DATE 标签。时间成员判定和报告分桶按源业务日的午夜起点归属整行，因此支持源时区与
+报告时区不同，但不能据此重建另一时区自然日内的事件明细汇总。
 
 ## 派生时间字段：`ms.time_dimension`
 
@@ -40,7 +47,7 @@ order_date = ms.time_dimension_column(
 
 | 参数 | 必填 | 默认值 | 语义 |
 | --- | --- | --- | --- |
-| `timezone` | 否 | `None` | 无时区时间戳的来源本地化时区；`None` 使用冻结的读取上下文，已有时区的时间戳拒绝任何解析器时区。 |
+| `timezone` | 否 | `None` | 无时区时间戳的来源时区；`None` 使用 Datasource `wall_clock_timezone`，已有时区的时间戳拒绝任何解析器时区。 |
 
 
 ```python
@@ -57,7 +64,7 @@ created_at = ms.time_dimension_column(
 | 参数 | 必填 | 默认值 | 语义 |
 | --- | --- | --- | --- |
 | `format` | 是 | — | Python `strptime` 格式；被拒绝的数据通常变为 NULL，PostgreSQL 可能使查询报错。 |
-| `timezone` | 否 | `None` | 带时间值可选的来源时区。纯日期格式不使用时区；省略时使用读取时区。 |
+| `timezone` | 否 | `None` | 纯日期业务日和带时间值的来源时区；省略时使用 Datasource `wall_clock_timezone`。 |
 
 
 ```python
@@ -73,7 +80,7 @@ business_date = ms.time_dimension_column(
 
 | 参数 | 必填 | 默认值 | 语义 |
 | --- | --- | --- | --- |
-| `prefix` | 是 | — | 提供民用日期前缀的 TimeDimension 表达式。小时字段继承该字段的来源时区上下文。 |
+| `prefix` | 是 | — | 提供民用日期前缀的 TimeDimension 表达式。小时字段递归继承前缀字段的有效解析器或 Datasource 时区。 |
 
 小时来源值使用 0 到 23 的整数或规范的两位数字符串。
 
@@ -116,11 +123,10 @@ Python 无时区 `datetime` 对象以及含糊或不存在的本地边界时间�
 | --- | --- | --- | --- |
 | `name` | 是 | — | 语义名称，在所属范围内唯一。 |
 | `date` | 是 | — | 民用日期 TimeDimension。 |
-| `boundary_timezone` | 是 | — | 定义民用日边界的显式 IANA 时区。 |
 | `coverage` | 是 | — | 非空 `(start_date, end_date)`，包含起点、不包含终点。 |
 | `levels` | 是 | — | 同一 Entity 上的层级名 → Dimension 映射；期间键在层级内全局唯一，day 为自动推导的保留层级。 |
 
-全部字段必须属于同一 Entity。日期字段必须是民用 `DATE` TimeDimension；午夜时间戳不能替代。认证要求覆盖范围内每天都有一行，且每个层级每天都有非 `NULL` 键。同一层级的每个键标识一个连续期间，因此期间不会重叠或出现缺口。相互独立或重叠的活动应使用 `TemporalSet`。
+日历边界从日期字段的有效源时区推导，`ms.period_calendar` 不接受 `boundary_timezone` 参数。全部字段必须属于同一 Entity。日期字段必须是民用 `DATE` TimeDimension；午夜时间戳不能替代。认证要求覆盖范围内每天都有一行，且每个层级每天都有非 `NULL` 键。同一层级的每个键标识一个连续期间，因此期间不会重叠或出现缺口。相互独立或重叠的活动应使用 `TemporalSet`。
 
 ## 业务日历
 
@@ -164,14 +170,13 @@ calendar_days = ms.entity(
     source=md.table("calendar"),
     primary_key=["day"],
 )
-day = ms.time_dimension_column(name="calendar_date", entity=calendar_days, column="day")
+day = ms.time_dimension_column(name="calendar_date", entity=calendar_days, column="day", parse=ms.date(timezone="UTC"))
 week = ms.dimension_column(
     name="fiscal_week", entity=calendar_days, column="fiscal_week"
 )
 ms.period_calendar(
     name="fiscal",
     date=day,
-    boundary_timezone="UTC",
     coverage=(date(2026, 1, 1), date(2026, 1, 8)),
     levels={"week": week},
 )
@@ -223,7 +228,7 @@ period.show()
 | `occurrence_id` | 是 | — | 所属 Entity 上包含唯一活动实例 ID 的 Dimension。 |
 | `start` | 是 | — | 每个实例包含的起点 TimeDimension。 |
 | `end` | 是 | — | 每个实例不包含的终点 TimeDimension，必须晚于起点。 |
-| `boundary_timezone` | 是 | — | 定义民用日边界的显式 IANA 时区。 |
+| `boundary_timezone` | 是 | — | 覆盖范围边界的 IANA 或固定偏移时区；DATE 字段必须声明同一时区。 |
 | `coverage` | 是 | — | 非空 `(start_date, end_date)`，包含起点、不包含终点。 |
 | `category` | 否 | `None` | 值为非空字符串或 `NULL` 的可选分类 Dimension。 |
 
@@ -239,6 +244,6 @@ ms.temporal_set(
 )
 ```
 
-同一集合中的边界统一使用民用日期或时间戳；每个实例 ID 唯一，起止完全落在覆盖范围内。时间戳边界需有明确时区语义；无时区的重复本地时间无法指明两个时刻中的哪一个。允许重叠与缺口。一天假期表示为 `[day, day + 1)`。使用覆盖完整范围的 `catalog.preview(...)` 认证；读取失败或截断不会替换当前快照。相同分类不能定义跨年配对。
+DATE 边界的规范源时区必须与 `boundary_timezone` 相同。时间戳来源使用自身解析器或 Datasource 声明；认证在既有来源读取内应用原生解析和本地化，不在 Python 中重新解释原始钟面，也不以边界时区回退解释来源，保留后端原生 DST 行为。同一集合中的边界统一使用民用日期或时间戳；每个实例 ID 唯一，起止完全落在覆盖范围内。时间戳边界需有明确时区语义；无时区的重复本地时间无法指明两个时刻中的哪一个。允许重叠与缺口。一天假期表示为 `[day, day + 1)`。使用覆盖完整范围的 `catalog.preview(...)` 认证；读取失败或截断不会替换当前快照。相同分类不能定义跨年配对。
 
 通过 `calendar.period(level, key)`、`calendar.period_on(level, date)` 或 `campaigns.occurrence(key)` 读取本地证书中的已认证 `TimeScope`。精确签名可查询 Live Help：`semantic.time_dimension.from_column`、`semantic.strptime`、`semantic.period_calendar` 和 `semantic.temporal_set`。

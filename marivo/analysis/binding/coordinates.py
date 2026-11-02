@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 from marivo._definition.observations import CoordinateBinding as CoordinateBinding
 from marivo._definition.types import (
     ExactRef,
@@ -177,8 +179,12 @@ def bind_read(
                 "Choose a path without unbound versioned intermediates.",
                 "session.observe",
             )
-    return FieldRead(
-        current.field, current.entity, tuple(resolver.exact(step) for step in path), at
+    return replace(
+        read,
+        field=current.field,
+        entity=current.entity,
+        path=tuple(resolver.exact(step) for step in path),
+        at=at,
     )
 
 

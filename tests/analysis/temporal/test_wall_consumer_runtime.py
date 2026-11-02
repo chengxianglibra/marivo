@@ -12,8 +12,9 @@ from ibis.backends import BaseBackend
 
 import marivo.analysis as mv
 import marivo.semantic as ms
-from marivo.analysis.compiler.source_time import _hour_clock, localize
+from marivo.analysis.compiler.source_time import _hour_clock
 from marivo.analysis.materialization.temporal_sql import lower_temporal
+from marivo.datasource._temporal_expressions import localize
 from marivo.datasource.adapters import CompiledRead, SourceSession
 from marivo.datasource.capabilities import StatementPurpose, execute_provider_statement
 from marivo.datasource.engines.base import EngineProfile
@@ -43,7 +44,7 @@ def _model(
     factory(
         {
             "datasources/warehouse.py": "import marivo.datasource as md\n"
-            + f"md.{case.session.provider.name}(name='warehouse',"
+            + f"md.{case.session.provider.name}(wall_clock_timezone='UTC', name='warehouse',"
             + ",".join(f"{key}={value!r}" for key, value in arguments.items())
             + ")\n",
             "sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales',owner='Test',default=True)\n",

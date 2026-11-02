@@ -100,7 +100,7 @@ def test_versioned_entity_load_rejects_identity_version_overlap_without_source_a
                 "ms.ref.time_dimension('sales.daily.dt'), timezone='UTC', "
                 "))\n"
                 "dt = ms.time_dimension_column(name='dt', entity=daily, column='dt', "
-                "parse=ms.strptime('%Y%m%d'))\n"
+                "parse=ms.strptime('%Y%m%d', timezone='UTC'))\n"
             ),
         },
         load=False,
@@ -194,7 +194,7 @@ def test_snapshot_versioning_stays_a_valued_representation_on_the_entity(
                 "        timezone='Asia/Shanghai',\n"
                 "    ),\n"
                 ")\n"
-                "dt = ms.time_dimension_column(name='dt', entity=user_profile_daily, column='dt', parse=ms.strptime('%Y%m%d'))\n"
+                "dt = ms.time_dimension_column(name='dt', entity=user_profile_daily, column='dt', parse=ms.strptime('%Y%m%d', timezone='Asia/Shanghai'))\n"
             ),
         }
     )

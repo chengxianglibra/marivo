@@ -22,7 +22,7 @@ def relationship_project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Pat
     (models / "datasources").mkdir(parents=True)
     (models / "datasources" / "warehouse.py").write_text(
         "import marivo.datasource as md\n"
-        f"md.duckdb(name='warehouse', path={str(tmp_path / 'warehouse.duckdb')!r})\n"
+        f"md.duckdb(wall_clock_timezone='UTC', name='warehouse', path={str(tmp_path / 'warehouse.duckdb')!r})\n"
     )
     domain = models / "semantic" / "sales"
     domain.mkdir(parents=True)

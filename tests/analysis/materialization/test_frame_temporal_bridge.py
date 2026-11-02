@@ -53,7 +53,7 @@ def session(
     # Projection and set algebra must not open this intentionally absent database.
     semantic_project_factory(
         {
-            "datasources/warehouse.py": "import marivo.datasource as md\nmd.duckdb(name='warehouse', path='temporal-bridge.duckdb')\n",
+            "datasources/warehouse.py": "import marivo.datasource as md\nmd.duckdb(wall_clock_timezone='UTC', name='warehouse', path='temporal-bridge.duckdb')\n",
             "sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales',owner='Analytics',default=True)\n",
             "sales/model.py": """import marivo.datasource as md
 import marivo.semantic as ms

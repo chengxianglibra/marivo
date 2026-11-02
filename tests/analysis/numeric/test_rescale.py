@@ -41,7 +41,7 @@ def traffic_session(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Session:
     datasource.mkdir(parents=True)
     source_path = tmp_path / "traffic.duckdb"
     (datasource / "warehouse.py").write_text(
-        f"import marivo.datasource as md\nmd.duckdb(name='warehouse', path={str(source_path)!r})\n"
+        f"import marivo.datasource as md\nmd.duckdb(wall_clock_timezone='UTC', name='warehouse', path={str(source_path)!r})\n"
     )
     semantic = tmp_path / "models/semantic/traffic"
     semantic.mkdir(parents=True)
@@ -150,7 +150,7 @@ def test_large_integer_rescale_and_mixed_metrics_use_float64_before_local_arithm
         connection.execute("CREATE TABLE other(id BIGINT, bytes BIGINT, floating DOUBLE)")
         connection.execute("INSERT INTO other VALUES (1, 1, 2.0)")
     (tmp_path / "models/datasources/other.py").write_text(
-        f"import marivo.datasource as md\nmd.duckdb(name='other', path={str(other_path)!r})\n"
+        f"import marivo.datasource as md\nmd.duckdb(wall_clock_timezone='UTC', name='other', path={str(other_path)!r})\n"
     )
     (tmp_path / "models/semantic/traffic/other.py").write_text(
         "import marivo.datasource as md\nimport marivo.semantic as ms\n"

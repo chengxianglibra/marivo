@@ -38,6 +38,7 @@ from marivo._definition.types import (
 )
 from marivo._numeric_types import exact_unsigned
 from marivo.analysis.compiler.member_version import prepare_version_filter
+from marivo.analysis.core.frame_interpretation import FrameSourceTime
 from marivo.analysis.core.model import reject
 from marivo.analysis.core.value_types import data_type
 from marivo.refs import ref
@@ -146,6 +147,9 @@ def _identity_source(
     node: SourceIdentities,
     entities: Mapping[str, ir.Table],
     state: CompiledSemanticState,
+    *,
+    source_times: list[FrameSourceTime] | None = None,
+    consumption_timezone: str = "UTC",
 ) -> tuple[ir.Table, tuple[tuple[str, str, str], ...], ir.Table | None]:
     """Prepare the exact selected source and its pre-filter check summary."""
     source = entities[node.entity.ref.path].view()
@@ -161,22 +165,25 @@ def _identity_source(
         selection = normalize_target_version_selection(
             contract, boundary=node.at, interpretation="instant"
         )
-        source = prepare_version_filter(source, contract.version, selection, state=state)
+        source = prepare_version_filter(
+            source, contract.version, selection, state=state, source_times=source_times
+        )
     checks: tuple[tuple[str, str, str], ...] = ()
     summary: ir.Table | None = None
     if node.predicate is not None:
         from marivo.analysis.compiler.predicate import lower_condition
         from marivo.analysis.materialization.query_preparation import prepare_fields
-        from marivo.datasource.timezone import probe_engine_timezone
 
         contribution = _identity_condition(node, state)
         identity_fields = prepare_fields(
             contribution,
             entities,
             state,
-            probe_engine_timezone(source._find_backend()),
             root_table=source,
+            consumption_timezone=consumption_timezone,
         )
+        if source_times is not None:
+            source_times.extend(identity_fields.source_times)
         source = identity_fields.table
         fields = {key: source[slot] for key, slot in identity_fields.columns}
         lowered = lower_condition(contribution.intrinsic_conditions[0], fields)
@@ -221,6 +228,9 @@ def prepare_population(
     definition: PopulationDependency,
     entities: Mapping[str, ir.Table],
     state: CompiledSemanticState,
+    *,
+    source_times: list[FrameSourceTime] | None = None,
+    consumption_timezone: str = "UTC",
 ) -> PreparedPopulation:
     """Build a real Ibis relation without submitting business reads.
 
@@ -379,11 +389,23 @@ def prepare_population(
     assert isinstance(definition, PopulationProgram)
     node = definition.root
     if isinstance(node, PopulationFilter):
-        prepared = prepare_population(node.operand, entities, state)
+        prepared = prepare_population(
+            node.operand,
+            entities,
+            state,
+            source_times=source_times,
+            consumption_timezone=consumption_timezone,
+        )
         table = prepared.table
         marks: dict[PopulationDependency, str] = {}
         for index, domain in enumerate(condition_populations(node.predicate)):
-            selected = prepare_population(domain, entities, state)
+            selected = prepare_population(
+                domain,
+                entities,
+                state,
+                source_times=source_times,
+                consumption_timezone=consumption_timezone,
+            )
             marker = f"__population_selected_{index}"
             rename = {
                 name: f"__population_test_{index}_{offset}"
@@ -434,9 +456,23 @@ def prepare_population(
             prepare_relationship_population,
         )
 
-        return prepare_relationship_population(definition, node, entities, state, key_groups)
+        return prepare_relationship_population(
+            definition,
+            node,
+            entities,
+            state,
+            key_groups,
+            source_times=source_times,
+            consumption_timezone=consumption_timezone,
+        )
     if isinstance(node, SourceIdentities):
-        source, checks, summary = _identity_source(node, entities, state)
+        source, checks, summary = _identity_source(
+            node,
+            entities,
+            state,
+            source_times=source_times,
+            consumption_timezone=consumption_timezone,
+        )
         keys = state.registry.entities[node.entity.ref.path].primary_key
         null_key = "__identity_null"
         # The declared identity/version grain already makes this projection unique.
@@ -458,8 +494,24 @@ def prepare_population(
             presence,
         )
     if isinstance(node, PopulationSet):
-        left = _domain_table(prepare_population(node.left, entities, state))
-        right = _domain_table(prepare_population(node.right, entities, state))
+        left = _domain_table(
+            prepare_population(
+                node.left,
+                entities,
+                state,
+                source_times=source_times,
+                consumption_timezone=consumption_timezone,
+            )
+        )
+        right = _domain_table(
+            prepare_population(
+                node.right,
+                entities,
+                state,
+                source_times=source_times,
+                consumption_timezone=consumption_timezone,
+            )
+        )
         if node.operation == "union":
             table = left.union(right, distinct=True)
         elif node.operation == "intersection":
@@ -470,7 +522,13 @@ def prepare_population(
             table, key_groups, presence="__population_unit" if not columns else None
         )
     if isinstance(node, PopulationProject):
-        source = prepare_population(node.operand, entities, state)
+        source = prepare_population(
+            node.operand,
+            entities,
+            state,
+            source_times=source_times,
+            consumption_timezone=consumption_timezone,
+        )
         old = tuple(column for index in node.positions for column in source.key_groups[index])
         table = _domain_table(source)
         if not columns:
@@ -487,7 +545,16 @@ def prepare_population(
             projected = projected.distinct()
         return PreparedPopulation(projected, key_groups)
     if isinstance(node, PopulationProduct):
-        factors = tuple(prepare_population(factor, entities, state) for factor in node.factors)
+        factors = tuple(
+            prepare_population(
+                factor,
+                entities,
+                state,
+                source_times=source_times,
+                consumption_timezone=consumption_timezone,
+            )
+            for factor in node.factors
+        )
         tables: list[ir.Table] = []
         offset = 0
         for index, factor in enumerate(factors):
@@ -519,7 +586,15 @@ def prepare_population(
     if isinstance(node, PopulationClassify):
         from marivo.analysis.materialization.population_relations import prepare_member_fields
 
-        return prepare_member_fields(definition, node, entities, state, key_groups)
+        return prepare_member_fields(
+            definition,
+            node,
+            entities,
+            state,
+            key_groups,
+            source_times=source_times,
+            consumption_timezone=consumption_timezone,
+        )
     reject(
         "an executable captured population program",
         type(node).__name__,

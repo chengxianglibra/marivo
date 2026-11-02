@@ -85,7 +85,7 @@ refund_amount = ms.measure_column(name="amount", entity=refunds, column="amount"
     if versioned:
         code = code.replace(
             'source=md.table("customers"), primary_key=["id"])',
-            'source=md.table("customers"), primary_key=["id"], versioning=ms.validity(valid_from=ms.ref.time_dimension("sales.customers.valid_from"), valid_to=ms.ref.time_dimension("sales.customers.valid_to"), interval="closed_open", open_end=(None,), timezone="UTC"))',
+            'source=md.table("customers"), primary_key=["id"], versioning=ms.validity(valid_from=ms.ref.time_dimension("sales.customers.valid_from"), valid_to=ms.ref.time_dimension("sales.customers.valid_to"), interval="closed_open", open_end=(None,)))',
         )
         code += 'valid_from = ms.time_dimension_column(name="valid_from", entity=customers, column="valid_from")\nvalid_to = ms.time_dimension_column(name="valid_to", entity=customers, column="valid_to")\n'
     if fanout:

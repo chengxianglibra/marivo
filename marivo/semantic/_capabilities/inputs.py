@@ -173,7 +173,7 @@ _PARAMETERS: dict[str, tuple[str, str, tuple[LiveHelpTarget, ...]]] = {
     ),
     "timezone": (
         "Text",
-        "Use the authoritative IANA business timezone; snapshot requires it. Validity DATE bounds require it and timestamp bounds forbid it.",
+        "Use an IANA or fixed-offset timezone. snapshot requires a business-day boundary zone; DATE partition fields must declare the same zone.",
         (),
     ),
     "interval": (
@@ -206,7 +206,7 @@ _PARAMETERS: dict[str, tuple[str, str, tuple[LiveHelpTarget, ...]]] = {
 _EXTRAS: dict[str, tuple[str, ...]] = {
     "load": ("workspace_dir", "domains"),
     "snapshot": ("timezone",),
-    "validity": ("interval", "open_end", "timezone"),
+    "validity": ("interval", "open_end"),
     "domain": ("default", "ai_context"),
     "entity": ("primary_key", "versioning", "domain", "ai_context"),
     "dimension": ("domain", "ai_context"),
@@ -215,7 +215,7 @@ _EXTRAS: dict[str, tuple[str, ...]] = {
     "time_dimension_column": ("is_default", "domain", "ai_context"),
     "measure_column": ("unit", "domain", "ai_context"),
     "relationship": ("domain", "ai_context"),
-    "period_calendar": ("boundary_timezone", "coverage", "domain", "ai_context"),
+    "period_calendar": ("coverage", "domain", "ai_context"),
     "temporal_set": ("boundary_timezone", "coverage", "domain", "ai_context"),
     "ai_context": ("business_definition", "guardrails", "aliases"),
 }

@@ -82,7 +82,7 @@ projection, duplicate-key declarations, and identity/version overlap without
 requiring authored physical type facts.
 
 Naive timestamp identity retains exact wall-clock values and source precision
-without a timezone. Session/reader timezones and TimeDimension `parse` do not
+without a timezone. Session/source timezones and TimeDimension `parse` do not
 rewrite `primary_key`. An aware and a naive identity require explicit compatible
 Entity outputs before matching. Repeated DST clocks require an offset/UTC source
 or an additional identity component if they identify different instances.
@@ -231,7 +231,6 @@ user_history = ms.entity(
         valid_to=valid_to,
         interval="closed_open",
         open_end=(None, "9999-12-31"),
-        timezone="UTC",
     ),
 )
 ```
@@ -247,10 +246,11 @@ instant `at` uses `valid_from <= at < valid_to`; immediately before an excluded
 Other admitted interval closures follow their exact boundary rule. Zero matching
 intervals preserves absence; multiple matches are not preflighted and may affect
 the result or fail an independent output contract.
-DATE validity bounds require explicit business timezone; timestamp validity
-rejects a version timezone. Move naive source localization to each field's
-`ms.timestamp(timezone=...)` parser; for aware sources delete the redundant
-version timezone. Both bounds must have the same logical kind. The four
+DATE validity bounds derive their common business timezone from their field
+parsers or Datasource `wall_clock_timezone`; conflicting declarations fail.
+There is no `ms.validity(timezone=...)`. Naive timestamp bounds use each field's
+source declaration; aware bounds preserve their physical instants. Both bounds
+must have the same logical kind. The four
 `valid_from`, `valid_to`, `interval` and `open_end` arguments remain required.
 `current_flag`-style versioning is not supported.
 
@@ -329,15 +329,17 @@ time dimension — plain dimensions are never inferred as temporal from a name l
 `dt`.
 
 ```python
-dt = ms.time_dimension_column(name="dt", entity=orders, column="dt", parse=ms.strptime("%Y%m%d"))
+dt = ms.time_dimension_column(name="dt", entity=orders, column="dt", parse=ms.strptime("%Y%m%d", timezone="UTC"))
 hh = ms.time_dimension_column(name="hh", entity=orders, column="hh", parse=ms.hour_prefix(dt))
 ```
 
 - **`parse`** interprets native temporal values or encoded values through
-  `ms.timestamp`, `ms.strptime` or `ms.hour_prefix`. Native DATE/timestamp may
-  omit parse; strings and integers require an explicit encoding. A date-only
-  strptime format rejects timezone. A naive timestamp uses parser timezone or
-  frozen reader authority; an aware timestamp rejects every parser timezone,
+  `ms.date`, `ms.timestamp`, `ms.strptime` or `ms.hour_prefix`. Native DATE/timestamp may
+  omit parse; strings and integers require an explicit encoding. DATE, date-only
+  strptime, and naive timestamps use parser timezone or Datasource
+  `wall_clock_timezone`; missing declarations reject before source rows are read.
+  hour_prefix recursively inherits its prefix field's effective declaration.
+  An aware timestamp ignores the Datasource default and rejects every parser timezone,
   including the physical zone, because its instant is already defined.
 - **`is_default`** (default `False`) selects the Entity's default Metric time
   role. It does not select members, versions, output boundaries or windows.
@@ -490,3 +492,10 @@ complete relationship keys and do not change the Metric time role. DATE controls
 select business-day snapshots or DATE validity; timestamp validity needs a
 qualified timestamp control. See [temporal semantics](../temporal-semantics.md#output-axes-and-observation-time)
 for time qualification and excluded compositions.
+
+Source timezone declarations accept normalized IANA names and fixed offsets. A
+DATE label D remains DATE in projections; time membership and report grouping
+assign it by D midnight in its source timezone. This whole-row convention cannot
+reconstruct event-level totals for another timezone. Backend-native gap/fold
+behavior applies without an additional DST audit. Snapshot timezone still owns
+snapshot-day selection; DATE partition fields must declare that same timezone.

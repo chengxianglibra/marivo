@@ -9,10 +9,10 @@ import sqlglot
 from sqlglot import expressions as sge
 
 from marivo.analysis.compiler.source_time import source_time, source_time_predicate
-from marivo.analysis.core.time_authority import SourceTimeAuthority
+from marivo.analysis.core.time_authority import CivilDateSourceTime
 from marivo.semantic.ir import StrptimeParse
 from tests.analysis.temporal.encoded_time_fixtures import axis
-from tests.shared_fixtures import rendered_help
+from tests.shared_fixtures import declared_test_timezone, rendered_help
 
 
 @pytest.mark.parametrize(
@@ -49,7 +49,11 @@ def test_inverse_matches_independently_parsed_canonical_points(fmt: str, kind: s
             table = ibis.memtable({"point": [*values, None]}, schema={"point": kind})
             field = axis(fmt)
             _, authority = source_time(
-                table.point, field, boundary_timezone="UTC", read_timezone="UTC", engine="duckdb"
+                table.point,
+                field,
+                boundary_timezone="UTC",
+                source_timezone=declared_test_timezone(field, "UTC"),
+                engine="duckdb",
             )
             predicate = source_time_predicate(table.point, field, authority, start=start, end=end)
             assert predicate is not None
@@ -69,7 +73,11 @@ def test_filter_ast_retains_safe_parser(dialect: str) -> None:
     table = ibis.table({"point": "string"}, name="events")
     field = axis("%Y%m%d")
     parsed, authority = source_time(
-        table.point, field, boundary_timezone="UTC", read_timezone="UTC", engine=dialect
+        table.point,
+        field,
+        boundary_timezone="UTC",
+        source_timezone=declared_test_timezone(field, "UTC"),
+        engine=dialect,
     )
     predicate = source_time_predicate(
         table.point, field, authority, start=date(2026, 7, 1), end=date(2026, 8, 1)
@@ -90,7 +98,11 @@ def test_fixed_offset_inverse_and_civil_date_do_not_adopt_report_zone() -> None:
     table = ibis.table({"point": "string"}, name="events")
     field = replace(axis("%Y-%m-%d %H:%M"), timezone=None, parse=StrptimeParse("%Y-%m-%d %H:%M"))
     _, authority = source_time(
-        table.point, field, boundary_timezone="UTC", read_timezone="UTC+05:30", engine="duckdb"
+        table.point,
+        field,
+        boundary_timezone="UTC",
+        source_timezone=declared_test_timezone(field, "UTC+05:30"),
+        engine="duckdb",
     )
     predicate = source_time_predicate(
         table.point,
@@ -108,7 +120,7 @@ def test_fixed_offset_inverse_and_civil_date_do_not_adopt_report_zone() -> None:
         table.point,
         field,
         boundary_timezone="America/New_York",
-        read_timezone="UTC",
+        source_timezone=declared_test_timezone(field, "UTC"),
         engine="duckdb",
     )
     predicate = source_time_predicate(
@@ -130,7 +142,11 @@ def test_safe_membership_retains_nonordered_parser(fmt: str, kind: str, zone: st
     table = ibis.table({"point": kind}, name="events")
     field = axis(fmt, zone)
     _, authority = source_time(
-        table.point, field, boundary_timezone="UTC", read_timezone=zone, engine="duckdb"
+        table.point,
+        field,
+        boundary_timezone="UTC",
+        source_timezone=declared_test_timezone(field, zone),
+        engine="duckdb",
     )
     assert (
         source_time_predicate(
@@ -142,13 +158,12 @@ def test_safe_membership_retains_nonordered_parser(fmt: str, kind: str, zone: st
 
 def test_upper_ceiling_and_integer_limits_never_emit_overflow_literal() -> None:
     table = ibis.table({"point": "int16"}, name="events")
-    authority = SourceTimeAuthority(
+    authority = CivilDateSourceTime(
         axis="sales.events.point",
         physical_type="int16",
         kind="civil_date",
-        read_timezone=None,
-        source="civil_date",
-        boundary_timezone="UTC",
+        timezone="UTC",
+        origin="datasource",
     )
     predicate = source_time_predicate(
         table.point,
@@ -164,7 +179,11 @@ def test_upper_ceiling_and_integer_limits_never_emit_overflow_literal() -> None:
     table = ibis.table({"point": "string"}, name="events")
     field = axis("%Y-%m-%d %H:%M:%S")
     _, authority = source_time(
-        table.point, field, boundary_timezone="UTC", read_timezone="UTC", engine="duckdb"
+        table.point,
+        field,
+        boundary_timezone="UTC",
+        source_timezone=declared_test_timezone(field, "UTC"),
+        engine="duckdb",
     )
     predicate = source_time_predicate(
         table.point,
@@ -181,7 +200,11 @@ def test_canonical_year_padding_and_open_lower_bound() -> None:
     table = ibis.memtable({"point": ["00010101", "00010102", None]}, schema={"point": "string"})
     field = axis("%Y%m%d")
     _, authority = source_time(
-        table.point, field, boundary_timezone="UTC", read_timezone="UTC", engine="duckdb"
+        table.point,
+        field,
+        boundary_timezone="UTC",
+        source_timezone=declared_test_timezone(field, "UTC"),
+        engine="duckdb",
     )
     predicate = source_time_predicate(table.point, field, authority, start=None, end=date(1, 1, 2))
     assert predicate is not None

@@ -390,7 +390,7 @@ def test_calendar_metadata_show_and_completed_match_need_no_source_or_timezone(
         forbidden,
     )
     monkeypatch.setattr("marivo.analysis.session.core.Session.catalog", property(forbidden))
-    monkeypatch.setattr("marivo._temporal_grid.parse_timezone", forbidden)
+    monkeypatch.setattr("marivo._temporal_grid.normalize_timezone", forbidden)
     pending = left.compare(
         {"reference": mv.baseline(right, match=CalendarCorrespondence("years", -1))}
     )
@@ -789,7 +789,7 @@ def test_captured_source_calendar_errors_precede_values_for_every_carrier(
         forbidden,
     )
     monkeypatch.setattr("marivo.analysis.session.core.Session.catalog", property(forbidden))
-    monkeypatch.setattr("marivo._temporal_grid.parse_timezone", forbidden)
+    monkeypatch.setattr("marivo._temporal_grid.normalize_timezone", forbidden)
     monkeypatch.setattr(CompletedFrameData, "copy_rows", forbidden)
     monkeypatch.setattr(CompletedFrameData, "copy_attachments", forbidden)
     expected = "supported builtin" if fault == "hour_rule" else "compatible frozen"
@@ -1024,7 +1024,7 @@ def test_named_compare_consumes_direct_frozen_relations_and_equivalent_explicit_
     def forbidden(*args: object, **kwargs: object) -> None:
         raise AssertionError("fixed named comparison consulted live time authority")
 
-    monkeypatch.setattr("marivo._temporal_grid.parse_timezone", forbidden)
+    monkeypatch.setattr("marivo._temporal_grid.normalize_timezone", forbidden)
     result = current.compare({"yoy": mv.baseline(yoy), "mom": mv.baseline(mom)}).compute()
     assert isinstance(result._schema.axes[0], CalendarDataAxis)
     assert result._schema.axes == current._schema.axes

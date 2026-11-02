@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import inspect
-from dataclasses import fields
+from dataclasses import fields, replace
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -13,6 +14,7 @@ import marivo.datasource.catalog as catalog_module
 import marivo.semantic as ms
 from marivo.datasource.authoring import (
     ClickHouseSpec,
+    DatasourceSpec,
     DuckDBSpec,
     MySQLSpec,
     PostgresSpec,
@@ -140,7 +142,7 @@ def test_trino_spec_maps_declared_fields_and_named_secret_env_refs() -> None:
         host="trino.example",
         catalog="hive",
         port=8443,
-        timezone="Asia/Shanghai",
+        wall_clock_timezone="Asia/Shanghai",
         client_tags=("agent", "semantic-authoring"),
         session_properties={"query_max_run_time": "5m"},
         user_env="TRINO_USER",
@@ -153,11 +155,11 @@ def test_trino_spec_maps_declared_fields_and_named_secret_env_refs() -> None:
         "host": "trino.example",
         "catalog": "hive",
         "port": 8443,
-        "timezone": "Asia/Shanghai",
         "client_tags": ["agent", "semantic-authoring"],
         "session_properties": {"query_max_run_time": "5m"},
     }
     assert ir.env_refs == {"user": "TRINO_USER", "auth": "TRINO_AUTH"}
+    assert ir.wall_clock_timezone == "Asia/Shanghai"
 
 
 def test_trino_user_env_is_required_by_spec_and_helper() -> None:
@@ -576,3 +578,110 @@ def test_datasource_spec_render_summarizes_hidden_configuration_and_credentials(
     assert len(rendered.encode("utf-8")) < 1024
     assert len(repr(spec)) < 200
     assert spec.env_refs == {"user": "WAREHOUSE_USER", "auth": "WAREHOUSE_AUTH"}
+
+
+@pytest.mark.parametrize(
+    "spec",
+    [
+        md.duckdb(name="local", wall_clock_timezone="Etc/GMT-8"),
+        md.postgres(name="pg", host="pg.example", database="app", wall_clock_timezone="+08:00"),
+        md.mysql(name="my", host="mysql.example", database="app", wall_clock_timezone="UTC+08:00"),
+        md.trino(
+            name="tr",
+            host="trino.example",
+            catalog="hive",
+            user_env="TRINO_USER",
+            wall_clock_timezone="UTC+08:00:00",
+        ),
+        md.clickhouse(name="ch", host="ch.example", wall_clock_timezone="UTC+08:00"),
+    ],
+)
+def test_wall_clock_timezone_is_normalized_separate_from_connection_fields(
+    spec: DatasourceSpec, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from marivo.datasource import store
+    from marivo.datasource.authoring_store import datasource_spec_fingerprint
+
+    declaration = _ir(spec)
+    assert spec.wall_clock_timezone == "UTC+08:00"
+    assert declaration.wall_clock_timezone == "UTC+08:00"
+    assert "wall_clock_timezone" not in declaration.fields
+    assert "wall_clock_timezone" not in declaration.env_refs
+    assert "wall-clock timezone: UTC+08:00" in spec.render()
+    changed = replace(declaration, wall_clock_timezone="UTC")
+    assert datasource_spec_fingerprint(declaration) == datasource_spec_fingerprint(changed)
+
+    store.save_one(spec, project_root=tmp_path)
+    loaded = store.load_one(spec.name, project_root=tmp_path)
+    assert loaded is not None
+    assert loaded.wall_clock_timezone == "UTC+08:00"
+    assert loaded.fields == declaration.fields
+    assert loaded.env_refs == declaration.env_refs
+    assert store.load_one("default", project_root=tmp_path).wall_clock_timezone is None
+    description = md.load(workspace_dir=tmp_path).describe(spec.name)
+    assert description.wall_clock_timezone == "UTC+08:00"
+    assert "wall-clock timezone: UTC+08:00" in description.render()
+
+    from marivo.datasource import backends
+    from marivo.datasource.engines import require_profile_for_backend_type
+
+    profile = require_profile_for_backend_type(spec.backend_type)
+    captured: dict[str, object] = {}
+
+    def connect(name: str, kwargs: dict[str, object]) -> SimpleNamespace:
+        assert name == spec.name
+        captured.update(kwargs)
+        return SimpleNamespace()
+
+    monkeypatch.setenv("TRINO_USER", "reader")
+    monkeypatch.setattr(
+        backends,
+        "require_profile_for_backend_type",
+        lambda _kind: replace(profile, connect=connect),
+    )
+    backends.build_backend(declaration)
+    assert "wall_clock_timezone" not in captured
+    if spec.backend_type == "trino":
+        assert captured["timezone"] == "UTC"
+
+
+@pytest.mark.parametrize(
+    "value", ["", " Asia/Shanghai", "Asia/Shanghai ", "localtime", "Not/AZone"]
+)
+def test_wall_clock_timezone_invalid_values_have_datasource_repair(value: str) -> None:
+    with pytest.raises(DatasourceFieldInvalidError) as caught:
+        md.duckdb(name="warehouse", wall_clock_timezone=value)
+    assert caught.value.received == repr(value)
+    assert caught.value.effect_observed.query_executed is False
+    assert caught.value.repair.help_target.canonical_id == "duckdb"
+
+
+def test_trino_timezone_is_removed_from_spec_and_constructor() -> None:
+    for constructor in (md.trino, TrinoSpec):
+        assert "timezone" not in inspect.signature(constructor).parameters
+        with pytest.raises(TypeError, match="timezone"):
+            constructor(
+                name="warehouse",
+                host="trino.example",
+                catalog="hive",
+                user_env="TRINO_USER",
+                **{"timezone": "UTC"},
+            )
+    with pytest.raises(DatasourceFieldInvalidError, match="extra cannot contain"):
+        md.trino(
+            name="warehouse",
+            host="trino.example",
+            catalog="hive",
+            user_env="TRINO_USER",
+            extra={"timezone": "Asia/Shanghai"},
+        )
+    with pytest.raises(DatasourceFieldInvalidError, match="extra cannot contain"):
+        md.duckdb(name="warehouse", extra={"wall_clock_timezone": "UTC"})
+
+
+def test_datasource_ir_normalizes_direct_declarations_and_rejects_invalid_timezone() -> None:
+    definition = _ir(md.duckdb(name="warehouse"))
+    assert replace(definition, wall_clock_timezone="Etc/UTC").wall_clock_timezone == "UTC"
+    assert replace(definition, wall_clock_timezone="Etc/GMT-8").wall_clock_timezone == "UTC+08:00"
+    with pytest.raises(DatasourceFieldInvalidError, match="wall_clock_timezone is invalid"):
+        replace(definition, wall_clock_timezone="Not/AZone")

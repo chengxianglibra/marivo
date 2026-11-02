@@ -24,53 +24,59 @@ snapshot rather than adopting a new report timezone.
 
 | Authority | Purpose |
 | --- | --- |
-| Authored parser/source time role | Interpret source date, wall clock or instant |
-| Reader timezone | Interpret source values when no explicit parser authority suffices |
-| Session report timezone | Construct default reporting boundaries and builtin grids |
+| Field parser, then Datasource `wall_clock_timezone` | Interpret naive source clocks and business DATE values |
+| Physical aware type | Preserve an existing absolute instant |
+| Session / explicit scope report timezone | Interpret reporting ranges, calendar groups and labels |
 | Certified calendar timezone/snapshot | Govern named period boundaries and membership |
-| Frozen result coordinates | Interpret saved values without consulting current rules |
+| Frozen result coordinates and source interpretation | Read saved values without current declarations or host state |
 
-Reader authority is resolved only when required, after the real connection opens.
-Explicit parser authority takes precedence. Physical instants need no unnecessary
-reader probe; independent adapter transport checks still apply. An absent probe
-capability permits a recorded system fallback. A failed/invalid supported probe
-fails with its cause, rather than falling back.
-Schema preparation captures reader timezone and origin; execution rechecks engine
-authority before business reads. Fixed-data operations and cold recovery neither
-probe readers nor resolve the current host timezone.
+`ms.timestamp(timezone=...)`, `ms.date(timezone=...)` and supported
+`ms.strptime(format, timezone=...)` declarations override the Datasource default.
+Date-only formats accept business-day timezone. `hour_prefix(prefix)` recursively
+inherits the prefix field's effective declaration, including its origin.
+Missing declarations for naive values and DATE fail before a business read;
+readiness handles statically known encodings, while validation qualifies physical
+schema. Aware physical fields ignore the Datasource default and reject an explicit
+parser timezone. No reader, report, host or certification boundary timezone fills
+in missing source meaning.
 
-Naive Entity identity is a wall-clock value with no implicit timezone. Identity
-retains exact ticks independently of TimeDimension parsing and Session/reader
-authority; naive and aware keys cannot be implicitly matched. A TimeDimension
-projection over that same column has its own parser/reader interpretation.
+Native transport settings remain private: DuckDB, PostgreSQL, MySQL and Trino use
+their required UTC sessions. ClickHouse DateTime/DateTime64 represents an instant;
+its neutral parser/calendar carriers may retain a UTC label to isolate the server
+zone. These representation details do not establish a business source timezone.
+Naive Entity primary keys retain exact wall-clock identity independently of their
+TimeDimension projection and cannot implicitly match aware keys.
 
-ClickHouse reads a zoneless DateTime or DateTime64 in the server timezone, so it
-is not a neutral wall clock there. Compiler-owned civil clocks, calendar grid
-starts and bucket keys on ClickHouse are carried as `DateTime64(6, 'UTC')`
-values, so truncation and interval arithmetic do not depend on the server zone.
-DATE calendar inputs enter this civil carrier directly before truncation, without
-a zoneless timestamp intermediate that would interpret midnight in the server
-zone. The calendar timezone supplies the interpretation of the truncated civil
-clock when deriving the actual bucket instant.
+A source DATE D retains its DATE projection. For temporal membership, windows,
+sampling, grouping and version control it belongs by its native business-day start
+D 00:00 in source timezone Z. A report in timezone X groups that instant in X.
+This assigns each complete input row; it does not reconstruct event totals within
+a different timezone's day. DATE contributions require complete report days in X
+and do not support subday grain or non-integral-day durations. X midnight need
+not be midnight in Z. Fixed results retain their captured interpretation.
 
-Civil dates do not shift; physical instants preserve their meaning. Logical
-kind and physical precision are checked independently. Unsupported exact
-conversion fails without truncation. Projected source values retain the backend's
-native gap/fold interpretation.
+Source parsing, filtering and calendar assignment follow the actual backend or
+local kernel's native gap/fold behavior, including its NULL or error result. No
+shared gap/fold policy, extra source audit, Python replay or retry through another
+executor is introduced. Session anchors and exact scope inputs retain their strict
+civil-boundary validation; captured aware boundaries never get reinterpreted by a
+source backend.
 
-Source projection, filtering and calendar assignment use the actual executor's
-native interpretation of local clocks. Gap/fold behavior can differ between
-backends and pandas; there is no shared wall-order emulation, timezone admission
-proof, or retry through another executor. Exact raw-column rewrites are retained
-only when equivalent to that interpretation.
+Timezone inputs share normalized IANA and fixed-offset identity. UTC aliases
+normalize to UTC; `Etc/GMT-8` becomes `UTC+08:00`. Other IANA aliases remain distinct
+identities. Fixed offsets use offset arithmetic and are never passed as backend
+timezone names. UTC may carry absolute keys, but compilation does not require a
+source-to-UTC-to-report conversion chain.
 
-Session input boundaries and calendar construction retain their exact validation:
-unresolved ambiguous/nonexistent civil boundaries reject; aware instants remain
-exact. Output positions are evaluated by the same executor as the time operation.
-`hour_prefix(prefix)` combines a civil-date prefix and hour using the prefix's
-source context and reader default. A CivilDate has no intrinsic timezone; the
-composite does not copy the report timezone or introduce an independent parser
-parameter. Predicate literals match the field's civil/instant kind.
+Filtering prefers original aware columns and matching absolute constants.
+Naive/DATE cutoff rewriting is qualified separately for each endpoint: a fixed
+offset is stable; an IANA zone must retain the same offset at hourly samples
+through the endpoint's absolute ±48-hour window. Removing native localization
+also requires the adapter's qualified total-localization capability. An endpoint
+that cannot be proved equivalent retains its native exact predicate, preserving
+precision, NULL and error behavior. Encoded clocks retain parsing. Same-zone
+elimination has the same native-equivalence requirement. SQL shape alone does
+not establish index use or partition pruning.
 
 ## Output axes and observation time
 
@@ -107,8 +113,8 @@ across snapshots retain their separate source contributions. Validity fact roots
 require a fixed anchor. Row time does not replace the Metric's observation time
 or classify at bucket endpoints.
 
-DATE control selects the target snapshot business-day label and supports only
-DATE validity. Absolute timestamp control selects snapshot days in the target's
+DATE control uses its declared source-day start to select the target snapshot
+business day and supports only DATE validity; cross-zone labels may differ. Absolute timestamp control selects snapshot days in the target's
 business timezone or compares exact validity endpoints. Native absolute timestamps
 and UTC/fixed-offset local clocks are admitted. New IANA local-clock gap/fold
 combinations reject before business reads; existing fixed-anchor membership is

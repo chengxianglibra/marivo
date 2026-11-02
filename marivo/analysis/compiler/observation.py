@@ -39,6 +39,7 @@ from marivo._definition.types import (
     coordinate_read_keys,
     field_read_key,
 )
+from marivo._timezones import normalize_timezone
 from marivo.analysis.binding.observe import ContributionBinding
 from marivo.analysis.compiler.predicate import lower_condition
 from marivo.analysis.core.data_types import (
@@ -481,10 +482,9 @@ def formula_columns(program: FormulaProgram) -> tuple[DataColumn, ...]:
 def temporal_bound(value: ir.Value, boundary: datetime, zone: str) -> ir.Value:
     """Compare civil dates in the captured boundary zone, instants by exact instant."""
     if value.type().is_date():
-        from marivo.analysis.core.time_authority import time_zone
-
         return ibis.literal(
-            boundary.astimezone(time_zone(zone)).replace(tzinfo=None), type="timestamp(6)"
+            boundary.astimezone(normalize_timezone(zone).tz).replace(tzinfo=None),
+            type="timestamp(6)",
         )
     return ibis.literal(boundary, type="timestamp('UTC', 6)")
 

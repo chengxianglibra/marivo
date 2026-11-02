@@ -71,7 +71,7 @@ def test_membership_preserves_explicit_coordinate_and_predicate_paths(
         arguments_text = ", ".join(f"{key}={value!r}" for key, value in arguments.items())
         semantic_project_factory(
             {
-                "datasources/warehouse.py": f"import marivo.datasource as md\nmd.{backend}(name='warehouse', {arguments_text})\n",
+                "datasources/warehouse.py": f"import marivo.datasource as md\nmd.{backend}(wall_clock_timezone='UTC', name='warehouse', {arguments_text})\n",
                 "sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales', owner='Tests', default=True)\n",
                 "sales/model.py": f"""import marivo.datasource as md
 import marivo.semantic as ms

@@ -14,7 +14,7 @@ def test_mysql_defaults_and_explicit_options_reach_pymysql(monkeypatch: pytest.M
     connect = Mock(return_value=connection)
     monkeypatch.setattr(mysql, "Connection", connect)
     monkeypatch.setattr(mysql.getpass, "getuser", lambda: "local_reader")
-    backend = mysql.MySQLBackend().connect(host="localhost", database="warehouse")
+    mysql.MySQLBackend().connect(host="localhost", database="warehouse")
     connect.assert_called_once_with(
         host="127.0.0.1",
         user="local_reader",
@@ -25,7 +25,6 @@ def test_mysql_defaults_and_explicit_options_reach_pymysql(monkeypatch: pytest.M
     )
     cursor = connection.cursor.return_value.__enter__.return_value
     cursor.execute.assert_called_once_with("SET @@session.time_zone = '+00:00'")
-    assert backend._marivo_timezone_name == "UTC"
 
     connect.reset_mock()
     mysql.MySQLBackend().connect(

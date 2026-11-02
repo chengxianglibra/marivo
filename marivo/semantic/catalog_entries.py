@@ -115,6 +115,7 @@ class DatasourceDefinition:
 
     context: AiContextIR
     backend_type: str
+    wall_clock_timezone: str | None
     fields: tuple[tuple[str, FrozenJsonValue], ...]
     env_refs: tuple[tuple[str, str], ...]
     entities: tuple[str, ...]

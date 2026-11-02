@@ -22,7 +22,7 @@ def test_repeatable_session_help_is_reachable_and_discloses_conflicts() -> None:
     assert page == rendered_help(mv.session.get_or_create)
     assert "Kind: callable" in page
     assert "None stores no description on creation" in page
-    assert "None resolves and freezes the system timezone on creation" in page
+    assert "None strictly resolves the system IANA zone once on creation" in page
     assert "None selects all authoring domain directories on creation" in page
     assert "Non-None values must match" in page
     assert "never set a current Session" in page
@@ -86,7 +86,7 @@ def test_session_discovery_help_describes_absence_without_creating_store(
     assert absence in text
     assert "No creation" in text
     assert old.read_bytes() == b"preserve-old-store"
-    assert not (old.parent.parent / "v27").exists()
+    assert not (old.parent.parent / "v28").exists()
 
 
 def test_observe_help_distinguishes_field_axes_from_session_identity(

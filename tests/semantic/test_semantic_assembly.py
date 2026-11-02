@@ -579,9 +579,9 @@ def test_semantic_error_str_omits_did_you_mean_when_empty() -> None:
 def test_physical_entity_dependency_fingerprint_preserves_consumed_identity() -> None:
     from marivo.semantic._physical_identity import entity_dependency_fingerprint
 
-    # Captured before removing the Metric graph; physical identity is independent.
+    # Snapshot includes the first-class datasource source-time declaration.
     assert entity_dependency_fingerprint(_make_registry(), "sales.orders") == (
-        "286567904d7b1d6f84c8fc8aaad672d0e901d816268de1a831cead1d7690cde1"
+        "b98d141ee729abd3b38f6a2bb29ac5eca00e77ecc9af4b87f60c15df05ae04d7"
     )
 
 

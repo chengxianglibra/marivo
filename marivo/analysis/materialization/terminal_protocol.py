@@ -54,6 +54,7 @@ from marivo.analysis.core.frame_interpretation import (
     FrameCalendarAxisSchema,
     FrameCalendarEndpoint,
     FrameChangeTarget,
+    FrameCivilDateSourceTime,
     FrameComparedTime,
     FrameDecomposition,
     FrameDecompositionField,
@@ -62,6 +63,7 @@ from marivo.analysis.core.frame_interpretation import (
     FrameFixedAxis,
     FrameFixedGroup,
     FrameFixedTime,
+    FrameInstantSourceTime,
     FrameIntervalAxisSchema,
     FrameIntervalEndpoint,
     FrameLevelTarget,
@@ -79,6 +81,7 @@ from marivo.analysis.core.frame_interpretation import (
     FrameTrailingDurationWindow,
     FrameTrailingPeriodsWindow,
     FrameValueContext,
+    FrameWallClockSourceTime,
     UnresolvedDataType,
 )
 from marivo.analysis.core.frame_metadata import (
@@ -139,7 +142,7 @@ from marivo.analysis.materialization.errors import IntegrityError
 
 def invalid(received: str) -> IntegrityError:
     return IntegrityError(
-        expected="a complete Store 27 Frame output v16 value",
+        expected="a complete Store 28 Frame output v17 value",
         received=received,
         repair="Preserve the selected Store and output files. Inspect the exact terminal record; old graph/continuation formats cannot be migrated or replayed.",
         stage="terminal_output",
@@ -159,6 +162,9 @@ class InvocationInput:
 
 
 _RECORDS = (
+    FrameInstantSourceTime,
+    FrameWallClockSourceTime,
+    FrameCivilDateSourceTime,
     UnresolvedDataType,
     FrameField,
     FrameBuiltinGrain,
@@ -266,10 +272,28 @@ _RECORDS = (
 )
 _TYPES = {record.__name__: record for record in _RECORDS}
 T = TypeVar("T", ArtifactManifest, InvocationInput)
-FORMAT = "marivo.frame_output/v16"
+FORMAT = "marivo.frame_output/v17"
 
-# One closed Store26 field inventory. No older field set or dataclass fallback.
+# One closed Store28 field inventory. No older field set or dataclass fallback.
 _FIELDS = {
+    "FrameInstantSourceTime": ("axis", "physical_type", "consumption_timezone", "kind"),
+    "FrameWallClockSourceTime": (
+        "axis",
+        "physical_type",
+        "consumption_timezone",
+        "timezone",
+        "origin",
+        "inherited_from",
+        "kind",
+    ),
+    "FrameCivilDateSourceTime": (
+        "axis",
+        "physical_type",
+        "consumption_timezone",
+        "timezone",
+        "origin",
+        "kind",
+    ),
     "UnresolvedDataType": ("kind",),
     "FrameField": ("slot_id", "name", "dtype", "nullable", "unit"),
     "FrameBuiltinGrain": ("unit", "step", "kind"),
@@ -333,6 +357,7 @@ _FIELDS = {
         "value_contexts",
         "decompositions",
         "alignments",
+        "source_times",
     ),
     "DataAxis": ("token", "columns", "kind", "name", "at"),
     "CalendarDataAxis": ("token", "columns", "kind", "name", "at", "timezone", "frozen"),
@@ -708,10 +733,10 @@ def decode(text: str, expected: type[T]) -> T:
     try:
         raw_envelope = parse_json(text)
         if isinstance(raw_envelope, dict) and raw_envelope.get("format") != FORMAT:
-            raise invalid("expected Frame output v16; obsolete output format received")
+            raise invalid("expected Frame output v17; obsolete output format received")
         envelope = _obj(raw_envelope, "format contexts value")
         if envelope["format"] != FORMAT:
-            raise invalid("expected Frame output v16; obsolete output format received")
+            raise invalid("expected Frame output v17; obsolete output format received")
         contexts: list[FrameValueContext] = []
         for item in _array(envelope["contexts"]):
             context = _decode(item)
@@ -754,7 +779,7 @@ def decode_method_record(text: str, expected: type[MethodRecord]) -> MethodRecor
     try:
         envelope = _obj(parse_json(text), "format value")
         if envelope["format"] != FORMAT:
-            raise invalid("expected Frame output v16 method record")
+            raise invalid("expected Frame output v17 method record")
         value = _decode(envelope["value"])
         if type(value) is not expected:
             raise invalid("method payload has the wrong record root")

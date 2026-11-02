@@ -21,7 +21,12 @@ from marivo.datasource.errors import (
     DatasourceSecretInPlaintextError,
     repair,
 )
-from marivo.datasource.ir import AiContextIR, DatasourceIR, DatasourceSourceLocation
+from marivo.datasource.ir import (
+    AiContextIR,
+    DatasourceIR,
+    DatasourceSourceLocation,
+    _normalized_wall_clock_timezone,
+)
 from marivo.datasource.typing import AiContextValue
 from marivo.refs import DatasourceKind, Ref, SemanticKind, _validate_segment
 from marivo.refs import ref as ref_factory
@@ -71,7 +76,9 @@ SENSITIVE_FIELD_STEMS = frozenset(
 )
 JsonValue: TypeAlias = str | int | float | bool | list["JsonValue"] | dict[str, "JsonValue"] | None
 
-_META_FIELDS = frozenset({"name", "ai_context", "extra", "fields", "env_refs"})
+_META_FIELDS = frozenset(
+    {"name", "ai_context", "extra", "fields", "env_refs", "wall_clock_timezone"}
+)
 
 _SPEC_TARGET_FIELDS: dict[str, tuple[str, ...]] = {
     "duckdb": ("path",),
@@ -219,6 +226,16 @@ class _SpecBase(RenderableResult):
         ),
     )
 
+    wall_clock_timezone: str | None = field(
+        default=None,
+        metadata={
+            "meaning": (
+                "Default source timezone for undeclared naive timestamps and business dates; "
+                "does not affect physical instants or connection settings."
+            )
+        },
+    )
+
     backend_type: ClassVar[str]
     fields: dict[str, JsonValue] = field(init=False)
     env_refs: dict[str, str] = field(init=False)
@@ -231,6 +248,13 @@ class _SpecBase(RenderableResult):
     def __post_init__(self) -> None:
         validate_datasource_name(self.name)
         self._validate_required_string_fields()
+        object.__setattr__(
+            self,
+            "wall_clock_timezone",
+            _normalized_wall_clock_timezone(
+                self.wall_clock_timezone, name=self.name, backend_type=self.backend_type
+            ),
+        )
         literal_fields, env_refs = self._split_declared_fields()
         object.__setattr__(self, "fields", literal_fields)
         object.__setattr__(self, "env_refs", env_refs)
@@ -269,6 +293,8 @@ class _SpecBase(RenderableResult):
             .field("ref", ref_factory.datasource(self.name).key)
             .field("target", rendered_target)
         )
+        if self.wall_clock_timezone is not None:
+            card.field("wall-clock timezone", self.wall_clock_timezone)
         if credential_fields:
             ref_count = len(self.env_refs)
             card.field(
@@ -343,6 +369,20 @@ class _SpecBase(RenderableResult):
 
         if self.extra:
             for key, value in self.extra.items():
+                if key == "wall_clock_timezone" or (
+                    self.backend_type == "trino" and key == "timezone"
+                ):
+                    raise DatasourceFieldInvalidError(
+                        message=f"datasource {self.name!r} extra cannot contain {key!r}",
+                        expected="wall_clock_timezone as a first-class source declaration",
+                        received=f"extra[{key!r}]",
+                        location=f"datasource {self.name!r} extra",
+                        repair=repair(
+                            kind="reauthor",
+                            canonical_id=self.backend_type,
+                            action="Remove this extra option and declare wall_clock_timezone explicitly.",
+                        ),
+                    )
                 if key in SENSITIVE_FIELD_STEMS:
                     raise DatasourceSecretInPlaintextError(
                         message=(
@@ -367,6 +407,7 @@ class _SpecBase(RenderableResult):
             semantic_id=self.name,
             name=self.name,
             backend_type=self.backend_type,
+            wall_clock_timezone=self.wall_clock_timezone,
             fields=dict(self.fields),
             env_refs=dict(self.env_refs),
             ai_context=cast("AiContextIR", self.ai_context),
@@ -473,9 +514,6 @@ class TrinoSpec(_SpecBase):
     schema: str | None = field(default=None, metadata=_description("Optional default schema."))
     source: str | None = field(
         default=None, metadata=_description("Optional client application/source tag.")
-    )
-    timezone: str | None = field(
-        default=None, metadata=_description("Optional engine session timezone.")
     )
     http_scheme: str | None = field(default=None, metadata=_description("Set to 'https' for TLS."))
     client_tags: tuple[str, ...] | None = field(
@@ -685,6 +723,7 @@ def duckdb(
     http_scope: str | None = None,
     http_bearer_token_env: str | None = None,
     http_headers_env: dict[str, str] | None = None,
+    wall_clock_timezone: str | None = None,
     ai_context: AiContextValue | None = None,
     extra: dict[str, JsonValue] | None = None,
 ) -> DuckDBSpec:
@@ -698,6 +737,9 @@ def duckdb(
         http_bearer_token_env: Environment variable containing a bearer token.
         http_headers_env: Optional custom HTTP header names mapped to environment
             variables containing their secret values.
+        wall_clock_timezone: Optional source timezone for undeclared naive timestamps,
+            encoded local times and business dates. Accepts IANA names or fixed offsets;
+            physical instants and connection settings are unaffected.
         ai_context: Optional AI-facing context, via ``ms.ai_context(...)``.
             Put text descriptions in ``business_definition``.
         extra: Rare JSON-safe ibis keyword arguments not modeled by the typed class.
@@ -729,6 +771,7 @@ def duckdb(
         http_scope=http_scope,
         http_bearer_token_env=http_bearer_token_env,
         http_headers_env=http_headers_env,
+        wall_clock_timezone=wall_clock_timezone,
         ai_context=ai_context,
         extra=extra,
     )
@@ -745,11 +788,11 @@ def trino(
     port: int | None = None,
     schema: str | None = None,
     source: str | None = None,
-    timezone: str | None = None,
     http_scheme: str | None = None,
     client_tags: tuple[str, ...] | None = None,
     session_properties: dict[str, JsonValue] | None = None,
     auth_env: str | None = None,
+    wall_clock_timezone: str | None = None,
     ai_context: AiContextValue | None = None,
     extra: dict[str, JsonValue] | None = None,
 ) -> TrinoSpec:
@@ -763,12 +806,14 @@ def trino(
         port: Trino port; ibis default is 8080.
         schema: Optional default schema.
         source: Optional client application/source tag.
-        timezone: Optional engine session timezone.
         http_scheme: Set to 'https' for TLS.
         client_tags: Optional Trino client tags.
         session_properties: Optional Trino session properties.
         auth_env: Optional explicit environment variable for a Trino auth token
             or password. When omitted, Marivo passes no auth value.
+        wall_clock_timezone: Optional source timezone for undeclared naive timestamps,
+            encoded local times and business dates. Accepts IANA names or fixed offsets;
+            physical instants and connection settings are unaffected.
         ai_context: Optional AI-facing context, via ``ms.ai_context(...)``.
             Put text descriptions in ``business_definition``.
         extra: Rare JSON-safe ibis keyword arguments not modeled by the typed class.
@@ -810,11 +855,11 @@ def trino(
         port=port,
         schema=schema,
         source=source,
-        timezone=timezone,
         http_scheme=http_scheme,
         client_tags=client_tags,
         session_properties=session_properties,
         auth_env=auth_env,
+        wall_clock_timezone=wall_clock_timezone,
         ai_context=ai_context,
         extra=extra,
     )
@@ -831,6 +876,7 @@ def mysql(
     autocommit: bool | None = None,
     user_env: str | None = None,
     password_env: str | None = None,
+    wall_clock_timezone: str | None = None,
     ai_context: AiContextValue | None = None,
     extra: dict[str, JsonValue] | None = None,
 ) -> MySQLSpec:
@@ -844,6 +890,9 @@ def mysql(
         autocommit: Optional autocommit override.
         user_env: Environment variable for MySQL user.
         password_env: Environment variable for MySQL password.
+        wall_clock_timezone: Optional source timezone for undeclared naive timestamps,
+            encoded local times and business dates. Accepts IANA names or fixed offsets;
+            physical instants and connection settings are unaffected.
         ai_context: Optional AI-facing context, via ``ms.ai_context(...)``.
             Put text descriptions in ``business_definition``.
         extra: JSON-safe PyMySQL connection options not modeled by the typed class.
@@ -880,6 +929,7 @@ def mysql(
         autocommit=autocommit,
         user_env=user_env,
         password_env=password_env,
+        wall_clock_timezone=wall_clock_timezone,
         ai_context=ai_context,
         extra=extra,
     )
@@ -897,6 +947,7 @@ def postgres(
     autocommit: bool | None = None,
     user_env: str | None = None,
     password_env: str | None = None,
+    wall_clock_timezone: str | None = None,
     ai_context: AiContextValue | None = None,
     extra: dict[str, JsonValue] | None = None,
 ) -> PostgresSpec:
@@ -911,6 +962,9 @@ def postgres(
         autocommit: Optional autocommit override.
         user_env: Environment variable for Postgres user.
         password_env: Environment variable for Postgres password.
+        wall_clock_timezone: Optional source timezone for undeclared naive timestamps,
+            encoded local times and business dates. Accepts IANA names or fixed offsets;
+            physical instants and connection settings are unaffected.
         ai_context: Optional AI-facing context, via ``ms.ai_context(...)``.
             Put text descriptions in ``business_definition``.
         extra: Rare JSON-safe ibis keyword arguments not modeled by the typed class.
@@ -945,6 +999,7 @@ def postgres(
         autocommit=autocommit,
         user_env=user_env,
         password_env=password_env,
+        wall_clock_timezone=wall_clock_timezone,
         ai_context=ai_context,
         extra=extra,
     )
@@ -962,6 +1017,7 @@ def clickhouse(
     settings: dict[str, JsonValue] | None = None,
     user_env: str | None = None,
     password_env: str | None = None,
+    wall_clock_timezone: str | None = None,
     ai_context: AiContextValue | None = None,
     extra: dict[str, JsonValue] | None = None,
 ) -> ClickHouseSpec:
@@ -976,6 +1032,9 @@ def clickhouse(
         settings: Optional ClickHouse settings map.
         user_env: Environment variable for ClickHouse user.
         password_env: Environment variable for ClickHouse password.
+        wall_clock_timezone: Optional source timezone for undeclared naive timestamps,
+            encoded local times and business dates. Accepts IANA names or fixed offsets;
+            physical instants and connection settings are unaffected.
         ai_context: Optional AI-facing context, via ``ms.ai_context(...)``.
             Put text descriptions in ``business_definition``.
         extra: Rare JSON-safe ibis keyword arguments not modeled by the typed class.
@@ -1014,6 +1073,7 @@ def clickhouse(
         settings=settings,
         user_env=user_env,
         password_env=password_env,
+        wall_clock_timezone=wall_clock_timezone,
         ai_context=ai_context,
         extra=extra,
     )

@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from pathlib import Path
 
+from marivo._timezones import same_timezone
 from marivo.analysis.datasets.errors import DatasetConstructionError
 from marivo.analysis.errors import (
     AnalysisRepair,
@@ -130,21 +131,21 @@ def get_or_create(
                 raise
     selected_timezone = timezone
     if timezone is not None:
-        from marivo.analysis.timezone import zoneinfo_from_name
-        from marivo.datasource.timezone import parse_timezone
+        from marivo.analysis.timezone import resolve_timezone
 
-        try:
-            selected_timezone, _ = parse_timezone(timezone)
-        except (ValueError, KeyError):
-            zoneinfo_from_name(timezone)
-            raise
+        selected_timezone = resolve_timezone(timezone).name
     configuration: tuple[tuple[str, object, object], ...] = (
         ("question", question, record.question),
         ("timezone", selected_timezone, record.report_timezone_name),
         ("domains", selected_domains, record.domains),
     )
     for field, requested, saved in configuration:
-        if requested is not None and requested != saved:
+        matches = (
+            same_timezone(selected_timezone, record.report_timezone_name)
+            if field == "timezone" and selected_timezone is not None
+            else requested == saved
+        )
+        if requested is not None and not matches:
             raise SessionStateError(
                 message="Explicit Session configuration conflicts with the saved context.",
                 expected=f"saved {field}: {saved!r}",
@@ -157,6 +158,9 @@ def get_or_create(
                     help_target=LiveHelpTarget(
                         surface="analysis", canonical_id="session.get_or_create"
                     ),
+                    snippet=f"session = mv.session.get_or_create({name!r}, timezone={record.report_timezone_name!r})"
+                    if field == "timezone"
+                    else None,
                     candidates=(record.session_ref,),
                 ),
             )

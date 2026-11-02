@@ -296,7 +296,7 @@ def test_independent_roots_and_temporal_fold(
                 models += f"@ms.metric()\ndef {name}_folded():\n    return {name}_total.per({name}_clock).{fold}()\n"
         files = {
             "datasources/warehouse.py": "import marivo.datasource as md\n"
-            + f"md.{backend}(name='warehouse',{argtext})\n",
+            + f"md.{backend}(wall_clock_timezone='UTC', name='warehouse',{argtext})\n",
             "semantic/sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales',owner='R9',default=True)\n",
             "semantic/sales/models.py": models,
         }

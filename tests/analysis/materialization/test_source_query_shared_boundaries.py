@@ -198,7 +198,7 @@ def test_shared_selected_host_domain_stays_fixed_when_source_ranking_changes(
     semantic_project_factory(
         {
             "datasources/warehouse.py": "import marivo.datasource as md\n"
-            + f"md.duckdb(name='warehouse',path={str(tmp_path / 'warehouse.duckdb')!r})\n",
+            + f"md.duckdb(wall_clock_timezone='UTC', name='warehouse',path={str(tmp_path / 'warehouse.duckdb')!r})\n",
             "sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales',owner='Analytics',default=True)\n",
             "sales/model.py": "import marivo.datasource as md\nimport marivo.semantic as ms\n"
             + f"facts=ms.entity(name='facts',datasource=ms.ref.datasource('warehouse'),source=md.parquet({str(path)!r}),primary_key=['id'])\n"

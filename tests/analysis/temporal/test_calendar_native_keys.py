@@ -13,10 +13,10 @@ import sqlglot.expressions as sge
 import marivo.analysis as mv
 from marivo._temporal import certify_period_calendar_rows, semantic_grain
 from marivo.analysis.compiler.calendar import bind_calendar
-from marivo.analysis.compiler.source_time import localize, timestamp
 from marivo.analysis.dsl.temporal import exact_scope
 from marivo.analysis.materialization.temporal_sql import lower_temporal
 from marivo.datasource._calendar_relations import CalendarData
+from marivo.datasource._temporal_expressions import localize, timestamp
 from marivo.datasource.ir import TableSourceIR
 from marivo.refs import ref
 from marivo.semantic.reader import SemanticProject

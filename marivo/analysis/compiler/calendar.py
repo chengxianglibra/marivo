@@ -8,14 +8,14 @@ import ibis.expr.types as ir
 
 from marivo._definition.types import CalendarCoordinate, IntervalCoordinate
 from marivo._temporal import Grain
-from marivo.analysis.compiler.source_time import render, timestamp
+from marivo.datasource._temporal_expressions import render, timestamp
 
 KEY_TYPE = dt.Timestamp(timezone="UTC", scale=6)
 
 
 def builtin_key(value: ir.Value, calendar: CalendarCoordinate) -> ir.Value:
     """Use the executing backend's civil truncation and native interpretation."""
-    from marivo.analysis.compiler.source_time import localize
+    from marivo.datasource._temporal_expressions import localize
 
     grain = calendar.grain_spec
     assert grain.kind == "builtin" and grain.unit is not None
@@ -76,7 +76,7 @@ def bind_calendar(
         )
     from datetime import datetime
 
-    from marivo.analysis.compiler.source_time import localize
+    from marivo.datasource._temporal_expressions import localize
 
     wall = datetime.fromisoformat(calendar.civil_bounds[0][0]).replace(tzinfo=None)
     return table.mutate(

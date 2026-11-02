@@ -35,7 +35,7 @@ from marivo._temporal import (
     session_time_scope,
 )
 from marivo._temporal_grid import _floor, _next, bind_grid, instant
-from marivo._timezones import parse_timezone
+from marivo._timezones import normalize_timezone, same_timezone
 from marivo.analysis.core.model import reject
 
 if TYPE_CHECKING:
@@ -93,7 +93,7 @@ def _previous(value: datetime, grain: Grain) -> datetime:
 
 def _periods(grain: Grain, zone: str) -> tuple[tuple[datetime, datetime], ...]:
     snapshot = grain._snapshot
-    if snapshot is None or snapshot.boundary_timezone != zone:
+    if snapshot is None or not same_timezone(snapshot.boundary_timezone, zone):
         reject(
             "a captured calendar in the observation timezone",
             repr(grain),
@@ -147,7 +147,7 @@ def _reset(end: datetime, grain: Grain, zone: str) -> tuple[datetime, datetime]:
             for cell in grid.cells
             if cell.original_start < end <= cell.original_end
         )
-    local = end.astimezone(parse_timezone(zone)[1])
+    local = end.astimezone(normalize_timezone(zone).tz)
     left = _floor(local, grain)
     if left == local:
         # Boundary ownership is exact: the period just completed owns this endpoint.
@@ -201,7 +201,7 @@ def validate_date_contribution(contribution: ContributionBinding, path: str) -> 
             bounds = tuple(bound for cell in axis.cells for bound in cell[2:])
         else:
             bounds = (axis.start, axis.end)
-        zone = parse_timezone(axis.timezone)[1]
+        zone = normalize_timezone(axis.timezone).tz
         offending = next(
             (bound for bound in bounds if bound.astimezone(zone).time() != datetime.min.time()),
             None,
@@ -211,7 +211,7 @@ def validate_date_contribution(contribution: ContributionBinding, path: str) -> 
             fail(f"{path}: calendar boundary {local} is not local midnight in {axis.timezone}")
     period = contribution.period
     if period is not None:
-        zone = parse_timezone(period.timezone)[1]
+        zone = normalize_timezone(period.timezone).tz
         if any(
             bound is not None and bound.astimezone(zone).time() != datetime.min.time()
             for bound in (period.start, period.end)
@@ -422,7 +422,7 @@ def bind_windows(
                                 "Metric.window",
                             )
                         local: datetime = cells[index][0].astimezone(
-                            parse_timezone(period.timezone)[1]
+                            normalize_timezone(period.timezone).tz
                         )
                         for _ in range(rule.count - 1):
                             local = _previous(local, grain)

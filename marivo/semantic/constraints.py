@@ -386,9 +386,9 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         ("time_dimension",),
         "Native date and timezone-aware datetime/timestamp columns may omit parse; "
         "string/integer columns require ms.strptime(...), hour-only columns require "
-        "ms.hour_prefix(prefix); naive timestamps use explicit parser timezone or frozen reader authority.",
+        "ms.hour_prefix(prefix); naive timestamps use explicit parser timezone or Datasource wall_clock_timezone.",
         "Deferred parse resolves only native temporal ibis types; encoded time values need "
-        "explicit parse metadata; naive timestamps use parser or resolved reader authority.",
+        "explicit parse metadata; naive timestamps use parser or Datasource wall_clock_timezone.",
         "Use ms.strptime(format, ...) for string/integer columns, ms.hour_prefix(prefix) "
         "for hour-only columns, and ms.timestamp(timezone=...) "
         "to declare a known source timezone for naive native temporal columns.",

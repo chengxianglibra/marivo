@@ -16,6 +16,7 @@ from marivo.datasource.errors import DatasourceConnectionError
 from marivo.refs import RefPayloadV1
 from marivo.semantic.ir import TargetDimensionContract, TimestampParse
 from tests.datasource.source_cases import SourceData, source_case
+from tests.shared_fixtures import declared_test_timezone
 
 
 @pytest.mark.runtime
@@ -48,7 +49,7 @@ def test_clickhouse_physical_utc_window_is_independent_of_session_timezone(
             bound.relation.happened,
             axis,
             boundary_timezone="UTC",
-            read_timezone=None,
+            source_timezone=declared_test_timezone(axis, None),
             engine="clickhouse",
         )
         assert authority.source == "physical"

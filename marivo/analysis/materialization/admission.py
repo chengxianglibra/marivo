@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from pathlib import Path
-from typing import Literal
 from uuid import uuid4
 
 from marivo._temporal import PeriodCalendarSnapshotV2
@@ -72,27 +71,9 @@ class DatasetRuntime:
         domains: tuple[str, ...] | None = None,
         event: Callable[[str], None] | None = None,
     ) -> DatasetRuntime:
-        from marivo.analysis.timezone import resolve_system_timezone, zoneinfo_from_name
+        from marivo.analysis.timezone import resolve_system_timezone, resolve_timezone
 
-        zone = resolve_system_timezone() if timezone is None else None
-        timezone_name = zone.name if zone is not None else timezone
-        assert timezone_name is not None
-        timezone_resolution: Literal["iana", "fixed_offset"] = (
-            "fixed_offset" if zone is not None and zone.resolution == "fixed_offset" else "iana"
-        )
-        if timezone is not None:
-            from datetime import timezone as fixed_timezone
-
-            from marivo.datasource.timezone import parse_timezone
-
-            try:
-                timezone_name, resolved_zone = parse_timezone(timezone)
-            except (ValueError, KeyError):
-                zoneinfo_from_name(timezone)
-                raise
-            timezone_resolution = (
-                "fixed_offset" if isinstance(resolved_zone, fixed_timezone) else "iana"
-            )
+        zone = resolve_system_timezone() if timezone is None else resolve_timezone(timezone)
         store = SessionStore(project_root)
         candidate_ref = "session_" + uuid4().hex
         with session_writer_guard(store.layout.lock_path(candidate_ref), session_ref=candidate_ref):
@@ -100,8 +81,9 @@ class DatasetRuntime:
                 name,
                 session_ref=candidate_ref,
                 question=question,
-                report_timezone_name=timezone_name,
-                report_timezone_resolution=timezone_resolution,
+                report_timezone_name=zone.name,
+                report_timezone_resolution=zone.kind,
+                report_timezone_origin="system" if timezone is None else "explicit",
                 domains=domains,
             )
         return cls(store, record.session_ref, event=event)

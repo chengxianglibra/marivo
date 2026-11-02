@@ -63,11 +63,16 @@ def _datasource_model(
         **case.session.datasource.fields,
         **{key + "_env": value for key, value in case.session.datasource.env_refs.items()},
     }
+    if backend == "trino":
+        arguments.pop("timezone", None)
     if "user" in arguments:
         monkeypatch.setenv("MARIVO_NUMERIC_QUERY_READER", str(arguments.pop("user")))
         arguments["user_env"] = "MARIVO_NUMERIC_QUERY_READER"
     arguments_text = ",".join(f"{key}={value!r}" for key, value in arguments.items())
-    return "import marivo.datasource as md\n" + f"md.{backend}(name='warehouse',{arguments_text})\n"
+    return (
+        "import marivo.datasource as md\n"
+        + f"md.{backend}(wall_clock_timezone='UTC', name='warehouse',{arguments_text})\n"
+    )
 
 
 def _project(

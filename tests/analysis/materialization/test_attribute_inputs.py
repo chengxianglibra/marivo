@@ -23,7 +23,6 @@ from marivo.analysis.dsl.population import Population
 from marivo.analysis.materialization.frame_evaluation import evaluate_attribute_inputs
 from marivo.analysis.session.core import Session
 from marivo.datasource.adapters import CompiledRead
-from marivo.datasource.timezone import DatasourceEngineTimezone
 from marivo.semantic._compiled_state import CompiledSemanticState
 from marivo.semantic.reader import SemanticProject
 from tests.shared_fixtures import catalog_value, terminal_runs
@@ -81,7 +80,7 @@ def session(
     semantic_project_factory(
         {
             "datasources/warehouse.py": "import marivo.datasource as md\n"
-            + f"md.duckdb(name='warehouse', path={str(database)!r})\n",
+            + f"md.duckdb(wall_clock_timezone='UTC', name='warehouse', path={str(database)!r})\n",
             "sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales', owner='Analytics', default=True)\n",
             "sales/model.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nfacts = ms.entity(name='facts', datasource=ms.ref.datasource('warehouse'), source=md.table('facts'), primary_key=['tenant','id'])\nregion = ms.dimension_column(name='region', entity=facts, column='region')\nchannel = ms.dimension_column(name='channel', entity=facts, column='channel')\nvalue = ms.measure_column(name='value', entity=facts, column='value', unit='USD', additivity=ms.additive_all())\nweight = ms.measure_column(name='weight', entity=facts, column='weight', unit='1', additivity=ms.additive_all())\nfact_id = ms.dimension_column(name='id', entity=facts, column='id')\nfact_tenant = ms.dimension_column(name='tenant', entity=facts, column='tenant')\notherfacts = ms.entity(name='otherfacts', datasource=ms.ref.datasource('warehouse'), source=md.table('otherfacts'), primary_key=['tenant','id'])\nother_value = ms.measure_column(name='value', entity=otherfacts, column='value', unit='USD', additivity=ms.additive_all())\nother_id = ms.dimension_column(name='id', entity=otherfacts, column='id')\nother_tenant = ms.dimension_column(name='tenant', entity=otherfacts, column='tenant')\nother_fact = ms.relationship(name='other_fact', from_entity=otherfacts, to_entity=facts, keys=[ms.join_on(other_tenant, fact_tenant), ms.join_on(other_id, fact_id)])\ntags = ms.entity(name='tags', datasource=ms.ref.datasource('warehouse'), source=md.table('tags'), primary_key=['id'])\ntag_id = ms.dimension_column(name='id', entity=tags, column='id')\nlabel = ms.dimension_column(name='label', entity=tags, column='label')\nkind = ms.dimension_column(name='kind', entity=tags, column='kind')\nlinks = ms.entity(name='links', datasource=ms.ref.datasource('warehouse'), source=md.table('links'), primary_key=['id'])\nlink_fact = ms.dimension_column(name='fact_id', entity=links, column='fact_id')\nlink_tag = ms.dimension_column(name='tag_id', entity=links, column='tag_id')\nfact_links = ms.relationship(name='fact_links', from_entity=facts, to_entity=links, keys=[ms.join_on(fact_id, link_fact)])\nlink_tags = ms.relationship(name='link_tags', from_entity=links, to_entity=tags, keys=[ms.join_on(link_tag, tag_id)])\n",
         },
@@ -497,16 +496,16 @@ def test_unknown_physical_leaf_fails_before_business_read(
         contribution: ContributionBinding,
         entities: Mapping[str, ir.Table],
         state: CompiledSemanticState,
-        reader: DatasourceEngineTimezone,
         *,
         root_table: ir.Table | None = None,
+        consumption_timezone: str = "UTC",
     ) -> query_preparation.PreparedFields:
         result = original(
             contribution,
             entities,
             state,
-            reader,
             root_table=root_table,
+            consumption_timezone=consumption_timezone,
         )
         unknown = ibis.table({"unknown": "int64"}, name="unknown_source")
         return replace(result, table=result.table.cross_join(unknown))

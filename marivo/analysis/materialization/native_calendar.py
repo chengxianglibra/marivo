@@ -23,9 +23,9 @@ from marivo._definition.windows import ObservationWindow, ToDate, TrailingPeriod
 from marivo._errors import MarivoError
 from marivo._temporal import anchor_from_datetime
 from marivo._temporal_grid import TimeShiftAbsent, TimeShiftMatch
+from marivo._timezones import normalize_timezone
 from marivo.analysis.binding.windows import bind_windows
 from marivo.analysis.compiler.calendar import builtin_key, builtin_wall_key
-from marivo.analysis.compiler.source_time import localize, render, timestamp
 from marivo.analysis.core.artifact_data import (
     CalendarDataAxis,
     DataAxis,
@@ -37,6 +37,7 @@ from marivo.analysis.core.graph import BoundGraph
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.temporal_sql import lower_temporal
 from marivo.datasource._calendar_relations import calendar_data, calendar_range
+from marivo.datasource._temporal_expressions import localize, render, timestamp
 from marivo.datasource.adapters import SourceSession
 from marivo.semantic._compiled_state import CompiledSemanticState
 
@@ -254,7 +255,6 @@ def output_calendar(
 
 def _pandas_output_calendar(coordinate: CalendarCoordinate) -> CalendarCoordinate:
     """Use pandas for a question without any source time operation."""
-    from marivo.analysis.core.time_authority import time_zone
 
     if not coordinate.cells:
         return coordinate
@@ -286,8 +286,8 @@ def _pandas_output_calendar(coordinate: CalendarCoordinate) -> CalendarCoordinat
         last = datetime.fromisoformat(coordinate.civil_bounds[0][1]).replace(tzinfo=None)
         local = pd.DatetimeIndex([first])
         finishes = pd.DatetimeIndex([last])
-    starts = local.tz_localize(time_zone(coordinate.timezone))
-    ends = finishes.tz_localize(time_zone(coordinate.timezone))
+    starts = local.tz_localize(normalize_timezone(coordinate.timezone).tz)
+    ends = finishes.tz_localize(normalize_timezone(coordinate.timezone).tz)
     requested_start = min(cell[2] for cell in coordinate.cells)
     requested_end = max(cell[3] for cell in coordinate.cells)
     cells = []
@@ -308,7 +308,7 @@ def _pandas_output_calendar(coordinate: CalendarCoordinate) -> CalendarCoordinat
         civil.append(
             tuple(
                 pd.Timestamp(value)
-                .tz_convert(time_zone(coordinate.timezone))
+                .tz_convert(normalize_timezone(coordinate.timezone).tz)
                 .isoformat(timespec="microseconds")
                 for value in (key, finish, low, high)
             )
@@ -421,10 +421,10 @@ def _interval_windows(
                 )
                 start = (wall == reset).ifelse(reset - step, reset)
             else:
-                from marivo.analysis.core.time_authority import time_zone
-
                 start = ibis.literal(
-                    period.start.astimezone(time_zone(period.timezone)).replace(tzinfo=None)
+                    period.start.astimezone(normalize_timezone(period.timezone).tz).replace(
+                        tzinfo=None
+                    )
                 )
             values[f"window_{index}"] = localize(period.timezone, timestamp(start))
         expression = lower_temporal(
@@ -577,10 +577,8 @@ def freeze_output_calendars(
             extra = sorted({_point(value) for value in rows[axis.columns[0].slot_id]} - captured)
             if extra:
                 if source is None:
-                    from marivo.analysis.core.time_authority import time_zone
-
                     labels = [
-                        point.astimezone(time_zone(coordinate.timezone)).isoformat(
+                        point.astimezone(normalize_timezone(coordinate.timezone).tz).isoformat(
                             timespec="microseconds"
                         )
                         for point in extra

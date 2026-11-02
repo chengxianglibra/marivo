@@ -586,7 +586,7 @@ def test_raw_instant_membership_keeps_native_projection_without_rule_audit(
     import sqlglot
     from sqlglot import expressions as sge
 
-    from marivo.analysis.compiler import source_time
+    from marivo.datasource import _temporal_expressions as source_time
     from tests.support.source_trace import capture_source
 
     case = analysis_dsl_case_factory("j1")
@@ -684,7 +684,7 @@ def test_fixed_date_windows_keep_authority_on_a_foreign_zone_grid(
         .compute()
         .to_pandas()
     )
-    assert frame["value"].tolist() == [10, 20]
+    assert frame["value"].tolist() == [20, 0]
     assert frame.attrs["axes"][0]["descriptor"]["timezone"] == "America/New_York"
 
 
@@ -909,7 +909,7 @@ from marivo import _temporal
 from marivo.analysis.core import frame_calendar
 from marivo.analysis.materialization import frame_source_preparation
 from marivo.analysis.session.core import Session
-from marivo.datasource import timezone as source_timezone
+from marivo import _timezones as source_timezone
 from marivo.datasource.adapters import SourceSession
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.materialization.domain_recovery_worker import forbidden, snapshot
@@ -927,8 +927,7 @@ with ExitStack() as guards:
         (SourceSession,'execute',forbidden), (duckdb,'connect',forbidden),
         (ibis.duckdb,'connect',forbidden), (frame_calendar,'freeze_calendar',forbidden),
         (frame_source_preparation,'open_query_sources',forbidden),
-        (source_timezone,'probe_engine_timezone',forbidden),
-        (source_timezone,'_resolve_system_timezone',forbidden),
+        (source_timezone,'resolve_system_timezone',forbidden),
         (_temporal,'ZoneInfo',forbidden),
     ):
         guards.enter_context(patch.object(target,name,replacement))

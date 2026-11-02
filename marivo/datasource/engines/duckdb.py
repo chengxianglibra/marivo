@@ -282,7 +282,6 @@ def connect(name: str, kwargs: Mapping[str, object]) -> BaseBackend:
         except BaseException:
             BackendLease(backend).close(suppress_errors=False)
             raise
-    backend._marivo_timezone_name = "UTC"
     return backend
 
 
@@ -552,6 +551,7 @@ def inspect_table(request: MetadataInspectRequest) -> TableMetadata:
 
 
 PROFILE = EngineProfile(
+    native_localization_total=True,
     name="duckdb",
     aliases=(),
     authoring_func="duckdb",

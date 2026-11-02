@@ -442,7 +442,7 @@ def test_mysql_table_view_and_decimal_values(monkeypatch: pytest.MonkeyPatch) ->
 def test_mysql_reader_without_named_timezone_tables(monkeypatch: pytest.MonkeyPatch) -> None:
     import pymysql
 
-    from marivo.datasource.timezone import probe_engine_timezone, verify_source_timezone
+    from marivo.datasource.timezone import verify_source_timezone
     from tests.datasource.environment import mysql_analysis as mysql
 
     name = "no_timezones_" + uuid4().hex
@@ -473,8 +473,14 @@ def test_mysql_reader_without_named_timezone_tables(monkeypatch: pytest.MonkeyPa
             with provider_for("mysql").open(datasource) as session:
                 with session._backend.raw_sql("SELECT @@session.time_zone") as result:
                     assert result.fetchone() == ("+00:00",)
-                assert probe_engine_timezone(session._backend).engine_timezone_name == "UTC"
                 verify_source_timezone(session._backend, "UTC")
+                verify_source_timezone(session._backend, "+08:00")
+                from marivo.datasource.errors import DatasourceConnectionError
+
+                with pytest.raises(DatasourceConnectionError) as unavailable:
+                    verify_source_timezone(session._backend, "Asia/Tokyo")
+                assert unavailable.value.received == "Asia/Tokyo"
+                assert "time zone tables" in unavailable.value.repair.action
                 bound = session.bind(TableSourceIR(name), source_identity=name)
                 assert bound.relation.point.type().timezone == "UTC"
                 assert bound.relation.clock.type().timezone is None
@@ -483,6 +489,17 @@ def test_mysql_reader_without_named_timezone_tables(monkeypatch: pytest.MonkeyPa
                 )
                 assert frame.point.tolist() == [pd.Timestamp("2026-04-30 16:30:00.123456Z")]
                 assert frame.clock.tolist() == [pd.Timestamp("2026-05-01 00:30:00.123456")]
+                from marivo.datasource._temporal_expressions import localize
+                from marivo.datasource._temporal_lowering import lower_temporal
+
+                fixed = lower_temporal(
+                    bound.relation.select(instant=localize("UTC+08:00", bound.relation.clock)),
+                    "mysql",
+                )
+                converted = session.collect_bounded(
+                    fixed, purpose="temporal.fixed_offset_without_timezone_tables", max_rows=2
+                )
+                assert converted.instant.tolist() == [pd.Timestamp("2026-04-30 16:30:00.123456Z")]
         finally:
             cursor.execute(f"DROP TABLE IF EXISTS {name}")
 
