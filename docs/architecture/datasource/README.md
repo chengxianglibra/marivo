@@ -162,8 +162,10 @@ md.duckdb(
 Bearer and custom-header modes are mutually exclusive. At connection time
 Marivo resolves every environment-backed value and installs a temporary DuckDB
 HTTP secret constrained by `http_scope`; the same connection keeps the scoped
-headers in memory for JSON execution. Authenticated GET requests and all POST
-requests reject automatic redirects; author the final in-scope URL explicitly.
+headers in memory for JSON execution. Static `marivo doctor` inspection recognizes
+each custom header's environment reference without executing declaration files.
+Authenticated GET requests and all POST requests reject automatic redirects;
+author the final in-scope URL explicitly.
 Resolved values are never serialized into
 `md.json(...)` or project metadata.
 

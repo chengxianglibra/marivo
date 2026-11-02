@@ -241,8 +241,11 @@ Single-valued field.via((relationship, ...)) captures an explicit directed scala
 path. field.at(anchor) captures a fixed versioned attribute instant for the whole question.
 A Dimension can use field.at(fact_time) for per-row observe by/where classification
 on qualified same-source DuckDB/Trino inputs; the named TimeDimension must be native
-to the unversioned fact root, without its own path or anchor. Neither reads
-attributes or proves a matching version exists. Source reductions, sample axes
+to an unversioned or snapshot fact root, without its own path or anchor. A snapshot
+partition TimeDimension can control matching for each contributed snapshot row;
+the field retains its versioned identity. Validity fact roots require a fixed
+anchor. These bindings do not read attributes or prove that a matching version
+exists. Source reductions, sample axes
 and sum-permission coordinates still require their native field forms.
 TimeField.within(scope) creates a half-open predicate; it does not supply the
 observation endpoint needed by a window. TimeField sample reducers can use

@@ -1100,11 +1100,10 @@ def _consume(recipe: Resolver) -> _Facts:
                                 or control.field.field_read.at is not None
                             )
                         )
-                        or control.field.versioned
                     ):
                         _fail(
                             "Row attribute time requires one native, unanchored TimeDimension.",
-                            expected="a named TimeDimension on the unversioned fact root",
+                            expected="a named, native TimeDimension without via/at",
                             received=control.field.reference.ref.key
                             if isinstance(control, RowFacts) and control.field is not None
                             else "a computed expression without a native field identity",

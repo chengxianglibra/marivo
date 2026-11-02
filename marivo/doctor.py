@@ -31,7 +31,9 @@ from marivo.datasource._builtin import (
     DEFAULT_DATASOURCE_NAME,
     default_datasource,
 )
+from marivo.datasource.authoring import _http_headers_env
 from marivo.datasource.engines import ENGINE_PROFILES, SUPPORTED_BACKEND_TYPES
+from marivo.datasource.errors import DatasourceFieldInvalidError
 from marivo.datasource.ir import AiContextIR, DatasourceIR, DatasourceSourceLocation
 
 DoctorStatus = Literal["ok", "info", "warning", "fail", "skipped"]
@@ -668,6 +670,17 @@ def _static_datasource_from_call(
     fields: dict[str, object] = {}
     env_refs: dict[str, str] = {}
     for key, value in kwargs.items():
+        if backend_type == "duckdb" and key == "http_headers_env":
+            if value is None:
+                continue
+            try:
+                headers = _http_headers_env(name, value)
+            except DatasourceFieldInvalidError as error:
+                return None, _datasource_parse_check(filepath, error.message, line=call.lineno)
+            env_refs.update(
+                (f"http_header:{header_name}", env_var) for header_name, env_var in headers.items()
+            )
+            continue
         if key.endswith("_env"):
             if value is None:
                 continue

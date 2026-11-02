@@ -195,6 +195,7 @@ Metric time are independent choices; this example explicitly uses the same field
 
 ```python
 control = session.catalog.get("time_dimension:sales.facts.event_time")
+# The control may also be the fact Entity's snapshot partition TimeDimension.
 label = session.catalog.get("dimension:sales.profiles.label")
 route = session.catalog.get("relationship:sales.profile")
 amount = session.catalog.get("measure:sales.facts.amount")
@@ -207,4 +208,4 @@ restated = session.observe(
 ).compute()
 ```
 
-Row time selects an attribute for each original fact; a fixed anchor restates the entire window under one definition. For contributions 7/11 with labels A/B before/after a change, row time gives A=7, B=11; a fixed new anchor gives B=18. Qualified same-source single-root observe by/where is supported on DuckDB/Trino. NULL control or missing versions preserve NULL labels without fallback. DATE selects target business dates; timestamp validity requires timestamp control. Native absolute timestamps and UTC/fixed-offset local clocks are admitted. IANA local clocks, read/classify, multiple roots and window/per compositions require fixed anchors. Bucket-end reclassification is a separate question.
+Row time selects an attribute for each original fact; a fixed anchor restates the entire window under one definition. For contributions 7/11 with labels A/B before/after a change, row time gives A=7, B=11; a fixed new anchor gives B=18. The fact Entity may be unversioned or snapshot-versioned. Its native snapshot partition TimeDimension can control matching, so the same stable key on different days retains each day's contribution without a daily query loop. Qualified same-source single-root observe by/where is supported on DuckDB/Trino. NULL control or missing versions preserve NULL labels without fallback. DATE selects target business dates; timestamp validity requires timestamp control. Native absolute timestamps and UTC/fixed-offset local clocks are admitted. Validity fact roots, IANA local clocks, read/classify, multiple roots and window/per compositions require fixed anchors. Bucket-end reclassification is a separate question.

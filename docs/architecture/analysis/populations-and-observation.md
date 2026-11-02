@@ -519,8 +519,10 @@ The fixed keys do not restore declarations after independent reopen.
 ## Per-row temporal classification
 
 Ordinary single-root observe supports a versioned Dimension with
-`label.via((relationship,)).at(fact_time)` in by and label predicates. Matching
-runs before aggregation in one same-source left join on qualified DuckDB/Trino
+`label.via((relationship,)).at(fact_time)` in by and label predicates. It accepts
+an unversioned or snapshot contribution root, including its native snapshot
+partition TimeDimension as control. Validity contribution roots require a fixed
+anchor. Matching runs before aggregation in one same-source left join on qualified DuckDB/Trino
 time types. Missing snapshots, identities and NULL control preserve facts as
 NULL labels; label predicates still follow nullable SQL truth. Explicit output
 domains retain their existing coverage checks. No daily query loop, fallback

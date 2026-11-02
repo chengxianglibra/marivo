@@ -97,8 +97,11 @@ one fixed attribute version for the entire question, including changes exactly a
 that instant. `dimension.via((relationship,)).at(fact_time)` instead selects a
 version for each original fact in ordinary same-source, single-root observe
 classification (`by` and label `where`) on DuckDB and Trino. The control is one
-named, unanchored, path-free TimeDimension on an unversioned fact root. It does
-not replace the Metric's observation time or classify at bucket endpoints.
+named, unanchored, path-free TimeDimension on an unversioned or snapshot fact root.
+A snapshot's partition TimeDimension can supply the control; repeated stable keys
+across snapshots retain their separate source contributions. Validity fact roots
+require a fixed anchor. Row time does not replace the Metric's observation time
+or classify at bucket endpoints.
 
 DATE control selects the target snapshot business-day label and supports only
 DATE validity. Absolute timestamp control selects snapshot days in the target's

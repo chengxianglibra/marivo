@@ -2721,7 +2721,7 @@ def _expression_capabilities() -> tuple[AuthoringCapability, ...]:
             _capability(
                 target,
                 f"marivo.semantic._expression_values.RowExpression.{_method}",
-                "Construct an immutable scalar field binding or half-open time predicate. Directed paths must be single-valued. at selects one fixed InstantAnchor for the whole question, or a native fact-root TimeDimension for same-source, single-root observe by/where on DuckDB/Trino. Row time excludes read/classify, windows, internal samples and IANA local clocks. DATE control selects target business dates; timestamp validity needs timestamp control. Missing versions and NULL control retain NULL labels. No schema or business reads.",
+                "Construct an immutable scalar field binding or half-open time predicate. Directed paths must be single-valued. at selects one fixed InstantAnchor for the whole question, or a native TimeDimension on an unversioned or snapshot fact root for same-source, single-root observe by/where on DuckDB/Trino. Row time excludes validity fact roots, read/classify, windows, internal samples and IANA local clocks. DATE control selects target business dates; timestamp validity needs timestamp control. Missing versions and NULL control retain NULL labels. No schema or business reads.",
                 kind="method",
                 output="RowPredicate" if _method == "within" else "RowExpression",
                 inputs=(

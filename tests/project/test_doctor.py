@@ -620,6 +620,99 @@ def test_default_doctor_statically_inspects_datasources_without_executing_files(
     assert _check(report, "datasources", "datasource.warehouse").status in {"ok", "warning"}
 
 
+@pytest.mark.parametrize("scoped", [False, True])
+@pytest.mark.parametrize("header_count", [1, 2])
+@pytest.mark.parametrize("credentials_set", [False, True])
+def test_doctor_statically_checks_custom_http_header_credentials(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    scoped: bool,
+    header_count: int,
+    credentials_set: bool,
+) -> None:
+    _write_manifest(tmp_path)
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    headers = dict(
+        list({"x-secretid": "DOCTOR_HTTP_ID", "x-signature": "DOCTOR_HTTP_SIGNATURE"}.items())[
+            :header_count
+        ]
+    )
+    for env_var in headers.values():
+        if credentials_set:
+            monkeypatch.setenv(env_var, "test-value")
+        else:
+            monkeypatch.delenv(env_var, raising=False)
+    directory = tmp_path / "models" / "datasources"
+    directory.mkdir(parents=True)
+    side_effect = tmp_path / "executed.txt"
+    (directory / "api.py").write_text(
+        "from pathlib import Path\nimport marivo.datasource as md\n"
+        f"Path({str(side_effect)!r}).write_text('executed')\n"
+        "md.duckdb(name='api',http_scope='https://api.example/v1/',"
+        f"http_headers_env={headers!r})\n",
+        encoding="utf-8",
+    )
+
+    report = run_doctor(DoctorOptions(project_root=tmp_path, datasource="api" if scoped else None))
+
+    assert not side_effect.exists()
+    assert _check(report, "datasources", "datasource.api").status in {"ok", "warning"}
+    assert all(
+        check.id != "datasource.parse_error.api" for check in _section(report, "datasources").checks
+    )
+    for header, env_var in headers.items():
+        check = _check(report, "secrets", f"secret.env.api.http_header:{header}.{env_var}")
+        assert check.status == ("ok" if credentials_set else "fail")
+        assert check.details is not None
+        assert check.details["field"] == f"http_header:{header}"
+    assert "test-value" not in json.dumps(report.to_dict())
+
+
+@pytest.mark.parametrize(
+    ("headers", "summary"),
+    [
+        ({}, "non-empty mapping"),
+        ("API_TOKEN", "non-empty mapping"),
+        ({"invalid header": "API_TOKEN"}, "header name is invalid"),
+        ({"x-token": ""}, "environment reference is invalid"),
+        ({"x-token": 1}, "environment reference is invalid"),
+    ],
+)
+def test_doctor_reports_invalid_http_header_mappings(
+    tmp_path: Path, headers: object, summary: str
+) -> None:
+    _write_manifest(tmp_path)
+    directory = tmp_path / "models" / "datasources"
+    directory.mkdir(parents=True)
+    (directory / "api.py").write_text(
+        "import marivo.datasource as md\n"
+        "md.duckdb(name='api',http_scope='https://api.example/v1/',"
+        f"http_headers_env={headers!r})\n",
+        encoding="utf-8",
+    )
+
+    report = run_doctor(DoctorOptions(project_root=tmp_path))
+
+    check = _check(report, "datasources", "datasource.parse_error.api")
+    assert check.status == "warning"
+    assert summary in check.summary
+
+
+def test_doctor_accepts_omitted_custom_http_headers(tmp_path: Path) -> None:
+    _write_manifest(tmp_path)
+    directory = tmp_path / "models" / "datasources"
+    directory.mkdir(parents=True)
+    (directory / "api.py").write_text(
+        "import marivo.datasource as md\nmd.duckdb(name='api',http_headers_env=None)\n",
+        encoding="utf-8",
+    )
+
+    report = run_doctor(DoctorOptions(project_root=tmp_path, datasource="api"))
+
+    assert _check(report, "datasources", "datasource.api").status in {"ok", "warning"}
+    assert all("http_header" not in check.id for check in _section(report, "secrets").checks)
+
+
 def test_scoped_doctor_ignores_unrelated_broken_datasource_files(tmp_path: Path) -> None:
     _write_manifest(tmp_path)
     ds_dir = tmp_path / "models" / "datasources"
