@@ -126,6 +126,16 @@ MARIVO_CLICKHOUSE_ANALYSIS_TEST=1 MARIVO_CLICKHOUSE_NON_UTC_TEST_PORT=18324 \
   TESTS='tests/analysis/temporal/test_wall_consumer_runtime.py::test_clickhouse_hour_sampling_uses_non_utc_server_timezone'
 ```
 
+The same server also runs the calendar regression. It checks that a single
+Asia/Shanghai civil day is one `day` bucket and 288 five-minute buckets, and that
+week, month and 3-hour buckets keep facts after local 16:00 in the right period:
+
+```bash
+MARIVO_CLICKHOUSE_ANALYSIS_TEST=1 MARIVO_CLICKHOUSE_NON_UTC_TEST_PORT=18324 \
+  make runtime-test RUNTIME_WORKERS=1 \
+  TESTS='tests/analysis/temporal/test_clickhouse_server_timezone_calendar.py'
+```
+
 This standalone container uses its own data volume and leaves the UTC 22.3
 service at port 18323 and other running services in place. Stop only this fixture
 with `docker --host "unix://$HOME/.colima/marivo-multisource/docker.sock" stop marivo-multisource-clickhouse-22-shanghai-1`.

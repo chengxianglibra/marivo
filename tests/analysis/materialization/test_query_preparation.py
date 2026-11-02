@@ -443,7 +443,7 @@ def test_civil_date_rejects_partial_business_day_boundary(prepared_session: Sess
     assert isinstance(amount, (ms.RowExpression, ms.MetricExpression)) and isinstance(
         day, (ms.RowExpression, ms.MetricExpression)
     )
-    with pytest.raises(AnalysisError, match="business-midnight"):
+    with pytest.raises(AnalysisError, match="business-midnight") as caught:
         compute(
             session,
             {"sum": amount.sum(time=day)},
@@ -451,6 +451,8 @@ def test_civil_date_rejects_partial_business_day_boundary(prepared_session: Sess
                 start="2026-01-01T02:00:00+08:00", end="2026-01-02T00:00:00+08:00"
             ),
         )
+    assert "sales.orders.day: calendar boundary 2026-01-01T02:00:00+08:00" in str(caught.value)
+    assert "is not local midnight in Asia/Shanghai" in str(caught.value)
 
 
 @pytest.mark.parametrize("prepared_session", ["snapshot"], indirect=True)

@@ -202,8 +202,13 @@ def validate_date_contribution(contribution: ContributionBinding, path: str) -> 
         else:
             bounds = (axis.start, axis.end)
         zone = parse_timezone(axis.timezone)[1]
-        if any(bound.astimezone(zone).time() != datetime.min.time() for bound in bounds):
-            fail(f"{path}: non-midnight calendar boundary")
+        offending = next(
+            (bound for bound in bounds if bound.astimezone(zone).time() != datetime.min.time()),
+            None,
+        )
+        if offending is not None:
+            local = offending.astimezone(zone).isoformat()
+            fail(f"{path}: calendar boundary {local} is not local midnight in {axis.timezone}")
     period = contribution.period
     if period is not None:
         zone = parse_timezone(period.timezone)[1]

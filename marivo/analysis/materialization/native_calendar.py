@@ -103,7 +103,14 @@ def _source_output_calendar(
         positions = calendar_range(position_count)
         if coordinate.origin is not None and len(selected_positions) != position_count:
             positions = positions.filter(positions.position.isin(tuple(selected_positions)))
-        start = ibis.literal(first, type=dt.Timestamp(scale=6)) + positions.position * interval
+        # ClickHouse reads a zoneless literal in the server zone, so the civil clock
+        # is carried under a UTC label there.
+        clock_type = (
+            dt.Timestamp(timezone="UTC", scale=6)
+            if source.provider.name == "clickhouse"
+            else dt.Timestamp(scale=6)
+        )
+        start = ibis.literal(first, type=clock_type) + positions.position * interval
     key = localize(coordinate.timezone, timestamp(start))
     if grain.kind == "builtin":
         key = timestamp(builtin_key(key, coordinate))

@@ -44,6 +44,11 @@ retains exact ticks independently of TimeDimension parsing and Session/reader
 authority; naive and aware keys cannot be implicitly matched. A TimeDimension
 projection over that same column has its own parser/reader interpretation.
 
+ClickHouse reads a zoneless DateTime or DateTime64 in the server timezone, so it
+is not a neutral wall clock there. Compiler-owned civil clocks, calendar grid
+starts and bucket keys on ClickHouse are carried as `DateTime64(6, 'UTC')`
+values, so truncation and interval arithmetic do not depend on the server zone.
+
 Civil dates do not shift; physical instants preserve their meaning. Logical
 kind and physical precision are checked independently. Unsupported exact
 conversion fails without truncation. Projected source values retain the backend's

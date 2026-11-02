@@ -154,7 +154,8 @@ def lower_temporal(expression: ir.Expr, engine: str) -> ir.Expr:
                 text = _clickhouse_text(carrier, "UTC" if localize else zone)
                 converted = _clickhouse_clock(text, 6, zone if localize else "UTC")
                 result = _clickhouse_zone(converted, "UTC")
-                return result.op() if localize else result.cast(dt.Timestamp(scale=6)).op()
+                # A naive DateTime64 adopts the ClickHouse server zone, so keep the UTC label.
+                return result.op()
         if engine == "clickhouse" and isinstance(value, ops.TimestampTruncate):
             timestamp = value.arg.to_expr()
             assert isinstance(timestamp, ir.TimestampValue)
