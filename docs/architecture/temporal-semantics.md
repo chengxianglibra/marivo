@@ -48,6 +48,10 @@ ClickHouse reads a zoneless DateTime or DateTime64 in the server timezone, so it
 is not a neutral wall clock there. Compiler-owned civil clocks, calendar grid
 starts and bucket keys on ClickHouse are carried as `DateTime64(6, 'UTC')`
 values, so truncation and interval arithmetic do not depend on the server zone.
+DATE calendar inputs enter this civil carrier directly before truncation, without
+a zoneless timestamp intermediate that would interpret midnight in the server
+zone. The calendar timezone supplies the interpretation of the truncated civil
+clock when deriving the actual bucket instant.
 
 Civil dates do not shift; physical instants preserve their meaning. Logical
 kind and physical precision are checked independently. Unsupported exact

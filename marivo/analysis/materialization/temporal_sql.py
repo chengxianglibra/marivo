@@ -110,7 +110,9 @@ def lower_temporal(expression: ir.Expr, engine: str) -> ir.Expr:
         for node in candidates
     ):
         return expression
-    expression = optimize_time(cancel_utc(expression))
+    # Generic UTC cancellation can cast a civil clock to a zoneless timestamp.
+    # ClickHouse must retain the UTC-labelled carrier even for UTC calendars.
+    expression = optimize_time(expression if engine == "clickhouse" else cancel_utc(expression))
 
     def rewrite(
         node: ops.Node, _results: Mapping[ops.Node, ops.Node], **kwargs: object
@@ -157,7 +159,17 @@ def lower_temporal(expression: ir.Expr, engine: str) -> ir.Expr:
                 # A naive DateTime64 adopts the ClickHouse server zone, so keep the UTC label.
                 return result.op()
         if engine == "clickhouse" and isinstance(value, ops.TimestampTruncate):
-            timestamp = value.arg.to_expr()
+            argument = value.arg
+            if (
+                isinstance(argument, ops.Cast)
+                and argument.arg.dtype.is_date()
+                and isinstance(argument.to, dt.Timestamp)
+                and argument.to.timezone is None
+            ):
+                # DATE is already civil: avoid interpreting midnight in the server zone.
+                timestamp = argument.arg.to_expr().cast(dt.Timestamp(timezone="UTC", scale=6))
+            else:
+                timestamp = argument.to_expr()
             assert isinstance(timestamp, ir.TimestampValue)
             # Ibis wraps dateTrunc in toDateTime, narrowing the supported range.
             return _clickhouse_truncate(value.unit.singular.lower(), timestamp).op()

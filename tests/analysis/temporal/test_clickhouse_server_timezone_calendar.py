@@ -1,9 +1,9 @@
 """Calendar buckets stay on civil boundaries when the ClickHouse server zone is not UTC."""
 
 import os
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Literal
 
@@ -12,6 +12,7 @@ import pytest
 
 import marivo.analysis as mv
 import marivo.semantic as ms
+from marivo.analysis.errors import AnalysisError
 from marivo.datasource.ir import TableSourceIR
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.numeric.test_remote_numeric_query import _datasource_model
@@ -31,7 +32,12 @@ def _shanghai_session(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     factory: Callable[[dict[str, str]], SemanticProject],
-    points: list[datetime] | None = None,
+    points: Sequence[date | datetime | None] | None = None,
+    *,
+    physical_type: Literal[
+        "Date", "Nullable(Date)", "Nullable(DateTime)", "Nullable(DateTime64(6, 'UTC'))"
+    ] = "Nullable(DateTime64(6, 'UTC'))",
+    report_timezone: str = "Asia/Shanghai",
 ) -> Iterator[tuple[mv.Session, ms.TimeDimension, ms.Measure]]:
     port = os.environ.get("MARIVO_CLICKHOUSE_NON_UTC_TEST_PORT")
     if port is None:
@@ -42,7 +48,7 @@ def _shanghai_session(
     data = SourceData(
         "",
         "",
-        "id Int64, point Nullable(DateTime64(6, 'UTC')), amount Int64",
+        f"id Int64, point {physical_type}, amount Int64",
         [
             {"id": index, "point": point, "amount": 1}
             for index, point in enumerate(POINTS if points is None else points)
@@ -53,29 +59,34 @@ def _shanghai_session(
         assert isinstance(case.source, TableSourceIR)
         header = case.session._backend.con.query("SELECT timezone()").first_row
         assert header == ("Asia/Shanghai",)
+        cadence = ", sample_interval=(5,'minute')" if "DateTime" in physical_type else ""
         factory(
             {
                 "datasources/warehouse.py": _datasource_model("clickhouse", case, monkeypatch),
                 "sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales', owner='Test', default=True)\n",
                 "sales/facts.py": "import marivo.datasource as md\nimport marivo.semantic as ms\n"
                 + f"facts=ms.entity(name='facts', datasource=ms.ref.datasource('warehouse'), source=md.table({case.source.table!r}, database={case.source.database!r}), primary_key=['id'])\n"
-                + "point=ms.time_dimension_column(name='point', entity=facts, column='point', sample_interval=(5,'minute'))\n"
+                + f"point=ms.time_dimension_column(name='point', entity=facts, column='point', is_default=True{cadence})\n"
                 + "amount=ms.measure_column(name='amount', entity=facts, column='amount', additivity=ms.additive_all())\n",
             }
         )
-        session = mv.session.get_or_create("ch-shanghai-calendar", timezone="Asia/Shanghai")
+        session = mv.session.get_or_create("ch-shanghai-calendar", timezone=report_timezone)
         point = catalog_value(session.catalog, "sales.facts.point", kind="field")
         amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
         assert isinstance(point, ms.TimeDimension) and isinstance(amount, ms.Measure)
         yield session, point, amount
 
 
+@pytest.mark.parametrize("physical_type", ["Nullable(DateTime)", "Nullable(DateTime64(6, 'UTC'))"])
 def test_day_grain_single_day_scope_is_one_civil_day_bucket(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
+    physical_type: Literal["Nullable(DateTime)", "Nullable(DateTime64(6, 'UTC'))"],
 ) -> None:
-    with _shanghai_session(tmp_path, monkeypatch, semantic_project_factory) as (
+    with _shanghai_session(
+        tmp_path, monkeypatch, semantic_project_factory, physical_type=physical_type
+    ) as (
         session,
         point,
         amount,
@@ -180,3 +191,102 @@ def test_calendar_buckets_follow_civil_boundaries_on_shanghai_server(
             .total.tolist()
         )
         assert totals == expected
+
+
+@pytest.mark.parametrize(
+    "report_timezone",
+    [
+        pytest.param("Asia/Shanghai", id="shanghai"),
+        pytest.param("UTC", id="utc"),
+        pytest.param("America/Los_Angeles", id="los-angeles"),
+    ],
+)
+@pytest.mark.parametrize("physical_type", ["Date", pytest.param("Nullable(Date)", id="nullable")])
+def test_date_calendar_day_keeps_dates_and_completes_only_missing_days(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
+    physical_type: Literal["Date", "Nullable(Date)"],
+    report_timezone: str,
+) -> None:
+    points: list[date | datetime | None] = [date(2026, 10, day) for day in (27, 28, 28, 30, 31)]
+    if physical_type == "Nullable(Date)":
+        points.append(None)
+    with _shanghai_session(
+        tmp_path,
+        monkeypatch,
+        semantic_project_factory,
+        points,
+        physical_type=physical_type,
+        report_timezone=report_timezone,
+    ) as (session, point, amount):
+        single = session.time_scope(start="2026-10-28", end="2026-10-29").by(mv.grain("day"))
+        rows = session.observe({"total": amount.sum()}, by=(single,)).compute().to_pandas()
+        assert rows["calendar:day"].tolist() == [pd.Timestamp("2026-10-28", tz=report_timezone)]
+        assert rows.total.tolist() == [2]
+
+        axis = session.time_scope(start="2026-10-28", end="2026-10-31").by(mv.grain("day"))
+        frame = session.observe({"total": amount.sum(time=point)}, by=(axis,)).compute()
+        rows = frame.to_pandas(time_details=True)
+        expected = [pd.Timestamp(f"2026-10-{day}", tz=report_timezone) for day in (28, 29, 30)]
+        assert rows["calendar:day"].tolist() == expected
+        assert rows["calendar:day.label"].tolist() == ["2026-10-28", "2026-10-29", "2026-10-30"]
+        assert rows.total.tolist() == [2, 0, 1]
+
+        subdays: tuple[tuple[Literal["second", "minute", "hour"], str], ...] = (
+            ("second", "2026-10-28T00:00:01"),
+            ("minute", "2026-10-28T00:01:00"),
+            ("hour", "2026-10-28T01:00:00"),
+        )
+        for unit, end in subdays:
+            subday = session.time_scope(start="2026-10-28", end=end).by(mv.grain(unit))
+            with pytest.raises(AnalysisError, match="subday output"):
+                session.observe({"total": amount.sum(time=point)}, by=(subday,)).compute()
+        partial = session.time_scope(start="2026-10-28T01:00:00", end="2026-10-29").by(
+            mv.grain("day")
+        )
+        with pytest.raises(AnalysisError, match="is not local midnight"):
+            session.observe({"total": amount.sum(time=point)}, by=(partial,)).compute()
+
+
+@pytest.mark.parametrize("report_timezone", ["Asia/Shanghai", "UTC", "America/Los_Angeles"])
+def test_date_calendar_larger_grains_keep_civil_boundaries(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
+    report_timezone: str,
+) -> None:
+    points = [date(2026, 10, day) for day in (25, 26, 31)] + [
+        date(2026, 11, 1),
+        date(2026, 12, 31),
+        date(2027, 1, 1),
+        None,
+    ]
+    with _shanghai_session(
+        tmp_path,
+        monkeypatch,
+        semantic_project_factory,
+        points,
+        physical_type="Nullable(Date)",
+        report_timezone=report_timezone,
+    ) as (session, point, amount):
+        cases: list[
+            tuple[Literal["week", "month", "quarter", "year"], str, str, list[str], list[int]]
+        ] = [
+            ("week", "2026-10-19", "2026-11-02", ["2026-10-19", "2026-10-26"], [1, 3]),
+            ("month", "2026-10-01", "2026-12-01", ["2026-10-01", "2026-11-01"], [3, 1]),
+            ("quarter", "2026-10-01", "2027-04-01", ["2026-10-01", "2027-01-01"], [5, 1]),
+            ("year", "2026-01-01", "2028-01-01", ["2026-01-01", "2027-01-01"], [5, 1]),
+        ]
+        for unit, start, end, labels, totals in cases:
+            axis = session.time_scope(start=start, end=end).by(mv.grain(unit))
+            rows = (
+                session.observe({"total": amount.sum(time=point)}, by=(axis,))
+                .compute()
+                .to_pandas(time_details=True)
+            )
+            assert rows[f"calendar:{unit}"].tolist() == [
+                pd.Timestamp(label, tz=report_timezone) for label in labels
+            ]
+            assert rows[f"calendar:{unit}.label"].tolist() == labels
+            assert rows.total.tolist() == totals
