@@ -329,7 +329,9 @@ time dimension — plain dimensions are never inferred as temporal from a name l
 `dt`.
 
 ```python
-dt = ms.time_dimension_column(name="dt", entity=orders, column="dt", parse=ms.strptime("%Y%m%d", timezone="UTC"))
+dt = ms.time_dimension_column(
+    name="dt", entity=orders, column="dt", parse=ms.strptime("%Y%m%d", timezone="UTC")
+)
 hh = ms.time_dimension_column(name="hh", entity=orders, column="hh", parse=ms.hour_prefix(dt))
 ```
 

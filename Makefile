@@ -1,5 +1,6 @@
-.PHONY: test runtime-test release-test typecheck lint format \
-	check release-check docs-api pypi-build pypi-check pypi-clean
+.PHONY: test runtime-test release-test test-changed typecheck lint format \
+	check check-fast release-check docs-api docs-api-incremental \
+	pypi-build pypi-check pypi-clean
 
 ifeq ($(OS),Windows_NT)
 VENV_BIN := .venv/Scripts
@@ -20,8 +21,26 @@ MYPY_PYTHON_VERSION ?= 3.10
 TYPECHECK_TARGETS ?= marivo tests/typing
 LINT_TARGETS ?= .
 RUNTIME_WORKERS ?= 2
-# Bound worker and nested native-thread contention on ordinary developer hosts.
-PYTEST_WORKERS ?= 4
+# One worker per logical CPU, capped so a large host does not start a worker
+# per core. Linux uses `nproc`; macOS uses `sysctl -n hw.ncpu`; Windows uses
+# NUMBER_OF_PROCESSORS. `PYTEST_WORKERS=<count>` still overrides. Native
+# threads stay at 1 so workers do not also fan out BLAS or Arrow.
+PYTEST_WORKER_CAP ?= 8
+ifeq ($(OS),Windows_NT)
+_DETECTED_CPUS := $(NUMBER_OF_PROCESSORS)
+else
+_DETECTED_CPUS := $(shell if [ "$$(uname -s)" = "Darwin" ]; then sysctl -n hw.ncpu; else nproc; fi)
+endif
+ifeq ($(strip $(_DETECTED_CPUS)),)
+_DETECTED_CPUS := 1
+endif
+# Keep this shell free of ")" so Make does not end $(shell) early.
+PYTEST_WORKERS ?= $(shell \
+	if [ "$(_DETECTED_CPUS)" -gt "$(PYTEST_WORKER_CAP)" ]; then \
+		printf '%s\n' "$(PYTEST_WORKER_CAP)"; \
+	else \
+		printf '%s\n' "$(_DETECTED_CPUS)"; \
+	fi)
 PYTEST_NATIVE_THREADS ?= 1
 
 PYTEST_FLAGS := -q --tb=short --maxfail=5
@@ -131,6 +150,27 @@ format:
 	@$(VENV_RUFF) check --fix .
 
 check: lint typecheck test docs-api
+
+# Local inner loop only. The first run records .testmondata by executing the
+# default suite. Later runs rerun tests whose previously executed Python
+# changed. pytest-testmon does not track subprocess-executed code or SQL/data
+# file changes, and the docs step reuses the existing Sphinx output. Run
+# `make check` before pushing. CI and `make release-check` keep the full
+# suite and the clean docs build.
+test-changed: export OPENBLAS_NUM_THREADS = $(PYTEST_NATIVE_THREADS)
+test-changed: export OMP_NUM_THREADS = $(PYTEST_NATIVE_THREADS)
+test-changed: export ARROW_IO_THREADS = $(PYTEST_NATIVE_THREADS)
+test-changed:
+	@./scripts/require-venv.sh pytest
+	@$(VENV_PYTEST) $(PYTEST_FLAGS) -n $(if $(findstring ::,$(TESTS)),0,$(PYTEST_WORKERS)) --testmon $(TESTS)
+
+docs-api-incremental: ## Rebuild API docs without deleting the previous output
+	@./scripts/require-venv.sh sphinx-build
+	@$(VENV_BIN)/sphinx-build$(EXE_SUFFIX) -q -N -W --keep-going -j auto -b html docs/api site/public/api
+	@echo "API docs updated in site/public/api"
+
+check-fast:
+	@$(MAKE) --no-print-directory -j4 --output-sync=target lint typecheck test-changed docs-api-incremental
 
 release-check:
 	@$(MAKE) check runtime-test release-test TESTS=
