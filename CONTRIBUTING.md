@@ -136,7 +136,10 @@ make test TESTS='tests/analysis/materialization/test_numeric_recovery.py'
 # Run focused checks against already-running external services
 make runtime-test TESTS='tests/datasource/test_source_profiles.py'
 
-# Run fast daily tests, static checks, and API documentation checks
+# Local inner loop: affected tests, static checks, incremental API docs
+make check-fast
+
+# Full local gate: all daily tests, static checks, and a clean API docs build
 make check
 
 # Run a specific test file with compact output
@@ -153,7 +156,8 @@ make test TESTS='tests/analysis/session/test_analysis_session_core.py::test_sess
 ```
 
 `make test` 默认精简输出，使用短 traceback，累计五项失败后停止，同时保留失败
-退出状态，默认使用 4 个 pytest-xdist worker。可用 `PYTEST_WORKERS=<count>` 覆盖；
+退出状态。worker 数默认等于逻辑 CPU 数（Linux 为 `nproc`，macOS 为
+`sysctl -n hw.ncpu`），上限为 8。可用 `PYTEST_WORKERS=<count>` 覆盖；
 含 `::` 的单个测试节点仍串行执行。默认将 OpenBLAS 与 Arrow 的底层线程预算设为 1，
 避免每个 worker 再启动一组计算或 I/O 线程；可用 `PYTEST_NATIVE_THREADS=<count>` 覆盖。
 该预算通过环境传给测试及其子进程，不改变生产库默认设置。需要更多诊断时，仅对失败范围使用
@@ -172,7 +176,11 @@ containing `::` run serially. Account for other concurrent test tasks on the hos
 覆盖基本数据源能力和后端特有风险。相同数据源共享服务容器，每个用例独立管理
 自己的表、schema 和连接；pytest 不启停服务。
 
-`make check` 执行完整本地检查。发布准备与发布 CI 通过
+`make check-fast` 是本地内循环，并行执行 lint、类型检查、pytest-testmon
+选出的受编辑影响测试，以及不删除已有输出的增量 API 文档构建。testmon
+不跟踪子进程里执行的代码，也不跟踪 SQL 或数据文件变化。它不能代替完整门禁。
+`make check` 执行完整本地检查（全量日常测试、静态检查，以及删除输出后的
+`-W` 文档构建）。推送前必须通过 `make check`。发布准备与发布 CI 通过
 `make release-check` 加上 Runtime、安装和打包检查。Runtime 不重复全部本地
 分析验收矩阵。Runtime coverage notes and local acceptance records are kept in the local-only `docs/testing/` directory.
 

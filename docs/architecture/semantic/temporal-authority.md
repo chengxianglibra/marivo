@@ -56,7 +56,9 @@ from datetime import date
 import marivo.semantic as ms
 
 calendar_date = ms.time_dimension_column(
-    name="calendar_date", entity=calendar_days, column="calendar_date",
+    name="calendar_date",
+    entity=calendar_days,
+    column="calendar_date",
     parse=ms.date(timezone="Asia/Shanghai"),
 )
 retail_calendar = ms.period_calendar(
