@@ -133,7 +133,8 @@ before using it as a grain.
 
 Source parsing and report timezones are separate: set a parser timezone for
 naive source values; aware timestamps already identify an instant, and date-only
-encodings do not use a timezone. Projection, filtering and buckets share the
+values use their declared source timezone to identify the business-day start.
+Projection, filtering and buckets share the
 actual backend's native gap/fold interpretation. Original local time data uses
 pandas native operations. Different executors can differ at unusual transitions;
 source-produced keys remain unchanged during local arithmetic and alignment.
