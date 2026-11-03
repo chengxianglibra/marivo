@@ -90,16 +90,21 @@ bare `python`, `pytest`, `mypy`, or `ruff` in this repository.
   For documentation-only edits, validate affected content, paths, and diffs.
 - `make test` uses short tracebacks and stops after five failures. If needed,
   rerun only the failing scope with `.venv/bin/pytest` and suitable verbosity.
-- `make check` covers lint, typing, default-test, and API-doc stages.
-  Run it without narrowing variables for broad evidence.
-  Default tests exclude Runtime and release tests.
-- `make check-fast` is a local inner loop: lint, typecheck, pytest-testmon
-  (only tests affected by edits), and an incremental API docs build, in
-  parallel. It does not track subprocess-executed code or SQL and data file
-  changes. It does not replace `make check`. The full gate must pass before
-  pushing. CI and `make release-check` keep the full suite and the clean docs
-  build. `make test` worker count follows logical CPUs (`nproc` on Linux,
-  `sysctl -n hw.ncpu` on macOS), capped at 8; override with `PYTEST_WORKERS`.
+- Use `make check-fast` during local iteration. It runs lint, typecheck,
+  pytest-testmon, and an incremental API docs build in parallel. On the first
+  run without testmon data, it runs the default suite and records dependencies;
+  later runs select tests based on previously executed Python code. Testmon
+  does not track subprocess-executed code or SQL and data file changes, so run
+  relevant tests explicitly when those changes affect behavior. The incremental
+  docs build keeps existing output. This check does not replace `make check`.
+- Use `make check` for the broad final gate when required, and pass it before
+  pushing. Run it without narrowing variables for broad evidence: it runs lint,
+  typecheck, the default test suite, and a clean API docs build. The default
+  suite excludes Runtime and release tests; run relevant Runtime tests separately.
+  CI and `make release-check` also use the full suite and clean docs build.
+- `make test` and the testmon step use a worker count based on logical CPUs
+  (`nproc` on Linux, `sysctl -n hw.ncpu` on macOS), capped at 8; override with
+  `PYTEST_WORKERS`.
 - Run only relevant Runtime tests during development. Full release acceptance
   belongs to release preparation and publishing CI; do not run it or start
   MinIO for ordinary commit preparation.
