@@ -10,6 +10,7 @@ import pytest
 
 import marivo.analysis as mv
 from marivo.analysis.materialization import frame_source_preparation
+from marivo.datasource.ir import TableSourceIR
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.numeric.test_remote_numeric_query import _project
 from tests.datasource.source_cases import SourceData, source_case, source_params
@@ -97,6 +98,21 @@ def test_multi_field_aggregate_keeps_nulls_types_and_empty_buckets(
                 "minimum": amount.min(),
                 "maximum": weight.max(),
                 "count": amount.count(),
+                "distinct": amount.count_distinct(),
+                "weighted": amount.weighted_mean(weight=weight),
+                **(
+                    {"median": amount.median(), "q25": amount.quantile(0.25)}
+                    if backend in ("duckdb", "postgres", "clickhouse")
+                    else {}
+                ),
+                **(
+                    {
+                        "approx_median": amount.approx_median(),
+                        "approx_distinct": amount.approx_nunique(),
+                    }
+                    if backend in ("duckdb", "trino", "clickhouse")
+                    else {}
+                ),
             },
             by=by,
         )
@@ -105,7 +121,10 @@ def test_multi_field_aggregate_keeps_nulls_types_and_empty_buckets(
             baseline = query.compute().to_pandas()
         trace = capture_source(monkeypatch)
         result = query.compute().to_pandas()
-        pd.testing.assert_frame_equal(result, baseline)
+        # MySQL's isolated SUM returns Decimal; the existing common aggregate
+        # explicitly binds its declared integer carrier. Check that carrier below.
+        pd.testing.assert_frame_equal(result, baseline, check_dtype=backend != "mysql")
+        assert str(result["total"].dtype) == "int64[pyarrow]"
         assert len(trace.native_sql) == (2 if calendar else 1)
         assert trace.uploaded_key_rows == []
         assert result["total"].iloc[0] == 40
@@ -114,8 +133,158 @@ def test_multi_field_aggregate_keeps_nulls_types_and_empty_buckets(
         assert result["minimum"].iloc[0] == 10
         assert result["maximum"].iloc[0] == 3.0
         assert result["count"].tolist() == ([2, 0, 0] if calendar else [2, 0])
+        assert result["distinct"].tolist() == ([2, 0, 0] if calendar else [2, 0])
+        assert result["weighted"].iloc[0] == 25
+        if backend in ("duckdb", "postgres", "clickhouse"):
+            assert result["median"].iloc[0] == 20
+            assert result["q25"].iloc[0] == 15
+        if backend in ("duckdb", "trino", "clickhouse"):
+            assert isinstance(case.source, TableSourceIR)
+            algorithm = {
+                "duckdb": "approx_quantile(amount, 0.5)",
+                "trino": "approx_percentile(amount, 0.5)",
+                "clickhouse": "quantileTDigest(0.5)(amount)",
+            }[backend]
+            sql = f"SELECT {algorithm} AS median FROM {case.source.table} WHERE category = 'A'"
+            if backend == "clickhouse":
+                from tests.datasource.environment.clickhouse_analysis import connection
+
+                with connection() as reader:
+                    expected_median = reader.query(sql).first_row[0]
+            else:
+                expected_median = case.session._backend.sql(sql).execute().iloc[0, 0]
+            assert result["approx_median"].iloc[0] == pytest.approx(expected_median)
+            assert result["approx_distinct"].iloc[0] == 2
         assert result.iloc[1][["total", "exact", "average", "minimum", "maximum"]].isna().all()
         if calendar:
             assert result["total"].iloc[2] == 0
             assert result["exact"].iloc[2] == 0
             assert result.iloc[2][["average", "minimum", "maximum"]].isna().all()
+
+
+@pytest.mark.parametrize(
+    "backend,profile,approximate",
+    source_params(
+        [
+            ("duckdb", "table", False),
+            ("duckdb", "table", True),
+            ("postgres", "table", False),
+            ("trino", "iceberg", True),
+            ("clickhouse", "mergetree", False),
+            ("clickhouse", "mergetree", True),
+        ]
+    ),
+)
+@pytest.mark.parametrize("domain", ("overall", "interval", "grouped"))
+def test_count_and_quantiles_share_actual_scan(
+    backend: str,
+    profile: str,
+    approximate: bool,
+    domain: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
+) -> None:
+    from marivo.analysis.materialization import query_key_fusion
+    from tests.analysis.numeric.test_remote_numeric_query import DATA
+    from tests.datasource.source_cases import receipt
+
+    monkeypatch.chdir(tmp_path)
+    with source_case(backend, profile, tmp_path, monkeypatch, DATA) as case:
+        _project(backend, case, monkeypatch, semantic_project_factory)
+        session = mv.session.get_or_create("quantile-fusion", timezone="UTC")
+        amount = catalog_value(session.catalog, "sales.facts.weight", kind="field")
+        category = catalog_value(session.catalog, "sales.facts.category", kind="field")
+        scope = session.time_scope(start="2026-07-01", end="2026-07-03")
+        by = () if domain == "overall" else (scope,) if domain == "interval" else (category,)
+        quantile = amount.approx_quantile if approximate else amount.quantile
+        metrics = {
+            "count": amount.count(),
+            "p50": quantile(0.5),
+            "p90": quantile(0.9),
+            "p99": quantile(0.99),
+        }
+        query = session.observe(metrics, by=by)
+        with monkeypatch.context() as control:
+            control.setattr(frame_source_preparation, "optimize_query", lambda plan: plan)
+            control.setattr(
+                query_key_fusion, "fuse_query_terminal", lambda prepared, lowered: lowered
+            )
+            baseline_trace = capture_source(control)
+            baseline = query.compute().to_pandas()
+        with monkeypatch.context() as control:
+            single_trace = capture_source(control)
+            session.observe({"count": amount.count()}, by=by).compute()
+        trace = capture_source(monkeypatch)
+        result = query.compute().to_pandas()
+        pd.testing.assert_frame_equal(result, baseline, check_exact=not approximate, rtol=1e-5)
+        assert len(trace.native_sql) == len(single_trace.native_sql) == 1
+        assert len(baseline_trace.native_sql) == 4
+        assert result["count"].tolist() == ([2, 1] if domain == "grouped" else [3])
+        assert result["p50"].between(1, 100).all()
+        assert (result["p50"] <= result["p90"]).all()
+        assert (result["p90"] <= result["p99"]).all()
+        if not approximate and domain != "grouped":
+            assert result["p50"].tolist() == [3.0]
+            assert result["p90"].iloc[0] == pytest.approx(80.6)
+            assert result["p99"].iloc[0] == pytest.approx(98.06)
+        plans: list[str] = []
+        scanned: list[int] = []
+        if backend == "duckdb":
+            plan = case.session._backend.raw_sql("EXPLAIN " + trace.native_sql[0]).fetchall()
+            plans = [str(row[1]) for row in plan]
+            assert sum(plan.count("SEQ_SCAN") for plan in plans) == 1
+        elif backend == "clickhouse":
+            from tests.datasource.environment.clickhouse_analysis import connection
+
+            with connection() as reader:
+                plans = [
+                    str(row[0])
+                    for row in reader.query("EXPLAIN " + trace.native_sql[0]).result_rows
+                ]
+                assert sum(plan.count("ReadFromMergeTree") for plan in plans) == 1
+                for sql in [
+                    *trace.native_sql,
+                    *single_trace.native_sql,
+                    *baseline_trace.native_sql,
+                ]:
+                    scanned.append(int(reader.query(sql).summary["read_rows"]))
+            assert scanned[0] == scanned[1] > 0
+            assert sum(scanned[2:]) == 4 * scanned[0]
+        receipt(
+            f"observe-fusion-{backend}-{approximate}-{domain}",
+            {
+                "environment": case.environment,
+                "sql": trace.native_sql,
+                "unmerged_sql": baseline_trace.native_sql,
+                "plans": plans,
+                "diagnostic_read_rows": scanned,
+                "merged_seconds": trace.source_seconds,
+                "single_seconds": single_trace.source_seconds,
+                "unmerged_seconds": baseline_trace.source_seconds,
+            },
+        )
+
+
+@pytest.mark.parametrize(
+    "backend,profile", source_params([("mysql", "innodb-table"), ("trino", "iceberg")])
+)
+def test_joint_aggregate_does_not_admit_unsupported_quantile(
+    backend: str,
+    profile: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
+) -> None:
+    from marivo.analysis.errors import AnalysisStageUnavailableError
+    from tests.analysis.numeric.test_remote_numeric_query import DATA
+
+    monkeypatch.chdir(tmp_path)
+    with source_case(backend, profile, tmp_path, monkeypatch, DATA) as case:
+        _project(backend, case, monkeypatch, semantic_project_factory)
+        session = mv.session.get_or_create("unsupported-joint", timezone="UTC")
+        value = catalog_value(session.catalog, "sales.facts.weight", kind="field")
+        trace = capture_source(monkeypatch)
+        with pytest.raises(AnalysisStageUnavailableError, match="quantile"):
+            session.observe({"count": value.count(), "q": value.quantile(0.5)}).compute()
+        assert trace.native_sql == []

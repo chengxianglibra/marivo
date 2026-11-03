@@ -122,14 +122,19 @@ timestamp-level output. Different time roles and ordinary calendar-by-category
 grids remain valid. An explicit Population fixes joint output keys and can
 intentionally retain both coordinates without implicit grid completion.
 
-Within one observation, compatible ordinary sum/count/mean/min/max contributions
-share a grouped SQL aggregate, including different root fields and matching
-calendar buckets. Compatibility includes the actual source, relationship and
-version reads, time role, contribution range, predicates, memberships, output
+Within one observation, compatible ordinary native reductions share a grouped
+SQL aggregate, including counts, exact/approximate quantiles and distinct counts,
+weighted means, different root fields and matching calendar buckets. Each reducer
+retains its admitted backend algorithm and parameters; multiple quantiles share
+the aggregate input without combining their internal approximation states.
+Compatibility includes the actual source, relationship and version reads,
+time role, contribution range, predicates, memberships, output
 keys and NULL policy. Logical occurrences retain independent values, types and
 checks. Sampling, windows, Duration and dependent input boundaries keep their
-own execution routes. Later native terminal composition may put independent
-aggregate blocks into one statement; statement count alone does not prove scan
+own execution routes. Frequency distributions and other specialized state payloads
+retain their execution programs; they are not ordinary scalar aggregate values.
+Later native terminal composition may put independent aggregate blocks into
+one statement; statement count alone does not prove scan
 sharing. See [optimizer coverage](algebra-theory.md#实现编号与理论定律的对应).
 
 A member without fact contributions has sum zero and count zero; a member with

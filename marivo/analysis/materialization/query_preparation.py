@@ -11,10 +11,8 @@ import ibis.expr.operations as ops
 import ibis.expr.types as ir
 
 from marivo._definition.expressions import (
-    EntityCount,
     PredicateExpression,
     RowField,
-    SourceAggregate,
     TimeBinding,
 )
 from marivo._definition.observations import ObservationPeriod
@@ -133,18 +131,7 @@ def share_source_projections(
     """Union root projections while preserving every relationship read and row domain."""
     groups: dict[SourceInputContract, list[int]] = {}
     for index, (contribution, contract) in enumerate(zip(contributions, contracts, strict=True)):
-        node = contribution.definition
-        if (
-            contribution.sample_axes
-            or contribution.window_key is not None
-            or not (
-                isinstance(node, EntityCount)
-                or (
-                    isinstance(node, SourceAggregate)
-                    and node.reducer in ("sum", "count", "mean", "min", "max")
-                )
-            )
-        ):
+        if contribution.sample_axes or contribution.window_key is not None:
             continue
         # Only direct root fields are projections. Path/version reads retain
         # their exact identity because adding a join can change contributions.

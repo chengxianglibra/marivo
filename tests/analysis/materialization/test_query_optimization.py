@@ -1253,3 +1253,137 @@ def test_grouped_common_completion_preserves_joint_rows_without_merge(
     assert result.table["value.0"].iloc[:2].tolist() == [40, 20]
     assert pd.isna(result.table["value.0"].iloc[2])
     assert result.table["value.1"].tolist() == [2, 1, 0]
+
+
+@pytest.mark.parametrize("empty", (False, True))
+def test_joint_extended_reducers_preserve_empty_and_null_groups(
+    optimization_session: Session,
+    empty: bool,
+) -> None:
+    session = optimization_session
+    value = catalog_value(session.catalog, "sales.orders.amount", kind="field")
+    weight = catalog_value(session.catalog, "sales.orders.approximate", kind="field")
+    exact = catalog_value(session.catalog, "sales.orders.exact", kind="field")
+    query = session.observe(
+        {
+            "count": value.count(),
+            "distinct": value.count_distinct(),
+            "median": value.median(),
+            "approx": value.approx_quantile(0.9),
+            "weighted": value.weighted_mean(weight=weight),
+            "decimal": exact.quantile(0.5),
+        },
+        where=value > 1000 if empty else value.isnull(),
+    )
+    result, plan, _, _ = _same(session, query)
+    assert len([stage for stage in plan.stages if isinstance(stage, SourceRead)]) == 1
+    assert result.table.iloc[0, :2].tolist() == [0, 0]
+    assert result.table.iloc[0, 2:].isna().all()
+
+
+def test_weighted_null_policy_keeps_checks_and_separate_domains(
+    optimization_session: Session,
+) -> None:
+    session = optimization_session
+    value = catalog_value(session.catalog, "sales.orders.amount", kind="field")
+    weight = catalog_value(session.catalog, "sales.orders.approximate", kind="field")
+    query = session.observe(
+        {
+            "weighted": value.weighted_mean(weight=weight, nulls="error"),
+            "quantile": value.quantile(0.5, nulls="error"),
+        }
+    )
+    for optimized in (False, True):
+        with pytest.raises((AnalysisError, SemanticExpressionError), match="non-NA"):
+            _execute(session, query, optimized=optimized)
+    safe = session.observe(
+        {
+            "weighted": value.weighted_mean(weight=weight, nulls="error"),
+            "quantile": value.quantile(0.5),
+        },
+        where=value > 0,
+    )
+    _, plan, _, _ = _same(session, safe)
+    assert not any(group.law == "source_block" for group in plan.fusion_groups)
+
+
+def test_frequency_payload_survives_ordinary_aggregate_optimization(
+    optimization_session: Session,
+) -> None:
+    from marivo._definition.expressions import SourceAggregate
+    from marivo.analysis.compiler.attribute_frequencies import frequency_read
+    from marivo.analysis.compiler.graph_plan import AttributeFrequencyRead, require_reduction
+
+    session = optimization_session
+    amount = catalog_value(session.catalog, "sales.orders.amount", kind="field")
+    graph = _source_graph(
+        session.observe(
+            {
+                "minimum": amount.quantile(0.0),
+                "maximum": amount.quantile(1.0),
+                "count": amount.count(),
+            }
+        )
+    )
+    with open_query_sources(
+        session._runtime.connection_service(), graph, session.catalog._state
+    ) as prepared:
+        plan = plan_query(graph, prepared.schemas)
+        stages = []
+        for stage in plan.stages:
+            if isinstance(stage, SourceRead):
+                node = require_reduction(stage).node
+                if isinstance(node, SourceAggregate) and node.reducer == "quantile":
+                    stage = frequency_read(stage)
+            stages.append(stage)
+        optimized = optimize_query(replace(plan, stages=tuple(stages)))
+        assert (
+            sum(
+                isinstance(s.program, AttributeFrequencyRead)
+                for s in optimized.stages
+                if isinstance(s, SourceRead)
+            )
+            == 2
+        )
+        result = execute_numeric_query(prepared, lower_query(optimized, prepared.relations))
+        assert result.table.iloc[0].tolist() == [10.0, 30.0, 3]
+
+
+def test_joint_weighted_components_retain_both_raw_operands(
+    optimization_session: Session,
+) -> None:
+    from marivo.analysis.compiler.optimization import _common_sources, retain_components
+    from marivo.analysis.compiler.original import WeightedPayload
+    from marivo.analysis.materialization.graph_source_execution import read_stage
+
+    session = optimization_session
+    amount = catalog_value(session.catalog, "sales.orders.amount", kind="field")
+    weight = catalog_value(session.catalog, "sales.orders.approximate", kind="field")
+    with duckdb.connect(str(session.project_root / "optimization.duckdb")) as connection:
+        connection.execute("UPDATE orders SET approximate=NULL WHERE id=2")
+    graph = _source_graph(
+        session.observe(
+            {
+                "weighted": amount.weighted_mean(weight=weight),
+                "again": amount.weighted_mean(weight=weight),
+            }
+        )
+    )
+    with open_query_sources(
+        session._runtime.connection_service(), graph, session.catalog._state
+    ) as prepared:
+        plan = _common_sources(
+            retain_components(plan_query(graph, prepared.schemas), prepared.schemas)
+        )
+        lowered = lower_query(plan, prepared.relations)
+        reads = [stage for stage in lowered.plan.stages if isinstance(stage, SourceRead)]
+        assert len(reads) == 1
+        output = read_stage(prepared, reads[0], lowered.read(reads[0].stage_id))
+        assert len(output.components) == 2
+        for component in output.components:
+            assert isinstance(component.layout.payload, WeightedPayload)
+            table = component.table.sort_values("__original_id.0")
+            assert table["__original_value"].iloc[:3].tolist() == [10, 30, 20]
+            assert table["__original_weight"].iloc[[0, 2]].tolist() == [10.0, 20.0]
+            assert pd.isna(table["__original_weight"].iloc[1])
+        assert output.table.iloc[0, :2].tolist() == pytest.approx([50 / 3, 50 / 3])
