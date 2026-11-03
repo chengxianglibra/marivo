@@ -61,9 +61,51 @@ def test_shanghai_day_compares_original_column_on_every_backend(engine: str, phy
     comparisons = list(where.find_all(sge.GTE, sge.LT))
     assert len(comparisons) == 2, sql
     assert all(isinstance(item.this, sge.Column) for item in comparisons), sql
+    if engine == "clickhouse" and physical == "date":
+        assert "toDate('2026-10-28')" in sql
+        assert "toDate('2026-10-29')" in sql
+        assert "toDate32(" not in sql
     if physical in ("string", "int64"):
         assert {item.expression.this for item in comparisons} == {"20261028", "20261029"}
         assert all(item.expression.is_string == (physical == "string") for item in comparisons)
+
+
+@pytest.mark.parametrize(
+    "bound,comparison,expected_literal",
+    [
+        (date(1969, 12, 31), ">=", "toDate32('1969-12-31')"),
+        (date(1970, 1, 1), ">=", "toDate('1970-01-01')"),
+        (date(2149, 6, 6), ">=", "toDate('2149-06-06')"),
+        (date(2149, 6, 7), ">=", "toDate32('2149-06-07')"),
+        (date(1969, 12, 31), ">", "toDate('1970-01-01')"),
+        (date(2149, 6, 6), ">", "toDate32('2149-06-07')"),
+        (datetime(1969, 12, 31, 12, tzinfo=timezone.utc), ">=", "toDate('1970-01-01')"),
+        (datetime(2149, 6, 6, 12, tzinfo=timezone.utc), ">=", "toDate32('2149-06-07')"),
+    ],
+)
+def test_clickhouse_date_cutoffs_choose_literal_after_rounding(
+    bound: date | datetime, comparison: TimeComparison, expected_literal: str
+) -> None:
+    table = ibis.table({"point": "date"}, name="events")
+    field = replace(axis("%Y%m%d"), parse=DateParse(timezone="UTC"))
+    _, authority = source_time(
+        table.point,
+        field,
+        boundary_timezone="UTC",
+        source_timezone=DeclaredSourceTimezone("UTC", "field"),
+        engine="clickhouse",
+    )
+    predicate = source_time_comparison(
+        table.point, field, authority, bound=bound, comparison=comparison, engine="clickhouse"
+    )
+    assert predicate is not None
+    sql = str(
+        ibis.to_sql(lower_temporal(table.filter(predicate), "clickhouse"), dialect="clickhouse")
+    )
+    where = sqlglot.parse_one(sql, read="clickhouse").find(sge.Where)
+    assert where is not None and isinstance(where.this, sge.GTE)
+    assert isinstance(where.this.this, sge.Column), sql
+    assert expected_literal in sql
 
 
 @pytest.mark.parametrize(

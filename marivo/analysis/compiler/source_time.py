@@ -126,9 +126,11 @@ def _scalar_cutoff(
             day = (midnight + timedelta(days=not inclusive or point != midnight)).date()
         except OverflowError:
             return _nullable_constant(raw, False)
+        # Ibis represents both Date and Date32 as date. Only cutoffs outside
+        # Date's range require the wider ClickHouse literal.
         literal = (
             _clickhouse_date32(day.isoformat())
-            if engine == "clickhouse"
+            if engine == "clickhouse" and not date(1970, 1, 1) <= day <= date(2149, 6, 6)
             else ibis.literal(day, type=physical)
         )
         return raw >= literal

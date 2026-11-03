@@ -290,6 +290,13 @@ Derived expressions, nonordered formats, unsupported carriers and ambiguous
 endpoints retain native predicates. Projection and calendar assignment still
 use native parsing and timezone operations.
 
+ClickHouse date cutoffs use `toDate` when the rounded boundary is between
+`1970-01-01` and `2149-06-06`, inclusive. Boundaries outside that range use
+`toDate32` to preserve historical and extended-range Date32 queries. Ibis maps
+native Date and Date32 to the same logical date type, so the literal choice
+depends on the rounded boundary. Cutoffs within Date's range remain usable on
+executing nodes without `toDate32` support.
+
 Native parsing on DuckDB, Trino, ClickHouse and MySQL/MariaDB returns NULL for
 rejected parsed data; PostgreSQL uses native `to_timestamp` and can fail the
 entire query. There is no error-policy option. Invalid format, timezone, type

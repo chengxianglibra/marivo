@@ -18,6 +18,7 @@ from marivo.semantic.reader import SemanticProject
 from tests.analysis.numeric.test_remote_numeric_query import _datasource_model
 from tests.datasource.source_cases import SourceData, source_case
 from tests.shared_fixtures import catalog_value
+from tests.support.source_trace import SourceTrace
 
 pytestmark = pytest.mark.runtime
 
@@ -59,14 +60,19 @@ def _shanghai_session(
         assert isinstance(case.source, TableSourceIR)
         header = case.session._backend.con.query("SELECT timezone()").first_row
         assert header == ("Asia/Shanghai",)
-        cadence = ", sample_interval=(5,'minute')" if "DateTime" in physical_type else ""
+        # Date cases describe business dates in the report's civil timezone.
+        time_options = (
+            ", sample_interval=(5,'minute')"
+            if "DateTime" in physical_type
+            else f", parse=ms.date(timezone={report_timezone!r})"
+        )
         factory(
             {
                 "datasources/warehouse.py": _datasource_model("clickhouse", case, monkeypatch),
                 "sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales', owner='Test', default=True)\n",
                 "sales/facts.py": "import marivo.datasource as md\nimport marivo.semantic as ms\n"
                 + f"facts=ms.entity(name='facts', datasource=ms.ref.datasource('warehouse'), source=md.table({case.source.table!r}, database={case.source.database!r}), primary_key=['id'])\n"
-                + f"point=ms.time_dimension_column(name='point', entity=facts, column='point', is_default=True{cadence})\n"
+                + f"point=ms.time_dimension_column(name='point', entity=facts, column='point', is_default=True{time_options})\n"
                 + "amount=ms.measure_column(name='amount', entity=facts, column='amount', additivity=ms.additive_all())\n",
             }
         )
@@ -208,6 +214,7 @@ def test_date_calendar_day_keeps_dates_and_completes_only_missing_days(
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
     physical_type: Literal["Date", "Nullable(Date)"],
     report_timezone: str,
+    source_trace: SourceTrace,
 ) -> None:
     points: list[date | datetime | None] = [date(2026, 10, day) for day in (27, 28, 28, 30, 31)]
     if physical_type == "Nullable(Date)":
@@ -232,6 +239,10 @@ def test_date_calendar_day_keeps_dates_and_completes_only_missing_days(
         assert rows["calendar:day"].tolist() == expected
         assert rows["calendar:day.label"].tolist() == ["2026-10-28", "2026-10-29", "2026-10-30"]
         assert rows.total.tolist() == [2, 0, 1]
+        assert source_trace.native_sql
+        assert all("todate32(" not in sql.lower() for sql in source_trace.native_sql), (
+            source_trace.native_sql
+        )
 
         subdays: tuple[tuple[Literal["second", "minute", "hour"], str], ...] = (
             ("second", "2026-10-28T00:00:01"),
@@ -255,6 +266,7 @@ def test_date_calendar_larger_grains_keep_civil_boundaries(
     monkeypatch: pytest.MonkeyPatch,
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
     report_timezone: str,
+    source_trace: SourceTrace,
 ) -> None:
     points = [date(2026, 10, day) for day in (25, 26, 31)] + [
         date(2026, 11, 1),
@@ -290,3 +302,7 @@ def test_date_calendar_larger_grains_keep_civil_boundaries(
             ]
             assert rows[f"calendar:{unit}.label"].tolist() == labels
             assert rows.total.tolist() == totals
+            assert source_trace.native_sql
+            assert all("todate32(" not in sql.lower() for sql in source_trace.native_sql), (
+                source_trace.native_sql
+            )
