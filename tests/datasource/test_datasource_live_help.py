@@ -355,3 +355,37 @@ def test_datasource_task_tree_exposes_direct_sql_and_conditioned_native_routes()
 def test_retired_datasource_topics_have_no_alias(target: str) -> None:
     with pytest.raises(MarivoHelpTargetError):
         marivo.help(f"datasource.{target}")
+
+
+@pytest.mark.parametrize("backend", ("duckdb", "postgres", "mysql", "trino", "clickhouse"))
+def test_timezone_declaration_help_has_inputs_and_static_spec_attribute(backend: str) -> None:
+    constructor_help = render_help_text(f"datasource.{backend}")[0]
+    assert "parameters: wall_clock_timezone" in constructor_help
+    assert "IANA names or fixed offsets" in constructor_help
+    assert "physical instants or connection settings" in constructor_help
+    spec_target = {
+        "duckdb": "duck_db_spec",
+        "postgres": "postgres_spec",
+        "mysql": "my_sql_spec",
+        "trino": "trino_spec",
+        "clickhouse": "click_house_spec",
+    }[backend]
+    attribute = render_help_text(f"datasource.{spec_target}.wall_clock_timezone")[0]
+    assert "Kind: attribute" in attribute
+    assert "Default source timezone" in attribute
+    assert len(constructor_help) <= SURFACE_LIMITS.focused_help_max_codepoints
+    if backend == "trino":
+        assert "parameters: timezone)" not in constructor_help
+        with pytest.raises(MarivoHelpTargetError):
+            render_help_text("datasource.trino_spec.timezone")
+
+
+def test_time_range_help_owns_physical_boundary_matching() -> None:
+    text = render_help_text("datasource.time_range")[0]
+    for meaning in (
+        "aware datetimes for aware timestamps",
+        "naive datetimes or dates",
+        "dates for DATE",
+        "defaults do not fill boundary awareness",
+    ):
+        assert meaning in text

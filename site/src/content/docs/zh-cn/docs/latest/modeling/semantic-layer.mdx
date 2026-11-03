@@ -515,3 +515,5 @@ def gross_margin_rate():
 <a id="业务日历"></a>
 
 日历定义与认证：[日期与时间定义](/zh-cn/docs/latest/modeling/dates/)。
+
+时间字段通过 `ms.date`、`ms.timestamp` 或 `ms.strptime` 声明源时区，省略时使用 Datasource `wall_clock_timezone`；`ms.hour_prefix` 继承前缀字段。DATE validity 从两端字段推导共同时区，期间日历从日期字段推导边界时区，二者均不接受额外时区覆盖。Snapshot 与 temporal_set 覆盖范围仍保留自身边界声明。

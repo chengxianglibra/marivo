@@ -390,7 +390,7 @@ def _author(
     (root / "marivo.toml").write_text('[project]\nname="r96-cost"\n')
     (models / "datasources" / "warehouse.py").write_text(
         "import marivo.datasource as md\n"
-        + f"md.{backend}(name='warehouse', "
+        + f"md.{backend}(wall_clock_timezone='UTC', name='warehouse', "
         + ", ".join(f"{key}={value!r}" for key, value in arguments.items())
         + ")\n"
     )

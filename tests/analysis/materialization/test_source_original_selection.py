@@ -389,7 +389,7 @@ def test_parquet_selected_original_rereads_file_without_reselecting_parent(
     pq.write_table(table, path)
     semantic_project_factory(
         {
-            "datasources/warehouse.py": "import marivo.datasource as md\nmd.duckdb(name='warehouse')\n",
+            "datasources/warehouse.py": "import marivo.datasource as md\nmd.duckdb(wall_clock_timezone='UTC', name='warehouse')\n",
             "sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales',owner='Data',default=True)\n",
             "sales/facts.py": "import marivo.datasource as md\nimport marivo.semantic as ms\n"
             + f"facts=ms.entity(name='facts',datasource=ms.ref.datasource('warehouse'),source=md.parquet({str(path)!r}),primary_key=['id'])\n"

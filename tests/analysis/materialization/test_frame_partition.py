@@ -380,7 +380,7 @@ def test_public_month_region_share_journey_stays_fixed_after_source_offline(
     original = observed.to_pandas()
     east = original.loc[original[region.name.rsplit(".", 1)[-1]] == "east"]
     assert east["revenue"].tolist() == [200, 180, 230]
-    east_months = east[month.name.rsplit(".", 1)[-1] + ".start"].tolist()
+    east_months = east[month.name.rsplit(".", 1)[-1]].tolist()
     case.database_path.rename(case.database_path.with_suffix(".offline"))
     (case.root / "models").rename(case.root / "models.offline")
 
@@ -405,7 +405,7 @@ def test_public_month_region_share_journey_stays_fixed_after_source_offline(
     assert selected_east["share"].tolist() == [0.8, 1, 1]
     filtered = selected.where(selected["share"] > 0.8)
     fixed = filtered.compute().to_pandas()
-    assert fixed[month.name.rsplit(".", 1)[-1] + ".start"].tolist() == east_months[1:]
+    assert fixed[month.name.rsplit(".", 1)[-1]].tolist() == east_months[1:]
     assert fixed[region.name.rsplit(".", 1)[-1]].tolist() == ["east", "east"]
     assert fixed["total"].tolist() == [180, 230]
     assert fixed["share"].tolist() == [1, 1]

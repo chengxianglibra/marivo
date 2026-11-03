@@ -55,9 +55,7 @@ def test_public_ordinal_retains_original_positions_after_selection(
         else frame["reference.absolute.value"]
     )
     assert changes.dropna().tolist() == [1]
-    mapping, left_directory, _ = (
-        paired_tables(frame) if paired else comparison_tables(result, frame)
-    )
+    mapping, left_directory, _ = paired_tables(result) if paired else comparison_tables(result)
     retained = set(temporal_keys(result).loc[frame[presence[0]]])
     current_column = "left.0" if paired else mapping.columns[0]
     keys = set(mapping.loc[mapping.iloc[:, 0].isin(retained), current_column].dropna())
@@ -111,8 +109,8 @@ def test_public_period_correspondence_preserves_independent_source_oracle(
     frame = result.to_pandas()
     assert len(frame) == 8 and frame[["current.present", "reference.present"]].all().all()
     assert frame["reference.absolute.value"].tolist() == expected
-    assert frame.attrs["axes"][0]["role"] == "calendar"
-    mapping, left_directory, right_directory = comparison_tables(result, frame)
+    assert result.schema.axes[0].role == "calendar"
+    mapping, left_directory, right_directory = comparison_tables(result)
     assert len(mapping) == len(left_directory) == len(right_directory) == 2
 
 
@@ -237,7 +235,7 @@ def test_previous_year_leap_day_is_missing_and_current_projection_is_exact(
         }
     ).compute()
     frame = result.to_pandas(time_details=True)
-    mapping, left_directory, _ = comparison_tables(result, frame)
+    mapping, left_directory, _ = comparison_tables(result)
     assert set(mapping.iloc[:, 0]) == set(left_directory.iloc[:, 0])
     assert frame["calendar:day.label"].tolist() == [
         "2024-02-28",

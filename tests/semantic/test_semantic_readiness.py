@@ -401,7 +401,7 @@ def test_readiness_defers_native_timestamp_kind_and_authority_without_probing(
     monkeypatch: pytest.MonkeyPatch,
     parse: str,
 ) -> None:
-    from marivo.datasource.timezone import probe_engine_timezone
+    from marivo.datasource import runtime as datasource_runtime
 
     project = semantic_project_factory(
         {
@@ -414,10 +414,10 @@ def test_readiness_defers_native_timestamp_kind_and_authority_without_probing(
         }
     )
 
-    def reject_probe(*args: object, **kwargs: object) -> None:
-        pytest.fail("static readiness probed physical time authority")
+    def reject_connection(*args: object, **kwargs: object) -> None:
+        pytest.fail("static readiness opened a source connection")
 
-    monkeypatch.setattr(probe_engine_timezone.__module__ + ".probe_engine_timezone", reject_probe)
+    monkeypatch.setattr(datasource_runtime, "open_backend", reject_connection)
     report = project.readiness(refs=(ms.ref.time_dimension("sales.events.point"),))
     assert report.status == "ready"
     assert report.blockers == ()

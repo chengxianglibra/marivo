@@ -73,6 +73,7 @@ from marivo.analysis.core.data_types import (
     TimestampDataType,
 )
 from marivo.analysis.core.frame_data import CompletedFrameData
+from marivo.analysis.core.frame_interpretation import FrameSourceTime, merge_source_times
 from marivo.analysis.core.graph import BoundGraph
 from marivo.analysis.core.model import reject
 from marivo.analysis.core.unique_keys import UniqueKeys
@@ -106,6 +107,8 @@ class PreparedSources:
     bound: dict[str, BoundSource]
     sources: dict[str, SourceSession] = field(default_factory=dict)
     entities: dict[str, ir.Table] = field(default_factory=dict)
+    graph: BoundGraph | None = None
+    source_times: tuple[FrameSourceTime, ...] = ()
     native_expressions: dict[tuple[str, ops.Node], ir.Table] = field(default_factory=dict)
     original_input_qualifications: dict[
         tuple[SourceSession, ops.Node], Literal["qualified", "other", "unavailable"]
@@ -697,6 +700,7 @@ def prepare_query_sources(
     *,
     sources: dict[str, SourceSession] | None = None,
     memo: InvocationMemo | None = None,
+    consumption_timezone: str = "UTC",
     frame_schemas: Mapping[str, DataSchema] | None = None,
 ) -> PreparedSources:
     """Prepare fields and relationships, acquiring HTTP JSON to infer its types."""
@@ -711,11 +715,11 @@ def prepare_query_sources(
             sources=sources,
             memo=memo,
             frame_schemas=frame_schemas,
+            consumption_timezone=consumption_timezone,
         )
 
     from marivo.analysis.materialization.query_preparation import prepare_fields
     from marivo.datasource._expression_fields import physical_fields
-    from marivo.datasource.timezone import probe_engine_timezone
 
     available = sources or {source.datasource.semantic_id: source}
     registry, sidecar = state.registry, state.sidecar
@@ -835,16 +839,17 @@ def prepare_query_sources(
         for contribution in contributions
     )
     contributions = share_source_projections(contributions, contracts)
+    source_times: list[FrameSourceTime] = []
     for contribution, input_contract in zip(contributions, contracts, strict=True):
         input_contract = replace(input_contract, reads=contribution.reads)
         root = contribution.root.ref.path
-        reader = probe_engine_timezone(owners[root]._backend)
         prepared = prepare_fields(
             contribution,
             entities,
             state,
-            reader,
+            consumption_timezone=consumption_timezone,
         )
+        source_times.extend(prepared.source_times)
         for dependency in prepared.dependencies:
             for physical in physical_fields(dependency):
                 for bound in bounds.values():
@@ -959,7 +964,13 @@ def prepare_query_sources(
                 "multiple datasources",
                 "Build independent source domains before combining their finite keys.",
             )
-        prepared_population = prepare_population(population, entities, state)
+        prepared_population = prepare_population(
+            population,
+            entities,
+            state,
+            source_times=source_times,
+            consumption_timezone=consumption_timezone,
+        )
         source_id = "population:" + computation_fingerprint(population)
         schema = prepared_population.table.schema().to_pyarrow()
         keys = tuple(
@@ -1037,6 +1048,9 @@ def prepare_query_sources(
         bounds,
         owners,
         entities,
+        source_times=merge_source_times(
+            tuple(source_times), *(dependency.source_times for dependency in dependency_inputs)
+        ),
     )
 
 
@@ -1170,6 +1184,7 @@ def open_query_sources(
     state: CompiledSemanticState,
     *,
     memo: InvocationMemo | None = None,
+    consumption_timezone: str = "UTC",
     frame_schemas: Mapping[str, DataSchema] | None = None,
     json_responses: dict[str, JsonResponseCache] | None = None,
 ) -> Iterator[PreparedSources]:
@@ -1203,14 +1218,19 @@ def open_query_sources(
                 "source-free query",
                 "Execute the local-only plan directly.",
             )
-        yield prepare_query_sources(
-            graph,
+        from marivo.analysis.materialization.native_calendar import bind_native_calendars
+
+        native_graph = bind_native_calendars(graph, state, sources)
+        prepared = prepare_query_sources(
+            native_graph,
             state,
             next(iter(sources.values())),
+            consumption_timezone=consumption_timezone,
             sources=sources,
             memo=memo,
             frame_schemas=frame_schemas,
         )
+        yield replace(prepared, graph=native_graph)
 
 
 def _qualify_query_read(
@@ -2537,7 +2557,6 @@ def prepare_attribute_sources(
     )
     from marivo.analysis.materialization.query_preparation import prepare_fields
     from marivo.datasource.ir import TableSourceIR
-    from marivo.datasource.timezone import probe_engine_timezone
 
     observation = graph.signature.observation
     assert observation is not None
@@ -2557,7 +2576,6 @@ def prepare_attribute_sources(
     scoped_columns: dict[str, tuple[tuple[str, str], ...]] = {}
     parent_checks: dict[str, tuple[tuple[str, str, str], ...]] = {}
     for root, leaves in contributions.items():
-        owner = prepared.sources.get(root, prepared.source)
         scope_groups: dict[
             tuple[ObservationPeriod | None, int | datetime | None], list[ContributionBinding]
         ] = {}
@@ -2647,9 +2665,8 @@ def prepare_attribute_sources(
                 coordinates=parent_reads,
                 memberships=parent_memberships,
             )
-            reader = probe_engine_timezone(owner._backend)
-            scoped = prepare_fields(baseline, prepared.entities, state, reader)
-            classified = prepare_fields(merged, prepared.entities, state, reader)
+            scoped = prepare_fields(baseline, prepared.entities, state)
+            classified = prepare_fields(merged, prepared.entities, state)
             scoped_map, assigned_map = dict(scoped.columns), dict(classified.columns)
             parent_paths = tuple(
                 path for read in parent_reads for path in coordinate_read_keys(read)

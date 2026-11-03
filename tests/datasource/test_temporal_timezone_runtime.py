@@ -3,24 +3,22 @@
 from __future__ import annotations
 
 import os
-import re
 from dataclasses import asdict, replace
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from uuid import uuid4
 
+import ibis
 import ibis.expr.types as ir
 import pandas as pd
 import pytest
 
 import marivo.analysis as mv
 import marivo.datasource as md
-import marivo.semantic as ms
 from marivo.analysis.compiler.errors import DatasetCompilationError
 from marivo.analysis.compiler.source_time import (
     parse_strptime,
     source_time,
-    source_time_comparison,
     source_time_predicate,
 )
 from marivo.analysis.materialization.temporal_sql import lower_temporal
@@ -28,12 +26,13 @@ from marivo.datasource.adapters import provider_for
 from marivo.datasource.capabilities import provider_statement_log
 from marivo.datasource.errors import DatasourceConnectionError
 from marivo.datasource.ir import TableSourceIR
-from marivo.datasource.timezone import probe_engine_timezone, verify_source_timezone
+from marivo.datasource.timezone import verify_source_timezone
 from marivo.semantic.catalog import SemanticCatalog
 from marivo.semantic.errors import SemanticRuntimeError
 from marivo.semantic.ir import HourPrefixParse, StrptimeParse, TimestampParse
 from tests.analysis.temporal.encoded_time_fixtures import axis
 from tests.datasource.source_cases import SourceData, receipt, source_case
+from tests.shared_fixtures import declared_test_timezone
 
 pytestmark = pytest.mark.runtime
 
@@ -92,7 +91,7 @@ def test_clickhouse_catalog_validation_shares_preview_and_analysis_contracts(
         )
         monkeypatch.chdir(tmp_path)
         catalog = SemanticCatalog(project)
-        report = catalog.validate([ms.ref.metric("sales.total")])
+        report = catalog.validate([catalog.get("metric:sales.total")])
         assert all(not check.user_data_queried for check in report.checks)
         session = mv.session.get_or_create("native-physical-validation", timezone="UTC")
         metric = session.catalog.get("metric:sales.total")
@@ -100,7 +99,9 @@ def test_clickhouse_catalog_validation_shares_preview_and_analysis_contracts(
         scope = md.unpruned(max_rows=5, timeout_seconds=10)
         if valid:
             assert report.status == "current", report.to_dict()
-            assert catalog.preview(ms.ref.time_dimension("sales.events.point"), scope=scope).rows
+            assert catalog.preview(
+                catalog.get("time_dimension:sales.events.point"), scope=scope
+            ).rows
             assert session.observe({"total": metric}, by=(period,)).compute().to_pandas()[
                 "total"
             ].tolist() == [2]
@@ -111,7 +112,7 @@ def test_clickhouse_catalog_validation_shares_preview_and_analysis_contracts(
             with pytest.raises(
                 SemanticRuntimeError, match="an aware source without parser timezone"
             ):
-                catalog.preview(ms.ref.time_dimension("sales.events.point"), scope=scope)
+                catalog.preview(catalog.get("time_dimension:sales.events.point"), scope=scope)
             with pytest.raises(
                 SemanticRuntimeError, match="an aware source without parser timezone"
             ):
@@ -173,7 +174,7 @@ def test_clickhouse_implicit_instants_and_encoding_in_non_utc_session(
                             table.point,
                             replace(native_axis, parse=TimestampParse(timezone="UTC")),
                             boundary_timezone="UTC",
-                            read_timezone="America/New_York",
+                            source_timezone=declared_test_timezone(native_axis, "America/New_York"),
                             engine="clickhouse",
                         )
                     error = caught.value
@@ -189,29 +190,31 @@ def test_clickhouse_implicit_instants_and_encoding_in_non_utc_session(
                         table.point,
                         native_axis,
                         boundary_timezone="UTC",
-                        read_timezone="America/New_York",
+                        source_timezone=declared_test_timezone(native_axis, "America/New_York"),
                         engine="clickhouse",
                     )
                     precise, precise_authority = source_time(
                         table.precise,
                         native_axis,
                         boundary_timezone="UTC",
-                        read_timezone="America/New_York",
+                        source_timezone=declared_test_timezone(native_axis, "America/New_York"),
                         engine="clickhouse",
                     )
                     assert authority.kind == precise_authority.kind == "instant"
-                    assert authority.source == precise_authority.source == "physical"
-                    assert authority.read_timezone == precise_authority.read_timezone == "UTC"
+                    assert set(authority.model_dump()) == {"kind", "axis", "physical_type"}
+                    assert set(precise_authority.model_dump()) == {"kind", "axis", "physical_type"}
                     assert precise_authority.physical_type == str(table.precise.type())
                     parsed, parsed_authority = source_time(
                         table.text,
                         axis("%Y-%m-%d %H:%M:%S", "Asia/Shanghai"),
                         boundary_timezone="UTC",
-                        read_timezone="America/New_York",
+                        source_timezone=declared_test_timezone(
+                            axis("%Y-%m-%d %H:%M:%S", "Asia/Shanghai")
+                        ),
                         engine="clickhouse",
                     )
-                    assert parsed_authority.kind == "localizable"
-                    assert parsed_authority.source == "declared"
+                    assert parsed_authority.kind == "wall_clock"
+                    assert parsed_authority.origin == "field"
                     civil = parse_strptime(
                         "clickhouse", table.text.substr(0, 10), StrptimeParse("%Y-%m-%d")
                     )
@@ -219,12 +222,20 @@ def test_clickhouse_implicit_instants_and_encoding_in_non_utc_session(
                         table.hour,
                         replace(native_axis, parse=HourPrefixParse(prefix="day")),
                         boundary_timezone="UTC",
-                        read_timezone="America/New_York",
+                        source_timezone=declared_test_timezone(
+                            replace(
+                                axis("%Y-%m-%d"),
+                                parse=StrptimeParse("%Y-%m-%d", timezone="Asia/Shanghai"),
+                            ),
+                            inherited_from="day",
+                        ),
                         engine="clickhouse",
                         prefix=civil,
-                        prefix_timezone="Asia/Shanghai",
                     )
-                    assert composite_authority.read_timezone == "Asia/Shanghai"
+                    assert composite_authority.kind == "wall_clock"
+                    assert composite_authority.timezone == "Asia/Shanghai"
+                    assert composite_authority.origin == "field"
+                    assert composite_authority.inherited_from == "day"
                     native_range = source_time_predicate(
                         table.precise,
                         native_axis,
@@ -292,7 +303,8 @@ def test_mysql_utc_timestamp_transport_and_named_source_timezone(
     )
     with source_case("mysql", "innodb-table", tmp_path, monkeypatch, data) as case:
         owner = case.session
-        assert probe_engine_timezone(owner._backend).engine_timezone_name == "UTC"
+        with owner._backend.raw_sql("SELECT @@session.time_zone") as result:
+            assert result.fetchone() == ("+00:00",)
         bound = owner.bind(case.source, source_identity="temporal_native")
         table = bound.relation
         assert table.point.type().timezone == "UTC"
@@ -307,23 +319,26 @@ def test_mysql_utc_timestamp_transport_and_named_source_timezone(
             table.point,
             native_axis,
             boundary_timezone="UTC",
-            read_timezone="Asia/Shanghai",
+            source_timezone=declared_test_timezone(native_axis, "Asia/Shanghai"),
             engine="mysql",
         )
         clock, clock_authority = source_time(
             table.clock,
             replace(native_axis, parse=TimestampParse(timezone="Asia/Shanghai")),
             boundary_timezone="UTC",
-            read_timezone="UTC",
+            source_timezone=declared_test_timezone(
+                replace(native_axis, parse=TimestampParse(timezone="Asia/Shanghai"))
+            ),
             engine="mysql",
         )
-        assert authority.kind == "instant" and authority.source == "physical"
-        assert clock_authority.kind == "localizable" and clock_authority.source == "declared"
+        assert authority.kind == "instant"
+        assert clock_authority.kind == "wall_clock" and clock_authority.origin == "field"
         expression = lower_temporal(table.select(point=point, clock=clock), "mysql")
         assert isinstance(expression, ir.Table)
         frame = owner.collect_bounded(expression, purpose="temporal.native", max_rows=2)
         expected = pd.Timestamp("2026-04-30 16:30:00.123456")
-        assert frame.point.tolist() == frame.clock.tolist() == [expected]
+        assert frame.point.tolist() == [expected.tz_localize("UTC")]
+        assert frame.clock.tolist() == [expected.tz_localize("UTC")]
         receipt(
             "adapters-runtime-mysql",
             {
@@ -342,7 +357,7 @@ def test_mysql_utc_timestamp_transport_and_named_source_timezone(
 
 
 @pytest.mark.parametrize("backend", ("mysql", "clickhouse"))
-def test_raw_wall_clock_gap_fold_comparisons_keep_native_columns_bare(
+def test_gap_fold_ranges_match_native_source_localization(
     backend: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     clocks = [
@@ -372,59 +387,93 @@ def test_raw_wall_clock_gap_fold_comparisons_keep_native_columns_bare(
         if backend == "mysql":
             field = replace(field, parse=TimestampParse(timezone="America/New_York"))
         _, authority = source_time(
-            table.point, field, boundary_timezone="UTC", read_timezone="UTC", engine=backend
+            table.point,
+            field,
+            boundary_timezone="UTC",
+            source_timezone=declared_test_timezone(field),
+            engine=backend,
         )
-        gap = datetime(2026, 3, 8, 7, tzinfo=timezone.utc)
-        comparisons = {
-            "equal": source_time_comparison(
-                table.point, field, authority, bound=gap, comparison="=="
+        ranges = {
+            "gap_cell": (
+                datetime(2026, 3, 8, 7, tzinfo=timezone.utc),
+                datetime(2026, 3, 8, 7, 15, tzinfo=timezone.utc),
             ),
-            "strict": source_time_comparison(
-                table.point, field, authority, bound=gap, comparison=">"
+            "first_fold": (
+                datetime(2026, 11, 1, 5, tzinfo=timezone.utc),
+                datetime(2026, 11, 1, 6, tzinfo=timezone.utc),
             ),
-            "before": source_time_comparison(
-                table.point, field, authority, bound=gap, comparison="<"
-            ),
-            "at_most": source_time_comparison(
-                table.point, field, authority, bound=gap, comparison="<="
-            ),
-            "at_least": source_time_comparison(
-                table.point, field, authority, bound=gap, comparison=">="
-            ),
-            "unequal": source_time_comparison(
-                table.point, field, authority, bound=gap, comparison="!="
-            ),
-            "gap_cell": source_time_predicate(
-                table.point, field, authority, start=gap, end=gap + timedelta(minutes=15)
-            ),
-            "first_fold": source_time_predicate(
-                table.point,
-                field,
-                authority,
-                start=datetime(2026, 11, 1, 5, tzinfo=timezone.utc),
-                end=datetime(2026, 11, 1, 6, tzinfo=timezone.utc),
+            "second_fold": (
+                datetime(2026, 11, 1, 6, tzinfo=timezone.utc),
+                datetime(2026, 11, 1, 7, tzinfo=timezone.utc),
             ),
         }
-        assert all(value is not None for value in comparisons.values())
-        expression = table.select(table.id, **comparisons).order_by("id")
-        frame = owner.collect_bounded(expression, purpose="temporal.raw", max_rows=8)
-        expected = {
-            "equal": [2, 3, 4],
-            "strict": [5, 6],
-            "before": [1],
-            "at_most": [1, 2, 3, 4],
-            "at_least": [2, 3, 4, 5, 6],
-            "unequal": [1, 5, 6],
-            "gap_cell": [2, 3, 4],
-            "first_fold": [],
+        predicates = {
+            name: source_time_predicate(
+                table.point, field, authority, start=start, end=end, engine=backend
+            )
+            for name, (start, end) in ranges.items()
         }
-        for name, ids in expected.items():
-            assert frame.loc[frame[name] == True, "id"].tolist() == ids  # noqa: E712
+        assert all(value is not None for value in predicates.values())
+        expression = lower_temporal(table.select(table.id, **predicates).order_by("id"), backend)
+        assert isinstance(expression, ir.Table)
+        frame = owner.collect_bounded(expression, purpose="temporal.native_dst", max_rows=8)
+        assert isinstance(case.source, TableSourceIR)
+        if backend == "mysql":
+            localized = "CONVERT_TZ(point, 'America/New_York', '+00:00')"
+            table_name = f"`{case.source.table}`"
+        else:
+            localized = "toTimeZone(toDateTime64(point, 6, 'America/New_York'), 'UTC')"
+            table_name = f"qualification.`{case.source.table}`"
+        expected: dict[str, list[int]] = {}
+        for name, (start, end) in ranges.items():
+            lower = start.strftime("%Y-%m-%d %H:%M:%S")
+            upper = end.strftime("%Y-%m-%d %H:%M:%S")
+            if backend == "clickhouse":
+                lower_sql = f"toDateTime('{lower}', 'UTC')"
+                upper_sql = f"toDateTime('{upper}', 'UTC')"
+            else:
+                lower_sql, upper_sql = repr(lower), repr(upper)
+            native_sql = (
+                f"SELECT id FROM {table_name} WHERE {localized} >= {lower_sql} "
+                f"AND {localized} < {upper_sql} ORDER BY id"
+            )
+            if backend == "clickhouse":
+                rows = owner._backend.con.query(native_sql).result_rows
+            else:
+                with owner._backend.raw_sql(native_sql) as cursor:
+                    rows = cursor.fetchall()
+            expected[name] = [int(row[0]) for row in rows]
+            assert frame.loc[frame[name] == True, "id"].tolist() == expected[name]  # noqa: E712
             assert pd.isna(frame.loc[frame.id == 7, name].iloc[0])
-        sql = owner.submissions[-1].sql
-        assert "CONVERT_TZ" not in sql.upper() and "parseDateTime" not in sql
-        assert re.search(r'CAST\([^)]*["`]point["`]', sql) is None
         receipt(
-            f"adapters-runtime-wall-order-{backend}",
-            {"environment": case.environment, "expected_ids": expected, "sql": sql},
+            f"adapters-runtime-native-dst-{backend}",
+            {
+                "environment": case.environment,
+                "expected_ids": expected,
+                "sql": owner.submissions[-1].sql,
+            },
         )
+
+
+@pytest.mark.parametrize(
+    "zone, hours", (("UTC", 0), ("Asia/Tokyo", 9), ("UTC+08:00", 8), ("UTC-05:00", -5))
+)
+@pytest.mark.parametrize("analysis", (False, True))
+def test_clickhouse_date_offsets_ignore_server_timezone(
+    zone: str, hours: int, analysis: bool
+) -> None:
+    from marivo.datasource._temporal_expressions import localize, timestamp
+    from marivo.datasource._temporal_lowering import lower_temporal as lower_native
+    from tests.datasource.environment.clickhouse_analysis import connection
+
+    port = os.environ.get("MARIVO_CLICKHOUSE_NON_UTC_TEST_PORT")
+    if port is None:
+        pytest.skip("Explicit non-UTC ClickHouse server required")
+    expression = localize(zone, timestamp(ibis.literal(date(2026, 7, 1))))
+    lowered = (lower_temporal if analysis else lower_native)(expression, "clickhouse")
+    with connection(port=int(port)) as client:
+        assert client.query("SELECT timezone()").result_rows == [("Asia/Shanghai",)]
+        expected = client.query(
+            f"SELECT toDateTime64('2026-07-01 00:00:00', 6, 'UTC') - INTERVAL {hours} HOUR"
+        ).result_rows
+        assert client.query(str(ibis.to_sql(lowered, dialect="clickhouse"))).result_rows == expected

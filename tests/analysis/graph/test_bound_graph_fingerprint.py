@@ -55,7 +55,7 @@ def test_fingerprint_computes_once_without_affecting_value_semantics(
     memo = InvocationMemo()
     first = memo.fingerprint(graph)
     assert first == (
-        "71f0a254fccc7eafd9e9e9cb2c10e797e3a2e35de5a1614caa373b96cac101bb"
+        "e0e4e49c86bb1736310ec365ab6b8b8f5c1367f5bf0daa1334970d2c1fbb12f7"
         if calendar
         else "7dea064422d12e293c2ceb73ed8fc4464994adb3219e3d15730e046e3b5c2ba4"
     )
@@ -139,7 +139,7 @@ def test_encoding_shares_calendar_traversal_only_inside_one_call(
     assert shared == [once, once, once]
     assert (
         graph.fingerprint(shared)
-        == "0e5c22944fc065ceb2ebbda93992b68c86a6151ed21c17776cb12de7eeeb977f"
+        == "87d6d464442527dc6f6c2a6eb7cab6a62a891670c6dfddb865d0f28e2ca006db"
     )
     assert calls == 2 * once_calls
     calls = 0

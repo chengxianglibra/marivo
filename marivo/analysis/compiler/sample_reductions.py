@@ -23,7 +23,7 @@ from marivo._definition.expressions import (
     SourceWeightedMean,
 )
 from marivo._definition.relations import PopulationDependency, sample_population
-from marivo._definition.types import AxisBinding, CalendarCoordinate, IntervalCoordinate
+from marivo._definition.types import AxisBinding, CalendarCoordinate
 from marivo._source_aggregates import aggregate_operation, native_aggregate
 from marivo._temporal import Grain
 from marivo.analysis.compiler.native_formula import normalized_returned_key
@@ -34,7 +34,6 @@ from marivo.analysis.compiler.source_predicates import (
     same_returned_key,
     string_bytes,
 )
-from marivo.analysis.core.calendar_keys import time_keys
 from marivo.analysis.core.data_types import DurationDataType
 from marivo.analysis.core.unique_keys import UniqueKeys
 from marivo.analysis.errors import AnalysisStageUnavailableError
@@ -105,7 +104,6 @@ class SampleLowerer:
         keys: tuple[str, ...],
         provider: str,
         population: Callable[[PopulationDependency, tuple[str, ...]], ir.Table],
-        grid: Callable[[tuple[str, ...], tuple[tuple[object, ...], ...]], ir.Table],
         identities: Mapping[str, str] | None = None,
         unique_keys: Mapping[str, UniqueKeys] | None = None,
     ) -> None:
@@ -114,7 +112,6 @@ class SampleLowerer:
         self.keys = keys
         self.provider = provider
         self.population = population
-        self.grid = grid
         self.identities = identities or {}
         self.unique_keys = unique_keys or {}
         self.declared = dict(program.declared)
@@ -352,7 +349,9 @@ class SampleLowerer:
         remaining = tuple(group for group in groups if not all(key in keys for key in group))
         calendar = dict(self.program.calendar_samples).get(path)
         if isinstance(node.samples, Grain) and calendar is None:
-            raise SampleReductionUnavailableError("calendar sample has no captured grid")
+            raise SampleReductionUnavailableError(
+                "calendar sample has no captured contribution selection"
+            )
         axes = (
             (calendar,)
             if isinstance(node.samples, Grain)
@@ -371,11 +370,7 @@ class SampleLowerer:
         parent = self.domain(keys, path) if forced is None else forced
         sample_domain = self.domain(complete_keys, path)
         definition = sample_population(node.samples)
-        if (
-            (definition is not None or calendar is not None)
-            and keys == self.keys
-            and forced is None
-        ):
+        if definition is not None and keys == self.keys and forced is None:
             # Explicit internal domains consume the complete enclosing output domain.
             parent = self.domain(keys, ())
             if (
@@ -383,15 +378,17 @@ class SampleLowerer:
                 and self.program.complete_calendar
                 and self.program.output_population is None
             ):
-                coordinate = self.program.calendar
-                calendar_values = time_keys(coordinate)
+                if isinstance(self.program.calendar, CalendarCoordinate):
+                    raise SampleReductionUnavailableError(
+                        "explicit Population completion over final calendar positions remains local"
+                    )
                 slot = self.program.calendar_key
-                grid = self.grid((slot,), tuple((value,) for value in calendar_values))
+                unit = ibis.literal(0).cast("int64").name(slot).as_table()
                 fields = tuple(key for key in keys if key != slot)
                 parent = (
-                    distinct_returned_keys(parent.select(*fields), self.provider).cross_join(grid)
+                    distinct_returned_keys(parent.select(*fields), self.provider).cross_join(unit)
                     if fields
-                    else grid
+                    else unit
                 )
             if self.program.output_population is not None and keys:
                 selected_domain = self.population(self.program.output_population, keys)
@@ -400,40 +397,7 @@ class SampleLowerer:
                 )
         if definition is not None:
             sample_domain = parent.cross_join(self.population(definition, sample_keys))
-        elif calendar is not None:
-            parent_groups = groups[: len(groups) - len(remaining)]
-            parent_axes = self.enclosing_axes(path)
-            enclosing = next(
-                (
-                    (group[0], axis)
-                    for group, axis in reversed(
-                        tuple(zip(parent_groups, parent_axes, strict=False))
-                    )
-                    if isinstance(axis, (CalendarCoordinate, IntervalCoordinate))
-                ),
-                None,
-            )
-            if enclosing is None:
-                raise SampleReductionUnavailableError(
-                    "calendar samples have no bound enclosing coordinate"
-                )
-            parent_slot, parent_axis = enclosing
-            cells = (
-                parent_axis.cells
-                if isinstance(parent_axis, CalendarCoordinate)
-                else ((parent_axis.start, parent_axis.end, parent_axis.start, parent_axis.end),)
-            )
-            pairs = tuple(
-                (cell[0] if isinstance(parent_axis, CalendarCoordinate) else 0, sample[0])
-                for cell in cells
-                for sample in calendar.cells
-                if cell[2] <= sample[2] and sample[3] <= cell[3]
-            )
-            grid = self.grid((parent_slot, sample_keys[0]), pairs)
-            sample_domain = parent.inner_join(
-                grid, parent[parent_slot] == grid[parent_slot]
-            ).select(*[parent[key] for key in keys], grid[sample_keys[0]])
-        implicit = definition is None and calendar is None
+        implicit = definition is None
         operands = tuple(
             self.lower(child, (*path, i), complete_keys, None if implicit else sample_domain)
             for i, child in enumerate(children)
@@ -625,33 +589,3 @@ class SampleLowerer:
             zero,
             UniqueKeys(tuple(completed.columns), (keys,)),
         )
-
-    def enclosing_axes(
-        self, path: tuple[int, ...]
-    ) -> tuple[AxisBinding | CalendarCoordinate | IntervalCoordinate, ...]:
-        axes = list(self.program.axes)
-        node = self.program.outputs[path[0]][1]
-        prefix: tuple[int, ...] = (path[0],)
-        for index in path[1:]:
-            if isinstance(node, DeclaredMetricRef):
-                node = self.declared[node.ref]
-            elif isinstance(node, (ContributionFilter, MetricWindow)):
-                node = node.operand
-            elif isinstance(node, MetricExpression):
-                node = node.operands[index]
-            elif isinstance(node, (PerReduce, PerWeightedMean)):
-                if isinstance(node.samples, Grain):
-                    axes.append(dict(self.program.calendar_samples)[prefix])
-                else:
-                    axes.extend(
-                        node.samples if isinstance(node.samples, tuple) else node.samples.axes
-                    )
-                node = (
-                    node.operand
-                    if isinstance(node, PerReduce)
-                    else node.value
-                    if index == 0
-                    else node.weight
-                )
-            prefix = (*prefix, index)
-        return tuple(axes)

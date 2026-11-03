@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 from marivo._definition.observations import CoordinateBinding as CoordinateBinding
 from marivo._definition.types import (
     ExactRef,
@@ -15,6 +17,7 @@ from marivo.analysis.observation.relationship_binding import RelationshipResolve
 from marivo.introspection.live.model import LiveHelpTarget
 from marivo.refs import SemanticKind, ref
 from marivo.semantic.expressions import _Resolver
+from marivo.semantic.ir import SnapshotVersioningIR
 from marivo.semantic.validator import Registry, normalize_target_relationship
 
 
@@ -127,14 +130,19 @@ def bind_read(
     at = read.at
     if isinstance(at, RowAttributeTime):
         control = native_read(at.field, registry, resolver)
-        if (
-            control.entity.ref != root.ref
-            or registry.entities[root.ref.path].versioning is not None
-        ):
+        if control.entity.ref != root.ref:
             reject(
-                f"a native TimeDimension on unversioned fact root {root.ref.path}",
+                f"a native TimeDimension on fact root {root.ref.path}",
                 f"{at.field.ref.key} on {control.entity.ref.path}",
                 "Use a named TimeDimension on this fact root, or pass session.instant(...) for a fixed attribute time.",
+                "session.observe.at",
+            )
+        versioning = registry.entities[root.ref.path].versioning
+        if versioning is not None and not isinstance(versioning, SnapshotVersioningIR):
+            reject(
+                "an unversioned or snapshot fact root for row attribute time",
+                f"{root.ref.path}: {versioning.kind}",
+                "Use a native TimeDimension on an unversioned or snapshot fact root, or pass session.instant(...) for a fixed attribute time.",
                 "session.observe.at",
             )
         if read.field.ref.kind is not SemanticKind.DIMENSION:
@@ -171,8 +179,12 @@ def bind_read(
                 "Choose a path without unbound versioned intermediates.",
                 "session.observe",
             )
-    return FieldRead(
-        current.field, current.entity, tuple(resolver.exact(step) for step in path), at
+    return replace(
+        read,
+        field=current.field,
+        entity=current.entity,
+        path=tuple(resolver.exact(step) for step in path),
+        at=at,
     )
 
 

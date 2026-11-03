@@ -83,7 +83,7 @@ def test_retired_calendar_transport_is_rejected_without_modifying_old_file(tmp_p
 def test_cold_grid_recovery_keeps_snapshot_and_actual_bucket_boundaries(tmp_path: Path):
     snapshot = _snapshot()
     grain = semantic_grain(calendar=snapshot.calendar_ref, level="period", snapshot=snapshot)
-    grid = exact_scope("2026-10-01T12:00:00", "2026-10-02T12:00:00", "UTC").by(grain).grid
+    grid = exact_scope("2026-10-01", "2026-10-03", "UTC").by(grain).grid
     adapter = TypeAdapter(BoundTimeGrid)
     path = tmp_path / "grid.json"
     path.write_bytes(adapter.dump_json(grid))
@@ -99,8 +99,8 @@ from marivo._temporal_grid import BoundTimeGrid
 value = TypeAdapter(BoundTimeGrid).validate_json(Path(sys.argv[1]).read_bytes(), strict=True)
 assert value.calendar_snapshot == value.grain_spec._snapshot
 assert value.cells[0].original_start.isoformat() == '2026-10-01T00:00:00+00:00'
-assert value.cells[0].start.isoformat() == '2026-10-01T12:00:00+00:00'
-assert value.cells[0].end.isoformat() == '2026-10-02T12:00:00+00:00'
+assert value.cells[0].start.isoformat() == '2026-10-01T00:00:00+00:00'
+assert value.cells[0].end.isoformat() == '2026-10-03T00:00:00+00:00'
 print(value.identity)
 """,
             str(path),

@@ -124,7 +124,6 @@ class MySQLBackend(SQLBackend):  # type: ignore[misc]
                     action="Restore MySQL UTC timezone support and retry the datasource connection.",
                 ),
             ) from cause
-        self._marivo_timezone_name = "UTC"
 
     @cached_property
     def version(self) -> str:

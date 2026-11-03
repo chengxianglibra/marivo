@@ -13,19 +13,12 @@ import marivo.semantic as ms
 from marivo.datasource import engines
 from marivo.datasource.adapters import CompiledRead, SourceSession
 from marivo.datasource.engines.base import PartitionProbeRequest, PartitionProbeResult
-from tests.shared_fixtures import DslCase, DslCaseFactory, terminal_runs
+from tests.shared_fixtures import DslCase, DslCaseFactory, frozen_coordinates, terminal_runs
 from tests.support.source_trace import SourceTrace
 
 
 def _member_frame(frame: pd.DataFrame) -> pd.DataFrame:
-    result = pd.DataFrame({"value": frame["value"]})
-    for axis in frame.attrs["axes"]:
-        if axis["role"] == "interval":
-            continue
-        result["coord_0" if axis["role"] == "calendar" else "member"] = frame[
-            axis["name"].rsplit(".", 1)[-1] + (".label" if axis["role"] == "calendar" else "")
-        ]
-    return result
+    return pd.DataFrame({"value": frame["value"], "member": frame["customer"]})
 
 
 def _encode_orders(case: DslCase, fmt: str, *, integer: bool = False) -> None:
@@ -46,6 +39,33 @@ def _encode_orders(case: DslCase, fmt: str, *, integer: bool = False) -> None:
 
 def _forbid_partition_probe(request: PartitionProbeRequest) -> PartitionProbeResult:
     raise AssertionError("Encoded filtering must not inspect partition values")
+
+
+def test_explicit_within_filters_the_original_encoded_column(
+    analysis_dsl_case_factory: DslCaseFactory, source_trace: SourceTrace
+) -> None:
+    case = analysis_dsl_case_factory("j1")
+    _encode_orders(case, "%Y%m%d")
+    point = case.session.catalog.get(
+        f"time_dimension:sales.{case.names.order}.{case.names.ordered_at}"
+    )
+    scope = case.session.time_scope(start="2026-08-01", end="2026-09-01")
+    result = case.session.observe(
+        {"value": case.session.catalog.get("metric:sales.revenue")},
+        by=(),
+        where=point.within(scope),
+    ).compute()
+    assert result.to_pandas()["value"].tolist() == [1000]
+    sql = next(sql for sql in source_trace.native_sql if "ordered_at" in sql and "WHERE" in sql)
+    ast = sqlglot.parse_one(sql, read="duckdb")
+    for where in ast.find_all(sge.Where):
+        assert "TRY_STRPTIME" not in where.sql(dialect="duckdb")
+    assert any(
+        isinstance(item.this, sge.Column)
+        and isinstance(item.expression, sge.Literal)
+        and item.expression.this == "20260801"
+        for item in ast.find_all(sge.GTE)
+    ), sql
 
 
 @pytest.mark.parametrize("integer", [False, True])
@@ -100,7 +120,7 @@ def test_observation_preserves_population_windows_and_query_count(
     assert len(business) == 1
     ast = sqlglot.parse_one(business[0], read="duckdb")
     assert "TRY_STRPTIME" in ast.sql(dialect="duckdb")
-    assert not any(
+    assert any(
         isinstance(comparison.this, sge.Column)
         and isinstance(comparison.expression, sge.Literal)
         and comparison.expression.this in {"20260801", "20260901"}
@@ -146,32 +166,27 @@ def test_grid_window_has_scan_envelope_and_preserves_cells(
     population = case.session.members(case.session.catalog.get("entity:sales.customer"))
 
     def execute() -> pd.DataFrame:
-        rows = (
-            case.session.observe(
-                {"value": case.session.catalog.get("metric:sales.revenue")},
-                by=mv.product(grid, population),
-            )
-            .compute()
-            .to_pandas(time_details=True)
-        )
+        frame = case.session.observe(
+            {"value": case.session.catalog.get("metric:sales.revenue")},
+            by=mv.product(grid, population),
+        ).compute()
+        rows = frame.to_pandas(time_details=True)
         # Check producer order before the separate membership normalization oracle.
         assert rows["calendar:month.label"].tolist() == ["2026-08-01"] * 4 + ["2026-09-01"] * 4
-        assert (
-            rows[rows.attrs["axes"][1]["name"].rsplit(".", 1)[-1]].tolist()
-            == ["A", "B", "C", "D"] * 2
-        )
-        directory = rows.attrs["frozen_coordinates"][0]["rows"].to_pandas(
-            types_mapper=pd.ArrowDtype
-        )
-        assert [stamp.isoformat() for stamp in directory["nominal_start"]] == [
+        assert rows["customer"].tolist() == ["A", "B", "C", "D"] * 2
+        directory = frozen_coordinates(frame)[0].rows
+        assert [stamp.isoformat() for stamp in directory.iloc[:, 0]] == [
             "2026-08-01T00:00:00+00:00",
             "2026-09-01T00:00:00+00:00",
         ]
-        assert [stamp.isoformat() for stamp in directory["actual_end"]] == [
-            "2026-09-01T00:00:00+00:00",
-            "2026-10-01T00:00:00+00:00",
-        ]
-        return _member_frame(rows).sort_values(["member", "coord_0"]).reset_index(drop=True)
+        assert directory["selection"].tolist() == ["full", "full"]
+        assert not {"nominal_start", "actual_end"} & set(directory.columns)
+        return (
+            _member_frame(rows)
+            .assign(coord_0=rows["calendar:month.label"])
+            .sort_values(["member", "coord_0"])
+            .reset_index(drop=True)
+        )
 
     optimized = execute()
     assert len(optimized) == 8
@@ -179,7 +194,8 @@ def test_grid_window_has_scan_envelope_and_preserves_cells(
     sql = next(sql for purpose, sql in reads if purpose.startswith("query."))
     ast = sqlglot.parse_one(sql, read="duckdb")
     assert "TRY_STRPTIME" in ast.sql(dialect="duckdb")
-    assert any(join.args.get("on") is not None for join in ast.find_all(sge.Join))
+    # Native calendar assignment does not require a calendar directory JOIN.
+    assert not list(ast.find_all(sge.Join))
     assert all(len(node.args["ifs"]) <= 1 for node in ast.find_all(sge.Case))
     assert optimized.coord_0.tolist() == ["2026-08-01", "2026-09-01"] * 4
 

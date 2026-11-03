@@ -1,8 +1,9 @@
 """Python strptime validation for time fields.
 
-The ``format`` parameter of ``ms.strptime`` selects native safe parsing
-and accepts Python strptime strings, validated by :func:`normalize_strptime`
-at authoring time. This validation checks the format, not source values.
+The ``format`` parameter of ``ms.strptime`` declares a source encoding and
+accepts Python strptime strings, validated by :func:`normalize_strptime`
+at authoring time. Ordered formats require canonical source values. This
+validation checks the format, not source values.
 The validated format flows into ibis expressions and is emitted as backend SQL.
 
 For MySQL-family backends (Trino ``date_parse``, MySQL ``STR_TO_DATE``),
@@ -58,16 +59,16 @@ def normalize_strptime(value: str) -> str:
     stripped = value.strip()
     if not stripped.startswith("%"):
         raise ValueError(
-            f"date_format must be a Python strptime format starting with '%' "
+            f"format must be a Python strptime format starting with '%' "
             f"(e.g. '%Y%m%d'); got {value!r}. Shorthand aliases like "
             f"'yyyymmdd' are no longer accepted."
         )
     try:
         sample_str = _SAMPLE_DT.strftime(stripped)
     except ValueError:
-        raise ValueError(f"date_format {value!r} is not a valid Python strftime format.") from None
+        raise ValueError(f"format {value!r} is not a valid Python strftime format.") from None
     try:
         time.strptime(sample_str, stripped)
     except ValueError:
-        raise ValueError(f"date_format {value!r} is not a valid Python strptime format.") from None
+        raise ValueError(f"format {value!r} is not a valid Python strptime format.") from None
     return stripped

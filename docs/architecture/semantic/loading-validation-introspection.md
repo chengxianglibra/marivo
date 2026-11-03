@@ -204,6 +204,13 @@ contracts. These checks use the transformed Entity and field output types, not
 just the raw column names or datasource family. An already-aware timestamp
 rejects an explicit parser timezone, including when both zones are equal;
 ClickHouse native timestamps are aware even when Ibis omits the zone label.
+Datasource defaults do not reinterpret aware sources. Native DATE and naive
+timestamp fields require parser timezone or Datasource wall_clock_timezone,
+including parse=None. Static encoded fields without this declaration are also
+readiness blockers. DATE validity endpoints share one normalized source zone;
+DATE snapshot and temporal-set endpoints must match their boundary declaration.
+Preview displays actual physical kind and source declaration without consulting
+the host report timezone.
 Reports retain physical types, affected refs, declaration locations and repairs.
 Fixed CHAR/CHARACTER columns on PostgreSQL, MySQL/MariaDB and Trino have logical
 string types for schema validation while inspection retains physical widths.

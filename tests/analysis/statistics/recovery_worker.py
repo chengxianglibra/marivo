@@ -9,7 +9,6 @@ import subprocess
 import sys
 from datetime import datetime, timezone
 from decimal import Decimal
-from itertools import pairwise
 from pathlib import Path
 from unittest.mock import patch
 from zoneinfo import ZoneInfo
@@ -17,6 +16,7 @@ from zoneinfo import ZoneInfo
 import duckdb
 import ibis
 import pandas as pd
+import pyarrow as pa
 
 import marivo.analysis as mv
 import marivo.semantic as ms
@@ -36,7 +36,9 @@ def snapshot(result: mv.AnalysisFrame, *, frame: pd.DataFrame | None = None) -> 
     return dict(frame_snapshot(result, frame=frame))
 
 
-def verify(frame: pd.DataFrame, mode: str, profile: dict[str, object]) -> None:
+def verify(
+    result: mv.AnalysisFrame, frame: pd.DataFrame, mode: str, profile: dict[str, object]
+) -> None:
     values = frame["value"].dropna()
     if profile:
         indices = profile["profiles"]
@@ -62,25 +64,25 @@ def verify(frame: pd.DataFrame, mode: str, profile: dict[str, object]) -> None:
         )
         assert sorted(values) == sorted(wanted)
         if mode in ("time", "entity_time", "category_time"):
-            axes = frame.attrs["axes"]
-            calendar = next(axis for axis in axes if axis["role"] == "calendar")
+            index = next(
+                index for index, axis in enumerate(result.schema.axes) if axis.role == "calendar"
+            )
+            calendar = result.schema.axes[index]
+            assert isinstance(calendar, mv.FrameCalendarAxisSchema)
             zone = profile["zone"]
             assert isinstance(zone, str)
-            descriptor = calendar["descriptor"]
-            assert descriptor["timezone"] == zone
-            directory = next(
-                part["rows"].to_pandas(types_mapper=pd.ArrowDtype)
-                for part in frame.attrs["frozen_coordinates"]
-                if part["name"] == descriptor["frozen"]["directory_name"]
-            )
-            days = (1, 2, 4, 7) if profile["calendar"] else (1, 2, 3, 4)
-            boundaries = tuple(
+            assert calendar.timezone == zone
+            days = (1, 2, 4) if profile["calendar"] else (1, 2, 3)
+            starts = []
+            for period in result.read_periods(result.axes[index]).items:
+                assert isinstance(period, mv.FrameCalendarPeriod)
+                (start,) = period.key
+                assert isinstance(start, pa.TimestampScalar)
+                starts.append(start.as_py())
+            assert starts == [
                 datetime(2026, 8, day, tzinfo=ZoneInfo(zone)).astimezone(timezone.utc)
                 for day in days
-            )
-            assert list(
-                directory[["actual_start", "actual_end"]].itertuples(index=False, name=None)
-            ) == list(pairwise(boundaries))
+            ]
             assert len(frame) == (3 if mode == "time" else 9)
             assert int(frame.value.isna().sum()) == (0 if mode in ("time", "category_time") else 6)
         if mode in ("entity", "entity_time"):
@@ -92,9 +94,7 @@ def verify(frame: pd.DataFrame, mode: str, profile: dict[str, object]) -> None:
                 else ["a", "b", "c"]
             )
             member_index = next(
-                index
-                for index, axis in enumerate(frame.attrs["axes"])
-                if axis["role"] == "identity"
+                index for index, axis in enumerate(result.schema.axes) if axis.role == "identity"
             )
             assert frame[f"key_{member_index}"].drop_duplicates().tolist() == expected_keys
         if mode == "category":
@@ -193,7 +193,7 @@ def run(root: Path, phase: str, mode: str) -> dict[str, object]:
                 query = query.top(7, by=query["value"])
         saved = query.persist()
         frame = plain(saved)
-        verify(frame, mode, profile)
+        verify(saved, frame, mode, profile)
         state = {
             "session": session.id,
             "artifact": saved.artifact_id,
@@ -201,13 +201,12 @@ def run(root: Path, phase: str, mode: str) -> dict[str, object]:
             "profile": profile,
         }
         before = run_ids(session)
-        verify(plain(session.persisted_frame(saved.artifact_id)), mode, profile)
+        reopened = session.persisted_frame(saved.artifact_id)
+        verify(reopened, plain(reopened), mode, profile)
         assert run_ids(session) == before
         if mode == "entity_time" and profile["followup"]:
             member_index = next(
-                index
-                for index, axis in enumerate(frame.attrs["axes"])
-                if axis["role"] == "identity"
+                index for index, axis in enumerate(saved.schema.axes) if axis.role == "identity"
             )
             fitted = deviation(frame, "zscore")
             keys = tuple(fitted.loc[fitted.score > 0, f"key_{member_index}"].drop_duplicates())
@@ -259,7 +258,7 @@ def run(root: Path, phase: str, mode: str) -> dict[str, object]:
             saved = session.persisted_frame(state["artifact"])
             frame = plain(saved)
             assert snapshot(saved, frame=frame) == state["frame"]
-            verify(frame, mode, state["profile"])
+            verify(saved, frame, mode, state["profile"])
             assert run_ids(session) == before
             assert session._runtime.store.resources(session.id) == ()
     return {

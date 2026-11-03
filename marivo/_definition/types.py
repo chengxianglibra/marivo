@@ -13,7 +13,7 @@ from marivo._temporal import Grain, InstantAnchor, PeriodCalendarSnapshotV2
 from marivo.refs import Ref, SemanticKind, SemanticKindTag
 
 if TYPE_CHECKING:
-    from marivo._temporal_grid import CivilBounds, TimeGridOrigin
+    from marivo._temporal_grid import CivilBounds, TimeShiftEntry
 
 DefinitionErrorKind: TypeAlias = Literal[
     "invalid_value",
@@ -268,6 +268,15 @@ class FieldRead:
 
 
 @dataclass(frozen=True, slots=True)
+class TimeScopeFieldRead(FieldRead):
+    """Temporal membership usage, distinct from the field's raw scalar value."""
+
+    scope_start: InstantAnchor = field(kw_only=True)
+    scope_end: InstantAnchor = field(kw_only=True)
+    scope_timezone: str = field(kw_only=True)
+
+
+@dataclass(frozen=True, slots=True)
 class IdentityRead:
     """Complete declared primary-key coordinates through one scalar path."""
 
@@ -279,6 +288,18 @@ class IdentityRead:
 
 def field_read_key(read: FieldRead | IdentityRead) -> str:
     """Identify a physical field usage including its path and attribute anchor."""
+    if isinstance(read, TimeScopeFieldRead):
+        return repr(
+            (
+                "within",
+                read.field.ref.path,
+                tuple(step.ref.path for step in read.path),
+                attribute_time_key(read.at) if read.at is not None else None,
+                read.scope_start.isoformat(),
+                read.scope_end.isoformat(),
+                read.scope_timezone,
+            )
+        )
     if isinstance(read, IdentityRead):
         return repr(
             (
@@ -319,9 +340,34 @@ class IntervalCoordinate:
     timezone: str
 
 
+def _merge_time_ranges(
+    ranges: tuple[tuple[InstantAnchor, InstantAnchor], ...],
+) -> tuple[tuple[InstantAnchor, InstantAnchor], ...]:
+    """Union explicit request ranges without interpreting bucket membership."""
+    result: list[tuple[InstantAnchor, InstantAnchor]] = []
+    for start, end in sorted(ranges):
+        if start >= end:
+            continue
+        if result and start <= result[-1][1]:
+            result[-1] = (result[-1][0], max(result[-1][1], end))
+        else:
+            result.append((start, end))
+    return tuple(result)
+
+
+@dataclass(frozen=True, slots=True)
+class CalendarOrigin:
+    """Captured immediate result correspondence, independent of a source directory."""
+
+    coordinate: CalendarCoordinate
+    kind: Literal["years", "periods"]
+    by: int
+    entries: tuple[TimeShiftEntry, ...]
+
+
 @dataclass(frozen=True, slots=True)
 class CalendarCoordinate:
-    """Frozen output calendar, including nominal and actual half-open buckets."""
+    """Captured selection intent and evaluated native position facts."""
 
     identity: str
     grain_spec: Grain
@@ -329,16 +375,13 @@ class CalendarCoordinate:
     snapshot_digest: str | None
     cells: tuple[tuple[InstantAnchor, InstantAnchor, InstantAnchor, InstantAnchor], ...]
     snapshot: PeriodCalendarSnapshotV2 | None = None
-    origin: TimeGridOrigin | None = None
+    origin: CalendarOrigin | None = None
     civil_bounds: tuple[CivilBounds, ...] = field(kw_only=True)
+    ranges: tuple[tuple[InstantAnchor, InstantAnchor], ...] = field(default=(), kw_only=True)
 
     def __post_init__(self) -> None:
-        from marivo._temporal_grid import validate_civil_bounds
-
         if len(self.civil_bounds) != len(self.cells):
-            invalid("calendar civil facts must cover the exact selected cells")
-        for civil, bounds in zip(self.civil_bounds, self.cells, strict=True):
-            validate_civil_bounds(civil, bounds)
+            invalid("calendar position facts must cover the exact selected keys")
 
     @property
     def grain(self) -> str:

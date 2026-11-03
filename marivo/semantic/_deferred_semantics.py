@@ -80,6 +80,7 @@ from marivo._definition.types import (
     RowAttributeTime,
     SumNone,
     SumPermission,
+    TimeScopeFieldRead,
     fixed_attribute_time,
 )
 from marivo._grouping import Grouping
@@ -1100,11 +1101,10 @@ def _consume(recipe: Resolver) -> _Facts:
                                 or control.field.field_read.at is not None
                             )
                         )
-                        or control.field.versioned
                     ):
                         _fail(
                             "Row attribute time requires one native, unanchored TimeDimension.",
-                            expected="a named TimeDimension on the unversioned fact root",
+                            expected="a named, native TimeDimension without via/at",
                             received=control.field.reference.ref.key
                             if isinstance(control, RowFacts) and control.field is not None
                             else "a computed expression without a native field identity",
@@ -1168,13 +1168,47 @@ def _consume(recipe: Resolver) -> _Facts:
                         expected="TimeField.within(TimeScope)",
                         received="invalid field or scope",
                     )
-                assert isinstance(scope, TimeScope)
-                return _consume(
-                    BinaryOperator(
-                        operator.and_,
-                        BinaryOperator(operator.ge, recipe.func.obj, Just(scope.start)),
-                        BinaryOperator(operator.lt, recipe.func.obj, Just(scope.end)),
-                    )
+                assert isinstance(scope, TimeScope) and receiver.field is not None
+                from marivo._temporal import anchor_from_datetime
+                from marivo._temporal_grid import instant
+
+                start = anchor_from_datetime(instant(scope.start, scope.boundary_timezone))
+                end = anchor_from_datetime(instant(scope.end, scope.boundary_timezone))
+                native = receiver.field.field_read or FieldRead(
+                    receiver.field.reference, receiver.field.root
+                )
+                read = TimeScopeFieldRead(
+                    native.field,
+                    native.entity,
+                    native.path,
+                    native.at,
+                    scope_start=start,
+                    scope_end=end,
+                    scope_timezone=scope.boundary_timezone,
+                )
+                return replace(
+                    receiver,
+                    node=RowExpression(
+                        BinaryOperator(
+                            operator.and_,
+                            BinaryOperator(operator.ge, Variable("slot_0"), Just(start)),
+                            BinaryOperator(operator.lt, Variable("slot_0"), Just(end)),
+                        ),
+                        (
+                            RowField(
+                                native.field,
+                                native.entity,
+                                receiver.unit,
+                                receiver.permission,
+                                read=read,
+                                origins=receiver.node.origins,
+                            ),
+                        ),
+                        origins=receiver.node.origins,
+                    ),
+                    numeric=False,
+                    boolean=True,
+                    field=None,
                 )
             if name == "via":
                 if (

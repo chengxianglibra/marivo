@@ -22,38 +22,36 @@ from tests.shared_fixtures import terminal_runs
 
 
 def segments(frame: pd.DataFrame, threshold: float = 0) -> pd.DataFrame:
-    """Find consecutive qualifying cells using the exported actual calendar bounds."""
-    axes = frame.attrs["axes"]
-    calendar = next(axis for axis in axes if axis["role"] == "calendar")
-    calendar_column = calendar["name"].rsplit(".", 1)[-1]
-    group_columns = [
-        axis["name"].rsplit(".", 1)[-1] for axis in axes if axis["role"] in ("identity", "field")
-    ]
+    """Find consecutive UTC daily positions under this recipe's explicit one-day rule."""
+    calendar_column = "calendar:day"
+    dtype = frame[calendar_column].dtype
+    assert isinstance(dtype, pd.ArrowDtype) and dtype.pyarrow_dtype == pa.timestamp("us", tz="UTC")
+    group_columns = [name for name in frame.columns if name not in (calendar_column, "value")]
     partitions = (
         frame.groupby(group_columns, dropna=False, sort=False) if group_columns else (((), frame),)
     )
     records: list[dict[str, object]] = []
     for group, values in partitions:
         active: dict[str, object] | None = None
-        for _, row in values.sort_values(calendar_column + ".start").iterrows():
+        for _, row in values.sort_values(calendar_column).iterrows():
             bound = {
-                "actual_start": row[calendar_column + ".start"],
-                "actual_end": row[calendar_column + ".end"],
+                "position_start": row[calendar_column],
+                "next_position": row[calendar_column] + timedelta(days=1),
             }
             value = row["value"]
             qualifies = not pd.isna(value) and value > threshold
             if qualifies:
-                if active is None or active["end"] != bound["actual_start"]:
+                if active is None or active["end"] != bound["position_start"]:
                     if active is not None:
                         records.append(active)
                     active = {
                         "group": group,
-                        "start": bound["actual_start"],
-                        "end": bound["actual_end"],
+                        "start": bound["position_start"],
+                        "end": bound["next_position"],
                         "count": 1,
                     }
                 else:
-                    active["end"] = bound["actual_end"]
+                    active["end"] = bound["next_position"]
                     count = active["count"]
                     assert isinstance(count, int)
                     active["count"] = count + 1
@@ -80,7 +78,7 @@ def _author(root: Path) -> None:
     datasource.mkdir(parents=True)
     (root / "marivo.toml").write_text('[project]\nname="runs-export"\n')
     (datasource / "warehouse.py").write_text(
-        "import marivo.datasource as md\nmd.duckdb(name='warehouse', path='warehouse.duckdb')\n"
+        "import marivo.datasource as md\nmd.duckdb(wall_clock_timezone='UTC', name='warehouse', path='warehouse.duckdb')\n"
     )
     (semantic / "_domain.py").write_text(
         "import marivo.semantic as ms\nms.domain(name='sales', owner='Fixture', default=True)\n"
@@ -94,7 +92,7 @@ time_ref = ms.time_dimension_column(name="time", entity=orders, column="time", i
 calendar = ms.entity(name="calendar", datasource=ms.ref.datasource("warehouse"), source=md.parquet("calendar.parquet"), primary_key=["calendar_date"])
 calendar_date = ms.time_dimension_column(name="calendar_date", entity=calendar, column="calendar_date")
 period = ms.dimension_column(name="period", entity=calendar, column="period")
-unequal = ms.period_calendar(name="unequal", date=calendar_date, boundary_timezone="UTC", coverage=(date(2026, 8, 1), date(2026, 8, 7)), levels={"period": period})
+unequal = ms.period_calendar(name="unequal", date=calendar_date, coverage=(date(2026, 8, 1), date(2026, 8, 7)), levels={"period": period})
 amount = amount_ref
 time = time_ref
 @ms.metric()
@@ -139,7 +137,8 @@ def run(root: Path, phase: str, calendar: bool = False) -> None:
             publish_calendar(catalog, "UTC")
         session = mv.session.get_or_create("runs-export", timezone="UTC")
         scope = session.time_scope(
-            start="2026-08-01", end="2026-08-07" if calendar else "2026-08-04"
+            start="2026-08-04" if calendar else "2026-08-01",
+            end="2026-08-07" if calendar else "2026-08-04",
         )
         grain = (
             catalog.get("period_calendar:sales.unequal").grain("period")
@@ -149,7 +148,7 @@ def run(root: Path, phase: str, calendar: bool = False) -> None:
         result = session.observe(
             {"value": catalog.get("metric:sales.maximum")}, by=(scope.by(grain),)
         ).persist()
-        assert result.to_pandas()["value"].tolist() == [1, 2, 7]
+        assert result.to_pandas()["value"].tolist() == ([7] if calendar else [1, 2, 7])
         manifest_path.write_text(
             json.dumps({"session": session.id, "artifact": result.artifact_id})
         )
@@ -166,10 +165,16 @@ def run(root: Path, phase: str, calendar: bool = False) -> None:
             result = session.persisted_frame(manifest["artifact"])
             frame = result.to_pandas()
             before = len(terminal_runs(session))
-            selected = segments(frame, threshold=1)
-            assert selected["count"].tolist() == [2]
-            assert selected["duration"].tolist() == [timedelta(days=5 if calendar else 2)]
-            assert segments(frame, threshold=2)["count"].tolist() == [1]
+            if calendar:
+                period = result.read_periods(result.axes[0]).items[0]
+                assert isinstance(period, mv.FrameCalendarPeriod)
+                assert period.selection == "full"
+                assert frame["value"].tolist() == [7]
+            else:
+                selected = segments(frame, threshold=1)
+                assert selected["count"].tolist() == [2]
+                assert selected["duration"].tolist() == [timedelta(days=2)]
+                assert segments(frame, threshold=2)["count"].tolist() == [1]
             assert len(terminal_runs(session)) == before
     assert session._runtime.store.resources(session.id) == ()
 

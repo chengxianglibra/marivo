@@ -47,7 +47,7 @@ def members_session(analysis_dsl_case_factory: DslCaseFactory) -> Session:
         (
             "valid",
             "r52",
-            f", versioning=ms.validity(valid_from=ms.ref.time_dimension('{domain}.valid.day'), valid_to=ms.ref.time_dimension('{domain}.valid.finish'), interval='closed_open', open_end=(None,), timezone='UTC')",
+            f", versioning=ms.validity(valid_from=ms.ref.time_dimension('{domain}.valid.day'), valid_to=ms.ref.time_dimension('{domain}.valid.finish'), interval='closed_open', open_end=(None,))",
         ),
     ):
         definitions.append(
@@ -389,7 +389,7 @@ def test_complete_subject_set_image_source_and_fixed(
     datasource.mkdir(parents=True)
     (tmp_path / "marivo.toml").write_text('[project]\nname="subject-image"\n')
     (datasource / "warehouse.py").write_text(
-        "import marivo.datasource as md\nmd.duckdb(name='warehouse', path='subjects.duckdb')\n"
+        "import marivo.datasource as md\nmd.duckdb(wall_clock_timezone='UTC', name='warehouse', path='subjects.duckdb')\n"
     )
     (semantic / "_domain.py").write_text(
         "import marivo.semantic as ms\nms.domain(name='test', owner='Fixture', default=True)\n"

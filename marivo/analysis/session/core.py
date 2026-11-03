@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from datetime import date, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from ibis.common.deferred import Deferred
 
@@ -174,6 +174,11 @@ class Session:
     def timezone(self) -> str:
         """Return the normalized timezone frozen when this Session was created."""
         return self._record().report_timezone_name
+
+    @property
+    def timezone_origin(self) -> Literal["explicit", "system"]:
+        """Return whether the saved report timezone was explicit or system-resolved."""
+        return self._record().report_timezone_origin
 
     @property
     def catalog(self) -> SemanticCatalog:
@@ -709,4 +714,8 @@ class Session:
         print(self.render(max_output_bytes=max_output_bytes))
 
     def __repr__(self) -> str:
-        return f"<Session id={self.id}; use .show()>"
+        record = self._record()
+        return (
+            f"<Session id={self.id} timezone={record.report_timezone_name} "
+            f"({record.report_timezone_origin}); use .show()>"
+        )

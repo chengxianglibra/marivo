@@ -451,10 +451,10 @@ def _calendar_relation(
         return result
     if saved is not None:
         return saved
-    identities = {replace(bucket, key=(), ordinal=0): bucket.key for bucket in baseline.buckets}
+    identities = {bucket.key: bucket.key for bucket in baseline.buckets}
     return tuple(
         FrozenComparisonMatch(bucket.key, target)
-        if (target := identities.get(replace(bucket, key=(), ordinal=0))) is not None
+        if (target := identities.get(bucket.key)) is not None
         else FrozenComparisonAbsent(bucket.key, "unmatched")
         for bucket in current.buckets
     )
@@ -488,8 +488,9 @@ def _time_domain_summary(directory: FrozenCalendarDirectory | FrozenIntervalDire
     if not directory.buckets:
         return "empty"
     if isinstance(directory, FrozenCalendarDirectory):
-        start = min(bucket.actual_start for bucket in directory.buckets)
-        end = max(bucket.actual_end for bucket in directory.buckets)
+        return ",".join(bucket.nominal_label for bucket in directory.buckets[:4]) + (
+            ",..." if len(directory.buckets) > 4 else ""
+        )
     else:
         start = min(bucket.start for bucket in directory.buckets)
         end = max(bucket.end for bucket in directory.buckets)
@@ -523,13 +524,8 @@ def _unmapped_time_details(
         )
         timezone = baseline.axis.timezone
         calendar_bucket = next((bucket for bucket in baseline.buckets if bucket.key == key), None)
-        bounds = (
-            (
-                calendar_bucket.actual_start.isoformat().replace("+00:00", "Z"),
-                calendar_bucket.actual_end.isoformat().replace("+00:00", "Z"),
-            )
-            if calendar_bucket
-            else None
+        bounds: str | tuple[str, str] | None = (
+            calendar_bucket.nominal_label if calendar_bucket else None
         )
     else:
         grain = "interval"

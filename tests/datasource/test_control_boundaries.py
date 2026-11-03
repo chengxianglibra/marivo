@@ -190,9 +190,6 @@ def test_trino_terminal_session_timeout_and_timezone_are_effective() -> None:
 def test_clickhouse_unsettable_timeout_blocks_before_user_sql(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from marivo.datasource import store
-    from marivo.datasource.errors import DatasourceConnectionError
-    from marivo.datasource.timezone import probe_engine_timezone
     from tests.datasource.environment import clickhouse_analysis as ch
     from tests.datasource.environment.credentials import password
 
@@ -221,26 +218,17 @@ def test_clickhouse_unsettable_timeout_blocks_before_user_sql(
         )
     assert failure.value.effect_observed.query_executed is False
     assert failure.value.repair is not None
-    datasource = store.load_one("ch_reader", project_root=tmp_path)
-    assert datasource is not None
-    backend = build_backend(datasource, read_only=True)
-    try:
-        with pytest.raises(DatasourceConnectionError) as timezone_failure:
-            probe_engine_timezone(backend)
-        assert timezone_failure.value.received == "clickhouse timezone unavailable"
-    finally:
-        backend.disconnect()
 
 
 @pytest.mark.runtime
 @pytest.mark.skipif(
     os.environ.get("MARIVO_MYSQL_ANALYSIS_TEST") != "1", reason="opt-in MySQL service"
 )
-def test_mysql_unverifiable_timezone_blocks_time_sensitive_read(
+def test_mysql_unavailable_named_zone_blocks_time_sensitive_conversion(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    from marivo.datasource.engines.mysql import verify_source_timezone
     from marivo.datasource.errors import DatasourceConnectionError
-    from marivo.datasource.timezone import probe_engine_timezone
     from tests.datasource.environment import mysql_analysis as mysql
 
     monkeypatch.setenv("MARIVO_SOURCE_CONTROL_MYSQL_PASSWORD", mysql.password())
@@ -262,7 +250,7 @@ def test_mysql_unverifiable_timezone_blocks_time_sensitive_read(
     backend = build_backend(datasource, read_only=True)
     try:
         with pytest.raises(DatasourceConnectionError) as failure:
-            probe_engine_timezone(backend)
-        assert failure.value.received == "mysql timezone unavailable"
+            verify_source_timezone(backend, "Marivo/Unavailable")
+        assert failure.value.received == "Marivo/Unavailable"
     finally:
         backend.disconnect()

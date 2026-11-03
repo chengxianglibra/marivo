@@ -125,7 +125,7 @@ def test_declared_string_time_uses_owned_execution_functions(
         assert isinstance(values, mv.AnalysisFrame)
         result = values.persist()
         frame = result.to_pandas()
-        frame = frame.set_index(ordinary_columns(frame)[0])
+        frame = frame.set_index(ordinary_columns(result)[0])
         expected_values = {
             ("a", 9007199254740992, 1): 2,
             ("a", 9007199254740993, 2): None,
@@ -754,7 +754,7 @@ def test_certified_unequal_calendar_owns_native_boundaries(
         session = mv.session.get_or_create("r93-certified-calendar", timezone="UTC")
         scope = session.time_scope(
             start=datetime(2026, 7, 31, 16, tzinfo=timezone.utc),
-            end=datetime(2026, 8, 5, 16, tzinfo=timezone.utc),
+            end=datetime(2026, 8, 2, 16, tzinfo=timezone.utc),
             timezone="Asia/Shanghai",
         )
         grid = scope.by(grain)
@@ -769,12 +769,19 @@ def test_certified_unequal_calendar_owns_native_boundaries(
             {"value": session.catalog.get("metric:sales.total")}, by=mv.product(grid, members)
         )
         fixed = logical.persist()
-        assert len(fixed.to_pandas()) == 10
+        assert len(fixed.to_pandas()) == 5
         source_trace.record(fixed)
         grouped = session.observe(
             {"value": session.catalog.get("metric:sales.total")}, by=(grid,)
         ).persist()
-        assert _value(grouped).tolist() == [7, 41]
+        assert _value(grouped).tolist() == [7]
+        second = session.time_scope(
+            start="2026-08-03", end="2026-08-06", timezone="Asia/Shanghai"
+        ).by(grain)
+        other = session.observe(
+            {"value": session.catalog.get("metric:sales.total")}, by=(second,)
+        ).compute()
+        assert _value(other).tolist() == [41]
         assert session._runtime.store.resources(session._runtime.session_ref) == ()
         source_trace.save(
             f"c06-source-{backend}-certified-calendar",
@@ -783,7 +790,7 @@ def test_certified_unequal_calendar_owns_native_boundaries(
             {
                 "values": [7, 41],
                 "period_days": [2, 3],
-                "product_rows": 10,
+                "product_rows": 5,
                 "calendar_timezone": "Asia/Shanghai",
                 "report_timezone": "UTC",
                 "snapshot_current": True,
@@ -849,20 +856,35 @@ def test_civil_date_grid_keeps_date_keys_on_foreign_zone(
             by=mv.product(grid, session.members(session.catalog.get("entity:sales.facts"))),
         )
         fixed = logical.persist()
-        frame = fixed.to_pandas()
+        frame = fixed.to_pandas(
+            axis_names={
+                fixed.axes[0].token: "day",
+                fixed.axes[1].token: "member",
+            }
+        )
         assert len(frame) == 8 and (not frame["value"].isna().any())
+        assert {(row.day, row.member): row.value for row in frame.itertuples(index=False)} == {
+            (datetime(2026, 8, 1, tzinfo=zone), ("a", 1, 1)): 0,
+            (datetime(2026, 8, 1, tzinfo=zone), ("a", 2, 1)): 5,
+            (datetime(2026, 8, 1, tzinfo=zone), ("a", 3, 1)): 0,
+            (datetime(2026, 8, 1, tzinfo=zone), ("a", 4, 1)): 0,
+            (datetime(2026, 8, 2, tzinfo=zone), ("a", 1, 1)): 0,
+            (datetime(2026, 8, 2, tzinfo=zone), ("a", 2, 1)): 0,
+            (datetime(2026, 8, 2, tzinfo=zone), ("a", 3, 1)): 99,
+            (datetime(2026, 8, 2, tzinfo=zone), ("a", 4, 1)): 0,
+        }
         source_trace.record(fixed)
         grouped = session.observe(
             {"value": session.catalog.get("metric:sales.total")}, by=(grid,)
         ).persist()
-        assert _value(grouped).tolist() == [2, 5]
+        assert _value(grouped).tolist() == [5, 99]
         assert session._runtime.store.resources(session._runtime.session_ref) == ()
         source_trace.save(
             f"c06-source-{backend}-civil-date-grid",
             {**case.environment, "profile": profile},
             {"columns": data.columns, "values": data.values},
             {
-                "values": [2, 5],
+                "values": [5, 99],
                 "product_rows": 8,
                 "source_role": "civil_date",
                 "report_timezone": "UTC",
@@ -948,10 +970,8 @@ def test_native_timestamp_retains_reader_and_grid_authority(
         )
         grid = scope.by(mv.grain("day"))
         members = session.members(session.catalog.get("entity:sales.facts"))
-        from marivo.datasource.timezone import probe_engine_timezone
 
-        reader = probe_engine_timezone(case.session._backend)
-        reader_zone = reader.engine_timezone_name if reader is not None else None
+        reader_zone = "UTC"
         logical = session.observe(
             {"value": session.catalog.get("metric:sales.total")}, by=mv.product(grid, members)
         )

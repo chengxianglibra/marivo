@@ -38,7 +38,9 @@ def time_type_issue(
     engine: str,
 ) -> PhysicalTypeIssue | None:
     """Check the raw source carrier, before parsing or timezone conversion."""
-    declared = parse.timezone if isinstance(parse, TimestampParse | StrptimeParse) else None
+    declared = (
+        parse.timezone if isinstance(parse, DateParse | TimestampParse | StrptimeParse) else None
+    )
     aware = isinstance(physical, dt.Timestamp) and (
         physical.timezone is not None or engine == "clickhouse"
     )
@@ -121,3 +123,44 @@ def validate_bound_field(value: ir.Value, *, ref: Ref[SemanticKindTag], registry
     validate_field_type(
         value, ref=ref, engine=datasource.backend_type, parse=parse, location=location
     )
+
+    if ref.kind is SemanticKind.TIME_DIMENSION:
+        from marivo.semantic._source_timezone import require_source_timezone, source_timezone_axis
+
+        physical = value.type()
+        aware = isinstance(physical, dt.Timestamp) and (
+            physical.timezone is not None or datasource.backend_type == "clickhouse"
+        )
+        if not aware:
+            require_source_timezone(
+                registry,
+                source_timezone_axis(registry, ref.path),
+                physical_type=str(physical),
+            )
+
+        if physical.is_date():
+            from marivo.semantic.errors import DeclaredTimezoneContradiction
+            from marivo.semantic.ir import SnapshotVersioningIR, ValidityVersioningIR
+
+            axis = source_timezone_axis(registry, ref.path)
+            source = require_source_timezone(registry, axis, physical_type="date")
+            declarations: list[tuple[str, str, str]] = [(ref.path, source.timezone, source.origin)]
+            version = registry.entities[owner].versioning
+            if isinstance(version, SnapshotVersioningIR) and version.partition_field == ref.path:
+                declarations.append((owner, version.timezone, "snapshot"))
+            elif isinstance(version, ValidityVersioningIR) and ref.path in (
+                version.valid_from,
+                version.valid_to,
+            ):
+                other = version.valid_to if ref.path == version.valid_from else version.valid_from
+                other_zone = require_source_timezone(
+                    registry, source_timezone_axis(registry, other), physical_type="date"
+                )
+                declarations.append((other, other_zone.timezone, other_zone.origin))
+            for temporal_set in registry.temporal_sets.values():
+                if ref.path in (temporal_set.start, temporal_set.end):
+                    declarations.append(
+                        (temporal_set.semantic_id, temporal_set.boundary_timezone, "temporal_set")
+                    )
+            if len({zone for _path, zone, _origin in declarations}) > 1:
+                raise DeclaredTimezoneContradiction(ref=ref.path, declarations=tuple(declarations))

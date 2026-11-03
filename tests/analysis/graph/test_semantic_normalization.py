@@ -199,6 +199,9 @@ def test_normalized_entity_preserves_datasource_identity() -> None:
 
 def test_snapshot_normalization_preserves_exact_left_limit() -> None:
     registry = _registry()
+    registry.dimensions["sales.orders.day"] = replace(
+        registry.dimensions["sales.orders.day"], parse=DateParse(timezone="Asia/Shanghai")
+    )
     registry.entities["sales.orders"] = _entity(
         "orders",
         version=SnapshotVersioningIR("snapshot", "sales.orders.day", "Asia/Shanghai"),
@@ -226,6 +229,11 @@ def test_snapshot_normalization_preserves_exact_left_limit() -> None:
 @pytest.mark.parametrize("interval", ["closed_open", "closed_closed"])
 def test_validity_exact_endpoint_comparisons(interval: str) -> None:
     registry = _registry()
+    for endpoint in ("start", "end"):
+        path = f"sales.orders.{endpoint}"
+        registry.dimensions[path] = replace(
+            registry.dimensions[path], parse=DateParse(timezone="UTC")
+        )
     assert interval in {"closed_open", "closed_closed"}
     version = ValidityVersioningIR(
         "validity",
@@ -233,7 +241,6 @@ def test_validity_exact_endpoint_comparisons(interval: str) -> None:
         "sales.orders.end",
         "closed_open" if interval == "closed_open" else "closed_closed",
         (None, "9999-12-31"),
-        "UTC",
     )
     registry.entities["sales.orders"] = _entity("orders", version=version)
     normalized = normalize_target_entity(registry, "sales.orders")

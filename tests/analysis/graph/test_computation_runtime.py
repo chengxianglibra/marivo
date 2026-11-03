@@ -39,7 +39,7 @@ def computation_session(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> mv.S
     datasource.mkdir(parents=True)
     semantic.mkdir(parents=True)
     (datasource / "warehouse.py").write_text(
-        "import marivo.datasource as md\nmd.duckdb(name='warehouse', path='warehouse.duckdb')\n"
+        "import marivo.datasource as md\nmd.duckdb(wall_clock_timezone='UTC', name='warehouse', path='warehouse.duckdb')\n"
     )
     (semantic / "_domain.py").write_text(
         "import marivo.semantic as ms\nms.domain(name='sales', owner='Data', default=True)\n"
@@ -233,15 +233,15 @@ _REMOTE_PHYSICAL = {
 
 _REMOTE_DATASOURCE = {
     "postgres": (
-        "md.postgres(name='warehouse', host='127.0.0.1', port=15432, database='analysis', "
+        "md.postgres(wall_clock_timezone='UTC', name='warehouse', host='127.0.0.1', port=15432, database='analysis', "
         "user_env='MARIVO_TEST_POSTGRES_USER', password_env='MARIVO_TEST_POSTGRES_PASSWORD')\n"
     ),
     "mysql": (
-        "md.mysql(name='warehouse', host='127.0.0.1', port=23306, database='analysis', "
+        "md.mysql(wall_clock_timezone='UTC', name='warehouse', host='127.0.0.1', port=23306, database='analysis', "
         "user_env='MARIVO_TEST_MYSQL_USER', password_env='MARIVO_TEST_MYSQL_PASSWORD')\n"
     ),
     "clickhouse": (
-        "md.clickhouse(name='warehouse', host='127.0.0.1', port=18123, database='qualification', "
+        "md.clickhouse(wall_clock_timezone='UTC', name='warehouse', host='127.0.0.1', port=18123, database='qualification', "
         "user_env='MARIVO_TEST_CLICKHOUSE_USER', password_env='MARIVO_TEST_CLICKHOUSE_PASSWORD')\n"
     ),
 }
@@ -446,7 +446,7 @@ def trino_session(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[m
         semantic.mkdir(parents=True)
         (datasource / "warehouse.py").write_text(
             "import marivo.datasource as md\n"
-            "md.trino(name='warehouse', host='127.0.0.1', port=18080, catalog='iceberg', "
+            "md.trino(wall_clock_timezone='UTC', name='warehouse', host='127.0.0.1', port=18080, catalog='iceberg', "
             "schema='analysis', timezone='UTC', user_env='MARIVO_TEST_TRINO_USER')\n"
         )
         (semantic / "_domain.py").write_text(

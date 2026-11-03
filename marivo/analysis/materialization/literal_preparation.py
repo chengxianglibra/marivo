@@ -14,7 +14,6 @@ from marivo.analysis.compiler.graph_plan import SourceField, SourceSchema
 from marivo.analysis.core.graph import BoundGraph
 from marivo.analysis.core.value_types import data_type
 from marivo.analysis.materialization.query_preparation import prepare_fields
-from marivo.datasource.timezone import probe_engine_timezone
 from marivo.semantic._compiled_state import CompiledSemanticState
 from marivo.semantic.validator import normalize_target_entity
 
@@ -41,9 +40,7 @@ def literal_schemas(
             contribution = ContributionBinding(
                 (), EntityCount(axis.entity, None), axis.entity, (), None, (read,), (), None, None
             )
-            prepared = prepare_fields(
-                contribution, entities, state, probe_engine_timezone(table._find_backend())
-            )
+            prepared = prepare_fields(contribution, entities, state)
             typed = (
                 (
                     axis.field.ref.path,

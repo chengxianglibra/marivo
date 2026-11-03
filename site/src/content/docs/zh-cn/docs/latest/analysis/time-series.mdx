@@ -5,6 +5,11 @@ description: 按日历期间分组，计算滚动窗口与累计值。
 
 先完成[分析 DSL 示例](/zh-cn/docs/latest/analysis/dsl/#完整示例与后续输入)。将下面代码保存为同一项目中的新脚本。本例使用全部六笔模拟订单与 UTC 报告时间，包含起点、不包含终点。按顺序执行各节。
 
+本例的 Session 满足 `session.timezone == "UTC"` 和
+`session.timezone_origin == "explicit"`。新 Session 也接受
+`timezone="+08:00"` 这样的显式偏移。省略时区时，仅在创建时严格解析一次系统 IANA
+时区；含糊的 `TZ` 或 localtime 状态要求显式传值。恢复保留已存时区及其来源，不再检查宿主机。
+
 ## 按日与月观察
 
 ```python
@@ -24,9 +29,10 @@ monthly_source = session.observe(
 monthly_source.show()
 ```
 
-日历桶在首尾裁剪后仍保留名义起点。空桶继续保留，稀疏选择只包含选中的期间。
-内置日历使用原生日历运算；已认证的自定义日历使用冻结快照中的唯一日期到期间映射。
-两种路径都不再为每个桶展开一条 SQL 分支。自定义日历仍要求每天唯一归属，期间连续且不重叠。
+日历桶使用实际执行方的原生键。普通输出保留生成位置 S 和实际键 O 的并集，只为缺失的
+S 位置补空。键与民用标签不承诺成员构成连续 UTC 区间；`read_periods()` 提供保存的顺序
+和选择进度。内置日／周／月使用原生民用截断，子日宽度按当地午夜对齐。自定义日历输出
+只支持一个完整的已认证期间，多期间或局部选择在业务读取前拒绝，不上传日期到期间执行目录。
 
 {/* example: metric-window-query */}
 
@@ -93,12 +99,10 @@ progress.show()
 对结果行求和只是对这些行做统计。月度比率或去重数应重新按月度粒度观察
 原始指标。使用财务日历或命名活动前，先[准备并认证对应日历](/zh-cn/docs/latest/modeling/dates/#业务日历)。
 
-源时间解析时区与报告时区用途不同：为无时区的时间值指定解析时区；带时区的
-时间戳已确定对应的瞬时，纯日期编码不使用时区。夏令时切换附近，筛选原始本地时间戳列
-和分配日历桶时，按来源时区的本地时钟顺序处理：重复时刻按后一次出现计算，跳过的时刻
-归到时区跳变瞬间。因此，重复小时的第一次出现可能没有数据。投影时间仍采用
-后端原生转换；如果两次重复时刻代表不同业务记录，请使用带时区或 UTC 的时间，
-或增加身份字段。
+源时间解析时区与报告时区用途不同：无时区时间值使用解析时区，带时区时间戳已确定瞬时，
+纯日期编码不使用时区。投影、筛选和分桶采用实际后端的原生 gap/fold 解释；原始本地时间
+数据使用 pandas 原生操作。不同执行方在异常跳变处可以不同，源端产生的键在本地算术与
+对齐期间保持不变。
 
 `ms.hour_prefix(date_field)` 使用日期前缀的源时区上下文。更改报告时区不会重新解释
 该来源时间戳。
@@ -133,15 +137,15 @@ adjusted.show()
 具备原生执行条件的来源样本在来源端完成：先完成每个时间戳上的子 Metric，再执行外层
 均值、分位数或其他规约。兼容的统计量共享内层计算。例如
 `amount.sum(time=order_date).per(order_date).quantile(0.95)` 对已完成的每日总额求分位数。
-显式样本域与日历网格保留各自的补齐规则。原生算术与 Decimal 舍入遵循 backend；
+显式 Population 样本域保留补齐规则，日历样本只使用实际键。原生算术与 Decimal 舍入遵循 backend；
 不支持的类型或算法组合保留原有本地路径。原生执行失败不会触发本地重算。
 已完成的 Frame 继续使用捕获的数据。
 
 ## 按日历单元折叠 Metric
 
 将 Grain 传给 `Metric.per`，无需另行声明 TimeDimension，就能折叠已完成的每日值。
-观察提供有限范围和时区，每个源分量使用自己声明的时间字段。每日收入的周均值包含全部
-七天；无收入当天的 sum 以零参与。
+观察提供有限范围和时区，每个源分量使用自己声明的时间字段。每日收入的周均值只包含
+有贡献的日期，包括全 NULL 日期；缺失日期不成为值为零的内部样本。
 
 {/* example: calendar-sample-fold */}
 
@@ -154,10 +158,11 @@ folded.show()
 
 对于已完成的 `daily_p95`，在同一周轴下使用
 `daily_p95.per(mv.grain("day")).median()`。空比率和分位数保持 NA，遵循样本规约既有的
-NULL 策略。日历网格保留每个单元；TimeField 样本仍使用实际出现的时间戳，允许缺点。内层粒度必须嵌套：日可以嵌入周或月，周不能嵌入月。认证日历粒度使用已捕获快照的
-包含关系。支持多层 Grain 嵌套。外部只有 TimeScope 时，网格覆盖整个范围。边缘不完整单元
-裁剪到实际范围，每个单元计一个样本，不按时长加权。将 Grain 传给 `per`，将 CalendarAxis
-或 TimeScope 传给 `observe(by=...)`。帮助入口：`semantic.metric.per`。
+NULL 策略。TimeField 和 Grain 样本均使用实际键，最终输出补空不影响样本均值或数量。
+内置嵌套采用静态规则：日可嵌入周／月，周不可嵌入月；子日宽度须整除父宽度，月可嵌入
+季度／年，季度可嵌入年。每层保留完整外部键、父键和子键。未定义的自定义层级拒绝；
+区间轴下可采样一个完整认证自定义期间。将 Grain 传给 `per`，将 CalendarAxis 或
+TimeScope 传给 `observe(by=...)`。帮助入口：`semantic.metric.per`。
 
 `ms.calendar_grain(...)` 创建的语义粒度绑定到 Session 当前的认证日历快照。
 声明的日历折叠指标要求日历已认证。日历样本内部的窗口，以及包裹日历折叠的窗口，
@@ -172,6 +177,7 @@ Frame 值显式规约。
 
 ```python
 control = session.catalog.get("time_dimension:sales.facts.event_time")
+# The control may also be the fact Entity's snapshot partition TimeDimension.
 label = session.catalog.get("dimension:sales.profiles.label")
 route = session.catalog.get("relationship:sales.profile")
 amount = session.catalog.get("measure:sales.facts.amount")
@@ -184,4 +190,23 @@ restated = session.observe(
 ).compute()
 ```
 
-逐行模式按每条事实的时间选属性；固定锚点给整个窗口统一口径。两笔事实 7/11 在变更前后对应 A/B 时，逐行得到 A=7、B=11，固定新口径得到 B=18。DuckDB/Trino 支持已认证的同源单根 observe by/where；NULL 控制或缺失版本保留 NULL 标签，不回退到最近版本。DATE 选择目标业务日；timestamp validity 要求 timestamp 控制。原生绝对时刻和 UTC/固定偏移本地钟面获准，IANA 本地钟面、read/classify、多根、window/per 组合使用固定锚点。每个桶端点重分类不属于这个语义。
+逐行模式按每条事实的时间选属性；固定锚点给整个窗口统一口径。两笔事实 7/11 在变更前后对应 A/B 时，逐行得到 A=7、B=11，固定新口径得到 B=18。事实 Entity 可以未版本化，也可以声明 snapshot；原生快照分区 TimeDimension 可作为控制字段，同一稳定业务键跨日的记录各自保留当天贡献，无需逐日查询。DuckDB/Trino 支持已认证的同源单根 observe by/where；NULL 控制或缺失版本保留 NULL 标签，不回退到最近版本。DATE 选择目标业务日；timestamp validity 要求 timestamp 控制。原生绝对时刻和 UTC/固定偏移本地钟面获准，validity 事实根、IANA 本地钟面、read/classify、多根、window/per 组合使用固定锚点。每个桶端点重分类不属于这个语义。
+
+
+## 检查捕获的源时间解释
+
+计算 `daily` 后，读取 `daily.schema.source_times` 或调用 `daily.show(n=0)`。
+每条不可变记录标识实际消费的源字段、物理类型与消费时区。`instant` 不需要源时区声明；
+`wall_clock` 和 `civil_date` 保存最终生效的源时区及其 `field` 或 `datasource` 来源。
+hour-prefix 时钟还保存 `inherited_from`。待执行结果的显示不为补齐这些事实打开源连接。
+
+这些记录解释已消费的输入。固定数据 select、rename、filter、fix、算术和 reduce 保留它们；
+组合操作按完整记录合并，同一路径的不同解释也会并存。业务日的源时区与消费时区不同，
+按业务日起点归属；业务日汇总不能重建事件日汇总。持久化后的冷恢复保留这些事实、
+已捕获绝对范围与桶键，即使宿主机时区变化、源和模型不可用，也不转换或重新分桶。
+
+```python
+facts = daily.schema.source_times
+for fact in facts:
+    print(fact.axis, fact.kind, fact.consumption_timezone)
+```

@@ -247,6 +247,15 @@ def _manifest() -> Manifest:
         ("source.compile",),
         compile_owner,
     )
+    add(
+        "datasource/engines/clickhouse",
+        ("validate_temporal_parsers",),
+        ("sqlglot", "sqlglot.expressions", "sqlglot.parse_one", "sqlglot.parse_one().find_all"),
+        Owner(
+            "non_submit_temporal_capability_inspection",
+            "Inspect final Ibis SQL for parsers unavailable on the connected ClickHouse version; issued SQL is unchanged and inspection grants no submission authority.",
+        ),
+    )
     native_aggregates = Owner(
         "ibis_compilation",
         "Instance-scoped aggregate/calendar mappings and statement-scoped Distributed GLOBAL IN/JOIN visitors inherit Ibis relational compilation; only SourceSession submits the resulting SQL, with no compiled-text rewrite authority.",
@@ -316,8 +325,19 @@ def _manifest() -> Manifest:
     )
     add(
         "datasource/_calendar_relations",
-        ("compile_calendar_floor",),
-        ("sge.Literal.string().sql", "sqlglot.parse_one", "sqlglot.parse_one().transform"),
+        ("compile_calendar_range",),
+        ("sqlglot.parse_one",),
+        calendar_compilation,
+    )
+    add(
+        "datasource/_calendar_relations",
+        ("_clickhouse_calendar_data",),
+        (
+            "ClickHouseType.from_ibis().sql",
+            "sge.to_identifier().sql",
+            "sge.Literal.string().sql",
+            "sqlglot.parse_one",
+        ),
         calendar_compilation,
     )
 

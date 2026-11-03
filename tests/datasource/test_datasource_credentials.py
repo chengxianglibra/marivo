@@ -225,11 +225,11 @@ def test_grouped_reference_and_runtime_binding(
         assert seen[0]["user"] == seen[0]["auth"] == resolver.value
         with md.credential_scope(resolver=resolver):
             assert service.session_backend("grouped") is first
-            with md.credential_scope(resolver=HostResolver()):
-                with pytest.raises(md.DatasourceCredentialScopeError):
-                    service.session_backend("grouped")
-                with pytest.raises(md.DatasourceCredentialScopeError):
-                    service.engine_timezone("grouped")
+            with (
+                md.credential_scope(resolver=HostResolver()),
+                pytest.raises(md.DatasourceCredentialScopeError),
+            ):
+                service.session_backend("grouped")
             assert service.session_backend("grouped") is first
         service.close_all()
         resolver.value = "rotated-fixture-value"
@@ -521,7 +521,8 @@ def test_public_semantic_analysis_and_resume(
     declaration = project / "models/datasources/warehouse.py"
     declaration.write_text(
         declaration.read_text().replace(
-            ")\n", ", http_scope='http://127.0.0.1/', http_bearer_token_env='FIXTURE_TOKEN')\n"
+            ")\n",
+            ", http_scope='http://127.0.0.1/', http_bearer_token_env='FIXTURE_TOKEN')\n",
         )
     )
     resolver = HostResolver()

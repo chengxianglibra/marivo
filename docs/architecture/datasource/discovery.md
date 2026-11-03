@@ -62,7 +62,13 @@ the source relation is built and before column selection and `LIMIT`. The time
 column must be exposed by a projected source, bounds must have matching date or
 datetime kinds and matching timezone awareness, aware datetime bounds are
 canonicalized to UTC, and transformed temporal
-partitions are supported. Snapshot evidence format v4 includes the normalized
+partitions are supported. Inspection also checks the physical column category:
+aware timestamps require aware datetime boundaries; naive timestamps accept
+naive datetimes or dates (local midnight); DATE accepts only dates. Native MySQL
+TIMESTAMP and ClickHouse DateTime/DateTime64 are instants even when a type display
+omits a timezone. Mismatches raise `DatasourceAuthoringError` with
+`code="time_range_boundary_mismatch"` and `query_executed=False` before acquisition.
+Neither `wall_clock_timezone` nor connection or host timezone fills boundaries. Snapshot evidence format v4 includes the normalized
 column and bounds in scope identity; persisted retained rows are dictionaries
 keyed by the selected columns. Incompatible evidence must be reacquired.
 

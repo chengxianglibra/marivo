@@ -14,7 +14,7 @@ from marivo._temporal import (
     anchor_from_datetime,
     session_time_scope,
 )
-from marivo._timezones import parse_timezone
+from marivo._timezones import normalize_timezone
 from marivo.analysis.core.model import reject
 from marivo.analysis.core.time_grid import instant
 
@@ -32,7 +32,7 @@ def exact_instant(value: TimeBoundary, timezone: str) -> InstantAnchor:
             "session.instant",
         )
     try:
-        timezone = parse_timezone(timezone)[0]
+        timezone = normalize_timezone(timezone).name
     except (ValueError, KeyError, TypeError):
         reject(
             "an IANA or fixed-offset timezone",
@@ -81,4 +81,4 @@ def exact_scope(start: TimeBoundary, end: TimeBoundary, timezone: str) -> _Sessi
             "Choose a nonempty half-open scope.",
             "session.time_scope",
         )
-    return session_time_scope(left, right, parse_timezone(timezone)[0])
+    return session_time_scope(left, right, normalize_timezone(timezone).name)

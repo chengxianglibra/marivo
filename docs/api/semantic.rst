@@ -31,6 +31,36 @@ Ibis Table. The output schema owns identity, versioning and downstream fields.
 Actual physical input types and capability qualification remain Source facts.
 Snapshot and validity coordinates stay outside ``primary_key``.
 
+Source time declarations
+------------------------
+
+``ms.date(timezone=...)`` declares a native DATE business timezone.
+``ms.timestamp`` and both date-only and time-bearing ``ms.strptime`` formats
+accept IANA names or fixed offsets. Omission uses Datasource
+``wall_clock_timezone``; missing declarations reject before business-data reads.
+``ms.hour_prefix`` inherits its prefix field's effective declaration. Aware
+physical timestamps ignore the Datasource default and reject parser timezones.
+DATE projections retain date labels; time membership assigns each whole row by
+its business-day start, without reconstructing event totals in another zone.
+
+Ordered ``ms.strptime`` formats (``%Y%m%d``, ``%Y-%m-%d`` and their fixed-width
+hour/minute/second extensions) declare valid, zero-padded source encodings with
+exact separators. Qualifying ranges compare the original physical column to
+same-type constants in its source timezone; constants round up to the first
+represented tick. No additional flag or source audit is required. Noncanonical
+values violate this declaration. Other formats, derived inputs and unqualified
+endpoints retain native parsing; output projections also retain native parsing.
+
+ClickHouse 22.3 supports ordered formats using Date32/DateTime64 conversions.
+Other formats require ClickHouse 23.3 or newer and fail capability checks before
+business query submission on older servers.
+
+``ms.validity`` has no timezone parameter: DATE bounds derive one common field
+zone. ``ms.period_calendar`` derives its boundary zone from its date field.
+``ms.snapshot.timezone`` and ``ms.temporal_set.boundary_timezone`` remain explicit;
+DATE fields must agree with them. Temporal certification applies native parsing
+and localization inside its existing source read, preserving backend DST behavior.
+
 Typed expression authoring
 --------------------------
 
@@ -140,6 +170,7 @@ Time parsing
    :toctree: api/
    :nosignatures:
 
+   date
    timestamp
    strptime
    hour_prefix

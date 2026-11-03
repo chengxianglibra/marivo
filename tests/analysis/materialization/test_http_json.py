@@ -87,7 +87,7 @@ def _project(
     for i, source in enumerate(sources):
         datasource = f"api{i}" if separate_datasources else "api"
         files[f"datasources/{datasource}.py"] = (
-            f"import marivo.datasource as md\nmd.duckdb(name={datasource!r}{datasource_args})\n"
+            f"import marivo.datasource as md\nmd.duckdb(wall_clock_timezone='UTC', name={datasource!r}{datasource_args})\n"
         )
         model += (
             f"entity{i} = ms.entity(name='entity{i}', datasource=ms.ref.datasource({datasource!r}), source={source}, primary_key=['id'])\n"

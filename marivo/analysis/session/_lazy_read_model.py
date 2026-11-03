@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
+from typing import Literal
 
 from marivo.analysis._pages import _BoundedPage
 from marivo.analysis.core.frame_schema import FrameSchema
@@ -48,6 +49,8 @@ class SessionSummary(RenderableResult):
     id: str
     name: str
     question: str | None
+    timezone: str
+    timezone_origin: Literal["explicit", "system"]
     created_at: datetime
     updated_at: datetime
     artifact_count: int
@@ -55,6 +58,9 @@ class SessionSummary(RenderableResult):
     def __post_init__(self) -> None:
         _identity(self.id)
         _identity(self.name)
+        _identity(self.timezone)
+        if self.timezone_origin not in ("explicit", "system"):
+            raise invalid("invalid Session timezone origin")
         _aware(self.created_at)
         _aware(self.updated_at)
         _count(self.artifact_count)
@@ -76,6 +82,7 @@ class SessionSummary(RenderableResult):
                 ),
             )
             .field("question", self.question or "(none)")
+            .field("timezone", f"{self.timezone} ({self.timezone_origin})")
             .field("created_at", self.created_at.isoformat())
             .field("updated_at", self.updated_at.isoformat())
             .field("artifacts", str(self.artifact_count))

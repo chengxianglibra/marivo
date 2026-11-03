@@ -59,7 +59,6 @@ def connect(name: str, kwargs: Mapping[str, object]) -> BaseBackend:
     if "session_properties" in kwargs and isinstance(kwargs["session_properties"], dict):
         connect_kwargs["session_properties"] = dict(kwargs["session_properties"])
     backend = ibis.trino.connect(**connect_kwargs)
-    backend._marivo_timezone_name = str(connect_kwargs.get("timezone", "UTC"))
     return backend
 
 

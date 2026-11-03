@@ -9,7 +9,6 @@ from contextlib import ExitStack
 from datetime import datetime, timezone
 from pathlib import Path
 
-import pandas as pd
 import pytest
 
 import marivo.analysis as mv
@@ -21,7 +20,7 @@ from marivo.semantic.reader import SemanticProject
 from tests.analysis.graph.source_fixtures import author_source_project
 from tests.analysis.materialization.domain_recovery_worker import snapshot
 from tests.datasource.source_cases import SourceData, source_case
-from tests.shared_fixtures import catalog_value, run_ids
+from tests.shared_fixtures import catalog_value, frozen_coordinates, run_ids
 from tests.support.json import Json, checked, encode, obj, read
 from tests.support.paths import PROJECT_ROOT
 from tests.support.source_trace import SourceTrace
@@ -117,9 +116,7 @@ def test_native_temporal_mean_int64_identities_and_independent_cold_reads(
         source_frame, spatial_frame, represented_frame, samples_frame = (
             saved.to_pandas(time_details=True) for saved in (source, spatial, represented, samples)
         )
-        assert source_frame[
-            source_frame.attrs["axes"][1]["name"].rsplit(".", 1)[-1]
-        ].tolist() == list(subject_keys)
+        assert source_frame["subjects"].tolist() == list(subject_keys)
         assert isinstance(source._backing, StoredFrameBacking)
         assert source._backing.data.schema.axes[1].columns[0].dtype == ScalarDataType("int64")
         assert source_frame["value"].tolist() == [18.0, 150.0]
@@ -131,25 +128,19 @@ def test_native_temporal_mean_int64_identities_and_independent_cold_reads(
         assert (
             samples_frame["calendar:day.label"].tolist() == ["2026-08-01"] * 2 + ["2026-08-02"] * 2
         )
-        assert (
-            samples_frame[samples_frame.attrs["axes"][1]["name"].rsplit(".", 1)[-1]].tolist()
-            == list(subject_keys) * 2
-        )
+        assert samples_frame["subjects"].tolist() == list(subject_keys) * 2
         assert samples_frame["sum"].tolist() == [15, 100, 21, 200]
         assert samples_frame["rows"].tolist() == [2, 1, 2, 1]
-        calendar_metadata = samples_frame.attrs["axes"][0]["descriptor"]
-        directory = samples_frame.attrs["frozen_coordinates"][0]["rows"].to_pandas(
-            types_mapper=pd.ArrowDtype
-        )
-        assert calendar_metadata["timezone"] == "UTC"
+        calendar_axis = samples.schema.axes[0]
+        directory = frozen_coordinates(samples)[0].rows
+        assert isinstance(calendar_axis, mv.FrameCalendarAxisSchema)
+        assert calendar_axis.timezone == "UTC"
         assert str(directory["key.0"].dtype) == "timestamp[us, tz=UTC][pyarrow]"
-        assert directory["key.0"].tolist() == directory["nominal_start"].tolist()
-        assert [
-            (cell.actual_start, cell.actual_end) for cell in directory.itertuples(index=False)
-        ] == [
-            (datetime(2026, 8, 1, tzinfo=timezone.utc), datetime(2026, 8, 2, tzinfo=timezone.utc)),
-            (datetime(2026, 8, 2, tzinfo=timezone.utc), datetime(2026, 8, 3, tzinfo=timezone.utc)),
+        assert directory["key.0"].tolist() == [
+            datetime(2026, 8, 1, tzinfo=timezone.utc),
+            datetime(2026, 8, 2, tzinfo=timezone.utc),
         ]
+        assert directory["selection"].tolist() == ["full", "full"]
         outputs: dict[str, Json] = {
             name: {"artifact": saved.artifact_id, "snapshot": snapshot(saved, frame=frame)}
             for name, saved, frame in (
@@ -199,7 +190,7 @@ root=Path(sys.argv[1])
 os.chdir(root)
 os.environ['MARIVO_PROJECT_ROOT']=str(root)
 state=read(root/'temporal-recovery.json')
-with patch.object(ms,'load',forbidden), patch.object(SemanticProject,'load',forbidden), patch.object(SourceSession,'__init__',forbidden), patch.object(duckdb,'connect',forbidden), patch.object(ibis.duckdb,'connect',forbidden), patch.object(source_timezone,'probe_engine_timezone',forbidden), patch.object(source_timezone,'_resolve_system_timezone',forbidden):
+with patch.object(ms,'load',forbidden), patch.object(SemanticProject,'load',forbidden), patch.object(SourceSession,'__init__',forbidden), patch.object(duckdb,'connect',forbidden), patch.object(ibis.duckdb,'connect',forbidden):
     session=mv.session.resume(state['session'])
     before=run_ids(session)
     assert sorted(before)==state['runs']
@@ -212,7 +203,7 @@ with patch.object(ms,'load',forbidden), patch.object(SemanticProject,'load',forb
         frame=saved.to_pandas(time_details=True)
         assert snapshot(saved,frame=frame)==selected['snapshot']
         frames[name]=frame
-    assert frames['subjects'][frames['subjects'].attrs['axes'][1]['name'].rsplit('.',1)[-1]].tolist()==state['subject_keys']
+    assert frames['subjects']['subjects'].tolist()==state['subject_keys']
     assert frames['subjects']['value'].tolist()==[18.0,150.0]
     assert frames['spatial']['value'].tolist()==[168.0]
     assert frames['represented']['value'].tolist()==[84.0]

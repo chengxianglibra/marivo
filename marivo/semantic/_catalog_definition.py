@@ -314,6 +314,7 @@ def definition_for(catalog: SemanticCatalog, ref: Ref[SemanticKindTag]) -> Entry
         return DatasourceDefinition(
             context,
             datasource.backend_type,
+            datasource.wall_clock_timezone,
             tuple((key, _freeze_json(value)) for key, value in sorted(datasource.fields.items())),
             tuple(sorted(datasource.env_refs.items())),
             tuple(

@@ -95,3 +95,36 @@ def test_distributed_compiler_broadcasts_subqueries_without_mutating_local_compi
     sql = compile_distributed_query(query, {})
     assert "GLOBAL INNER JOIN" in sql and "GLOBAL IN" in sql
     assert "GLOBAL" not in backend.compile(query, limit=None)
+
+
+@pytest.mark.parametrize("predicate", (True, False))
+@pytest.mark.parametrize("distributed", (False, True))
+def test_constant_join_conditions_preserve_join_keys_without_changing_boolean_values(
+    predicate: bool, distributed: bool
+) -> None:
+    import ibis
+    import sqlglot as sg
+    import sqlglot.expressions as sge
+
+    from marivo.datasource.engines._aggregate_compilers import compile_distributed_query
+    from tests.datasource.aggregate_fixtures import compiler_backend
+
+    left = ibis.table({"left.key": "int64"}, name="left").mutate(flag=ibis.literal(predicate))
+    right = ibis.table({"right key": "int64"}, name="right")
+    query = left.left_join(right, predicate)
+    sql = (
+        compile_distributed_query(query, {})
+        if distributed
+        else compiler_backend("clickhouse").compile(query, limit=None)
+    )
+    ast = sg.parse_one(sql, read="clickhouse")
+    condition = ast.find(sge.Join).args["on"]
+    if predicate:
+        assert isinstance(condition, sge.EQ)
+        columns = tuple(condition.find_all(sge.Column))
+        assert {column.name for column in columns} == {"left.key", "right key"}
+        assert all(column.this.args.get("quoted") for column in columns)
+    else:
+        assert isinstance(condition, sge.Literal) and condition.this == "0"
+    # Only JOIN's constant condition changes carrier; projected facts stay Boolean.
+    assert any(value.this is predicate for value in ast.find_all(sge.Boolean))

@@ -526,8 +526,6 @@ def calendar(token: str = "period") -> CalendarDataAxis:
 
 
 def coordinate(axis: CalendarDataAxis, key: int = 1) -> FrameMethodCoordinate:
-    start = int(datetime(2026, 10, 20, tzinfo=timezone.utc).timestamp()) * 1_000_000
-    end = start + 86_400_000_000
     return FrameMethodCoordinate(
         f"calendar.{axis.token}",
         calendar_directory_schema(axis),
@@ -537,14 +535,8 @@ def coordinate(axis: CalendarDataAxis, key: int = 1) -> FrameMethodCoordinate:
                 "2026-10-20",
                 0,
                 datetime(2026, 10, 20).toordinal() - 1,
-                start,
-                end,
-                start,
-                end,
-                "2026-10-20T00:00:00.000000+00:00",
-                "2026-10-21T00:00:00.000000+00:00",
-                "2026-10-20T00:00:00.000000+00:00",
-                "2026-10-21T00:00:00.000000+00:00",
+                "full",
+                None,
             ),
         ),
     )

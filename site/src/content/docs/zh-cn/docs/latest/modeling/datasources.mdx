@@ -15,6 +15,8 @@ Marivo 提供五种数据源构造函数。将声明保存在 `models/datasource
 | ClickHouse | `md.clickhouse` | ClickHouse |
 | Trino | `md.trino` | 分布式 catalog |
 
+`wall_clock_timezone` 是独立于连接选项存储的源声明。字段 parser 时区优先，`hour_prefix` 继承前缀字段的有效时区。它不影响物理瞬间，包括 MySQL TIMESTAMP 和 ClickHouse DateTime。无时区时间或业务日缺少声明时，应先补齐声明；连接、宿主机和报告时区都不补全它。Trino 使用私有 UTC 传输设置，没有公开 `timezone` 参数。
+
 ## DuckDB — `md.duckdb`
 
 | 参数 | 必填 | 默认值 | 语义 |
@@ -25,6 +27,7 @@ Marivo 提供五种数据源构造函数。将声明保存在 `models/datasource
 | `http_scope` | 否 | `None` | 限定远程 JSON 认证范围的 HTTP(S) URL 前缀；指定 HTTP 认证方式时必须提供。 |
 | `http_bearer_token_env` | 否 | `None` | Bearer token 的环境变量名；与请求头认证互斥。 |
 | `http_headers_env` | 否 | `None` | HTTP 请求头名到保存秘密值的环境变量名的映射；与 Bearer 认证互斥。 |
+| `wall_clock_timezone` | 否 | `None` | 未单独声明时区的 naive timestamp、编码时钟和业务日使用的源时区；接受 IANA 名或固定偏移。 |
 | `ai_context` | 否 | `None` | 可选 `ms.ai_context(...)` 业务上下文与使用约束。 |
 | `extra` | 否 | `None` | 未在此列出的其他 JSON 可序列化 Ibis 连接参数。 |
 
@@ -33,7 +36,7 @@ Marivo 提供五种数据源构造函数。将声明保存在 `models/datasource
 # models/datasources/warehouse.py
 import marivo.datasource as md
 
-md.duckdb(name="warehouse", path="warehouse.duckdb", read_only=False)
+md.duckdb(name="warehouse", path="warehouse.duckdb", read_only=False, wall_clock_timezone="UTC")
 ```
 
 精确参考：`marivo.help("datasource.duckdb")`.
@@ -50,6 +53,7 @@ md.duckdb(name="warehouse", path="warehouse.duckdb", read_only=False)
 | `autocommit` | 否 | `None` | 驱动自动提交行为的覆盖值。 |
 | `user_env` | 否 | `None` | 保存数据库用户名的环境变量名。 |
 | `password_env` | 否 | `None` | 保存密码的环境变量名。 |
+| `wall_clock_timezone` | 否 | `None` | 未单独声明时区的 naive timestamp、编码时钟和业务日使用的源时区；接受 IANA 名或固定偏移。 |
 | `ai_context` | 否 | `None` | 可选 `ms.ai_context(...)` 业务上下文与使用约束。 |
 | `extra` | 否 | `None` | 未在此列出的其他 JSON 可序列化 Ibis 连接参数。 |
 
@@ -81,6 +85,7 @@ MariaDB 服务使用同一个构造函数。托管查询的超时限制在 MySQL
 | `autocommit` | 否 | `None` | 驱动自动提交行为的覆盖值。 |
 | `user_env` | 否 | `None` | 保存数据库用户名的环境变量名。 |
 | `password_env` | 否 | `None` | 保存密码的环境变量名。 |
+| `wall_clock_timezone` | 否 | `None` | 未单独声明时区的 naive timestamp、编码时钟和业务日使用的源时区；接受 IANA 名或固定偏移。 |
 | `ai_context` | 否 | `None` | 可选 `ms.ai_context(...)` 业务上下文与使用约束。 |
 | `extra` | 否 | `None` | 未在此列出的其他 JSON 可序列化 PyMySQL 连接参数。 |
 
@@ -92,6 +97,7 @@ import marivo.datasource as md
 md.mysql(
     name="commerce", host="mysql.example.internal", database="shop",
     port=3306, user_env="MYSQL_USER", password_env="MYSQL_PASSWORD",
+    wall_clock_timezone="Asia/Shanghai",
 )
 ```
 
@@ -109,6 +115,7 @@ md.mysql(
 | `settings` | 否 | `None` | ClickHouse 会话设置映射。 |
 | `user_env` | 否 | `None` | 保存数据库用户名的环境变量名。 |
 | `password_env` | 否 | `None` | 保存密码的环境变量名。 |
+| `wall_clock_timezone` | 否 | `None` | 未单独声明时区的 naive timestamp、编码时钟和业务日使用的源时区；接受 IANA 名或固定偏移。 |
 | `ai_context` | 否 | `None` | 可选 `ms.ai_context(...)` 业务上下文与使用约束。 |
 | `extra` | 否 | `None` | 未在此列出的其他 JSON 可序列化 Ibis 连接参数。 |
 
@@ -137,11 +144,11 @@ md.clickhouse(
 | `port` | 否 | `None` | 连接端口；使用非默认端点时请显式指定。 |
 | `schema` | 否 | `None` | 表解析使用的默认 schema。 |
 | `source` | 否 | `None` | 发送给 Trino 的客户端应用标识。 |
-| `timezone` | 否 | `None` | Trino 引擎会话时区，与 Analysis Session 报告时区不同。 |
 | `http_scheme` | 否 | `None` | HTTP 传输协议；使用 TLS 时请设为 `"https"`。 |
 | `client_tags` | 否 | `None` | 客户端标签元组，传给 Trino 时转换为列表。 |
 | `session_properties` | 否 | `None` | Trino 会话属性映射。 |
 | `auth_env` | 否 | `None` | 服务器要求认证时所用认证材料的环境变量名。 |
+| `wall_clock_timezone` | 否 | `None` | 未单独声明时区的 naive timestamp、编码时钟和业务日使用的源时区；接受 IANA 名或固定偏移。 |
 | `ai_context` | 否 | `None` | 可选 `ms.ai_context(...)` 业务上下文与使用约束。 |
 | `extra` | 否 | `None` | 未在此列出的其他 JSON 可序列化 Ibis 连接参数。 |
 
@@ -181,3 +188,5 @@ md.inspect(warehouse, md.table("orders"), workspace_dir=".").show()
 HTTP JSON 中全部缺失或全为 null 的列保留 `null` 类型。未使用的列不会阻塞 Analysis、字段预览或按列采样；实际使用的输入仍须满足消费操作的类型要求，显式类型转换和空值判断遵循正常表达式规则。本地 JSON 保持 DuckDB 的原生类型推断。空记录数组可能因无法推断声明列类型而失败。
 
 PostgreSQL、MySQL/MariaDB 和 Trino 的 CHAR/CHARACTER 列保留物理类型与长度，Entity/Dimension 验证将其映射为逻辑字符串；也支持表达式 Entity 输入与声明主键。该映射不增加 SQL cast、trim、补空格或排序规则模拟，读取、比较与分组遵循原生后端。CHAR 不能作为数值 Measure。
+
+`md.time_range(...)` 的边界必须匹配检查得到的物理类型：aware timestamp 使用 aware datetime，naive timestamp 使用 naive datetime 或 date，DATE 只接受 date。两端必须保持相同类别和 awareness。不匹配会在取数前失败并报告 `query_executed=False`；`wall_clock_timezone` 不补全边界时区。

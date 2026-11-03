@@ -89,7 +89,7 @@ def test_native_sum_reads_only_terminal_exchange_with_all_checks_and_fresh_runs(
         ]
         actual = {
             key: None if pd.isna(value) else value
-            for key, value in zip(frame[ordinary_columns(frame)[0]], frame["value"], strict=True)
+            for key, value in zip(frame[ordinary_columns(captured)[0]], frame["value"], strict=True)
         }
         expected = {(row["tenant"], row["id"], row["revision"]): row["amount"] for row in work.rows}
         assert actual == expected and len(actual) == 64
@@ -150,7 +150,7 @@ def test_source_local_comparison_keeps_its_existing_staged_prefix(
         )
         result = values.select({"ratio": values["value"] / values["value"]}).persist()
         frame = result.to_pandas()
-        ratios = dict(zip(frame[ordinary_columns(frame)[0]], frame["ratio"], strict=True))
+        ratios = dict(zip(frame[ordinary_columns(result)[0]], frame["ratio"], strict=True))
         assert ratios[("a", 9007199254740992, 1)] == 1
         assert ratios[("b", 9007199254740993, 1)] == 1
         assert pd.isna(ratios[("a", 9007199254740993, 2)])

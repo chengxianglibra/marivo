@@ -51,7 +51,7 @@ def author_source_project(
     semantic_project_factory(
         {
             "datasources/warehouse.py": "import marivo.datasource as md\n"
-            + f"md.{backend}(name='warehouse', {argument_text})\n",
+            + f"md.{backend}(wall_clock_timezone='UTC', name='warehouse', {argument_text})\n",
             "sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales', owner='R9', default=True)\n",
             "sales/models.py": "import marivo.datasource as md\nimport marivo.semantic as ms\n"
             + f"facts = ms.entity(name='facts', datasource=ms.ref.datasource('warehouse'), source=md.table({case.source.table!r}, database={case.source.database!r}), primary_key={primary_key!r})\n"
@@ -61,9 +61,9 @@ def author_source_project(
             + f"happened = ms.time_dimension_column(name='happened', entity=facts, column='happened', parse={parse}, is_default=True)\n"
             + (
                 "from datetime import date\n"
-                "calendar_day = ms.time_dimension_column(name='calendar_day', entity=facts, column='calendar_day')\n"
+                "calendar_day = ms.time_dimension_column(name='calendar_day', entity=facts, column='calendar_day', parse=ms.date(timezone='Asia/Shanghai'))\n"
                 "period = ms.dimension_column(name='period', entity=facts, column='period')\n"
-                "fiscal = ms.period_calendar(name='fiscal', date=calendar_day, boundary_timezone='Asia/Shanghai', coverage=(date(2026, 8, 1), date(2026, 8, 6)), levels={'period': period})\n"
+                "fiscal = ms.period_calendar(name='fiscal', date=calendar_day, coverage=(date(2026, 8, 1), date(2026, 8, 6)), levels={'period': period})\n"
                 if certified_calendar
                 else ""
             )

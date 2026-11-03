@@ -111,19 +111,16 @@ def test_preview_result_carries_timezones_in_render() -> None:
         timezones={
             "created_at": {
                 "kind": "instant",
-                "read_tz": None,
-                "report_tz": "Asia/Shanghai",
-                "read_tz_resolution": None,
             }
         },
         report_tz="Asia/Shanghai",
     )
 
-    assert preview.timezones["created_at"]["report_tz"] == "Asia/Shanghai"
+    assert preview.timezones["created_at"] == {"kind": "instant"}
     assert preview.rows == ({"created_at": "2026-06-17T16:00:00"},)
     rendered = preview.render()
     assert "created_at" in rendered
-    assert "report_tz=Asia/Shanghai" in rendered
+    assert "created_at: instant" in rendered
 
 
 def test_preview_result_renders_sample_policy_and_warnings() -> None:

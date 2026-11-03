@@ -94,10 +94,11 @@ subject to the authored Ibis expression; cast operands before potentially lossy
 arithmetic inside that body.
 
 Naive timestamp identity preserves its wall-clock ticks and exact unit with
-`timezone=None`; neither reader/Session timezone nor a TimeDimension parser
+`timezone=None`; neither Session timezone nor a TimeDimension parser
 rewrites it. Identity matching requires compatible naive/aware interpretation
 and lossless unit conversion. TimeDimension projections independently interpret
-native naive values using parser or frozen reader authority. A naive clock alone
+native naive values using the field parser timezone, then Datasource
+`wall_clock_timezone`; missing declarations reject before business-data reads. A naive clock alone
 cannot distinguish repeated DST occurrences; use an aware/UTC source or an
 additional identity component when those are distinct business instances.
 

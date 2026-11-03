@@ -26,7 +26,7 @@ def _bootstrap_project(tmp_path: Path) -> None:
     datasource_dir = tmp_path / "models" / "datasources"
     datasource_dir.mkdir(parents=True, exist_ok=True)
     (datasource_dir / "warehouse.py").write_text(
-        "import marivo.datasource as md\nmd.duckdb(name='warehouse', path='warehouse.duckdb')\n",
+        "import marivo.datasource as md\nmd.duckdb(wall_clock_timezone='UTC', name='warehouse', path='warehouse.duckdb')\n",
         encoding="utf-8",
     )
     (semantic_dir / "datasets.py").write_text(

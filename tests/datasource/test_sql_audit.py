@@ -136,6 +136,20 @@ def test_current_product_has_only_classified_submitters() -> None:
     } <= categories
 
 
+def test_clickhouse_parser_inspection_grants_no_submission_authority(tmp_path: Path) -> None:
+    _module(
+        tmp_path,
+        "datasource/engines/clickhouse.py",
+        "def validate_temporal_parsers(backend, sql):\n"
+        "    import sqlglot\n"
+        "    sqlglot.parse_one(sql, read='clickhouse')\n"
+        "    backend.raw_sql(sql)\n",
+    )
+    assert [(row.symbol, row.call) for row in audit(tmp_path).failures] == [
+        ("validate_temporal_parsers", "backend.raw_sql")
+    ]
+
+
 def test_native_aggregate_compiler_allowance_does_not_allow_another_patch(tmp_path: Path) -> None:
     _module(
         tmp_path,

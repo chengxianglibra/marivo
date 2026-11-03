@@ -6,6 +6,7 @@ import json
 import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
+from datetime import date, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
@@ -188,6 +189,7 @@ class SourceInspection(RenderableResult):
     _project_root: Path
     projectable_columns: tuple[ColumnMetadata, ...] = ()
     _backend_type: str = ""
+    _physical_schema: tuple[ColumnMetadata, ...] = ()
 
     @property
     def datasource(self) -> DatasourceSymbol:
@@ -292,8 +294,12 @@ class SourceInspection(RenderableResult):
                 rows=(
                     (
                         column.name,
-                        _ibis_table_type(column.type, backend_type=self._backend_type)
-                        or "unavailable",
+                        column.type
+                        if column._type_is_ibis
+                        else (
+                            _ibis_table_type(column.type, backend_type=self._backend_type)
+                            or "unavailable"
+                        ),
                         "?" if column.nullable is None else ("Y" if column.nullable else "N"),
                         self._binding_snippet(column),
                     )
@@ -311,7 +317,11 @@ class SourceInspection(RenderableResult):
         return f"{{{column.name!r}: {column.name!r}}}"
 
     def _table_schema_row(self, column: ColumnMetadata) -> tuple[str, ...]:
-        ibis_type = _ibis_table_type(column.type, backend_type=self._backend_type)
+        ibis_type = (
+            column.type
+            if column._type_is_ibis
+            else _ibis_table_type(column.type, backend_type=self._backend_type)
+        )
         return (
             column.name,
             column.type,
@@ -658,7 +668,14 @@ def _preflight_scope(inspection: SourceInspection, *, scope: AuthoringScope) -> 
                 ),
                 scope_state=state,
             )
-        if not _is_temporal_type(time_column.type):
+        physical_column = next(
+            (column for column in inspection._physical_schema if column.name == time_column.name),
+            time_column,
+        )
+        category = _physical_temporal_category(
+            physical_column, backend_type=inspection._backend_type
+        )
+        if category is None:
             raise _authoring_error(
                 code="unknown_source_column",
                 stage="preflight",
@@ -667,6 +684,13 @@ def _preflight_scope(inspection: SourceInspection, *, scope: AuthoringScope) -> 
                 reason="md.time_range(...) can only filter a date or timestamp column",
                 scope_state=state,
             )
+        _validate_time_range_category(
+            column=time_predicate.column,
+            category=category,
+            start=time_predicate.start,
+            end=time_predicate.end,
+            scope_state=state,
+        )
         if not inspection.execution_capabilities.partition_predicate_supported:
             raise _authoring_error(
                 code="partition_predicate_unsupported",
@@ -775,6 +799,87 @@ def _is_temporal_type(type_name: str) -> bool:
         except (TypeError, ValueError, RuntimeError):
             return False
     return bool(dtype.is_date() or dtype.is_timestamp())
+
+
+def _physical_temporal_category(
+    column: ColumnMetadata, *, backend_type: str
+) -> Literal["aware_timestamp", "naive_timestamp", "date"] | None:
+    """Classify native and reflected types without losing their physical meaning."""
+    canonical = (
+        column.type
+        if column._type_is_ibis
+        else _canonical_catalog_type(column.type, backend_type=backend_type)
+    )
+    try:
+        dtype = ibis.dtype(canonical)
+    except (TypeError, ValueError, RuntimeError):
+        return None
+    if dtype.is_date():
+        return "date"
+    if dtype.is_timestamp():
+        # ClickHouse timestamps always identify instants, even when their native
+        # type omits the server's display timezone. MySQL's native TIMESTAMP is
+        # mapped to UTC-aware by its backend type mapper; DATETIME remains naive.
+        if backend_type == "clickhouse" or dtype.timezone is not None:
+            return "aware_timestamp"
+        return "naive_timestamp"
+    return None
+
+
+def _validate_time_range_category(
+    *,
+    column: str,
+    category: Literal["aware_timestamp", "naive_timestamp", "date"],
+    start: date | datetime,
+    end: date | datetime,
+    scope_state: Literal["known", "none", "unknown"],
+) -> None:
+    is_datetime = isinstance(start, datetime)
+    aware = (
+        isinstance(start, datetime) and start.tzinfo is not None and start.utcoffset() is not None
+    )
+    if category == "aware_timestamp":
+        allowed = aware
+    elif category == "date":
+        allowed = not is_datetime
+    else:
+        allowed = not aware
+    if allowed:
+        return
+    expected, example_start, example_end = {
+        "aware_timestamp": (
+            "aware datetime boundaries for an aware timestamp column",
+            "2026-01-01T00:00:00+00:00",
+            "2026-01-02T00:00:00+00:00",
+        ),
+        "naive_timestamp": (
+            "naive datetime or date boundaries for a naive timestamp column",
+            "2026-01-01T00:00:00",
+            "2026-01-02T00:00:00",
+        ),
+        "date": ("date boundaries for a DATE column", "2026-01-01", "2026-01-02"),
+    }[category]
+    raise DatasourceAuthoringError(
+        code="time_range_boundary_mismatch",
+        stage="preflight",
+        expected=expected,
+        received=f"column={column!r}, category={category}, start={start!r}, end={end!r}",
+        reason="Time-range boundaries must match the inspected physical column category.",
+        effect_observed=DatasourceObservedEffects(query_executed=False, scope_state=scope_state),
+        repair=repair(
+            kind="rescope",
+            canonical_id="time_range",
+            action=(
+                f"Use {expected} for {column!r}; no datasource or connection timezone "
+                "supplies boundary awareness. Replace the example dates with your intended range."
+            ),
+            snippet=(
+                f"md.time_range({column!r}, start={example_start!r}, end={example_end!r}, "
+                "max_rows=1000, timeout_seconds=30)"
+            ),
+            preserves_evidence=True,
+        ),
+    )
 
 
 def _time_range_partition_field(partitioning: Partitioning) -> PartitionMetadata | None:
@@ -991,9 +1096,13 @@ def _project_table_metadata(metadata: TableMetadata, source: TableSourceIR) -> T
             )
             continue
 
-        observed_type = _canonical_catalog_type(
-            catalog_column.type,
-            backend_type=metadata.backend_type,
+        observed_type = (
+            catalog_column.type
+            if catalog_column._type_is_ibis
+            else _canonical_catalog_type(
+                catalog_column.type,
+                backend_type=metadata.backend_type,
+            )
         )
         columns.append(
             ColumnMetadata(
@@ -1002,6 +1111,7 @@ def _project_table_metadata(metadata: TableMetadata, source: TableSourceIR) -> T
                 nullable=catalog_column.nullable,
                 comment=catalog_column.comment,
                 ordinal_position=position,
+                _type_is_ibis=True,
             )
         )
 
@@ -1522,6 +1632,7 @@ def _inspect_resolved_source(
     profile = require_profile_for_backend_type(datasource_ir.backend_type)
 
     projected_metadata_unavailable = False
+    physical_schema: tuple[ColumnMetadata, ...] = ()
     base_partitioning: Partitioning | None = None
     partition_warnings: tuple[MetadataWarning, ...] = ()
 
@@ -1575,6 +1686,16 @@ def _inspect_resolved_source(
                 failure=exc,
             )
         else:
+            if source.columns:
+                native_columns = {
+                    column.name: column
+                    for column in (*base_metadata.columns, *base_metadata.projectable_columns)
+                }
+                physical_schema = tuple(
+                    replace(native_columns[physical], name=output)
+                    for output, physical in source.columns
+                    if physical in native_columns
+                )
             metadata = (
                 _project_table_metadata(base_metadata, source) if source.columns else base_metadata
             )
@@ -1621,4 +1742,5 @@ def _inspect_resolved_source(
         _project_root=project_root,
         projectable_columns=metadata.projectable_columns,
         _backend_type=metadata.backend_type,
+        _physical_schema=physical_schema,
     )

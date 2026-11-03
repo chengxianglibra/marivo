@@ -41,7 +41,7 @@ def test_naive_parquet_identity_keeps_ticks_independent_of_time_parser(
     pq.write_table(pa.table({"tenant": [1, 1], "ts": stamps, "amount": [7, 11]}), path)
     semantic_project_factory(
         {
-            "datasources/warehouse.py": "import marivo.datasource as md\nmd.duckdb(name='warehouse', path=':memory:')\n",
+            "datasources/warehouse.py": "import marivo.datasource as md\nmd.duckdb(wall_clock_timezone='UTC', name='warehouse', path=':memory:')\n",
             "sales/_domain.py": DOMAIN,
             "sales/events.py": "import marivo.datasource as md\nimport marivo.semantic as ms\n"
             + f"events=ms.entity(name='events', datasource=ms.ref.datasource('warehouse'), source=md.parquet({str(path)!r}), primary_key=['tenant','ts'])\n"

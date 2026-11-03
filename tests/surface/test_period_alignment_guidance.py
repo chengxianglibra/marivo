@@ -12,7 +12,7 @@ import marivo.analysis as mv
 from marivo._help import help as help_coordinator
 from marivo._help.render import render_help_text
 from tests.analysis.numeric.test_period_alignment import period
-from tests.shared_fixtures import DslCaseFactory, terminal_runs
+from tests.shared_fixtures import DslCaseFactory, frozen_coordinates, terminal_runs
 
 
 @pytest.mark.parametrize(
@@ -99,11 +99,10 @@ def test_named_comparison_and_terminal_rows_disclose_current_protocol(
     saved.show(n=1)
     card = capsys.readouterr().out
     assert "to_pandas" in card and "compare(" not in card
-    data = saved.to_pandas()
-    axes = data.attrs["axes"]
-    assert axes[0]["role"] == "calendar"
-    assert data.attrs["comparisons"][0]["alias"] == "reference"
-    assert len(data.attrs["frozen_coordinates"]) == 3
+    assert saved.to_pandas().attrs == {}
+    assert saved.schema.axes[0].role == "calendar"
+    assert saved.schema.comparisons[0].alias == "reference"
+    assert len(frozen_coordinates(saved)) == 3
     artifact.show()
     audit = capsys.readouterr().out
     assert saved.artifact_id in audit and "committed_at:" in audit
@@ -189,7 +188,7 @@ def test_compare_help_discloses_accepted_exact_duration_contract(
     assert data["reference.baseline.elapsed"].tolist() == [timedelta(microseconds=19)]
     assert data["reference.absolute.elapsed"].tolist() == [timedelta(microseconds=19)]
     assert data["reference.relative.elapsed"].tolist() == [1.0]
-    assert data.attrs["units"][-1] == ("reference.relative.elapsed", None)
+    assert result.schema.values["reference.relative.elapsed"].unit is None
     assert result.presence_names == ("current.present", "reference.present")
     assert terminal_runs(session) == ()
 

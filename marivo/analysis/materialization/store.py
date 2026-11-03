@@ -38,6 +38,7 @@ CREATE TABLE sessions (
  name TEXT NOT NULL UNIQUE CHECK(length(name)>0), question TEXT,
  report_timezone_name TEXT NOT NULL CHECK(length(report_timezone_name)>0),
  report_timezone_resolution TEXT NOT NULL CHECK(report_timezone_resolution IN ('iana','fixed_offset')),
+ report_timezone_origin TEXT NOT NULL CHECK(report_timezone_origin IN ('explicit','system')),
  created_at TEXT NOT NULL CHECK(length(created_at)>0), updated_at TEXT NOT NULL CHECK(length(updated_at)>0),
  domains_payload TEXT
 );
@@ -85,7 +86,7 @@ CREATE INDEX artifact_recency ON dataset_artifacts(session_ref,committed_at,arti
 """
 
 
-def _generation_error(version: object, expected: int = 26) -> IntegrityError:
+def _generation_error(version: object, expected: int = 28) -> IntegrityError:
     return IntegrityError(
         expected=f"an existing complete Session Store with user_version={expected}",
         received=f"Session Store user_version={version}",
@@ -119,7 +120,7 @@ def _enable_wal(conn: sqlite3.Connection) -> None:
             time.sleep(0.01)
         else:
             if mode != "wal":
-                raise invalid("Store 26 requires WAL durability")
+                raise invalid("Store 28 requires WAL durability")
             return
 
 
@@ -173,11 +174,11 @@ class SessionStore:
 
     @classmethod
     def open_existing(cls, project_root: str | Path) -> SessionStore:
-        """Open an existing complete Store 26 without initializing state."""
+        """Open an existing complete Store 28 without initializing state."""
         try:
             return cls(project_root, existing_only=True)
         except (sqlite3.Error, OSError):
-            raise invalid("selected Store 26 is unavailable") from None
+            raise invalid("selected Store 28 is unavailable") from None
 
     @property
     def project_root(self) -> Path:
@@ -247,11 +248,11 @@ class SessionStore:
                         with self.db_path.open("rb") as source:
                             wal_header = source.read(20)[18:20]
                         if wal_header != b"\x02\x02":
-                            raise invalid("Store 26 requires WAL durability")
+                            raise invalid("Store 28 requires WAL durability")
                     else:
                         journal: object = read.execute("PRAGMA journal_mode").fetchone()[0]
                         if journal != "wal":
-                            raise invalid("Store 26 requires WAL durability")
+                            raise invalid("Store 28 requires WAL durability")
             finally:
                 read.close()
             if version == self.layout.generation:
@@ -319,6 +320,21 @@ class SessionStore:
         resolution = _text(row, "report_timezone_resolution")
         if resolution not in ("iana", "fixed_offset"):
             raise invalid("unknown timezone resolution")
+        try:
+            origin = _text(row, "report_timezone_origin")
+        except IndexError:
+            raise invalid("Session report timezone origin is missing") from None
+        if origin not in ("explicit", "system"):
+            raise invalid("unknown report timezone origin")
+        from marivo._timezones import normalize_timezone
+
+        timezone_name = _text(row, "report_timezone_name")
+        try:
+            normalized = normalize_timezone(timezone_name)
+        except (ValueError, KeyError):
+            raise invalid("invalid Session report timezone") from None
+        if normalized.name != timezone_name or normalized.kind != resolution:
+            raise invalid("Session report timezone is not canonical")
         payload = _optional(row, "domains_payload")
         domains = None
         if payload is not None:
@@ -341,8 +357,9 @@ class SessionStore:
             _text(row, "session_ref"),
             _text(row, "name"),
             _optional(row, "question"),
-            _text(row, "report_timezone_name"),
+            timezone_name,
             "iana" if resolution == "iana" else "fixed_offset",
+            "explicit" if origin == "explicit" else "system",
             _text(row, "created_at"),
             _text(row, "updated_at"),
             domains,
@@ -366,6 +383,7 @@ class SessionStore:
         session_ref: str | None = None,
         report_timezone_name: str = "UTC",
         report_timezone_resolution: Literal["iana", "fixed_offset"] = "iana",
+        report_timezone_origin: Literal["explicit", "system"],
         domains: tuple[str, ...] | None = None,
     ) -> SessionRecord:
         with self._write() as conn:
@@ -394,13 +412,14 @@ class SessionStore:
             ref = session_ref or "sess_" + secrets.token_hex(12)
             now = _now()
             conn.execute(
-                "INSERT INTO sessions VALUES(?,?,?,?,?,?,?,?)",
+                "INSERT INTO sessions VALUES(?,?,?,?,?,?,?,?,?)",
                 (
                     ref,
                     name,
                     question,
                     report_timezone_name,
                     report_timezone_resolution,
+                    report_timezone_origin,
                     now,
                     now,
                     None if domains is None else canonical_json(domains),

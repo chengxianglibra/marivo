@@ -241,7 +241,7 @@ def test_calendar_grain_help_distinguishes_missing_and_current_certification(
     catalog = calendar_catalog
     monkeypatch.setenv("MARIVO_PROJECT_ROOT", str(catalog.workspace_dir))
     session = mv.session.get_or_create("help-calendar", timezone="UTC")
-    scope = session.time_scope(start="2026-01-01", end="2026-02-01")
+    scope = session.time_scope(start="2026-01-01", end="2026-01-08")
     calendar = catalog_entry(catalog, "sales.fiscal", kind="period_calendar")
     assert isinstance(calendar, PeriodCalendar)
     unbound = calendar.grain("fiscal_week")

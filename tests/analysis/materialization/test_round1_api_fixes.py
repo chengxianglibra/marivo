@@ -17,6 +17,7 @@ import pytest
 
 import marivo.analysis as mv
 from marivo.analysis.core.artifact_data import CalendarDataAxis, TimestampDataType
+from marivo.analysis.core.frame_interpretation import FrameCalendarAxisSchema
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.materialization.contracts import canonical_json
 from marivo.analysis.materialization.errors import MaterializationError
@@ -64,10 +65,12 @@ def test_calendar_products_keep_single_time_axis_descriptors_and_cold_metadata(
     field = frames["field_calendar"]
     assert field.iloc[:, 0].tolist() == ["A"] * 3 + ["B"] * 3
     assert field["calendar:day.label"].tolist() == ["2026-03-28", "2026-03-29", "2026-03-30"] * 2
-    assert [axis["role"] for axis in field.attrs["axes"]] == ["field", "calendar"]
+    assert [axis.role for axis in outputs["field_calendar"].schema.axes] == ["field", "calendar"]
     tokyo = frames["tokyo_calendar"]
     assert tokyo["calendar:day.label"].tolist() == ["2026-02-01", "2026-02-02"]
-    assert [axis["descriptor"]["timezone"] for axis in tokyo.attrs["axes"]] == ["Asia/Tokyo"]
+    (tokyo_axis,) = outputs["tokyo_calendar"].schema.axes
+    assert isinstance(tokyo_axis, FrameCalendarAxisSchema)
+    assert tokyo_axis.timezone == "Asia/Tokyo"
     assert frames["source_calendar"]["calendar:day.label"].tolist() == [
         "2026-03-28",
         "2026-03-29",
@@ -90,28 +93,21 @@ def test_calendar_products_keep_single_time_axis_descriptors_and_cold_metadata(
             )
             assert part.schema.key_fields == tuple(column.slot_id for column in axis.columns)
             bounds = read_output(case.root, part.schema, part.rows)
-            assert bounds[part.schema.key_fields[0]].tolist() == list(range(len(bounds)))
+            assert bounds[part.schema.key_fields[0]].tolist() == (
+                march_starts if axis.timezone == "Europe/Paris" else february_starts
+            )
             assert bounds.ordinal.tolist() == list(range(len(bounds)))
             assert tuple(bounds.columns[1:]) == (
                 "nominal_label",
                 "ordinal",
                 "nominal_ordinal",
-                "nominal_start",
-                "nominal_end",
-                "actual_start",
-                "actual_end",
-                "nominal_start_civil",
-                "nominal_end_civil",
-                "actual_start_civil",
-                "actual_end_civil",
+                "selection",
+                "cutoff",
             )
-            assert bounds.actual_start.tolist() == (
-                march_starts if axis.timezone == "Europe/Paris" else february_starts
-            )
+            assert bounds.selection.tolist() == ["full"] * len(bounds)
             if axis.timezone == "Europe/Paris":
-                assert bounds.actual_end.iloc[1] - bounds.actual_start.iloc[1] == timedelta(
-                    hours=23
-                )
+                positions = bounds.iloc[:, 0]
+                assert positions.iloc[2] - positions.iloc[1] == timedelta(hours=23)
         assert decode(encode(manifest), type(manifest)) == manifest
         saved[name] = {
             "artifact": value.artifact_id,

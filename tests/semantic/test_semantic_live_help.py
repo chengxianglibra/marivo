@@ -786,8 +786,8 @@ def test_per_help_covers_observed_and_complete_sample_domains(
     assert "explicit non-first fields locate interleaved axes" in text
     assert "(P, rule, ...)" in text
     assert "parameters: memberships" not in text
-    assert "every inner calendar cell" in text
-    assert "week in month is not" in text
+    assert "actual time samples" in text
+    assert "week in month rejects" in text
     assert "Session's current certified snapshot" in text
     assert "Windows inside calendar samples or wrapping calendar folds are unsupported" in text
 

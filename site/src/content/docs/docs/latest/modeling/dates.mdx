@@ -24,13 +24,22 @@ A Time dimension declares the time role used by observations, windows, and calen
 
 ```python
 order_date = ms.time_dimension_column(
-    name="order_date", entity=orders, column="order_date", is_default=True
+    name="order_date", entity=orders, column="order_date", parse=ms.date(timezone="UTC"), is_default=True
 )
 ```
 
-Use `ms.time_dimension_column` for a physical column and `@ms.time_dimension` for a derived field. Native dates and aware timestamps need no parser; encoded strings or integers use `ms.strptime(...)`, while hour-only fields use `ms.hour_prefix(...)`. For naive timestamps, specify the source timezone when known or use the frozen reader authority. Choose at most one `is_default=True` time field per Entity. It selects the default Metric time role but does not set the observation range; supply a `TimeScope` for that range. See [business calendars](#business-calendars) for governed fiscal periods.
+Use `ms.time_dimension_column` for a physical column and `@ms.time_dimension` for a derived field. Native dates and aware timestamps need no parser; encoded strings or integers use `ms.strptime(...)`, while hour-only fields use `ms.hour_prefix(...)`. DATE, naive timestamps and encoded times require a source timezone: set it on the parser or declare Datasource `wall_clock_timezone`. Missing declarations reject before business-data reads. Aware physical timestamps ignore the Datasource default. Choose at most one `is_default=True` time field per Entity. It selects the default Metric time role but does not set the observation range; supply a `TimeScope` for that range. See [business calendars](#business-calendars) for governed fiscal periods.
 
 `sample_interval` describes source sampling cadence without bucketing or truncating timestamps. All TimeField sample reducers allow missing clocks. Represented NULLs retain their reducer policy; cadence does not assert source completeness.
+
+### Native dates: `ms.date`
+
+`ms.date(timezone="UTC")` declares the business-day timezone of a native DATE.
+Omission uses Datasource `wall_clock_timezone`, including when `parse` is omitted.
+Timezone values accept IANA names and fixed offsets. Date labels stay DATE in
+projections. Time membership and report buckets assign the whole row by midnight
+at the start of the source business day. This supports different source and
+report zones but cannot reconstruct event-level totals for another natural day.
 
 ## Derived time field: `ms.time_dimension`
 
@@ -40,7 +49,7 @@ Use `@ms.time_dimension` when a time field is an expression over its Entity. It 
 
 | Parameter | Required | Default | Meaning |
 | --- | --- | --- | --- |
-| `timezone` | No | `None` | Source localization for naive timestamps. `None` uses frozen reader authority; aware timestamps reject any parser timezone. |
+| `timezone` | No | `None` | Source timezone for naive timestamps. `None` uses Datasource `wall_clock_timezone`; aware timestamps reject any parser timezone. |
 
 
 ```python
@@ -56,8 +65,8 @@ This example assumes a naive source timestamp in Shanghai time. An aware source 
 
 | Parameter | Required | Default | Meaning |
 | --- | --- | --- | --- |
-| `format` | Yes | — | Python `strptime` format; rejected data becomes NULL except on PostgreSQL, where it can fail the query. |
-| `timezone` | No | `None` | Optional source timezone for time-bearing values. Date-only formats do not use a timezone; omitted values use reader authority. |
+| `format` | Yes | — | Python `strptime` source encoding. Ordered formats declare canonical valid values; other formats retain native parsing. |
+| `timezone` | No | `None` | Source timezone for both date-only business days and time-bearing values. Omission uses Datasource `wall_clock_timezone`. |
 
 
 ```python
@@ -67,13 +76,19 @@ business_date = ms.time_dimension_column(
 )
 ```
 
-For example, `%Y%m%d` parses `20260801`; Python `%M` means minutes. SQL NULL remains NULL. DuckDB, Trino, ClickHouse and MySQL/MariaDB return NULL for rejected parsed data. PostgreSQL uses native `to_timestamp`; its rejected data can fail the query. There is no `on_error`, trimming, guessing or retry. Native backends can accept different noncanonical values. Invalid format, timezone, type and capability remain errors. Trino TRY can catch recoverable errors in the input expression; other engines may propagate argument evaluation errors. Parsing remains in membership predicates and can increase scan/CPU costs. Use independent physical filters and explicit data checks when needed. NULL event time has no period membership; NULL used only as attribute control preserves facts under a NULL label. Local-clock membership keeps wall order; native output projection is unchanged.
+`%Y%m%d` declares eight-digit values such as `20260801`; Python `%M` means minutes. The ordered formats `%Y%m%d`, `%Y-%m-%d`, `%Y%m%d%H`, `%Y-%m-%d %H`, `%Y%m%d%H%M`, `%Y-%m-%d %H:%M`, `%Y%m%d%H%M%S` and `%Y-%m-%d %H:%M:%S` require valid, fixed-width, zero-padded dates/clocks with exact separators. Integers support compact formats; the physical string comparison order must preserve chronological order. Shortened values such as `2026081` and impossible dates violate the declaration, even when a native parser accepts them. No `canonical` flag or automatic data scan is needed.
+
+For qualifying physical columns, ranges compare the original field directly to same-type constants in its source timezone. A Shanghai business-day range `[2026-10-28,2026-10-29)` over `%Y%m%d` becomes `log_date >= '20261028' AND log_date < '20261029'`. Boundaries round up to the first represented tick: an hourly encoding filtered by `[10:30,12:30)` uses `[11:00,13:00)`. Native DATE and timestamp fields follow the same range rule with their actual type and precision. UTC and fixed offsets support direct conversion; named zones require qualified endpoints away from gap/fold transitions. MySQL/MariaDB named-zone rewrites use the common qualified range, 1971–2037. Derived expressions and other formats keep native parsing.
+
+SQL NULL remains NULL and has no period membership. Projections, calendar assignment and unqualified endpoints retain native parsing and gap/fold interpretation. DuckDB, Trino, ClickHouse and MySQL/MariaDB return NULL for rejected parsed data; PostgreSQL native `to_timestamp` can fail the query. Native acceptance outside the ordered-format contract can differ by backend. There is no `on_error`, trimming, guessing, retry, partition enumeration or validation query. Format, timezone, type and capability errors still fail. Trino TRY can catch recoverable input-expression errors; other engines may propagate them. NULL used only as attribute control preserves facts under a NULL label. Direct predicates enable pushdown; actual index use and partition pruning depend on the backend and table layout.
+
+ClickHouse 22.3 supports the ordered formats above for projections and calendar assignment: dates retain `Date32` and clocks retain `DateTime64`. Other formats require ClickHouse 23.3 or newer. Queries needing an unavailable parser fail before business query submission; use an ordered encoding, expose a native `Date32`/`DateTime64` column, or upgrade the server. Source timezone declarations and native gap/fold behavior still apply.
 
 ## Separate hour column: `ms.hour_prefix`
 
 | Parameter | Required | Default | Meaning |
 | --- | --- | --- | --- |
-| `prefix` | Yes | — | TimeDimension expression that supplies the civil-date prefix. The hour field inherits its source timezone context. |
+| `prefix` | Yes | — | TimeDimension expression that supplies the civil-date prefix. The hour field inherits the prefix field's effective parser or Datasource timezone. |
 
 The hour source must use an integer from 0 to 23 or a canonical two-digit string.
 
@@ -116,11 +131,10 @@ Python naive `datetime` objects and ambiguous or nonexistent local boundary time
 | --- | --- | --- | --- |
 | `name` | Yes | — | Semantic name, unique in its owning scope. |
 | `date` | Yes | — | Civil-date TimeDimension. |
-| `boundary_timezone` | Yes | — | Explicit IANA timezone defining civil-day boundaries. |
 | `coverage` | Yes | — | Nonempty `(start_date, end_date)` pair, inclusive start and exclusive end. |
 | `levels` | Yes | — | Level name → Dimension mapping on the same Entity. Period keys must be globally unique within a level; day is reserved and derived. |
 
-All fields belong to one Entity. The date field must be a civil `DATE` TimeDimension; a midnight timestamp is not equivalent. Certification requires one row for every covered date and a non-`NULL` key for every level on every date. Within a level, each key identifies one contiguous period, so periods neither overlap nor leave gaps. Use a `TemporalSet` for separate or overlapping activities.
+All fields belong to one Entity. Calendar boundaries derive from the date field's effective source timezone; `ms.period_calendar` has no `boundary_timezone` argument. The date field must be a civil `DATE` TimeDimension; a midnight timestamp is not equivalent. Certification requires one row for every covered date and a non-`NULL` key for every level on every date. Within a level, each key identifies one contiguous period, so periods neither overlap nor leave gaps. Use a `TemporalSet` for separate or overlapping activities.
 
 ## Business calendars
 
@@ -164,14 +178,13 @@ calendar_days = ms.entity(
     source=md.table("calendar"),
     primary_key=["day"],
 )
-day = ms.time_dimension_column(name="calendar_date", entity=calendar_days, column="day")
+day = ms.time_dimension_column(name="calendar_date", entity=calendar_days, column="day", parse=ms.date(timezone="UTC"))
 week = ms.dimension_column(
     name="fiscal_week", entity=calendar_days, column="fiscal_week"
 )
 ms.period_calendar(
     name="fiscal",
     date=day,
-    boundary_timezone="UTC",
     coverage=(date(2026, 1, 1), date(2026, 1, 8)),
     levels={"week": week},
 )
@@ -213,6 +226,8 @@ For a working-day schedule, provide a status for every date in the counting rang
 
 `ms.calendar_grain(calendar=calendar_ref, level="week")` creates a source-free grain lookup during modeling. After certification, `calendar.grain("week")` returns a grain bound to that snapshot; use the bound grain with `scope.by(grain)` or a Metric window.
 
+Custom calendar output accepts exactly one complete certified period. Multiple, sparse or partial periods reject before business reads; custom sample hierarchies have no implicit nesting rule.
+
 ## Named occurrences: `ms.temporal_set`
 
 | Parameter | Required | Default | Meaning |
@@ -221,7 +236,7 @@ For a working-day schedule, provide a status for every date in the counting rang
 | `occurrence_id` | Yes | — | Dimension containing unique occurrence IDs on the owning Entity. |
 | `start` | Yes | — | TimeDimension containing each inclusive start. |
 | `end` | Yes | — | TimeDimension containing each exclusive end, strictly after its start. |
-| `boundary_timezone` | Yes | — | Explicit IANA timezone defining civil-day boundaries. |
+| `boundary_timezone` | Yes | — | IANA or fixed-offset coverage boundary zone; DATE fields must declare this same zone. |
 | `coverage` | Yes | — | Nonempty `(start_date, end_date)` pair, inclusive start and exclusive end. |
 | `category` | No | `None` | Optional Dimension whose values are nonempty strings or `NULL`. |
 
@@ -237,6 +252,6 @@ ms.temporal_set(
 )
 ```
 
-Occurrences use either civil dates or timestamps consistently; each has a unique ID, and its bounds lie wholly within coverage. Timestamp bounds need clear timezone semantics; a naive repeated local clock cannot identify both instants. Gaps and overlaps are allowed. A one-day holiday is `[day, day + 1)`. Certification uses `catalog.preview(...)` over complete coverage; a failed or truncated read does not replace the current snapshot. Matching categories do not define cross-year holiday pairing.
+DATE endpoints must declare the same normalized timezone as `boundary_timezone`. Timestamp source values use their own parser or Datasource declaration, and certification applies native parsing and localization within its existing source read. It does not reinterpret raw clocks in Python or use the boundary timezone as a source fallback. Backend DST behavior is preserved. Occurrences use either civil dates or timestamps consistently; each has a unique ID, and its bounds lie wholly within coverage. Timestamp bounds need clear timezone semantics; a naive repeated local clock cannot identify both instants. Gaps and overlaps are allowed. A one-day holiday is `[day, day + 1)`. Certification uses `catalog.preview(...)` over complete coverage; a failed or truncated read does not replace the current snapshot. Matching categories do not define cross-year holiday pairing.
 
 Read certified scopes through `calendar.period(level, key)`, `calendar.period_on(level, date)` or `campaigns.occurrence(key)`; these return `TimeScope` values from the local certificate. For exact signatures, use Live Help targets `semantic.time_dimension.from_column`, `semantic.strptime`, `semantic.period_calendar` and `semantic.temporal_set`.

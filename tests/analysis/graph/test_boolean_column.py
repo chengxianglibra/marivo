@@ -53,7 +53,7 @@ def test_boolean_operations_return_plain_columns_and_select_only_true(
         frame.where(region)
 
     rows = frame.to_pandas()
-    key = ordinary_columns(rows)[0]
+    key = ordinary_columns(frame)[0]
     for predicate, expected in (
         (flag, ["A"]),
         (~flag, ["C", "D"]),
@@ -92,7 +92,7 @@ def test_presence_and_nullable_boolean_filtering_survive_storage(
         assert joined[name]._kind == "boolean"
     original = joined.compute()
     rows = original.to_pandas()
-    key = ordinary_columns(rows)[0]
+    key = ordinary_columns(original)[0]
     assert rows[key].tolist() == ["A", "B", "C", "D"]
     assert rows["right_present"].tolist() == [True, True, True, False]
     selected = original.where(original["right.flag"].is_null()).compute()

@@ -63,8 +63,25 @@ builtin(unit, step) 或 named(ref, level) 粒度；interval 轴记录公共导�
 不从快照摘要、字段名或当前 Catalog 推测。轴的 `at` 是已捕获锚点，不代表新鲜度。
 
 `FrameSchema` 还包含 `fixed_axes`、`value_contexts`、`alignments`、`comparisons` 和 `decompositions`。
+
+`source_times` 是本结果实际消费输入的源时间解释事实，不是当前输出列的可执行语义能力。
+它是不变元组，元素为封闭的 `FrameInstantSourceTime`、`FrameWallClockSourceTime` 或
+`FrameCivilDateSourceTime`：三者均捕获 axis、physical_type 和 consumption_timezone；
+wall_clock/civil_date 另存最终生效的声明 timezone 与 origin（field/datasource），
+hour_prefix 另存 inherited_from。pending 和无源 literal 不为填充这些事实打开连接。
+源准备确定物理类别之后，compute/persist 捕获解释；固定 select/rename/filter/fix、
+算术和 reduce 保留全部已消费输入事实，align/compare/attribute 合并完整记录去重。
+相同 axis 的声明或消费时区不同，记录并存，不按字段名覆盖或拒绝。
+`.show()` 按 axis、kind、时区和消费时区稳定排序并有界显示；typed tuple 保留完整内容。
+DATE 的源时区与消费时区不同，按业务日起点归属；元数据明确不能由业务日汇总重建事件日汇总。
+Store 28 / output v17 必须包含 source_times 字段；冷恢复、schema/show 和固定派生不读取
+源或当前模型，也不随宿主机 TZ 转换范围、重分桶或重解释捕获事实。旧格式和缺字段显式拒绝。
+
 fixed_axes 记录 `fix` 移除的普通轴、精确有序键与该轴的语义 origins；固定键不进入活动
-`slots`。value_contexts 按当前完整值名索引，只存可准确绑定的直接观察主体、时间依据、
+`slots`。compute 从已绑定输入闭合顶层及 comparison 两端固定轴的具体键类型、nullable
+和精确键表示；统计上下文中的固定组同步重绑到完成事实，保留捕获的操作数说明。
+这些事实不依赖先 compute 再 fix 的调用顺序。
+value_contexts 按当前完整值名索引，只存可准确绑定的直接观察主体、时间依据、
 显式窗口，或当前行统计/归一化种类、输入说明、父分组和 complete/restricted 行范围。无条目表示未提供
 额外说明，不能解释为“无筛选”“无窗口”“全量”或数值无效。
 
@@ -104,7 +121,7 @@ restricted 范围。所有当前字段引用、轴 token、比较 ID、目标和
 
 `schema.layout` 仅由结构派生。字段变体携带 name/kind="field"/slot_id，坐标变体携带
 name/kind="coordinate"/axis_token/endpoint/part。endpoint 为 self/left/right；part 为
-key/label/start/end/nominal_start/nominal_end，组合由轴角色决定。复合身份只导出
+key/label/start/end，组合由轴角色决定。复合身份只导出
 一个 tuple；paired 左右坐标属于同一完整轴。默认布局允许重名，实际导出在载荷读取前
 检查唯一性；使用字符串 axis_names 或 select 修复。别名不修改 schema。
 
@@ -119,8 +136,8 @@ total_count、has_more、next_cursor 和 read_stats。len(page) 是本页行数�
 单行结果依靠行数区分。坐标标量保留 Decimal、Arrow Date32/Timestamp/Duration 精度和
 NULL None。页内 RangeIndex 不承担业务键身份。页面不持有完整父数据、附件目录、审计、
 方法事实、连接或 reader；小页数据脱离父 Arrow 缓冲。page.to_pandas() 不再读文件，
-返回与 layout 一致且 attrs 为空的隔离副本。frame.to_pandas() 保留完整校验及既有
-attrs 快照；二者使用同一布局和坐标解码规则，attrs 不构成稳定导入协议。
+返回与 layout 一致且 attrs 为空的隔离副本。frame.to_pandas() 保留完整校验，attrs
+同样为空；二者使用同一布局和坐标解码规则，解释事实由 frame.schema 提供。
 
 游标不可解析，绑定精确输入、读取种类、集合版本、limit、规范化投影和轴别名；续读
 重复同一请求。持久输入在同版本 Runtime 独立 reopen 后可续读；内存游标限当前进程
@@ -142,7 +159,7 @@ FrameReadStats 仅提供 data_rows_read、coordinate_rows_read、receipt_bytes_h
 `FramePeriodPage` 提供同一 `input_id`、不可执行 target、items、分页状态和 `read_stats`。
 单轴期间返回 `FrameCalendarPeriod` 或 `FrameIntervalPeriod`；paired 轴返回带完整 owning
 key 和可缺侧的 `FramePairedPeriod`；时间比较返回 `FrameComparisonPeriod`，保留实际
-current/baseline 端点及保存的缺失原因。日历标签保留标量类型和已保存民用边界；interval
+current/baseline 端点及保存的缺失原因。日历标签保留标量类型和已保存选择进度；interval
 不推测未保存的民用/nominal 边界或现行时区规则。paired 缺侧不臆造原因。期间 key 与
 `read_page().coordinates` 中目标轴各 key slot 的有序、完整值连接；它不是当前行域，选中
 期间不保证存在结果行。小页只保留本页期间和实际端点，不暴露通用附件浏览器或 shift 祖先链。
@@ -197,24 +214,21 @@ axis_origins = lineage.axes[frame.axes[0].token]
 `axis_names={"full.axis.name": "name"}` 通过完整轴名或唯一 token 设置别名；不接受 FrameAxis、
 短名模糊匹配或重复指向同一轴的别名。重名轴使用 schema 中的唯一 token。别名只改变输出名称。
 
-日历和区间统一导出 `.start`、`.end`，表示实际观察的半开区间 [start, end)。
-两列均为带时区的 Arrow 时间戳，保留精度与缺失，使用轴捕获的时区；日、小时、分钟无需分支解析。
-部分桶直接暴露实际裁剪边界。配对轴分别使用 `.left`、`.right` 前缀，缺失端点为 NA。
-`time_details=True` 为日历增加 `.label`、`.nominal_start`、`.nominal_end`；命名日历标签
-保留原有标量类型。时区由时间戳类型携带，不额外导出 timezone 列。
+日历轴导出一个实际键时间戳列；`time_details=True` 增加 `.label`，命名标签保留原有标量类型。
+区间轴导出真实半开区间的 `.start`、`.end`。时间戳使用捕获时区、保留精度与缺失。
+日历键不承诺桶成员构成连续 UTC 区间；`read_periods()` 暴露 label、ordinal、nominal_ordinal、
+selection 和 prefix 的 civil cutoff，不再提供伪造的 nominal/actual UTC 或 civil 桶边界。
+配对轴分别使用 `.left`、`.right` 前缀，缺失端点为 NA。
 导出读取不会修改冻结数据或普通值列的类型；时间标签不授予跨 Frame 身份或观察范围等价性。
 
 `read_page()` 使用相同 axis_names 和 time_details 规则；游标绑定详情选项，续读重复同一请求。
 `schema.layout` 描述默认布局，`page.layout` 描述该次实际布局。page.to_pandas() 不再读取数据。
-普通 TimeField 轴导出一个时间值坐标列；calendar/interval 的两列描述区间，不能互换。
-axis_names 只重命名导出前缀，不改变轴结构。需要单列时选择 `.start` 并在 pandas 中重命名；
-裁剪桶的 `.start` 是实际观察起点，原始桶起点使用 `time_details=True` 的 `.nominal_start`。
+普通 TimeField 和日历轴各导出一个坐标列；区间轴保留真实起止边界。
+axis_names 只重命名导出前缀，不改变轴结构或实际键。普通分桶补齐 S∪O，窗口仅使用明确端点域。
 
-完整导出 attrs 保留隔离的 axes、units、comparisons、frozen_coordinates；分页导出 attrs 为空。
-frozen_coordinates 每项的 rows 为不可变 pyarrow.Table，保留声明的列类型、精度与 NULL，
-且相等比较返回布尔值，兼容 pandas 的 attrs 比较。需要 pandas 表时显式调用
-`part["rows"].to_pandas(types_mapper=pd.ArrowDtype)`。
-这些 attrs 不承诺稳定反序列化协议，导出的表不授予 typed 运算权限。
+完整导出与分页导出的 attrs 均为空，可直接 `to_parquet()` 等 pandas 落盘；轴、单位、
+比较等解释事实只由 frame.schema 提供，日历/区间周期由 read_periods() 提供。
+导出的表不授予 typed 运算权限。
 导出保留行序、物理数值、NULL 和合法零，返回隔离副本；show 的有界预览复用默认坐标解释。
 完整和分页导出后的大 `int64[pyarrow]` 值与浮点数混算可能触发 `ArrowInvalid`。
 接受近似结果时，可先显式使用 `rows["value"].astype("float64") / 3600.0`；该转换可能
@@ -363,7 +377,7 @@ compare 的同名量配对同样是调用方组织输入的方式，兼容类型
 compare 的时间关系按每个已绑定基期独立选择：显式 match 优先表达意图，但须与存在的直接
 shift 关系一致；省略时仅消费锚点与本期完整冻结域相符的直接关系，否则拒绝错误锚点。
 没有直接关系也没有 match 时按完整键等值，不猜日期偏移或沿祖先追溯。
-锚点比较 Grain、时区、规则版本、选定键与名义/实际边界，不要求同一内存对象或相同数据值。
+锚点比较 Grain、时区、规则版本、选定实际键及保存的标签、顺序和选择进度，不要求同一内存对象或相同数据值。
 align 仍使用显式 match 或等值，不引入自动 shift 推导。
 
 每个基期的实际完整联合键先映到本期坐标，其它普通轴仍完整键等值。
@@ -385,7 +399,7 @@ TimeScope 在 by 中产生 interval 轴，保存精确 start/end 与边界时区
 不同期间可明确配对；过滤成一行不会把多区间目录改成单区间目录。
 interval/calendar/零轴不互转或广播；time×普通分类可使用上述完整默认配对，或显式给出完整 on。
 compare 保留当前 interval 及命名基期说明；align 的双端并集/paired 语义继续存在。
-Store 26 / marivo.frame_output/v15 保存解释目录、实际键引用与关系，冷恢复不重建 TimeScope、
+Store 28 / marivo.frame_output/v17 保存解释目录、实际键引用与关系，冷恢复不重建 TimeScope、
 来源定义或祖先 Frame。所有新事实属于当前输入，不改变数值计算、过滤范围或方法文件合同。
 
 ### Calendar matching
@@ -393,14 +407,15 @@ Store 26 / marivo.frame_output/v15 保存解释目录、实际键引用与关系
 匹配规则与 shift 支持范围由[时间语义](../temporal-semantics.md#period-shifts-and-fixed-data-matching)拥有。
 显式规则、冻结 direct relation 与当前锚点必须一致，不能按别名或日期标签猜测。
 
-冻结目录保存选定桶键、稳定名义 ordinal、名义/实际 UTC 与规范化民用边界、时区和规则版本。
-新生成的日历桶键是轴身份下的名义起点（UTC 微秒时间戳）；首尾裁剪和稀疏选择不改变键。
-ordinal 继续承担排序和对应关系职责，时间键相等不放宽身份、快照和实际边界校验。
-父子日历及 direct relation 使用双方的时间键；区间轴仍保留原有单元键。
+冻结 calendar.v3 目录保存实际键、民用标签、ordinal、nominal_ordinal、selection 和必要的 civil cutoff，
+不保存每桶 nominal/actual UTC 或 civil 区间。实际键是执行方产生的 UTC 微秒身份，不承诺成员连续。
+同一民用标签或名义序号可以对应不同实际键。等值对应只比较兼容轴上的实际键；offset/ordinal
+使用保存的逻辑期间和进度，不重新本地化旧键。需要一对一而标签有歧义时，仅拒绝该显式比较。
+普通最终补空保留 S∪O，窗口仅按明确端点域计算；真实请求、来源读取及贡献窗口范围由独立记录保留。
 shift 另保存直接来源的完整端点目录和明确匹配/无对应映射；compare 保存每个命名基期的
 端点目录、已消费映射、值绑定及端点 presence 所有权。这些是有限不可执行数据，不是来源图。
 数据侧规则只查询已保存目标桶及进度，不能把已聚合的完整基期裁成前缀或用当前 TZ/Catalog 补齐。
-缺失/损坏附件、键或边界是完整性错误，不归为合法缺期。命名日历仅支持既有 ordinal；
+缺失/损坏必需附件、键或选择事实是完整性错误，不归为合法缺期。命名日历仅支持既有 ordinal；
 命名 offset、子日 offset、多日历匹配和任意关系映射不在本范围。
 
 ```python
@@ -423,7 +438,7 @@ yearly = current_series.compare({"yoy": mv.baseline(previous_series)}).compute()
 | 变体 | 必需数据 |
 | --- | --- |
 | 普通坐标 | 局部 token、identity/field 角色、显示名、有序完整键分量及类型/nullability、已捕获时间锚点等不可执行解释 |
-| 日历坐标 | 局部 token、桶键类型、timezone、grain/快照标识、[时间语义](../temporal-semantics.md)规则版本及完整名义域、桶键到名义/实际边界的有限映射 |
+| 日历坐标 | 局部 token、桶键类型、timezone、grain/快照标识、[时间语义](../temporal-semantics.md)规则版本，以及实际键、民用标签、稳定顺序和选择进度的有限目录 |
 | 区间坐标 | 局部 token、完整区间键、冻结 start/end、边界时区与有限区间目录 |
 | 配对坐标 | 局部 token、完整配对键布局、左右同种日历或区间轴描述及其有限键映射；每侧键可缺省，但不能同时缺省 |
 
@@ -523,6 +538,6 @@ An ordinary classification axis's `at` is either its captured UTC datetime,
 The latter contains only the controlling TimeDimension's SemanticObjectIdentity;
 it is not an executable selector. Pending, computed, fixed-axis and saved schemas
 retain this fact. Axis context lineage includes the target, path and control.
-Schema/show, inert pandas attrs, fixed operations and cold recovery do not access
-Catalogs or rerun version matching. Store 26 / output v15 records this closed
+Schema/show, pandas export, fixed operations and cold recovery do not access
+Catalogs or rerun version matching. Store 28 / output v17 records this closed
 variant without older-format migration or dual reads.

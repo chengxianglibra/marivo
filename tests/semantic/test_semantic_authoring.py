@@ -2244,12 +2244,8 @@ def test_metric_unit_rejects_whitespace_and_empty() -> None:
         assert "unit" in str(caught.value.received)
 
 
-def test_date_only_strptime_rejects_timezone() -> None:
-    with pytest.raises(SemanticDecoratorError) as exc_info:
-        ms.strptime("%Y%m%d", timezone="UTC")
-
-    assert "timezone" in exc_info.value.message
-    assert "date-only" in exc_info.value.message
+def test_date_only_strptime_accepts_business_timezone() -> None:
+    assert ms.strptime("%Y%m%d", timezone="Etc/UTC").timezone == "UTC"
 
 
 def test_ratio_unit_rejects_whitespace_and_empty() -> None:
@@ -2285,7 +2281,6 @@ def test_period_calendar_authoring_pushes_typed_declaration() -> None:
         calendar = ms.period_calendar(
             name="fiscal",
             date=ms.ref.time_dimension("sales.calendar.calendar_date"),
-            boundary_timezone="UTC",
             coverage=(date(2026, 1, 1), date(2027, 1, 1)),
             levels={"week": ms.ref.dimension("sales.calendar.fiscal_week")},
         )

@@ -82,7 +82,7 @@ projection, duplicate-key declarations, and identity/version overlap without
 requiring authored physical type facts.
 
 Naive timestamp identity retains exact wall-clock values and source precision
-without a timezone. Session/reader timezones and TimeDimension `parse` do not
+without a timezone. Session/source timezones and TimeDimension `parse` do not
 rewrite `primary_key`. An aware and a naive identity require explicit compatible
 Entity outputs before matching. Repeated DST clocks require an offset/UTC source
 or an additional identity component if they identify different instances.
@@ -231,7 +231,6 @@ user_history = ms.entity(
         valid_to=valid_to,
         interval="closed_open",
         open_end=(None, "9999-12-31"),
-        timezone="UTC",
     ),
 )
 ```
@@ -247,10 +246,11 @@ instant `at` uses `valid_from <= at < valid_to`; immediately before an excluded
 Other admitted interval closures follow their exact boundary rule. Zero matching
 intervals preserves absence; multiple matches are not preflighted and may affect
 the result or fail an independent output contract.
-DATE validity bounds require explicit business timezone; timestamp validity
-rejects a version timezone. Move naive source localization to each field's
-`ms.timestamp(timezone=...)` parser; for aware sources delete the redundant
-version timezone. Both bounds must have the same logical kind. The four
+DATE validity bounds derive their common business timezone from their field
+parsers or Datasource `wall_clock_timezone`; conflicting declarations fail.
+There is no `ms.validity(timezone=...)`. Naive timestamp bounds use each field's
+source declaration; aware bounds preserve their physical instants. Both bounds
+must have the same logical kind. The four
 `valid_from`, `valid_to`, `interval` and `open_end` arguments remain required.
 `current_flag`-style versioning is not supported.
 
@@ -329,15 +329,17 @@ time dimension — plain dimensions are never inferred as temporal from a name l
 `dt`.
 
 ```python
-dt = ms.time_dimension_column(name="dt", entity=orders, column="dt", parse=ms.strptime("%Y%m%d"))
+dt = ms.time_dimension_column(name="dt", entity=orders, column="dt", parse=ms.strptime("%Y%m%d", timezone="UTC"))
 hh = ms.time_dimension_column(name="hh", entity=orders, column="hh", parse=ms.hour_prefix(dt))
 ```
 
 - **`parse`** interprets native temporal values or encoded values through
-  `ms.timestamp`, `ms.strptime` or `ms.hour_prefix`. Native DATE/timestamp may
-  omit parse; strings and integers require an explicit encoding. A date-only
-  strptime format rejects timezone. A naive timestamp uses parser timezone or
-  frozen reader authority; an aware timestamp rejects every parser timezone,
+  `ms.date`, `ms.timestamp`, `ms.strptime` or `ms.hour_prefix`. Native DATE/timestamp may
+  omit parse; strings and integers require an explicit encoding. DATE, date-only
+  strptime, and naive timestamps use parser timezone or Datasource
+  `wall_clock_timezone`; missing declarations reject before source rows are read.
+  hour_prefix recursively inherits its prefix field's effective declaration.
+  An aware timestamp ignores the Datasource default and rejects every parser timezone,
   including the physical zone, because its instant is already defined.
 - **`is_default`** (default `False`) selects the Entity's default Metric time
   role. It does not select members, versions, output boundaries or windows.
@@ -365,18 +367,27 @@ of the target engine, so one authored format works on every backend. Each engine
 consumes its own translation: MySQL (`STR_TO_DATE`) and Trino (`DATE_PARSE`) take
 the MySQL form via `python_to_mysql_strptime`, PostgreSQL (`TO_TIMESTAMP`) takes a
 template pattern via `python_to_postgres_strptime`, ClickHouse
-(`parseDateTimeOrNull`) takes the MySQL form only when the format is exactly
-expressible there, and DuckDB receives Python strptime unchanged.
+uses native Date32/DateTime64 conversion of fixed-width ordered encodings
+(including on 22.3). Other ClickHouse formats use the MySQL form through
+`parseDateTimeOrNull` on 23.3 or newer; older servers reject those remaining
+parsers before business query submission. DuckDB receives Python strptime unchanged.
 
-`ms.strptime(format)` preserves SQL NULL. DuckDB, Trino, ClickHouse and
+`ms.strptime(format)` declares the source encoding and preserves SQL NULL.
+Ordered year/month/day formats require valid, fixed-width, zero-padded values
+with exact separators. Qualified physical ranges compare the original column
+to same-type source-domain constants, rounded up to the represented tick.
+Noncanonical values violate an ordered-format declaration. No extra flag or
+automatic source audit is added. Other formats and unqualified endpoints retain
+native predicates; calendars and output projections retain native parsing.
+Explicit validity open-end sentinels retain their version-selection contract.
+DuckDB, Trino, ClickHouse and
 MySQL/MariaDB return NULL for rejected parsed data; PostgreSQL uses native
 `to_timestamp` and can fail the query on rejected input. Successful native
-parses retain their types and precision; accepted noncanonical encodings
-follow the native parser. Format/timezone/type/capability failures still report
+parses retain their types and precision; nonordered formats follow native
+acceptance rules. Format/timezone/type/capability failures still report
 structured errors. There is no `on_error`, trimming, guessing or retry.
-Parsing precedes time predicates, calendars and version selection, including
-hour-prefix dependencies; raw encoded ranges cannot bypass it. Local-clock
-membership retains wall order while projection keeps native gap/fold behavior.
+Date/hour composites can compare both original columns. Unqualified local-clock
+membership and all projections retain native gap/fold behavior.
 Trino TRY can also catch recoverable input-expression failures; other engines
 can propagate them. See [temporal semantics](../temporal-semantics.md#encoded-event-time-predicates)
 for native paths and cost boundaries. Measure data quality explicitly when the
@@ -483,8 +494,17 @@ dependencies. Analysis consumes these definitions through its explicit
 A fixed `field.at(session.instant(...))` applies one representation to the whole
 question. For ordinary observe classification, a Dimension can instead use
 `.via((relationship,)).at(fact_time)`, with one native fact-root TimeDimension.
+The fact root can be unversioned or snapshot-versioned, and a snapshot partition
+TimeDimension can control its original rows. Validity fact roots require a fixed anchor.
 Same-source DuckDB/Trino joins preserve missing versions as NULL labels, keep
 complete relationship keys and do not change the Metric time role. DATE controls
 select business-day snapshots or DATE validity; timestamp validity needs a
 qualified timestamp control. See [temporal semantics](../temporal-semantics.md#output-axes-and-observation-time)
 for time qualification and excluded compositions.
+
+Source timezone declarations accept normalized IANA names and fixed offsets. A
+DATE label D remains DATE in projections; time membership and report grouping
+assign it by D midnight in its source timezone. This whole-row convention cannot
+reconstruct event-level totals for another timezone. Backend-native gap/fold
+behavior applies without an additional DST audit. Snapshot timezone still owns
+snapshot-day selection; DATE partition fields must declare that same timezone.

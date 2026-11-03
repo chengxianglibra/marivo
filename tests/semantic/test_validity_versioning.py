@@ -52,7 +52,7 @@ def test_validity_versioning_round_trip(semantic_project_factory):
     assert versioning.valid_to == "sales.user_history.valid_to"
     assert versioning.interval == "closed_open"
     assert versioning.open_end == (None,)
-    assert versioning.timezone is None
+    assert not hasattr(versioning, "timezone")
 
 
 # ---------------------------------------------------------------------------
@@ -203,10 +203,10 @@ def test_encoded_validity_open_end_matches_the_authored_source_sentinel(
     semantic_project_factory(
         {
             "datasources/warehouse.py": "import marivo.datasource as md\n"
-            + f"md.duckdb(name='warehouse',path={str(database)!r})\n",
+            + f"md.duckdb(name='warehouse',wall_clock_timezone='UTC',path={str(database)!r})\n",
             "sales/_domain.py": _DOMAIN_FILE,
             "sales/models.py": "import marivo.datasource as md\nimport marivo.semantic as ms\n"
-            + f"history=ms.entity(name='history',datasource=ms.ref.datasource('warehouse'),source=md.table('history'),primary_key=['id'],versioning=ms.validity(valid_from=ms.ref.time_dimension('sales.history.beginning'),valid_to=ms.ref.time_dimension('sales.history.ending'),interval='closed_open',open_end=({sentinel!r},),timezone='UTC'))\n"
+            + f"history=ms.entity(name='history',datasource=ms.ref.datasource('warehouse'),source=md.table('history'),primary_key=['id'],versioning=ms.validity(valid_from=ms.ref.time_dimension('sales.history.beginning'),valid_to=ms.ref.time_dimension('sales.history.ending'),interval='closed_open',open_end=({sentinel!r},),))\n"
             + "beginning=ms.time_dimension_column(name='beginning',entity=history,column='beginning',parse=ms.strptime('%Y%m%d'))\n"
             + "ending=ms.time_dimension_column(name='ending',entity=history,column='ending',parse=ms.strptime('%Y%m%d'))\n",
         }

@@ -107,12 +107,12 @@ def _frame(result: mv.AnalysisFrame, *, frame: pd.DataFrame | None = None) -> pd
     return exported.rename(columns=names)
 
 
-def _ordinary_keys(frame: pd.DataFrame) -> tuple[str, ...]:
+def _ordinary_keys(result: mv.AnalysisFrame) -> tuple[str, ...]:
     """Locate ordinary coordinate columns without dropping the exported time keys."""
     return tuple(
         f"key_{index}"
-        for index, axis in enumerate(frame.attrs["axes"])
-        if axis["role"] in ("field", "identity", "data")
+        for index, axis in enumerate(result.schema.axes)
+        if axis.role in ("field", "identity")
     )
 
 
@@ -343,7 +343,7 @@ def _verify(
     oracle = _oracle(scenario)
     derived: dict[str, Json]
     if scenario in ("j1", "j2"):
-        (member_key,) = _ordinary_keys(frame)
+        (member_key,) = _ordinary_keys(artifacts["value"])
         indexed = frame.set_index(member_key)
         assert set(indexed.index) == {key for key, _ in facts.customers}
         for key, _ in facts.customers:
@@ -372,8 +372,8 @@ def _verify(
             assert frames["count"].value.tolist() == [oracle["count"]]
         else:
             left, right = (
-                frames["current"].set_index(_ordinary_keys(frames["current"])[0]),
-                frames["baseline"].set_index(_ordinary_keys(frames["baseline"])[0]),
+                frames["current"].set_index(_ordinary_keys(artifacts["current"])[0]),
+                frames["baseline"].set_index(_ordinary_keys(artifacts["baseline"])[0]),
             )
             pd.testing.assert_series_equal(
                 indexed.value, left.value - right.value, check_names=False
@@ -389,7 +389,7 @@ def _verify(
             assert len(frames["members"]) == oracle["selected_count"]
             pd.testing.assert_frame_equal(frames["where"], selected.reset_index(drop=True))
     elif scenario == "j3":
-        indexed = frame.set_index(list(_ordinary_keys(frame)))
+        indexed = frame.set_index(list(_ordinary_keys(artifacts["value"])))
         keys = {(row[1], row[2]) for row in facts.orders}
         assert set(indexed.index) == keys
         for coordinate in keys:
@@ -418,7 +418,7 @@ def _verify(
                 / len(order_ids)
             )
         assert (
-            frames["group_by"].set_index(_ordinary_keys(frames["group_by"])[0]).value.to_dict()
+            frames["group_by"].set_index(_ordinary_keys(artifacts["group_by"])[0]).value.to_dict()
             == sensor_values
         )
     else:

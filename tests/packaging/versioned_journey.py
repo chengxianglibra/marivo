@@ -130,23 +130,25 @@ def _verify(values: dict[str, mv.AnalysisFrame]) -> dict[str, Json]:
     keys = [(first, "a"), (second, "a"), (second, "b")]
     for name in ("snapshot_aug", "validity_aug", "validity_sep", "attributes_aug"):
         frame = _frame(values[name])
-        assert frame[_ordinary_keys(frame)[0]].tolist() == keys
+        assert frame[_ordinary_keys(values[name])[0]].tolist() == keys
         assert frame.value.tolist() == ([40, 20, 30] if name == "validity_sep" else [10, 20, 30])
     for name, expected in (("snapshot_sep", [40]), ("attribute_sep", [40])):
         frame = _frame(values[name])
-        assert frame[_ordinary_keys(frame)[0]].tolist() == [(first, "a")]
+        assert frame[_ordinary_keys(values[name])[0]].tolist() == [(first, "a")]
         assert frame.value.tolist() == expected
     expected_selected = [(second, "a"), (second, "b")]
     for kind in ("snapshot", "validity"):
         chosen = _frame(values[kind + "_chosen"])
-        assert chosen[_ordinary_keys(chosen)[0]].tolist() == expected_selected
+        assert chosen[_ordinary_keys(values[kind + "_chosen"])[0]].tolist() == expected_selected
         for clock, wanted in (
             ("recorded", [11, 13]),
             ("settled_early", [0, 0]),
             ("settled", [11, 13]),
         ):
             frame = _frame(values[kind + "_" + clock])
-            assert frame[_ordinary_keys(frame)[0]].tolist() == expected_selected
+            assert (
+                frame[_ordinary_keys(values[kind + "_" + clock])[0]].tolist() == expected_selected
+            )
             assert frame.value.tolist() == wanted
     return obj(
         checked(

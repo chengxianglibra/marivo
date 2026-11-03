@@ -114,12 +114,13 @@ class DatasourceList(RenderableResult):
 
 @dataclass(frozen=True, repr=False)
 class DatasourceDescription(RenderableResult):
-    """Literal fields and env refs for one datasource."""
+    """Connection fields, env refs and declared source timezone for one datasource."""
 
     name: str
     backend_type: str
     literal_fields: dict[str, Any]
     env_refs: dict[str, str]
+    wall_clock_timezone: str | None = None
 
     def _repr_identity(self) -> str:
         return (
@@ -135,6 +136,7 @@ class DatasourceDescription(RenderableResult):
             value=" | ".join(field_names + [f"{name}_env" for name in env_ref_names]),
         )
 
+        card.field("wall-clock timezone", self.wall_clock_timezone or "undeclared")
         if self.name == DEFAULT_DATASOURCE_NAME:
             card = card.field("source", DEFAULT_DATASOURCE_DESCRIPTION)
         return card
@@ -371,6 +373,7 @@ def _describe_in_project(name: str, *, project_root: Path) -> DatasourceDescript
         backend_type=datasource.backend_type,
         literal_fields=dict(datasource.fields),
         env_refs=dict(datasource.env_refs),
+        wall_clock_timezone=datasource.wall_clock_timezone,
     )
 
 

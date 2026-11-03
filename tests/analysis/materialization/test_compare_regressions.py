@@ -95,7 +95,7 @@ def comparison_session(
     )
     semantic_project_factory(
         {
-            "datasources/warehouse.py": "import marivo.datasource as md\nmd.duckdb(name='warehouse')\n",
+            "datasources/warehouse.py": "import marivo.datasource as md\nmd.duckdb(wall_clock_timezone='UTC', name='warehouse')\n",
             "sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales', owner='Analytics', default=True)\n",
             "sales/model.py": f"""import marivo.datasource as md
 import marivo.semantic as ms

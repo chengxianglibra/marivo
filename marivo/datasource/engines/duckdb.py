@@ -282,7 +282,6 @@ def connect(name: str, kwargs: Mapping[str, object]) -> BaseBackend:
         except BaseException:
             BackendLease(backend).close(suppress_errors=False)
             raise
-    backend._marivo_timezone_name = "UTC"
     return backend
 
 

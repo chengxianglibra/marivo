@@ -9,7 +9,10 @@ from dataclasses import dataclass
 from math import isfinite
 from pathlib import PurePosixPath
 from typing import Any, Literal, TypeAlias
+from zoneinfo import ZoneInfoNotFoundError
 
+from marivo._timezones import normalize_timezone
+from marivo.datasource.errors import DatasourceFieldInvalidError, DatasourceObservedEffects, repair
 from marivo.datasource.typing import _normalize_aliases
 
 __all__ = [
@@ -59,6 +62,29 @@ class AiContextIR:
 DatasourceAiContextIR = AiContextIR
 
 
+def _normalized_wall_clock_timezone(
+    value: str | None, *, name: str, backend_type: str
+) -> str | None:
+    """Apply the shared timezone value domain at datasource declaration boundaries."""
+    if value is None:
+        return None
+    try:
+        return normalize_timezone(value).name
+    except (TypeError, ValueError, ZoneInfoNotFoundError) as exc:
+        raise DatasourceFieldInvalidError(
+            message=f"datasource {name!r} wall_clock_timezone is invalid",
+            expected="an IANA timezone name or a fixed offset such as UTC+08:00",
+            received=repr(value),
+            location=f"datasource {name!r} wall_clock_timezone",
+            effect_observed=DatasourceObservedEffects(query_executed=False),
+            repair=repair(
+                kind="reauthor",
+                canonical_id=backend_type,
+                action="Declare a valid source wall-clock timezone or omit the default.",
+            ),
+        ) from exc
+
+
 @dataclass(frozen=True)
 class DatasourceIR:
     """Project-level datasource configuration."""
@@ -71,6 +97,16 @@ class DatasourceIR:
     ai_context: AiContextIR
     python_symbol: str
     location: DatasourceSourceLocation
+    wall_clock_timezone: str | None = None
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "wall_clock_timezone",
+            _normalized_wall_clock_timezone(
+                self.wall_clock_timezone, name=self.name, backend_type=self.backend_type
+            ),
+        )
 
 
 # ---------------------------------------------------------------------------

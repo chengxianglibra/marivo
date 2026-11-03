@@ -20,7 +20,7 @@ def decimal_session(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> mv.Sessi
     datasource.mkdir(parents=True)
     semantic.mkdir(parents=True)
     (datasource / "warehouse.py").write_text(
-        "import marivo.datasource as md\nmd.duckdb(name='warehouse', path='warehouse.duckdb')\n"
+        "import marivo.datasource as md\nmd.duckdb(wall_clock_timezone='UTC', name='warehouse', path='warehouse.duckdb')\n"
     )
     (semantic / "_domain.py").write_text(
         "import marivo.semantic as ms\nms.domain(name='sales', owner='Data', default=True)\n"

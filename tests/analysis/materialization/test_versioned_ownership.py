@@ -55,13 +55,13 @@ def test_versioned_read_foreign_predicates_refuse_before_read_or_run(
         versioning = (
             "ms.snapshot(partition_field=ms.ref.time_dimension('sales.subjects.beginning'),timezone='UTC')"
             if version == "snapshot"
-            else "ms.validity(valid_from=ms.ref.time_dimension('sales.subjects.beginning'),valid_to=ms.ref.time_dimension('sales.subjects.ending'),interval='closed_open',open_end=(None,),timezone='UTC')"
+            else "ms.validity(valid_from=ms.ref.time_dimension('sales.subjects.beginning'),valid_to=ms.ref.time_dimension('sales.subjects.ending'),interval='closed_open',open_end=(None,))"
         )
         fields = case.session.datasource.fields
         semantic_project_factory(
             {
                 "datasources/warehouse.py": "import marivo.datasource as md\n"
-                + "md.duckdb(name='warehouse',"
+                + "md.duckdb(wall_clock_timezone='UTC', name='warehouse',"
                 + ",".join(f"{key}={value!r}" for key, value in fields.items())
                 + ")\n",
                 "sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales',owner='R9',default=True)\n",

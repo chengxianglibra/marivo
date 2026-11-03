@@ -12,6 +12,7 @@ from marivo._definition.relations import MembershipBinding
 from marivo._definition.types import ExactRef, field_read_key, fixed_attribute_time
 from marivo.analysis.binding.membership import membership_path, membership_reads
 from marivo.analysis.compiler.member_version import prepare_version_filter
+from marivo.analysis.core.frame_interpretation import FrameSourceTime
 from marivo.analysis.core.model import reject
 from marivo.semantic._compiled_state import CompiledSemanticState
 from marivo.semantic.validator import (
@@ -39,6 +40,7 @@ def prepare_memberships(
     unique: Callable[[str], str],
     *,
     sample_positions: Mapping[MembershipBinding, int] | None = None,
+    source_times: list[FrameSourceTime] | None = None,
 ) -> PreparedMemberships:
     """Join one set of complete root/bucket pairs per membership factor.
 
@@ -81,7 +83,12 @@ def prepare_memberships(
                     contract, boundary=anchor, interpretation="instant"
                 )
                 target = prepare_version_filter(
-                    target, contract.version, selection, state=state, dependencies=dependencies
+                    target,
+                    contract.version,
+                    selection,
+                    state=state,
+                    dependencies=dependencies,
+                    source_times=source_times,
                 )
             renamed = {name: unique(f"__member_{group}_{index}_{name}") for name in target.columns}
             target = target.rename(**{new: old for old, new in renamed.items()})

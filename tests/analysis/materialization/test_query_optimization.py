@@ -83,8 +83,8 @@ def optimization_session(
         connection.execute("INSERT INTO orders VALUES (1,600)")
     semantic_project_factory(
         {
-            "datasources/warehouse.py": f"import marivo.datasource as md\nmd.duckdb(name='warehouse', path={str(database)!r})\n",
-            "datasources/second.py": f"import marivo.datasource as md\nmd.duckdb(name='second', path={str(other_database)!r})\n",
+            "datasources/warehouse.py": f"import marivo.datasource as md\nmd.duckdb(wall_clock_timezone='UTC', name='warehouse', path={str(database)!r})\n",
+            "datasources/second.py": f"import marivo.datasource as md\nmd.duckdb(wall_clock_timezone='UTC', name='second', path={str(other_database)!r})\n",
             "sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales', owner='Analytics', default=True)\n",
             "sales/models.py": """import marivo.datasource as md
 import marivo.semantic as ms
@@ -655,7 +655,7 @@ def test_observe_different_fields_share_one_actual_aggregate(
     assert len([stage for stage in plan.stages if isinstance(stage, SourceRead)]) == 1
     trace = capture_source(monkeypatch)
     result = query.compute().to_pandas()
-    assert len(trace.native_sql) == 1
+    assert len(trace.native_sql) == (2 if domain == "calendar" else 1)
     assert trace.uploaded_key_rows == []
     if domain == "overall" and width == 20:
         with duckdb.connect(str(tmp_path / "optimization.duckdb"), read_only=True) as connection:
@@ -893,7 +893,11 @@ def test_shared_session_scope_keeps_frozen_fields_and_neutral_roundtrip(
     amount = catalog_value(optimization_session.catalog, "sales.orders.amount", kind="field")
     time = catalog_value(optimization_session.catalog, "sales.orders.ordered_at", kind="field")
     observed = optimization_session.observe({"sum": amount.sum()}, where=time.within(scope))
-    assert observed.compute().to_pandas()["sum"].tolist() == [60 if clock == "00:00:00" else 30]
+    if clock != "00:00:00":
+        with pytest.raises(AnalysisError, match="complete"):
+            observed.compute()
+    else:
+        assert observed.compute().to_pandas()["sum"].tolist() == [60]
 
 
 def test_explicit_source_weights_preserve_standardized_and_fixed_results(

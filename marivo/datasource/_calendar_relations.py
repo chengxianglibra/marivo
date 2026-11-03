@@ -1,4 +1,4 @@
-"""Typed finite calendar data and native elapsed-lattice expressions."""
+"""Typed finite SQL parameters and native output-position ranges."""
 
 from __future__ import annotations
 
@@ -8,7 +8,6 @@ from decimal import Decimal
 from hashlib import sha256
 
 import ibis
-import ibis.expr.datashape as ds
 import ibis.expr.datatypes as dt
 import ibis.expr.operations as ops
 import ibis.expr.schema as sch
@@ -25,20 +24,42 @@ class CalendarData(ops.PhysicalTable):  # type: ignore[misc]
     payload: str
 
 
-class CalendarFloor(ops.Value):  # type: ignore[misc]
-    """Floor an instant on an exact whole-second elapsed lattice."""
+class CalendarRange(ops.PhysicalTable):  # type: ignore[misc]
+    """An invocation's finite output positions, never a source membership table."""
 
-    arg: ops.Value
-    origin: str
-    width: int
+    schema: sch.Schema
+    count: int
 
-    @property
-    def dtype(self) -> dt.DataType:
-        return dt.Timestamp(timezone="UTC", scale=6, nullable=self.arg.dtype.nullable)
 
-    @property
-    def shape(self) -> ds.DataShape:
-        return self.arg.shape
+def calendar_range(count: int) -> ir.Table:
+    return CalendarRange(
+        name="__calendar_positions", schema=ibis.schema({"position": "!int64"}), count=count
+    ).to_expr()
+
+
+def compile_calendar_range(node: CalendarRange, provider: str) -> sge.Expr:
+    count = node.count
+    if provider == "clickhouse":
+        sql = f"SELECT toInt64(arrayJoin(range({count}))) AS position"
+    elif provider == "duckdb":
+        sql = f"SELECT CAST(range AS BIGINT) AS position FROM range({count})"
+    elif provider == "postgres":
+        sql = f"SELECT CAST(generate_series AS BIGINT) AS position FROM generate_series(0, {count - 1})"
+    elif provider == "trino":
+        sql = f"SELECT CAST(position AS BIGINT) AS position FROM UNNEST(sequence(0, {count - 1})) AS positions(position)"
+        if not count:
+            sql = "SELECT CAST(0 AS BIGINT) AS position WHERE FALSE"
+    else:
+        # MySQL has no native sequence table. A fixed digit product keeps the
+        # statement bounded; it is solely an output-index evaluation.
+        digits = max(1, len(str(max(0, count - 1))))
+        terms = " + ".join(f"d{i}.digit * {10**i}" for i in range(digits))
+        tables = " CROSS JOIN ".join(
+            f"JSON_TABLE('[0,1,2,3,4,5,6,7,8,9]', '$[*]' COLUMNS(digit BIGINT PATH '$')) AS d{i}"
+            for i in range(digits)
+        )
+        sql = f"SELECT {terms} AS position FROM {tables} WHERE {terms} < {count}"
+    return sg.parse_one(sql, read=provider)
 
 
 def calendar_data(schema: sch.Schema, rows: tuple[tuple[object, ...], ...]) -> ir.Table:
@@ -98,8 +119,7 @@ def memory_calendar(node: CalendarData) -> ir.Table:
         else tuple(f"_calendar_field_{i}" for i in range(len(names)))
     )
     table = ibis.memtable(data.rename_columns(physical)).op().copy(name=node.name).to_expr()
-    # ClickHouse's external-data structure writer does not quote field names.
-    # Keep logical slots such as key.0 in a projection over safe physical names.
+    # Keep logical slots such as key.0 in a projection over physical names.
     return (
         table
         if physical == names
@@ -111,6 +131,8 @@ def memory_calendar(node: CalendarData) -> ir.Table:
 
 def compile_calendar_data(node: CalendarData, provider: str) -> sge.Expr:
     """Expand one JSON parameter into a relation, without per-row SQL syntax."""
+    if provider == "clickhouse":
+        return _clickhouse_calendar_data(node)
     payload = sge.Literal.string(node.payload).sql(dialect=provider)
     names = [
         sge.to_identifier(name, quoted=True).sql(dialect=provider) for name in node.schema.names
@@ -163,33 +185,65 @@ def compile_calendar_data(node: CalendarData, provider: str) -> sge.Expr:
     return sg.parse_one(query, read=provider)
 
 
-def compile_calendar_floor(node: CalendarFloor, arg: sge.Expr, provider: str) -> sge.Expr:
-    """Native whole-second arithmetic; timestamps never pass through floats."""
-    literal = sge.Literal.string(node.origin).sql(dialect=provider)
-    origin = {
-        "duckdb": f"CAST({literal} AS TIMESTAMPTZ)",
-        "postgres": f"CAST({literal} AS TIMESTAMPTZ)",
-        "mysql": f"CAST({literal} AS DATETIME(6))",
-        "trino": f"with_timezone(CAST({literal} AS TIMESTAMP(6)), 'UTC')",
-        "clickhouse": f"toDateTime64({literal}, 6, 'UTC')",
-    }[provider]
-    delta = {
-        "duckdb": f"date_diff('second', {origin}, date_trunc('second', __calendar_time))",
-        "postgres": f"EXTRACT(EPOCH FROM (date_trunc('second', __calendar_time) - {origin}))",
-        "mysql": f"TIMESTAMPDIFF(SECOND, {origin}, CAST(DATE_FORMAT(__calendar_time, '%Y-%m-%d %H:%i:%s') AS DATETIME))",
-        "trino": f"date_diff('second', {origin}, date_trunc('second', __calendar_time))",
-        "clickhouse": f"dateDiff('second', {origin}, dateTrunc('second', __calendar_time))",
-    }[provider]
-    offset = f"FLOOR(({delta}) / {node.width}) * {node.width}"
-    expression = {
-        "duckdb": f"{origin} + CAST({offset} AS BIGINT) * INTERVAL '1 second'",
-        "postgres": f"{origin} + ({offset}) * INTERVAL '1 second'",
-        "mysql": f"TIMESTAMPADD(SECOND, CAST({offset} AS SIGNED), {origin})",
-        "trino": f"date_add('second', CAST({offset} AS BIGINT), {origin})",
-        "clickhouse": f"addSeconds({origin}, toInt64({offset}))",
-    }[provider]
-    return sg.parse_one(expression, read=provider).transform(
-        lambda item: (
-            arg.copy() if isinstance(item, sge.Column) and item.name == "__calendar_time" else item
+def _clickhouse_calendar_data(node: CalendarData) -> sge.Expr:
+    """Decode finite keys in SQL, including on ClickHouse 22.3 HTTP readers.
+
+    JSONExtract does not decode Date or DateTime on that release. Wire values
+    use strings for dates/decimals/floats and integer microseconds for instants.
+    Tuple positions also avoid imposing identifier rules on logical slot names.
+    """
+    from ibis.backends.sql.datatypes import ClickHouseType
+
+    rows = json.loads(node.payload)
+    wire_rows: list[list[object]] = [[] for _ in rows]
+    wire_types: list[str] = []
+    selections: list[str] = []
+    epoch = datetime(1970, 1, 1, tzinfo=timezone.utc)
+    for index, (name, dtype) in enumerate(node.schema.items()):
+        logical_type = ClickHouseType.from_ibis(dtype).sql(dialect="clickhouse")
+        if dtype.is_date():
+            # Finite analysis keys use Arrow date32. Do not narrow them through
+            # ClickHouse's unsigned Date carrier before restoring that type.
+            logical_type = "Nullable(Date32)" if dtype.nullable else "Date32"
+        value = f"tupleElement(__calendar_row, {index + 1})"
+        wire_type = (
+            "Int64"
+            if dtype.is_timestamp()
+            else "String"
+            if dtype.is_date() or dtype.is_decimal() or dtype.is_floating() or dtype.is_string()
+            else "UInt8"
+            if dtype.is_boolean()
+            else ClickHouseType.from_ibis(dtype.copy(nullable=False)).sql(dialect="clickhouse")
         )
+        wire_types.append(f"Nullable({wire_type})" if dtype.nullable else wire_type)
+        for row, wire in zip(rows, wire_rows, strict=True):
+            item = row[name]
+            if item is None:
+                if not dtype.nullable:
+                    raise TypeError(f"Nonnullable calendar field {name!r} received NULL")
+            elif dtype.is_timestamp():
+                point = datetime.fromisoformat(item).replace(tzinfo=timezone.utc)
+                delta = point - epoch
+                item = (delta.days * 86400 + delta.seconds) * 1_000_000 + delta.microseconds
+            elif dtype.is_boolean():
+                item = int(item)
+            elif dtype.is_floating():
+                item = repr(item)
+            wire.append(item)
+        if dtype.is_timestamp():
+            # 22.3 rejects Nullable(Int64) inside fromUnixTimestamp64Micro.
+            instant = f"fromUnixTimestamp64Micro(ifNull({value}, 0), 'UTC')"
+            value = f"if(isNull({value}), NULL, {instant})" if dtype.nullable else instant
+        quoted = sge.to_identifier(name, quoted=True).sql(dialect="clickhouse")
+        selections.append(f"CAST({value} AS {logical_type}) AS {quoted}")
+    payload = sge.Literal.string(json.dumps(wire_rows, separators=(",", ":"), allow_nan=False)).sql(
+        dialect="clickhouse"
     )
+    wire_schema = sge.Literal.string(f"Array(Tuple({', '.join(wire_types)}))").sql(
+        dialect="clickhouse"
+    )
+    query = (
+        f"SELECT {', '.join(selections)} FROM "
+        f"(SELECT arrayJoin(JSONExtract({payload}, {wire_schema})) AS __calendar_row)"
+    )
+    return sg.parse_one(query, read="clickhouse")

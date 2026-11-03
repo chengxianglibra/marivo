@@ -253,21 +253,49 @@ def transport_logical_facts(
     if logical is None:
         return physical
     from marivo.analysis.core.frame_interpretation import (
+        FrameFixedGroup,
+        FrameGroup,
         FramePairStatisticContext,
         FrameShareContext,
+        merge_source_times,
     )
 
+    def fixed_group(group: FrameGroup) -> FrameGroup:
+        if not isinstance(group, FrameFixedGroup):
+            return group
+        # Match within this exact output by the captured axis and origins. Key
+        # scalars can acquire a different temporal unit as physical types close.
+        matches = tuple(
+            fixed
+            for fixed in physical.fixed_axes
+            if replace(fixed.axis, keys=group.fixed.axis.keys) == group.fixed.axis
+            and tuple(key.slot_id for key in fixed.axis.keys)
+            == tuple(key.slot_id for key in group.fixed.axis.keys)
+            and fixed.origins == group.fixed.origins
+        )
+        assert len(matches) == 1, "a captured fixed group requires one completed selection"
+        return replace(group, fixed=matches[0])
+
     # Completed coordinate domains can invalidate earlier comparison mappings.
-    # Physical inference owns those current bindings; only operand snapshots need
-    # the original logical result because share has already expanded to division.
+    # Physical inference owns those bindings and completed fixed coordinates.
+    # Retain operand snapshots because share has already expanded to division,
+    # rebinding their fixed groups to the completed selections.
     contexts = dict(physical.value_contexts)
     for name, context in logical.value_contexts:
-        if isinstance(context, (FrameShareContext, FramePairStatisticContext)):
-            contexts[name] = context
+        if isinstance(context, FrameShareContext):
+            contexts[name] = replace(
+                context,
+                groups=tuple(fixed_group(group) for group in context.groups),
+                along=tuple(fixed_group(group) for group in context.along),
+            )
+        elif isinstance(context, FramePairStatisticContext):
+            contexts[name] = replace(
+                context, groups=tuple(fixed_group(group) for group in context.groups)
+            )
     return replace(
         physical,
-        fixed_axes=logical.fixed_axes,
         value_contexts=tuple(contexts.items()),
+        source_times=merge_source_times(physical.source_times, logical.source_times),
     )
 
 

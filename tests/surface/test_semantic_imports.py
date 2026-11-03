@@ -221,6 +221,8 @@ _EXPECTED_DECORATOR_KINDS = {
 }
 
 _EXPECTED_ASSEMBLY_KINDS = {
+    "source_timezone_missing",
+    "declared_timezone_contradiction",
     "domain_file_missing",
     "domain_file_mismatch",
     "missing_entity_ref",

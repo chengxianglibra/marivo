@@ -331,8 +331,9 @@ def test_interleaved_rules_and_nested_samples_have_independent_numeric_oracles(
     observation = source_graph(pending).signature.observation
     assert observation is not None
     assert observation.coordinates.memberships == (channels._binding, customers._binding)
-    result = pending.compute().to_pandas()
-    keys = ordinary_columns(result)
+    computed = pending.compute()
+    result = computed.to_pandas()
+    keys = ordinary_columns(computed)
     assert list(result[[*keys, "value"]].itertuples(index=False, name=None)) == [
         ("mobile", "A", "paid", "east", 52),
         ("mobile", "B", "paid", "east", 150),

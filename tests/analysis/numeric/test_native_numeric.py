@@ -212,7 +212,7 @@ def _model(tmp_path: Path) -> None:
     datasource = tmp_path / "models/datasources"
     datasource.mkdir()
     (datasource / "warehouse.py").write_text(
-        "import marivo.datasource as md\nmd.duckdb(name='warehouse', path='source.duckdb')\n"
+        "import marivo.datasource as md\nmd.duckdb(wall_clock_timezone='UTC', name='warehouse', path='source.duckdb')\n"
     )
     (models / "_domain.py").write_text(
         "import marivo.semantic as ms\nms.domain(name='sales', owner='Data', default=True)\n"
@@ -281,7 +281,7 @@ def _clickhouse_weight_sum_uses_decimal_carrier(
             arguments["user_env"] = "MARIVO_NATIVE_READER"
         (tmp_path / "models/datasources/warehouse.py").write_text(
             "import marivo.datasource as md\n"
-            + "md.clickhouse(name='warehouse',"
+            + "md.clickhouse(wall_clock_timezone='UTC', name='warehouse',"
             + ",".join(f"{key}={value!r}" for key, value in arguments.items())
             + ")\n"
         )

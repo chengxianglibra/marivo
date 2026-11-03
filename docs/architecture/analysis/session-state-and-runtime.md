@@ -55,13 +55,26 @@ Use `mv.session.get_or_create(name, *, question=None, timezone=None, domains=Non
 create a new project-unique name or recover the exact existing name. Empty names
 and surrounding whitespace fail. Creation freezes question, normalized domains
 and timezone. `timezone=None` resolves the system zone once at creation, retaining
-its resolution facts; `domains=None` selects all authoring domain directories.
-An explicit invalid zone fails. `session.timezone` returns the saved normalized name.
+its normalized identity, kind and `system` origin; `domains=None` selects all
+authoring domain directories. Explicit IANA names and UTC offsets use the shared
+timezone normalization rules and save origin `explicit`. An invalid explicit zone
+fails. `session.timezone` returns the saved normalized name and
+`session.timezone_origin` returns `explicit` or `system`; repr and `.show()` expose
+both facts.
+
+System resolution accepts a loadable IANA name from `TZ`, optionally preceded by
+one colon. Empty `TZ`, explicit offset spellings, POSIX rule strings and paths
+raise `ReportTimezoneUnresolved`, with repair to pass `timezone="..."`. With no
+`TZ`, a POSIX `/etc/localtime` symlink into zoneinfo supplies its name and a
+missing localtime file means UTC. A regular file, broken or unrecognized symlink,
+or Windows without `TZ` requires an explicit timezone. Resolution never guesses
+from file contents, libc or the current clock offset.
 
 On recovery, omitted or `None` configuration retains saved values without
 rechecking the system timezone. Non-None question, timezone and domains must
-match the saved description, normalized timezone name and sorted, deduplicated
-domain scope. Conflicts raise `SessionStateError` before recovery, with expected
+match the saved description, normalized timezone identity and sorted, deduplicated
+domain scope. UTC aliases and zero offsets match saved UTC; other IANA links
+retain their own identities. Conflicts raise `SessionStateError` before recovery, with expected
 and received values and the existing ID in `error.repair.candidates`; callers
 can omit the configuration, pass matching values or use a new Session name.
 Acquisition never rewrites the saved configuration or sets a current Session.
@@ -72,7 +85,7 @@ recovery. `get_or_create` is the sole name-based acquisition entry point.
 `mv.session.resume(session_id)` opens only that exact existing identity and performs
 necessary recovery under the writer guard. `recent()` is bounded read-only
 name/ID discovery; `inspect(session_id)` is exact-ID read-only inspection, returning
-a SessionSummary with basic metadata and Artifact count. Neither discovery nor
+a SessionSummary with saved timezone/origin, basic metadata and Artifact count. Neither discovery nor
 inspection performs recovery. There is no implicit current Session or activation. A resume with no recovery work, an inspect,
 or compute does not refresh updated_at; it records committed state changes.
 
@@ -155,8 +168,8 @@ is separate from fixed Frame inputs and local combination.
 
 ## Store generation and data layout
 
-Store 26 is under `<project_root>/.marivo/analysis/generations/v26/`. One closed
-`marivo.frame_output/v15` protocol stores values, complete axes, independent presence, typed
+Store 28 is under `<project_root>/.marivo/analysis/generations/v28/`. One closed
+`marivo.frame_output/v17` protocol stores values, complete axes, independent presence, typed
 frozen interval/calendar/map attachments, receipts and result metadata. It stores no executable
 Python class path, source/Metric graph or hidden components. All analysis
 artifacts are Frame commits; stored Frames expose their identity and source-read metadata directly.
@@ -330,11 +343,9 @@ Stored `to_pandas()` validates all current data, complete key uniqueness, all
 related coordinates and mapping authority. Memory exports reuse their established
 key facts. Neither consumes complete method
 payloads. It returns isolated flat coordinates, full value names and independent
-presence columns. Its existing attrs snapshot contains axes, units, comparisons
-and isolated frozen coordinate tables; it is not a stable deserialization
-protocol. FramePage.to_pandas only copies this page, with empty attrs. Both use
-the same layout and coordinate decoding. Stable clients use schema/layout and
-exact coordinates instead of attrs. Complete stored compute/fixed-input evaluation
+presence columns with empty attrs. FramePage.to_pandas only copies this page,
+also with empty attrs. Both use the same layout and coordinate decoding. Clients
+read interpretation from schema/layout and exact coordinates. Complete stored compute/fixed-input evaluation
 consumes data, required method facts and captured metadata. Neither boundary proves
 business completeness or current source state.
 
@@ -347,8 +358,8 @@ method facts. A missing/corrupt method payload can leave metadata, previews and
 current-data export usable while full consumers fail. Cards show only count,
 bounded origins and the getter pointer, never full parents/coordinate rows.
 
-All Frames use `marivo.frame_output/v15` and `frame.v15` under
-`.marivo/analysis/generations/v26/`. Method files share the existing data receipt,
+All Frames use `marivo.frame_output/v17` and `frame.v17` under
+`.marivo/analysis/generations/v28/`. Method files share the existing data receipt,
 atomic publication/readback and unknown-commit reconciliation. A saved derivative
 owns its exact inherited payloads; deleting the original Artifact does not force
 an origin lookup or source/calendar rebuild. Origin explains the original total,
@@ -431,7 +442,7 @@ owns isolated export.
 
 Completed result metadata includes immutable, non-executable semantic column
 lineage and current-result interpretation. Pending Frames derive facts from explicit inputs and
-operation bindings; compute, publication and cold recovery preserve them. Store 26 / output v15
+operation bindings; compute, publication and cold recovery preserve them. Store 28 / output v17
 requires the complete value/axis/presence directories, fixed selections, typed value contexts,
 alignment/comparison/decomposition relations and their captured identities. Missing or
 invalid saved lineage is an integrity failure, rather than empty lineage. A saved

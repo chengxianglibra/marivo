@@ -215,7 +215,10 @@ def time_range(
     Constraints:
         Boundaries must have the same date/datetime kind, datetime awareness,
         and satisfy ``start < end``. Aware datetimes are normalized to UTC. The
-        column must be temporal at inspection.
+        inspected column must accept the boundary kind: aware timestamps require
+        aware datetimes, naive timestamps accept naive datetimes or dates, and
+        DATE columns require dates. No datasource or connection timezone fills
+        missing boundary awareness.
     """
     if not isinstance(column, str):
         raise TypeError("column must be str.")

@@ -48,6 +48,7 @@ def provider() -> DisclosureProvider:
             producers=("session.get_or_create", "session.resume"),
             constraints=(
                 "Source construction loads authored semantics on demand; retained reads do not require current sources.",
+                "session.timezone is the normalized saved report timezone; session.timezone_origin is explicit or system. System resolution occurs only at creation. Invalid or ambiguous host signals require an explicit timezone.",
                 "session.domains is the persisted tuple[str, ...] or None. None selects all authoring domain directories. Explicit names select only those directories, without dependency expansion; include every required domain before creation. Scope is frozen; create a new Session with domains=None or the complete required sequence to widen it.",
             ),
         )
@@ -252,7 +253,7 @@ def provider() -> DisclosureProvider:
                         if name == "get_or_create" and n == "name"
                         else "None stores no description on creation and retains the saved description on recovery. Non-None values must match the saved question."
                         if name == "get_or_create" and n == "question"
-                        else "None resolves and freezes the system timezone on creation and retains the saved timezone on recovery. Non-None values must match the normalized saved name."
+                        else "IANA name or explicit UTC offset. None strictly resolves the system IANA zone once on creation; unresolved TZ/localtime requires an explicit value. Recovery retains the saved timezone and origin without host resolution; non-None values must have the same normalized identity."
                         if name == "get_or_create" and n == "timezone"
                         else "None selects all authoring domain directories on creation and retains the saved scope on recovery. An exact name or nonempty sequence selects only those directories, without dependency expansion. Non-None values must match the saved sorted, deduplicated scope; use a new name to widen it."
                         if name == "get_or_create" and n == "domains"

@@ -446,8 +446,8 @@ def test_period_change_retains_original_buckets_and_rejects_renumbering(
     frame = _plain(saved)
     assert len(frame) == 12
     assert sorted(frame["reference.absolute.value"].tolist()) == [-1] + [0] * 11
-    mapping, left_directory, right_directory = comparison_tables(saved, saved.to_pandas())
-    assert set(left_directory["nominal_start"]) != set(right_directory["nominal_start"])
+    mapping, left_directory, right_directory = comparison_tables(saved)
+    assert set(left_directory.iloc[:, 0]) != set(right_directory.iloc[:, 0])
     selected = current.where(current["value"] > 0)
     outer = _plain(
         selected.compare(

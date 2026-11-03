@@ -99,6 +99,7 @@ OUTPUT_FAMILIES = frozenset(
         "Additivity",
         "ValuePolicy",
         "ValiditySpec",
+        "DateSpec",
         "TimestampSpec",
         "StrptimeSpec",
         "HourPrefixSpec",
@@ -227,6 +228,7 @@ INPUT_FAMILIES = frozenset(
         "AnchorSpec",
         "WeightSpec",
         "ValiditySpec",
+        "DateSpec",
         "TimestampSpec",
         "StrptimeSpec",
         "HourPrefixSpec",
@@ -787,7 +789,7 @@ def _object_contracts() -> tuple[SemanticObjectContract, ...]:
                     "owned_by", "objects.entity", "The Entity ref fixes time-axis ownership."
                 ),
             ),
-            supporting=("timestamp", "strptime", "hour_prefix", "ai_context", "bind"),
+            supporting=("date", "timestamp", "strptime", "hour_prefix", "ai_context", "bind"),
             checks=(
                 "load",
                 "readiness",
@@ -1237,7 +1239,7 @@ def _navigation_descriptors(
                 route(
                     "physical time encoding",
                     "time.parsing",
-                    "Parse timestamps, formatted values, or hour prefixes.",
+                    "Declare native dates, timestamps, formatted values, or hour prefixes.",
                 ),
                 route(
                     "business calendars and events",
@@ -1252,6 +1254,7 @@ def _navigation_descriptors(
             tuple(
                 route(label, target, summary)
                 for label, target, summary in (
+                    ("date value", "date", "Declare the business timezone of a native DATE."),
                     (
                         "timestamp value",
                         "timestamp",
@@ -2542,12 +2545,12 @@ def _expression_capabilities() -> tuple[AuthoringCapability, ...]:
                     "Reject repeated first fields, overlapping rules and reordered member fields. "
                     "Internal P may select a subset; empty or unmatched samples retain external coordinates. "
                     "Each nested layer keeps its own domain and complete allocation rules. "
-                    "A Grain uses every inner calendar cell, including empty cells under the child's empty policy. "
+                    "A Grain uses actual time samples, including all-NULL samples; absent time buckets are not created. "
                     "Each contribution uses its own declared time role. A finite observation TimeScope or CalendarAxis "
                     "supplies timezone and calendar authority; pass the Grain, not scope.by(grain), to per. "
-                    "Inner grains must nest: day in week/month is valid; week in month is not. Certified grains "
-                    "retain exact snapshot containment. Partial edge cells clip actual bounds and each counts once. "
-                    "Nested calendar layers validate against their nearest enclosing cell. "
+                    "Static nesting permits day in week/month, month in quarter/year and divisible subday widths; week in month rejects. "
+                    "Custom hierarchies reject; one complete custom period may be sampled under an interval. "
+                    "Each nested layer retains complete external, parent and child keys. "
                     "Semantic Grain lookups bind the Session's current certified snapshot and require certification. "
                     "Windows inside calendar samples or wrapping calendar folds are unsupported and reject before execution. "
                     "TimeField sample reducers use represented samples without scheduled coverage or implicit fill; "
@@ -2721,7 +2724,7 @@ def _expression_capabilities() -> tuple[AuthoringCapability, ...]:
             _capability(
                 target,
                 f"marivo.semantic._expression_values.RowExpression.{_method}",
-                "Construct an immutable scalar field binding or half-open time predicate. Directed paths must be single-valued. at selects one fixed InstantAnchor for the whole question, or a native fact-root TimeDimension for same-source, single-root observe by/where on DuckDB/Trino. Row time excludes read/classify, windows, internal samples and IANA local clocks. DATE control selects target business dates; timestamp validity needs timestamp control. Missing versions and NULL control retain NULL labels. No schema or business reads.",
+                "Construct an immutable scalar field binding or half-open time predicate. Directed paths must be single-valued. at selects one fixed InstantAnchor for the whole question, or a native TimeDimension on an unversioned or snapshot fact root for same-source, single-root observe by/where on DuckDB/Trino. Row time excludes validity fact roots, read/classify, windows, internal samples and IANA local clocks. DATE control selects target business dates; timestamp validity needs timestamp control. Missing versions and NULL control retain NULL labels. No schema or business reads.",
                 kind="method",
                 output="RowPredicate" if _method == "within" else "RowExpression",
                 inputs=(
@@ -3024,7 +3027,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
         _capability(
             "period_calendar",
             "marivo.semantic._authoring_temporal.period_calendar",
-            "Declare a finite governed period calendar over an exhaustive civil-date spine.",
+            "Declare a finite governed period calendar over an exhaustive civil-date spine; its boundary timezone derives from the date field.",
             output="PeriodCalendarSymbol",
             inputs=(
                 _parameter_input("mapping_key", "Text", "name"),
@@ -3036,7 +3039,6 @@ def _build_registry() -> SemanticCapabilityRegistry:
             example=(
                 "ms.period_calendar(name='fiscal', "
                 "date=ms.ref.time_dimension('sales.calendar.calendar_date'), "
-                "boundary_timezone='UTC', "
                 "coverage=(__import__('datetime').date(2026, 1, 1), "
                 "__import__('datetime').date(2027, 1, 1)), "
                 "levels={'week': ms.ref.dimension('sales.calendar.fiscal_week')})"
@@ -3045,7 +3047,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
         _capability(
             "temporal_set",
             "marivo.semantic._authoring_temporal.temporal_set",
-            "Declare a finite governed set of named temporal occurrences.",
+            "Declare a finite governed set of named temporal occurrences. boundary_timezone controls coverage midnights; DATE fields must declare the same timezone, while timestamp source interpretation remains field-owned.",
             output="TemporalSetSymbol",
             inputs=(
                 _parameter_input("mapping_key", "Text", "name"),
@@ -3237,7 +3239,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
         _capability(
             "validity",
             "marivo.semantic._authoring_values.validity",
-            "Declare validity bounds with required valid_from, valid_to, interval and open_end. DATE bounds require business timezone; timestamp bounds reject version timezone and use field parser/source authority.",
+            "Declare validity bounds with required valid_from, valid_to, interval and open_end. DATE bounds derive their common business timezone from field declarations; timestamp bounds use their own field source authority.",
             output="ValiditySpec",
             inputs=(
                 _parameter_input("dependency", "TimeDimensionSymbol", "valid_from", "valid_to"),
@@ -3317,9 +3319,17 @@ def _build_registry() -> SemanticCapabilityRegistry:
             example="ms.non_additive()",
         ),
         _capability(
+            "date",
+            "marivo.semantic._authoring_values.date",
+            "Declare a native DATE and its business-day timezone. Omission uses Datasource wall_clock_timezone; missing declarations reject before data reads. Projection preserves DATE labels. Time consumption assigns the business-day start to the report range or bucket; it cannot reconstruct event-day totals.",
+            output="DateSpec",
+            effects=_AUTHOR,
+            example="ms.date(timezone='UTC')",
+        ),
+        _capability(
             "timestamp",
             "marivo.semantic._authoring_values.timestamp",
-            "Interpret a native timestamp using parser or resolved reader authority. Projection uses native gap/fold behavior; raw local-clock membership uses wall order (later fold occurrence, gap transition instant). Aware sources reject parser timezone. Applies only to the TimeDimension projection; it does not rewrite Entity primary_key. Naive identity keeps its original wall-clock value and precision.",
+            "Interpret a native timestamp using its parser or Datasource wall_clock_timezone declaration. Projection and raw local-clock membership use the executor's native gap/fold behavior. Aware sources reject parser timezone. Applies only to the TimeDimension projection; it does not rewrite Entity primary_key. Naive identity keeps its original wall-clock value and precision.",
             output="TimestampSpec",
             effects=_AUTHOR,
             example="ms.timestamp(timezone='UTC')",
@@ -3327,7 +3337,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
         _capability(
             "strptime",
             "marivo.semantic._authoring_values.strptime",
-            "Parse encoded time; PostgreSQL uses native to_timestamp and rejected values may fail the query. DuckDB, Trino, ClickHouse and MySQL/MariaDB return NULL for rejected data. Date-only formats reject timezone; time-bearing values use parser or reader authority. Parsed local-clock membership keeps wall order; projection remains backend-native. Trino TRY can catch input-expression errors; other engines may propagate them. No on_error, trimming, guessing or retry.",
+            "Declare encoded time. Ordered year/month/day formats require valid, fixed-width, zero-padded values with exact separators. Eligible ranges compare the original column to same-type source-time constants. Other formats and unqualified endpoints retain native parsing. Projection retains native gap/fold behavior: rejected data becomes NULL except on PostgreSQL, where native to_timestamp can fail the query. Source timezone comes from the parser or Datasource wall_clock_timezone. ClickHouse 22.3 supports ordered formats with Date32/DateTime64; other formats require 23.3+. No on_error, trimming, guessing or retry.",
             output="StrptimeSpec",
             effects=_AUTHOR,
             constraints=("time_dimension_partition_pushdown",),
@@ -3336,7 +3346,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
         _capability(
             "hour_prefix",
             "marivo.semantic._authoring_values.hour_prefix",
-            "Combine a 0..23 integer or canonical two-digit hour string with a civil-date prefix, inheriting its source timezone context and reader default. Raw local-clock membership uses wall order; no independent timezone parameter.",
+            "Combine a 0..23 integer or canonical two-digit hour string with a civil-date prefix, inheriting the prefix field's effective parser or Datasource timezone. Local-clock projection and membership use native interpretation; no independent timezone parameter.",
             output="HourPrefixSpec",
             effects=_AUTHOR,
             example="ms.hour_prefix(log_date)",
@@ -3873,7 +3883,7 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
         TemporalSetDefinition,
     )
     from marivo.semantic.dtos import PreviewBatchResult
-    from marivo.semantic.ir import JoinKey
+    from marivo.semantic.ir import DateParse, JoinKey
     from marivo.semantic.readiness import (
         ReadinessInputSummary,
         ReadinessIssue,
@@ -3929,6 +3939,17 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
             (target.canonical_id or "").rsplit(".", 1)[-1] for target in descriptor.see_also
         )
 
+    add(
+        DateParse,
+        "DateParse",
+        ("date",),
+        properties=("timezone", "kind"),
+        consumers=("time_dimension", "time_dimension_column"),
+        guidance=(
+            "Immutable native DATE parser. timezone supplies business-day source authority; None uses Datasource wall_clock_timezone.",
+        ),
+        example="parse = ms.date(timezone='UTC')",
+    )
     add(
         SemanticCatalog,
         "SemanticCatalog",
@@ -4299,6 +4320,7 @@ TYPE_CONTRACTS = _type_contracts()
 def _error_types() -> Mapping[str, type]:
     from marivo.semantic.errors import (
         CatalogSearchError,
+        DeclaredTimezoneContradiction,
         SemanticContractScopeError,
         SemanticDecoratorError,
         SemanticError,
@@ -4307,6 +4329,7 @@ def _error_types() -> Mapping[str, type]:
         SemanticLoadError,
         SemanticLoadFailed,
         SemanticRuntimeError,
+        SourceTimezoneMissing,
     )
 
     return MappingProxyType(
@@ -4314,6 +4337,8 @@ def _error_types() -> Mapping[str, type]:
             "CatalogSearchError": CatalogSearchError,
             "SemanticError": SemanticError,
             "SemanticExpressionError": SemanticExpressionError,
+            "SourceTimezoneMissing": SourceTimezoneMissing,
+            "DeclaredTimezoneContradiction": DeclaredTimezoneContradiction,
             "SemanticDecoratorError": SemanticDecoratorError,
             "SemanticLoadError": SemanticLoadError,
             "SemanticRuntimeError": SemanticRuntimeError,

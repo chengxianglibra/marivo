@@ -38,7 +38,7 @@ def session(
     semantic_project_factory(
         {
             "datasources/warehouse.py": "import marivo.datasource as md\n"
-            + f"md.duckdb(name='warehouse', path={str(database)!r})\n",
+            + f"md.duckdb(wall_clock_timezone='UTC', name='warehouse', path={str(database)!r})\n",
             "sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales', owner='Analytics', default=True)\n",
             "sales/model.py": """import marivo.datasource as md
 import marivo.semantic as ms
@@ -122,7 +122,7 @@ def test_reused_temporal_baseline_keeps_each_alias_projection(
     assert list(
         rows[
             [
-                rows.attrs["axes"][0]["name"].rsplit(".", 1)[-1] + ".start",
+                "calendar:day" if calendar else "interval.start",
                 "channel",
             ]
         ].itertuples(index=False, name=None)
@@ -533,11 +533,7 @@ def test_paired_complete_frozen_authority_survives_parent_selection(
             elif corruption == "partial_directory" and attachment.name == right_directory:
                 rows = rows.copy()
                 columns = {column.name: column.slot_id for column in attachment.schema.values}
-                actual_start = pd.Timestamp("2026-07-02T01:00:00+00:00")
-                rows.loc[1, columns["actual_start"]] = actual_start
-                rows.loc[1, columns["actual_start_civil"]] = actual_start.isoformat(
-                    timespec="microseconds"
-                )
+                rows.loc[1, columns["selection"]] = "partial"
             result.append(OutputAttachment(attachment.name, attachment.schema, rows))
         return tuple(result)
 
@@ -552,12 +548,12 @@ def test_paired_complete_frozen_authority_survives_parent_selection(
     monkeypatch.setattr(SourceSession, "execute", execute)
     with pytest.raises(
         AnalysisError,
-        match="complete actual coverage" if corruption == "partial_directory" else "endpoint",
+        match="complete logical periods" if corruption == "partial_directory" else "endpoint",
     ):
         parent.select({"q": parent["left.q"] - parent["right.q"]}).attribute(
             by=(channel,)
         ).compute()
-    assert calls == []
+    assert all(call.purpose == "analysis.calendar_index" for call in calls)
 
 
 def test_calendar_predicate_trusts_declared_matches(session: Session, tmp_path: Path) -> None:

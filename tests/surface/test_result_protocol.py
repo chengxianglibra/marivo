@@ -152,9 +152,10 @@ def test_session_summary_rejects_positional_construction() -> None:
             "sess_1",
             "q2",
             None,
+            "UTC",
+            "explicit",
             datetime(2026, 6, 13, tzinfo=UTC),
             datetime(2026, 6, 13, tzinfo=UTC),
-            1,
             2,
         )
 
@@ -164,6 +165,8 @@ def _session_summary() -> SessionSummary:
         id="sess_1",
         name="q2",
         question=None,
+        timezone="UTC",
+        timezone_origin="explicit",
         created_at=datetime(2026, 6, 13, tzinfo=UTC),
         updated_at=datetime(2026, 6, 13, tzinfo=UTC),
         artifact_count=2,
@@ -284,6 +287,7 @@ def test_datasource_management_results_render_shared_card_shape() -> None:
         [
             "DatasourceDescription name=wh backend=trino fields=2 env_refs=1",
             "columns: catalog | host | auth_env",
+            "wall-clock timezone: undeclared",
             "available:",
             "- .show()",
         ]

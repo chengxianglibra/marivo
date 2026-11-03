@@ -137,7 +137,7 @@ def prepared_session(
         )
     semantic_project_factory(
         {
-            "datasources/warehouse.py": f'import marivo.datasource as md\nmd.duckdb(name="warehouse",path={str(database)!r})\n',
+            "datasources/warehouse.py": f"""import marivo.datasource as md\nmd.duckdb(wall_clock_timezone='UTC', name="warehouse",path={str(database)!r})\n""",
             "sales/_domain.py": 'import marivo.semantic as ms\nms.domain(name="sales",owner="Analytics",default=True)\n',
             "sales/models.py": model,
         },
@@ -291,7 +291,7 @@ def test_duration_reducers_keep_exact_ticks(
     )
     semantic_project_factory(
         {
-            "datasources/warehouse.py": 'import marivo.datasource as md\nmd.duckdb(name="warehouse",path=":memory:")\n',
+            "datasources/warehouse.py": 'import marivo.datasource as md\nmd.duckdb(wall_clock_timezone=\'UTC\', name="warehouse",path=":memory:")\n',
             "sales/_domain.py": 'import marivo.semantic as ms\nms.domain(name="sales",owner="Analytics",default=True)\n',
             "sales/models.py": f"""import marivo.datasource as md
 import marivo.semantic as ms
@@ -375,7 +375,7 @@ def test_local_duration_sample_mean_uses_observed_samples_without_required_perio
     )
     semantic_project_factory(
         {
-            "datasources/warehouse.py": 'import marivo.datasource as md\nmd.duckdb(name="warehouse",path=":memory:")\n',
+            "datasources/warehouse.py": 'import marivo.datasource as md\nmd.duckdb(wall_clock_timezone=\'UTC\', name="warehouse",path=":memory:")\n',
             "sales/_domain.py": 'import marivo.semantic as ms\nms.domain(name="sales",owner="Analytics",default=True)\n',
             "sales/models.py": "import marivo.datasource as md\nimport marivo.semantic as ms\n"
             + f"facts=ms.entity(name='facts',datasource=ms.ref.datasource('warehouse'),source=md.parquet({str(path)!r}),primary_key=['id'])\n"
@@ -420,7 +420,7 @@ def test_independent_roots_across_datasources(
         finally:
             connection.close()
         files[f"datasources/{name}.py"] = (
-            f"import marivo.datasource as md\nmd.duckdb(name={name!r},path={str(database)!r})\n"
+            f"import marivo.datasource as md\nmd.duckdb(wall_clock_timezone='UTC', name={name!r},path={str(database)!r})\n"
         )
         model += f'{name}=ms.entity(name={name!r},datasource=ms.ref.datasource({name!r}),source=md.table("facts"),primary_key=["id"])\n{name}_amount=ms.measure_column(name="amount",entity={name},column="amount",additivity=ms.additive_all())\n'
     files["sales/models.py"] = model
@@ -443,7 +443,7 @@ def test_civil_date_rejects_partial_business_day_boundary(prepared_session: Sess
     assert isinstance(amount, (ms.RowExpression, ms.MetricExpression)) and isinstance(
         day, (ms.RowExpression, ms.MetricExpression)
     )
-    with pytest.raises(AnalysisError, match="business-midnight"):
+    with pytest.raises(AnalysisError, match="business-midnight") as caught:
         compute(
             session,
             {"sum": amount.sum(time=day)},
@@ -451,6 +451,8 @@ def test_civil_date_rejects_partial_business_day_boundary(prepared_session: Sess
                 start="2026-01-01T02:00:00+08:00", end="2026-01-02T00:00:00+08:00"
             ),
         )
+    assert "sales.orders.day: calendar boundary 2026-01-01T02:00:00+08:00" in str(caught.value)
+    assert "is not local midnight in Asia/Shanghai" in str(caught.value)
 
 
 @pytest.mark.parametrize("prepared_session", ["snapshot"], indirect=True)
@@ -509,7 +511,6 @@ def test_calendar_bucket_keeps_nullable_timestamp_and_unmatched_rows(
 
     from marivo._definition.types import CalendarCoordinate
     from marivo.analysis.materialization.query_preparation import prepare_fields
-    from marivo.datasource.timezone import DatasourceEngineTimezone
 
     session = prepared_session
     start = date(2026, 1, 1)
@@ -529,7 +530,7 @@ def test_calendar_bucket_keeps_nullable_timestamp_and_unmatched_rows(
     key, calendar = contribution.calendars[0]
     assert isinstance(calendar, CalendarCoordinate)
     if not bucket_count:
-        calendar = replace(calendar, cells=(), civil_bounds=())
+        calendar = replace(calendar, cells=(), civil_bounds=(), ranges=())
     # A window input must classify rows outside the output grid as NULL instead
     # of filtering them away; exercise that preparation path without a read mask.
     contribution = replace(
@@ -569,7 +570,6 @@ def test_calendar_bucket_keeps_nullable_timestamp_and_unmatched_rows(
             contribution,
             {"sales.orders": table},
             session.catalog._state,
-            DatasourceEngineTimezone("UTC", timezone.utc, "iana", "engine"),
         )
         names = [name for name, _ in prepared.originals if name.startswith("__bucket_")]
         assert len(names) == 1
@@ -635,13 +635,12 @@ def test_calendar_selection_preserves_membership_without_boolean_seeds(
     expected_ids: tuple[int, ...],
 ) -> None:
     from dataclasses import replace
-    from datetime import date, timedelta, timezone
+    from datetime import date, timedelta
 
     import ibis
 
     from marivo._definition.types import CalendarCoordinate
     from marivo.analysis.materialization.query_preparation import prepare_fields
-    from marivo.datasource.timezone import DatasourceEngineTimezone
 
     session = prepared_session
     amount = catalog_value(session.catalog, "sales.orders.amount", kind="field")
@@ -666,6 +665,9 @@ def test_calendar_selection_preserves_membership_without_boolean_seeds(
                     calendar,
                     cells=tuple(calendar.cells[cell] for cell in selected),
                     civil_bounds=tuple(calendar.civil_bounds[cell] for cell in selected),
+                    ranges=tuple(
+                        (calendar.cells[cell][2], calendar.cells[cell][3]) for cell in selected
+                    ),
                 ),
             )
             for index, selected in enumerate(selections)
@@ -689,7 +691,6 @@ def test_calendar_selection_preserves_membership_without_boolean_seeds(
             contribution,
             {"sales.orders": table},
             session.catalog._state,
-            DatasourceEngineTimezone("UTC", timezone.utc, "iana", "engine"),
         )
         selected_name = dict(prepared.columns).get("__time_selected")
         if selections:
@@ -712,13 +713,12 @@ def test_calendar_selection_preserves_membership_without_boolean_seeds(
 
 def test_open_start_native_period_keeps_only_upper_bound(prepared_session: Session) -> None:
     from dataclasses import replace
-    from datetime import date, timedelta, timezone
+    from datetime import date, timedelta
 
     import ibis
 
     from marivo._definition.observations import ObservationPeriod
     from marivo.analysis.materialization.query_preparation import prepare_fields
-    from marivo.datasource.timezone import DatasourceEngineTimezone
 
     session = prepared_session
     amount = catalog_value(session.catalog, "sales.orders.amount", kind="field")
@@ -754,7 +754,6 @@ def test_open_start_native_period_keeps_only_upper_bound(prepared_session: Sessi
             contribution,
             {"sales.orders": table},
             session.catalog._state,
-            DatasourceEngineTimezone("UTC", timezone.utc, "iana", "engine"),
         )
         period = prepared.table[dict(prepared.columns)["__time_period"]]
         assert period.type().is_boolean()

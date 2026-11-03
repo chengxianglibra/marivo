@@ -24,6 +24,9 @@ from marivo.analysis.core.data_types import DataColumn, require_data_text
 from marivo.analysis.core.frame_interpretation import (
     FrameAlignment,
     FrameRowAttributeTime,
+    FrameSourceTime,
+    source_time_summary,
+    validate_source_times,
 )
 from marivo.analysis.core.frame_interpretation import (
     FrameAxisSchema as FrameAxisSchema,
@@ -162,8 +165,6 @@ class CoordinateExportColumn:
         "label",
         "start",
         "end",
-        "nominal_start",
-        "nominal_end",
     ]
     kind: Literal["coordinate"] = field(default="coordinate", init=False)
 
@@ -230,19 +231,18 @@ def axis_export_layout(
                 time_details=time_details,
             ),
         )
-    if isinstance(axis, (CalendarDataAxis, IntervalDataAxis)):
-        bounds = (
+    if isinstance(axis, CalendarDataAxis):
+        columns = (CoordinateExportColumn(name, token, endpoint, "key"),)
+        return (
+            (*columns, CoordinateExportColumn(f"{name}.label", token, endpoint, "label"))
+            if time_details
+            else columns
+        )
+    if isinstance(axis, IntervalDataAxis):
+        return (
             CoordinateExportColumn(f"{name}.start", token, endpoint, "start"),
             CoordinateExportColumn(f"{name}.end", token, endpoint, "end"),
         )
-        if isinstance(axis, CalendarDataAxis) and time_details:
-            return (
-                *bounds,
-                CoordinateExportColumn(f"{name}.label", token, endpoint, "label"),
-                CoordinateExportColumn(f"{name}.nominal_start", token, endpoint, "nominal_start"),
-                CoordinateExportColumn(f"{name}.nominal_end", token, endpoint, "nominal_end"),
-            )
-        return bounds
     return (CoordinateExportColumn(name, token, endpoint, "key"),)
 
 
@@ -297,8 +297,15 @@ class FrameSchema:
     comparisons: tuple[FrameComparison, ...] = ()
     decompositions: tuple[FrameDecomposition, ...] = ()
     alignments: tuple[FrameAlignment, ...] = ()
+    source_times: tuple[FrameSourceTime, ...] = field(
+        default=(),
+        metadata={
+            "meaning": "Captured consumed source interpretations, without executable source authority. Read marivo.help('analysis.frame_instant_source_time'), marivo.help('analysis.frame_wall_clock_source_time') or marivo.help('analysis.frame_civil_date_source_time') for the closed variants."
+        },
+    )
 
     def __post_init__(self) -> None:
+        validate_source_times(self.source_times)
         require_data_text(self.input_id, "frame.schema.input_id")
         fields = (*self._values, *self._presence, *(key for axis in self.axes for key in axis.keys))
         if len({item.slot_id for item in fields}) != len(fields):
@@ -371,6 +378,7 @@ class FrameSchema:
                 ".comparisons",
                 ".alignments",
                 ".decompositions",
+                ".source_times",
             ),
         )
         for name, entries in (
@@ -382,12 +390,15 @@ class FrameSchema:
             ("comparisons", self.comparisons),
             ("alignments", self.alignments),
             ("decompositions", self.decompositions),
+            ("source_times", self.source_times),
         ):
             card.field(name + ".count", str(len(entries)))
             for index, item in enumerate(entries[:3]):
                 if name == "value_contexts":
                     column, context = self._value_contexts[index]
                     summary = f"{column[:120]}: {context!r}"
+                elif name == "source_times":
+                    summary = source_time_summary(self.source_times[index])
                 else:
                     summary = repr(item)
                 card.field(f"{name}[{index}]", summary[:320])
@@ -416,6 +427,7 @@ def capture_schema(input_id: str, schema: LogicalSchema) -> FrameSchema:
         capture_comparisons(input_id, schema),
         schema.decompositions,
         tuple(FrameAlignment(input_id, a.alignment_id, a.left, a.right) for a in schema.alignments),
+        schema.source_times,
     )
 
 

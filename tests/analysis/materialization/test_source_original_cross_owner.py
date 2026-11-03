@@ -52,7 +52,7 @@ def _session(
                 parameters,
             )
         files[f"datasources/{datasource}.py"] = (
-            f"import marivo.datasource as md\nmd.duckdb(name={datasource!r},path={str(path)!r})\n"
+            f"import marivo.datasource as md\nmd.duckdb(wall_clock_timezone='UTC', name={datasource!r},path={str(path)!r})\n"
         )
         model += (
             f"{name}=ms.entity(name={name!r},datasource=ms.ref.datasource({datasource!r}),source=md.table({table!r}),primary_key=['id'])\n"

@@ -69,7 +69,7 @@ def test_large_export_does_not_truncate_pandas_forecast_rows(
     assert len(frame) == 3003
     before = run_ids(session)
     member_index = next(
-        index for index, axis in enumerate(frame.attrs["axes"]) if axis["role"] != "calendar"
+        index for index, axis in enumerate(artifact.schema.axes) if axis.role != "calendar"
     )
     predictions = pd.concat(
         [

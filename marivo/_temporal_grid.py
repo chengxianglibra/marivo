@@ -10,7 +10,7 @@ from itertools import pairwise
 from typing import Literal, TypeAlias
 
 from marivo._temporal import Grain, PeriodCalendarSnapshotV2, TimeScope
-from marivo._timezones import parse_timezone
+from marivo._timezones import normalize_timezone, same_timezone
 
 CivilBounds: TypeAlias = tuple[str, str, str, str]
 InstantBounds: TypeAlias = tuple[datetime, datetime, datetime, datetime]
@@ -30,7 +30,7 @@ def instant(value: date | datetime, zone: str) -> datetime:
         return value.astimezone(timezone.utc)
     wall = value if isinstance(value, datetime) else datetime.combine(value, time())
     try:
-        authority = parse_timezone(zone)[1]
+        authority = normalize_timezone(zone).tz
     except (ValueError, KeyError) as error:
         raise _invalid(f"invalid boundary timezone {zone!r}") from error
     candidates = {
@@ -134,7 +134,7 @@ class BoundTimeGrid:
             raise _invalid("captured calendar differs from grid snapshot digest")
         for zone in (self.report_timezone, self.boundary_timezone):
             try:
-                parse_timezone(zone)
+                normalize_timezone(zone)
             except (ValueError, KeyError) as error:
                 raise _invalid(f"invalid frozen timezone {zone!r}") from error
         if len({cell.identity for cell in self.cells}) != len(self.cells) or any(
@@ -266,7 +266,7 @@ def validate_civil_bounds(civil: CivilBounds, bounds: InstantBounds) -> None:
 
 def capture_civil_bounds(bounds: InstantBounds, zone: str) -> CivilBounds:
     """Capture civil text once when constructing a temporal domain."""
-    authority = parse_timezone(zone)[1]
+    authority = normalize_timezone(zone).tz
 
     def one(value: datetime) -> str:
         return value.astimezone(authority).isoformat(timespec="microseconds")
@@ -533,7 +533,7 @@ def bind_grid(
         ):
             raise _invalid("grain and supplied calendar have different snapshot identities")
         boundary = snapshot.boundary_timezone
-        if explicit_timezone is not None and explicit_timezone != boundary:
+        if explicit_timezone is not None and not same_timezone(explicit_timezone, boundary):
             raise _invalid("explicit calendar timezone conflicts with certification")
         if during.kind == "calendar_period" and (
             during._calendar != snapshot.calendar_ref or scope_digest != snapshot.snapshot_digest
@@ -566,12 +566,12 @@ def bind_grid(
                 if p.level_name == grain.level
             )
     else:
-        authority = parse_timezone(boundary)[1]
+        authority = normalize_timezone(boundary).tz
         lookback = timedelta(0) if authority.utcoffset(None) is not None else timedelta(days=2)
         cursor = _floor((start - lookback).astimezone(authority).replace(tzinfo=None), grain)
         # Enumerate civil boundaries, retaining both instants of repeated subday
-        # boundaries and skipping nonexistent ones. Source clocks retain their
-        # separate value-projection and wall-order membership contracts.
+        # boundaries and skipping nonexistent ones. This is captured selection
+        # intent; result evaluation resolves positions in its native executor.
         boundaries: set[datetime] = set()
         earliest: datetime | None = None
         while True:

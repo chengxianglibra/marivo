@@ -141,7 +141,7 @@ def warehouse_session(
     datasources = tmp_path / "models" / "datasources"
     datasources.mkdir(parents=True)
     (datasources / "warehouse.py").write_text(
-        f"import marivo.datasource as md\nmd.duckdb(name='warehouse', path={str(database)!r})\n"
+        f"import marivo.datasource as md\nmd.duckdb(wall_clock_timezone='UTC', name='warehouse', path={str(database)!r})\n"
     )
     semantic_project_factory(
         {
@@ -457,7 +457,7 @@ def test_parquet_source_metadata_controls_lossless_preparation(
     column = "value" if renamed else "raw_value"
     semantic_project_factory(
         {
-            "datasources/warehouse.py": "import marivo.datasource as md\nmd.duckdb(name='warehouse', path=':memory:')\n",
+            "datasources/warehouse.py": "import marivo.datasource as md\nmd.duckdb(wall_clock_timezone='UTC', name='warehouse', path=':memory:')\n",
             "sales/_domain.py": 'import marivo.semantic as ms\nms.domain(name="sales", owner="Analytics", default=True)\n',
             "sales/models.py": (
                 'import marivo.datasource as md\nimport marivo.semantic as ms\nwarehouse = ms.ref.datasource("warehouse")\n'

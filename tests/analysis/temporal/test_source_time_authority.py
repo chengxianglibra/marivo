@@ -11,6 +11,7 @@ from marivo.analysis.compiler.errors import DatasetCompilationError
 from marivo.analysis.compiler.source_time import source_time
 from marivo.semantic.ir import StrptimeParse, TimestampParse
 from tests.analysis.temporal.encoded_time_fixtures import axis
+from tests.shared_fixtures import declared_test_timezone
 
 
 @pytest.mark.parametrize("declared", ("UTC", "Asia/Shanghai"))
@@ -22,7 +23,11 @@ def test_aware_source_rejects_any_parser_timezone_and_repair_runs(declared: str)
     field = replace(axis("%Y-%m-%d %H:%M"), parse=TimestampParse(timezone=declared))
     with pytest.raises(DatasetCompilationError) as caught:
         source_time(
-            table.point, field, boundary_timezone="UTC", read_timezone="UTC", engine="duckdb"
+            table.point,
+            field,
+            boundary_timezone="UTC",
+            source_timezone=declared_test_timezone(field, "UTC"),
+            engine="duckdb",
         )
     error = caught.value
     assert error.location == "analysis.source_time[time_dimension:sales.events.point]"
@@ -37,14 +42,14 @@ def test_aware_source_rejects_any_parser_timezone_and_repair_runs(declared: str)
         table.point,
         replace(field, parse=TimestampParse()),
         boundary_timezone="UTC",
-        read_timezone="UTC",
+        source_timezone=declared_test_timezone(replace(field, parse=TimestampParse()), "UTC"),
         engine="duckdb",
     )
-    assert authority.kind == "instant" and authority.source == "physical"
+    assert authority.kind == "instant"
     backend = ibis.duckdb.connect()
     try:
         assert backend.execute(table.select(point=repaired)).point.tolist() == [
-            datetime(2026, 8, 1)
+            datetime(2026, 8, 1, tzinfo=timezone.utc)
         ]
     finally:
         backend.disconnect()
@@ -60,15 +65,15 @@ def test_zoned_strptime_from_string_uses_declared_authority() -> None:
         table.point,
         field,
         boundary_timezone="UTC",
-        read_timezone="UTC",
+        source_timezone=declared_test_timezone(field, "UTC"),
         engine="clickhouse",
     )
 
-    assert prepared.type().timezone == "UTC"
+    assert prepared.type().scale == 6
     assert authority.physical_type == str(table.point.type())
-    assert authority.kind == "localizable"
-    assert authority.source == "declared"
-    assert authority.read_timezone == "UTC"
+    assert authority.kind == "wall_clock"
+    assert authority.origin == "field"
+    assert authority.timezone == "UTC"
 
     # Re-preparing a frozen carrier must use its recorded source category;
     # the carrier's zoned Ibis type is not the original physical column type.
@@ -76,7 +81,7 @@ def test_zoned_strptime_from_string_uses_declared_authority() -> None:
         prepared,
         field,
         boundary_timezone="UTC",
-        read_timezone="UTC",
+        source_timezone=declared_test_timezone(field, "UTC"),
         engine="clickhouse",
         frozen=authority,
     )
@@ -98,7 +103,7 @@ def test_aware_physical_source_rejects_strptime_timezone() -> None:
             table.point,
             field,
             boundary_timezone="UTC",
-            read_timezone="UTC",
+            source_timezone=declared_test_timezone(field, "UTC"),
             engine="clickhouse",
         )
 
@@ -110,10 +115,14 @@ def test_native_date_is_prepared_as_date_without_guessing_timestamp() -> None:
     table = ibis.memtable({"point": [date(2026, 8, 1)]}, schema={"point": "date"})
     field = replace(axis("%Y%m%d"), logical_type="unknown", parse=None)
     prepared, authority = source_time(
-        table.point, field, boundary_timezone="Asia/Shanghai", read_timezone="UTC", engine="duckdb"
+        table.point,
+        field,
+        boundary_timezone="Asia/Shanghai",
+        source_timezone=declared_test_timezone(field, "UTC"),
+        engine="duckdb",
     )
     assert prepared.type().is_date()
-    assert authority.kind == "civil_date" and authority.read_timezone is None
+    assert authority.kind == "civil_date" and authority.timezone == "UTC"
 
 
 @pytest.mark.parametrize(
@@ -141,15 +150,13 @@ def test_naive_source_gap_and_fold_follow_native_backend(zone: str, points: list
         table.point,
         field,
         boundary_timezone="UTC",
-        read_timezone="UTC",
+        source_timezone=declared_test_timezone(field, "UTC"),
         engine="duckdb",
     )
     backend = ibis.duckdb.connect()
     try:
         expected = [
-            backend.con.execute(
-                "SELECT timezone('UTC', timezone(?, ?::TIMESTAMP))", [zone, point]
-            ).fetchone()[0]
+            backend.con.execute("SELECT timezone(?, ?::TIMESTAMP)", [zone, point]).fetchone()[0]
             for point in points
         ]
         assert backend.execute(table.select(value=value)).value.tolist() == expected

@@ -41,6 +41,7 @@ declarations through environment references.
 | `mariadb-analysis` | `127.0.0.1:23307` | MariaDB 11.4; database `analysis`; SELECT-only reader `analysis_reader` |
 | `clickhouse` | `127.0.0.1:18123` | ClickHouse 26.3 LTS; local MergeTree; database `qualification` |
 | `clickhouse-cluster` | `127.0.0.1:18201`, `127.0.0.1:18203` | Two shards with one replica each; Distributed over local tables |
+| `clickhouse-22-shanghai` | `127.0.0.1:18324` | Standalone ClickHouse 22.3.15.33; server default `Asia/Shanghai`; separate config and data volume |
 
 Compose pins every image by digest. The `trino` profile also owns its internal
 PostgreSQL catalog service and named catalog/warehouse volumes. Its warehouse
@@ -58,6 +59,86 @@ setup creates fixtures on each node directly. Hive uses the real Hive connector
 with Trino's file metastore at `local:///hive`, separate from Iceberg data in the
 same persistent warehouse volume. This test-only topology supplies no S3,
 REST catalog, remote Thrift metastore or multi-worker Trino.
+
+## ClickHouse 22.3 non-UTC server
+
+The non-UTC hour-sampling regression uses the server's default timezone, without
+`session_timezone` or a per-user timezone override. ClickHouse 22.3 does not have
+that newer session setting. The fixture requires `timezone() = 'Asia/Shanghai'`
+and checks neutral wall carriers, exact UTC filtering across the previous date,
+and sum-before-mean against independent native SQL.
+
+Reuse an existing `marivo-multisource-clickhouse-22-shanghai-1` container. For its
+initial creation, reuse the local `marivo-clickhouse-22:22.3.15.33` image built
+from the official ARM64 release binary and the private UTC 22.3 fixture config.
+Copy the config into a separate private directory and set the server timezone:
+
+```bash
+.venv/bin/python - <<'PY'
+from pathlib import Path
+import shutil
+import xml.etree.ElementTree as ET
+
+cache = Path.home() / '.cache/marivo-multisource'
+target = cache / 'clickhouse-22-shanghai-config'
+target.mkdir(mode=0o700)
+for name in ('config.xml', 'users.xml'):
+    shutil.copy2(cache / 'clickhouse-22-config' / name, target / name)
+    (target / name).chmod(0o600)
+tree = ET.parse(target / 'config.xml')
+zone = tree.getroot().find('timezone')
+if zone is None:
+    zone = ET.SubElement(tree.getroot(), 'timezone')
+zone.text = 'Asia/Shanghai'
+tree.write(target / 'config.xml', encoding='unicode')
+PY
+docker --host "unix://$HOME/.colima/marivo-multisource/docker.sock" run -d \
+  --name marivo-multisource-clickhouse-22-shanghai-1 \
+  --label com.docker.compose.project=marivo-multisource \
+  --label com.docker.compose.service=clickhouse-22-shanghai \
+  --memory=1g --cpus=1 --pids-limit=4096 -p 127.0.0.1:18324:8123 \
+  --mount "type=bind,src=$HOME/.cache/marivo-multisource/clickhouse-22-shanghai-config,dst=/etc/clickhouse,readonly" \
+  --mount type=volume,src=marivo-multisource_clickhouse-22-shanghai,dst=/var/lib/clickhouse \
+  marivo-clickhouse-22:22.3.15.33
+```
+
+Initialize the dedicated database, then let the existing setup check the reader's
+SELECT-only grants. The password stays in the private credential cache:
+
+```bash
+MARIVO_CLICKHOUSE_TEST_PORT=18324 .venv/bin/python - <<'PY'
+import clickhouse_connect
+from tests.datasource.environment.credentials import password
+from tests.datasource.environment.clickhouse_analysis import setup
+
+client = clickhouse_connect.get_client(
+    host='127.0.0.1', port=18324, username='qualifier', password=password(),
+    database='default', autogenerate_session_id=False,
+)
+try:
+    client.command('CREATE DATABASE IF NOT EXISTS qualification')
+finally:
+    client.close()
+print(setup())
+PY
+MARIVO_CLICKHOUSE_ANALYSIS_TEST=1 MARIVO_CLICKHOUSE_NON_UTC_TEST_PORT=18324 \
+  make runtime-test RUNTIME_WORKERS=1 \
+  TESTS='tests/analysis/temporal/test_wall_consumer_runtime.py::test_clickhouse_hour_sampling_uses_non_utc_server_timezone'
+```
+
+The same server also runs the calendar regression. It checks that a single
+Asia/Shanghai civil day is one `day` bucket and 288 five-minute buckets, and that
+week, month and 3-hour buckets keep facts after local 16:00 in the right period:
+
+```bash
+MARIVO_CLICKHOUSE_ANALYSIS_TEST=1 MARIVO_CLICKHOUSE_NON_UTC_TEST_PORT=18324 \
+  make runtime-test RUNTIME_WORKERS=1 \
+  TESTS='tests/analysis/temporal/test_clickhouse_server_timezone_calendar.py'
+```
+
+This standalone container uses its own data volume and leaves the UTC 22.3
+service at port 18323 and other running services in place. Stop only this fixture
+with `docker --host "unix://$HOME/.colima/marivo-multisource/docker.sock" stop marivo-multisource-clickhouse-22-shanghai-1`.
 
 ## Initial setup on ARM64 macOS
 

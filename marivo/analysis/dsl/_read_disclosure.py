@@ -30,6 +30,7 @@ from marivo.analysis.core.frame_interpretation import (
     FrameCalendarComparisonBinding,
     FrameCalendarEndpoint,
     FrameChangeTarget,
+    FrameCivilDateSourceTime,
     FrameComparedTime,
     FrameComparison,
     FrameComparisonGroup,
@@ -41,6 +42,7 @@ from marivo.analysis.core.frame_interpretation import (
     FrameFixedAxis,
     FrameFixedGroup,
     FrameFixedTime,
+    FrameInstantSourceTime,
     FrameIntervalAxisSchema,
     FrameIntervalComparisonBinding,
     FrameIntervalEndpoint,
@@ -59,6 +61,7 @@ from marivo.analysis.core.frame_interpretation import (
     FrameToDateWindow,
     FrameTrailingDurationWindow,
     FrameTrailingPeriodsWindow,
+    FrameWallClockSourceTime,
 )
 from marivo.analysis.core.frame_page import (
     FrameCalendarPeriod,
@@ -89,6 +92,19 @@ from marivo.render import RenderableResult
 def provider() -> DisclosureProvider:
     descriptors: list[Descriptor] = []
     types: tuple[tuple[type[object], str, tuple[str, ...], tuple[str, ...]], ...] = (
+        (FrameInstantSourceTime, "frame_instant_source_time", ("frame_schema.source_times",), ()),
+        (
+            FrameWallClockSourceTime,
+            "frame_wall_clock_source_time",
+            ("frame_schema.source_times",),
+            (),
+        ),
+        (
+            FrameCivilDateSourceTime,
+            "frame_civil_date_source_time",
+            ("frame_schema.source_times",),
+            (),
+        ),
         (
             FrameSourceRead,
             "frame_source_read",
@@ -110,8 +126,9 @@ def provider() -> DisclosureProvider:
         (
             FrameSchema,
             "frame_schema",
-            ("analysis_frame.schema", "runtime.persisted_frame_summary.schema"),
+            ("analysis_frame.schema",),
             (
+                "frame_schema.source_times",
                 "frame_axis_schema",
                 "frame_fixed_axis",
                 "frame_observation_context",
@@ -549,9 +566,12 @@ def provider() -> DisclosureProvider:
         FramePeriodPage: "One bounded immutable period page.",
     }
     page_constraints = {
+        FrameInstantSourceTime: "Captured source instants and consumption timezone only. Fixed-data operations retain these input facts; no new field interpretation is implied. Example: frame.schema.source_times[0].",
+        FrameWallClockSourceTime: "timezone and origin identify the effective source declaration; inherited_from records an hour-prefix declaration chain. consumption_timezone records the actual consumer boundary. Example: frame.schema.source_times[0].",
+        FrameCivilDateSourceTime: "Business dates are assigned by their day start when source and consumption timezones differ. This cannot reconstruct event-day totals from business-day totals. Example: frame.schema.source_times[0].",
         FrameReadStats: "Counts include scanned records and repeated scans, not all disk I/O, elapsed time or peak memory. Example: page.read_stats.show().",
         FramePage: "Retains only this page, with no Frame, reader or complete audit. Coordinates belong to input_id; RangeIndex is not a business key. Example: fixed.read_page(limit=100).to_pandas().",
-        FrameCalendarPeriod: "Contains complete keys, actual and nominal UTC bounds, original ordinals, timezone, labels and saved civil boundaries; current timezone rules and shift history are not reconstructed. Example: page.items[0].show().",
+        FrameCalendarPeriod: "Contains complete actual keys, original ordinals, timezone, civil labels and saved selection progress; current timezone rules and shift history are not reconstructed. Example: page.items[0].show().",
         FrameIntervalPeriod: "Contains complete keys, UTC bounds and boundary timezone; unsaved nominal or civil boundaries are not inferred. Example: page.items[0].show().",
         FramePairedPeriod: "An endpoint may be absent without a saved reason. Example: page.items[0].left.",
         FrameComparisonPeriod: "A missing baseline carries its saved reason, independently of row presence. Example: page.items[0].baseline.",
@@ -652,7 +672,7 @@ def provider() -> DisclosureProvider:
                 ),
                 P(
                     "time_details",
-                    "Include calendar labels and nominal boundaries; .nominal_start is the original bucket start, .start may be clipped; default False.",
+                    "Include calendar labels; calendar exports one actual key, interval exports .start/.end; default False.",
                 ),
             ),
             output="FramePage",
@@ -741,6 +761,9 @@ def provider() -> DisclosureProvider:
         )
     )
     exported = {
+        FrameInstantSourceTime,
+        FrameWallClockSourceTime,
+        FrameCivilDateSourceTime,
         FrameSourceRead,
         FrameSourceReadScope,
         FrameSourceReadPeriod,

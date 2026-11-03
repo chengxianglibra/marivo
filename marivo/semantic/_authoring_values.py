@@ -8,7 +8,6 @@ from __future__ import annotations
 
 from collections.abc import Sequence as _Sequence
 from typing import Literal
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import ibis.expr.types as ibis_ir
 from ibis.common.deferred import Deferred
@@ -26,13 +25,13 @@ from marivo.semantic._dsl_authoring import AdditiveAllV1, AdditiveOverV1, Coordi
 from marivo.semantic.errors import ErrorKind, SemanticDecoratorError, _raise
 from marivo.semantic.ir import (
     AiContextIR,
+    DateParse,
     HourPrefixParse,
     JoinKey,
     SnapshotVersioningIR,
     StrptimeParse,
     TimestampParse,
     ValidityVersioningIR,
-    is_time_bearing_format,
 )
 from marivo.semantic.time_format import normalize_strptime
 from marivo.semantic.typing import AiContextValue
@@ -227,7 +226,7 @@ def snapshot(
 
     Args:
         partition_field: Native TimeField or explicit TimeDimension lookup symbol.
-        timezone: Required IANA zone defining the business snapshot day.
+        timezone: Required IANA or fixed-offset zone defining the business snapshot day.
     Returns: A frozen SnapshotVersioningIR with the partition lookup key.
     Example: ``ms.snapshot(partition_field=day_ref, timezone="UTC")``.
     Constraints: The completed Entity scope resolves the partition field; lookup symbols may name forward dependencies.
@@ -237,15 +236,7 @@ def snapshot(
         parameter="partition_field",
         expected=(SemanticKind.TIME_DIMENSION,),
     )
-    if timezone is not None:
-        try:
-            ZoneInfo(timezone)
-        except ZoneInfoNotFoundError:
-            _raise(
-                ErrorKind.INVALID_REF,
-                f"timezone {timezone!r} is not a valid IANA timezone name.",
-                cls=SemanticDecoratorError,
-            )
+    timezone = _validate_timezone(timezone)
     return SnapshotVersioningIR(
         kind="snapshot",
         partition_field=partition_ref,
@@ -259,7 +250,6 @@ def validity(
     valid_to: Deferred,
     interval: Literal["closed_open", "closed_closed"],
     open_end: tuple[str | None, ...],
-    timezone: str | None = None,
 ) -> ValidityVersioningIR:
     """Declare SCD2 validity interval versioning for an entity.
 
@@ -271,7 +261,6 @@ def validity(
         open_end: Non-empty tuple of sentinel values that mean "still current"
             in the ``valid_to`` column. Use ``None`` for SQL NULL, or a string
             sentinel such as ``"9999-12-31"``.
-        timezone: Business timezone required for DATE bounds; forbidden for timestamp bounds.
 
     Returns:
         A frozen ``ValidityVersioningIR`` with interval field lookup keys.
@@ -287,7 +276,7 @@ def validity(
 
     Raises:
         SemanticDecoratorError: ``interval`` is not one of the two allowed values,
-            ``open_end`` is empty, or ``timezone`` is not a valid IANA name.
+            ``open_end`` is empty.
     """
     if interval not in ("closed_open", "closed_closed"):
         _raise(
@@ -304,16 +293,6 @@ def validity(
             cls=SemanticDecoratorError,
             details={"field": "open_end", "reason": "empty tuple is not allowed"},
         )
-    if timezone is not None:
-        try:
-            ZoneInfo(timezone)
-        except ZoneInfoNotFoundError:
-            _raise(
-                ErrorKind.INVALID_ENTITY_VERSIONING,
-                f"timezone {timezone!r} is not a valid IANA timezone name.",
-                cls=SemanticDecoratorError,
-                details={"field": "timezone", "reason": f"unknown IANA timezone {timezone!r}"},
-            )
     valid_from_ref = _require_ref_id(
         valid_from,
         parameter="valid_from",
@@ -330,7 +309,6 @@ def validity(
         valid_to=valid_to_ref,
         interval=interval,
         open_end=open_end,
-        timezone=timezone,
     )
 
 
@@ -372,6 +350,19 @@ def join_on(
     )
 
 
+def date(*, timezone: str | None = None) -> DateParse:
+    """Declare a native DATE with an optional business-day source timezone.
+
+    Args:
+        timezone: IANA or fixed-offset source zone; omission uses the Datasource declaration.
+    Returns:
+        An immutable native DATE parser.
+    Example: ``ms.time_dimension_column(name="day", entity=orders, column="day", parse=ms.date(timezone="UTC"))``.
+    Constraints: Requires a native DATE; projection preserves the original date label.
+    """
+    return DateParse(timezone=_validate_timezone(timezone) if timezone is not None else None)
+
+
 def timestamp(
     *,
     timezone: str | None = None,
@@ -380,15 +371,14 @@ def timestamp(
 
     Use as the ``parse=`` value on ``@ms.time_dimension(...)`` when the
     source column is a native timestamp type. Projection follows the backend's
-    native interpretation. Constant-bound membership of a raw local clock uses
-    wall order: repeated clocks denote the later occurrence and skipped clocks
-    denote the transition instant.
+    native interpretation. Projection, filtering and calendar assignment use
+    the same executor's native gap/fold behavior.
     This parser affects only the TimeDimension projection; Entity primary keys retain
     their output values, including naive timestamps without an implicit timezone.
 
     Args:
-        timezone: Optional IANA source zone for naive timestamp columns. When
-            omitted, naive values use frozen datasource reader authority. Aware
+        timezone: Optional IANA or fixed-offset source zone for naive timestamp columns. When
+            omitted, naive values use Datasource wall_clock_timezone. Missing declarations reject before reads. Aware
             values already identify instants and reject every parser timezone.
 
 
@@ -396,7 +386,7 @@ def timestamp(
         A ``TimestampParse`` value object.
 
     Raises:
-        SemanticDecoratorError: ``timezone`` is not a valid IANA name.
+        SemanticDecoratorError: ``timezone`` is not a valid IANA or fixed-offset timezone.
 
     Example:
         >>> @ms.time_dimension(entity=events,
@@ -405,7 +395,7 @@ def timestamp(
         ...     return events.ts
     """
     if timezone is not None:
-        _validate_timezone(timezone)
+        timezone = _validate_timezone(timezone)
     return TimestampParse(
         timezone=timezone,
     )
@@ -420,24 +410,36 @@ def strptime(
     """Declare a string/integer strptime parse.
 
     Use as the ``parse=`` value on ``@ms.time_dimension(...)`` when the
-    source column is a string or integer that must be parsed with a Python
-    strptime format. SQL NULL stays NULL. DuckDB, Trino, ClickHouse and
+    source column is a string or integer encoded with a Python strptime format.
+    Ordered year/month/day formats declare valid, fixed-width, zero-padded
+    source values with exact separators: ``%Y%m%d``, ``%Y-%m-%d`` and their
+    hour, minute and second extensions. Integers support compact encodings.
+    Equivalent ranges compare the original column to same-type constants;
+    endpoints round up to the first represented source tick. Noncanonical
+    values violate this declaration; no automatic source audit is added.
+
+    ClickHouse 22.3 supports these ordered formats through native Date32 and
+    DateTime64 conversions. Other formats require ClickHouse 23.3 or newer;
+    an unsupported parser is rejected before business query submission.
+
+    SQL NULL stays NULL. Native projections on DuckDB, Trino, ClickHouse and
     MySQL/MariaDB return NULL for rejected parsed values; PostgreSQL uses
     native ``to_timestamp`` and rejected data can fail the query. There is no
     error-policy parameter, trimming, format guessing or retry. Backend parsers
-    can accept different noncanonical values. Configuration, type, connection
-    and resource failures remain errors.
+    can accept different noncanonical values for other formats. Configuration,
+    type, connection and resource failures remain errors.
 
-    Membership parses before applying boundaries and retains local-clock wall
-    order; output projections keep native gap/fold behavior. Parsed predicates
-    can cost more than raw encoded ranges; use independent physical filters
-    where appropriate. Trino TRY can also catch recoverable errors in its input
-    expression; other backends can propagate argument evaluation failures.
+    Other formats, derived expressions and endpoints without a qualified
+    inverse retain parsing and native gap/fold behavior, as do output
+    projections. Such predicates can cost more than raw encoded ranges.
+    Trino TRY can also catch recoverable errors in its input expression; other
+    backends can propagate argument evaluation failures.
 
     Args:
-        format: Python strptime format
+        format: Source encoding in Python strptime syntax. Ordered formats
+            require canonical valid source values; other formats use native parsing
             (e.g. ``"%Y%m%d"``, ``"%Y-%m-%d %H:%M:%S"``). Must be ``%``-prefixed.
-        timezone: Optional IANA timezone for time-bearing formats.
+        timezone: Optional IANA or fixed-offset source timezone, including business days.
 
 
     Returns:
@@ -445,7 +447,7 @@ def strptime(
 
     Raises:
         SemanticDecoratorError: ``format`` is not a valid strptime format, or
-            ``timezone`` is not a valid IANA name.
+            ``timezone`` is not a valid IANA or fixed-offset timezone.
 
     Example:
         >>> @ms.time_dimension(entity=orders,
@@ -455,14 +457,7 @@ def strptime(
     """
     normalized = normalize_strptime(format)
     if timezone is not None:
-        _validate_timezone(timezone)
-        if not is_time_bearing_format(normalized):
-            _raise(
-                ErrorKind.INVALID_REF,
-                "timezone is only supported for time-bearing strptime formats, not date-only formats.",
-                cls=SemanticDecoratorError,
-                details={"field": "timezone", "format": normalized},
-            )
+        timezone = _validate_timezone(timezone)
     return StrptimeParse(
         format=normalized,
         timezone=timezone,
@@ -479,8 +474,7 @@ def hour_prefix(
     source column encodes an hour in 0..23 (canonical two-digit strings such as
     ``"01"`` and ``"23"``, or integers)
     and must be combined with a civil-date time dimension prefix. The combined
-    clock inherits the prefix source context, using its resolved reader timezone
-    when the date has no intrinsic timezone. The physical
+    clock inherits the prefix source context, using its effective field or Datasource timezone. The physical
     column type (string or integer) is inferred from the ibis expression at
     analysis time.
 

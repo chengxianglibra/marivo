@@ -43,7 +43,7 @@ def result_session(
         )
     semantic_project_factory(
         {
-            "datasources/warehouse.py": f"import marivo.datasource as md\nmd.duckdb(name='warehouse', path={str(database)!r})\n",
+            "datasources/warehouse.py": f"import marivo.datasource as md\nmd.duckdb(wall_clock_timezone='UTC', name='warehouse', path={str(database)!r})\n",
             "sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales', owner='Analytics', default=True)\n",
             "sales/model.py": """import marivo.datasource as md
 import marivo.semantic as ms
@@ -196,7 +196,7 @@ def test_explicit_source_reads_selected_fibers_and_original_mean(result_session:
     )
     frame = drilled.compute().to_pandas()
     assert frame.iloc[:, 0].tolist() == ["A", "A"]
-    assert frame[frame.attrs["axes"][1]["name"].rsplit(".", 1)[-1]].tolist() == ["Store", "Web"]
+    assert frame["channel"].tolist() == ["Store", "Web"]
     assert frame["mean"].tolist() == [30.0, 10.0]
     assert session.observe(
         {"mean": amount.mean()}, by=(region,), where=mv.in_population(chosen)
@@ -243,7 +243,7 @@ def test_explicit_source_read_preserves_snapshot_row_identity(
         )
     semantic_project_factory(
         {
-            "datasources/warehouse.py": f"import marivo.datasource as md\nmd.duckdb(name='warehouse',path={str(database)!r})\n",
+            "datasources/warehouse.py": f"import marivo.datasource as md\nmd.duckdb(wall_clock_timezone='UTC', name='warehouse',path={str(database)!r})\n",
             "sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales',owner='Analytics',default=True)\n",
             "sales/model.py": """import marivo.datasource as md
 import marivo.semantic as ms
@@ -275,7 +275,7 @@ amount=ms.measure_column(name='amount',entity=orders,column='amount',additivity=
         {"total": amount.sum()}, by=(region, channel), where=mv.in_population(chosen)
     )
     frame = drilled.compute().to_pandas()
-    assert frame[frame.attrs["axes"][1]["name"].rsplit(".", 1)[-1]].tolist() == ["Store", "Web"]
+    assert frame["channel"].tolist() == ["Store", "Web"]
     assert frame["total"].tolist() == [30, 10]
     assert session.observe(
         {"total": amount.sum()}, where=mv.in_population(chosen)
@@ -715,7 +715,7 @@ def test_source_read_frame_bridge_preserves_complete_keys_and_complements(
         )
     semantic_project_factory(
         {
-            "datasources/warehouse.py": f"import marivo.datasource as md\nmd.duckdb(name='warehouse',path={str(database)!r})\n",
+            "datasources/warehouse.py": f"import marivo.datasource as md\nmd.duckdb(wall_clock_timezone='UTC', name='warehouse',path={str(database)!r})\n",
             "sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales',owner='Analytics',default=True)\n",
             "sales/model.py": """import marivo.datasource as md
 import marivo.semantic as ms
@@ -1050,7 +1050,7 @@ def test_two_datasource_composite_parameters_compare_and_terminal_read(
         {
             **{
                 f"datasources/{name}.py": "import marivo.datasource as md\n"
-                + f"md.duckdb(name={name!r},path={str(database)!r})\n"
+                + f"md.duckdb(wall_clock_timezone='UTC', name={name!r},path={str(database)!r})\n"
                 for name, database in zip(("crm", "billing"), databases, strict=True)
             },
             "sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales',owner='Analytics',default=True)\n",
@@ -1121,7 +1121,7 @@ def test_explicit_daily_and_monthly_source_observations(
         )
     semantic_project_factory(
         {
-            "datasources/warehouse.py": f"import marivo.datasource as md\nmd.duckdb(name='warehouse',path={str(database)!r})\n",
+            "datasources/warehouse.py": f"import marivo.datasource as md\nmd.duckdb(wall_clock_timezone='UTC', name='warehouse',path={str(database)!r})\n",
             "sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales',owner='Analytics',default=True)\n",
             "sales/model.py": """import marivo.datasource as md
 import marivo.semantic as ms
@@ -1226,9 +1226,7 @@ def test_explicit_domains_keep_joint_keys_and_empty_unit(result_session: Session
         .compute()
         .to_pandas()
     )
-    assert list(
-        zip(rows.iloc[:, 0], rows[rows.attrs["axes"][1]["name"].rsplit(".", 1)[-1]], strict=True)
-    ) == [
+    assert list(zip(rows.iloc[:, 0], rows["channel"], strict=True)) == [
         ("A", "Web"),
         ("B", "Store"),
     ]

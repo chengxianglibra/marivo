@@ -850,8 +850,8 @@ def time_dimension(
     The body may return any ibis expression that represents the intended time
     axis. When ``parse`` is omitted, the parse variant is inferred from the
     column type at execution. Use ``ms.timestamp(timezone=...)`` to declare the
-    source timezone for naive timestamps, or retain an authoritative datasource
-    reader timezone. ``catalog.validate`` and execution check physical compatibility;
+    source timezone for naive timestamps, or set the Datasource
+    wall_clock_timezone declaration. ``catalog.validate`` and execution check physical compatibility;
     readiness does not read the schema. Use ``ms.strptime(...)`` or
     ``ms.hour_prefix(...)`` for string/integer parsing.
 

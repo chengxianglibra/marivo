@@ -85,7 +85,7 @@ refund_amount = ms.measure_column(name="amount", entity=refunds, column="amount"
     if versioned:
         code = code.replace(
             'source=md.table("customers"), primary_key=["id"])',
-            'source=md.table("customers"), primary_key=["id"], versioning=ms.validity(valid_from=ms.ref.time_dimension("sales.customers.valid_from"), valid_to=ms.ref.time_dimension("sales.customers.valid_to"), interval="closed_open", open_end=(None,), timezone="UTC"))',
+            'source=md.table("customers"), primary_key=["id"], versioning=ms.validity(valid_from=ms.ref.time_dimension("sales.customers.valid_from"), valid_to=ms.ref.time_dimension("sales.customers.valid_to"), interval="closed_open", open_end=(None,)))',
         )
         code += 'valid_from = ms.time_dimension_column(name="valid_from", entity=customers, column="valid_from")\nvalid_to = ms.time_dimension_column(name="valid_to", entity=customers, column="valid_to")\n'
     if fanout:
@@ -449,9 +449,13 @@ def test_certified_calendar_uses_frozen_snapshot_and_checks_coverage(
         rows=rows,
     )
     grain = semantic_grain(calendar=snapshot.calendar_ref, level="week", snapshot=snapshot)
-    scope = session.time_scope(start="2026-01-02", end="2026-01-05")
+    scope = session.time_scope(start="2026-01-01", end="2026-01-03")
     axis = scope.by(grain)
-    assert len(axis.grid.cells) == 2 and axis.grid.cells[0].partial
+    assert len(axis.grid.cells) == 1 and not axis.grid.cells[0].partial
+    with pytest.raises(ValueError, match="one complete custom"):
+        session.time_scope(start="2026-01-02", end="2026-01-03").by(grain)
+    with pytest.raises(ValueError, match="one complete custom"):
+        session.time_scope(start="2026-01-01", end="2026-01-05").by(grain)
     assert axis.grid.snapshot_digest == snapshot.snapshot_digest
     certified_scope = snapshot.period_scope("week", "W1")
     assert certified_scope.by(grain).grid.snapshot_digest == snapshot.snapshot_digest
