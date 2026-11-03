@@ -250,6 +250,13 @@ and sum-permission coordinates still require their native field forms.
 TimeField.within(scope) creates a half-open predicate; it does not supply the
 observation endpoint needed by a window. TimeField sample reducers can use
 represented samples without an observation endpoint.
+TimeField scalar comparisons use the receiving Session's report timezone for ISO
+dates, Python dates and offset-free ISO clocks, while aware boundaries retain
+their instant. This applies equally to observe, members, Metric.where and source
+reduction conditions; an output scope's timezone does not reinterpret them.
+Naive Python datetimes and invalid or ambiguous civil boundaries reject at capture.
+DATE compares its declared business-day start; equality means one exact instant,
+not the complete day. Explicit within scopes retain their captured boundaries.
 Exact grammar lives at semantic.predicate and semantic.field Help targets.
 
 ## Internal samples and windows

@@ -92,3 +92,16 @@ def test_utc_date_control_selects_previous_los_angeles_business_day(
     # DATE labels directly would incorrectly choose the July 1 "new" version.
     assert data["category"].tolist() == ["old"]
     assert data["value"].tolist() == [10]
+
+    historical_day = (
+        session.catalog.get("time_dimension:sales.profiles.day")
+        .via((relationship,))
+        .at(session.instant("2026-07-01T00:00:00Z"))
+    )
+    amount = session.catalog.get("measure:sales.facts.amount")
+    # The selected June 30 LA DATE begins at 07:00Z, after the 01:00Z cutoff.
+    # Comparing a raw DATE label at UTC midnight would incorrectly exclude it.
+    selected = session.observe(
+        {"value": amount.sum()}, where=historical_day >= "2026-06-30T01:00:00"
+    ).compute()
+    assert selected.to_pandas().value.tolist() == [10]

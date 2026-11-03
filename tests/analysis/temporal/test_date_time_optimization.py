@@ -175,25 +175,19 @@ def test_rendered_date_clock_does_not_acquire_instant_comparison_semantics() -> 
 
 
 @pytest.mark.parametrize("literal", ["2026-10-30", "20261030", "2026-1-2"])
-def test_clickhouse_date_string_rewrite_requires_canonical_native_spelling(literal: str) -> None:
+def test_unbound_clickhouse_strings_do_not_acquire_inferred_utc_cutoffs(literal: str) -> None:
     table = ibis.table({"point": "date"}, name="events")
     projected = table.mutate(clock=localize("Asia/Shanghai", timestamp(table.point)))
     query = projected.filter(projected.clock >= literal)
     sql = str(ibis.to_sql(lower_temporal(query, "clickhouse"), dialect="clickhouse"))
     where = sqlglot.parse_one(sql, read="clickhouse").find(sge.Where)
     assert where is not None
-    if literal == "2026-10-30":
-        # The UTC carrier compares at UTC midnight, eight hours after the
-        # source day's start, so the first eligible source DATE is October 31.
-        assert "\"point\" >= TODATE('2026-10-31')" in where.sql()
-    else:
-        assert "clock" in where.sql()
+    assert "clock" in where.sql()
 
 
 @pytest.mark.runtime
-@pytest.mark.parametrize("string_bounds", [False, True])
 @pytest.mark.parametrize("historical", [False, True])
-def test_clickhouse_date_axes_prune_partitions(string_bounds: bool, historical: bool) -> None:
+def test_clickhouse_date_axes_prune_partitions(historical: bool) -> None:
     if os.environ.get("MARIVO_CLICKHOUSE_ANALYSIS_TEST") != "1":
         pytest.skip("Explicit ready ClickHouse service required")
     from tests.datasource.environment.clickhouse_analysis import connection
@@ -222,13 +216,12 @@ def test_clickhouse_date_axes_prune_partitions(string_bounds: bool, historical: 
                 for days in (1, 2, 4, 7):
                     end = start + timedelta(days=days)
                     filtered = projected.filter(
-                        (projected.clock >= (start.date().isoformat() if string_bounds else start))
-                        & (projected.clock < (end.date().isoformat() if string_bounds else end))
+                        (projected.clock >= start) & (projected.clock < end)
                     )
                     coordinate = (
                         exact_scope(
-                            start + timedelta(days=string_bounds),
-                            end + timedelta(days=string_bounds),
+                            start,
+                            end,
                             "Asia/Shanghai",
                         )
                         .by(mv.grain("day"))
@@ -239,8 +232,8 @@ def test_clickhouse_date_axes_prune_partitions(string_bounds: bool, historical: 
                     )
                     assert key is not None
                     calendar = filtered.mutate(bucket=key)
-                    native_start = start.date() + timedelta(days=string_bounds)
-                    native_end = end.date() + timedelta(days=string_bounds)
+                    native_start = start.date()
+                    native_end = end.date()
                     native = reader.query(
                         f"SELECT point, sum(amount), quantile(0.25)(amount), quantile(0.5)(amount), "
                         f"quantile(0.75)(amount), quantile(0.95)(amount) FROM {name} "

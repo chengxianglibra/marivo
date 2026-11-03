@@ -268,6 +268,11 @@ class FieldRead:
 
 
 @dataclass(frozen=True, slots=True)
+class TimeInstantFieldRead(FieldRead):
+    """A time-comparison operand interpreted as its declared source instant."""
+
+
+@dataclass(frozen=True, slots=True)
 class TimeScopeFieldRead(FieldRead):
     """Temporal membership usage, distinct from the field's raw scalar value."""
 
@@ -288,6 +293,15 @@ class IdentityRead:
 
 def field_read_key(read: FieldRead | IdentityRead) -> str:
     """Identify a physical field usage including its path and attribute anchor."""
+    if isinstance(read, TimeInstantFieldRead):
+        return repr(
+            (
+                "instant",
+                read.field.ref.path,
+                tuple(step.ref.path for step in read.path),
+                attribute_time_key(read.at) if read.at is not None else None,
+            )
+        )
     if isinstance(read, TimeScopeFieldRead):
         return repr(
             (

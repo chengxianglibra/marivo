@@ -200,6 +200,8 @@ class Session:
             entity: Resolved Entity definition.
             at: Exact version selection instant.
             where: An optional same-root row Predicate combining field and Population membership conditions.
+                Time comparison boundaries use this Session's report timezone for civil inputs;
+                aware inputs retain their instant, as with session.time_scope.
 
         Returns:
             A lazy Population retaining this Session's ownership.
@@ -267,10 +269,16 @@ class Session:
                 "Rebuild the predicate domain in this Session.",
                 "session.members",
             )
+        from marivo.analysis.binding.temporal_predicates import normalize_temporal_predicate
+
         node = SourceIdentities(
             entity_exact(resolved),
             at,
-            predicate.node if predicate is not None else None,
+            normalize_temporal_predicate(
+                predicate.node, self.timezone, location="Session.members.where"
+            )
+            if predicate is not None
+            else None,
         )
         return Population(
             PopulationProgram(node, Owner(self.id, self._runtime.store.store_id), (axis,)),
@@ -334,6 +342,8 @@ class Session:
             by: Ordered fields, membership rules and finite TimeScopes, or a complete Population
                 optionally followed by membership rules in a tuple.
             where: Extra row Predicate combining field and Population membership conditions.
+                Time comparison boundaries use this Session's report timezone for civil inputs;
+                aware inputs retain their instant, independently of the output scope's timezone.
 
         Returns:
             An immutable pending AnalysisFrame owned by this Session.

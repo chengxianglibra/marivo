@@ -109,7 +109,7 @@ def test_date_within_preserves_date_identity_coordinates(
     assert result.schema.axes[0].keys[0].dtype == ScalarDataType("date")
 
 
-def test_date_within_composition_preserves_raw_projection_and_date_equality(
+def test_date_within_composition_preserves_raw_projection_and_exact_equality(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
@@ -122,7 +122,8 @@ def test_date_within_composition_preserves_raw_projection_and_date_equality(
     assert isinstance(day, ms.TimeDimension) and isinstance(amount, ms.Measure)
     scope = session.time_scope(start="2026-07-01", end="2026-07-02")
     within = day.within(scope)
-    selected = session.members(entity, where=within & (day == date(2026, 7, 2)))
+    second_start = session.instant("2026-07-02", timezone="Asia/Tokyo")
+    selected = session.members(entity, where=within & (day == second_start))
     result = session.read(selected, {"day": day}).compute()
     data = result.to_pandas()
     assert data.iloc[:, 0].tolist() == [2]
@@ -130,8 +131,13 @@ def test_date_within_composition_preserves_raw_projection_and_date_equality(
     assert result.schema.values["day"].dtype == ScalarDataType("date")
 
     equality = session.members(entity, where=day == date(2026, 7, 1))
-    assert session.frame(equality).compute().to_pandas().iloc[:, 0].tolist() == [1]
-    either = session.members(entity, where=within | (day == date(2026, 7, 1)))
+    # A Python date now means report midnight (UTC), not a source DATE label.
+    # Neither Tokyo day starts at UTC midnight; an explicit source anchor matches.
+    assert session.frame(equality).compute().to_pandas().iloc[:, 0].tolist() == []
+    first_start = session.instant("2026-07-01", timezone="Asia/Tokyo")
+    source_equality = session.members(entity, where=day == first_start)
+    assert session.frame(source_equality).compute().to_pandas().iloc[:, 0].tolist() == [1]
+    either = session.members(entity, where=within | (day == first_start))
     assert session.frame(either).compute().to_pandas().iloc[:, 0].tolist() == [1, 2]
     outside = session.members(entity, where=~within)
     assert session.frame(outside).compute().to_pandas().iloc[:, 0].tolist() == [1]

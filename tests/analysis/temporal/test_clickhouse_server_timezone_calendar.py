@@ -270,9 +270,8 @@ def test_date_calendar_day_keeps_dates_and_completes_only_missing_days(
             .compute()
             .to_pandas()
         )
-        # Unzoned string constants compare against the UTC carrier, while
-        # session.instant above explicitly captures business-day boundaries.
-        assert labels.total.tolist() == ([1, 1] if report_timezone == "Asia/Shanghai" else [2, 1])
+        # Bare dates and Session anchors share the report's civil boundaries.
+        assert labels.total.tolist() == [2, 1]
         for sql in source_trace.native_sql[first_submission:]:
             for where in sqlglot.parse_one(sql, read="clickhouse").find_all(sge.Where):
                 assert ("__field_" in where.sql()) == (report_timezone == "America/Los_Angeles"), (

@@ -26,6 +26,7 @@ from marivo._definition.types import (
     IdentityRead,
     IntervalCoordinate,
     RowAttributeTime,
+    TimeInstantFieldRead,
     TimeScopeFieldRead,
     coordinate_read_keys,
     field_read_key,
@@ -227,6 +228,7 @@ def prepare_fields(
         table: ir.Table,
         authority_zone: str | None = None,
         time_scope: TimeScopeFieldRead | None = None,
+        instant_read: bool = False,
     ) -> ir.Value:
         is_measure = path in registry.measures
         owner = registry.measures[path].entity if is_measure else registry.dimensions[path].entity
@@ -259,7 +261,11 @@ def prepare_fields(
         if target.kind is SemanticKind.TIME_DIMENSION:
             axis = normalize_target_dimension(registry, path, prepared_column=path)
             consumed_zone = (
-                time_scope.scope_timezone if time_scope is not None else authority_zone or zone
+                time_scope.scope_timezone
+                if time_scope is not None
+                else consumption_timezone
+                if instant_read
+                else authority_zone or zone
             )
             prefix = (
                 value(axis.parse.prefix, table, consumed_zone)
@@ -310,8 +316,10 @@ def prepare_fields(
                             "or use a timestamp TimeField for a subday scope.",
                             "TimeField.within",
                         )
-                if time_scope is not None or (
-                    contribution.time is not None and contribution.time.field.ref.path == path
+                if (
+                    instant_read
+                    or time_scope is not None
+                    or (contribution.time is not None and contribution.time.field.ref.path == path)
                 ):
                     result = localize(authority.timezone, timestamp(result))
             if authority.kind != "civil_date" and result.type().timezone is None:
@@ -458,6 +466,7 @@ def prepare_fields(
                         read.field.ref.path,
                         relation,
                         time_scope=read if isinstance(read, TimeScopeFieldRead) else None,
+                        instant_read=isinstance(read, TimeInstantFieldRead),
                     )
             lowered = lower_condition(condition, fields)
             if lowered.checks:
@@ -502,7 +511,7 @@ def prepare_fields(
             read
             for read in reads
             if isinstance(read, FieldRead)
-            and not isinstance(read, TimeScopeFieldRead)
+            and not isinstance(read, (TimeScopeFieldRead, TimeInstantFieldRead))
             and contribution.time is not None
             and read.field == contribution.time.field
         ),
@@ -581,6 +590,7 @@ def prepare_fields(
                 read.field.ref.path,
                 relation,
                 time_scope=read if isinstance(read, TimeScopeFieldRead) else None,
+                instant_read=isinstance(read, TimeInstantFieldRead),
             )
 
         slot = unique(f"__field_{index}")
