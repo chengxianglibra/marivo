@@ -78,8 +78,6 @@ def test_terminal_corruption_rejects_while_exported_copies_are_isolated(
     # Editing an exported pandas copy is harmless; changing the persisted output fails.
     altered = plain(artifact)
     altered.loc[:, "value"] = 999
-    altered.attrs["axes"][0]["name"] = "changed by caller"
-    assert artifact.to_pandas().attrs["axes"][0]["name"] != "changed by caller"
     memory = artifact.compute()
     assert not altered.value.equals(plain(artifact).value)
     for damaged in (payload[:-1], b"damaged terminal data"):

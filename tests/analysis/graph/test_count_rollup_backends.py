@@ -153,7 +153,7 @@ def test_native_count_rollup_and_group_state(
         offset = len(reads)
         saved_groups = grouped.persist()
         frame = saved_groups.to_pandas()
-        assert dict(zip(frame[ordinary_columns(frame)[0]], frame["value"], strict=True)) == {
+        assert dict(zip(frame[ordinary_columns(saved_groups)[0]], frame["value"], strict=True)) == {
             "even": 4,
             "odd": 5,
         }

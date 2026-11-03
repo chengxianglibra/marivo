@@ -23,6 +23,7 @@ if TYPE_CHECKING:
     from marivo._definition.expressions import MetricExpression, MetricNode
     from marivo._help.render import PublicHelpTarget
     from marivo._temporal import TimeScope
+    from marivo.analysis.core.artifact_data import OutputAttachment
     from marivo.analysis.core.time_authority import TemporalExecution
     from marivo.analysis.dsl.frame import AnalysisFrame
     from marivo.analysis.materialization.admission import DatasetRuntime
@@ -1077,6 +1078,20 @@ def terminal_run(owner: Session | DatasetRuntime | LocalFrameServices, run_id: s
 
 def run_ids(session: Session) -> set[str]:
     return {item.run_ref for item in terminal_runs(session)}
+
+
+def frozen_coordinates(frame: AnalysisFrame) -> tuple[OutputAttachment, ...]:
+    """Return isolated copies of a complete Frame's frozen time-coordinate directories.
+
+    Test-only view of internal storage; ``frame.to_pandas()`` exports no attrs.
+    """
+    from marivo.analysis.core.frame_data import MemoryFrameBacking, StoredFrameBacking
+
+    backing = frame._backing
+    if isinstance(backing, StoredFrameBacking):
+        return frame._local.read_data(backing).copy_attachments()
+    assert isinstance(backing, MemoryFrameBacking)
+    return backing.data.copy_attachments()
 
 
 def numeric_program_frame(

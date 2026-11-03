@@ -17,7 +17,7 @@ from marivo.analysis.core.frozen_calendar import read_calendar_directory
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.session.core import Session
 from marivo.semantic.reader import SemanticProject
-from tests.shared_fixtures import catalog_value
+from tests.shared_fixtures import catalog_value, frozen_coordinates
 
 
 @pytest.fixture
@@ -362,16 +362,11 @@ def test_wall_membership_calendar_windows_and_population_agree(
     metric = amount.sum(time=at)
     scope = session.time_scope(start=start, end=end)
     calendar = scope.by(mv.grain("hour"))
-    values = (
-        session.observe(
-            {"ordinary": metric, "history": metric.window(mv.all_history())}, by=(calendar,)
-        )
-        .compute()
-        .to_pandas()
-    )
-    assert values.attrs["frozen_coordinates"][0]["rows"].to_pandas(types_mapper=pd.ArrowDtype)[
-        "ordinal"
-    ].tolist() == list(range(len(expected)))
+    frame = session.observe(
+        {"ordinary": metric, "history": metric.window(mv.all_history())}, by=(calendar,)
+    ).compute()
+    values = frame.to_pandas()
+    assert frozen_coordinates(frame)[0].rows["ordinal"].tolist() == list(range(len(expected)))
     assert values["ordinary"].tolist() == expected
     assert values["history"].tolist() == [
         sum(expected[: index + 1]) for index in range(len(expected))

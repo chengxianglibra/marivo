@@ -90,7 +90,7 @@ def test_null_operand_propagates_in_time_comparison(
             }
         ).compute()
         frame = result.to_pandas()
-        frame = frame.set_index(ordinary_columns(frame)[0])
+        frame = frame.set_index(ordinary_columns(result)[0])
         assert frame.loc["A", "reference.absolute.value"] == -30 * sign
         assert frame.loc["B", "reference.absolute.value"] == 80 * sign
         assert frame.loc["C", "reference.absolute.value"] == 0
@@ -159,8 +159,9 @@ def test_null_and_zero_denominator_both_remain_nullable_in_both_directions(
         ),
     )
     endpoints = q.select({"revenue": q["revenue"], "count_ratio": q["count"] / q["count"]})
-    values = endpoints.compute().to_pandas()
-    values = values.set_index(ordinary_columns(values)[0])
+    endpoint_result = endpoints.compute()
+    values = endpoint_result.to_pandas()
+    values = values.set_index(ordinary_columns(endpoint_result)[0])
     assert pd.isna(values.loc["D", "revenue"])
     assert pd.isna(values.loc["D", "count_ratio"])
     assert values.loc["A", "revenue"] == 30.0
@@ -169,10 +170,9 @@ def test_null_and_zero_denominator_both_remain_nullable_in_both_directions(
         ("revenue", "count_ratio", 30.0),
         ("count_ratio", "revenue", 1 / 30),
     ):
-        frame = (
-            endpoints.select({"value": endpoints[first] / endpoints[second]}).compute().to_pandas()
-        )
-        frame = frame.set_index(ordinary_columns(frame)[0])
+        quotient = endpoints.select({"value": endpoints[first] / endpoints[second]}).compute()
+        frame = quotient.to_pandas()
+        frame = frame.set_index(ordinary_columns(quotient)[0])
         assert frame.loc["A", "value"] == pytest.approx(expected)
         assert pd.isna(frame.loc["D", "value"])
 
@@ -187,8 +187,9 @@ def test_native_nan_operand_is_retained_until_local_comparison_arithmetic(
     ms.load(workspace_dir=case.root)
     current = _observe(case, "2026-09-01", "2026-10-01")
     baseline = _observe(case, "2026-08-01", "2026-09-01")
-    rows = current.compute().to_pandas()
-    rows = rows.set_index(ordinary_columns(rows)[0])
+    current_result = current.compute()
+    rows = current_result.to_pandas()
+    rows = rows.set_index(ordinary_columns(current_result)[0])
     assert math.isnan(rows.loc["A", "value"])
     compared = current.compare(
         {
@@ -199,9 +200,7 @@ def test_native_nan_operand_is_retained_until_local_comparison_arithmetic(
             )
         }
     )
-    compared_rows = (
-        compared.compute().to_pandas().set_index(ordinary_columns(rows.reset_index())[0])
-    )
+    compared_rows = compared.compute().to_pandas().set_index(ordinary_columns(current_result)[0])
     assert math.isnan(compared_rows.loc["A", "reference.absolute.value"])
     assert math.isnan(compared_rows.loc["A", "reference.relative.value"])
     assert terminal_runs(case.session) == ()

@@ -125,7 +125,7 @@ def test_declared_string_time_uses_owned_execution_functions(
         assert isinstance(values, mv.AnalysisFrame)
         result = values.persist()
         frame = result.to_pandas()
-        frame = frame.set_index(ordinary_columns(frame)[0])
+        frame = frame.set_index(ordinary_columns(result)[0])
         expected_values = {
             ("a", 9007199254740992, 1): 2,
             ("a", 9007199254740993, 2): None,

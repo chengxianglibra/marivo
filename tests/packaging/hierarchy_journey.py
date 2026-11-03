@@ -38,7 +38,7 @@ def _verify(values: dict[str, mv.AnalysisFrame]) -> dict[str, Json]:
 
     def regions(name: str) -> dict[str, object]:
         result: dict[str, object] = {}
-        (key,) = _ordinary_keys(frames[name])
+        (key,) = _ordinary_keys(values[name])
         for record in frames[name].to_dict(orient="records"):
             member, value = record[key], record["value"]
             assert isinstance(member, str)
@@ -52,8 +52,8 @@ def _verify(values: dict[str, mv.AnalysisFrame]) -> dict[str, Json]:
     assert frames["selected_count"].value.tolist() == [2]
     joined = frames["base"].merge(
         frames["category"],
-        left_on=_ordinary_keys(frames["base"])[0],
-        right_on=_ordinary_keys(frames["category"])[0],
+        left_on=_ordinary_keys(values["base"])[0],
+        right_on=_ordinary_keys(values["category"])[0],
         suffixes=("_base", "_category"),
         validate="one_to_one",
     )
@@ -63,7 +63,7 @@ def _verify(values: dict[str, mv.AnalysisFrame]) -> dict[str, Json]:
     } == region_oracle
     assert (
         frames["coordinates"]
-        .groupby(_ordinary_keys(frames["coordinates"])[1])
+        .groupby(_ordinary_keys(values["coordinates"])[1])
         .value.sum()
         .to_dict()
         == channel_oracle

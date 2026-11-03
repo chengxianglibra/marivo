@@ -271,7 +271,6 @@ def read_frame_page(
         preview.attachments,
         axis_names=axis_names,
         columns=columns,
-        include_attrs=False,
         time_details=time_details,
     )
     position = start + len(rows)

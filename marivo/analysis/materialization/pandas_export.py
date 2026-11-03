@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 from collections import Counter
-from dataclasses import asdict
 
 import pandas as pd
 import pyarrow as pa
@@ -18,9 +17,7 @@ from marivo.analysis.core.data_schema import (
     PairedDataAxis,
 )
 from marivo.analysis.core.data_types import DataColumn, DurationDataType, TimestampDataType
-from marivo.analysis.core.data_validation import stage_arrow_type
 from marivo.analysis.core.frame_schema import axis_export_layout, export_layout, selected_columns
-from marivo.analysis.core.frame_structure import axis_role
 from marivo.analysis.core.frozen_calendar import FrozenKey, frozen_key_rows
 
 
@@ -160,10 +157,9 @@ def export_frame(
     *,
     axis_names: tuple[str, ...] | None = None,
     columns: tuple[str, ...] | None = None,
-    include_attrs: bool = True,
     time_details: bool = False,
 ) -> pd.DataFrame:
-    """Copy readable coordinates, exact value arrays and inert interpretation."""
+    """Copy readable coordinates and exact value arrays into a table without attrs."""
     names = tuple(
         column.name
         for column in export_layout(
@@ -182,44 +178,6 @@ def export_frame(
     )
     result = pd.concat(series, axis=1) if series else pd.DataFrame(index=pd.RangeIndex(len(rows)))
     result.columns = pd.Index(names, dtype=object)
-    if not include_attrs:
-        return result
-    result.attrs = {
-        "axes": tuple(
-            {
-                "token": axis.token,
-                "name": axis.name,
-                "role": axis_role(axis),
-                "key_names": tuple(column.name for column in axis.columns),
-                "at": axis.at,
-                "descriptor": asdict(axis),
-            }
-            for axis in schema.axes
-        ),
-        "units": tuple((column.name, column.unit) for column in schema.values),
-        "comparisons": tuple(asdict(fact) for fact in schema.comparisons),
-        "frozen_coordinates": tuple(
-            {
-                "name": part.name,
-                "schema": asdict(part.schema),
-                # Arrow equality is scalar, so pandas can compare copied attrs.
-                "rows": pa.Table.from_pandas(
-                    part.rows.copy(deep=True),
-                    schema=pa.schema(
-                        [
-                            pa.field(
-                                column.slot_id, stage_arrow_type(column.dtype), column.nullable
-                            )
-                            for column in part.schema.columns
-                        ]
-                    ),
-                    preserve_index=False,
-                    safe=True,
-                ).replace_schema_metadata(None),
-            }
-            for part in attachments
-        ),
-    }
     return result
 
 

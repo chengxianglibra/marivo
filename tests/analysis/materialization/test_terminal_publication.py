@@ -41,6 +41,7 @@ from marivo.analysis.core.frame_data import (
     MemoryFrameBacking,
     StoredFrameBacking,
 )
+from marivo.analysis.core.frame_interpretation import FrameCalendarAxisSchema
 from marivo.analysis.core.frame_metadata import EvaluationRecord, FrameResultMetadata
 from marivo.analysis.core.frozen_calendar import FrozenKey
 from marivo.analysis.core.lineage import empty as empty_lineage
@@ -60,7 +61,7 @@ from marivo.analysis.materialization.terminal_publication import reconcile
 from marivo.analysis.materialization.terminal_storage import POLICY, read_output, write_output
 from marivo.analysis.session.core import Session
 from tests.analysis.materialization.terminal_recovery_worker import method_result
-from tests.shared_fixtures import catalog_value, terminal_run, terminal_runs
+from tests.shared_fixtures import catalog_value, frozen_coordinates, terminal_run, terminal_runs
 
 if TYPE_CHECKING:
     from tests.conftest import _SemanticProjectFactory
@@ -256,7 +257,6 @@ def test_storage_wide_complete_keys_exact_dtypes_and_nullable_values(tmp_path: P
                 exported[column.name], expected[column.slot_id], check_names=False
             )
         assert exported["present"].tolist() == expected["p0"].tolist()
-        assert dict(exported.attrs["units"])["decimal"] == "CNY"
 
         assert decode(encode(manifest), ArtifactManifest) == manifest
     with pq.ParquetFile(tmp_path / "saved-3" / "data.parquet") as parquet:
@@ -295,7 +295,6 @@ def test_zero_axis_zero_value_unit_rows(tmp_path: Path, count: int) -> None:
     exported = export_frame(manifest.data.schema, output)
     assert exported.shape == (count, 0)
     assert exported.columns.nlevels == 1
-    assert exported.attrs["units"] == ()
 
 
 def test_faults_never_expose_partial_output_or_delete_prior_commit(
@@ -858,17 +857,12 @@ def test_public_read_isolated_copy_and_historical_values(source_session: Session
     before = artifact.to_pandas()
     assert {
         (None if pd.isna(key) else key): value
-        for key, value in zip(
-            before[before.attrs["axes"][0]["name"].rsplit(".", 1)[-1]], before["total"], strict=True
-        )
+        for key, value in zip(before["region"], before["total"], strict=True)
     } == {None: 5, "A": 9007199254740993}
-    assert before.attrs["axes"][0]["role"] == "field"
+    assert artifact.schema.axes[0].role == "field"
     changed = artifact.to_pandas()
     changed.iloc[0, 1] = 0
-    changed.attrs["axes"][0]["name"] = "changed"
-    changed.attrs["axes"][0]["descriptor"]["columns"][0]["dtype"]["name"] = "changed"
     pd.testing.assert_frame_equal(session.persisted_frame(artifact.artifact_id).to_pandas(), before)
-    assert session.persisted_frame(artifact.artifact_id).to_pandas().attrs == before.attrs
 
 
 @pytest.mark.release
@@ -978,16 +972,18 @@ def test_public_calendar_uses_saved_instants_and_boundaries(
         mv.grain("day")
     )
     artifact = calendar_constant(session, axis).persist()
-    exported = session.persisted_frame(artifact.artifact_id).to_pandas(time_details=True)
-    (description,) = exported.attrs["axes"]
-    assert description["role"] == "calendar" and description["descriptor"]["timezone"] == zone
+    reopened = session.persisted_frame(artifact.artifact_id)
+    exported = reopened.to_pandas(time_details=True)
+    (description,) = reopened.schema.axes
+    assert isinstance(description, FrameCalendarAxisSchema)
+    assert description.role == "calendar" and description.timezone == zone
     repr(exported)
     print(exported)
     assert len(pd.concat([exported, exported.copy()])) == 2 * len(exported)
-    (part,) = exported.attrs["frozen_coordinates"]
-    bounds = part["rows"].to_pandas(types_mapper=pd.ArrowDtype)
+    (part,) = frozen_coordinates(reopened)
+    bounds = part.rows
     assert len(bounds) == 3
-    assert exported[description["name"].rsplit(".", 1)[-1] + ".label"].tolist() == [
+    assert exported["period.label"].tolist() == [
         "2026-03-28",
         "2026-03-29",
         "2026-03-30",
@@ -996,7 +992,7 @@ def test_public_calendar_uses_saved_instants_and_boundaries(
         pd.Timestamp(cell.original_start) for cell in axis.grid.cells
     ]
     assert bounds["selection"].tolist() == ["partial", "full", "full"]
-    prefix = description["name"].rsplit(".", 1)[-1]
+    prefix = "period"
     assert exported[prefix].iloc[0] == bounds.iloc[0, 0]
     renamed = artifact.to_pandas(axis_names={artifact.axes[0].token: "bucket"}, time_details=True)
     assert renamed["bucket"].tolist() == exported[prefix].tolist()
@@ -1148,11 +1144,10 @@ def test_composite_coordinates_remain_one_ordered_tuple(tmp_path: Path) -> None:
         terminal_store.describe(replace(result_metadata(), lineage=empty_lineage(schema))),
     )
     exported = export_frame(schema, read_output(tmp_path, schema, handle))
-    assert exported[exported.attrs["axes"][0]["name"].rsplit(".", 1)[-1]].tolist() == [
+    assert exported["customer"].tolist() == [
         (9007199254740993, "A"),
         (9007199254740993, None),
     ]
-    assert len(exported.attrs["axes"][0]["descriptor"]["columns"]) == 2
 
 
 def test_operator_sequence_survives_real_source_finish_and_storage(source_session: Session) -> None:
@@ -1167,7 +1162,7 @@ def test_operator_sequence_survives_real_source_finish_and_storage(source_sessio
     selected = filtered.select({"amount": filtered["total"] * 2})
     fixed = selected.compute()
     expected = fixed.to_pandas()
-    assert expected[expected.attrs["axes"][0]["name"].rsplit(".", 1)[-1]].tolist() == ["A", pd.NA]
+    assert expected["region"].tolist() == ["A", pd.NA]
     assert expected["amount"].tolist() == [18014398509481986, 10]
     pd.testing.assert_frame_equal(fixed.persist().to_pandas(), expected)
     right = fixed.select({"amount": fixed["amount"] / 2}).compute()
@@ -1184,15 +1179,13 @@ def test_operator_sequence_survives_real_source_finish_and_storage(source_sessio
                 combined.compute()
             continue
         combined_rows = combined.compute().to_pandas()
-        assert combined_rows[
-            combined_rows.attrs["axes"][0]["name"].rsplit(".", 1)[-1]
-        ].tolist() == ["A", pd.NA]
+        assert combined_rows["region"].tolist() == ["A", pd.NA]
         pd.testing.assert_frame_equal(combined.persist().to_pandas(), combined_rows)
     reduced = fixed.reduce(
         {"rows": row_count(), "total": fixed["amount"].sum()}, by=(fixed.axes[0],)
     ).compute()
     reduced_rows = reduced.to_pandas()
-    assert reduced_rows[reduced_rows.attrs["axes"][0]["name"].rsplit(".", 1)[-1]].tolist() == [
+    assert reduced_rows["region"].tolist() == [
         pd.NA,
         "A",
     ]

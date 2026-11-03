@@ -22,7 +22,7 @@ from marivo.refs import ref
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.numeric.test_remote_numeric_query import _datasource_model
 from tests.datasource.source_cases import SourceData, receipt, source_case, source_params
-from tests.shared_fixtures import catalog_value
+from tests.shared_fixtures import catalog_value, frozen_coordinates
 from tests.support.source_trace import capture_source
 
 CASES = source_params(
@@ -551,7 +551,7 @@ def test_public_calendar_keeps_facts_when_midnight_fold_returns_to_previous_date
                     for bucket, total in zip(oracle.bucket, oracle.total, strict=True)
                 }
                 assert sum(actual.values()) == expected
-                columns = rows.attrs["frozen_coordinates"][0]["rows"].column_names
+                columns = list(frozen_coordinates(result)[0].rows.columns)
                 assert not set(columns) & {
                     "nominal_start",
                     "nominal_end",

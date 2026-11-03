@@ -122,7 +122,7 @@ def test_reused_temporal_baseline_keeps_each_alias_projection(
     assert list(
         rows[
             [
-                rows.attrs["axes"][0]["name"].rsplit(".", 1)[-1] + ("" if calendar else ".start"),
+                "calendar:day" if calendar else "interval.start",
                 "channel",
             ]
         ].itertuples(index=False, name=None)

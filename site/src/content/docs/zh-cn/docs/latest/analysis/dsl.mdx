@@ -194,9 +194,7 @@ regional.show()
 只改前缀，接受当前 Frame 的完整轴名或 token 字符串，例如
 `fixed.to_pandas(axis_names={fixed.axes[0].token: "bucket"})`。
 
-冻结坐标元数据中，每项 `rows` 是不可变的 `pyarrow.Table`，兼容 pandas 的元数据比较。需要 pandas 表时使用 `part["rows"].to_pandas(types_mapper=pd.ArrowDtype)`；它保留物理类型与 NULL。
-
-`table.attrs["axes"]`、`units`、`comparisons` 和 `frozen_coordinates` 保留隔离的解释元数据；内部 descriptor 不承诺稳定的重新导入协议。导出保留物理数值、缺失和时间类型，不应统一强转 float 或将所有 NA 填零。后续 typed 分析从 Frame 继续。Help：`analysis.analysis_frame.to_pandas`。
+导出表的 `attrs` 为空，可直接使用 `table.to_parquet(...)` 等 pandas 落盘方法。轴、单位和比较从 `fixed.schema` 读取，保存的周期从 `read_periods()` 读取。导出保留物理数值、缺失和时间类型，不应统一强转 float 或将所有 NA 填零。后续 typed 分析从 Frame 继续。Help：`analysis.analysis_frame.to_pandas`。
 
 较大的 `int64[pyarrow]` 值与浮点数混合运算时可能触发 `ArrowInvalid`。如果可以接受近似计算，显式转换相关列，例如 `hours = table["seconds"].astype("float64") / 3600.0`。该转换可能对大整数舍入，并将 `pd.NA` 表示为 `NaN`。`page.to_pandas()` 返回的表也遵循相同规则。
 

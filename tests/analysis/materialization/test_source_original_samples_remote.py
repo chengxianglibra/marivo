@@ -214,12 +214,12 @@ def test_remote_selected_window_rollup_keeps_correlated_endpoint_and_parent_keys
         fixed = fine.top(3, by=fine["value"]).compute()
         frame = fixed.to_pandas()
         assert frame["value"].tolist() == [500, 500, 500]
-        assert frame[frame.attrs["axes"][1]["name"].rsplit(".", 1)[-1]].tolist() == ["A", "B", "A"]
+        assert frame["customer"].tolist() == ["A", "B", "A"]
         assert len(frame) == 3
         assert list(
             zip(
                 frame.iloc[:, 0],
-                frame[frame.attrs["axes"][1]["name"].rsplit(".", 1)[-1]],
+                frame["customer"],
                 frame["value"],
                 strict=True,
             )

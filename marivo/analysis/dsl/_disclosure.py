@@ -643,7 +643,7 @@ def provider() -> DisclosureProvider:
                 "Axes first; composite tuples; TimeField/calendar: one key; interval: .start/.end, zone (mixed/sub-minute: UTC); pairs: .left/.right.",
                 "axis_names/select fix collisions; keep order/types/NA/presence.",
                 "Large int64[pyarrow] / float may raise ArrowInvalid; approx: values.astype('float64')/3600.0 (may round; pd.NA -> NaN).",
-                "Isolated attrs; frozen_coordinates rows: pyarrow.Table. read_periods(): saved key/label/selection progress.",
+                "Empty attrs; interpretation: frame.schema. read_periods(): saved key/label/selection progress.",
             ),
         ),
         (

@@ -50,15 +50,12 @@ def test_authored_relationship_keys_execute_metric(relationship_project: Path) -
     session = mv.session.get_or_create("relationship", timezone="UTC")
     route = session.catalog.get("relationship:sales.event_order")
     region = catalog_value(session.catalog, "sales.orders.region", kind="field").via((route,))
-    metric = (
-        session.observe(
-            {"value": session.catalog.get("metric:sales.event_count")},
-            by=(session.time_scope(start="2026-01-01", end="2026-02-01"), region),
-        )
-        .persist()
-        .to_pandas()
-    )
-    assert dict(zip(metric[ordinary_columns(metric)[0]], metric["value"], strict=True)) == {
+    observed = session.observe(
+        {"value": session.catalog.get("metric:sales.event_count")},
+        by=(session.time_scope(start="2026-01-01", end="2026-02-01"), region),
+    ).persist()
+    metric = observed.to_pandas()
+    assert dict(zip(metric[ordinary_columns(observed)[0]], metric["value"], strict=True)) == {
         "east": 2,
         "west": 1,
     }

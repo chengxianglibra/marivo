@@ -115,18 +115,15 @@ def test_local_data_reads_use_receipts_and_do_not_cache_results(
     )
     expected = session.persisted_frame(artifact.artifact_id).to_pandas()
     pd.testing.assert_frame_equal(result, expected)
-    assert result.attrs == expected.attrs
+    assert result.attrs == {}
     assert result.iloc[0, 0] == 7
     result.iloc[:, 0] = 99
-    result.attrs.clear()
     second = local.read_complete(backing)
     again = export_frame(
         second.data.schema, second.data.copy_rows(), second.data.copy_attachments()
     )
     assert again.iloc[0, 0] == 7
-    assert again.attrs
     pd.testing.assert_frame_equal(again, expected)
-    assert again.attrs == expected.attrs
     reference = weakref.ref(again)
     del again
     gc.collect()

@@ -128,7 +128,7 @@ def test_drill_after_original_operations_prepares_related_fields(
     actual = list(
         zip(
             result.iloc[:, 0],
-            result[result.attrs["axes"][1]["name"].rsplit(".", 1)[-1]],
+            result["name" if explicit_path else "region"],
             result[name],
             strict=True,
         )

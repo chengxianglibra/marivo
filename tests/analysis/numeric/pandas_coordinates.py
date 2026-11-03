@@ -5,12 +5,10 @@ import pandas as pd
 import marivo.analysis as mv
 
 
-def ordinary_columns(frame: pd.DataFrame) -> tuple[str, ...]:
+def ordinary_columns(frame: mv.AnalysisFrame) -> tuple[str, ...]:
     """Select ordinary coordinates by their declared axis role, preserving order."""
     return tuple(
-        axis["name"].rsplit(".", 1)[-1]
-        for axis in frame.attrs["axes"]
-        if axis["role"] in ("identity", "field")
+        axis.name.rsplit(".", 1)[-1] for axis in frame.axes if axis.role in ("identity", "field")
     )
 
 
@@ -29,7 +27,9 @@ def plain(result: mv.AnalysisFrame) -> pd.DataFrame:
                 column += ".start"
             if axis.role == "paired":
                 column += ".left"
-                if frame.attrs["axes"][index]["descriptor"]["left"]["kind"] == "interval":
+                schema = result.schema.axes[index]
+                assert isinstance(schema, mv.FramePairedAxisSchema)
+                if schema.left.kind == "interval":
                     column += ".start"
             names[column] = f"time_{temporal}"
             temporal += 1

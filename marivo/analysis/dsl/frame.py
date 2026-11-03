@@ -1591,8 +1591,7 @@ class AnalysisFrame:
             membership intervals; read_periods() exposes saved selection progress.
             axis_names renames prefixes only.
             Paired coordinates use left/right prefixes.
-            attrs retain isolated axes, units, comparisons and frozen_coordinates;
-            frozen_coordinates entries store rows as immutable pyarrow.Table values.
+            attrs are empty; read axes, units and comparisons from frame.schema.
 
         Example:
             ``fixed = frame.compute(); rows = fixed.to_pandas()``;
@@ -1608,8 +1607,8 @@ class AnalysisFrame:
             Large int64[pyarrow] values mixed with floats may raise ArrowInvalid.
             For approximate arithmetic, use ``rows["value"].astype("float64") / 3600.0``;
             this may round integers and represent pd.NA as NaN.
-            Exported data and attrs grant no typed computation authority or stable
-            deserialization protocol. Continue typed analysis from the Frame.
+            Exported data grants no typed computation authority. Continue typed
+            analysis from the Frame.
             Retain that Frame for typed operations; a DataFrame does not retain it.
             For another process, persist and retain exact IDs before the producer exits.
         """

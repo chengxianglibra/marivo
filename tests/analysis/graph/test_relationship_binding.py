@@ -188,12 +188,11 @@ def test_roles_and_independent_read_paths(analysis_dsl_case_factory: DslCaseFact
     for route, expected in zip((buyer, recipient), expected_roles, strict=True):
         axis = customer_id.via((route,))
         complete = mv.coordinates(by=(axis,), keys=(("A",), ("B",), ("C",), ("D",)))
-        frame = (
-            session.observe({"value": revenue}, by=mv.product(_window(session), complete))
-            .persist()
-            .to_pandas()
-        )
-        assert frame.set_index(ordinary_columns(frame)[0])["value"].to_dict() == expected
+        observed = session.observe(
+            {"value": revenue}, by=mv.product(_window(session), complete)
+        ).persist()
+        frame = observed.to_pandas()
+        assert frame.set_index(ordinary_columns(observed)[0])["value"].to_dict() == expected
     with pytest.raises(AnalysisError):
         session.read(orders, {"region": region})
     buyer_region, recipient_region = region.via((buyer,)), region.via((recipient,))
@@ -296,15 +295,12 @@ def test_classification_read_preserves_missing_owner_as_null(
     assert len(terminal_runs(session)) == 1
     # The separate observation consumes only August contributions, so a bad July
     # relationship is outside this read scope.
-    frame = (
-        session.observe(
-            {"value": catalog_value(session.catalog, LINE_REVENUE.path, kind="metric")},
-            by=(_window(session), category),
-        )
-        .persist()
-        .to_pandas()
-    )
-    assert frame.set_index(ordinary_columns(frame)[0])["value"].to_dict() == {
+    observed = session.observe(
+        {"value": catalog_value(session.catalog, LINE_REVENUE.path, kind="metric")},
+        by=(_window(session), category),
+    ).persist()
+    frame = observed.to_pandas()
+    assert frame.set_index(ordinary_columns(observed)[0])["value"].to_dict() == {
         "book": 700,
         "game": 300,
     }
@@ -341,7 +337,7 @@ def test_branch_and_consumed_coverage(analysis_dsl_case_factory: DslCaseFactory)
     assert automatic_binding.contributions == explicit_binding.contributions
     fixed = automatic.persist()
     frame = fixed.to_pandas()
-    assert frame.set_index(ordinary_columns(frame)[0])["value"].to_dict() == {
+    assert frame.set_index(ordinary_columns(fixed)[0])["value"].to_dict() == {
         "book": 700,
         "game": 300,
     }
@@ -361,8 +357,9 @@ def forbidden(*args, **kwargs):
 ms.load = forbidden
 DatasourceConnectionService.use_backend = forbidden
 session = mv.session.resume(sys.argv[1])
-frame = session.persisted_frame(sys.argv[2]).to_pandas()
-assert frame.set_index(ordinary_columns(frame)[0])['value'].to_dict() == {'book':700,'game':300}
+fixed = session.persisted_frame(sys.argv[2])
+frame = fixed.to_pandas()
+assert frame.set_index(ordinary_columns(fixed)[0])['value'].to_dict() == {'book':700,'game':300}
 assert frame['value'].sum() == 1000
 assert session.persisted_frame(sys.argv[3]).to_pandas()['value'].tolist() == [1000]
 """
@@ -400,7 +397,7 @@ def test_multiroot_branch_arithmetic(analysis_dsl_case_factory: DslCaseFactory) 
         {"ratio": ratio, "linear": linear}, by=(_window(session), buckets)
     ).persist()
     exported = grouped.to_pandas()
-    frame = exported.set_index(ordinary_columns(exported)[0])
+    frame = exported.set_index(ordinary_columns(grouped)[0])
     assert set(frame.index) == {"book", "game"}
     assert frame["ratio"].to_dict() == pytest.approx({"book": 700 / 850, "game": 2.0})
     assert frame["linear"].to_dict() == pytest.approx({"book": -150, "game": 150})
@@ -452,8 +449,9 @@ def test_timed_classification_cannot_remove_consumed_contributions(
         category = field.at(session.instant(instant))
         scope = session.time_scope(start=start, end=end)
         complete = session.observe({"value": metric}, by=(scope, category))
-        frame = complete.persist().to_pandas()
-        assert frame[ordinary_columns(frame)[0]].tolist() == [key]
+        saved = complete.persist()
+        frame = saved.to_pandas()
+        assert frame[ordinary_columns(saved)[0]].tolist() == [key]
         assert frame["value"].tolist() == [expected]
         observed.append(expected)
         book_domain = mv.coordinates(by=(category,), keys=(("book",),))

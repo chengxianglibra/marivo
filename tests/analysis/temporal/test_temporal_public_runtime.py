@@ -4,11 +4,10 @@ from pathlib import Path
 
 import duckdb
 import ibis
-import pandas as pd
 import pytest
 
 import marivo.analysis as mv
-from tests.shared_fixtures import terminal_runs
+from tests.shared_fixtures import frozen_coordinates, terminal_runs
 
 
 @pytest.mark.parametrize("representation", ["declared_utc", "native_naive", "strptime"])
@@ -68,17 +67,15 @@ def test_report_day_buckets_preserve_declared_read_time_authority(
     grid = session.time_scope(start="2026-07-01", end="2026-07-03").by(mv.grain("day"))
     logical = session.observe({"value": session.catalog.get("metric:sales.revenue")}, by=(grid,))
     assert terminal_runs(session) == ()
-    result = logical.compute().to_pandas(time_details=True)
+    frame = logical.compute()
+    result = frame.to_pandas(time_details=True)
     assert result["value"].tolist() == [1.0, 2.0]
     assert result["calendar:day.label"].tolist() == ["2026-07-01", "2026-07-02"]
     assert terminal_runs(session) == ()
-    assert [
-        value.isoformat()
-        for value in result.attrs["frozen_coordinates"][0]["rows"]
-        .to_pandas(types_mapper=pd.ArrowDtype)
-        .iloc[:, 0]
-    ] == [
+    assert [value.isoformat() for value in frozen_coordinates(frame)[0].rows.iloc[:, 0]] == [
         "2026-06-30T16:00:00+00:00",
         "2026-07-01T16:00:00+00:00",
     ]
-    assert result.attrs["axes"][0]["descriptor"]["timezone"] == "Asia/Shanghai"
+    calendar = frame.schema.axes[0]
+    assert isinstance(calendar, mv.FrameCalendarAxisSchema)
+    assert calendar.timezone == "Asia/Shanghai"

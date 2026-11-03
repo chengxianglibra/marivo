@@ -17,7 +17,7 @@ from marivo.datasource.adapters import SourceSession
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.materialization.domain_recovery_worker import forbidden, snapshot
 from tests.analysis.statistics.pandas_workflows import plain
-from tests.shared_fixtures import terminal_runs
+from tests.shared_fixtures import frozen_coordinates, terminal_runs
 from tests.support.json import Json, encode, obj, read
 
 KEYS = (("a", 9007199254740992, 1), ("a", 9007199254740993, 2), ("b", 9007199254740993, 1))
@@ -63,9 +63,7 @@ def recipes(outputs: Mapping[str, mv.AnalysisFrame]) -> dict[str, Json]:
         pd.Timestamp("2026-08-01T00:00:00Z"): 6,
         pd.Timestamp("2026-08-02T00:00:00Z"): 0,
     }
-    directory = opportunities.attrs["frozen_coordinates"][0]["rows"].to_pandas(
-        types_mapper=pd.ArrowDtype
-    )
+    directory = frozen_coordinates(outputs["opportunities"])[0].rows
     assert directory["ordinal"].tolist() == [0, 1]
     assert directory.iloc[:, 0].tolist() == [
         pd.Timestamp("2026-08-01T00:00:00Z"),

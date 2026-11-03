@@ -127,7 +127,7 @@ start. None means no captured period, not no constraints. Records omit complete
 historical filters, member domains and SQL. Shared actual reads have one identity;
 fixed operations inherit records by read_id without relabeling their periods as
 current output scope. Independent reads remain distinct. Full data export uses
-``to_pandas()`` and preserves its existing attrs snapshots and full validation.
+``to_pandas()`` with full validation and empty attrs.
 
 Public classes describe returned values; they do not authorize direct construction
 or subclass extension. Use ``mv.*`` for explicit descriptions/composition,
@@ -326,7 +326,8 @@ method facts. Damaged method payloads can therefore leave metadata and export
 usable while full consumers fail. Cards show only count, bounded origins and a
 getter pointer. Calling a fact's ``show(n=0)`` follows the explicit payload read.
 Export returns a flat table with short axis names (final path components), full
-value/presence names, nullable types and isolated interpretation attrs. Calendar
+value/presence names, nullable types and empty attrs; interpretation stays on
+``frame.schema``. Calendar
 axes expose one actual key timestamp in their captured timezone. Interval axes
 expose genuine half-open ``.start``/``.end`` bounds. ``time_details=True`` adds
 calendar ``.label``; named labels retain scalar types. Calendar keys do not
@@ -336,7 +337,7 @@ Paired time axes use left/right prefixes. Composite identities remain tuples.
 ``axis_names={"full.axis.name": "name"}`` accepts full names or unique axis tokens;
 FrameAxis keys are rejected. Duplicate output names fail before payload reads.
 Full and paged exports share these rules; cursors bind time_details as well.
-Compute/persist remains explicit. Exported attrs cannot reenter computation.
+Compute/persist remains explicit. Exported tables cannot reenter computation.
 Bounded previews use the same default coordinate interpretation.
 
 Merged interval axes with multiple boundary timezones use UTC timestamps.

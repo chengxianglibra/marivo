@@ -41,6 +41,10 @@ from marivo.analysis.core.frame_data import (
     SourceFrameBinding,
     StoredFrameBacking,
 )
+from marivo.analysis.core.frame_interpretation import (
+    FrameCalendarAxisSchema,
+    FrameIntervalAxisSchema,
+)
 from marivo.analysis.core.frame_metadata import (
     EvaluationRecord,
     FrameResultMetadata,
@@ -84,7 +88,13 @@ from marivo.analysis.materialization.terminal_protocol import (
 from marivo.analysis.materialization.terminal_storage import POLICY
 from marivo.analysis.session.core import Session
 from marivo.semantic.reader import SemanticProject
-from tests.shared_fixtures import DslCaseFactory, catalog_value, terminal_run, terminal_runs
+from tests.shared_fixtures import (
+    DslCaseFactory,
+    catalog_value,
+    frozen_coordinates,
+    terminal_run,
+    terminal_runs,
+)
 
 # Keep operation-specific extrema/order/reduce/selection checks on one native
 # timestamp unit, one duration unit, and date32. All temporal units still have
@@ -264,11 +274,6 @@ def test_comparison_preview_closes_direct_and_fact_references(
         )
         assert all(len(part.rows) <= 2 for part in prefix.attachments)
         assert prefix.schema.comparisons == memory._schema.comparisons
-        exported = saved.to_pandas()
-        assert exported.attrs["comparisons"] == memory.to_pandas().attrs["comparisons"]
-        if exported.attrs["comparisons"]:
-            exported.attrs["comparisons"][0]["alias"] = "changed"
-            assert saved.to_pandas().attrs["comparisons"][0]["alias"] == "base"
 
     def forbidden(*args: object, **kwargs: object) -> None:
         raise AssertionError("zero preview read a required payload")
@@ -543,41 +548,22 @@ def test_memory_stored_lifecycle_and_detached_copy(local: LocalFrameServices) ->
     assert counts(local) == (4, 4)
 
 
-def test_exports_and_attrs_are_isolated(local: LocalFrameServices) -> None:
+def test_exports_are_isolated(local: LocalFrameServices) -> None:
     memory = calendar(local, 3)
     saved = memory.persist()
     for frame in (memory, saved):
         exported = frame.to_pandas()
         exported.loc[0, "amount"] = 999
-        coordinates = exported.attrs["frozen_coordinates"][0]["rows"]
-        assert isinstance(coordinates, pa.Table)
-        copied = coordinates.to_pandas(types_mapper=pd.ArrowDtype)
-        copied.iloc[0, 1] = "changed"
-        exported.attrs["frozen_coordinates"][0]["rows"] = pa.table({"changed": [True]})
         again = frame.to_pandas()
         assert again.loc[0, "amount"] != 999
-        assert (
-            again.attrs["frozen_coordinates"][0]["rows"]
-            .to_pandas(types_mapper=pd.ArrowDtype)
-            .iloc[0, 1]
-            == "2024-01-01"
-        )
         branch = frame.select({"twice": frame["amount"] * 2}).compute()
         sibling = frame.where(frame["amount"] > 0).compute()
         exported_branch = branch.to_pandas()
         exported_branch.loc[0, "twice"] = 999
-        exported_branch.attrs["frozen_coordinates"][0]["rows"] = pa.table({"changed": [True]})
         assert branch.to_pandas()["twice"].tolist() == [0, 2, 4]
         assert sibling.to_pandas()["amount"].tolist() == [1, 2]
         for independent in (frame, branch, sibling):
-            exported_again = independent.to_pandas()
-            assert exported_again.iloc[0, -1] != 999
-            assert (
-                exported_again.attrs["frozen_coordinates"][0]["rows"]
-                .to_pandas(types_mapper=pd.ArrowDtype)
-                .iloc[0, 1]
-                == "2024-01-01"
-            )
+            assert independent.to_pandas().iloc[0, -1] != 999
 
 
 @pytest.mark.parametrize("n", [True, -1, 1.5, "1"])
@@ -663,7 +649,7 @@ def test_paired_codec_and_prefix_keep_complete_mapping(local: LocalFrameServices
     assert len(prefix.rows) == 1
     assert all(len(part.rows) <= 1 for part in prefix.attachments)
     saved.show(n=1)
-    assert len(saved.to_pandas().attrs["frozen_coordinates"]) == 3
+    assert len(frozen_coordinates(saved)) == 3
 
 
 def _assert_valid_minimum_temporal_ticks_survive_export_and_restore(
@@ -2253,7 +2239,7 @@ def test_interval_directory_presence_and_pairing_cold_recovery(local: LocalFrame
 import os, sys
 from unittest.mock import patch
 import marivo.analysis as mv
-from tests.shared_fixtures import terminal_runs
+from tests.shared_fixtures import frozen_coordinates, terminal_runs
 from marivo.analysis.core import frame_calendar
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.materialization import frame_source_preparation
@@ -2269,7 +2255,7 @@ with patch.object(Session, "catalog", property(forbidden)), patch.object(SourceS
     for frame, expected in ((sparse, 2), (original, 1), (paired, 1)):
         table = frame.to_pandas()
         assert len(table) == 1
-        assert len(table.attrs["frozen_coordinates"][0]["rows"]) == expected
+        assert len(frozen_coordinates(frame)[0].rows) == expected
         frame.show(n=1)
     assert sparse.axes[0].role == "interval" and paired.axes[0].role == "paired"
     assert paired.to_pandas()["left_present"].tolist() == [True]
@@ -2378,7 +2364,7 @@ def test_stored_interval_reads_and_matches_without_current_timezone_rules(
     monkeypatch.setattr(_timezones, "ZoneInfo", unavailable)
     rows = first.to_pandas()
     assert rows["amount"].tolist() == [5]
-    directory = rows.attrs["frozen_coordinates"][0]["rows"].to_pandas(types_mapper=pd.ArrowDtype)
+    directory = frozen_coordinates(first)[0].rows
     assert directory["timezone"].tolist() == ["Asia/Shanghai"]
     assert directory["start"].tolist() == [datetime(2024, 1, 1, tzinfo=timezone.utc)]
     assert directory["end"].tolist() == [datetime(2024, 1, 4, tzinfo=timezone.utc)]
@@ -2991,7 +2977,6 @@ def test_data_pages_preserve_projection_order_coordinates_and_cold_continuation(
             chunks.append(page.to_pandas())
         combined = pd.concat(chunks, ignore_index=True)
         expected = frame.to_pandas(axis_names={frame.axes[0].token: "member"})
-        expected.attrs = {}
         pd.testing.assert_frame_equal(combined, expected)
         assert len(page) == 1 and page.next_cursor is None
 
@@ -3069,7 +3054,6 @@ def test_calendar_and_paired_pages_keep_full_keys_and_only_page_coordinates(
             assert all(len(values) == 1 for values in page.coordinates.values())
             assert all(column.kind == "coordinate" for column in page.layout)
             expected = frame.to_pandas().iloc[:1, : len(page.layout)].reset_index(drop=True)
-            expected.attrs = {}
             pd.testing.assert_frame_equal(page.to_pandas(), expected)
 
 
@@ -3284,7 +3268,6 @@ def test_calendar_page_details_match_export_and_bind_cursor(local: LocalFrameSer
     for fixed in (frame, frame.persist()):
         page = fixed.read_page(limit=1, time_details=True)
         expected = fixed.to_pandas(time_details=True)
-        expected.attrs = {}
         pd.testing.assert_frame_equal(page.to_pandas(), expected.iloc[:1].reset_index(drop=True))
         assert [column.name for column in page.layout] == expected.columns.tolist()
         with pytest.raises(CoreRuleError, match="cursor"):
@@ -3321,16 +3304,12 @@ def test_merged_interval_export_uses_common_utc_carrier(local: LocalFrameService
         assert first_page.next_cursor is not None
         second_page = frame.read_page(limit=1, cursor=first_page.next_cursor)
         assert second_page.to_pandas()["interval.start"].dtype == rows["interval.start"].dtype
-        expected = rows.copy()
-        expected.attrs = {}
         pd.testing.assert_frame_equal(
             pd.concat([first_page.to_pandas(), second_page.to_pandas()], ignore_index=True),
-            expected,
+            rows,
         )
         assert second_page.next_cursor is None
-        assert rows.attrs["frozen_coordinates"][0]["rows"].to_pandas(types_mapper=pd.ArrowDtype)[
-            "timezone"
-        ].tolist() == [
+        assert frozen_coordinates(frame)[0].rows["timezone"].tolist() == [
             "Asia/Shanghai",
             "America/New_York",
         ]
@@ -3399,9 +3378,9 @@ def test_fixed_offset_exports_are_readable_and_keep_exact_instants(
             assert rows[key_name].iloc[0] == start
             if name == "interval":
                 assert rows[f"{name}.end"].iloc[-1] == end
-            assert rows.attrs["axes"][0]["descriptor"]["timezone"] == (
-                calendar_zone if name == "day" else zone
-            )
+            axis = frame.schema.axes[0]
+            assert isinstance(axis, (FrameCalendarAxisSchema, FrameIntervalAxisSchema))
+            assert axis.timezone == (calendar_zone if name == "day" else zone)
             chunks = []
             cursor = None
             while True:
@@ -3410,26 +3389,26 @@ def test_fixed_offset_exports_are_readable_and_keep_exact_instants(
                 cursor = page.next_cursor
                 if cursor is None:
                     break
-            rows.attrs = {}
             pd.testing.assert_frame_equal(pd.concat(chunks, ignore_index=True), rows)
             frame.show(n=1)
             assert rows[key_name].iloc[0].isoformat(sep=" ") in capsys.readouterr().out
 
 
 @pytest.mark.parametrize("kind", ["calendar", "interval", "paired"])
-def test_exported_frozen_metadata_allows_pandas_selection_and_concat(
-    local: LocalFrameServices, kind: str
+def test_full_export_has_no_attrs_and_round_trips_through_parquet(
+    local: LocalFrameServices, kind: str, tmp_path: Path
 ) -> None:
     frame = calendar(local, 3)
     if kind == "interval":
         frame = interval(local, 1, 4)
     elif kind == "paired":
         frame = frame.compare(calendar(local, 3, offset=1)).compute()
-    for fixed in (frame, frame.persist()):
+    for index, fixed in enumerate((frame, frame.persist())):
         rows = fixed.to_pandas()
-        assert all(isinstance(part["rows"], pa.Table) for part in rows.attrs["frozen_coordinates"])
-        assert isinstance(rows.attrs == rows.copy(deep=True).attrs, bool)
-        assert rows.attrs == rows.copy(deep=True).attrs
+        assert rows.attrs == {}
+        path = tmp_path / f"{kind}-{index}.parquet"
+        rows.to_parquet(path)
+        pd.testing.assert_frame_equal(pd.read_parquet(path), rows)
         assert rows.nlargest(2, "amount")["amount"].tolist() == (
             [5] if kind == "interval" else [2, 1]
         )
@@ -3438,41 +3417,6 @@ def test_exported_frozen_metadata_allows_pandas_selection_and_concat(
         )
         joined = pd.concat([rows.iloc[:1], rows.iloc[-1:]], ignore_index=True)
         assert joined["amount"].tolist() == ([5, 5] if kind == "interval" else [0, 2])
-
-
-def test_exported_coordinate_tables_keep_exact_carriers_and_nulls() -> None:
-    from decimal import Decimal
-
-    from marivo.analysis.core.data_types import DecimalDataType
-    from marivo.analysis.materialization.pandas_export import export_frame
-
-    columns = (
-        DataColumn("key", "key", ScalarDataType("int64"), True),
-        DataColumn("decimal", "decimal", DecimalDataType(18, 2), True),
-        DataColumn("stamp", "stamp", TimestampDataType("us", "UTC"), True),
-    )
-    directory = pd.DataFrame(
-        {
-            "key": pd.Series([2**53 + 1, None], dtype="int64[pyarrow]"),
-            "decimal": pd.Series(
-                [Decimal("1234567890123456.78"), None], dtype=pd.ArrowDtype(pa.decimal128(18, 2))
-            ),
-            "stamp": pd.Series(
-                pa.array([2**53 + 1, None], type=pa.timestamp("us", tz="UTC")),
-                dtype=pd.ArrowDtype(pa.timestamp("us", tz="UTC")),
-            ),
-        }
-    )
-    attachment = OutputAttachment(
-        "exact", DataSchema((), columns, value_paths=tuple((c.name,) for c in columns)), directory
-    )
-    rows = export_frame(DataSchema((), ()), pd.DataFrame(index=range(2)), (attachment,))
-    table = rows.attrs["frozen_coordinates"][0]["rows"]
-    assert table["key"].to_pylist() == [2**53 + 1, None]
-    assert table["decimal"].to_pylist() == [Decimal("1234567890123456.78"), None]
-    assert table["stamp"].type == pa.timestamp("us", tz="UTC")
-    assert table["stamp"].cast(pa.int64()).to_pylist() == [2**53 + 1, None]
-    assert rows.attrs == rows.copy(deep=True).attrs
 
 
 def _period_page(

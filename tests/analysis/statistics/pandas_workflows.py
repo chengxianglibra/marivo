@@ -23,11 +23,11 @@ def plain(result: mv.AnalysisFrame) -> pd.DataFrame:
     """Keep every exported key/value while giving pandas recipes simple labels."""
     frame = result.to_pandas()
     names: dict[str, str] = {}
-    for index, axis in enumerate(result.axes):
+    for index, (axis, schema) in enumerate(zip(result.axes, result.schema.axes, strict=True)):
         column = axis.name.rsplit(".", 1)[-1]
-        if axis.role == "paired":
+        if isinstance(schema, mv.FramePairedAxisSchema):
             column += ".left"
-            if frame.attrs["axes"][index]["descriptor"]["left"]["kind"] == "interval":
+            if schema.left.kind == "interval":
                 column += ".start"
         elif axis.role == "interval":
             column += ".start"

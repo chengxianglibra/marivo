@@ -136,8 +136,8 @@ total_count、has_more、next_cursor 和 read_stats。len(page) 是本页行数�
 单行结果依靠行数区分。坐标标量保留 Decimal、Arrow Date32/Timestamp/Duration 精度和
 NULL None。页内 RangeIndex 不承担业务键身份。页面不持有完整父数据、附件目录、审计、
 方法事实、连接或 reader；小页数据脱离父 Arrow 缓冲。page.to_pandas() 不再读文件，
-返回与 layout 一致且 attrs 为空的隔离副本。frame.to_pandas() 保留完整校验及既有
-attrs 快照；二者使用同一布局和坐标解码规则，attrs 不构成稳定导入协议。
+返回与 layout 一致且 attrs 为空的隔离副本。frame.to_pandas() 保留完整校验，attrs
+同样为空；二者使用同一布局和坐标解码规则，解释事实由 frame.schema 提供。
 
 游标不可解析，绑定精确输入、读取种类、集合版本、limit、规范化投影和轴别名；续读
 重复同一请求。持久输入在同版本 Runtime 独立 reopen 后可续读；内存游标限当前进程
@@ -226,11 +226,9 @@ selection 和 prefix 的 civil cutoff，不再提供伪造的 nominal/actual UTC
 普通 TimeField 和日历轴各导出一个坐标列；区间轴保留真实起止边界。
 axis_names 只重命名导出前缀，不改变轴结构或实际键。普通分桶补齐 S∪O，窗口仅使用明确端点域。
 
-完整导出 attrs 保留隔离的 axes、units、comparisons、frozen_coordinates；分页导出 attrs 为空。
-frozen_coordinates 每项的 rows 为不可变 pyarrow.Table，保留声明的列类型、精度与 NULL，
-且相等比较返回布尔值，兼容 pandas 的 attrs 比较。需要 pandas 表时显式调用
-`part["rows"].to_pandas(types_mapper=pd.ArrowDtype)`。
-这些 attrs 不承诺稳定反序列化协议，导出的表不授予 typed 运算权限。
+完整导出与分页导出的 attrs 均为空，可直接 `to_parquet()` 等 pandas 落盘；轴、单位、
+比较等解释事实只由 frame.schema 提供，日历/区间周期由 read_periods() 提供。
+导出的表不授予 typed 运算权限。
 导出保留行序、物理数值、NULL 和合法零，返回隔离副本；show 的有界预览复用默认坐标解释。
 完整和分页导出后的大 `int64[pyarrow]` 值与浮点数混算可能触发 `ArrowInvalid`。
 接受近似结果时，可先显式使用 `rows["value"].astype("float64") / 3600.0`；该转换可能
@@ -540,6 +538,6 @@ An ordinary classification axis's `at` is either its captured UTC datetime,
 The latter contains only the controlling TimeDimension's SemanticObjectIdentity;
 it is not an executable selector. Pending, computed, fixed-axis and saved schemas
 retain this fact. Axis context lineage includes the target, path and control.
-Schema/show, inert pandas attrs, fixed operations and cold recovery do not access
+Schema/show, pandas export, fixed operations and cold recovery do not access
 Catalogs or rerun version matching. Store 28 / output v17 records this closed
 variant without older-format migration or dual reads.

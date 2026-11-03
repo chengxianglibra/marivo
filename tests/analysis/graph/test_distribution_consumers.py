@@ -216,7 +216,7 @@ def test_native_distribution(
         fixed = observed.persist()
         source_trace.record(fixed)
         exported = fixed.to_pandas()
-        frame = exported.set_index(ordinary_columns(exported)[0])
+        frame = exported.set_index(ordinary_columns(fixed)[0])
         values = frame["value"]
         assert frame.index.tolist() == ["a", "b", "c"]
         expected = (

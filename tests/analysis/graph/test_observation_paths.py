@@ -190,7 +190,7 @@ def test_long_path_sum_and_count(
             } == {tuple(f"sales.hop{index}" for index in range(depth))}
             result = logical.persist()
             frame = result.to_pandas()
-            coordinate = ordinary_columns(frame)[0]
+            coordinate = ordinary_columns(result)[0]
             assert dict(zip(frame[coordinate], frame["value"], strict=True)) == dict(
                 zip(expected_keys, expected, strict=True)
             )
@@ -209,7 +209,7 @@ def test_long_path_sum_and_count(
                     ),
                 ).persist()
                 selected_frame = selected.to_pandas()
-                coordinate = ordinary_columns(selected_frame)[0]
+                coordinate = ordinary_columns(selected)[0]
                 assert dict(
                     zip(selected_frame[coordinate], selected_frame["value"], strict=True)
                 ) == dict(zip(expected_keys, (2, 0, 0), strict=True))

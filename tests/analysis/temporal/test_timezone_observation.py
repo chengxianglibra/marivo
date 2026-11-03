@@ -21,7 +21,7 @@ from marivo.analysis.errors import AnalysisError
 from marivo.analysis.session.core import Session
 from marivo.datasource.adapters import SourceSession
 from marivo.semantic.reader import SemanticProject
-from tests.shared_fixtures import catalog_value, terminal_runs
+from tests.shared_fixtures import catalog_value, frozen_coordinates, terminal_runs
 from tests.support.paths import PROJECT_ROOT
 
 _ROWS = (
@@ -115,8 +115,7 @@ def _observe(session: Session, scope: TimeScope | CalendarAxis) -> mv.AnalysisFr
 
 def _values(query: mv.AnalysisFrame) -> dict[str, object]:
     frame = query.compute().to_pandas()
-    member = next(axis for axis in frame.attrs["axes"] if axis["role"] == "identity")
-    identities = frame[member["name"].rsplit(".", 1)[-1]].tolist()
+    identities = frame["customers"].tolist()
     assert identities == sorted(identities)
     assert len(identities) == len(set(identities))
     return dict(zip(identities, frame["value"], strict=True))
@@ -240,10 +239,10 @@ def test_dst_mean_grid_and_cumulative_preserve_exact_windows(
     )
     assert _values(running) == {"A": 928, "B": 60}
     completed = gridded.compute()
-    output = completed.to_pandas()
-    calendar = output.attrs["axes"][0]["descriptor"]
-    bounds = output.attrs["frozen_coordinates"][0]["rows"].to_pandas(types_mapper=pd.ArrowDtype)
-    assert calendar["timezone"] == "America/New_York"
+    calendar = completed.schema.axes[0]
+    bounds = frozen_coordinates(completed)[0].rows
+    assert isinstance(calendar, mv.FrameCalendarAxisSchema)
+    assert calendar.timezone == "America/New_York"
     assert "actual_start" not in bounds and "actual_end" not in bounds
     assert bounds["selection"].tolist() == ["full"]
     assert completed.persist().source_reads
@@ -382,10 +381,10 @@ def test_timezone_mean_fixed_and_cold_preserve_authority_without_ambient_state(
     worker = """
 import json, sys
 import duckdb, ibis
-import pandas as pd
 import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.datasource.adapters import SourceSession
+from tests.shared_fixtures import frozen_coordinates
 
 def forbidden(*args, **kwargs):
     raise AssertionError('terminal read touched source or semantic models')
@@ -394,14 +393,15 @@ duckdb.connect = forbidden
 ibis.duckdb.connect = forbidden
 SourceSession.execute = forbidden
 session = mv.session.resume(sys.argv[1])
-frame = session.persisted_frame(sys.argv[2]).to_pandas()
+result = session.persisted_frame(sys.argv[2])
+frame = result.to_pandas()
 assert frame['value'].tolist() == [20,60]
-calendar = frame.attrs['axes'][0]['descriptor']
-bounds = frame.attrs['frozen_coordinates'][0]['rows'].to_pandas(types_mapper=pd.ArrowDtype)
-assert frame.attrs['axes'][0]['role'] == 'calendar' and calendar['timezone'] == 'Asia/Shanghai'
-assert bounds['actual_start'].iloc[0].isoformat() == '2026-07-31T16:00:00+00:00'
-assert bounds['actual_end'].iloc[0].isoformat() == '2026-08-01T16:00:00+00:00'
-assert frame.attrs['axes'][1]['role'] == 'identity'
+calendar = result.schema.axes[0]
+bounds = frozen_coordinates(result)[0].rows
+assert calendar.role == 'calendar' and calendar.timezone == 'Asia/Shanghai'
+assert bounds['key.0'].iloc[0].isoformat() == '2026-07-31T16:00:00+00:00'
+assert bounds['selection'].tolist() == ['full']
+assert result.schema.axes[1].role == 'identity'
 print(json.dumps({'pid': __import__('os').getpid(), 'values': frame['value'].tolist()}))
 """
     process = subprocess.run(

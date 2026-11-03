@@ -24,6 +24,7 @@ from tests.shared_fixtures import (
     analysis_dsl_project_files,
     analysis_dsl_rows,
     catalog_value,
+    frozen_coordinates,
     seed_analysis_dsl_database,
     terminal_runs,
 )
@@ -223,11 +224,8 @@ def test_member_time_product_executes_on_frame(analysis_dsl_case_factory: DslCas
     result = session.frame(population).persist()
     frame = result.to_pandas(time_details=True)
     assert frame["calendar:day.label"].tolist() == ["2026-08-01"] * 4 + ["2026-08-02"] * 4
-    assert (
-        frame[frame.attrs["axes"][1]["name"].rsplit(".", 1)[-1]].tolist()
-        == ["A", "B", "C", "D"] * 2
-    )
-    directory = frame.attrs["frozen_coordinates"][0]["rows"].to_pandas(types_mapper=pd.ArrowDtype)
+    assert frame["customer"].tolist() == ["A", "B", "C", "D"] * 2
+    directory = frozen_coordinates(result)[0].rows
     assert directory.iloc[:, 0].tolist() == [
         datetime(2026, 8, 1, tzinfo=timezone.utc),
         datetime(2026, 8, 2, tzinfo=timezone.utc),
@@ -253,10 +251,7 @@ def test_time_product_observation_keeps_empty_cells_and_window_binding(
     frame = saved.to_pandas(time_details=True)
     assert frame["value"].tolist() == [450, 150, 400, 0, 99, 0, 0, 0]
     assert frame["calendar:month.label"].tolist() == ["2026-08-01"] * 4 + ["2026-09-01"] * 4
-    assert (
-        frame[frame.attrs["axes"][1]["name"].rsplit(".", 1)[-1]].tolist()
-        == ["A", "B", "C", "D"] * 2
-    )
+    assert frame["customer"].tolist() == ["A", "B", "C", "D"] * 2
     original = session.observe({"value": metric}, by=(calendar.scope,)).compute()
     assert original.to_pandas(time_details=True)["value"].tolist() == [1099]
     assert saved.reduce({"value": saved["value"].sum()}).compute().to_pandas(time_details=True)[
@@ -275,9 +270,11 @@ def test_public_grid_observation_and_retained_axis(
     case = analysis_dsl_case_factory("j1")
     query = _observation(case, start="2026-08-01", end="2026-11-01", grain="month")
     calendar = query.axes[0]
-    totals = query.reduce({"value": query["value"].sum()}, by=(calendar,)).compute().to_pandas()
-    assert totals["value"].tolist() == [1000, 99, 0]
-    assert totals.attrs["axes"][0]["descriptor"]["timezone"] == "UTC"
+    reduced = query.reduce({"value": query["value"].sum()}, by=(calendar,)).compute()
+    assert reduced.to_pandas()["value"].tolist() == [1000, 99, 0]
+    axis = reduced.schema.axes[0]
+    assert isinstance(axis, mv.FrameCalendarAxisSchema)
+    assert axis.timezone == "UTC"
 
 
 def test_coarser_calendar_requires_explicit_source_observation(
@@ -344,6 +341,7 @@ import duckdb, ibis
 import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.datasource.adapters import SourceSession
+from tests.shared_fixtures import frozen_coordinates
 
 def forbidden(*args, **kwargs):
     raise AssertionError('terminal calendar read touched source or semantic models')
@@ -354,8 +352,8 @@ SourceSession.execute = forbidden
 result = mv.session.resume(sys.argv[1]).persisted_frame(sys.argv[2])
 frame = result.to_pandas()
 assert frame['value'].tolist() == [1077,1176,1176]
-assert frame.attrs['axes'][0]['descriptor']['timezone'] == 'UTC'
-assert len(frame.attrs['frozen_coordinates'][0]['rows']) == 3
+assert result.schema.axes[0].timezone == 'UTC'
+assert len(frozen_coordinates(result)[0].rows) == 3
 print(json.dumps({'value':[str(value) for value in frame['value'].tolist()]}))
 """
     recovered = subprocess.run(
@@ -494,7 +492,7 @@ def test_fold_reaggregates_aligned_samples_before_time(
         by=regional_population,
     )
     frame = regional.compute().to_pandas()
-    assert frame[frame.attrs["axes"][1]["name"].rsplit(".", 1)[-1]].tolist() == ["east"]
+    assert frame["region"].tolist() == ["east"]
     assert frame["value"].tolist() == [10]
 
 
@@ -634,7 +632,7 @@ def test_raw_instant_membership_keeps_native_projection_without_rule_audit(
     assert (
         list(
             zip(
-                result[result.attrs["axes"][1]["name"].rsplit(".", 1)[-1]],
+                result["customer"],
                 result["value"],
                 strict=True,
             )
@@ -679,13 +677,14 @@ def test_fixed_date_windows_keep_authority_on_a_foreign_zone_grid(
         {"value": session.catalog.get("metric:sales.revenue")},
         by=population,
     )
-    frame = (
-        session.observe({"value": session.catalog.get("metric:sales.revenue")}, by=(grid,))
-        .compute()
-        .to_pandas()
-    )
-    assert frame["value"].tolist() == [20, 0]
-    assert frame.attrs["axes"][0]["descriptor"]["timezone"] == "America/New_York"
+    frame = session.observe(
+        {"value": session.catalog.get("metric:sales.revenue")}, by=(grid,)
+    ).compute()
+    # UTC Aug 2 starts on New York Aug 1; UTC Aug 1 precedes the selected range.
+    assert frame.to_pandas()["value"].tolist() == [20, 0]
+    axis = frame.schema.axes[0]
+    assert isinstance(axis, mv.FrameCalendarAxisSchema)
+    assert axis.timezone == "America/New_York"
 
 
 def test_empty_fold_keeps_typed_terminal_output(
@@ -855,25 +854,21 @@ def test_non_key_outer_and_top_order_survive_cold_filter_reduce_republish(
     top = outer.top(2, by=outer["value"]).compute()
     assert terminal_runs(session) == ()
     outer_rows, top_rows = outer.to_pandas(), top.to_pandas()
-    assert outer_rows[outer_rows.attrs["axes"][1]["name"].rsplit(".", 1)[-1]].tolist() == [
-        "c",
-        "a",
-        "b",
-    ]
-    assert top_rows[top_rows.attrs["axes"][1]["name"].rsplit(".", 1)[-1]].tolist() == ["c", "a"]
+    assert outer_rows["region"].tolist() == ["c", "a", "b"]
+    assert top_rows["region"].tolist() == ["c", "a"]
     assert outer_rows["current.present"].tolist() == [True, True, False]
     assert outer_rows["reference.present"].tolist() == [True, False, True]
     assert outer_rows["value"].isna().tolist() == [False, False, True]
     assert outer_rows["reference.baseline.value"].isna().tolist() == [False, True, False]
     assert outer_rows["reference.absolute.value"].iloc[0] == 20
     assert outer_rows["reference.absolute.value"].isna().tolist() == [False, True, True]
-    assert outer_rows.attrs["units"] == (
+    assert tuple((name, field.unit) for name, field in outer.schema.values.items()) == (
         ("value", "CNY"),
         ("reference.baseline.value", "CNY"),
         ("reference.absolute.value", "CNY"),
         ("reference.relative.value", None),
     )
-    assert len(outer_rows.attrs["frozen_coordinates"]) == 3
+    assert len(frozen_coordinates(outer)) == 3
     saved_outer, saved_top = outer.persist(), top.persist()
     assert len(run_ids(session)) == 2
     state = checked(
@@ -913,7 +908,7 @@ from marivo import _timezones as source_timezone
 from marivo.datasource.adapters import SourceSession
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.materialization.domain_recovery_worker import forbidden, snapshot
-from tests.shared_fixtures import run_ids
+from tests.shared_fixtures import frozen_coordinates, run_ids
 from tests.support.json import checked, encode, obj, read
 root=Path(sys.argv[1])
 os.chdir(root)
@@ -956,8 +951,8 @@ with ExitStack() as guards:
         totals=reduced.to_pandas()
         assert totals['total'].tolist()==[30-10]
         assert reduced.presence_names==()
-        assert totals.attrs['units']==(('total','CNY'),)
-        assert len(totals.attrs['frozen_coordinates'])==1
+        assert tuple((name,field.unit) for name,field in reduced.schema.values.items())==(('total','CNY'),)
+        assert len(frozen_coordinates(reduced))==1
         assert run_ids(session)==before
         copied={}
         for name,result in (('filtered',filtered),('reduced',reduced)):
@@ -1062,8 +1057,8 @@ def test_calendar_rules_keep_captured_facts_across_carriers(
         assert actual["current.present"].tolist() == [True]
         assert actual["inferred.present"].tolist() == [True]
         assert actual["explicit.present"].tolist() == [True]
-        assert len(actual.attrs["frozen_coordinates"]) == 5
-        assert actual.attrs["axes"][0]["role"] == "calendar"
+        assert len(frozen_coordinates(combined)) == 5
+        assert combined.schema.axes[0].role == "calendar"
     scalar = session.observe({"value": metric}, by=(current_scope,)).compute()
     with pytest.raises(AnalysisError, match="ordinal"):
         scalar.compare({"reference": mv.baseline(scalar, match=rule)})
@@ -1102,7 +1097,7 @@ from marivo.analysis.materialization import frame_source_preparation
 from marivo.analysis.session.core import Session
 from marivo.datasource.adapters import SourceSession
 from tests.analysis.materialization.domain_recovery_worker import forbidden, snapshot
-from tests.shared_fixtures import run_ids
+from tests.shared_fixtures import frozen_coordinates, run_ids
 from tests.support.json import obj, read
 root=Path(sys.argv[1]); os.chdir(root); os.environ['MARIVO_PROJECT_ROOT']=str(root)
 state=obj(read(root/'calendar-rules.json'))
@@ -1118,7 +1113,7 @@ with ExitStack() as guards:
     assert rows['value'].tolist()==[1000]
     assert rows['reference.baseline.value'].tolist()==[state['right_value']]
     assert rows['reference.absolute.value'].tolist()==[1000-state['right_value']]
-    assert len(rows.attrs['frozen_coordinates'])==3
+    assert len(frozen_coordinates(output))==3
     assert run_ids(session)==before
     print(os.getpid())
 """

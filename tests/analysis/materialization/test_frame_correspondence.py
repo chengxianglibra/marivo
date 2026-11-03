@@ -829,7 +829,7 @@ def test_different_name_align_and_explicit_attainment(local: LocalFrameServices)
     ).compute()
     table = ratio.to_pandas()
     assert table["attainment"].tolist() == [4.0, 3.0]
-    assert table[table.attrs["axes"][0]["name"].rsplit(".", 1)[-1]].tolist() == ["B", "A"]
+    assert table["region"].tolist() == ["B", "A"]
 
 
 def test_empty_values_do_not_qualify_for_compare(local: LocalFrameServices) -> None:

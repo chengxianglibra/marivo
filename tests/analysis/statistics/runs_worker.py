@@ -23,21 +23,10 @@ from tests.shared_fixtures import terminal_runs
 
 def segments(frame: pd.DataFrame, threshold: float = 0) -> pd.DataFrame:
     """Find consecutive UTC daily positions under this recipe's explicit one-day rule."""
-    axes = frame.attrs["axes"]
-    calendar = next(axis for axis in axes if axis["role"] == "calendar")
-    descriptor = calendar["descriptor"]
-    assert descriptor["timezone"] == "UTC"
-    assert descriptor["frozen"]["definition"]["unit"] == "day"
-    part = next(
-        item
-        for item in frame.attrs["frozen_coordinates"]
-        if item["name"] == descriptor["frozen"]["directory_name"]
-    )
-    assert part["rows"].column("selection").to_pylist() == ["full"] * part["rows"].num_rows
-    calendar_column = calendar["name"].rsplit(".", 1)[-1]
-    group_columns = [
-        axis["name"].rsplit(".", 1)[-1] for axis in axes if axis["role"] in ("identity", "field")
-    ]
+    calendar_column = "calendar:day"
+    dtype = frame[calendar_column].dtype
+    assert isinstance(dtype, pd.ArrowDtype) and dtype.pyarrow_dtype == pa.timestamp("us", tz="UTC")
+    group_columns = [name for name in frame.columns if name not in (calendar_column, "value")]
     partitions = (
         frame.groupby(group_columns, dropna=False, sort=False) if group_columns else (((), frame),)
     )

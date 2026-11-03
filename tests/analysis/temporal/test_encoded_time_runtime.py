@@ -13,19 +13,12 @@ import marivo.semantic as ms
 from marivo.datasource import engines
 from marivo.datasource.adapters import CompiledRead, SourceSession
 from marivo.datasource.engines.base import PartitionProbeRequest, PartitionProbeResult
-from tests.shared_fixtures import DslCase, DslCaseFactory, terminal_runs
+from tests.shared_fixtures import DslCase, DslCaseFactory, frozen_coordinates, terminal_runs
 from tests.support.source_trace import SourceTrace
 
 
 def _member_frame(frame: pd.DataFrame) -> pd.DataFrame:
-    result = pd.DataFrame({"value": frame["value"]})
-    for axis in frame.attrs["axes"]:
-        if axis["role"] == "interval":
-            continue
-        result["coord_0" if axis["role"] == "calendar" else "member"] = frame[
-            axis["name"].rsplit(".", 1)[-1] + (".label" if axis["role"] == "calendar" else "")
-        ]
-    return result
+    return pd.DataFrame({"value": frame["value"], "member": frame["customer"]})
 
 
 def _encode_orders(case: DslCase, fmt: str, *, integer: bool = False) -> None:
@@ -146,30 +139,27 @@ def test_grid_window_has_scan_envelope_and_preserves_cells(
     population = case.session.members(case.session.catalog.get("entity:sales.customer"))
 
     def execute() -> pd.DataFrame:
-        rows = (
-            case.session.observe(
-                {"value": case.session.catalog.get("metric:sales.revenue")},
-                by=mv.product(grid, population),
-            )
-            .compute()
-            .to_pandas(time_details=True)
-        )
+        frame = case.session.observe(
+            {"value": case.session.catalog.get("metric:sales.revenue")},
+            by=mv.product(grid, population),
+        ).compute()
+        rows = frame.to_pandas(time_details=True)
         # Check producer order before the separate membership normalization oracle.
         assert rows["calendar:month.label"].tolist() == ["2026-08-01"] * 4 + ["2026-09-01"] * 4
-        assert (
-            rows[rows.attrs["axes"][1]["name"].rsplit(".", 1)[-1]].tolist()
-            == ["A", "B", "C", "D"] * 2
-        )
-        directory = rows.attrs["frozen_coordinates"][0]["rows"].to_pandas(
-            types_mapper=pd.ArrowDtype
-        )
+        assert rows["customer"].tolist() == ["A", "B", "C", "D"] * 2
+        directory = frozen_coordinates(frame)[0].rows
         assert [stamp.isoformat() for stamp in directory.iloc[:, 0]] == [
             "2026-08-01T00:00:00+00:00",
             "2026-09-01T00:00:00+00:00",
         ]
         assert directory["selection"].tolist() == ["full", "full"]
         assert not {"nominal_start", "actual_end"} & set(directory.columns)
-        return _member_frame(rows).sort_values(["member", "coord_0"]).reset_index(drop=True)
+        return (
+            _member_frame(rows)
+            .assign(coord_0=rows["calendar:month.label"])
+            .sort_values(["member", "coord_0"])
+            .reset_index(drop=True)
+        )
 
     optimized = execute()
     assert len(optimized) == 8

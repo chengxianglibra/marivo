@@ -59,14 +59,15 @@ def test_duckdb_local_original_sum_consumes_group_input(
             {"value": session.catalog.get("metric:cost.facts_total")},
             by=(session.time_scope(start="2026-08-01", end="2026-08-02"), axis),
         )
-        frame = grouped.persist().to_pandas()
+        saved = grouped.persist()
+        frame = saved.to_pandas()
         assert (
-            dict(zip(frame[ordinary_columns(frame)[0]], frame["value"], strict=True))
+            dict(zip(frame[ordinary_columns(saved)[0]], frame["value"], strict=True))
             == independent_totals
         )
         numeric_values = frame["value"].astype("float64")
         scores = (numeric_values - numeric_values.mean()) / numeric_values.std(ddof=0)
-        assert dict(zip(frame[ordinary_columns(frame)[0]], scores, strict=True)) == {
+        assert dict(zip(frame[ordinary_columns(saved)[0]], scores, strict=True)) == {
             "started": -1.0,
             "finished": 1.0,
         }

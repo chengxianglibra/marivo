@@ -37,6 +37,7 @@ from tests.shared_fixtures import (
     analysis_dsl_rows,
     catalog_value,
     export_dsl_parquet_models,
+    frozen_coordinates,
     terminal_runs,
 )
 from tests.support.json import Json, encode, obj, read
@@ -391,9 +392,7 @@ def test_period_buckets_and_retained_coarsened_partition(
     assert compared.key_0.tolist() == ["A", "B", "C", "D"]
     assert compared.key_1.tolist() == ["web"] * 4
     directories = [
-        part["rows"].to_pandas(types_mapper=pd.ArrowDtype)
-        for part in result.to_pandas().attrs["frozen_coordinates"]
-        if "selection" in part["rows"].column_names
+        part.rows for part in frozen_coordinates(result) if "selection" in part.rows.columns
     ]
     assert len(directories) == 2
     assert {row for directory in directories for row in directory["nominal_label"]} == {

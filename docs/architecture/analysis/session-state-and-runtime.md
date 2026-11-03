@@ -343,11 +343,9 @@ Stored `to_pandas()` validates all current data, complete key uniqueness, all
 related coordinates and mapping authority. Memory exports reuse their established
 key facts. Neither consumes complete method
 payloads. It returns isolated flat coordinates, full value names and independent
-presence columns. Its existing attrs snapshot contains axes, units, comparisons
-and isolated frozen coordinate tables; it is not a stable deserialization
-protocol. FramePage.to_pandas only copies this page, with empty attrs. Both use
-the same layout and coordinate decoding. Stable clients use schema/layout and
-exact coordinates instead of attrs. Complete stored compute/fixed-input evaluation
+presence columns with empty attrs. FramePage.to_pandas only copies this page,
+also with empty attrs. Both use the same layout and coordinate decoding. Clients
+read interpretation from schema/layout and exact coordinates. Complete stored compute/fixed-input evaluation
 consumes data, required method facts and captured metadata. Neither boundary proves
 business completeness or current source state.
 

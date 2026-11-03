@@ -10,13 +10,19 @@ import pytest
 import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo._temporal import CalendarAxis
-from marivo.analysis.core.data_schema import CalendarComparisonBinding, CalendarDataAxis, DataSchema
+from marivo.analysis.core.data_schema import (
+    CalendarComparisonBinding,
+    CalendarDataAxis,
+    DataSchema,
+    PairedDataAxis,
+)
 from marivo.analysis.core.frame_data import MemoryFrameBacking, StoredFrameBacking
 from marivo.analysis.errors import AnalysisError
 from tests.shared_fixtures import (
     DslCaseFactory,
     catalog_value,
     export_dsl_parquet_models,
+    frozen_coordinates,
     terminal_runs,
 )
 
@@ -53,25 +59,23 @@ def temporal_keys(result: mv.AnalysisFrame) -> pd.Series:
     return backing.data.copy_rows()[backing.data.schema.axes[0].columns[0].slot_id]
 
 
-def paired_tables(frame: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-    """Locate the actual exported single-calendar pair and both frozen directories."""
-    axis = frame.attrs["axes"][0]
-    assert axis["role"] == "paired"
-    descriptor = axis["descriptor"]
-    parts = {
-        part["name"]: part["rows"].to_pandas(types_mapper=pd.ArrowDtype)
-        for part in frame.attrs["frozen_coordinates"]
-    }
-    mapping = parts[descriptor["mapping_name"]]
-    left = parts[descriptor["left"]["frozen"]["directory_name"]]
-    right = parts[descriptor["right"]["frozen"]["directory_name"]]
-    assert all(isinstance(table, pd.DataFrame) for table in (mapping, left, right))
-    assert len(descriptor["left"]["columns"]) == len(descriptor["right"]["columns"]) == 1
+def paired_tables(result: mv.AnalysisFrame) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    """Locate the actual single-calendar pair and both frozen directories."""
+    schema = result._schema
+    assert isinstance(schema, DataSchema)
+    axis = schema.axes[0]
+    assert isinstance(axis, PairedDataAxis)
+    assert axis.left.frozen is not None and axis.right.frozen is not None
+    parts = {part.name: part.rows for part in frozen_coordinates(result)}
+    mapping = parts[axis.mapping_name]
+    left = parts[axis.left.frozen.directory_name]
+    right = parts[axis.right.frozen.directory_name]
+    assert len(axis.left.columns) == len(axis.right.columns) == 1
     return mapping, left, right
 
 
 def comparison_tables(
-    result: mv.AnalysisFrame, frame: pd.DataFrame
+    result: mv.AnalysisFrame,
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """Read the named comparison's actual current, baseline and consumed map."""
     schema = result._schema
@@ -81,10 +85,7 @@ def comparison_tables(
     current = next(axis for axis in schema.axes if axis.token == binding.current_axis_token)
     assert isinstance(current, CalendarDataAxis) and current.frozen is not None
     assert binding.baseline.frozen is not None
-    parts = {
-        part["name"]: part["rows"].to_pandas(types_mapper=pd.ArrowDtype)
-        for part in frame.attrs["frozen_coordinates"]
-    }
+    parts = {part.name: part.rows for part in frozen_coordinates(result)}
     return (
         parts[binding.mapping_name],
         parts[current.frozen.directory_name],
@@ -112,7 +113,7 @@ def test_period_outer_keeps_time_missing_and_original_keys(
             comparison.compute()
         aligned = current.align(baseline, match=mv.ordinal(), on=on).compute()
         frame = aligned.to_pandas()
-        mapping, left_directory, right_directory = paired_tables(frame)
+        mapping, left_directory, right_directory = paired_tables(aligned)
         assert len(frame) == 12
         assert set(temporal_keys(aligned)) == set(mapping.iloc[:, 0])
         for side, length, directory in zip(
@@ -131,7 +132,7 @@ def test_period_outer_keeps_time_missing_and_original_keys(
         fixed = comparison.compute()
         frame = fixed.to_pandas()
         assert len(frame) == 12
-        assert [axis["role"] for axis in frame.attrs["axes"]] == ["calendar", "identity"]
+        assert [axis.role for axis in fixed.schema.axes] == ["calendar", "identity"]
         assert set(frame["customer"]) == {"A", "B", "C", "D"}
         assert frame["current.present"].sum() == lengths[0] * 4
         assert frame["reference.present"].sum() == lengths[1] * 4
@@ -143,7 +144,7 @@ def test_period_outer_keeps_time_missing_and_original_keys(
         assert frame["current.present"].tolist() == [True] * 12
         assert frame["reference.present"].tolist() == [True] * 8 + [False] * 4
         assert terminal_runs(case.session) == ()
-        mapping, left_directory, right_directory = comparison_tables(fixed, frame)
+        mapping, left_directory, right_directory = comparison_tables(fixed)
         current_column, baseline_column = mapping.columns[0], "baseline.0"
         presence = ("current.present", "reference.present")
         changes = frame.rename(columns={"reference.absolute.value": "change"})
