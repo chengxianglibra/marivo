@@ -384,9 +384,9 @@ MySQL isolated authoring readers install and read back the native session
 server's millisecond range. Ordinary preview, sample, raw SQL and certification
 share that configuration. When MySQL's variable is unavailable, `VERSION()`
 identifies MariaDB and the reader installs and verifies `max_statement_time`
-in seconds instead. Servers
-that lack both native variables retain the unsupported-setting behavior;
-denied or mismatched configuration fails before business reads. The setting
+in seconds instead. A server that exposes neither variable fails before the
+business read, as do denied and mismatched configuration. A confirmed setting
+for the same timeout is reused on that reader. The setting
 covers only eligible read-only SELECT statements. Marivo does not create a
 control connection, send KILL, duplicate/shut down sockets or run a timer.
 

@@ -551,10 +551,7 @@ def native_query_timeout(backend: BaseBackend, timeout_seconds: int) -> Iterator
                 action="Retry certification with a supported positive scope timeout.",
             ),
         )
-    if (
-        getattr(backend, "_marivo_configured_query_timeout_seconds", None) == timeout_seconds
-        or getattr(backend, "_marivo_native_timeout_unsupported", False) is True
-    ):
+    if getattr(backend, "_marivo_configured_query_timeout_seconds", None) == timeout_seconds:
         yield
         return
     purpose = "datasource.native_query_timeout"
@@ -602,13 +599,6 @@ def native_query_timeout(backend: BaseBackend, timeout_seconds: int) -> Iterator
             purpose=purpose,
         )
     except Exception as cause:
-        if any(
-            getattr(candidate, "args", ())[:1] == (1193,)
-            for candidate in structured_exception_chain(cause)
-        ):
-            backend._marivo_native_timeout_unsupported = True
-            yield
-            return
         raise DatasourceSourceCapabilityError(
             message="MySQL native timeout configuration failed before the source read.",
             expected="successful installation and verification of the native SELECT timeout",
