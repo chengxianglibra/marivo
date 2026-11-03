@@ -74,6 +74,7 @@ bare `python`, `pytest`, `mypy`, or `ruff` in this repository.
 | Focused typing | `make typecheck TYPECHECK_TARGETS='marivo/path'` |
 | Focused lint | `make lint LINT_TARGETS='marivo/path tests/test_file.py'` |
 | Default tests | `make test` |
+| Local inner loop | `make check-fast` |
 | Broad regular gate | `make check` |
 | Relevant Runtime tests | `make runtime-test TESTS='tests/test_file.py'` |
 | Full release acceptance | `make release-check` |
@@ -92,6 +93,13 @@ bare `python`, `pytest`, `mypy`, or `ruff` in this repository.
 - `make check` covers lint, typing, default-test, and API-doc stages.
   Run it without narrowing variables for broad evidence.
   Default tests exclude Runtime and release tests.
+- `make check-fast` is a local inner loop: lint, typecheck, pytest-testmon
+  (only tests affected by edits), and an incremental API docs build, in
+  parallel. It does not track subprocess-executed code or SQL and data file
+  changes. It does not replace `make check`. The full gate must pass before
+  pushing. CI and `make release-check` keep the full suite and the clean docs
+  build. `make test` worker count follows logical CPUs (`nproc` on Linux,
+  `sysctl -n hw.ncpu` on macOS), capped at 8; override with `PYTEST_WORKERS`.
 - Run only relevant Runtime tests during development. Full release acceptance
   belongs to release preparation and publishing CI; do not run it or start
   MinIO for ordinary commit preparation.
