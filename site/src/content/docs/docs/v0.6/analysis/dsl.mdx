@@ -1,0 +1,848 @@
+---
+slug: docs/v0.6/analysis/dsl
+title: Analysis DSL
+description: Learn observe, compare, attribute, correlate, align, and reduce with executable examples.
+---
+
+The analysis DSL uses a Session to obtain semantic definitions, then calculates results through observe, read, and Frame methods. Prepare the quick-start data and model, then run this page in order. Append later snippets to `analysis.py` or run them in the same Python process.
+
+For an existing task, `marivo.help("analysis")` selects the missing information. Start context through `analysis.session.get_or_create`; use `analysis.inputs.catalog` to discover definitions and `analysis.operators` to choose an operation by intent, input and output. Each exact operation links its parameters to acquisition or construction Help. `analysis.inputs.frame` explains same-input Columns, axes and statistics; `analysis.inputs.comparison` prepares baselines and correspondence rules.
+
+Use existing closed Metrics directly when they answer the question. Follow `semantic.expressions` from `analysis.inputs` or a Metric parameter when established meaning and aggregation authority support a question-scoped equation, condition, internal sample or window. Publishing a same-name Metric is optional. Author reusable meaning when missing. Source predicates use semantic expression roles; result filtering uses a boolean Column from the exact Frame.
+
+Source construction is lazy; evaluating a pending Frame can run captured dependencies. Fixed data does not reconstruct source declarations. Same-process Frames can retain declarations for attribute; independent reopen cannot. Continue from compute/persist's returned Frame; `analysis.execution` and `analysis.results` explain evaluation and inspection, while `analysis.sessions` owns recovery.
+
+Source metadata may mark identity columns nullable. Analysis treats an Entity's
+`primary_key` as its identity contract, but does not validate every source row for
+non-null, unique keys. Use explicit [online validation checks](/docs/v0.6/modeling/semantic-layer/#load-and-validate)
+to test those expectations on a chosen scope.
+Nullable metadata alone does not disqualify a source binding or add a full-source
+NULL or uniqueness precheck. Existing identity-output and operation-specific checks remain.
+Complete-key uniqueness can follow from declarations and controlled operations,
+so ordinary reads and rankings do not promise to detect duplicate source identities.
+
+The operators below follow this order. Their `by` arguments have different owners: observe/attribute take semantic domains, while correlate/reduce take axes from the exact input Frame.
+
+| Operator | Question it answers |
+| --- | --- |
+| `observe` | What is the Metric over this domain and time? |
+| `compare` | How do current and baseline values differ? |
+| `attribute` | Which fine groups contribute to an admitted target? |
+| `correlate` | How do two numeric expressions vary together? |
+| `align` | Which complete coordinates correspond across two Frames? |
+| `reduce` | What statistic summarizes the represented rows? |
+| `over` / `share` | What is each partition’s total or each row’s share? |
+| `read` / `where` / `select` / `top` | Which attributes, rows and values should I inspect? |
+
+## Native numeric execution
+
+Source calculations follow backend arithmetic; local calculations use their
+pandas/Arrow or Decimal carrier. Local int64 SUM can wrap, and source and local
+results can differ near numeric limits. For a wider source integer SUM, cast the
+source field to `decimal(38,0)` in its Entity expression before aggregation; the
+backend must support transporting the result type.
+
+Marivo defines NULL, empty/all-NULL, zero-division and unit behavior. NaN is
+distinct from NULL. Frames and stored results retain their declared types and
+reject lossy transport. Help: `analysis.column.sum`,
+`analysis.analysis_frame.compute`.
+
+## Population — choose the complete domain
+
+A Population is a finite set of complete coordinate tuples, not just a group of people. Use `session.members(...)` for source identities, `mv.coordinates(...)` for requested keys, and `session.population_from(...)` for selected Frame keys. `by=P` specifies the output domain; `where=mv.in_population(P)` restricts source contributions. These choices do not replace one another.
+
+The [Population guide](/docs/v0.6/analysis/population/) covers identity tuples, projection, classification, products, set operations, relationship mapping and counts, with parameter defaults and a runnable example. Read it when deciding who or what belongs in the denominator.
+
+## Repeatable Session acquisition
+
+Use a stable project-local name when a script will run repeatedly:
+
+```python
+import marivo.analysis as mv
+
+session = mv.session.get_or_create("revenue-review", timezone="UTC", domains="sales")
+```
+
+The first call creates the Session; later calls recover the same name. No current Session is set, and saved question, timezone and domains are never rewritten. Omitted or `None` configuration uses creation defaults for a new name and retains saved values for an existing name. Defaults are no question, the creation-time system timezone and all authoring domain directories.
+
+Non-None `question`, `timezone` and `domains` must match the saved values. Timezone offsets are normalized, and domain names are sorted and deduplicated before comparison. A conflict raises `SessionStateError` before recovery; inspect `error.expected`, `error.received` and `error.repair.candidates` (the existing Session ID). Omit the conflicting configuration, pass matching values or choose a new name. Recovery uses the same writer guard as `mv.session.resume(session_id)` and can reject an active writer. With no pending recovery work, repeated acquisition preserves `updated_at`. Help: `analysis.session.get_or_create`.
+
+`session.observe(metrics, by=())` requests one overall, zero-axis cell; it does
+not supply an observation time range. A time-related Metric does not universally
+require a scope. All native TimeField sample reducers use represented samples
+without a TimeScope or CalendarAxis in `by`; `sample_interval` describes cadence
+and does not require complete clock coverage. Windows and calendar Grain samples
+retain their own period requirements. Some checks run
+only during `compute()` or `persist()`, so successful capture alone does not prove
+that an unbounded observation is supported. When a period is required, pass
+`by=(session.time_scope(start=..., end=...),)`.
+
+## Choose retention before execution
+
+`compute()` fixes values in the current Python process. Choose how to keep them
+before running the script; a named Session does not keep unsaved data alive.
+
+| Execution context | Keep the result |
+| --- | --- |
+| One script completes the answer | Compute and finish in that script; no save is needed. |
+| A persistent Python process will continue | Keep the returned Frame for later data operations. |
+| Another process will need the same observation | Persist and output/save Session and Artifact IDs before the producer exits. |
+| An exact saved reference is already available | Reopen it; no new publication is needed. |
+| The question needs current source values | Explicitly construct a new source observation. |
+
+Separate shell invocations normally start separate Python processes. A memory
+card printed by a finished script cannot retain its data. The
+[results guide](/docs/v0.6/analysis/results/) shows how to save identifiers in
+the producing script and reopen them without importing that script again.
+Help: `analysis.execution`, `analysis.analysis_frame.compute`,
+`analysis.analysis_frame.persist`.
+
+## Complete example and shared inputs
+
+Save the following as `analysis.py`. It defines session, revenue, region, july, august, current, and baseline for later examples. This example uses a fresh UUID in the Session name on each execution. Use a stable name with `get_or_create` to recover an existing Session instead.
+
+{/* example: demo-analysis */}
+
+```python
+from uuid import uuid4
+import marivo.analysis as mv
+
+session = mv.session.get_or_create(f"demo-revenue-{uuid4().hex[:8]}", timezone="UTC")
+revenue_entry = session.catalog.get("metric:sales.revenue")
+assert revenue_entry.kind == "metric"
+revenue = revenue_entry
+amount_entry = session.catalog.get("measure:sales.orders.amount")
+assert amount_entry.kind == "measure"
+amount = amount_entry
+region_entry = session.catalog.get("dimension:sales.orders.region")
+assert region_entry.kind == "dimension"
+region = region_entry
+july = session.time_scope(start="2026-07-01", end="2026-08-01")
+august = session.time_scope(start="2026-08-01", end="2026-09-01")
+baseline = session.observe(revenue, by=(july, region)).compute()
+current = session.observe(revenue, by=(august, region)).compute()
+change = current.compare(
+    baseline,
+    on=tuple(zip(current.axes, baseline.axes)),
+    match=mv.ordinal(),
+)
+change.show()  # Pending comparison; no evaluation.
+saved = change.persist()
+table = saved.to_pandas()
+assert table.columns.nlevels == 1
+assert table["region"].tolist() == ["east", "west"]
+assert table["interval.start"].dtype.pyarrow_dtype.tz == "UTC"
+assert table["reference.absolute.revenue"].tolist() == [-100, -100]
+assert table["current.present"].all()
+assert table["reference.present"].all()
+saved.show()
+saved.show(n=0)  # Commit and source-read metadata only.
+reopened = session.persisted_frame(saved.artifact_id)
+assert reopened.to_pandas().equals(table)
+saved_session_id = session.id
+saved_artifact_id = saved.artifact_id
+```
+
+<a id="observe-metrics"></a>
+
+## observe — evaluate Metrics over a domain
+
+`session.observe(metrics, by=..., where=...)` captures a source question and returns a pending AnalysisFrame. It reads no schema or business rows until `compute()` or `persist()`.
+
+| Parameter | Required | Default | Meaning |
+| --- | --- | --- | --- |
+| `metrics` | Yes | — | One named Metric object, a nonempty list or tuple, or a nonempty output-name → closed Metric expression Mapping. |
+| `by` | No | `()` | Ordered semantic fields, TimeScopes, groupings, or one complete Population. `()` requests one cell. `by=P` retains exactly P’s complete output keys. |
+| `where` | No | `None` | Predicate on source contributions; `None` adds no contribution filter. Output selection in by is independent. |
+
+`session.observe(revenue)` uses the declared Metric’s local name, `revenue`;
+`session.observe([revenue, other_metric])` preserves list order; tuples work the same way. Only a consumed
+published root Metric object supplies a default name. A declared formula has its own
+name, but arithmetic, filter, window, per or rescale added around a reference
+requires a Mapping, such as `session.observe({"scaled_revenue": revenue / 1000})`.
+Direct source reducers, Entity/Population counts and unnamed expressions also
+require explicit names. Python variable names and dependency leaves are not used.
+Repeated Metrics or equal local names from different domains collide; choose
+distinct Mapping keys. Names must be legal single segments, without dots or the
+reserved presence names `left_present`/`right_present`. Invalid names are not
+cleaned or numbered automatically. Names are fixed at capture, available through
+`output_names`, and unchanged by empty results, compute, persist or recovery.
+
+### Read August revenue
+
+```python
+overall = session.observe(revenue, by=(august,)).compute()
+overall.show()
+assert overall.to_pandas()["revenue"].tolist() == [800]
+```
+
+This answers the August total: 800. Stop here when that is the requested result;
+no comparison, breakdown, export or persistence is needed. Continue from the
+returned Frame when you need the same values later. The selected period specifies
+the observation window; it does not prove that the source data has fully arrived.
+
+If a regional breakdown is requested, observe that grouping explicitly:
+
+```python
+regional = session.observe(revenue, by=(august, region)).compute()
+regional.show()
+```
+
+The regional rows are east 200 and west 600. `observe` binds the named Metric,
+selected period and grouping; `compute` reads and evaluates it.
+
+To read individual records, provide complete Entity identities and named fields to `session.read`. The [population guide](/docs/v0.6/analysis/dsl/#select-and-filter) supplies a runnable order example.
+
+`show()` presents a bounded view. `to_pandas()` returns a complete isolated copy for further work. Column and FrameAxis handles belong to their exact Frame: obtain them again after deriving a new input rather than reusing handles from an earlier one.
+
+Export requires a completed Frame. A derivation such as `fixed.select(...)` is lazy even when `fixed` is already complete: call `compute()` on the derivative and use the returned object. Short composition examples are available at `analysis.analysis_frame.compute`, `analysis.analysis_frame.reduce` and `analysis.analysis_frame.over`.
+
+The export uses short axis names (final path components), full value names and independent boolean presence. Composite identities remain tuples. Calendar axes expose one actual key timestamp; interval axes expose genuine `.start`/`.end` bounds in their captured timezone. `time_details=True` adds calendar `.label`; named labels retain scalar types. Paired axes use `.left` and `.right` prefixes.
+
+Merged interval axes with multiple boundary timezones use UTC timestamps. The common export timezone is captured in the interval descriptor, including for empty pages. Fixed offsets with nonzero seconds also export in UTC without changing instants; zero seconds normalize to minute offsets. This applies to detail columns, pages and previews. Original zones remain in frozen metadata.
+
+Names must be unique. Use `saved.to_pandas(axis_names={"sales.orders.region": "region"})` to rename by full axis name or unique schema token; FrameAxis keys are rejected. Collisions fail before payload reads. `read_page()` shares these options and binds them into its cursor. Explicit `compute()` or `persist()` is required.
+
+An ordinary TimeField or Calendar axis exports one coordinate column. Interval
+`.start` and `.end` remain genuine observation bounds. Calendar keys do not promise
+complete membership intervals; use `read_periods()` for saved labels, order and
+selection progress. `axis_names` renames prefixes, using full axis names or token
+strings from the receiving Frame, for example
+`fixed.to_pandas(axis_names={fixed.axes[0].token: "bucket"})`.
+
+The exported table has empty `attrs`, so `table.to_parquet(...)` and other pandas writers work directly. Read axes, units and comparisons from `fixed.schema`, and saved periods from `read_periods()`. Physical numeric, missing-value and temporal types are retained: do not coerce all columns to float or fill every NA with zero. Continue typed analysis from the Frame. Help: `analysis.analysis_frame.to_pandas`.
+
+Large `int64[pyarrow]` values mixed with floats can raise `ArrowInvalid`. When approximate arithmetic is acceptable, convert the relevant column explicitly, for example `hours = table["seconds"].astype("float64") / 3600.0`. This conversion can round large integers and represents `pd.NA` as `NaN`. The same applies to tables returned by `page.to_pandas()`.
+
+
+Next, [compare two periods](/docs/v0.6/analysis/dsl/#compare-and-align) or [save the result](/docs/v0.6/analysis/results/).
+
+An implicit output grid rejects a CalendarAxis together with the raw field of
+the same contribution time role, including its relationship path and instant
+anchor. Use only `scope.by(mv.grain("day"))` for daily buckets, or `(scope, time_field)`
+for raw timestamp groups within that TimeScope. An explicit Population can retain
+both coordinates as joint keys. Different time roles and calendar-by-category
+grids remain supported.
+
+TimeScopes use inclusive start and exclusive end. An explicitly selected Population can retain members without facts; no-fact sums are zero, while nonempty all-null sums are NA. `Population.count()` counts selected complete tuples, `Entity.count()` counts source contributions, and `mv.row_count()` counts current Frame rows. Help: `analysis.session.observe`.
+
+<a id="compare-and-align"></a>
+
+## compare — compare baselines
+
+`mv.baseline(frame, *, on=None, match=None)` captures an immutable
+`ComparisonBaseline` with read-only `frame`, `on` and `match`. It checks shapes
+without reading data; `compare` binds the declaration to the current Frame.
+Use `.show()` for bounded metadata. Select/name values, choose source scopes and
+prepare aggregation before comparison; select/filter results afterwards.
+
+Call `current.compare(baseline, ...)` for one baseline in the same Session; its fixed alias is `reference`. Use `current.compare({"prior": mv.baseline(baseline)})` to choose a business alias, and distinct Mapping keys for multiple baselines. Endpoints need matching nonempty numeric value paths and compatible units (exact Duration comparisons are also supported). Equal names choose pairs; the caller still establishes business comparability, including Metrics from different domains with the same local name.
+
+| Parameter | Required | Default | Meaning |
+| --- | --- | --- | --- |
+| `baselines` | Yes | — | One Frame (alias `reference`), or a nonempty ordered alias → `mv.baseline(frame, ...)` Mapping; `current` is reserved. |
+| `on` | No | `None` | Axis-pair tuple for a bare Frame; named inputs put `on` in `mv.baseline(...)`. Omission pairs uniquely named ordinary axes with matching roles and ordered key names, plus at most one same-kind time axis per side. Otherwise provide all axis pairs. |
+| `match` | No | `None` | CalendarCorrespondence for a bare Frame only; named inputs put `match` in `mv.baseline(...)`. `None` uses compatible frozen direct relations or coordinate equality. |
+
+Default axis pairing does not depend on axis order. Same names do not prove business identity: omitting `on` accepts that correspondence. Duplicate or mismatched names and partial mappings require a complete explicit `on`. Compare supports at most one time-axis pair; align can use multiple time axes with explicit `on` and no `match`.
+
+Outputs retain current values and add `<alias>.baseline.<name>`, `<alias>.absolute.<name>` and `<alias>.relative.<name>`. `current.present` and `<alias>.present` report row presence independently of numeric NA.
+
+The bare form is equivalent to `{"reference": mv.baseline(baseline)}`, including
+`reference.baseline.revenue` and `reference.present`. Named inputs always use `mv.baseline(frame, on=..., match=...)` values, without
+top-level `on/match`. Bare Frame Mappings and bare declarations are rejected. Multiple
+baselines require names. Alias omission infers no year-over-year, budget or date
+relationship. A `reference` path collision requires an explicit alias or select;
+names are never numbered, and values are never paired by their column position.
+
+```python
+compared = current.compare(
+    baseline,
+    on=tuple(zip(current.axes, baseline.axes)),
+    match=mv.ordinal(),
+).compute()
+compared.show()
+```
+
+{/* example: compare-query */}
+
+```python
+comparison = saved.to_pandas()
+assert comparison["reference.absolute.revenue"].tolist() == [-100, -100]
+assert comparison["reference.relative.revenue"].tolist() == [-1 / 3, -1 / 7]
+```
+
+July and August are paired deliberately by ordinal; region keys match exactly. East changes by -100 (-1/3), west by -100 (-1/7). A zero baseline makes relative change NA; absent endpoints or NA values never become zero. Outer correspondence keeps missing-side rows, but baseline time rows must map into the current declared time domain. Use align for a general time union. Help: `analysis.analysis_frame.compare`.
+
+<a id="investigate-changes"></a>
+
+### Compare two members of one Frame
+
+Fix the region coordinate to obtain two Frames with only the interval axis:
+
+{/* example: fixed-member-comparison */}
+
+```python
+regional = session.observe({"revenue": revenue}, by=(august, region)).compute()
+east = regional.fix(regional.axes[1], "east")
+west = regional.fix(regional.axes[1], "west")
+member_change = west.compare({"east": mv.baseline(east)}).compute()
+assert member_change.to_pandas()["east.absolute.revenue"].tolist() == [400]
+```
+
+`fix` selects one member and removes its complete ordinary axis without aggregation.
+Values, types, units, NA, presence and relative row order are preserved. Use a scalar
+for one component, or a complete tuple in `axis.key_names` order for a composite key.
+`None` selects nullable NULL; an absent member yields an empty Frame, including after
+removing the last axis. Time and paired axes cannot be fixed. Obtain handles again
+from the returned Frame. Remaining axes use the default pairing rules or a complete `on`.
+Retained source declarations preserve fixed members for a later attribute request.
+Help: `analysis.analysis_frame.fix`.
+
+## attribute — explain source contributions
+
+Remote attribution supports direct integer, string and Date primary keys. ClickHouse Enum8/Enum16 (including Nullable) can participate in filters and classifications; Attribute excludes FixedString; Query preserves NUL padding in decoded strings. Distributed tables support native joins across shards using `GLOBAL IN/JOIN`: complete subquery inputs are computed on the initiator and broadcast to shards. View filters remain effective; Marivo neither substitutes target tables nor changes `distributed_product_mode`. Physical engine metadata in `system.tables` must be visible. Query sorts Enum labels as decoded strings, independently of their numeric codes.
+
+A zero baseline makes relative attribution undefined. The error identifies the target, baseline value and parent coordinate. Check the baseline window and source retention/filter conditions, or select the absolute comparison output:
+
+```python
+absolute = target.select({"change": target["baseline.absolute.revenue"]})
+report = absolute.attribute(by=(region,)).compute()
+```
+
+Here `target` is a comparison with a `baseline` alias and a `revenue` Metric.
+
+Fixed constant division and Metric `ms.rescale` are supported before observation:
+
+```python
+import marivo.semantic as ms
+
+scaled = ms.rescale(revenue, divisor=1000, unit="kCNY")
+source = session.observe({"revenue": scaled})
+report = source.attribute(by=(region,)).compute()
+```
+
+Division retains its original typed divisor and arithmetic order. `rescale` declares the output unit. Acquired division method facts retain `divisor`, `operation` and the child `method`. Pending ratio diagnostics already expose their own numerator and denominator units.
+
+`target.attribute(by=...)` explains selected admitted outputs on new business classifications. Unlike a grouped observation alone, it returns contributions together with the method facts needed to interpret them.
+
+| Parameter | Required | Default | Meaning |
+| --- | --- | --- | --- |
+| `by` | Yes | — | Nonempty new semantic classifications or a complete Population. The receiver must retain a source declaration for every selected admitted target. |
+| `permutations` | No | `1024` | Complete permutations for Shapley; integer ≥ 2, excluding bool. Exact decomposition ignores it. |
+| `seed` | No | `0` | Nonnegative integer, excluding bool; fixes the versioned permutation stream for captured parent/player keys. |
+
+Outputs include `contribution.<name>`, `contribution_share.<name>`, `total.<name>`, `observed_total.<name>` and fine diagnostics. `method_facts` retains the method explanation through filtering and persistence.
+
+Attribute fixes the selected parent keys and observed values. Exact decomposition reads fresh parent and fine-grain inputs separately; Shapley evaluates cached endpoints and coalitions through captured states or independent native queries. Independent source reads can reflect different source states.
+`total` uses the fresh formula; `observed_total` preserves the value from the
+input Frame. Qualified physical tables use native backend execution for supported
+methods, types and source shapes.
+
+Attribute trusts declared identity, relationship cardinality and version grain. It
+checks membership and Population coverage and overlap, whether distinct values
+appear in multiple groups, numeric validity, complete time correspondence and
+closure of requested final targets. `method_facts` preserve captured finite Float64 values and their
+method explanation without recalculating the arithmetic. The closure rules below
+apply to requested targets; relative targets use the absolute fresh parent baseline.
+Define the complete Metric formula before observing it; general Frame
+Column arithmetic has no attribution method. Reopening a saved Frame retains
+values and method facts, but not the source declaration needed for another
+attribute request.
+Help: `analysis.analysis_frame.attribute`.
+
+Numeric source division converts both operands to Float64 before dividing, preserving fractional integer ratios on backends such as Trino. Zero denominators remain NULL.
+
+Rules bind per target before business reads; there is no `method` parameter. Additive Metrics and admitted ratios, mean, weighted_mean and fixed linear formulas use exact decomposition. Paired rate/mix targets add `effect.within.<name>`, `effect.mix.<name>` and `effect.entry_exit.<name>`; mixed additive terms also add `effect.additive.<name>`. Their sum is each group's contribution. Entry/exit uses a zero-denominator, zero-numerator-mass boundary without filling an undefined group rate. Group denominators and effective pair weights must be nonnegative, parent denominators positive, and parent/fine components and original group rates consistent. Failure never changes the bound rule.
+
+Paired targets outside the exact rules use whole-Metric group-replacement Shapley. Qualified sufficient statistics, exact typed quantile frequencies and numeric distinct membership retain the state optimization. When a leaf has no qualified state reconstruction, the target uses independent native coalition queries with its original reducer, row expressions, casts, NULL and time semantics. The route is selected before business reads, without a group-count threshold or a fallback after failure. Level retains its admitted share rules; ordinary Column arithmetic has no source authority.
+
+Each complete permutation replaces every joint-key group once. The parent keys, player directory and formulas stay fixed; each visited coalition and its empty/full endpoints are cached within the call. State capture reads stay fixed as `permutations` increases, while local work and cache use grow. Native query counts can grow with distinct visited coalitions. There is no shared snapshot, temporary materialization or drift audit. New groups outside the captured directory are excluded; rows within that directory may change between reads.
+
+`contribution_std_error.<name>` measures permutation sampling error for fixed states. For independent native reads it describes observed marginal variation and cannot isolate source changes. State games require a finite-domain proof for every coalition; native games validate only evaluated coalitions. Any required failed or undefined query rejects the complete call. This is permutation sampling, with no source-row sampling, top-k or adaptive stopping.
+
+Float SUM and native AVG use group-summary state reconstruction: sums merge in fixed player order, and means merge SUM/count with the same valid mask. Floating weighted components keep co-valid masks. The game explains this reconstructed Metric and marks `summary_reconstruction/v1`; its endpoints and contributions may differ from native whole-input aggregation, with no summary-bias bound. NULL, empty support, units and physical carrier limits remain enforced; overflow still rejects. Permutation SE does not measure this bias, and nonlinear formulas may amplify it.
+
+Quantile state finishing is qualified for PostgreSQL non-Decimal inputs and DuckDB non-Decimal q=0/1; other admitted quantiles use native queries. Frequency capture cannot bypass the ordinary backend/type restrictions. Native approximate reducers retain the original algorithm and metric approximation. Existing exact mean/rate-mix rules remain available. Each paired native leaf needs compatible captured datasource configurations. Explicit `approx_nunique` uses native queries on DuckDB, Trino and ClickHouse; PostgreSQL/MySQL reject it. Per-group estimates are never summed, and exact/approximate algorithms are never substituted.
+
+`method_facts` records the route, original leaf types/finishers, permutation count and seed. State frequencies can transfer O(N) values. Native receipts record actual queries, returned rows and decoded bytes; unavailable backend versions and scan/wire statistics remain unknown. Persisted facts are inert and reopen without querying sources.
+
+Shapley requires single-valued classification tuples. Explicit Population grouping and multi-membership remain rejected before business reads; exact decomposition keeps its existing Population support. Existing source, identity, coverage and membership qualification still applies.
+
+New rate/mix component and effect closure checks use versioned numeric budgets without a 1% business allowance. Unchanged additive/level Float64 routes retain `abs(sum(contributions) - total) <= max(0.01 * abs(total), numeric rounding budget)`; integer, Decimal and Duration retain their typed policies. Residuals are never redistributed. Relative contributions and effects all divide by the same absolute fresh parent baseline; zero or undefined baselines fail.
+
+Start with the total decline, then ask which regions account for it.
+
+{/* example: attribute-rate-effects */}
+
+```python
+order_time_entry = session.catalog.get("time_dimension:sales.orders.order_date")
+assert order_time_entry.kind == "time_dimension"
+average = amount.mean(time=order_time_entry)
+average_current = session.observe({"average": average}, by=(august,))
+average_baseline = session.observe({"average": average}, by=(july,))
+average_change = average_current.compare(
+    {"reference": mv.baseline(average_baseline, match=mv.ordinal())}
+).compute()
+average_target = average_change.select(
+    {"average": average_change["reference.absolute.average"]}
+)
+average_explained = average_target.attribute(by=(region,)).compute()
+effect_columns = [f"effect.{role}.average" for role in ("within", "mix", "entry_exit")]
+average_rows = average_explained.to_pandas()
+assert all(name in average_rows.columns for name in effect_columns)
+```
+
+Within effects explain changes in regional means, mix effects changes in valid-sample shares, and entry/exit effects retain support boundaries separately.
+
+{/* example: attribute-shapley */}
+
+```python
+squared = revenue * revenue
+squared_current = session.observe({"squared": squared}, by=(august,))
+squared_baseline = session.observe({"squared": squared}, by=(july,))
+squared_change = squared_current.compare(
+    {"reference": mv.baseline(squared_baseline, match=mv.ordinal())}
+).compute()
+squared_target = squared_change.select(
+    {"squared": squared_change["reference.absolute.squared"]}
+)
+squared_explained = squared_target.attribute(
+    by=(region,), permutations=256, seed=42
+).compute()
+squared_rows = squared_explained.to_pandas()
+assert "contribution_std_error.squared" in squared_rows.columns
+squared_method = squared_explained.method_facts[0].parents[0].metrics[0].method
+assert squared_method.kind == "shapley"
+```
+
+The squared Metric is evaluated as a whole for each coalition. Its group contributions explain the overall squared-revenue change; they are not squared regional differences. Standard errors describe sampling variation, not metric approximation or causal uncertainty.
+
+The squared AVG target reconstructs each coalition from captured SUM/count. Its method facts disclose summary reconstruction, and its source capture reads stay fixed as permutations increase.
+
+{/* example: attribute-summary-shapley */}
+
+```python
+squared_average = average * average
+summary_current = session.observe({"squared_average": squared_average}, by=(august,))
+summary_baseline = session.observe({"squared_average": squared_average}, by=(july,))
+summary_change = summary_current.compare(
+    {"reference": mv.baseline(summary_baseline, match=mv.ordinal())}
+).compute()
+summary_target = summary_change.select(
+    {"squared_average": summary_change["reference.absolute.squared_average"]}
+)
+summary_explained = summary_target.attribute(by=(region,), permutations=32, seed=42).compute()
+summary_method = summary_explained.method_facts[0].parents[0].metrics[0].method
+assert summary_method.kind == "shapley"
+assert summary_method.state_route != "native_queries/v1"
+assert summary_method.game.metric_approximation == "summary_reconstruction/v1"
+```
+
+Native approximate quantiles retain their original backend reducer through independent coalition queries.
+
+{/* example: attribute-native-shapley */}
+
+```python
+approximate = amount.approx_quantile(0.5, time=order_time_entry)
+quantile_current = session.observe({"approximate": approximate}, by=(august,))
+quantile_baseline = session.observe({"approximate": approximate}, by=(july,))
+quantile_change = quantile_current.compare(
+    {"reference": mv.baseline(quantile_baseline, match=mv.ordinal())}
+).compute()
+quantile_target = quantile_change.select(
+    {"approximate": quantile_change["reference.absolute.approximate"]}
+)
+quantile_explained = quantile_target.attribute(by=(region,), permutations=32, seed=42).compute()
+quantile_method = quantile_explained.method_facts[0].parents[0].metrics[0].method
+assert quantile_method.kind == "shapley"
+assert quantile_method.state_route == "native_queries/v1"
+assert quantile_method.game.input_consistency == "independent_reads/v1"
+```
+
+Approximate distinct also preserves its original native reducer.
+
+{/* example: attribute-native-approx-distinct */}
+
+```python
+approximate_reach = region.approx_nunique(time=order_time_entry) * revenue
+reach_current = session.observe({"reach": approximate_reach}, by=(august,))
+reach_baseline = session.observe({"reach": approximate_reach}, by=(july,))
+reach_change = reach_current.compare(
+    {"reference": mv.baseline(reach_baseline, match=mv.ordinal())}
+).compute()
+reach_target = reach_change.select({"reach": reach_change["reference.absolute.reach"]})
+reach_report = reach_target.attribute(by=(region,), permutations=32, seed=42).compute()
+reach_method = reach_report.method_facts[0].parents[0].metrics[0].method
+assert reach_method.kind == "shapley"
+assert reach_method.state_route == "native_queries/v1"
+assert reach_method.game.metric_approximation == "native_approximate_metric/v1"
+assert any(leaf.reduction.reducer == "approx_nunique" for leaf in reach_method.leaves)
+```
+
+### Observe a fresh breakdown
+
+{/* example: attribute-default-investigation */}
+
+```python
+fresh_current = session.observe({"revenue": revenue}, by=(august, region))
+fresh_baseline = session.observe({"revenue": revenue}, by=(july, region))
+investigation = fresh_current.compare(
+    {
+        "reference": mv.baseline(
+            fresh_baseline,
+            on=tuple(zip(fresh_current.axes, fresh_baseline.axes)),
+            match=mv.ordinal(),
+        )
+    }
+).compute()
+```
+
+{/* example: attribute-contribution-facts */}
+
+```python
+overall_current = session.observe({"revenue": revenue}, by=(august,))
+overall_baseline = session.observe({"revenue": revenue}, by=(july,))
+overall_change = overall_current.compare(
+    {"reference": mv.baseline(overall_baseline, match=mv.ordinal())}
+).compute()
+target = overall_change.select({"revenue": overall_change["reference.absolute.revenue"]})
+explained = target.attribute(by=(region,)).compute()
+assert explained.to_pandas()["contribution.revenue"].tolist() == [-100, -100]
+facts = explained.method_facts
+facts[0].show(n=0)
+declines = explained.where(explained["contribution.revenue"] < 0).compute()
+saved_declines = declines.persist()
+reopened_declines = session.persisted_frame(saved_declines.artifact_id)
+decline_rows = reopened_declines.to_pandas()
+original_explanation = reopened_declines.method_facts
+```
+
+{/* example: attribute-explicit-default-after-refusal */}
+
+```python
+nonlinear = revenue * revenue
+fine_current = session.observe({"squared": nonlinear}, by=(august, region))
+fine_baseline = session.observe({"squared": nonlinear}, by=(july, region))
+nonlinear_investigation = fine_current.compare(
+    {
+        "reference": mv.baseline(
+            fine_baseline, on=tuple(zip(fine_current.axes, fine_baseline.axes)), match=mv.ordinal()
+        )
+    }
+).compute()
+```
+
+
+
+### Separate a breakdown from an explanation
+
+A new grouped observation reads source facts again. Contribution uses a supported source-backed target and retains a method explanation. In this DuckDB physical-table example the parent change is -200, and each region contributes -100 with share 0.5.
+
+Inspect `method_facts` for the complete original explanation. Filtering the report does not recalculate its original denominator. Reopening saved data preserves explanations but does not restore a source declaration for another contribution request.
+
+The separate grouped squared-revenue comparison remains an investigation: its regional differences do not add up to the overall nonlinear change. Use the Shapley report above for contributions to that overall change. Check [backend and method limits](/docs/v0.6/reference/backends-and-limits/).
+
+None of these arithmetic decompositions proves a causal explanation. To investigate a hypothesis, obtain data that can distinguish it from alternatives.
+
+## correlate — paired numeric association
+
+Use `frame.correlate(x, y, method=..., by=...)` to calculate Pearson linear correlation or Spearman rank correlation over current rows. Align independent Frames first; never pair exports by incidental row order. The completed comparison already supplies paired endpoints.
+
+| Parameter | Required | Default | Meaning |
+| --- | --- | --- | --- |
+| `x` | Yes | — | Numeric Column from this exact input Frame; Duration is rejected. |
+| `y` | Yes | — | Numeric Column on the same exact Frame; its unit may differ from x. |
+| `method` | Yes | — | Explicit `"pearson"` or `"spearman"`; Spearman uses average ranks for ties. |
+| `by` | No | `()` | Complete axes retained as correlation groups; `()` returns one overall coefficient. |
+
+Outputs are `coefficient` (nullable float64, unit 1) and `n_pairs` (nonnullable int64), calculated from the same common non-NA pairs.
+
+```python
+paired = saved
+association = paired.correlate(
+    paired["revenue"],
+    paired["reference.baseline.revenue"],
+    method="pearson",
+).compute()
+pairs = association.to_pandas()
+assert pairs["n_pairs"].tolist() == [2]
+assert abs(pairs["coefficient"].iloc[0] - 1.0) < 1e-12
+association.show()
+```
+
+The pairs are (200, 300) and (600, 700), so the example returns 1 with only two observations; this is an API demonstration, not evidence of a general relationship or causality. Both expressions share one non-NA pair mask. Fewer than two pairs or a constant endpoint yields NA while retaining the count; zero-pair groups remain. `by=(paired.axes[0],)` would calculate within each interval. Group coefficients cannot be averaged into a pooled coefficient. Help: `analysis.analysis_frame.correlate`.
+
+## align — pair complete coordinates
+
+`left.align(right, on=..., match=...)` brings two Frames into one coordinate correspondence for custom arithmetic. It keeps all values as `left.<name>` and `right.<name>` and adds `left_present` and `right_present`. Unlike compare, value names need not match.
+
+| Parameter | Required | Default | Meaning |
+| --- | --- | --- | --- |
+| `other` | Yes | — | Other Frame in this Session; paired-axis inputs are rejected. |
+| `on` | No | `None` | Complete one-to-one mapping of compatible axes with equal axis counts. Omission follows the same ordinary-axis and time-axis rules as compare. |
+| `match` | No | `None` | Explicit supported time rule; `None` uses frozen coordinate equality. |
+
+{/* example: aligned-absolute-only */}
+
+```python
+aligned = current.align(
+    baseline,
+    on=tuple(zip(current.axes, baseline.axes)),
+    match=mv.ordinal(),
+)
+difference = aligned.select(
+    {
+        "difference": aligned["left.revenue"] - aligned["right.revenue"],
+    }
+).compute()
+difference.show()
+```
+
+Alignment uses outer correspondence: unmatched rows remain with independent presence and NA on the absent side. It does not broadcast missing axes or perform an arbitrary many-to-many join. After align, acquire Columns from the aligned result.
+
+### Align a regional budget
+
+{/* example: broadcast-reference */}
+
+```python
+budget = session.values(
+    by=(region,),
+    columns={"budget": "CNY"},
+    rows=((("east",), {"budget": 250}), (("west",), {"budget": 750})),
+).compute()
+regional = current.reduce(
+    {"revenue": current["revenue"].sum()}, by=(current.axes[1],)
+).compute()
+aligned_budget = regional.align(budget, on=((regional.axes[0], budget.axes[0]),))
+vs_budget = aligned_budget.select(
+    {
+        "revenue": aligned_budget["left.revenue"],
+        "budget_variance": aligned_budget["left.revenue"]
+        - aligned_budget["right.budget"],
+    }
+).compute()
+vs_budget.show()
+```
+
+The budget is east 250 and west 750; August variances are -50 and -150. The reduction explicitly removes the one interval axis so both inputs have one region axis. That is valid for this additive revenue example, not a way to recover arbitrary ratios or distinct counts. Help: `analysis.analysis_frame.align`.
+
+## reduce — summarize represented rows
+
+`frame.reduce(values, by=...)` groups current rows and returns one row per retained complete key. `by=()` produces an overall summary. It removes presence columns and computes statistics over represented cells, without rerunning the original Metric at a new grain.
+
+| Parameter | Required | Default | Meaning |
+| --- | --- | --- | --- |
+| `values` | Yes | — | One statistic, a nonempty tuple, or a nonempty output-name → statistic Mapping. Each statistic produces one column. |
+| `by` | No | `()` | Distinct complete axes retained from this Frame; `()` summarizes all represented rows. Omitted axes disappear. |
+
+A direct single-segment value’s sum/mean uses `<name>_sum` / `<name>_mean`;
+`mv.row_count()` uses `row_count`. For example,
+`current.reduce(current["revenue"].sum()).output_names` is `("revenue_sum",)`.
+Use a Mapping for business names, expression statistics, corr/pair_count and
+multi-segment values such as `left.revenue`. The receiver schema and bound value
+slot supply the name; arithmetic over one column does not inherit that column’s
+name. Repeated candidates reject, and tuple/Mapping order determines output order.
+Naming adds no aggregation authority and never relaxes exact Frame ownership.
+
+```python
+summary = current.reduce(
+    {
+        "total": current["revenue"].sum(),
+        "mean_region": current["revenue"].mean(),
+        "rows": mv.row_count(),
+    }
+).compute()
+summary_rows = summary.to_pandas()
+assert summary_rows["total"].tolist() == [800]
+assert summary_rows["mean_region"].tolist() == [400]
+assert summary_rows["rows"].tolist() == [2]
+```
+
+400 is mean regional revenue, not average order value. Summing ratios or distinct counts does not recover the original overall Metric; use a new observe for that question. Empty sums are zero; nonempty all-NA sums and means with no valid cells are NA. `row_count()` includes rows whose values are NA. Help: `analysis.analysis_frame.reduce`.
+
+## over / share — partition totals and row shares
+
+`frame.over(statistic, by=...)` broadcasts each partition’s statistic back onto its original rows. `column.share(along=...)` divides each value by the sum along the named axes; all remaining axes define partitions. Both return Columns for select and preserve the original rows and order.
+
+| Parameter | Required | Default | Meaning |
+| --- | --- | --- | --- |
+| `statistic` | Yes | — | Same-input unfinished statistic, or `mv.row_count()`; broadcast each partition result to original rows. |
+| `by` | No | `()` | Complete partition keys from this Frame; `()` uses one partition containing all rows. |
+
+`Column.share` parameters:
+
+| Parameter | Required | Default | Meaning |
+| --- | --- | --- | --- |
+| `along` | Yes | — | Nonempty distinct complete axes to sum over; all remaining axes define partitions. |
+
+```python
+normalized = current.select(
+    {
+        "revenue": current["revenue"],
+        "total": current.over(current["revenue"].sum()),
+        "share": current["revenue"].share(along=(current.axes[1],)),
+    }
+).compute()
+assert normalized.to_pandas()["share"].tolist() == [0.25, 0.75]
+```
+
+Here share sums regions within each interval. `over(..., by=())` uses all current rows. Filtering before share changes the denominator; filtering the completed share afterwards preserves it. A zero partition total yields NA; signed shares may lie outside [0, 1]. Share needs at least one axis and does not establish original Metric additivity. Help: `analysis.analysis_frame.over` and `analysis.column.share`.
+
+## Select and filter
+
+Choose whether to filter source contributions, the output domain, or already computed rows. They answer different questions.
+
+### Select known orders and inspect their attributes
+
+{/* example: explicit-identity-read */}
+
+```python
+orders_entry = session.catalog.get("entity:sales.orders")
+assert orders_entry.kind == "entity"
+Orders = orders_entry
+fixed_orders = mv.coordinates(
+    by=(mv.identity(Orders),),
+    keys=(((4,),), ((5,),), ((6,),)),
+)
+attributes = session.read(fixed_orders, {"region": region}).compute()
+chosen_orders = attributes.where(attributes["region"] == "east").compute()
+east = session.population_from(chosen_orders, on=((chosen_orders.axes[0], Orders),))
+selected = session.observe(
+    {"revenue": revenue}, by=mv.product(august, east), where=mv.in_population(east)
+).compute()
+selected.show()
+session.frame(east).compute().show()
+```
+
+The selected identities are orders 4, 5 and 6. Filtering their attributes to east leaves orders 4 and 5, with revenues 100 and 100. Complete primary keys remain tuples even for a single-key Entity. Literal keys describe selected identities; they do not prove the source contains them.
+
+### Keep a selected group fixed
+
+{/* example: comparison-endpoint-followup */}
+
+```python
+chosen = current.top(1, by=current["revenue"]).compute()
+parents = session.population_from(chosen, on=((chosen.axes[1], region),))
+prior_selected = session.observe(
+    {"revenue": revenue}, by=(july, region), where=mv.in_population(parents)
+).compute()
+followup = chosen.compare(
+    {
+        "reference": mv.baseline(
+            prior_selected, on=tuple(zip(chosen.axes, prior_selected.axes)), match=mv.ordinal()
+        )
+    }
+).compute()
+followup.show()
+```
+
+West is the highest August region (600). This fixes west as the follow-up population; querying July does not rerank regions. The July reference is 700 and the change is -100.
+
+Use source field predicates for source filtering, `mv.in_population(...)` for membership, and a boolean Column from the exact result for result filtering. `by=population` selects output keys; membership in `where` selects contributions. Counting an identity population counts complete distinct identities, including selected identities without facts. Projecting only to region and counting instead counts regions.
+
+See [scope and grain](/docs/v0.6/analysis/dsl/#scope-and-grain) before changing a denominator.
+
+`session.read(population, fields)` reads named attributes at complete Entity identities. `frame.select({...})` projects or calculates named Columns; `frame.where(predicate)` keeps current rows; `frame.top(n, by=column)` selects a global ranking. Columns and axes must come from the exact receiver. Reacquire them after deriving a new Frame.
+
+## Scope and grain
+
+Before comparing numbers, ask what one row represents and which records contribute to it.
+
+### Three different choices
+
+- Population: which customers, orders, or complete coordinate tuples are selected?
+- Time: which business-time facts contribute, with what boundaries?
+- Grain: is each output row a region, an order, or a region-month pair?
+
+Suppose customer A has two orders of 100 each and B has one of 400. Mean order value is 600 / 3 = 200. Mean customer revenue is (200 + 400) / 2 = 300. Both are valid, but answer different questions.
+
+### Preserve the denominator
+
+If the two regions have revenues 200 and 600, shares of the original total are 0.25 and 0.75. Filtering to the 600 row before normalization changes its share to 1. Filtering afterwards leaves 0.75.
+
+A missing comparison row is different from a present row whose value is unknown. Neither automatically means zero. Field nulls can also be genuine categories. Inspect presence separately from numeric validity.
+
+[Select populations](/docs/v0.6/analysis/dsl/#select-and-filter) to implement scope; [statistics](/docs/v0.6/analysis/statistics/) shows denominator-sensitive operations.
+
+## read / select / where / top parameters
+
+### `session.read`
+
+| Parameter | Required | Default | Meaning |
+| --- | --- | --- | --- |
+| `population` | Yes | — | Complete identity domain of one Entity. |
+| `fields` | Yes | — | Nonempty output name → closed field expression mapping. |
+
+### `frame.select`
+
+| Parameter | Required | Default | Meaning |
+| --- | --- | --- | --- |
+| `values` | Yes | — | Output names mapped to Columns from this exact Frame or supported literal values. |
+
+Pass an empty mapping to remove all values while retaining the current rows, row order,
+complete coordinates and presence. This also preserves necessary frozen coordinate mappings.
+Evaluation still runs required upstream calculations and checks.
+
+```python
+coordinates_only = saved.select({}).compute()
+assert coordinates_only.output_names == ()
+assert coordinates_only.presence_names == saved.presence_names
+```
+
+### `frame.where`
+
+| Parameter | Required | Default | Meaning |
+| --- | --- | --- | --- |
+| `predicate` | Yes | — | Boolean Column from this exact Frame, filtering represented rows. |
+
+### `frame.top`
+
+| Parameter | Required | Default | Meaning |
+| --- | --- | --- | --- |
+| `n` | Yes | — | Nonnegative integer number of rows to retain globally; bool is rejected. |
+| `by` | Yes | — | Ranking Column from the exact input Frame. |
+| `descending` | No | `True` | True selects largest values first; False selects smallest first. |
+
+Top preserves complete-key ties and places NA scores last. Proven input keys
+avoid duplicate scans, including `top(0)`; unknown inputs retain their key check
+before selection. Required NULL, numeric and domain checks still apply. Use an
+explicit source check to validate declared source uniqueness.
+
+## Filter and rank
+
+These examples separately filter the source and current result. East totals 500 across all six orders; August rows above 200 and the highest row both select west, with 600.
+
+{/* example: source-and-result-filters */}
+
+```python
+# Continue after running analysis.py.
+east_total = session.observe({"revenue": revenue}, where=region == "east").compute()
+east_total.show()
+
+large = current.where(current["revenue"] > 200).compute()
+large.show()
+
+ranked = current.top(1, by=current["revenue"]).compute()
+ranked.show()
+```
+
+
+### Captured value interpretation
+
+`frame.schema.alignments` binds aligned values to their endpoint coordinates and
+presence. `frame.schema.value_contexts` identifies explicit shares and paired
+statistics, including captured input names. See [result interpretation](/docs/v0.6/analysis/results/#interpret-aligned-values-shares-and-paired-statistics)
+for typed inspection and propagation rules. These metadata reads do not execute
+pending Frames or make current-row statistics valid attribute targets.
+
+
+## Export names, field identities and purpose
+
+`observe` accepts a named metrics Mapping; `by` remains a tuple or Population.
+See [time series](../time-series/#historical-classification-for-each-fact) for row-time
+labels. Use semantic objects' `.id` as dictionary keys; object `==` constructs a
+predicate. Export aliases rename an entire axis prefix via
+`axis_names={axis.token: "day"}`. Rename individual columns on the isolated pandas
+copy with `.rename(columns={...})`. Session `question=` records the investigation;
+`persist(description=...)` describes one saved result. Neither annotates every observe.

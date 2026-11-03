@@ -1,0 +1,250 @@
+---
+slug: zh-cn/docs/v0.6/analysis/results
+title: 结果与方法事实
+description: 保存结果标识、发现已提交 Frame、恢复数据并查看证据。
+---
+
+运行[分析 DSL 示例](/zh-cn/docs/v0.6/analysis/dsl/#完整示例与后续输入)，其中将比较结果持久化为 `saved`。`compute()` 会完成 Frame，供同一 Python 进程后续使用；需要在另一个进程中恢复时，使用 `persist()` 保存结果。
+
+## 保存结果标识
+
+在 `analysis.py` 中 `saved = change.persist()` 之后添加以下代码，并运行生成结果的脚本：
+
+```python
+print(saved.session_id)
+print(saved.artifact_id)
+```
+
+保留这两个 ID，供后续进程使用。重新运行脚本会再次执行来源观测，可能读取变化后的数据，也可能发布新的结果。
+
+内存运算复用已建立的完整键唯一性，避免反复审计行数据。保存仍独立检查实际输出。
+重新打开不会恢复编译器证明：存储分页检查所选键，完整读取还检查跨页完整键唯一性，
+并保留必要坐标与 presence 检查。这些检查不证明来源数据质量。
+
+## 恢复已保存的数据
+
+将下面的代码保存为 `reopen.py`，在同一项目中运行 `.venv/bin/python reopen.py SESSION_ID FRAME_ID`，并将占位符替换为已保存的 ID。脚本会恢复已提交的 Frame，不会重新执行来源观测。最后一行会在当前目录写入 `comparison.csv`；如果该文件已存在，则会覆盖。
+
+```python
+import sys
+import marivo.analysis as mv
+
+session_id, frame_id = sys.argv[1:]
+session = mv.session.resume(session_id)
+reopened = session.persisted_frame(frame_id)
+rows = reopened.to_pandas()
+assert rows["reference.absolute.revenue"].tolist() == [-100, -100]
+reopened.show(n=0)
+rows.to_csv("comparison.csv", index=False)
+```
+
+两个绝对变化仍为 -100，因为这里读取的是保存的比较结果。可以继续对 `reopened` 执行支持的 Frame 运算；若要保存派生结果，对派生 Frame 显式调用 `persist()`。若需获取新的来源值，应基于所需定义构造并执行新的来源观测。
+
+`to_pandas()` 返回包含可读坐标名和值名称以及独立存在性列的平面表副本。CSV 适合分享数值，但不会保留类型化分析元数据或冻结时间解释；若要继续进行类型化分析，请保留原 Frame。合并导出表前检查单位与键。
+
+## Frame ID 丢失时查找已保存结果
+
+先恢复目标 Session，再查看它的已提交 Frame 目录：
+
+```python
+session = mv.session.resume(session_id)
+page = session.persisted_frames(limit=20)
+page.show()
+```
+
+每个 `page.items` 条目提供 `artifact_id`、`committed_at`、`description` 和
+`schema`。结合描述、输出列和分组轴辨认候选，再用
+`session.persisted_frame(artifact_id)` 打开选定 ID；必要时查看其 `lineage`
+或已保存证据。候选仍有歧义时，请调用者选择，不要自动采用最新结果。
+
+生产结果时，可以补充用途：
+
+```python
+saved = change.persist(description="Monthly revenue comparison")
+print(saved.description)
+```
+
+`description` 可选，默认 `None`；文本原样保存，与结果在同一事务中提交。
+未提供描述会明确显示。描述是调用者的声明，不是业务含义已经验证的证明。
+已保存 Frame 重复 `persist()` 会保留不可变的原描述；传入不同的非 `None`
+描述会报错。新提交需要重新显式指定描述。
+
+目录只读取当前代际的 Session 元数据，不读取结果文件、模型或源数据。
+提交结果未知时，先恢复 Session 再检查目录。`page.has_more` 为真时，使用
+`session.persisted_frames(limit=20, cursor=page.next_cursor)` 续页，并保持相同
+`limit`；范围为 1–100。多次分页不冻结并发历史，发现新提交时从首页开始。
+旧代际保持独立，需要兼容环境读取。
+
+## 理解证据及其适用范围
+
+`AnalysisFrame` 可以表示待执行表达式、完整内存数据或保存结果。`compute()` 完成 Frame 并将其保留在内存中；`persist()` 保存完成结果。`show()` 是有界预览，`to_pandas()` 可导出完整的固定数据。
+
+保存的 Frame 上，`session_id` 和 `artifact_id` 标识已提交结果。`show(n=0)` 展示计算与提交时间及有界实际读取摘要，不读取结果行或方法载荷。`source_reads` 提供当前结果消费的实际源读取；受支持的贡献分析通过 `method_facts` 保留原始方法说明。待执行和内存 Frame 需要显式 `persist()` 才能读取 `source_reads`，属性访问不会自动执行或保存。
+
+```python
+saved = pending.persist()
+for read in saved.source_reads:
+    print(read.read_id, read.completed_at, read.returned_rows)
+    for scope in read.scopes:
+        print(scope.source, scope.period)
+```
+
+每次实际成功读取对应一个身份与 UTC 完成时间。共享读取只有一条记录；固定数据操作按身份去重继承原记录。scope 保存非秘密来源标识和已知的原始时间限制（start 可空，end 为不含端点），不保存完整历史条件、成员域或 SQL。`period=None` 仅表示未捕获该时间限制，不能解释为无约束。读取记录不代表派生结果当前的过滤范围。`returned_rows` 是可靠的原始返回行数，未知为 None，已知空结果为 0；不是扫描行数或最终 Frame 行数。属性读取仅使用已载入元信息，不打开数据/方法文件、Catalog 或来源。
+
+来源读取、计算完成和提交保存的时间各不相同。判断结果是否新鲜时，应查看记录中的来源范围和时间；后续观测可能读到变化后的数据。记录的范围说明原始来源标识及已知的时间限制，不保存完整历史筛选条件或来源/成员约束；它不能证明来源包含所有相关数据，也不能证明多个来源使用了一致快照。贡献拆分说明所选方法如何分配变化，但本身不能证明变化原因。
+
+## 查看每列的语义对象来源
+
+每种载体的 Frame 都提供 `lineage`，待执行表达式也可读取。查看血缘不会执行分析或
+读取业务行；保存并在独立进程恢复后，无需原始模型或来源连接仍可查看。
+
+```python
+lineage = saved.lineage
+lineage.show()
+lineage.values["reference.absolute.revenue"].show()
+origins = lineage.values["reference.absolute.revenue"].value_origins
+assert lineage.input_id == saved.schema.input_id
+for origin in origins:
+    print(origin.kind, origin.path, origin.definition_id)
+```
+
+`value_origins` 记录值使用的语义声明与输入，`context_origins` 记录筛选、分组、时间、
+关系和行匹配依赖。筛选条件涉及的列在投影中丢弃后，其选择上下文仍保留。`axes`
+目录使用 `frame.axes[i].token`，`presence` 使用完整 presence 名。
+筛选中使用的命名 Measure 保留为上下文来源，包括 Metric 内部的筛选。坐标同样保留
+行选择上下文。加权平均归因的分母以权重为值来源，值与权重的有效配对条件作为上下文；
+有效配对数仅有上下文来源。
+直接比值的分子与分母分别保留各自的命名 Metric 来源。
+这些是静态逻辑依赖，包含所有声明的条件分支，不证明逐行实际贡献、已成功读取或
+因果关系。显示有界，typed mappings 和 origins tuple 保留完整捕获事实。
+Frame 保存的是语义 ref，而不是定义正文。需要当前定义详情时，再通过 Catalog 显式查询；
+若定义已移除或不在当前加载范围，查询可能不可用：
+
+```python
+ref = origins[0]
+entry = session.catalog.get(f"{ref.kind}:{ref.path}")
+entry.show()
+```
+
+## 查看结构并分页读取
+
+`schema` 描述捕获的字段、精确类型、单位、完整轴键和默认导出布局，不读取结果文件。
+待执行 Frame 也能查看；尚未解析的类型使用明确的 unresolved 分支。
+
+```python
+schema = saved.schema
+page = saved.read_page(columns=("reference.absolute.revenue",), limit=1000)
+assert page.input_id == schema.input_id
+rows = page.to_pandas()
+if page.has_more:
+    page = saved.read_page(
+        columns=("reference.absolute.revenue",), limit=1000, cursor=page.next_cursor
+    )
+```
+
+schema 还会说明当前输入中已捕获的解释事实：
+
+```python
+schema = saved.schema
+assert schema.input_id == saved.lineage.input_id
+print(schema.fixed_axes)
+for name, context in schema.value_contexts.items():
+    print(name, context.kind)
+for relation in schema.comparisons:
+    print(relation.alias, relation.binding.kind)
+    for group in relation.groups:
+        print([(value.role, value.name) for value in group.values])
+for decomposition in schema.decompositions:
+    print(type(decomposition.target).__name__, decomposition.row_scope)
+    print([(field.role, field.name) for field in decomposition.outputs])
+```
+
+这些事实只描述当前捕获的角色与关系。没有 value context 不代表结果没有筛选或窗口。
+基期列即使显示在本期时间坐标上，comparison 仍保留其基期时间依据。ref 不复制业务
+说明，也不授予来源读取能力。
+
+### 解释对齐值、归一化份额和配对统计
+
+使用 DSL 示例中的 `current`，可以在执行前查看解释：
+
+```python
+aligned = current.align(current)
+for relation in aligned.schema.alignments:
+    assert relation.input_id == aligned.schema.input_id
+    print(relation.left.values, relation.left.presence, relation.left.coordinates)
+    print(relation.right.values, relation.right.presence, relation.right.coordinates)
+
+shares = current.select({"share": current["revenue"].share(along=current.axes)})
+share_context = shares.schema.value_contexts["share"]
+assert isinstance(share_context, mv.FrameShareContext)
+print(share_context.numerator, share_context.groups, share_context.along)
+
+named = current.select({"revenue": current["revenue"], "doubled": current["revenue"] * 2})
+association = named.correlate(named["revenue"], named["doubled"], method="pearson")
+pair_context = association.schema.value_contexts["coefficient"]
+assert isinstance(pair_context, mv.FramePairStatisticContext)
+print(pair_context.x, pair_context.y, pair_context.row_scope)
+```
+
+alignment 的每端将当前值名绑定到坐标与 presence 链，链中全部标记为真才表示该端存在。
+值 NA 不代表缺侧，同名值也不证明业务可比性。直接列改名更新绑定；混合两端的计算值
+没有直接端点角色。冻结时间详情仍通过 `read_periods` 读取，不解析 `left.` 或 `right.`
+前缀猜测时间。
+
+share 元数据说明显式归一化的分母分区与求和轴，不证明业务贡献或 0–100% 范围：
+带符号份额可以为负或大于一。普通除法没有 share context。筛选份额保留原分母，
+并标记 `row_scope="restricted"`；完整 outer 对齐保留端点完整性，通过 presence 排除
+对侧独有行。后续算术移除直接 context。
+
+配对输入名是快照，不引用系数结果中的列。派生输入提供 origins，不恢复公式；
+需要准确标题时先 select 命名，再获取 Column。相同 origins 不证明表达式相同。
+这些事实经 compute、persist 和独立恢复后仍保留，无需访问原输入或 Catalog；
+它们不会使份额或当前行统计成为合法的 attribute 目标。
+
+期间页和数据页分别读取；comparison 页保留实际消费的端点对应：
+
+```python
+time_axis = next(axis for axis in saved.axes if axis.role in ("calendar", "interval", "paired"))
+time_schema = next(axis for axis in schema.axes if axis.token == time_axis.token)
+periods = saved.read_periods(time_axis, limit=1000)
+data_page = saved.read_page(limit=1000)
+row_period_keys = {
+    tuple(data_page.coordinates[key.slot_id][row] for key in time_schema.keys)
+    for row in range(len(data_page))
+}
+assert row_period_keys <= {period.key for period in periods.items}
+
+time_comparison = next(
+    (
+        relation
+        for relation in schema.comparisons
+        if relation.binding.kind in ("calendar", "interval")
+    ),
+    None,
+)
+if time_comparison is not None:
+    correspondences = saved.read_periods(time_comparison, limit=1000)
+    assert correspondences.input_id == schema.input_id
+    for item in correspondences.items:
+        print(item.key, item.current, item.baseline, item.absent_reason)
+```
+
+期间 key 是目标轴的完整有序键，可与 `read_page().coordinates` 中该轴的 schema slot
+值关联。已选期间不一定有当前结果行。calendar 记录保留已保存标签和民用边界；interval
+记录不推测未保存的民用信息。paired 缺端点与 comparison 保存的缺失原因是不同事实。
+
+页面在 `coordinates` 中按 schema slot ID 保留每个完整轴键，可读坐标位于所选字段之前。
+使用完整 value/presence 名；`columns=()` 只读坐标。limit 是 1..10000 的整数，不接受
+bool。续读时重复相同 limit、columns、轴别名和 `time_details`。保存游标可在相同 Runtime 版本重新打开
+同一提交后继续；内存游标限当前进程的同一固定输入。
+
+`layout` 解释实际导出列。页面导出是 attrs 为空的隔离副本，页面不保留完整父表。
+`read_stats` 统计实际检查的数据行、坐标行和收据哈希字节，不表示全部磁盘 I/O 或峰值
+内存；收据与坐标查找可能扫描完整文件。存储页面校验所选数据和必要坐标，完整存储 `to_pandas()`
+还会校验完整键、数据和映射。读取不会执行或保存待执行 Frame。
+
+
+## 属性时间与缺失值
+
+分类轴 `at` 为 `None`、固定 UTC datetime，或 acquired `FrameRowAttributeTime(kind="row", field=...)`；后者仅保存控制字段身份。schema、固定运算、保存和冷恢复不重查版本。
+使用 `pd.isna(value)`、`rows["value"].isna()` 或 `.notna()` 判断 Arrow 缺失值；不要让 `pd.NA` 参与 Python 布尔判断或默认填零。确需近似浮点计算时显式 `.astype("float64")`，接受大整数舍入与 NA 变成 NaN。

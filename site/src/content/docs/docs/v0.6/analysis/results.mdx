@@ -1,0 +1,280 @@
+---
+slug: docs/v0.6/analysis/results
+title: Results and method facts
+description: Save result identifiers, discover committed Frames, reopen data, and inspect evidence.
+---
+
+Run the [analysis DSL example](/docs/v0.6/analysis/dsl/#complete-example-and-shared-inputs), which persists its comparison as `saved`. Use `compute()` for a completed Frame you will keep in the same Python process. Persist the result when you need to reopen it in another process.
+
+## Save the result identifiers
+
+In `analysis.py`, add these lines after `saved = change.persist()` and run the producing script:
+
+```python
+print(saved.session_id)
+print(saved.artifact_id)
+```
+
+Keep both IDs for the next process. Rerunning the producer performs the source observations again and may read changed data or publish another result.
+
+## Reopen the saved data
+
+Save this as `reopen.py` and run `.venv/bin/python reopen.py SESSION_ID FRAME_ID` from the same project, replacing the placeholders with the IDs you saved. It reopens the committed Frame without repeating its source observations. The final line writes `comparison.csv` in the current directory and overwrites it if it already exists.
+
+```python
+import sys
+import marivo.analysis as mv
+
+session_id, frame_id = sys.argv[1:]
+session = mv.session.resume(session_id)
+reopened = session.persisted_frame(frame_id)
+rows = reopened.to_pandas()
+assert rows["reference.absolute.revenue"].tolist() == [-100, -100]
+reopened.show(n=0)
+rows.to_csv("comparison.csv", index=False)
+```
+
+The two absolute changes remain -100 because this reads the saved comparison. Continue with supported Frame operations on `reopened`; call `persist()` on a derived Frame if you want to save another result. To use fresh source values, build and run an explicit source observation with the required definitions.
+
+`to_pandas()` returns an isolated flat table with readable coordinate and value names and separate presence columns. CSV is useful for sharing values but does not preserve typed analysis metadata or frozen time interpretation; keep the Frame for typed analysis. Check units and keys before joining exported tables.
+
+Memory operations reuse established complete-key uniqueness without repeatedly
+auditing rows. Saving still checks the actual output independently. Reopening
+does not restore a compiler proof: stored pages check their selected keys, and a
+full read also checks complete-key uniqueness across pages, together with required
+coordinates and presence. These checks do not certify source data quality.
+
+## Find a saved Frame when its ID is lost
+
+Recover the intended Session first, then inspect its committed Frame directory:
+
+```python
+session = mv.session.resume(session_id)
+page = session.persisted_frames(limit=20)
+page.show()
+```
+
+Each `page.items` entry provides `artifact_id`, `committed_at`, `description` and
+`schema`. Use the description, output columns and axes to identify candidates;
+open a selected ID with `session.persisted_frame(artifact_id)`. Inspect its
+`lineage` or saved source_reads when needed. If candidates remain ambiguous, ask the
+caller to select rather than automatically choosing the newest result.
+
+Add a purpose when producing a result, when useful:
+
+```python
+saved = change.persist(description="Monthly revenue comparison")
+print(saved.description)
+```
+
+`description` is optional and defaults to `None`; text is saved unchanged in the
+same atomic commit. Missing descriptions are shown explicitly. They are caller
+claims, not verification of business meaning. A saved Frame retains its
+immutable description on repeated `persist()` calls; passing a different
+non-None description fails. A new commit requires a new explicit description.
+
+Discovery reads only current-generation Session metadata, without result files,
+models or sources. Recover the Session before checking an uncertain publication
+outcome. Continue with `session.persisted_frames(limit=20, cursor=page.next_cursor)`
+when `page.has_more` is true; retain the same limit. Limits are 1..100. Pages do
+not freeze concurrent history; start from the first page to discover new commits.
+Older generations remain independent and require a compatible environment.
+
+## Read evidence in context
+
+An `AnalysisFrame` may be a pending expression, completed in-memory data, or a saved result. `compute()` completes a Frame in memory; `persist()` saves the completed result. `show()` is a bounded preview, while `to_pandas()` exports complete fixed data.
+
+On a saved Frame, `session_id` and `artifact_id` identify the committed result. `show(n=0)` displays evaluation/commit times and bounded actual-read summaries without result rows or method payloads. `source_reads` exposes actual source reads consumed by this result; supported contribution analyses retain original explanations in `method_facts`. Pending and memory Frames require explicit `persist()` before source_reads access; the property never executes or saves a result.
+
+```python
+saved = pending.persist()
+for read in saved.source_reads:
+    print(read.read_id, read.completed_at, read.returned_rows)
+    for scope in read.scopes:
+        print(scope.source, scope.period)
+```
+
+Each successful actual read has one identity and UTC completion time. Shared reads have one record; fixed operations inherit records and deduplicate by identity. Scopes retain non-secret source identifiers and known original time restrictions (optional start, exclusive end), omitting complete historical filters, member domains and SQL. `period=None` means no captured period, not no constraints. Inherited reads do not describe a derived result's current filter domain. `returned_rows` is a reliable raw returned count, or None when unknown; 0 is known empty. It is neither scanned rows nor final Frame rows. Access uses loaded metadata without data/method files, Catalog or source reads.
+
+Source read, evaluation, and commit times are distinct. Check the recorded source scope and times when judging freshness: a later observation may read changed data. The recorded scope identifies the original sources and known captured time restrictions; complete historical filters and source/member constraints are absent. It does not show that sources contain every relevant row or share a consistent snapshot. A contribution breakdown explains how the selected method allocates a change; it does not establish what caused that change.
+
+## Inspect semantic column origins
+
+Every Frame exposes `lineage`, including pending expressions. Reading it does not
+execute the analysis or read business rows. It remains available after saving and
+independent recovery without the original models or source connection.
+
+```python
+lineage = saved.lineage
+lineage.show()
+lineage.values["reference.absolute.revenue"].show()
+origins = lineage.values["reference.absolute.revenue"].value_origins
+assert lineage.input_id == saved.schema.input_id
+for origin in origins:
+    print(origin.kind, origin.path, origin.definition_id)
+```
+
+`value_origins` records semantic declarations and inputs used for the value.
+`context_origins` records filters, grouping, time, relationships and row matching.
+A filtered column retains its filter dependencies after projection. The `axes`
+directory uses `frame.axes[i].token`; `presence` uses complete presence names.
+Named Measures used in filters remain context origins, including inside a Metric.
+Coordinates also retain row selection context. In weighted-mean attribution,
+the denominator takes value origins from weights; valid-pair selection contributes
+context origins from both values and weights. Valid-pair counts have context origins only.
+For direct ratios, each component retains its own named Metric origins.
+These are static logical dependencies, including all declared conditional branches;
+they do not prove row-level contribution, successful reads, or causation. Display
+is bounded; typed mappings and origin tuples retain the complete captured facts.
+The Frame stores semantic references, not definitions. If you need current
+definition details, request them explicitly through the Catalog; this lookup may
+be unavailable when the definition was removed or is outside the loaded scope:
+
+```python
+ref = origins[0]
+entry = session.catalog.get(f"{ref.kind}:{ref.path}")
+entry.show()
+```
+
+## Inspect structure and read pages
+
+`schema` describes captured fields, exact types, units, complete axis keys and the
+default export layout without reading result files. It is available even before
+execution; pending fields may have an explicit unresolved type.
+
+```python
+schema = saved.schema
+page = saved.read_page(columns=("reference.absolute.revenue",), limit=1000)
+assert page.input_id == schema.input_id
+rows = page.to_pandas()
+if page.has_more:
+    page = saved.read_page(
+        columns=("reference.absolute.revenue",), limit=1000, cursor=page.next_cursor
+    )
+```
+
+The schema also explains captured interpretation facts for the exact input:
+
+```python
+schema = saved.schema
+assert schema.input_id == saved.lineage.input_id
+print(schema.fixed_axes)
+for name, context in schema.value_contexts.items():
+    print(name, context.kind)
+for relation in schema.comparisons:
+    print(relation.alias, relation.binding.kind)
+    for group in relation.groups:
+        print([(value.role, value.name) for value in group.values])
+for decomposition in schema.decompositions:
+    print(type(decomposition.target).__name__, decomposition.row_scope)
+    print([(field.role, field.name) for field in decomposition.outputs])
+```
+
+These facts describe only captured current roles and relationships. An absent
+value context does not mean that a result was unfiltered or had no window. A
+baseline column displayed on current time coordinates retains its baseline time
+basis in the comparison record. A ref does not copy business prose or grant
+source access.
+
+### Interpret aligned values, shares and paired statistics
+
+Using `current` from the DSL example, inspect interpretation before execution:
+
+```python
+aligned = current.align(current)
+for relation in aligned.schema.alignments:
+    assert relation.input_id == aligned.schema.input_id
+    print(relation.left.values, relation.left.presence, relation.left.coordinates)
+    print(relation.right.values, relation.right.presence, relation.right.coordinates)
+
+shares = current.select({"share": current["revenue"].share(along=current.axes)})
+share_context = shares.schema.value_contexts["share"]
+assert isinstance(share_context, mv.FrameShareContext)
+print(share_context.numerator, share_context.groups, share_context.along)
+
+named = current.select({"revenue": current["revenue"], "doubled": current["revenue"] * 2})
+association = named.correlate(named["revenue"], named["doubled"], method="pearson")
+pair_context = association.schema.value_contexts["coefficient"]
+assert isinstance(pair_context, mv.FramePairStatisticContext)
+print(pair_context.x, pair_context.y, pair_context.row_scope)
+```
+
+Alignment sides bind current value names to coordinates and presence chains;
+every flag in the chain must be true for that endpoint to exist. An NA value is
+not an absent endpoint, and equal value names do not certify business comparability.
+Renaming direct columns updates their bindings. An expression mixing endpoints
+has no direct endpoint role. Frozen time details remain available through
+`read_periods`; do not parse `left.` or `right.` prefixes to infer time.
+
+Share metadata identifies explicit normalization, including the denominator's
+partition and summed axes. It does not certify business contribution or a 0–100%
+range: signed shares can be negative or exceed one. A plain quotient has no share
+context. Filtering shares preserves their original denominator and marks
+`row_scope="restricted"`; complete outer alignment retains endpoint completeness,
+excluding other-side-only rows through presence. Arithmetic drops the direct context.
+
+Paired input names are snapshots, not references to columns in the coefficient
+result. Derived inputs provide origins without reconstructing a formula; name an
+expression with select first when a specific title is needed. Equal origins do not
+prove equal expressions. These facts survive compute, persist and independent
+recovery without accessing the original inputs or Catalog. They do not make shares
+or current-row statistics valid attribute targets.
+
+Read saved periods or consumed comparison endpoints separately from data pages:
+
+```python
+time_axis = next(axis for axis in saved.axes if axis.role in ("calendar", "interval", "paired"))
+time_schema = next(axis for axis in schema.axes if axis.token == time_axis.token)
+periods = saved.read_periods(time_axis, limit=1000)
+data_page = saved.read_page(limit=1000)
+row_period_keys = {
+    tuple(data_page.coordinates[key.slot_id][row] for key in time_schema.keys)
+    for row in range(len(data_page))
+}
+assert row_period_keys <= {period.key for period in periods.items}
+
+time_comparison = next(
+    (
+        relation
+        for relation in schema.comparisons
+        if relation.binding.kind in ("calendar", "interval")
+    ),
+    None,
+)
+if time_comparison is not None:
+    correspondences = saved.read_periods(time_comparison, limit=1000)
+    assert correspondences.input_id == schema.input_id
+    for item in correspondences.items:
+        print(item.key, item.current, item.baseline, item.absent_reason)
+```
+
+Period keys contain the target axis's complete ordered key and match that axis's
+schema slots in `read_page().coordinates`. A selected period need not have a
+current row. Calendar records retain saved labels and civil bounds; interval
+records do not infer unsaved civil information. A missing paired endpoint and a
+saved comparison absence reason are distinct facts.
+
+Pages keep every complete axis key in `coordinates`, keyed by schema slot ID,
+and readable coordinates before selected fields. Use full value/presence names;
+`columns=()` reads coordinates only. Limits are integers 1..10000, excluding bool.
+Repeat the same limit, columns, axis aliases and `time_details` with a continuation cursor. Saved
+cursors can continue after reopening the same commit with the same Runtime
+version; memory cursors belong to the same fixed input in the current process.
+
+`layout` explains the actual export columns. Page exports are isolated copies
+with empty attrs; the page retains no full parent table. `read_stats` counts
+inspected data/coordinate rows and receipt hashing bytes, not all disk I/O or
+peak memory. Receipts and coordinate lookup may scan whole files. A page validates
+selected stored data and necessary coordinates; full stored `to_pandas()` additionally validates
+complete keys, data and mappings. Reading never executes or saves a pending Frame.
+
+
+## Attribute time and missing values
+
+An ordinary classification axis's `at` is `None`, a fixed UTC datetime or an acquired
+`FrameRowAttributeTime(kind="row", field=...)` containing only the control-field
+identity. Schema inspection, fixed operations, persistence and cold recovery do
+not rematch versions. Use `pd.isna(value)`, `rows["value"].isna()` or `.notna()` for
+Arrow missing values; do not coerce `pd.NA` to a Python boolean or fill it with
+zero automatically. Explicit `.astype("float64")` enables approximate arithmetic
+when large-integer rounding and NA becoming NaN are acceptable.

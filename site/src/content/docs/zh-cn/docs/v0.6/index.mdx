@@ -1,0 +1,37 @@
+---
+slug: zh-cn/docs/v0.6
+title: Marivo
+description: 用 Python 定义业务指标、查询数据并保存分析结果。
+---
+
+<span id="沿一条可审阅流程前进"></span>
+<span id="从问题走到可检查的回答"></span>
+<span id="开始前需要什么"></span>
+<span id="选择入口"></span>
+
+Marivo 是用于业务数据分析的 Python 库。语义层记录可复用的业务定义，包括指标、实体、维度和关系。分析 DSL 按这些定义计算和比较结果。保存结果后，可查看记录的数据来源和评估信息。
+
+例如，订单表包含金额、地区和日期。定义收入后，可按地区计算每月收入、比较不同期间，或用滚动窗口观察趋势。保存已完成结果后，可重新读取当时保存的值。
+
+## 可以做什么
+
+| 想完成的任务 | 从这里开始 |
+| --- | --- |
+| 连接数据库或文件，并检查结构和限定范围的样本 | [数据源配置](/zh-cn/docs/v0.6/modeling/datasources/) |
+| 定义可复用指标及其实体、时间字段和关系 | [语义层](/zh-cn/docs/v0.6/modeling/semantic-layer/) |
+| 按期间或维度计算指标，并筛选或检查所选记录 | [分析 DSL](/zh-cn/docs/v0.6/analysis/dsl/) |
+| 与基准结果比较，并按群体检查差异 | [比较基准](/zh-cn/docs/v0.6/analysis/dsl/#比较与对齐) · [调查变化](/zh-cn/docs/v0.6/analysis/dsl/#调查变化) |
+| 按日历期间分组，计算窗口、份额或成对相关性 | [时间序列与窗口](/zh-cn/docs/v0.6/analysis/time-series/) · [统计与相关性](/zh-cn/docs/v0.6/analysis/statistics/) |
+| 重新打开已保存的值，并查看来源与审计记录 | [结果与方法事实](/zh-cn/docs/v0.6/analysis/results/) |
+
+## 从哪里开始
+
+[安装与项目](/zh-cn/docs/v0.6/start/installation/)说明环境准备。[快速开始](/zh-cn/docs/v0.6/start/python/)使用六笔本地订单，计算总收入 1,800 CNY。
+
+[语义层](/zh-cn/docs/v0.6/modeling/semantic-layer/)说明如何定义可复用指标；[分析 DSL](/zh-cn/docs/v0.6/analysis/dsl/)通过代码演示查询、筛选、比较和贡献拆分。
+
+使用 Agent 分析时，可从[使用 Agent](/zh-cn/docs/v0.6/guides/agents/)和[用 Agent 完成首次分析](/zh-cn/docs/v0.6/guides/agents/)开始。
+
+本 latest 文档跟随开发源码。若使用已发布版本，请切换到对应版本的文档；数据访问与分析方法的支持范围见[数据源支持与限制](/zh-cn/docs/v0.6/reference/backends-and-limits/)。
+
+更多参考：[日期与时间定义](/zh-cn/docs/v0.6/modeling/dates/) · [分析对象集合（Population）](/zh-cn/docs/v0.6/analysis/population/)。

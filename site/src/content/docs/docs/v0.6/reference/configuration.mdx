@@ -1,0 +1,51 @@
+---
+slug: docs/v0.6/reference/configuration
+title: Configuration and deployment
+description: Configure project roots, shared models, and persistent local state.
+---
+
+<span id="integrate-host-credentials"></span>
+
+Use this reference when choosing a project root or sharing definitions between repositories.
+
+## Know which files to share
+
+| Location | Purpose | Version control |
+| --- | --- | --- |
+| `marivo.toml` | Optional project configuration | Share when needed |
+| `models/datasources/` | Connections with environment-variable references | Share declarations, never resolved secrets |
+| `models/semantic/` | Reusable business definitions | Share |
+| `.marivo/` | Local analysis data, audit, logs and metadata | Ignore |
+
+Without a manifest, Marivo uses the directory name as the project name, loads no external semantic roots and enables usage telemetry. Set `[project].name` to change the name Doctor reports. Malformed TOML and invalid values for supported settings produce configuration errors. See [logs and telemetry](/docs/v0.6/reference/telemetry/) for the `on` and `off` options.
+
+## Share authored model directories
+
+Add each external `models/` directory to the optional manifest:
+
+```toml
+[semantic]
+layer_paths = ["../sales-domain/models", "/opt/company/finance-domain/models"]
+```
+
+Marivo loads local models first, followed by these roots in listed order. Relative paths resolve from the project root that contains `marivo.toml`. Each external root must contain `datasources/` and `semantic/`. Duplicate datasource names or semantic IDs across roots fail loading; later roots do not override earlier definitions.
+
+## Select the project explicitly
+
+Pass `workspace_dir` to `md.load`, `md.inspect` or `ms.load` to select an exact root. Otherwise, these operations use `MARIVO_PROJECT_ROOT`, the nearest ancestor manifest, then the working directory. Doctor's `--project-root` selects the root for its diagnostics.
+
+A loaded catalog keeps the definitions captured at load time; call `ms.load()` again after editing model files. Restart Python after model edits or package upgrades when imported modules need to reload. `md.register()` and `md.remove()` update only project-local datasource declarations.
+
+Analysis state lives under `.marivo/`. Keep this directory to reopen saved results. The current store does not read older store generations; export needed results with a compatible Marivo environment before switching versions. See [troubleshooting](/docs/v0.6/reference/troubleshooting/).
+
+## Runtime environment
+
+Install Marivo in the Python environment that runs your analysis. For reproducible work, use the same package or source revision, model files and project root. See [installation](/docs/v0.6/start/installation/) for commands.
+
+### Prepare the runtime
+
+Provide the project, required datasource drivers and environment-backed credentials. Remote sources also need network access. If you need to reopen saved results, keep `.marivo/` on writable persistent storage; a disposable working directory loses them unless you preserve that state.
+
+Run Doctor with the exact project root and check the Python executable and Marivo package version and path. Add `--datasource <name> --connect` only when you intend to test that datasource's live connection. A successful connection test confirms connectivity; check support for the operation you need separately.
+
+For a custom credential service, query `marivo.help("datasource.credential_scope")` for the host integration API.

@@ -139,8 +139,11 @@ def test_postgres_sparse_calendar_keeps_window_contributions(
         ordinary = (
             session.observe({"total": amount.sum()}, by=(calendar, category)).compute().to_pandas()
         )
-        assert ordinary["calendar:week"].tolist() == ["2020-12-21", "2021-01-04"]
-        assert ordinary["sales.facts.category"].tolist() == ["selected", "selected"]
+        assert ordinary["calendar:week"].tolist() == [
+            pd.Timestamp("2020-12-21", tz="UTC"),
+            pd.Timestamp("2021-01-04", tz="UTC"),
+        ]
+        assert ordinary["category"].tolist() == ["selected", "selected"]
         assert ordinary["total"].tolist() == [Decimal(10), Decimal(20)]
         windows = (
             session.observe(

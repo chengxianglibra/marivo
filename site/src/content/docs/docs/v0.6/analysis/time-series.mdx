@@ -1,0 +1,242 @@
+---
+slug: docs/v0.6/analysis/time-series
+title: Time series and windows
+description: Group by calendar periods and calculate rolling and cumulative values.
+---
+
+Complete the [analysis DSL example](/docs/v0.6/analysis/dsl/#complete-example-and-shared-inputs) first. Save the following in a new script in the same project. This uses the six-order dataset and UTC reporting time. The start is included and the end is excluded. Run each section in order.
+
+The example Session has `session.timezone == "UTC"` and
+`session.timezone_origin == "explicit"`. A new Session also accepts an explicit
+offset such as `timezone="+08:00"`. Omitting the timezone strictly resolves the
+system IANA zone once; ambiguous `TZ` or localtime state requires an explicit
+value. Recovery keeps the saved timezone and origin without checking the host.
+
+## Observe days and months
+
+```python
+from analysis import mv, session, revenue, amount, region, august
+```
+
+{/* example: calendar-query */}
+
+```python
+days = august.by(mv.grain("day"))
+daily = session.observe({"revenue": revenue}, by=(days,)).compute()
+sum_of_days = daily.reduce({"sum_of_days": daily["revenue"].sum()}).compute()
+sum_of_days.show()
+monthly_source = session.observe(
+    {"revenue": revenue}, by=(august.by(mv.grain("month")),)
+).compute()
+monthly_source.show()
+```
+
+Calendar buckets use the actual executor's native keys. Ordinary output retains
+both generated output positions and additional observed keys, filling only missing
+positions. The key and civil label do not promise a contiguous UTC member range.
+`read_periods()` exposes saved order and selection progress. Builtin day/week/month
+use native civil truncation; subday widths align to local midnight. Custom calendar
+output requires exactly one complete certified period; multiple or partial periods
+reject before business reads. No date-to-period execution directory is uploaded.
+
+{/* example: metric-window-query */}
+
+```python
+from datetime import timedelta
+
+rolling = session.observe(
+    {"revenue": revenue.window(mv.trailing_duration(duration=timedelta(days=7)))},
+    by=(days,),
+).compute()
+month_to_date = session.observe(
+    {"revenue": revenue.window(mv.to_date(grain=mv.grain("month")))}, by=(days,)
+).compute()
+rolling.show()
+month_to_date.show()
+```
+
+{/* example: period-comparison-query */}
+
+```python
+current_days = session.time_scope(start="2026-08-01", end="2026-08-04").by(mv.grain("day"))
+prior_days = session.time_scope(start="2026-07-01", end="2026-07-04").by(mv.grain("day"))
+current_daily = session.observe({"revenue": revenue}, by=(current_days,)).compute()
+prior_daily = session.observe({"revenue": revenue}, by=(prior_days,)).compute()
+comparison = current_daily.compare(
+    {"reference": mv.baseline(prior_daily, match=mv.ordinal())}
+).compute()
+comparison.show()
+```
+
+{/* example: shifted-period-comparison-query */}
+
+```python
+months = session.time_scope(start="2026-08-01", end="2026-08-20").by(mv.grain("month"))
+current_progress = session.observe({"revenue": revenue}, by=(months,))
+previous_progress = session.observe(
+    {"revenue": revenue},
+    by=(months.shift(mv.offset(periods=-1)),),
+)
+progress = current_progress.compare({"mom": mv.baseline(previous_progress)}).compute()
+progress.show()
+```
+
+## Interpret windows and correspondence
+
+August's total is 800. At the end of August 5, trailing seven-day revenue is
+100; month-to-date through August 15 is 200. A trailing window can reach before
+the displayed range, so include the required lookback history in the source data.
+
+`trailing_duration` measures elapsed time: seven days is 168 hours. Civil
+periods follow calendar boundaries and can span different amounts of elapsed
+time around daylight-saving changes. Each window ends at the bucket's actual
+right boundary; `to_date` resets at the start of the selected period.
+
+Ordinal matching pairs positions in compatible, complete periods. The daily
+scopes `[August 1, August 4)` and `[July 1, July 4)` each contain three days and
+pair by position. Shifting the monthly prefix `[August 1, August 20)` back one
+month compares it with `[July 1, July 20)`, excluding July 20 midnight and
+later. The example compares 200 with 300, a change of -100. A missing target
+date remains absent instead of moving to a nearby date.
+
+`mv.offset(periods=n)` counts steps of the consuming axis's grain, not visible
+rows or fixed-day durations: on daily data, `-7` is seven days; on weekly data,
+`-1` is one week; and on monthly data, `-1` is one month. Built-in calendar
+offsets require grain `count=1`; subday offsets are unsupported.
+
+Summing result rows is a statistic on those rows. For a monthly ratio or
+distinct count, observe the original `Metric` at monthly grain instead. Prepare
+and certify a [fiscal or named-activity calendar](/docs/v0.6/modeling/dates/#business-calendars)
+before using it as a grain.
+
+Source parsing and report timezones are separate: set a parser timezone for
+naive source values; aware timestamps already identify an instant, and date-only
+encodings do not use a timezone. Projection, filtering and buckets share the
+actual backend's native gap/fold interpretation. Original local time data uses
+pandas native operations. Different executors can differ at unusual transitions;
+source-produced keys remain unchanged during local arithmetic and alignment.
+
+`ms.hour_prefix(date_field)` uses the source timezone context of its date prefix.
+Changing the report timezone does not reinterpret that source timestamp.
+
+## Time means and sample coverage
+
+`sample_interval=(1, "hour")` declares source cadence without rounding timestamps
+into hourly buckets. All TimeField sample reducers use represented timestamps,
+allow missing clocks and never implicitly fill them with zero or NULL.
+NULL, empty-input and weighted valid-pair policies remain reducer-owned.
+An explicit `Population` still selects its declared sample coordinates.
+
+In the six-order example, first average order amounts per date, then average
+the represented dates within each region. Only dates with orders participate,
+and each date has equal weight; when order counts differ by date, this can differ
+from an order-weighted mean. August gives 100 for east and 600 for west; adding
+zero to each daily mean leaves those results unchanged.
+
+```python
+order_date_entry = session.catalog.get("time_dimension:sales.orders.order_date")
+assert order_date_entry.kind == "time_dimension"
+order_date = order_date_entry
+samples = amount.mean(time=order_date).per(order_date)
+sample_mean = session.observe({"average": samples.mean()}, by=(august, region)).compute()
+# Arithmetic does not add a clock-coverage requirement.
+adjusted = session.observe({"average": samples.mean() + 0}, by=(august, region)).compute()
+sample_mean.show()
+adjusted.show()
+```
+
+`samples.quantile(0.95)`, min/max and first/last share the same missing-clock
+policy as means. Declaring cadence triggers no complete-coverage check and
+requires no finite observation period; windows and calendar samples retain their
+own period requirements. Represented NULLs still follow `nulls`. Results describe
+the observed samples and do not prove completeness of the whole period.
+
+
+Qualified source-backed samples finish at the source: each timestamp's child
+Metric completes before the outer mean, quantile or other reducer. Compatible
+summaries share the inner calculation. For example, `amount.sum(time=order_date).per(order_date).quantile(0.95)` computes a quantile of completed daily sums.
+Explicit Population sample domains retain their completion rules; calendar samples use actual keys.
+Native arithmetic and Decimal rounding follow the backend; unsupported type or
+algorithm combinations retain their existing local route. A native failure does
+not trigger local recomputation. Completed Frames continue to use captured data.
+
+## Fold Metrics over calendar cells
+
+Use a Grain in `Metric.per` to fold completed daily values without declaring
+another TimeDimension. The observation supplies the finite scope and timezone;
+each source component uses its own declared time field. A weekly mean of daily
+revenue includes days with contributions, including all-NULL days. Missing days
+do not become zero-valued internal samples.
+
+{/* example: calendar-sample-fold */}
+
+```python
+weekly = august.by(mv.grain("week"))
+daily_average = revenue.per(mv.grain("day")).mean()
+folded = session.observe({"daily_average": daily_average}, by=(weekly, region)).compute()
+folded.show()
+```
+
+For a completed `daily_p95`, use `daily_p95.per(mv.grain("day")).median()`
+under the same weekly axis. Empty ratios and quantiles remain NA and follow the
+sample reducer's existing NULL policy. TimeField and Grain samples use actual
+keys; final output completion does not affect their mean or count. Builtin nesting
+is static: day in week/month is valid; week in month rejects. Divisible subday
+widths, month in quarter/year and quarter in year are supported at every layer.
+Undefined custom hierarchies reject; one complete certified custom period may be
+sampled under an interval axis. Pass the Grain to `per`, and the CalendarAxis or
+TimeScope to `observe(by=...)`. Help: `semantic.metric.per`.
+
+`ms.calendar_grain(...)` bind to the Session's current
+certified calendar snapshot. Declared calendar folds require calendar
+certification. Windows inside calendar samples and windows wrapping calendar
+folds currently raise a typed error. Observe the windowed Metric directly on a
+CalendarAxis and explicitly reduce the captured Frame values instead.
+
+
+## Historical classification for each fact
+
+This fragment requires a declared versioned `sales.profiles`, fact Entity
+`sales.facts`, and complete-key relationship `sales.profile`. Control time and
+Metric time are independent choices; this example explicitly uses the same field.
+
+```python
+control = session.catalog.get("time_dimension:sales.facts.event_time")
+# The control may also be the fact Entity's snapshot partition TimeDimension.
+label = session.catalog.get("dimension:sales.profiles.label")
+route = session.catalog.get("relationship:sales.profile")
+amount = session.catalog.get("measure:sales.facts.amount")
+historical = label.via((route,)).at(control)
+days = session.time_scope(start="2026-08-25", end="2026-09-08").by(mv.grain("day"))
+daily = session.observe({"value": amount.sum(time=control)}, by=(days, historical)).compute()
+restated = session.observe(
+    {"value": amount.sum(time=control)},
+    by=(days, label.via((route,)).at(session.instant("2026-09-03T00:00:00+00:00"))),
+).compute()
+```
+
+Row time selects an attribute for each original fact; a fixed anchor restates the entire window under one definition. For contributions 7/11 with labels A/B before/after a change, row time gives A=7, B=11; a fixed new anchor gives B=18. The fact Entity may be unversioned or snapshot-versioned. Its native snapshot partition TimeDimension can control matching, so the same stable key on different days retains each day's contribution without a daily query loop. Qualified same-source single-root observe by/where is supported on DuckDB/Trino. NULL control or missing versions preserve NULL labels without fallback. DATE selects target business dates; timestamp validity requires timestamp control. Native absolute timestamps and UTC/fixed-offset local clocks are admitted. Validity fact roots, IANA local clocks, read/classify, multiple roots and window/per compositions require fixed anchors. Bucket-end reclassification is a separate question.
+
+
+## Inspect captured source time interpretations
+
+After computing `daily`, inspect `daily.schema.source_times` or call
+`daily.show(n=0)`. Each immutable record identifies the consumed source field,
+physical type and consumption timezone. `instant` needs no source declaration;
+`wall_clock` and `civil_date` retain the effective source timezone and its
+`field` or `datasource` origin. Hour-prefix clocks also record `inherited_from`.
+Pending display never opens a source to obtain these facts.
+
+The records describe consumed inputs. Fixed selection, renaming, filtering,
+fixing, arithmetic and reduction retain them; combinations merge complete
+records, including different interpretations of the same field path. A business
+date whose source and consumption zones differ is assigned by its day start;
+business-day totals cannot reconstruct event-day totals. Persisted Frames keep
+these facts, captured absolute ranges and bucket keys unchanged during cold
+recovery, even when the host timezone changes or sources and models are offline.
+
+```python
+facts = daily.schema.source_times
+for fact in facts:
+    print(fact.axis, fact.kind, fact.consumption_timezone)
+```

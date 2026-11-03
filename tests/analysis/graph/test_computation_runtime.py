@@ -447,7 +447,7 @@ def trino_session(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[m
         (datasource / "warehouse.py").write_text(
             "import marivo.datasource as md\n"
             "md.trino(wall_clock_timezone='UTC', name='warehouse', host='127.0.0.1', port=18080, catalog='iceberg', "
-            "schema='analysis', timezone='UTC', user_env='MARIVO_TEST_TRINO_USER')\n"
+            "schema='analysis', user_env='MARIVO_TEST_TRINO_USER')\n"
         )
         (semantic / "_domain.py").write_text(
             "import marivo.semantic as ms\nms.domain(name='sales', owner='Data', default=True)\n"

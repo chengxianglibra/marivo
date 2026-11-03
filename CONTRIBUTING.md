@@ -48,9 +48,9 @@ scripts/         # 开发与检查脚本
 
 ## 架构约束
 
-- `core/` 不得导入 adapter、transport 或存储库（由 import-linter 在 CI 中强制执行）
-- Surface 层（transports / api）只做协议转换，必须通过 Runtime 层访问业务逻辑
-- 详细约束参见 `docs/architecture-invariants.md`
+- `datasource` 不得依赖 `semantic` 或 `analysis`；`semantic` 不得依赖 `analysis`。
+- `introspection.live`、`_authoring` 和 `_definition` 保持底层依赖边界；完整约束由 `.importlinter` 在 CI 中强制执行。
+- 模块职责与数据流参见 `docs/architecture/semantic/overview.md` 和 `docs/architecture/analysis/README.md`。
 
 ## 开发工具
 

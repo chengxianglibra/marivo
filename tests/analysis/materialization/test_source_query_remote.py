@@ -136,6 +136,7 @@ def test_remote_fixed_strings_keep_native_padding(
     with source_case(
         backend, profile, tmp_path, monkeypatch, _data(fixed=True, binary=backend == "mysql")
     ) as case:
+        # Iceberg exposes declared CHAR as VARCHAR; ClickHouse retains NUL padding.
         _project(backend, case, monkeypatch, semantic_project_factory)
         session = mv.session.get_or_create("remote-char", timezone="UTC")
         source = session.read(
@@ -153,16 +154,10 @@ def test_remote_fixed_strings_keep_native_padding(
         ):
             rows = query.compute().to_pandas()
             if index == 0:
-                assert rows["category"].tolist() == (
-                    [] if backend in ("trino", "clickhouse") else ["a"]
-                )
+                assert rows["category"].tolist() == ([] if backend == "clickhouse" else ["a"])
             elif index == 1:
                 assert rows["category"].tolist() == (
-                    ["ä   ", "z   "]
-                    if backend == "trino"
-                    else ["ä\x00\x00", "z\x00\x00\x00"]
-                    if backend == "clickhouse"
-                    else ["ä", "z"]
+                    ["ä\x00\x00", "z\x00\x00\x00"] if backend == "clickhouse" else ["ä", "z"]
                 )
             else:
                 assert rows.empty

@@ -745,7 +745,7 @@ def test_certified_unequal_calendar_owns_native_boundaries(
             ]
             assert all(
                 item["state"] == "succeeded"
-                and item["purpose"] == "semantic.certified_preview.deadline"
+                and item["purpose"] == "datasource.native_query_timeout"
                 for item in deadline_controls
             )
         entry = catalog.get("period_calendar:sales.fiscal")

@@ -1,0 +1,84 @@
+---
+slug: docs/v0.6/reference/troubleshooting
+title: Troubleshooting and API help
+description: Diagnose common errors and find API usage in Live Help.
+---
+
+<span id="environment-and-semantic-scope"></span>
+<span id="complete-keys-and-exact-frame-handles"></span>
+<span id="time-and-numerical-policies"></span>
+<span id="contribution-targets-and-full-explanation-reads"></span>
+<span id="exact-data-recovery-and-resubmission"></span>
+
+Start with the symptom. Keep the full error and check the same interpreter and project with `marivo doctor`; it reports the Python executable, Marivo version and package path, and project root. For a past run, use the event's runtime identity in [execution logs](/docs/v0.6/reference/telemetry/). Doctor describes the current environment.
+
+| Symptom | Check | Next step |
+| --- | --- | --- |
+| A documented API is unavailable | Installed version and package path | Query the target in Live Help from the same interpreter and use documentation for that version. |
+| A datasource connection fails | Selected project, datasource declaration, environment references, driver and network | Correct the reported configuration, then run a connection check for that datasource. |
+| A semantic model fails to load or readiness is blocked | Error location, referenced definition and selected dependency scope | Use the `semantic.load` Help target for project assembly or `semantic.readiness` for the requested analysis dependencies; repair the reported definition or dependency. |
+| An analysis method rejects an input | Error's expected/received values, location and repair | Follow its Help target. For a `Column` or axis error, reacquire the handle from the Frame used by the operation. |
+| A comparison or value is unexpected | Time range, baseline correspondence, row presence and null values | Inspect the compared inputs and result before changing the match or missing-value policy; an absent row or null is not automatically zero. |
+| Attribution is unavailable after reopening a saved Frame | Whether the Frame retains its source declaration | Reopened Frames contain fixed data and saved method facts, not executable source declarations. Build an explicit source input for a new attribution read. |
+| A saved Session or Frame cannot be opened | Selected project root, exact Session and Artifact IDs, and Marivo version | Preserve `.marivo/`; resume the exact Session and reopen the exact saved Frame. Use a compatible Marivo version to read data from an older Store generation. |
+
+A datasource connectivity test opens a live connection and may cache validated environment credentials. Run it only when you intend to verify that source.
+
+## Handle an uncertain save
+
+If a save ends with an uncertain outcome, resume the owning Session before resubmitting. Recovery checks the original publication without rereading sources. Resubmission can create a duplicate result and may read changed source data.
+
+For cross-process reuse, replace the placeholders with the returned `session_id` and `artifact_id`, then reopen that exact Frame:
+
+```python
+import marivo.analysis as mv
+
+session_id = "SESSION_ID"
+artifact_id = "ARTIFACT_ID"
+
+session = mv.session.resume(session_id)
+result = session.persisted_frame(artifact_id)
+```
+
+Session recovery does not restore an unsaved Frame that existed only in memory. Keep `.marivo/` with the project. `mv.session.recent()` lists only the current Store generation, so an empty result does not mean older data was deleted. Store generations are independent; use a compatible Marivo version to read and export older results. Do not delete the state directory as a general recovery step.
+
+Use the error's repair and Help target when provided. Structured errors can include the expected and received values, location and a concrete repair. For a minimal Help example, see [Query the installed version](#query-the-installed-version). Remove credentials and private data from reproductions.
+
+## Find APIs
+
+Use task guides to learn a workflow, Live Help for exact calls and constraints, and the [Python API reference](/api/) for the generated English reference.
+
+### Query the installed version
+
+```python
+import marivo
+
+marivo.help()
+marivo.help("authoring")
+marivo.help("analysis")
+marivo.help("analysis.analysis_frame")
+```
+
+The CLI accepts the same targets: `.venv/bin/python -m marivo help analysis`. With a returned object, `marivo.help(type(result))` shows its type contract; query an attribute using its string Help target.
+
+Choose the topic that answers your current question; these are independent entry points.
+
+| Need | Help target |
+| --- | --- |
+| Governed inputs, member domain or time | `analysis.inputs` |
+| Choose an observation, Frame operation or statistic | `analysis.operators` |
+| Acquire Columns, complete axes or statistics | `analysis.inputs.frame` |
+| Prepare a baseline or endpoint correspondence | `analysis.inputs.comparison` |
+| Compute in memory or save a result | `analysis.execution` |
+| Inspect data, export values or read saved evidence | `analysis.results` |
+| Create or recover exact Session and saved Frame identities | `analysis.sessions` |
+
+Known targets can be queried directly. Constructing a source Frame captures its dependencies; evaluating a pending Frame may read those sources. Calculations on completed or reopened Frames use fixed data. Reopening a saved Frame does not restore its original source declaration.
+
+For authoring, start with `marivo.help("authoring")`; for semantic checks, use `marivo.help("semantic.validation")` to choose among loading, readiness and preview. These checks answer different questions about the project and its inputs.
+
+Import APIs with `marivo.datasource as md`, `marivo.semantic as ms`, and `marivo.analysis as mv`. Access analysis sessions through `mv.session`, for example `mv.session.get_or_create(name)` or `mv.session.resume(session_id)`.
+
+### Ask for help effectively
+
+Include the version, interpreter, package path and project root from Doctor, plus the smallest relevant declaration and code, the full structured error, and the expected and actual result. Remove secrets and private rows before using the repository's support or contribution channel.

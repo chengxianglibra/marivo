@@ -334,7 +334,6 @@ def source_case(
                         "catalog": catalog,
                         "schema": "analysis",
                         "user": "analysis_reader",
-                        "timezone": "UTC",
                     },
                 )
                 with provider_for(backend).open(ds) as session:

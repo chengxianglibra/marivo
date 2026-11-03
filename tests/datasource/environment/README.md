@@ -247,7 +247,9 @@ Memory tables disappear on restart; tests using that catalog call
 `trino_analysis.setup_non_iceberg()` before their reads. Query history retains at most 100 entries
 with a one-minute minimum age.
 
-ClickHouse grants SELECT with `readonly=1` and `join_use_nulls=1`.
+ClickHouse grants SELECT and uses `join_use_nulls=1`. Current-server fixtures
+use `readonly=1`; the 22.3 fixtures use `readonly=0` with SELECT-only grants
+for compatibility. Their setup verifies that reader writes are denied.
 Fixture setup permits query-local `max_execution_time`,
 `timeout_before_checking_execution_speed`, cancellation response settings, and
 `enable_materialized_cte` through `CHANGEABLE_IN_READONLY`.

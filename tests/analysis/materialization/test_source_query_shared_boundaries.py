@@ -142,9 +142,9 @@ def test_shared_predicate_keeps_plain_and_per_grids_independent(
     rows = query.compute().to_pandas()
     assert rows["total"].tolist() == [60]
     assert rows["mean"].tolist() == [30.0]
-    # Matching axes do not qualify sampled contributions for common-source
-    # sharing. Remote consumers retain their own checked parameter boundary.
-    assert trace.uploaded_key_rows == ([3] if backend == "duckdb" else [3, 3])
+    # Identical sample grids share their checked parameter boundary. A plain
+    # remote total and a sampled mean retain independent source consumers.
+    assert trace.uploaded_key_rows == ([3] if backend == "duckdb" or same_grid else [3, 3])
 
 
 @pytest.mark.parametrize("backend,profile", source_params([("duckdb", "table")]))

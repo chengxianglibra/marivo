@@ -4,22 +4,79 @@ title: Marivo 0.6.0
 description: Release notes for Marivo 0.6.0.
 ---
 
-Marivo 0.6.0 centers analysis on AnalysisFrame, Session and Artifact identities.
+Released on November 3, 2026. Marivo 0.6.0 unifies typed semantic inputs,
+explicit analysis and immutable results. This release contains breaking changes
+from 0.5.x; update integrations using the current guides and native Help.
 
 ## Highlights
 
-- `compute()` returns complete fixed memory data; `persist()` returns a committed Frame.
-- Retain the Session ID and `saved.artifact_id`. Resume the Session and use
-  `session.persisted_frame(artifact_id)` for exact data; the saved Frame exposes its audit directly.
-- `mv.session.inspect(session_id)` returns a SessionSummary without recovery.
-- Run types, history, targeted reconciliation and error Run identities are removed
-  from the public API. Atomic publication and guarded recovery remain internal.
-- If an Artifact ID is lost, recover the Session and call `session.persisted_frames()`
-  to inspect descriptions and captured schemas before selecting an exact ID.
-  `persist(description=None)` optionally records the caller's purpose in the commit.
-- Structured errors provide the failed phase and concrete repair. Unknown publication
-  outcomes require Session recovery before committed Frame discovery.
+- One `AnalysisFrame` represents pending expressions, complete memory data and
+  persisted results. `compute()` completes data in memory; `persist()` commits
+  that result for reuse in another process.
+- Compose resolved Catalog objects and typed Deferred symbols directly. The
+  loader binds complete dependency scopes; question-scoped Metric expressions
+  reuse established business meaning without publishing another definition.
+- Native calendar axes, calendar-grain Metric folds and per-row as-of inputs
+  support explicit reporting time and version matching. Source timezone
+  declarations govern civil dates and clocks, including DST boundaries.
+- Frames retain semantic column lineage, value interpretation, comparison and
+  alignment metadata. Persisted `source_reads` records actual consumed reads;
+  `method_facts` preserves supported contribution explanations.
 
-This is a breaking cutover without compatibility aliases or Store migration.
-Store 22 reads require the current format; preserve older data with a compatible
-reading environment or an export made with its original version.
+## Changed
+
+- Frame methods own fixed-data composition, comparison, current-row statistics
+  and contribution analysis, including fixed-state and source-backed Shapley
+  and exact rate/mix effects on qualified routes. Fixed operations and reopening
+  do not implicitly reread sources or replay producers.
+- Save both `session_id` and `artifact_id`, then use `mv.session.resume()` and
+  `session.persisted_frame()` to reopen exact data. `session.persisted_frames()`
+  provides bounded discovery; `persist(description=...)` records an optional
+  purpose. Named Session acquisition is repeatable with `get_or_create()`.
+- `schema`, `read_page()` and `read_periods()` provide bounded,
+  typed inspection. `to_pandas()` returns an isolated flat table with readable
+  names and explicit presence columns; its `attrs` is empty. Retain the Frame
+  for units, lineage and frozen time interpretation.
+- Datasource declarations and discovery use canonical entry points, including
+  HTTP JSON sources. Semantic validation checks physical contracts online;
+  scoped source checks remain explicit. Ordinary analysis trusts declared
+  identities and relationship cardinalities.
+- Arithmetic, precision and overflow follow the actual backend or local kernel.
+  DuckDB is pinned to 1.5.3; MySQL reads use PyMySQL. Telemetry accepts only `on`
+  and `off`; the former `full` mode is removed.
+- Legacy analysis, Artifact and Run APIs and compatibility aliases are removed.
+  The current Store generation is 28 with Frame output format 17. Older
+  generations are retained separately without automatic migration; reopen
+  them with a compatible environment or export through their original version.
+
+## Fixed
+
+- Corrected calendar bucket assignment, civil DATE keys, raw temporal range
+  pruning and skipped/repeated DST-hour handling across qualified backends.
+- Added ordered, canonical time parsing on ClickHouse 22.3 with wide Date32 and
+  DateTime64 carriers; unsupported explicit parsers fail before query submission.
+  Corrected constant outer joins and compatible date cutoffs on older servers.
+- Rejected parsed data becomes NULL on DuckDB, Trino, ClickHouse and
+  MySQL/MariaDB. PostgreSQL retains native `to_timestamp` behavior and can fail
+  the query. Native format, timezone and precision restrictions still apply.
+- Corrected fixed-axis type resolution, sparse time-sample coverage, nullable
+  identities, all-NULL JSON columns and numeric division/quantile behavior.
+- Stabilized semantic expression identity hashes across Python versions and
+  preserved frozen metadata through compute, persistence and recovery.
+
+## Documentation
+
+- Reorganized English and Chinese guides around installation, modeling,
+  analysis and result reuse, with matching executable examples.
+- Unified Python and CLI Help navigation, captured result facts and structured
+  repair guidance. Static API discovery starts at `marivo.help()`.
+- Added the v0.6 documentation snapshot; v0.5 documentation remains available
+  for integrations using the older contracts.
+
+## Internal
+
+- Reduced repeated compilation and evaluation work, fused compatible source
+  observations and pushed qualified aggregate/calendar work into native queries.
+- Consolidated release gates for lint, typing, local tests, Runtime, package
+  contents, installed journeys and API documentation. PyPI publication uses
+  GitHub Actions Trusted Publishing from the tagged release commit.

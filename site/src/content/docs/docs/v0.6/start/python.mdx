@@ -1,0 +1,124 @@
+---
+slug: docs/v0.6/start/python
+title: Quick start
+description: Create six local orders, define revenue, and calculate a total.
+tutorial: true
+---
+
+<span id="create-the-demo-data"></span>
+<span id="compute-and-save-the-comparison"></span>
+<span id="interpret-the-result"></span>
+
+Start in the separate project created in [installation](/docs/v0.6/start/installation/). The demo uses six completed orders in CNY and excludes refunds and currency conversion.
+
+## Create the data
+
+Save as `seed.py` and run `.venv/bin/python seed.py`. This recreates the `orders` table in `warehouse.duckdb`, replacing its contents.
+{/* example: demo-seed */}
+
+```python title="seed.py"
+from datetime import date
+from pathlib import Path
+import duckdb
+
+Path("models/datasources").mkdir(parents=True, exist_ok=True)
+Path("models/semantic/sales").mkdir(parents=True, exist_ok=True)
+with duckdb.connect("warehouse.duckdb") as connection:
+    connection.execute("""
+        CREATE OR REPLACE TABLE orders (
+            order_id BIGINT PRIMARY KEY,
+            order_date DATE,
+            region VARCHAR,
+            amount BIGINT
+        )
+    """)
+    connection.executemany(
+        "INSERT INTO orders VALUES (?, ?, ?, ?)",
+        [
+            (1, date(2026, 7, 5), "east", 100),
+            (2, date(2026, 7, 15), "east", 200),
+            (3, date(2026, 7, 20), "west", 700),
+            (4, date(2026, 8, 5), "east", 100),
+            (5, date(2026, 8, 15), "east", 100),
+            (6, date(2026, 8, 20), "west", 600),
+        ],
+    )
+```
+
+## Declare the connection
+
+Save as `models/datasources/warehouse.py`.
+
+{/* example: demo-datasource */}
+
+```python title="models/datasources/warehouse.py"
+import marivo.datasource as md
+
+md.duckdb(name="warehouse", path="warehouse.duckdb", wall_clock_timezone="UTC")
+```
+
+## Define revenue
+
+Save as `models/semantic/sales/_domain.py`. Date and region support the later examples. See the [semantic layer](/docs/v0.6/modeling/semantic-layer/) for declaration rules.
+
+{/* example: demo-model */}
+
+```python title="models/semantic/sales/_domain.py"
+import marivo.datasource as md
+import marivo.semantic as ms
+
+ms.domain(name="sales", owner="Mina Zhang")
+orders = ms.entity(
+    name="orders",
+    datasource=ms.ref.datasource("warehouse"),
+    source=md.table("orders"),
+    primary_key=["order_id"],
+)
+order_date = ms.time_dimension_column(
+    name="order_date", entity=orders, column="order_date"
+)
+region = ms.dimension_column(name="region", entity=orders, column="region")
+amount = ms.measure_column(
+    name="amount",
+    entity=orders,
+    column="amount",
+    additivity=ms.additive_all(),
+    unit="CNY",
+)
+
+
+@ms.metric()
+def revenue():
+    return amount.sum(time=order_date)
+```
+
+## Calculate revenue
+
+Save as `quick.py` and run `.venv/bin/python quick.py`.
+
+{/* example: quick-analysis */}
+
+```python title="quick.py"
+from uuid import uuid4
+
+import marivo.analysis as mv
+
+session = mv.session.get_or_create(
+    f"first-analysis-{uuid4().hex[:8]}", timezone="UTC", domains=None
+)
+catalog = session.catalog
+revenue_entry = catalog.get("metric:sales.revenue")
+assert revenue_entry.kind == "metric"
+revenue = revenue_entry
+pending = session.observe({"revenue": revenue})
+fixed = pending.compute()
+fixed.show()
+```
+
+The total is CNY 1,800, the sum of the six order amounts. Each run creates a new project-local Session.
+
+`compute()` returns a complete in-memory Frame. Continue calculations from `fixed` to use those values in this process. To reopen them in another process, persist `fixed` and keep the returned Frame's `session_id` and `artifact_id`; see [Results and method facts](/docs/v0.6/analysis/results/).
+
+Here, `domains=None` loads every domain directory in this separate demo project. In a larger project, specify every domain the analysis needs; an explicit domain list does not expand to include dependencies.
+
+Next, use the [complete Analysis DSL example](/docs/v0.6/analysis/dsl/#complete-example-and-shared-inputs) to compare monthly revenue by region. After `import marivo`, call `marivo.help("analysis.session.observe")` for the exact signature.

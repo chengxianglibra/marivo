@@ -1,0 +1,810 @@
+---
+slug: zh-cn/docs/v0.6/analysis/dsl
+title: 分析 DSL
+description: 按 observe、compare、attribute、correlate、align、reduce 了解分析能力与可运行用法。
+---
+
+分析 DSL 使用 `Session` 取得语义定义，通过 `observe`、`read` 和 Frame 方法计算结果。先完成快速开始的数据和模型，再按顺序运行本页。后续片段接在 `analysis.py` 后，或在同一 Python 进程中执行。
+
+继续已有任务时，`marivo.help("analysis")` 按当前缺少的信息导航。通过 `analysis.session.get_or_create` 获取上下文；使用 `analysis.inputs.catalog` 发现定义，使用 `analysis.operators` 按意图、输入和产出选择操作。精确操作页在每个参数旁链接获取或构造方法。`analysis.inputs.frame` 解释同输入的 Column、轴和统计量；`analysis.inputs.comparison` 准备基线及对应规则。
+
+已有闭合 Metric 能回答问题时直接复用。业务含义与聚合权限已确定，只缺本次算式、条件、内部样本或窗口时，从 `analysis.inputs` 或 Metric 参数进入 `semantic.expressions`。本次计算可选择不发布同名 Metric；缺少可复用含义时再编写定义。来源条件使用语义表达式角色；结果筛选使用属于确切 Frame 的布尔 Column。
+
+来源构造保持延迟，pending Frame 求值可能执行已捕获的依赖。固定数据不会重建来源声明；同进程 Frame 可以为 attribute 保留声明，独立重开则无法恢复。继续使用 compute/persist 返回的 Frame；通过 `analysis.execution` 和 `analysis.results` 了解求值及读取，通过 `analysis.sessions` 恢复上下文。
+
+来源物理元数据可能将身份列标记为 nullable。分析仍以 Entity 的 `primary_key` 作为身份约定，
+但不提供对全量来源数据的非空、唯一性保证。使用显式[来源数据检查](/zh-cn/docs/v0.6/modeling/semantic-layer/#加载与检查)，
+可在选定范围内检验这些条件。
+nullable 元数据本身不会阻止来源绑定，也不会引入全量 NULL 或唯一性预检。
+现有身份输出边界与算子必要检查继续保留。
+完整键唯一性可以由声明及受控算子建立，因此普通读取和排名不承诺发现重复来源身份。
+
+下文按以下顺序介绍算子。它们的 `by` 参数含义不同：observe/attribute 使用语义域，correlate/reduce 使用当前输入 Frame 的轴。
+
+| 算子 | 回答的问题 |
+| --- | --- |
+| `observe` | 指定域与时间内的指标值是多少？ |
+| `compare` | 当前值相对基准如何变化？ |
+| `attribute` | 哪些细分组对受支持目标产生贡献？ |
+| `correlate` | 两个数值表达式如何共同变化？ |
+| `align` | 两个 Frame 的完整坐标如何对应？ |
+| `reduce` | 当前已表示的行有哪些统计特征？ |
+| `over` / `share` | 每个分区的总量、每行的份额是多少？ |
+| `read` / `where` / `select` / `top` | 应读取哪些属性、筛选哪些行和列？ |
+
+## 原生数值执行
+
+来源计算遵循 backend 算术；本地计算使用 pandas／Arrow 或 Decimal 载体。本地 int64
+SUM 可能回绕，来源端与本地结果在接近数值范围边界时也可能不同。需要更宽的来源整数
+SUM 时，应在 Entity 表达式中先将来源字段转换为 `decimal(38,0)` 再聚合；backend 必须支持传输该结果类型。
+
+NULL、空输入／全 NULL、零除和单位行为由 Marivo 定义。NaN 与 NULL 不同。Frame 和保存
+结果保留声明类型，无法无损传输时会报错。Help：`analysis.column.sum`、
+`analysis.analysis_frame.compute`。
+
+## Population：先确定完整域
+
+Population 是完整坐标元组的有限集合，不仅是“人群”。`session.members(...)` 选择来源身份，`mv.coordinates(...)` 指定所需键，`session.population_from(...)` 使用 Frame 已选键。`by=P` 指定输出域，`where=mv.in_population(P)` 限定来源贡献，二者不能互相替代。
+
+[Population 介绍](/zh-cn/docs/v0.6/analysis/population/)包含身份元组、投影、分类、乘积、集合操作、关系映射与计数，逐项列出默认值并提供可运行示例。确定分母成员范围时应先读这一页。
+
+## 可重复运行的 Session 获取
+
+脚本会重复运行时，使用稳定的项目内名称：
+
+```python
+import marivo.analysis as mv
+
+session = mv.session.get_or_create("revenue-review", timezone="UTC", domains="sales")
+```
+
+首次调用创建 Session，后续调用恢复同名 Session。不设置 current Session，也不改写已保存的 question、timezone 和 domains。省略或传入 `None` 时，新名称采用创建默认值，已有名称保留保存值。创建默认值为无问题描述、创建时的系统时区以及全部语义域目录。
+
+非 `None` 的 `question`、`timezone`、`domains` 必须与保存值一致。比较前会规范化时区偏移，并对域名称排序去重。冲突会在恢复之前抛出 `SessionStateError`；读取 `error.expected`、`error.received` 和 `error.repair.candidates`（已有 Session ID）即可程序化处理。可省略冲突配置、传入一致的值，或选择新名称。恢复使用与 `mv.session.resume(session_id)` 相同的 writer guard，存在活动 writer 时仍会拒绝。没有待恢复工作时，重复获取保持 `updated_at` 不变。Help：`analysis.session.get_or_create`。
+
+`session.observe(metrics, by=())` 请求一个零轴的整体单元，不提供观察时间范围。
+所有原生 TimeField 样本规约均可使用实际样本，无须在 `by` 中提供 TimeScope 或 CalendarAxis。
+`sample_interval` 描述节拍，不要求完整时钟覆盖；窗口和日历 Grain 样本保留各自的范围要求。
+部分检查只在 `compute()` 或 `persist()` 时执行，
+因此成功构造 Frame 并不能证明支持无范围观测。需要范围时，传入
+`by=(session.time_scope(start=..., end=...),)`。
+
+## 执行前选择结果保留方式
+
+`compute()` 将数值固定在当前 Python 进程内。运行脚本前先选择保留方式；
+命名 Session 不会让未保存的数据跨进程存活。
+
+| 执行环境 | 结果保留方式 |
+| --- | --- |
+| 一个脚本即可完成答案 | 在同一脚本内计算和交付，无须保存。 |
+| 持续 Python 进程中还会继续操作 | 保留返回的 Frame，后续数据操作使用它。 |
+| 另一进程需要同一次观测 | 在生产进程退出前 persist，并输出或保存 Session 与 Artifact ID。 |
+| 已有精确保存引用 | 直接恢复，无须再次发布。 |
+| 问题需要来源当前值 | 显式构造新的来源观测。 |
+
+不同 shell 调用通常启动不同 Python 进程。已结束脚本打印的内存卡片不能保留数据。
+[结果指南](/zh-cn/docs/v0.6/analysis/results/)演示在生产脚本中记录身份，随后恢复时
+不再导入生产脚本。Help：`analysis.execution`、`analysis.analysis_frame.compute`、
+`analysis.analysis_frame.persist`。
+
+## 完整示例与后续输入
+
+保存下面代码为 `analysis.py`。它定义后续使用的 session、revenue、region、july、august、current 和 baseline。此示例每次执行都会在 Session 名称中使用新的 UUID；需要恢复已有 Session 时，向 `get_or_create` 传入稳定名称。
+
+{/* example: demo-analysis */}
+
+```python
+from uuid import uuid4
+import marivo.analysis as mv
+
+session = mv.session.get_or_create(f"demo-revenue-{uuid4().hex[:8]}", timezone="UTC")
+revenue_entry = session.catalog.get("metric:sales.revenue")
+assert revenue_entry.kind == "metric"
+revenue = revenue_entry
+amount_entry = session.catalog.get("measure:sales.orders.amount")
+assert amount_entry.kind == "measure"
+amount = amount_entry
+region_entry = session.catalog.get("dimension:sales.orders.region")
+assert region_entry.kind == "dimension"
+region = region_entry
+july = session.time_scope(start="2026-07-01", end="2026-08-01")
+august = session.time_scope(start="2026-08-01", end="2026-09-01")
+baseline = session.observe(revenue, by=(july, region)).compute()
+current = session.observe(revenue, by=(august, region)).compute()
+change = current.compare(
+    baseline,
+    on=tuple(zip(current.axes, baseline.axes)),
+    match=mv.ordinal(),
+)
+change.show()  # Pending comparison; no evaluation.
+saved = change.persist()
+table = saved.to_pandas()
+assert table.columns.nlevels == 1
+assert table["region"].tolist() == ["east", "west"]
+assert table["interval.start"].dtype.pyarrow_dtype.tz == "UTC"
+assert table["reference.absolute.revenue"].tolist() == [-100, -100]
+assert table["current.present"].all()
+assert table["reference.present"].all()
+saved.show()
+saved.show(n=0)  # Commit and source-read metadata only.
+reopened = session.persisted_frame(saved.artifact_id)
+assert reopened.to_pandas().equals(table)
+saved_session_id = session.id
+saved_artifact_id = saved.artifact_id
+```
+
+<a id="观察指标"></a>
+
+## observe：观察指定域内的指标
+
+`session.observe(metrics, by=..., where=...)` 捕获来源问题，返回待执行的 AnalysisFrame；直到 `compute()` 或 `persist()` 才读取所需的来源结构与业务行。
+
+| 参数 | 必填 | 默认值 | 语义 |
+| --- | --- | --- | --- |
+| `metrics` | 是 | — | 单个命名 Metric 对象、非空 list 或 tuple，或非空的输出名 → 闭合 Metric 表达式 Mapping。 |
+| `by` | 否 | `()` | 有序语义字段、TimeScope、分组规则或一个完整 Population；`()` 请求一个单元，`by=P` 保留 P 的完整输出键。 |
+| `where` | 否 | `None` | 来源贡献谓词；`None` 不添加贡献筛选，与 by 中的输出选择独立。 |
+
+`session.observe(revenue)` 继承声明 Metric 的本地名 `revenue`；
+`session.observe([revenue, other_metric])` 保留 list 顺序；tuple 行为相同。仅已发布的根 Metric 对象 提供默认名。命名公式有自己的声明名，但在引用外追加算术、
+filter、window、per 或 rescale 必须使用 Mapping，例如
+`session.observe({"scaled_revenue": revenue / 1000})`。直接 source reducer、
+Entity/Population count 和未命名表达式同样需要显式名称，不读取 Python 变量名或依赖叶子。
+重复 Metric 或不同域的同一本地名会冲突，应使用不同 Mapping 键。名称必须是合法单段，
+不能含点号或使用保留的 presence 名 `left_present`/`right_present`；非法名称不自动清洗或编号。
+名称在捕获时确定，可立即读取 `output_names`，空结果、compute、persist 和恢复都不重新命名。
+
+### 读取 8 月收入
+
+```python
+overall = session.observe(revenue, by=(august,)).compute()
+overall.show()
+assert overall.to_pandas()["revenue"].tolist() == [800]
+```
+
+这就回答了 8 月总收入：800。如果请求只需要这个总量，到此即可；无需比较、拆分、
+导出或持久化。需要以后使用相同数值时，继续使用返回的 Frame。
+所选期间规定观测窗口，并不证明来源数据已经全部到齐。
+
+如果请求需要地区拆分，再显式观测该分组：
+
+```python
+regional = session.observe(revenue, by=(august, region)).compute()
+regional.show()
+```
+
+地区结果为 east 200、west 600。`observe` 绑定命名 Metric、所选期间和分组，
+`compute` 执行读取与计算。
+
+读取单条记录时，向 `session.read` 提供完整实体身份与命名字段。[对象选择指南](/zh-cn/docs/v0.6/analysis/dsl/#选择与筛选)提供可运行的订单示例。
+
+`show()` 展示有界视图，`to_pandas()` 返回完整独立副本。Column 和 FrameAxis 句柄属于确切 Frame；派生新输入后应重新取得它们，不应复用旧输入的句柄。
+
+导出要求已完成的 Frame。即使 `fixed` 已完成，`fixed.select(...)` 等派生仍然惰性：应对派生结果调用 `compute()` 并使用返回对象。短组合示例见 `analysis.analysis_frame.compute`、`analysis.analysis_frame.reduce` 和 `analysis.analysis_frame.over`。
+
+导出默认使用轴路径末段、完整值名和独立布尔 presence 名；复合身份保持 tuple。
+日历轴导出一个实际键时间戳列，区间轴导出真实半开边界 `.start`/`.end`，使用捕获时区。
+`time_details=True` 增加日历 `.label`；命名标签保留标量类型。配对轴使用 `.left`、`.right` 前缀。
+
+混合时区的合并区间轴统一使用 UTC 时间戳；原始边界时区保留在冻结元数据中。公共导出时区保存在区间轴描述中，空页同样使用该时区。固定偏移含非零秒数时也导出为 UTC，保持精确时间点；秒数为零时规范化为分钟偏移。详情列、分页和预览遵循相同规则，原始时区保留在冻结元数据中。
+
+列名必须唯一。用 `saved.to_pandas(axis_names={"sales.orders.region": "region"})` 按完整轴名或 schema 唯一 token 重命名，不接受 FrameAxis 键。冲突在读取载荷前报错。`read_page()` 使用相同选项，游标绑定这些选项。读取前须显式 `compute()` 或 `persist()`。
+
+普通 TimeField 和日历轴各导出一个坐标列；区间 `.start`、`.end` 保留真实观察边界。
+日历键不承诺完整成员区间，保存的标签、顺序和选择进度见 `read_periods()`。`axis_names`
+只改前缀，接受当前 Frame 的完整轴名或 token 字符串，例如
+`fixed.to_pandas(axis_names={fixed.axes[0].token: "bucket"})`。
+
+导出表的 `attrs` 为空，可直接使用 `table.to_parquet(...)` 等 pandas 落盘方法。轴、单位和比较从 `fixed.schema` 读取，保存的周期从 `read_periods()` 读取。导出保留物理数值、缺失和时间类型，不应统一强转 float 或将所有 NA 填零。后续 typed 分析从 Frame 继续。Help：`analysis.analysis_frame.to_pandas`。
+
+较大的 `int64[pyarrow]` 值与浮点数混合运算时可能触发 `ArrowInvalid`。如果可以接受近似计算，显式转换相关列，例如 `hours = table["seconds"].astype("float64") / 3600.0`。该转换可能对大整数舍入，并将 `pd.NA` 表示为 `NaN`。`page.to_pandas()` 返回的表也遵循相同规则。
+
+
+接下来[比较时期](/zh-cn/docs/v0.6/analysis/dsl/#比较与对齐)，或[保存结果](/zh-cn/docs/v0.6/analysis/results/)。
+
+隐式输出网格拒绝同时传入 CalendarAxis 和同一贡献时间角色的原始字段；时间角色的关系路径
+和时点锚也参与比较。按日分桶只传 `scope.by(mv.grain("day"))`；在 TimeScope 内按原始
+时间点分组则传 `(scope, time_field)`。显式 Population 可以用联合键保留这两个坐标。
+不同时间角色及日历与普通分类字段的网格仍受支持。
+
+TimeScope 包含起点、不包含终点。显式选定的 Population 可以保留没有事实记录的成员；无事实求和为零，非空但全空值求和为 NA。`Population.count()` 统计选中的完整元组，`Entity.count()` 统计来源贡献，`mv.row_count()` 统计当前 Frame 行。Help：`analysis.session.observe`。
+
+<a id="比较与对齐"></a>
+
+## compare：比较基准
+
+`mv.baseline(frame, *, on=None, match=None)` 捕获不可变的 `ComparisonBaseline`，
+公开只读 `frame`、`on` 和 `match`。工厂仅检查形状，不读数据；`compare` 将声明绑定到本期 Frame。
+`.show()` 提供有界元数据。选列、命名、来源时域和聚合应在比较前准备；结果选列、筛选在比较后完成。
+
+使用 `current.compare(baseline, ...)` 比较同一 Session 内的单个基准，固定别名为 `reference`。用 `current.compare({"prior": mv.baseline(baseline)})` 选择业务别名，多个基准使用不同 Mapping 键。两端需要相同的非空数值路径及兼容单位，也支持精确 Duration 比较。同名值用于配对，业务可比性仍由调用者确定，包括不同域中具有相同本地名的 Metric。
+
+| 参数 | 必填 | 默认值 | 语义 |
+| --- | --- | --- | --- |
+| `baselines` | 是 | — | 单个 Frame（别名 `reference`），或非空有序的别名 → `mv.baseline(frame, ...)` Mapping；`current` 为保留名。 |
+| `on` | 否 | `None` | 裸 Frame 使用轴对 tuple；命名基期在 `mv.baseline(...)` 中指定 `on`。省略时按唯一同名、相同角色及有序完整键名配对普通轴，并配对两端各至多一个同种时间轴；否则须指定全部轴对。 |
+| `match` | 否 | `None` | 仅裸 Frame 使用单个 CalendarCorrespondence；命名基期在 `mv.baseline(...)` 中指定 `match`。`None` 使用兼容的冻结直接关系或坐标相等。 |
+
+默认轴配对不依赖轴顺序。同名不证明业务身份：省略 `on` 表示调用者接受该对应。名称重复或不匹配、只指定部分轴时，须显式给出完整 `on`。compare 最多支持一对时间轴；align 可显式通过 `on` 对齐多个时间轴，但不能使用 `match`。
+
+输出保留当前值，添加 `<alias>.baseline.<name>`、`<alias>.absolute.<name>` 和 `<alias>.relative.<name>`；`current.present` 与 `<alias>.present` 独立表示行是否存在，不等于数值是否为 NA。
+
+裸 Frame 等价于 `{"reference": mv.baseline(baseline)}`，包括 `reference.baseline.revenue` 和
+`reference.present`。命名输入统一使用 `mv.baseline(frame, on=..., match=...)`，不接受顶层 `on/match`、裸 Frame Mapping 或裸声明。
+多个基准必须命名。省略别名不推断同比、预算或日期关系。`reference` 路径冲突时应显式改别名
+或先 select，不自动编号，也不按值列位置配对。
+
+```python
+compared = current.compare(
+    baseline,
+    on=tuple(zip(current.axes, baseline.axes)),
+    match=mv.ordinal(),
+).compute()
+compared.show()
+```
+
+{/* example: compare-query */}
+
+```python
+comparison = saved.to_pandas()
+assert comparison["reference.absolute.revenue"].tolist() == [-100, -100]
+assert comparison["reference.relative.revenue"].tolist() == [-1 / 3, -1 / 7]
+```
+
+此处用 ordinal 主动配对 7 月和 8 月，地区键精确匹配。东部变化 -100（-1/3），西部变化 -100（-1/7）。基准为零时相对变化为 NA；缺失端点或 NA 值不会变成零。外部对应保留单侧缺行，但基准时间行必须映射到当前声明的时间域；一般时间并集应使用 align。Help：`analysis.analysis_frame.compare`。
+
+<a id="调查变化"></a>
+
+### 比较同一 Frame 的两个成员
+
+固定 region 坐标，得到两个仅保留时间区间轴的 Frame：
+
+{/* example: fixed-member-comparison */}
+
+```python
+regional = session.observe({"revenue": revenue}, by=(august, region)).compute()
+east = regional.fix(regional.axes[1], "east")
+west = regional.fix(regional.axes[1], "west")
+member_change = west.compare({"east": mv.baseline(east)}).compute()
+assert member_change.to_pandas()["east.absolute.revenue"].tolist() == [400]
+```
+
+`fix` 选择一个成员并移除其完整普通轴，不进行聚合。
+值、类型、单位、NA、presence 和相对行序保持不变。单分量键使用标量，
+复合键按 `axis.key_names` 顺序传入完整 tuple。`None` 选择可空 NULL 坐标；
+不存在的成员返回空 Frame，删除最后一个轴也不补行。时间和 paired 轴不能被固定。
+从返回 Frame 重新取得句柄；剩余轴采用默认配对规则或完整的 `on`。
+保留的来源声明会为后续 attribute 保持被固定的成员约束。
+Help：`analysis.analysis_frame.fix`。
+
+## attribute：解释来源贡献
+
+远端归因支持直接物理整数、字符串及 Date 主键。ClickHouse Enum8/Enum16（包括 Nullable）可用于过滤和分类；Attribute 不接纳 FixedString；Query 保留解码字符串中的 NUL 填充。Distributed 表通过 `GLOBAL IN/JOIN` 支持跨 shard 的原生查询：发起节点计算完整子查询输入并广播到各 shard。View 的过滤条件仍然生效；Marivo 不替换目标表，也不修改 `distributed_product_mode`。`system.tables` 中的物理引擎元数据仍须可见。Query 按解码字符串排序 Enum 标签，不按其数字编码排序。
+
+基线为 0 时，相对归因未定义。错误会指出目标、基线值和父坐标。请检查基线时间窗口及来源的保留/过滤条件，或选择绝对变化：
+
+```python
+absolute = target.select({"change": target["baseline.absolute.revenue"]})
+report = absolute.attribute(by=(region,)).compute()
+```
+
+这里的 `target` 是具有 `baseline` 别名及 `revenue` Metric 的比较结果。
+
+在观察前可以使用常数除法和 Metric `ms.rescale`：
+
+```python
+import marivo.semantic as ms
+
+scaled = ms.rescale(revenue, divisor=1000, unit="kCNY")
+source = session.observe({"revenue": scaled})
+report = source.attribute(by=(region,)).compute()
+```
+
+除法保留原始类型的除数和运算顺序，`rescale` 声明输出单位。获得的除法解释事实保留 `divisor`、`operation` 和子 `method`；pending 比率诊断列也已披露各自的分子、分母单位。
+
+`target.attribute(by=...)` 在新的业务分类上解释选定的受支持输出。它不仅给出分组观察，还返回贡献及解释这些贡献所需的方法事实。
+
+| 参数 | 必填 | 默认值 | 语义 |
+| --- | --- | --- | --- |
+| `by` | 是 | — | 非空的新语义分类或完整 Population；接收方必须为每个选定的受支持目标保留来源声明。 |
+| `permutations` | 否 | `1024` | Shapley 的完整排列数；整数 ≥ 2，不接受 bool。精确分解不使用此参数。 |
+| `seed` | 否 | `0` | 非负整数，不接受 bool；固定已捕获父键/玩家键的版本化排列流。 |
+
+输出包含 `contribution.<name>`、`contribution_share.<name>`、`total.<name>`、`observed_total.<name>` 及细分诊断。`method_facts` 在筛选与持久化后保留方法说明。
+
+Attribute 固定选中的父键和原观察值。精确分解分别重新读取父级与细分输入，Shapley 则通过捕获状态或独立原生查询求缓存的两端与联盟值。独立的来源读取可能来自
+不同的数据状态。`total` 使用新读的公式；`observed_total` 保留输入 Frame 中的值。
+符合条件的物理表会在方法、类型和来源形状受支持时使用原生 backend 执行。
+
+Attribute 信任已声明的身份、关系基数和版本粒度。它会检查 membership 与 Population 的
+覆盖和重叠、distinct 值是否同时出现在多个组、数值有效性、完整时间对应，以及请求目标的闭合情况。
+`method_facts` 保留捕获的有限 Float64 值和方法说明，不会重新计算原算术。Float64 目标
+按下文闭合规则验收；相对目标以新读父级基准的绝对值为分母。应在观测之前定义完整
+Metric 公式；普通 Frame Column 运算没有来源归因方法。重新打开保存的 Frame 会保留
+值和方法事实，但不保留再次请求 Attribute 所需的来源声明。
+Help：`analysis.analysis_frame.attribute`。
+
+来源数值除法在相除前将两个操作数转换为 Float64，确保 Trino 等后端保留整数比率的小数部分；分母为零仍返回 NULL。
+
+规则在读取业务数据之前按每个目标固定，不提供 `method` 参数。可加指标与受支持的比率、mean、weighted_mean、固定线性组合使用精确分解。配对的 rate/mix 目标增加 `effect.within.<name>`、`effect.mix.<name>` 和 `effect.entry_exit.<name>`；混合可加项时另有 `effect.additive.<name>`。效果之和等于该组贡献。进入退出按零分母且零分子质量的边界定义；不会把未定义的组内率填成零。组分母和有效配对权重必须非负，父分母必须为正，父级/细组组件和原始组率必须一致。失败不会换规则。
+
+不属于精确规则的配对目标使用完整 Metric 的分组替换 Shapley。合格的充分统计量、精确带类型分位数频数与数值 distinct 成员保留 state 优化。叶子没有合格的状态重建路线时，目标通过独立原生查询计算联盟，保留原 reducer、行表达式、cast、NULL 与时间语义。路线在业务读取前选择，不按分组数切换，失败后也不回退。单端 level 保持原有份额准入；普通 Column 算术不获得来源资格。
+
+每次完整排列都将所有联合键分组逐一替换。父键、玩家目录和公式保持固定，每个访问过的联盟及空/全联盟端点在本次调用内缓存。提高 `permutations` 时，state 捕获读取量保持固定，本地运算与缓存开销增加；原生查询数可能随不同联盟数量增加。不要求一致快照、临时物化或漂移审计。捕获目录之外的新分组不会加入；目录内的事实行可能在读取之间变化。
+
+固定 state 的 `contribution_std_error.<name>` 表示排列采样误差；独立原生读取下，它描述观测到的边际值波动，无法分离来源变化。state 路线要求证明所有联盟具有有限定义域，原生查询路线只验证实际求值的联盟。任何必要查询失败或值未定义都会拒绝整个调用。这是排列采样，不采样来源行、不截取 top-k，也不自适应停止。
+
+Float SUM 和原生 AVG 使用分组摘要 state 重建：按固定玩家顺序合并 SUM，均值按同一有效掩码合并 SUM/count；浮点加权组件保留共同有效掩码。博弈解释重建后的 Metric，并标记 `summary_reconstruction/v1`。两端值与贡献可能不同于原生整体聚合，不承诺摘要偏差界限。NULL、空支持、单位与物理类型限制仍被执行，溢出仍拒绝。排列标准误不衡量摘要偏差，非线性公式可能放大该偏差。
+
+分位数 state 收尾仅对 PostgreSQL 非 Decimal 输入、DuckDB 非 Decimal q=0/1 准入；其他已准入分位数使用原生查询。频数捕获不能绕过普通 backend/type 限制。原生近似 reducer 保留原算法及其指标近似。既有精确 mean/rate-mix 规则仍可使用。每个原生配对叶子需要兼容的已捕获 datasource 配置。显式 `approx_nunique` 在 DuckDB、Trino、ClickHouse 上使用原生查询，PostgreSQL/MySQL 拒绝；不相加分组估计值，也不替换 exact/approximate 算法。
+
+`method_facts` 保留路线、原叶子类型/收尾算法、排列数和种子。state 频数可能传输 O(N) 个值；原生收据记录实际查询、返回行和解码字节，无法获得的后端版本、扫描量与网络量仍为未知。持久化事实为惰性记录，重新打开不会查询来源。
+
+Shapley 要求单值分类元组。显式 Population 分组与多归属仍在业务读取前拒绝，精确分解保留既有的 Population 支持。现有来源、身份、覆盖与成员资格约束继续适用。
+
+新 rate/mix 组件、效果闭合只使用版本化数值预算，不采用 1% 业务余量。未改变的可加/level Float64 路线仍接受 `abs(sum(contributions) - total) <= max(0.01 * abs(total), 数值舍入预算)`；整数、Decimal 和 Duration 保持相应类型规则。残差不会重新分配。相对贡献和效果均除以同一个新读父级基准的绝对值，零或未定义基准拒绝。
+
+从总额下降出发，再判断各地区解释多少。
+
+{/* example: attribute-rate-effects */}
+
+```python
+order_time_entry = session.catalog.get("time_dimension:sales.orders.order_date")
+assert order_time_entry.kind == "time_dimension"
+average = amount.mean(time=order_time_entry)
+average_current = session.observe({"average": average}, by=(august,))
+average_baseline = session.observe({"average": average}, by=(july,))
+average_change = average_current.compare(
+    {"reference": mv.baseline(average_baseline, match=mv.ordinal())}
+).compute()
+average_target = average_change.select(
+    {"average": average_change["reference.absolute.average"]}
+)
+average_explained = average_target.attribute(by=(region,)).compute()
+effect_columns = [f"effect.{role}.average" for role in ("within", "mix", "entry_exit")]
+average_rows = average_explained.to_pandas()
+assert all(name in average_rows.columns for name in effect_columns)
+```
+
+组内效果解释地区自身均值的变化，结构效果解释有效样本量份额的变化，进入退出效果单独保留。
+
+{/* example: attribute-shapley */}
+
+```python
+squared = revenue * revenue
+squared_current = session.observe({"squared": squared}, by=(august,))
+squared_baseline = session.observe({"squared": squared}, by=(july,))
+squared_change = squared_current.compare(
+    {"reference": mv.baseline(squared_baseline, match=mv.ordinal())}
+).compute()
+squared_target = squared_change.select(
+    {"squared": squared_change["reference.absolute.squared"]}
+)
+squared_explained = squared_target.attribute(
+    by=(region,), permutations=256, seed=42
+).compute()
+squared_rows = squared_explained.to_pandas()
+assert "contribution_std_error.squared" in squared_rows.columns
+squared_method = squared_explained.method_facts[0].parents[0].metrics[0].method
+assert squared_method.kind == "shapley"
+```
+
+每个联盟都对收入平方 Metric 的完整公式求值，贡献解释整体收入平方的变化，不是各地区差异的平方。标准误描述排列采样波动，不代表指标近似误差或因果不确定性。
+
+AVG 平方目标从捕获的 SUM/count 重建每个联盟，方法事实披露摘要重建，增加排列数不会增加来源捕获读取。
+
+{/* example: attribute-summary-shapley */}
+
+```python
+squared_average = average * average
+summary_current = session.observe({"squared_average": squared_average}, by=(august,))
+summary_baseline = session.observe({"squared_average": squared_average}, by=(july,))
+summary_change = summary_current.compare(
+    {"reference": mv.baseline(summary_baseline, match=mv.ordinal())}
+).compute()
+summary_target = summary_change.select(
+    {"squared_average": summary_change["reference.absolute.squared_average"]}
+)
+summary_explained = summary_target.attribute(by=(region,), permutations=32, seed=42).compute()
+summary_method = summary_explained.method_facts[0].parents[0].metrics[0].method
+assert summary_method.kind == "shapley"
+assert summary_method.state_route != "native_queries/v1"
+assert summary_method.game.metric_approximation == "summary_reconstruction/v1"
+```
+
+原生近似分位数通过独立联盟查询保留原后端 reducer。
+
+{/* example: attribute-native-shapley */}
+
+```python
+approximate = amount.approx_quantile(0.5, time=order_time_entry)
+quantile_current = session.observe({"approximate": approximate}, by=(august,))
+quantile_baseline = session.observe({"approximate": approximate}, by=(july,))
+quantile_change = quantile_current.compare(
+    {"reference": mv.baseline(quantile_baseline, match=mv.ordinal())}
+).compute()
+quantile_target = quantile_change.select(
+    {"approximate": quantile_change["reference.absolute.approximate"]}
+)
+quantile_explained = quantile_target.attribute(by=(region,), permutations=32, seed=42).compute()
+quantile_method = quantile_explained.method_facts[0].parents[0].metrics[0].method
+assert quantile_method.kind == "shapley"
+assert quantile_method.state_route == "native_queries/v1"
+assert quantile_method.game.input_consistency == "independent_reads/v1"
+```
+
+近似 distinct 同样保留原生 reducer。
+
+{/* example: attribute-native-approx-distinct */}
+
+```python
+approximate_reach = region.approx_nunique(time=order_time_entry) * revenue
+reach_current = session.observe({"reach": approximate_reach}, by=(august,))
+reach_baseline = session.observe({"reach": approximate_reach}, by=(july,))
+reach_change = reach_current.compare(
+    {"reference": mv.baseline(reach_baseline, match=mv.ordinal())}
+).compute()
+reach_target = reach_change.select({"reach": reach_change["reference.absolute.reach"]})
+reach_report = reach_target.attribute(by=(region,), permutations=32, seed=42).compute()
+reach_method = reach_report.method_facts[0].parents[0].metrics[0].method
+assert reach_method.kind == "shapley"
+assert reach_method.state_route == "native_queries/v1"
+assert reach_method.game.metric_approximation == "native_approximate_metric/v1"
+assert any(leaf.reduction.reducer == "approx_nunique" for leaf in reach_method.leaves)
+```
+
+### 读取新的拆分
+
+{/* example: attribute-default-investigation */}
+
+```python
+fresh_current = session.observe({"revenue": revenue}, by=(august, region))
+fresh_baseline = session.observe({"revenue": revenue}, by=(july, region))
+investigation = fresh_current.compare(
+    {
+        "reference": mv.baseline(
+            fresh_baseline,
+            on=tuple(zip(fresh_current.axes, fresh_baseline.axes)),
+            match=mv.ordinal(),
+        )
+    }
+).compute()
+```
+
+{/* example: attribute-contribution-facts */}
+
+```python
+overall_current = session.observe({"revenue": revenue}, by=(august,))
+overall_baseline = session.observe({"revenue": revenue}, by=(july,))
+overall_change = overall_current.compare(
+    {"reference": mv.baseline(overall_baseline, match=mv.ordinal())}
+).compute()
+target = overall_change.select({"revenue": overall_change["reference.absolute.revenue"]})
+explained = target.attribute(by=(region,)).compute()
+assert explained.to_pandas()["contribution.revenue"].tolist() == [-100, -100]
+facts = explained.method_facts
+facts[0].show(n=0)
+declines = explained.where(explained["contribution.revenue"] < 0).compute()
+saved_declines = declines.persist()
+reopened_declines = session.persisted_frame(saved_declines.artifact_id)
+decline_rows = reopened_declines.to_pandas()
+original_explanation = reopened_declines.method_facts
+```
+
+{/* example: attribute-explicit-default-after-refusal */}
+
+```python
+nonlinear = revenue * revenue
+fine_current = session.observe({"squared": nonlinear}, by=(august, region))
+fine_baseline = session.observe({"squared": nonlinear}, by=(july, region))
+nonlinear_investigation = fine_current.compare(
+    {
+        "reference": mv.baseline(
+            fine_baseline, on=tuple(zip(fine_current.axes, fine_baseline.axes)), match=mv.ordinal()
+        )
+    }
+).compute()
+```
+
+
+
+### 区分拆分与贡献说明
+
+新的分组观察会重新读取来源。贡献计算要求受支持且保留来源定义的目标，并保留方法说明。本地 DuckDB 物理表示例的父变化是 -200，各地区贡献 -100，占比 0.5。
+
+通过 `method_facts` 读取完整原始说明。筛选报告不会重算原分母。重开保存数据会保留说明，但不会恢复可再次请求贡献的来源声明。
+
+单独的收入平方分组比较仍用于调查：各地区差异不能直接相加重建整体非线性变化。解释整体变化的贡献时，应使用上面的 Shapley 报告。参阅[后端与方法限制](/zh-cn/docs/v0.6/reference/backends-and-limits/)。
+
+这些算术分解均不证明业务因果。调查原因假设时，需要能区分不同解释的数据。
+
+## correlate：成对数值相关性
+
+使用 `frame.correlate(x, y, method=..., by=...)` 计算当前行的 Pearson 线性相关或 Spearman 秩相关。独立 Frame 应先对齐，不要按导出数据碰巧相同的行号配对。已完成的 compare 结果已包含配对端点。
+
+| 参数 | 必填 | 默认值 | 语义 |
+| --- | --- | --- | --- |
+| `x` | 是 | — | 来自确切当前输入 Frame 的数值 Column，不支持 Duration。 |
+| `y` | 是 | — | 来自同一确切 Frame 的数值 Column，单位可与 x 不同。 |
+| `method` | 是 | — | 显式 `"pearson"` 或 `"spearman"`；Spearman 对并列值使用平均秩。 |
+| `by` | 否 | `()` | 保留为相关分组的完整轴；`()` 返回整体相关系数。 |
+
+输出为 `coefficient`（可空 float64、单位 1）与 `n_pairs`（非空 int64），共同使用相同的非 NA 配对样本。
+
+```python
+paired = saved
+association = paired.correlate(
+    paired["revenue"],
+    paired["reference.baseline.revenue"],
+    method="pearson",
+).compute()
+pairs = association.to_pandas()
+assert pairs["n_pairs"].tolist() == [2]
+assert abs(pairs["coefficient"].iloc[0] - 1.0) < 1e-12
+association.show()
+```
+
+配对为 (200, 300) 和 (600, 700)，所以示例返回 1，但只有两个观测；这只是 API 演示，不能证明一般关系或因果。两个表达式使用共同的非 NA 配对掩码。少于两对或某端为常量时系数为 NA，仍保留配对数；零配对的组也保留。`by=(paired.axes[0],)` 表示在每个期间内计算。分组系数不能取平均来获得合并样本系数。Help：`analysis.analysis_frame.correlate`。
+
+## align：对齐完整坐标
+
+`left.align(right, on=..., match=...)` 将两个 Frame 放到同一坐标对应中，以便自定义运算。所有值分别保留为 `left.<name>`、`right.<name>`，并添加 `left_present`、`right_present`。与 compare 不同，两端值名称无需相同。
+
+| 参数 | 必填 | 默认值 | 语义 |
+| --- | --- | --- | --- |
+| `other` | 是 | — | 同 Session 的另一 Frame，不接受配对轴输入。 |
+| `on` | 否 | `None` | 轴数相同且类型兼容的完整一一映射；省略时使用与 compare 相同的普通轴和时间轴规则。 |
+| `match` | 否 | `None` | 显式受支持的时间规则；`None` 使用冻结坐标相等。 |
+
+{/* example: aligned-absolute-only */}
+
+```python
+aligned = current.align(
+    baseline,
+    on=tuple(zip(current.axes, baseline.axes)),
+    match=mv.ordinal(),
+)
+difference = aligned.select(
+    {
+        "difference": aligned["left.revenue"] - aligned["right.revenue"],
+    }
+).compute()
+difference.show()
+```
+
+对齐使用外部对应：未匹配行保留，缺失一侧的值为 NA，并有独立 presence。它不广播缺失轴，也不是任意多对多连接。对齐后从新结果获取 Column。
+
+### 对齐地区预算
+
+{/* example: broadcast-reference */}
+
+```python
+budget = session.values(
+    by=(region,),
+    columns={"budget": "CNY"},
+    rows=((("east",), {"budget": 250}), (("west",), {"budget": 750})),
+).compute()
+regional = current.reduce(
+    {"revenue": current["revenue"].sum()}, by=(current.axes[1],)
+).compute()
+aligned_budget = regional.align(budget, on=((regional.axes[0], budget.axes[0]),))
+vs_budget = aligned_budget.select(
+    {
+        "revenue": aligned_budget["left.revenue"],
+        "budget_variance": aligned_budget["left.revenue"]
+        - aligned_budget["right.budget"],
+    }
+).compute()
+vs_budget.show()
+```
+
+预算为东部 250、西部 750，8 月差异为 -50、-150。这里先 reduce 显式移除单一期间轴，使两端各有一个地区轴；这适用于本例可加收入，不能用于恢复任意比率或去重计数。Help：`analysis.analysis_frame.align`。
+
+## reduce：汇总当前行
+
+`frame.reduce(values, by=...)` 按当前行分组，为每个保留的完整键返回一行；`by=()` 返回整体汇总。它移除 presence 列并统计已表示的单元，不会按新粒度重新执行原始 Metric。
+
+| 参数 | 必填 | 默认值 | 语义 |
+| --- | --- | --- | --- |
+| `values` | 是 | — | 单个统计量、非空 tuple，或非空的输出名 → 统计量 Mapping；每个统计量生成一列。 |
+| `by` | 否 | `()` | 保留的当前 Frame 完整轴，不能重复；`()` 汇总全部已表示行，未列出的轴被移除。 |
+
+直接单段值列的 sum/mean 分别命名为 `<name>_sum` / `<name>_mean`；
+`mv.row_count()` 固定为 `row_count`。例如
+`current.reduce(current["revenue"].sum()).output_names` 为 `("revenue_sum",)`。
+业务名称、表达式统计、corr/pair_count 和 `left.revenue` 等多段值路径使用 Mapping。
+名称来自接收者 schema 与已绑定值槽，单列上的算术也不继承原列名。重复候选名会拒绝，
+tuple/Mapping 顺序决定输出顺序。命名不增加聚合权限，也不放宽精确 Frame 所有权。
+
+```python
+summary = current.reduce(
+    {
+        "total": current["revenue"].sum(),
+        "mean_region": current["revenue"].mean(),
+        "rows": mv.row_count(),
+    }
+).compute()
+summary_rows = summary.to_pandas()
+assert summary_rows["total"].tolist() == [800]
+assert summary_rows["mean_region"].tolist() == [400]
+assert summary_rows["rows"].tolist() == [2]
+```
+
+400 是地区收入均值，不是客单价。对比率或去重计数求和不能恢复原始整体 Metric；这类问题应重新 observe。空样本求和为零，非空全 NA 求和或没有有效单元的均值为 NA；`row_count()` 包含值为 NA 的行。Help：`analysis.analysis_frame.reduce`。
+
+## over / share：分区统计与行份额
+
+`frame.over(statistic, by=...)` 将各分区统计值广播回原行。`column.share(along=...)` 用每个值除以沿指定轴求得的和，其余轴定义分区。二者都返回供 select 使用的 Column，保留原行及顺序。
+
+| 参数 | 必填 | 默认值 | 语义 |
+| --- | --- | --- | --- |
+| `statistic` | 是 | — | 同输入的待完成统计量或 `mv.row_count()`；将分区结果广播回原行。 |
+| `by` | 否 | `()` | 当前 Frame 的完整分区键；`()` 表示全部行属于一个分区。 |
+
+`Column.share` 参数：
+
+| 参数 | 必填 | 默认值 | 语义 |
+| --- | --- | --- | --- |
+| `along` | 是 | — | 求和方向的非空、不重复完整轴；其他轴定义分区。 |
+
+```python
+normalized = current.select(
+    {
+        "revenue": current["revenue"],
+        "total": current.over(current["revenue"].sum()),
+        "share": current["revenue"].share(along=(current.axes[1],)),
+    }
+).compute()
+assert normalized.to_pandas()["share"].tolist() == [0.25, 0.75]
+```
+
+这里 share 在每个期间内对地区求和；`over(..., by=())` 使用当前全部行。先筛选再 share 会改变分母，计算 share 后再筛选则保留原分母。分区总和为零时结果为 NA；带符号份额可以超出 [0, 1]。Share 至少需要一个轴，也不证明原始 Metric 可加性。Help：`analysis.analysis_frame.over`、`analysis.column.share`。
+
+## 选择与筛选
+
+先确定要筛选来源贡献、输出对象集合，还是已经计算的行，它们回答不同问题。
+
+### 选择已知订单并读取属性
+
+{/* example: explicit-identity-read */}
+
+```python
+orders_entry = session.catalog.get("entity:sales.orders")
+assert orders_entry.kind == "entity"
+Orders = orders_entry
+fixed_orders = mv.coordinates(
+    by=(mv.identity(Orders),),
+    keys=(((4,),), ((5,),), ((6,),)),
+)
+attributes = session.read(fixed_orders, {"region": region}).compute()
+chosen_orders = attributes.where(attributes["region"] == "east").compute()
+east = session.population_from(chosen_orders, on=((chosen_orders.axes[0], Orders),))
+selected = session.observe(
+    {"revenue": revenue}, by=mv.product(august, east), where=mv.in_population(east)
+).compute()
+selected.show()
+session.frame(east).compute().show()
+```
+
+选中身份是订单 4、5、6。按属性筛到 east 后，保留订单 4、5，各有收入 100。即使实体只有一个主键字段，完整键仍使用元组。字面键描述选中身份，并不证明来源中存在这些记录。
+
+### 固定选中的群体
+
+{/* example: comparison-endpoint-followup */}
+
+```python
+chosen = current.top(1, by=current["revenue"]).compute()
+parents = session.population_from(chosen, on=((chosen.axes[1], region),))
+prior_selected = session.observe(
+    {"revenue": revenue}, by=(july, region), where=mv.in_population(parents)
+).compute()
+followup = chosen.compare(
+    {
+        "reference": mv.baseline(
+            prior_selected, on=tuple(zip(chosen.axes, prior_selected.axes)), match=mv.ordinal()
+        )
+    }
+).compute()
+followup.show()
+```
+
+西部是 8 月收入最高地区，为 600。后续群体因此固定为 west；查询 7 月不会重新排名。其 7 月参照是 700，变化为 -100。
+
+来源字段条件用于来源筛选，`mv.in_population(...)` 用于成员筛选；结果筛选使用属于该结果的布尔 Column。`by=population` 选择输出键，`where` 中的成员条件选择贡献。身份集合计数统计完整不同身份，也包含选中但没有事实的身份；仅投影到地区再计数，统计的则是地区数。
+
+改变分母前先了解[范围与粒度](/zh-cn/docs/v0.6/analysis/dsl/#范围与粒度)。
+
+`session.read(population, fields)` 在完整 Entity 身份上读取命名属性。`frame.select({...})` 投影或计算命名 Column，`frame.where(predicate)` 筛选当前行，`frame.top(n, by=column)` 选择全局排名。Column 和轴必须来自确切接收方；生成新 Frame 后应重新获取。
+
+## 范围与粒度
+
+比较数值之前，先确定一行代表什么、哪些记录参与计算。
+
+### 三种不同选择
+
+- 对象范围：选中哪些客户、订单或完整坐标元组？
+- 时间范围：哪些业务时间事实参与，边界是什么？
+- 结果粒度：每行代表地区、订单，还是地区与月份的组合？
+
+假设 A 客户有两笔各 100 的订单，B 有一笔 400 的订单。平均订单金额是 600 / 3 = 200；平均客户收入是 (200 + 400) / 2 = 300。两者都可成立，但问题不同。
+
+### 保持分母
+
+两个地区收入为 200、600 时，占原总额的比例为 0.25、0.75。先筛到 600 那行再归一化，占比变成 1；先计算再筛选，占比仍是 0.75。
+
+比较中缺少一行，与该行存在但数值未知不同，两者均不自动表示零。字段空值还可以是有效分类，应分别检查行存在性与数值有效性。
+
+通过[对象选择](/zh-cn/docs/v0.6/analysis/dsl/#选择与筛选)实现范围，[统计](/zh-cn/docs/v0.6/analysis/statistics/)说明分母敏感的运算。
+
+## read / select / where / top 参数
+
+### `session.read`
+
+| 参数 | 必填 | 默认值 | 语义 |
+| --- | --- | --- | --- |
+| `population` | 是 | — | 一个 Entity 的完整身份域。 |
+| `fields` | 是 | — | 非空的输出名 → 闭合字段表达式映射。 |
+
+### `frame.select`
+
+| 参数 | 必填 | 默认值 | 语义 |
+| --- | --- | --- | --- |
+| `values` | 是 | — | 输出名映射到确切当前 Frame 的 Column 或受支持字面值。 |
+
+传入空映射可移除全部值，同时保留当前行域、行序、完整坐标和 presence，以及必要的冻结坐标映射。
+求值仍执行上游必须完成的计算和检查。
+
+```python
+coordinates_only = saved.select({}).compute()
+assert coordinates_only.output_names == ()
+assert coordinates_only.presence_names == saved.presence_names
+```
+
+### `frame.where`
+
+| 参数 | 必填 | 默认值 | 语义 |
+| --- | --- | --- | --- |
+| `predicate` | 是 | — | 来自确切当前 Frame 的布尔 Column，用于筛选已表示行。 |
+
+### `frame.top`
+
+| 参数 | 必填 | 默认值 | 语义 |
+| --- | --- | --- | --- |
+| `n` | 是 | — | 全局保留的非负整数行数；不接受 bool。 |
+| `by` | 是 | — | 来自确切输入 Frame 的排名 Column。 |
+| `descending` | 否 | `True` | True 优先选择大值，False 优先选择小值。 |
+
+Top 按完整键裁决并列，NA 分数排在最后。输入键已证明唯一时，包括 `top(0)` 在内，
+均可省略重复键扫描；未知输入仍在选择前检查完整键。必要的 NULL、数值和域检查继续保留。
+需要检验来源声明的唯一性时，使用显式来源检查。
+
+## 常用筛选与排序
+
+下面分别筛选来源与当前结果。六笔订单中 east 合计 500；8 月金额大于 200 的行和排名首行均为 west，金额 600。
+
+{/* example: source-and-result-filters */}
+
+```python
+# Continue after running analysis.py.
+east_total = session.observe({"revenue": revenue}, where=region == "east").compute()
+east_total.show()
+
+large = current.where(current["revenue"] > 200).compute()
+large.show()
+
+ranked = current.top(1, by=current["revenue"]).compute()
+ranked.show()
+```
+
+
+### 捕获的值解释
+
+`frame.schema.alignments` 将对齐值绑定到端点坐标和 presence；
+`frame.schema.value_contexts` 识别显式份额和配对统计，并保留捕获时的输入名。
+类型化查看与传播规则见[结果解释](/zh-cn/docs/v0.6/analysis/results/#解释对齐值归一化份额和配对统计)。
+读取这些元数据不会执行待计算 Frame，也不会使当前行统计成为合法的 attribute 目标。
+
+
+## 导出名称、字段身份与用途说明
+
+`observe` 的 `metrics` 接受命名 Mapping，`by` 使用 tuple 或 Population。逐行历史标签见[时间序列](../time-series/#每条事实的历史分类)。语义对象 `.id` 可作为字典键；对象本身的 `==` 构造谓词。导出别名是整个轴的前缀，用 `axis_names={axis.token: "day"}`；需要改单列时对隔离的 pandas 副本使用 `.rename(columns={...})`。`question=` 记录 Session 问题，`persist(description=...)` 描述一次保存结果，不是每次 observe 的审计注释。

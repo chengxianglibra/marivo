@@ -1,0 +1,38 @@
+---
+slug: docs/v0.6
+title: Marivo
+description: Define business metrics, query data, and save analysis results with Python.
+---
+
+<span id="choose-your-entry"></span>
+<span id="follow-one-reviewable-loop"></span>
+<span id="from-a-question-to-an-inspectable-answer"></span>
+<span id="what-you-bring"></span>
+<span id="choose-your-path"></span>
+
+Marivo is a Python library for business data analysis. Its semantic layer records reusable business definitions, including metrics, entities, dimensions, and relationships. The analysis DSL applies those definitions to calculate and compare results. Saved results retain source and evaluation records for review.
+
+For example, define revenue from an orders table with amounts, regions, and dates. Calculate monthly revenue by region, compare periods, or explore trends with rolling windows. Persist a completed result to reopen its captured values later.
+
+## What you can do
+
+| Task | Start here |
+| --- | --- |
+| Connect a database or file; inspect its schema and a bounded sample | [Datasource configuration](/docs/v0.6/modeling/datasources/) |
+| Define reusable metrics and the entities, time fields, and relationships behind them | [Semantic layer](/docs/v0.6/modeling/semantic-layer/) |
+| Calculate metrics by period or dimension, then filter or inspect selected records | [Analysis DSL](/docs/v0.6/analysis/dsl/) |
+| Compare a result with a baseline and examine differences by group | [Compare baselines](/docs/v0.6/analysis/dsl/#compare-and-align) · [Investigate changes](/docs/v0.6/analysis/dsl/#investigate-changes) |
+| Group by calendar periods; calculate windows, shares, or paired correlations | [Time series and windows](/docs/v0.6/analysis/time-series/) · [Statistics and correlation](/docs/v0.6/analysis/statistics/) |
+| Reopen saved values and review the captured source-read and method context | [Results and method facts](/docs/v0.6/analysis/results/) |
+
+## Get started
+
+[Installation and projects](/docs/v0.6/start/installation/) covers setup. [Quick start](/docs/v0.6/start/python/) creates six local orders and calculates total revenue of CNY 1,800.
+
+The [semantic layer](/docs/v0.6/modeling/semantic-layer/) explains how to model reusable metrics. The [analysis DSL](/docs/v0.6/analysis/dsl/) walks through queries, filters, comparisons, and contribution breakdowns in code.
+
+For agent-led analysis, start with [Use Marivo with an agent](/docs/v0.6/guides/agents/) and [Your first analysis](/docs/v0.6/guides/agents/).
+
+These latest guides follow development source. For a released package, use its versioned documentation. Check [supported sources and limits](/docs/v0.6/reference/backends-and-limits/) for backend and method support.
+
+More references: [Date and time definitions](/docs/v0.6/modeling/dates/) · [Population](/docs/v0.6/analysis/population/).

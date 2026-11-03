@@ -1,0 +1,181 @@
+---
+slug: docs/v0.6/analysis/population
+title: Population
+description: Choose complete member and coordinate domains, separate output keys from contribution filters, and count selected members.
+---
+
+Population is a finite set of complete coordinate tuples, such as orders, customers, regions, or correlated combinations of axes. It describes the domain for an analysis; an observation supplies measured values for its members. A field such as `customer_id` is not by itself a Customer identity: an identity contains every ordered primary-key component. A field value of `NULL` can be a category, while Entity identity components must be non-NULL.
+
+Complete the [quick start](/docs/v0.6/start/python/) and save the [DSL shared example](/docs/v0.6/analysis/dsl/#complete-example-and-shared-inputs) as `analysis.py`. In the project root, save this page’s code blocks as `population.py` and run `.venv/bin/python population.py`. Population definitions are lazy: `session.frame(P).compute()` materializes the complete keys, while `session.observe({"count": P.count()}).compute()` computes the domain size.
+
+```python
+from analysis import mv, session, revenue, region, august, current
+
+orders_entry = session.catalog.get("entity:sales.orders")
+assert orders_entry.kind == "entity"
+Orders = orders_entry
+```
+
+## Literal coordinates: `mv.coordinates`
+
+| Parameter | Required | Default | Meaning |
+| --- | --- | --- | --- |
+| `by` | Yes | — | Ordered fields or identity groupings; each position defines one coordinate axis. Use `mv.product` to combine a time domain with other axes. |
+| `keys` | Yes | — | Complete tuples with one value per axis. For an identity axis, each value is the complete primary-key tuple, even for a single-column key. Duplicate tuples count once. |
+
+
+```python
+requested = mv.coordinates(
+    by=(mv.identity(Orders),),
+    keys=(((4,),), ((5,),), ((6,),), ((999,),)),
+)
+requested_count = session.observe({"members": requested.count()}).compute()
+assert requested_count.to_pandas()["members"].tolist() == [4]
+```
+
+`requested` includes order 999, although the tutorial source has no such row. A literal Population records the requested keys; source presence is a separate question. `keys=()` is empty; for `by=()`, `keys=((),)` is the one-element zero-axis domain.
+
+Source-backed populations follow the identity, relationship-cardinality, and version-grain declarations in the semantic model. Use an explicit [online validation check](/docs/v0.6/modeling/semantic-layer/#load-and-validate) to test data conditions such as uniqueness or relationship cardinality. If a scalar lookup finds no matching row, `session.read` and `P.classify` keep the requested identity, with `NULL` for the missing attributes.
+
+These declarations and actual set/grouping operations can establish complete-key
+uniqueness without another duplicate scan. Ordinary members, read, classify and
+Top are not source-quality audits. Literal Frame data and unknown relations keep
+their ingress key checks; NULL identity and operation-specific coverage checks
+remain independent.
+
+## Identity grouping: `mv.identity`
+
+| Parameter | Required | Default | Meaning |
+| --- | --- | --- | --- |
+| `target` | Yes | — | Entity or explicit directed relationship path defining the identity axis. |
+| `at` | No | `None` | Exact `session.instant(...)` anchor for a versioned identity; leave `None` for an unversioned Entity. |
+
+## Source members: `session.members`
+
+| Parameter | Required | Default | Meaning |
+| --- | --- | --- | --- |
+| `entity` | Yes | — | Resolved Entity from this Session’s Catalog. |
+| `at` | No | `None` | Exact version-selection instant for a versioned Entity; omit for an unversioned Entity. Choose it separately from the observation period. |
+| `where` | No | `None` | Optional source-field or Population-membership filter; omit it to keep all source-represented identities in scope. |
+
+
+```python
+east_orders = session.members(Orders, where=region == "east")
+east_count = session.observe({"members": east_orders.count()}).compute()
+assert east_count.to_pandas()["members"].tolist() == [4]
+```
+
+These are orders 1, 2, 4 and 5 across both months. Choose membership time separately from the `Metric` observation period. For a snapshot or validity Entity, supply `at=session.instant(...)` explicitly.
+
+## Output domain versus contribution filter
+
+`by=P` selects the complete output keys. To restrict contributing facts to those members as well, use `where=mv.in_population(P)`. After filtering, the output domain must cover every required contribution key or evaluation raises a coverage error. Keep correlated axes together as complete tuples; separate axis values do not preserve their combinations.
+
+### Membership predicate: `mv.in_population`
+
+| Parameter | Required | Default | Meaning |
+| --- | --- | --- | --- |
+| `population` | Yes | — | Complete selected domain used to test membership. |
+
+
+### Cartesian product: `mv.product`
+
+| Parameter | Required | Default | Meaning |
+| --- | --- | --- | --- |
+| `factors` | Yes | — | At least two ordered `Population`, `TimeScope` or `CalendarAxis` factors with distinct axes; owned factors must belong to the same Session. If any factor is empty, the product is empty. |
+
+```python
+domain = mv.product(august, requested)
+observed = session.observe(
+    {"revenue": revenue}, by=domain, where=mv.in_population(requested)
+).compute()
+assert sorted(observed.to_pandas()["revenue"].tolist()) == [0, 100, 100, 600]
+```
+
+Order 999 remains with revenue zero because it has no contributions. An order with rows whose amounts are all `NULL` instead has an unknown sum. `mv.product(*factors)` includes every combination of its factors, so use it when the full Cartesian domain matches the intended output.
+
+## Classify, project, and count
+
+### `P.classify`
+
+| Parameter | Required | Default | Meaning |
+| --- | --- | --- | --- |
+| `by` | Yes | — | Direct attributes of one identity Entity, optionally retaining its identity axis. Attributes are read when the Population is evaluated. |
+
+### `P.project`
+
+| Parameter | Required | Default | Meaning |
+| --- | --- | --- | --- |
+| `by` | Yes | — | Axes already in the Population to retain or reorder. Projected tuples are deduplicated; use `classify` to add attributes first. |
+
+
+```python
+all_orders = session.members(Orders)
+classified = all_orders.classify(by=(all_orders.axes[0], region))
+regions = classified.project(by=(region,))
+counts = session.observe(
+    {"orders": classified.count(), "regions": regions.count()}
+).compute()
+assert counts.to_pandas()["orders"].tolist() == [6]
+assert counts.to_pandas()["regions"].tolist() == [2]
+```
+
+`P.count()` returns a lazy `Metric` that counts distinct complete tuples, including `NULL` field categories and requested identities without source rows. Keeping identity counts six orders; projecting to region first counts two regions. Use `Entity.count()` to count source contributions and `mv.row_count()` to count rows in a Frame. `P.axes` lists coordinate rules; use `P` itself when you need its selected member set.
+
+## Set selection and relationship mapping
+
+### `P.where`
+
+| Parameter | Required | Default | Meaning |
+| --- | --- | --- | --- |
+| `predicate` | Yes | — | Membership predicate composed from `mv.in_population(...)`, `&`, `\|` and `~`. Populations in the predicate must use axes already present in `P`. |
+
+### `P.union / P.intersection / P.difference`
+
+| Parameter | Required | Default | Meaning |
+| --- | --- | --- | --- |
+| `other` | Yes | — | Population with compatible complete bound axes. Use `union` to combine domains, `intersection` to keep common tuples, and `difference` to remove matching tuples from this domain. |
+
+### `P.image`
+
+| Parameter | Required | Default | Meaning |
+| --- | --- | --- | --- |
+| `via` | Yes | — | Nonempty explicit contiguous directed relationship path to the target identity. |
+| `at` | No | `None` | Exact target-version anchor when version selection requires one; `None` leaves the target unanchored. |
+
+### `P.preimage`
+
+| Parameter | Required | Default | Meaning |
+| --- | --- | --- | --- |
+| `targets` | Yes | — | Selected compatible target identity domain; results remain bounded by receiver P. |
+| `via` | Yes | — | Explicit directed relationship path from receiver identities to targets. |
+
+
+```python
+present_requested = requested.intersection(all_orders)
+missing_requested = requested.difference(all_orders)
+set_counts = session.observe(
+    {"present": present_requested.count(), "missing": missing_requested.count()}
+).compute()
+assert set_counts.to_pandas()["present"].tolist() == [3]
+assert set_counts.to_pandas()["missing"].tolist() == [1]
+```
+
+An image can include target foreign keys whose target row is missing; a later attribute read for that member can return `NULL`. A preimage selects receiver identities that reach any selected target; relationship multiplicity does not duplicate them. Mapping orders to customers and back selects all orders for those customers, so the result may be broader than the original order subset.
+
+## Continue from Frame selection: `session.population_from`
+
+| Parameter | Required | Default | Meaning |
+| --- | --- | --- | --- |
+| `frame` | Yes | — | Frame from this Session; its represented ordinary keys supply the selected domain. |
+| `on` | Yes | — | Explicit FrameAxis-to-field or Entity pairs that declare the business correspondence. Projection deduplicates complete selected keys. |
+
+
+```python
+chosen = current.top(1, by=current["revenue"]).compute()
+chosen_regions = session.population_from(chosen, on=((chosen.axes[1], region),))
+chosen_count = session.observe({"regions": chosen_regions.count()}).compute()
+assert chosen_count.to_pandas()["regions"].tolist() == [1]
+```
+
+Because `current` is the completed August result, `population_from` records its selected region. Pass `chosen_regions` as `where=mv.in_population(chosen_regions)` in a later observation to keep west selected without ranking it again. Use `session.frame(P)` to compute Population keys and `session.read(P, fields)` to read attributes for a single Entity identity domain. Use the owning Session to create and consume each Population. Exact references: `analysis.population`, `analysis.coordinates`, `analysis.session.members`, `analysis.session.population_from`.
