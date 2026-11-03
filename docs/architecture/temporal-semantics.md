@@ -297,7 +297,14 @@ and backend capability remain configuration/preparation errors. No trimming,
 guessing or retry is performed.
 
 DuckDB uses `try_strptime`; Trino wraps parsing and conversion in `TRY`;
-ClickHouse uses `parseDateTimeOrNull`. PostgreSQL retains the native
+ClickHouse converts ordered formats to explicit standard date/time text and
+uses `toDate32OrNull` or `toDateTime64OrNull(..., 6, 'UTC')` as a neutral
+carrier before applying source timezone authority. DATE-to-clock conversions
+retain DateTime64 precision and range. This path supports ClickHouse 22.3.
+Other formats use `parseDateTimeOrNull`, requiring ClickHouse 23.3 or newer.
+The provider qualifies parsers remaining in final executable SQL before issuing
+a business read; raw-only ranges do not require an unused parser.
+PostgreSQL retains the native
 `to_timestamp` acceptance rules, including noncanonical separators and partial
 fields. MySQL-family SELECT parsing is followed by native zero-day arithmetic
 to reject impossible calendar carriers.

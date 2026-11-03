@@ -22,19 +22,6 @@ from datetime import datetime
 
 _SAMPLE_DT = datetime(2024, 1, 15, 10, 30, 45)
 
-# Canonical, fixed-width encodings whose native order is chronological.
-# Values declare valid dates/clocks, zero padding and exactly these separators.
-ORDERED_TIME_FORMATS: dict[str, int] = {
-    "%Y%m%d": 86400,
-    "%Y-%m-%d": 86400,
-    "%Y%m%d%H": 3600,
-    "%Y-%m-%d %H": 3600,
-    "%Y%m%d%H%M": 60,
-    "%Y-%m-%d %H:%M": 60,
-    "%Y%m%d%H%M%S": 1,
-    "%Y-%m-%d %H:%M:%S": 1,
-}
-
 
 def normalize_strptime(value: str) -> str:
     """Strip whitespace and validate that ``value`` is a Python strptime format.

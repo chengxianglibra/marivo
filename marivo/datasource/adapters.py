@@ -603,8 +603,12 @@ class SourceSession:
         if not isinstance(sql, str) or not sql:
             raise _invalid("nonempty Ibis compiled SQL", type(sql).__name__)
         if self.provider.name == "clickhouse":
-            from marivo.datasource.engines.clickhouse import validate_query_size
+            from marivo.datasource.engines.clickhouse import (
+                validate_query_size,
+                validate_temporal_parsers,
+            )
 
+            validate_temporal_parsers(self._backend, sql)
             validate_query_size(self._backend, sql)
         if self._key_request_limit is not None:
             limit, encoding = self._key_request_limit

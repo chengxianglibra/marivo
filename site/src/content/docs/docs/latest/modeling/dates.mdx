@@ -82,6 +82,8 @@ For qualifying physical columns, ranges compare the original field directly to s
 
 SQL NULL remains NULL and has no period membership. Projections, calendar assignment and unqualified endpoints retain native parsing and gap/fold interpretation. DuckDB, Trino, ClickHouse and MySQL/MariaDB return NULL for rejected parsed data; PostgreSQL native `to_timestamp` can fail the query. Native acceptance outside the ordered-format contract can differ by backend. There is no `on_error`, trimming, guessing, retry, partition enumeration or validation query. Format, timezone, type and capability errors still fail. Trino TRY can catch recoverable input-expression errors; other engines may propagate them. NULL used only as attribute control preserves facts under a NULL label. Direct predicates enable pushdown; actual index use and partition pruning depend on the backend and table layout.
 
+ClickHouse 22.3 supports the ordered formats above for projections and calendar assignment: dates retain `Date32` and clocks retain `DateTime64`. Other formats require ClickHouse 23.3 or newer. Queries needing an unavailable parser fail before business query submission; use an ordered encoding, expose a native `Date32`/`DateTime64` column, or upgrade the server. Source timezone declarations and native gap/fold behavior still apply.
+
 ## Separate hour column: `ms.hour_prefix`
 
 | Parameter | Required | Default | Meaning |

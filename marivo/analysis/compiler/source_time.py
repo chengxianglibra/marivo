@@ -8,6 +8,7 @@ import ibis.expr.datatypes as dt
 import ibis.expr.operations as ops
 import ibis.expr.types as ir
 
+from marivo._time_formats import ORDERED_TIME_FORMATS
 from marivo._timezones import normalize_timezone, same_timezone
 from marivo.analysis.compiler.errors import DatasetCompilationError, compilation_error
 from marivo.analysis.core.time_authority import (
@@ -31,7 +32,6 @@ from marivo.semantic.ir import (
     TimestampParse,
     is_time_bearing_format,
 )
-from marivo.semantic.time_format import ORDERED_TIME_FORMATS
 from marivo.semantic.validator import Registry
 
 

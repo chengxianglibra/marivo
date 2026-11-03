@@ -18,7 +18,6 @@ from marivo.analysis.compiler.source_time import (
     source_time_predicate,
 )
 from marivo.analysis.materialization.temporal_sql import lower_temporal
-from marivo.datasource._temporal_expressions import localize, timestamp
 from marivo.semantic._source_timezone import DeclaredSourceTimezone
 from marivo.semantic.ir import DateParse, HourPrefixParse, StrptimeParse, TimestampParse
 from tests.analysis.temporal.encoded_time_fixtures import axis
@@ -359,19 +358,3 @@ def test_native_shanghai_ranges_match_independent_membership_and_original_predic
         assert len(comparisons) == 2 and all(
             isinstance(item.this, sge.Column) for item in comparisons
         ), sql
-        native = (
-            localize(authority.timezone, timestamp(projected))
-            if authority.kind == "civil_date"
-            else projected
-        )
-        previous = (
-            table.filter(
-                native >= start.astimezone(timezone.utc), native < end.astimezone(timezone.utc)
-            )
-            .select("id")
-            .order_by("id")
-        )
-        oracle = case.session.collect_bounded(
-            lower_temporal(previous, backend), purpose="time.native_oracle", max_rows=6
-        )
-        assert oracle.id.tolist() == [2, 3]

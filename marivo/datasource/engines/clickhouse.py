@@ -66,6 +66,35 @@ def apply_read_only_kwargs(kwargs: Mapping[str, object]) -> dict[str, object]:
     return out
 
 
+def validate_temporal_parsers(backend: BaseBackend, sql: str) -> None:
+    """Qualify explicit-format parsers remaining in the final executable SQL."""
+    if "parsedatetimeornull" not in sql.lower():
+        return
+    version = backend.version
+    if tuple(int(part) for part in version.split(".")[:2]) >= (23, 3):
+        return
+    import sqlglot
+    from sqlglot import expressions as sge
+
+    for function in sqlglot.parse_one(sql, read="clickhouse").find_all(sge.Anonymous):
+        if function.name.lower() != "parsedatetimeornull":
+            continue
+        fields = ", ".join(sorted({column.name for column in function.find_all(sge.Column)}))
+        argument = function.expressions[1]
+        format = argument.this if isinstance(argument, sge.Literal) else "<expression>"
+        raise DatasourceSourceCapabilityError(
+            message="The selected ClickHouse server cannot parse this explicit time format.",
+            expected="ClickHouse 23.3 or newer for nonordered ms.strptime formats",
+            received=f"ClickHouse {version}; fields={fields or '<scalar>'}; format={format[:200]}",
+            location="datasource.clickhouse.strptime",
+            repair=repair(
+                kind="configure",
+                canonical_id="clickhouse",
+                action="Use a canonical year/month/day encoding, expose a native Date32/DateTime64 column, or upgrade ClickHouse to 23.3 or newer.",
+            ),
+        )
+
+
 _CH_DISTRIBUTED_ENGINE_RE = re.compile(r"^Distributed\('([^']+)',\s*'([^']+)',\s*'([^']+)'")
 
 

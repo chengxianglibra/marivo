@@ -402,15 +402,6 @@ def test_public_encoded_clocks_retain_wall_bucket_membership(
                 ]
                 axis = session.time_scope(start=start, end=end).by(mv.grain("minute", count=5))
                 pending = session.observe({"total": amount.sum(time=point)}, by=(axis,))
-                if backend == "clickhouse" and case.session._backend.version.startswith("22."):
-                    from marivo.analysis.materialization.errors import MaterializationError
-
-                    # The existing format parser is unavailable on 22.3. Its native
-                    # failure must propagate, without a timezone qualification or retry.
-                    with pytest.raises(MaterializationError) as captured:
-                        pending.compute()
-                    assert "Unknown function parseDateTimeOrNull" in str(captured.value.received)
-                    continue
                 actual = pending.compute().to_pandas()
                 assert actual.total.tolist() == expected
 

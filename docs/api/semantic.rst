@@ -51,6 +51,10 @@ represented tick. No additional flag or source audit is required. Noncanonical
 values violate this declaration. Other formats, derived inputs and unqualified
 endpoints retain native parsing; output projections also retain native parsing.
 
+ClickHouse 22.3 supports ordered formats using Date32/DateTime64 conversions.
+Other formats require ClickHouse 23.3 or newer and fail capability checks before
+business query submission on older servers.
+
 ``ms.validity`` has no timezone parameter: DATE bounds derive one common field
 zone. ``ms.period_calendar`` derives its boundary zone from its date field.
 ``ms.snapshot.timezone`` and ``ms.temporal_set.boundary_timezone`` remain explicit;

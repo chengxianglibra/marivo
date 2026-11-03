@@ -80,6 +80,8 @@ business_date = ms.time_dimension_column(
 
 SQL NULL 保持 NULL，不归属任何期间。输出投影、日历分桶和未通过资格检查的端点保留原生解析及 gap/fold 解释。DuckDB、Trino、ClickHouse 和 MySQL/MariaDB 将解析器拒绝的数据变为 NULL；PostgreSQL 原生 `to_timestamp` 可能使查询报错。有序格式契约以外的原生接受规则可能因后端而异。没有 `on_error`、trim、格式猜测、重试、分区枚举或验证查询。格式、时区、类型与能力错误仍报错。Trino TRY 可捕获部分输入表达式错误，其他后端可能传播错误。NULL 仅用于属性控制时间时保留事实及 NULL 标签。直接谓词为下推提供条件；实际索引使用和分区裁剪取决于后端与表布局。
 
+ClickHouse 22.3 支持上述有序格式的投影和日历分桶：日期保留 `Date32`，时间保留 `DateTime64`。其他格式要求 ClickHouse 23.3 或更新版本。需要不可用解析器的查询会在业务查询提交前报错；可改用有序编码、通过数据源提供原生 `Date32`/`DateTime64` 列，或升级服务端。源时区声明及原生 gap/fold 行为仍然适用。
+
 ## 独立小时列：`ms.hour_prefix`
 
 | 参数 | 必填 | 默认值 | 语义 |

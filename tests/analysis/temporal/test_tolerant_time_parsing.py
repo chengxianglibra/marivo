@@ -177,9 +177,9 @@ def test_postgres_parser_propagates_invalid_data(
     [
         ("%Y%m%d", "20260228", "broken", date(2026, 2, 28)),
         (
-            "%Y-%m-%d %H:%M:%S",
-            "2026-02-28 12:34:56",
-            "2026-13-28 12:34:56",
+            "%Y/%m/%d %H:%M:%S",
+            "2026/02/28 12:34:56",
+            "2026/13/28 12:34:56",
             datetime(2026, 2, 28, 12, 34, 56),
         ),
         ("%b %d %Y", "Feb 28 2026", "invalid", date(2026, 2, 28)),
@@ -364,7 +364,7 @@ def test_public_parsed_time_predicate_and_calendar_keep_native_interpretation(
             "postgres": "CAST(to_timestamp('{value}', 'YYYY-MM-DD HH24:MI') AS TIMESTAMP) AT TIME ZONE 'America/New_York'",
             "mysql": "CONVERT_TZ(DATE_ADD(STR_TO_DATE('{value}', '%Y-%m-%d %H:%i'), INTERVAL 0 DAY), 'America/New_York', '+00:00')",
             "trino": "TRY(with_timezone(date_parse('{value}', '%Y-%m-%d %H:%i'), 'America/New_York'))",
-            "clickhouse": "toTimeZone(toDateTime64(toString(parseDateTimeOrNull('{value}', '%Y-%m-%d %H:%i', 'UTC'), 'UTC'), 6, 'America/New_York'), 'UTC')",
+            "clickhouse": "toTimeZone(toDateTime64('{value}:00', 6, 'America/New_York'), 'UTC')",
         }[backend]
         oracle = case.session._backend.execute(
             case.session._backend.sql(

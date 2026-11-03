@@ -3337,7 +3337,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
         _capability(
             "strptime",
             "marivo.semantic._authoring_values.strptime",
-            "Declare encoded time. Ordered year/month/day formats require valid, fixed-width, zero-padded values with exact separators. Eligible ranges compare the original column to same-type source-time constants. Other formats and unqualified endpoints retain native parsing. Projection retains native gap/fold behavior: rejected data becomes NULL except on PostgreSQL, where native to_timestamp can fail the query. Source timezone comes from the parser or Datasource wall_clock_timezone. No on_error, trimming, guessing or retry.",
+            "Declare encoded time. Ordered year/month/day formats require valid, fixed-width, zero-padded values with exact separators. Eligible ranges compare the original column to same-type source-time constants. Other formats and unqualified endpoints retain native parsing. Projection retains native gap/fold behavior: rejected data becomes NULL except on PostgreSQL, where native to_timestamp can fail the query. Source timezone comes from the parser or Datasource wall_clock_timezone. ClickHouse 22.3 supports ordered formats with Date32/DateTime64; other formats require 23.3+. No on_error, trimming, guessing or retry.",
             output="StrptimeSpec",
             effects=_AUTHOR,
             constraints=("time_dimension_partition_pushdown",),

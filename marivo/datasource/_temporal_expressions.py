@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import re
 from collections.abc import Callable
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 
 import ibis
 import ibis.expr.datatypes as dt
 import ibis.expr.operations as ops
 import ibis.expr.types as ir
 
+from marivo._time_formats import ORDERED_TIME_FORMATS
 from marivo._timezones import normalize_timezone
 
 
@@ -82,8 +83,8 @@ _duckdb_strptime: Callable[[ir.StringValue, str], ir.TimestampValue] = ibis.udf.
 )
 
 
-# ClickHouse has no ibis ``StringToTimestamp`` rule. ``parseDateTimeOrNull``
-# is its native MySQL-format parser; the explicit zone argument keeps the result
+# ClickHouse has no ibis ``StringToTimestamp`` rule. On 23.3 and newer,
+# ``parseDateTimeOrNull`` handles nonordered formats; the zone keeps the result
 # a UTC-labelled instant regardless of session timezone. Malformed values may
 # become NULL and are not checked by an automatic source preflight.
 _clickhouse_strptime: Callable[[ir.StringValue, str, str], ir.TimestampValue] = (
@@ -93,6 +94,45 @@ _clickhouse_strptime: Callable[[ir.StringValue, str, str], ir.TimestampValue] = 
         signature=((dt.string, dt.string, dt.string), dt.Timestamp(timezone="UTC", scale=6)),
     )
 )
+
+
+def _date_signature(value: str) -> date:
+    raise NotImplementedError("native ClickHouse Date32 parse")
+
+
+def _datetime64_signature(value: str, precision: int, zone: str) -> datetime:
+    raise NotImplementedError("native ClickHouse DateTime64 parse")
+
+
+_clickhouse_date: Callable[[ir.StringValue], ir.DateValue] = ibis.udf.scalar.builtin(
+    _date_signature, name="toDate32OrNull", signature=((dt.string,), dt.date)
+)
+_clickhouse_datetime: Callable[[ir.StringValue, int, str], ir.TimestampValue] = (
+    ibis.udf.scalar.builtin(
+        _datetime64_signature,
+        name="toDateTime64OrNull",
+        signature=((dt.string, dt.int64, dt.string), dt.Timestamp(timezone="UTC", scale=6)),
+    )
+)
+
+
+def _canonical_clickhouse_parse(text: ir.StringValue, format: str) -> ir.Value:
+    """Translate a declared fixed-width clock into native ISO conversion input."""
+    parts: dict[str, ir.StringValue] = {}
+    offset, previous = 0, 0
+    for token in _STRPTIME_DIRECTIVE.finditer(format):
+        offset += token.start() - previous
+        width = 4 if token.group() == "%Y" else 2
+        parts[token.group()] = text.substr(offset, width)
+        offset += width
+        previous = token.end()
+    day = parts["%Y"] + "-" + parts["%m"] + "-" + parts["%d"]
+    if "%H" not in parts:
+        return _clickhouse_date(day)
+    zero = ibis.literal("00")
+    clock = day + " " + parts["%H"] + ":" + parts.get("%M", zero) + ":" + parts.get("%S", zero)
+    return _clickhouse_datetime(clock, 6, "UTC")
+
 
 # The neutral parse operations the presence guard must admit. They stay out of
 # ``governed_temporal_operation``, whose rewrite expects the localize/render
@@ -183,6 +223,8 @@ _GOVERNED_PARSE_TYPES = (
     type(_trino_try(ibis.timestamp("2000-01-01")).op()),
     type(_mysql_calendar_guard(ibis.timestamp("2000-01-01"), ibis.interval(days=0)).op()),
     type(_clickhouse_strptime(ibis.literal("20000101"), "%Y%m%d", "UTC").op()),
+    type(_clickhouse_date(ibis.literal("2000-01-01")).op()),
+    type(_clickhouse_datetime(ibis.literal("2000-01-01 00:00:00"), 6, "UTC").op()),
 )
 
 
@@ -228,13 +270,15 @@ def parse_strptime(
 ) -> ir.Value:
     """Parse string text with *engine*'s native parser and the authored format.
 
-    Every engine goes through :func:`translated_strptime_format`, so the profile
-    hook is the one owner of who translates a format. DuckDB consumes
-    the Python strptime format itself, so their translation is the identity and
-    the emitted format is the authored one.
+    Canonical ClickHouse encodings use standard Date32/DateTime64 conversion.
+    Explicit-format native parsers use :func:`translated_strptime_format`,
+    whose profile hook owns translation. DuckDB consumes Python strptime
+    directly, so its translation is the identity.
 
     Date-only formats stay date, exactly as before.
     """
+    if engine == "clickhouse" and format in ORDERED_TIME_FORMATS:
+        return _canonical_clickhouse_parse(text, format)
     parsed = native_parse(engine, text, format)
     if not time_bearing:
         parsed = parsed.cast("date")

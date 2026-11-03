@@ -101,7 +101,7 @@ def _parser_arguments(engine: str, fmt: str, *, timezone: str | None = None) -> 
 @pytest.mark.parametrize("engine", ENGINES)
 def test_every_engine_reaches_its_own_parser(engine: str) -> None:
     """Each backend compiles the same format to its documented parser."""
-    sql = _sql(engine, "%Y-%m-%d %H:%M:%S")
+    sql = _sql(engine, "%Y/%m/%d %H:%M:%S" if engine == "clickhouse" else "%Y-%m-%d %H:%M:%S")
     assert NATIVE_PARSER[engine].lower() in sql.lower()
 
 
@@ -112,7 +112,7 @@ def test_every_engine_reaches_its_own_parser(engine: str) -> None:
         ("postgres", "YYYY-MM-DD HH24:MI:SS"),
         ("mysql", MYSQL_FAMILY_FULL_FORMAT),
         ("trino", MYSQL_FAMILY_FULL_FORMAT),
-        ("clickhouse", "%Y-%m-%d %H:%i:%s"),
+        ("clickhouse", "%Y/%m/%d %H:%i:%s"),
     ],
 )
 def test_engine_final_formats_are_never_re_translated(engine: str, expected: str) -> None:
@@ -123,7 +123,11 @@ def test_engine_final_formats_are_never_re_translated(engine: str, expected: str
     the minute is still minutes. PostgreSQL and ClickHouse keep the profile's
     exact translation, DuckDB the authored Python format.
     """
-    literals = _parser_arguments(engine, "%Y-%m-%d %H:%M:%S", timezone="UTC")
+    literals = _parser_arguments(
+        engine,
+        "%Y/%m/%d %H:%M:%S" if engine == "clickhouse" else "%Y-%m-%d %H:%M:%S",
+        timezone="UTC",
+    )
     assert literals[0] == expected
     if engine == "clickhouse":
         assert literals == [expected, "UTC"]

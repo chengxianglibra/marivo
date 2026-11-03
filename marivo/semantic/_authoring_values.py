@@ -418,6 +418,10 @@ def strptime(
     endpoints round up to the first represented source tick. Noncanonical
     values violate this declaration; no automatic source audit is added.
 
+    ClickHouse 22.3 supports these ordered formats through native Date32 and
+    DateTime64 conversions. Other formats require ClickHouse 23.3 or newer;
+    an unsupported parser is rejected before business query submission.
+
     SQL NULL stays NULL. Native projections on DuckDB, Trino, ClickHouse and
     MySQL/MariaDB return NULL for rejected parsed values; PostgreSQL uses
     native ``to_timestamp`` and rejected data can fail the query. There is no

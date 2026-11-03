@@ -367,8 +367,10 @@ of the target engine, so one authored format works on every backend. Each engine
 consumes its own translation: MySQL (`STR_TO_DATE`) and Trino (`DATE_PARSE`) take
 the MySQL form via `python_to_mysql_strptime`, PostgreSQL (`TO_TIMESTAMP`) takes a
 template pattern via `python_to_postgres_strptime`, ClickHouse
-(`parseDateTimeOrNull`) takes the MySQL form only when the format is exactly
-expressible there, and DuckDB receives Python strptime unchanged.
+uses native Date32/DateTime64 conversion of fixed-width ordered encodings
+(including on 22.3). Other ClickHouse formats use the MySQL form through
+`parseDateTimeOrNull` on 23.3 or newer; older servers reject those remaining
+parsers before business query submission. DuckDB receives Python strptime unchanged.
 
 `ms.strptime(format)` declares the source encoding and preserves SQL NULL.
 Ordered year/month/day formats require valid, fixed-width, zero-padded values

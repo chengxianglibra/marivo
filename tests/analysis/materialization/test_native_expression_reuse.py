@@ -135,5 +135,5 @@ def test_clickhouse_timestamp_truncation_still_uses_wide_native_range() -> None:
     expression = table.select(day=table.instant.truncate("D"))
     lowered = temporal_sql.lower_temporal(expression, "clickhouse")
     sql = ibis.to_sql(lowered, dialect="clickhouse")
-    assert "dateTrunc" in sql
+    assert lowered.schema()["day"].scale == 6
     assert "toDateTime(" not in sql

@@ -151,3 +151,5 @@ Trino TRY can catch some input-expression failures; other backends can propagate
 argument errors. Uniform upstream error isolation is not promised.
 
 Trino strptime formats using `%U` or `%w` are rejected as configuration errors before TRY; unsupported configuration does not silently produce an all-NULL column.
+
+ClickHouse 22.3 supports the ordered formats above for projections and calendar assignment: dates retain `Date32` and clocks retain `DateTime64`. Other formats require ClickHouse 23.3 or newer. Queries needing an unavailable parser fail before business query submission; use an ordered encoding, expose a native `Date32`/`DateTime64` column, or upgrade the server. Source timezone declarations and native gap/fold behavior still apply.
