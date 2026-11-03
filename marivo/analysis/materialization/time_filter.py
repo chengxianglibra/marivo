@@ -170,21 +170,6 @@ def _exact(node: ops.Value, parent: ops.Relation, engine: str) -> ir.BooleanValu
     if civil_date:
         assert isinstance(raw_node, ops.Cast)
         raw_node = raw_node.arg
-        if (
-            bound is None
-            and engine == "clickhouse"
-            and isinstance(bound_node, ops.Literal)
-            and isinstance(bound_node.value, str)
-        ):
-            # ClickHouse compares these strings in the UTC-labelled carrier's
-            # zone. Admit only its canonical date spelling, never a guessed parse.
-            try:
-                day = date.fromisoformat(bound_node.value)
-            except ValueError:
-                return None
-            if day.isoformat() != bound_node.value:
-                return None
-            bound = datetime.combine(day, time(), timezone.utc)
     if bound is None:
         return None
     if zone != "UTC" and not (

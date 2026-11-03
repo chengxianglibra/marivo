@@ -107,10 +107,23 @@ ClickHouse uses direct Date/Date32-to-DateTime64 conversion only for these
 qualified keys. Transition-adjacent dates retain the original native clock
 interpretation because direct conversion can choose a different gap result.
 
-For ClickHouse, canonical `YYYY-MM-DD` string constants compared to prepared
-instants retain the UTC carrier's native comparison meaning when rewritten;
-other string spellings retain native evaluation. Use explicit Session instants
-or `TimeField.within(scope)` to select business-day boundaries in a chosen zone.
+Source TimeField comparisons freeze their scalar boundaries when the receiving
+Session captures the question, including observe/members conditions and authored
+Metric or source-reduction filters. ISO dates, Python dates and offset-free ISO
+timestamps use the Session's frozen report timezone, independently of any output
+scope or calendar timezone. Aware datetimes, offset-bearing ISO timestamps and
+InstantAnchors retain their instant. These inputs share Session scope parsing:
+naive Python datetimes, invalid ISO and ambiguous/nonexistent civil clocks reject
+before source reads. Internal UTC carriers never interpret user boundaries.
+
+All six comparisons retain their ordinary operators and three-valued NULL logic;
+equality selects an exact instant rather than an entire day. DATE operands compare
+their source business-day-start instant even without an observation time role.
+This comparison read is distinct from the original DATE grouping/projection.
+Time-valued branches used by the comparison follow the same boundary rule.
+`TimeField.within(scope)` instead keeps the scope's already-frozen boundaries and
+timezone. Ordinary string Dimensions, physical identity values and fixed Frame
+Column comparisons retain their existing types. No DATE subday totals are inferred.
 
 ## Output axes and observation time
 
