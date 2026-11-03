@@ -9,6 +9,8 @@ from typing import Literal
 
 import pandas as pd
 import pytest
+import sqlglot
+import sqlglot.expressions as sge
 
 import marivo.analysis as mv
 import marivo.semantic as ms
@@ -228,9 +230,54 @@ def test_date_calendar_day_keeps_dates_and_completes_only_missing_days(
         report_timezone=report_timezone,
     ) as (session, point, amount):
         single = session.time_scope(start="2026-10-28", end="2026-10-29").by(mv.grain("day"))
+        first_submission = len(source_trace.native_sql)
         rows = session.observe({"total": amount.sum()}, by=(single,)).compute().to_pandas()
         assert rows["calendar:day"].tolist() == [pd.Timestamp("2026-10-28", tz=report_timezone)]
         assert rows.total.tolist() == [2]
+        fact_sql = [sql for sql in source_trace.native_sql[first_submission:] if '"amount"' in sql]
+        assert fact_sql
+        assert all("formatDateTime" not in sql for sql in fact_sql), fact_sql
+
+        first_submission = len(source_trace.native_sql)
+        selected = (
+            session.observe(
+                {"total": amount.sum(time=point)},
+                by=(point,),
+                where=(point >= session.instant("2026-10-28"))
+                & (point < session.instant("2026-10-31")),
+            )
+            .compute()
+            .to_pandas()
+        )
+        assert selected.total.tolist() == [2, 1]
+        fact_sql = source_trace.native_sql[first_submission:]
+        assert fact_sql
+        for sql in fact_sql:
+            for where in sqlglot.parse_one(sql, read="clickhouse").find_all(sge.Where):
+                assert "\"point\" >= TODATE('2026-10-28')" in where.sql(), sql
+                # The upper LA cutoff is within 48 hours of the DST change.
+                assert ("__field_" in where.sql()) == (report_timezone == "America/Los_Angeles"), (
+                    sql
+                )
+
+        first_submission = len(source_trace.native_sql)
+        labels = (
+            session.observe(
+                {"total": amount.sum(time=point)},
+                by=(point,),
+                where=(point >= "2026-10-28") & (point < "2026-10-31"),
+            )
+            .compute()
+            .to_pandas()
+        )
+        # Unzoned string constants compare against the UTC carrier, while
+        # session.instant above explicitly captures business-day boundaries.
+        assert labels.total.tolist() == ([1, 1] if report_timezone == "Asia/Shanghai" else [2, 1])
+        for sql in source_trace.native_sql[first_submission:]:
+            for where in sqlglot.parse_one(sql, read="clickhouse").find_all(sge.Where):
+                assert ("__field_" in where.sql()) == (report_timezone == "America/Los_Angeles"), (
+                    sql
+                )
 
         axis = session.time_scope(start="2026-10-28", end="2026-10-31").by(mv.grain("day"))
         frame = session.observe({"total": amount.sum(time=point)}, by=(axis,)).compute()

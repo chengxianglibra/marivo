@@ -41,6 +41,33 @@ def _forbid_partition_probe(request: PartitionProbeRequest) -> PartitionProbeRes
     raise AssertionError("Encoded filtering must not inspect partition values")
 
 
+def test_explicit_within_filters_the_original_encoded_column(
+    analysis_dsl_case_factory: DslCaseFactory, source_trace: SourceTrace
+) -> None:
+    case = analysis_dsl_case_factory("j1")
+    _encode_orders(case, "%Y%m%d")
+    point = case.session.catalog.get(
+        f"time_dimension:sales.{case.names.order}.{case.names.ordered_at}"
+    )
+    scope = case.session.time_scope(start="2026-08-01", end="2026-09-01")
+    result = case.session.observe(
+        {"value": case.session.catalog.get("metric:sales.revenue")},
+        by=(),
+        where=point.within(scope),
+    ).compute()
+    assert result.to_pandas()["value"].tolist() == [1000]
+    sql = next(sql for sql in source_trace.native_sql if "ordered_at" in sql and "WHERE" in sql)
+    ast = sqlglot.parse_one(sql, read="duckdb")
+    for where in ast.find_all(sge.Where):
+        assert "TRY_STRPTIME" not in where.sql(dialect="duckdb")
+    assert any(
+        isinstance(item.this, sge.Column)
+        and isinstance(item.expression, sge.Literal)
+        and item.expression.this == "20260801"
+        for item in ast.find_all(sge.GTE)
+    ), sql
+
+
 @pytest.mark.parametrize("integer", [False, True])
 def test_observation_preserves_population_windows_and_query_count(
     analysis_dsl_case_factory: DslCaseFactory,
@@ -93,7 +120,7 @@ def test_observation_preserves_population_windows_and_query_count(
     assert len(business) == 1
     ast = sqlglot.parse_one(business[0], read="duckdb")
     assert "TRY_STRPTIME" in ast.sql(dialect="duckdb")
-    assert not any(
+    assert any(
         isinstance(comparison.this, sge.Column)
         and isinstance(comparison.expression, sge.Literal)
         and comparison.expression.this in {"20260801", "20260901"}

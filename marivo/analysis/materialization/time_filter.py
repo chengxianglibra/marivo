@@ -10,7 +10,12 @@ import ibis.expr.operations as ops
 import ibis.expr.types as ir
 
 from marivo._timezones import normalize_timezone
-from marivo.analysis.compiler.source_time import _complement, _raw_lineage, _scalar_cutoff
+from marivo.analysis.compiler.source_time import (
+    _complement,
+    _raw_lineage,
+    _scalar_cutoff,
+    endpoint_rewrite_safe,
+)
 from marivo.datasource._temporal_expressions import (
     _localize_native,
     _render_native,
@@ -144,17 +149,47 @@ def _bound(node: ops.Value) -> datetime | None:
     return None
 
 
-def _exact(node: ops.Value, parent: ops.Relation) -> ir.BooleanValue | None:
+def _exact(node: ops.Value, parent: ops.Relation, engine: str) -> ir.BooleanValue | None:
     """Translate only compiler-owned clocks with a retained physical field."""
     if not isinstance(node, _COMPARISONS):
         return None
-    clock, bound, reverse = _clock(node.left), _bound(node.right), False
-    if clock is None or bound is None:
-        clock, bound, reverse = _clock(node.right), _bound(node.left), True
-    if clock is None or bound is None:
+    clock, bound_node, reverse = _clock(node.left), node.right, False
+    if clock is None:
+        clock, bound_node, reverse = _clock(node.right), node.left, True
+    if clock is None:
         return None
+    bound = _bound(bound_node)
     zone, raw_node, shift, _civil = clock
-    if zone != "UTC":
+    raw_node = _resolved(raw_node)
+    civil_date = (
+        isinstance(raw_node, ops.Cast)
+        and raw_node.arg.dtype.is_date()
+        and raw_node.dtype.is_timestamp()
+        and raw_node.dtype.timezone is None
+    )
+    if civil_date:
+        assert isinstance(raw_node, ops.Cast)
+        raw_node = raw_node.arg
+        if (
+            bound is None
+            and engine == "clickhouse"
+            and isinstance(bound_node, ops.Literal)
+            and isinstance(bound_node.value, str)
+        ):
+            # ClickHouse compares these strings in the UTC-labelled carrier's
+            # zone. Admit only its canonical date spelling, never a guessed parse.
+            try:
+                day = date.fromisoformat(bound_node.value)
+            except ValueError:
+                return None
+            if day.isoformat() != bound_node.value:
+                return None
+            bound = datetime.combine(day, time(), timezone.utc)
+    if bound is None:
+        return None
+    if zone != "UTC" and not (
+        civil_date and not _civil and endpoint_rewrite_safe(bound, zone, engine)
+    ):
         return None
     raw = _raw_for(raw_node, parent)
     if raw is None or not _raw_lineage(raw):
@@ -179,6 +214,7 @@ def _exact(node: ops.Value, parent: ops.Relation) -> ir.BooleanValue | None:
             raw,
             cutoff - shift,
             inclusive=inclusive,
+            engine=engine,
         )
 
     try:
@@ -275,7 +311,7 @@ def _scan(node: ops.Value, parent: ops.Relation) -> ir.BooleanValue:
     return ibis.literal(True)
 
 
-def optimize_time(expression: ir.Expr) -> ir.Expr:
+def optimize_time(expression: ir.Expr, engine: str = "duckdb") -> ir.Expr:
     """Lower qualified local clocks and add guards to remaining native filters."""
     existing_ranges = tuple(
         atom
@@ -293,7 +329,9 @@ def optimize_time(expression: ir.Expr) -> ir.Expr:
             ) -> ops.Node:
                 updated = item.copy(**parts)
                 replacement = (
-                    _exact(updated, value.parent) if isinstance(updated, ops.Value) else None
+                    _exact(updated, value.parent, engine)
+                    if isinstance(updated, ops.Value)
+                    else None
                 )
                 return replacement.op() if replacement is not None else updated
 

@@ -536,6 +536,7 @@ def prepare_fields(
         )
     )
     pending_calendars: list[tuple[str, str, CalendarCoordinate]] = []
+    date_clocks: dict[str, tuple[ir.Value, str]] = {}
     for index, (read, component, read_key) in enumerate(parts):
         extras: dict[str, ir.Value] = {}
         extra_keys: dict[str, str] = {}
@@ -555,6 +556,14 @@ def prepare_fields(
                         extras[name] = ibis.null().cast("timestamp('UTC', 6)")
                         clock_key = read_key
                         pending_calendars.append((name, clock_key, calendar))
+                        assert isinstance(read, FieldRead)
+                        encoding = time_encodings.get(read.field.ref.path)
+                        if (
+                            encoding is not None
+                            and encoding[0].type().is_date()
+                            and encoding[2].kind == "civil_date"
+                        ):
+                            date_clocks[name] = (encoding[0], encoding[2].timezone)
                     else:
                         extras[name] = period_condition(
                             expression, calendar.start, calendar.end, calendar.timezone
@@ -698,6 +707,8 @@ def prepare_fields(
     from marivo.analysis.compiler.calendar import bind_calendar
 
     for name, time_key, calendar in pending_calendars:
+        date_clock = date_clocks.get(name)
+        date_timezone = date_clock[1] if date_clock is not None else None
         if contribution.time is not None:
             encoding = time_encodings.get(contribution.time.field.ref.path)
             if encoding is not None:
@@ -705,7 +716,44 @@ def prepare_fields(
                     capture_source_times((encoding[2],), consumption_timezone=calendar.timezone)
                 )
         clock = dict(columns)[time_key]
-        table = bind_calendar(table, table[clock], calendar, name)
+        if (
+            date_timezone is not None
+            and contribution.time is not None
+            and not contribution.time.path
+            and contribution.time.at is None
+            and contribution.window_key is None
+            and contribution.window_rule is None
+            and not contribution.sample_axes
+            and not contribution.memberships
+            and not contribution.population_reads
+            and len(contribution.calendars) == 1
+            and calendar in selected_calendars
+        ):
+            from marivo.analysis.materialization.date_day_keys import deferred_day_key
+
+            assert date_clock is not None
+            deferred = deferred_day_key(
+                table,
+                date_clock[0],
+                calendar,
+                date_timezone,
+                entity_engine(
+                    registry, normalize_target_entity(registry, contribution.root.ref.path)
+                ),
+            )
+            if deferred is not None:
+                table = table.mutate(**{name: deferred})
+                continue
+        table = bind_calendar(
+            table,
+            table[clock],
+            calendar,
+            name,
+            date_timezone=date_timezone,
+            engine=entity_engine(
+                registry, normalize_target_entity(registry, contribution.root.ref.path)
+            ),
+        )
         if calendar in selected_calendars:
             table = table.filter(table[name].notnull())
     for _, slot in columns:

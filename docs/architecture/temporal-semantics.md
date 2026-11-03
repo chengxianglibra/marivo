@@ -81,6 +81,37 @@ preserving half-open bounds, precision and NULL. Same-zone elimination has the
 same native-equivalence requirement. SQL shape alone does not establish index
 use or partition pruning.
 
+Ordinary TimeField comparisons also recover a retained physical DATE through
+the compiler's business-day-start projection. Each qualified endpoint compares
+the original DATE to a DATE constant; boolean structure and unqualified native
+predicates remain intact. A builtin day calendar in the same source timezone
+reuses that prepared day-start instant when every selected day's boundaries
+qualify, including days inside the range. Its key remains a UTC microsecond
+timestamp. Other grains, cross-zone groups and transition-adjacent days retain
+native civil truncation.
+
+Ordinary observations over a physical DATE may also group by that DATE before
+converting each aggregate group's key to its business-day start. This shared
+optimization applies to DuckDB, PostgreSQL, MySQL/MariaDB, Trino and ClickHouse;
+each backend retains its own native conversion, NULL and error behavior. This requires
+the qualified same-zone builtin-day mapping above, direct unanchored source time,
+and no window, internal sample or population membership binding. Qualification
+also checks the already captured native calendar for consecutive civil midnights
+and 24-hour elapsed spans, independently of the local timezone database. This
+only admits an optimization; 23/25-hour native days retain the existing path.
+The physical DATE stays private to the source aggregate; predicate/check summaries use the
+same grouping, and UTC microsecond keys are restored before result combination,
+calendar completion or persistence. Unused source projections may remain in SQL;
+native execution plans establish whether conversion actually runs after grouping.
+ClickHouse uses direct Date/Date32-to-DateTime64 conversion only for these
+qualified keys. Transition-adjacent dates retain the original native clock
+interpretation because direct conversion can choose a different gap result.
+
+For ClickHouse, canonical `YYYY-MM-DD` string constants compared to prepared
+instants retain the UTC carrier's native comparison meaning when rewritten;
+other string spellings retain native evaluation. Use explicit Session instants
+or `TimeField.within(scope)` to select business-day boundaries in a chosen zone.
+
 ## Output axes and observation time
 
 ```python
