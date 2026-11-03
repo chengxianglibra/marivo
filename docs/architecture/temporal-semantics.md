@@ -71,12 +71,15 @@ source-to-UTC-to-report conversion chain.
 Filtering prefers original aware columns and matching absolute constants.
 Naive/DATE cutoff rewriting is qualified separately for each endpoint: a fixed
 offset is stable; an IANA zone must retain the same offset at hourly samples
-through the endpoint's absolute ±48-hour window. Removing native localization
-also requires the adapter's qualified total-localization capability. An endpoint
-that cannot be proved equivalent retains its native exact predicate, preserving
-precision, NULL and error behavior. Encoded clocks retain parsing. Same-zone
-elimination has the same native-equivalence requirement. SQL shape alone does
-not establish index use or partition pruning.
+through the endpoint's absolute ±48-hour window. MySQL/MariaDB named-zone
+rewrites additionally use the common qualified CONVERT_TZ range (1971–2037).
+Unqualified endpoints retain their native exact predicates. Qualified physical
+columns, including declared ordered encodings, compare directly to same-type
+source-domain constants. Columns are not cast, parsed or localized for those
+range comparisons. Constants round up to the next represented date/clock tick,
+preserving half-open bounds, precision and NULL. Same-zone elimination has the
+same native-equivalence requirement. SQL shape alone does not establish index
+use or partition pruning.
 
 ## Output axes and observation time
 
@@ -267,12 +270,31 @@ not certify business source coverage.
 
 ## Encoded event-time predicates
 
-`ms.strptime(format)` parses encoded input before membership. SQL NULL remains
-NULL. DuckDB, Trino, ClickHouse and MySQL/MariaDB return NULL for rejected
-parsed data; PostgreSQL uses native `to_timestamp` and can fail the entire query
-on rejected data. There is no error-policy option. Invalid
-format, timezone, type and backend capability remain configuration/preparation
-errors. No trimming, guessing, retry or automatic quality scan is performed.
+`ms.strptime(format)` declares an encoded source time. The ordered formats
+`%Y%m%d`, `%Y-%m-%d`, `%Y%m%d%H`, `%Y-%m-%d %H`, `%Y%m%d%H%M`,
+`%Y-%m-%d %H:%M`, `%Y%m%d%H%M%S` and `%Y-%m-%d %H:%M:%S` require valid,
+fixed-width, zero-padded values with exactly the declared separators. Integers
+support the compact formats within their actual physical range. Native string
+order must preserve the declared encoding order. Noncanonical values violate
+the declaration; permissive parser acceptance is not a membership guarantee.
+No extra flag, partition enumeration, source validation query or quality scan
+is added. SQL NULL remains NULL and has no period membership.
+
+For a direct physical field or transparent projection, qualified endpoints use
+the original column and same-type encoded constants. Each endpoint rounds up
+to the first represented source tick: an hourly encoding filtered by
+`[10:30,12:30)` becomes `[11:00,13:00)`. Civil dates retain their business-day
+start semantics in cross-zone ranges. Date/hour composites compare the original
+prefix and hour columns. All consumers of source time ranges share this rule.
+Derived expressions, nonordered formats, unsupported carriers and ambiguous
+endpoints retain native predicates. Projection and calendar assignment still
+use native parsing and timezone operations.
+
+Native parsing on DuckDB, Trino, ClickHouse and MySQL/MariaDB returns NULL for
+rejected parsed data; PostgreSQL uses native `to_timestamp` and can fail the
+entire query. There is no error-policy option. Invalid format, timezone, type
+and backend capability remain configuration/preparation errors. No trimming,
+guessing or retry is performed.
 
 DuckDB uses `try_strptime`; Trino wraps parsing and conversion in `TRY`;
 ClickHouse uses `parseDateTimeOrNull`. PostgreSQL retains the native
@@ -283,13 +305,12 @@ Native parsers have different acceptance rules. Trino TRY can also suppress
 recoverable errors evaluating the parser input; other engines can propagate
 argument evaluation errors. Configuration and whole-query failures are not caught.
 
-Encoded raw ranges cannot replace parsing or serve as extra necessary
-conditions without an equivalence proof. This includes calendar assignment,
-version coordinates and `hour_prefix` date dependencies. Parsed local clocks
-and output projections retain native gap/fold interpretation. Independent physical
-filters remain eligible for pushdown. Parsing can increase scan and CPU costs;
-no source preflight is added. NULL event time has no period membership, while
-a NULL attribute control time preserves the fact under a NULL label.
+Only declared ordered physical encodings authorize raw range replacement;
+arbitrary parser expressions do not acquire that source contract. Unqualified
+parsed local clocks and output projections retain native gap/fold interpretation.
+Independent physical filters remain eligible for pushdown. Remaining parsing
+can increase scan and CPU costs; no source preflight is added. A NULL attribute
+control time preserves the fact under a NULL label.
 
 ## Physical time execution
 

@@ -40,11 +40,11 @@ def test_postgres_parser_preserves_native_relaxed_dates(
     # PostgreSQL TO_TIMESTAMP accepts alternate separators, suffix text and
     # missing trailing fields.
     rows = [
-        {"id": 1, "point": "2026/02/28", "amount": 7},
-        {"id": 2, "point": "2026-02-28trailing", "amount": 11},
-        {"id": 3, "point": "2026-02", "amount": 13},
-        {"id": 4, "point": "2026!02!28", "amount": 17},
-        {"id": 5, "point": "2026-2-8", "amount": 19},
+        {"id": 1, "point": "2026/28/02", "amount": 7},
+        {"id": 2, "point": "2026-28-02trailing", "amount": 11},
+        {"id": 3, "point": "2026-28", "amount": 13},
+        {"id": 4, "point": "2026!28!02", "amount": 17},
+        {"id": 5, "point": "2026-8-2", "amount": 19},
         {"id": 7, "point": None, "amount": 29},
     ]
     values = ",".join(
@@ -56,7 +56,7 @@ def test_postgres_parser_preserves_native_relaxed_dates(
     data = SourceData("id BIGINT, point VARCHAR(100), amount BIGINT", values, "", rows)
     with source_case("postgres", "table", tmp_path, monkeypatch, data) as case:
         table = case.session.bind(case.source, source_identity="relaxed-dates").relation
-        parsed = parse_strptime("postgres", table.point, StrptimeParse("%Y-%m-%d"))
+        parsed = parse_strptime("postgres", table.point, StrptimeParse("%Y-%d-%m"))
         query = table.select("id", parsed=parsed).order_by("id")
         result = case.session.collect_bounded(
             lower_temporal(query, "postgres"), purpose="parser.relaxed", max_rows=8
@@ -64,7 +64,7 @@ def test_postgres_parser_preserves_native_relaxed_dates(
         expected = [
             date(2026, 2, 28),
             date(2026, 2, 28),
-            date(2026, 2, 1),
+            date(2026, 1, 28),
             date(2026, 2, 28),
             date(2026, 2, 8),
         ]
@@ -72,7 +72,7 @@ def test_postgres_parser_preserves_native_relaxed_dates(
             pd.Timestamp(value).date() if pd.notna(value) else None for value in result.parsed
         ] == [*expected, None]
 
-        field = axis("%Y-%m-%d")
+        field = axis("%Y-%d-%m")
         _, authority = source_time(
             table.point,
             field,
@@ -94,7 +94,7 @@ def test_postgres_parser_preserves_native_relaxed_dates(
             purpose="parser.relaxed.membership",
             max_rows=2,
         )
-        assert total.total.tolist() == [67]
+        assert total.total.tolist() == [54]
 
 
 @pytest.mark.runtime
@@ -126,7 +126,7 @@ def test_postgres_parser_preserves_native_relaxed_timestamps(
 
 
 @pytest.mark.runtime
-@pytest.mark.parametrize("point", ["2026-02-30", "broken"])
+@pytest.mark.parametrize("point", ["30/02/2026", "broken"])
 @pytest.mark.parametrize("consumer", ["projection", "membership"])
 def test_postgres_parser_propagates_invalid_data(
     point: str, consumer: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -142,10 +142,10 @@ def test_postgres_parser_propagates_invalid_data(
     with source_case("postgres", "table", tmp_path, monkeypatch, data) as case:
         table = case.session.bind(case.source, source_identity="invalid-date").relation
         if consumer == "projection":
-            parsed = parse_strptime("postgres", table.point, StrptimeParse("%Y-%m-%d"))
+            parsed = parse_strptime("postgres", table.point, StrptimeParse("%d/%m/%Y"))
             query = table.select(parsed=parsed)
         else:
-            field = axis("%Y-%m-%d")
+            field = axis("%d/%m/%Y")
             _, authority = source_time(
                 table.point,
                 field,
@@ -247,7 +247,7 @@ def test_native_parser_rejects_bad_data_without_losing_legal_values(
 
 
 @pytest.mark.parametrize("backend,profile", CASES)
-@pytest.mark.parametrize("fmt", ("%Y%m%d", "%Y-%m-%d"))
+@pytest.mark.parametrize("fmt", ("%d%m%Y", "%d-%m-%Y"))
 def test_safe_membership_excludes_invalid_calendar_and_keeps_native_noncanonical_values(
     backend: str,
     profile: str,
@@ -257,9 +257,9 @@ def test_safe_membership_excludes_invalid_calendar_and_keeps_native_noncanonical
 ) -> None:
     _maria(profile, monkeypatch)
     points = (
-        ("20260228", "20260230", "broken")
-        if fmt == "%Y%m%d"
-        else ("2026-02-28", "2026-02-30", "2026-2-8")
+        ("28022026", "30022026", "broken")
+        if fmt == "%d%m%Y"
+        else ("28-02-2026", "30-02-2026", "8-2-2026")
     )
     rows = [
         {"id": 1, "point": points[0], "amount": 7},
@@ -267,7 +267,7 @@ def test_safe_membership_excludes_invalid_calendar_and_keeps_native_noncanonical
         {"id": 3, "point": points[2], "amount": 13},
     ]
     if backend == "postgres":
-        rows = [row for row in rows if row["id"] == 1 or (fmt != "%Y%m%d" and row["id"] == 3)]
+        rows = [row for row in rows if row["id"] == 1 or (fmt != "%d%m%Y" and row["id"] == 3)]
     values = ",".join(f"({row['id']},{row['point']!r},{row['amount']})" for row in rows)
     data = SourceData(
         "id BIGINT, point VARCHAR(100), amount BIGINT",
@@ -298,7 +298,7 @@ def test_safe_membership_excludes_invalid_calendar_and_keeps_native_noncanonical
         result = case.session.collect_bounded(
             lower_temporal(query, backend), purpose="parser.membership", max_rows=2
         )
-        assert result.total.tolist() == [7 if fmt == "%Y%m%d" or backend == "clickhouse" else 20]
+        assert result.total.tolist() == [7 if fmt == "%d%m%Y" or backend == "clickhouse" else 20]
 
 
 def test_parsed_gap_membership_retains_native_predicate() -> None:

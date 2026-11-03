@@ -410,22 +410,30 @@ def strptime(
     """Declare a string/integer strptime parse.
 
     Use as the ``parse=`` value on ``@ms.time_dimension(...)`` when the
-    source column is a string or integer that must be parsed with a Python
-    strptime format. SQL NULL stays NULL. DuckDB, Trino, ClickHouse and
+    source column is a string or integer encoded with a Python strptime format.
+    Ordered year/month/day formats declare valid, fixed-width, zero-padded
+    source values with exact separators: ``%Y%m%d``, ``%Y-%m-%d`` and their
+    hour, minute and second extensions. Integers support compact encodings.
+    Equivalent ranges compare the original column to same-type constants;
+    endpoints round up to the first represented source tick. Noncanonical
+    values violate this declaration; no automatic source audit is added.
+
+    SQL NULL stays NULL. Native projections on DuckDB, Trino, ClickHouse and
     MySQL/MariaDB return NULL for rejected parsed values; PostgreSQL uses
     native ``to_timestamp`` and rejected data can fail the query. There is no
     error-policy parameter, trimming, format guessing or retry. Backend parsers
-    can accept different noncanonical values. Configuration, type, connection
-    and resource failures remain errors.
+    can accept different noncanonical values for other formats. Configuration,
+    type, connection and resource failures remain errors.
 
-    Membership parses before applying boundaries and keeps native gap/fold
-    behavior, as do output projections. Parsed predicates can cost more than
-    raw encoded ranges; use independent physical filters where appropriate.
+    Other formats, derived expressions and endpoints without a qualified
+    inverse retain parsing and native gap/fold behavior, as do output
+    projections. Such predicates can cost more than raw encoded ranges.
     Trino TRY can also catch recoverable errors in its input expression; other
     backends can propagate argument evaluation failures.
 
     Args:
-        format: Python strptime format
+        format: Source encoding in Python strptime syntax. Ordered formats
+            require canonical valid source values; other formats use native parsing
             (e.g. ``"%Y%m%d"``, ``"%Y-%m-%d %H:%M:%S"``). Must be ``%``-prefixed.
         timezone: Optional IANA or fixed-offset source timezone, including business days.
 

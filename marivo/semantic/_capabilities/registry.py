@@ -3337,7 +3337,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
         _capability(
             "strptime",
             "marivo.semantic._authoring_values.strptime",
-            "Parse encoded time; PostgreSQL uses native to_timestamp and rejected values may fail the query. DuckDB, Trino, ClickHouse and MySQL/MariaDB return NULL for rejected data. Date-only and time-bearing formats use parser timezone or Datasource wall_clock_timezone. Parsed local-clock membership and projection retain native gap/fold behavior. Trino TRY can catch input-expression errors; other engines may propagate them. No on_error, trimming, guessing or retry.",
+            "Declare encoded time. Ordered year/month/day formats require valid, fixed-width, zero-padded values with exact separators. Eligible ranges compare the original column to same-type source-time constants. Other formats and unqualified endpoints retain native parsing. Projection retains native gap/fold behavior: rejected data becomes NULL except on PostgreSQL, where native to_timestamp can fail the query. Source timezone comes from the parser or Datasource wall_clock_timezone. No on_error, trimming, guessing or retry.",
             output="StrptimeSpec",
             effects=_AUTHOR,
             constraints=("time_dimension_partition_pushdown",),

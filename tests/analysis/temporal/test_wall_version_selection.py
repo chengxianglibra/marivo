@@ -28,9 +28,9 @@ def test_validity_endpoints_keep_independent_authority_and_symbolic_before_end(
         connection.execute("CREATE TABLE versions (id VARCHAR, begins TIMESTAMP, ends VARCHAR)")
         connection.execute(
             "INSERT INTO versions VALUES "
-            "('gap','2026-03-08 02:15','2026-03-08 08:00'),"
-            "('after','2026-03-08 03:00','2026-03-08 08:00'),"
-            "('ending','2026-03-08 01:00','2026-03-08 07:00'),"
+            "('gap','2026-03-08 02:15','08-03-2026 08:00'),"
+            "('after','2026-03-08 03:00','08-03-2026 08:00'),"
+            "('ending','2026-03-08 01:00','08-03-2026 07:00'),"
             "('null','2026-03-08 00:00',NULL),"
             "('sentinel','2026-03-08 00:00','open'),"
             "('bad-end','2026-03-08 00:00','bad')"
@@ -42,7 +42,7 @@ def test_validity_endpoints_keep_independent_authority_and_symbolic_before_end(
             "sales/models.py": "import marivo.datasource as md\nimport marivo.semantic as ms\n"
             f"versions=ms.entity(name='versions',datasource=ms.ref.datasource('warehouse'),source=md.table('versions'),primary_key=['id'],versioning=ms.validity(valid_from=ms.ref.time_dimension('sales.versions.begins'),valid_to=ms.ref.time_dimension('sales.versions.ends'),interval={interval!r},open_end=(None,'open')))\n"
             "begins=ms.time_dimension_column(name='begins',entity=versions,column='begins',parse=ms.timestamp(timezone='America/New_York'))\n"
-            "ends=ms.time_dimension_column(name='ends',entity=versions,column='ends',parse=ms.strptime('%Y-%m-%d %H:%M',timezone='UTC'))\n",
+            "ends=ms.time_dimension_column(name='ends',entity=versions,column='ends',parse=ms.strptime('%d-%m-%Y %H:%M',timezone='UTC'))\n",
         }
     )
     session = mv.session.get_or_create("wall-version", timezone="Asia/Shanghai")

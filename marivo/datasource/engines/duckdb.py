@@ -551,7 +551,6 @@ def inspect_table(request: MetadataInspectRequest) -> TableMetadata:
 
 
 PROFILE = EngineProfile(
-    native_localization_total=True,
     name="duckdb",
     aliases=(),
     authoring_func="duckdb",

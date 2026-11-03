@@ -337,6 +337,19 @@ def prepare_fields(
                         "submicrosecond conversion unsupported",
                     )
                 result = localize("UTC", timestamp(result))
+            if time_scope is not None:
+                condition = source_time_predicate(
+                    raw,
+                    axis,
+                    authority,
+                    start=time_scope.scope_start,
+                    end=time_scope.scope_end,
+                    prefix=raw_prefix,
+                    prefix_axis=prefix_axis,
+                    engine=engine,
+                )
+                if condition is not None:
+                    return condition
         return result
 
     reserved = {name for entity in entities.values() for name in entity.columns}

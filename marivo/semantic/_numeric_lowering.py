@@ -105,9 +105,22 @@ def numeric_binary(operation: str, left: NumericValue, right: NumericValue) -> N
 def lower_row(node: RowNode, fields: Mapping[str, ir.Value]) -> NumericValue:
     """Lower one closed Row expression over already prepared physical fields."""
     if isinstance(node, RowExpression):
+        from marivo._definition.types import TimeScopeFieldRead, field_read_key
         from marivo.semantic._numeric_recipe import lower_recipe
 
-        return lower_recipe(node.recipe, tuple(lower_row(item, fields) for item in node.inputs))
+        # Scoped reads can be prepared as physical membership predicates. Keep
+        # their scope identity when a composed recipe flattens the input slots.
+        scopes = {
+            f"slot_{index}": item.read
+            for index, item in enumerate(node.inputs)
+            if isinstance(item, RowField)
+            and isinstance(item.read, TimeScopeFieldRead)
+            and field_read_key(item.read) in fields
+            and fields[field_read_key(item.read)].type().is_boolean()
+        }
+        return lower_recipe(
+            node.recipe, tuple(lower_row(item, fields) for item in node.inputs), scopes=scopes
+        )
     if isinstance(node, RowField):
         from marivo._definition.types import field_read_key
 

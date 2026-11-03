@@ -696,7 +696,7 @@ def build_readiness_report(
                     repair(
                         kind="reauthor",
                         canonical_id="time_dimension_column",
-                        action="If the business axis matches the partition field, keep the raw string/integer column and declare date_format; keep the expression when business semantics require it.",
+                        action="If the business axis matches a canonically encoded partition field, keep the raw string/integer column and declare parse=ms.strptime(format); keep the expression when business semantics require it.",
                     ),
                 )
             )

@@ -63,7 +63,7 @@ created_at = ms.time_dimension_column(
 
 | 参数 | 必填 | 默认值 | 语义 |
 | --- | --- | --- | --- |
-| `format` | 是 | — | Python `strptime` 格式；被拒绝的数据通常变为 NULL，PostgreSQL 可能使查询报错。 |
+| `format` | 是 | — | Python `strptime` 来源编码。有序格式声明规范的合法值；其他格式保留原生解析。 |
 | `timezone` | 否 | `None` | 纯日期业务日和带时间值的来源时区；省略时使用 Datasource `wall_clock_timezone`。 |
 
 
@@ -74,7 +74,11 @@ business_date = ms.time_dimension_column(
 )
 ```
 
-例如 `%Y%m%d` 解析 `20260801`，Python `%M` 表示分钟。SQL NULL 保持 NULL。DuckDB、Trino、ClickHouse 和 MySQL/MariaDB 将解析器拒绝的数据变为 NULL；PostgreSQL 使用原生 `to_timestamp`，被拒绝的数据可能使查询报错。没有 `on_error`、trim、格式猜测或重试。不同后端可能接受不同的非规范编码。格式、时区、类型与能力错误仍报错。Trino TRY 可能同时捕获输入表达式中的可恢复错误，其他后端可能传播参数求值错误。时间谓词保留解析，可能增加扫描和 CPU 成本；需要时保留独立物理过滤并显式检查数据。NULL 事件时间不归属任何期间；仅用于属性控制时间时则保留事实及 NULL 标签。本地钟面的 membership 与输出投影都使用实际执行方的原生 gap/fold 解释。
+`%Y%m%d` 声明 `20260801` 这样的八位编码，Python `%M` 表示分钟。有序格式 `%Y%m%d`、`%Y-%m-%d`、`%Y%m%d%H`、`%Y-%m-%d %H`、`%Y%m%d%H%M`、`%Y-%m-%d %H:%M`、`%Y%m%d%H%M%S` 和 `%Y-%m-%d %H:%M:%S` 要求合法、固定宽度、补零且分隔符完全一致的日期或时间。整数支持无分隔符格式；物理字符串比较顺序必须与时间顺序一致。`2026081` 这类缩短编码和不存在的日期违反声明，即使原生解析器能接受。无需 `canonical` 开关，也不自动扫描数据。
+
+符合条件的物理列范围直接比较原始字段和源时区下的同类型常量。上海业务日范围 `[2026-10-28,2026-10-29)` 在 `%Y%m%d` 字段上编译为 `log_date >= '20261028' AND log_date < '20261029'`。边界向上对齐到首个可表示刻度：小时编码筛选 `[10:30,12:30)` 时使用 `[11:00,13:00)`。原生 DATE 和时间戳使用相同的范围规则，保留实际类型和精度。UTC、固定偏移量可以直接换算；具名时区要求端点通过资格检查，避开 gap/fold 切换。MySQL/MariaDB 具名时区改写使用共同验证范围 1971–2037。派生表达式与其他格式保留原生解析。
+
+SQL NULL 保持 NULL，不归属任何期间。输出投影、日历分桶和未通过资格检查的端点保留原生解析及 gap/fold 解释。DuckDB、Trino、ClickHouse 和 MySQL/MariaDB 将解析器拒绝的数据变为 NULL；PostgreSQL 原生 `to_timestamp` 可能使查询报错。有序格式契约以外的原生接受规则可能因后端而异。没有 `on_error`、trim、格式猜测、重试、分区枚举或验证查询。格式、时区、类型与能力错误仍报错。Trino TRY 可捕获部分输入表达式错误，其他后端可能传播错误。NULL 仅用于属性控制时间时保留事实及 NULL 标签。直接谓词为下推提供条件；实际索引使用和分区裁剪取决于后端与表布局。
 
 ## 独立小时列：`ms.hour_prefix`
 

@@ -65,7 +65,7 @@ This example assumes a naive source timestamp in Shanghai time. An aware source 
 
 | Parameter | Required | Default | Meaning |
 | --- | --- | --- | --- |
-| `format` | Yes | — | Python `strptime` format; rejected data becomes NULL except on PostgreSQL, where it can fail the query. |
+| `format` | Yes | — | Python `strptime` source encoding. Ordered formats declare canonical valid values; other formats retain native parsing. |
 | `timezone` | No | `None` | Source timezone for both date-only business days and time-bearing values. Omission uses Datasource `wall_clock_timezone`. |
 
 
@@ -76,7 +76,11 @@ business_date = ms.time_dimension_column(
 )
 ```
 
-For example, `%Y%m%d` parses `20260801`; Python `%M` means minutes. SQL NULL remains NULL. DuckDB, Trino, ClickHouse and MySQL/MariaDB return NULL for rejected parsed data. PostgreSQL uses native `to_timestamp`; its rejected data can fail the query. There is no `on_error`, trimming, guessing or retry. Native backends can accept different noncanonical values. Invalid format, timezone, type and capability remain errors. Trino TRY can catch recoverable errors in the input expression; other engines may propagate argument evaluation errors. Parsing remains in membership predicates and can increase scan/CPU costs. Use independent physical filters and explicit data checks when needed. NULL event time has no period membership; NULL used only as attribute control preserves facts under a NULL label. Local-clock membership and output projection use the executor's native gap/fold interpretation.
+`%Y%m%d` declares eight-digit values such as `20260801`; Python `%M` means minutes. The ordered formats `%Y%m%d`, `%Y-%m-%d`, `%Y%m%d%H`, `%Y-%m-%d %H`, `%Y%m%d%H%M`, `%Y-%m-%d %H:%M`, `%Y%m%d%H%M%S` and `%Y-%m-%d %H:%M:%S` require valid, fixed-width, zero-padded dates/clocks with exact separators. Integers support compact formats; the physical string comparison order must preserve chronological order. Shortened values such as `2026081` and impossible dates violate the declaration, even when a native parser accepts them. No `canonical` flag or automatic data scan is needed.
+
+For qualifying physical columns, ranges compare the original field directly to same-type constants in its source timezone. A Shanghai business-day range `[2026-10-28,2026-10-29)` over `%Y%m%d` becomes `log_date >= '20261028' AND log_date < '20261029'`. Boundaries round up to the first represented tick: an hourly encoding filtered by `[10:30,12:30)` uses `[11:00,13:00)`. Native DATE and timestamp fields follow the same range rule with their actual type and precision. UTC and fixed offsets support direct conversion; named zones require qualified endpoints away from gap/fold transitions. MySQL/MariaDB named-zone rewrites use the common qualified range, 1971–2037. Derived expressions and other formats keep native parsing.
+
+SQL NULL remains NULL and has no period membership. Projections, calendar assignment and unqualified endpoints retain native parsing and gap/fold interpretation. DuckDB, Trino, ClickHouse and MySQL/MariaDB return NULL for rejected parsed data; PostgreSQL native `to_timestamp` can fail the query. Native acceptance outside the ordered-format contract can differ by backend. There is no `on_error`, trimming, guessing, retry, partition enumeration or validation query. Format, timezone, type and capability errors still fail. Trino TRY can catch recoverable input-expression errors; other engines may propagate them. NULL used only as attribute control preserves facts under a NULL label. Direct predicates enable pushdown; actual index use and partition pruning depend on the backend and table layout.
 
 ## Separate hour column: `ms.hour_prefix`
 

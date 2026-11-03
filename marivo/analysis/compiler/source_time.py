@@ -31,25 +31,25 @@ from marivo.semantic.ir import (
     TimestampParse,
     is_time_bearing_format,
 )
+from marivo.semantic.time_format import ORDERED_TIME_FORMATS
 from marivo.semantic.validator import Registry
 
-# Calendar tick encodings for constant-side hour-prefix rounding. They never
-# authorize replacing parsing with raw encoded membership.
-_ORDERED_FORMATS: dict[str, int] = {
-    "%Y%m%d": 86400,
-    "%Y-%m-%d": 86400,
-    "%Y%m%d%H": 3600,
-    "%Y-%m-%d %H": 3600,
-    "%Y%m%d%H%M": 60,
-    "%Y-%m-%d %H:%M": 60,
-    "%Y%m%d%H%M%S": 1,
-    "%Y-%m-%d %H:%M:%S": 1,
-}
+
+def _clickhouse_date32_literal(value: str) -> date:
+    """Return a ClickHouse Date32 literal without Date's 1970-2149 bounds."""
+    raise NotImplementedError("native ClickHouse Date32 literal")
+
+
+_clickhouse_date32 = ibis.udf.scalar.builtin(
+    _clickhouse_date32_literal,
+    name="toDate32",
+    signature=((dt.string,), dt.date),
+)
 
 
 def ordered_time_literal(point: datetime, fmt: str, *, strict: bool = False) -> str | None:
     """Encode the first declared clock tick at or after a normalized boundary."""
-    step = _ORDERED_FORMATS[fmt]
+    step = ORDERED_TIME_FORMATS[fmt]
     midnight = point.replace(hour=0, minute=0, second=0, microsecond=0)
     elapsed = point - midnight
     ticks, remainder = divmod(elapsed.seconds * 1_000_000 + elapsed.microseconds, step * 1_000_000)
@@ -115,7 +115,9 @@ def _boundary_instant(bound: date | datetime, authority: SourceTimeAuthority) ->
     return point.astimezone(timezone.utc)
 
 
-def _scalar_cutoff(raw: ir.Value, point: datetime, *, inclusive: bool) -> ir.BooleanValue | None:
+def _scalar_cutoff(
+    raw: ir.Value, point: datetime, *, inclusive: bool, engine: str = "duckdb"
+) -> ir.BooleanValue | None:
     """Compare a physical clock to one translated lower cutoff."""
     physical = raw.type()
     if physical.is_date():
@@ -124,7 +126,12 @@ def _scalar_cutoff(raw: ir.Value, point: datetime, *, inclusive: bool) -> ir.Boo
             day = (midnight + timedelta(days=not inclusive or point != midnight)).date()
         except OverflowError:
             return _nullable_constant(raw, False)
-        return raw >= ibis.literal(day, type=physical)
+        literal = (
+            _clickhouse_date32(day.isoformat())
+            if engine == "clickhouse"
+            else ibis.literal(day, type=physical)
+        )
+        return raw >= literal
     if isinstance(physical, dt.Timestamp):
         scale = physical.scale
         if scale is not None and scale < 6:
@@ -141,18 +148,60 @@ def _scalar_cutoff(raw: ir.Value, point: datetime, *, inclusive: bool) -> ir.Boo
     return None
 
 
+def _ordered_encoding(value: ir.Value, parse: StrptimeParse) -> bool:
+    physical = value.type()
+    return (
+        parse.format in ORDERED_TIME_FORMATS
+        and (physical.is_string() or physical.is_integer())
+        and (not physical.is_integer() or parse.format.replace("%", "").isalnum())
+    )
+
+
+def _encoded_cutoff(
+    raw: ir.Value, point: datetime, parse: StrptimeParse, *, inclusive: bool
+) -> ir.BooleanValue | None:
+    """Compare a canonical physical encoding to its first eligible source tick."""
+    physical = raw.type()
+    if not _ordered_encoding(raw, parse):
+        return None
+    text = ordered_time_literal(point, parse.format, strict=not inclusive)
+    if text is None:
+        return _nullable_constant(raw, False)
+    if physical.is_integer():
+        assert isinstance(physical, dt.Integer)
+        value = int(text)
+        if value > physical.bounds.upper:
+            return _nullable_constant(raw, False)
+        if value <= physical.bounds.lower:
+            return _nullable_constant(raw, True)
+        literal = ibis.literal(value, type=physical)
+    else:
+        literal = ibis.literal(text, type=physical)
+    return raw >= literal
+
+
 def _composite_cutoff(
     raw: ir.Value,
     prefix: ir.Value,
     point: datetime,
     *,
     inclusive: bool,
+    prefix_axis: TargetDimensionContract,
+    engine: str,
 ) -> ir.BooleanValue | None:
     physical = raw.type()
     if not (physical.is_integer() or physical.is_string()):
         return None
-    if not prefix.type().is_date():
+    if not _raw_lineage(prefix):
         return None
+
+    def day_cutoff(point: datetime, *, inclusive: bool) -> ir.BooleanValue | None:
+        if isinstance(prefix_axis.parse, StrptimeParse):
+            if is_time_bearing_format(prefix_axis.parse.format):
+                return None
+            return _encoded_cutoff(prefix, point, prefix_axis.parse, inclusive=inclusive)
+        return _scalar_cutoff(prefix, point, inclusive=inclusive, engine=engine)
+
     text = ordered_time_literal(point, "%Y%m%d%H", strict=not inclusive)
     if text is None:
         exhausted = ibis.ifelse(raw.isnull() | prefix.isnull(), ibis.null().cast("boolean"), False)
@@ -160,8 +209,8 @@ def _composite_cutoff(
         return exhausted
     tick = datetime.strptime(text, "%Y%m%d%H")
     midnight = tick.replace(hour=0)
-    at_day = _scalar_cutoff(prefix, midnight, inclusive=True)
-    after_day = _scalar_cutoff(prefix, midnight, inclusive=False)
+    at_day = day_cutoff(midnight, inclusive=True)
+    after_day = day_cutoff(midnight, inclusive=False)
     if at_day is None or after_day is None:
         return None
     on_day = at_day & ~after_day
@@ -169,7 +218,7 @@ def _composite_cutoff(
     result = after_day | (on_day & (raw >= hour))
     if tick.hour == 0 and tick.date() > date.min:
         previous = midnight - timedelta(days=1)
-        at_previous = _scalar_cutoff(prefix, previous, inclusive=True)
+        at_previous = day_cutoff(previous, inclusive=True)
         assert at_previous is not None
         last = ibis.literal("24" if physical.is_string() else 24, type=physical)
         result |= (at_previous & ~at_day) & (raw == last)
@@ -183,10 +232,13 @@ def endpoint_rewrite_safe(point: datetime, zone: str, engine: str) -> bool:
     normalized = normalize_timezone(zone)
     if normalized.kind == "fixed_offset" or normalized.name == "UTC":
         return True
-    # Only adapters with qualified total native localization may remove it.
-    from marivo.datasource.engines import profile_for_backend_name
+    from marivo.datasource.engines import profile_for_backend_type
 
-    if not getattr(profile_for_backend_name(engine), "native_localization_total", False):
+    if profile_for_backend_type(engine) is None:
+        return False
+    # MySQL-family CONVERT_TZ can leave out-of-range clocks unconverted. Use
+    # the common native range, including the endpoint qualification margin.
+    if engine == "mysql" and not (1971 <= point.year <= 2037):
         return False
     try:
         offsets = {
@@ -220,24 +272,17 @@ def source_time_comparison(
         instant_bound = _boundary_instant(bound, authority)
         if not endpoint_rewrite_safe(instant_bound, authority.timezone, engine):
             return None
+    if not _raw_lineage(value):
+        return None
     parse = axis.parse
-    if isinstance(parse, StrptimeParse):
+    if isinstance(parse, StrptimeParse) and not _ordered_encoding(value, parse):
         text = value.cast("string")
         assert isinstance(text, ir.StringValue)
         value = parse_strptime(engine, text, parse)
         parse = None
-    elif not _raw_lineage(value):
-        return None
     if isinstance(parse, HourPrefixParse):
         if prefix is None or prefix_axis is None:
             return None
-        if isinstance(prefix_axis.parse, StrptimeParse):
-            from dataclasses import replace
-
-            text = prefix.cast("string")
-            assert isinstance(text, ir.StringValue)
-            prefix = parse_strptime(engine, text, prefix_axis.parse)
-            prefix_axis = replace(prefix_axis, parse=None)
     elif parse is not None and not isinstance(parse, (TimestampParse, DateParse, StrptimeParse)):
         return None
 
@@ -260,8 +305,12 @@ def source_time_comparison(
                 point, inclusive = instant, not strict
         if isinstance(parse, HourPrefixParse):
             assert prefix is not None and prefix_axis is not None
-            return _composite_cutoff(value, prefix, point, inclusive=inclusive)
-        return _scalar_cutoff(value, point, inclusive=inclusive)
+            return _composite_cutoff(
+                value, prefix, point, inclusive=inclusive, prefix_axis=prefix_axis, engine=engine
+            )
+        if isinstance(parse, StrptimeParse):
+            return _encoded_cutoff(value, point, parse, inclusive=inclusive)
+        return _scalar_cutoff(value, point, inclusive=inclusive, engine=engine)
 
     try:
         if comparison in (">=", "<"):
@@ -292,8 +341,13 @@ def source_time_predicate(
     prefix_axis: TargetDimensionContract | None = None,
     engine: str = "duckdb",
 ) -> ir.BooleanValue | None:
-    """Build a half-open membership predicate retaining parsing and NULL."""
-    if start is None and end is None and isinstance(axis.parse, StrptimeParse):
+    """Build half-open membership in the original field's domain when equivalent."""
+    if (
+        start is None
+        and end is None
+        and isinstance(axis.parse, StrptimeParse)
+        and (not _ordered_encoding(value, axis.parse) or not _raw_lineage(value))
+    ):
         text = value.cast("string")
         assert isinstance(text, ir.StringValue)
         return _nullable_constant(parse_strptime(engine, text, axis.parse), True)
@@ -301,7 +355,10 @@ def source_time_predicate(
         if (
             not _raw_lineage(value)
             or (prefix is not None and not _raw_lineage(prefix))
-            or (isinstance(axis.parse, StrptimeParse) and axis.parse.format not in _ORDERED_FORMATS)
+            or (
+                isinstance(axis.parse, StrptimeParse)
+                and axis.parse.format not in ORDERED_TIME_FORMATS
+            )
         ):
             return None
         result = _nullable_constant(value, True)

@@ -375,9 +375,9 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "time_dimension_pushdown_advisory",
         "assembly",
         ("time_dimension",),
-        "ms.strptime(format) returns NULL for rejected data except on PostgreSQL, where native to_timestamp can fail the query. Parsing precedes membership; raw encoded ranges cannot replace parsing without equivalence proof. No partition enumeration or validation queries are added.",
-        "Preserve parsed time predicates and independent physical filters; NULL time has no period membership.",
-        "Declare the string/integer column with ms.strptime(format). Inspect raw inputs explicitly to measure rejected values. Parsed local clocks retain native gap/fold interpretation in the resolved source timezone; parsing can increase scan and CPU costs.",
+        "Ordered formats are %Y%m%d, %Y-%m-%d and their fixed-width hour, minute or second extensions. They declare canonical valid source values, not permissive parser acceptance. Qualifying physical columns use raw ranges with source-zone cutoffs rounded up to the encoded tick. Other formats and ambiguous endpoints retain parsing. No partition enumeration or validation queries are added.",
+        "Trust the declared encoding; NULL time has no period membership. Keep native gap/fold semantics where an inverse is unavailable.",
+        "Declare the physical string/integer column with ms.strptime(format). Repair noncanonical source values explicitly; they violate an ordered-format declaration. Native parsing is still used for projections and unqualified ranges.",
     ),
     ConstraintId.TIME_DIMENSION_DTYPE_COMPAT: _constraint(
         ConstraintId.TIME_DIMENSION_DTYPE_COMPAT,

@@ -141,8 +141,12 @@ MySQL/MariaDB. PostgreSQL uses native `to_timestamp`, so rejected data can fail
 the query. DuckDB uses try_strptime, Trino TRY, ClickHouse OrNull and
 MySQL/MariaDB zero-day arithmetic after SELECT parsing to reject impossible
 calendar carriers. Native format and precision restrictions
-remain. Parsed membership uses native gap/fold interpretation; raw encoded ranges cannot bypass
-parsing, so scan costs can increase. Independent physical filters still push down.
+remain. Ordered year/month/day formats declare canonical, fixed-width source
+values; qualifying ranges compare original columns to same-type source-zone
+constants without parsing the column. Other formats and unqualified endpoints
+retain native parsing and gap/fold interpretation, so scan costs can increase.
+See [date/time encoding contracts](/docs/latest/modeling/dates/#encoded-datetime-msstrptime).
+Independent physical filters still push down.
 Trino TRY can catch some input-expression failures; other backends can propagate
 argument errors. Uniform upstream error isolation is not promised.
 

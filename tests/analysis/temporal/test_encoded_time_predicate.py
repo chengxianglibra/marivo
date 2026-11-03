@@ -1,4 +1,4 @@
-"""Independent canonical point/range oracles and safe parsing before membership."""
+"""Independent canonical range oracles and native parsing for other formats."""
 
 from dataclasses import replace
 from datetime import date, datetime, timedelta
@@ -19,9 +19,16 @@ from tests.shared_fixtures import declared_test_timezone, rendered_help
     "fmt,kind",
     [
         ("%Y-%m-%d", "string"),
+        ("%Y%m%d", "string"),
         ("%Y%m%d", "int64"),
+        ("%Y%m%d%H", "string"),
+        ("%Y%m%d%H", "int64"),
         ("%Y-%m-%d %H", "string"),
+        ("%Y-%m-%d %H:%M", "string"),
         ("%Y%m%d%H%M", "string"),
+        ("%Y%m%d%H%M", "int64"),
+        ("%Y%m%d%H%M%S", "string"),
+        ("%Y%m%d%H%M%S", "int64"),
         ("%Y-%m-%d %H:%M:%S", "string"),
     ],
 )
@@ -68,8 +75,8 @@ def test_inverse_matches_independently_parsed_canonical_points(fmt: str, kind: s
         backend.disconnect()
 
 
-@pytest.mark.parametrize("dialect", ["duckdb"])
-def test_filter_ast_retains_safe_parser(dialect: str) -> None:
+@pytest.mark.parametrize("dialect", ["duckdb", "postgres", "mysql", "trino", "clickhouse"])
+def test_filter_ast_uses_original_column_and_keeps_parser_in_projection(dialect: str) -> None:
     table = ibis.table({"point": "string"}, name="events")
     field = axis("%Y%m%d")
     parsed, authority = source_time(
@@ -90,8 +97,10 @@ def test_filter_ast_retains_safe_parser(dialect: str) -> None:
     assert where is not None
     comparisons = list(where.find_all(sge.GTE, sge.LT))
     assert len(comparisons) == 2
-    assert all("TRY_STRPTIME" in item.this.sql(dialect=dialect) for item in comparisons)
-    assert not any(isinstance(item.this, sge.Column) for item in comparisons)
+    assert all(isinstance(item.this, sge.Column) for item in comparisons)
+    assert {item.expression.this for item in comparisons} == {"20260701", "20260801"}
+    assert "point" in ast.expressions[0].sql(dialect=dialect)
+    assert not isinstance(ast.expressions[0], sge.Column)
 
 
 def test_fixed_offset_inverse_and_civil_date_do_not_adopt_report_zone() -> None:
@@ -113,8 +122,8 @@ def test_fixed_offset_inverse_and_civil_date_do_not_adopt_report_zone() -> None:
     )
     assert predicate is not None
     sql = ibis.to_sql(table.filter(predicate), dialect="duckdb")
-    assert "TRY_STRPTIME" in sql
-    assert "5, 30, 30" in sql and "6, 30, 0" in sql
+    assert "TRY_STRPTIME" not in sql
+    assert "2026-07-01 05:31" in sql and "2026-07-01 06:30" in sql
     field = axis("%Y%m%d")
     _, authority = source_time(
         table.point,
@@ -127,7 +136,7 @@ def test_fixed_offset_inverse_and_civil_date_do_not_adopt_report_zone() -> None:
         table.point, field, authority, start=date(2026, 7, 1), end=date(2026, 7, 2)
     )
     assert predicate is not None
-    assert "TRY_STRPTIME" in ibis.to_sql(table.filter(predicate), dialect="duckdb")
+    assert "TRY_STRPTIME" not in ibis.to_sql(table.filter(predicate), dialect="duckdb")
 
 
 @pytest.mark.parametrize(
@@ -175,7 +184,7 @@ def test_upper_ceiling_and_integer_limits_never_emit_overflow_literal() -> None:
     assert predicate is not None
     sql = ibis.to_sql(table.filter(predicate), dialect="trino")
     assert "20260701" not in sql
-    assert "TRY_STRPTIME" in sql
+    assert "FALSE" in sql and "TRY_STRPTIME" not in sql
     table = ibis.table({"point": "string"}, name="events")
     field = axis("%Y-%m-%d %H:%M:%S")
     _, authority = source_time(

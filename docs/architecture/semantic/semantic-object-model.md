@@ -370,15 +370,22 @@ template pattern via `python_to_postgres_strptime`, ClickHouse
 (`parseDateTimeOrNull`) takes the MySQL form only when the format is exactly
 expressible there, and DuckDB receives Python strptime unchanged.
 
-`ms.strptime(format)` preserves SQL NULL. DuckDB, Trino, ClickHouse and
+`ms.strptime(format)` declares the source encoding and preserves SQL NULL.
+Ordered year/month/day formats require valid, fixed-width, zero-padded values
+with exact separators. Qualified physical ranges compare the original column
+to same-type source-domain constants, rounded up to the represented tick.
+Noncanonical values violate an ordered-format declaration. No extra flag or
+automatic source audit is added. Other formats and unqualified endpoints retain
+native predicates; calendars and output projections retain native parsing.
+Explicit validity open-end sentinels retain their version-selection contract.
+DuckDB, Trino, ClickHouse and
 MySQL/MariaDB return NULL for rejected parsed data; PostgreSQL uses native
 `to_timestamp` and can fail the query on rejected input. Successful native
-parses retain their types and precision; accepted noncanonical encodings
-follow the native parser. Format/timezone/type/capability failures still report
+parses retain their types and precision; nonordered formats follow native
+acceptance rules. Format/timezone/type/capability failures still report
 structured errors. There is no `on_error`, trimming, guessing or retry.
-Parsing precedes time predicates, calendars and version selection, including
-hour-prefix dependencies; raw encoded ranges cannot bypass it. Local-clock
-membership and projection retain native gap/fold behavior.
+Date/hour composites can compare both original columns. Unqualified local-clock
+membership and all projections retain native gap/fold behavior.
 Trino TRY can also catch recoverable input-expression failures; other engines
 can propagate them. See [temporal semantics](../temporal-semantics.md#encoded-event-time-predicates)
 for native paths and cost boundaries. Measure data quality explicitly when the

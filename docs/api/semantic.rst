@@ -43,6 +43,14 @@ physical timestamps ignore the Datasource default and reject parser timezones.
 DATE projections retain date labels; time membership assigns each whole row by
 its business-day start, without reconstructing event totals in another zone.
 
+Ordered ``ms.strptime`` formats (``%Y%m%d``, ``%Y-%m-%d`` and their fixed-width
+hour/minute/second extensions) declare valid, zero-padded source encodings with
+exact separators. Qualifying ranges compare the original physical column to
+same-type constants in its source timezone; constants round up to the first
+represented tick. No additional flag or source audit is required. Noncanonical
+values violate this declaration. Other formats, derived inputs and unqualified
+endpoints retain native parsing; output projections also retain native parsing.
+
 ``ms.validity`` has no timezone parameter: DATE bounds derive one common field
 zone. ``ms.period_calendar`` derives its boundary zone from its date field.
 ``ms.snapshot.timezone`` and ``ms.temporal_set.boundary_timezone`` remain explicit;
