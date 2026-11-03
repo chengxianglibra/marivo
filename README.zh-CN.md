@@ -153,16 +153,21 @@ make lint
 make typecheck
 make test
 make runtime-test
+make check-fast
 make check
 ```
 
 `make test` 运行日常本地回归，包括标记为 `slow` 且未同时标记为 `release` 的用例。
 经测量较重的子进程、CPU 密集型、类型检查及查询/恢复用例保留原断言，由
-`make release-check` 执行；日常套件目标为三分钟以内。该 Make 目标默认使用 4 个
-pytest-xdist worker，可通过 `PYTEST_WORKERS=<count> make test` 覆盖；指定单个测试节点时仍串行执行。
+`make release-check` 执行；日常套件目标为三分钟以内。该 Make 目标按逻辑 CPU 数
+启动 pytest-xdist worker（Linux 为 `nproc`，macOS 为 `sysctl -n hw.ncpu`），上限为 8。
+可通过 `PYTEST_WORKERS=<count> make test` 覆盖；指定单个测试节点时仍串行执行。
 测试及其子进程的底层线程预算默认为 1，可用 `PYTEST_NATIVE_THREADS=<count>` 覆盖。
 输出精简、traceback 较短，累计五项失败后停止。Runtime 和 release 用例使用单独入口。
-`make check` 合并本地测试、静态检查和 API 文档检查。
+`make check-fast` 是本地内循环：并行运行 lint、类型检查、pytest-testmon
+认为受本次编辑影响的测试，以及增量 API 文档构建。它不跟踪子进程执行的代码，
+也不跟踪 SQL 或数据文件变化。`make check` 仍是完整门禁，包含全部本地测试、
+静态检查和干净的 API 文档构建，推送前必须通过。
 Runtime 与打包验收由 `make release-check` 执行。日常开发按需使用
 `make runtime-test TESTS='tests/datasource/test_source_profiles.py'`；
 该入口使用精简输出，默认使用两个

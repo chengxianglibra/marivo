@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import os
+import platform
+import re
 import shlex
 import subprocess
 import sys
@@ -13,8 +15,29 @@ import pytest
 
 from tests.support.paths import PROJECT_ROOT
 
+pytest_plugins = ["pytester"]
+
 _ROOT = PROJECT_ROOT
 _TOOLS = ("python", "pip", "pytest", "mypy", "ruff", "lint-imports", "twine", "sphinx-build")
+
+
+def _default_pytest_workers() -> str:
+    """Match unset ``PYTEST_WORKERS``: logical CPUs, capped by the Makefile."""
+    makefile = (_ROOT / "Makefile").read_text()
+    cap_match = re.search(r"^PYTEST_WORKER_CAP \?= (\d+)\s*$", makefile, re.M)
+    assert cap_match is not None
+    cap = int(cap_match.group(1))
+    system = platform.system()
+    if system == "Windows":
+        detected_text = os.environ.get("NUMBER_OF_PROCESSORS", "1")
+    elif system == "Darwin":
+        detected_text = subprocess.check_output(["sysctl", "-n", "hw.ncpu"], text=True)
+    else:
+        detected_text = subprocess.check_output(["nproc"], text=True)
+    detected = int(detected_text.strip())
+    if detected < 1:
+        detected = 1
+    return str(min(detected, cap))
 
 
 def _run_make(
@@ -62,6 +85,7 @@ def _run_make(
             "MFLAGS",
             "MAKELEVEL",
             "PYTEST_WORKERS",
+            "PYTEST_WORKER_CAP",
             "RUNTIME_WORKERS",
             "PYTEST_NATIVE_THREADS",
         }
@@ -95,7 +119,13 @@ def test_daily_checks_exclude_runtime_and_release(tmp_path: Path) -> None:
     assert result.returncode == 0, result.stderr
     pytest_commands = [command for command in commands if command[0] == "pytest"]
     assert len(pytest_commands) == 1
-    assert pytest_commands[0][1:] == ["-q", "--tb=short", "--maxfail=5", "-n", "4"]
+    assert pytest_commands[0][1:] == [
+        "-q",
+        "--tb=short",
+        "--maxfail=5",
+        "-n",
+        _default_pytest_workers(),
+    ]
     assert "-m" not in pytest_commands[0]
     mypy_command = next(command for command in commands if command[0] == "mypy")
     assert mypy_command[1:4] == [
@@ -126,7 +156,14 @@ def test_release_runs_all_suites_even_after_a_focused_daily_run(tmp_path: Path) 
     assert result.returncode == 0, result.stderr
     pytest_commands = [command for command in commands if command[0] == "pytest"]
     assert len(pytest_commands) == 3
-    assert pytest_commands[0] == ["pytest", "-q", "--tb=short", "--maxfail=5", "-n", "4"]
+    assert pytest_commands[0] == [
+        "pytest",
+        "-q",
+        "--tb=short",
+        "--maxfail=5",
+        "-n",
+        _default_pytest_workers(),
+    ]
     assert pytest_commands[1] == [
         "pytest",
         "-q",
@@ -225,7 +262,7 @@ def test_default_test_workers_are_overridable(tmp_path: Path) -> None:
                 "--tb=short",
                 "--maxfail=5",
                 "-n",
-                str(4 if workers is None else workers),
+                _default_pytest_workers() if workers is None else str(workers),
                 "tests/focused.py",
             ]
         ]
@@ -233,8 +270,114 @@ def test_default_test_workers_are_overridable(tmp_path: Path) -> None:
 
 def test_default_pytest_config_includes_slow_and_excludes_external_suites() -> None:
     configuration = (_ROOT / "pytest.ini").read_text()
-    assert 'addopts = -n 4 --dist=worksteal -m "not release and not runtime"' in configuration
+    assert "addopts = -n auto --dist=worksteal\n" in configuration
+    assert "not release and not runtime" not in configuration
     assert "not slow" not in configuration
+
+
+def test_default_deselection_applies_only_without_markexpr(pytester: pytest.Pytester) -> None:
+    pytester.makeconftest(
+        "from tests.conftest import pytest_collection_modifyitems as _deselect\n"
+        "\n"
+        "def pytest_collection_modifyitems(config, items):\n"
+        "    _deselect(config, items)\n"
+    )
+    pytester.makepyfile(
+        """
+        import pytest
+
+        def test_plain():
+            pass
+
+        @pytest.mark.slow
+        def test_slow():
+            pass
+
+        @pytest.mark.runtime
+        def test_runtime():
+            pass
+
+        @pytest.mark.release
+        @pytest.mark.slow
+        def test_release():
+            pass
+        """
+    )
+    common = [
+        "--collect-only",
+        "-q",
+        "-p",
+        "no:xdist",
+        "-o",
+        "addopts=",
+        "-o",
+        f"pythonpath={_ROOT}",
+    ]
+    default = pytester.runpytest(*common)
+    assert default.ret == 0, default.outlines
+    default_text = "\n".join(default.outlines)
+    assert "test_plain" in default_text
+    assert "test_slow" in default_text
+    assert "test_runtime" not in default_text
+    assert "test_release" not in default_text
+
+    runtime = pytester.runpytest(*common, "-m", "runtime")
+    assert runtime.ret == 0
+    runtime_text = "\n".join(runtime.outlines)
+    assert "test_runtime" in runtime_text
+    assert "test_plain" not in runtime_text
+    assert "test_release" not in runtime_text
+
+
+def test_check_fast_reruns_affected_tests_and_incremental_docs(tmp_path: Path) -> None:
+    result, commands = _run_make(tmp_path, "check-fast")
+    assert result.returncode == 0, result.stderr
+    assert [command for command in commands if command[0] == "pytest"] == [
+        [
+            "pytest",
+            "-q",
+            "--tb=short",
+            "--maxfail=5",
+            "-n",
+            _default_pytest_workers(),
+            "--testmon",
+        ]
+    ]
+    assert [command for command in commands if command[0] == "sphinx-build"] == [
+        [
+            "sphinx-build",
+            "-q",
+            "-N",
+            "-W",
+            "--keep-going",
+            "-j",
+            "auto",
+            "-b",
+            "html",
+            "docs/api",
+            "site/public/api",
+        ]
+    ]
+    assert {"ruff", "lint-imports", "mypy"} <= {command[0] for command in commands}
+
+
+def test_check_fast_node_id_stays_serial(tmp_path: Path) -> None:
+    selected = "tests/focused.py::test_one"
+    result, commands = _run_make(tmp_path, "check-fast", tests=selected)
+    assert result.returncode == 0, result.stderr
+    pytest_commands = [command for command in commands if command[0] == "pytest"]
+    assert pytest_commands == [
+        [
+            "pytest",
+            "-q",
+            "--tb=short",
+            "--maxfail=5",
+            "-n",
+            "0",
+            "--testmon",
+            selected,
+        ]
+    ]
 
 
 def test_runtime_debugging_keeps_the_requested_test(tmp_path: Path) -> None:
