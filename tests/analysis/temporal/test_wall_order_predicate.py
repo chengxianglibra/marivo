@@ -102,7 +102,7 @@ def test_named_clock_membership_matches_independent_native_projection(
 @pytest.mark.parametrize(
     "prefix_kind,hour_kind", [("date", "int8"), ("string", "string"), ("int64", "int64")]
 )
-def test_hour_prefix_preserves_hour_24_and_inherited_source_zone(
+def test_hour_prefix_preserves_native_gap_and_inherited_source_zone(
     prefix_kind: str, hour_kind: str
 ) -> None:
     days = [
@@ -125,7 +125,7 @@ def test_hour_prefix_preserves_hour_24_and_inherited_source_zone(
             for day in days
         ]
     )
-    hours = [24, 0, 2, 3, 4, 2]
+    hours = [23, 0, 2, 3, 4, 2]
     table = ibis.memtable(
         {
             "id": range(6),
@@ -162,12 +162,13 @@ def test_hour_prefix_preserves_hour_24_and_inherited_source_zone(
         prefix_axis=prefix_axis,
     )
     assert predicate is not None
-    predicate = (normalized >= ibis.timestamp("2026-03-08 05:00:00")) & (
+    native = (normalized >= ibis.timestamp("2026-03-08 05:00:00")) & (
         normalized < ibis.timestamp("2026-03-08 08:00:00")
     )
     backend = ibis.duckdb.connect()
     try:
-        assert backend.execute(table.filter(predicate)).id.tolist() == [0, 1, 2, 3]
+        assert backend.execute(table.filter(predicate)).id.tolist() == [1, 2, 3]
+        assert backend.execute(table.filter(native)).id.tolist() == [1, 2, 3]
         assert pd.isna(backend.execute(table.select(test=predicate)).test.iloc[-1])
     finally:
         backend.disconnect()

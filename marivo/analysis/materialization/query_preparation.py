@@ -33,7 +33,11 @@ from marivo._definition.types import (
 )
 from marivo.analysis.binding.observe import ContributionBinding
 from marivo.analysis.compiler.member_version import version_predicate
-from marivo.analysis.compiler.source_time import source_time, source_time_predicate
+from marivo.analysis.compiler.source_time import (
+    TimePredicateUse,
+    source_time,
+    source_time_predicate,
+)
 from marivo.analysis.core.frame_interpretation import (
     FrameSourceTime,
     capture_source_times,
@@ -378,7 +382,12 @@ def prepare_fields(
     )
 
     def period_condition(
-        time: ir.Value, start: datetime | None, end: datetime, zone: str
+        time: ir.Value,
+        start: datetime | None,
+        end: datetime,
+        zone: str,
+        *,
+        use: TimePredicateUse = "value",
     ) -> ir.BooleanValue:
         from marivo.analysis.compiler.observation import temporal_bound
 
@@ -399,13 +408,14 @@ def prepare_fields(
                 end=end,
                 prefix=prefix,
                 prefix_axis=prefix_axis,
+                use=use,
             )
             if condition is not None:
                 return condition
         upper = time < temporal_bound(time, end, zone)
         return upper if start is None else upper & (time >= temporal_bound(time, start, zone))
 
-    def selected_time(time: ir.Value) -> ir.BooleanValue:
+    def selected_time(time: ir.Value, *, use: TimePredicateUse = "value") -> ir.BooleanValue:
         # Boolean literal seeds can produce incompatible Bool columns on older ClickHouse builds.
         condition: ir.BooleanValue | None = None
         for calendar in selected_calendars:
@@ -416,7 +426,7 @@ def prepare_fields(
             )
             member: ir.BooleanValue | None = None
             for left, right in intervals:
-                predicate = period_condition(time, left, right, calendar.timezone)
+                predicate = period_condition(time, left, right, calendar.timezone, use=use)
                 member = predicate if member is None else member | predicate
             if member is None:
                 return ibis.literal(False)
@@ -430,7 +440,7 @@ def prepare_fields(
         and contribution.time.at is None
     ):
         time = value(contribution.time.field.ref.path, table)
-        table = table.filter(selected_time(time))
+        table = table.filter(selected_time(time, use="filter"))
     if (
         contribution.period is not None
         and not selected_owns_period
@@ -440,7 +450,9 @@ def prepare_fields(
     ):
         time = value(contribution.time.field.ref.path, table)
         table = table.filter(
-            period_condition(time, contribution.period.start, contribution.period.end, zone)
+            period_condition(
+                time, contribution.period.start, contribution.period.end, zone, use="filter"
+            )
         )
     predicate_conditions = (
         *contribution.intrinsic_conditions,
@@ -801,6 +813,57 @@ def prepare_fields(
     table = prepared_memberships[0]
     columns.extend(prepared_memberships[1])
     originals.extend((slot, table[slot]) for _, slot in prepared_memberships[1])
+    if predicate_conditions and not checks:
+        from marivo.analysis.compiler.predicate import lower_condition
+
+        fields = {key: table[slot] for key, slot in columns}
+        scoped = {
+            fields[field_read_key(read)].op(): read
+            for read in reads
+            if isinstance(read, TimeScopeFieldRead)
+            and read.entity == contribution.root
+            and not read.path
+            and read.at is None
+            and isinstance(registry.dimensions[read.field.ref.path].parse, HourPrefixParse)
+        }
+        required: dict[TimeScopeFieldRead, None] = {}
+        for condition in predicate_conditions if scoped else ():
+            lowered = lower_condition(condition, fields)
+            if lowered.checks:
+                continue
+            pending = [lowered.value.op()]
+            while pending:
+                atom = pending.pop()
+                scope_read = scoped.get(atom)
+                if scope_read is not None:
+                    required[scope_read] = None
+                elif isinstance(atom, ops.And):
+                    pending.extend((atom.left, atom.right))
+        guards: list[ir.BooleanValue] = []
+        for read in required:
+            exact = value(read.field.ref.path, table, time_scope=read)
+            encoded_raw, encoded_axis, encoded_authority, encoded_prefix, encoded_prefix_axis = (
+                time_encodings[read.field.ref.path]
+            )
+            filtered = source_time_predicate(
+                encoded_raw,
+                encoded_axis,
+                encoded_authority,
+                start=read.scope_start,
+                end=read.scope_end,
+                prefix=encoded_prefix,
+                prefix_axis=encoded_prefix_axis,
+                engine=entity_engine(
+                    registry, normalize_target_entity(registry, encoded_axis.entity_ref.path)
+                ),
+                use="filter",
+            )
+            if filtered is not None and not filtered.equals(exact):
+                guards.append(filtered)
+        if guards:
+            # Keep the prepared Boolean values exact for all other consumers.
+            # Only direct/top-level AND membership permits this earlier filter.
+            table = table.filter(*guards)
     if predicate_conditions and checks:
         from marivo._definition.expressions import RowExpression
         from marivo._definition.graph import walk

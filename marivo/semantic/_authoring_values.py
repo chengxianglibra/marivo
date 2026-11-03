@@ -471,12 +471,20 @@ def hour_prefix(
     """Declare an hour-only partition parse using a day prefix column.
 
     Use as the ``parse=`` value on ``@ms.time_dimension(...)`` when the
-    source column encodes an hour in 0..23 (canonical two-digit strings such as
-    ``"01"`` and ``"23"``, or integers)
+    source column encodes an hour in 0..23 (canonical two-digit strings
+    ``"00"`` through ``"23"``, or integers)
     and must be combined with a civil-date time dimension prefix. The combined
     clock inherits the prefix source context, using its effective field or Datasource timezone. The physical
     column type (string or integer) is inferred from the ibis expression at
     analysis time.
+
+    Qualified positive ranges within one source day can filter the original
+    date and hour columns directly, including midnight starts. Cross-day ranges
+    and unqualified timezone boundaries retain the general time predicate.
+    SQL NULL retains native semantics. Hour 24 and other noncanonical non-NULL
+    values violate the declaration; there is no automatic source scan or
+    uniform parse-error policy. Partition pruning depends on the backend's
+    physical plan.
 
     Args:
         prefix: A native TimeField or native TimeDimension symbol for a day-level field that

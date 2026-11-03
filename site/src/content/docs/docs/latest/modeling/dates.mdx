@@ -90,7 +90,10 @@ ClickHouse 22.3 supports the ordered formats above for projections and calendar 
 | --- | --- | --- | --- |
 | `prefix` | Yes | — | TimeDimension expression that supplies the civil-date prefix. The hour field inherits the prefix field's effective parser or Datasource timezone. |
 
-The hour source must use an integer from 0 to 23 or a canonical two-digit string.
+The hour source must use an integer from 0 to 23 or a canonical string `'00'` through `'23'`.
+Hour `24` and other noncanonical non-NULL values violate this declaration; use the
+next date with hour `0` for midnight. SQL NULL retains native semantics. Marivo
+adds no source scan or uniform parse-error policy for invalid encoded values.
 
 ```python
 event_hour = ms.time_dimension_column(
@@ -98,6 +101,14 @@ event_hour = ms.time_dimension_column(
     parse=ms.hour_prefix(business_date),
 )
 ```
+
+A positive range such as `[03:00,04:00)` within one source day can compare the
+original date and hour columns directly when timezone conversion is qualified.
+This applies to observation ranges and required direct or top-level AND
+`event_hour.within(scope)` conditions, including midnight starts. Cross-day ranges and
+unqualified timezone boundaries retain the general predicate. NULL values and
+negated/composed Boolean expressions keep their native semantics. Check the
+backend's physical plan to confirm partition pruning; SQL shape alone is insufficient.
 
 ## Observation range: `session.time_scope`
 

@@ -71,6 +71,7 @@ def ordered_time_literal(point: datetime, fmt: str, *, strict: bool = False) -> 
 
 
 TimeComparison = Literal[">=", "<", ">", "<=", "==", "!="]
+TimePredicateUse = Literal["value", "filter"]
 
 
 def _nullable_constant(value: ir.Value, truth: bool) -> ir.BooleanValue:
@@ -218,12 +219,6 @@ def _composite_cutoff(
     on_day = at_day & ~after_day
     hour = ibis.literal(f"{tick.hour:02d}" if physical.is_string() else tick.hour, type=physical)
     result = after_day | (on_day & (raw >= hour))
-    if tick.hour == 0 and tick.date() > date.min:
-        previous = midnight - timedelta(days=1)
-        at_previous = day_cutoff(previous, inclusive=True)
-        assert at_previous is not None
-        last = ibis.literal("24" if physical.is_string() else 24, type=physical)
-        result |= (at_previous & ~at_day) & (raw == last)
     result = ibis.ifelse(raw.isnull() | prefix.isnull(), ibis.null().cast("boolean"), result)
     assert isinstance(result, ir.BooleanValue)
     return result
@@ -342,8 +337,22 @@ def source_time_predicate(
     prefix: ir.Value | None = None,
     prefix_axis: TargetDimensionContract | None = None,
     engine: str = "duckdb",
+    use: TimePredicateUse = "value",
 ) -> ir.BooleanValue | None:
-    """Build half-open membership in the original field's domain when equivalent."""
+    """Build membership preserving truth values, or selected rows for a positive filter."""
+    if use == "filter":
+        filtered = _same_day_hour_filter(
+            value,
+            axis,
+            authority,
+            start=start,
+            end=end,
+            prefix=prefix,
+            prefix_axis=prefix_axis,
+            engine=engine,
+        )
+        if filtered is not None:
+            return filtered
     if (
         start is None
         and end is None
@@ -430,6 +439,84 @@ def source_time_predicate(
         if end is not None and last is None:
             last = native < ibis.literal(_boundary_instant(end, authority)).cast(native.type())
     return last if first is None else first if last is None else first & last
+
+
+def _same_day_hour_filter(
+    raw: ir.Value,
+    axis: TargetDimensionContract,
+    authority: SourceTimeAuthority,
+    *,
+    start: date | datetime | None,
+    end: date | datetime | None,
+    prefix: ir.Value | None,
+    prefix_axis: TargetDimensionContract | None,
+    engine: str,
+) -> ir.BooleanValue | None:
+    """Expose one source day's hour range without changing which rows pass WHERE.
+
+    This is not a nullable Boolean replacement: a missing prefix with an hour
+    outside the range can produce False instead of NULL. Declared hours are
+    canonical 0..23 values, so midnight belongs only to its own source date.
+    """
+    if (
+        not isinstance(axis.parse, HourPrefixParse)
+        or authority.kind != "wall_clock"
+        or start is None
+        or end is None
+        or prefix is None
+        or prefix_axis is None
+        or not _raw_lineage(raw)
+        or not _raw_lineage(prefix)
+        or not (raw.type().is_string() or raw.type().is_integer())
+    ):
+        return None
+    ticks: list[datetime] = []
+    for bound in (start, end):
+        instant = _boundary_instant(bound, authority)
+        if not endpoint_rewrite_safe(instant, authority.timezone, engine):
+            return None
+        point = instant.astimezone(normalize_timezone(authority.timezone).tz).replace(tzinfo=None)
+        text = ordered_time_literal(point, "%Y%m%d%H")
+        if text is None:
+            return None
+        ticks.append(datetime.strptime(text, "%Y%m%d%H"))
+    first, last = ticks
+    if first.date() != last.date():
+        return None
+    midnight = first.replace(hour=0)
+    if isinstance(prefix_axis.parse, StrptimeParse):
+        if is_time_bearing_format(prefix_axis.parse.format):
+            return None
+        day = _encoded_cutoff(prefix, midnight, prefix_axis.parse, inclusive=True)
+    else:
+        if not prefix.type().is_date():
+            return None
+        day = _scalar_cutoff(prefix, midnight, inclusive=True, engine=engine)
+    # A representable, ordered date literal is necessary for an exact equality.
+    if day is None or not isinstance(day.op(), ops.GreaterEqual):
+        return None
+    if first >= last:
+        return ibis.literal(False)
+    day_node = day.op()
+    assert isinstance(day_node, ops.GreaterEqual)
+    same_day = ops.Equals(day_node.left, day_node.right).to_expr()
+    if engine == "mysql" and prefix.type().is_string():
+        # Ibis casts string equality operands to BINARY on MySQL. Ordered
+        # date bounds retain the original partition column instead.
+        assert isinstance(prefix_axis.parse, StrptimeParse)
+        next_day = _encoded_cutoff(prefix, midnight, prefix_axis.parse, inclusive=False)
+        if next_day is None or not isinstance(next_day.op(), ops.GreaterEqual):
+            return None
+        same_day = day & _complement(next_day)
+    lower = ibis.literal(
+        f"{first.hour:02d}" if raw.type().is_string() else first.hour, type=raw.type()
+    )
+    upper = ibis.literal(
+        f"{last.hour:02d}" if raw.type().is_string() else last.hour, type=raw.type()
+    )
+    result = same_day & (raw >= lower) & (raw < upper)
+    assert isinstance(result, ir.BooleanValue)
+    return result
 
 
 def parse_strptime(engine: str, text: ir.StringValue, parse: StrptimeParse) -> ir.Value:

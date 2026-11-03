@@ -748,6 +748,18 @@ def test_entity_help_preserves_the_supported_table_decorator(
     assert "remove the decorated function body" not in text
 
 
+def test_hour_prefix_help_discloses_canonical_hours_without_uniform_errors(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    marivo.help("semantic.hour_prefix")
+    text = capsys.readouterr().out
+    assert "0..23" in text and "'00'..'23'" in text
+    assert "Hour 24 violates the declaration" in text
+    assert "no source scan or uniform parse-error policy" in text
+    assert "SQL NULL retains native semantics" in text
+    assert "including midnight starts" in text
+
+
 @pytest.mark.parametrize("method", ("first", "last"))
 def test_ordered_sample_help_discloses_inference_and_null_default(
     method: str, capsys: pytest.CaptureFixture[str]

@@ -334,6 +334,24 @@ Derived expressions, nonordered formats, unsupported carriers and ambiguous
 endpoints retain native predicates. Projection and calendar assignment still
 use native parsing and timezone operations.
 
+Hour-prefix values use integers 0..23 or canonical strings `00`..`23`.
+Hour 24 and other noncanonical non-NULL values violate the declaration; native
+parser acceptance does not establish supported membership. SQL NULL retains
+native semantics. No source scan or uniform parse-error policy is introduced.
+For positive contribution filters and required direct/top-level-AND `within`
+conditions, qualified physical date/hour pairs can use a same-day date equality
+and hour lower/upper bounds. MySQL string dates use equivalent ordered date
+bounds to avoid the backend compiler's binary cast on string equality.
+Both endpoints must pass timezone qualification and round to hours on the same
+source day, including a midnight lower endpoint. An empty rounded range selects
+no rows. Cross-day/one-sided ranges and unsupported expressions retain the general path.
+The optimization preserves the rows for which the native predicate is true;
+it is not a replacement for nullable Boolean values. Negation, NULL inspection,
+Boolean projection and other compositions retain their exact expressions.
+Required `within` conditions may add raw scan guards while retaining their
+prepared Boolean values. No non-null declaration, source audit or partition
+enumeration is required. Actual partition pruning requires native plan evidence.
+
 ClickHouse date cutoffs use `toDate` when the rounded boundary is between
 `1970-01-01` and `2149-06-06`, inclusive. Boundaries outside that range use
 `toDate32` to preserve historical and extended-range Date32 queries. Ibis maps
