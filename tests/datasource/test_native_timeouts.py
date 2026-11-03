@@ -352,9 +352,18 @@ def test_failed_disconnect_cannot_confirm_cleanup(tmp_path: Path) -> None:
     session = SourceSession(
         provider_for("mysql"), datasource("mysql", {}), backend, project_root=tmp_path
     )
+    lease = session._backend_lease
+    assert lease is not None
     with pytest.raises(OSError, match="disconnect unconfirmed"):
         session.close()
+    assert session._closed
     assert not session._backend_disconnected
+    assert not lease.closed
+    with pytest.raises(OSError, match="disconnect unconfirmed"):
+        session.close()
+    assert backend.disconnect.call_count == 2
+    assert not session._backend_disconnected
+    assert not lease.closed
 
 
 def test_connection_service_closes_other_owners_after_source_cleanup_failure(

@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import NoReturn
 from unittest.mock import Mock
 
+import duckdb
 import ibis
 import ibis.expr.operations as ops
 import ibis.expr.types as ir
@@ -561,8 +562,49 @@ def test_borrowed_session_leaves_backend_owned_by_original(session: SourceSessio
     borrowed_read = _read(borrowed)
     assert len(borrowed.execute(borrowed_read)) == 2
     borrowed.close()
+    borrowed.close()
     assert borrowed._closed
+    assert not borrowed._backend_disconnected
     assert len(session.execute(_read(session))) == 2
+
+
+def test_failed_close_rejects_use_and_later_close_releases_the_backend(
+    session: SourceSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    backend = session._backend
+    real_disconnect = backend.disconnect
+    calls = 0
+
+    def disconnect() -> None:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise RuntimeError("connection release failed")
+        real_disconnect()
+
+    monkeypatch.setattr(backend, "disconnect", disconnect)
+    assert backend.raw_sql("SELECT 1").fetchall() == [(1,)]
+
+    lease = session._backend_lease
+    assert lease is not None
+    with pytest.raises(RuntimeError, match="connection release failed"):
+        session.close()
+    assert session._closed
+    assert not session._backend_disconnected
+    assert not lease.closed
+    assert calls == 1
+    assert backend.raw_sql("SELECT 1").fetchall() == [(1,)]
+    with pytest.raises(DatasourceSourceCapabilityError, match="closed source session"):
+        session.bind(TableSourceIR("facts"), source_identity="facts@closed")
+
+    session.close()
+    assert session._backend_disconnected
+    assert lease.closed
+    assert calls == 2
+    with pytest.raises(duckdb.ConnectionException, match="Connection already closed"):
+        backend.raw_sql("SELECT 1")
+    session.close()
+    assert calls == 2
 
 
 def _key_read(source: SourceSession, keys: ir.Table) -> CompiledRead:

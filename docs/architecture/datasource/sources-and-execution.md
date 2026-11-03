@@ -329,9 +329,12 @@ Connection probes and owned source sessions share the backend's single internal
 lease. Close confirms release only after Ibis disconnect succeeds. A failed
 close, or a backend without disconnect, leaves the lease unreleased so a later
 close attempts disconnect again; a confirmed release is not disconnected twice.
-Borrowed source sessions leave disconnection to the connection owner. Cleanup
-continues across resource failures and records disconnection only after
-confirmed release; it does not actively cancel remote queries.
+An owned source session that has begun closing rejects ordinary operations
+while that release is still unconfirmed, and a later session close finishes it
+through the same lease. Borrowed source sessions leave disconnection to the
+connection owner. Cleanup continues across resource failures and records
+disconnection only after confirmed release; it does not actively cancel remote
+queries.
 
 The Analysis handoff explicitly declares join and union in addition
 to scan, filter, project, group and count. The basic physical requirement
