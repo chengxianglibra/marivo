@@ -174,6 +174,45 @@ def _native_name(backend: str, reducer: str) -> str:
 
 
 class _ClickHouseCompiler(ClickHouseCompiler):  # type: ignore[misc]
+    def visit_JoinChain(
+        self,
+        op: ops.JoinChain,
+        *,
+        first: sge.Expr,
+        rest: Sequence[sge.Expr],
+        values: Mapping[str, sge.Expr],
+    ) -> sge.Expr:
+        for link, right in zip(rest, op.rest, strict=True):
+            join = link.this if isinstance(link, sge.Alias) else link
+            assert isinstance(join, sge.Join)
+            condition = join.args.get("on")
+            if isinstance(condition, sge.Boolean):
+                # 22.3 rejects Bool JOIN constants, and ON 1 loses left rows
+                # for an empty right side. ignore(column) is a non-null zero
+                # key on either side, preserving an actual outer hash join.
+                on = (
+                    sge.EQ(
+                        this=self.f.ignore(
+                            sge.column(
+                                next(iter(op.first.schema)), table=first.alias_or_name, quoted=True
+                            )
+                        ),
+                        expression=self.f.ignore(
+                            sge.column(
+                                next(iter(right.table.schema)),
+                                table=join.this.alias_or_name,
+                                quoted=True,
+                            )
+                        ),
+                    )
+                    if condition.this
+                    else sge.Literal.number(0)
+                )
+                join.set("on", on)
+        result = super().visit_JoinChain(op, first=first, rest=rest, values=values)
+        assert isinstance(result, sge.Expr)
+        return result
+
     def visit_CalendarRange(self, op: CalendarRange, **kwargs: object) -> sge.Expr:
         return compile_calendar_range(op, "clickhouse")
 

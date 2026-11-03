@@ -28,6 +28,56 @@ from tests.datasource.source_cases import SourceData, source_case
 pytestmark = pytest.mark.runtime
 
 
+@pytest.mark.skipif(
+    os.environ.get("MARIVO_CLICKHOUSE_ANALYSIS_TEST") != "1", reason="opt-in ClickHouse service"
+)
+@pytest.mark.parametrize(
+    ("predicate", "empty_right", "expected"),
+    (
+        (True, False, [(1, 1, True), (1, 2, True), (2, 1, True), (2, 2, True)]),
+        (False, False, [(1, None, None), (2, None, None)]),
+        (True, True, [(1, None, None), (2, None, None)]),
+    ),
+)
+def test_clickhouse_constant_left_join_preserves_rows_and_boolean_presence(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    predicate: bool,
+    empty_right: bool,
+    expected: list[tuple[int, int | None, bool | None]],
+) -> None:
+    data = SourceData("id BIGINT", "(1),(2)", "id Int64", [{"id": 1}, {"id": 2}])
+    with source_case("clickhouse", "mergetree", tmp_path, monkeypatch, data) as case:
+        bound = case.session.bind(case.source, source_identity="constant_join")
+        qualified = case.session.qualify(
+            bound,
+            PhysicalRequirement("query.source_read", 1, frozenset({"scan", "project", "join"})),
+        )
+        left = bound.relation.select(left_id=bound.relation.id)
+        right = bound.relation.select(right_id=bound.relation.id, present=ibis.literal(True))
+        if empty_right:
+            right = right.filter(right.right_id < 0)
+        query = left.left_join(right, predicate).order_by("left_id", "right_id")
+        read = case.session.compile(
+            qualified,
+            query,
+            purpose="source_adapter.constant_join",
+            expected_schema=query.schema().to_pyarrow(),
+        )
+        actual = case.session.execute(read)
+        expected_frame = pd.DataFrame(expected, columns=("left_id", "right_id", "present"))
+        pd.testing.assert_frame_equal(actual, expected_frame, check_dtype=False)
+        # A count-only consumer still needs valid keys after column pruning.
+        count = query.aggregate(rows=query.count())
+        count_read = case.session.compile(
+            qualified,
+            count,
+            purpose="source_adapter.constant_join_count",
+            expected_schema=count.schema().to_pyarrow(),
+        )
+        assert case.session.execute(count_read)["rows"].tolist() == [len(expected)]
+
+
 def _datasource(
     backend: str,
     fields: Mapping[str, object],

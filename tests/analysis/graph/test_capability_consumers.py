@@ -856,8 +856,23 @@ def test_civil_date_grid_keeps_date_keys_on_foreign_zone(
             by=mv.product(grid, session.members(session.catalog.get("entity:sales.facts"))),
         )
         fixed = logical.persist()
-        frame = fixed.to_pandas()
+        frame = fixed.to_pandas(
+            axis_names={
+                fixed.axes[0].token: "day",
+                fixed.axes[1].token: "member",
+            }
+        )
         assert len(frame) == 8 and (not frame["value"].isna().any())
+        assert {(row.day, row.member): row.value for row in frame.itertuples(index=False)} == {
+            (datetime(2026, 8, 1, tzinfo=zone), ("a", 1, 1)): 0,
+            (datetime(2026, 8, 1, tzinfo=zone), ("a", 2, 1)): 5,
+            (datetime(2026, 8, 1, tzinfo=zone), ("a", 3, 1)): 0,
+            (datetime(2026, 8, 1, tzinfo=zone), ("a", 4, 1)): 0,
+            (datetime(2026, 8, 2, tzinfo=zone), ("a", 1, 1)): 0,
+            (datetime(2026, 8, 2, tzinfo=zone), ("a", 2, 1)): 0,
+            (datetime(2026, 8, 2, tzinfo=zone), ("a", 3, 1)): 99,
+            (datetime(2026, 8, 2, tzinfo=zone), ("a", 4, 1)): 0,
+        }
         source_trace.record(fixed)
         grouped = session.observe(
             {"value": session.catalog.get("metric:sales.total")}, by=(grid,)
