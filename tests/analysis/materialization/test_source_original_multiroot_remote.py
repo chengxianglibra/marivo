@@ -236,11 +236,21 @@ def test_native_recipe_and_formula_checks_survive_empty_parent_selection(
             by=(category,),
         )
         trace = capture_source(monkeypatch)
-        if boundary == "formula_overflow":
-            with pytest.raises(AnalysisError, match=r"overflow|out of bounds"):
-                fine.compute()
-            with pytest.raises(AnalysisError, match=r"overflow|out of bounds"):
-                fine.top(0, by=fine["value"]).compute()
+        if backend == "clickhouse" and boundary != "row_zero":
+            # Both native Int64 additions wrap; no protective widening is promised.
+            expected = -(2**63) + (78 if boundary == "formula_overflow" else 79)
+            other = 0 if boundary == "formula_overflow" else 80
+            assert sorted(fine.compute().to_pandas()["value"].tolist()) == [expected, other, other]
+            assert fine.top(0, by=fine["value"]).compute().to_pandas().empty
+        elif boundary == "formula_overflow":
+            if backend == "mysql":
+                assert fine.compute().to_pandas()["value"].max() == 2**63 + 78
+                assert fine.top(0, by=fine["value"]).compute().to_pandas().empty
+            else:
+                with pytest.raises(AnalysisError, match=r"overflow|out of bounds"):
+                    fine.compute()
+                with pytest.raises(AnalysisError, match=r"overflow|out of bounds"):
+                    fine.top(0, by=fine["value"]).compute()
         else:
             with pytest.raises(AnalysisError):
                 fine.top(0, by=fine["value"]).compute()

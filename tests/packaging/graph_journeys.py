@@ -98,10 +98,14 @@ def _frame(result: mv.AnalysisFrame, *, frame: pd.DataFrame | None = None) -> pd
         return plain(result)
     exported = frame.copy()
     names: dict[str, str] = {}
-    for index, axis in enumerate(result.axes):
-        column = (
-            axis.name if axis.role in ("field", "identity", "calendar") else axis.name + ".start"
-        )
+    for index, (axis, schema) in enumerate(zip(result.axes, result.schema.axes, strict=True)):
+        column = axis.name.rsplit(".", 1)[-1]
+        if isinstance(schema, mv.FramePairedAxisSchema):
+            column += ".left"
+            if schema.left.kind == "interval":
+                column += ".start"
+        elif axis.role == "interval":
+            column += ".start"
         names[column] = f"key_{index}"
     names.update((name, "presence." + name) for name in result.presence_names)
     return exported.rename(columns=names)

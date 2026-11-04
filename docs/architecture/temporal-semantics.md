@@ -73,6 +73,10 @@ Naive/DATE cutoff rewriting is qualified separately for each endpoint: a fixed
 offset is stable; an IANA zone must retain the same offset at hourly samples
 through the endpoint's absolute ±48-hour window. MySQL/MariaDB named-zone
 rewrites additionally use the common qualified CONVERT_TZ range (1971–2037).
+Named-zone raw cutoff qualification uses the host timezone database. Its rules
+for the selected dates must agree with the source backend's timezone database;
+deployments must keep them aligned. Marivo does not compare database versions
+or probe for rule differences before applying these optimizations.
 Unqualified endpoints retain their native exact predicates. Qualified physical
 columns, including declared ordered encodings, compare directly to same-type
 source-domain constants. Columns are not cast, parsed or localized for those

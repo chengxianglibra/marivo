@@ -1,5 +1,6 @@
 """Physical range predicates preserve typed cutoffs without wrapping source columns."""
 
+import os
 from dataclasses import replace
 from datetime import date, datetime, timezone
 from pathlib import Path
@@ -168,6 +169,9 @@ def test_strptime_help_declares_ordered_formats_as_canonical_source_contracts() 
 
 
 @pytest.mark.runtime
+@pytest.mark.skipif(
+    os.environ.get("MARIVO_CLICKHOUSE_ANALYSIS_TEST") != "1", reason="opt-in ClickHouse service"
+)
 def test_clickhouse_date32_historical_range_uses_date32_cutoffs() -> None:
     from tests.datasource.environment.clickhouse_analysis import connection
 

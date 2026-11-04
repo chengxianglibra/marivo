@@ -389,7 +389,9 @@ def test_temporal_set_rows_require_backend_parsed_values() -> None:
             boundary_timezone="UTC",
             coverage=(date(2026, 1, 1), date(2026, 1, 4)),
             columns=("id", "start", "end"),
-            retained_values=({"id": "launch", "start": "20260101", "end": "20260103"},),
+            retained_values=(
+                {"id": "launch", "start": "2026-01-01T00:00:00", "end": "2026-01-03T00:00:00"},
+            ),
             occurrence_id="id",
             start="start",
             end="end",
