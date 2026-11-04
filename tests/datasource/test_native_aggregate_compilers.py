@@ -79,3 +79,70 @@ def test_clickhouse_exact_quantile_rejects_unsupported_native_input(dtype: str) 
     with pytest.raises(DatasourceSourceCapabilityError, match="clickhouse") as error:
         compiler_backend("clickhouse").compile(table.x.quantile(0.95))
     assert str(ibis.dtype(dtype)) in str(error.value)
+
+
+def _uint64_sketch_query(table: ir.Table) -> ir.Table:
+    from marivo._numeric_types import exact_unsigned
+    from marivo.semantic._numeric_lowering import force_cast
+
+    projected = table.select("k", v=exact_unsigned(table.v)).filter(lambda t: t.k != "z")
+    value = projected.v
+    sketch = force_cast(value.cast("float64").approx_quantile(0.5), value.type())
+    return projected.group_by("k").aggregate(
+        q=(value.count() == 0).ifelse(ibis.null().cast(value.type()), sketch),
+        total=value.sum(),
+    )
+
+
+@pytest.mark.parametrize("backend", ["clickhouse", "duckdb"])
+def test_uint64_sketch_inputs_skip_the_decimal_carrier(backend: str) -> None:
+    from marivo._numeric_types import unsigned_float_inputs
+
+    expression = _uint64_sketch_query(ibis.table({"k": "string", "v": "uint64"}, name="t"))
+    rewritten = unsigned_float_inputs(expression)
+    assert rewritten.schema() == expression.schema()
+    sql = compiler_backend(backend).compile(rewritten).lower()
+    carrier = "nullable(decimal(20, 0))" if backend == "clickhouse" else "decimal(20, 0)"
+    floating = "nullable(float64)" if backend == "clickhouse" else "double"
+    # The sketch and its COUNT guard read UInt64; exact SUM keeps the Decimal carrier.
+    assert f'cast("t1"."v:uint64" as {floating})' in sql
+    assert 'count("t1"."v:uint64")' in sql
+    assert "cast(cast(" not in sql.split("from")[0].replace(f"cast(null as {carrier})", "")
+    assert 'sum("t1"."v")' in sql
+    assert unsigned_float_inputs(rewritten).op() == rewritten.op()
+
+
+def test_uint64_sketch_input_rewrite_preserves_native_results() -> None:
+    import pandas as pd
+
+    from marivo._numeric_types import unsigned_float_inputs
+
+    big = (2**53 + 1, 2**64 - 1, 2**63 + 1025, 7)
+    con = ibis.duckdb.connect()
+    con.raw_sql("CREATE TABLE t (k VARCHAR, v UBIGINT)")
+    con.raw_sql(
+        "INSERT INTO t VALUES "
+        + ", ".join(f"('a', {value})" for value in big)
+        + ", ('a', NULL), ('b', NULL), ('z', 1)"
+    )
+    expression = _uint64_sketch_query(con.table("t"))
+    expected = con.to_pyarrow(expression.order_by("k")).to_pandas()
+    actual = con.to_pyarrow(unsigned_float_inputs(expression).order_by("k")).to_pandas()
+    pd.testing.assert_frame_equal(actual, expected)
+    assert expected["k"].tolist() == ["a", "b"] and pd.isna(expected["q"].iloc[1])
+
+
+def test_uint64_rewrite_keeps_distinct_and_union_input_schemas() -> None:
+    from marivo._numeric_types import exact_unsigned, unsigned_float_inputs
+
+    table = ibis.table({"v": "uint64"}, name="t")
+    projected = table.select(v=exact_unsigned(table.v))
+    filtered = projected.filter(projected.v.cast("float64") > 0)
+    distinct = filtered.distinct()
+    # The aggregate shares its Decimal input with the non-aggregate branch.
+    aggregate = filtered.aggregate(v=filtered.v.count().cast("decimal(20,0)"))
+    for query in (distinct, filtered.union(aggregate)):
+        rewritten = unsigned_float_inputs(query)
+        assert rewritten.schema() == ibis.schema({"v": "decimal(20,0)"})
+        for backend in ("clickhouse", "duckdb"):
+            compiler_backend(backend).compile(rewritten)

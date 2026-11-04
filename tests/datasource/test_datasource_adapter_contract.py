@@ -240,6 +240,73 @@ def test_duckdb_compile_reuses_sql_but_rechecks_each_issued_read(
     assert session.submissions[-1].sql == actual.sql
 
 
+def _flaky_fetch(
+    session: SourceSession, monkeypatch: pytest.MonkeyPatch, failures: list[Exception]
+) -> list[float]:
+    """Fail the next native fetches, classify "busy" as transient and record backoff waits."""
+    from marivo.datasource import adapters
+
+    fetch = session._backend.to_pyarrow
+
+    def flaky(*args: object, **kwargs: object) -> pa.Table:
+        if failures:
+            raise failures.pop(0)
+        return fetch(*args, **kwargs)  # type: ignore[arg-type]
+
+    delays: list[float] = []
+    monkeypatch.setattr(session._backend, "to_pyarrow", flaky)
+    monkeypatch.setattr(adapters.time, "sleep", delays.append)
+    monkeypatch.setattr(
+        session,
+        "provider",
+        replace(session.provider, transient_failure=lambda error: str(error) == "busy"),
+    )
+    return delays
+
+
+def test_transient_failure_resubmits_the_same_read_with_backoff(
+    session: SourceSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    read = _read(session)
+    delays = _flaky_fetch(session, monkeypatch, [RuntimeError("busy"), RuntimeError("busy")])
+
+    result = session.execute(read)
+
+    assert result.to_dict(orient="records") == [{"id": 10, "amount": 2}, {"id": 11, "amount": 3}]
+    assert 0.5 <= delays[0] <= 1.0 and 2.0 <= delays[1] <= 4.0 and len(delays) == 2
+    assert len(session.submissions) == 1 and session.submissions[0].state == "succeeded"
+    records = [
+        item for item in execution_records(session._log_root) if item.get("purpose") == "basic.rows"
+    ]
+    assert [item["event"] for item in records] == [
+        "query.submitted",
+        "query.retry",
+        "query.retry",
+        "query.completed",
+    ]
+    assert [item["attempt"] for item in records[1:3]] == [1, 2]
+    assert {item["error_type"] for item in records[1:3]} == {"RuntimeError"}
+    assert len({item["query_id"] for item in records}) == 1
+    assert records[3]["state"] == "succeeded" and records[3]["consumed_rows"] == 2
+
+
+def test_transient_retries_are_bounded_and_other_failures_propagate_immediately(
+    session: SourceSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    read = _read(session)
+    delays = _flaky_fetch(session, monkeypatch, [RuntimeError("busy")] * 3)
+    with pytest.raises(RuntimeError, match="busy"):
+        session.execute(read)
+    assert len(delays) == 2
+    assert session.submissions[-1].state == "failed"
+
+    read = _read(session)
+    delays = _flaky_fetch(session, monkeypatch, [RuntimeError("syntax")])
+    with pytest.raises(RuntimeError, match="syntax"):
+        session.execute(read)
+    assert delays == []
+
+
 def test_duckdb_compile_memo_distinguishes_expressions_and_excludes_parameters(
     session: SourceSession, monkeypatch: pytest.MonkeyPatch
 ) -> None:

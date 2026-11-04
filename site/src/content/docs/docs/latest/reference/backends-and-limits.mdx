@@ -20,6 +20,10 @@ does not guarantee that a method supports the source's types and structure.
 | Trino | `trino` | Requires `catalog` and `user_env`; `schema` is optional |
 | ClickHouse | `clickhouse` | Physical joins require a qualified MergeTree table; Distributed join routes are restricted |
 
+The development source requires DuckDB `>=1.5.3,<2` in the `duckdb`, `all`, and `dev`
+extras. Compatibility has been checked with DuckDB 1.5.6 and Ibis 12.0.0.
+The published Marivo 0.6.0 package pins DuckDB to 1.5.3.
+
 ## Check source form and method
 
 Database tables use their selected SQL backend; CSV, Parquet and file JSON use DuckDB.
@@ -71,6 +75,14 @@ Incompatible non-time scopes within one source root cannot be combined.
 Local operations may keep all required vectors in memory. A display limit changes rendering;
 it does not cap computation or source scan work. Query timeouts use native driver settings,
 may be unsupported, and do not bound the full client call and result fetch.
+
+ClickHouse source reads resubmit the same query up to twice, with jittered 1s and 4s
+backoff, after transient failures: too many simultaneous queries (202), no free
+connection (203), network errors (210, 279), gateway HTTP 429/502/503, or a connection
+that never reached the server. Timeouts, including gateway 504, memory limits and other
+errors propagate without a Marivo retry. The limit counts Marivo resubmissions.
+Driver status retries default to zero; a positive `extra["query_retries"]` enables
+additional driver attempts, including for HTTP 504. Other backends do not retry.
 
 Complex Trino relationship and allocation expressions can exceed the server's
 `query.max-stage-count` budget and fail with `QUERY_HAS_TOO_MANY_STAGES`.

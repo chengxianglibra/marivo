@@ -84,6 +84,7 @@ from marivo.datasource.adapters import (
     DURATION_UNIT_METADATA_KEY,
     TIMESTAMP_UNIT_METADATA_KEY,
     BoundSource,
+    CompiledRead,
     PhysicalRequirement,
     QualifiedSource,
     SourceSession,
@@ -110,6 +111,8 @@ class PreparedSources:
     graph: BoundGraph | None = None
     source_times: tuple[FrameSourceTime, ...] = ()
     native_expressions: dict[tuple[str, ops.Node], ir.Table] = field(default_factory=dict)
+    # Unparameterized reads qualified before admission are issued once and executed as-is.
+    compiled_reads: dict[tuple[SourceSession, ops.Node], CompiledRead] = field(default_factory=dict)
     original_input_qualifications: dict[
         tuple[SourceSession, ops.Node], Literal["qualified", "other", "unavailable"]
     ] = field(default_factory=dict)
@@ -1278,7 +1281,7 @@ def qualify_query_sources(prepared: PreparedSources, lowered: LoweredQuery) -> N
         source = prepared.sources.get(stage.source_id, prepared.source)
         _qualify_clickhouse_joins(source, qualified)
         try:
-            source.compile(
+            issued = source.compile(
                 qualified,
                 expression,
                 purpose="query.prepare",
@@ -1290,6 +1293,9 @@ def qualify_query_sources(prepared: PreparedSources, lowered: LoweredQuery) -> N
                 f"{source.provider.name}: {type(error).__name__}: {error}",
                 "Use a supported native method/type or export an admitted Query for pandas processing.",
             )
+        # Parameterized templates qualify with empty inputs; their executed SQL differs.
+        if not stage.parameters:
+            prepared.compiled_reads[(source, expression.op())] = issued
 
 
 def _qualify_clickhouse_joins(
@@ -1440,6 +1446,10 @@ def _native_query_expression(
         rewritten = expression.op().replace(exact_nodes).to_expr()
         assert isinstance(rewritten, ir.Table)
         expression = rewritten
+    if source.provider.name in ("clickhouse", "duckdb"):
+        from marivo._numeric_types import unsigned_float_inputs
+
+        expression = unsigned_float_inputs(expression)
     prepared.native_expressions[key] = expression
     return expression
 
@@ -1516,13 +1526,18 @@ def read_stage(
     expression = _native_query_expression(prepared, stage, lowered)
     lowered = replace(lowered, expression=expression)
     source = prepared.sources.get(stage.source_id, prepared.source)
-    qualified = _qualify_query_read(prepared, stage, lowered)
-    issued = source.compile(
-        qualified,
-        expression,
-        purpose=f"query.{stage.stage_id}",
-        expected_schema=expression.schema().to_pyarrow(),
-    )
+    purpose = f"query.{stage.stage_id}"
+    qualified_read = prepared.compiled_reads.get((source, expression.op()))
+    if qualified_read is not None:
+        # The qualified SQL is final; only the execution purpose differs.
+        issued = source.reissue(qualified_read, purpose=purpose)
+    else:
+        issued = source.compile(
+            _qualify_query_read(prepared, stage, lowered),
+            expression,
+            purpose=purpose,
+            expected_schema=expression.schema().to_pyarrow(),
+        )
     if source.provider.name == "mysql" and "CONVERT_TZ(" in issued.sql.upper():
         source.verify_source_timezones(_mysql_source_timezones(issued.sql))
     from decimal import DecimalException
