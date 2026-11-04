@@ -326,10 +326,12 @@ order, source binding, requested row/time bounds, and downstream key, nullable-v
 time, and persisted-schema checks remain governed. A completed DataFrame read
 does not prove server-side query termination after an interruption or timeout.
 Connection probes and owned source sessions share the backend's single internal
-lease, which disconnects through Ibis at most once. Borrowed source sessions
-leave disconnection to the connection owner. Cleanup continues across resource
-failures and records disconnection only after confirmed release; it does not
-actively cancel remote queries.
+lease. Close confirms release only after Ibis disconnect succeeds. A failed
+close, or a backend without disconnect, leaves the lease unreleased so a later
+close attempts disconnect again; a confirmed release is not disconnected twice.
+Borrowed source sessions leave disconnection to the connection owner. Cleanup
+continues across resource failures and records disconnection only after
+confirmed release; it does not actively cancel remote queries.
 
 The Analysis handoff explicitly declares join and union in addition
 to scan, filter, project, group and count. The basic physical requirement
@@ -384,9 +386,9 @@ MySQL isolated authoring readers install and read back the native session
 server's millisecond range. Ordinary preview, sample, raw SQL and certification
 share that configuration. When MySQL's variable is unavailable, `VERSION()`
 identifies MariaDB and the reader installs and verifies `max_statement_time`
-in seconds instead. Servers
-that lack both native variables retain the unsupported-setting behavior;
-denied or mismatched configuration fails before business reads. The setting
+in seconds instead. A server that exposes neither variable fails before the
+business read, as do denied and mismatched configuration. A confirmed setting
+for the same timeout is reused on that reader. The setting
 covers only eligible read-only SELECT statements. Marivo does not create a
 control connection, send KILL, duplicate/shut down sockets or run a timer.
 
