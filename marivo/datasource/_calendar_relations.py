@@ -37,6 +37,16 @@ def calendar_range(count: int) -> ir.Table:
     ).to_expr()
 
 
+def _mysql_range_sql(count: int) -> str:
+    # Fixed digit products work on both MySQL and MariaDB 10.3. SQL grows
+    # with the number of decimal digits, never with each output position.
+    digits = max(1, len(str(max(0, count - 1))))
+    terms = " + ".join(f"d{i}.digit * {10**i}" for i in range(digits))
+    digit_table = " UNION ALL ".join(f"SELECT {digit} AS digit" for digit in range(10))
+    tables = " CROSS JOIN ".join(f"({digit_table}) AS d{i}" for i in range(digits))
+    return f"SELECT CAST({terms} AS SIGNED) AS position FROM {tables} WHERE {terms} < {count}"
+
+
 def compile_calendar_range(node: CalendarRange, provider: str) -> sge.Expr:
     count = node.count
     if provider == "clickhouse":
@@ -50,15 +60,7 @@ def compile_calendar_range(node: CalendarRange, provider: str) -> sge.Expr:
         if not count:
             sql = "SELECT CAST(0 AS BIGINT) AS position WHERE FALSE"
     else:
-        # MySQL has no native sequence table. A fixed digit product keeps the
-        # statement bounded; it is solely an output-index evaluation.
-        digits = max(1, len(str(max(0, count - 1))))
-        terms = " + ".join(f"d{i}.digit * {10**i}" for i in range(digits))
-        tables = " CROSS JOIN ".join(
-            f"JSON_TABLE('[0,1,2,3,4,5,6,7,8,9]', '$[*]' COLUMNS(digit BIGINT PATH '$')) AS d{i}"
-            for i in range(digits)
-        )
-        sql = f"SELECT {terms} AS position FROM {tables} WHERE {terms} < {count}"
+        sql = _mysql_range_sql(count)
     return sg.parse_one(sql, read=provider)
 
 
@@ -133,6 +135,8 @@ def compile_calendar_data(node: CalendarData, provider: str) -> sge.Expr:
     """Expand one JSON parameter into a relation, without per-row SQL syntax."""
     if provider == "clickhouse":
         return _clickhouse_calendar_data(node)
+    if provider == "mysql":
+        return _mysql_calendar_data(node)
     payload = sge.Literal.string(node.payload).sql(dialect=provider)
     names = [
         sge.to_identifier(name, quoted=True).sql(dialect=provider) for name in node.schema.names
@@ -140,11 +144,7 @@ def compile_calendar_data(node: CalendarData, provider: str) -> sge.Expr:
     types = []
     for dtype in node.schema.types:
         if dtype.is_timestamp():
-            types.append(
-                {"postgres": "TIMESTAMPTZ", "mysql": "DATETIME(6)", "trino": "TIMESTAMP(6)"}[
-                    provider
-                ]
-            )
+            types.append({"postgres": "TIMESTAMPTZ", "trino": "TIMESTAMP(6)"}[provider])
         elif dtype.is_date():
             types.append("DATE")
         elif dtype.is_integer():
@@ -156,20 +156,10 @@ def compile_calendar_data(node: CalendarData, provider: str) -> sge.Expr:
         elif dtype.is_floating():
             types.append("DOUBLE PRECISION")
         else:
-            types.append({"postgres": "TEXT", "mysql": "LONGTEXT", "trino": "VARCHAR"}[provider])
+            types.append({"postgres": "TEXT", "trino": "VARCHAR"}[provider])
     if provider == "postgres":
         columns = ", ".join(f"{name} {dtype}" for name, dtype in zip(names, types, strict=True))
         query = f"SELECT * FROM jsonb_to_recordset(CAST({payload} AS JSONB)) AS calendar_data({columns})"
-    elif provider == "mysql":
-        columns = ", ".join(
-            f"{name} {dtype} PATH "
-            + sge.Literal.string("$." + json.dumps(raw)).sql(dialect=provider)
-            for name, raw, dtype in zip(names, node.schema.names, types, strict=True)
-        )
-        # A derived LIMIT prevents MySQL/MariaDB from merging this constant
-        # table function into a per-fact nested loop. Materialization permits
-        # an indexed equality lookup; the maximum unsigned limit removes no rows.
-        query = f"SELECT * FROM JSON_TABLE({payload}, '$[*]' COLUMNS ({columns})) AS calendar_data LIMIT 18446744073709551615"
     else:
         # JSON carries ISO UTC civil strings. Attach UTC explicitly after casting.
         selections = []
@@ -183,6 +173,45 @@ def compile_calendar_data(node: CalendarData, provider: str) -> sge.Expr:
             selections.append(f"{value} AS {name}")
         query = f"SELECT {', '.join(selections)} FROM UNNEST(CAST(json_parse({payload}) AS ARRAY(JSON))) AS calendar_data(item)"
     return sg.parse_one(query, read=provider)
+
+
+def _mysql_calendar_data(node: CalendarData) -> sge.Expr:
+    """Expand a single JSON payload with scalar functions available in MariaDB 10.3."""
+    payload = sge.Literal.string(node.payload).sql(dialect="mysql")
+    positions = _mysql_range_sql(len(json.loads(node.payload)))
+    # Preserve materialization on both derived relations: the payload occurs
+    # once, and parameter decoding cannot merge into a per-fact nested loop.
+    limit = "18446744073709551615"
+    items = (
+        f"SELECT JSON_EXTRACT({payload}, CONCAT('$[', position, ']')) AS item "
+        f"FROM ({positions}) AS positions LIMIT {limit}"
+    )
+    selections: list[str] = []
+    for name, dtype in node.schema.items():
+        path = sge.Literal.string("$." + json.dumps(name)).sql(dialect="mysql")
+        extracted = f"JSON_EXTRACT(item, {path})"
+        value = (
+            f"CASE WHEN JSON_TYPE({extracted}) = 'NULL' THEN NULL "
+            f"ELSE JSON_UNQUOTE({extracted}) END"
+        )
+        if dtype.is_timestamp():
+            value = f"CAST({value} AS DATETIME(6))"
+        elif dtype.is_date():
+            value = f"CAST({value} AS DATE)"
+        elif dtype.is_integer():
+            target = "UNSIGNED" if dtype.is_unsigned_integer() else "SIGNED"
+            value = f"CAST({value} AS {target})"
+        elif dtype.is_boolean():
+            value = f"({value} = 'true')"
+        elif isinstance(dtype, dt.Decimal):
+            value = f"CAST({value} AS DECIMAL({dtype.precision},{dtype.scale}))"
+        elif dtype.is_floating():
+            # CAST AS DOUBLE is unavailable on older MariaDB releases.
+            value = f"({value}) + 0e0"
+        quoted = sge.to_identifier(name, quoted=True).sql(dialect="mysql")
+        selections.append(f"{value} AS {quoted}")
+    query = f"SELECT {', '.join(selections)} FROM ({items}) AS calendar_data LIMIT {limit}"
+    return sg.parse_one(query, read="mysql")
 
 
 def _clickhouse_calendar_data(node: CalendarData) -> sge.Expr:

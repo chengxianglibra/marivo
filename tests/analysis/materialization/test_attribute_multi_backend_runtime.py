@@ -252,40 +252,6 @@ def test_native_attribute_distinguishes_known_empty_from_all_null(
         assert caught.value.attribute_context is not None
 
 
-@pytest.mark.parametrize("backend,profile", source_params([("mysql", "innodb-table")]))
-def test_mysql_attribute_rejects_nondeterministic_collation_before_business_reads(
-    backend: str,
-    profile: str,
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
-) -> None:
-    data = SourceData(
-        _columns(backend, "BIGINT").replace(
-            "category VARCHAR(10) COLLATE utf8mb4_0900_bin",
-            "category VARCHAR(10) COLLATE utf8mb4_0900_ai_ci",
-        ),
-        "(1,'east','A',100,NULL,1,DATE '2026-07-01')",
-        "",
-        [],
-    )
-    monkeypatch.chdir(tmp_path)
-    with source_case(backend, profile, tmp_path, monkeypatch, data) as case:
-        _project(backend, case, monkeypatch, semantic_project_factory)
-        session = mv.session.get_or_create("mysql-attribute-collation", timezone="UTC")
-        amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
-        category = catalog_value(session.catalog, "sales.facts.category", kind="field")
-        parent = session.observe({"q": amount.sum()}).compute()
-        trace = capture_source(monkeypatch)
-        with pytest.raises(AttributeInputError) as caught:
-            parent.attribute(by=(category,)).compute()
-        assert caught.value.reason == "unqualified_contribution_route"
-        assert isinstance(caught.value.received, str)
-        assert "collation" in caught.value.received
-        # Native metadata qualification may run; no Attribute business query does.
-        assert trace.native_sql == [] and trace.returned_rows == []
-
-
 @pytest.mark.parametrize("backend,profile", source_params(CASES))
 def test_native_fixed_members_preserve_attribute_source_constraints(
     backend: str,

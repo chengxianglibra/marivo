@@ -324,7 +324,13 @@ neither replaces these operation checks nor proves consistency between reads.
 The existing rejection of incompatible non-temporal scopes within one root remains;
 such scopes are never merged merely because their root matches.
 Remote Attribute original-input admission requires direct physical integer,
-string or date32 identities and qualified string collations. Physical identity columns may
+string or date32 identities and backend-qualified string carriers. MySQL/MariaDB
+observation predicates and their Attribute replays compare strings using the
+source column's collation. Attribute grouping and membership also use that
+collation, including the database default. Completed Frame keys and cross-endpoint alignment compare the actual
+returned values, so different representative strings remain different keys even
+when the source collation considers them equal. Other backends retain their
+existing string qualification. Physical identity columns may
 be nullable in source metadata: the semantic `primary_key` declaration supplies
 the complete, non-null identity assumption. Attribute adds no full-source NULL or
 uniqueness precheck. Violating that declaration is not guaranteed to raise an

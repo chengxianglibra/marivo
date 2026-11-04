@@ -43,7 +43,7 @@ from marivo.analysis.materialization.graph_source_execution import (
 )
 from marivo.analysis.methods.physical import QUERY_COMBINE_KERNEL
 from marivo.analysis.session.core import Session
-from marivo.datasource.adapters import SourceSession
+from marivo.datasource.adapters import CompiledRead, SourceSession
 from marivo.semantic._deferred_semantics import consume_metric
 from marivo.semantic.errors import SemanticExpressionError, SemanticRuntimeError
 from tests.shared_fixtures import (
@@ -279,6 +279,38 @@ def test_uint64_prepares_exact_decimal_before_any_business_read(
             field for field in prepared.schemas[0].fields if field.field == "sales.orders.code"
         )
         assert code_field.dtype == DecimalDataType(20, 0)
+
+
+def test_qualified_unparameterized_read_is_compiled_once_and_executed(
+    warehouse_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    session = warehouse_session
+    region = _dimension(session, "sales.orders.region")
+    revenue = catalog_value(session.catalog, "sales.revenue", kind="metric")
+    compile_read = SourceSession.compile
+    execute = SourceSession.execute
+    compiled: list[object] = []
+    executed: list[object] = []
+
+    def counted_compile(owner: SourceSession, *args: object, **kwargs: object) -> object:
+        result = compile_read(owner, *args, **kwargs)  # type: ignore[arg-type]
+        compiled.append(result)
+        return result
+
+    def counted_execute(owner: SourceSession, read: object) -> pd.DataFrame:
+        executed.append(read)
+        return execute(owner, read)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(SourceSession, "compile", counted_compile)
+    monkeypatch.setattr(SourceSession, "execute", counted_execute)
+    result = session.observe({"revenue": revenue}, by=(region,)).compute().to_pandas()
+
+    assert sorted(result["revenue"].tolist()) == [5, BIG + 7]
+    assert len(compiled) == len(executed) == 1
+    assert isinstance(compiled[0], CompiledRead) and isinstance(executed[0], CompiledRead)
+    assert compiled[0].purpose == "query.prepare"
+    assert executed[0].purpose.startswith("query.") and executed[0].purpose != "query.prepare"
+    assert executed[0].sql == compiled[0].sql and executed[0].expression is compiled[0].expression
 
 
 def test_persist_publishes_prepared_numeric_and_path_routes(warehouse_session: Session) -> None:

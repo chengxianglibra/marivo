@@ -1,0 +1,51 @@
+---
+slug: docs/v0.6/release-notes/0.6.1
+title: Marivo 0.6.1
+description: Release notes for Marivo 0.6.1.
+---
+
+Released on November 4, 2026. Marivo 0.6.1 improves backend compatibility and
+source-read reliability for the 0.6 API.
+
+## Highlights
+
+- MySQL and MariaDB string dimensions use the source column's collation for
+  Attribute grouping, membership and shared observation filters. Completed
+  Frames and cross-period alignment retain the actual strings returned by each
+  endpoint; different group representatives remain different keys.
+- Native calendar evaluation supports MariaDB 10.3, alongside current MySQL
+  and MariaDB servers, without requiring `JSON_TABLE`.
+
+## Changed
+
+- The `duckdb`, `all` and `dev` extras now require DuckDB `>=1.5.3,<2` instead
+  of exactly 1.5.3. Compatibility has been checked with DuckDB 1.5.6 and Ibis 12.0.0.
+- ClickHouse source reads resubmit the same query up to twice after recognized
+  transient capacity, connection or gateway failures, with jittered backoff.
+  Timeouts, memory limits and unrecognized errors propagate without a Marivo
+  retry. Driver status retries default to zero; an explicit positive
+  `extra["query_retries"]` enables additional driver attempts.
+
+## Fixed
+
+- Backend cleanup retries a failed disconnect on a later close and records
+  release only after disconnect succeeds.
+- MySQL readers fail before business reads when neither MySQL nor MariaDB
+  native timeout settings are available, rather than continuing without the
+  requested timeout.
+- DuckDB domain capture restores the original source bindings on success and
+  failure, including failures while preparing a capture.
+- UInt64 aggregate input rewrites on DuckDB and ClickHouse remain isolated to
+  the aggregate branch, preserving exact schemas for other consumers such as
+  DISTINCT and UNION.
+
+## Documentation
+
+- Updated English and Chinese backend guidance for dependency constraints,
+  ClickHouse retries and MySQL/MariaDB string comparison behavior.
+
+## Internal
+
+- Reuse qualified, unparameterized compiled reads during execution.
+- Added cross-version MySQL/MariaDB calendar and string-attribution regressions
+  and strengthened disconnect, timeout and domain-capture coverage.

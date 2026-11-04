@@ -336,6 +336,21 @@ connection owner. Cleanup continues across resource failures and records
 disconnection only after confirmed release; it does not actively cancel remote
 queries.
 
+`SourceSession.execute` resubmits the same issued read at most twice when its
+engine profile classifies the raw native failure as transient, waiting a jittered
+1s and then 4s upper bound. ClickHouse classifies structured server codes
+202, 203, 210 and 279, gateway HTTP 429/502/503 without a ClickHouse exception, and connection
+attempts that never reached the server. Timeouts (including gateway 504), memory
+limits, read failures after submission and all other errors propagate unchanged.
+Managed ClickHouse connections default `query_retries` to 0. Explicitly setting
+`extra={"query_retries": 2}` enables driver status retries within each Marivo
+attempt, including retries for HTTP 504. The two-resubmission limit counts
+Marivo attempts only. The driver also handles low-level connection recovery.
+Native errors without a recognized code, HTTP status or connection cause
+propagate without a Marivo retry. Other providers classify nothing as transient.
+Resubmission keeps the SQL, route, connection and submission record; each wait
+is logged as `query.retry` within the original query's correlation id.
+
 The Analysis handoff explicitly declares join and union in addition
 to scan, filter, project, group and count. The basic physical requirement
 admits join/union only on DuckDB; other providers retain their existing operation

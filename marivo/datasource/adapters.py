@@ -6,8 +6,10 @@ loads its optional backend driver. The session owns issued reads and its backend
 
 from __future__ import annotations
 
+import random
+import time
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
@@ -51,6 +53,8 @@ TIMESTAMP_UNIT_METADATA_KEY = b"marivo:timestamp_unit"
 SourceIR = TableSourceIR | CsvSourceIR | ParquetSourceIR | JsonSourceIR
 Parameter = str | int | float | bool | bytes | Decimal | date | datetime | None
 Termination = Literal["local_closed", "remote_unknown", "remote_confirmed"]
+# Upper backoff bounds before each resubmission; each wait is jittered to [50%, 100%].
+_SOURCE_RETRY_DELAYS_SECONDS = (1.0, 4.0)
 
 
 def _native_pandas_type(dtype: pa.DataType) -> pd.ArrowDtype | None:
@@ -650,6 +654,23 @@ class SourceSession:
         )
         return issued
 
+    def reissue(self, read: CompiledRead, *, purpose: str) -> CompiledRead:
+        """Issue an already compiled read under another purpose without recompiling it."""
+        proof = self._issued_read(read)
+        if not purpose:
+            raise _invalid("a nonempty read purpose", "empty purpose")
+        issued = CompiledRead(
+            proof.expression,
+            proof.sql,
+            proof.params,
+            purpose,
+            proof.schema,
+            proof.source_identity,
+            self._token,
+        )
+        self._issued[id(issued)] = (issued, replace(proof, purpose=purpose))
+        return issued
+
     def _issued_read(self, read: CompiledRead) -> _IssuedRead:
         self._ensure_open()
         stored = self._issued.get(id(read))
@@ -686,91 +707,125 @@ class SourceSession:
         self._query_logs[id(submission)] = query
         try:
             with cr.backend_errors(self._backend), self._compilation_memo.activate():
-                table = proof.expression.as_table()
-                if self.provider.name == "mysql":
-                    from marivo.datasource.engines._mysql_backend import convert_mysql_frame
-                    from marivo.datasource.engines.base import decode_cursor_frame
+                for attempt, delay in enumerate((*_SOURCE_RETRY_DELAYS_SECONDS, None), start=1):
+                    try:
+                        table = proof.expression.as_table()
+                        if self.provider.name == "mysql":
+                            from marivo.datasource.engines._mysql_backend import convert_mysql_frame
+                            from marivo.datasource.engines.base import decode_cursor_frame
 
-                    # Ibis' MySQL pandas fetcher coerces Decimal and nullable
-                    # integer rows through float64. Decode this already-issued
-                    # SQL on the same owned connection before that conversion.
-                    with self._backend.raw_sql(proof.sql) as cursor:
-                        decoded = decode_cursor_frame(cursor, include_types=False, max_rows=None)
-                    raw = pd.DataFrame(
-                        {
-                            name: pd.Series([row[name] for row in decoded.rows], dtype=object)
-                            for name in decoded.columns
-                        }
-                    )
-                    # Preserve normal pandas temporal inference for Ibis' native
-                    # TIME decoder, while exact reconstruction uses untouched raw.
-                    result = convert_mysql_frame(raw.copy().infer_objects(), table.schema())
-                    for field in proof.schema:
-                        values = raw[field.name]
-                        native_decimal = any(isinstance(value, Decimal) for value in values)
-                        if pa.types.is_boolean(field.type):
-                            array = pa.array(values, from_pandas=True).cast(pa.bool_())
-                            result[field.name] = pd.Series(pd.arrays.ArrowExtensionArray(array))
-                        elif (
-                            pa.types.is_integer(field.type)
-                            or pa.types.is_decimal(field.type)
-                            or pa.types.is_floating(field.type)
-                            or native_decimal
-                        ):
-                            arrow_type = (
-                                None
-                                if native_decimal and not pa.types.is_decimal(field.type)
-                                else field.type
+                            # Ibis' MySQL pandas fetcher coerces Decimal and nullable
+                            # integer rows through float64. Decode this already-issued
+                            # SQL on the same owned connection before that conversion.
+                            with self._backend.raw_sql(proof.sql) as cursor:
+                                decoded = decode_cursor_frame(
+                                    cursor, include_types=False, max_rows=None
+                                )
+                            raw = pd.DataFrame(
+                                {
+                                    name: pd.Series(
+                                        [row[name] for row in decoded.rows], dtype=object
+                                    )
+                                    for name in decoded.columns
+                                }
                             )
-                            array = pa.array(
-                                values,
-                                type=arrow_type,
-                                from_pandas=not pa.types.is_floating(field.type),
-                            )
-                            result[field.name] = pd.Series(pd.arrays.ArrowExtensionArray(array))
-                elif self.provider.name == "clickhouse" and all(
-                    requirement.method_id == "query.source_read" and requirement.version == 1
-                    for requirement in proof.requirements
-                ):
-                    # Ibis' pandas reader rounds nullable Int64 through float64;
-                    # its Arrow reader also rejects ClickHouse's UInt8 booleans.
-                    # Decode the same issued SQL from native Python columns first.
-                    external = self._backend._collect_in_memory_tables(table, {})
-                    external_data = self._backend._normalize_external_tables(external)
-                    batches: list[pa.RecordBatch] = []
-                    with self._backend.con.query_column_block_stream(
-                        proof.sql, external_data=external_data
-                    ) as blocks:
-                        for block in blocks:
-                            arrays: list[pa.Array] = []
-                            for field, values in zip(proof.schema, block, strict=True):
+                            # Preserve normal pandas temporal inference for Ibis' native
+                            # TIME decoder, while exact reconstruction uses untouched raw.
+                            result = convert_mysql_frame(raw.copy().infer_objects(), table.schema())
+                            for field in proof.schema:
+                                values = raw[field.name]
+                                native_decimal = any(isinstance(value, Decimal) for value in values)
                                 if pa.types.is_boolean(field.type):
-                                    values = [
-                                        None if value is None else bool(value) for value in values
-                                    ]
-                                arrays.append(
-                                    pa.array(
+                                    array = pa.array(values, from_pandas=True).cast(pa.bool_())
+                                    result[field.name] = pd.Series(
+                                        pd.arrays.ArrowExtensionArray(array)
+                                    )
+                                elif (
+                                    pa.types.is_integer(field.type)
+                                    or pa.types.is_decimal(field.type)
+                                    or pa.types.is_floating(field.type)
+                                    or native_decimal
+                                ):
+                                    arrow_type = (
+                                        None
+                                        if native_decimal and not pa.types.is_decimal(field.type)
+                                        else field.type
+                                    )
+                                    array = pa.array(
                                         values,
-                                        type=field.type,
+                                        type=arrow_type,
                                         from_pandas=not pa.types.is_floating(field.type),
                                     )
-                                )
-                            batches.append(pa.RecordBatch.from_arrays(arrays, schema=proof.schema))
-                    result = pa.Table.from_batches(batches, schema=proof.schema).to_pandas(
-                        types_mapper=_native_pandas_type
-                    )
-                elif self.provider.name in {"duckdb", "trino"} or (
-                    self.provider.name == "postgres"
-                    and all(
-                        requirement.method_id == "query.source_read" and requirement.version == 1
-                        for requirement in proof.requirements
-                    )
-                ):
-                    # Preserve native numbers and floating validity before pandas conversion.
-                    arrow = self._backend.to_pyarrow(table, params=dict(proof.params), limit=None)
-                    result = arrow.to_pandas(types_mapper=_native_pandas_type)
-                else:
-                    result = self._backend.execute(table, params=dict(proof.params), limit=None)
+                                    result[field.name] = pd.Series(
+                                        pd.arrays.ArrowExtensionArray(array)
+                                    )
+                        elif self.provider.name == "clickhouse" and all(
+                            requirement.method_id == "query.source_read"
+                            and requirement.version == 1
+                            for requirement in proof.requirements
+                        ):
+                            # Ibis' pandas reader rounds nullable Int64 through float64;
+                            # its Arrow reader also rejects ClickHouse's UInt8 booleans.
+                            # Decode the same issued SQL from native Python columns first.
+                            external = self._backend._collect_in_memory_tables(table, {})
+                            external_data = self._backend._normalize_external_tables(external)
+                            batches: list[pa.RecordBatch] = []
+                            with self._backend.con.query_column_block_stream(
+                                proof.sql, external_data=external_data
+                            ) as blocks:
+                                for block in blocks:
+                                    arrays: list[pa.Array] = []
+                                    for field, values in zip(proof.schema, block, strict=True):
+                                        if pa.types.is_boolean(field.type):
+                                            values = [
+                                                None if value is None else bool(value)
+                                                for value in values
+                                            ]
+                                        arrays.append(
+                                            pa.array(
+                                                values,
+                                                type=field.type,
+                                                from_pandas=not pa.types.is_floating(field.type),
+                                            )
+                                        )
+                                    batches.append(
+                                        pa.RecordBatch.from_arrays(arrays, schema=proof.schema)
+                                    )
+                            result = pa.Table.from_batches(batches, schema=proof.schema).to_pandas(
+                                types_mapper=_native_pandas_type
+                            )
+                        elif self.provider.name in {"duckdb", "trino"} or (
+                            self.provider.name == "postgres"
+                            and all(
+                                requirement.method_id == "query.source_read"
+                                and requirement.version == 1
+                                for requirement in proof.requirements
+                            )
+                        ):
+                            # Preserve native numbers and floating validity before pandas conversion.
+                            arrow = self._backend.to_pyarrow(
+                                table, params=dict(proof.params), limit=None
+                            )
+                            result = arrow.to_pandas(types_mapper=_native_pandas_type)
+                        else:
+                            result = self._backend.execute(
+                                table, params=dict(proof.params), limit=None
+                            )
+                        break
+                    except Exception as error:
+                        # Classify the raw driver failure before credential sanitization.
+                        if delay is None or not self.provider.transient_failure(error):
+                            raise
+                        waited = delay * random.uniform(0.5, 1.0)
+                        _execution_log.emit(
+                            "query.retry",
+                            context=query.context,
+                            severity="WARNING",
+                            fields=_execution_log.error_fields(error, sensitive=query.sensitive),
+                            attempt=attempt,
+                            delay_seconds=round(waited, 3),
+                        )
+                        time.sleep(waited)
             if not isinstance(result, pd.DataFrame):
                 raise _invalid("an Ibis pandas DataFrame result", type(result).__name__)
             if tuple(result.columns) != tuple(proof.schema.names):
