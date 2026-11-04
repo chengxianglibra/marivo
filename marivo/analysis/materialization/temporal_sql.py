@@ -21,5 +21,5 @@ def lower_temporal(expression: ir.Expr, engine: str) -> ir.Expr:
         expression if engine == "clickhouse" else cancel_utc(expression), engine
     )
     if deferred:
-        expression = lower_day_keys(expression, engine)
+        expression = lower_day_keys(expression)
     return lower_native_temporal(expression, engine)

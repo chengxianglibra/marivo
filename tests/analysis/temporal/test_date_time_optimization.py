@@ -284,3 +284,73 @@ def test_clickhouse_date_axes_prune_partitions(historical: bool) -> None:
                             assert "FUNCTION toTimezone" not in below
         finally:
             admin.command(f"DROP TABLE IF EXISTS {name}")
+
+
+@pytest.mark.parametrize("encoding", ["compact", "dashed", "integer"])
+@pytest.mark.parametrize(
+    "source_zone,report_zone,start,end,fast",
+    [
+        ("UTC", "UTC", "2026-10-28", "2026-10-31", True),
+        ("Asia/Shanghai", "Asia/Shanghai", "2026-10-28", "2026-10-31", True),
+        ("Asia/Shanghai", "UTC", "2026-10-28", "2026-10-31", False),
+        ("America/New_York", "America/New_York", "2026-10-30", "2026-11-04", False),
+    ],
+)
+def test_encoded_day_keys_restore_native_groups_after_aggregation(
+    encoding: str, source_zone: str, report_zone: str, start: str, end: str, fast: bool
+) -> None:
+    from marivo.analysis.compiler.source_time import source_time
+    from marivo.semantic._source_timezone import DeclaredSourceTimezone
+    from tests.analysis.temporal.encoded_time_fixtures import axis
+
+    calendar = exact_scope(start, end, report_zone).by(mv.grain("day"))._binding
+    fmt = "%Y-%m-%d" if encoding == "dashed" else "%Y%m%d"
+    contract = axis(fmt)
+    first, stop = date.fromisoformat(start), date.fromisoformat(end)
+    points = [first + timedelta(days=i) for i in range((stop - first).days)]
+    values = [
+        int(point.strftime(fmt)) if encoding == "integer" else point.strftime(fmt)
+        for point in points
+    ]
+    backend = ibis.duckdb.connect(TimeZone="UTC")
+    try:
+        table = backend.create_table(
+            "encoded_days",
+            ibis.memtable(
+                {"point": [*values, *values, None]},
+                schema={"point": "int64" if encoding == "integer" else "string"},
+            ),
+        )
+        clock, authority = source_time(
+            table.point,
+            contract,
+            boundary_timezone="UTC",
+            source_timezone=DeclaredSourceTimezone(source_zone, "field"),
+            engine="duckdb",
+        )
+        native = builtin_key(clock, calendar)
+        deferred = deferred_day_key(
+            table, table.point, calendar, source_zone, "duckdb", encoded=(contract, authority)
+        )
+        assert (deferred is not None) == fast
+        if deferred is not None:
+            marked = table.mutate(bucket=deferred)
+            original = table.mutate(bucket=native)
+            actual = lower_temporal(
+                marked.group_by("bucket").aggregate(n=marked.count()).order_by("bucket"), "duckdb"
+            )
+            expected = lower_temporal(
+                original.group_by("bucket").aggregate(n=original.count()).order_by("bucket"),
+                "duckdb",
+            )
+            pd.testing.assert_frame_equal(backend.execute(actual), backend.execute(expected))
+        # A derived encoding cannot authorize raw grouping, even if its values agree.
+        derived = table.point + 0 if encoding == "integer" else table.point.concat("")
+        assert (
+            deferred_day_key(
+                table, derived, calendar, source_zone, "duckdb", encoded=(contract, authority)
+            )
+            is None
+        )
+    finally:
+        backend.disconnect()

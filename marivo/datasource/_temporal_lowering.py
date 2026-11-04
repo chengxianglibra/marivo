@@ -243,7 +243,10 @@ def lower_temporal(expression: ir.Expr, engine: str) -> ir.Expr:
                 return convert(timestamp, source, target).op()
             if engine == "trino":
                 if localize:
-                    return _trino_localize(timestamp, zone).op()
+                    instant = _trino_localize(timestamp, zone)
+                    # Return the declared UTC carrier. A named-zone wire value can
+                    # be reinterpreted by a client with different timezone rules.
+                    return (instant if zone == "UTC" else _trino_render(instant, "UTC")).op()
                 return _trino_render(timestamp, zone).cast(dt.Timestamp(scale=6)).op()
             if engine == "clickhouse":
                 if localize and any(cast.arg.dtype.is_date() for cast in argument.find(ops.Cast)):

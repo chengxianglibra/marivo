@@ -66,7 +66,13 @@ the source to re-prove those declarations. Versioned relations require the
 selected version or the complete retained version grain; membership expansion
 does not automatically retain the root identity key.
 Scalar reads join directly without rechecking uniqueness or requiring a
-matching record. Missing scalar matches produce NULL; read/classify retain the
+matching record. Within one prepared source relation, scalar paths reuse identical
+relationship prefixes and their already projected columns, including when one
+path continues or forks beyond another. Relationship identity and the selected
+fixed or row-dependent version condition distinguish bindings. Read ordering
+does not change the shared matches. Missing scalar matches produce NULL even
+when the target field supplies a default for a matched row's NULL value.
+Read/classify retain the
 requested identity domain with NULL attributes. Relationship traversal uses its
 actual joins and set semantics when a source record is absent. Invalid declared
 uniqueness can multiply contributions; analysis does not repair it by choosing an
