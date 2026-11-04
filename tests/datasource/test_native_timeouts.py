@@ -163,7 +163,7 @@ def test_native_configuration_precedes_reader_use_without_control_connection(
 
 
 @pytest.mark.parametrize("code", (1193, 1227))
-def test_mysql_unsupported_native_setting_is_distinct_from_permission_denial(
+def test_mysql_unknown_timeout_variable_fails_closed_like_permission_denial(
     code: int, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     backend = Mock(spec=BaseBackend)
@@ -175,15 +175,106 @@ def test_mysql_unsupported_native_setting_is_distinct_from_permission_denial(
         ]
     )
     monkeypatch.setattr(mysql, "execute_provider_statement", statement)
-    entered: list[bool] = []
-    if code == 1193:
-        with mysql.native_query_timeout(backend, 7):
-            entered.append(True)
-        assert entered == [True]
-    else:
-        with pytest.raises(DatasourceSourceCapabilityError), mysql.native_query_timeout(backend, 7):
-            pytest.fail("Denied configuration must not enter the read")
+    with pytest.raises(DatasourceSourceCapabilityError), mysql.native_query_timeout(backend, 7):
+        pytest.fail("Unconfirmed configuration must not enter the read")
     assert statement.call_count == (2 if code == 1193 else 1)
+    assert getattr(backend, "_marivo_native_timeout_unsupported", False) is not True
+    assert getattr(backend, "_marivo_configured_query_timeout_seconds", None) is None
+
+
+@pytest.mark.parametrize(
+    ("version", "failed_installs"),
+    (
+        ("8.0.36", ("install_select_deadline",)),
+        ("10.11.6-MariaDB", ("install_select_deadline", "install_mariadb_deadline")),
+    ),
+)
+def test_missing_native_timeout_is_not_cached_as_success(
+    version: str, failed_installs: tuple[str, ...], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    backend = Mock(spec=BaseBackend)
+    backend._marivo_terminal_timeout_seconds = 7
+    calls: list[str] = []
+
+    def execute(
+        _backend: BaseBackend,
+        _profile: object,
+        statement_id: str,
+        **_kwargs: object,
+    ) -> tuple[dict[str, object], ...]:
+        calls.append(statement_id)
+        if statement_id.endswith("server_version"):
+            return ({"server_version": version},)
+        if any(statement_id.endswith(name) for name in failed_installs):
+            raise RuntimeError(1193, "Unknown system variable")
+        raise AssertionError(statement_id)
+
+    monkeypatch.setattr(mysql, "execute_provider_statement", execute)
+    per_entry = 2 if len(failed_installs) == 1 else 3
+    for _entry in range(2):
+        before = len(calls)
+        with (
+            pytest.raises(DatasourceSourceCapabilityError) as failure,
+            mysql.native_query_timeout(backend, 7),
+        ):
+            pytest.fail("A missing native timeout must not enter the read")
+        assert len(calls) - before == per_entry
+        assert isinstance(failure.value.__cause__, RuntimeError)
+        assert failure.value.__cause__.args[0] == 1193
+    assert getattr(backend, "_marivo_native_timeout_unsupported", False) is not True
+    assert getattr(backend, "_marivo_configured_query_timeout_seconds", None) is None
+
+
+@pytest.mark.parametrize("server", ("mysql", "mariadb"))
+def test_confirmed_native_timeout_is_reused_for_the_same_seconds(
+    server: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    backend = Mock(spec=BaseBackend)
+    backend._marivo_terminal_timeout_seconds = 7
+    calls: list[str] = []
+
+    def execute(
+        _backend: BaseBackend,
+        _profile: object,
+        statement_id: str,
+        **_kwargs: object,
+    ) -> tuple[dict[str, object], ...]:
+        calls.append(statement_id)
+        if statement_id.endswith("install_select_deadline"):
+            if server == "mariadb":
+                raise RuntimeError(1193, "Unknown system variable 'max_execution_time'")
+            return ()
+        if statement_id.endswith("server_version"):
+            return ({"server_version": "10.11.6-MariaDB"},)
+        if statement_id.endswith("install_mariadb_deadline"):
+            return ()
+        if statement_id.endswith("read_select_deadline"):
+            return ({"@@session.max_execution_time": 7000},)
+        if statement_id.endswith("read_mariadb_deadline"):
+            return ({"@@session.max_statement_time": 7},)
+        raise AssertionError(statement_id)
+
+    monkeypatch.setattr(mysql, "execute_provider_statement", execute)
+    for _entry in range(2):
+        entered = False
+        with mysql.native_query_timeout(backend, 7):
+            entered = True
+        assert entered is True
+    expected = (
+        [
+            "mysql.authoring.install_select_deadline",
+            "mysql.authoring.server_version",
+            "mysql.authoring.install_mariadb_deadline",
+            "mysql.authoring.read_mariadb_deadline",
+        ]
+        if server == "mariadb"
+        else [
+            "mysql.authoring.install_select_deadline",
+            "mysql.authoring.read_select_deadline",
+        ]
+    )
+    assert calls == expected
+    assert backend._marivo_configured_query_timeout_seconds == 7
 
 
 def test_connection_is_synchronous_and_has_no_elapsed_time_deadline(
