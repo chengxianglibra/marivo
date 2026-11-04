@@ -91,11 +91,15 @@ the original DATE to a DATE constant; boolean structure and unqualified native
 predicates remain intact. A builtin day calendar in the same source timezone
 reuses that prepared day-start instant when every selected day's boundaries
 qualify, including days inside the range. Its key remains a UTC microsecond
-timestamp. Other grains, cross-zone groups and transition-adjacent days retain
+timestamp. Trino returns localized instants with a UTC zone label so client
+timezone rules preserve the instant selected by the server. Other grains, cross-zone groups and transition-adjacent days retain
 native civil truncation.
 
-Ordinary observations over a physical DATE may also group by that DATE before
-converting each aggregate group's key to its business-day start. This shared
+Ordinary observations over a physical DATE or canonical day encoding may group
+by the original value before restoring each aggregate group's business-day start.
+Encoded keys admit `%Y%m%d` and `%Y-%m-%d` strings, or `%Y%m%d` integers.
+Their native parsing, integer-to-string cast and timezone conversion run on the
+aggregate results using the captured source-time authority. This shared
 optimization applies to DuckDB, PostgreSQL, MySQL/MariaDB, Trino and ClickHouse;
 each backend retains its own native conversion, NULL and error behavior. This requires
 the qualified same-zone builtin-day mapping above, direct unanchored source time,
@@ -103,7 +107,7 @@ and no window, internal sample or population membership binding. Qualification
 also checks the already captured native calendar for consecutive civil midnights
 and 24-hour elapsed spans, independently of the local timezone database. This
 only admits an optimization; 23/25-hour native days retain the existing path.
-The physical DATE stays private to the source aggregate; predicate/check summaries use the
+The raw day value stays private to the source aggregate; predicate/check summaries use the
 same grouping, and UTC microsecond keys are restored before result combination,
 calendar completion or persistence. Unused source projections may remain in SQL;
 native execution plans establish whether conversion actually runs after grouping.
@@ -335,8 +339,10 @@ to the first represented source tick: an hourly encoding filtered by
 start semantics in cross-zone ranges. Date/hour composites compare the original
 prefix and hour columns. All consumers of source time ranges share this rule.
 Derived expressions, nonordered formats, unsupported carriers and ambiguous
-endpoints retain native predicates. Projection and calendar assignment still
-use native parsing and timezone operations.
+endpoints retain native predicates. Projection and calendar assignment use
+native parsing and timezone operations.
+Qualified same-zone builtin-day observations can defer these operations until
+after grouping by a canonical day encoding, as described above.
 
 Hour-prefix values use integers 0..23 or canonical strings `00`..`23`.
 Hour 24 and other noncanonical non-NULL values violate the declaration; native

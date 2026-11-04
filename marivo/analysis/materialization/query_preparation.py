@@ -53,6 +53,7 @@ from marivo.semantic._physical_contracts import validate_bound_field
 from marivo.semantic._source_timezone import effective_source_timezone
 from marivo.semantic.ir import (
     HourPrefixParse,
+    StrptimeParse,
     TargetDimensionContract,
 )
 from marivo.semantic.validator import (
@@ -498,7 +499,11 @@ def prepare_fields(
     columns: list[tuple[str, str]] = []
     originals: list[tuple[str, ir.Value]] = []
     checks: list[tuple[str, str, str]] = []
-    routes: dict[tuple[ExactRef, tuple[ExactRef, ...], AttributeTime | None], ir.Table] = {}
+    match_flag = unique("__route_matched")
+    routes: dict[
+        tuple[tuple[ExactRef, ...], AttributeTime | None],
+        tuple[ir.Table, dict[str, str]],
+    ] = {}
     from marivo.analysis.binding.membership import membership_reads
     from marivo.analysis.materialization.membership_preparation import prepare_memberships
 
@@ -544,7 +549,7 @@ def prepare_fields(
         )
     )
     pending_calendars: list[tuple[str, str, CalendarCoordinate]] = []
-    date_clocks: dict[str, tuple[ir.Value, str]] = {}
+    day_clocks: dict[str, tuple[ir.Value, TargetDimensionContract, SourceTimeAuthority]] = {}
     for index, (read, component, read_key) in enumerate(parts):
         extras: dict[str, ir.Value] = {}
         extra_keys: dict[str, str] = {}
@@ -568,10 +573,16 @@ def prepare_fields(
                         encoding = time_encodings.get(read.field.ref.path)
                         if (
                             encoding is not None
-                            and encoding[0].type().is_date()
-                            and encoding[2].kind == "civil_date"
+                            and encoding[2].kind != "instant"
+                            and (
+                                encoding[0].type().is_date()
+                                or (
+                                    isinstance(encoding[1].parse, StrptimeParse)
+                                    and encoding[1].parse.format in ("%Y%m%d", "%Y-%m-%d")
+                                )
+                            )
                         ):
-                            date_clocks[name] = (encoding[0], encoding[2].timezone)
+                            day_clocks[name] = encoding[:3]
                     else:
                         extras[name] = period_condition(
                             expression, calendar.start, calendar.end, calendar.timezone
@@ -624,14 +635,6 @@ def prepare_fields(
             dependencies.append(expression)
             originals.append((slot, expression))
             table = table.mutate(**{slot: expression}, **time_columns(expression))
-        elif (read.entity, read.path, read.at) in routes:
-            # All target columns remain in the first left join. Reading a
-            # second attribute through its ancestor reuses that exact match.
-            target = routes[(read.entity, read.path, read.at)]
-            expression = read_value(target)
-            dependencies.append(expression)
-            originals.append((slot, expression))
-            table = table.mutate(**{slot: expression}, **time_columns(expression))
         else:
             current = {name: name for name in entities[contribution.root.ref.path].columns}
             steps = read.path or (None,)
@@ -645,6 +648,27 @@ def prepare_fields(
                     relation = normalize_target_relationship(registry, step.ref.path)
                     target_path = relation.to_entity_ref.path
                     keys = relation.keys
+                final = step_index == len(steps) - 1
+                route_key = (read.path[: step_index + 1], read.at if final else None)
+                if route_key in routes:
+                    # Match through retained columns, never a fresh target relation.
+                    target, current = routes[route_key]
+                    if final:
+                        expression = read_value(target)
+                        replacements = {
+                            ops.Field(target.op(), name): table[current[name]].op()
+                            for name in target.columns
+                        }
+                        source_node = expression.op()
+                        expression = source_node.replace(replacements).to_expr()
+                        assert isinstance(expression, ir.Value)
+                        if not isinstance(source_node, ops.Field):
+                            # A derived attribute exists only when its target row matched.
+                            expression = table[current[match_flag]].ifelse(expression, ibis.null())
+                        dependencies.append(expression)
+                        originals.append((slot, expression))
+                        table = table.mutate(**{slot: expression}, **time_columns(expression))
+                    continue
                 target = entities[target_path].view()
                 row_condition: ir.BooleanValue | None = None
                 for left, right in keys:
@@ -679,14 +703,13 @@ def prepare_fields(
                             source_times=source_times,
                         )
                         target = target.filter(version_condition)
-                final = step_index == len(steps) - 1
                 if final:
                     expression = read_value(target)
                     dependencies.append(expression)
                     originals.append((slot, expression))
                     target = target.mutate(**{slot: expression}, **time_columns(expression))
                 prefix = f"__route_{index}_{step_index}_"
-                grouped = target
+                grouped = target.mutate(**{match_flag: ibis.literal(True)})
                 renamed = {name: unique(prefix + name) for name in grouped.columns}
                 grouped = grouped.rename(**{new: old for old, new in renamed.items()})
                 joined = table.left_join(
@@ -696,12 +719,12 @@ def prepare_fields(
                 )
                 table = joined.select(table, *(grouped[name] for name in grouped.columns))
                 current = renamed
+                routes[route_key] = (target, renamed)
                 if final:
                     table = table.mutate(
                         **{slot: table[renamed[slot]]},
                         **{name: table[renamed[name]] for name in extras},
                     )
-                    routes[(read.entity, read.path, read.at)] = target
         columns.append((read_key, slot))
         columns.extend((key, name) for name, key in extra_keys.items())
         if read == time_read and (read.path or read.at is not None) and selected_calendars:
@@ -716,8 +739,15 @@ def prepare_fields(
     from marivo.analysis.compiler.calendar import bind_calendar
 
     for name, time_key, calendar in pending_calendars:
-        date_clock = date_clocks.get(name)
-        date_timezone = date_clock[1] if date_clock is not None else None
+        day_clock = day_clocks.get(name)
+        day_timezone = (
+            day_clock[2].timezone
+            if day_clock is not None and day_clock[2].kind != "instant"
+            else None
+        )
+        date_timezone = (
+            day_timezone if day_clock is not None and day_clock[0].type().is_date() else None
+        )
         if contribution.time is not None:
             encoding = time_encodings.get(contribution.time.field.ref.path)
             if encoding is not None:
@@ -726,7 +756,7 @@ def prepare_fields(
                 )
         clock = dict(columns)[time_key]
         if (
-            date_timezone is not None
+            day_timezone is not None
             and contribution.time is not None
             and not contribution.time.path
             and contribution.time.at is None
@@ -740,15 +770,18 @@ def prepare_fields(
         ):
             from marivo.analysis.materialization.date_day_keys import deferred_day_key
 
-            assert date_clock is not None
+            assert day_clock is not None
             deferred = deferred_day_key(
                 table,
-                date_clock[0],
+                day_clock[0],
                 calendar,
-                date_timezone,
+                day_timezone,
                 entity_engine(
                     registry, normalize_target_entity(registry, contribution.root.ref.path)
                 ),
+                encoded=(day_clock[1], day_clock[2])
+                if isinstance(day_clock[1].parse, StrptimeParse)
+                else None,
             )
             if deferred is not None:
                 table = table.mutate(**{name: deferred})

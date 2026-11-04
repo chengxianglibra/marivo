@@ -35,9 +35,11 @@ from tests.support.source_trace import SourceTrace
         ]
     ),
 )
+@pytest.mark.parametrize("encoding", ["date", "compact", "dashed", "integer"])
 def test_date_day_grouping_keeps_empty_null_and_category_domains(
     backend: str,
     profile: str,
+    encoding: str,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
@@ -54,15 +56,42 @@ def test_date_day_grouping_keeps_empty_null_and_category_domains(
         {"id": 7, "point": date(2026, 10, 28), "amount": 5, "category": "B"},
         {"id": 8, "point": date(2026, 10, 30), "amount": 20, "category": "B"},
     ]
+    physical = (
+        "DATE" if encoding == "date" else "BIGINT" if encoding == "integer" else "VARCHAR(10)"
+    )
+    clickhouse_type = (
+        "Date" if encoding == "date" else "Int64" if encoding == "integer" else "String"
+    )
+    parser = (
+        "ms.date(timezone='Asia/Shanghai')"
+        if encoding == "date"
+        else f"ms.strptime({'%Y-%m-%d' if encoding == 'dashed' else '%Y%m%d'!r}, timezone='Asia/Shanghai')"
+    )
+    for row in rows:
+        point = row["point"]
+        if isinstance(point, date) and encoding != "date":
+            row["point"] = (
+                int(point.strftime("%Y%m%d"))
+                if encoding == "integer"
+                else point.strftime("%Y-%m-%d" if encoding == "dashed" else "%Y%m%d")
+            )
     data = SourceData(
-        "id BIGINT, point DATE, amount BIGINT, category VARCHAR(10)",
+        f"id BIGINT, point {physical}, amount BIGINT, category VARCHAR(10)",
         ",".join(
             f"({row['id']},"
-            + (f"DATE '{row['point']}'" if row["point"] is not None else "NULL")
+            + (
+                "NULL"
+                if row["point"] is None
+                else f"DATE '{row['point']}'"
+                if encoding == "date"
+                else str(row["point"])
+                if encoding == "integer"
+                else f"'{row['point']}'"
+            )
             + f",{row['amount'] if row['amount'] is not None else 'NULL'},'{row['category']}')"
             for row in rows
         ),
-        "id Int64, point Nullable(Date), amount Nullable(Int64), category String",
+        f"id Int64, point Nullable({clickhouse_type}), amount Nullable(Int64), category String",
         rows,
     )
     monkeypatch.chdir(tmp_path)
@@ -74,7 +103,7 @@ def test_date_day_grouping_keeps_empty_null_and_category_domains(
                 "sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales', owner='Test', default=True)\n",
                 "sales/facts.py": "import marivo.datasource as md\nimport marivo.semantic as ms\n"
                 + f"facts=ms.entity(name='facts', datasource=ms.ref.datasource('warehouse'), source=md.table({case.source.table!r}, database={case.source.database!r}), primary_key=['id'])\n"
-                + "point=ms.time_dimension_column(name='point', entity=facts, column='point', parse=ms.date(timezone='Asia/Shanghai'), is_default=True)\n"
+                + f"point=ms.time_dimension_column(name='point', entity=facts, column='point', parse={parser}, is_default=True)\n"
                 + "amount=ms.measure_column(name='amount', entity=facts, column='amount', additivity=ms.additive_all())\n"
                 + "category=ms.dimension_column(name='category', entity=facts, column='category')\n",
             }
@@ -123,7 +152,8 @@ def test_date_day_grouping_keeps_empty_null_and_category_domains(
         ]
         assert grouped
         assert all(
-            any(column.name == "point" for column in select.expressions[0].find_all(sge.Column))
+            isinstance(select.expressions[0].unalias(), sge.Column)
+            and select.expressions[0].unalias().name == "point"
             for select in grouped
         ), [select.sql() for select in grouped]
         saved = frame.persist()
@@ -146,5 +176,6 @@ def test_date_day_grouping_keeps_empty_null_and_category_domains(
             native, _, _ = output_calendar(gap._binding, case.session)
             # Simulate a different local timezone database qualifying a day
             # whose source-native midnight has actually shifted or repeated.
-            monkeypatch.setattr(source_time, "endpoint_rewrite_safe", lambda *args: True)
-            assert not reusable_date_day(native, "America/Havana", backend)
+            with monkeypatch.context() as qualification:
+                qualification.setattr(source_time, "endpoint_rewrite_safe", lambda *args: True)
+                assert not reusable_date_day(native, "America/Havana", backend)

@@ -518,10 +518,21 @@ def test_public_calendar_keeps_facts_when_midnight_fold_returns_to_previous_date
                     if backend == "clickhouse"
                     else f"TIMESTAMP '{value}'"
                 )
-                sql = f"SELECT {native_key} AS bucket, count(*) AS total FROM {table_sql} WHERE point >= {bound(lower)} AND point < {bound(upper)} GROUP BY {native_key} ORDER BY bucket"
+                # Read Trino's chosen instant numerically: a client decoding a
+                # named-zone midnight may select the other side of the fold.
+                bucket = (
+                    f"CAST(to_unixtime({native_key}) AS BIGINT)"
+                    if backend == "trino"
+                    else native_key
+                )
+                sql = f"SELECT {bucket} AS bucket, count(*) AS total FROM {table_sql} WHERE point >= {bound(lower)} AND point < {bound(upper)} GROUP BY {native_key} ORDER BY bucket"
                 oracle = case.session._backend.execute(
                     case.session._backend.sql(
-                        sql, schema={"bucket": "timestamp('UTC', 6)", "total": "int64"}
+                        sql,
+                        schema={
+                            "bucket": "int64" if backend == "trino" else "timestamp('UTC', 6)",
+                            "total": "int64",
+                        },
                     )
                 )
 
@@ -539,7 +550,11 @@ def test_public_calendar_keeps_facts_when_midnight_fold_returns_to_previous_date
                     if total != 0
                 }
                 assert actual == {
-                    key(bucket): total
+                    (
+                        pd.to_datetime(bucket, unit="s", utc=True)
+                        if backend == "trino"
+                        else key(bucket)
+                    ): total
                     for bucket, total in zip(oracle.bucket, oracle.total, strict=True)
                 }
                 assert sum(actual.values()) == expected
