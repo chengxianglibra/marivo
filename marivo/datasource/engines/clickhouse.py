@@ -49,11 +49,54 @@ def connect(name: str, kwargs: Mapping[str, object]) -> BaseBackend:
     connect_kwargs["host"] = host
     connect_kwargs["database"] = kwargs.get("database", "default")
     connect_kwargs.setdefault("autogenerate_session_id", False)
+    # SourceSession owns transient resubmission with backoff. The driver's own
+    # status retries are immediate and also resend gateway timeouts.
+    connect_kwargs.setdefault("query_retries", 0)
     if "secure" in kwargs:
         connect_kwargs["secure"] = bool(kwargs["secure"])
     if "settings" in kwargs and isinstance(kwargs["settings"], dict):
         connect_kwargs["settings"] = dict(kwargs["settings"])
     return ibis.clickhouse.connect(**connect_kwargs)
+
+
+# Server capacity and inter-server connection failures that clear without
+# changing the statement. Timeouts and memory limits are excluded.
+_TRANSIENT_ERROR_CODES = frozenset(
+    {
+        202,  # TOO_MANY_SIMULTANEOUS_QUERIES
+        203,  # NO_FREE_CONNECTION
+        210,  # NETWORK_ERROR
+        279,  # ALL_CONNECTION_TRIES_FAILED
+    }
+)
+# Gateway responses without a ClickHouse exception. 504 is a timeout that the
+# same statement would usually repeat, so it is not resubmitted.
+_TRANSIENT_HTTP_STATUSES = frozenset({429, 502, 503})
+_HTTP_STATUS_RE = re.compile(r"HTTP driver received HTTP status (\d{3})")
+
+
+def transient_failure(error: Exception) -> bool:
+    """Classify native failures that resubmitting a read-only statement can clear."""
+    from clickhouse_connect.driver.exceptions import DatabaseError
+    from urllib3.exceptions import ConnectTimeoutError
+
+    if not isinstance(error, DatabaseError):
+        return False
+    code = getattr(error, "code", None)
+    if code is not None:
+        return code in _TRANSIENT_ERROR_CODES
+    status = _HTTP_STATUS_RE.search(str(error))
+    if status is not None:
+        return int(status.group(1)) in _TRANSIENT_HTTP_STATUSES
+    # A connection that was never established submitted no statement.
+    seen: set[int] = set()
+    cause: BaseException | None = error.__cause__
+    while cause is not None and id(cause) not in seen:
+        if isinstance(cause, ConnectTimeoutError):
+            return True
+        seen.add(id(cause))
+        cause = cause.__cause__ or cause.__context__
+    return False
 
 
 def apply_read_only_kwargs(kwargs: Mapping[str, object]) -> dict[str, object]:
@@ -984,4 +1027,5 @@ PROFILE = EngineProfile(
     translate_strptime_format=python_to_mysql_strptime,
     datetime_decode_policy="utc_naive_instant",
     native_query_timeout=native_query_timeout,
+    transient_failure=transient_failure,
 )

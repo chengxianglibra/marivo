@@ -37,7 +37,7 @@ def test_datasource_backend_extras_track_supported_backends() -> None:
 
     assert optional_dependencies["duckdb"] == [
         "ibis-framework[duckdb]>=12.0.0",
-        "duckdb==1.5.3",
+        "duckdb>=1.5.3,<2",
     ]
 
     assert optional_dependencies["mysql"] == [
@@ -48,9 +48,18 @@ def test_datasource_backend_extras_track_supported_backends() -> None:
 
     assert optional_dependencies["all"] == [
         "ibis-framework[duckdb,trino,postgres,clickhouse]>=12.0.0",
-        "duckdb==1.5.3",
+        "duckdb>=1.5.3,<2",
         "PyMySQL[rsa]>=1.1.2,<1.2",
     ]
+    assert "duckdb>=1.5.3,<2" in optional_dependencies["dev"]
+
+    for extra in ("duckdb", "all", "dev"):
+        constraint = next(
+            Requirement(item).specifier
+            for item in optional_dependencies[extra]
+            if item.startswith("duckdb")
+        )
+        assert "1.5.6" in constraint and "2.0.0" not in constraint
 
 
 def test_all_extras_avoid_native_mysql_dependency() -> None:

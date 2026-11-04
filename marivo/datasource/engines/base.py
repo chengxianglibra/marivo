@@ -117,6 +117,10 @@ def no_connection_conflict(exc: Exception) -> bool:
     return False
 
 
+def no_transient_failure(exc: Exception) -> bool:
+    return False
+
+
 @dataclass(frozen=True)
 class EngineProfile:
     name: str
@@ -134,6 +138,8 @@ class EngineProfile:
     datetime_decode_policy: BackendDatetimeDecodePolicy
     native_query_timeout: NativeQueryTimeout | None
     connection_conflict: Callable[[Exception], bool] = no_connection_conflict
+    # Native failures that resubmitting the same issued read can clear.
+    transient_failure: Callable[[Exception], bool] = no_transient_failure
     http_credentials: Callable[..., ProviderHttpCredentials | None] | None = None
 
     def __post_init__(self) -> None:

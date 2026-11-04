@@ -203,8 +203,12 @@ Empty and all-NULL inputs return NA; strict NULL checks retain their demanded in
 Explicit source approximation uses DuckDB `approx_quantile`, Trino
 `approx_percentile`, or ClickHouse `quantileTDigest`; approximate median uses
 q=0.5 on that same algorithm. Sketches consume floating inputs and Decimal
-results explicitly converge to the declared Decimal carrier. PostgreSQL and
-MySQL reject approximate quantiles and distinct counts during compilation.
+results explicitly converge to the declared Decimal carrier. On DuckDB and
+ClickHouse, a sketch and its NULL-count guard can read a projected UInt64
+field directly. It rounds to the same Float64 as its exact Decimal(20,0)
+carrier. The aggregate keeps this input private so shared projections,
+including DISTINCT and UNION inputs, retain their declared columns. PostgreSQL
+and MySQL reject approximate quantiles and distinct counts during compilation.
 Approximate distinct uses DuckDB `approx_count_distinct`, Trino `approx_distinct`,
 or ClickHouse `uniqHLL12`. Exact distinct uses `COUNT(DISTINCT ...)`, with
 ClickHouse mapped to `uniqExact`. Native aggregate mapping and admission share one

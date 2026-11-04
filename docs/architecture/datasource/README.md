@@ -53,6 +53,8 @@ used everywhere downstream.
 | `md.postgres(...)` | `PostgresSpec` | `postgres` | `host` + `database` required; optional `schema`. |
 | `md.clickhouse(...)` | `ClickHouseSpec` | `clickhouse` | Session-id autogeneration defaults off for analysis stability. |
 
+The `duckdb`, `all`, and `dev` extras require DuckDB `>=1.5.3,<2`.
+
 MySQL and MariaDB use PyMySQL through a private Ibis SQL backend adapter.
 `marivo[mysql]` includes RSA authentication dependencies and needs no local
 MySQL/MariaDB client C library. Ibis still owns MySQL SQL compilation.
