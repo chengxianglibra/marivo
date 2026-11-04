@@ -438,13 +438,13 @@ def test_postgres_attribute_default_preserves_exact_values_and_fixed_parents(
         assert (tuple(trace.native_sql), tuple(trace.returned_rows)) == completed_reads
         assert terminal_runs(session) == ()
         assert fixed.method_facts == ()
-        ordered = rows.sort_values("sales.facts.category", na_position="first", kind="stable")
+        ordered = rows.sort_values("category", na_position="first", kind="stable")
         actual = [
             tuple(None if pd.isna(value) else value for value in row)
             for row in ordered[
                 [
-                    "sales.facts.tenant",
-                    "sales.facts.category",
+                    "tenant",
+                    "category",
                     *fixed.output_names,
                     *fixed.presence_names,
                 ]
@@ -510,11 +510,7 @@ def test_postgres_attribute_default_preserves_exact_values_and_fixed_parents(
             )
         report = target.attribute(by=(category,)).compute()
         attributed = report.to_pandas()
-        assert list(
-            attributed[["sales.facts.tenant", "sales.facts.category"]].itertuples(
-                index=False, name=None
-            )
-        ) == [
+        assert list(attributed[["tenant", "category"]].itertuples(index=False, name=None)) == [
             ("EAST", "A"),
             ("EAST", "B"),
         ]

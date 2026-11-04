@@ -60,6 +60,11 @@ with Trino's file metastore at `local:///hive`, separate from Iceberg data in th
 same persistent warehouse volume. This test-only topology supplies no S3,
 REST catalog, remote Thrift metastore or multi-worker Trino.
 
+The isolated Trino profile sets `query.max-stage-count=500` for the nested
+relationship/allocation coverage cases. The default server budget of 150 stages
+rejects those composed queries before their output checks run. This is a test
+service setting; Marivo does not change a production server's stage budget.
+
 ## ClickHouse 22.3 non-UTC server
 
 The non-UTC hour-sampling regression uses the server's default timezone, without

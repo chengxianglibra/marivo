@@ -80,7 +80,7 @@ def author(root: Path) -> None:
     finally:
         connection.disconnect()
     (root / "models/datasources/warehouse.py").write_text(
-        f"import marivo.datasource as md\nmd.duckdb(name='warehouse',path={str(database)!r})\n"
+        f"import marivo.datasource as md\nmd.duckdb(name='warehouse',wall_clock_timezone='UTC',path={str(database)!r})\n"
     )
     (semantic / "_domain.py").write_text(
         "import marivo.semantic as ms\nms.domain(name='sales',owner='Analytics',default=True)\n"
@@ -91,7 +91,7 @@ def author(root: Path) -> None:
         version = (
             f"ms.snapshot(partition_field=ms.ref.time_dimension('sales.{name}.beginning'),timezone='UTC')"
             if kind == "snapshot"
-            else f"ms.validity(valid_from=ms.ref.time_dimension('sales.{name}.beginning'),valid_to=ms.ref.time_dimension('sales.{name}.ending'),interval='closed_open',open_end=(None,),timezone='UTC')"
+            else f"ms.validity(valid_from=ms.ref.time_dimension('sales.{name}.beginning'),valid_to=ms.ref.time_dimension('sales.{name}.ending'),interval='closed_open',open_end=(None,))"
         )
         code += f"{name}=ms.entity(name={name!r},datasource=ms.ref.datasource('warehouse'),source=md.table('history'),primary_key=['id','tenant'],versioning={version})\n"
         for field in ("id", "tenant", "enabled"):
@@ -223,6 +223,7 @@ def run(root: Path, phase: str) -> dict[str, Json]:
                 queries[kind + "_" + clock] = session.observe(
                     {"value": metric},
                     by=mv.product(session.time_scope(start=start, end=end), chosen),
+                    where=mv.in_population(chosen),
                 )
         stable = session.members(session.catalog.get("entity:sales.subjects"))
         profile = catalog_value(

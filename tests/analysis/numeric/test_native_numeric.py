@@ -235,13 +235,13 @@ def _model(tmp_path: Path) -> None:
 
 @pytest.mark.runtime
 @pytest.mark.parametrize("fixed", [False, True], ids=["source", "fixed"])
-def test_clickhouse_weight_sum_uses_decimal_carrier(
+def test_clickhouse_weight_sum_retains_native_int64_arithmetic(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fixed: bool
 ) -> None:
-    _clickhouse_weight_sum_uses_decimal_carrier(tmp_path, monkeypatch, fixed=fixed)
+    _clickhouse_weight_sum_retains_native_int64_arithmetic(tmp_path, monkeypatch, fixed=fixed)
 
 
-def _clickhouse_weight_sum_uses_decimal_carrier(
+def _clickhouse_weight_sum_retains_native_int64_arithmetic(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     *,
@@ -312,7 +312,10 @@ def _clickhouse_weight_sum_uses_decimal_carrier(
             by=(scope,),
             where=mv.in_population(members),
         ).persist()
-        assert _value(result).tolist() == pytest.approx([1.015])
+        # Native Int64 sum wraps MAX + MAX to -2. The floating numerator
+        # follows the metric's ordinary Float64 multiplication boundary.
+        expected = float(Decimal(2**63 - 1) * Decimal("2.03")) / -2
+        assert _value(result).tolist() == pytest.approx([expected])
         assert session.persisted_frame(result.artifact_id).to_pandas().equals(result.to_pandas())
         assert session._runtime.store.resources(session.id) == ()
         if saved is not None:
@@ -329,9 +332,9 @@ def _clickhouse_weight_sum_uses_decimal_carrier(
                         "values": data.values,
                         "raw_rows": data.rows,
                         "mathematical_weight_sum": 2 * (2**63 - 1),
-                        "weight_carrier": "decimal(38,0)",
+                        "weight_carrier": "int64",
                         "route": "source_original_after_capture" if fixed else "source_ibis",
-                        "expected": "decimal_accumulation",
+                        "expected": expected,
                         "actual": _value(result).tolist(),
                         "publication_counts_after": publication_counts(session),
                         "resources": 0,

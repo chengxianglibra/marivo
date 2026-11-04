@@ -26,17 +26,17 @@ def test_aware_control_respects_native_date_midnight(
         )
         connection.execute(
             "INSERT INTO profiles VALUES "
-            "(1, DATE '2026-10-31', DATE '2026-11-01', 'old'), "
-            "(1, DATE '2026-11-01', NULL, 'new')"
+            "(1, DATE '2025-11-01', DATE '2025-11-02', 'old'), "
+            "(1, DATE '2025-11-02', NULL, 'new')"
         )
         connection.execute(
             "CREATE TABLE facts(id BIGINT, profile_id BIGINT, fact_day TIMESTAMPTZ, amount BIGINT)"
         )
         connection.execute(
-            "INSERT INTO facts VALUES (100, 1, TIMESTAMPTZ '2026-11-01 04:30:00+00', 10)"
+            "INSERT INTO facts VALUES (100, 1, TIMESTAMPTZ '2025-11-02 04:30:00+00', 10)"
         )
         oracle = connection.execute(
-            "SELECT category FROM profiles WHERE timezone('America/Havana', CAST(day AS TIMESTAMP)) <= TIMESTAMPTZ '2026-11-01 04:30:00+00' AND (ending IS NULL OR timezone('America/Havana', CAST(ending AS TIMESTAMP)) > TIMESTAMPTZ '2026-11-01 04:30:00+00')"
+            "SELECT category FROM profiles WHERE timezone('America/Havana', CAST(day AS TIMESTAMP)) <= TIMESTAMPTZ '2025-11-02 04:30:00+00' AND (ending IS NULL OR timezone('America/Havana', CAST(ending AS TIMESTAMP)) > TIMESTAMPTZ '2025-11-02 04:30:00+00')"
         ).fetchall()
         print("NATIVE_ORACLE", oracle)
         assert oracle == [("old",)]
@@ -88,15 +88,15 @@ def test_aware_control_respects_native_date_midnight(
     category = session.catalog.get("dimension:sales.profiles.category")
     relationship = session.catalog.get("relationship:sales.profile")
     historical_category = category.via((relationship,)).at(fact_day)
-    period = session.time_scope(start="2026-11-01", end="2026-11-02")
+    period = session.time_scope(start="2025-11-02", end="2025-11-03")
     result = session.observe(
         {"value": session.catalog.get("measure:sales.facts.amount").sum(time=fact_day)},
         by=(period, historical_category),
     ).compute()
     data = result.to_pandas(axis_names={result.axes[-1].token: "category"})
 
-    # Native Havana Nov 1 midnight selects the later fold at 05:00Z, after the fact.
-    fixed_category = category.via((relationship,)).at(session.instant("2026-11-01T04:30:00+00:00"))
+    # Native Havana Nov 2 midnight selects the later fold at 05:00Z, after the fact.
+    fixed_category = category.via((relationship,)).at(session.instant("2025-11-02T04:30:00+00:00"))
     fixed = session.observe(
         {"value": session.catalog.get("measure:sales.facts.amount").sum(time=fact_day)},
         by=(period, fixed_category),
