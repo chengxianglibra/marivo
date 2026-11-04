@@ -6,6 +6,7 @@ import json
 import os
 import sys
 from decimal import Decimal
+from numbers import Integral
 from pathlib import Path
 from unittest.mock import patch
 
@@ -90,7 +91,7 @@ def author_decimal_mean_project(project: Path) -> Path:
 def _values(result: mv.AnalysisFrame) -> dict[str, Json]:
     frame = result.to_pandas()
     assert isinstance(frame["net_amount"].iloc[0], Decimal)
-    assert isinstance(frame["net_qty"].iloc[0], Decimal)
+    assert isinstance(frame["net_qty"].iloc[0], Integral)
     assert isinstance(frame["amount_mean"].iloc[0], float)
     return {name: str(frame[name].iloc[0]) for name in METRIC_NAMES}
 

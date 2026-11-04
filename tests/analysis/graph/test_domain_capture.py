@@ -60,7 +60,7 @@ def test_remote_preparation_records_independent_reads(
                     assert isinstance(case.source, TableSourceIR)
                     with pg.connection(admin=True) as writer:
                         writer.execute(
-                            sql.SQL("UPDATE {}.{} SET amount=99").format(
+                            sql.SQL("UPDATE {}.{} SET amount=99 WHERE amount IS NOT NULL").format(
                                 sql.Identifier("public"), sql.Identifier(case.source.table)
                             )
                         )

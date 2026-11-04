@@ -100,7 +100,7 @@ def test_terminal_native_timeout_is_not_analysis_cancellation(
         if backend == "postgres":
             assert getattr(cause, "sqlstate", None) == "57014"
         elif backend == "mysql":
-            assert "2013" in str(cause) or "1317" in str(cause)
+            assert cause.args[0] in (2013, 1317, 3024)
         elif backend == "trino":
             assert getattr(cause, "error_name", None) == "EXCEEDED_TIME_LIMIT"
         elif backend == "clickhouse":

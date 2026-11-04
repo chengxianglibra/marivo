@@ -1,5 +1,6 @@
 """Canonical parsing and version admission on actual ClickHouse connections."""
 
+import os
 from collections.abc import Callable
 from datetime import date, datetime, timezone
 from pathlib import Path
@@ -39,6 +40,9 @@ def test_help_discloses_clickhouse_parser_version_boundary() -> None:
 
 
 @pytest.mark.runtime
+@pytest.mark.skipif(
+    os.environ.get("MARIVO_CLICKHOUSE_ANALYSIS_TEST") != "1", reason="opt-in ClickHouse service"
+)
 @pytest.mark.parametrize(
     "unit,expected",
     [

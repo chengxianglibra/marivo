@@ -686,7 +686,13 @@ def test_member_groups_preserve_live_and_fixed_comparisons(
     )
     assert dict(
         zip(
-            left["sales.customer"],
+            left[
+                next(
+                    axis.name.rsplit(".", 1)[-1]
+                    for axis in fixed_current.axes
+                    if axis.role in ("identity", "field")
+                )
+            ],
             left["value"].astype(object) - right["value"].astype(object),
             strict=True,
         )

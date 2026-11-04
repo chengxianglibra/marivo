@@ -33,6 +33,8 @@ def _model(
     factory: Callable[[dict[str, str]], SemanticProject],
     declarations: str,
     monkeypatch: pytest.MonkeyPatch,
+    *,
+    wall_clock_timezone: str = "UTC",
 ) -> None:
     assert isinstance(case.source, TableSourceIR)
     arguments = {
@@ -44,7 +46,7 @@ def _model(
     factory(
         {
             "datasources/warehouse.py": "import marivo.datasource as md\n"
-            + f"md.{case.session.provider.name}(wall_clock_timezone='UTC', name='warehouse',"
+            + f"md.{case.session.provider.name}(wall_clock_timezone={wall_clock_timezone!r}, name='warehouse',"
             + ",".join(f"{key}={value!r}" for key, value in arguments.items())
             + ")\n",
             "sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales',owner='Test',default=True)\n",
@@ -223,6 +225,7 @@ def test_clickhouse_hour_sampling_uses_non_utc_server_timezone(
             "day=ms.time_dimension_column(name='day',entity=events,column='day')\n"
             "hour=ms.time_dimension_column(name='hour',entity=events,column='hour',parse=ms.hour_prefix(day),sample_interval=(1,'hour'))\n",
             monkeypatch,
+            wall_clock_timezone="Asia/Shanghai",
         )
         monkeypatch.chdir(tmp_path)
         session = mv.session.get_or_create("server-hour-samples", timezone="UTC")

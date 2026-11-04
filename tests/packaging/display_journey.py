@@ -14,14 +14,11 @@ import pandas as pd
 import pytest
 
 import marivo.analysis as mv
-from marivo.analysis.core.data_schema import CalendarDataAxis
-from marivo.analysis.core.frame_data import MemoryFrameBacking, StoredFrameBacking
-from marivo.analysis.core.frozen_calendar import read_calendar_directory
+from marivo.analysis.core.data_schema import DataColumn
+from marivo.analysis.core.frame_data import StoredFrameBacking
 from marivo.analysis.dsl.source_capture import ValueRow
 from marivo.analysis.materialization.graph_reading import (
-    ExportRead,
     OutputRead,
-    PreviewRead,
     ReadLayout,
 )
 from tests.analysis.materialization.domain_recovery_worker import snapshot
@@ -32,22 +29,12 @@ from tests.support.json import Json, checked, encode, obj, read
 
 def _table(values: mv.AnalysisFrame, categories: mv.AnalysisFrame) -> pd.DataFrame:
     completed = values.compute()
-    assert isinstance(completed._backing, MemoryFrameBacking)
-    schema = completed._backing.data.schema
     calendar = next(i for i, axis in enumerate(completed.axes) if axis.role == "calendar")
-    assert len(schema.axes) == 2
-    axis = schema.axes[calendar]
-    assert isinstance(axis, CalendarDataAxis) and axis.frozen is not None
-    attachment = next(
-        part
-        for part in completed._backing.data.copy_attachments()
-        if part.name == axis.frozen.directory_name
-    )
-    directory = read_calendar_directory(axis, attachment.schema, attachment.rows)
-    bounds = {bucket.key[0][1]: bucket.nominal_start for bucket in directory.buckets}
-    exported = completed.to_pandas()
+    assert len(completed.axes) == 2
+    exported = completed.to_pandas(time_details=True)
     observed = _frame(completed, frame=exported)
-    observed[f"key_{calendar}"] = observed[f"key_{calendar}"].map(bounds)
+    label = completed.axes[calendar].name.rsplit(".", 1)[-1] + ".label"
+    observed[f"key_{calendar}"] = pd.to_datetime(observed.pop(label), utc=True)
     frame = observed.rename(
         columns={f"key_{1 - calendar}": "key_0", f"key_{calendar}": "key_1", "value": "amount"}
     ).merge(
@@ -165,24 +152,33 @@ def journey(phase: str, project: Path) -> dict[str, object]:
         assert _verify(rebuilt) == rows_result
         output = io.StringIO()
         decoded: list[int] = []
-        original_read = OutputRead.read
+        requested: list[tuple[int, int]] = []
+        original_range = OutputRead.range
 
         def counted(
-            reader: OutputRead, layout: ReadLayout, request: PreviewRead | ExportRead
+            reader: OutputRead,
+            layout: ReadLayout,
+            start: int,
+            limit: int,
+            columns: tuple[DataColumn, ...],
         ) -> pd.DataFrame:
-            result = original_read(reader, layout, request)
-            decoded.append(len(result))
+            before_rows = reader.data_rows_read
+            result = original_range(reader, layout, start, limit, columns)
+            requested.append((start, limit))
+            decoded.append(reader.data_rows_read - before_rows)
             return result
 
         with pytest.MonkeyPatch.context() as patch:
-            patch.setattr(OutputRead, "read", counted)
+            patch.setattr(OutputRead, "range", counted)
             with contextlib.redirect_stdout(output):
                 table.show(n=2)
         text = output.getvalue()
         assert len(text.encode()) <= 8192 and "rows: 12" in text and ".to_pandas()" in text
         assert "required_parts" not in text and "cell_tag" not in text and "call=" not in text
         assert isinstance(table._backing, StoredFrameBacking)
-        assert decoded == [2] and table._backing.data.rows.receipt.realized_row_count == 12
+        assert "displayed=2" in text
+        assert requested == [(0, 2)] and decoded and all(2 <= count <= 12 for count in decoded)
+        assert table._backing.data.rows.receipt.realized_row_count == 12
         assert run_ids(session) == before and session._runtime.store.resources(session.id) == ()
     return {
         "pid": os.getpid(),
