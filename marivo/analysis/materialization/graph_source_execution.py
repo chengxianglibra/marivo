@@ -156,7 +156,7 @@ def _original_input_fact(
 def qualify_original_strings(
     prepared: PreparedSources, table: ir.Table, columns: tuple[str, ...]
 ) -> str | None:
-    """Require qualified native collations for consumed remote string keys."""
+    """Qualify remote strings, retaining MySQL's native comparison semantics."""
     from marivo.datasource._expression_fields import physical_fields
     from marivo.datasource.engines.postgres import deterministic_collation
     from marivo.datasource.ir import TableSourceIR
@@ -179,6 +179,10 @@ def qualify_original_strings(
                     continue
                 if not isinstance(bound.source, TableSourceIR):
                     return "Remote original strings require a physical table collation"
+                if owner.provider.name == "mysql":
+                    # Source grouping and membership use the declared collation;
+                    # completed Frame keys retain the reader's returned strings.
+                    continue
                 key = (owner, bound.relation.op(), physical_field.name)
                 if key not in prepared.collation_qualifications:
                     try:
@@ -226,12 +230,6 @@ def qualify_original_strings(
                                 )
                             deterministic = (
                                 prepared.collation_qualifications.get(key) == "deterministic"
-                            )
-                        elif owner.provider.name == "mysql":
-                            from marivo.datasource.engines.mysql import original_string_column
-
-                            deterministic = original_string_column(
-                                owner._backend, owner.datasource, bound.source, physical_field.name
                             )
                         else:
                             deterministic = deterministic_collation(
