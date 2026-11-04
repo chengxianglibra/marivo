@@ -5,14 +5,21 @@ import os
 from collections.abc import Iterable
 from pathlib import Path
 
+import duckdb
 import ibis.expr.types as ir
 import pytest
 
 import marivo.datasource.domain_snapshot as snapshots
 from marivo.datasource.errors import DatasourceSourceCapabilityError
-from marivo.datasource.ir import ParquetSourceIR
+from marivo.datasource.ir import CsvSourceIR, ParquetSourceIR
 from tests.datasource.source_cases import source_case, source_params
 from tests.support.source_trace import SourceTrace
+
+
+def _assert_transaction_closed(connection: duckdb.DuckDBPyConnection) -> None:
+    """A transaction left open makes the next begin fail."""
+    connection.begin()
+    connection.rollback()
 
 
 @pytest.mark.parametrize("backend", source_params(("postgres", "mysql", "trino", "clickhouse")))
@@ -101,11 +108,72 @@ def test_local_parquet_preparation_uses_declared_file_and_detects_changes(
             return read_parquet(paths, **kwargs)
 
         monkeypatch.setattr(backend, "read_parquet", track_read)
+        original = case.session._bound_sources["facts"]
         with (
             pytest.raises(DatasourceSourceCapabilityError) as failure,
             snapshots.capture(case.session) as authority,
         ):
             assert authority["kind"] == "file_manifest"
             assert read_paths == [str(path)]
+            assert case.session._bound_sources["facts"] is not original
             path.write_bytes(path.read_bytes() + b"changed")
         assert failure.value.received == "Parquet changed during prepared analysis"
+        assert case.session._bound_sources["facts"] is original
+        _assert_transaction_closed(case.session._backend.con)
+
+
+def test_duckdb_capture_restores_bindings_and_closes_transaction(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with source_case("duckdb", "parquet", tmp_path, monkeypatch) as case:
+        case.session.bind(case.source, source_identity="facts")
+        original = case.session._bound_sources["facts"]
+        with snapshots.capture(case.session) as authority:
+            assert authority["kind"] == "file_manifest"
+            captured = case.session._bound_sources["facts"]
+            assert captured is not original
+            assert captured.relation is not original.relation
+        assert case.session._bound_sources["facts"] is original
+        _assert_transaction_closed(case.session._backend.con)
+
+
+def test_duckdb_capture_cleans_up_when_begin_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with source_case("duckdb", "parquet", tmp_path, monkeypatch) as case:
+        case.session.bind(case.source, source_identity="facts")
+        original = case.session._bound_sources["facts"]
+        connection = case.session._backend.con
+        connection.begin()
+        with (
+            pytest.raises(
+                duckdb.TransactionException,
+                match="cannot start a transaction within a transaction",
+            ),
+            snapshots.capture(case.session),
+        ):
+            pass
+        assert case.session._bound_sources["facts"] is original
+        _assert_transaction_closed(connection)
+
+
+def test_duckdb_capture_restores_bindings_when_preparation_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with source_case("duckdb", "parquet", tmp_path, monkeypatch) as case:
+        case.session.bind(case.source, source_identity="facts")
+        extra = tmp_path / "extra.csv"
+        extra.write_text("id,amount,tenant,revision\n1,2,a,1\n")
+        case.session.bind(CsvSourceIR(str(extra)), source_identity="extra")
+        original = dict(case.session._bound_sources)
+        with (
+            pytest.raises(DatasourceSourceCapabilityError) as failure,
+            snapshots.capture(case.session),
+        ):
+            pass
+        assert (
+            failure.value.received == "domain capture supports native table and local Parquet only"
+        )
+        assert case.session._bound_sources["facts"] is original["facts"]
+        assert case.session._bound_sources["extra"] is original["extra"]
+        _assert_transaction_closed(case.session._backend.con)

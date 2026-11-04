@@ -363,15 +363,12 @@ def _preview_reader(
             yield backend
 
 
-def _preview_execution_limits(
-    bindings: NormalizedPreviewScope, backend: BaseBackend
-) -> PreviewExecutionLimits:
+def _preview_execution_limits(bindings: NormalizedPreviewScope) -> PreviewExecutionLimits:
     return PreviewExecutionLimits(
         backend=bindings.backend,
         timeout_seconds=bindings.timeout_seconds,
         timeout_enforced=(
             require_profile_for_backend_type(bindings.backend).native_query_timeout is not None
-            and getattr(backend, "_marivo_native_timeout_unsupported", False) is not True
         ),
     )
 
@@ -4663,13 +4660,13 @@ class SemanticCatalog(RenderableResult):
                 details={"kind": str(kind)},
             )
 
-        with _preview_reader(bindings, connections) as backend:
+        with _preview_reader(bindings, connections):
             if not preflighted:
                 preflight_preview_scope(
                     bindings, registry=reg, connections=connections, project_root=self.workspace_dir
                 )
             result = replace(
-                execute_preview(), execution_limits=_preview_execution_limits(bindings, backend)
+                execute_preview(), execution_limits=_preview_execution_limits(bindings)
             )
         return _attach_preview_scope(
             result,
@@ -4731,7 +4728,7 @@ class SemanticCatalog(RenderableResult):
             try:
                 if group_key[0] == "row":
                     bindings = group_items[0].bindings
-                    with _preview_reader(bindings, connections) as backend:
+                    with _preview_reader(bindings, connections):
                         raw_results = self._preview_row_group(
                             tuple(group_items),
                             connections=connections,
@@ -4741,7 +4738,7 @@ class SemanticCatalog(RenderableResult):
                         raw_results = tuple(
                             replace(
                                 result,
-                                execution_limits=_preview_execution_limits(bindings, backend),
+                                execution_limits=_preview_execution_limits(bindings),
                             )
                             for result in raw_results
                         )

@@ -499,7 +499,6 @@ def acquire_snapshot(
 
     session: SourceSession | None = None
     timeout_entered = False
-    execute_attempted = False
     try:
         try:
             session = profile.open(
@@ -560,7 +559,6 @@ def acquire_snapshot(
                 else nullcontext()
             ):
                 timeout_entered = True
-                execute_attempted = True
                 frame = session.collect_bounded(
                     expression,
                     source_identities=(snapshot_id,),
@@ -576,16 +574,6 @@ def acquire_snapshot(
                 raise _acquisition_error(
                     code="native_timeout_configuration_failed",
                     reason=f"the datasource adapter could not install native timeout settings: {failure.message}",
-                    received=failure.identity,
-                    scope_state=inspection.partitioning.state,
-                ) from exc
-            if not execute_attempted:
-                raise _acquisition_error(
-                    code="native_timeout_configuration_failed",
-                    reason=(
-                        "the datasource adapter could not install native settings: "
-                        f"{failure.message}"
-                    ),
                     received=failure.identity,
                     scope_state=inspection.partitioning.state,
                 ) from exc
