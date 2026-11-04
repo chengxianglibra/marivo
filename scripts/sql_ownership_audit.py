@@ -319,7 +319,7 @@ def _manifest() -> Manifest:
     )
     add(
         "datasource/_calendar_relations",
-        ("compile_calendar_data",),
+        ("compile_calendar_data", "_mysql_calendar_data"),
         ("sge.Literal.string().sql", "sge.to_identifier().sql", "sqlglot.parse_one"),
         calendar_compilation,
     )

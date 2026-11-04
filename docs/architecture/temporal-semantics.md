@@ -411,17 +411,24 @@ parsed or bucketed again. Different sources retain their own time execution.
 
 Required final output indexes use a compact native scalar range expression; this
 is result evaluation with O(N) output cost, not a timezone qualification query or
-a business-fact scan. Custom single-period output uses its certified range and a
-native constant key. No source calendar date directory is uploaded or reread.
+a business-fact scan. MySQL and MariaDB generate positions with products of fixed
+0–9 UNION ALL digit tables; SQL size grows with the number of decimal digits,
+without recursion or a JSON_TABLE dependency. Custom single-period output uses
+its certified range and a native constant key. No source calendar date directory
+is uploaded or reread.
 
 Remaining finite mixed-key parameters use invocation-owned typed SQL relations.
 ClickHouse uses JSONExtract/arrayJoin inside SQL, including Distributed requests;
 it never turns these parameters into HTTP external data or multipart uploads.
 Timestamp wire values are exact integer microseconds, dates are decoded from
 strings, and nullable, decimal and special floating values retain their types.
-DuckDB retains invocation-owned Arrow registration; other providers retain their
-native JSON relation carriers. Complete request bytes, including FORMAT and
-repeated payload, count toward the existing SQL limit. Exceeding it fails without
+DuckDB retains invocation-owned Arrow registration. MySQL and MariaDB expand one
+JSON payload through the same position range and JSON_EXTRACT/JSON_UNQUOTE scalar
+functions, including on MariaDB 10.3. Typed projections preserve JSON nulls
+separately from the string "null". Derived LIMIT barriers retain parameter
+materialization. Other providers retain their native JSON relation carriers.
+Complete request bytes, including FORMAT and repeated payload, count toward
+the existing SQL limit. Exceeding it fails without
 splitting, retrying, raising the limit, or falling back to multipart.
 
 Compiler-owned UTC cancellation and safe envelopes preserve native meaning.

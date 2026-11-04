@@ -12,7 +12,8 @@ other Colima profiles, containers, and volumes are outside its ownership.
 Test gates and selection rules are documented in [CONTRIBUTING.md](../../../CONTRIBUTING.md#测试).
 
 Enable only already-ready backend profiles with `MARIVO_POSTGRES_ANALYSIS_TEST`,
-`MARIVO_MYSQL_ANALYSIS_TEST`, `MARIVO_MARIADB_ANALYSIS_TEST`, `MARIVO_TRINO_ANALYSIS_TEST`, or
+`MARIVO_MYSQL_ANALYSIS_TEST`, `MARIVO_MARIADB_ANALYSIS_TEST`,
+`MARIVO_MARIADB_103_ANALYSIS_TEST`, `MARIVO_TRINO_ANALYSIS_TEST`, or
 `MARIVO_CLICKHOUSE_ANALYSIS_TEST`, set to `1`. The isolated MySQL time zone
 regression uses `MARIVO_MYSQL_NO_TIMEZONES_TEST=1`. Distributed ClickHouse and the
 Trino memory catalog use `MARIVO_CLICKHOUSE_CLUSTER_TEST` and
@@ -39,6 +40,7 @@ declarations through environment references.
 | `mysql-analysis` | `127.0.0.1:23306` | MySQL 8.4; InnoDB; database `analysis`; SELECT-only reader `analysis_reader` |
 | `mysql-no-timezones` | `127.0.0.1:23308` | Same MySQL reader with empty named time zone tables in a separate volume |
 | `mariadb-analysis` | `127.0.0.1:23307` | MariaDB 11.4; database `analysis`; SELECT-only reader `analysis_reader` |
+| `mariadb-103-analysis` | `127.0.0.1:23309` | MariaDB 10.3.18; database `analysis`; SELECT-only reader `analysis_reader`; separate volume |
 | `clickhouse` | `127.0.0.1:18123` | ClickHouse 26.3 LTS; local MergeTree; database `qualification` |
 | `clickhouse-cluster` | `127.0.0.1:18201`, `127.0.0.1:18203` | Two shards with one replica each; Distributed over local tables |
 | `clickhouse-22-shanghai` | `127.0.0.1:18324` | Standalone ClickHouse 22.3.15.33; server default `Asia/Shanghai`; separate config and data volume |
@@ -198,12 +200,24 @@ bash tests/datasource/environment/manage.sh start postgres-analysis
 bash tests/datasource/environment/manage.sh start mysql-analysis
 bash tests/datasource/environment/manage.sh start mysql-no-timezones
 bash tests/datasource/environment/manage.sh start mariadb-analysis
+bash tests/datasource/environment/manage.sh start mariadb-103-analysis
 bash tests/datasource/environment/manage.sh start trino
 .venv/bin/python -m tests.datasource.environment.trino_analysis
 bash tests/datasource/environment/manage.sh start clickhouse
 .venv/bin/python -m tests.datasource.environment.clickhouse_analysis
 bash tests/datasource/environment/manage.sh start clickhouse-cluster
 .venv/bin/python -c 'from tests.datasource.environment import clickhouse_analysis as ch; print(ch.setup_cluster())'
+```
+
+The calendar compatibility regression uses the isolated MariaDB 10.3.18 service
+alongside the current MySQL and MariaDB services. The old service uses the official
+ARM64 image pinned by digest, legacy `MYSQL_*` initialization variables, and
+`mysqladmin ping` for health. Pytest checks the reported version and uses the same
+restricted reader setup; it never starts services:
+
+```bash
+MARIVO_MYSQL_ANALYSIS_TEST=1 MARIVO_MARIADB_ANALYSIS_TEST=1 MARIVO_MARIADB_103_ANALYSIS_TEST=1 \
+  make runtime-test TESTS='tests/datasource/test_mysql_calendar_relations.py' RUNTIME_WORKERS=1
 ```
 
 The `mysql-no-timezones` profile sets `MYSQL_INITDB_SKIP_TZINFO=1` on its isolated
