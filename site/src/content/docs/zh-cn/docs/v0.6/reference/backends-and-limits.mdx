@@ -21,6 +21,10 @@ description: 查询驱动、来源形式、分析方法和数值限制。
 | Trino | `trino` | 必须设置 `catalog` 和 `user_env`；`schema` 可选 |
 | ClickHouse | `clickhouse` | JOIN 操作要求通过准入的 MergeTree 表；Distributed 表的 JOIN 路线受限 |
 
+Marivo 0.6.1 的 `duckdb`、`all` 和 `dev` 可选依赖要求 DuckDB `>=1.5.3,<2`。
+已使用 DuckDB 1.5.6 与 Ibis 12.0.0 验证兼容性。已发布的 Marivo 0.6.0
+包仍将 DuckDB 固定为 1.5.3。
+
 ## 核对来源形式与方法
 
 数据库表使用所选 SQL 后端；CSV、Parquet 和文件 JSON 由 DuckDB 读取。Analysis Session
@@ -51,8 +55,11 @@ description: 查询驱动、来源形式、分析方法和数值限制。
 没有该 1% 业务容差；其他类型使用各自规则。若目标不满足准入
 条件，可通过显式观察和比较继续调查，但不能把结果当作贡献分解。
 
-远端 `Attribute` 要求直接物理有符号整数字段或字符串身份字段，以及合格的字符串
-collation。Entity 的 `primary_key` 声明完整且非空的身份；即使物理元数据将身份列标为可空，
+远端 `Attribute` 要求直接物理有符号整数、字符串或 date32 身份字段，以及后端支持的字符串。
+在 MySQL/MariaDB 上，观察和 Attribute 重读同一筛选条件时，都按来源列的 collation
+判断字符串是否相等。Attribute 也按该规则分组和匹配成员，使用默认 collation 的列可直接参与归因。已完成 Frame 与跨期对齐使用实际返回的字符串，
+因此不同的分组代表值仍是不同键。其他后端保留现有字符串准入规则。
+Entity 的 `primary_key` 声明完整且非空的身份；即使物理元数据将身份列标为可空，
 该路线仍信任此声明，不会全量预检来源数据中的空值或唯一性；各操作的身份检查仍会执行。
 需要按范围核验数据时，使用 `ms.source_check` 构造检查，并通过有界的
 `catalog.validate(..., checks=..., scope=...)` 执行。同一来源 root 内不兼容的非时间
@@ -62,6 +69,12 @@ scope 不能合并。
 
 本地计算可能在内存保留全部所需向量。展示行数限制只影响输出，不限制计算量或来源扫描。
 查询超时使用后端原生设置，可能不受支持，也不覆盖完整客户端调用和结果获取过程。
+
+ClickHouse 来源读取遇到瞬态失败时，会以带抖动的 1 秒和 4 秒退避重新提交同一查询，最多两次：
+并发查询过多（202）、无空闲连接（203）、网络错误（210、279）、网关 HTTP 429/502/503，
+或连接未到达服务器。遇到超时（包括网关 504）、内存超限和其他错误时，Marivo 直接传递错误。
+两次上限仅指 Marivo 的重新提交次数。驱动的状态码重试次数默认为零；显式将
+`extra["query_retries"]` 设为正数后，驱动可以额外重试，包括 HTTP 504。其他后端不重试。
 
 复杂的 Trino 关系与分摊表达式可能超过服务器的 `query.max-stage-count` 预算，
 并返回 `QUERY_HAS_TOO_MANY_STAGES`。请简化问题，或由服务器维护者评估执行阶段预算；
