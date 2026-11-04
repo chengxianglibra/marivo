@@ -1650,7 +1650,12 @@ def certify_temporal_set(
 
 
 def _parse_persisted_temporal_value(value: object) -> date | datetime:
-    """Decode the exact ISO carrier of an already backend-resolved bound."""
+    """Decode the exact ISO carrier of an already backend-resolved bound.
+
+    Strings must round-trip through ``date.isoformat()`` or
+    ``datetime.isoformat()``. A trailing ``Z`` is the ``+00:00`` alias.
+    Compact source text is not a carrier on any supported Python.
+    """
     if type(value) is date or type(value) is datetime:
         return value
     if type(value) is not str:
@@ -1658,13 +1663,22 @@ def _parse_persisted_temporal_value(value: object) -> date | datetime:
     raw = value.strip()
     if len(raw) == 10 and "T" not in raw and " " not in raw:
         try:
-            return date.fromisoformat(raw)
+            parsed_date = date.fromisoformat(raw)
         except ValueError as exc:
             raise ValueError(f"invalid persisted temporal date {value!r}") from exc
+        if parsed_date.isoformat() != raw:
+            raise ValueError(f"invalid persisted temporal date {value!r}")
+        return parsed_date
+    carrier = raw.replace("Z", "+00:00")
     try:
-        return datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        parsed = datetime.fromisoformat(carrier)
     except ValueError as exc:
         raise ValueError(f"invalid persisted temporal datetime {value!r}") from exc
+    # Python 3.11+ fromisoformat accepts basic and other non-emitted forms.
+    # Require the canonical carrier so 3.10 and later reject the same text.
+    if parsed.isoformat() != carrier:
+        raise ValueError(f"invalid persisted temporal datetime {value!r}")
+    return parsed
 
 
 def certify_temporal_set_rows(

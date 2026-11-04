@@ -383,16 +383,35 @@ def test_temporal_set_timestamp_rows_normalize_to_one_instant_encoding() -> None
 
 
 def test_temporal_set_rows_require_backend_parsed_values() -> None:
+    common = {
+        "temporal_set_ref": ref.temporal_set("sales.campaigns"),
+        "boundary_timezone": "UTC",
+        "coverage": (date(2026, 1, 1), date(2026, 1, 4)),
+        "columns": ("id", "start", "end"),
+        "occurrence_id": "id",
+        "start": "start",
+        "end": "end",
+    }
+    with pytest.raises(ValueError, match=r"invalid persisted temporal datetime '20260101'"):
+        certify_temporal_set_rows(
+            retained_values=({"id": "launch", "start": "20260101", "end": "20260103"},),
+            **common,
+        )
+    with pytest.raises(ValueError, match=r"invalid persisted temporal date '2026-W01-4'"):
+        certify_temporal_set_rows(
+            retained_values=({"id": "launch", "start": "2026-W01-4", "end": "2026-W01-5"},),
+            **common,
+        )
     with pytest.raises(ValueError, match="backend-resolved aware"):
         certify_temporal_set_rows(
-            temporal_set_ref=ref.temporal_set("sales.campaigns"),
-            boundary_timezone="UTC",
-            coverage=(date(2026, 1, 1), date(2026, 1, 4)),
-            columns=("id", "start", "end"),
-            retained_values=({"id": "launch", "start": "20260101", "end": "20260103"},),
-            occurrence_id="id",
-            start="start",
-            end="end",
+            retained_values=(
+                {
+                    "id": "launch",
+                    "start": "2026-01-01T00:00:00",
+                    "end": "2026-01-03T00:00:00",
+                },
+            ),
+            **common,
         )
 
 
