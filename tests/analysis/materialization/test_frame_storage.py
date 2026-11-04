@@ -1680,6 +1680,7 @@ def test_actual_stored_inputs_derive_without_sources_and_republish_detached(
     from marivo.analysis.materialization import frame_source_preparation, graph_local_execution
     from marivo.analysis.materialization.graph_exchange import StageOutput
     from marivo.analysis.materialization.graph_local_execution import LocalKernel
+    from marivo.analysis.methods import frame_attribute
     from marivo.analysis.session.core import Session
     from marivo.datasource.adapters import SourceSession
 
@@ -1718,6 +1719,7 @@ def test_actual_stored_inputs_derive_without_sources_and_republish_detached(
     monkeypatch.setattr(Session, "catalog", property(forbidden))
     monkeypatch.setattr(SourceSession, "__init__", forbidden)
     monkeypatch.setattr(frame_calendar, "freeze_calendar", forbidden)
+    monkeypatch.setattr(frame_attribute, "freeze_calendar", forbidden)
     before = counts(local)
     loaded = saved.compute()
     assert (

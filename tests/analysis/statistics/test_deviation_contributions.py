@@ -14,6 +14,6 @@ def test_captured_contributions_followup_profiles(
 ) -> None:
     case = analysis_dsl_case_factory("j2")
     prepare_profiles(
-        case, "KC", "parquet", "us", "America/New_York", True, followup=True, profile_indices=(7,)
+        case, "KC", "parquet", "us", "America/New_York", False, followup=True, profile_indices=(7,)
     )
     subprocess_phases(case, "entity_time")

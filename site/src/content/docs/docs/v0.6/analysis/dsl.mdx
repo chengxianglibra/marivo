@@ -306,6 +306,9 @@ Remote attribution supports direct integer, string and Date primary keys. ClickH
 A zero baseline makes relative attribution undefined. The error identifies the target, baseline value and parent coordinate. Check the baseline window and source retention/filter conditions, or select the absolute comparison output:
 
 ```python
+target = session.observe({"revenue": revenue}, by=(august,)).compare(
+    {"baseline": mv.baseline(session.observe({"revenue": revenue}, by=(july,)), match=mv.ordinal())}
+)
 absolute = target.select({"change": target["baseline.absolute.revenue"]})
 report = absolute.attribute(by=(region,)).compute()
 ```

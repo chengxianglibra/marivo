@@ -7,6 +7,7 @@ import subprocess
 import sys
 from pathlib import Path
 from time import monotonic
+from uuid import uuid4
 
 import ibis
 import ibis.expr.types as ir
@@ -194,7 +195,8 @@ def test_clickhouse_unsettable_timeout_blocks_before_user_sql(
     from tests.datasource.environment.credentials import password
 
     ch.setup()
-    monkeypatch.setenv("MARIVO_SOURCE_CONTROL_CH_USER", "analysis_reader")
+    user = "timeout_locked_" + uuid4().hex
+    monkeypatch.setenv("MARIVO_SOURCE_CONTROL_CH_USER", user)
     monkeypatch.setenv("MARIVO_SOURCE_CONTROL_CH_PASSWORD", password())
     md.register(
         md.clickhouse(
@@ -208,16 +210,28 @@ def test_clickhouse_unsettable_timeout_blocks_before_user_sql(
         project_root=tmp_path,
     )
 
-    with pytest.raises(DatasourceRawSqlError) as failure:
-        md.raw_sql(
-            ms.ref.datasource("ch_reader"),
-            "SELECT 1",
-            reason="verify timeout preflight",
-            timeout_seconds=1,
-            project_root=tmp_path,
+    # The shared reader permits per-query deadlines. This separate account
+    # supplies the immutable setting that this refusal case actually needs.
+    with ch.connection(admin=True) as admin:
+        admin.command(
+            f"CREATE USER {user} IDENTIFIED BY {{password:String}} "
+            "SETTINGS readonly=1, max_execution_time=0",
+            parameters={"password": password()},
         )
-    assert failure.value.effect_observed.query_executed is False
-    assert failure.value.repair is not None
+        admin.command(f"GRANT SELECT ON qualification.* TO {user}")
+        try:
+            with pytest.raises(DatasourceRawSqlError) as failure:
+                md.raw_sql(
+                    ms.ref.datasource("ch_reader"),
+                    "SELECT 1",
+                    reason="verify timeout preflight",
+                    timeout_seconds=1,
+                    project_root=tmp_path,
+                )
+            assert failure.value.effect_observed.query_executed is False
+            assert failure.value.repair is not None
+        finally:
+            admin.command(f"DROP USER {user}")
 
 
 @pytest.mark.runtime

@@ -49,9 +49,8 @@ def test_mysql_sample_native_timeout_releases_reader_without_kill(
             columns = ",".join(
                 f"MIN(a.{field}) AS {field}" for field in ("id", "amount", "tenant", "revision")
             )
-            joins = " ".join(f"CROSS JOIN {case.source.table} b{i}" for i in range(18))
             cursor.execute(
-                f"CREATE VIEW {view} AS SELECT {columns} FROM {case.source.table} a {joins} WHERE RAND() < 2"
+                f"CREATE VIEW {view} AS SELECT {columns} FROM {case.source.table} a WHERE SLEEP(2)=0"
             )
         try:
             inspection = md.inspect(ms.ref.datasource("warehouse"), md.table(view))

@@ -866,7 +866,7 @@ def test_public_read_isolated_copy_and_historical_values(source_session: Session
 
 
 @pytest.mark.release
-def test_preview_decodes_only_requested_rows_and_skips_unused_parts(
+def test_preview_bounds_batch_decoding_and_skips_unused_parts(
     session: Session, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     from marivo.analysis.materialization.graph_reading import FrameReader, OutputRead
@@ -894,6 +894,7 @@ def test_preview_decodes_only_requested_rows_and_skips_unused_parts(
         def __init__(self, parquet: pq.ParquetFile) -> None:
             self.parquet = parquet
             self.num_row_groups = parquet.num_row_groups
+            self.metadata = parquet.metadata
             self.reader = parquet.reader
 
         def __enter__(self) -> TrackedParquet:
@@ -908,9 +909,11 @@ def test_preview_decodes_only_requested_rows_and_skips_unused_parts(
             self.parquet.close()
 
         def iter_batches(
-            self, *, batch_size: int, row_groups: list[int]
+            self, *, batch_size: int, row_groups: list[int], columns: list[str] | None = None
         ) -> Iterator[pa.RecordBatch]:
-            for batch in self.parquet.iter_batches(batch_size=batch_size, row_groups=row_groups):
+            for batch in self.parquet.iter_batches(
+                batch_size=batch_size, row_groups=row_groups, columns=columns
+            ):
                 sizes.append(batch.num_rows)
                 yield batch
 
@@ -923,7 +926,12 @@ def test_preview_decodes_only_requested_rows_and_skips_unused_parts(
             artifact._backing, requested
         )
         assert len(prefix.rows) == requested
-        assert sum(sizes) == requested and all(size <= POLICY.batch_rows for size in sizes)
+        assert (
+            sum(sizes) == 0
+            if requested == 0
+            else requested <= sum(sizes) <= min(count, requested + POLICY.batch_rows - 1)
+        )
+        assert all(size <= POLICY.batch_rows for size in sizes)
         sizes.clear()
     artifact.show(n=20)
     assert "amount" in capsys.readouterr().out

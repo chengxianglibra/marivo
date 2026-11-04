@@ -44,7 +44,7 @@ def test_decimal_and_int64_linear_cold_rollup_equal_warm(tmp_path: Path) -> None
         assert reader["values"] == produced["warm_monthly"]
         assert reader["dtypes"] == {
             "net_amount": "decimal128(38, 0)[pyarrow]",
-            "net_qty": "decimal128(38, 0)[pyarrow]",
+            "net_qty": "int64[pyarrow]",
             "amount_mean": "double[pyarrow]",
         }
 

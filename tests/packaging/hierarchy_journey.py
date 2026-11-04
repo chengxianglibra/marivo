@@ -26,7 +26,7 @@ def _verify(values: dict[str, mv.AnalysisFrame]) -> dict[str, Json]:
     for member, region in facts.customers:
         assert isinstance(member, str) and isinstance(region, str)
         zone[member] = region
-    region_oracle: dict[str, int | None] = dict.fromkeys(zone.values())
+    region_oracle: dict[str, int | None] = dict.fromkeys(zone.values(), 0)
     channel_oracle: dict[str, int] = {}
     for _, member, channel, _, point, amount in facts.orders:
         assert isinstance(member, str)

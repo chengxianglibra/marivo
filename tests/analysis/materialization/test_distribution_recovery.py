@@ -14,15 +14,13 @@ import pandas as pd
 import pytest
 
 import marivo.analysis as mv
-from marivo.analysis.errors import AnalysisError
 from marivo.datasource.adapters import provider_for
 from marivo.datasource.ir import TableSourceIR
-from marivo.semantic.errors import SemanticExpressionError
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.graph.distribution_fixtures import distribution_data
 from tests.analysis.materialization.domain_recovery_worker import snapshot
 from tests.datasource.source_cases import Case, datasource, source_case
-from tests.shared_fixtures import catalog_value, terminal_runs
+from tests.shared_fixtures import catalog_value
 from tests.support.json import Json, encode, obj, read
 from tests.support.paths import PROJECT_ROOT
 from tests.support.source_trace import SourceTrace
@@ -139,22 +137,16 @@ def test_native_distributions_independent_fixed_and_cold(
                     session.members(session.catalog.get("entity:sales.subjects")),
                 ),
             )
-            if kind == "approx_quantile":
-                before = terminal_runs(session)
-                with pytest.raises((AnalysisError, SemanticExpressionError)) as refused:
-                    query.persist()
-                error = refused.value
-                assert isinstance(error, (AnalysisError, SemanticExpressionError))
-                assert error.expected and error.received and error.repair
-                assert terminal_runs(session) == before
-                continue
             value = query.persist()
             frame = value.to_pandas()
             identity = next(axis for axis in value.axes if axis.role == "identity")
-            coordinate = identity.name
+            coordinate = identity.name.rsplit(".", 1)[-1]
             mapped = dict(zip(frame[coordinate], frame["value"], strict=True))
             if kind in ("distinct", "identity", "approx_distinct"):
                 assert mapped == {"a": 4 if kind == "identity" else 2, "b": 1, "c": 0}
+            elif kind == "approx_quantile":
+                assert 2 <= mapped["a"] <= 6
+                assert mapped["b"] == 6 and pd.isna(mapped["c"])
             else:
                 assert mapped["a"] == 4 and mapped["b"] == 6 and pd.isna(mapped["c"])
             outputs[kind] = value
@@ -210,9 +202,11 @@ with patch.object(ms, 'load', forbidden), patch.object(SemanticProject, 'load', 
         assert snapshot(value) == item['snapshot']
         frame = value.to_pandas()
         identity = next(axis for axis in value.axes if axis.role == 'identity')
-        values = dict(zip(frame[('coordinate', identity.token)], frame['value'], strict=True))
+        values = dict(zip(frame[identity.name.rsplit('.', 1)[-1]], frame['value'], strict=True))
         if name == 'quantile':
             assert values['a'] == 4 and values['b'] == 6 and pd.isna(values['c'])
+        elif name == 'approx_quantile':
+            assert 2 <= values['a'] <= 6 and values['b'] == 6 and pd.isna(values['c'])
         else:
             assert values == {'a':4 if name=='identity' else 2,'b':1,'c':0}
     assert len(terminal_runs(session)) == before

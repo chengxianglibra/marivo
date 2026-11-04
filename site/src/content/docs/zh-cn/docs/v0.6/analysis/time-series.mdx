@@ -11,6 +11,25 @@ description: 按日历期间分组，计算滚动窗口与累计值。
 `timezone="+08:00"` 这样的显式偏移。省略时区时，仅在创建时严格解析一次系统 IANA
 时区；含糊的 `TZ` 或 localtime 状态要求显式传值。恢复保留已存时区及其来源，不再检查宿主机。
 
+源端时间比较与 `session.time_scope` 使用相同的边界规则。裸 ISO 日期、Python `date`
+和无偏移 ISO 时间按 Session 的报告时区解释；aware datetime 和带偏移的 ISO 时间保持原
+instant。该规则覆盖 `observe(where=...)`、`members(where=...)`、`Metric.where(...)`
+及源 reduction 的 `where=`。非法 ISO、naive Python datetime、歧义或不存在的本地时刻，
+都会在源读取前拒绝。使用示例的订单时间字段时，下面两个条件选择相同范围：
+
+```python
+from analysis import session
+
+created_at = session.catalog.get("time_dimension:sales.orders.order_date")
+scope = session.time_scope(start="2026-08-01", end="2026-09-01")
+by_boundaries = (created_at >= "2026-08-01") & (created_at < "2026-09-01")
+by_scope = created_at.within(scope)
+```
+
+输出日历的时区不改变普通比较的隐式时区。需要其他边界时，使用指定时区的 scope 和
+`within(scope)`。DATE 行按声明的业务日起点 instant 比较；`==` 表示一个精确时刻。
+普通字符串字段和固定 Frame Column 比较保留原有类型规则，已保存结果不会被重新解释。
+
 ## 按日与月观察
 
 ```python
@@ -101,7 +120,7 @@ progress.show()
 原始指标。使用财务日历或命名活动前，先[准备并认证对应日历](/zh-cn/docs/v0.6/modeling/dates/#业务日历)。
 
 源时间解析时区与报告时区用途不同：无时区时间值使用解析时区，带时区时间戳已确定瞬时，
-纯日期编码不使用时区。投影、筛选和分桶采用实际后端的原生 gap/fold 解释；原始本地时间
+纯日期值使用声明的源时区确定业务日零点。投影、筛选和分桶采用实际后端的原生 gap/fold 解释；原始本地时间
 数据使用 pandas 原生操作。不同执行方在异常跳变处可以不同，源端产生的键在本地算术与
 对齐期间保持不变。
 
@@ -176,7 +195,7 @@ Frame 值显式规约。
 以下片段要求模型中已声明版本化 `sales.profiles`、事实表 `sales.facts` 及完整键关系 `sales.profile`。
 控制时间和 Metric 时间角色是两个独立选择；这里显式使用同一字段。
 
-```python
+```python title="需要版本化 profiles 模型"
 control = session.catalog.get("time_dimension:sales.facts.event_time")
 # The control may also be the fact Entity's snapshot partition TimeDimension.
 label = session.catalog.get("dimension:sales.profiles.label")
