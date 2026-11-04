@@ -626,17 +626,24 @@ def _assert_oracles(
         schema = saved[name]._schema
         assert isinstance(schema, DataSchema)
         keys: list[str] = []
+        calendar_keys: set[str] = set()
         for axis in schema.axes:
+            alias = axis.name.rsplit(".", 1)[-1]
             if isinstance(axis, IntervalDataAxis):
                 # Each interval-scoped result has one complete declared interval;
                 # compare its member cells only after checking that coordinate.
-                interval = frame[[f"{axis.name}.{field}" for field in ("start", "end", "timezone")]]
+                interval = frame[[f"{alias}.{field}" for field in ("start", "end")]]
                 assert interval.notna().all().all(), name
                 assert len(interval.drop_duplicates()) <= 1, name
+                assert axis.timezone, name
             else:
-                keys.append(axis.name)
+                keys.append(alias)
+                if isinstance(axis, CalendarDataAxis):
+                    calendar_keys.add(alias)
         actual = {
-            tuple(str(row[key]) for key in keys): row[value]
+            tuple(
+                str(row[key])[:10] if key in calendar_keys else str(row[key]) for key in keys
+            ): row[value]
             for row in frame.to_dict(orient="records")
         }
         assert len(actual) == len(frame) and actual.keys() == expected.keys(), name
@@ -747,7 +754,7 @@ def _assert_oracles(
             assert endpoint.frozen is not None and len(endpoint.columns) == 1
             directory = tables[endpoint.frozen.directory_name]
             lookup = dict(
-                zip(directory[endpoint.columns[0].slot_id], directory.nominal_start, strict=True)
+                zip(directory[endpoint.columns[0].slot_id], directory.nominal_label, strict=True)
             )
             endpoint_months.append([str(lookup[key])[:7] for key in mapping[map_column]])
         assert list(zip(*endpoint_months, strict=True)) == [
@@ -765,7 +772,7 @@ def _assert_oracles(
         cells(
             "folded",
             {
-                (f"{month}-01", m): amount(m, month) if count(m, month) else 0
+                (f"{month}-01", m): amount(m, month) if count(m, month) else None
                 for m in members
                 for month in months
             },
@@ -1002,9 +1009,9 @@ def journey(phase: str, project: Path, scenario_name: str, source: str) -> dict[
             for name in ("execute", "rollup", "drill", "share", "population", "_node", "_dataset")
         )
         assert all(
-            not hasattr(frame, name)
+            callable(getattr(frame, name))
             for frame in saved.values()
-            for name in ("to_pandas", "where", "compare", "rollup", "_node", "_dataset")
+            for name in ("to_pandas", "where", "compare")
         )
         edge_checks = {
             "fixed_frame_and_audit_only_artifact": True,

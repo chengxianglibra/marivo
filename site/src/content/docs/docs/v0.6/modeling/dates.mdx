@@ -81,6 +81,8 @@ business_date = ms.time_dimension_column(
 
 For qualifying physical columns, ranges compare the original field directly to same-type constants in its source timezone. A Shanghai business-day range `[2026-10-28,2026-10-29)` over `%Y%m%d` becomes `log_date >= '20261028' AND log_date < '20261029'`. Boundaries round up to the first represented tick: an hourly encoding filtered by `[10:30,12:30)` uses `[11:00,13:00)`. Native DATE and timestamp fields follow the same range rule with their actual type and precision. UTC and fixed offsets support direct conversion; named zones require qualified endpoints away from gap/fold transitions. MySQL/MariaDB named-zone rewrites use the common qualified range, 1971–2037. Derived expressions and other formats keep native parsing.
 
+Named-zone raw range optimization uses the host timezone database. Keep its rules for the selected dates aligned with the source backend's timezone database; Marivo does not probe for rule differences before applying the optimization.
+
 SQL NULL remains NULL and has no period membership. Projections, calendar assignment and unqualified endpoints retain native parsing and gap/fold interpretation. DuckDB, Trino, ClickHouse and MySQL/MariaDB return NULL for rejected parsed data; PostgreSQL native `to_timestamp` can fail the query. Native acceptance outside the ordered-format contract can differ by backend. There is no `on_error`, trimming, guessing, retry, partition enumeration or validation query. Format, timezone, type and capability errors still fail. Trino TRY can catch recoverable input-expression errors; other engines may propagate them. NULL used only as attribute control preserves facts under a NULL label. Direct predicates enable pushdown; actual index use and partition pruning depend on the backend and table layout.
 
 ClickHouse 22.3 supports the ordered formats above for projections and calendar assignment: dates retain `Date32` and clocks retain `DateTime64`. Other formats require ClickHouse 23.3 or newer. Queries needing an unavailable parser fail before business query submission; use an ordered encoding, expose a native `Date32`/`DateTime64` column, or upgrade the server. Source timezone declarations and native gap/fold behavior still apply.
@@ -91,7 +93,10 @@ ClickHouse 22.3 supports the ordered formats above for projections and calendar 
 | --- | --- | --- | --- |
 | `prefix` | Yes | — | TimeDimension expression that supplies the civil-date prefix. The hour field inherits the prefix field's effective parser or Datasource timezone. |
 
-The hour source must use an integer from 0 to 23 or a canonical two-digit string.
+The hour source must use an integer from 0 to 23 or a canonical string `'00'` through `'23'`.
+Hour `24` and other noncanonical non-NULL values violate this declaration; use the
+next date with hour `0` for midnight. SQL NULL retains native semantics. Marivo
+adds no source scan or uniform parse-error policy for invalid encoded values.
 
 ```python
 event_hour = ms.time_dimension_column(
@@ -99,6 +104,14 @@ event_hour = ms.time_dimension_column(
     parse=ms.hour_prefix(business_date),
 )
 ```
+
+A positive range such as `[03:00,04:00)` within one source day can compare the
+original date and hour columns directly when timezone conversion is qualified.
+This applies to observation ranges and required direct or top-level AND
+`event_hour.within(scope)` conditions, including midnight starts. Cross-day ranges and
+unqualified timezone boundaries retain the general predicate. NULL values and
+negated/composed Boolean expressions keep their native semantics. Check the
+backend's physical plan to confirm partition pruning; SQL shape alone is insufficient.
 
 ## Observation range: `session.time_scope`
 
@@ -202,7 +215,7 @@ import marivo.datasource as md
 import marivo.semantic as ms
 
 catalog = ms.load(workspace_dir=".")
-ref = ms.ref.period_calendar("sales.fiscal")
+ref = catalog.get("period_calendar:sales.fiscal")
 preview = catalog.preview(ref, scope=md.unpruned(max_rows=8, timeout_seconds=30), limit=1)
 assert preview.returned_row_count == 1
 assert not preview.is_truncated

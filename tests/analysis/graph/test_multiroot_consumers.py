@@ -267,8 +267,10 @@ def test_independent_roots_and_temporal_fold(
             args["user_env"] = "MARIVO_R93_READER"
         argtext = ", ".join(f"{k}={v!r}" for k, v in args.items())
         models = "import marivo.datasource as md\nimport marivo.semantic as ms\n"
-        # Native MySQL TIMESTAMP already owns its UTC clock.
-        time_parser = "" if backend == "mysql" else ",parse=ms.timestamp(timezone='UTC')"
+        # Native MySQL/ClickHouse timestamps already own their clock.
+        time_parser = (
+            "" if backend in ("mysql", "clickhouse") else ",parse=ms.timestamp(timezone='UTC')"
+        )
         for name, case in (("subjects", subject), ("left", left), ("right", right)):
             assert isinstance(case.source, TableSourceIR)
             primary_key = (
@@ -338,6 +340,33 @@ def test_independent_roots_and_temporal_fold(
             ),
         )
         if mode.startswith("ratio_decimal_overflow") or mode == "ratio_decimal_output_overflow":
+            if backend == "clickhouse":
+                from tests.datasource.environment import clickhouse_analysis as ch
+
+                assert isinstance(left.source, TableSourceIR)
+                assert isinstance(right.source, TableSourceIR)
+                with ch.connection(admin=True) as native:
+                    sums = [
+                        native.query(
+                            f"SELECT sum(amount) FROM qualification.{table} WHERE owner='a'"
+                        ).first_row
+                        for table in (left.source.table, right.source.table)
+                    ]
+                assert all(row is not None for row in sums)
+                numerator, denominator = (row[0] for row in sums if row is not None)
+                assert numerator != amounts[0] * 6
+                result = values.persist()
+                actual = result.to_pandas().set_index(ordinary_columns(result)[0])["value"]
+                assert actual.loc["a"] == pytest.approx(float(numerator) / float(denominator))
+                assert actual.loc["b"] == 0 and pd.isna(actual.loc["c"])
+                assert (
+                    session.persisted_frame(result.artifact_id)
+                    .to_pandas()
+                    .equals(result.to_pandas())
+                )
+                assert session._runtime.store.resources(session.id) == ()
+                source_trace.record(result)
+                return
             before = set(root.rglob("*.parquet"))
             with pytest.raises(AnalysisError) as refused:
                 values.persist()

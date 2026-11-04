@@ -113,8 +113,11 @@ def test_date_day_grouping_keeps_empty_null_and_category_domains(
         grouped = [
             select
             for sql in source_trace.native_sql
-            if "quantileExact" not in sql
-            for select in sqlglot.parse_one(sql, read=backend).find_all(sge.Select)
+            # SQLGlot cannot parse ClickHouse's curried quantile function.
+            # Normalize only its spelling for this GROUP BY structure check.
+            for select in sqlglot.parse_one(
+                sql.replace("quantileExactInclusive(0.0)", "quantileExact"), read=backend
+            ).find_all(sge.Select)
             if select.args.get("group") is not None
             and any(expression.find(sge.AggFunc) is not None for expression in select.expressions)
         ]

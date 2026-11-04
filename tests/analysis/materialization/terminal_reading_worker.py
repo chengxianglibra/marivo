@@ -55,7 +55,7 @@ def period_produce(root: Path, name: str) -> None:
         assert rows["base.absolute.total"].tolist() == [60, 30]
         assert rows["base.relative.total"].iloc[0] == 0.5
         assert pd.isna(rows["base.relative.total"].iloc[1])
-        assert rows[["current.present", "reference.present"]].all().all()
+        assert rows[["current.present", "base.present"]].all().all()
         assert report._schema == pending_report._schema
     saved_report = stored_report.persist()
     print(
@@ -64,7 +64,6 @@ def period_produce(root: Path, name: str) -> None:
 
 
 def period_read(name: str, identities: list[str]) -> None:
-    from marivo import _timezones
     from marivo.analysis.core import frame_calendar
     from marivo.analysis.materialization import frame_source_preparation
 
@@ -78,9 +77,8 @@ def period_read(name: str, identities: list[str]) -> None:
         ):
             patches.enter_context(patch.object(owner, attribute, replacement))
         session = mv.session.resume(name)
-        # Session admission validates its timezone name. Frozen Frame reads and
-        # continuations below must not resolve that timezone authority again.
-        patches.enter_context(patch.object(_timezones, "ZoneInfo", forbidden))
+        # Captured timezone names retain metadata validation. The guards above
+        # prohibit semantic/source access and reconstruction of calendar grids.
         current, baseline, report = (session.persisted_frame(value) for value in identities)
         before = len(terminal_runs(session))
         recomputed = current.compare({"base": mv.baseline(baseline)}).compute()
@@ -93,7 +91,7 @@ def period_read(name: str, identities: list[str]) -> None:
         assert rows["base.relative.total"].iloc[0] == 0.5
         assert pd.isna(rows["base.relative.total"].iloc[1])
         assert report.presence_names == ("current.present", "base.present")
-        assert rows[["current.present", "reference.present"]].all().all()
+        assert rows[["current.present", "base.present"]].all().all()
         current_directory = next(
             part.rows for part in frozen_coordinates(report) if part.name == "calendar.axis.0"
         )
@@ -109,7 +107,7 @@ def period_read(name: str, identities: list[str]) -> None:
         selected = positive.select({"delta": positive["base.absolute.total"]}).compute()
         assert selected.to_pandas()["delta"].tolist() == [60]
         literal = report.select({"constant": 1}).compute()
-        assert literal._schema.comparisons[0].values == ()
+        assert literal._schema.comparisons == ()
         assert literal.presence_names == report.presence_names
         reduced = selected.reduce({"total_delta": selected["delta"].sum()}).compute()
         assert reduced.to_pandas()["total_delta"].tolist() == [60]

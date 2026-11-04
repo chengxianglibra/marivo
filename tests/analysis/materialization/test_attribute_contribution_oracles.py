@@ -184,6 +184,9 @@ def test_fraction_b_subgroups_use_global_or_fresh_local_population(
             "component.current.denominator.q",
             "component.baseline.numerator.q",
             "component.baseline.denominator.q",
+            "effect.within.q",
+            "effect.mix.q",
+            "effect.entry_exit.q",
         )
         for path, expected, unit in (
             ("component.current.numerator.q", [2, 3, 5], "USD"),
@@ -192,7 +195,7 @@ def test_fraction_b_subgroups_use_global_or_fresh_local_population(
             ("component.baseline.denominator.q", [10, 40, 50], "1"),
         ):
             assert rows[path].tolist() == expected[start:]
-            assert columns[path].dtype == DecimalDataType(38, 0)
+            assert columns[path].dtype == ScalarDataType("int64")
             assert columns[path].unit == unit
         assert columns["contribution.q"].unit == "USD"
         assert columns["contribution_share.q"].unit == "1"

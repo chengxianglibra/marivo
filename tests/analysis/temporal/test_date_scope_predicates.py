@@ -176,23 +176,23 @@ def test_date_within_uses_backend_native_start_at_a_midnight_fold(
         connection.execute("DELETE FROM facts")
         connection.execute(
             "INSERT INTO facts(id, day, amount) VALUES "
-            "(1, DATE '2026-10-31', 10), (2, DATE '2026-11-01', 20), "
-            "(3, DATE '2026-11-02', 30), (4, NULL, 40)"
+            "(1, DATE '2025-11-01', 10), (2, DATE '2025-11-02', 20), "
+            "(3, DATE '2025-11-03', 30), (4, NULL, 40)"
         )
         oracle = connection.execute(
             "SELECT id FROM facts "
             "WHERE timezone('America/Havana', CAST(day AS TIMESTAMP)) "
-            ">= TIMESTAMPTZ '2026-11-01 04:30:00Z' "
+            ">= TIMESTAMPTZ '2025-11-02 04:30:00Z' "
             "AND timezone('America/Havana', CAST(day AS TIMESTAMP)) "
-            "< TIMESTAMPTZ '2026-11-02 04:30:00Z' ORDER BY id"
+            "< TIMESTAMPTZ '2025-11-03 04:30:00Z' ORDER BY id"
         ).fetchall()
     # DuckDB chooses the later Havana midnight (05:00Z). Choosing the earlier
-    # Python fold branch (04:00Z) would incorrectly exclude November 1.
+    # Python fold branch (04:00Z) would incorrectly exclude November 2.
     assert oracle == [(2,)]
     session = mv.session.get_or_create("native-date-start", timezone="UTC")
     day = session.catalog.get("time_dimension:sales.facts.day")
     assert isinstance(day, ms.TimeDimension)
-    scope = session.time_scope(start="2026-11-01", end="2026-11-02", timezone="-04:30")
+    scope = session.time_scope(start="2025-11-02", end="2025-11-03", timezone="-04:30")
     selected = session.members(session.catalog.get("entity:sales.facts"), where=day.within(scope))
     assert session.frame(selected).compute().to_pandas().iloc[:, 0].tolist() == [2]
 
