@@ -85,49 +85,54 @@ def capture(
         )
     manifest: list[dict[str, object]] = []
     fingerprints: list[tuple[Path, tuple[int, int, int], str]] = []
-    for identity, binding in tuple(source._bound_sources.items()):
-        original = binding.source
-        if isinstance(original, ParquetSourceIR):
-            path = Path(original.path)
-            if not path.is_file():
+    previous = dict(source._bound_sources)
+    try:
+        for identity, binding in tuple(previous.items()):
+            original = binding.source
+            if isinstance(original, ParquetSourceIR):
+                path = Path(original.path)
+                if not path.is_file():
+                    fail(
+                        "physical_qualification",
+                        "domain file capture requires an exact local Parquet file",
+                        stage="admission",
+                    )
+                before = path.stat()
+                content_digest = _hash(path)
+                after = path.stat()
+                file_identity = (before.st_ino, before.st_size, before.st_mtime_ns)
+                if file_identity != (after.st_ino, after.st_size, after.st_mtime_ns):
+                    fail("input_binding", "Parquet changed during source binding", stage="prepare")
+                fingerprints.append((path, file_identity, content_digest))
+                relation = backend.read_parquet(
+                    str(path), hive_partitioning=original.hive_partitioning
+                )
+                if original.columns is not None:
+                    relation = relation.select(*original.columns)
+                source._bound_sources[identity] = replace(binding, relation=relation)
+                manifest.append(
+                    {
+                        "source_id": identity,
+                        "path": str(path.resolve()),
+                        "sha256": content_digest,
+                        "bytes": before.st_size,
+                    }
+                )
+            elif not isinstance(original, TableSourceIR):
                 fail(
                     "physical_qualification",
-                    "domain file capture requires an exact local Parquet file",
+                    "domain capture supports native table and local Parquet only",
                     stage="admission",
                 )
-            before = path.stat()
-            content_digest = _hash(path)
-            after = path.stat()
-            file_identity = (before.st_ino, before.st_size, before.st_mtime_ns)
-            if file_identity != (after.st_ino, after.st_size, after.st_mtime_ns):
-                fail("input_binding", "Parquet changed during source binding", stage="prepare")
-            fingerprints.append((path, file_identity, content_digest))
-            relation = backend.read_parquet(str(path), hive_partitioning=original.hive_partitioning)
-            if original.columns is not None:
-                relation = relation.select(*original.columns)
-            source._bound_sources[identity] = replace(binding, relation=relation)
-            manifest.append(
-                {
-                    "source_id": identity,
-                    "path": str(path.resolve()),
-                    "sha256": content_digest,
-                    "bytes": before.st_size,
-                }
-            )
-        elif not isinstance(original, TableSourceIR):
-            fail(
-                "physical_qualification",
-                "domain capture supports native table and local Parquet only",
-                stage="admission",
-            )
-    authority: dict[str, object] = {
-        "kind": "file_manifest" if manifest else "duckdb_transaction",
-        "capture_id": uuid4().hex,
-        "files": manifest,
-    }
-    authority["digest"] = hashlib.sha256(json.dumps(authority, sort_keys=True).encode()).hexdigest()
-    begin()
-    try:
+        authority: dict[str, object] = {
+            "kind": "file_manifest" if manifest else "duckdb_transaction",
+            "capture_id": uuid4().hex,
+            "files": manifest,
+        }
+        authority["digest"] = hashlib.sha256(
+            json.dumps(authority, sort_keys=True).encode()
+        ).hexdigest()
+        begin()
         yield authority
         for path, original_identity, original_digest in fingerprints:
             current = path.stat()
@@ -136,8 +141,12 @@ def capture(
             ) != original_digest:
                 fail("input_binding", "Parquet changed during prepared analysis", stage="execute")
     finally:
-        if sys.exc_info()[0] is None:
-            rollback()
-        else:
-            with suppress(Exception):
+        try:
+            if sys.exc_info()[0] is None:
                 rollback()
+            else:
+                with suppress(Exception):
+                    rollback()
+        finally:
+            source._bound_sources.clear()
+            source._bound_sources.update(previous)
