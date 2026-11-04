@@ -56,7 +56,7 @@ def test_file_cost_original_sum_executes_exact_real_file_route(
         assert captures and any("SUM(" in read.sql.upper() for read, _ in captures)
         observed = values.persist()
         frame = observed.to_pandas()
-        assert set(frame[ordinary_columns(frame)[0]]) == {
+        assert set(frame[ordinary_columns(observed)[0]]) == {
             ("a", 2**53 + index, 1) for index in range(len(facts))
         }
         assert pd.isna(frame["value"].iloc[0])

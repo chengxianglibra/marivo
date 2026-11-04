@@ -226,9 +226,9 @@ def test_public_cross_datasource_observation_refuses_before_business_read(
         semantic_project_factory(
             {
                 "datasources/left.py": "import marivo.datasource as md\n"
-                + f"md.duckdb(name='left', path={str(roots[0] / 'source.duckdb')!r}, read_only=True)\n",
+                + f"md.duckdb(wall_clock_timezone='UTC', name='left', path={str(roots[0] / 'source.duckdb')!r}, read_only=True)\n",
                 "datasources/right.py": "import marivo.datasource as md\n"
-                + f"md.duckdb(name='right', path={str(roots[1] / 'source.duckdb')!r}, read_only=True)\n",
+                + f"md.duckdb(wall_clock_timezone='UTC', name='right', path={str(roots[1] / 'source.duckdb')!r}, read_only=True)\n",
                 "sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales', owner='R9', default=True)\n",
                 "sales/models.py": models,
             }

@@ -16,6 +16,7 @@ def default_datasource() -> DatasourceIR:
         semantic_id=DEFAULT_DATASOURCE_NAME,
         name=DEFAULT_DATASOURCE_NAME,
         backend_type="duckdb",
+        wall_clock_timezone=None,
         fields={"path": ":memory:", "read_only": False},
         env_refs={},
         ai_context=AiContextIR(),

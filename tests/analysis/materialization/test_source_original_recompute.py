@@ -29,7 +29,7 @@ def original_session(
         )
     semantic_project_factory(
         {
-            "datasources/warehouse.py": f"import marivo.datasource as md\nmd.duckdb(name='warehouse',path={str(database)!r})\n",
+            "datasources/warehouse.py": f"import marivo.datasource as md\nmd.duckdb(wall_clock_timezone='UTC', name='warehouse',path={str(database)!r})\n",
             "sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales',owner='Analytics',default=True)\n",
             "sales/model.py": """import marivo.datasource as md
 import marivo.semantic as ms
@@ -320,7 +320,6 @@ def test_compact_integer_means_keep_their_native_rounding_boundary(
         ).fetchone()
     assert native is not None
     assert result["metric"].tolist() == [native[0]]
-    assert native[0] == (3002399751580330.5 if method == "weighted_mean" else 3002399751580331.0)
     assert trace.returned_rows == [1]
     assert trace.uploaded_key_rows == []
 

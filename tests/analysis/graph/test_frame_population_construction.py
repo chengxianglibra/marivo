@@ -86,7 +86,7 @@ def session(
         {
             "datasources/warehouse.py": (
                 "import marivo.datasource as md\n"
-                f"md.duckdb(name='warehouse', path={str(tmp_path / 'unopened.duckdb')!r})\n"
+                f"md.duckdb(wall_clock_timezone='UTC', name='warehouse', path={str(tmp_path / 'unopened.duckdb')!r})\n"
             ),
             "sales/_domain.py": (
                 "import marivo.semantic as ms\n"

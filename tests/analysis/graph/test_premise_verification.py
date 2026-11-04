@@ -41,8 +41,9 @@ def test_observation_completeness_depends_on_exact_matching_assumptions(
         {"value": session.catalog.get("metric:sales.line_revenue")},
         by=mv.product(session.time_scope(start="2026-08-01", end="2026-09-01"), members),
     )
-    frame = values.persist().to_pandas()
-    assert dict(zip(frame[ordinary_columns(frame)[0]], frame["value"], strict=True)) == {
+    saved = values.persist()
+    frame = saved.to_pandas()
+    assert dict(zip(frame[ordinary_columns(saved)[0]], frame["value"], strict=True)) == {
         "A": 300,
         "B": 300,
         "C": 400,

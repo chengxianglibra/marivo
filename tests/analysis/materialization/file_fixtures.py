@@ -28,7 +28,7 @@ def author_http_case(
     semantic_project_factory(
         {
             "datasources/warehouse.py": "import marivo.datasource as md\n"
-            + f"md.duckdb(name='warehouse', {argument_text})\n",
+            + f"md.duckdb(wall_clock_timezone='UTC', name='warehouse', {argument_text})\n",
             "sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales', owner='R10', default=True)\n",
             "sales/models.py": "import marivo.datasource as md\nimport marivo.semantic as ms\n"
             + f"facts=ms.entity(name='facts', datasource=ms.ref.datasource('warehouse'), source=md.json({url!r}), primary_key=['tenant','id','revision'])\n"
@@ -81,7 +81,7 @@ def author_file_case(
     semantic_project_factory(
         {
             "datasources/warehouse.py": "import marivo.datasource as md\n"
-            + f"md.duckdb(name='warehouse', path={case.session.datasource.fields['path']!r}, read_only=True)\n",
+            + f"md.duckdb(wall_clock_timezone='UTC', name='warehouse', path={case.session.datasource.fields['path']!r}, read_only=True)\n",
             "sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales', owner='R9', default=True)\n",
             "sales/models.py": "import marivo.datasource as md\nimport marivo.semantic as ms\n"
             + f"facts=ms.entity(name='facts', datasource=ms.ref.datasource('warehouse'), source={source}, primary_key=['tenant','id','revision'])\n"

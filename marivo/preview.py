@@ -199,9 +199,16 @@ class PreviewResult(_DataResult):
                 )
             )
         for column, info in sorted(self.timezones.items()):
-            facts.append(
-                (column, f"read_tz={info.get('read_tz')} report_tz={info.get('report_tz')}")
-            )
+            kind = info.get("kind")
+            timezone = info.get("timezone")
+            origin = info.get("origin")
+            inherited = info.get("inherited_from")
+            description = str(kind)
+            if timezone is not None:
+                description += f" {timezone} ({origin})"
+            if inherited is not None:
+                description += f"; inherited from {inherited}"
+            facts.append((column, description))
         return _DataCard(
             identity=f"PreviewResult kind={self.kind} ref={self.ref}",
             columns=self.columns,

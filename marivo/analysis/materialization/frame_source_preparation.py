@@ -35,6 +35,7 @@ from marivo.analysis.core.frame_data import (
     SourceFrameBinding,
     StoredFrameBacking,
 )
+from marivo.analysis.core.frame_interpretation import FrameSourceTime, merge_source_times
 from marivo.analysis.core.frame_metadata import (
     EvaluationInput,
     FrameOperationName,
@@ -44,6 +45,7 @@ from marivo.analysis.core.frame_metadata import (
     StoredInput,
 )
 from marivo.analysis.core.frame_structure import PendingDataColumn, PendingDataSchema, axis_role
+from marivo.analysis.core.graph import BoundGraph
 from marivo.analysis.core.model import reject
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.frame_inputs import CapturedFrameInputs
@@ -71,9 +73,12 @@ class PreparedFrameSources:
     schemas: dict[str, DataSchema]
     inputs: tuple[EvaluationInput, ...]
     operations: tuple[FrameOperationName, ...]
+    graphs: dict[str, BoundGraph]
 
 
-def _schema(frame: AnalysisFrame, plan: QueryPlan) -> DataSchema:
+def _schema(
+    frame: AnalysisFrame, plan: QueryPlan, source_times: tuple[FrameSourceTime, ...] = ()
+) -> DataSchema:
     graph = (
         frame._backing.root.graph
         if isinstance(frame._backing, ExpressionFrameBacking)
@@ -133,7 +138,9 @@ def _schema(frame: AnalysisFrame, plan: QueryPlan) -> DataSchema:
         replace(column, name=constraint.name, unit=constraint.unit)
         for column, constraint in zip(layout.values, frame._schema.values, strict=True)
     )
-    schema = DataSchema(tuple(axes), values, value_paths=frame._schema.value_paths)
+    schema = DataSchema(
+        tuple(axes), values, value_paths=frame._schema.value_paths, source_times=source_times
+    )
     return frame._schema.complete(schema)
 
 
@@ -154,6 +161,7 @@ def prepare_frame_sources(captured: CapturedFrameInputs, stack: ExitStack) -> Pr
     prepared_by_input: dict[str, PreparedSources] = {}
     source_plans: dict[str, CompiledSourceFrame] = {}
     source_schemas: dict[str, DataSchema] = {}
+    source_graphs: dict[str, BoundGraph] = {}
     key_schema_cache: dict[int, DataSchema] = {}
     inputs: list[EvaluationInput] = []
     operations = list(captured.operations)
@@ -162,8 +170,10 @@ def prepare_frame_sources(captured: CapturedFrameInputs, stack: ExitStack) -> Pr
         assert isinstance(backing, ExpressionFrameBacking)
         binding = backing.root
         assert isinstance(binding, (SourceFrameBinding, LiteralFrameBinding))
+        active_graph = binding.graph
         memo = InvocationMemo()
         prepared = None
+        key_schemas: dict[str, DataSchema] = {}
         schemas: tuple[SourceSchema, ...] = ()
         if isinstance(binding, SourceFrameBinding):
             if input_id in captured.games:
@@ -195,6 +205,7 @@ def prepare_frame_sources(captured: CapturedFrameInputs, stack: ExitStack) -> Pr
                         binding.graph,
                         binding.state,
                         memo=memo,
+                        consumption_timezone=current._local.record().report_timezone_name,
                         frame_schemas=key_schemas,
                         json_responses=json_responses.setdefault(
                             (binding.connection.project_root, id(binding.connection.resolver)), {}
@@ -204,18 +215,24 @@ def prepare_frame_sources(captured: CapturedFrameInputs, stack: ExitStack) -> Pr
                 prepared_by_input[input_id] = prepared
                 schemas = prepared.schemas
             else:
+                from marivo.analysis.materialization.native_calendar import bind_pandas_calendars
+
+                active_graph = bind_pandas_calendars(binding.graph)
                 schemas = prepare_source_free_populations(
-                    binding.graph, binding.state, frame_schemas=key_schemas
+                    active_graph, binding.state, frame_schemas=key_schemas
                 )
+        active_graph = (
+            prepared.graph if prepared is not None and prepared.graph is not None else active_graph
+        )
         if input_id in requested:
             assert prepared is not None and isinstance(binding, SourceFrameBinding)
             side, rules, mapping = requested[input_id]
             prepared, plan = prepare_attribute_endpoint(
-                prepared, binding.graph, binding.state, mapping, side, rules, memo=memo
+                prepared, active_graph, binding.state, mapping, side, rules, memo=memo
             )
             prepared_by_input[input_id] = prepared
         else:
-            plan = plan_query(binding.graph, schemas, memo=memo)
+            plan = plan_query(active_graph, schemas, memo=memo)
             native_reads = tuple(
                 replace(stage, native_relation_id=stage.stage_id)
                 for stage in plan.stages
@@ -296,7 +313,15 @@ def prepare_frame_sources(captured: CapturedFrameInputs, stack: ExitStack) -> Pr
                 input_failure(
                     "unqualified_contribution_route", f"{error.expected}; {error.received}"
                 )
-        schema = _schema(current, lowered.plan)
+        schema = _schema(
+            current,
+            lowered.plan,
+            merge_source_times(
+                () if prepared is None else prepared.source_times,
+                *(schema.source_times for schema in key_schemas.values()),
+            ),
+        )
+        source_graphs[input_id] = active_graph
         source_schemas[input_id] = schema
         source_plans[input_id] = CompiledSourceFrame(
             lowered,
@@ -323,5 +348,10 @@ def prepare_frame_sources(captured: CapturedFrameInputs, stack: ExitStack) -> Pr
                 )
             )
     return PreparedFrameSources(
-        prepared_by_input, source_plans, source_schemas, tuple(inputs), tuple(operations)
+        prepared_by_input,
+        source_plans,
+        source_schemas,
+        tuple(inputs),
+        tuple(operations),
+        source_graphs,
     )

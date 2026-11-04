@@ -24,7 +24,9 @@ from marivo.analysis.core.frame_interpretation import (
     FrameDecomposition,
     FrameFixedAxis,
     FrameRowAttributeTime,
+    FrameSourceTime,
     FrameValueContext,
+    validate_source_times,
 )
 from marivo.analysis.core.model import reject
 
@@ -201,8 +203,10 @@ class PendingDataSchema:
     value_contexts: tuple[tuple[str, FrameValueContext], ...] = ()
     decompositions: tuple[FrameDecomposition, ...] = ()
     alignments: tuple[DataAlignment, ...] = ()
+    source_times: tuple[FrameSourceTime, ...] = ()
 
     def __post_init__(self) -> None:
+        validate_source_times(self.source_times)
         if (
             type(self.axes) is not tuple
             or any(

@@ -128,6 +128,8 @@ class _Fact(RenderableResult):
         for item in fields(self):
             if item.name in (
                 "kind",
+                "axis",
+                "consumption_timezone",
                 "role",
                 "token",
                 "axis_token",
@@ -185,6 +187,138 @@ class _Fact(RenderableResult):
                 summary = repr(value)[:240]
             card.field(item.name, summary)
         return card
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class FrameInstantSourceTime(_Fact):
+    """Captured instant source interpretation, acquired from FrameSchema.source_times."""
+
+    axis: str
+    physical_type: str
+    consumption_timezone: str
+    kind: Literal["instant"] = "instant"
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class FrameWallClockSourceTime(_Fact):
+    """Captured naive source interpretation and declaration origin, acquired from schema."""
+
+    axis: str
+    physical_type: str
+    consumption_timezone: str
+    timezone: str
+    origin: Literal["field", "datasource"]
+    inherited_from: str | None = None
+    kind: Literal["wall_clock"] = "wall_clock"
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class FrameCivilDateSourceTime(_Fact):
+    """Captured business-day source interpretation, acquired from FrameSchema.source_times."""
+
+    axis: str
+    physical_type: str
+    consumption_timezone: str
+    timezone: str
+    origin: Literal["field", "datasource"]
+    kind: Literal["civil_date"] = "civil_date"
+
+
+FrameSourceTime: TypeAlias = (
+    FrameInstantSourceTime | FrameWallClockSourceTime | FrameCivilDateSourceTime
+)
+
+
+def merge_source_times(*groups: tuple[FrameSourceTime, ...]) -> tuple[FrameSourceTime, ...]:
+    """Retain distinct complete consumed interpretations in deterministic order."""
+    return tuple(
+        sorted(
+            {item for group in groups for item in group},
+            key=lambda item: (
+                item.axis,
+                item.kind,
+                getattr(item, "timezone", ""),
+                item.consumption_timezone,
+                item.physical_type,
+                getattr(item, "origin", ""),
+                getattr(item, "inherited_from", None) or "",
+            ),
+        )
+    )
+
+
+def capture_source_times(
+    authorities: tuple[SourceTimeAuthority, ...], *, consumption_timezone: str
+) -> tuple[FrameSourceTime, ...]:
+    """Copy resolved source authority as inert scalars at the actual consumption boundary."""
+    from marivo._timezones import normalize_timezone
+    from marivo.analysis.core.time_authority import CivilDateSourceTime, WallClockSourceTime
+
+    consumption_timezone = normalize_timezone(consumption_timezone).name
+
+    result: list[FrameSourceTime] = []
+    for authority in authorities:
+        if isinstance(authority, WallClockSourceTime):
+            result.append(
+                FrameWallClockSourceTime(
+                    authority.axis,
+                    authority.physical_type,
+                    consumption_timezone,
+                    authority.timezone,
+                    authority.origin,
+                    authority.inherited_from,
+                )
+            )
+        elif isinstance(authority, CivilDateSourceTime):
+            result.append(
+                FrameCivilDateSourceTime(
+                    authority.axis,
+                    authority.physical_type,
+                    consumption_timezone,
+                    authority.timezone,
+                    authority.origin,
+                )
+            )
+        else:
+            result.append(
+                FrameInstantSourceTime(
+                    authority.axis,
+                    authority.physical_type,
+                    consumption_timezone,
+                )
+            )
+    return merge_source_times(tuple(result))
+
+
+def validate_source_times(values: tuple[FrameSourceTime, ...]) -> None:
+    """Require exact immutable inert variants without resolving a source."""
+    if type(values) is not tuple or any(
+        type(value)
+        not in (FrameInstantSourceTime, FrameWallClockSourceTime, FrameCivilDateSourceTime)
+        for value in values
+    ):
+        _invalid("an immutable tuple of closed source-time interpretation facts")
+    if merge_source_times(values) != values:
+        _invalid("distinct source-time interpretation facts in deterministic order")
+
+
+def source_time_summary(value: FrameSourceTime) -> str:
+    """Describe one consumed field, including the civil-day assignment limitation."""
+    from marivo._timezones import same_timezone
+
+    text = f"{value.axis}: {value.kind}"
+    if isinstance(value, FrameInstantSourceTime):
+        return f"{text} in {value.consumption_timezone}"
+    if isinstance(value, (FrameWallClockSourceTime, FrameCivilDateSourceTime)):
+        text += f" {value.timezone} ({value.origin})"
+    if isinstance(value, FrameWallClockSourceTime) and value.inherited_from is not None:
+        text += f"; inherited from {value.inherited_from}"
+    text += f"; report {value.consumption_timezone}"
+    if isinstance(value, FrameCivilDateSourceTime) and not same_timezone(
+        value.timezone, value.consumption_timezone
+    ):
+        text += "; assigned by business-day start; cannot rebuild event-day totals"
+    return text
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -1143,6 +1277,7 @@ def unary_facts(
     return replace(
         output,
         fixed_axes=fixed,
+        source_times=merge_source_times(schema.source_times, output.source_times),
         value_contexts=resolved,
         decompositions=decompositions,
         comparisons=comparisons,
@@ -1161,6 +1296,7 @@ if TYPE_CHECKING:
     )
     from marivo.analysis.core.frame_schema import LogicalSchema
     from marivo.analysis.core.lineage import FrameLineage
+    from marivo.analysis.core.time_authority import SourceTimeAuthority
 
 
 def comparison_facts(
@@ -1280,6 +1416,9 @@ def comparison_facts(
     return replace(
         output,
         comparisons=tuple(facts),
+        source_times=merge_source_times(
+            *(schema.source_times for schema in inputs), output.source_times
+        ),
         fixed_axes=common,
         value_contexts=tuple(contexts.items()),
         decompositions=(),
@@ -1365,6 +1504,7 @@ def align_facts(
     return replace(
         output,
         fixed_axes=common,
+        source_times=merge_source_times(left.source_times, right.source_times, output.source_times),
         value_contexts=tuple(result),
         decompositions=(),
         alignments=tuple(alignments),
@@ -1447,6 +1587,7 @@ def decomposition_facts(
     return replace(
         output,
         fixed_axes=parent.fixed_axes,
+        source_times=merge_source_times(parent.source_times, output.source_times),
         value_contexts=(),
         comparisons=comparisons,
         decompositions=(decomposition,),
@@ -1494,7 +1635,36 @@ def _validate_fact(value: _Fact) -> None:
         ):
             _invalid("one closed current value context")
 
-    if isinstance(value, FrameAxisSchema):
+    if isinstance(
+        value, (FrameInstantSourceTime, FrameWallClockSourceTime, FrameCivilDateSourceTime)
+    ):
+        from zoneinfo import ZoneInfoNotFoundError
+
+        from marivo._timezones import normalize_timezone
+
+        text(value.axis)
+        text(value.physical_type)
+        for zone in (
+            value.consumption_timezone,
+            *(
+                (value.timezone,)
+                if isinstance(value, (FrameWallClockSourceTime, FrameCivilDateSourceTime))
+                else ()
+            ),
+        ):
+            try:
+                canonical = normalize_timezone(zone).name
+            except (TypeError, ValueError, ZoneInfoNotFoundError):
+                _invalid("a valid canonical captured timezone")
+            if canonical != zone:
+                _invalid("a canonical captured timezone")
+        if isinstance(
+            value, (FrameWallClockSourceTime, FrameCivilDateSourceTime)
+        ) and value.origin not in ("field", "datasource"):
+            _invalid("a field or datasource timezone declaration origin")
+        if isinstance(value, FrameWallClockSourceTime) and value.inherited_from is not None:
+            text(value.inherited_from)
+    elif isinstance(value, FrameAxisSchema):
         text(value.token)
         text(value.name)
         if not isinstance(value.at, FrameRowAttributeTime):

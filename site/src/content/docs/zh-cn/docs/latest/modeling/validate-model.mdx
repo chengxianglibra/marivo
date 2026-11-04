@@ -58,3 +58,5 @@ HTTP JSON 在源准备阶段获取响应行，用于推断物理类型。
 字符串标识应使用 `ms.dimension_column(...)` 声明为 Dimension；通过闭合字段的
 `dimension.count_distinct()` 统计不同值的数量。字符串列不能绑定为要求
 numeric/duration 类型的 Measure。
+
+原生 DATE 和无时区时间戳（包括 `parse=None`）必须在解析器或 Datasource `wall_clock_timezone` 上声明源时区，缺失时在读取业务数据前拒绝。编码时间缺失声明时阻塞静态 readiness。DATE validity 两端必须采用同一规范时区；DATE snapshot 和 temporal_set 字段必须与其显式边界声明相同。预览披露捕获的来源权威，不使用宿主机时区。

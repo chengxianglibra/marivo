@@ -23,6 +23,7 @@ ReadinessStatus = Literal["ready", "ready_with_warnings", "blocked"]
 ReadinessSeverity = Literal["blocker", "warning", "advisory"]
 ReadinessIssueKind = Literal[
     "load_error",
+    "source_timezone_missing",
     "unknown_ref",
     "cross_datasource_unfederated",
     "fragile_string_ref",
@@ -467,6 +468,39 @@ def build_readiness_report(
     )
     scoped_datasources = _datasource_refs_for_checked_refs(checked_refs, objects, kinds)
     reg = project._registry
+    if reg is not None:
+        from marivo.semantic._source_timezone import require_source_timezone, source_timezone_axis
+        from marivo.semantic.errors import SourceTimezoneMissing
+        from marivo.semantic.ir import DateParse, HourPrefixParse, StrptimeParse
+
+        for field_id, dimension in reg.dimensions.items():
+            if f"time_dimension:{field_id}" not in checked_refs:
+                continue
+            calendar_date = any(
+                calendar.date == field_id for calendar in reg.period_calendars.values()
+            )
+            if not calendar_date and not isinstance(
+                dimension.parse, DateParse | StrptimeParse | HourPrefixParse
+            ):
+                continue
+            try:
+                require_source_timezone(
+                    reg,
+                    source_timezone_axis(reg, field_id),
+                    physical_type="declared encoding",
+                )
+            except SourceTimezoneMissing as error:
+                blockers.append(
+                    ReadinessIssue(
+                        kind="source_timezone_missing",
+                        severity="blocker",
+                        refs=(field_id,),
+                        message=error.message,
+                        repair=error.repair,
+                        details=error.details,
+                    )
+                )
+
     cross_datasource_refs: list[str] = []
     if reg is not None:
         from marivo.semantic.preview_scope import dependency_entities_for_ref
@@ -506,6 +540,7 @@ def build_readiness_report(
         from marivo._temporal import TemporalSnapshotStore, period_calendar_definition_digest
         from marivo.refs import ref as ref_factory
         from marivo.semantic._definition_identity import scoped_definition_fingerprint
+        from marivo.semantic._source_timezone import period_calendar_timezone
         from marivo.semantic.ir import PeriodCalendarIR
 
         snapshot_store = TemporalSnapshotStore(project._workspace_dir)
@@ -518,7 +553,7 @@ def build_readiness_report(
             calendar_ref = ref_factory.period_calendar(_display_path(ref))
             definition_digest = period_calendar_definition_digest(
                 calendar_ref=calendar_ref,
-                boundary_timezone=calendar.boundary_timezone,
+                boundary_timezone=period_calendar_timezone(reg, calendar),
                 coverage=calendar.coverage,
                 levels=calendar.levels,
                 dependency_digest=scoped_definition_fingerprint(
@@ -661,7 +696,7 @@ def build_readiness_report(
                     repair(
                         kind="reauthor",
                         canonical_id="time_dimension_column",
-                        action="If the business axis matches the partition field, keep the raw string/integer column and declare date_format; keep the expression when business semantics require it.",
+                        action="If the business axis matches a canonically encoded partition field, keep the raw string/integer column and declare parse=ms.strptime(format); keep the expression when business semantics require it.",
                     ),
                 )
             )

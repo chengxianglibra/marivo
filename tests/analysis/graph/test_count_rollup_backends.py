@@ -116,7 +116,7 @@ def test_native_count_rollup_and_group_state(
         semantic_project_factory(
             {
                 "datasources/warehouse.py": "import marivo.datasource as md\n"
-                + f"md.{backend}(name='warehouse',"
+                + f"md.{backend}(wall_clock_timezone='UTC', name='warehouse',"
                 + ",".join(f"{key}={value!r}" for key, value in arguments.items())
                 + ")\n",
                 "counts/_domain.py": "import marivo.semantic as ms\nms.domain(name='counts',owner='Analytics',default=True)\n",
@@ -153,7 +153,7 @@ def test_native_count_rollup_and_group_state(
         offset = len(reads)
         saved_groups = grouped.persist()
         frame = saved_groups.to_pandas()
-        assert dict(zip(frame[ordinary_columns(frame)[0]], frame["value"], strict=True)) == {
+        assert dict(zip(frame[ordinary_columns(saved_groups)[0]], frame["value"], strict=True)) == {
             "even": 4,
             "odd": 5,
         }

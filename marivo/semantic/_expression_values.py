@@ -1174,7 +1174,8 @@ class RowExpression(_ExpressionCarrier, Generic[_RowRoleT]):
 
         Args:
             anchor: One InstantAnchor, or a named, unanchored TimeDimension on
-                the observation's fact root for per-row classification.
+                the observation's unversioned or snapshot fact root for per-row
+                classification, including a snapshot partition TimeDimension.
 
         Returns:
             A typed expression with the stage and role indicated by this method.
@@ -1185,8 +1186,9 @@ class RowExpression(_ExpressionCarrier, Generic[_RowRoleT]):
         Notes:
             Constraints: A fixed instant applies one attribute definition to the
             whole question. Row time supports same-source, single-root observe
-            classification on qualified backends; read, classify, windows and
-            internal samples require fixed anchors. Captures without source access.
+            classification on qualified backends; validity fact roots, read,
+            classify, windows and internal samples require fixed anchors.
+            Captures without source access.
         """
         return RowExpression(
             self._method("at", (anchor,)), _merge(self, anchor), cast("_RowRoleT", self._role)

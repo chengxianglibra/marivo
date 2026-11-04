@@ -4,15 +4,12 @@ from __future__ import annotations
 
 import json
 import os
-from decimal import Decimal
 from pathlib import Path
 from unittest.mock import patch
 
 import marivo.analysis as mv
 import marivo.semantic as ms
-from marivo.analysis.errors import AnalysisError
 from marivo.datasource.adapters import SourceSession
-from marivo.semantic.errors import SemanticExpressionError
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.materialization.domain_recovery_worker import forbidden, snapshot
 from tests.shared_fixtures import catalog_value, terminal_runs
@@ -46,9 +43,9 @@ def run_process(project: str, session_id: str, phase: str) -> None:
             .reduce({"value": mv.row_count()})
             .persist(),
         }
-        sums = results["sum"].to_pandas()["value"].tolist()
-        assert sums == [Decimal("120"), Decimal("20"), Decimal("7")], sums
-        assert all(isinstance(value, Decimal) for value in sums)
+        sum_values = results["sum"].to_pandas()["value"]
+        assert sum_values.tolist() == [120, 20, 7]
+        assert str(sum_values.dtype) == "int64[pyarrow]"
         assert results["mean"].to_pandas()["value"].tolist() == [120, 20, 7]
         assert results["count"].to_pandas()["value"].tolist() == [1, 1, 1]
         raw = observed.persist().to_pandas()["value"]
@@ -65,16 +62,11 @@ def run_process(project: str, session_id: str, phase: str) -> None:
             {"value": catalog_value(session.catalog, "sales.order.amount", kind="field")},
         ).persist()
         results["category"] = session.read(members, {"value": region}).persist()
-        before = len(terminal_runs(session))
-        try:
-            session.observe(
-                {"value": session.catalog.get("metric:sales.approx_quantile")}, by=(scope,)
-            ).persist()
-        except (AnalysisError, SemanticExpressionError) as error:
-            assert error.expected and error.received and error.repair
-        else:
-            raise AssertionError("An unqualified approximate quantile route executed")
-        assert len(terminal_runs(session)) == before
+        results["approx_quantile"] = session.observe(
+            {"value": session.catalog.get("metric:sales.approx_quantile")}, by=(scope,)
+        ).persist()
+        approximate = results["approx_quantile"].to_pandas()["value"].iloc[0]
+        assert 7 <= approximate <= 120
         output: dict[str, Json] = {
             name: {"artifact": result.artifact_id, "snapshot": snapshot(result)}
             for name, result in results.items()

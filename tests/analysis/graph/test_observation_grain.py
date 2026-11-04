@@ -55,12 +55,13 @@ def _query(
     )
 
 
-def _keyed(frame: pd.DataFrame, name: str = "value") -> dict[tuple[object, ...], object]:
+def _keyed(result: mv.AnalysisFrame, name: str = "value") -> dict[tuple[object, ...], object]:
     coordinates = [
-        axis["name"].rsplit(".", 1)[-1] + (".start" if axis["role"] == "calendar" else "")
-        for axis in frame.attrs["axes"]
-        if axis["role"] in ("calendar", "field", "identity")
+        axis.name.rsplit(".", 1)[-1]
+        for axis in result.axes
+        if axis.role in ("calendar", "field", "identity")
     ]
+    frame = result.to_pandas()
     return {tuple(row[column] for column in coordinates): row[name] for _, row in frame.iterrows()}
 
 
@@ -76,7 +77,7 @@ def test_overall_and_member_observations(analysis_dsl_case_factory: DslCaseFacto
         case.session.population_from(total, on=()).project(by=(members.axes[0],))
     individual = _query(case, by=members, members=members, during=_august(case))
     fixed = individual.persist()
-    assert _keyed(fixed.to_pandas()) == {("A",): 450, ("B",): 150, ("C",): 400, ("D",): 0}
+    assert _keyed(fixed) == {("A",): 450, ("B",): 150, ("C",): 400, ("D",): 0}
     keys = (
         case.session.frame(
             case.session.population_from(
@@ -97,14 +98,10 @@ def test_member_and_contribution_grouping(analysis_dsl_case_factory: DslCaseFact
     region = catalog_value(session.catalog, "sales.customer.region", kind="field")
     channel = catalog_value(session.catalog, "sales.order.channel", kind="field")
     grouped = _query(case, by=members.classify(by=(region,)), members=members, during=_august(case))
-    assert _keyed(grouped.persist().to_pandas()) == {("east",): 600, ("south",): 400, ("west",): 0}
+    assert _keyed(grouped.persist()) == {("east",): 600, ("south",): 400, ("west",): 0}
     channels = _query(case, by=(channel,), members=members, during=_august(case))
-    assert _keyed(channels.persist().to_pandas()) == {("mobile",): 150, ("web",): 850}
-    tuples = (
-        _query(case, by=(region, channel), members=members, during=_august(case))
-        .persist()
-        .to_pandas()
-    )
+    assert _keyed(channels.persist()) == {("mobile",): 150, ("web",): 850}
+    tuples = _query(case, by=(region, channel), members=members, during=_august(case)).persist()
     assert _keyed(tuples) == {("east", "web"): 450, ("east", "mobile"): 150, ("south", "web"): 400}
     classifications = session.read(members, {"region": region})
     chosen = classifications.where(classifications["region"] == "east")
@@ -114,7 +111,7 @@ def test_member_and_contribution_grouping(analysis_dsl_case_factory: DslCaseFact
     saved = _query(
         case, by=selected.classify(by=(region,)), members=selected, during=_august(case)
     ).persist()
-    assert _keyed(saved.to_pandas()) == {("east",): 600}
+    assert _keyed(saved) == {("east",): 600}
     assert session.persisted_frame(saved.artifact_id).to_pandas().equals(saved.to_pandas())
 
 
@@ -138,7 +135,7 @@ def test_member_channel_axes_keep_identity_and_selected_scope(
     expected = {("A", "web"): 450, ("A", "mobile"): 99, ("B", "mobile"): 150, ("C", "web"): 400}
     if not member_first:
         expected = {(channel, customer): value for (customer, channel), value in expected.items()}
-    assert _keyed(observed.persist().to_pandas()) == expected
+    assert _keyed(observed.persist()) == expected
     assert observed.reduce({"value": observed["value"].sum()}).persist().to_pandas()[
         "value"
     ].tolist() == [1099]
@@ -148,7 +145,7 @@ def test_member_channel_axes_keep_identity_and_selected_scope(
     selected = session.population_from(
         chosen, on=((chosen.axes[0], session.catalog.get("entity:sales.customer")),)
     )
-    result = _query(case, by=selected, members=selected).persist().to_pandas()
+    result = _query(case, by=selected, members=selected).persist()
     assert _keyed(result) == {("A",): 626, ("B",): 150}
 
 
@@ -162,7 +159,7 @@ def test_component_domains_union_complete_tuples(analysis_dsl_case_factory: DslC
     grouped = _query(
         case, metric=difference, by=(region, channel), members=_members(case), during=_august(case)
     )
-    assert _keyed(grouped.persist().to_pandas()) == {
+    assert _keyed(grouped.persist()) == {
         ("east", "web"): 450,
         ("east", "mobile"): -150,
         ("south", "web"): 400,
@@ -204,8 +201,9 @@ def test_member_classification_survives_rollup_for_additive_comparison(
     selected = selected.select({"value": selected["reference.absolute.value"]})
     saved = selected.persist()
     case.database_path.rename(case.database_path.with_suffix(".offline"))
-    frame = session.persisted_frame(saved.artifact_id).to_pandas()
-    assert _keyed(frame) == {("east",): 523, ("south",): 400}
+    restored = session.persisted_frame(saved.artifact_id)
+    frame = restored.to_pandas()
+    assert _keyed(restored) == {("east",): 523, ("south",): 400}
     assert frame["value"].sum() == 923
 
 
@@ -407,10 +405,7 @@ def test_explicit_business_coverage_masks_exported_values(
     assert frame["value"].tolist() == [1000, 99]
     complete_until = datetime(2026, 9, 1, tzinfo=timezone.utc)
     # Caller business coverage is an explicit pandas policy; Query has no four-state override.
-    calendar = frame.attrs["axes"][0]
-    covered = frame["value"].where(
-        frame[calendar["name"].rsplit(".", 1)[-1] + ".start"] < complete_until
-    )
+    covered = frame["value"].where(frame["calendar:month"] < complete_until)
     assert covered.iloc[0] == 1000 and pd.isna(covered.iloc[1])
     assert not hasattr(saved, "rollup")
 
@@ -501,7 +496,7 @@ def test_direct_aggregate_uses_selected_contributions(
         completed = _query(
             case, metric=metric, by=selected.classify(by=(region,)), members=selected
         ).persist()
-        assert _keyed(completed.to_pandas()) == {("east",): 1}
+        assert _keyed(completed) == {("east",): 1}
         assert (
             session.persisted_frame(completed.artifact_id).to_pandas().equals(completed.to_pandas())
         )
@@ -625,7 +620,7 @@ def test_multiple_member_classifications_keep_complete_time_keys(
     saved = observed.persist()
     frame = saved.to_pandas()
     assert len(frame) == 8
-    actual = {key: value for key, value in _keyed(frame).items() if value != 0}
+    actual = {key: value for key, value in _keyed(saved).items() if value != 0}
     august, september = (
         datetime(2026, 8, 1, tzinfo=timezone.utc),
         datetime(2026, 9, 1, tzinfo=timezone.utc),
@@ -678,7 +673,7 @@ def test_member_groups_preserve_live_and_fixed_comparisons(
     )
     saved = comparison.persist()
     expected = {("east",): -20, ("south",): -50, ("west",): 0}
-    assert _keyed(saved.to_pandas(), "reference.absolute.value") == expected
+    assert _keyed(saved, "reference.absolute.value") == expected
     self_comparison = current.compare(
         {"reference": mv.baseline(current, on=tuple(zip(current.axes, current.axes, strict=True)))}
     ).persist()
@@ -691,7 +686,13 @@ def test_member_groups_preserve_live_and_fixed_comparisons(
     )
     assert dict(
         zip(
-            left["sales.customer"],
+            left[
+                next(
+                    axis.name.rsplit(".", 1)[-1]
+                    for axis in fixed_current.axes
+                    if axis.role in ("identity", "field")
+                )
+            ],
             left["value"].astype(object) - right["value"].astype(object),
             strict=True,
         )

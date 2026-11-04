@@ -236,7 +236,7 @@ def test_source_free_intents_distinguish_absence_from_unselected_target(
     def refuse(*args: object, **kwargs: object) -> object:
         raise AssertionError("fixed-data matching must not consult timezone rules")
 
-    monkeypatch.setattr("marivo._temporal_grid.parse_timezone", refuse)
+    monkeypatch.setattr("marivo._temporal_grid.normalize_timezone", refuse)
     years = calendar_match_intents(current, mv.offset(years=-1))[0].result
     periods = calendar_match_intents(current, mv.offset(periods=-52))[0].result
     assert isinstance(years, CivilShiftAbsent) and years.reason == "period_absent"
@@ -252,10 +252,10 @@ def test_source_calendar_freezing_uses_original_captured_civil_facts(
     def refuse(*args: object, **kwargs: object) -> object:
         raise AssertionError("freezing must not reconstruct original civil boundaries")
 
-    monkeypatch.setattr("marivo._temporal_grid.parse_timezone", refuse)
+    monkeypatch.setattr("marivo._temporal_grid.normalize_timezone", refuse)
     _, directory = frozen(current)
-    assert directory.buckets[0].actual_end_civil == "2026-11-01T01:30:00.000000-04:00"
-    assert directory.buckets[0].actual_end.isoformat() == "2026-11-01T05:30:00+00:00"
+    assert directory.buckets[0].selection == "prefix"
+    assert directory.buckets[0].cutoff == "2026-11-01T01:30:00.000000"
 
 
 def test_frozen_prefix_matching_requires_exact_saved_progress_and_no_tz_lookup(
@@ -268,14 +268,14 @@ def test_frozen_prefix_matching_requires_exact_saved_progress_and_no_tz_lookup(
     def refuse(*args: object, **kwargs: object) -> object:
         raise AssertionError("fixed-data matching must not consult timezone rules")
 
-    monkeypatch.setattr("marivo._temporal_grid.parse_timezone", refuse)
+    monkeypatch.setattr("marivo._temporal_grid.normalize_timezone", refuse)
     assert (
         build_partial_calendar_map(current, baseline, mv.offset(periods=-1))[0].right_key
         == baseline.buckets[0].key
     )
     with pytest.raises(AnalysisError, match="progress"):
         build_partial_calendar_map(current, full, mv.offset(periods=-1))
-    with pytest.raises(AnalysisError, match="complete actual"):
+    with pytest.raises(AnalysisError, match="complete logical"):
         build_partial_calendar_map(current, baseline, mv.ordinal())
 
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass, replace
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -837,3 +838,191 @@ def test_partition_listing_rejects_invalid_bounds_before_metadata_query(
     assert error.repair.help_target.canonical_id == "source_inspection.partitions"
     assert error.repair.snippet == 'inspection.partitions(limit=100, order="desc")'
     assert error.repair.preserves_evidence is True
+
+
+@pytest.mark.parametrize(
+    ("column", "start", "end", "expected_ids"),
+    [
+        ("instant", "2026-01-01T00:00:00Z", "2026-01-02T00:00:00Z", [1]),
+        ("wall_clock", "2026-01-01T00:00:00", "2026-01-02T00:00:00", [1]),
+        ("wall_clock", "2026-01-01", "2026-01-02", [1]),
+        ("day", "2026-01-01", "2026-01-02", [1]),
+    ],
+)
+def test_time_range_acquires_matching_physical_boundary_categories(
+    project_root: Path,
+    query_spy: _QuerySpy,
+    column: str,
+    start: str,
+    end: str,
+    expected_ids: list[int],
+) -> None:
+    path = _register_duckdb(project_root)
+    backend = ibis.duckdb.connect(str(path))
+    try:
+        backend.raw_sql(
+            "CREATE TABLE times (id INTEGER, instant TIMESTAMPTZ, wall_clock TIMESTAMP, day DATE)"
+        )
+        backend.raw_sql(
+            "INSERT INTO times VALUES (1, TIMESTAMPTZ '2026-01-01 12:00:00+00', TIMESTAMP '2026-01-01 12:00:00', DATE '2026-01-01'), (2, TIMESTAMPTZ '2026-01-02 00:00:00+00', TIMESTAMP '2026-01-02 00:00:00', DATE '2026-01-02')"
+        )
+    finally:
+        backend.disconnect()
+    inspection = md.inspect(ms.ref.datasource("warehouse"), md.table("times"))
+    snapshot = inspection.sample(
+        scope=md.time_range(column, start=start, end=end, max_rows=5, timeout_seconds=10),
+        columns=("id",),
+        persist_values=True,
+    )
+    assert [row["id"] for row in snapshot.retained_values] == expected_ids
+    assert query_spy.user_data_queries == 1
+
+
+@pytest.mark.parametrize(
+    ("column", "start", "end", "category"),
+    [
+        ("instant", "2026-01-01", "2026-01-02", "aware_timestamp"),
+        ("instant", "2026-01-01T00:00:00", "2026-01-02T00:00:00", "aware_timestamp"),
+        ("wall_clock", "2026-01-01T00:00:00Z", "2026-01-02T00:00:00Z", "naive_timestamp"),
+        ("day", "2026-01-01T00:00:00", "2026-01-02T00:00:00", "date"),
+        ("day", "2026-01-01T00:00:00Z", "2026-01-02T00:00:00Z", "date"),
+    ],
+)
+def test_time_range_mismatches_fail_before_business_read_without_timezone_defaults(
+    project_root: Path,
+    query_spy: _QuerySpy,
+    column: str,
+    start: str,
+    end: str,
+    category: str,
+) -> None:
+    path = project_root / "warehouse.duckdb"
+    md.register(
+        md.duckdb(name="warehouse", path=str(path), wall_clock_timezone="Asia/Tokyo"),
+        project_root=project_root,
+    )
+    backend = ibis.duckdb.connect(str(path))
+    try:
+        backend.raw_sql("CREATE TABLE times (instant TIMESTAMPTZ, wall_clock TIMESTAMP, day DATE)")
+    finally:
+        backend.disconnect()
+    inspection = md.inspect(ms.ref.datasource("warehouse"), md.table("times"))
+    with pytest.raises(DatasourceAuthoringError) as caught:
+        inspection.sample(
+            scope=md.time_range(column, start=start, end=end, max_rows=5, timeout_seconds=10),
+            columns=(column,),
+        )
+    error = caught.value
+    assert error.code == "time_range_boundary_mismatch"
+    assert error.stage == "preflight"
+    assert error.effect_observed.query_executed is False
+    assert f"column={column!r}, category={category}" in error.received
+    assert error.repair.help_target.canonical_id == "time_range"
+    assert f"md.time_range({column!r}" in error.repair.snippet
+    assert query_spy.user_data_queries == 0
+
+
+@pytest.mark.parametrize(
+    ("backend", "physical_type", "aware"),
+    [
+        ("mysql", "timestamp(6)", True),
+        ("mysql", "datetime(6)", False),
+        ("clickhouse", "DateTime", True),
+        ("clickhouse", "Nullable(DateTime64(6))", True),
+    ],
+)
+def test_time_range_uses_native_mysql_and_clickhouse_physical_semantics(
+    project_root: Path,
+    backend: str,
+    physical_type: str,
+    aware: bool,
+) -> None:
+    from marivo.datasource.inspection import SourceInspection, _preflight_scope
+
+    inspection = SourceInspection(
+        _datasource=ref_factory.datasource("warehouse"),
+        source=md.table("times"),
+        physical_extent=PhysicalExtent(None, "unknown", None, "unknown", "test", ()),
+        partitioning=Partitioning("none", (), None, (), True, False),
+        execution_capabilities=ExecutionCapabilities(True, False, False, False),
+        schema=(ColumnMetadata("event_time", physical_type, True, None, 1),),
+        warnings=(),
+        _project_root=project_root,
+        _backend_type=backend,
+    )
+    aware_start = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    aware_end = datetime(2026, 1, 2, tzinfo=timezone.utc)
+    date_start, date_end = date(2026, 1, 1), date(2026, 1, 2)
+    good_start, good_end = (aware_start, aware_end) if aware else (date_start, date_end)
+    bad_start, bad_end = (date_start, date_end) if aware else (aware_start, aware_end)
+    _preflight_scope(
+        inspection,
+        scope=md.time_range(
+            "event_time", start=good_start, end=good_end, max_rows=1, timeout_seconds=5
+        ),
+    )
+    with pytest.raises(DatasourceAuthoringError, match="time_range_boundary_mismatch"):
+        _preflight_scope(
+            inspection,
+            scope=md.time_range(
+                "event_time", start=bad_start, end=bad_end, max_rows=1, timeout_seconds=5
+            ),
+        )
+
+
+@pytest.mark.parametrize("ibis_type", ("timestamp(6)", "timestamp('UTC', 6)"))
+@pytest.mark.parametrize("projected", (False, True))
+def test_time_range_preserves_reflected_mysql_datetime_and_timestamp_categories(
+    project_root: Path, ibis_type: str, projected: bool
+) -> None:
+    from marivo.datasource.inspection import (
+        SourceInspection,
+        _preflight_scope,
+        _project_table_metadata,
+    )
+    from marivo.datasource.metadata import _schema_columns
+
+    schema = _schema_columns(ibis.table({"event_time": ibis_type}))
+    physical_schema = schema
+    if projected:
+        projected_metadata = _project_table_metadata(
+            TableMetadata(
+                datasource="warehouse",
+                table="times",
+                database=None,
+                backend_type="mysql",
+                comment=None,
+                columns=schema,
+                partitions=(),
+                warnings=(),
+            ),
+            md.table("times", columns={"event_time": "event_time"}),
+        )
+        schema = projected_metadata.columns
+        assert schema[0].type == ibis_type
+    inspection = SourceInspection(
+        _datasource=ref_factory.datasource("warehouse"),
+        source=md.table("times"),
+        physical_extent=PhysicalExtent(None, "unknown", None, "unknown", "test", ()),
+        partitioning=Partitioning("none", (), None, (), True, False),
+        execution_capabilities=ExecutionCapabilities(True, False, False, False),
+        schema=schema,
+        warnings=(),
+        _project_root=project_root,
+        _backend_type="mysql",
+        _physical_schema=physical_schema if projected else (),
+    )
+    date_scope = md.time_range(
+        "event_time", start="2026-01-01", end="2026-01-02", max_rows=1, timeout_seconds=5
+    )
+    aware_scope = md.time_range(
+        "event_time",
+        start="2026-01-01T00:00:00Z",
+        end="2026-01-02T00:00:00Z",
+        max_rows=1,
+        timeout_seconds=5,
+    )
+    valid, invalid = (aware_scope, date_scope) if "UTC" in ibis_type else (date_scope, aware_scope)
+    _preflight_scope(inspection, scope=valid)
+    with pytest.raises(DatasourceAuthoringError, match="time_range_boundary_mismatch"):
+        _preflight_scope(inspection, scope=invalid)

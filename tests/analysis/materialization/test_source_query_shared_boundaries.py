@@ -142,9 +142,9 @@ def test_shared_predicate_keeps_plain_and_per_grids_independent(
     rows = query.compute().to_pandas()
     assert rows["total"].tolist() == [60]
     assert rows["mean"].tolist() == [30.0]
-    # Matching axes do not qualify sampled contributions for common-source
-    # sharing. Remote consumers retain their own checked parameter boundary.
-    assert trace.uploaded_key_rows == ([3] if backend == "duckdb" else [3, 3])
+    # Identical sample grids share their checked parameter boundary. A plain
+    # remote total and a sampled mean retain independent source consumers.
+    assert trace.uploaded_key_rows == ([3] if backend == "duckdb" or same_grid else [3, 3])
 
 
 @pytest.mark.parametrize("backend,profile", source_params([("duckdb", "table")]))
@@ -198,7 +198,7 @@ def test_shared_selected_host_domain_stays_fixed_when_source_ranking_changes(
     semantic_project_factory(
         {
             "datasources/warehouse.py": "import marivo.datasource as md\n"
-            + f"md.duckdb(name='warehouse',path={str(tmp_path / 'warehouse.duckdb')!r})\n",
+            + f"md.duckdb(wall_clock_timezone='UTC', name='warehouse',path={str(tmp_path / 'warehouse.duckdb')!r})\n",
             "sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales',owner='Analytics',default=True)\n",
             "sales/model.py": "import marivo.datasource as md\nimport marivo.semantic as ms\n"
             + f"facts=ms.entity(name='facts',datasource=ms.ref.datasource('warehouse'),source=md.parquet({str(path)!r}),primary_key=['id'])\n"

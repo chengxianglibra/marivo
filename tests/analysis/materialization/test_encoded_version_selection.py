@@ -6,6 +6,7 @@ import sys
 from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
+from typing import Literal
 from zoneinfo import ZoneInfo
 
 import duckdb
@@ -49,16 +50,16 @@ def test_encoded_daily_snapshot_selects_same_identity_and_version(
         connection.execute("CREATE TABLE links(id BIGINT, profile_id BIGINT, profile_code BIGINT)")
         connection.execute("INSERT INTO links VALUES (100,1,11)")
     parse = (
-        ""
+        ", parse=ms.date(timezone='Asia/Shanghai')"
         if encoding == "date"
         else ", parse=ms.timestamp(timezone='Europe/Berlin')"
         if encoding == "timestamp"
-        else ", parse=ms.strptime('%Y%m%d')"
+        else ", parse=ms.strptime('%Y%m%d', timezone='Asia/Shanghai')"
     )
     semantic_project_factory(
         {
             "datasources/warehouse.py": "import marivo.datasource as md\n"
-            + f"md.duckdb(name='warehouse', path={str(database)!r})\n",
+            + f"md.duckdb(wall_clock_timezone='UTC', name='warehouse', path={str(database)!r})\n",
             "sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales', owner='Analytics', default=True)\n",
             "sales/models.py": "import marivo.datasource as md\nimport marivo.semantic as ms\n"
             + "profiles=ms.entity(name='profiles', datasource=ms.ref.datasource('warehouse'), source=md.table('profiles'), primary_key=['id'], versioning=ms.snapshot(partition_field=ms.ref.time_dimension('sales.profiles.point'), timezone='Asia/Shanghai'))\n"
@@ -137,7 +138,7 @@ def test_row_attribute_time_preserves_facts_and_explains_current_axis(
             connection.execute("UPDATE facts SET event_time='bad' WHERE id=4")
     _row_project(
         version,
-        f"import marivo.datasource as md\nmd.duckdb(name='warehouse',path={str(database)!r})\n",
+        f"import marivo.datasource as md\nmd.duckdb(wall_clock_timezone='UTC', name='warehouse',path={str(database)!r})\n",
         "md.table('profiles')",
         "md.table('facts')",
         semantic_project_factory,
@@ -185,6 +186,119 @@ def test_row_attribute_time_preserves_facts_and_explains_current_axis(
     }
 
 
+def _snapshot_row_data() -> tuple[SourceData, SourceData]:
+    return (
+        SourceData(
+            "tenant BIGINT,id BIGINT,point DATE,ending DATE,label VARCHAR",
+            "(1,1,DATE '2026-08-25',DATE '2026-09-03','A'),"
+            "(1,1,DATE '2026-09-03',NULL,'B'),"
+            "(1,99,DATE '2026-08-25',DATE '2026-08-26','expired')",
+            "",
+            [],
+        ),
+        SourceData(
+            "id BIGINT,tenant BIGINT,profile_id BIGINT,event_time DATE,amount BIGINT",
+            "(1,1,1,DATE '2026-08-25',7),(1,1,1,DATE '2026-09-03',11),"
+            "(2,1,99,DATE '2026-09-03',13)",
+            "",
+            [],
+        ),
+    )
+
+
+@pytest.mark.parametrize("version", ["snapshot", "validity"])
+def test_snapshot_fact_partition_controls_row_attribute_time(
+    version: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    semantic_project_factory: Callable[..., SemanticProject],
+) -> None:
+    database = tmp_path / "snapshot_facts.duckdb"
+    profiles, facts = _snapshot_row_data()
+    with duckdb.connect(str(database)) as connection:
+        for name, data in (("profiles", profiles), ("facts", facts)):
+            connection.execute(f"CREATE TABLE {name}({data.columns})")
+            connection.execute(f"INSERT INTO {name} VALUES {data.values}")
+    _row_project(
+        version,
+        f"import marivo.datasource as md\nmd.duckdb(wall_clock_timezone='UTC', name='warehouse',path={str(database)!r})\n",
+        "md.table('profiles')",
+        "md.table('facts')",
+        semantic_project_factory,
+        fact_version="snapshot",
+    )
+    monkeypatch.chdir(tmp_path)
+    _assert_snapshot_row_result()
+
+
+def _assert_snapshot_row_result() -> None:
+    session = mv.session.get_or_create("snapshot-row-version", timezone="UTC")
+    control = session.catalog.get("time_dimension:sales.facts.event_time")
+    label = session.catalog.get("dimension:sales.profiles.label")
+    route = session.catalog.get("relationship:sales.profile")
+    metric = session.catalog.get("measure:sales.facts.amount").sum(time=control)
+    historical = label.via((route,)).at(control)
+    pending = session.observe({"value": metric}, by=(historical,))
+    assert isinstance(pending.schema.axes[0].at, mv.FrameRowAttributeTime)
+    result = pending.compute()
+    data = result.to_pandas(axis_names={result.axes[0].token: "label"})
+    assert data.loc[data.label.notna()].set_index("label")["value"].to_dict() == {"A": 7, "B": 11}
+    assert data.loc[data.label.isna(), "value"].tolist() == [13]
+    selected = session.observe(
+        {"value": metric}, by=(historical,), where=historical == "B"
+    ).compute()
+    assert selected.to_pandas()["value"].tolist() == [11]
+    authored = session.observe(
+        {"value": session.catalog.get("metric:sales.historical_b")}, by=(historical,)
+    ).compute()
+    assert authored.to_pandas()["value"].tolist() == [11]
+    fixed = session.observe(
+        {"value": metric},
+        by=(label.via((route,)).at(session.instant("2026-09-03T00:00:00+00:00")),),
+    ).compute()
+    fixed_data = fixed.to_pandas(axis_names={fixed.axes[0].token: "label"})
+    assert fixed_data.loc[fixed_data.label == "B", "value"].tolist() == [18]
+    assert fixed_data.loc[fixed_data.label.isna(), "value"].tolist() == [13]
+
+
+@pytest.mark.parametrize("kind", ["computed", "path", "anchored", "foreign", "validity"])
+def test_snapshot_row_attribute_time_retains_control_boundaries(
+    kind: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    semantic_project_factory: Callable[..., SemanticProject],
+) -> None:
+    _row_project(
+        "snapshot",
+        "import marivo.datasource as md\nmd.duckdb(wall_clock_timezone='UTC', name='warehouse')\n",
+        "md.table('profiles')",
+        "md.table('facts')",
+        semantic_project_factory,
+        fact_version="validity" if kind == "validity" else "snapshot",
+    )
+    monkeypatch.chdir(tmp_path)
+    session = mv.session.get_or_create("row-control-boundaries", timezone="UTC")
+    control = session.catalog.get("time_dimension:sales.facts.event_time")
+    route = session.catalog.get("relationship:sales.profile")
+    label = session.catalog.get("dimension:sales.profiles.label").via((route,))
+    metric = session.catalog.get("measure:sales.facts.amount").sum()
+    expected = "native, unanchored"
+    if kind == "computed":
+        control = session.catalog.get("measure:sales.facts.amount") + 1
+        expected = "named fact-root TimeDimension"
+    elif kind == "path":
+        control = session.catalog.get("time_dimension:sales.profiles.point").via((route,))
+    elif kind == "anchored":
+        control = control.at(session.instant("2026-09-03"))
+    elif kind == "foreign":
+        control = session.catalog.get("time_dimension:sales.profiles.point")
+        expected = "native TimeDimension on fact root sales.facts"
+    elif kind == "validity":
+        expected = "unversioned or snapshot fact root"
+    with pytest.raises((AnalysisError, SemanticExpressionError), match=expected):
+        session.observe({"value": metric}, by=(label.at(control),))
+
+
 def _row_project(
     version: str,
     datasource_model: str,
@@ -193,30 +307,47 @@ def _row_project(
     semantic_project_factory: Callable[..., SemanticProject],
     *,
     time_kind: str = "date",
+    fact_version: Literal["snapshot", "validity"] | None = None,
 ) -> None:
     declaration = (
         "ms.snapshot(partition_field=ms.ref.time_dimension('sales.profiles.point'),timezone='Asia/Shanghai')"
         if version == "snapshot"
-        else "ms.validity(valid_from=ms.ref.time_dimension('sales.profiles.point'),valid_to=ms.ref.time_dimension('sales.profiles.ending'),interval='closed_open',open_end=(None,),timezone='Asia/Shanghai')"
+        else "ms.validity(valid_from=ms.ref.time_dimension('sales.profiles.point'),valid_to=ms.ref.time_dimension('sales.profiles.ending'),interval='closed_open',open_end=(None,))"
     )
     if time_kind == "instant" and version == "validity":
         declaration = declaration.replace(",timezone='Asia/Shanghai'", "")
     control_parse = (
-        ",parse=ms.strptime('%Y%m%d')"
+        ",parse=ms.date(timezone='Asia/Shanghai')"
+        if time_kind == "date"
+        else ",parse=ms.strptime('%Y%m%d')"
         if time_kind == "parsed"
         else ",parse=ms.timestamp(timezone='America/New_York')"
         if time_kind == "iana"
         else ""
     )
+    fact_versioning = (
+        ",versioning=ms.snapshot(partition_field=ms.ref.time_dimension('sales.facts.event_time'),timezone='Asia/Shanghai')"
+        if fact_version == "snapshot"
+        else ",versioning=ms.validity(valid_from=ms.ref.time_dimension('sales.facts.event_time'),valid_to=ms.ref.time_dimension('sales.facts.ending'),interval='closed_open',open_end=(None,))"
+        if fact_version == "validity"
+        else ""
+    )
+    fact_ending = (
+        "fact_ending=ms.time_dimension_column(name='ending',entity=facts,column='ending',parse=ms.date(timezone='Asia/Shanghai'))\n"
+        if fact_version == "validity"
+        else ""
+    )
+    profile_parse = "" if time_kind == "instant" else ",parse=ms.date(timezone='Asia/Shanghai')"
     semantic_project_factory(
         {
             "datasources/warehouse.py": datasource_model,
             "sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales',owner='Test',default=True)\n",
             "sales/models.py": "import marivo.datasource as md\nimport marivo.semantic as ms\n"
             + f"profiles=ms.entity(name='profiles',datasource=ms.ref.datasource('warehouse'),source={profiles_source},primary_key=['tenant','id'],versioning={declaration})\n"
-            + "point=ms.time_dimension_column(name='point',entity=profiles,column='point')\nending=ms.time_dimension_column(name='ending',entity=profiles,column='ending')\n"
+            + f"point=ms.time_dimension_column(name='point',entity=profiles,column='point'{profile_parse})\nending=ms.time_dimension_column(name='ending',entity=profiles,column='ending'{profile_parse})\n"
             + "label=ms.dimension_column(name='label',entity=profiles,column='label')\npid=ms.dimension_column(name='id',entity=profiles,column='id')\nptenant=ms.dimension_column(name='tenant',entity=profiles,column='tenant')\n"
-            + f"facts=ms.entity(name='facts',datasource=ms.ref.datasource('warehouse'),source={facts_source},primary_key=['id'])\n"
+            + f"facts=ms.entity(name='facts',datasource=ms.ref.datasource('warehouse'),source={facts_source},primary_key=['id']{fact_versioning})\n"
+            + fact_ending
             + f"other_time=ms.time_dimension_column(name='other_time',entity=facts,column='event_time'{control_parse})\n"
             + f"event_time=ms.time_dimension_column(name='event_time',entity=facts,column='event_time'{control_parse})\n"
             + "amount=ms.measure_column(name='amount',entity=facts,column='amount',unit='1',additivity=ms.additive_all())\n"
@@ -401,16 +532,74 @@ def test_trino_row_version_join_and_daily_statement_count(
             days = session.time_scope(
                 start="2026-08-25",
                 end=end,
-                timezone="Asia/Shanghai" if time_kind == "mixed" else "UTC",
+                timezone="Asia/Shanghai" if time_kind in ("date", "mixed") else "UTC",
             ).by(mv.grain("day"))
             frame = session.observe({"value": metric}, by=(days, label)).compute()
             assert frame.to_pandas()["value"].sum() == expected
             sql = trace.native_sql[before:]
-            assert len(sql) == 1
-            ast = sqlglot.parse_one(sql[0], read="trino")
+            assert len(sql) == 2  # One native output index and one business query.
+            index = sqlglot.parse_one(sql[0], read="trino")
+            assert not any(
+                table.name in (root.source.table, target.source.table)
+                for table in index.find_all(sge.Table)
+            )
+            ast = sqlglot.parse_one(sql[1], read="trino")
             assert sum(table.name == target.source.table for table in ast.find_all(sge.Table)) == 1
             assert sum(table.name == root.source.table for table in ast.find_all(sge.Table)) == 1
-            assert "UNION" not in sql[0].upper()
+            assert "UNION" not in sql[1].upper()
+
+
+@pytest.mark.runtime
+@pytest.mark.parametrize("version", ["snapshot", "validity"])
+def test_trino_snapshot_fact_row_time_uses_one_business_query(
+    version: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    semantic_project_factory: Callable[..., SemanticProject],
+) -> None:
+    profiles, facts = _snapshot_row_data()
+    with (
+        source_case("trino", "iceberg", tmp_path, monkeypatch, profiles) as target,
+        source_case("trino", "iceberg", tmp_path, monkeypatch, facts) as root,
+    ):
+        assert isinstance(target.source, TableSourceIR) and isinstance(root.source, TableSourceIR)
+        _row_project(
+            version,
+            _datasource_model("trino", root, monkeypatch),
+            f"md.table({target.source.table!r},database={target.source.database!r})",
+            f"md.table({root.source.table!r},database={root.source.database!r})",
+            semantic_project_factory,
+            fact_version="snapshot",
+        )
+        monkeypatch.chdir(tmp_path)
+        _assert_snapshot_row_result()
+        session = mv.session.get_or_create("snapshot-row-version", timezone="UTC")
+        control = session.catalog.get("time_dimension:sales.facts.event_time")
+        historical = (
+            session.catalog.get("dimension:sales.profiles.label")
+            .via((session.catalog.get("relationship:sales.profile"),))
+            .at(control)
+        )
+        metric = session.catalog.get("measure:sales.facts.amount").sum(time=control)
+        trace = capture_source(monkeypatch, measure_cost=True)
+        for end, expected in (("2026-08-27", 7), ("2026-09-08", 31)):
+            before = len(trace.native_sql)
+            days = session.time_scope(start="2026-08-25", end=end, timezone="Asia/Shanghai").by(
+                mv.grain("day")
+            )
+            result = session.observe({"value": metric}, by=(days, historical)).compute()
+            assert result.to_pandas()["value"].sum() == expected
+            sql = trace.native_sql[before:]
+            assert len(sql) == 2  # One source-free output index and one business query.
+            index = sqlglot.parse_one(sql[0], read="trino")
+            assert not any(
+                table.name in (root.source.table, target.source.table)
+                for table in index.find_all(sge.Table)
+            )
+            query = sqlglot.parse_one(sql[1], read="trino")
+            for table_name in (root.source.table, target.source.table):
+                assert sum(table.name == table_name for table in query.find_all(sge.Table)) == 1
+            assert "UNION" not in sql[1].upper()
 
 
 def _assert_shared_routes(monkeypatch: pytest.MonkeyPatch, backend: str, target_table: str) -> None:

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Iterable, Mapping, Sequence
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Literal
 
@@ -89,6 +89,7 @@ class ColumnMetadata:
     nullable: bool | None
     comment: str | None
     ordinal_position: int | None
+    _type_is_ibis: bool = field(default=False, compare=False, repr=False)
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -305,6 +306,7 @@ def _schema_columns(table_expr: Any) -> tuple[ColumnMetadata, ...]:
             nullable=None,
             comment=None,
             ordinal_position=index,
+            _type_is_ibis=True,
         )
         for index, (name, dtype) in enumerate(schema.items(), start=1)
     )
@@ -770,6 +772,7 @@ def _merge_columns(
                 nullable=catalog.nullable,
                 comment=catalog.comment,
                 ordinal_position=catalog.ordinal_position or column.ordinal_position,
+                _type_is_ibis=catalog._type_is_ibis if catalog.type else column._type_is_ibis,
             )
         )
     return tuple(out)

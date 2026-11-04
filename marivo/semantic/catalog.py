@@ -28,6 +28,8 @@ from typing import (
     overload,
 )
 
+import ibis.expr.datatypes as dt
+import ibis.expr.types as ir
 from ibis.common.deferred import Deferred, Resolver
 
 from marivo._definition.deferred import RelationshipParameter, _RelationshipValue, root_declaration
@@ -265,43 +267,6 @@ def _attach_preview_scope(
     return replace(result, coverage=coverage)
 
 
-def _is_naive_timestamp_type(data_type: str | None) -> bool:
-    if data_type is None:
-        return False
-    normalized = data_type.strip().lower().replace(" ", "")
-    return normalized.startswith("timestamp") and "'" not in normalized and '"' not in normalized
-
-
-def _time_parse_risk_warning(ref: str, data_type: str) -> PreviewWarning:
-    return PreviewWarning(
-        kind="time_parse_risk",
-        message=(
-            f"{ref} has no declared parse/timezone and preview observed native naive "
-            f"type {data_type!r}; declare the source timezone before relying on "
-            "report-local day or hour boundaries"
-        ),
-    )
-
-
-def _with_time_parse_risk(
-    result: PreviewResult,
-    *,
-    ref: str,
-    field: DimensionIR,
-) -> PreviewResult:
-    """Attach the native naive-timestamp warning when current types prove it."""
-    observed_type = result.types.get(result.columns[-1])
-    if field.parse is not None or not _is_naive_timestamp_type(observed_type):
-        return result
-    return replace(
-        result,
-        warnings=(
-            *result.warnings,
-            _time_parse_risk_warning(ref, cast("str", observed_type)),
-        ),
-    )
-
-
 @overload
 def _make_ref(path: str, kind: Literal[SemanticKind.DOMAIN]) -> Ref[DomainKind]: ...
 
@@ -398,15 +363,12 @@ def _preview_reader(
             yield backend
 
 
-def _preview_execution_limits(
-    bindings: NormalizedPreviewScope, backend: BaseBackend
-) -> PreviewExecutionLimits:
+def _preview_execution_limits(bindings: NormalizedPreviewScope) -> PreviewExecutionLimits:
     return PreviewExecutionLimits(
         backend=bindings.backend,
         timeout_seconds=bindings.timeout_seconds,
         timeout_enforced=(
             require_profile_for_backend_type(bindings.backend).native_query_timeout is not None
-            and getattr(backend, "_marivo_native_timeout_unsupported", False) is not True
         ),
     )
 
@@ -530,6 +492,7 @@ class DatasourceDetails(_DetailsBase):
     """Details for a datasource object."""
 
     backend_type: str
+    wall_clock_timezone: str | None
     fields: Mapping[str, object]
     env_refs: Mapping[str, str]
 
@@ -546,6 +509,9 @@ class DatasourceDetails(_DetailsBase):
         sections.extend(
             (
                 FieldSection(label="backend_type", value=self.backend_type),
+                FieldSection(
+                    label="wall_clock_timezone", value=self.wall_clock_timezone or "(none)"
+                ),
                 FieldSection(label="fields", value=_format_mapping(self.fields)),
                 FieldSection(label="env_refs", value=_format_mapping(self.env_refs)),
             )
@@ -988,6 +954,30 @@ class _SemanticObject(RenderableResult, Generic[CatalogEntryKindT]):
             card.field("expression", definition.expression)
             card.field("unit", definition.unit or "(none)")
             card.field("default_time", definition.default_time or "(none)")
+            dimension = self._catalog._reg.dimensions.get(self._ref.path)
+            if dimension is not None and dimension.is_time_dimension:
+                from marivo.semantic._source_timezone import (
+                    effective_source_timezone,
+                    source_timezone_axis,
+                )
+
+                source = effective_source_timezone(
+                    self._catalog._reg,
+                    source_timezone_axis(self._catalog._reg, self._ref.path),
+                )
+                if source is not None:
+                    owner = self._catalog._reg.entities[dimension.entity].datasource
+                    location = f"datasource {owner}" if source.origin == "datasource" else "field"
+                    inherited = (
+                        f"; inherited from {source.inherited_from}" if source.inherited_from else ""
+                    )
+                    card.field(
+                        "source_timezone",
+                        f"naive values: {source.timezone} ({location}){inherited}",
+                    )
+                else:
+                    card.field("source_timezone", "naive values: missing declaration")
+
         elif isinstance(definition, EntityDefinition):
             card.field("expression", definition.expression)
             card.field("primary_key", ", ".join(definition.primary_key))
@@ -1001,6 +991,7 @@ class _SemanticObject(RenderableResult, Generic[CatalogEntryKindT]):
             card.field("owner", definition.owner)
         elif isinstance(definition, DatasourceDefinition):
             card.field("backend_type", definition.backend_type)
+            card.field("wall_clock_timezone", definition.wall_clock_timezone or "(none)")
         elif isinstance(definition, RelationshipDefinition):
             card.field("direction", f"{definition.from_entity} -> {definition.to_entity}")
             card.field("keys", str(definition.keys))
@@ -2416,6 +2407,7 @@ def _build_datasource_object(
         _dependents=build_index.datasource_entities.get(ds_ir.semantic_id, ()),
         python_symbol=ds_ir.python_symbol,
         backend_type=ds_ir.backend_type,
+        wall_clock_timezone=ds_ir.wall_clock_timezone,
         fields=dict(ds_ir.fields),
         env_refs=dict(ds_ir.env_refs),
     )
@@ -2447,24 +2439,33 @@ def _preview_timezones_for_field(
     *,
     column_name: str,
     field_ir: DimensionIR,
-    datasource_timezone: object | None,
-    report_tz: str,
+    registry: Registry,
+    physical_type: dt.DataType,
+    engine: str,
 ) -> dict[str, dict[str, str | None]]:
-    if not field_ir.is_time_dimension or field_ir.parse is None:
+    from marivo.semantic._source_timezone import effective_source_timezone, source_timezone_axis
+
+    if not field_ir.is_time_dimension:
         return {}
-    declared = getattr(field_ir.parse, "timezone", None)
-    read_tz = declared
-    read_resolution: str | None = "declared" if declared is not None else None
-    if read_tz is None and datasource_timezone is not None:
-        read_tz = getattr(datasource_timezone, "engine_timezone_name", None)
-        read_resolution = getattr(datasource_timezone, "read_tz_resolution", None)
-    kind = "instant" if read_tz is None else "localizable_wall_clock"
+    if isinstance(physical_type, dt.Timestamp) and (
+        physical_type.timezone is not None or engine == "clickhouse"
+    ):
+        return {column_name: {"kind": "instant"}}
+    source = effective_source_timezone(
+        registry, source_timezone_axis(registry, field_ir.semantic_id)
+    )
+    from marivo.semantic.ir import StrptimeParse, is_time_bearing_format
+
+    civil_date = physical_type.is_date() or (
+        isinstance(field_ir.parse, StrptimeParse)
+        and not is_time_bearing_format(field_ir.parse.format)
+    )
     return {
         column_name: {
-            "kind": kind,
-            "read_tz": read_tz,
-            "report_tz": report_tz,
-            "read_tz_resolution": read_resolution,
+            "kind": "civil_date" if civil_date else "wall_clock",
+            "timezone": source.timezone if source is not None else None,
+            "origin": source.origin if source is not None else None,
+            "inherited_from": source.inherited_from if source is not None else None,
         }
     }
 
@@ -2473,6 +2474,8 @@ def _build_period_calendar_object(
     calendar_ir: PeriodCalendarIR,
     catalog: SemanticCatalog,
 ) -> PeriodCalendar:
+    from marivo.semantic._source_timezone import period_calendar_timezone
+
     ref = ref_factory.period_calendar(calendar_ir.semantic_id)
     date_ref = ref_factory.time_dimension(calendar_ir.date)
     levels = tuple((name, ref_factory.dimension(path)) for name, path in calendar_ir.levels)
@@ -2494,7 +2497,7 @@ def _build_period_calendar_object(
         _dependents=dependents,
         python_symbol=calendar_ir.python_symbol,
         _date=date_ref,
-        boundary_timezone=calendar_ir.boundary_timezone,
+        boundary_timezone=period_calendar_timezone(catalog._reg, calendar_ir),
         coverage=(
             date.fromisoformat(calendar_ir.coverage[0]),
             date.fromisoformat(calendar_ir.coverage[1]),
@@ -2567,6 +2570,7 @@ class _CertificationCapture:
 
     scope: AuthoringScope
     columns: tuple[str, ...]
+    column_bindings: tuple[tuple[str, str], ...]
     rows_observed: int
     retained_values: tuple[dict[str, _PreviewCell], ...]
 
@@ -2665,9 +2669,117 @@ def _certification_capture(
                             ),
                         ),
                     )
+            from marivo.datasource._temporal_expressions import localize, parse_strptime, timestamp
+            from marivo.datasource._temporal_lowering import lower_temporal
+            from marivo.semantic._physical_contracts import validate_bound_field
+            from marivo.semantic._source_timezone import (
+                require_source_timezone,
+                source_timezone_axis,
+            )
+            from marivo.semantic.ir import HourPrefixParse, StrptimeParse, is_time_bearing_format
+
+            parsed_columns: dict[str, ir.Value] = {}
+            source_timezones: set[str] = set()
+            for field in fields:
+                if not field.is_time_dimension:
+                    continue
+                column = cast("str", field.source_column)
+                field_ref = ref_factory.time_dimension(field.semantic_id)
+                raw = table[column]
+                validate_bound_field(raw, ref=field_ref, registry=registry)
+                value = raw
+                if isinstance(field.parse, HourPrefixParse):
+                    _raise(
+                        ErrorKind.MATERIALIZE_FAILED,
+                        "Certified temporal bounds require complete date-bearing fields.",
+                        cls=SemanticRuntimeError,
+                        refs=(field.semantic_id,),
+                        details={"query_executed": False},
+                    )
+                if isinstance(field.parse, StrptimeParse):
+                    from marivo.datasource._temporal_expressions import TemporalExpressionError
+
+                    try:
+                        value = parse_strptime(
+                            bindings.backend,
+                            raw.cast("string"),
+                            field.parse.format,
+                            time_bearing=is_time_bearing_format(field.parse.format),
+                        )
+                    except TemporalExpressionError as error:
+                        _raise(
+                            ErrorKind.MATERIALIZE_FAILED,
+                            "Native temporal parsing is unsupported.",
+                            cls=SemanticRuntimeError,
+                            refs=(field.semantic_id,),
+                            expected=error.expected,
+                            received=error.received,
+                            details={"query_executed": False},
+                            repair_value=repair(
+                                kind="reauthor",
+                                canonical_id="strptime",
+                                action=error.repair
+                                or "Choose a supported temporal source encoding and retry certification.",
+                            ),
+                        )
+                if value.type().is_timestamp():
+                    physical = raw.type()
+                    aware = (
+                        isinstance(physical, dt.Timestamp)
+                        and (physical.timezone is not None or bindings.backend == "clickhouse")
+                        and not isinstance(field.parse, StrptimeParse)
+                    )
+                    if not aware:
+                        declaration = require_source_timezone(
+                            registry,
+                            source_timezone_axis(registry, field.semantic_id),
+                            physical_type=str(physical),
+                        )
+                        clock = timestamp(value)
+                        if clock.type().timezone is not None:
+                            clock = clock.cast(dt.Timestamp(scale=6))
+                        source_timezones.add(declaration.timezone)
+                        value = localize(declaration.timezone, clock)
+                parsed_columns[field.semantic_id] = value
+            column_bindings = tuple(
+                (field.semantic_id, f"field_{index}") for index, field in enumerate(fields)
+            )
+            expression = table.select(
+                *(
+                    parsed_columns.get(
+                        field.semantic_id, table[cast("str", field.source_column)]
+                    ).name(alias)
+                    for field, (_field_id, alias) in zip(fields, column_bindings, strict=True)
+                )
+            )
+            from marivo.datasource._temporal_expressions import TemporalExpressionError
+
+            try:
+                lowered = lower_temporal(expression, bindings.backend)
+            except TemporalExpressionError as error:
+                _raise(
+                    ErrorKind.MATERIALIZE_FAILED,
+                    "Native temporal certification is unsupported.",
+                    cls=SemanticRuntimeError,
+                    refs=(ref.key,),
+                    expected=error.expected,
+                    received=error.received,
+                    details={"query_executed": False},
+                    repair_value=repair(
+                        kind="reauthor",
+                        canonical_id="preview",
+                        action=error.repair
+                        or "Choose a supported temporal source encoding and retry certification.",
+                    ),
+                )
+            assert isinstance(lowered, ir.Table)
+            table = lowered
+            columns = tuple(alias for _field_id, alias in column_bindings)
+
             source_owner = connections.source_session(
                 bindings.datasource_id, registry.datasources[bindings.datasource_id]
             )
+            source_owner.verify_source_timezones(tuple(sorted(source_timezones)))
             try:
                 frame = connections.collect_source(
                     bindings.datasource_id,
@@ -2730,6 +2842,7 @@ def _certification_capture(
     return _CertificationCapture(
         scope=scope,
         columns=columns,
+        column_bindings=column_bindings,
         rows_observed=observed,
         retained_values=tuple(
             {
@@ -2786,6 +2899,7 @@ def _preview_temporal_set(
             refs=(temporal_set_ref.key,),
             details={"query_executed": False},
         )
+    columns_by_field = dict(capture.column_bindings)
     from marivo._temporal import (
         TemporalSetSnapshotStore,
         certify_temporal_set_rows,
@@ -2802,12 +2916,12 @@ def _preview_temporal_set(
             ),
             columns=capture.columns,
             retained_values=capture.retained_values,
-            occurrence_id=occurrence_field.source_column,
-            start=start_field.source_column,
-            end=end_field.source_column,
-            category=category_field.source_column if category_field is not None else None,
-            start_parse=start_field.parse,
-            end_parse=end_field.parse,
+            occurrence_id=columns_by_field[occurrence_field.semantic_id],
+            start=columns_by_field[start_field.semantic_id],
+            end=columns_by_field[end_field.semantic_id],
+            category=columns_by_field[category_field.semantic_id]
+            if category_field is not None
+            else None,
         )
     except (KeyError, TypeError, ValueError) as exc:
         _raise(
@@ -2867,6 +2981,8 @@ def _preview_period_calendar(
     dependency_digest: str,
 ) -> PreviewResult:
     """Certify a period-calendar artifact from one live exhaustive capture."""
+    from marivo.semantic._source_timezone import period_calendar_timezone
+
     preview_limit = validate_preview_limit(limit)
     calendar = registry.period_calendars.get(calendar_ref.path)
     if calendar is None:
@@ -2880,6 +2996,7 @@ def _preview_period_calendar(
             refs=(calendar_ref.key, calendar.date),
             details={"query_executed": False},
         )
+    columns_by_field = dict(capture.column_bindings)
     level_columns: dict[str, str] = {}
     for level, field_ref in calendar.levels:
         field = registry.dimensions.get(field_ref)
@@ -2891,7 +3008,7 @@ def _preview_period_calendar(
                 refs=(calendar_ref.key, field_ref),
                 details={"query_executed": False},
             )
-        level_columns[level] = field.source_column
+        level_columns[level] = columns_by_field[field.semantic_id]
     from marivo._temporal import (
         TemporalSnapshotStore,
         certify_period_calendar_rows,
@@ -2901,14 +3018,14 @@ def _preview_period_calendar(
     try:
         snapshot = certify_period_calendar_rows(
             calendar_ref=calendar_ref,
-            boundary_timezone=calendar.boundary_timezone,
+            boundary_timezone=period_calendar_timezone(registry, calendar),
             coverage=(
                 date.fromisoformat(calendar.coverage[0]),
                 date.fromisoformat(calendar.coverage[1]),
             ),
             columns=capture.columns,
             retained_values=capture.retained_values,
-            date_column=date_dimension.source_column,
+            date_column=columns_by_field[date_dimension.semantic_id],
             levels=level_columns,
         )
     except (KeyError, TypeError, ValueError) as exc:
@@ -2933,7 +3050,7 @@ def _preview_period_calendar(
         )
     definition_digest = period_calendar_definition_digest(
         calendar_ref=calendar_ref,
-        boundary_timezone=calendar.boundary_timezone,
+        boundary_timezone=period_calendar_timezone(registry, calendar),
         coverage=calendar.coverage,
         levels=calendar.levels,
         dependency_digest=dependency_digest,
@@ -4343,7 +4460,6 @@ class SemanticCatalog(RenderableResult):
                 details={"query_executed": False},
             )
         selected_context_input = tuple(context_columns) if context_columns is not None else None
-        from marivo.datasource.timezone import system_timezone_name
 
         def execute_preview() -> PreviewResult:
             from functools import partial
@@ -4419,7 +4535,7 @@ class SemanticCatalog(RenderableResult):
                         method="bounded_limit", limit=row_preview_limit
                     ),
                     include_types=include_types,
-                    report_tz=system_timezone_name(),
+                    report_tz=None,
                 )
             if kind == SemanticKind.MEASURE:
                 measure_ir = reg.measures[ref_str]
@@ -4436,24 +4552,14 @@ class SemanticCatalog(RenderableResult):
                         method="bounded_limit", limit=row_preview_limit
                     ),
                     include_types=include_types,
-                    report_tz=system_timezone_name(),
+                    report_tz=None,
                 )
             if is_field_preview:
                 field_ir = reg.dimensions[ref_str]
                 parent_table = resolver.entity(_make_ref(field_ir.entity, SemanticKind.ENTITY))
                 field_value = resolver.dimension(cast("Ref[FieldKind]", _make_ref(ref_str, kind)))
                 field_column_name = ref_str.rsplit(".", 1)[-1]
-                report_tz = system_timezone_name()
-                datasource_timezone = None
-                if kind == SemanticKind.TIME_DIMENSION:
-                    entity_ir = reg.entities[field_ir.entity]
-                    engine_tz_method = getattr(
-                        resolver.connections,
-                        "engine_timezone",
-                        None,
-                    )
-                    if callable(engine_tz_method):
-                        datasource_timezone = engine_tz_method(entity_ir.datasource)
+                report_tz = None
                 selected_context = selected_context_input
                 if selected_context is None:
                     selected_context = tuple(
@@ -4486,17 +4592,12 @@ class SemanticCatalog(RenderableResult):
                     timezones=_preview_timezones_for_field(
                         column_name=field_column_name,
                         field_ir=field_ir,
-                        datasource_timezone=datasource_timezone,
-                        report_tz=report_tz,
+                        registry=reg,
+                        physical_type=field_value.type(),
+                        engine=bindings.backend,
                     ),
                     report_tz=report_tz,
                 )
-                if kind is SemanticKind.TIME_DIMENSION:
-                    result = _with_time_parse_risk(
-                        result,
-                        ref=ref_str,
-                        field=field_ir,
-                    )
                 return result
             if kind == SemanticKind.RELATIONSHIP:
                 relationship = reg.relationships[ref_str]
@@ -4549,7 +4650,7 @@ class SemanticCatalog(RenderableResult):
                     limit=preview_limit,
                     sample_policy=PreviewSamplePolicy(method="bounded_limit", limit=preview_limit),
                     include_types=include_types,
-                    report_tz=system_timezone_name(),
+                    report_tz=None,
                 )
             _raise(
                 ErrorKind.MATERIALIZE_FAILED,
@@ -4559,13 +4660,13 @@ class SemanticCatalog(RenderableResult):
                 details={"kind": str(kind)},
             )
 
-        with _preview_reader(bindings, connections) as backend:
+        with _preview_reader(bindings, connections):
             if not preflighted:
                 preflight_preview_scope(
                     bindings, registry=reg, connections=connections, project_root=self.workspace_dir
                 )
             result = replace(
-                execute_preview(), execution_limits=_preview_execution_limits(bindings, backend)
+                execute_preview(), execution_limits=_preview_execution_limits(bindings)
             )
         return _attach_preview_scope(
             result,
@@ -4627,7 +4728,7 @@ class SemanticCatalog(RenderableResult):
             try:
                 if group_key[0] == "row":
                     bindings = group_items[0].bindings
-                    with _preview_reader(bindings, connections) as backend:
+                    with _preview_reader(bindings, connections):
                         raw_results = self._preview_row_group(
                             tuple(group_items),
                             connections=connections,
@@ -4637,7 +4738,7 @@ class SemanticCatalog(RenderableResult):
                         raw_results = tuple(
                             replace(
                                 result,
-                                execution_limits=_preview_execution_limits(bindings, backend),
+                                execution_limits=_preview_execution_limits(bindings),
                             )
                             for result in raw_results
                         )
@@ -4728,9 +4829,8 @@ class SemanticCatalog(RenderableResult):
             max_rows=row_limit + 1,
         )
         schema_types = {name: str(dtype) for name, dtype in preview_table.schema().items()}
-        from marivo.datasource.timezone import system_timezone_name
 
-        report_tz = system_timezone_name()
+        report_tz = None
         results: list[PreviewResult] = []
         for item in items:
             if item.kind == SemanticKind.ENTITY:
@@ -4764,18 +4864,12 @@ class SemanticCatalog(RenderableResult):
                 timezones = {}
                 if item.kind == SemanticKind.TIME_DIMENSION:
                     field_ir = reg.dimensions[item.ref.path]
-                    entity_ir = reg.entities[field_ir.entity]
-                    engine_tz_method = getattr(resolver.connections, "engine_timezone", None)
-                    datasource_timezone = (
-                        engine_tz_method(entity_ir.datasource)
-                        if callable(engine_tz_method)
-                        else None
-                    )
                     timezones = _preview_timezones_for_field(
                         column_name=semantic_name,
                         field_ir=field_ir,
-                        datasource_timezone=datasource_timezone,
-                        report_tz=report_tz,
+                        registry=reg,
+                        physical_type=preview_table.schema()[alias],
+                        engine=bindings.backend,
                     )
             result = preview_from_pandas(
                 frame,
@@ -4787,12 +4881,6 @@ class SemanticCatalog(RenderableResult):
                 timezones=timezones,
                 report_tz=report_tz,
             )
-            if item.kind is SemanticKind.TIME_DIMENSION:
-                result = _with_time_parse_risk(
-                    result,
-                    ref=item.ref.path,
-                    field=reg.dimensions[item.ref.path],
-                )
             results.append(result)
         return tuple(results)
 

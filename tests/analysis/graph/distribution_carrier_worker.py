@@ -24,7 +24,7 @@ def check_original(
     value: mv.AnalysisFrame, physical: str, kind: str, *, exported: pd.DataFrame | None = None
 ) -> None:
     exported = value.to_pandas() if exported is None else exported
-    frame = exported.set_index(ordinary_columns(exported)[0])
+    frame = exported.set_index(ordinary_columns(value)[0])
     assert frame.index.tolist() == ["A", "B", "C", "D"]
     values = frame["value"]
     if physical == "decimal":

@@ -165,7 +165,7 @@ def test_long_path_sum_and_count(
         semantic_project_factory(
             {
                 "datasources/warehouse.py": "import marivo.datasource as md\n"
-                + f"md.{backend}(name='warehouse',"
+                + f"md.{backend}(wall_clock_timezone='UTC', name='warehouse',"
                 + ",".join(f"{key}={value!r}" for key, value in args.items())
                 + ")\n",
                 "sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales',owner='Analytics',default=True)\n",
@@ -190,7 +190,7 @@ def test_long_path_sum_and_count(
             } == {tuple(f"sales.hop{index}" for index in range(depth))}
             result = logical.persist()
             frame = result.to_pandas()
-            coordinate = ordinary_columns(frame)[0]
+            coordinate = ordinary_columns(result)[0]
             assert dict(zip(frame[coordinate], frame["value"], strict=True)) == dict(
                 zip(expected_keys, expected, strict=True)
             )
@@ -209,7 +209,7 @@ def test_long_path_sum_and_count(
                     ),
                 ).persist()
                 selected_frame = selected.to_pandas()
-                coordinate = ordinary_columns(selected_frame)[0]
+                coordinate = ordinary_columns(selected)[0]
                 assert dict(
                     zip(selected_frame[coordinate], selected_frame["value"], strict=True)
                 ) == dict(zip(expected_keys, (2, 0, 0), strict=True))

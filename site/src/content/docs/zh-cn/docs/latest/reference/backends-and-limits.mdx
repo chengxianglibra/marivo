@@ -62,6 +62,10 @@ scope 不能合并。
 本地计算可能在内存保留全部所需向量。展示行数限制只影响输出，不限制计算量或来源扫描。
 查询超时使用后端原生设置，可能不受支持，也不覆盖完整客户端调用和结果获取过程。
 
+复杂的 Trino 关系与分摊表达式可能超过服务器的 `query.max-stage-count` 预算，
+并返回 `QUERY_HAS_TOO_MANY_STAGES`。请简化问题，或由服务器维护者评估执行阶段预算；
+Marivo 会传递原生失败，不会自动拆成多个阶段重试。
+
 普通 Metric 预览支持五类 SQL 后端，读取显式范围内的无序 Entity 输入。
 每个 Entity 最多贡献 `min(scope.max_rows, 10_000)` 行输出。已有分区值证据时，必须显式
 指定分区值或支持的时间范围；无法取得分区值时仍允许显式选择广泛读取。不会自动选择最新分区。`coverage.entity_rows` 和
@@ -112,6 +116,8 @@ NULL；空输入通过此断言。对于 `amount.mean(time=point).per(point).mea
 
 逐行 as-of 的首轮范围为 DuckDB/Trino 同源、单事实根 observe 分类；版本连接保留 left join。同一目标、完整路径和控制时间共享连接，不同字段、固定锚点或路径角色保持独立。安全事实时间范围、独立物理条件与可证明的事实侧 AND 条件在连接前过滤；目标标签 OR 不拆分。目标分区包络裁剪尚未提供。
 
-`strptime` 在 DuckDB、Trino、ClickHouse 和 MySQL/MariaDB 上将拒绝的数据变为 NULL；PostgreSQL 使用原生 `to_timestamp`，被拒绝的数据可能使查询报错。DuckDB 用 try_strptime，Trino 用 TRY，ClickHouse 用 OrNull，MySQL/MariaDB 在 SELECT parser 后用零日算术排除无效日历载体。原生格式及精度限制继续生效。解析后的 membership 保持 wall-order，原始编码范围不能绕过解析，因此扫描成本可能上升；独立物理过滤仍可下推。Trino TRY 可捕获输入表达式内的部分错误，其他后端可能传播参数错误，不保证统一的上游错误隔离。
+`strptime` 的原生解析在 DuckDB、Trino、ClickHouse 和 MySQL/MariaDB 上将拒绝的数据变为 NULL；PostgreSQL 使用原生 `to_timestamp`，被拒绝的数据可能使查询报错。DuckDB 用 try_strptime，Trino 用 TRY，ClickHouse 用 OrNull，MySQL/MariaDB 在 SELECT parser 后用零日算术排除无效日历载体。原生格式及精度限制继续生效。有序年月日格式声明规范、固定宽度的来源值；符合条件的范围直接比较原始列和源时区下的同类型常量，不解析列。其他格式与未通过资格检查的端点保留原生解析及 gap/fold 解释，因此扫描成本可能上升。参见[日期时间编码契约](/zh-cn/docs/latest/modeling/dates/#日期与时间编码msstrptime)。独立物理过滤仍可下推。Trino TRY 可捕获输入表达式内的部分错误，其他后端可能传播参数错误，不保证统一的上游错误隔离。
 
 Trino 不支持 `%U` 和 `%w` 的 strptime 格式；这类配置在 TRY 之前给出类型化错误，不会静默返回全列 NULL。
+
+ClickHouse 22.3 支持上述有序格式的投影和日历分桶：日期保留 `Date32`，时间保留 `DateTime64`。其他格式要求 ClickHouse 23.3 或更新版本。需要不可用解析器的查询会在业务查询提交前报错；可改用有序编码、通过数据源提供原生 `Date32`/`DateTime64` 列，或升级服务端。源时区声明及原生 gap/fold 行为仍然适用。

@@ -17,8 +17,9 @@ import sqlglot
 from sqlglot import expressions as sge
 
 from marivo.analysis.compiler.errors import DatasetCompilationError
-from marivo.analysis.compiler.source_time import (
-    parse_strptime,
+from marivo.analysis.compiler.source_time import parse_strptime
+from marivo.datasource._temporal_expressions import (
+    TemporalExpressionError,
     translated_strptime_format,
 )
 from marivo.datasource.engines import ENGINE_PROFILES
@@ -100,7 +101,7 @@ def _parser_arguments(engine: str, fmt: str, *, timezone: str | None = None) -> 
 @pytest.mark.parametrize("engine", ENGINES)
 def test_every_engine_reaches_its_own_parser(engine: str) -> None:
     """Each backend compiles the same format to its documented parser."""
-    sql = _sql(engine, "%Y-%m-%d %H:%M:%S")
+    sql = _sql(engine, "%Y/%m/%d %H:%M:%S" if engine == "clickhouse" else "%Y-%m-%d %H:%M:%S")
     assert NATIVE_PARSER[engine].lower() in sql.lower()
 
 
@@ -111,7 +112,7 @@ def test_every_engine_reaches_its_own_parser(engine: str) -> None:
         ("postgres", "YYYY-MM-DD HH24:MI:SS"),
         ("mysql", MYSQL_FAMILY_FULL_FORMAT),
         ("trino", MYSQL_FAMILY_FULL_FORMAT),
-        ("clickhouse", "%Y-%m-%d %H:%i:%s"),
+        ("clickhouse", "%Y/%m/%d %H:%i:%s"),
     ],
 )
 def test_engine_final_formats_are_never_re_translated(engine: str, expected: str) -> None:
@@ -122,7 +123,11 @@ def test_engine_final_formats_are_never_re_translated(engine: str, expected: str
     the minute is still minutes. PostgreSQL and ClickHouse keep the profile's
     exact translation, DuckDB the authored Python format.
     """
-    literals = _parser_arguments(engine, "%Y-%m-%d %H:%M:%S", timezone="UTC")
+    literals = _parser_arguments(
+        engine,
+        "%Y/%m/%d %H:%M:%S" if engine == "clickhouse" else "%Y-%m-%d %H:%M:%S",
+        timezone="UTC",
+    )
     assert literals[0] == expected
     if engine == "clickhouse":
         assert literals == [expected, "UTC"]
@@ -166,7 +171,9 @@ def test_trino_fractional_format_reaches_date_parse() -> None:
 
 @pytest.mark.parametrize("fmt", ("%Y-%U", "%Y-%m-%d %w"))
 def test_trino_unsupported_format_is_configuration_error_before_try(fmt: str) -> None:
-    with pytest.raises(DatasetCompilationError, match="unsupported directive"):
+    with pytest.raises(
+        (DatasetCompilationError, TemporalExpressionError), match="unsupported directive"
+    ):
         _sql("trino", fmt)
 
 
@@ -178,7 +185,7 @@ def test_clickhouse_refuses_subsecond_formats() -> None:
     """
     table = ibis.table({"c": "string"}, name="t")
     parse = StrptimeParse("%Y-%m-%d %H:%M:%S.%f", timezone="UTC")
-    with pytest.raises(DatasetCompilationError) as failure:
+    with pytest.raises((DatasetCompilationError, TemporalExpressionError)) as failure:
         parse_strptime("clickhouse", table.c.cast("string"), parse)
     assert "sub-second" in (failure.value.received or "")
 
@@ -200,7 +207,7 @@ def test_timezone_directives_never_reach_authoring_or_clickhouse(fmt: str) -> No
 @pytest.mark.parametrize("engine", ["mysql", "trino", "clickhouse"])
 def test_divergent_directives_are_structured_rejections(engine: str) -> None:
     """A directive the engine cannot express is a typed error, not a fallback."""
-    with pytest.raises(DatasetCompilationError) as failure:
+    with pytest.raises((DatasetCompilationError, TemporalExpressionError)) as failure:
         translated_strptime_format(engine, "%Y-%W-%d")
     assert "untranslatable" in (failure.value.received or "")
 
@@ -213,7 +220,7 @@ def test_clickhouse_refuses_week_number_directives_it_cannot_execute() -> None:
     MySQL-family translator already rejects Python ``%W`` before translation,
     so only ``%U`` reaches this gate.
     """
-    with pytest.raises(DatasetCompilationError) as failure:
+    with pytest.raises((DatasetCompilationError, TemporalExpressionError)) as failure:
         translated_strptime_format("clickhouse", "%Y-%U-%d")
     assert "%U" in (failure.value.received or "")
 
@@ -232,7 +239,7 @@ def test_clickhouse_refuses_directives_it_silently_mis_parses(directive: str) ->
     during compilation instead of being pinned as a working mapping.
     """
     fmt = f"%Y-%m-%d {directive}"
-    with pytest.raises(DatasetCompilationError) as failure:
+    with pytest.raises((DatasetCompilationError, TemporalExpressionError)) as failure:
         translated_strptime_format("clickhouse", fmt)
     assert directive in (failure.value.received or "")
 
@@ -252,7 +259,7 @@ def test_escaped_percent_is_not_mistaken_for_a_directive() -> None:
     """``%%`` is a literal percent, so ``%%f`` carries no sub-second directive."""
     assert translated_strptime_format("clickhouse", "%%f-%Y%m%d") == "%%f-%Y%m%d"
     assert translated_strptime_format("mysql", "%%f") == "%%f"
-    with pytest.raises(DatasetCompilationError) as failure:
+    with pytest.raises((DatasetCompilationError, TemporalExpressionError)) as failure:
         translated_strptime_format("clickhouse", "%Y%m%d%f")
     assert "sub-second" in (failure.value.received or "")
 

@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Literal, TypeAlias
 import ibis
 import ibis.expr.types as ir
 
-from marivo._definition.expressions import EntityCount, SourceAggregate
+from marivo._definition.expressions import SourceAggregate, SourceWeightedMean
 from marivo._definition.query import (
     CoordinateSlot,
     FilterValues,
@@ -29,6 +29,7 @@ from marivo._definition.query import (
 )
 from marivo._definition.types import RULE_VERSION, Owner
 from marivo.analysis.compiler.graph_plan import (
+    AttributeRead,
     ComponentRead,
     FrameCompute,
     FrameInput,
@@ -376,9 +377,12 @@ def _fuse(plan: QueryPlan) -> QueryPlan:
 def _source_merge_issue(stage: SourceRead) -> str | None:
     """Explain the first physical boundary that prevents a common aggregate."""
     reduction = require_reduction(stage)
-    node = reduction.node
     value = next(column for column in stage.columns if column.slot_id == reduction.value_slot)
     reasons = (
+        (
+            not isinstance(stage.program, (ReductionRead, ComponentRead, AttributeRead)),
+            "Specialized source payloads retain their own execution program.",
+        ),
         (not stage.binding_id, "No qualified shared source binding."),
         (
             bool(stage.inputs or stage.parameters),
@@ -399,16 +403,6 @@ def _source_merge_issue(stage: SourceRead) -> str | None:
         (reduction.duration is not None, "Duration reductions retain their exact tick completion."),
         (
             not (
-                isinstance(node, EntityCount)
-                or (
-                    isinstance(node, SourceAggregate)
-                    and node.reducer in ("sum", "count", "mean", "min", "max")
-                )
-            ),
-            "Reducer has no common-aggregate qualification.",
-        ),
-        (
-            not (
                 value.dtype in (ScalarDataType("int64"), ScalarDataType("float64"))
                 or isinstance(value.dtype, DecimalDataType)
             ),
@@ -420,7 +414,9 @@ def _source_merge_issue(stage: SourceRead) -> str | None:
 
 def _common_sources(plan: QueryPlan) -> QueryPlan:
     """Share one actual bound aggregate input while retaining each occurrence."""
-    groups: dict[tuple[str, str, str, tuple[str, ...], bool], list[SourceRead]] = {}
+    groups: dict[
+        tuple[str, str, str, tuple[str, ...], type[object], bool, bool], list[SourceRead]
+    ] = {}
     consumers = dict(plan.consumers)
     for stage in plan.stages:
         if not isinstance(stage, SourceRead) or read_reduction(stage) is None:
@@ -429,13 +425,15 @@ def _common_sources(plan: QueryPlan) -> QueryPlan:
         node = reduction.node
         if _source_merge_issue(stage) is not None or len(consumers.get(stage.stage_id, ())) != 1:
             continue
-        policy = node.nulls if isinstance(node, SourceAggregate) else "ignore"
+        policy = node.nulls if isinstance(node, (SourceAggregate, SourceWeightedMean)) else "ignore"
         identity = (
             stage.binding_id,
             stage.source_id,
             policy,
             consumers[stage.stage_id],
-            read_components(stage) is not None,
+            type(stage.program),
+            stage.attribute_state,
+            stage.attribute_native,
         )
         group = groups.get(identity)
         if group is None:

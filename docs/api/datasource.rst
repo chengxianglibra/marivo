@@ -47,6 +47,13 @@ Source constructors
    trino
    table
 
+All five constructors and Specs accept ``wall_clock_timezone=None``. A declared
+IANA name or fixed offset is normalized and stored separately from connection
+``fields`` and ``env_refs``. It supplies undeclared naive/encoded wall clocks and
+business dates in Semantic, and leaves physical instants unchanged. No reader or
+host timezone supplies missing source meaning. Trino has no public ``timezone``
+parameter; its private UTC setting only stabilizes transport.
+
 Inspection & snapshots
 ----------------------
 
@@ -71,7 +78,7 @@ Scope helpers
 
 Datasource specs and explicit scopes expose bounded ``render()`` / ``show()``
 cards for agent-relevant state. Specs show only their core connection target,
-credential field names, and hidden-configuration count; scopes show guards and
+credential field names, declared wall-clock timezone, and hidden-configuration count; scopes show guards and
 a bounded predicate preview. Read ``.fields`` / ``.env_refs`` or ``.values``
 for exact data. Use focused type Help for available operations.
 
@@ -82,6 +89,13 @@ for exact data. Use focused type Help for available operations.
    partition
    time_range
    unpruned
+
+``time_range`` requires two endpoints with matching kind and awareness. Inspection
+requires aware datetime bounds for aware timestamps (including native MySQL
+TIMESTAMP and ClickHouse DateTime), naive datetime or date bounds for naive
+timestamps, and date bounds for DATE. Mismatches fail before acquisition with
+``query_executed=False``. Aware bounds retain UTC evidence encoding; no source
+timezone declaration fills boundary awareness.
 
 Description
 -----------

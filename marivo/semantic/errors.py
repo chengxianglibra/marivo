@@ -29,6 +29,7 @@ from marivo.semantic.ir import SourceLocation, TargetDimensionContract
 __all__ = [
     "HINTS",
     "CatalogSearchError",
+    "DeclaredTimezoneContradiction",
     "ErrorKind",
     "SemanticContractScopeError",
     "SemanticDecoratorError",
@@ -37,6 +38,7 @@ __all__ = [
     "SemanticLoadError",
     "SemanticLoadFailed",
     "SemanticRuntimeError",
+    "SourceTimezoneMissing",
     "StructuredWarning",
     "WarningKind",
     "_raise",
@@ -139,6 +141,8 @@ class ErrorKind(StrEnum):
     MISSING_MEASURE_ADDITIVITY = "missing_measure_additivity"
     INVALID_MEASURE_AGGREGATION = "invalid_measure_aggregation"
     INCOMMENSURABLE_LINEAR_UNITS = "incommensurable_linear_units"
+    SOURCE_TIMEZONE_MISSING = "source_timezone_missing"
+    DECLARED_TIMEZONE_CONTRADICTION = "declared_timezone_contradiction"
     INVALID_ENTITY_VERSIONING = "invalid_entity_versioning"
     INVALID_TARGET_SEMANTICS = "invalid_target_semantics"
     DUPLICATE_IDENTITY_KEY = "duplicate_identity_key"
@@ -315,6 +319,78 @@ class SemanticError(MarivoError):
         if self.traceback is not None:
             lines.extend(("", "Original traceback:", self.traceback.rstrip("\n")))
         return "\n".join(lines)
+
+
+class SourceTimezoneMissing(SemanticError):  # noqa: N818 - Exact public error contract.
+    """A source wall clock or business date lacks a timezone declaration."""
+
+    def __init__(
+        self,
+        *,
+        axis: TargetDimensionContract,
+        physical_type: str,
+        datasource: str | None = None,
+        backend: str | None = None,
+    ) -> None:
+        from marivo.semantic.ir import DateParse, HourPrefixParse, StrptimeParse
+
+        parse = axis.parse
+        if isinstance(parse, StrptimeParse):
+            parser = f"ms.strptime({parse.format!r}, timezone=...)"
+        elif isinstance(parse, HourPrefixParse):
+            parser = f"ms.strptime(..., timezone=...) on prefix {parse.prefix!r}"
+        elif isinstance(parse, DateParse) or physical_type == "date":
+            parser = "ms.date(timezone=...)"
+        else:
+            parser = "ms.timestamp(timezone=...)"
+        super().__init__(
+            kind=ErrorKind.SOURCE_TIMEZONE_MISSING,
+            message=f"Time field {axis.ref.path!r} requires a declared source timezone.",
+            refs=(axis.ref.path,),
+            expected="a field parser timezone or Datasource wall_clock_timezone",
+            received=f"physical_type={physical_type}, parser={parse!r}, datasource={datasource!r}, timezone=None",
+            details={
+                "axis": axis.ref.path,
+                "physical_type": physical_type,
+                "datasource": datasource,
+                "prefix": parse.prefix if isinstance(parse, HourPrefixParse) else None,
+                "query_executed": False,
+            },
+            repair=repair(
+                kind="reauthor",
+                canonical_id="time_dimension",
+                action=(
+                    (
+                        f"Declare md.{backend}(..., wall_clock_timezone=...) on {datasource!r}, "
+                        if datasource is not None and backend is not None
+                        else "Declare a Datasource wall_clock_timezone, "
+                    )
+                    + f"or set parse={parser} on the time field, then reload."
+                ),
+            ),
+        )
+
+
+class DeclaredTimezoneContradiction(SemanticError):  # noqa: N818 - Exact public error contract.
+    """DATE declarations in one governed object disagree on business timezone."""
+
+    def __init__(self, *, ref: str, declarations: tuple[tuple[str, str, str], ...]) -> None:
+        super().__init__(
+            kind=ErrorKind.DECLARED_TIMEZONE_CONTRADICTION,
+            message=f"DATE timezone declarations for {ref!r} disagree.",
+            refs=(ref, *(path for path, _timezone, _origin in declarations)),
+            expected="the same normalized business-day timezone for all DATE boundaries",
+            received=", ".join(f"{path}={zone} ({origin})" for path, zone, origin in declarations),
+            details={"declarations": declarations, "query_executed": False},
+            repair=repair(
+                kind="reauthor",
+                canonical_id="date",
+                action=(
+                    "Set the DATE field parsers to the same timezone as the other boundary declaration, "
+                    "then reload and certify again."
+                ),
+            ),
+        )
 
 
 class SemanticDecoratorError(SemanticError):

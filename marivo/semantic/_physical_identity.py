@@ -98,6 +98,7 @@ def entity_dependency_fingerprint(registry: Registry, entity_id: str) -> str:
             datasource = registry.datasources[path]
             values = _fields(
                 backend_type=datasource.backend_type,
+                wall_clock_timezone=datasource.wall_clock_timezone,
                 fields=datasource.fields,
                 env_refs=datasource.env_refs,
             )

@@ -159,24 +159,18 @@ class _PeriodRecord(RenderableResult):
 class FrameCalendarPeriod(_PeriodRecord):
     """One saved calendar period acquired from ``FramePeriodPage.items``.
 
-    Fields retain the complete key, actual/nominal UTC bounds, original ordinals,
-    timezone, label and saved civil boundaries. Example: ``page.items[0].show()``.
+    Fields retain the complete actual key, original ordinals, timezone, civil
+    label and saved selection progress. Example: ``page.items[0].show()``.
     Constraints: No current timezone rules or shift history are reconstructed.
     """
 
     key: tuple[FrameKeyScalar, ...]
     timezone: str
-    start: datetime
-    end: datetime
     label: bool | str | int | float
     ordinal: int
     nominal_ordinal: int
-    nominal_start: datetime
-    nominal_end: datetime
-    nominal_start_civil: str
-    nominal_end_civil: str
-    actual_start_civil: str
-    actual_end_civil: str
+    selection: Literal["full", "prefix", "partial", "unavailable"]
+    cutoff: str | None
     kind: Literal["calendar"] = field(default="calendar", init=False)
 
 

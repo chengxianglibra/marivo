@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import json
+import os
 from collections.abc import Iterator
 from contextlib import contextmanager
+from hashlib import sha256
 
 import clickhouse_connect
 from clickhouse_connect.driver.client import Client
@@ -14,10 +16,12 @@ from tests.datasource.environment.credentials import password
 
 
 @contextmanager
-def connection(*, admin: bool = False, port: int = 18123) -> Iterator[Client]:
+def connection(*, admin: bool = False, port: int | None = None) -> Iterator[Client]:
     client = clickhouse_connect.get_client(
         host="127.0.0.1",
-        port=port,
+        port=port
+        if port is not None
+        else int(os.environ.get("MARIVO_CLICKHOUSE_TEST_PORT", "18123")),
         database="qualification",
         username="qualifier" if admin else "analysis_reader",
         password=password(),
@@ -31,20 +35,30 @@ def connection(*, admin: bool = False, port: int = 18123) -> Iterator[Client]:
 
 def setup() -> dict[str, object]:
     with connection(admin=True) as con:
-        con.command(
-            "CREATE USER IF NOT EXISTS analysis_reader IDENTIFIED BY {password:String}",
-            parameters={"password": password()},
-        )
+        assert con.server_version is not None, "Expected the connected server version"
+        if con.server_version.startswith("22."):
+            password_hash = sha256(password().encode()).hexdigest()
+            con.command(
+                f"CREATE USER IF NOT EXISTS analysis_reader IDENTIFIED WITH sha256_hash BY '{password_hash}'"
+            )
+        else:
+            con.command(
+                "CREATE USER IF NOT EXISTS analysis_reader IDENTIFIED BY {password:String}",
+                parameters={"password": password()},
+            )
         con.command("REVOKE ALL ON *.* FROM analysis_reader")
         con.command("GRANT SELECT ON qualification.* TO analysis_reader")
         con.command("GRANT SELECT(query, query_id, user) ON system.processes TO analysis_reader")
-        con.command(
-            "ALTER USER analysis_reader SETTINGS readonly=1, join_use_nulls=1, "
-            "enable_materialized_cte=0 CHANGEABLE_IN_READONLY, "
-            "max_execution_time=0 CHANGEABLE_IN_READONLY, "
-            "cancel_http_readonly_queries_on_client_close=0 CHANGEABLE_IN_READONLY, "
-            "timeout_before_checking_execution_speed=0 CHANGEABLE_IN_READONLY"
-        )
+        if con.server_version.startswith("22."):
+            con.command("ALTER USER analysis_reader SETTINGS readonly=0, join_use_nulls=1")
+        else:
+            con.command(
+                "ALTER USER analysis_reader SETTINGS readonly=1, join_use_nulls=1, "
+                "enable_materialized_cte=0 CHANGEABLE_IN_READONLY, "
+                "max_execution_time=0 CHANGEABLE_IN_READONLY, "
+                "cancel_http_readonly_queries_on_client_close=0 CHANGEABLE_IN_READONLY, "
+                "timeout_before_checking_execution_speed=0 CHANGEABLE_IN_READONLY"
+            )
         con.command(
             "CREATE TABLE IF NOT EXISTS permission_probe(id Int64) ENGINE=MergeTree ORDER BY id"
         )

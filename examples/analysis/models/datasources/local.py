@@ -2,4 +2,4 @@
 
 import marivo.datasource as md
 
-md.duckdb(name="local", path="readings.duckdb")
+md.duckdb(wall_clock_timezone="UTC", name="local", path="readings.duckdb")

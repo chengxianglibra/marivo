@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from datetime import date, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from ibis.common.deferred import Deferred
 
@@ -176,6 +176,11 @@ class Session:
         return self._record().report_timezone_name
 
     @property
+    def timezone_origin(self) -> Literal["explicit", "system"]:
+        """Return whether the saved report timezone was explicit or system-resolved."""
+        return self._record().report_timezone_origin
+
+    @property
     def catalog(self) -> SemanticCatalog:
         """Load and return this Session's authored semantic catalog without a query."""
         self._sources()
@@ -195,6 +200,8 @@ class Session:
             entity: Resolved Entity definition.
             at: Exact version selection instant.
             where: An optional same-root row Predicate combining field and Population membership conditions.
+                Time comparison boundaries use this Session's report timezone for civil inputs;
+                aware inputs retain their instant, as with session.time_scope.
 
         Returns:
             A lazy Population retaining this Session's ownership.
@@ -262,10 +269,16 @@ class Session:
                 "Rebuild the predicate domain in this Session.",
                 "session.members",
             )
+        from marivo.analysis.binding.temporal_predicates import normalize_temporal_predicate
+
         node = SourceIdentities(
             entity_exact(resolved),
             at,
-            predicate.node if predicate is not None else None,
+            normalize_temporal_predicate(
+                predicate.node, self.timezone, location="Session.members.where"
+            )
+            if predicate is not None
+            else None,
         )
         return Population(
             PopulationProgram(node, Owner(self.id, self._runtime.store.store_id), (axis,)),
@@ -329,6 +342,8 @@ class Session:
             by: Ordered fields, membership rules and finite TimeScopes, or a complete Population
                 optionally followed by membership rules in a tuple.
             where: Extra row Predicate combining field and Population membership conditions.
+                Time comparison boundaries use this Session's report timezone for civil inputs;
+                aware inputs retain their instant, independently of the output scope's timezone.
 
         Returns:
             An immutable pending AnalysisFrame owned by this Session.
@@ -709,4 +724,8 @@ class Session:
         print(self.render(max_output_bytes=max_output_bytes))
 
     def __repr__(self) -> str:
-        return f"<Session id={self.id}; use .show()>"
+        record = self._record()
+        return (
+            f"<Session id={self.id} timezone={record.report_timezone_name} "
+            f"({record.report_timezone_origin}); use .show()>"
+        )

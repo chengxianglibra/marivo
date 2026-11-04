@@ -38,7 +38,7 @@ def related_drill_session(
     semantic_project_factory(
         {
             "datasources/warehouse.py": "import marivo.datasource as md\n"
-            + f"md.duckdb(name='warehouse', path={str(database)!r})\n",
+            + f"md.duckdb(wall_clock_timezone='UTC', name='warehouse', path={str(database)!r})\n",
             "sales/_domain.py": "import marivo.semantic as ms\n"
             + "ms.domain(name='sales', owner='Analytics', default=True)\n",
             "sales/model.py": """import marivo.datasource as md
@@ -128,7 +128,7 @@ def test_drill_after_original_operations_prepares_related_fields(
     actual = list(
         zip(
             result.iloc[:, 0],
-            result[result.attrs["axes"][1]["name"].rsplit(".", 1)[-1]],
+            result["name" if explicit_path else "region"],
             result[name],
             strict=True,
         )

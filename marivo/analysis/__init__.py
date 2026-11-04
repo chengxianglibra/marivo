@@ -51,6 +51,9 @@ if TYPE_CHECKING:
         FrameChangeTarget as FrameChangeTarget,
     )
     from marivo.analysis.core.frame_interpretation import (
+        FrameCivilDateSourceTime as FrameCivilDateSourceTime,
+    )
+    from marivo.analysis.core.frame_interpretation import (
         FrameComparedTime as FrameComparedTime,
     )
     from marivo.analysis.core.frame_interpretation import (
@@ -82,6 +85,9 @@ if TYPE_CHECKING:
     )
     from marivo.analysis.core.frame_interpretation import (
         FrameFixedTime as FrameFixedTime,
+    )
+    from marivo.analysis.core.frame_interpretation import (
+        FrameInstantSourceTime as FrameInstantSourceTime,
     )
     from marivo.analysis.core.frame_interpretation import (
         FrameIntervalAxisSchema as FrameIntervalAxisSchema,
@@ -136,6 +142,9 @@ if TYPE_CHECKING:
     )
     from marivo.analysis.core.frame_interpretation import (
         FrameTrailingPeriodsWindow as FrameTrailingPeriodsWindow,
+    )
+    from marivo.analysis.core.frame_interpretation import (
+        FrameWallClockSourceTime as FrameWallClockSourceTime,
     )
     from marivo.analysis.core.frame_method_facts import FrameMethodFacts as FrameMethodFacts
     from marivo.analysis.core.frame_page import FrameCalendarPeriod as FrameCalendarPeriod

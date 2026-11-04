@@ -37,6 +37,7 @@ from tests.shared_fixtures import (
     analysis_dsl_rows,
     catalog_value,
     export_dsl_parquet_models,
+    frozen_coordinates,
     terminal_runs,
 )
 from tests.support.json import Json, encode, obj, read
@@ -391,25 +392,18 @@ def test_period_buckets_and_retained_coarsened_partition(
     assert compared.key_0.tolist() == ["A", "B", "C", "D"]
     assert compared.key_1.tolist() == ["web"] * 4
     directories = [
-        part["rows"].to_pandas(types_mapper=pd.ArrowDtype)
-        for part in result.to_pandas().attrs["frozen_coordinates"]
-        if "nominal_start" in part["rows"].to_pandas(types_mapper=pd.ArrowDtype).columns
+        part.rows for part in frozen_coordinates(result) if "selection" in part.rows.columns
     ]
     assert len(directories) == 2
-    bounds = {
-        (row.nominal_start.isoformat(), row.nominal_end.isoformat())
-        for directory in directories
-        for row in directory.itertuples()
+    assert {row for directory in directories for row in directory["nominal_label"]} == {
+        "2026-07-01",
+        "2026-08-01",
     }
-    assert bounds == {
-        ("2026-07-01T00:00:00+00:00", "2026-08-01T00:00:00+00:00"),
-        ("2026-08-01T00:00:00+00:00", "2026-09-01T00:00:00+00:00"),
+    assert {value.isoformat() for directory in directories for value in directory.iloc[:, 0]} == {
+        "2026-07-01T00:00:00+00:00",
+        "2026-08-01T00:00:00+00:00",
     }
-    assert {
-        (row.actual_start.isoformat(), row.actual_end.isoformat())
-        for directory in directories
-        for row in directory.itertuples()
-    } == bounds
+    assert all(directory["selection"].tolist() == ["full"] for directory in directories)
     allocated = allocation(*(basis(value) for value in _inputs(case)), method="count")
     assert {
         (r.member, r.channel): r.contribution for r in allocated.itertuples()

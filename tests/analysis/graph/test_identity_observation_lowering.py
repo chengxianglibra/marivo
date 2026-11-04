@@ -41,7 +41,7 @@ def test_public_identity_observation_executes_and_retains_outside_window_members
     )
     result = observed.persist()
     frame = result.to_pandas()
-    actual = frame.set_index(ordinary_columns(frame)[0])["value"]
+    actual = frame.set_index(ordinary_columns(result)[0])["value"]
     assert {key: None if pd.isna(value) else value for key, value in actual.items()} == {
         "j1_a": 450,
         "j1_b": 150,

@@ -140,7 +140,7 @@ def test_time_and_paired_export_layout_preserves_complete_axis_identity(
     assert schema.axes[0].left.kind == kind
     assert schema.axes[0].right.kind == kind
     assert tuple(field.slot_id for field in schema.axes[0].keys) == ("pair.key",)
-    expected_parts = ("start", "end")
+    expected_parts = ("key",) if kind == "calendar" else ("start", "end")
     assert tuple(column.part for column in schema.layout if column.kind == "coordinate") == (
         *expected_parts,
         *expected_parts,
@@ -171,7 +171,7 @@ def test_default_layout_collision_does_not_block_schema_and_alias_repairs_export
     with pytest.raises(CoreRuleError) as page_failure:
         export_layout(source, validate_names=True, member="read_page")
     assert page_failure.value.location == "frame.read_page"
-    exported = export_frame(source, rows, axis_names=("customer_key",), include_attrs=False)
+    exported = export_frame(source, rows, axis_names=("customer_key",))
     assert exported.columns.tolist() == ["customer_key", "customer"]
     assert exported.to_dict("list") == {"customer_key": ["B", "A"], "customer": [20, 10]}
     assert exported.attrs == {}
@@ -200,7 +200,7 @@ def test_projection_layout_and_table_keep_requested_order_and_exact_types() -> N
             "present": pd.Series([True, False], dtype="bool[pyarrow]"),
         }
     )
-    exported = export_frame(source, rows, columns=("right_present", "revenue"), include_attrs=False)
+    exported = export_frame(source, rows, columns=("right_present", "revenue"))
     assert exported.columns.tolist() == ["customer", "right_present", "revenue"]
     assert exported["revenue"].dtype == pd.ArrowDtype(pa.decimal128(20, 2))
     assert exported["revenue"].tolist() == [Decimal("123456789012345.67"), pd.NA]

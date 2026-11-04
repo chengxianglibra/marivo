@@ -28,6 +28,56 @@ from tests.datasource.source_cases import SourceData, source_case
 pytestmark = pytest.mark.runtime
 
 
+@pytest.mark.skipif(
+    os.environ.get("MARIVO_CLICKHOUSE_ANALYSIS_TEST") != "1", reason="opt-in ClickHouse service"
+)
+@pytest.mark.parametrize(
+    ("predicate", "empty_right", "expected"),
+    (
+        (True, False, [(1, 1, True), (1, 2, True), (2, 1, True), (2, 2, True)]),
+        (False, False, [(1, None, None), (2, None, None)]),
+        (True, True, [(1, None, None), (2, None, None)]),
+    ),
+)
+def test_clickhouse_constant_left_join_preserves_rows_and_boolean_presence(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    predicate: bool,
+    empty_right: bool,
+    expected: list[tuple[int, int | None, bool | None]],
+) -> None:
+    data = SourceData("id BIGINT", "(1),(2)", "id Int64", [{"id": 1}, {"id": 2}])
+    with source_case("clickhouse", "mergetree", tmp_path, monkeypatch, data) as case:
+        bound = case.session.bind(case.source, source_identity="constant_join")
+        qualified = case.session.qualify(
+            bound,
+            PhysicalRequirement("query.source_read", 1, frozenset({"scan", "project", "join"})),
+        )
+        left = bound.relation.select(left_id=bound.relation.id)
+        right = bound.relation.select(right_id=bound.relation.id, present=ibis.literal(True))
+        if empty_right:
+            right = right.filter(right.right_id < 0)
+        query = left.left_join(right, predicate).order_by("left_id", "right_id")
+        read = case.session.compile(
+            qualified,
+            query,
+            purpose="source_adapter.constant_join",
+            expected_schema=query.schema().to_pyarrow(),
+        )
+        actual = case.session.execute(read)
+        expected_frame = pd.DataFrame(expected, columns=("left_id", "right_id", "present"))
+        pd.testing.assert_frame_equal(actual, expected_frame, check_dtype=False)
+        # A count-only consumer still needs valid keys after column pruning.
+        count = query.aggregate(rows=query.count())
+        count_read = case.session.compile(
+            qualified,
+            count,
+            purpose="source_adapter.constant_join_count",
+            expected_schema=count.schema().to_pyarrow(),
+        )
+        assert case.session.execute(count_read)["rows"].tolist() == [len(expected)]
+
+
 def _datasource(
     backend: str,
     fields: Mapping[str, object],
@@ -442,7 +492,7 @@ def test_mysql_table_view_and_decimal_values(monkeypatch: pytest.MonkeyPatch) ->
 def test_mysql_reader_without_named_timezone_tables(monkeypatch: pytest.MonkeyPatch) -> None:
     import pymysql
 
-    from marivo.datasource.timezone import probe_engine_timezone, verify_source_timezone
+    from marivo.datasource.timezone import verify_source_timezone
     from tests.datasource.environment import mysql_analysis as mysql
 
     name = "no_timezones_" + uuid4().hex
@@ -473,8 +523,14 @@ def test_mysql_reader_without_named_timezone_tables(monkeypatch: pytest.MonkeyPa
             with provider_for("mysql").open(datasource) as session:
                 with session._backend.raw_sql("SELECT @@session.time_zone") as result:
                     assert result.fetchone() == ("+00:00",)
-                assert probe_engine_timezone(session._backend).engine_timezone_name == "UTC"
                 verify_source_timezone(session._backend, "UTC")
+                verify_source_timezone(session._backend, "+08:00")
+                from marivo.datasource.errors import DatasourceConnectionError
+
+                with pytest.raises(DatasourceConnectionError) as unavailable:
+                    verify_source_timezone(session._backend, "Asia/Tokyo")
+                assert unavailable.value.received == "Asia/Tokyo"
+                assert "time zone tables" in unavailable.value.repair.action
                 bound = session.bind(TableSourceIR(name), source_identity=name)
                 assert bound.relation.point.type().timezone == "UTC"
                 assert bound.relation.clock.type().timezone is None
@@ -483,6 +539,17 @@ def test_mysql_reader_without_named_timezone_tables(monkeypatch: pytest.MonkeyPa
                 )
                 assert frame.point.tolist() == [pd.Timestamp("2026-04-30 16:30:00.123456Z")]
                 assert frame.clock.tolist() == [pd.Timestamp("2026-05-01 00:30:00.123456")]
+                from marivo.datasource._temporal_expressions import localize
+                from marivo.datasource._temporal_lowering import lower_temporal
+
+                fixed = lower_temporal(
+                    bound.relation.select(instant=localize("UTC+08:00", bound.relation.clock)),
+                    "mysql",
+                )
+                converted = session.collect_bounded(
+                    fixed, purpose="temporal.fixed_offset_without_timezone_tables", max_rows=2
+                )
+                assert converted.instant.tolist() == [pd.Timestamp("2026-04-30 16:30:00.123456Z")]
         finally:
             cursor.execute(f"DROP TABLE IF EXISTS {name}")
 
@@ -630,7 +697,9 @@ def test_mariadb_pymysql_preserves_exact_table_values(monkeypatch: pytest.Monkey
                     identity=name,
                     expected=[{"id": 9007199254740993, "amount": Decimal("9007199254740993.01")}],
                 )
-                assert session._backend._marivo_timezone_name == "UTC"
+                with session._backend.con.cursor() as timezone_cursor:
+                    timezone_cursor.execute("SELECT @@session.time_zone")
+                    assert timezone_cursor.fetchone() == ("+00:00",)
             assert all(item.connection_disconnected for item in session.submissions)
         finally:
             cursor.execute(f"DROP TABLE IF EXISTS {name}")

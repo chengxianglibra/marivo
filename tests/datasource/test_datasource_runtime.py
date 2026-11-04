@@ -211,7 +211,7 @@ def test_cached_backend_release_records_only_successful_disconnect(
     service.close_all()
 
     assert backend.disconnect_calls == 1
-    assert lease.closed is True
+    assert lease.closed is (not fails)
     assert submission.connection_disconnected is not fails
     assert service._session_backends == service._leases == service._source_sessions == {}
 

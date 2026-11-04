@@ -5,6 +5,35 @@ description: Group by calendar periods and calculate rolling and cumulative valu
 
 Complete the [analysis DSL example](/docs/latest/analysis/dsl/#complete-example-and-shared-inputs) first. Save the following in a new script in the same project. This uses the six-order dataset and UTC reporting time. The start is included and the end is excluded. Run each section in order.
 
+The example Session has `session.timezone == "UTC"` and
+`session.timezone_origin == "explicit"`. A new Session also accepts an explicit
+offset such as `timezone="+08:00"`. Omitting the timezone strictly resolves the
+system IANA zone once; ambiguous `TZ` or localtime state requires an explicit
+value. Recovery keeps the saved timezone and origin without checking the host.
+
+Source time comparisons use the same boundary rules as `session.time_scope`.
+Bare ISO dates, Python `date` values and offset-free ISO timestamps use the
+Session's report timezone; aware datetimes and ISO timestamps with an offset keep
+their instant. This covers `observe(where=...)`, `members(where=...)`,
+`Metric.where(...)` and a source reducer's `where=`. Invalid ISO, naive Python
+datetimes and ambiguous/nonexistent local clocks reject before source reads.
+Using the example's order time field, these conditions select the same range:
+
+```python
+from analysis import session
+
+created_at = session.catalog.get("time_dimension:sales.orders.order_date")
+scope = session.time_scope(start="2026-08-01", end="2026-09-01")
+by_boundaries = (created_at >= "2026-08-01") & (created_at < "2026-09-01")
+by_scope = created_at.within(scope)
+```
+
+An output calendar's timezone does not change the implicit comparison timezone.
+Use `within(scope)` with an explicit scope timezone to choose different boundaries.
+DATE rows compare their declared business-day-start instant; `==` means one exact
+instant. Ordinary string fields and fixed Frame Column comparisons retain their
+own types, and saved results are not reinterpreted.
+
 ## Observe days and months
 
 ```python
@@ -24,12 +53,13 @@ monthly_source = session.observe(
 monthly_source.show()
 ```
 
-Calendar buckets retain their nominal starts when the first or last bucket is
-clipped. Empty buckets remain present, and sparse selections retain only their
-selected periods. Builtin calendars use native calendar operations; certified
-custom calendars use a unique date-to-period mapping from the frozen snapshot.
-Neither route enumerates one SQL branch per bucket. Custom calendars still
-require one period per date and continuous, non-overlapping periods.
+Calendar buckets use the actual executor's native keys. Ordinary output retains
+both generated output positions and additional observed keys, filling only missing
+positions. The key and civil label do not promise a contiguous UTC member range.
+`read_periods()` exposes saved order and selection progress. Builtin day/week/month
+use native civil truncation; subday widths align to local midnight. Custom calendar
+output requires exactly one complete certified period; multiple or partial periods
+reject before business reads. No date-to-period execution directory is uploaded.
 
 {/* example: metric-window-query */}
 
@@ -102,14 +132,12 @@ and certify a [fiscal or named-activity calendar](/docs/latest/modeling/dates/#b
 before using it as a grain.
 
 Source parsing and report timezones are separate: set a parser timezone for
-naive time-bearing source values; aware timestamps already identify an instant,
-and date-only encodings do not use a timezone. For raw local timestamp columns,
-filtering and calendar assignment around daylight-saving transitions follow the
-source timezone's wall-clock order: repeated clocks resolve to the later
-occurrence, and skipped clocks to the transition instant. The first occurrence
-of a repeated reporting hour can therefore be empty. Projected timestamps keep
-the backend's native conversion; use aware/UTC timestamps or another identity
-field when both repeated instants must remain distinct.
+naive source values; aware timestamps already identify an instant, and date-only
+values use their declared source timezone to identify the business-day start.
+Projection, filtering and buckets share the
+actual backend's native gap/fold interpretation. Original local time data uses
+pandas native operations. Different executors can differ at unusual transitions;
+source-produced keys remain unchanged during local arithmetic and alignment.
 
 `ms.hour_prefix(date_field)` uses the source timezone context of its date prefix.
 Changing the report timezone does not reinterpret that source timestamp.
@@ -150,7 +178,7 @@ the observed samples and do not prove completeness of the whole period.
 Qualified source-backed samples finish at the source: each timestamp's child
 Metric completes before the outer mean, quantile or other reducer. Compatible
 summaries share the inner calculation. For example, `amount.sum(time=order_date).per(order_date).quantile(0.95)` computes a quantile of completed daily sums.
-Explicit sample domains and calendar grids retain their own completion rules.
+Explicit Population sample domains retain their completion rules; calendar samples use actual keys.
 Native arithmetic and Decimal rounding follow the backend; unsupported type or
 algorithm combinations retain their existing local route. A native failure does
 not trigger local recomputation. Completed Frames continue to use captured data.
@@ -160,7 +188,8 @@ not trigger local recomputation. Completed Frames continue to use captured data.
 Use a Grain in `Metric.per` to fold completed daily values without declaring
 another TimeDimension. The observation supplies the finite scope and timezone;
 each source component uses its own declared time field. A weekly mean of daily
-revenue includes all seven days, with zero for an empty day's sum.
+revenue includes days with contributions, including all-NULL days. Missing days
+do not become zero-valued internal samples.
 
 {/* example: calendar-sample-fold */}
 
@@ -173,15 +202,15 @@ folded.show()
 
 For a completed `daily_p95`, use `daily_p95.per(mv.grain("day")).median()`
 under the same weekly axis. Empty ratios and quantiles remain NA and follow the
-sample reducer's existing NULL policy. Calendar grids retain every cell;
-TimeField samples continue to use represented timestamps and allow missing clocks. Inner grains must nest: day in week/month is valid; week in month is
-rejected. Certified calendar grains use their captured snapshot's containment.
-Nested Grain layers are supported. With a plain TimeScope the grid tiles the
-whole scope. Partial edge cells clip to actual scope bounds and each counts once,
-without duration weighting. Pass the Grain to `per`, and the CalendarAxis or
+sample reducer's existing NULL policy. TimeField and Grain samples use actual
+keys; final output completion does not affect their mean or count. Builtin nesting
+is static: day in week/month is valid; week in month rejects. Divisible subday
+widths, month in quarter/year and quarter in year are supported at every layer.
+Undefined custom hierarchies reject; one complete certified custom period may be
+sampled under an interval axis. Pass the Grain to `per`, and the CalendarAxis or
 TimeScope to `observe(by=...)`. Help: `semantic.metric.per`.
 
-Semantic Grains from `ms.calendar_grain(...)` bind to the Session's current
+`ms.calendar_grain(...)` bind to the Session's current
 certified calendar snapshot. Declared calendar folds require calendar
 certification. Windows inside calendar samples and windows wrapping calendar
 folds currently raise a typed error. Observe the windowed Metric directly on a
@@ -194,8 +223,9 @@ This fragment requires a declared versioned `sales.profiles`, fact Entity
 `sales.facts`, and complete-key relationship `sales.profile`. Control time and
 Metric time are independent choices; this example explicitly uses the same field.
 
-```python
+```python title="Requires a versioned profiles model"
 control = session.catalog.get("time_dimension:sales.facts.event_time")
+# The control may also be the fact Entity's snapshot partition TimeDimension.
 label = session.catalog.get("dimension:sales.profiles.label")
 route = session.catalog.get("relationship:sales.profile")
 amount = session.catalog.get("measure:sales.facts.amount")
@@ -208,4 +238,28 @@ restated = session.observe(
 ).compute()
 ```
 
-Row time selects an attribute for each original fact; a fixed anchor restates the entire window under one definition. For contributions 7/11 with labels A/B before/after a change, row time gives A=7, B=11; a fixed new anchor gives B=18. Qualified same-source single-root observe by/where is supported on DuckDB/Trino. NULL control or missing versions preserve NULL labels without fallback. DATE selects target business dates; timestamp validity requires timestamp control. Native absolute timestamps and UTC/fixed-offset local clocks are admitted. IANA local clocks, read/classify, multiple roots and window/per compositions require fixed anchors. Bucket-end reclassification is a separate question.
+Row time selects an attribute for each original fact; a fixed anchor restates the entire window under one definition. For contributions 7/11 with labels A/B before/after a change, row time gives A=7, B=11; a fixed new anchor gives B=18. The fact Entity may be unversioned or snapshot-versioned. Its native snapshot partition TimeDimension can control matching, so the same stable key on different days retains each day's contribution without a daily query loop. Qualified same-source single-root observe by/where is supported on DuckDB/Trino. NULL control or missing versions preserve NULL labels without fallback. DATE selects target business dates; timestamp validity requires timestamp control. Native absolute timestamps and UTC/fixed-offset local clocks are admitted. Validity fact roots, IANA local clocks, read/classify, multiple roots and window/per compositions require fixed anchors. Bucket-end reclassification is a separate question.
+
+
+## Inspect captured source time interpretations
+
+After computing `daily`, inspect `daily.schema.source_times` or call
+`daily.show(n=0)`. Each immutable record identifies the consumed source field,
+physical type and consumption timezone. `instant` needs no source declaration;
+`wall_clock` and `civil_date` retain the effective source timezone and its
+`field` or `datasource` origin. Hour-prefix clocks also record `inherited_from`.
+Pending display never opens a source to obtain these facts.
+
+The records describe consumed inputs. Fixed selection, renaming, filtering,
+fixing, arithmetic and reduction retain them; combinations merge complete
+records, including different interpretations of the same field path. A business
+date whose source and consumption zones differ is assigned by its day start;
+business-day totals cannot reconstruct event-day totals. Persisted Frames keep
+these facts, captured absolute ranges and bucket keys unchanged during cold
+recovery, even when the host timezone changes or sources and models are offline.
+
+```python
+facts = daily.schema.source_times
+for fact in facts:
+    print(fact.axis, fact.kind, fact.consumption_timezone)
+```

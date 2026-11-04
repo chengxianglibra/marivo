@@ -75,6 +75,7 @@ def create_race(project: Path) -> dict[str, object]:
         question: str | None = None,
         session_ref: str | None = None,
         report_timezone_name: str = "UTC",
+        report_timezone_origin: Literal["explicit", "system"],
         report_timezone_resolution: Literal["iana", "fixed_offset"] = "iana",
         domains: tuple[str, ...] | None = None,
     ) -> SessionRecord:
@@ -86,6 +87,7 @@ def create_race(project: Path) -> dict[str, object]:
             question=question,
             session_ref=session_ref,
             report_timezone_name=report_timezone_name,
+            report_timezone_origin=report_timezone_origin,
             report_timezone_resolution=report_timezone_resolution,
             domains=domains,
         )

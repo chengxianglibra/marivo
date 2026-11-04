@@ -16,7 +16,7 @@ from marivo.analysis.core.frame_data import MemoryFrameBacking, StoredFrameBacki
 from marivo.analysis.materialization.terminal_store import describe
 from marivo.analysis.session.core import Session
 from marivo.datasource.adapters import SourceSession
-from tests.shared_fixtures import catalog_value, terminal_runs
+from tests.shared_fixtures import catalog_value, frozen_coordinates, terminal_runs
 
 
 def forbidden(*args: object, **kwargs: object) -> None:
@@ -55,7 +55,7 @@ def period_produce(root: Path, name: str) -> None:
         assert rows["base.absolute.total"].tolist() == [60, 30]
         assert rows["base.relative.total"].iloc[0] == 0.5
         assert pd.isna(rows["base.relative.total"].iloc[1])
-        assert rows[["current.present", "reference.present"]].all().all()
+        assert rows[["current.present", "base.present"]].all().all()
         assert report._schema == pending_report._schema
     saved_report = stored_report.persist()
     print(
@@ -64,7 +64,6 @@ def period_produce(root: Path, name: str) -> None:
 
 
 def period_read(name: str, identities: list[str]) -> None:
-    from marivo import _timezones
     from marivo.analysis.core import frame_calendar
     from marivo.analysis.materialization import frame_source_preparation
 
@@ -78,9 +77,8 @@ def period_read(name: str, identities: list[str]) -> None:
         ):
             patches.enter_context(patch.object(owner, attribute, replacement))
         session = mv.session.resume(name)
-        # Session admission validates its timezone name. Frozen Frame reads and
-        # continuations below must not resolve that timezone authority again.
-        patches.enter_context(patch.object(_timezones, "ZoneInfo", forbidden))
+        # Captured timezone names retain metadata validation. The guards above
+        # prohibit semantic/source access and reconstruction of calendar grids.
         current, baseline, report = (session.persisted_frame(value) for value in identities)
         before = len(terminal_runs(session))
         recomputed = current.compare({"base": mv.baseline(baseline)}).compute()
@@ -93,28 +91,23 @@ def period_read(name: str, identities: list[str]) -> None:
         assert rows["base.relative.total"].iloc[0] == 0.5
         assert pd.isna(rows["base.relative.total"].iloc[1])
         assert report.presence_names == ("current.present", "base.present")
-        assert rows[["current.present", "reference.present"]].all().all()
-        directories = rows.attrs["frozen_coordinates"]
+        assert rows[["current.present", "base.present"]].all().all()
         current_directory = next(
-            part["rows"].to_pandas(types_mapper=pd.ArrowDtype)
-            for part in directories
-            if part["name"] == "calendar.axis.0"
+            part.rows for part in frozen_coordinates(report) if part.name == "calendar.axis.0"
         )
-        assert current_directory["actual_start_civil"].tolist() == [
-            "2027-01-01T00:00:00.000000+00:00",
-            "2027-02-01T00:00:00.000000+00:00",
-        ]
-        assert current_directory["actual_start"].tolist() == [
+        assert current_directory["nominal_label"].tolist() == ["2027-01-01", "2027-02-01"]
+        assert current_directory.iloc[:, 0].tolist() == [
             pd.Timestamp("2027-01-01T00:00:00+00:00"),
             pd.Timestamp("2027-02-01T00:00:00+00:00"),
         ]
+        assert current_directory["selection"].tolist() == ["full", "full"]
         baseline.show(n=1)
         report.show(n=1)
         positive = report.where(report["base.absolute.total"] > 30)
         selected = positive.select({"delta": positive["base.absolute.total"]}).compute()
         assert selected.to_pandas()["delta"].tolist() == [60]
         literal = report.select({"constant": 1}).compute()
-        assert literal._schema.comparisons[0].values == ()
+        assert literal._schema.comparisons == ()
         assert literal.presence_names == report.presence_names
         reduced = selected.reduce({"total_delta": selected["delta"].sum()}).compute()
         assert reduced.to_pandas()["total_delta"].tolist() == [60]
@@ -145,9 +138,7 @@ def main() -> None:
         rows = artifact.to_pandas()
         assert {
             (None if key is None or key is pd.NA else key): value
-            for key, value in zip(
-                rows[rows.attrs["axes"][0]["name"].rsplit(".", 1)[-1]], rows["total"], strict=True
-            )
+            for key, value in zip(rows["region"], rows["total"], strict=True)
         } == {None: 5, "A": 9007199254740993}
         print(session.id, artifact.artifact_id)
         return
@@ -168,12 +159,12 @@ def main() -> None:
         assert {
             (None if key is None or key is pd.NA else key): value
             for key, value in zip(
-                frame[frame.attrs["axes"][0]["name"].rsplit(".", 1)[-1]],
+                frame["region"],
                 frame["total"],
                 strict=True,
             )
         } == {None: 5, "A": 9007199254740993}
-        assert dict(frame.attrs["units"])["total"] == "CNY"
+        assert artifact.schema.values["total"].unit == "CNY"
         assert artifact.source_reads
         for read in artifact.source_reads:
             read.show()

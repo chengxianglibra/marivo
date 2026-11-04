@@ -70,20 +70,17 @@ def test_ratio_complete_coordinate_tuple_and_original_components(
     case = analysis_dsl_case_factory("tuple_union")
     observed = _ratio(case, coordinates=(case.names.channel, case.names.status)).persist()
     frame = observed.to_pandas()
-    assert frame.set_index(list(ordinary_columns(frame)))["value"].to_dict() == {
+    assert frame.set_index(list(ordinary_columns(observed)))["value"].to_dict() == {
         ("A", "mobile", "cancelled"): 0.0,
         ("A", "web", "paid"): 40.0,
     }
     channel = catalog_value(case.session.catalog, "sales.order.channel", kind="field")
-    rolled = (
-        case.session.observe(
-            {"value": case.session.catalog.get("metric:sales.aov_from_lines")},
-            by=(case.session.time_scope(start="2026-08-01", end="2026-09-01"), channel),
-        )
-        .persist()
-        .to_pandas()
-    )
-    assert rolled.set_index(ordinary_columns(rolled)[0])["value"].to_dict() == {
+    rolled_frame = case.session.observe(
+        {"value": case.session.catalog.get("metric:sales.aov_from_lines")},
+        by=(case.session.time_scope(start="2026-08-01", end="2026-09-01"), channel),
+    ).persist()
+    rolled = rolled_frame.to_pandas()
+    assert rolled.set_index(ordinary_columns(rolled_frame)[0])["value"].to_dict() == {
         "web": 40.0,
         "mobile": 0.0,
     }
@@ -376,4 +373,4 @@ def test_public_parquet_spearman_retains_source_reads(
     oracle = pd.Series(amounts).rank().corr(pd.Series(counts).rank())
     assert values["revenue"].corr(values["count"], method="spearman") == pytest.approx(oracle)
     assert saved.source_reads
-    assert case.session._runtime.store.layout.generation == 26
+    assert case.session._runtime.store.layout.generation == 28

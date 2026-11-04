@@ -328,6 +328,7 @@ def test_restored_session_suppresses_successful_internal_load_declarations(
         question="persisted question",
         report_timezone_name="UTC",
         report_timezone_resolution="iana",
+        report_timezone_origin="explicit",
     )
 
     @tracked_capability(
@@ -445,6 +446,7 @@ def test_session_creation_attributes_reads_only_current_generation(
             question="persisted question",
             report_timezone_name="UTC",
             report_timezone_resolution="iana",
+            report_timezone_origin="explicit",
         )
     elif generation == "old_only":
         old = tmp_path / ".marivo/analysis/generations/v11/session_store.db"

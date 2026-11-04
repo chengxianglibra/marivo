@@ -1,0 +1,232 @@
+---
+slug: zh-cn/docs/v0.6/analysis/time-series
+title: 时间序列与窗口
+description: 按日历期间分组，计算滚动窗口与累计值。
+---
+
+先完成[分析 DSL 示例](/zh-cn/docs/v0.6/analysis/dsl/#完整示例与后续输入)。将下面代码保存为同一项目中的新脚本。本例使用全部六笔模拟订单与 UTC 报告时间，包含起点、不包含终点。按顺序执行各节。
+
+本例的 Session 满足 `session.timezone == "UTC"` 和
+`session.timezone_origin == "explicit"`。新 Session 也接受
+`timezone="+08:00"` 这样的显式偏移。省略时区时，仅在创建时严格解析一次系统 IANA
+时区；含糊的 `TZ` 或 localtime 状态要求显式传值。恢复保留已存时区及其来源，不再检查宿主机。
+
+源端时间比较与 `session.time_scope` 使用相同的边界规则。裸 ISO 日期、Python `date`
+和无偏移 ISO 时间按 Session 的报告时区解释；aware datetime 和带偏移的 ISO 时间保持原
+instant。该规则覆盖 `observe(where=...)`、`members(where=...)`、`Metric.where(...)`
+及源 reduction 的 `where=`。非法 ISO、naive Python datetime、歧义或不存在的本地时刻，
+都会在源读取前拒绝。使用示例的订单时间字段时，下面两个条件选择相同范围：
+
+```python
+from analysis import session
+
+created_at = session.catalog.get("time_dimension:sales.orders.order_date")
+scope = session.time_scope(start="2026-08-01", end="2026-09-01")
+by_boundaries = (created_at >= "2026-08-01") & (created_at < "2026-09-01")
+by_scope = created_at.within(scope)
+```
+
+输出日历的时区不改变普通比较的隐式时区。需要其他边界时，使用指定时区的 scope 和
+`within(scope)`。DATE 行按声明的业务日起点 instant 比较；`==` 表示一个精确时刻。
+普通字符串字段和固定 Frame Column 比较保留原有类型规则，已保存结果不会被重新解释。
+
+## 按日与月观察
+
+```python
+from analysis import mv, session, revenue, amount, region, august
+```
+
+{/* example: calendar-query */}
+
+```python
+days = august.by(mv.grain("day"))
+daily = session.observe({"revenue": revenue}, by=(days,)).compute()
+sum_of_days = daily.reduce({"sum_of_days": daily["revenue"].sum()}).compute()
+sum_of_days.show()
+monthly_source = session.observe(
+    {"revenue": revenue}, by=(august.by(mv.grain("month")),)
+).compute()
+monthly_source.show()
+```
+
+日历桶使用实际执行方的原生键。普通输出保留生成位置 S 和实际键 O 的并集，只为缺失的
+S 位置补空。键与民用标签不承诺成员构成连续 UTC 区间；`read_periods()` 提供保存的顺序
+和选择进度。内置日／周／月使用原生民用截断，子日宽度按当地午夜对齐。自定义日历输出
+只支持一个完整的已认证期间，多期间或局部选择在业务读取前拒绝，不上传日期到期间执行目录。
+
+{/* example: metric-window-query */}
+
+```python
+from datetime import timedelta
+
+rolling = session.observe(
+    {"revenue": revenue.window(mv.trailing_duration(duration=timedelta(days=7)))},
+    by=(days,),
+).compute()
+month_to_date = session.observe(
+    {"revenue": revenue.window(mv.to_date(grain=mv.grain("month")))}, by=(days,)
+).compute()
+rolling.show()
+month_to_date.show()
+```
+
+{/* example: period-comparison-query */}
+
+```python
+current_days = session.time_scope(start="2026-08-01", end="2026-08-04").by(mv.grain("day"))
+prior_days = session.time_scope(start="2026-07-01", end="2026-07-04").by(mv.grain("day"))
+current_daily = session.observe({"revenue": revenue}, by=(current_days,)).compute()
+prior_daily = session.observe({"revenue": revenue}, by=(prior_days,)).compute()
+comparison = current_daily.compare(
+    {"reference": mv.baseline(prior_daily, match=mv.ordinal())}
+).compute()
+comparison.show()
+```
+
+{/* example: shifted-period-comparison-query */}
+
+```python
+months = session.time_scope(start="2026-08-01", end="2026-08-20").by(mv.grain("month"))
+current_progress = session.observe({"revenue": revenue}, by=(months,))
+previous_progress = session.observe(
+    {"revenue": revenue},
+    by=(months.shift(mv.offset(periods=-1)),),
+)
+progress = current_progress.compare({"mom": mv.baseline(previous_progress)}).compute()
+progress.show()
+```
+
+## 理解窗口与对应关系
+
+8 月总收入为 800。8 月 5 日结束时，向前七天的滚动收入为 100；截至
+8 月 15 日，月内累计收入为 200。滚动窗口起点可能早于展示范围，因此
+来源数据需要包含所需的历史记录。
+
+`trailing_duration` 按实际经过时长计算：七天就是 168 小时。自然期间
+按日历边界划分，在夏令时切换前后实际时长可能不同。窗口在每个时间桶的
+实际右边界结束；`to_date` 从所选期间的起点重新累计。
+
+`ordinal` 按位置配对兼容且完整的期间。示例中的
+`[8 月 1 日, 8 月 4 日)` 与 `[7 月 1 日, 7 月 4 日)` 各含三天，按日期位置配对。
+将 `[8 月 1 日, 8 月 20 日)` 的月粒度前缀回移一个月，会比较
+`[7 月 1 日, 7 月 20 日)`，不包括 7 月 20 日零点及之后的数据；示例数值为
+200 与 300，变化为 -100。目标日期缺失时不会改用相邻日期。
+
+`mv.offset(periods=n)` 按消费该规则的轴粒度计算步数，不按展示行数或固定天数。
+日粒度下 `-7` 表示 7 天，周粒度下 `-1` 表示 1 周，月粒度下 `-1` 表示 1 个月。
+内置日历偏移要求粒度 `count=1`；不支持子日偏移。
+
+对结果行求和只是对这些行做统计。月度比率或去重数应重新按月度粒度观察
+原始指标。使用财务日历或命名活动前，先[准备并认证对应日历](/zh-cn/docs/v0.6/modeling/dates/#业务日历)。
+
+源时间解析时区与报告时区用途不同：无时区时间值使用解析时区，带时区时间戳已确定瞬时，
+纯日期值使用声明的源时区确定业务日零点。投影、筛选和分桶采用实际后端的原生 gap/fold 解释；原始本地时间
+数据使用 pandas 原生操作。不同执行方在异常跳变处可以不同，源端产生的键在本地算术与
+对齐期间保持不变。
+
+`ms.hour_prefix(date_field)` 使用日期前缀的源时区上下文。更改报告时区不会重新解释
+该来源时间戳。
+
+## 时间均值与采样覆盖
+
+`sample_interval=(1, "hour")` 声明来源采样节拍，不会将时间戳截断或分桶到小时。
+所有 TimeField 样本规约均使用实际出现的样本，允许缺点，不隐式补零或补 NULL。
+NULL、空输入和加权有效配对仍遵循各规约原有策略；显式 Population 保留声明的样本坐标。
+
+六笔订单示例先按订单日期计算每日金额均值，再在各地区内对实际出现的日期取均值。
+只有有订单的日期参与，各日期权重相同；当每日订单数不同时，结果可能不同于按订单数
+加权的均值。8 月 east 为 100、west 为 600；给每日均值加零后结果不变。
+
+```python
+order_date_entry = session.catalog.get("time_dimension:sales.orders.order_date")
+assert order_date_entry.kind == "time_dimension"
+order_date = order_date_entry
+samples = amount.mean(time=order_date).per(order_date)
+sample_mean = session.observe({"average": samples.mean()}, by=(august, region)).compute()
+# Arithmetic does not add a clock-coverage requirement.
+adjusted = session.observe({"average": samples.mean() + 0}, by=(august, region)).compute()
+sample_mean.show()
+adjusted.show()
+```
+
+`samples.quantile(0.95)`、`min/max`、`first/last` 等规约与均值采用相同的缺点策略。
+声明节拍不会触发完整覆盖检查，也不要求有限观察期间；窗口和日历样本保留各自的范围要求。
+已表示时刻上的 NULL 仍受 `nulls` 策略约束。统计结果描述实际样本，并不证明整个期间的数据完整。
+
+
+具备原生执行条件的来源样本在来源端完成：先完成每个时间戳上的子 Metric，再执行外层
+均值、分位数或其他规约。兼容的统计量共享内层计算。例如
+`amount.sum(time=order_date).per(order_date).quantile(0.95)` 对已完成的每日总额求分位数。
+显式 Population 样本域保留补齐规则，日历样本只使用实际键。原生算术与 Decimal 舍入遵循 backend；
+不支持的类型或算法组合保留原有本地路径。原生执行失败不会触发本地重算。
+已完成的 Frame 继续使用捕获的数据。
+
+## 按日历单元折叠 Metric
+
+将 Grain 传给 `Metric.per`，无需另行声明 TimeDimension，就能折叠已完成的每日值。
+观察提供有限范围和时区，每个源分量使用自己声明的时间字段。每日收入的周均值只包含
+有贡献的日期，包括全 NULL 日期；缺失日期不成为值为零的内部样本。
+
+{/* example: calendar-sample-fold */}
+
+```python
+weekly = august.by(mv.grain("week"))
+daily_average = revenue.per(mv.grain("day")).mean()
+folded = session.observe({"daily_average": daily_average}, by=(weekly, region)).compute()
+folded.show()
+```
+
+对于已完成的 `daily_p95`，在同一周轴下使用
+`daily_p95.per(mv.grain("day")).median()`。空比率和分位数保持 NA，遵循样本规约既有的
+NULL 策略。TimeField 和 Grain 样本均使用实际键，最终输出补空不影响样本均值或数量。
+内置嵌套采用静态规则：日可嵌入周／月，周不可嵌入月；子日宽度须整除父宽度，月可嵌入
+季度／年，季度可嵌入年。每层保留完整外部键、父键和子键。未定义的自定义层级拒绝；
+区间轴下可采样一个完整认证自定义期间。将 Grain 传给 `per`，将 CalendarAxis 或
+TimeScope 传给 `observe(by=...)`。帮助入口：`semantic.metric.per`。
+
+`ms.calendar_grain(...)` 创建的语义粒度绑定到 Session 当前的认证日历快照。
+声明的日历折叠指标要求日历已认证。日历样本内部的窗口，以及包裹日历折叠的窗口，
+目前都会抛出类型化错误。此类问题可先在 CalendarAxis 上直接观测窗口指标，再对已捕获的
+Frame 值显式规约。
+
+
+## 每条事实的历史分类
+
+以下片段要求模型中已声明版本化 `sales.profiles`、事实表 `sales.facts` 及完整键关系 `sales.profile`。
+控制时间和 Metric 时间角色是两个独立选择；这里显式使用同一字段。
+
+```python title="需要版本化 profiles 模型"
+control = session.catalog.get("time_dimension:sales.facts.event_time")
+# The control may also be the fact Entity's snapshot partition TimeDimension.
+label = session.catalog.get("dimension:sales.profiles.label")
+route = session.catalog.get("relationship:sales.profile")
+amount = session.catalog.get("measure:sales.facts.amount")
+historical = label.via((route,)).at(control)
+days = session.time_scope(start="2026-08-25", end="2026-09-08").by(mv.grain("day"))
+daily = session.observe({"value": amount.sum(time=control)}, by=(days, historical)).compute()
+restated = session.observe(
+    {"value": amount.sum(time=control)},
+    by=(days, label.via((route,)).at(session.instant("2026-09-03T00:00:00+00:00"))),
+).compute()
+```
+
+逐行模式按每条事实的时间选属性；固定锚点给整个窗口统一口径。两笔事实 7/11 在变更前后对应 A/B 时，逐行得到 A=7、B=11，固定新口径得到 B=18。事实 Entity 可以未版本化，也可以声明 snapshot；原生快照分区 TimeDimension 可作为控制字段，同一稳定业务键跨日的记录各自保留当天贡献，无需逐日查询。DuckDB/Trino 支持已认证的同源单根 observe by/where；NULL 控制或缺失版本保留 NULL 标签，不回退到最近版本。DATE 选择目标业务日；timestamp validity 要求 timestamp 控制。原生绝对时刻和 UTC/固定偏移本地钟面获准，validity 事实根、IANA 本地钟面、read/classify、多根、window/per 组合使用固定锚点。每个桶端点重分类不属于这个语义。
+
+
+## 检查捕获的源时间解释
+
+计算 `daily` 后，读取 `daily.schema.source_times` 或调用 `daily.show(n=0)`。
+每条不可变记录标识实际消费的源字段、物理类型与消费时区。`instant` 不需要源时区声明；
+`wall_clock` 和 `civil_date` 保存最终生效的源时区及其 `field` 或 `datasource` 来源。
+hour-prefix 时钟还保存 `inherited_from`。待执行结果的显示不为补齐这些事实打开源连接。
+
+这些记录解释已消费的输入。固定数据 select、rename、filter、fix、算术和 reduce 保留它们；
+组合操作按完整记录合并，同一路径的不同解释也会并存。业务日的源时区与消费时区不同，
+按业务日起点归属；业务日汇总不能重建事件日汇总。持久化后的冷恢复保留这些事实、
+已捕获绝对范围与桶键，即使宿主机时区变化、源和模型不可用，也不转换或重新分桶。
+
+```python
+facts = daily.schema.source_times
+for fact in facts:
+    print(fact.axis, fact.kind, fact.consumption_timezone)
+```

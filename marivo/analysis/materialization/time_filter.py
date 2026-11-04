@@ -9,16 +9,18 @@ import ibis
 import ibis.expr.operations as ops
 import ibis.expr.types as ir
 
-from marivo.analysis.compiler._wall_order import wall_order_bound
+from marivo._timezones import normalize_timezone
 from marivo.analysis.compiler.source_time import (
     _complement,
-    _localize_native,
     _raw_lineage,
-    _render_native,
     _scalar_cutoff,
+    endpoint_rewrite_safe,
+)
+from marivo.datasource._temporal_expressions import (
+    _localize_native,
+    _render_native,
     governed_parse_operation,
 )
-from marivo.analysis.core.time_authority import time_zone
 
 _PROBE = ibis.timestamp("2000-01-01")
 _LOCALIZE = type(_localize_native("UTC", _PROBE).op())
@@ -147,17 +149,32 @@ def _bound(node: ops.Value) -> datetime | None:
     return None
 
 
-def _exact(node: ops.Value, parent: ops.Relation) -> ir.BooleanValue | None:
+def _exact(node: ops.Value, parent: ops.Relation, engine: str) -> ir.BooleanValue | None:
     """Translate only compiler-owned clocks with a retained physical field."""
     if not isinstance(node, _COMPARISONS):
         return None
-    clock, bound, reverse = _clock(node.left), _bound(node.right), False
-    if clock is None or bound is None:
-        clock, bound, reverse = _clock(node.right), _bound(node.left), True
-    if clock is None or bound is None:
+    clock, bound_node, reverse = _clock(node.left), node.right, False
+    if clock is None:
+        clock, bound_node, reverse = _clock(node.right), node.left, True
+    if clock is None:
         return None
-    zone, raw_node, shift, civil = clock
-    if civil and zone != "UTC":
+    bound = _bound(bound_node)
+    zone, raw_node, shift, _civil = clock
+    raw_node = _resolved(raw_node)
+    civil_date = (
+        isinstance(raw_node, ops.Cast)
+        and raw_node.arg.dtype.is_date()
+        and raw_node.dtype.is_timestamp()
+        and raw_node.dtype.timezone is None
+    )
+    if civil_date:
+        assert isinstance(raw_node, ops.Cast)
+        raw_node = raw_node.arg
+    if bound is None:
+        return None
+    if zone != "UTC" and not (
+        civil_date and not _civil and endpoint_rewrite_safe(bound, zone, engine)
+    ):
         return None
     raw = _raw_for(raw_node, parent)
     if raw is None or not _raw_lineage(raw):
@@ -174,11 +191,15 @@ def _exact(node: ops.Value, parent: ops.Relation) -> ir.BooleanValue | None:
         }.get(operation, operation)
 
     def lower(strict: bool) -> ir.BooleanValue | None:
-        cutoff, inclusive = wall_order_bound(bound, time_zone(zone), strict=strict)
+        cutoff, inclusive = (
+            bound.astimezone(normalize_timezone(zone).tz).replace(tzinfo=None),
+            not strict,
+        )
         return _scalar_cutoff(
             raw,
             cutoff - shift,
             inclusive=inclusive,
+            engine=engine,
         )
 
     try:
@@ -275,7 +296,7 @@ def _scan(node: ops.Value, parent: ops.Relation) -> ir.BooleanValue:
     return ibis.literal(True)
 
 
-def optimize_time(expression: ir.Expr) -> ir.Expr:
+def optimize_time(expression: ir.Expr, engine: str = "duckdb") -> ir.Expr:
     """Lower qualified local clocks and add guards to remaining native filters."""
     existing_ranges = tuple(
         atom
@@ -293,7 +314,9 @@ def optimize_time(expression: ir.Expr) -> ir.Expr:
             ) -> ops.Node:
                 updated = item.copy(**parts)
                 replacement = (
-                    _exact(updated, value.parent) if isinstance(updated, ops.Value) else None
+                    _exact(updated, value.parent, engine)
+                    if isinstance(updated, ops.Value)
+                    else None
                 )
                 return replacement.op() if replacement is not None else updated
 

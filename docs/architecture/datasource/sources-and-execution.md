@@ -107,15 +107,21 @@ native aggregate semantics; it does not change distributed_product_mode. Local
 MergeTree compilation continues through the ordinary instance compiler.
 
 Native temporal analysis admits PostgreSQL `timestamptz`, MySQL `TIMESTAMP`, and
-ClickHouse `DateTime64` through microseconds. MySQL `TIMESTAMP` and ClickHouse
-timestamp execution retain verified UTC session/reader requirements; source and
-report timezones remain distinct. Reader and report timezone resolution accept
-IANA names and explicit offsets. An absent probe capability permits recorded
-system fallback; an actual failed or invalid probe does not. Physical instants
-and explicit parser authority skip unnecessary reader probes. Native parser
-declarations retain their existing IANA validation. Ibis/provider conversion
-owns representation of returned values; Marivo does not require lossless
-round-tripping through a custom source decoder.
+ClickHouse `DateTime`/`DateTime64` through microseconds as physical instants.
+Naive timestamp and business-date interpretation comes from the time dimension's
+parser declaration, then its Datasource `wall_clock_timezone`; an `hour_prefix`
+inherits its prefix dimension's effective declaration. Missing source declarations
+are rejected before business reads. IANA names and fixed offsets share one
+normalizer; fixed offsets lower through offset arithmetic rather than backend
+zone-name parameters. Source and report timezones have separate owners.
+
+DuckDB, PostgreSQL, MySQL and Trino retain private UTC connection settings for
+transport and internal carriers. ClickHouse does not gain a session-timezone
+setting. No reader or host timezone probe establishes source meaning, and an
+aware physical type ignores the datasource's wall-clock default. Ibis/provider
+conversion owns representation of returned values; Marivo does not require
+lossless round-tripping through a custom source decoder. Backend conversion owns
+DST gap/fold behavior.
 
 
 For ClickHouse tables, inspection also reads active `system.parts_columns` and
@@ -320,10 +326,12 @@ order, source binding, requested row/time bounds, and downstream key, nullable-v
 time, and persisted-schema checks remain governed. A completed DataFrame read
 does not prove server-side query termination after an interruption or timeout.
 Connection probes and owned source sessions share the backend's single internal
-lease, which disconnects through Ibis at most once. Borrowed source sessions
-leave disconnection to the connection owner. Cleanup continues across resource
-failures and records disconnection only after confirmed release; it does not
-actively cancel remote queries.
+lease. Close confirms release only after Ibis disconnect succeeds. A failed
+close, or a backend without disconnect, leaves the lease unreleased so a later
+close attempts disconnect again; a confirmed release is not disconnected twice.
+Borrowed source sessions leave disconnection to the connection owner. Cleanup
+continues across resource failures and records disconnection only after
+confirmed release; it does not actively cancel remote queries.
 
 The Analysis handoff explicitly declares join and union in addition
 to scan, filter, project, group and count. The basic physical requirement
@@ -378,9 +386,9 @@ MySQL isolated authoring readers install and read back the native session
 server's millisecond range. Ordinary preview, sample, raw SQL and certification
 share that configuration. When MySQL's variable is unavailable, `VERSION()`
 identifies MariaDB and the reader installs and verifies `max_statement_time`
-in seconds instead. Servers
-that lack both native variables retain the unsupported-setting behavior;
-denied or mismatched configuration fails before business reads. The setting
+in seconds instead. A server that exposes neither variable fails before the
+business read, as do denied and mismatched configuration. A confirmed setting
+for the same timeout is reused on that reader. The setting
 covers only eligible read-only SELECT statements. Marivo does not create a
 control connection, send KILL, duplicate/shut down sockets or run a timer.
 

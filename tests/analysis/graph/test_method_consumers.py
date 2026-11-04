@@ -9,13 +9,13 @@ from typing import Literal, TypeAlias
 import ibis
 import pytest
 
-import marivo.semantic as ms
 from marivo.analysis.compiler.source_time import source_time
 from marivo.datasource.adapters import PhysicalRequirement, provider_for
 from marivo.datasource.errors import DatasourceConnectionError
-from marivo.refs import RefPayloadV1
+from marivo.refs import RefPayloadV1, ref
 from marivo.semantic.ir import TargetDimensionContract, TimestampParse
 from tests.datasource.source_cases import SourceData, source_case
+from tests.shared_fixtures import declared_test_timezone
 
 
 @pytest.mark.runtime
@@ -33,8 +33,8 @@ def test_clickhouse_physical_utc_window_is_independent_of_session_timezone(
     with source_case("clickhouse", "mergetree", tmp_path, monkeypatch, data=data) as case:
         bound = case.session.bind(case.source, source_identity="r93.utc")
         axis = TargetDimensionContract(
-            RefPayloadV1.from_ref(ms.ref.time_dimension("sales.facts.happened")),
-            RefPayloadV1.from_ref(ms.ref.entity("sales.facts")),
+            RefPayloadV1.from_ref(ref.time_dimension("sales.facts.happened")),
+            RefPayloadV1.from_ref(ref.entity("sales.facts")),
             "happened",
             "timestamp",
             False,
@@ -48,10 +48,11 @@ def test_clickhouse_physical_utc_window_is_independent_of_session_timezone(
             bound.relation.happened,
             axis,
             boundary_timezone="UTC",
-            read_timezone=None,
+            source_timezone=declared_test_timezone(axis, None),
             engine="clickhouse",
         )
-        assert authority.source == "physical"
+        assert authority.kind == "instant"
+        assert authority.physical_type == str(bound.relation.happened.type())
         start = ibis.literal(datetime(2026, 8, 1), type=value.type())
         end = ibis.literal(datetime(2026, 8, 2), type=value.type())
         expression = bound.relation.filter((value >= start) & (value < end)).select("id")
@@ -99,7 +100,7 @@ def test_mysql_reader_initialization_failure_is_typed_and_releases_connection(
         rejected: list[Cursor] = []
 
         def execute(cursor: Cursor, query: str, args: object = None) -> int:
-            if query == "SET @@session.time_zone = 'UTC'":
+            if query == "SET @@session.time_zone = '+00:00'":
                 rejected.append(cursor)
                 raise RuntimeError("synthetic UTC initialization failure")
             return original(cursor, query, args)

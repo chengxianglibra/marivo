@@ -224,6 +224,7 @@ def test_competing_creation_releases_each_candidate_guard(
         session_ref: str | None = None,
         question: str | None = None,
         report_timezone_name: str = "UTC",
+        report_timezone_origin: Literal["explicit", "system"],
         report_timezone_resolution: Literal["iana", "fixed_offset"] = "iana",
         domains: tuple[str, ...] | None = None,
     ) -> SessionRecord:
@@ -234,6 +235,7 @@ def test_competing_creation_releases_each_candidate_guard(
             session_ref=session_ref,
             question=question,
             report_timezone_name=report_timezone_name,
+            report_timezone_origin=report_timezone_origin,
             report_timezone_resolution=report_timezone_resolution,
             domains=domains,
         )

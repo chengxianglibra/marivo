@@ -53,7 +53,7 @@ def coverage_project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     datasources.mkdir()
     (tmp_path / "marivo.toml").write_text('[project]\nname = "business-coverage"\n')
     (datasources / "warehouse.py").write_text(
-        "import marivo.datasource as md\nmd.duckdb(name='warehouse', path=':memory:')\n"
+        "import marivo.datasource as md\nmd.duckdb(wall_clock_timezone='UTC', name='warehouse', path=':memory:')\n"
     )
     (semantic / "_domain.py").write_text(
         "import marivo.semantic as ms\nms.domain(name='sales', owner='Fixture', default=True)\n"
@@ -84,8 +84,7 @@ def _query(session: mv.Session) -> mv.AnalysisFrame:
 def _mask(frame: pd.DataFrame) -> pd.DataFrame:
     """Keep the original three dates and apply a separate business policy."""
     result = frame.copy(deep=True)
-    calendar = next(axis for axis in frame.attrs["axes"] if axis["role"] == "calendar")
-    uncovered = result[calendar["name"].rsplit(".", 1)[-1] + ".start"] == START + timedelta(days=1)
+    uncovered = result["calendar:day"] == START + timedelta(days=1)
     assert uncovered.sum() == 3
     result.loc[uncovered, "value"] = pd.NA
     return result

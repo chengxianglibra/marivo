@@ -28,7 +28,7 @@ ms.domain(name='sales', owner='Analytics', ai_context=ms.ai_context(aliases=['Do
 """
 _DATASOURCE = """import marivo.datasource as md
 import marivo.semantic as ms
-md.duckdb(name='warehouse', path=':memory:', ai_context=ms.ai_context(aliases=['Datasource alias']))
+md.duckdb(name='warehouse', wall_clock_timezone='UTC', path=':memory:', ai_context=ms.ai_context(aliases=['Datasource alias']))
 """
 _OBJECTS = """from datetime import date
 import marivo.datasource as md
@@ -63,7 +63,7 @@ identity = ms.relationship(
     ai_context=ms.ai_context(aliases=['Relationship alias']),
 )
 calendar = ms.period_calendar(
-    name='calendar', date=day, boundary_timezone='UTC',
+    name='calendar', date=day,
     coverage=(date(2026, 1, 1), date(2027, 1, 1)), levels={'month': identifier},
     ai_context=ms.ai_context(aliases=['Calendar alias']),
 )

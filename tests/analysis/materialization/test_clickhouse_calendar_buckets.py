@@ -12,12 +12,13 @@ from sqlglot import expressions as sge
 import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo._definition.types import IntervalCoordinate
+from marivo.analysis.core.frame_interpretation import FrameCalendarAxisSchema
 from marivo.analysis.materialization.graph_source_execution import _bind_attribute_calendar
 from marivo.datasource.ir import TableSourceIR
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.numeric.test_remote_numeric_query import _datasource_model
 from tests.datasource.source_cases import SourceData, source_case, source_params
-from tests.shared_fixtures import catalog_value
+from tests.shared_fixtures import catalog_value, frozen_coordinates
 from tests.support.source_trace import capture_source
 
 
@@ -118,8 +119,11 @@ def test_observe_calendar_preserves_bucket_types_boundaries_and_windows(
         result = frame.to_pandas(time_details=True)
         assert result["calendar:day.label"].tolist() == ["2026-01-01", "2026-01-02", "2026-01-03"]
         assert result["total"].tolist() == [15, 0, 30]
-        assert result.attrs["axes"][0]["descriptor"]["timezone"] == "UTC"
-        assert len(result.attrs["frozen_coordinates"][0]["rows"]["nominal_start"]) == 3
+        axis = frame.schema.axes[0]
+        assert isinstance(axis, FrameCalendarAxisSchema) and axis.timezone == "UTC"
+        directory = frozen_coordinates(frame)[0].rows
+        assert len(directory["key.0"]) == 3
+        assert "nominal_start" not in directory.columns
 
         # Inspect actual submissions, preserving the regression's native boundary
         # and nullable-type coverage without requiring the retired CASE encoding.
@@ -130,8 +134,7 @@ def test_observe_calendar_preserves_bucket_types_boundaries_and_windows(
             for sql in trace.native_sql
             for case in sqlglot.parse_one(sql, read="clickhouse").find_all(sge.Case)
         )
-        directory = result.attrs["frozen_coordinates"][0]["rows"]
-        assert str(directory.schema.field("key.0").type) == "timestamp[us, tz=UTC]"
+        assert str(directory["key.0"].dtype) == "timestamp[us, tz=UTC][pyarrow]"
 
         report = frame.attribute(by=(category,)).compute().to_pandas(time_details=True)
         assert report["calendar:day.label"].tolist() == ["2026-01-01", "2026-01-03"]

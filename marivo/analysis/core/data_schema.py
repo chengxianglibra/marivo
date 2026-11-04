@@ -13,7 +13,9 @@ from marivo.analysis.core.frame_interpretation import (
     FrameDecomposition,
     FrameFixedAxis,
     FrameRowAttributeTime,
+    FrameSourceTime,
     FrameValueContext,
+    validate_source_times,
 )
 from marivo.analysis.core.lineage import SemanticObjectIdentity
 from marivo.analysis.core.model import reject
@@ -97,13 +99,13 @@ class FrozenCalendarData:
 
     definition: BuiltinCalendarData | NamedCalendarData
     directory_name: str
-    rule_version: Literal["calendar.v2"] = "calendar.v2"
+    rule_version: Literal["calendar.v3"] = "calendar.v3"
     direct: FrozenCalendarOrigin | None = None
 
     def __post_init__(self) -> None:
         if (
             type(self.definition) not in (BuiltinCalendarData, NamedCalendarData)
-            or self.rule_version != "calendar.v2"
+            or self.rule_version != "calendar.v3"
             or (self.direct is not None and type(self.direct) is not FrozenCalendarOrigin)
         ):
             reject(
@@ -397,8 +399,10 @@ class DataSchema:
     value_contexts: tuple[tuple[str, FrameValueContext], ...] = ()
     decompositions: tuple[FrameDecomposition, ...] = ()
     alignments: tuple[DataAlignment, ...] = ()
+    source_times: tuple[FrameSourceTime, ...] = ()
 
     def __post_init__(self) -> None:
+        validate_source_times(self.source_times)
         if (
             type(self.axes) is not tuple
             or any(

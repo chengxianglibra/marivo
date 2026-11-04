@@ -9,11 +9,13 @@ import ibis
 import pandas as pd
 import pytest
 
-from marivo.analysis.compiler.source_time import localize, render, source_time
+from marivo.analysis.compiler.source_time import source_time
 from marivo.analysis.materialization import time_filter
 from marivo.analysis.materialization.temporal_sql import lower_temporal
+from marivo.datasource._temporal_expressions import localize, render
 from marivo.semantic.ir import TimestampParse
 from tests.analysis.temporal.encoded_time_fixtures import axis
+from tests.shared_fixtures import declared_test_timezone
 
 
 def test_utc_cancellation_preserves_instant_identity_and_keeps_named_fold() -> None:
@@ -90,7 +92,7 @@ def test_selection_matches_native_gap_fold_and_non_hour_rules(
             table.point,
             field,
             boundary_timezone="UTC",
-            read_timezone="UTC",
+            source_timezone=declared_test_timezone(field, "UTC"),
             engine="duckdb",
         )
         value = localize("UTC", value)
@@ -127,7 +129,9 @@ def test_common_filter_reaches_parquet_scan(tmp_path: Path, representation: str)
                 table.point,
                 axis("%Y%m%d%H" if representation == "encoded" else "%Y%m%d"),
                 boundary_timezone="UTC",
-                read_timezone="UTC",
+                source_timezone=declared_test_timezone(
+                    axis("%Y%m%d%H" if representation == "encoded" else "%Y%m%d"), "UTC"
+                ),
                 engine="duckdb",
             )
             if representation == "encoded":
@@ -198,15 +202,18 @@ def test_native_envelope_compiles_for_every_backend(engine: str) -> None:
     assert "point" in sql
 
 
-def test_named_zone_with_raw_lineage_uses_exact_wall_bound() -> None:
+def test_named_zone_with_raw_lineage_keeps_native_predicate() -> None:
     table = ibis.table({"point": "timestamp"}, name="events")
     value = localize("America/New_York", table.point)
     left = datetime(2050, 1, 1, tzinfo=timezone.utc)
     expression = table.filter(value >= left)
     rewritten = time_filter.optimize_time(expression)
-    assert expression.op().predicates[0] not in rewritten.op().predicates
-    assert len(rewritten.op().predicates) == 1
-    assert rewritten.equals(table.filter(table.point >= datetime(2049, 12, 31, 19)))
+    assert expression.op().predicates[0] in rewritten.op().predicates
+    assert len(rewritten.op().predicates) == 2
+    assert (
+        table.filter(table.point >= datetime(2049, 12, 31)).op().predicates[0]
+        in rewritten.op().predicates
+    )
 
 
 @pytest.mark.parametrize("owned", [True, False, "projected"])
@@ -237,12 +244,8 @@ def test_gap_membership_rewrite_preserves_native_projection_and_unowned_fallback
     backend = ibis.duckdb.connect(TimeZone="UTC")
     try:
         result = backend.execute(lower_temporal(expression, "duckdb"))
-        if owned is True:
-            assert result.id.tolist() == [0, 1]
-            assert result.projected.tolist() == [start + timedelta(minutes=30), start]
-        else:
-            pd.testing.assert_frame_equal(result, backend.execute(expression))
-            assert result.id.tolist() == [1]
+        pd.testing.assert_frame_equal(result, backend.execute(expression))
+        assert result.id.tolist() == [1]
     finally:
         backend.disconnect()
 
@@ -255,7 +258,7 @@ def test_gap_membership_rewrite_preserves_native_projection_and_unowned_fallback
             ("02:30", "03:00", "03:30"),
             "07:00",
             "07:15",
-            [0, 1],
+            [1],
         ),
         (
             "2026-11-01",
@@ -273,8 +276,6 @@ def test_prepared_view_retains_exact_gap_and_fold_raw_predicates(
     end: str,
     expected: list[int],
 ) -> None:
-    import ibis.expr.operations as ops
-
     table = ibis.memtable(
         {
             "id": range(len(clocks) + 1),
@@ -287,20 +288,14 @@ def test_prepared_view_retains_exact_gap_and_fold_raw_predicates(
     right = datetime.fromisoformat(f"{day} {end}").replace(tzinfo=timezone.utc)
     expression = prepared.filter(prepared.v >= left, prepared.v < right)
     rewritten = time_filter.optimize_time(expression)
-    # Both predicates must reach retained raw clocks through the prepared view.
-    # This also distinguishes the fold path where native NY membership agrees.
-    assert all(
-        isinstance(predicate, (ops.GreaterEqual, ops.Less))
-        and isinstance(predicate.left, ops.Field)
-        and predicate.left.name == "point"
-        for predicate in rewritten.op().predicates
-    )
+    # Keep exact native predicates through a prepared view, alongside coarse guards.
+    assert all(predicate in rewritten.op().predicates for predicate in expression.op().predicates)
     backend = ibis.duckdb.connect(TimeZone="UTC")
     try:
         result = backend.execute(lower_temporal(expression, "duckdb"))
         assert result.id.tolist() == expected
         if day == "2026-03-08":
-            # Membership changed, while native projected gap values stay intact.
-            assert result.v.tolist() == [left + timedelta(minutes=30), left]
+            # The nonexistent local clock follows DuckDB native interpretation.
+            assert result.v.tolist() == [left]
     finally:
         backend.disconnect()

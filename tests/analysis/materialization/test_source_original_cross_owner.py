@@ -1,15 +1,17 @@
 """Public cross-owner temporal originals have a concrete compacting target."""
 
 from collections.abc import Callable
-from datetime import date
+from datetime import date, datetime, timezone
 from pathlib import Path
 
 import duckdb
 import pytest
 
 import marivo.analysis as mv
+from marivo.analysis.errors import AnalysisError
 from marivo.analysis.session.core import Session
 from marivo.datasource.ir import TableSourceIR
+from marivo.semantic.errors import SemanticExpressionError
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.numeric.test_remote_numeric_query import _datasource_model
 from tests.datasource.source_cases import SourceData, source_case, source_params
@@ -52,7 +54,7 @@ def _session(
                 parameters,
             )
         files[f"datasources/{datasource}.py"] = (
-            f"import marivo.datasource as md\nmd.duckdb(name={datasource!r},path={str(path)!r})\n"
+            f"import marivo.datasource as md\nmd.duckdb(wall_clock_timezone='UTC', name={datasource!r},path={str(path)!r})\n"
         )
         model += (
             f"{name}=ms.entity(name={name!r},datasource=ms.ref.datasource({datasource!r}),source=md.table({table!r}),primary_key=['id'])\n"
@@ -219,6 +221,19 @@ def test_remote_cross_owner_calendar_compacts_before_global_host_formula(
         "id Int64, day Date, amount Int64",
         rows,
     )
+    if boundary == "partial":
+        data = SourceData(
+            data.columns.replace("day DATE", "day TIMESTAMP(6)"),
+            data.values.replace("DATE '", "TIMESTAMP '").replace("',", " 00:00:00',"),
+            data.clickhouse_columns.replace("day Date", "day DateTime64(6, 'UTC')"),
+            [
+                {
+                    **row,
+                    "day": datetime(2026, 10, 1 if index % 2 == 0 else 2, tzinfo=timezone.utc),
+                }
+                for index, row in enumerate(rows)
+            ],
+        )
     monkeypatch.chdir(tmp_path)
     with source_case(backend, profile, tmp_path, monkeypatch, data) as case:
         assert isinstance(case.source, TableSourceIR)
@@ -262,7 +277,11 @@ def test_remote_cross_owner_calendar_compacts_before_global_host_formula(
         )
         trace = capture_source(monkeypatch)
         if boundary == "overflow":
-            assert query.compute().to_pandas()["net"].tolist() == [2**63 + 1, -(2**63) - 1]
+            if backend == "mysql":
+                assert query.compute().to_pandas()["net"].tolist() == [12 * 10**18, -12 * 10**18]
+            else:
+                with pytest.raises((AnalysisError, SemanticExpressionError), match="overflow"):
+                    query.compute()
         else:
             result = query.compute().to_pandas()
             assert result["net"].tolist() == [-60 if boundary == "partial" else -120]

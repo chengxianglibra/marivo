@@ -19,7 +19,7 @@ from marivo.analysis._capabilities.registry import REGISTRY
 from marivo.analysis.core.frame_method_facts import FrameAdditiveMethod, FrameShapleyMethod
 from marivo.analysis.errors import AnalysisError
 from marivo.semantic.reader import SemanticProject
-from tests.shared_fixtures import DslCaseFactory, catalog_value
+from tests.shared_fixtures import DslCaseFactory, catalog_value, frozen_coordinates
 
 
 @pytest.mark.parametrize(
@@ -213,7 +213,7 @@ def test_public_composition_help_runs_its_actual_registry_examples_on_fixed_data
             assert result.output_names == ("value_sum",)
             assert data["value_sum"].tolist() == [3]
             assert data.columns.tolist() == ["value_sum"]
-            assert data.attrs["axes"] == ()
+            assert data.attrs == {}
         elif method == "over":
             assert isinstance(result, mv.Column)
             selected = namespace["selected"]
@@ -231,16 +231,21 @@ def test_public_composition_help_runs_its_actual_registry_examples_on_fixed_data
             values = namespace["values"]
             assert isinstance(values, pd.Series)
             assert values.tolist() == [-1, 0, 3]
-            axis = result.attrs["axes"][0]
-            assert (axis["token"], axis["name"], axis["key_names"]) == (
+            assert result.attrs == {}
+            fixed = namespace["fixed"]
+            assert isinstance(fixed, mv.AnalysisFrame)
+            axis, schema = fixed.axes[0], fixed.schema.axes[0]
+            assert (schema.token, axis.name, axis.key_names) == (
                 frame.axes[0].token,
                 "sales.customer.region",
                 ("sales.customer.region",),
             )
-            assert axis["role"] == "field" and axis["at"] is None
-            assert result.attrs["units"] == (("value", None),)
-            assert result.attrs["comparisons"] == ()
-            assert result.attrs["frozen_coordinates"] == ()
+            assert schema.role == "field" and schema.at is None
+            assert {name: field.unit for name, field in fixed.schema.values.items()} == {
+                "value": None
+            }
+            assert fixed.schema.comparisons == ()
+            assert frozen_coordinates(fixed) == ()
             assert result[frame.axes[0].name.rsplit(".", 1)[-1]].tolist() == [
                 "east",
                 "north",

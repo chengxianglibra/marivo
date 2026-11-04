@@ -83,7 +83,7 @@ def test_direct_distribution(
     observed = _distribution(case, agg)
     fixed = observed.compute()
     frame = fixed.to_pandas()
-    rows = frame.set_index(ordinary_columns(frame)[0])["value"]
+    rows = frame.set_index(ordinary_columns(fixed)[0])["value"]
     if agg in ("count_distinct", "approx_count_distinct"):
         assert rows.tolist() == [1, 1, 1, 0]
     else:
@@ -134,8 +134,9 @@ def test_native_quantile_precision_is_source_owned(
                 'INSERT INTO "order" VALUES (?, ?, ?, ?, ?, ?)',
                 [str(index), "A", "web", "paid", "2026-08-15", amount],
             )
-    result_frame = _distribution(case, ("percentile", 0.25)).compute().to_pandas()
-    result = result_frame.set_index(ordinary_columns(result_frame)[0]).loc["A", "value"]
+    computed = _distribution(case, ("percentile", 0.25)).compute()
+    result_frame = computed.to_pandas()
+    result = result_frame.set_index(ordinary_columns(computed)[0]).loc["A", "value"]
     # Native DuckDB interpolation rounds int64 through double and truncates to Decimal scale.
     expected = Decimal("1.01") if decimal_input else float(2**53)
     assert result == expected
@@ -308,21 +309,17 @@ def test_numeric_composition_matrix(analysis_dsl_case_factory: DslCaseFactory) -
         "linear": base + base,
     }
     member_kinds = ("sum", "min", "max", "mean", "ratio")
-    member_rows = (
-        session.observe({kind: expressions[kind] for kind in member_kinds}, by=members)
-        .compute()
-        .to_pandas()
-    )
+    member_result = session.observe(
+        {kind: expressions[kind] for kind in member_kinds}, by=members
+    ).compute()
+    member_rows = member_result.to_pandas()
     coordinate_kinds = ("weighted", "linear")
-    coordinate_rows = (
-        session.observe(
-            {kind: expressions[kind] for kind in coordinate_kinds},
-            by=(customer_id, channel),
-            where=mv.in_population(members),
-        )
-        .compute()
-        .to_pandas()
-    )
+    coordinate_result = session.observe(
+        {kind: expressions[kind] for kind in coordinate_kinds},
+        by=(customer_id, channel),
+        where=mv.in_population(members),
+    ).compute()
+    coordinate_rows = coordinate_result.to_pandas()
     rolled_rows = (
         session.observe(
             {kind: expressions[kind] for kind in kinds},
@@ -342,6 +339,7 @@ def test_numeric_composition_matrix(analysis_dsl_case_factory: DslCaseFactory) -
         floating = kind == "min"
         coordinates = kind in ("weighted", "linear")
         fine = coordinate_rows if coordinates else member_rows
+        key = ordinary_columns(coordinate_result if coordinates else member_result)[0]
         if kind in ("min", "max"):
             expected_by_member = (
                 {"A": 1.0, "B": 4.000001, "C": 7.0, "D": 3.0}
@@ -353,9 +351,9 @@ def test_numeric_composition_matrix(analysis_dsl_case_factory: DslCaseFactory) -
                     "D": Decimal("3.000000"),
                 }
             )
-            assert fine.set_index(ordinary_columns(fine)[0])[kind].to_dict() == expected_by_member
+            assert fine.set_index(key)[kind].to_dict() == expected_by_member
         if kind == "weighted":
-            assert fine.loc[fine[ordinary_columns(fine)[0]].isin(("C", "D")), kind].isna().all()
+            assert fine.loc[fine[key].isin(("C", "D")), kind].isna().all()
         expected = (
             sum(numbers, Fraction())
             if kind == "sum"
@@ -396,7 +394,7 @@ def test_numeric_composition_matrix(analysis_dsl_case_factory: DslCaseFactory) -
                 ).to_pandas()
             finally:
                 backend.disconnect()
-            assert fine.set_index(ordinary_columns(fine)[0])["mean"].to_dict() == dict(
+            assert fine.set_index(key)["mean"].to_dict() == dict(
                 zip(native.customer_id, native.value, strict=True)
             )
 
@@ -784,15 +782,15 @@ def test_numeric_boundary_facts(analysis_dsl_case_factory: DslCaseFactory, case_
         with pytest.raises(AnalysisError):
             logical.compute()
     else:
-        expected = (
-            float("inf")
-            if case_kind == "nonfinite"
-            # Source AVG follows DuckDB's native integer accumulator, rather
-            # than rounding the integer sum to float before dividing.
-            else sum(numbers) / len(numbers)
-            if case_kind == "large_mean"
-            else sum(numbers)
-        )
+        if case_kind == "large_mean":
+            # Follow the installed native kernel, whose rounding can differ
+            # across platforms at this integer precision boundary.
+            with duckdb.connect(str(case.database_path)) as db:
+                native = db.execute('SELECT avg(amount) FROM "order"').fetchone()
+            assert native is not None
+            expected = native[0]
+        else:
+            expected = float("inf") if case_kind == "nonfinite" else sum(numbers)
         fixed = logical.persist()
         assert fixed.to_pandas()["boundary"].tolist() == [expected]
         assert case.session.observe({"boundary": metric}).compute().to_pandas()[

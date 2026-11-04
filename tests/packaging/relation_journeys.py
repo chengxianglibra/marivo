@@ -39,6 +39,7 @@ from tests.shared_fixtures import (
     analysis_dsl_rows,
     catalog_value,
     export_dsl_parquet_models,
+    frozen_coordinates,
     seed_analysis_dsl_database,
     terminal_runs,
 )
@@ -165,25 +166,23 @@ def _oracle() -> dict[str, object]:
     }
 
 
-def _frame(exported: pd.DataFrame) -> pd.DataFrame:
+def _frame(result: mv.AnalysisFrame, exported: pd.DataFrame) -> pd.DataFrame:
     """Give already-collected readable coordinates short names for pandas recipes."""
     frame = exported.copy(deep=True)
     names = {
-        axis["name"]
-        if axis["role"] in ("identity", "field", "calendar")
-        else axis["name"] + ".start": f"key_{index}"
-        for index, axis in enumerate(frame.attrs["axes"])
+        axis.name.rsplit(".", 1)[-1]
+        if schema.role in ("identity", "field", "calendar")
+        else axis.name.rsplit(".", 1)[-1] + ".start": f"key_{index}"
+        for index, (axis, schema) in enumerate(zip(result.axes, result.schema.axes, strict=True))
     }
     return frame.rename(columns=names)
 
 
-def _frozen_tables(exported: pd.DataFrame) -> dict[str, pd.DataFrame]:
+def _frozen_tables(result: mv.AnalysisFrame) -> dict[str, pd.DataFrame]:
     parts: dict[str, pd.DataFrame] = {}
-    for item in exported.attrs["frozen_coordinates"]:
-        name, rows = item["name"], item["rows"].to_pandas(types_mapper=pd.ArrowDtype)
-        assert isinstance(name, str) and isinstance(rows, pd.DataFrame)
-        assert name not in parts
-        parts[name] = rows
+    for item in frozen_coordinates(result):
+        assert item.name not in parts
+        parts[item.name] = item.rows
     return parts
 
 
@@ -471,14 +470,19 @@ def _produce(
     return {name: frame.persist() for name, frame in frames.items()}, shared
 
 
-def _derived(exports: dict[str, pd.DataFrame], scenario: Scenario) -> dict[str, Json]:
+def _derived(
+    saved: dict[str, mv.AnalysisFrame], exports: dict[str, pd.DataFrame], scenario: Scenario
+) -> dict[str, Json]:
     """Pandas owns the recipes over the already-collected fixed data."""
     result: dict[str, Json] = {}
     if scenario == "a02":
-        change = _frame(exports["difference"])
+        change = _frame(saved["difference"], exports["difference"])
         selected = change[change.value < 0]
-        current, baseline = _frame(exports["current"]), _frame(exports["baseline"])
-        (member_key,) = _ordinary_keys(current)
+        current, baseline = (
+            _frame(saved["current"], exports["current"]),
+            _frame(saved["baseline"], exports["baseline"]),
+        )
+        (member_key,) = _ordinary_keys(saved["current"])
         assert current[member_key].tolist() == baseline[member_key].tolist()
         result = {
             "where": _records(selected),
@@ -499,23 +503,23 @@ def _derived(exports: dict[str, pd.DataFrame], scenario: Scenario) -> dict[str, 
         }
     elif scenario == "a06":
         for name in ("relative", "nested", "ratio", "shared_ratio", "negative_relative"):
-            frame = _frame(exports[name])
+            frame = _frame(saved[name], exports[name])
             result[name] = _records(frame[frame.value.notna() & (frame.value >= -1000)])
-        result["union"] = _records(_frame(exports["union"]))
-        result["period"] = _records(_frame(exports["period"]))
-        result["branch_ratio"] = _records(_frame(exports["branch_total"]))
-        result["running"] = _records(_frame(exports["running_total"]))
-        result["folded"] = _records(_frame(exports["folded_total"]))
+        result["union"] = _records(_frame(saved["union"], exports["union"]))
+        result["period"] = _records(_frame(saved["period"], exports["period"]))
+        result["branch_ratio"] = _records(_frame(saved["branch_total"], exports["branch_total"]))
+        result["running"] = _records(_frame(saved["running_total"], exports["running_total"]))
+        result["folded"] = _records(_frame(saved["folded_total"], exports["folded_total"]))
     elif scenario == "a07":
-        shares = _frame(exports["current"])
+        shares = _frame(saved["current"], exports["current"])
         total = sum((Fraction(value) for value in shares.value), Fraction())
         shares["ratio"] = shares.value.map(lambda value: float(Fraction(value) / total))
         ranking = shares.sort_values(
-            ["ratio", _ordinary_keys(shares)[0]], ascending=[False, True]
+            ["ratio", _ordinary_keys(saved["current"])[0]], ascending=[False, True]
         ).reset_index(drop=True)
         ranking["rank"] = ranking["ratio"].rank(method="min", ascending=False).astype(int)
-        group_rows = _frame(exports["groups"])
-        groups = group_rows.set_index(_ordinary_keys(group_rows)[0])
+        group_rows = _frame(saved["groups"], exports["groups"])
+        groups = group_rows.set_index(_ordinary_keys(saved["groups"])[0])
         assert groups.index.is_unique
         denominator = sum((Fraction(value) for value in groups.value), Fraction())
         weights = groups.value.map(lambda value: Fraction(value) / denominator)
@@ -526,9 +530,9 @@ def _derived(exports: dict[str, pd.DataFrame], scenario: Scenario) -> dict[str, 
             ),
             Fraction(),
         )
-        counts = _frame(exports["counts"])
+        counts = _frame(saved["counts"], exports["counts"])
         current, baseline = (
-            _frame(exports["basis_" + side]).drop(columns="key_0")
+            _frame(saved["basis_" + side], exports["basis_" + side]).drop(columns="key_0")
             for side in ("current", "baseline")
         )
         # One external allocation supplies current/baseline/contribution table views.
@@ -540,8 +544,10 @@ def _derived(exports: dict[str, pd.DataFrame], scenario: Scenario) -> dict[str, 
             "ranking": _records(ranking),
             "limited": _records(ranking.iloc[:1]),
             "standardized": float(standardized),
-            "penetration": len(counts.loc[counts.value > 0, _ordinary_keys(counts)[0]].unique())
-            / len(counts[_ordinary_keys(counts)[0]].unique()),
+            "penetration": len(
+                counts.loc[counts.value > 0, _ordinary_keys(saved["counts"])[0]].unique()
+            )
+            / len(counts[_ordinary_keys(saved["counts"])[0]].unique()),
             "attribution": _records(allocated),
             "selected": _records(allocated[allocated.contribution > 0]),
             "table": _records(
@@ -554,8 +560,8 @@ def _derived(exports: dict[str, pd.DataFrame], scenario: Scenario) -> dict[str, 
             ),
         }
     else:
-        values = _frame(exports["values"])
-        targets = _frame(exports["targets"])
+        values = _frame(saved["values"], exports["values"])
+        targets = _frame(saved["targets"], exports["targets"])
         hits = {
             str(member): int(value)
             for member, value in values.value.gt(0).groupby(values.key_1).sum().items()
@@ -582,7 +588,7 @@ def _derived(exports: dict[str, pd.DataFrame], scenario: Scenario) -> dict[str, 
         }
         filtered = values.loc[values.value > 0]
         result["coverage_incomplete"] = len(filtered) != len(values)
-        controlled = _frame(exports["controlled_values"])
+        controlled = _frame(saved["controlled_values"], exports["controlled_values"])
         assert controlled.groupby("key_1").size().eq(4).all()
         result["controlled_all"] = checked(
             sorted(
@@ -620,17 +626,24 @@ def _assert_oracles(
         schema = saved[name]._schema
         assert isinstance(schema, DataSchema)
         keys: list[str] = []
+        calendar_keys: set[str] = set()
         for axis in schema.axes:
+            alias = axis.name.rsplit(".", 1)[-1]
             if isinstance(axis, IntervalDataAxis):
                 # Each interval-scoped result has one complete declared interval;
                 # compare its member cells only after checking that coordinate.
-                interval = frame[[f"{axis.name}.{field}" for field in ("start", "end", "timezone")]]
+                interval = frame[[f"{alias}.{field}" for field in ("start", "end")]]
                 assert interval.notna().all().all(), name
                 assert len(interval.drop_duplicates()) <= 1, name
+                assert axis.timezone, name
             else:
-                keys.append(axis.name)
+                keys.append(alias)
+                if isinstance(axis, CalendarDataAxis):
+                    calendar_keys.add(alias)
         actual = {
-            tuple(str(row[key]) for key in keys): row[value]
+            tuple(
+                str(row[key])[:10] if key in calendar_keys else str(row[key]) for key in keys
+            ): row[value]
             for row in frame.to_dict(orient="records")
         }
         assert len(actual) == len(frame) and actual.keys() == expected.keys(), name
@@ -646,7 +659,7 @@ def _assert_oracles(
     if scenario == "a02":
         cells("difference", {(m,): amount(m, months[1]) - amount(m, months[0]) for m in members})
         selected = {m for m in members if amount(m, months[1]) < amount(m, months[0])}
-        assert set(_frame(exports["members"]).key_0) == selected
+        assert set(_frame(saved["members"], exports["members"]).key_0) == selected
         cells("next", {(m,): amount(m, months[2]) for m in selected})
         assert derived["members"] == sorted(selected)
         assert derived["compare"] == _oracle()["difference"]
@@ -673,14 +686,14 @@ def _assert_oracles(
             },
             "reference.absolute.value",
         )
-        union_rows = _frame(exports["union"])
-        union = union_rows.set_index(_ordinary_keys(union_rows)[0])
+        union_rows = _frame(saved["union"], exports["union"])
+        union = union_rows.set_index(_ordinary_keys(saved["union"])[0])
         # Presence is independent of all value masks and complete identity keys.
         exported = exports["union"]
         assert exported["current.present"].all()
         assert exported["reference.present"].tolist() == [True, True, False, False]
-        current_rows = _frame(exports["current"])
-        assert union.index.tolist() == current_rows[_ordinary_keys(current_rows)[0]].tolist()
+        current_rows = _frame(saved["current"], exports["current"])
+        assert union.index.tolist() == current_rows[_ordinary_keys(saved["current"])[0]].tolist()
         assert len(union) == 4
         cells(
             "nested",
@@ -731,7 +744,7 @@ def _assert_oracles(
         relation = period.comparisons[0].binding
         assert isinstance(relation, CalendarComparisonBinding)
         assert current_axis.frozen is not None and relation.baseline.frozen is not None
-        tables = _frozen_tables(exports["period"])
+        tables = _frozen_tables(saved["period"])
         mapping = tables[relation.mapping_name]
         endpoint_months = []
         for map_column, endpoint in (
@@ -741,7 +754,7 @@ def _assert_oracles(
             assert endpoint.frozen is not None and len(endpoint.columns) == 1
             directory = tables[endpoint.frozen.directory_name]
             lookup = dict(
-                zip(directory[endpoint.columns[0].slot_id], directory.nominal_start, strict=True)
+                zip(directory[endpoint.columns[0].slot_id], directory.nominal_label, strict=True)
             )
             endpoint_months.append([str(lookup[key])[:7] for key in mapping[map_column]])
         assert list(zip(*endpoint_months, strict=True)) == [
@@ -759,7 +772,7 @@ def _assert_oracles(
         cells(
             "folded",
             {
-                (f"{month}-01", m): amount(m, month) if count(m, month) else 0
+                (f"{month}-01", m): amount(m, month) if count(m, month) else None
                 for m in members
                 for month in months
             },
@@ -799,21 +812,17 @@ def _assert_oracles(
         cells("current", {(m,): amount(m, months[1]) for m in members})
         ratios = arr(derived["ratios"])
         assert {
-            obj(row)[_ordinary_keys(_frame(exports["current"]))[0]]: obj(row)["ratio"]
-            for row in ratios
+            obj(row)[_ordinary_keys(saved["current"])[0]]: obj(row)["ratio"] for row in ratios
         } == {m: float(Fraction(amount(m, months[1]), total)) for m in members}
         ordered = sorted(members, key=lambda m: (-amount(m, months[1]), m))
         ranking = arr(derived["ranking"])
-        assert [
-            obj(row)[_ordinary_keys(_frame(exports["current"]))[0]] for row in ranking
-        ] == ordered
+        assert [obj(row)[_ordinary_keys(saved["current"])[0]] for row in ranking] == ordered
         assert [obj(row)["rank"] for row in ranking] == [
             1 + sum(amount(other, months[1]) > amount(m, months[1]) for other in members)
             for m in ordered
         ]
         assert [
-            obj(row)[_ordinary_keys(_frame(exports["current"]))[0]]
-            for row in arr(derived["limited"])
+            obj(row)[_ordinary_keys(saved["current"])[0]] for row in arr(derived["limited"])
         ] == ordered[:1]
         grouped = {
             str(region): sum(
@@ -988,7 +997,7 @@ def journey(phase: str, project: Path, scenario_name: str, source: str) -> dict[
         before = len(terminal_runs(session))
         exports = {name: frame.to_pandas() for name, frame in saved.items()}
         snapshots = {name: snapshot(frame, frame=exports[name]) for name, frame in saved.items()}
-        derived = _derived(exports, scenario)
+        derived = _derived(saved, exports, scenario)
         _assert_oracles(saved, exports, scenario, derived)
         assert len(terminal_runs(session)) == before
         assert session._runtime.store.resources(session.id) == ()
@@ -1000,9 +1009,9 @@ def journey(phase: str, project: Path, scenario_name: str, source: str) -> dict[
             for name in ("execute", "rollup", "drill", "share", "population", "_node", "_dataset")
         )
         assert all(
-            not hasattr(frame, name)
+            callable(getattr(frame, name))
             for frame in saved.values()
-            for name in ("to_pandas", "where", "compare", "rollup", "_node", "_dataset")
+            for name in ("to_pandas", "where", "compare")
         )
         edge_checks = {
             "fixed_frame_and_audit_only_artifact": True,

@@ -7,6 +7,7 @@ import subprocess
 import sys
 from pathlib import Path
 from time import monotonic
+from uuid import uuid4
 
 import ibis
 import ibis.expr.types as ir
@@ -190,14 +191,12 @@ def test_trino_terminal_session_timeout_and_timezone_are_effective() -> None:
 def test_clickhouse_unsettable_timeout_blocks_before_user_sql(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from marivo.datasource import store
-    from marivo.datasource.errors import DatasourceConnectionError
-    from marivo.datasource.timezone import probe_engine_timezone
     from tests.datasource.environment import clickhouse_analysis as ch
     from tests.datasource.environment.credentials import password
 
     ch.setup()
-    monkeypatch.setenv("MARIVO_SOURCE_CONTROL_CH_USER", "analysis_reader")
+    user = "timeout_locked_" + uuid4().hex
+    monkeypatch.setenv("MARIVO_SOURCE_CONTROL_CH_USER", user)
     monkeypatch.setenv("MARIVO_SOURCE_CONTROL_CH_PASSWORD", password())
     md.register(
         md.clickhouse(
@@ -211,36 +210,39 @@ def test_clickhouse_unsettable_timeout_blocks_before_user_sql(
         project_root=tmp_path,
     )
 
-    with pytest.raises(DatasourceRawSqlError) as failure:
-        md.raw_sql(
-            ms.ref.datasource("ch_reader"),
-            "SELECT 1",
-            reason="verify timeout preflight",
-            timeout_seconds=1,
-            project_root=tmp_path,
+    # The shared reader permits per-query deadlines. This separate account
+    # supplies the immutable setting that this refusal case actually needs.
+    with ch.connection(admin=True) as admin:
+        admin.command(
+            f"CREATE USER {user} IDENTIFIED BY {{password:String}} "
+            "SETTINGS readonly=1, max_execution_time=0",
+            parameters={"password": password()},
         )
-    assert failure.value.effect_observed.query_executed is False
-    assert failure.value.repair is not None
-    datasource = store.load_one("ch_reader", project_root=tmp_path)
-    assert datasource is not None
-    backend = build_backend(datasource, read_only=True)
-    try:
-        with pytest.raises(DatasourceConnectionError) as timezone_failure:
-            probe_engine_timezone(backend)
-        assert timezone_failure.value.received == "clickhouse timezone unavailable"
-    finally:
-        backend.disconnect()
+        admin.command(f"GRANT SELECT ON qualification.* TO {user}")
+        try:
+            with pytest.raises(DatasourceRawSqlError) as failure:
+                md.raw_sql(
+                    ms.ref.datasource("ch_reader"),
+                    "SELECT 1",
+                    reason="verify timeout preflight",
+                    timeout_seconds=1,
+                    project_root=tmp_path,
+                )
+            assert failure.value.effect_observed.query_executed is False
+            assert failure.value.repair is not None
+        finally:
+            admin.command(f"DROP USER {user}")
 
 
 @pytest.mark.runtime
 @pytest.mark.skipif(
     os.environ.get("MARIVO_MYSQL_ANALYSIS_TEST") != "1", reason="opt-in MySQL service"
 )
-def test_mysql_unverifiable_timezone_blocks_time_sensitive_read(
+def test_mysql_unavailable_named_zone_blocks_time_sensitive_conversion(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    from marivo.datasource.engines.mysql import verify_source_timezone
     from marivo.datasource.errors import DatasourceConnectionError
-    from marivo.datasource.timezone import probe_engine_timezone
     from tests.datasource.environment import mysql_analysis as mysql
 
     monkeypatch.setenv("MARIVO_SOURCE_CONTROL_MYSQL_PASSWORD", mysql.password())
@@ -262,7 +264,7 @@ def test_mysql_unverifiable_timezone_blocks_time_sensitive_read(
     backend = build_backend(datasource, read_only=True)
     try:
         with pytest.raises(DatasourceConnectionError) as failure:
-            probe_engine_timezone(backend)
-        assert failure.value.received == "mysql timezone unavailable"
+            verify_source_timezone(backend, "Marivo/Unavailable")
+        assert failure.value.received == "Marivo/Unavailable"
     finally:
         backend.disconnect()

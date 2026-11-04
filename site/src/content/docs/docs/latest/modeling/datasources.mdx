@@ -5,6 +5,8 @@ description: Configure DuckDB, PostgreSQL, MySQL, ClickHouse, and Trino datasour
 
 Marivo provides five datasource constructors. Save each declaration under `models/datasources/`; the loader collects it without opening a connection. Choose the constructor for the backend, then reference its name from an Entity. Remote examples are templates: replace the host and database, then set the referenced environment variables before testing.
 
+`wall_clock_timezone` is a source declaration, stored separately from connection options. Field parser timezones override it; `hour_prefix` inherits its prefix field’s effective timezone. It does not affect physical instants, including MySQL TIMESTAMP and ClickHouse DateTime. When a naive time or business date has no source declaration, declare it before analysis; connection, host and report timezones do not fill it. Trino uses a private UTC transport setting and has no public `timezone` parameter.
+
 Each table lists constructor parameters and their Python defaults. An omitted optional value leaves backend, adapter, or driver behavior in effect. Set referenced environment variables before testing.
 
 | Backend | Constructor | Typical use |
@@ -25,6 +27,7 @@ Each table lists constructor parameters and their Python defaults. An omitted op
 | `http_scope` | No | `None` | HTTP(S) URL prefix bounding remote JSON authentication; required when an HTTP auth mode is supplied. |
 | `http_bearer_token_env` | No | `None` | Environment variable name for a bearer token; mutually exclusive with header authentication. |
 | `http_headers_env` | No | `None` | Mapping from HTTP header names to environment variable names containing their secret values; mutually exclusive with bearer authentication. |
+| `wall_clock_timezone` | No | `None` | Source timezone for undeclared naive timestamps, encoded clocks and business dates; IANA name or fixed offset. |
 | `ai_context` | No | `None` | Optional business context via `ms.ai_context(...)`. |
 | `extra` | No | `None` | Additional JSON-compatible Ibis connection arguments not modeled above. |
 
@@ -33,7 +36,7 @@ Each table lists constructor parameters and their Python defaults. An omitted op
 # models/datasources/warehouse.py
 import marivo.datasource as md
 
-md.duckdb(name="warehouse", path="warehouse.duckdb", read_only=False)
+md.duckdb(name="warehouse", path="warehouse.duckdb", read_only=False, wall_clock_timezone="UTC")
 ```
 
 Exact reference: `marivo.help("datasource.duckdb")`.
@@ -50,6 +53,7 @@ Exact reference: `marivo.help("datasource.duckdb")`.
 | `autocommit` | No | `None` | Driver autocommit override. |
 | `user_env` | No | `None` | Environment variable name for the database user. |
 | `password_env` | No | `None` | Environment variable name for the password. |
+| `wall_clock_timezone` | No | `None` | Source timezone for undeclared naive timestamps, encoded clocks and business dates; IANA name or fixed offset. |
 | `ai_context` | No | `None` | Optional business context via `ms.ai_context(...)`. |
 | `extra` | No | `None` | Additional JSON-compatible Ibis connection arguments not modeled above. |
 
@@ -81,6 +85,7 @@ on MySQL and seconds on MariaDB.
 | `autocommit` | No | `None` | Driver autocommit override. |
 | `user_env` | No | `None` | Environment variable name for the database user. |
 | `password_env` | No | `None` | Environment variable name for the password. |
+| `wall_clock_timezone` | No | `None` | Source timezone for undeclared naive timestamps, encoded clocks and business dates; IANA name or fixed offset. |
 | `ai_context` | No | `None` | Optional business context via `ms.ai_context(...)`. |
 | `extra` | No | `None` | Additional JSON-compatible PyMySQL connection options not modeled above. |
 
@@ -92,6 +97,7 @@ import marivo.datasource as md
 md.mysql(
     name="commerce", host="mysql.example.internal", database="shop",
     port=3306, user_env="MYSQL_USER", password_env="MYSQL_PASSWORD",
+    wall_clock_timezone="Asia/Shanghai",
 )
 ```
 
@@ -109,6 +115,7 @@ Exact reference: `marivo.help("datasource.mysql")`.
 | `settings` | No | `None` | ClickHouse session settings mapping. |
 | `user_env` | No | `None` | Environment variable name for the database user. |
 | `password_env` | No | `None` | Environment variable name for the password. |
+| `wall_clock_timezone` | No | `None` | Source timezone for undeclared naive timestamps, encoded clocks and business dates; IANA name or fixed offset. |
 | `ai_context` | No | `None` | Optional business context via `ms.ai_context(...)`. |
 | `extra` | No | `None` | Additional JSON-compatible Ibis connection arguments not modeled above. |
 
@@ -137,11 +144,11 @@ Exact reference: `marivo.help("datasource.clickhouse")`.
 | `port` | No | `None` | Connection port; set explicitly for a non-default endpoint. |
 | `schema` | No | `None` | Default schema for table resolution. |
 | `source` | No | `None` | Client application/source tag sent to Trino. |
-| `timezone` | No | `None` | Trino engine session timezone; distinct from the Analysis Session report timezone. |
 | `http_scheme` | No | `None` | HTTP transport scheme; use `"https"` for TLS. |
 | `client_tags` | No | `None` | Tuple of client tags, passed to Trino as a list. |
 | `session_properties` | No | `None` | Trino session property mapping. |
 | `auth_env` | No | `None` | Environment variable name for authentication material, when the server requires it. |
+| `wall_clock_timezone` | No | `None` | Source timezone for undeclared naive timestamps, encoded clocks and business dates; IANA name or fixed offset. |
 | `ai_context` | No | `None` | Optional business context via `ms.ai_context(...)`. |
 | `extra` | No | `None` | Additional JSON-compatible Ibis connection arguments not modeled above. |
 
@@ -176,8 +183,10 @@ md.inspect(warehouse, md.table("orders"), workspace_dir=".").show()
 
 ## Connections and physical sources
 
-`md.table(...)` selects a table or view in any supported backend. `md.parquet(...)` and `md.csv(...)` describe DuckDB file sources; `md.json(...)` describes a file or HTTP source. These are source descriptors, not additional datasource types. `md.inspect(...)` reads physical metadata. For a row sample, call `inspection.sample(...)` with an explicit scope, output columns from `inspection.schema`, and positive `max_rows` and `timeout_seconds`. Unsupported native timeout requests may be skipped; `max_rows` limits returned rows, not bytes scanned. By default, a fresh sample keeps profile values in the current process, but named rows are not retained. `persist_values=True` makes bounded named rows and profile values available and saves them as plaintext in project-local state. Matching snapshots are reused even when stale; `refresh=True` reads again. Analysis admits local GET JSON and HTTP(S) GET/POST JSON on DuckDB with concrete request values in the source definition. Each evaluation reuses a response without automatic pagination; unresolved source parameters fail before acquisition. See [bounded datasource inspection](/docs/latest/guides/datasources/#bound-row-evidence), [backend and method limits](/docs/latest/reference/backends-and-limits/), then [define Entities](/docs/latest/modeling/semantic-layer/).
+`md.table(...)` selects a table or view in any supported backend. `md.parquet(...)` and `md.csv(...)` describe DuckDB file sources; `md.json(...)` describes a file or HTTP source. These are source descriptors, not additional datasource types. `md.inspect(...)` reads physical metadata. For a row sample, call `inspection.sample(...)` with an explicit scope, output columns from `inspection.schema`, and positive `max_rows` and `timeout_seconds`. Unsupported native timeout requests may be skipped; `max_rows` limits returned rows, not bytes scanned. By default, a fresh sample keeps profile values in the current process, but named rows are not retained. `persist_values=True` makes bounded named rows and profile values available and saves them as plaintext in project-local state. Matching snapshots are reused even when stale; `refresh=True` reads again. Analysis admits local GET JSON and HTTP(S) GET/POST JSON on DuckDB with concrete request values in the source definition. Each evaluation reuses a response without automatic pagination; unresolved source parameters fail before acquisition. See [backend and method limits](/docs/latest/reference/backends-and-limits/), then [define Entities](/docs/latest/modeling/semantic-layer/).
 
 HTTP JSON columns that are missing or null in every returned record retain the `null` type. Unused columns do not block Analysis, field preview, or selected-column sampling. Used inputs must satisfy the consuming operation’s type requirements; explicit casts and null predicates follow normal expression rules. Local JSON keeps DuckDB’s native inference. An empty records array may fail because declared column types cannot be inferred.
 
 PostgreSQL, MySQL/MariaDB and Trino CHAR/CHARACTER columns retain their physical type and width. Entity/Dimension validation maps them to logical strings, including expression Entity inputs and declared keys. This mapping adds no SQL cast, trimming, padding or collation emulation; reads, comparisons and grouping follow the native backend. CHAR cannot supply a numeric Measure.
+
+For `md.time_range(...)`, match endpoints to the inspected physical type: aware datetimes for aware timestamps, naive datetimes or dates for naive timestamps, and dates for DATE. Both endpoints must have the same kind and awareness. Mismatches fail before acquisition with `query_executed=False`; `wall_clock_timezone` does not fill boundary awareness.

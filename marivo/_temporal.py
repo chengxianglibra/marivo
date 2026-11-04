@@ -10,7 +10,6 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-import re
 from collections.abc import Iterable, Iterator, Mapping
 from contextlib import contextmanager
 from contextvars import ContextVar
@@ -27,7 +26,7 @@ from typing import (
     cast,
     runtime_checkable,
 )
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+from zoneinfo import ZoneInfo
 
 from pydantic import (
     BaseModel,
@@ -40,6 +39,7 @@ from pydantic import (
 from pydantic_core import core_schema
 
 from marivo._grouping import Grouping
+from marivo._timezones import normalize_timezone, same_timezone
 from marivo.refs import PeriodCalendarKind, Ref, TemporalSetKind
 from marivo.render import _DEFAULT_MAX_OUTPUT_BYTES, Card, result_repr
 
@@ -107,13 +107,12 @@ def _trusted_time_scope_validation() -> Iterator[None]:
 
 
 def _require_timezone(value: object) -> str:
-    if type(value) is not str or not value:
-        raise ValueError("boundary_timezone must be a non-empty IANA timezone name")
+    if type(value) is not str:
+        raise ValueError("boundary_timezone must be an IANA or fixed-offset timezone")
     try:
-        ZoneInfo(value)
-    except ZoneInfoNotFoundError as exc:
-        raise ValueError(f"boundary_timezone {value!r} is not a valid IANA timezone") from exc
-    return value
+        return normalize_timezone(value).name
+    except (ValueError, KeyError) as error:
+        raise ValueError(f"invalid boundary_timezone {value!r}") from error
 
 
 def canonical_key(value: object) -> _JSON_SCALAR:
@@ -140,7 +139,7 @@ def _local_civil_datetime(
     if isinstance(value, datetime):
         if value.tzinfo is None:
             return value
-        return value.astimezone(ZoneInfo(boundary_timezone)).replace(tzinfo=None)
+        return value.astimezone(normalize_timezone(boundary_timezone).tz).replace(tzinfo=None)
     if isinstance(value, date):
         return datetime.combine(value, datetime.min.time())
     raise TypeError(f"expected date or datetime, got {type(value).__name__}")
@@ -566,11 +565,11 @@ class TimeScopeContractV1(BaseModel):
         if self.kind == "absolute":
             if any(value is not None for index, value in enumerate(provenance) if index != 2):
                 raise ValueError("absolute time-scope contract cannot contain period provenance")
-            from marivo._timezones import parse_timezone
+            from marivo._timezones import normalize_timezone
 
             if self.boundary_timezone is None:
                 raise ValueError("absolute time-scope contract requires a frozen boundary_timezone")
-            parse_timezone(self.boundary_timezone)
+            normalize_timezone(self.boundary_timezone)
             if not isinstance(self.start, datetime) or self.start.utcoffset() is None:
                 raise ValueError("a frozen absolute timezone requires exact instant bounds")
             return self
@@ -682,10 +681,10 @@ class TimeScope(BaseModel):
     end: date | datetime
 
     def by(self, grain: Grain) -> CalendarAxis:
-        """Bind this scope to a complete finite calendar.
+        """Capture finite calendar selection intent for this scope.
 
         Args: grain: A builtin Grain or a certified catalog calendar Grain.
-        Returns: An immutable CalendarAxis with nominal and actual boundaries.
+        Returns: An immutable CalendarAxis; result evaluation resolves native keys.
         Example: ``session.time_scope(start='2026-01-01', end='2026-02-01').by(mv.grain('day'))``.
         Constraints: Uses frozen scope timezone or certified calendar authority; no source reads.
         """
@@ -793,9 +792,9 @@ class TimeScope(BaseModel):
             if temporal_set is None:
                 if not isinstance(self, _SessionTimeScope):
                     raise ValueError("absolute TimeScope requires a frozen boundary timezone")
-                from marivo._timezones import parse_timezone
+                from marivo._timezones import normalize_timezone
 
-                parse_timezone(self.boundary_timezone)
+                normalize_timezone(self.boundary_timezone)
                 if any(
                     value is not None for index, value in enumerate(provenance[2:]) if index != 1
                 ):
@@ -1320,7 +1319,7 @@ class PeriodCalendarSnapshotV2:
     def __post_init__(self) -> None:
         if type(self.calendar_ref) is not Ref or self.calendar_ref.kind.value != "period_calendar":
             raise TypeError("calendar_ref must be Ref[period_calendar]")
-        _require_timezone(self.boundary_timezone)
+        object.__setattr__(self, "boundary_timezone", _require_timezone(self.boundary_timezone))
         start, end = self.coverage
         if type(start) is not date or type(end) is not date or start >= end:
             raise ValueError("coverage must be a non-empty [start, end) civil-date interval")
@@ -1377,7 +1376,7 @@ class PeriodCalendarSnapshotV2:
 def _normalize_temporal_timestamp(value: datetime, *, boundary_timezone: str) -> datetime:
     """Normalize one timestamp occurrence to an aware UTC instant."""
     if value.tzinfo is None:
-        value = value.replace(tzinfo=ZoneInfo(boundary_timezone))
+        value = value.replace(tzinfo=normalize_timezone(boundary_timezone).tz)
     return value.astimezone(ZoneInfo("UTC"))
 
 
@@ -1418,7 +1417,7 @@ class TemporalSetSnapshotV1:
             or self.temporal_set_ref.kind.value != "temporal_set"
         ):
             raise TypeError("temporal_set_ref must be Ref[temporal_set]")
-        _require_timezone(self.boundary_timezone)
+        object.__setattr__(self, "boundary_timezone", _require_timezone(self.boundary_timezone))
         start, end = self.coverage
         if type(start) is not date or type(end) is not date or start >= end:
             raise ValueError("coverage must be a non-empty [start, end) civil-date interval")
@@ -1453,10 +1452,10 @@ class TemporalSetSnapshotV1:
             else:
                 assert type(occurrence_start) is datetime and type(occurrence_end) is datetime
                 coverage_start = datetime.combine(
-                    start, time.min, tzinfo=ZoneInfo(self.boundary_timezone)
+                    start, time.min, tzinfo=normalize_timezone(self.boundary_timezone).tz
                 )
                 coverage_end = datetime.combine(
-                    end, time.min, tzinfo=ZoneInfo(self.boundary_timezone)
+                    end, time.min, tzinfo=normalize_timezone(self.boundary_timezone).tz
                 )
                 inside = occurrence_start >= coverage_start.astimezone(
                     ZoneInfo("UTC")
@@ -1562,7 +1561,7 @@ def certify_temporal_set(
     category: str | None = None,
 ) -> TemporalSetSnapshotV1:
     """Certify named occurrences from one previously acquired value snapshot."""
-    _require_timezone(boundary_timezone)
+    boundary_timezone = _require_timezone(boundary_timezone)
     if type(temporal_set_ref) is not Ref or temporal_set_ref.kind.value != "temporal_set":
         raise TypeError("temporal_set_ref must be Ref[temporal_set]")
     coverage_start, coverage_end = coverage
@@ -1594,6 +1593,10 @@ def certify_temporal_set(
             start_value: date | datetime = raw_start
             end_value: date | datetime = raw_end
         elif type(raw_start) is datetime and type(raw_end) is datetime:
+            if raw_start.tzinfo is None or raw_end.tzinfo is None:
+                raise ValueError(
+                    "certified timestamp bounds must already be backend-resolved aware instants"
+                )
             current_encoding = "timestamp"
             start_value = _normalize_temporal_timestamp(
                 raw_start, boundary_timezone=boundary_timezone
@@ -1646,81 +1649,8 @@ def certify_temporal_set(
     )
 
 
-_STRPTIME_TIME_DIRECTIVES = frozenset(
-    {
-        "%H",
-        "%I",
-        "%k",
-        "%l",
-        "%M",
-        "%S",
-        "%f",
-        "%p",
-        "%P",
-    }
-)
-
-
-def _parse_persisted_temporal_value(
-    value: object,
-    *,
-    parse: object | None = None,
-    boundary_timezone: str | None = None,
-) -> date | datetime:
-    """Decode one retained source value under its authored time convention.
-
-    Discovery snapshots persist values as JSON scalars, so a semantic time
-    dimension's ``strptime``/timezone declaration must be reapplied before
-    certification.  The helper intentionally uses the small value-object
-    protocol (``kind``, ``format``, and ``timezone``) instead of importing the
-    semantic layer into this dependency-neutral module.
-    """
-    parse_kind = getattr(parse, "kind", None)
-    if parse_kind == "hour_prefix":
-        raise ValueError("hour-prefix temporal-set bounds require a complete date-bearing source")
-    if parse_kind == "date":
-        if type(value) is date:
-            return value
-        if type(value) is datetime:
-            if value.time() != time.min:
-                raise ValueError("date temporal-set bounds must not contain a time component")
-            return value.date()
-        if type(value) is not str:
-            raise TypeError("persisted date temporal-set bounds must be ISO date strings")
-        try:
-            return date.fromisoformat(value.strip())
-        except ValueError as exc:
-            raise ValueError(f"invalid persisted temporal date {value!r}") from exc
-    if parse_kind == "timestamp":
-        timezone = getattr(parse, "timezone", None) or boundary_timezone
-        decoded = _parse_persisted_temporal_value(value, boundary_timezone=boundary_timezone)
-        if type(decoded) is date:
-            decoded = datetime.combine(decoded, time.min)
-        assert type(decoded) is datetime
-        if decoded.tzinfo is None:
-            if not isinstance(timezone, str) or not timezone:
-                raise ValueError("naive timestamp bounds require a declared or boundary timezone")
-            decoded = decoded.replace(tzinfo=ZoneInfo(timezone))
-        return decoded
-    if parse_kind == "strptime":
-        fmt = getattr(parse, "format", None)
-        if type(fmt) is not str or not fmt:
-            raise ValueError("strptime temporal-set bounds require a non-empty format")
-        if type(value) not in {str, int, float}:
-            raise TypeError("strptime temporal-set bounds must be string or numeric scalars")
-        try:
-            decoded = datetime.strptime(str(value), fmt)
-        except ValueError as exc:
-            raise ValueError(
-                f"persisted temporal value {value!r} does not match strptime format {fmt!r}"
-            ) from exc
-        tokens = set(re.findall(r"%[a-zA-Z]", fmt))
-        if not tokens.intersection(_STRPTIME_TIME_DIRECTIVES):
-            return decoded.date()
-        timezone = getattr(parse, "timezone", None) or boundary_timezone
-        if not isinstance(timezone, str) or not timezone:
-            raise ValueError("time-bearing strptime bounds require a declared or boundary timezone")
-        return decoded.replace(tzinfo=ZoneInfo(timezone))
+def _parse_persisted_temporal_value(value: object) -> date | datetime:
+    """Decode the exact ISO carrier of an already backend-resolved bound."""
     if type(value) is date or type(value) is datetime:
         return value
     if type(value) is not str:
@@ -1748,8 +1678,6 @@ def certify_temporal_set_rows(
     start: str,
     end: str,
     category: str | None = None,
-    start_parse: object | None = None,
-    end_parse: object | None = None,
 ) -> TemporalSetSnapshotV1:
     """Certify rows retained by one persisted datasource acquisition."""
     required = (occurrence_id, start, end, *((category,) if category is not None else ()))
@@ -1762,16 +1690,8 @@ def certify_temporal_set_rows(
         rows.append(
             {
                 occurrence_id: row[occurrence_id],
-                start: _parse_persisted_temporal_value(
-                    row[start],
-                    parse=start_parse,
-                    boundary_timezone=boundary_timezone,
-                ),
-                end: _parse_persisted_temporal_value(
-                    row[end],
-                    parse=end_parse,
-                    boundary_timezone=boundary_timezone,
-                ),
+                start: _parse_persisted_temporal_value(row[start]),
+                end: _parse_persisted_temporal_value(row[end]),
                 **({category: row[category]} if category is not None else {}),
             }
         )
@@ -1859,7 +1779,7 @@ def certify_period_calendar(
     ``rows`` must be the values from exactly one previously acquired snapshot.
     The function performs no reads and is deterministic across input row order.
     """
-    _require_timezone(boundary_timezone)
+    boundary_timezone = _require_timezone(boundary_timezone)
     start, end = coverage
     if type(start) is not date or type(end) is not date or start >= end:
         raise ValueError("coverage must be a non-empty [start, end) civil-date interval")
@@ -2207,7 +2127,7 @@ class GregorianIsoResolver:
     __slots__ = ("_boundary_timezone",)
 
     def __init__(self, boundary_timezone: str = "UTC") -> None:
-        _require_timezone(boundary_timezone)
+        boundary_timezone = _require_timezone(boundary_timezone)
         self._boundary_timezone = boundary_timezone
 
     def period(self, level: str, key: _JSON_SCALAR) -> PeriodRecord:
@@ -2845,7 +2765,7 @@ class CalendarAxis(Grouping):
 
     @property
     def _binding(self) -> CalendarCoordinate:
-        from marivo._definition.types import CalendarCoordinate
+        from marivo._definition.types import CalendarCoordinate, CalendarOrigin, _merge_time_ranges
 
         grid = self.grid
         return CalendarCoordinate(
@@ -2863,8 +2783,21 @@ class CalendarAxis(Grouping):
                 for c in grid.cells
             ),
             grid.calendar_snapshot,
-            grid.origin,
+            CalendarOrigin(
+                CalendarAxis(None, grid.origin.grid)._binding,
+                grid.origin.kind,
+                grid.origin.by,
+                grid.origin.entries,
+            )
+            if grid.origin is not None
+            else None,
             civil_bounds=grid.civil_bounds,
+            ranges=_merge_time_ranges(
+                tuple(
+                    (anchor_from_datetime(cell.start), anchor_from_datetime(cell.end))
+                    for cell in grid.cells
+                )
+            ),
         )
 
     def shift(self, rule: CalendarCorrespondence) -> CalendarAxis:
@@ -2941,7 +2874,7 @@ def calendar_axis(scope: TimeScope, grain: Grain) -> CalendarAxis:
     if (
         grain.kind == "semantic"
         and grain._snapshot is not None
-        and zone != grain._snapshot.boundary_timezone
+        and not same_timezone(zone, grain._snapshot.boundary_timezone)
     ):
         raise ValueError(
             "Expected compatible scope and calendar timezones; construct the scope in the certified calendar boundary timezone."
@@ -2951,4 +2884,19 @@ def calendar_axis(scope: TimeScope, grain: Grain) -> CalendarAxis:
     grid = bind_grid(
         scope, grain, report_timezone=zone, explicit_timezone=zone, snapshot=grain._snapshot
     )
+    if grain.kind == "semantic" and (len(grid.cells) != 1 or grid.cells[0].partial):
+        snapshot = grain._snapshot
+        assert snapshot is not None
+        periods = (
+            ", ".join(
+                f"[{period.start_date},{period.end_date})"
+                for period in snapshot.periods
+                if period.level_name == grain.level
+            )
+            if grain.level != "day"
+            else f"[{snapshot.coverage[0]},{snapshot.coverage[0] + timedelta(days=1)})"
+        )
+        raise ValueError(
+            f"Expected one complete custom calendar period; received {len(grid.cells)} selected periods or partial bounds. Select one exact certified range: {periods[:500]}."
+        )
     return CalendarAxis(scope, grid)

@@ -38,7 +38,7 @@ def session(
     semantic_project_factory(
         {
             "datasources/warehouse.py": "import marivo.datasource as md\n"
-            + f"md.duckdb(name='warehouse', path={str(database)!r})\n",
+            + f"md.duckdb(wall_clock_timezone='UTC', name='warehouse', path={str(database)!r})\n",
             "sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales', owner='Analytics', default=True)\n",
             "sales/model.py": """import marivo.datasource as md
 import marivo.semantic as ms
@@ -122,7 +122,7 @@ def test_reused_temporal_baseline_keeps_each_alias_projection(
     assert list(
         rows[
             [
-                rows.attrs["axes"][0]["name"].rsplit(".", 1)[-1] + ".start",
+                "calendar:day" if calendar else "interval.start",
                 "channel",
             ]
         ].itertuples(index=False, name=None)
@@ -165,7 +165,7 @@ def test_plain_calendar_complete_parent_order_independent_reads(
 
     monkeypatch.setattr(SourceSession, "execute", execute)
     result = selected.attribute(by=(channel,)).compute().to_pandas()
-    assert len(reads) == 4
+    assert sum(read.purpose != "analysis.calendar_index" for read in reads) == 4
     assert result["contribution.q"].tolist() == [60, -20, 60, -20]
     assert result["contribution_share.q"].tolist() == [1.5, -0.5, 1.5, -0.5]
     assert result["detail.current.present.q"].all()
@@ -204,7 +204,7 @@ def test_cross_period_paired_calendar_parent(
 
     monkeypatch.setattr(SourceSession, "execute", execute)
     rows = selected.attribute(by=(channel,)).compute().to_pandas()
-    assert len(calls) == 4
+    assert sum(read.purpose != "analysis.calendar_index" for read in calls) == 4
     assert rows["detail.current.q"].tolist() == [160, 80, 160, 80]
     assert rows["detail.baseline.q"].tolist() == [100, 100, 100, 100]
     assert rows["contribution.q"].tolist() == [60, -20, 60, -20]
@@ -273,12 +273,15 @@ def test_fixed_window_lookback_and_repeated_identity_independent_reads(
     pending.show(n=0)
     assert calls == []
     rows = pending.compute().to_pandas()
-    assert len(calls) == 4
+    assert sum(read.purpose != "analysis.calendar_index" for read in calls) == 4
     assert len(captured) == 4
     for root in captured:
         if root.layout.scope != "parent":
             continue
-        assert [leaf.request.binding.window_key for leaf in root.layout.leaves] == [0, 1]
+        assert [leaf.request.binding.window_key for leaf in root.layout.leaves] == [
+            session.instant("2026-08-01T00:00:00+00:00"),
+            session.instant("2026-08-02T00:00:00+00:00"),
+        ]
         assert len({leaf.use.logical_occurrence for leaf in root.layout.leaves}) == 1
         assert len({leaf.use.occurrence for leaf in root.layout.leaves}) == 2
         assert all(leaf.request.binding.period is not None for leaf in root.layout.leaves)
@@ -346,7 +349,7 @@ def test_window_partition_context_is_scoped_before_classification(
     assert actual.value.reason == ("undefined_input" if missing else "overlapping_groups")
     context = actual.value.attribute_context
     assert context is not None and isinstance(context.fiber, AttributeWindowFiber)
-    assert context.fiber.window_key == 0
+    assert context.fiber.window_key == session.instant("2026-08-01T00:00:00+00:00")
     assert context.fiber.period.start is None
     assert context.uses[0].endpoint == "left"
     assert context.uses[0].metric == "q"
@@ -533,11 +536,7 @@ def test_paired_complete_frozen_authority_survives_parent_selection(
             elif corruption == "partial_directory" and attachment.name == right_directory:
                 rows = rows.copy()
                 columns = {column.name: column.slot_id for column in attachment.schema.values}
-                actual_start = pd.Timestamp("2026-07-02T01:00:00+00:00")
-                rows.loc[1, columns["actual_start"]] = actual_start
-                rows.loc[1, columns["actual_start_civil"]] = actual_start.isoformat(
-                    timespec="microseconds"
-                )
+                rows.loc[1, columns["selection"]] = "partial"
             result.append(OutputAttachment(attachment.name, attachment.schema, rows))
         return tuple(result)
 
@@ -552,12 +551,12 @@ def test_paired_complete_frozen_authority_survives_parent_selection(
     monkeypatch.setattr(SourceSession, "execute", execute)
     with pytest.raises(
         AnalysisError,
-        match="complete actual coverage" if corruption == "partial_directory" else "endpoint",
+        match="complete logical periods" if corruption == "partial_directory" else "endpoint",
     ):
         parent.select({"q": parent["left.q"] - parent["right.q"]}).attribute(
             by=(channel,)
         ).compute()
-    assert calls == []
+    assert all(call.purpose == "analysis.calendar_index" for call in calls)
 
 
 def test_calendar_predicate_trusts_declared_matches(session: Session, tmp_path: Path) -> None:
@@ -697,7 +696,10 @@ def test_paired_source_failure_retains_original_full_parent(
         assert actual.value.location == "dataset.numeric_value"
         assert isinstance(context.witness, AttributeCheckWitness)
         assert context.witness.columns != fiber.parent_columns
-        assert {value for _, value in context.witness.coordinates[0]} == {0, "east"}
+        assert {value for _, value in context.witness.coordinates[0]} == {
+            pd.Timestamp("2026-07-01T00:00:00+00:00").value // 1000,
+            "east",
+        }
         assert actual.value.received is not None
         assert "key.0" in actual.value.received
     else:

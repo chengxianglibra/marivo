@@ -42,7 +42,8 @@ def test_captured_period_keeps_utc_instants_and_original_timezone(
     saved = session.observe({"value": metric}, by=(scope,)).persist()
     assert len(saved.to_pandas()) == 2
     expected_count = 2 if all_history else 1
-    assert len(saved.source_reads) == len(trace.native_sql) == expected_count
+    assert len(saved.source_reads) == expected_count
+    assert len(trace.native_sql) == expected_count + 1
     periods = [scope.period for read in saved.source_reads for scope in read.scopes]
     assert all(period is not None for period in periods)
     assert {
@@ -63,7 +64,7 @@ def test_captured_period_keeps_utc_instants_and_original_timezone(
     )
     filtered = saved.where(saved["value"] > 0).persist()
     assert filtered.source_reads == saved.source_reads
-    assert len(trace.native_sql) == expected_count
+    assert len(trace.native_sql) == expected_count + 1
 
 
 def test_combined_endpoints_do_not_expand_distinct_source_periods(

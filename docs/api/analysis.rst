@@ -127,7 +127,7 @@ start. None means no captured period, not no constraints. Records omit complete
 historical filters, member domains and SQL. Shared actual reads have one identity;
 fixed operations inherit records by read_id without relabeling their periods as
 current output scope. Independent reads remain distinct. Full data export uses
-``to_pandas()`` and preserves its existing attrs snapshots and full validation.
+``to_pandas()`` with full validation and empty attrs.
 
 Public classes describe returned values; they do not authorize direct construction
 or subclass extension. Use ``mv.*`` for explicit descriptions/composition,
@@ -141,6 +141,14 @@ timezone name and sorted, deduplicated domain scope; conflicts raise
 ``SessionStateError`` before recovery. Read ``error.repair.candidates`` for the
 existing Session ID. Acquisition sets no current Session and never rewrites
 saved configuration. Recovery without pending work preserves ``updated_at``.
+
+``session.timezone`` is the normalized saved report timezone and
+``session.timezone_origin`` is ``explicit`` or ``system``; Session repr, show and
+summary reads expose both. Explicit offsets such as ``timezone="+08:00"`` are
+accepted. New Sessions with no explicit timezone require a strict system IANA
+identity; ambiguous ``TZ`` or localtime state raises ``ReportTimezoneUnresolved``
+with an explicit-input repair. Recovery never resolves the host timezone. UTC
+aliases match saved UTC, while other IANA links retain distinct identities.
 
 Current data operations
 -----------------------
@@ -261,9 +269,11 @@ Missing ISO weeks/civil cutoffs have no target and never shorten the current
 domain. Nonzero target DST gaps/folds reject; zero offsets retain captured exact
 instants. Observe each endpoint's original Metric explicitly before comparison.
 
-Fixed-data matching consumes saved finite UTC/civil boundaries. Complete builtin
+Fixed-data calendar matching consumes actual keys, saved civil identities, order
+and selection progress, without relocalizing keys or reconstructing member
+intervals. Equality uses actual keys; explicit one-to-many civil matches reject. Complete builtin
 day/quarter offset matching remains supported; partial day/quarter reject.
-``ordinal`` requires compatible complete nominal partitions or a single interval
+``ordinal`` requires compatible complete logical periods or a single interval
 per side with the same boundary timezone. It never compresses positions after
 filtering and cannot construct a shifted source domain. Completed comparison
 facts/attachments explain saved values and endpoint presence, with no Metric,
@@ -316,15 +326,18 @@ method facts. Damaged method payloads can therefore leave metadata and export
 usable while full consumers fail. Cards show only count, bounded origins and a
 getter pointer. Calling a fact's ``show(n=0)`` follows the explicit payload read.
 Export returns a flat table with short axis names (final path components), full
-value/presence names, nullable types and isolated interpretation attrs. Calendar
-and interval axes expose actual half-open ``.start``/``.end`` timestamps in their
-captured timezone. ``time_details=True`` adds calendar ``.label``,
-``.nominal_start`` and ``.nominal_end``; named labels retain scalar types.
+value/presence names, nullable types and empty attrs; interpretation stays on
+``frame.schema``. Calendar
+axes expose one actual key timestamp in their captured timezone. Interval axes
+expose genuine half-open ``.start``/``.end`` bounds. ``time_details=True`` adds
+calendar ``.label``; named labels retain scalar types. Calendar keys do not
+promise complete membership intervals. ``read_periods()`` discloses saved civil
+selection progress (selection and cutoff).
 Paired time axes use left/right prefixes. Composite identities remain tuples.
 ``axis_names={"full.axis.name": "name"}`` accepts full names or unique axis tokens;
 FrameAxis keys are rejected. Duplicate output names fail before payload reads.
 Full and paged exports share these rules; cursors bind time_details as well.
-Compute/persist remains explicit. Exported attrs cannot reenter computation.
+Compute/persist remains explicit. Exported tables cannot reenter computation.
 Bounded previews use the same default coordinate interpretation.
 
 Merged interval axes with multiple boundary timezones use UTC timestamps.
@@ -453,7 +466,7 @@ Evaluation, publication and recovery
 
 Compute creates no Artifact or temporary saved result. Expression persist
 completes evaluation first, then publishes that existing result ID through the
-single Store 25 writer transaction. Memory persist never reevaluates. Stored
+single Store 28 writer transaction. Memory persist never reevaluates. Stored
 persist validates commit metadata and returns itself without another publication.
 A derived or computed memory Frame never exposes an ancestor commit identity. Unknown publication outcome is reconciled, not recomputed.
 
@@ -483,10 +496,26 @@ are ordered by commit time and ID descending. Continue with the returned
 limit. New commits are discovered from the first page. Cards show bounded output
 names and axes; typed schemas remain complete. Corrupt metadata fails explicitly.
 
-Store 25 uses ``marivo.frame_output/v14`` and ``frame.v14`` for
-all Frames, under ``.marivo/analysis/generations/v25/``. Owned method files share
+``frame.schema.source_times`` is the complete immutable tuple of captured consumed
+source interpretations. ``FrameInstantSourceTime`` records ``axis``,
+``physical_type`` and ``consumption_timezone``. ``FrameWallClockSourceTime`` and
+``FrameCivilDateSourceTime`` also record the effective declaration ``timezone``
+and ``origin`` (``field`` or ``datasource``); wall clocks additionally capture
+``inherited_from`` for hour-prefix parsing. These explain consumed inputs and
+provide no executable field or source authority. Pending display does not open a
+source to resolve missing physical types; literal inputs have no source facts.
+Fixed-data selection, renaming, filtering, fixing, arithmetic and reduction retain
+these facts. Combinations merge distinct complete records, preserving changed
+same-path declarations and consumption timezones. ``show()`` lists bounded,
+deterministically ordered fields; the typed tuple retains every record.
+Cross-zone business dates are assigned by business-day start and cannot
+reconstruct event-day totals. Persistence and cold recovery retain these facts
+without source reads, timezone conversion or rebucketing.
+
+Store 28 uses ``marivo.frame_output/v17`` and ``frame.v17`` for
+all Frames, under ``.marivo/analysis/generations/v28/``. Owned method files share
 the existing atomic publication, receipt and unknown-commit reconciliation.
-Store 25 refuses older-generation Session/result data unchanged, without
+Store 28 refuses older-generation Session/result data unchanged, without
 migration or dual reads. Documented absent-current discovery may return None or
 empty. Current work may create a new named Session in the same project while
 older generations coexist unchanged; discovery warns about older paths. Preserve
@@ -522,6 +551,9 @@ Canonical public exports
    FrameSourceReadScope
    FrameSourceReadPeriod
    FrameSchema
+   FrameInstantSourceTime
+   FrameWallClockSourceTime
+   FrameCivilDateSourceTime
    FrameField
    FrameAxisSchema
    FrameOrdinaryAxisSchema

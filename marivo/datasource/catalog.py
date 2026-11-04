@@ -103,13 +103,13 @@ class DatasourceCatalog(RenderableResult):
         return _list_in_project(project_root=self.workspace_dir)
 
     def describe(self, name: str) -> DatasourceDescription:
-        """Show literal fields and env refs for one datasource.
+        """Show connection fields, env refs and the declared source timezone.
 
         Args:
             name: The datasource name to describe.
 
         Returns:
-            A ``DatasourceDescription`` with literal_fields and env_refs.
+            A ``DatasourceDescription`` with literal_fields, env_refs and wall_clock_timezone.
 
         Example:
             >>> catalog.describe("wh")

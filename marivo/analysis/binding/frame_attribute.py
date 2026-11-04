@@ -873,7 +873,7 @@ def _target_comparison(parent: AnalysisFrame, target: DerivedOutput) -> DataComp
     contexts: list[FrameValueContext | None] = []
     fixed = []
     for side, metric in (("left", target.target.current), ("right", baseline)):
-        schema, _ = pending_schema(metric.binding.graph, metric.binding.state)
+        schema = pending_schema(metric.binding.graph, metric.binding.state)
         tokens: dict[str, tuple[str, Literal["self", "left", "right"]]] = {}
         for before, after in metric.axis_positions:
             axis = parent._schema.axes[after]

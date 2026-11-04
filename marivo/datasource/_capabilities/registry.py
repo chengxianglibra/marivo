@@ -32,6 +32,7 @@ INPUT_FAMILIES = frozenset(
     {
         "WorkspaceRoot",
         "ConnectionField",
+        "SourceTimezone",
         "CredentialResolver",
         "CredentialRequest",
         "SecretValue",
@@ -424,7 +425,9 @@ def _build_registry() -> DatasourceCapabilityRegistry:
         _capability(
             "time_range",
             "marivo.datasource.source.time_range",
-            "Build a half-open temporal scope.",
+            "Build a half-open temporal scope. Boundaries must match the physical column: "
+            "aware datetimes for aware timestamps, naive datetimes or dates for naive "
+            "timestamps, and dates for DATE. Datasource defaults do not fill boundary awareness.",
             output="PartitionScope",
             inputs=_inputs(
                 ("subject", "TemporalColumn"),
@@ -939,7 +942,7 @@ def _type_contracts() -> Mapping[type, DatasourceTypeContract]:
             spec_type,
             spec_type.__name__,
             (producer,),
-            properties=("name", "backend_type", "fields", "env_refs", "ref"),
+            properties=("name", "backend_type", "fields", "env_refs", "wall_clock_timezone", "ref"),
             methods=show_render,
             consumers=("register",),
         )
@@ -968,7 +971,7 @@ def _type_contracts() -> Mapping[type, DatasourceTypeContract]:
         DatasourceDescription,
         "DatasourceDescription",
         ("DatasourceCatalog.describe",),
-        properties=("name", "backend_type", "literal_fields", "env_refs"),
+        properties=("name", "backend_type", "literal_fields", "env_refs", "wall_clock_timezone"),
         methods=show_render,
     )
     add(

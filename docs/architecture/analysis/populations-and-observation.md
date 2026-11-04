@@ -122,14 +122,19 @@ timestamp-level output. Different time roles and ordinary calendar-by-category
 grids remain valid. An explicit Population fixes joint output keys and can
 intentionally retain both coordinates without implicit grid completion.
 
-Within one observation, compatible ordinary sum/count/mean/min/max contributions
-share a grouped SQL aggregate, including different root fields and matching
-calendar buckets. Compatibility includes the actual source, relationship and
-version reads, time role, contribution range, predicates, memberships, output
+Within one observation, compatible ordinary native reductions share a grouped
+SQL aggregate, including counts, exact/approximate quantiles and distinct counts,
+weighted means, different root fields and matching calendar buckets. Each reducer
+retains its admitted backend algorithm and parameters; multiple quantiles share
+the aggregate input without combining their internal approximation states.
+Compatibility includes the actual source, relationship and version reads,
+time role, contribution range, predicates, memberships, output
 keys and NULL policy. Logical occurrences retain independent values, types and
 checks. Sampling, windows, Duration and dependent input boundaries keep their
-own execution routes. Later native terminal composition may put independent
-aggregate blocks into one statement; statement count alone does not prove scan
+own execution routes. Frequency distributions and other specialized state payloads
+retain their execution programs; they are not ordinary scalar aggregate values.
+Later native terminal composition may put independent aggregate blocks into
+one statement; statement count alone does not prove scan
 sharing. See [optimizer coverage](algebra-theory.md#实现编号与理论定律的对应).
 
 A member without fact contributions has sum zero and count zero; a member with
@@ -223,20 +228,18 @@ Each nested layer independently selects and completes samples. Even empty or
 entirely unmatched samples preserve necessary external coordinates, producing
 zero for empty sum children and NA where the reducer's empty policy requires it.
 
-`Metric.per(grain)` uses a complete calendar grid inside the observation's finite
-time coordinate. For example, `revenue.per(mv.grain("day")).mean()` under a weekly
-CalendarAxis includes all seven days, with typed zero for an empty revenue sum.
-Each source component uses its own declared time field. Calendar samples inherit
-the coordinate's timezone; certified grains retain exact snapshot authority.
-The inner grain must tile/nest the nearest enclosing calendar cell (day in week
-or month; not week in month). Certified nesting follows snapshot containments.
-For a plain TimeScope, the inner grid tiles the whole interval. Actual edge
-bounds clip to the enclosing cell and scope; each clipped cell counts once,
-without prorating. Empty ratios remain NA and follow the sample reducer's NULL
-policy. Native TimeField samples use represented timestamps within each
-enclosing calendar sample, without clock completion. Nested Grain layers are supported. Supply the Grain
-to per and the finite time coordinate in observe.by; a CalendarAxis is not a per
-argument. Missing time roles or finite coordinates produce typed repair errors.
+`Metric.per(grain)` folds actual time samples inside the finite observation
+coordinate. For example, a weekly `revenue.per(mv.grain("day")).mean()` uses only
+days with contributions, including all-NULL days. Missing days do not become zero
+samples. Each source component computes complete external, parent and child keys
+using its own time role and executor. Calendar samples inherit the coordinate's
+timezone; supported builtin nesting is static (day in week/month, month in
+quarter/year, divisible subday widths; never week in month). Undefined custom
+hierarchies reject; one complete certified custom period may be sampled under an
+interval axis. Final calendar completion is independent of internal sampling.
+Native TimeField samples likewise use represented timestamps without clock
+completion. A CalendarAxis is not a per argument. Missing time roles or finite
+coordinates produce typed repair errors.
 Semantic sample Grain lookups require the Session's current certified snapshot;
 declared folds include that calendar in readiness dependencies. Windows inside
 calendar samples or wrapping calendar folds are unsupported and reject before
@@ -521,8 +524,10 @@ The fixed keys do not restore declarations after independent reopen.
 ## Per-row temporal classification
 
 Ordinary single-root observe supports a versioned Dimension with
-`label.via((relationship,)).at(fact_time)` in by and label predicates. Matching
-runs before aggregation in one same-source left join on qualified DuckDB/Trino
+`label.via((relationship,)).at(fact_time)` in by and label predicates. It accepts
+an unversioned or snapshot contribution root, including its native snapshot
+partition TimeDimension as control. Validity contribution roots require a fixed
+anchor. Matching runs before aggregation in one same-source left join on qualified DuckDB/Trino
 time types. Missing snapshots, identities and NULL control preserve facts as
 NULL labels; label predicates still follow nullable SQL truth. Explicit output
 domains retain their existing coverage checks. No daily query loop, fallback

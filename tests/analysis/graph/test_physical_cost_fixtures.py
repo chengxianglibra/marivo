@@ -44,7 +44,7 @@ def test_cluster_reader_policy_matches_single_node_deadline_controls() -> None:
             and node.args
             and isinstance(node.args[0], ast.Constant)
             and isinstance(node.args[0].value, str)
-            and node.args[0].value.startswith("ALTER USER analysis_reader SETTINGS ")
+            and node.args[0].value.startswith("ALTER USER analysis_reader SETTINGS readonly=1")
         ]
         assert len(settings) == 1
         entries = settings[0].removeprefix("ALTER USER analysis_reader SETTINGS ")
@@ -71,7 +71,7 @@ def test_local_file_profiles_retain_full_original_facts_and_fixed_total(
         frame = captured.to_pandas()
         assert len(frame) == 16
         expected_keys = {("a", 2**53 + index, 1) for index in range(16)}
-        assert set(frame[ordinary_columns(frame)[0]]) == expected_keys
+        assert set(frame[ordinary_columns(captured)[0]]) == expected_keys
         assert frame["value"].isna().sum() == 1
         total = logical.reduce({"value": logical["value"].sum()}).persist()
         expected = sum(index % 17 + 1 for index in range(16) if index % 23)

@@ -93,6 +93,8 @@ def _write_datasource_file(
         else:
             extra_kwargs[key] = value
     kwargs: dict[str, Any] = {"name": spec.name, **declared_kwargs}
+    if spec.wall_clock_timezone is not None:
+        kwargs["wall_clock_timezone"] = spec.wall_clock_timezone
     http_headers_env: dict[str, str] = {}
     for stem, env_var in spec.env_refs.items():
         if stem.startswith("http_header:"):

@@ -79,7 +79,7 @@ def test_native_versioned_members_independent_fixed_and_cold(
             version = (
                 f"ms.snapshot(partition_field=ms.ref.time_dimension('sales.{name}.beginning'),timezone='UTC')"
                 if kind == "snapshot"
-                else f"ms.validity(valid_from=ms.ref.time_dimension('sales.{name}.beginning'),valid_to=ms.ref.time_dimension('sales.{name}.ending'),interval='closed_open',open_end=(None,),timezone='UTC')"
+                else f"ms.validity(valid_from=ms.ref.time_dimension('sales.{name}.beginning'),valid_to=ms.ref.time_dimension('sales.{name}.ending'),interval='closed_open',open_end=(None,))"
             )
             models += f"{name}=ms.entity(name={name!r},datasource=ms.ref.datasource('warehouse'),source=md.table({case.source.table!r},database={case.source.database!r}),primary_key=['id','tenant'],versioning={version})\n"
             for field in ("id", "tenant", "enabled"):
@@ -93,7 +93,7 @@ def test_native_versioned_members_independent_fixed_and_cold(
         semantic_project_factory(
             {
                 "datasources/warehouse.py": "import marivo.datasource as md\n"
-                + f"md.{backend}(name='warehouse',"
+                + f"md.{backend}(wall_clock_timezone='UTC', name='warehouse',"
                 + ",".join(f"{key}={value!r}" for key, value in arguments.items())
                 + ")\n",
                 "sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales',owner='R9',default=True)\n",

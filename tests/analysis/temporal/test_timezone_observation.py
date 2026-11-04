@@ -5,7 +5,6 @@ import shutil
 import subprocess
 import sys
 from collections.abc import Callable
-from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal
@@ -22,7 +21,7 @@ from marivo.analysis.errors import AnalysisError
 from marivo.analysis.session.core import Session
 from marivo.datasource.adapters import SourceSession
 from marivo.semantic.reader import SemanticProject
-from tests.shared_fixtures import catalog_value, terminal_runs
+from tests.shared_fixtures import catalog_value, frozen_coordinates, terminal_runs
 from tests.support.paths import PROJECT_ROOT
 
 _ROWS = (
@@ -85,7 +84,7 @@ def _project(
     )
     factory(
         {
-            "datasources/warehouse.py": f"import marivo.datasource as md\nmd.{backend}(name='warehouse', path={str(database)!r})\n",
+            "datasources/warehouse.py": f"import marivo.datasource as md\nmd.{backend}(wall_clock_timezone='UTC', name='warehouse', path={str(database)!r})\n",
             "sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales', owner='Test', default=True)\n",
             "sales/models.py": "import marivo.datasource as md\nimport marivo.semantic as ms\n"
             f"customers=ms.entity(name='customers', datasource=ms.ref.datasource('warehouse'), source={customer_source}, primary_key=['id'])\n"
@@ -116,8 +115,7 @@ def _observe(session: Session, scope: TimeScope | CalendarAxis) -> mv.AnalysisFr
 
 def _values(query: mv.AnalysisFrame) -> dict[str, object]:
     frame = query.compute().to_pandas()
-    member = next(axis for axis in frame.attrs["axes"] if axis["role"] == "identity")
-    identities = frame[member["name"].rsplit(".", 1)[-1]].tolist()
+    identities = frame["customers"].tolist()
     assert identities == sorted(identities)
     assert len(identities) == len(set(identities))
     return dict(zip(identities, frame["value"], strict=True))
@@ -240,13 +238,14 @@ def test_dst_mean_grid_and_cumulative_preserve_exact_windows(
         by=mv.product(grid, members),
     )
     assert _values(running) == {"A": 928, "B": 60}
-    output = gridded.compute().to_pandas()
-    calendar = output.attrs["axes"][0]["descriptor"]
-    bounds = output.attrs["frozen_coordinates"][0]["rows"].to_pandas(types_mapper=pd.ArrowDtype)
-    assert calendar["timezone"] == "America/New_York"
-    assert (
-        bounds["actual_end"].iloc[0] - bounds["actual_start"].iloc[0]
-    ).total_seconds() == hours * 3600
+    completed = gridded.compute()
+    calendar = completed.schema.axes[0]
+    bounds = frozen_coordinates(completed)[0].rows
+    assert isinstance(calendar, mv.FrameCalendarAxisSchema)
+    assert calendar.timezone == "America/New_York"
+    assert "actual_start" not in bounds and "actual_end" not in bounds
+    assert bounds["selection"].tolist() == ["full"]
+    assert completed.persist().source_reads
 
 
 @pytest.mark.parametrize("read_zone", ("UTC", "Asia/Shanghai"))
@@ -324,38 +323,28 @@ def test_explicit_instant_bounds_do_not_erase_report_identity(
     assert boundaries[0][2] != boundaries[1][2]
 
 
-def test_failed_reader_timezone_probe_does_not_fall_back(
+def test_missing_source_timezone_rejects_before_business_read(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
 ) -> None:
-    from marivo.datasource import timezone as datasource_timezone
+    import marivo.semantic as ms
+    from marivo.semantic.errors import SourceTimezoneMissing
 
     _project(tmp_path, monkeypatch, semantic_project_factory, read_zone=None)
-    session = mv.session.get_or_create("engine-change", timezone="Asia/Shanghai")
+    datasource_path = tmp_path / "models/datasources/warehouse.py"
+    datasource_path.write_text(
+        datasource_path.read_text().replace("wall_clock_timezone='UTC', ", "")
+    )
+    ms.load(workspace_dir=tmp_path)
+    session = mv.session.get_or_create("missing-source", timezone="Asia/Shanghai")
     value = _observe(session, session.time_scope(start="2026-08-01", end="2026-08-02"))
-    original = datasource_timezone.probe_engine_timezone
-
-    def changed(backend: object) -> datasource_timezone.DatasourceEngineTimezone:
-        current = original(backend)
-        name, zone = datasource_timezone.parse_timezone("Asia/Shanghai")
-        return replace(current, engine_timezone_name=name, engine_timezone_tz=zone)
-
-    # Physical authority is prepared at compute, so constructing a Frame does
-    # not freeze an unprobed reader assumption. A failed probe never falls back.
-    def failed(backend: object) -> datasource_timezone.DatasourceEngineTimezone:
-        raise AnalysisError(message="timezone probe unavailable")
-
-    monkeypatch.setattr(datasource_timezone, "probe_engine_timezone", failed)
-    with pytest.raises(AnalysisError, match="timezone probe unavailable"):
+    with pytest.raises(SourceTimezoneMissing) as caught:
         value.compute()
+    assert caught.value.details["query_executed"] is False
     assert terminal_runs(session) == ()
-    monkeypatch.setattr(datasource_timezone, "probe_engine_timezone", changed)
-    assert _values(value) == {"A": 465, "B": 60}
 
 
-@pytest.mark.release
-@pytest.mark.slow
 def test_timezone_mean_fixed_and_cold_preserve_authority_without_ambient_state(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -392,10 +381,10 @@ def test_timezone_mean_fixed_and_cold_preserve_authority_without_ambient_state(
     worker = """
 import json, sys
 import duckdb, ibis
-import pandas as pd
 import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.datasource.adapters import SourceSession
+from tests.shared_fixtures import frozen_coordinates
 
 def forbidden(*args, **kwargs):
     raise AssertionError('terminal read touched source or semantic models')
@@ -404,14 +393,15 @@ duckdb.connect = forbidden
 ibis.duckdb.connect = forbidden
 SourceSession.execute = forbidden
 session = mv.session.resume(sys.argv[1])
-frame = session.persisted_frame(sys.argv[2]).to_pandas()
+result = session.persisted_frame(sys.argv[2])
+frame = result.to_pandas()
 assert frame['value'].tolist() == [20,60]
-calendar = frame.attrs['axes'][0]['descriptor']
-bounds = frame.attrs['frozen_coordinates'][0]['rows'].to_pandas(types_mapper=pd.ArrowDtype)
-assert frame.attrs['axes'][0]['role'] == 'calendar' and calendar['timezone'] == 'Asia/Shanghai'
-assert bounds['actual_start'].iloc[0].isoformat() == '2026-07-31T16:00:00+00:00'
-assert bounds['actual_end'].iloc[0].isoformat() == '2026-08-01T16:00:00+00:00'
-assert frame.attrs['axes'][1]['role'] == 'identity'
+calendar = result.schema.axes[0]
+bounds = frozen_coordinates(result)[0].rows
+assert calendar.role == 'calendar' and calendar.timezone == 'Asia/Shanghai'
+assert bounds['key.0'].iloc[0].isoformat() == '2026-07-31T16:00:00+00:00'
+assert bounds['selection'].tolist() == ['full']
+assert result.schema.axes[1].role == 'identity'
 print(json.dumps({'pid': __import__('os').getpid(), 'values': frame['value'].tolist()}))
 """
     process = subprocess.run(

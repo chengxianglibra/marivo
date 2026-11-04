@@ -1,0 +1,161 @@
+---
+slug: docs/v0.6/reference/backends-and-limits
+title: Supported sources and limits
+description: Check supported drivers, source forms, methods, and numeric limits.
+---
+
+<span id="install-only-the-selected-driver"></span>
+<span id="qualify-a-numerical-source-route"></span>
+<span id="source-and-local-execution"></span>
+<span id="contribution-qualification"></span>
+<span id="resource-and-saved-output-boundaries"></span>
+
+Choose a connection and an analytical method separately. A driver or successful connection
+does not guarantee that a method supports the source's types and structure.
+
+| Backend | Extra | Important conditions |
+| --- | --- | --- |
+| DuckDB | `duckdb` | Local database and file-source engine; the tutorial needs no server |
+| PostgreSQL | `postgres` | Requires libpq and database access |
+| MySQL / MariaDB | `mysql` | PyMySQL includes RSA authentication support; no local MySQL client C library |
+| Trino | `trino` | Requires `catalog` and `user_env`; `schema` is optional |
+| ClickHouse | `clickhouse` | Physical joins require a qualified MergeTree table; Distributed join routes are restricted |
+
+## Check source form and method
+
+Database tables use their selected SQL backend; CSV, Parquet and file JSON use DuckDB.
+Analysis Session supports local JSON files through the unparameterized GET route. Other
+HTTP JSON forms can be declared and previewed through datasource APIs but are not Analysis
+Session inputs.
+
+Exact source `median()` and `quantile(q)` use native DuckDB `quantile_cont`,
+PostgreSQL `percentile_cont`, or ClickHouse `quantileExactInclusive`. MySQL and Trino
+reject exact source quantiles during compilation. ClickHouse accepts integer/float
+inputs; DuckDB/PostgreSQL also support Decimal. Source Duration quantiles are
+unavailable. No sorting simulation or local interpolation is used as a fallback.
+Linear interpolation uses `h=(n-1)q`; `[0, 10]` at `q=0.95` gives `9.5`.
+Integer/floating results use `float64`; admitted Decimal routes retain their declared
+carrier. Empty/all-NULL input returns NA, and strict NULL checks retain their input.
+
+Approximate methods must be explicit. Quantiles use DuckDB `approx_quantile`, Trino
+`approx_percentile`, or ClickHouse `quantileTDigest`; distinct estimates use
+`approx_count_distinct`, `approx_distinct`, or `uniqHLL12` respectively. PostgreSQL
+and MySQL reject both approximate families during compilation. Exact distinct uses
+`COUNT(DISTINCT ...)`, or ClickHouse `uniqExact`. Unsupported operations and types
+fail before aggregate query execution; HTTP JSON responses are already acquired
+during source preparation to infer types. Exact and approximate algorithms never substitute.
+Approximate results can differ, with no universal error bound. Other reductions
+remain subject to type and expression qualification.
+
+Contribution analysis uses qualified source routes on all five backends, subject to method,
+type, key and source restrictions. Parent totals and fine contributions are read
+independently and may come from different source snapshots. `Attribute` trusts declared
+Entity identity, relationship cardinality and version grain; qualification also checks
+membership/Population coverage and overlap, distinct-value partitions, time correspondence
+and numeric closure. Only requested final targets are checked against fresh parent totals.
+Unchanged additive/level Float64 closure allows the greater of 1% of the target's
+absolute value and its numeric rounding budget. Paired rate/mix uses propagated
+roundoff bounds without that 1% business allowance; other types use their own rules. If a target is not
+admitted, use explicit observations and comparison to investigate it without treating the
+result as a contribution decomposition.
+
+Remote `Attribute` routes require direct physical signed-integer or string identities and
+qualified string collations. The Entity `primary_key` declares complete, non-null identity;
+the route trusts that declaration even if physical metadata marks an identity column
+nullable. It does not run a full-source NULL or uniqueness precheck; operation-specific
+identity checks still apply. For scoped data validation, use `ms.source_check` with a bounded
+`catalog.validate(..., checks=..., scope=...)` call.
+Incompatible non-time scopes within one source root cannot be combined.
+
+## Account for resource and numeric limits
+
+Local operations may keep all required vectors in memory. A display limit changes rendering;
+it does not cap computation or source scan work. Query timeouts use native driver settings,
+may be unsupported, and do not bound the full client call and result fetch.
+
+Complex Trino relationship and allocation expressions can exceed the server's
+`query.max-stage-count` budget and fail with `QUERY_HAS_TOO_MANY_STAGES`.
+Simplify the question or ask the server operator to review its stage budget;
+Marivo propagates the native failure without a staged fallback.
+
+Ordinary Metric preview uses all five SQL backends over explicitly scoped,
+unordered Entity inputs. Each Entity contributes at most
+`min(scope.max_rows, 10_000)` output rows. Captured partition evidence requires explicit partition values or a supported
+temporal range. Unavailable values retain the explicit unpruned fallback; no
+latest partition is inferred.
+`coverage.entity_rows` and `entity_row_limits` disclose sampled inputs.
+`execution_limits` reports requested native timeouts and actual support; no
+scan row/byte cap is requested, and scan statistics are unknown. A partition can
+still be large, and Entity aggregation/deduplication happens before output limits.
+
+`md.raw_sql()` requests a 600-second native query timeout by default. Override it with
+`timeout_seconds`; Trino receives it as `query_max_run_time`. Connection acquisition
+uses separate native 30-second settings. The query timeout is not a complete-call
+or fetching deadline.
+
+```python
+import marivo.datasource as md
+import marivo.semantic as ms
+
+md.raw_sql(
+    ms.ref.datasource("default"), "SELECT 1 AS ok",
+    reason="check query path", timeout_seconds=600,
+)
+```
+
+`md.raw_sql()` expects read-only SQL; Trino relies on database permissions to deny writes.
+It loads all returned rows into memory. Use filters, aggregation or SQL `LIMIT` to control
+result size; `LIMIT` does not bound source scan cost.
+
+Numeric precision and overflow follow the backend and type. Integer SUM uses an `int64`
+result: local sums can wrap, while a wider source accumulator may fail when the result
+crosses the Ibis transport boundary. ClickHouse can return wrapped values. Conversion after
+a source read cannot recover lost precision. MySQL SUM keeps its widened Decimal until it
+can be safely converted to the declared Decimal result; an out-of-range value fails instead
+of being clipped. Arithmetic inside a fused source expression still follows MySQL's native
+rules. Saved Frames export committed values as stored; export does not recompute or repair
+source precision or overflow.
+
+When arithmetic has a `float64` result, local execution converts its numeric operands
+to floating point with ordinary rounding. This includes mixed integer/float arithmetic,
+Metric division and `ms.rescale`; integers beyond `2**53` can lose low bits. Integer-only
+arithmetic retains its integer carrier, identity keys never pass through floating point,
+and final storage conversion remains safe. Rescale at the intended aggregation level:
+`sum(x) / divisor` and `sum(x / divisor)` can round differently.
+
+`mean()` skips NULLs by default and returns NULL when no values are valid. `nulls="error"`
+requires its demanded input to contain no NULLs; empty input passes. For
+`amount.mean(time=point).per(point).mean()`, Marivo averages each represented timestamp's
+mean with equal weight. With timestamp values `[0, 0, 0]` and `[100]`, the result is `50`,
+not the row-weighted mean `25`. Missing scheduled timestamps are not synthesized;
+time-sample `mean` and `weighted_mean` use represented samples.
+
+The local tutorial demonstrates its DuckDB route only. [Connect data](/docs/v0.6/modeling/semantic-layer/) for setup and [troubleshoot](/docs/v0.6/reference/troubleshooting/) for concrete failures.
+
+
+## Row attribute time and tolerant parsing
+
+Per-row as-of initially qualifies same-source, single-fact-root observe classification
+on DuckDB/Trino. Version matching retains left joins. Identical targets, complete
+paths and control times share a join; different controls, fixed anchors and path
+roles retain separate identities. Safe fact time ranges, independent physical
+filters and proven fact-side AND conditions filter before joins; target-dependent
+OR conditions remain intact. Extra target partition-envelope pruning is deferred.
+
+`strptime` returns NULL for rejected parsed data on DuckDB, Trino, ClickHouse and
+MySQL/MariaDB. PostgreSQL uses native `to_timestamp`, so rejected data can fail
+the query. DuckDB uses try_strptime, Trino TRY, ClickHouse OrNull and
+MySQL/MariaDB zero-day arithmetic after SELECT parsing to reject impossible
+calendar carriers. Native format and precision restrictions
+remain. Ordered year/month/day formats declare canonical, fixed-width source
+values; qualifying ranges compare original columns to same-type source-zone
+constants without parsing the column. Other formats and unqualified endpoints
+retain native parsing and gap/fold interpretation, so scan costs can increase.
+See [date/time encoding contracts](/docs/v0.6/modeling/dates/#encoded-datetime-msstrptime).
+Independent physical filters still push down.
+Trino TRY can catch some input-expression failures; other backends can propagate
+argument errors. Uniform upstream error isolation is not promised.
+
+Trino strptime formats using `%U` or `%w` are rejected as configuration errors before TRY; unsupported configuration does not silently produce an all-NULL column.
+
+ClickHouse 22.3 supports the ordered formats above for projections and calendar assignment: dates retain `Date32` and clocks retain `DateTime64`. Other formats require ClickHouse 23.3 or newer. Queries needing an unavailable parser fail before business query submission; use an ordered encoding, expose a native `Date32`/`DateTime64` column, or upgrade the server. Source timezone declarations and native gap/fold behavior still apply.

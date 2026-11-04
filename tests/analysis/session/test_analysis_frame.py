@@ -350,13 +350,11 @@ def test_pending_show_names_current_operations_and_direct_input_kinds(
     assert "expression" in capsys.readouterr().out
 
 
-def test_export_values_and_attrs_are_isolated(local: LocalFrameServices) -> None:
+def test_export_values_are_isolated(local: LocalFrameServices) -> None:
     root = _memory(local)
     exported = root.to_pandas()
     exported.loc[0, "value"] = 999
-    exported.attrs["axes"][0]["name"] = "changed"
     assert root.to_pandas()["value"].tolist() == [10, 100]
-    assert root.to_pandas().attrs["axes"][0]["name"] == "region"
 
 
 def test_new_operations_reject_foreign_handles_and_invalid_names(local: LocalFrameServices) -> None:

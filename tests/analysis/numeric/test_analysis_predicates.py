@@ -50,7 +50,7 @@ def test_numeric_string_category_persists_and_exports(
     selected = category.where(category["value"] == "123")
     saved = selected.persist()
     frame = saved.to_pandas()
-    assert frame[ordinary_columns(frame)[0]].tolist() == ["A"]
+    assert frame[ordinary_columns(saved)[0]].tolist() == ["A"]
     assert frame["value"].tolist() == ["123"]
     restored = case.session.persisted_frame(saved.artifact_id)
     assert restored.to_pandas().equals(frame)
@@ -89,7 +89,7 @@ def test_public_multi_input_source_and_exported_pandas(
         drop=True
     )
     assert selected.equals(matched)
-    assert set(selected[selected.attrs["axes"][1]["name"].rsplit(".", 1)[-1]]) == expected
+    assert set(selected["customer"]) == expected
 
 
 @pytest.mark.release
@@ -181,7 +181,7 @@ def test_public_decimal_field_comparison(
     threshold = Decimal("0.00")
     saved = values.where(values["value"] > threshold).persist()
     frame = saved.to_pandas()
-    assert set(frame[ordinary_columns(frame)[0]]) == {
+    assert set(frame[ordinary_columns(saved)[0]]) == {
         member for member, total in totals.items() if total > 0
     }
     assert all(isinstance(value, Decimal) for value in frame["value"])
@@ -219,7 +219,7 @@ def test_public_duration_field_comparison(
     }
     result = values.where(values["value"] == values["value"]).persist()
     frame = result.to_pandas()
-    assert set(frame[ordinary_columns(frame)[0]]) == expected
+    assert set(frame[ordinary_columns(result)[0]]) == expected
     import pandas as pd
 
     dtype = frame["value"].dtype

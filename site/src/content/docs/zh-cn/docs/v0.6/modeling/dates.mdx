@@ -1,0 +1,266 @@
+---
+slug: zh-cn/docs/v0.6/modeling/dates
+title: 日期与时间定义
+description: 定义时间字段、解析器、范围、粒度、业务日历与命名活动期间。
+---
+
+分别建模来源编码、业务时间角色和观察范围与粒度。民用 `DATE` 表示一个日历日；带时区的时间戳标识一个时刻；`TimeScope` 捕获有限的左闭右开区间 `[start, end)`。解析器时区解释来源值，Session 时区确定报告边界，已认证日历的边界时区则定义其期间。
+
+声明片段假定语义模型已导入 `marivo.semantic as ms`，并已定义引用的 Entity 和字段。不同片段展示不同来源编码的用法。下方完整日历教程使用独立项目。
+
+## Time dimension：时间维度
+
+Time dimension 声明观察、窗口和日历使用的时间角色。将普通 Dimension 命名为 `date` 不会使其成为时间维度。
+
+| 参数 | 必填 | 默认值 | 语义 |
+| --- | --- | --- | --- |
+| `name` | 是 | — | 语义名称，在所属范围内唯一。 |
+| `entity` | 是 | — | 所属 Entity，确定字段对应的来源行粒度。 |
+| `column` | 是 | — | Entity 来源暴露的物理列名，可以与语义名称不同。 |
+| `sample_interval` | 否 | `None` | 规范的正数日内采样间隔 `(count, "minute" 或 "hour")`，时长小于一天且能整除一个标准日，并且来源编码可表达该间隔；DATE 字段不能提供日内样本。 |
+| `parse` | 否 | `None` | 来源编码解析器；`None` 使用原生时间类型，编码字符串或整数须显式解析。 |
+| `is_default` | 否 | `False` | 标记为该 Entity 的默认 Metric 时间角色。 |
+
+
+
+```python
+order_date = ms.time_dimension_column(
+    name="order_date", entity=orders, column="order_date", parse=ms.date(timezone="UTC"), is_default=True
+)
+```
+
+物理列使用 `ms.time_dimension_column`，派生字段使用 `@ms.time_dimension`。原生日期和带时区时间戳无需解析器；编码字符串或整数使用 `ms.strptime(...)`，只有小时的字段使用 `ms.hour_prefix(...)`。DATE、无时区时间戳和编码时间必须在解析器或 Datasource `wall_clock_timezone` 上声明源时区；两者都缺失时在读取业务数据前拒绝。原生带时区时间戳忽略 Datasource 默认值。每个 Entity 最多设置一个 `is_default=True` 的时间字段。它指定 Metric 默认时间角色，但不设定观察范围；观察范围仍需通过 `TimeScope` 提供。财务期间参见[业务日历](#业务日历)。
+
+`sample_interval` 描述来源采样节拍，不会将时间戳截断或分桶。所有 TimeField 样本规约均允许缺点；已表示样本上的 NULL 遵循规约自身策略，声明节拍不代表来源完整。
+
+### 原生日期：`ms.date`
+
+`ms.date(timezone="UTC")` 声明原生 DATE 的业务日时区。省略时使用 Datasource
+`wall_clock_timezone`，省略 `parse` 时也一样。时区统一接受 IANA 名和固定偏移量。
+投影保持 DATE 标签。时间成员判定和报告分桶按源业务日的午夜起点归属整行，因此支持源时区与
+报告时区不同，但不能据此重建另一时区自然日内的事件明细汇总。
+
+## 派生时间字段：`ms.time_dimension`
+
+当时间字段是 Entity 表达式时，使用 `@ms.time_dimension`。它接受上文介绍的 `entity`、`parse`、`sample_interval` 和 `is_default` 参数。默认使用函数名，也可通过 `name=` 指定名称。
+
+## 原生时间戳：`ms.timestamp`
+
+| 参数 | 必填 | 默认值 | 语义 |
+| --- | --- | --- | --- |
+| `timezone` | 否 | `None` | 无时区时间戳的来源时区；`None` 使用 Datasource `wall_clock_timezone`，已有时区的时间戳拒绝任何解析器时区。 |
+
+
+```python
+created_at = ms.time_dimension_column(
+    name="created_at", entity=orders, column="created_at",
+    parse=ms.timestamp(timezone="Asia/Shanghai"),
+)
+```
+
+此示例假定来源是上海本地的无时区时间戳。已有时区的来源值已标识一个时刻，因此省略解析器时区。解析只作用于 TimeDimension 投影，不会改写 Entity 主键。单独的无时区本地时钟无法区分回拨时重复时刻对应的两个瞬间；若这一区分重要，应保留带偏移量或 UTC 的来源值，或使用其他身份字段。
+
+## 日期与时间编码：`ms.strptime`
+
+| 参数 | 必填 | 默认值 | 语义 |
+| --- | --- | --- | --- |
+| `format` | 是 | — | Python `strptime` 来源编码。有序格式声明规范的合法值；其他格式保留原生解析。 |
+| `timezone` | 否 | `None` | 纯日期业务日和带时间值的来源时区；省略时使用 Datasource `wall_clock_timezone`。 |
+
+
+```python
+business_date = ms.time_dimension_column(
+    name="business_date", entity=orders, column="date_key",
+    parse=ms.strptime("%Y%m%d"),
+)
+```
+
+`%Y%m%d` 声明 `20260801` 这样的八位编码，Python `%M` 表示分钟。有序格式 `%Y%m%d`、`%Y-%m-%d`、`%Y%m%d%H`、`%Y-%m-%d %H`、`%Y%m%d%H%M`、`%Y-%m-%d %H:%M`、`%Y%m%d%H%M%S` 和 `%Y-%m-%d %H:%M:%S` 要求合法、固定宽度、补零且分隔符完全一致的日期或时间。整数支持无分隔符格式；物理字符串比较顺序必须与时间顺序一致。`2026081` 这类缩短编码和不存在的日期违反声明，即使原生解析器能接受。无需 `canonical` 开关，也不自动扫描数据。
+
+符合条件的物理列范围直接比较原始字段和源时区下的同类型常量。上海业务日范围 `[2026-10-28,2026-10-29)` 在 `%Y%m%d` 字段上编译为 `log_date >= '20261028' AND log_date < '20261029'`。边界向上对齐到首个可表示刻度：小时编码筛选 `[10:30,12:30)` 时使用 `[11:00,13:00)`。原生 DATE 和时间戳使用相同的范围规则，保留实际类型和精度。UTC、固定偏移量可以直接换算；具名时区要求端点通过资格检查，避开 gap/fold 切换。MySQL/MariaDB 具名时区改写使用共同验证范围 1971–2037。派生表达式与其他格式保留原生解析。
+
+命名时区的原始范围优化使用宿主时区数据库。所选日期的规则必须与源后端的时区数据库保持一致；Marivo 不会在应用优化前探测两者的规则差异。
+
+SQL NULL 保持 NULL，不归属任何期间。输出投影、日历分桶和未通过资格检查的端点保留原生解析及 gap/fold 解释。DuckDB、Trino、ClickHouse 和 MySQL/MariaDB 将解析器拒绝的数据变为 NULL；PostgreSQL 原生 `to_timestamp` 可能使查询报错。有序格式契约以外的原生接受规则可能因后端而异。没有 `on_error`、trim、格式猜测、重试、分区枚举或验证查询。格式、时区、类型与能力错误仍报错。Trino TRY 可捕获部分输入表达式错误，其他后端可能传播错误。NULL 仅用于属性控制时间时保留事实及 NULL 标签。直接谓词为下推提供条件；实际索引使用和分区裁剪取决于后端与表布局。
+
+ClickHouse 22.3 支持上述有序格式的投影和日历分桶：日期保留 `Date32`，时间保留 `DateTime64`。其他格式要求 ClickHouse 23.3 或更新版本。需要不可用解析器的查询会在业务查询提交前报错；可改用有序编码、通过数据源提供原生 `Date32`/`DateTime64` 列，或升级服务端。源时区声明及原生 gap/fold 行为仍然适用。
+
+## 独立小时列：`ms.hour_prefix`
+
+| 参数 | 必填 | 默认值 | 语义 |
+| --- | --- | --- | --- |
+| `prefix` | 是 | — | 提供民用日期前缀的 TimeDimension 表达式。小时字段递归继承前缀字段的有效解析器或 Datasource 时区。 |
+
+小时来源值使用 0 到 23 的整数或 `'00'` 到 `'23'` 的规范字符串。
+小时 `24` 及其他不规范的非 NULL 值违反该声明；午夜应使用下一日期和小时 `0`。
+SQL NULL 保留原生语义。Marivo 不为非法编码值增加源数据扫描或统一的解析报错策略。
+
+```python
+event_hour = ms.time_dimension_column(
+    name="event_hour", entity=orders, column="hour",
+    parse=ms.hour_prefix(business_date),
+)
+```
+
+同一源日期内的正向范围（如 `[03:00,04:00)`）在时区转换通过等价性检查时，
+可以直接比较原始日期列和小时列。该优化适用于观察范围，以及直接使用或位于顶层
+AND 中的必需 `event_hour.within(scope)` 条件，包括午夜起点。跨日范围和未通过检查的
+时区边界保留通用谓词。NULL 值及取反、组合后的布尔表达式保留原生语义。
+是否发生分区裁剪需要检查后端物理计划，不能只根据 SQL 形态判断。
+
+## 观察范围：`session.time_scope`
+
+| 参数 | 必填 | 默认值 | 语义 |
+| --- | --- | --- | --- |
+| `start` | 是 | — | 包含的起点，可用 ISO 日期/时间字符串、`date` 或带时区的 `datetime`。 |
+| `end` | 是 | — | 不包含的终点，必须晚于 `start`；同样支持上述输入类型。 |
+| `timezone` | 否 | `None` | 用于解释民用日期和无偏移量的 ISO 字符串，并确定报告日历边界；默认使用 Session 保存的报告时区。带时区的 datetime 保留其时刻。 |
+
+
+```python
+# Continue in the quick-start analysis Session.
+august = session.time_scope(start="2026-08-01", end="2026-09-01", timezone="UTC")
+days = august.by(mv.grain("day"))
+```
+
+Python 无时区 `datetime` 对象以及含糊或不存在的本地边界时间会被拒绝。民用边界使用 `date`，精确的日内时刻使用带明确偏移量的 ISO 时间戳。
+
+## 日历粒度：`mv.grain`
+
+| 参数 | 必填 | 默认值 | 语义 |
+| --- | --- | --- | --- |
+| `unit` | 是 | — | 日历单位：second、minute、hour、day、week、month、quarter、year。 |
+| `count` | 否 | `1` | 日内单位的规范正数宽度，时长小于一天且能整除一个标准日；日及更粗单位使用 `count=1`。 |
+
+`scope.by(grain)` 返回 `CalendarAxis`。在日内粒度下，日历网格会跳过不存在的本地时间，并为重复的本地时间保留两个时刻。自然日和自然月是日历期间，因此夏令时切换前后的经过时长可能不同。DATE 时间角色要求贡献使用日或更粗粒度，并以业务午夜为起止边界。观察和比较示例见[时间序列与窗口](/zh-cn/docs/v0.6/analysis/time-series/)。
+
+## 业务日历：`ms.period_calendar`
+
+| 参数 | 必填 | 默认值 | 语义 |
+| --- | --- | --- | --- |
+| `name` | 是 | — | 语义名称，在所属范围内唯一。 |
+| `date` | 是 | — | 民用日期 TimeDimension。 |
+| `coverage` | 是 | — | 非空 `(start_date, end_date)`，包含起点、不包含终点。 |
+| `levels` | 是 | — | 同一 Entity 上的层级名 → Dimension 映射；期间键在层级内全局唯一，day 为自动推导的保留层级。 |
+
+日历边界从日期字段的有效源时区推导，`ms.period_calendar` 不接受 `boundary_timezone` 参数。全部字段必须属于同一 Entity。日期字段必须是民用 `DATE` TimeDimension；午夜时间戳不能替代。认证要求覆盖范围内每天都有一行，且每个层级每天都有非 `NULL` 键。同一层级的每个键标识一个连续期间，因此期间不会重叠或出现缺口。相互独立或重叠的活动应使用 `TemporalSet`。
+
+## 业务日历
+
+自然日与月符合业务时，直接使用[时间分析](/zh-cn/docs/v0.6/analysis/time-series/)中的普通粒度。本页演示如何创建自己的有限业务日历。
+
+### 准备七天日历
+
+使用[安装](/zh-cn/docs/v0.6/start/installation/)配置的环境。在独立 `calendar-demo` 项目中创建 `models/datasources/warehouse.py`，使用[声明连接](/zh-cn/docs/v0.6/start/python/#声明连接)中的 DuckDB 声明，并将本地路径设为 `warehouse.duckdb`。在该项目根目录下使用已安装解释器的绝对路径运行文件。将下面保存为 `seed_calendar.py` 并运行；重复运行只会重建此演示的 `calendar` 表。
+
+{/* example: calendar-seed */}
+
+```python
+from datetime import date, timedelta
+import duckdb
+
+with duckdb.connect("warehouse.duckdb") as connection:
+    connection.execute(
+        "CREATE OR REPLACE TABLE calendar (day DATE PRIMARY KEY, fiscal_week VARCHAR)"
+    )
+    connection.executemany(
+        "INSERT INTO calendar VALUES (?, ?)",
+        [(date(2026, 1, 1) + timedelta(days=i), "FY2026-W01") for i in range(7)],
+    )
+```
+
+### 声明日期与期间
+
+保存为 `models/semantic/sales/_domain.py`。这是 `calendar-demo` 的完整日历模型。示例周从 1 月 1 日到 1 月 8 日，含起点、不含终点；它不是 ISO 周。
+
+{/* example: calendar-model */}
+
+```python
+from datetime import date
+import marivo.datasource as md
+import marivo.semantic as ms
+
+ms.domain(name="sales", owner="Mina Zhang", default=True)
+calendar_days = ms.entity(
+    name="calendar",
+    datasource=ms.ref.datasource("warehouse"),
+    source=md.table("calendar"),
+    primary_key=["day"],
+)
+day = ms.time_dimension_column(name="calendar_date", entity=calendar_days, column="day", parse=ms.date(timezone="UTC"))
+week = ms.dimension_column(
+    name="fiscal_week", entity=calendar_days, column="fiscal_week"
+)
+ms.period_calendar(
+    name="fiscal",
+    date=day,
+    coverage=(date(2026, 1, 1), date(2026, 1, 8)),
+    levels={"week": week},
+)
+```
+
+### 认证并读取
+
+保存为 `check_calendar.py` 并运行。完整范围有七行源数据，设置 `scope.max_rows=8` 以允许完整采集。独立的 `limit=1` 仅保留一条预览记录，仍会认证完整日历。
+
+{/* example: calendar-read */}
+
+```python
+import marivo.datasource as md
+import marivo.semantic as ms
+
+catalog = ms.load(workspace_dir=".")
+ref = catalog.get("period_calendar:sales.fiscal")
+preview = catalog.preview(ref, scope=md.unpruned(max_rows=8, timeout_seconds=30), limit=1)
+assert preview.returned_row_count == 1
+assert not preview.is_truncated
+assert preview.coverage.scope_exhaustion == "exhaustive"
+calendar = catalog.get("period_calendar:sales.fiscal")
+period = calendar.period("week", "FY2026-W01")
+assert period.kind == "calendar_period"
+period.show()
+```
+
+预期 FY2026-W01 覆盖七个日期。这些日期组成一个期间，因此 `limit=1` 会保留完整期间预览，认证仍会读取完整日期范围。预览上限按期间记录计数，而不是按来源日期计数；有效值为 1 至 100。`scope.max_rows` 必须足以完成穷尽读取；读取失败或截断不会替换当前证书。通过 `calendar.definition.snapshot_status` 查看证书状态。
+
+实际模型须提供权威业务期间和完整日期序列。若业务周由此日历定义，在分析时使用 `calendar.grain("week")` 选择已认证的业务周层级。
+
+### 活动与工作日
+
+活动期间（如营销活动或节日）使用 `ms.temporal_set` 建模，适用于存在缺口或重叠的日程。每个实例都有唯一 ID 和有限覆盖范围内的左闭右开边界。认证需要完整有界预览；字段及精确 Help 目标见[命名活动期间](#命名活动期间mstemporal_set)。
+
+工作日日程必须为计数范围内每个日期提供状态，并包含调休日期。缺少日期或 `NULL` 状态表示未知，不能视为休息日。不同组织或地区的日程应使用各自的身份定义。
+
+## 声明期日历粒度：`ms.calendar_grain`
+
+`ms.calendar_grain(calendar=calendar_ref, level="week")` 在建模时创建不读取来源的粒度查找。认证后，`calendar.grain("week")` 返回绑定到该快照的粒度；用此粒度调用 `scope.by(grain)` 或 Metric 窗口。
+
+自定义日历输出只接受一个完整的已认证期间。多期间、稀疏或局部选择在业务读取前拒绝；自定义样本层级没有隐式嵌套规则。
+
+## 命名活动期间：`ms.temporal_set`
+
+| 参数 | 必填 | 默认值 | 语义 |
+| --- | --- | --- | --- |
+| `name` | 是 | — | 语义名称，在所属范围内唯一。 |
+| `occurrence_id` | 是 | — | 所属 Entity 上包含唯一活动实例 ID 的 Dimension。 |
+| `start` | 是 | — | 每个实例包含的起点 TimeDimension。 |
+| `end` | 是 | — | 每个实例不包含的终点 TimeDimension，必须晚于起点。 |
+| `boundary_timezone` | 是 | — | 覆盖范围边界的 IANA 或固定偏移时区；DATE 字段必须声明同一时区。 |
+| `coverage` | 是 | — | 非空 `(start_date, end_date)`，包含起点、不包含终点。 |
+| `category` | 否 | `None` | 值为非空字符串或 `NULL` 的可选分类 Dimension。 |
+
+
+```python
+# Model fragment: all fields belong to the same event Entity.
+from datetime import date
+
+ms.temporal_set(
+    name="campaigns", occurrence_id=campaign_id, start=campaign_start,
+    end=campaign_end, boundary_timezone="Asia/Shanghai",
+    coverage=(date(2026, 1, 1), date(2027, 1, 1)), category=campaign_type,
+)
+```
+
+DATE 边界的规范源时区必须与 `boundary_timezone` 相同。时间戳来源使用自身解析器或 Datasource 声明；认证在既有来源读取内应用原生解析和本地化，不在 Python 中重新解释原始钟面，也不以边界时区回退解释来源，保留后端原生 DST 行为。同一集合中的边界统一使用民用日期或时间戳；每个实例 ID 唯一，起止完全落在覆盖范围内。时间戳边界需有明确时区语义；无时区的重复本地时间无法指明两个时刻中的哪一个。允许重叠与缺口。一天假期表示为 `[day, day + 1)`。使用覆盖完整范围的 `catalog.preview(...)` 认证；读取失败或截断不会替换当前快照。相同分类不能定义跨年配对。
+
+通过 `calendar.period(level, key)`、`calendar.period_on(level, date)` 或 `campaigns.occurrence(key)` 读取本地证书中的已认证 `TimeScope`。精确签名可查询 Live Help：`semantic.time_dimension.from_column`、`semantic.strptime`、`semantic.period_calendar` 和 `semantic.temporal_set`。

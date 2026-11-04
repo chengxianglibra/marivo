@@ -47,7 +47,7 @@ def core_session(
     semantic_project_factory(
         {
             "datasources/warehouse.py": "import marivo.datasource as md\n"
-            + f"md.duckdb(name='warehouse', path={str(database)!r})\n",
+            + f"md.duckdb(wall_clock_timezone='UTC', name='warehouse', path={str(database)!r})\n",
             "sales/_domain.py": "import marivo.semantic as ms\n"
             + "ms.domain(name='sales', owner='Core Review', default=True)\n",
             "sales/model.py": "import marivo.datasource as md\nimport marivo.semantic as ms\n"
@@ -90,12 +90,12 @@ def test_nullable_integer_axis_preserves_explicit_source_and_reduction(
     artifact = drilled.persist()
     actual = artifact.to_pandas()
     assert actual.equals(direct)
-    assert actual[actual.attrs["axes"][0]["name"].rsplit(".", 1)[-1]].tolist() == ["A", "A", "B"]
-    assert actual[actual.attrs["axes"][1]["name"].rsplit(".", 1)[-1]].dropna().tolist() == [
+    assert actual["region"].tolist() == ["A", "A", "B"]
+    assert actual["code"].dropna().tolist() == [
         9007199254740993,
         2,
     ]
-    assert actual[actual.attrs["axes"][1]["name"].rsplit(".", 1)[-1]].isna().tolist() == [
+    assert actual["code"].isna().tolist() == [
         False,
         True,
         False,
@@ -103,7 +103,7 @@ def test_nullable_integer_axis_preserves_explicit_source_and_reduction(
     assert actual["total"].tolist() == [70, 30, 60]
     if small_first is not None:
         assert actual["small"].tolist() == [10, 0, 0]
-    assert str(actual[actual.attrs["axes"][1]["name"].rsplit(".", 1)[-1]].dtype) == "int64[pyarrow]"
+    assert str(actual["code"].dtype) == "int64[pyarrow]"
     rolled = core_session.observe(metrics, by=(region,)).compute().to_pandas()
     assert rolled["total"].tolist() == [100, 60]
     assert artifact.to_pandas().equals(

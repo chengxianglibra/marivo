@@ -22,7 +22,6 @@ from marivo.refs import ref
 from marivo.refs import ref as ref_factory
 from marivo.semantic.catalog import SemanticCatalog, SemanticKind
 from marivo.semantic.errors import ErrorKind, SemanticRuntimeError
-from marivo.semantic.ir import StrptimeParse
 from tests.support.refs import make_ref
 
 
@@ -383,24 +382,20 @@ def test_temporal_set_timestamp_rows_normalize_to_one_instant_encoding() -> None
     assert snapshot.occurrence_scope("launch").boundary_timezone == "Asia/Shanghai"
 
 
-def test_temporal_set_rows_reapply_time_dimension_parse_convention() -> None:
-    parse = StrptimeParse(format="%Y%m%d")
-    snapshot = certify_temporal_set_rows(
-        temporal_set_ref=ref.temporal_set("sales.campaigns"),
-        boundary_timezone="UTC",
-        coverage=(date(2026, 1, 1), date(2026, 1, 4)),
-        columns=("id", "start", "end"),
-        retained_values=({"id": "launch", "start": "20260101", "end": "20260103"},),
-        occurrence_id="id",
-        start="start",
-        end="end",
-        start_parse=parse,
-        end_parse=parse,
-    )
-
-    assert snapshot.encoding == "date"
-    assert snapshot.occurrences[0].start == date(2026, 1, 1)
-    assert snapshot.occurrences[0].end == date(2026, 1, 3)
+def test_temporal_set_rows_require_backend_parsed_values() -> None:
+    with pytest.raises(ValueError, match="backend-resolved aware"):
+        certify_temporal_set_rows(
+            temporal_set_ref=ref.temporal_set("sales.campaigns"),
+            boundary_timezone="UTC",
+            coverage=(date(2026, 1, 1), date(2026, 1, 4)),
+            columns=("id", "start", "end"),
+            retained_values=(
+                {"id": "launch", "start": "2026-01-01T00:00:00", "end": "2026-01-03T00:00:00"},
+            ),
+            occurrence_id="id",
+            start="start",
+            end="end",
+        )
 
 
 def test_temporal_set_loader_rejects_mixed_start_end_time_encodings(

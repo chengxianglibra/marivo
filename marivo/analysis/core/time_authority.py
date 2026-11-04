@@ -1,20 +1,11 @@
 """Immutable report and resolved source time authority for graph and remaining domain consumers."""
 
-from datetime import date, datetime, time, tzinfo
+from datetime import date, datetime, time
 from typing import Literal
-from zoneinfo import ZoneInfoNotFoundError
 
 from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 
-
-def time_zone(name: str) -> tzinfo:
-    """Decode persisted IANA or explicit fixed-offset authority without host state."""
-    from marivo.datasource.timezone import parse_timezone
-
-    try:
-        return parse_timezone(name)[1]
-    except (ZoneInfoNotFoundError, ValueError):
-        raise ValueError("invalid persisted temporal timezone") from None
+from marivo._timezones import normalize_timezone, same_timezone
 
 
 class ReportTimeAuthority(BaseModel):
@@ -26,39 +17,44 @@ class ReportTimeAuthority(BaseModel):
     @field_validator("timezone")
     @classmethod
     def valid_timezone(cls, value: str) -> str:
-        time_zone(value)
-        return value
+        return normalize_timezone(value).name
 
 
-class SourceTimeAuthority(BaseModel):
+class _SourceTime(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
 
     axis: str
     physical_type: str
-    kind: Literal["instant", "localizable", "civil_date"]
-    read_timezone: str | None
-    source: Literal["physical", "declared", "engine", "system_fallback", "civil_date"]
-    boundary_timezone: str
 
-    @field_validator("read_timezone", "boundary_timezone")
+
+class InstantSourceTime(_SourceTime):
+    kind: Literal["instant"] = "instant"
+
+
+class WallClockSourceTime(_SourceTime):
+    kind: Literal["wall_clock"] = "wall_clock"
+    timezone: str
+    origin: Literal["field", "datasource"]
+    inherited_from: str | None = None
+
+    @field_validator("timezone")
     @classmethod
-    def valid_timezone(cls, value: str | None) -> str | None:
-        if value is not None:
-            time_zone(value)
-        return value
+    def normalized_timezone(cls, value: str) -> str:
+        return normalize_timezone(value).name
 
-    @model_validator(mode="after")
-    def coherent_kind(self) -> "SourceTimeAuthority":
-        if not self.axis or not self.physical_type:
-            raise ValueError("missing exact time source identity")
-        if self.kind == "civil_date":
-            if self.read_timezone is not None or self.source != "civil_date":
-                raise ValueError("civil dates cannot acquire a read timezone")
-        elif self.read_timezone is None or self.source == "civil_date":
-            raise ValueError("instant interpretation requires a read authority")
-        elif (self.kind == "instant") != (self.source == "physical"):
-            raise ValueError("physical instant and localizable authority differ")
-        return self
+
+class CivilDateSourceTime(_SourceTime):
+    kind: Literal["civil_date"] = "civil_date"
+    timezone: str
+    origin: Literal["field", "datasource"]
+
+    @field_validator("timezone")
+    @classmethod
+    def normalized_timezone(cls, value: str) -> str:
+        return normalize_timezone(value).name
+
+
+SourceTimeAuthority = InstantSourceTime | WallClockSourceTime | CivilDateSourceTime
 
 
 class TemporalExecution(BaseModel):
@@ -69,9 +65,7 @@ class TemporalExecution(BaseModel):
 
     @model_validator(mode="after")
     def exact_axes(self) -> "TemporalExecution":
-        if not self.axes or len({(axis.axis, axis.boundary_timezone) for axis in self.axes}) != len(
-            self.axes
-        ):
+        if not self.axes or len({axis.model_dump_json() for axis in self.axes}) != len(self.axes):
             raise ValueError("expected nonempty unique temporal execution axes")
         return self
 
@@ -82,13 +76,15 @@ def civil_bound(
     """Interpret a literal report endpoint in the selected boundary coordinate space."""
     if civil_date:
         if isinstance(value, datetime) and value.tzinfo is not None:
-            return value.astimezone(time_zone(report)).replace(tzinfo=None)
+            return value.astimezone(normalize_timezone(report).tz).replace(tzinfo=None)
         return value
     if isinstance(value, datetime) and value.tzinfo is not None:
-        return value.astimezone(time_zone(boundary)).replace(tzinfo=None)
-    if report == boundary:
+        return value.astimezone(normalize_timezone(boundary).tz).replace(tzinfo=None)
+    if same_timezone(report, boundary):
         return value
     local = value if isinstance(value, datetime) else datetime.combine(value, time())
     return (
-        local.replace(tzinfo=time_zone(report)).astimezone(time_zone(boundary)).replace(tzinfo=None)
+        local.replace(tzinfo=normalize_timezone(report).tz)
+        .astimezone(normalize_timezone(boundary).tz)
+        .replace(tzinfo=None)
     )

@@ -241,12 +241,22 @@ Single-valued field.via((relationship, ...)) captures an explicit directed scala
 path. field.at(anchor) captures a fixed versioned attribute instant for the whole question.
 A Dimension can use field.at(fact_time) for per-row observe by/where classification
 on qualified same-source DuckDB/Trino inputs; the named TimeDimension must be native
-to the unversioned fact root, without its own path or anchor. Neither reads
-attributes or proves a matching version exists. Source reductions, sample axes
+to an unversioned or snapshot fact root, without its own path or anchor. A snapshot
+partition TimeDimension can control matching for each contributed snapshot row;
+the field retains its versioned identity. Validity fact roots require a fixed
+anchor. These bindings do not read attributes or prove that a matching version
+exists. Source reductions, sample axes
 and sum-permission coordinates still require their native field forms.
 TimeField.within(scope) creates a half-open predicate; it does not supply the
 observation endpoint needed by a window. TimeField sample reducers can use
 represented samples without an observation endpoint.
+TimeField scalar comparisons use the receiving Session's report timezone for ISO
+dates, Python dates and offset-free ISO clocks, while aware boundaries retain
+their instant. This applies equally to observe, members, Metric.where and source
+reduction conditions; an output scope's timezone does not reinterpret them.
+Naive Python datetimes and invalid or ambiguous civil boundaries reject at capture.
+DATE compares its declared business-day start; equality means one exact instant,
+not the complete day. Explicit within scopes retain their captured boundaries.
 Exact grammar lives at semantic.predicate and semantic.field Help targets.
 
 ## Internal samples and windows
@@ -257,21 +267,20 @@ each (external coordinate, internal sample) before reduction. Field samples use
 observed keys. An explicit Population preserves its compatible tuples, including
 empty samples under the child's empty policy, and may select a subset.
 
-`revenue.per(mv.grain("day")).mean()` folds daily completed revenues. A finite
-observation TimeScope or CalendarAxis supplies the inner grid's timezone and
-calendar authority. Each source child buckets by its own declared time role;
-no separate time-field argument or repeated scope is needed. Every inner cell
-participates, including empty cells: sums/counts contribute typed zero, while
-ratios and other children keep their existing empty and NULL policies.
+`revenue.per(mv.grain("day")).mean()` folds actual daily completed revenues.
+A finite observation TimeScope or CalendarAxis supplies timezone and selection.
+Each source child uses its declared time role and actual executor. Presence,
+including an all-NULL contribution, creates a sample; an absent time bucket does
+not. Missing operands on an existing joint sample retain their owning empty and
+NULL policy. Explicit Population completion remains separate.
 
-Inner grains must nest in the nearest enclosing calendar cell: subday widths
-divide the enclosing width, day nests in week/month/quarter/year, month in
-quarter/year, and quarter in year. Equal grains are valid; week does not nest in
-month/quarter/year. Certified levels use the exact snapshot's containments;
-mixed calendars must tile exact nominal parent bounds. A plain TimeScope tiles
-the whole interval. Partial edge cells retain nominal bounds and clip actual
-bounds to the scope; each nonempty clipped cell counts once without weighting
-by duration. Nested calendar folds use the same rules at every layer.
+Static nesting permits equal builtin grains, divisible subday widths, day in
+week/month/quarter/year, month in quarter/year, and quarter in year. Week does not
+nest in month/quarter/year. Each layer keeps complete external, parent and child
+keys; a child label need not determine one global parent at a timezone anomaly.
+Custom hierarchies reject; one complete certified custom period can be sampled
+under an interval axis. There are no internal calendar grids or date-to-parent
+maps. Final output completion does not affect sample counts or means.
 
 Semantic sample Grains authored with `ms.calendar_grain(...)` are calendar
 dependencies. Observation resolves them against the Session's current certified
@@ -309,11 +318,12 @@ optimization. Off-grid observations participate without truncation or bucketing.
 Same-time facts finish spatial reduction first. Represented NULLs retain the
 reducer's NULL policy; weighted means retain their common valid-pair mask.
 Explicit Population sample domains retain their declared tuples and empty-sample
-policy. Calendar Grain samples retain every declared calendar cell. TimeField
+policy. Calendar Grain samples consume actual represented bucket keys. TimeField
 samples alone require no observation period; windows and calendar samples retain
 their own endpoint and finite-coordinate requirements.
-Naive source values use parser timezone or reader authority; aware values use
-UTC. Source wall clocks follow backend-native DST gap/fold interpretation.
+Naive source values use parser timezone or Datasource wall_clock_timezone;
+missing declarations reject before reading rows. Aware values retain their
+physical instant. Source wall clocks follow backend-native DST gap/fold interpretation.
 Declaring cadence neither proves source completeness nor triggers a coverage scan.
 
 DuckDB, PostgreSQL, MySQL, Trino and ClickHouse finish a qualified direct numeric

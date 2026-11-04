@@ -87,14 +87,6 @@ def directory(
     )
     assert endpoint.frozen is not None
     definition = endpoint.frozen.definition
-    bounds = (
-        tuple(
-            datetime.combine(date.fromisoformat(label), datetime.min.time(), timezone.utc)
-            for label in ends
-        )
-        if ends is not None
-        else tuple(start + timedelta(days=1) for start in starts)
-    )
     rows = pd.DataFrame(
         {
             endpoint.columns[0].slot_id: pd.Series(
@@ -111,27 +103,8 @@ def directory(
                 else range(len(labels)),
                 dtype="int64[pyarrow]",
             ),
-            **{
-                name: pd.Series(values, dtype="timestamp[us, tz=UTC][pyarrow]")
-                for name, values in (
-                    ("nominal_start", starts),
-                    ("nominal_end", bounds),
-                    ("actual_start", starts),
-                    ("actual_end", bounds),
-                )
-            },
-            **{
-                f"{name}_civil": pd.Series(
-                    [bound.isoformat(timespec="microseconds") for bound in values],
-                    dtype="string[pyarrow]",
-                )
-                for name, values in (
-                    ("nominal_start", starts),
-                    ("nominal_end", bounds),
-                    ("actual_start", starts),
-                    ("actual_end", bounds),
-                )
-            },
+            "selection": pd.Series(["full"] * len(labels), dtype="string[pyarrow]"),
+            "cutoff": pd.Series([None] * len(labels), dtype="string[pyarrow]"),
         }
     )
     assert endpoint.frozen is not None
@@ -162,8 +135,7 @@ def test_directory_retains_original_ordinals_and_all_unobserved_buckets() -> Non
 def test_partial_actual_bucket_reads_but_never_becomes_matchable() -> None:
     endpoint = axis(unit="month")
     attachment = directory(endpoint, ("2026-08-01",), ends=("2026-09-01",))
-    attachment.rows.loc[0, "actual_start"] = datetime(2026, 8, 15, tzinfo=timezone.utc)
-    attachment.rows.loc[0, "actual_start_civil"] = "2026-08-15T00:00:00.000000+00:00"
+    attachment.rows.loc[0, "selection"] = "partial"
     frozen = read(attachment, endpoint)
     validate_frozen_coordinates(
         DataSchema((endpoint,), ()), attachment.rows.iloc[:0, :1], (attachment,)
@@ -201,15 +173,24 @@ def test_ordinal_31_30_tail_and_sparse_rows_do_not_change_map() -> None:
     assert pairs[-1].right_key is None
 
 
-def test_calendar_equality_preserves_data_and_rejects_ordinal_conflicts() -> None:
+def test_calendar_equality_uses_actual_keys_and_current_interpretation() -> None:
     left, right = axis("left"), axis("right")
     a = read(directory(left, ("2026-08-01", "2026-08-02")), left)
     b = read(directory(right, ("2026-08-01", "2026-08-02")), right)
     merged = merge_equal_calendar_directories(a, b, left)
     assert merged.buckets == a.buckets
     conflict = read(directory(right, ("2026-08-02",)), right)
-    with pytest.raises(CoreRuleError, match="conflict"):
-        merge_equal_calendar_directories(a, conflict, left)
+    assert merge_equal_calendar_directories(a, conflict, left).buckets == a.buckets
+
+
+def test_duplicate_civil_labels_keep_distinct_actual_keys_until_offset_matching() -> None:
+    endpoint = axis()
+    attachment = directory(endpoint, ("2026-08-01", "2026-08-01"), keys=(10, 20))
+    frozen = read(attachment, endpoint)
+    assert len(frozen.buckets) == 2 and frozen.buckets[0].key != frozen.buckets[1].key
+    assert len(build_partial_calendar_map(frozen, frozen, CalendarCorrespondence("ordinal"))) == 2
+    with pytest.raises(CoreRuleError, match="unambiguous civil"):
+        build_partial_calendar_map(frozen, frozen, CalendarCorrespondence("years", -1))
 
 
 def test_named_identity_includes_level_and_only_ordinal_is_supported() -> None:
@@ -302,7 +283,6 @@ def test_temporal_int64_minimum_is_valid_key_not_pandas_nat(
     [
         ("ordinal", (0, 0), "original ordinal"),
         ("ordinal", (0, 2), "original ordinal"),
-        ("nominal_label", ("2026-08-01", "2026-08-01"), "unique nominal"),
         ("nominal_label", ("2026-08-01", "2026-02-31"), "canonical frozen"),
         ("nominal_label", ("2026-08-01", "20260802"), "canonical frozen"),
         ("key.axis.0", (0, 0), "unique complete calendar"),
@@ -322,11 +302,11 @@ def test_bad_unobserved_directory_record_is_not_an_absent_match(
 
 
 @pytest.mark.parametrize("column", ["nominal_end", "actual_start", "actual_end"])
-def test_invalid_bounds_are_rejected_on_read(column: str) -> None:
+def test_legacy_interval_columns_are_rejected_on_read(column: str) -> None:
     endpoint = axis()
     attachment = directory(endpoint, ("2026-08-01",))
     attachment.rows.loc[0, column] = datetime(2026, 7, 31, tzinfo=timezone.utc)
-    with pytest.raises(CoreRuleError, match="half-open"):
+    with pytest.raises(CoreRuleError, match="exact slot order"):
         read(attachment, endpoint)
 
 
@@ -342,25 +322,11 @@ def test_exact_directory_layout_and_types_are_not_silently_coerced() -> None:
         read(attachment, endpoint)
 
 
-@pytest.mark.parametrize("overlap", [False, True])
-def test_nominal_partition_checks_all_buckets_before_any_rule(overlap: bool) -> None:
+def test_sparse_logical_periods_match_without_an_interval_partition() -> None:
     endpoint = axis()
-    attachment = directory(
-        endpoint,
-        ("2026-08-01", "2026-08-02" if overlap else "2026-08-03"),
-        ends=("2026-08-03", "2026-08-04") if overlap else None,
-    )
-    frozen = read(attachment, endpoint)
-    for rule in (
-        CalendarCorrespondence("ordinal"),
-        CalendarCorrespondence("years", -1),
-        CalendarCorrespondence("periods", -1),
-    ):
-        if overlap or rule.kind == "ordinal":
-            with pytest.raises(CoreRuleError, match="nonoverlapping"):
-                build_partial_calendar_map(frozen, frozen, rule)
-        else:
-            build_partial_calendar_map(frozen, frozen, rule)
+    frozen = read(directory(endpoint, ("2026-08-01", "2026-08-03")), endpoint)
+    pairs = build_partial_calendar_map(frozen, frozen, CalendarCorrespondence("ordinal"))
+    assert len(pairs) == 2 and all(pair.left_key == pair.right_key for pair in pairs)
 
 
 @pytest.mark.parametrize(
@@ -391,11 +357,8 @@ def test_month_label_offset_does_not_clamp_day_or_subtract_local_ordinals() -> N
     left, right = axis("left", unit="month"), axis("right", unit="month")
     a = read(directory(left, ("2024-03-31",), ends=("2024-04-30",)), left)
     b = read(directory(right, ("2024-02-29",), ends=("2024-03-31",)), right)
-    pairs = build_partial_calendar_map(a, b, CalendarCorrespondence("periods", -1))
-    assert tuple((p.left_key, p.right_key) for p in pairs) == (
-        (a.buckets[0].key, None),
-        (None, b.buckets[0].key),
-    )
+    with pytest.raises(CoreRuleError, match="complete buckets"):
+        build_partial_calendar_map(a, b, CalendarCorrespondence("periods", -1))
 
 
 def test_subday_offset_rejects_without_timezone_lookup() -> None:
@@ -632,8 +595,7 @@ def test_sparse_directory_keeps_nominal_distance_separate_from_selection_order()
         read_calendar_directory(endpoint, attachment.schema, calendar_directory_rows(frozen))
         == frozen
     )
-    with pytest.raises(CoreRuleError, match="continuous"):
-        require_matchable_calendar_directory(frozen)
+    require_matchable_calendar_directory(frozen)
 
 
 def test_two_hour_fold_writer_and_reader_preserve_distinct_nominal_starts() -> None:
@@ -655,11 +617,11 @@ def test_two_hour_fold_writer_and_reader_preserve_distinct_nominal_starts() -> N
     )
     assert len(grid.cells) == len(recovered.buckets) == 13
     first, second = recovered.buckets[1:3]
-    assert (first.nominal_start_civil, second.nominal_start_civil) == (
+    assert (first.nominal_label, second.nominal_label) == (
         "2026-10-25T02:00:00.000000+02:00",
         "2026-10-25T02:00:00.000000+01:00",
     )
-    assert second.nominal_start - first.nominal_start == timedelta(hours=1)
+    assert second.key != first.key
     assert second.nominal_ordinal - first.nominal_ordinal == 3_600_000_000
     ranks = tuple(bucket.nominal_ordinal for bucket in recovered.buckets)
     assert ranks == tuple(sorted(set(ranks)))
@@ -733,7 +695,7 @@ def test_corrupt_direct_facts_cannot_be_treated_as_legal_absence(corruption: str
     elif corruption == "duplicate_origin":
         mapping = replace(mapping, rows=pd.concat([mapping.rows, mapping.rows], ignore_index=True))
     elif corruption == "civil":
-        shifted.rows.loc[0, "actual_start_civil"] = "2019-12-30T00:00:00.000000+01:00"
+        shifted.rows.loc[0, "selection"] = "unknown"
     else:
         shifted.rows.loc[0, "nominal_ordinal"] = 0
     primary = pd.DataFrame({target.columns[0].slot_id: pd.Series([], dtype="int64[pyarrow]")})
@@ -750,8 +712,7 @@ def test_direct_origin_cannot_capture_an_ancestor_relation() -> None:
 
 
 def test_selected_grid_is_sparse_or_empty_and_direct_origin_changes_identity() -> None:
-    from marivo._definition.types import CalendarCoordinate
-    from marivo._temporal import _BuiltinGrain, anchor_from_datetime
+    from marivo._temporal import _BuiltinGrain
     from marivo._temporal_grid import (
         BoundTimeGrid,
         TimeCell,
@@ -819,23 +780,9 @@ def test_selected_grid_is_sparse_or_empty_and_direct_origin_changes_identity() -
     )
     empty = grid((), empty_origin)
     assert empty.cells == ()
-    coordinate = CalendarCoordinate(
-        shifted.identity,
-        grain,
-        "UTC",
-        None,
-        tuple(
-            (
-                anchor_from_datetime(c.original_start),
-                anchor_from_datetime(c.original_end),
-                anchor_from_datetime(c.start),
-                anchor_from_datetime(c.end),
-            )
-            for c in shifted.cells
-        ),
-        origin=direct,
-        civil_bounds=shifted.civil_bounds,
-    )
+    from marivo._temporal import CalendarAxis
+
+    coordinate = CalendarAxis(None, shifted)._binding
     frozen = freeze_calendar(
         coordinate,
         token="shifted",
@@ -857,9 +804,7 @@ def test_selected_grid_is_sparse_or_empty_and_direct_origin_changes_identity() -
         ),
     )
     frozen_empty = freeze_calendar(
-        replace(
-            coordinate, identity=empty.identity, cells=(), origin=empty_origin, civil_bounds=()
-        ),
+        CalendarAxis(None, empty)._binding,
         token="empty",
         name="week",
         key=DataColumn("key", "week", TimestampDataType("us", "UTC"), False),

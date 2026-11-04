@@ -145,6 +145,29 @@ class TimezoneInvalidError(AnalysisError):
     pass
 
 
+class ReportTimezoneUnresolved(AnalysisError):  # noqa: N818 - canonical public error name
+    """The host does not identify a report timezone for a new Session."""
+
+    def __init__(self, *, source: str, received: str) -> None:
+        self.source = source
+        self.system_value = received
+        super().__init__(
+            message="The system report timezone could not be resolved.",
+            expected="a loadable system IANA timezone or an explicit Session timezone",
+            received=f"{source}={received!r}",
+            location="mv.session.get_or_create(timezone=...)",
+            context={"source": source, "system_value": received, "query_executed": False},
+            repair=AnalysisRepair(
+                kind="retry",
+                action="Pass an explicit IANA timezone or UTC offset for this analysis.",
+                snippet='session = mv.session.get_or_create(name, timezone="...")',
+                help_target=LiveHelpTarget(
+                    surface="analysis", canonical_id="session.get_or_create"
+                ),
+            ),
+        )
+
+
 class AnalysisStageUnavailableError(AnalysisError):
     """A requested Frame/audit stage has not been delivered in this build."""
 

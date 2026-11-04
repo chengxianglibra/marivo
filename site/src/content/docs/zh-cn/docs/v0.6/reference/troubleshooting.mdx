@@ -1,0 +1,84 @@
+---
+slug: zh-cn/docs/v0.6/reference/troubleshooting
+title: 排错与 API 查询
+description: 诊断常见错误，通过 Live Help 查询 API 用法。
+---
+
+<span id="环境与语义范围"></span>
+<span id="完整键与精确-frame-句柄"></span>
+<span id="时间与数值政策"></span>
+<span id="贡献目标与完整解释读取"></span>
+<span id="精确数据恢复与重新提交"></span>
+
+先按现象定位。保留完整错误，并使用同一 Python 环境和项目运行 `marivo doctor`；它会报告 Python 可执行文件、Marivo 版本与包路径，以及项目根目录。排查历史执行时，查看[执行日志](/zh-cn/docs/v0.6/reference/telemetry/)中的事件运行环境身份（runtime）。Doctor 只说明当前环境。
+
+| 现象 | 如何确认 | 下一步 |
+| --- | --- | --- |
+| 文档中的 API 无法使用 | 已安装版本与包路径 | 在同一 Python 环境中查询 Live Help 目标，并使用对应版本的文档。 |
+| 数据源连接失败 | 当前项目、数据源声明、环境变量引用、驱动与网络 | 修正报告指出的配置，再对该数据源运行连接检查。 |
+| 语义模型无法加载或准备检查受阻 | 错误位置、引用的定义及所选依赖范围 | 查阅 `semantic.load` Help 目标了解项目组装检查，或查阅 `semantic.readiness` 了解本次分析所需依赖；修复报告指出的定义或依赖。 |
+| 分析方法拒绝某项输入 | 错误中的期望值、实际值、位置和修复建议 | 按 Help 目标处理。若 `Column` 或轴校验失败，请从该操作使用的 Frame 重新获取句柄。 |
+| 比较或数值与预期不符 | 时间范围、基线对应关系、行是否存在及空值 | 修改匹配或缺失值策略前，先检查比较双方和结果；缺失行或空值不自动等于零。 |
+| 重开保存的 Frame 后无法做来源归因 | Frame 是否保留来源声明 | 重开的 Frame 包含固定数据和已保存的方法事实，不包含可执行的来源声明。若要重新进行来源归因，请显式构造来源输入。 |
+| 无法打开保存的 Session 或 Frame | 所选项目根目录、确切 Session 与 Artifact ID、Marivo 版本 | 保留 `.marivo/`；恢复确切 Session，再打开确切的已保存 Frame。读取旧 Store 代际的数据时，使用兼容的 Marivo 版本。 |
+
+数据源连通性测试会打开实时连接，并可能缓存已验证的环境变量凭据。只有确实要验证该数据源时才运行。
+
+## 保存结果不确定时
+
+如果保存操作结果不确定，先恢复所属 Session，再考虑重新提交。恢复会检查原发布事务，不会重新读取来源。重新提交可能产生重复结果，也可能读取已变化的数据源。
+
+若要在其他进程中继续使用，请先将以下占位值替换为保存操作返回的 `session_id` 和 `artifact_id`，再重新打开确切的 Frame：
+
+```python
+import marivo.analysis as mv
+
+session_id = "SESSION_ID"
+artifact_id = "ARTIFACT_ID"
+
+session = mv.session.resume(session_id)
+result = session.persisted_frame(artifact_id)
+```
+
+恢复 Session 不会找回仅存在于内存中的未保存 Frame。请将 `.marivo/` 与项目一同保留。`mv.session.recent()` 只列出当前 Store 代际，因此结果为空不代表旧数据已删除。不同代际彼此独立；读取或导出旧结果时，请使用兼容的 Marivo 版本。不要把删除状态目录当作通用恢复步骤。
+
+错误提供修复和 Help 目标时，请先按其指引处理。结构化错误可能包含期望值、实际值、位置和具体修复。最简 Help 示例见[查询已安装版本](#查询已安装版本)。提交复现时，请移除凭据和私有数据。
+
+## 查询 API
+
+任务指南用于学习流程，Live Help 用于查询精确调用和约束，[Python API 参考](/api/)提供自动生成的英文参考。
+
+### 查询已安装版本
+
+```python
+import marivo
+
+marivo.help()
+marivo.help("authoring")
+marivo.help("analysis")
+marivo.help("analysis.analysis_frame")
+```
+
+CLI 使用相同的目标：`.venv/bin/python -m marivo help analysis`。对于已返回的对象，`marivo.help(type(result))` 会显示其类型契约；查询属性时，使用字符串 Help 目标。
+
+按当前问题选择入口；这些主题可以独立查询。
+
+| 需要的信息 | Help 目标 |
+| --- | --- |
+| 受治理的输入、成员域或时间 | `analysis.inputs` |
+| 选择观察、Frame 操作或统计量 | `analysis.operators` |
+| 获取 Column、完整轴或统计量 | `analysis.inputs.frame` |
+| 准备基线或端点对应关系 | `analysis.inputs.comparison` |
+| 在内存中计算或保存结果 | `analysis.execution` |
+| 检查数据、导出数值或读取已保存证据 | `analysis.results` |
+| 创建或恢复确切的 Session 与已保存 Frame 身份 | `analysis.sessions` |
+
+已知目标可以直接查询。构造来源 Frame 时会捕获其依赖；求值待处理的 Frame 时可能读取这些来源。对已完成或重开的 Frame 计算会使用固定数据。重开保存的 Frame 不会恢复原始来源声明。
+
+编写定义时，从 `marivo.help("authoring")` 开始；进行语义检查时，用 `marivo.help("semantic.validation")` 选择加载、准备检查或预览。它们回答的是项目及其输入的不同问题。
+
+通过 `marivo.datasource as md`、`marivo.semantic as ms` 和 `marivo.analysis as mv` 导入 API。通过 `mv.session` 访问分析会话，例如 `mv.session.get_or_create(name)` 或 `mv.session.resume(session_id)`。
+
+### 有效求助
+
+提供 Doctor 报告的版本、解释器、包路径和项目根目录，以及最小相关定义与代码、完整结构化错误、预期结果和实际结果。使用仓库的支持或贡献渠道前，请移除秘密和私有数据行。

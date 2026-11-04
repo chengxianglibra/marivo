@@ -141,7 +141,7 @@ def test_native_distribution(
         models += (
             "amount=ms.measure_column(name='amount',entity=facts,column='amount',additivity=ms.additive_all())\n"
             if carrier in {"int64", "float64", "decimal"}
-            else "amount=ms.time_dimension_column(name='amount',entity=facts,column='amount',parse=ms.timestamp(timezone='UTC'))\n"
+            else f"amount=ms.time_dimension_column(name='amount',entity=facts,column='amount',parse={timestamp})\n"
             if carrier == "timestamp"
             else "amount=ms.dimension_column(name='amount',entity=facts,column='amount')\n"
         )
@@ -149,7 +149,7 @@ def test_native_distribution(
         semantic_project_factory(
             {
                 "datasources/warehouse.py": "import marivo.datasource as md\n"
-                + f"md.{backend}(name='warehouse',"
+                + f"md.{backend}(wall_clock_timezone='UTC', name='warehouse',"
                 + ",".join(f"{key}={value!r}" for key, value in args.items())
                 + ")\n",
                 "sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales',owner='R9',default=True)\n",
@@ -197,9 +197,8 @@ def test_native_distribution(
         native_before = len(source_trace.native_sql)
         before_runs = run_ids(session)
         refuses = (
-            (backend == "mysql" and carrier == "boolean")
-            or (kind in ("distinct", "identity") and backend == "clickhouse")
-            or (kind == "approx_distinct" and backend == "mysql")
+            (kind == "approx_distinct" and backend in ("postgres", "mysql"))
+            or (kind == "quantile" and backend in ("mysql", "trino"))
             or (kind == "approx_quantile" and backend in ("postgres", "mysql"))
         )
         if refuses:
@@ -216,7 +215,7 @@ def test_native_distribution(
         fixed = observed.persist()
         source_trace.record(fixed)
         exported = fixed.to_pandas()
-        frame = exported.set_index(ordinary_columns(exported)[0])
+        frame = exported.set_index(ordinary_columns(fixed)[0])
         values = frame["value"]
         assert frame.index.tolist() == ["a", "b", "c"]
         expected = (
@@ -228,6 +227,22 @@ def test_native_distribution(
             if carrier == "decimal"
             else {"a": 4, "b": 6}
         )
+        if backend == "postgres" and kind == "quantile" and carrier == "decimal":
+            from psycopg import sql
+
+            from tests.datasource.environment import postgres_analysis as pg
+
+            assert isinstance(facts.source, TableSourceIR)
+            with pg.connection() as native:
+                expected = dict(
+                    native.execute(
+                        sql.SQL(
+                            "SELECT owner, CAST(percentile_cont(0.25) WITHIN GROUP "
+                            "(ORDER BY amount) AS NUMERIC(38,6)) FROM {} "
+                            "WHERE amount IS NOT NULL GROUP BY owner"
+                        ).format(sql.Identifier(facts.source.table))
+                    ).fetchall()
+                )
         for owner, value in expected.items():
             if kind == "approx_quantile" and owner == "a":
                 assert 2 <= values.loc[owner] <= 6

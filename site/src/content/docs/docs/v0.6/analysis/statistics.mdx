@@ -1,0 +1,138 @@
+---
+slug: docs/v0.6/analysis/statistics
+title: Statistics and correlation
+description: Calculate row summaries, shares, and paired correlation.
+---
+
+Complete the [analysis DSL example](/docs/v0.6/analysis/dsl/#complete-example-and-shared-inputs) first. Save the following in a new script in the same project. The two August regional rows are 200 and 600. Their sum is 800, mean 400, and row count 2. These statistics describe represented regions, not average order value.
+
+Choose what to count before using a row statistic. `marivo.help("analysis.operators")` distinguishes these contracts; `analysis.inputs.frame` explains current-input statistic construction:
+
+| Counted domain | Exact Help target | Result |
+| --- | --- | --- |
+| Complete distinct Population tuples, including selected members without facts | `analysis.population.count` | Metric for `session.observe` |
+| Source Entity contributions under the chosen time and conditions | `semantic.entity.count` | Metric for `session.observe` |
+| Rows currently represented by the Frame | `analysis.row_count` | Statistic for `reduce` or `over` |
+
+If current rows cannot answer an original Metric question, construct a new explicit observation through `analysis.operators`. Summarizing grouped ratios does not recover the ratio of their original totals.
+
+## Summarize and normalize rows
+
+Single statistics and nonempty tuples can omit names for direct single-segment
+value sum/mean and row_count. Their fixed names are `<name>_sum`, `<name>_mean`
+and `row_count`. Use an explicit Mapping for business names, expression or pair
+statistics and multi-segment value paths. Duplicate candidates reject at capture;
+names and order remain stable through evaluation and persistence.
+
+```python
+from analysis import mv, current, saved
+```
+
+{/* example: query-result-statistics */}
+
+```python
+summary = current.reduce(
+    (current["revenue"].sum(), current["revenue"].mean(), mv.row_count())
+).compute()
+assert summary.output_names == ("revenue_sum", "revenue_mean", "row_count")
+summary_rows = summary.to_pandas()
+assert summary_rows["revenue_sum"].tolist() == [800]
+assert summary_rows["revenue_mean"].tolist() == [400]
+assert summary_rows["row_count"].tolist() == [2]
+summary.show()
+```
+
+{/* example: frame-partition-share */}
+
+```python
+x = current["revenue"]
+normalized = current.select(
+    {
+        "revenue": x,
+        "total": current.over(x.sum()),
+        "share": x.share(along=current.axes),
+        "rows": current.over(mv.row_count()),
+    }
+).compute()
+normalized.show()
+```
+
+{/* example: pandas-descriptive-statistics */}
+
+```python
+revenue_values = current.to_pandas()["revenue"].astype("float64")
+statistics = revenue_values.agg(["count", "sum", "mean", "median", "min", "max"])
+print(statistics)
+rank = revenue_values.rank(method="dense", ascending=False)
+standard_deviation = revenue_values.std(ddof=1)
+if standard_deviation > 0:
+    standardized = (revenue_values - revenue_values.mean()) / standard_deviation
+```
+
+{/* example: pandas-paired-statistics */}
+
+```python
+comparison = saved.to_pandas()
+present = (
+    comparison["current.present"]
+    & comparison["reference.present"]
+)
+pairs = (
+    comparison.loc[present][["revenue", "reference.baseline.revenue"]]
+    .dropna()
+    .astype("float64")
+)
+paired_difference = pairs["revenue"] - pairs["reference.baseline.revenue"]
+print(paired_difference.mean())
+```
+
+## Use a common sample for correlation
+
+Use `frame.correlate(x, y, method="pearson")` or `method="spearman"` with numeric
+Columns from the same exact Frame. The result includes `coefficient` and `n_pairs`.
+Rows with NULL in either endpoint are excluded together. Fewer than two pairs or a
+constant endpoint returns a NULL coefficient while retaining the pair count.
+
+`n_pairs` counts non-NULL pairs, including valid NaN or Infinity values; it is not
+a count of finite pairs. Correlation follows pandas behavior, so non-finite or
+extreme values can produce NaN or an error. Spearman ranks paired values using
+average ranks for ties.
+
+The pandas example uses a common present/non-null mask for both endpoints. Never pair unrelated exports by their row index. A grouped coefficient cannot be averaged to obtain pooled correlation.
+
+Normalization returns shares 0.25 and 0.75, total 800 and count 2 on both rows. Filtering before calculating changes the denominator; filtering afterwards preserves it. Empty sums are zero; sums over nonempty rows with only NULL values are NULL. Row presence and missing numeric values remain distinct.
+
+External statistics do not automatically create Frame method facts. State the sample, missing-value policy, method and assumptions. [Export results](/docs/v0.6/analysis/results/) when an external method is needed.
+
+## Check a complete paired sample
+
+Save as `paired_sample.py` and run it. All five pairs satisfy y = 2x, so Pearson correlation is 1. Duplicate values still count as separate samples.
+
+```python
+from analysis import session, region
+
+sample = session.values(
+    by=(region,),
+    columns={"x": "1", "y": "1"},
+    rows=(
+        (("a",), {"x": 1, "y": 2}),
+        (("b",), {"x": 2, "y": 4}),
+        (("c",), {"x": 2, "y": 4}),
+        (("d",), {"x": 3, "y": 6}),
+        (("e",), {"x": 4, "y": 8}),
+    ),
+).compute()
+correlation = sample.correlate(sample["x"], sample["y"], method="pearson").compute()
+paired = correlation.to_pandas()
+assert paired["n_pairs"].tolist() == [5]
+assert abs(paired["coefficient"].iloc[0] - 1.0) < 1e-12
+```
+
+## Numeric behavior
+
+Local Frame SUM and mean use Arrow's native arithmetic. Local int64 SUM stays
+int64 and can wrap; native kernels may also raise overflow errors. Decimal scalar
+expressions follow the Decimal context, while source calculations follow backend
+arithmetic. Near numeric limits, results may lose precision and vary by backend
+or dtype; native kernels can also return valid NaN/Infinity or raise an error.
+Saved Frames preserve valid NaN/Infinity separately from NULL.

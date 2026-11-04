@@ -14,6 +14,7 @@ from marivo.analysis.core.data_schema import (
     IntervalDataAxis,
     PairedDataAxis,
 )
+from marivo.analysis.core.frame_interpretation import merge_source_times
 from marivo.analysis.core.frame_structure import (
     PendingDataAxis,
     PendingDataColumn,
@@ -107,6 +108,7 @@ def infer_attribute_merge_schema(
     comparisons = tuple(comparison_map.values())
     fixed_axes = tuple(f for f in first.fixed_axes if all(f in s.fixed_axes for s in schemas[1:]))
     decompositions = tuple(d for schema in schemas for d in schema.decompositions)
+    source_times = merge_source_times(*(schema.source_times for schema in schemas))
     values = tuple(
         replace(column, slot_id=f"attribute.merge.value.{i}", nullable=True)
         for i, column in enumerate(column for schema in schemas for column in schema.values)
@@ -139,6 +141,7 @@ def infer_attribute_merge_schema(
             comparisons=comparisons,
             fixed_axes=fixed_axes,
             decompositions=decompositions,
+            source_times=source_times,
         )
     axes: list[PendingFrameAxis] = []
     for axis in first.axes:
@@ -178,4 +181,5 @@ def infer_attribute_merge_schema(
         comparisons=comparisons,
         fixed_axes=fixed_axes,
         decompositions=decompositions,
+        source_times=source_times,
     )

@@ -22,6 +22,9 @@ def test_source_predicate_topic_and_consumer_boundaries() -> None:
         "Population.where accepts membership leaves only",
         "Source reduction where= accepts field leaves only",
         "exact Frame's boolean Column",
+        "Session report timezone",
+        "aware inputs keep their instant",
+        "within(scope)",
         "session.observe({'revenue': revenue}",
     ):
         assert fact in text

@@ -195,16 +195,12 @@ def test_observe_complete_domain_uses_its_own_calendar(
     frame = result.compute().to_pandas()
     values = frame["revenue"]
     if same_calendar:
-        assert dict(
-            zip(frame[frame.attrs["axes"][1]["name"].rsplit(".", 1)[-1]], values, strict=True)
-        ) == {
+        assert dict(zip(frame["channel"], values, strict=True)) == {
             "mobile": 150,
             "web": 850,
         }
     else:
-        assert dict(
-            zip(frame[frame.attrs["axes"][1]["name"].rsplit(".", 1)[-1]], values, strict=True)
-        ) == {
+        assert dict(zip(frame["channel"], values, strict=True)) == {
             "mobile": 0,
             "web": 77,
         }

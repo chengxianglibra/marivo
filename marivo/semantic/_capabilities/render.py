@@ -484,7 +484,7 @@ def _render_error_contract(error_name: str) -> str:
     lines = [
         error_name,
         "  Semantic error contract.",
-        "  Instance help preserves concrete failure facts; repair is optional.",
+        "  Read concrete failure facts from the exception instance; repair is optional.",
     ]
     if error_name == "SemanticLoadFailed":
         lines.append("  Public fields: errors (ordered SemanticError instances).")

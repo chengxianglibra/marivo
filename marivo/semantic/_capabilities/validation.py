@@ -66,6 +66,7 @@ _RETURN_FAMILY_ALIASES = {
     "NonAdditiveV1": "Additivity",
     "NullInputPolicyV1": "ValuePolicy",
     "EmptyContributionPolicyV1": "ValuePolicy",
+    "DateParse": "DateSpec",
     "TimestampParse": "TimestampSpec",
     "StrptimeParse": "StrptimeSpec",
     "HourPrefixParse": "HourPrefixSpec",

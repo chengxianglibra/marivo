@@ -72,3 +72,5 @@ Expose supported types or explicitly select supported columns with
 For a string identifier, declare a Dimension with `ms.dimension_column(...)` and
 use the closed field's `dimension.count_distinct()` to count different values.
 A string column cannot be bound as a numeric/duration Measure.
+
+Native DATE and naive timestamp fields, including `parse=None`, require parser timezone or Datasource `wall_clock_timezone` before business-data reads. Encoded fields missing this declaration block static readiness. DATE validity endpoints share one normalized zone; DATE snapshot and temporal-set boundaries must match their explicit boundary declaration. Preview displays captured source authority without using the host timezone.

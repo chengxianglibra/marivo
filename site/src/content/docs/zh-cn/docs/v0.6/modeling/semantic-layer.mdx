@@ -1,0 +1,520 @@
+---
+slug: zh-cn/docs/v0.6/modeling/semantic-layer
+title: 语义层
+description: 逐项说明实体、维度、度量、指标与关系的参数和定义方式。
+---
+
+语义层用 Python 定义可复用的业务含义。本页依次介绍 Entity、Dimension、Time dimension、Measure、Metric 和 Relationship，说明每类对象表达什么、有哪些属性、如何定义。Datasource 负责物理访问，语义对象在此基础上定义身份、字段、聚合规则和映射关系。
+
+查询能力时从 `marivo.help("authoring")` 开始。身份、字段、关系与 Metric 定义进入 `semantic.model`，时间解析与认证日历进入 `semantic.time`，已有定义进入 `semantic.catalog`，按证明需求选择 load、readiness、preview 或 在线校验 则进入 `semantic.validation`。支持性构造值跟随其定义。本次问题组合已有闭合输入时使用 `semantic.expressions`，无需先发布 Metric。
+
+各节的简短声明是模型文件片段，不是直接粘贴到分析脚本中的命令。运行时请结合[完整模型](#complete-model)和[本地教程](/zh-cn/docs/v0.6/start/python/)。在 `models/semantic/sales/_domain.py` 中用 `ms.domain(name="sales", owner="Mina Zhang")` 声明业务域；默认域允许同目录下的定义省略 `domain=`。`ai_context=ms.ai_context(business_definition=..., guardrails=[...])` 记录业务含义与使用限制，不执行计算逻辑。
+
+物理访问配置见[数据源配置](/zh-cn/docs/v0.6/modeling/datasources/)，时间解析与日历见[日期与时间定义](/zh-cn/docs/v0.6/modeling/dates/)。下表默认值均为 Python API 默认值，`None` 不意味着自动推测业务规则。
+
+## Domain：所属业务域
+
+| 参数 | 必填 | 默认值 | 语义 |
+| --- | --- | --- | --- |
+| `name` | 是 | — | 业务域目录名，如 `sales`，参与下游对象标识。 |
+| `owner` | 是 | — | 对业务语义正确性负责的人。 |
+| `default` | 否 | `True` | 为 True 时，允许该域范围内的定义省略 `domain=`。 |
+| `ai_context` | 否 | `None` | 可选 `ms.ai_context(...)` 业务含义与使用约束；省略时不附加上下文。 |
+
+## Entity：实体与身份
+
+Entity 为物理来源定义业务身份和行粒度。对于订单，一笔订单是一个实例，稳定身份为 `order_id`。
+
+| 参数 | 必填 | 默认值 | 语义 |
+| --- | --- | --- | --- |
+| `name` | 直接形式必填 | `None` | 直接构造时的名称；省略时使用表装饰器，由函数名提供名称。 |
+| `datasource` | 是 | — | 由 `ms.ref.datasource(...)` 获得的数据源符号。 |
+| `source` | 是 | — | 物理来源描述，如 `md.table(...)`；选出的列形成实体来源结构。 |
+| `primary_key` | 否 | `None` | 有序完整稳定身份列；`None` 不声明实体身份，不代表只有一个成员。 |
+| `versioning` | 否 | `None` | `ms.snapshot(...)` 或 `ms.validity(...)`；`None` 不声明历史版本模型。 |
+| `domain` | 否 | `None` | 显式业务域；`None` 使用适用的已声明默认域。 |
+| `ai_context` | 否 | `None` | 可选 `ms.ai_context(...)` 业务含义与使用约束；省略时不附加上下文。 |
+
+```python
+orders = ms.entity(
+    name="orders",
+    datasource=ms.ref.datasource("warehouse"),
+    source=md.table("orders"),
+    primary_key=["order_id"],
+)
+```
+
+复合身份必须包含全部组成部分，例如租户与订单号。执行需要时才从来源元数据读取物理类型，`ms.load()` 不读取业务行。身份声明是业务契约，不是当前数据符合契约的证明。快照或有效期版本选择需要精确时间边界，不会自动取“最新可用记录”。Help：`semantic.entity.define`。
+
+### 精确的时间身份与 UInt64 值
+
+`primary_key` 中的 naive timestamp 保留本地时间值和完整精度。TimeDimension 的
+parser 解释独立的时间投影，不修改该身份；Session 时区也不修改身份。naive 键只与
+解释兼容的 naive 身份匹配。如果夏令时回拨中的两次同名时刻代表不同实例，应提供
+UTC／带偏移的时间戳，或增加其他身份列。
+
+Analysis 在语义算术前将 UInt64 输入转换为 Decimal(20,0)，精确覆盖
+`0 .. 18446744073709551615`。后续溢出沿用实际数值内核的原生行为；精确值不得经过浮点传输。AVG、除法和近似归约继续遵守各自的精度规则。
+
+Entity body 接受注入的 Table、内联字面量及 `ibis` 根模块的确定性公开符号，包括
+`ibis.dtype`；`ibis.expr.datatypes` 等子模块不是受支持的 body 符号。
+需要显式转换来源时，在算术之前转换操作数：
+
+```python
+@ms.entity(datasource=warehouse, source=md.table("events"), primary_key=["ts"])
+def events(raw):
+    return raw.mutate(query_duration_ms=raw.query_duration_ms.cast("decimal(20,0)"))
+```
+
+全部值都在 signed int64 范围内时，也可使用 `.cast("int64")`。如果 reader 把 Decimal
+返回为 float，应改用保留 Decimal 的读取路径或来源视图；将舍入后的 float 转回
+Decimal 无法恢复精度。Help：`semantic.entity.define`、`semantic.timestamp`、
+`analysis.analysis_frame.compute`。
+
+
+### 后端 builtin 函数
+
+Entity 函数体可以调用在模型模块中声明的类型化 scalar builtin UDF。
+例如，Trino 来源提供 `json_extract_scalar` 时：
+
+```python
+import ibis
+
+
+@ibis.udf.scalar.builtin(name="json_extract_scalar")
+def extract_text(payload: str, path: str) -> str:
+    ...
+
+
+@ms.entity(datasource=warehouse, source=md.table("events"), primary_key=["event_id"])
+def events(raw):
+    return raw.mutate(duration_ms=extract_text(raw.payload, "$.duration_ms").cast("int64"))
+```
+
+UDF 须至少有一个参数，且参数与返回值的类型均须明确；不接受零参数 builtin UDF。
+UDF 的 Python 函数体不会执行。Marivo 捕获后端函数名称、命名空间和签名，执行时仍须由
+对应 backend 支持。任意 Python helper 及 Python/Pandas/Arrow UDF 不属于 Entity 函数体符号。
+
+## Dimension：维度
+
+Dimension 是实体某个确定版本上的属性，用于分组、筛选、分类或声明关系键。类型与可空性由来源绑定或表达式决定。
+
+| 参数 | 必填 | 默认值 | 语义 |
+| --- | --- | --- | --- |
+| `name` | 是 | — | 语义名称，在所属范围内唯一。 |
+| `entity` | 是 | — | 所属 Entity，确定字段对应的来源行粒度。 |
+| `column` | 是 | — | Entity 来源暴露的物理列名，可以与语义名称不同。 |
+| `domain` | 否 | `None` | 显式业务域；`None` 使用适用的已声明默认域。 |
+| `ai_context` | 否 | `None` | 可选 `ms.ai_context(...)` 业务含义与使用约束；省略时不附加上下文。 |
+
+```python
+region = ms.dimension_column(name="region", entity=orders, column="region")
+
+
+@ms.dimension(entity=orders)
+def normalized_region(rows):
+    return ms.bind(region, rows).upper()
+```
+
+直接字段优先使用列构造函数。派生属性使用装饰器，接收实体表并捕获受限 Ibis 表达式。Null 可以是有效分组类别；当前属性不会自动获得历史时点含义。Help：`semantic.dimension.from_column`、`semantic.dimension.define`。
+
+### 派生维度：`ms.dimension`
+
+| 参数 | 必填 | 默认值 | 语义 |
+| --- | --- | --- | --- |
+| `name` | 否 | `None` | 覆盖函数名；`None` 使用被装饰的函数名。 |
+| `entity` | 是 | — | 所属 Entity，确定字段对应的来源行粒度。 |
+| `domain` | 否 | `None` | 显式业务域；`None` 使用适用的已声明默认域。 |
+| `ai_context` | 否 | `None` | 可选 `ms.ai_context(...)` 业务含义与使用约束；省略时不附加上下文。 |
+
+## Time dimension：时间维度
+
+Time dimension 建立明确的业务时间角色。原生日期、时间戳和编码日期有不同的解析与时区要求。完整参数表、解析器、范围和业务日历见[日期与时间定义](/zh-cn/docs/v0.6/modeling/dates/)。下方完整模型仍保留 `order_date` 声明。
+
+## Measure：行级度量
+
+Measure 描述来源每行的数值量，例如订单金额或成本。它拥有单位与聚合许可，尚不是 `observe` 消费的已完成聚合的 Metric。
+
+| 参数 | 必填 | 默认值 | 语义 |
+| --- | --- | --- | --- |
+| `name` | 是 | — | 语义名称，在所属范围内唯一。 |
+| `entity` | 是 | — | 所属 Entity，确定字段对应的来源行粒度。 |
+| `column` | 是 | — | Entity 来源暴露的物理列名，可以与语义名称不同。 |
+| `additivity` | 是 | — | 求和许可：`ms.additive_all()`、`ms.additive_except(...)`、`ms.additive_over(...)` 或 `ms.non_additive()`。 |
+| `status_time_dimension` | 否 | `None` | 可选状态时间字段；须用 `ms.additive_except(...)` 排除同一字段。`None` 不声明状态时间角色。 |
+| `unit` | 否 | `None` | 单位如 `"CNY"`；`None` 表示未指定，`"1"` 才明确表示无量纲。 |
+| `domain` | 否 | `None` | 显式业务域；`None` 使用适用的已声明默认域。 |
+| `ai_context` | 否 | `None` | 可选 `ms.ai_context(...)` 业务含义与使用约束；省略时不附加上下文。 |
+
+```python
+amount = ms.measure_column(
+    name="amount", entity=orders, column="amount",
+    additivity=ms.additive_all(), unit="CNY",
+)
+cost = ms.measure_column(
+    name="cost", entity=orders, column="cost",
+    additivity=ms.additive_all(), unit="CNY",
+)
+
+
+@ms.measure()
+def margin():
+    return amount - cost
+```
+
+成本示例使用下方完整模型新增的列。派生 Measure 的函数体不接收参数，组合类型化行级量。加载后通过 `catalog.get("measure:sales.orders.margin")` 获取此声明；其身份包含贡献 Entity。单位描述量纲，可加性描述在哪些轴上求和有意义；乘积不会自动变得可加，库存也不会自动沿时间可加。Help：`semantic.measure.from_column`、`semantic.measure.define`。
+
+| 声明 | 求和许可 |
+| --- | --- |
+| `ms.additive_all()` | 所有原生轴。无参数。 |
+| `ms.additive_except(snapshot_at)` | 除指定固定轴以外的所有原生轴。 |
+| `ms.additive_over(region, product)` | 仅指定的原生轴。 |
+| `ms.non_additive()` | 不允许跨原生轴求和。 |
+
+`additive_except` 和 `additive_over` 接受一个或多个不重复的 Dimension 或 TimeDimension 字段位置参数。已有集合可用 `*axes` 展开。固定轴在求和时必须保持固定，不会自动选择时间归约方式。状态时间角色通过 `status_time_dimension` 单独声明，并须将该字段包含在 `additive_except` 中。Help：`semantic.additive_all`、`semantic.additive_except`、`semantic.additive_over`、`semantic.non_additive`。
+
+### 派生度量：`ms.measure`
+
+| 参数 | 必填 | 默认值 | 语义 |
+| --- | --- | --- | --- |
+| `unit` | 否 | `None` | 对已知推导单位作兼容声明，或为此前未指定的单位作声明；`None` 继承表达式单位。 |
+| `additivity` | 否 | `None` | 显式兼容求和许可；`None` 继承表达式事实。 |
+| `ai_context` | 否 | `None` | 可选 `ms.ai_context(...)` 业务含义与使用约束；省略时不附加上下文。 |
+
+### 同一数值列的两个角色
+
+同一数值列可以分别声明为分组字段和数量，使用不同的语义名称：
+
+```python
+amount_axis = ms.dimension_column(name="amount_axis", entity=orders, column="amount")
+amount = ms.measure_column(
+    name="amount", entity=orders, column="amount", unit="CNY",
+    additivity=ms.additive_all(),
+)
+```
+
+分组或条件使用 `amount_axis`，Metric 中的数量计算使用 `amount.mean()`。
+sum/mean 等数量规约需要 Measure 角色，Dimension 既有的计数规约仍可使用。
+`@ms.measure` 组合已有数量，不转换 Dimension。
+对于两种角色共用的派生数值字段，先在 Entity 函数体中生成一列，再将两个声明绑定到
+同一列。数值类型本身不建立业务求和许可。
+
+## Metric：指标
+
+Metric 是完成来源聚合后的表达式，或已有 Metric 的组合。收入对订单金额求和，客单价用该收入除以同一范围的订单数。
+
+| 参数 | 必填 | 默认值 | 语义 |
+| --- | --- | --- | --- |
+| `domain` | 否 | `None` | 显式业务域；`None` 使用适用的已声明默认域。 |
+| `ai_context` | 否 | `None` | 可选 `ms.ai_context(...)` 业务含义与使用约束；省略时不附加上下文。 |
+
+函数名提供发布名称。零参数函数体组合闭合 Metric 或来源聚合；时间、空值、样本策略在这些算子上指定。
+
+```python
+@ms.metric()
+def revenue():
+    return amount.sum(time=order_date)
+
+
+@ms.metric()
+def average_order_value():
+    return revenue / orders.count(time=order_date)
+```
+
+函数体可以包含新的局部表达式绑定和最终 return，但不能包含表参数、`ms.bind`、查询或任意 Python 调用。空样本求和为零，非空但全部为空的样本求和为未知；除以零产生 NA。`revenue.where(region == "east")` 限定贡献条件，`revenue.per(region).mean()` 计算地区收入的均值；它们与筛选或平均已完成 Frame 不同。已有闭合 Metric 可以直接组合用于本次问题，无需发布新定义。Help：`semantic.metric.define`、`semantic.expressions`。
+
+捕获参数同时接受 tuple 和 list 字面量。例如，零参数 Metric 函数体中可以写
+`return amount.sum(time=order_date).where(region.isin(["east", "west"]))`。
+list 会冻结为 tuple；推导式、下标和任意 helper 调用仍不属于这套语法。
+
+### 精确与近似分位数
+
+各 backend 使用相同的表达式名称，由定义显式选择精确或近似计算：
+
+```python
+@ms.metric()
+def exact_p95():
+    return amount.quantile(0.95, time=order_date)
+
+
+@ms.metric()
+def approximate_p95():
+    return amount.approx_quantile(0.95, time=order_date)
+```
+
+`median()` 与 `approx_median()` 分别对应 q=0.5。精确分位使用原生 inclusive
+线性插值：`[0, 10]` 在 q=0.95 时得到 9.5。DuckDB/PostgreSQL 支持精确数值分位；
+ClickHouse 对整数和浮点输入使用 `quantileExactInclusive`。MySQL/Trino 精确分位、
+ClickHouse Decimal 精确分位以及源侧 Duration 分位均在编译时拒绝。
+显式近似分位使用 DuckDB `approx_quantile`、Trino `approx_percentile` 或 ClickHouse
+`quantileTDigest`。精确去重使用 `count_distinct()`，显式估算使用 `approx_nunique()`；
+原生估算分别使用 DuckDB `approx_count_distinct`、Trino `approx_distinct` 或
+ClickHouse `uniqHLL12`。PostgreSQL/MySQL 拒绝这两类近似操作。算法不会相互替换，
+不支持的操作在聚合查询执行前编译报错；HTTP JSON 已在源准备阶段获取响应并推断类型。
+空输入或全 NULL 输入返回 NA；
+`nulls="error"` 拒绝 NULL 贡献。近似结果可因后端而异，没有统一误差界限。
+`metric.per(time).mean()` 仍表示各时间键结果的等权均值。
+
+### 显式缩放：`ms.rescale`
+
+用 `ms.rescale` 将数值 Row 或已完成的 Metric 除以常量，并显式声明目标单位。它保留阶段、来源根、时间约束和求和许可。绑定后，来源单位必须已知。
+
+| 参数 | 必填 | 默认值 | 含义 |
+| --- | --- | --- | --- |
+| `expr` | 是 | — | 来源单位已知的数值 RowExpression 或已完成 MetricExpression。 |
+| `divisor` | 是 | — | 仅限关键字的有限正 `int`、`float` 或 `Decimal` 常量；拒绝布尔值和动态表达式。 |
+| `unit` | 是 | — | 仅限关键字的目标单位字符串；现有可分解单位会规范化，不透明单位保持原样。 |
+
+假设已有单位为字节的 `total_bytes` Metric，表示完整 86400 秒区间的总量；`hourly_p95_bytes` 表示完整小时字节总量的 P95：
+
+{/* example: semantic-rescale */}
+```python
+daily_bandwidth = ms.rescale(
+    total_bytes, divisor=86400 * 1024**3, unit="GiB/s",
+)
+p95_bandwidth = ms.rescale(
+    hourly_p95_bytes, divisor=3600 * 1024**3, unit="GiB/s",
+)
+```
+
+作者负责缩放因子与物理及业务含义，包括跨量纲声明和 `divisor=1`。固定时长因子不会随分析窗口改变，Marivo 不会推断换算。普通标量除法保留来源单位；Measure 单位声明仍须与已知推导单位兼容。Help：`semantic.rescale`。
+
+<a id="关系与归属"></a>
+
+## Relationship：实体关系
+
+| 参数 | 必填 | 默认值 | 语义 |
+| --- | --- | --- | --- |
+| `name` | 是 | — | 语义名称，在所属范围内唯一。 |
+| `from_entity` | 是 | — | 有向关系的来源实体。 |
+| `to_entity` | 是 | — | 有向关系的目标实体。 |
+| `keys` | 是 | — | 表达映射的 `ms.join_on(from_field, to_field)` 列表；须使用确切端点上的直接列 Dimension/TimeDimension。 |
+| `domain` | 否 | `None` | 显式业务域；`None` 使用适用的已声明默认域。 |
+| `ai_context` | 否 | `None` | 可选 `ms.ai_context(...)` 业务含义与使用约束；省略时不附加上下文。 |
+
+基数由连接键是否覆盖两端完整主键推导，不是额外的声明参数。键表达映射，不保证全局匹配完整性，也不决定分摊。版本化端点还需要消费方确定具体版本。
+
+关系说明业务实体如何对应。应根据已知身份与粒度规则声明，不能仅因为列名相似就连接。
+
+### 先明确连接粒度
+
+考虑下面这组完整手算输入：
+
+| 订单 | 客户 | 金额 |
+| --- | --- | ---: |
+| o1 | c1 | 100 |
+| o2 | c1 | 200 |
+| o3 | c2 | 500 |
+
+c1、c2 分别属于 east、west，c3 没有订单。总收入 800，客户收入分别为 300、500，c3 没有观察贡献；但选定客户集合仍可以包含 c3。
+
+### 让声明符合规则
+
+先声明具有完整主键的订单和客户实体，再使用 `ms.relationship` 与 `ms.join_on` 声明有向关系。通过 `marivo.help("semantic.relationship.define")` 获取精确构造方式。身份是 (tenant, customer) 时必须包含两个部分，只用客户编号可能误连其他租户。
+
+`ms.load()` 会校验已声明的关系映射并推导结构基数，不读取来源数据行。若要检查当前匹配情况，或将观测到的多重性与预期基数比较，可使用 `ms.source_check.relationship_matches(...)` 或 `ms.source_check.relationship_cardinality(...)`，再通过 `catalog.validate(..., checks=..., scope=...)` 执行。这些数据检查需要显式的有界范围，结果只描述该范围。`side='from'` 检查来源键是否匹配目标键；`side='both'` 同时检查反向匹配。`expected` 按声明方向接受 `one_to_one`、`many_to_one`、`one_to_many` 或 `many_to_many`。
+
+### 决定多重归属如何贡献
+
+若 c1 同时有 A、B 两个标签，将订单连接到两种标签会重复它的 300。把它计为总收入 600 就错了。先确定是存在性筛选、允许重叠的分组总额，还是有业务依据的分配。`mv.membership(...)` 描述明确的分组与分配规则，不能让任意连接自动可加。
+
+按新属性统计客户时保留身份；先只投影属性再计数，得到的是分类数。接下来[选择分析对象](/zh-cn/docs/v0.6/analysis/dsl/#选择与筛选)。
+以上关系的声明片段，放在同一模型加载范围内：
+
+```python
+# Declaration fragment: orders, customers, order_customer_id, and customer_id
+# are captured Entity and Dimension refs in the same model.
+orders_to_customers = ms.relationship(
+    name="orders_to_customers",
+    from_entity=orders,
+    to_entity=customers,
+    keys=[ms.join_on(order_customer_id, customer_id)],
+)
+```
+
+<a id="定义字段与指标"></a>
+<a id="complete-model"></a>
+
+## 完整模型
+
+先确认含义，再写公式。演示收入是六笔完成订单金额之和，单位 CNY，无退款。客单价应使用相同订单范围的收入和计数。
+
+### 编写完整定义
+
+先运行[快速开始](/zh-cn/docs/v0.6/start/python/)。下面在演示库中添加成本列，每笔成本设为金额的 60%，仅用于演示毛利计算。将代码保存为 `add_cost.py` 并运行。
+
+{/* example: semantic-cost-data */}
+
+```python
+import duckdb
+
+with duckdb.connect("warehouse.duckdb") as connection:
+    connection.execute("ALTER TABLE orders ADD COLUMN IF NOT EXISTS cost BIGINT")
+    connection.execute("UPDATE orders SET cost = amount * 0.6")
+```
+
+然后用下面的模型替换 `models/semantic/sales/_domain.py`，不要另加一份同名定义。直接组合原生 typed field 符号；loader 在返回 Catalog 前绑定完整依赖范围。
+
+{/* example: semantic-model */}
+
+```python
+import marivo.datasource as md
+import marivo.semantic as ms
+
+sales = ms.domain(name="sales", owner="Mina Zhang")
+orders = ms.entity(
+    name="orders",
+    datasource=ms.ref.datasource("warehouse"),
+    source=md.table("orders"),
+    primary_key=["order_id"],
+)
+region = ms.dimension_column(name="region", entity=orders, column="region")
+order_date = ms.time_dimension_column(
+    name="order_date", entity=orders, column="order_date", is_default=True
+)
+amount = ms.measure_column(
+    name="amount",
+    entity=orders,
+    column="amount",
+    additivity=ms.additive_all(),
+    unit="CNY",
+)
+cost = ms.measure_column(
+    name="cost", entity=orders, column="cost", additivity=ms.additive_all(), unit="CNY"
+)
+
+
+@ms.dimension(entity=orders)
+def normalized_region(rows):
+    return ms.bind(region, rows).upper()
+
+
+@ms.measure()
+def margin():
+    return amount - cost
+
+
+@ms.metric()
+def revenue():
+    return amount.sum(time=order_date)
+
+
+@ms.metric()
+def average_order_value():
+    return revenue / orders.count(time=order_date)
+```
+
+### 保持业务规则
+
+单位描述数量，可加性说明允许沿哪些范围求和。逐行乘积不会自动获得求和许可；别名不会改名已发布定义；未知单位也不自动等同无量纲。
+
+Measure 和 Metric 声明体不接收表参数，而是构造闭合表达式。实体与字段体保留受约束的 Ibis 写法。不要在指标声明中查询来源或执行任意 Python。
+
+空输入求和为零，非空且全空值则未知。应在来源与模型中明确取消和退款规则，不能简单把未知值补零。
+
+编辑后[检查模型](/zh-cn/docs/v0.6/modeling/semantic-layer/#加载与检查)。涉及其他实体属性时，阅读[关系与归属](/zh-cn/docs/v0.6/modeling/semantic-layer/#关系与归属)。
+
+## 加载与检查
+
+使用[本地教程的模型](/zh-cn/docs/v0.6/start/python/)。在项目根的新脚本中运行下面代码，根据当前疑问选择检查。
+
+### 先检查定义，再检查数据
+
+{/* example: readiness-3 */}
+
+```python
+import marivo.semantic as ms
+
+catalog = ms.load()
+amount_entry = catalog.get("measure:sales.orders.amount")
+assert amount_entry.kind == "measure"
+amount = amount_entry
+catalog.readiness(refs=[amount]).show()
+```
+
+`catalog.get()` 接收 `kind:path` 身份字符串，例如 `catalog.get("metric:sales.revenue")`，也接收单个未组合的查找符号，例如 `catalog.get(ms.ref.metric("sales.revenue"))`。两种方式都在当前 Catalog 中按精确身份查找。分析需要使用返回的 closed object，不能直接使用符号；组合后的 Deferred 表达式不是查找身份。
+
+Catalog 搜索返回一页结果。卡片报告当前页展示和遗漏的条目数及 `next_cursor`；使用 `page.show(max_output_bytes=None)` 或 `page.items` 获取完整当前页。后续页须通过 `next_cursor` 获取，取消展示预算不会自动翻页。
+
+普通 Metric 预览支持 DuckDB、PostgreSQL、MySQL、Trino 和 ClickHouse。
+每个依赖 Entity 最多贡献 `min(scope.max_rows, 10_000)` 行输出；这些无序输入
+不代表总体样本，也不能用于估计或放大全量指标。预览复用 datasource 分区预检：
+已有分区值证据时，必须通过 `md.partition(...)` 完整指定，或使用支持的
+`md.time_range(...)`。通过 `inspection.partitions().show()` 查看物理分区值与
+范围模板；预览不会自动选择最新分区。分区状态未知或无法枚举分区值时，可显式
+使用 `md.unpruned(...)` 选择广泛读取，或使用支持的时间范围。
+
+`preview.coverage.entity_rows` 和 `entity_row_limits` 披露每个 Entity 的实际
+输入行数和上限。达到上限时，范围是否穷尽标为 unknown。`preview.show()` 还展示
+实际范围和 `execution_limits`：请求的原生超时、实际超时支持，以及扫描行数和
+字节数上限（`None` 表示未请求）。物理扫描统计保持 unknown。过滤发生在 Entity
+主体之前；Entity 内部聚合或去重仍可能扫描超过输出上限的数据。Population、
+窗口和 path/attribute 准备仍须使用 Analysis observation。
+
+{/* example: readiness-1 */}
+
+```python
+import marivo.datasource as md
+
+revenue_entry = catalog.get("metric:sales.revenue")
+assert revenue_entry.kind == "metric"
+preview = catalog.preview(
+    revenue_entry,
+    scope=md.unpruned(max_rows=1000, timeout_seconds=30),
+    limit=20,
+)
+```
+
+{/* example: readiness-2 */}
+
+```python
+amount_entry = catalog.get("measure:sales.orders.amount")
+assert amount_entry.kind == "measure"
+amount = amount_entry
+validation = catalog.validate(
+    [amount],
+    checks=[ms.source_check.not_null(amount_entry)],
+    scope=md.unpruned(max_rows=1000, timeout_seconds=30),
+)
+validation.show()
+```
+
+`ms.load()` 离线检查模型声明与项目一致性。Readiness 接受所选定义（包括声明式 Measure 和 Metric），离线检查其物理依赖和必需时间产物；`analysis_ready_inputs` 仅包含直接请求且就绪的物理对象。使用 `catalog.validate([amount_entry]).show()` 连接来源，按实际 Entity 输出结构检查字段绑定、数值类型、时间解析器和时区契约。它会展开所选定义的完整物理依赖，并报告声明位置与修复方法。Preview 和 analysis 复用相同字段校验。检查来源值时，向 `catalog.validate(...)` 传入显式检查和有界 `scope`；`checks` 为空时必须省略 `scope`。Source check 构造器直接接受 `amount_entry` 等原生命名字段，或显式 `ms.ref` 声明选择器；匿名和路径表达式会被拒绝。普通预览与在线校验都不改变 readiness，也不证明所有分析方法均可执行。
+
+`preview` 与 `preview_many` 的 `limit` 必须是 1 至 100（含两端）的整数，限制每份结果保留的预览行数。`scope.max_rows` 独立约束采集；无效的 limit 会在打开连接前抛出结构化语义错误。`preview.is_truncated` 表示预览行被省略，`preview.coverage` 表示采集是否完整。`preview.show(n=...)` 只改变已保留行的显示数量。
+
+连接检查失败时，先检查数据源路径与凭据，再重试。
+
+[日历证书](/zh-cn/docs/v0.6/modeling/semantic-layer/#业务日历)缺失或截断，需要覆盖完整有限范围的时间预览。这些检查均不代表业务负责人认可收入口径，最后仍应运行实际观察。
+
+## 组合指标表达式
+
+在字段与指标定义完成后，可以组合筛选、逐组计算与派生指标。下面接在本页扩展模型的末尾。
+
+{/* example: semantic-composition */}
+
+```python
+# Expressions in the model above: amount, cost, order_date, region, and orders
+# have been resolved; revenue is the published metric expression.
+east_revenue = revenue.where(region == "east")
+mean_regional_revenue = revenue.per(region).mean()
+
+
+@ms.metric()
+def gross_margin_rate():
+    return (revenue - cost.sum(time=order_date)) / revenue
+```
+
+`east_revenue` 只计算 east 的贡献；`mean_regional_revenue` 是地区收入的均值；毛利率在相同时间口径下计算收入与成本。
+
+## 相关参考
+
+<a id="连接与检查"></a>
+
+连接配置与检查：[数据源配置](/zh-cn/docs/v0.6/modeling/datasources/)。
+
+<a id="业务日历"></a>
+
+日历定义与认证：[日期与时间定义](/zh-cn/docs/v0.6/modeling/dates/)。
+
+时间字段通过 `ms.date`、`ms.timestamp` 或 `ms.strptime` 声明源时区，省略时使用 Datasource `wall_clock_timezone`；`ms.hour_prefix` 继承前缀字段。DATE validity 从两端字段推导共同时区，期间日历从日期字段推导边界时区，二者均不接受额外时区覆盖。Snapshot 与 temporal_set 覆盖范围仍保留自身边界声明。

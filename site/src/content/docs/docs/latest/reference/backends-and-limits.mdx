@@ -72,6 +72,11 @@ Local operations may keep all required vectors in memory. A display limit change
 it does not cap computation or source scan work. Query timeouts use native driver settings,
 may be unsupported, and do not bound the full client call and result fetch.
 
+Complex Trino relationship and allocation expressions can exceed the server's
+`query.max-stage-count` budget and fail with `QUERY_HAS_TOO_MANY_STAGES`.
+Simplify the question or ask the server operator to review its stage budget;
+Marivo propagates the native failure without a staged fallback.
+
 Ordinary Metric preview uses all five SQL backends over explicitly scoped,
 unordered Entity inputs. Each Entity contributes at most
 `min(scope.max_rows, 10_000)` output rows. Captured partition evidence requires explicit partition values or a supported
@@ -141,9 +146,15 @@ MySQL/MariaDB. PostgreSQL uses native `to_timestamp`, so rejected data can fail
 the query. DuckDB uses try_strptime, Trino TRY, ClickHouse OrNull and
 MySQL/MariaDB zero-day arithmetic after SELECT parsing to reject impossible
 calendar carriers. Native format and precision restrictions
-remain. Parsed membership keeps wall order; raw encoded ranges cannot bypass
-parsing, so scan costs can increase. Independent physical filters still push down.
+remain. Ordered year/month/day formats declare canonical, fixed-width source
+values; qualifying ranges compare original columns to same-type source-zone
+constants without parsing the column. Other formats and unqualified endpoints
+retain native parsing and gap/fold interpretation, so scan costs can increase.
+See [date/time encoding contracts](/docs/latest/modeling/dates/#encoded-datetime-msstrptime).
+Independent physical filters still push down.
 Trino TRY can catch some input-expression failures; other backends can propagate
 argument errors. Uniform upstream error isolation is not promised.
 
 Trino strptime formats using `%U` or `%w` are rejected as configuration errors before TRY; unsupported configuration does not silently produce an all-NULL column.
+
+ClickHouse 22.3 supports the ordered formats above for projections and calendar assignment: dates retain `Date32` and clocks retain `DateTime64`. Other formats require ClickHouse 23.3 or newer. Queries needing an unavailable parser fail before business query submission; use an ordered encoding, expose a native `Date32`/`DateTime64` column, or upgrade the server. Source timezone declarations and native gap/fold behavior still apply.

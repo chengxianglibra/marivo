@@ -1,86 +1,39 @@
-"""Central timezone resolution for marivo.analysis."""
+"""Analysis-domain timezone validation and strict creation-time host resolution."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from datetime import timezone, tzinfo
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+from zoneinfo import ZoneInfoNotFoundError
 
-from marivo._timezones import (
-    fixed_offset_timezone_candidate,
-    parse_timezone,
-    system_timezone_candidate,
-)
-from marivo.analysis.errors import TimezoneInvalidError
+from marivo._timezones import NormalizedTimezone, SystemTimezoneUnresolvedError, normalize_timezone
+from marivo._timezones import resolve_system_timezone as _resolve_system_timezone
+from marivo.analysis.errors import AnalysisRepair, ReportTimezoneUnresolved, TimezoneInvalidError
+from marivo.introspection.live.model import LiveHelpTarget
 
 
-@dataclass(frozen=True)
-class ResolvedTimezone:
-    """Result of system timezone resolution with provenance metadata."""
-
-    name: str
-    tz: tzinfo
-    resolution: str  # 'iana' or 'fixed_offset'
-    warning: str | None = None
-
-
-def zoneinfo_from_name(name: str) -> ZoneInfo:
-    """Convert an IANA timezone name to a ZoneInfo, raising TimezoneInvalidError on failure."""
-    if not isinstance(name, str):
-        raise TimezoneInvalidError(
-            message=f"timezone name must be a string, got {type(name).__name__}",
-            context={"kind": "TimezoneNameInvalid", "tz": repr(name)},
-        )
+def resolve_timezone(value: str) -> NormalizedTimezone:
+    """Validate an explicit timezone using the shared name and offset contract."""
     try:
-        return ZoneInfo(name)
-    except ZoneInfoNotFoundError as exc:
+        return normalize_timezone(value)
+    except (ValueError, ZoneInfoNotFoundError) as exc:
         raise TimezoneInvalidError(
-            message=f"timezone {name!r} was not found",
-            context={"kind": "TimezoneNotFound", "tz": name},
+            message="The report timezone is not a valid IANA name or explicit UTC offset.",
+            expected="a loadable IANA timezone name or explicit UTC offset",
+            received=repr(value),
+            location="mv.session.get_or_create(timezone=...)",
+            context={"kind": "TimezoneInvalid", "tz": repr(value)},
+            repair=AnalysisRepair(
+                kind="retry",
+                action="Pass a valid timezone without surrounding whitespace.",
+                help_target=LiveHelpTarget(
+                    surface="analysis", canonical_id="session.get_or_create"
+                ),
+            ),
         ) from exc
 
 
-def resolve_system_timezone() -> ResolvedTimezone:
-    """Resolve the system timezone from environment and OS signals.
-
-    Resolution order:
-    1. TZ environment variable (IANA if valid, fallback if invalid).
-    2. /etc/localtime symlink pointing into zoneinfo/ (Linux).
-    3. Local offset fallback from datetime.now().astimezone().
-    """
-    candidate = system_timezone_candidate(allow_fixed_offset=False)
-    if candidate is None:
-        return _fixed_offset_fallback()
-    name, tz, resolution = candidate
-    return ResolvedTimezone(name=name, tz=tz, resolution=resolution)
-
-
-def _fixed_offset_fallback() -> ResolvedTimezone:
-    """Build a fixed-offset fallback from the local system clock."""
-    name, local_tz, resolution = fixed_offset_timezone_candidate()
-    return ResolvedTimezone(
-        name=name,
-        tz=local_tz,
-        resolution=resolution,
-        warning="system timezone could not be resolved as IANA; fixed offset fallback is in use",
-    )
-
-
-def restore_timezone(name: str, resolution: str) -> tzinfo:
-    """Restore a persisted IANA name or canonical fixed UTC offset."""
-    if resolution == "iana":
-        return zoneinfo_from_name(name)
-    if resolution == "fixed_offset":
-        if name == "UTC":
-            return timezone.utc
-        try:
-            normalized, tz = parse_timezone(name)
-        except (ValueError, ZoneInfoNotFoundError):
-            pass
-        else:
-            if normalized == name and isinstance(tz, timezone):
-                return tz
-    raise TimezoneInvalidError(
-        message="Persisted report timezone is not a canonical IANA name or fixed UTC offset.",
-        context={"kind": "PersistedTimezoneInvalid", "tz": name, "resolution": resolution},
-    )
+def resolve_system_timezone() -> NormalizedTimezone:
+    """Freeze a strict system timezone or raise a structured explicit-input repair."""
+    try:
+        return _resolve_system_timezone()
+    except SystemTimezoneUnresolvedError as exc:
+        raise ReportTimezoneUnresolved(source=exc.source, received=exc.received) from exc

@@ -34,7 +34,7 @@ def test_terminal_schema_and_manifest_authority_rejects_damage(
             (artifact_id,),
         ).fetchone()[0]
     body = json.loads(payload)
-    assert body["format"] == "marivo.frame_output/v15"
+    assert body["format"] == "marivo.frame_output/v17"
     assert "BoundGraph" not in payload and "fit_inputs" not in payload
     missing_value = deepcopy(body)
     schema = missing_value["value"]["fields"]["data"]["fields"]["schema"]["fields"]
@@ -78,8 +78,6 @@ def test_terminal_corruption_rejects_while_exported_copies_are_isolated(
     # Editing an exported pandas copy is harmless; changing the persisted output fails.
     altered = plain(artifact)
     altered.loc[:, "value"] = 999
-    altered.attrs["axes"][0]["name"] = "changed by caller"
-    assert artifact.to_pandas().attrs["axes"][0]["name"] != "changed by caller"
     memory = artifact.compute()
     assert not altered.value.equals(plain(artifact).value)
     for damaged in (payload[:-1], b"damaged terminal data"):

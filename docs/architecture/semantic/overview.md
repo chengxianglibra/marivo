@@ -17,7 +17,7 @@ marivo.semantic
         |
 marivo.analysis
   Population + explicit observations + AnalysisFrame operations
-  complete memory/stored values + separate Artifact audit
+  complete memory/stored values + persisted Frame source-read metadata
 ```
 
 Lower layers do not import Analysis to discover business meaning or execution

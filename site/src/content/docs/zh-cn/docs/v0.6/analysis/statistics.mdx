@@ -1,0 +1,132 @@
+---
+slug: zh-cn/docs/v0.6/analysis/statistics
+title: 统计与相关性
+description: 计算行汇总、占比与配对相关性。
+---
+
+先完成[分析 DSL 示例](/zh-cn/docs/v0.6/analysis/dsl/#完整示例与后续输入)。将下面代码保存为同一项目中的新脚本。8 月两个地区行分别为 200、600，求和 800，均值 400，行数 2。这是地区结果统计，并非平均订单金额。
+
+使用行统计前，先明确计数对象。`marivo.help("analysis.operators")` 区分以下契约；`analysis.inputs.frame` 解释当前输入上的统计量构造：
+
+| 计数对象 | 精确 Help 目标 | 结果 |
+| --- | --- | --- |
+| Population 中完整不同元组，包括选中但没有事实的成员 | `analysis.population.count` | 交给 `session.observe` 的 Metric |
+| 所选时间与条件下的源 Entity 贡献 | `semantic.entity.count` | 交给 `session.observe` 的 Metric |
+| 当前 Frame 表示的行 | `analysis.row_count` | 交给 `reduce` 或 `over` 的统计表达式 |
+
+当前行不足以回答原始 Metric 问题时，从 `analysis.operators` 构造新的显式观察。汇总分组比率不能恢复原始总额的比率。
+
+## 汇总和归一化当前行
+
+直接单段值列的 sum/mean 和 row_count 可用单个统计量或非空 tuple 省略名称，
+固定名称为 `<name>_sum`、`<name>_mean` 和 `row_count`。业务名称、表达式或配对统计、
+多段值路径应使用显式 Mapping。重复候选名在捕获时拒绝；求值和持久化保留原名称及顺序。
+
+```python
+from analysis import mv, current, saved
+```
+
+{/* example: query-result-statistics */}
+
+```python
+summary = current.reduce(
+    (current["revenue"].sum(), current["revenue"].mean(), mv.row_count())
+).compute()
+assert summary.output_names == ("revenue_sum", "revenue_mean", "row_count")
+summary_rows = summary.to_pandas()
+assert summary_rows["revenue_sum"].tolist() == [800]
+assert summary_rows["revenue_mean"].tolist() == [400]
+assert summary_rows["row_count"].tolist() == [2]
+summary.show()
+```
+
+{/* example: frame-partition-share */}
+
+```python
+x = current["revenue"]
+normalized = current.select(
+    {
+        "revenue": x,
+        "total": current.over(x.sum()),
+        "share": x.share(along=current.axes),
+        "rows": current.over(mv.row_count()),
+    }
+).compute()
+normalized.show()
+```
+
+{/* example: pandas-descriptive-statistics */}
+
+```python
+revenue_values = current.to_pandas()["revenue"].astype("float64")
+statistics = revenue_values.agg(["count", "sum", "mean", "median", "min", "max"])
+print(statistics)
+rank = revenue_values.rank(method="dense", ascending=False)
+standard_deviation = revenue_values.std(ddof=1)
+if standard_deviation > 0:
+    standardized = (revenue_values - revenue_values.mean()) / standard_deviation
+```
+
+{/* example: pandas-paired-statistics */}
+
+```python
+comparison = saved.to_pandas()
+present = (
+    comparison["current.present"]
+    & comparison["reference.present"]
+)
+pairs = (
+    comparison.loc[present][["revenue", "reference.baseline.revenue"]]
+    .dropna()
+    .astype("float64")
+)
+paired_difference = pairs["revenue"] - pairs["reference.baseline.revenue"]
+print(paired_difference.mean())
+```
+
+## 相关性使用共同样本
+
+使用 `frame.correlate(x, y, method="pearson")` 或 `method="spearman"`，两个数值
+Column 必须来自同一个确切 Frame。结果包含 `coefficient` 和 `n_pairs`。任一端为 NULL
+时整对排除；不足两对或某端恒定时，系数为 NULL，但仍保留配对数。
+
+`n_pairs` 统计非 NULL 配对，也包括有效 NaN 或 Infinity，因此它不代表有限值配对数。
+相关性遵循 pandas 算法，非有限值或极端数值可能返回 NaN 或报错。Spearman 对并列值取平均秩。
+
+pandas 示例使用共同的存在且非空掩码。不能按行号拼接无关导出。各组系数也不能直接平均得到总体相关性。
+
+归一化返回占比 0.25、0.75，每行总额为 800、行数为 2。先筛选再计算会改变分母，计算后筛选则保留分母。空输入的求和为 0；非空但数值全为 NULL 时，求和为 NULL。行存在与数值缺失是不同信息。
+
+外部统计不会自动生成 Frame 方法事实。应说明样本、缺失策略、方法和假设。需要其他方法时[导出结果](/zh-cn/docs/v0.6/analysis/results/)。
+
+## 一个可核对的配对样本
+
+保存为 `paired_sample.py` 并运行。五对值都满足 y = 2x，因此 Pearson 系数为 1。重复值仍作为独立样本计数。
+
+```python
+from analysis import session, region
+
+sample = session.values(
+    by=(region,),
+    columns={"x": "1", "y": "1"},
+    rows=(
+        (("a",), {"x": 1, "y": 2}),
+        (("b",), {"x": 2, "y": 4}),
+        (("c",), {"x": 2, "y": 4}),
+        (("d",), {"x": 3, "y": 6}),
+        (("e",), {"x": 4, "y": 8}),
+    ),
+).compute()
+correlation = sample.correlate(sample["x"], sample["y"], method="pearson").compute()
+paired = correlation.to_pandas()
+assert paired["n_pairs"].tolist() == [5]
+assert abs(paired["coefficient"].iloc[0] - 1.0) < 1e-12
+```
+
+## 数值行为
+
+本地 Frame 的 SUM 和 mean 使用 Arrow 原生算术。本地 int64 SUM 保持 int64，可能回绕；原生
+内核也可能抛出溢出异常。Decimal 标量表达式遵循 Decimal context，来源端计算遵循实际后端的
+算术行为。接近数值范围边界时，结果可能丢失精度，并因后端或数值类型不同而异；原生内核
+也可能返回有效 NaN/Infinity 或报错。保存后的 Frame 会将有效 NaN/Infinity 作为值保留，
+与 NULL 区分。

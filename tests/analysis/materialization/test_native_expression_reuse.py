@@ -14,12 +14,12 @@ from ibis.backends.duckdb import Backend as DuckDBBackend
 
 from marivo.analysis.compiler.graph_lowering import LoweredRead
 from marivo.analysis.compiler.graph_plan import ProjectionRead, SourceRead
-from marivo.analysis.compiler.source_time import localize
 from marivo.analysis.materialization import temporal_sql
 from marivo.analysis.materialization.graph_source_execution import (
     PreparedSources,
     _native_query_expression,
 )
+from marivo.datasource._temporal_expressions import localize
 from marivo.datasource.adapters import SourceSession, provider_for
 from tests.datasource.source_cases import datasource
 
@@ -104,8 +104,11 @@ def test_native_rewrite_keeps_backend_specific_temporal_operations(
         clickhouse = _native_query_expression(
             prepared, replace(stage, source_id="clickhouse"), read
         )
-        assert "TOUTCTIMESTAMP" in ibis.to_sql(clickhouse, dialect="clickhouse").upper()
-        assert "TOUTCTIMESTAMP" not in ibis.to_sql(duckdb, dialect="duckdb").upper()
+        clickhouse_sql = ibis.to_sql(clickhouse, dialect="clickhouse").upper()
+        duckdb_sql = ibis.to_sql(duckdb, dialect="duckdb").upper()
+        assert "TODATETIME64" in clickhouse_sql and "TOTIMEZONE" in clickhouse_sql
+        assert "'ASIA/KOLKATA'" in clickhouse_sql
+        assert "TODATETIME64" not in duckdb_sql and "TOTIMEZONE" not in duckdb_sql
         assert [engine for _, engine in temporal_calls] == ["duckdb", "clickhouse"]
         _native_query_expression(prepared, replace(stage, source_id="clickhouse"), read)
         assert len(temporal_calls) == 2
@@ -132,5 +135,5 @@ def test_clickhouse_timestamp_truncation_still_uses_wide_native_range() -> None:
     expression = table.select(day=table.instant.truncate("D"))
     lowered = temporal_sql.lower_temporal(expression, "clickhouse")
     sql = ibis.to_sql(lowered, dialect="clickhouse")
-    assert "dateTrunc" in sql
+    assert lowered.schema()["day"].scale == 6
     assert "toDateTime(" not in sql

@@ -1,0 +1,179 @@
+---
+slug: zh-cn/docs/v0.6/analysis/population
+title: Population
+description: 选择完整成员与坐标域，区分输出键和贡献筛选，并统计选中成员。
+---
+
+分析对象集合（Population）是完整坐标元组的有限集合，例如订单、客户、地区或多个相关坐标轴组成的组合。它描述分析所覆盖的范围，观察则为其中的成员计算度量值。`customer_id` 这样的字段本身不是客户身份；身份包含全部有序主键字段。字段值为 `NULL` 时可以作为类别，Entity 身份的主键值必须非空。
+
+先完成[快速开始](/zh-cn/docs/v0.6/start/python/)，并将 [DSL 共享示例](/zh-cn/docs/v0.6/analysis/dsl/#完整示例与后续输入)保存为 `analysis.py`。在项目根目录中，将本页代码块保存为 `population.py`，然后运行 `.venv/bin/python population.py`。Population 的构造采用延迟求值：`session.frame(P).compute()` 生成完整键，`session.observe({"count": P.count()}).compute()` 计算域的大小。
+
+```python
+from analysis import mv, session, revenue, region, august, current
+
+orders_entry = session.catalog.get("entity:sales.orders")
+assert orders_entry.kind == "entity"
+Orders = orders_entry
+```
+
+## 字面坐标：`mv.coordinates`
+
+| 参数 | 必填 | 默认值 | 语义 |
+| --- | --- | --- | --- |
+| `by` | 是 | — | 有序字段或身份分组，每个位置定义一个坐标轴。可用 `mv.product` 将时间域与其他轴组合。 |
+| `keys` | 是 | — | 每个轴对应一个值的完整元组。身份轴上的值必须是完整主键元组，即使主键只有一列也如此。重复元组只计一次。 |
+
+
+```python
+requested = mv.coordinates(
+    by=(mv.identity(Orders),),
+    keys=(((4,),), ((5,),), ((6,),), ((999,),)),
+)
+requested_count = session.observe({"members": requested.count()}).compute()
+assert requested_count.to_pandas()["members"].tolist() == [4]
+```
+
+`requested` 包含订单 999，但教程数据中没有这条记录。字面 Population 记录所选键；来源中是否存在对应记录需另行确认。`keys=()` 表示空域；当 `by=()` 时，`keys=((),)` 表示有一个元素的零轴域。
+
+来源驱动的 Population 遵循语义模型中声明的身份、关系基数和版本粒度。需要检查数据唯一性或关系基数等条件时，可运行[在线校验](/zh-cn/docs/v0.6/modeling/semantic-layer/#加载与检查)并明确指定检查项。标量查询找不到关联行时，`session.read` 和 `P.classify` 会保留请求的身份，缺失属性的值为 `NULL`。
+
+这些声明以及实际集合/分组算子可以建立完整键唯一性，无需再做一次重复扫描。
+普通 members、read、classify 和 Top 不承担来源质量审计。字面 Frame 数据和未知关系保留
+入口键检查；NULL 身份及算子必要覆盖检查仍是独立义务。
+
+## 身份分组：`mv.identity`
+
+| 参数 | 必填 | 默认值 | 语义 |
+| --- | --- | --- | --- |
+| `target` | 是 | — | Entity 或显式有向关系路径，用来定义身份轴。 |
+| `at` | 否 | `None` | 版本化身份使用的精确 `session.instant(...)` 锚点；非版本化 Entity 使用 `None`。 |
+
+## 来源成员：`session.members`
+
+| 参数 | 必填 | 默认值 | 语义 |
+| --- | --- | --- | --- |
+| `entity` | 是 | — | 当前分析会话目录中已解析的 Entity。 |
+| `at` | 否 | `None` | 版本化 Entity 的精确版本选择时刻；非版本化 Entity 可省略。此时刻应与观察时段分别选择。 |
+| `where` | 否 | `None` | 可选的来源字段或 Population 成员筛选条件；省略时保留所选范围内来源已表示的全部身份。 |
+
+
+```python
+east_orders = session.members(Orders, where=region == "east")
+east_count = session.observe({"members": east_orders.count()}).compute()
+assert east_count.to_pandas()["members"].tolist() == [4]
+```
+
+这里的成员是跨两个月的订单 1、2、4、5。成员时间应与 `Metric` 的观察时段分别选择。快照或有效期 Entity 须显式提供 `at=session.instant(...)`。
+
+## 输出域与贡献筛选
+
+`by=P` 选择完整输出键。若还要将贡献限制在这些成员内，使用 `where=mv.in_population(P)`。筛选后，输出域必须包含所有必要的贡献键，否则求值会抛出覆盖错误。相关坐标轴应作为完整元组保留；分别列出各轴的值无法保留它们的组合关系。
+
+### 成员谓词：`mv.in_population`
+
+| 参数 | 必填 | 默认值 | 语义 |
+| --- | --- | --- | --- |
+| `population` | 是 | — | 用于判断成员关系的完整选定域。 |
+
+
+### 笛卡尔积：`mv.product`
+
+| 参数 | 必填 | 默认值 | 语义 |
+| --- | --- | --- | --- |
+| `factors` | 是 | — | 至少两个有序因子，类型为 `Population`、`TimeScope` 或 `CalendarAxis`；各因子轴须不同，已绑定的 `Population` 因子须属于同一分析会话。任一因子为空时，乘积为空。 |
+
+```python
+domain = mv.product(august, requested)
+observed = session.observe(
+    {"revenue": revenue}, by=domain, where=mv.in_population(requested)
+).compute()
+assert sorted(observed.to_pandas()["revenue"].tolist()) == [0, 100, 100, 600]
+```
+
+订单 999 因为没有贡献而保留收入零；若订单有记录但金额全部为 `NULL`，其求和结果则未知。`mv.product(*factors)` 会包含各因子的所有组合；仅当完整笛卡尔积符合预期输出范围时使用。
+
+## 分类、投影与计数
+
+### `P.classify`
+
+| 参数 | 必填 | 默认值 | 语义 |
+| --- | --- | --- | --- |
+| `by` | 是 | — | 一个身份 `Entity` 的直接属性，可同时保留身份轴。求值时读取这些属性。 |
+
+### `P.project`
+
+| 参数 | 必填 | 默认值 | 语义 |
+| --- | --- | --- | --- |
+| `by` | 是 | — | Population 中已有的轴；可选择或调整顺序。投影元组会去重，需先用 `classify` 添加属性。 |
+
+
+```python
+all_orders = session.members(Orders)
+classified = all_orders.classify(by=(all_orders.axes[0], region))
+regions = classified.project(by=(region,))
+counts = session.observe(
+    {"orders": classified.count(), "regions": regions.count()}
+).compute()
+assert counts.to_pandas()["orders"].tolist() == [6]
+assert counts.to_pandas()["regions"].tolist() == [2]
+```
+
+`P.count()` 返回延迟的 `Metric`，用于统计不同的完整元组，其中包括 `NULL` 字段类别和来源中没有记录的显式请求身份。保留身份时统计六笔订单，先投影到地区再统计则得到两个地区。`Entity.count()` 统计来源贡献，`mv.row_count()` 统计 Frame 中的行。`P.axes` 列出坐标规则；要保留选定成员集合，请传入 `P` 本身。
+
+## 集合选择与关系映射
+
+### `P.where`
+
+| 参数 | 必填 | 默认值 | 语义 |
+| --- | --- | --- | --- |
+| `predicate` | 是 | — | 由 `mv.in_population(...)`、`&`、`\|` 和 `~` 组合的成员谓词。谓词中的 `Population` 只能使用接收方已有的坐标轴。 |
+
+### `P.union / P.intersection / P.difference`
+
+| 参数 | 必填 | 默认值 | 语义 |
+| --- | --- | --- | --- |
+| `other` | 是 | — | 具有兼容完整绑定轴的 Population。`union` 合并域，`intersection` 保留共有元组，`difference` 从当前域移除匹配元组。 |
+
+### `P.image`
+
+| 参数 | 必填 | 默认值 | 语义 |
+| --- | --- | --- | --- |
+| `via` | 是 | — | 通向目标身份的非空、显式、连续有向关系路径。 |
+| `at` | 否 | `None` | 需要版本选择时，指定目标的精确时刻；`None` 表示不设锚点。 |
+
+### `P.preimage`
+
+| 参数 | 必填 | 默认值 | 语义 |
+| --- | --- | --- | --- |
+| `targets` | 是 | — | 选定的兼容目标身份域；返回结果仍受接收方 P 限制。 |
+| `via` | 是 | — | 从接收方身份到目标的显式有向关系路径。 |
+
+
+```python
+present_requested = requested.intersection(all_orders)
+missing_requested = requested.difference(all_orders)
+set_counts = session.observe(
+    {"present": present_requested.count(), "missing": missing_requested.count()}
+).compute()
+assert set_counts.to_pandas()["present"].tolist() == [3]
+assert set_counts.to_pandas()["missing"].tolist() == [1]
+```
+
+`P.image` 可以包含目标记录缺失的外键身份；之后读取该成员的属性时可能得到 `NULL`。`P.preimage` 选择当前 Population 中能到达任一目标的身份，不会因关系多重性重复身份。订单映射到客户再映射回来时，会选中这些客户的所有订单，因此结果范围可能大于原订单子集。
+
+## 从 Frame 选择继续：`session.population_from`
+
+| 参数 | 必填 | 默认值 | 语义 |
+| --- | --- | --- | --- |
+| `frame` | 是 | — | 来自同一分析会话的 Frame；使用其中已表示的普通键构造选定域。 |
+| `on` | 是 | — | 显式将 FrameAxis 映射到字段或 Entity，用来声明业务对应关系。投影后会对完整选定键去重。 |
+
+
+```python
+chosen = current.top(1, by=current["revenue"]).compute()
+chosen_regions = session.population_from(chosen, on=((chosen.axes[1], region),))
+chosen_count = session.observe({"regions": chosen_regions.count()}).compute()
+assert chosen_count.to_pandas()["regions"].tolist() == [1]
+```
+
+由于 `current` 是已计算的 8 月结果，`population_from` 会记录选中的地区。后续观察可将 `chosen_regions` 传给 `where=mv.in_population(chosen_regions)`，这样仍选中 west，无需重新排名。用 `session.frame(P)` 计算 Population 的键，用 `session.read(P, fields)` 读取单一 Entity 身份域的属性。创建和使用 Population 时，应使用其所属的分析会话。精确参考：`analysis.population`、`analysis.coordinates`、`analysis.session.members`、`analysis.session.population_from`。

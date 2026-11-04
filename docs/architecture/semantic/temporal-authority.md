@@ -14,14 +14,16 @@ report timezones and frozen Frame correspondence.
 | PeriodCalendar | Civil date plus named level keys | Finite exhaustive ordered partition and containment graph |
 | TemporalSet | Unique occurrence ID, start/end and optional category | Exact finite occurrences; overlap and gaps permitted |
 
-All field refs for an object belong to one Entity. Constructors use explicit
-boundary_timezone and half-open civil-date coverage. These declarations do not
+All field refs for an object belong to one Entity. Constructors use half-open
+civil-date coverage. A PeriodCalendar derives its boundary timezone from its
+date field. A TemporalSet explicitly declares boundary_timezone for coverage
+midnights; DATE endpoints must declare the same timezone. These declarations do not
 require physical table/column names or redundant author-maintained ordinals.
 The same source Entity may back both kinds, each with its own ref/digest.
 
 ## Period calendars
 
-ms.period_calendar declares name, date, boundary_timezone, coverage and a levels
+ms.period_calendar declares name, date, coverage and a levels
 mapping. date must be a civil-date TimeDimension. A timestamp-bearing parse is rejected;
 parse=None retains a premise until source schema preparation proves native DATE.
 Midnight timestamp values cannot substitute for a DATE type. Empty coverage does
@@ -47,16 +49,21 @@ no edge. The system stores the direct transitive reduction and admissible
 closure; authors do not add manual roll-up overrides. Derived starts, ends,
 ordinals and containment positions come from the validated rows.
 
-For field symbols and domain, a calendar can be authored as:
+Given the `calendar_days` Entity, level fields and domain, a calendar can be authored as:
 
 ```python
 from datetime import date
 import marivo.semantic as ms
 
+calendar_date = ms.time_dimension_column(
+    name="calendar_date",
+    entity=calendar_days,
+    column="calendar_date",
+    parse=ms.date(timezone="Asia/Shanghai"),
+)
 retail_calendar = ms.period_calendar(
     name="retail_445",
     date=calendar_date,
-    boundary_timezone="Asia/Shanghai",
     coverage=(date(2025, 1, 1), date(2027, 1, 1)),
     levels={"year": fiscal_year_key, "month": fiscal_month_key},
     domain=commerce,
@@ -75,7 +82,9 @@ ms.temporal_set declares occurrence_id, start, end, boundary_timezone, coverage
 and optional category. IDs are unique. End is exclusive and strictly after start;
 occurrences lie wholly within finite coverage. Civil dates and timestamps cannot
 mix in one set. Timestamp coverage converts its civil dates to local-midnight
-instants in the declared boundary timezone.
+instants in the declared boundary timezone. Naive and encoded timestamp source
+values use the field parser timezone or Datasource wall_clock_timezone, never
+the coverage boundary timezone.
 
 Overlapping seasons, incidents, promotions and holidays belong here when they
 are not a complete partition. A one-day holiday is explicitly [date, date+1),
@@ -96,6 +105,11 @@ or temporal-set entry's definition.snapshot_status for the current certificate.
 A larger physical source may need a bounded upstream view/partition; sampling
 cannot certify it.
 Requested native query timeouts retain datasource support limits.
+
+The one existing source capture applies the same native backend parsing and
+localization expressions used by Analysis. Certification freezes resolved aware
+instants and DATE values; it does not replay strptime or choose a DST branch in
+Python. Missing source declarations reject before reading rows.
 
 Successful preview validates and atomically publishes an immutable normalized
 snapshot under project-local semantic state. Failed reads/validation do not

@@ -181,12 +181,10 @@ def authoring_evidence_project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
     datasource_dir = tmp_path / "models" / "datasources"
     datasource_dir.mkdir(parents=True)
     (datasource_dir / "warehouse.py").write_text(
-        "import marivo.datasource as md\n"
-        f"md.duckdb(name='warehouse', path={str(database_path)!r})\n"
+        f"import marivo.datasource as md\nmd.duckdb(wall_clock_timezone='UTC', name='warehouse', path={str(database_path)!r})\n"
     )
     (datasource_dir / "warehouse_replica.py").write_text(
-        "import marivo.datasource as md\n"
-        f"md.duckdb(name='warehouse_replica', path={str(replica_path)!r})\n"
+        f"import marivo.datasource as md\nmd.duckdb(wall_clock_timezone='UTC', name='warehouse_replica', path={str(replica_path)!r})\n"
     )
     semantic_dir = tmp_path / "models" / "semantic" / "sales"
     semantic_dir.mkdir(parents=True, exist_ok=True)
@@ -295,9 +293,7 @@ def semantic_project_factory(tmp_path: Path) -> _SemanticProjectFactory:
                 continue
             datasource_file.parent.mkdir(parents=True, exist_ok=True)
             datasource_file.write_text(
-                "import marivo.datasource as md\n"
-                f"md.duckdb(name={datasource_name!r}, "
-                "path=':memory:')\n"
+                f"import marivo.datasource as md\nmd.duckdb(wall_clock_timezone='UTC', name={datasource_name!r}, path=':memory:')\n"
             )
 
         project = SemanticProject(workspace_dir=effective_dir)
@@ -331,7 +327,7 @@ def bootstrap_sales_project(tmp_path: Path, *, with_time: bool = True) -> None:
     datasource_dir = tmp_path / "models" / "datasources"
     datasource_dir.mkdir(parents=True, exist_ok=True)
     (datasource_dir / "warehouse.py").write_text(
-        "import marivo.datasource as md\nmd.duckdb(name='warehouse', path=':memory:')\n"
+        "import marivo.datasource as md\nmd.duckdb(wall_clock_timezone='UTC', name='warehouse', path=':memory:')\n"
     )
     (semantic_dir / "__init__.py").write_text("")
     (semantic_dir / "_domain.py").write_text(
@@ -498,3 +494,28 @@ def installed_multisource_wheel(installed_wheel: InstalledWheel) -> InstalledWhe
         "native-dependency-check", [str(installed_wheel.interpreter), "-m", "pip", "check"]
     )
     return installed_wheel
+
+
+def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
+    """Drop release and runtime tests unless the caller passed ``-m``.
+
+    The default suite is ``not release and not runtime``. That filter used to
+    live in ``pytest.ini`` ``addopts``. pytest-testmon refuses affected-test
+    selection when ``-m`` is set at all, so ``make check-fast`` would rerun
+    the whole suite. ``make runtime-test`` and ``make release-test`` pass
+    their own ``-m`` and keep that selection unchanged.
+    """
+    if config.getoption("markexpr"):
+        return
+    kept: list[pytest.Item] = []
+    dropped: list[pytest.Item] = []
+    for item in items:
+        external = item.get_closest_marker("release") or item.get_closest_marker("runtime")
+        if external is not None:
+            dropped.append(item)
+        else:
+            kept.append(item)
+    if not dropped:
+        return
+    config.hook.pytest_deselected(items=dropped)
+    items[:] = kept

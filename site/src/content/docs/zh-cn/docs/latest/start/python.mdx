@@ -53,7 +53,7 @@ with duckdb.connect("warehouse.duckdb") as connection:
 ```python title="models/datasources/warehouse.py"
 import marivo.datasource as md
 
-md.duckdb(name="warehouse", path="warehouse.duckdb")
+md.duckdb(name="warehouse", path="warehouse.duckdb", wall_clock_timezone="UTC")
 ```
 
 ## 定义收入

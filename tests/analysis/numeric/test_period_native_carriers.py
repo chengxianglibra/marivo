@@ -79,7 +79,7 @@ def test_period_alignment_native_carriers(
         ).compute()
         frame = result.to_pandas()
         assert len(frame) == 6
-        assert set(frame[frame.attrs["axes"][1]["name"].rsplit(".", 1)[-1]]) == {
+        assert set(frame["facts"]) == {
             ("a", 1, 1),
             ("b", 2, 1),
         }
@@ -93,7 +93,7 @@ def test_period_alignment_native_carriers(
         missing = frame[~frame["left_present"]]
         assert len(missing) == 2
         assert missing["change"].isna().all()
-        mapping, _, _ = paired_tables(frame)
+        mapping, _, _ = paired_tables(result)
         assert mapping["left.0"].isna().sum() == 1
         absent_pairs = set(mapping.loc[mapping["left.0"].isna()].iloc[:, 0])
         assert set(temporal_keys(result).loc[~frame["left_present"]]) == absent_pairs

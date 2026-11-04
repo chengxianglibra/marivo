@@ -100,7 +100,7 @@ def test_terminal_native_timeout_is_not_analysis_cancellation(
         if backend == "postgres":
             assert getattr(cause, "sqlstate", None) == "57014"
         elif backend == "mysql":
-            assert "2013" in str(cause) or "1317" in str(cause)
+            assert cause.args[0] in (2013, 1317, 3024)
         elif backend == "trino":
             assert getattr(cause, "error_name", None) == "EXCEEDED_TIME_LIMIT"
         elif backend == "clickhouse":
@@ -185,7 +185,7 @@ def test_terminal_exact_rows_and_typed_reentry_refusal(
         semantic_project_factory(
             {
                 "datasources/terminal.py": "import marivo.datasource as md\n"
-                + f"md.{backend}(name='terminal',"
+                + f"md.{backend}(wall_clock_timezone='UTC', name='terminal',"
                 + ",".join(f"{key}={value!r}" for key, value in arguments.items())
                 + ")\n",
                 "sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales',owner='R9',default=True)\n",

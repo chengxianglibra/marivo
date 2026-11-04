@@ -22,7 +22,10 @@ from marivo.analysis.binding.lineage import observation_contexts
 from marivo.analysis.core.artifact_data import DataColumn
 from marivo.analysis.core.calendar_keys import time_key_type
 from marivo.analysis.core.data_types import ScalarDataType
-from marivo.analysis.core.frame_calendar import FrozenSourceTime, freeze_calendar, freeze_interval
+from marivo.analysis.core.frame_calendar import (
+    calendar_descriptor,
+    freeze_interval,
+)
 from marivo.analysis.core.frame_data import LiteralFrameBinding, SourceFrameBinding
 from marivo.analysis.core.frame_interpretation import FrameRowAttributeTime
 from marivo.analysis.core.frame_structure import (
@@ -79,12 +82,9 @@ def _utc(value: datetime | None) -> datetime | None:
     )
 
 
-def pending_schema(
-    graph: BoundGraph, state: CompiledSemanticState | None
-) -> tuple[PendingDataSchema, tuple[FrozenSourceTime, ...]]:
-    """Capture current axis facts and freeze each source calendar exactly once."""
+def pending_schema(graph: BoundGraph, state: CompiledSemanticState | None) -> PendingDataSchema:
+    """Capture static structure without freezing native result positions."""
     axes: list[PendingFrameAxis] = []
-    calendars: list[FrozenSourceTime] = []
     offset = 0
     role: Literal["field", "identity"]
     components: tuple[str, ...]
@@ -97,13 +97,12 @@ def pending_schema(
                 name=name,
                 key=DataColumn(f"key.{offset}", name, ScalarDataType("int64"), False),
             )
-            calendars.append(interval)
             axes.append(interval.axis)
             offset += len(interval.axis.columns)
             continue
         if isinstance(axis, CalendarCoordinate):
             name = f"calendar:{axis.grain}"
-            frozen = freeze_calendar(
+            frozen_axis = calendar_descriptor(
                 axis,
                 token=f"axis.{index}",
                 name=name,
@@ -120,9 +119,8 @@ def pending_schema(
                     else None
                 ),
             )
-            calendars.append(frozen)
-            axes.append(frozen.axis)
-            offset += len(frozen.axis.columns)
+            axes.append(frozen_axis)
+            offset += len(frozen_axis.columns)
             continue
         elif isinstance(axis, AxisBinding):
             name = axis.field.ref.path if axis.field is not None else axis.entity.ref.path
@@ -181,7 +179,7 @@ def pending_schema(
         values,
         tuple(value_name(value.name, location="frame.source") for value in values),
         value_contexts=observation_contexts(graph, tuple(axes), state),
-    ), tuple(calendars)
+    )
 
 
 def _capture(
@@ -191,7 +189,7 @@ def _capture(
     connection: DatasourceConnectionConfig,
     frame_key_inputs: tuple[FrameKeyInput, ...] = (),
 ) -> AnalysisFrame:
-    schema, calendars = pending_schema(graph, state)
+    schema = pending_schema(graph, state)
     return AnalysisFrame._from_expression(
         local,
         schema,
@@ -199,7 +197,6 @@ def _capture(
             graph,
             state,
             connection,
-            calendars,
             merge_frame_key_inputs(frame_key_inputs, owner=local.owner),
         ),
     )
@@ -389,7 +386,7 @@ def values(
     """Capture zero-axis literal values without source configuration or scope."""
     _validate_value_columns(columns, rows)
     graph = capture_values(by=(), columns=columns, rows=rows, owner=local.owner)
-    schema, _ = pending_schema(graph, None)
+    schema = pending_schema(graph, None)
     return AnalysisFrame._from_expression(local, schema, LiteralFrameBinding(graph))
 
 

@@ -63,15 +63,16 @@ def test_comparison_owns_independent_nullable_columns(
     result = comparison.persist()
     assert isinstance(result, mv.AnalysisFrame)
     exported = result.to_pandas()
-    frame = exported.set_index(ordinary_columns(exported)[0])
+    frame = exported.set_index(ordinary_columns(result)[0])
     assert frame["value"].tolist() == [30, 200, 0, 0]
     assert frame["reference.baseline.value"].tolist() == [60, 120, 0, 0]
     assert frame["reference.absolute.value"].tolist() == [-30, 80, 0, 0]
     assert frame["reference.relative.value"].iloc[:2].tolist() == pytest.approx([-0.5, 2 / 3])
     assert frame["reference.relative.value"].iloc[2:].isna().all()
     assert frame[["current.present", "reference.present"]].all().all()
-    filtered = defined.compute().to_pandas()
-    assert filtered[ordinary_columns(filtered)[0]].tolist() == ["A", "B"]
+    defined_result = defined.compute()
+    filtered = defined_result.to_pandas()
+    assert filtered[ordinary_columns(defined_result)[0]].tolist() == ["A", "B"]
     assert total.compute().to_pandas()["value"].tolist() == pytest.approx([1 / 6])
     result.show()
     card = capsys.readouterr().out
@@ -117,20 +118,16 @@ def test_decimal_absolute_keeps_precision_and_relative_uses_float(
         )
     current = _monthly(case, "2026-08-01", "2026-09-01")
     baseline = _monthly(case, "2026-07-01", "2026-08-01")
-    frame = (
-        current.compare(
-            {
-                "reference": mv.baseline(
-                    baseline,
-                    on=tuple(zip(current.axes, baseline.axes, strict=True)),
-                    match=mv.ordinal(),
-                )
-            }
-        )
-        .compute()
-        .to_pandas()
-    )
-    frame = frame.set_index(ordinary_columns(frame)[0])
+    compared = current.compare(
+        {
+            "reference": mv.baseline(
+                baseline,
+                on=tuple(zip(current.axes, baseline.axes, strict=True)),
+                match=mv.ordinal(),
+            )
+        }
+    ).compute()
+    frame = compared.to_pandas().set_index(ordinary_columns(compared)[0])
     assert frame.loc["C", "reference.absolute.value"] == Decimal("-0.05")
     assert frame.loc["C", "reference.relative.value"] == -1.0
     assert frame["reference.relative.value"].isna().any()

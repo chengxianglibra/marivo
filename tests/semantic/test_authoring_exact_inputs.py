@@ -84,7 +84,6 @@ def _dependencies(*, changed: str | None = None, skip_entity: str | None = None)
                 valid_to=ms.ref.time_dimension("sales.validity_orders.end"),
                 interval="closed_open",
                 open_end=(None,),
-                timezone="UTC",
             )
             if name == "validity_orders"
             else None
@@ -220,7 +219,6 @@ def _consume(
             valid_to=time("sales.validity_orders.end"),
             interval="closed_open",
             open_end=(None,),
-            timezone="UTC",
         )
         return ms.entity(
             name="validity_orders",
@@ -234,7 +232,6 @@ def _consume(
         return ms.period_calendar(
             name="probe",
             date=time("sales.calendar.day"),
-            boundary_timezone="UTC",
             coverage=coverage,
             levels={"week": dimension("sales.calendar.week")},
         )

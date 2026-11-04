@@ -153,7 +153,13 @@ def bind_observation(
     )
     if len(set(axes)) != len(axes):
         reject("distinct output axes", repr(by), "Remove repeated axes.", "Session.observe")
-    condition = where
+    from marivo.analysis.binding.temporal_predicates import normalize_temporal_predicate
+
+    condition = (
+        normalize_temporal_predicate(where, timezone, location="Session.observe.where")
+        if where is not None
+        else None
+    )
     contributions: list[ContributionBinding] = []
     calendar_samples: list[tuple[tuple[int, ...], CalendarCoordinate]] = []
     count_populations: dict[PopulationDependency, PopulationDependency] = {}
@@ -174,7 +180,10 @@ def bind_observation(
             visit(
                 node.operand,
                 (*occurrence, 0),
-                (*filters, node.predicate),
+                (
+                    *filters,
+                    normalize_temporal_predicate(node.predicate, timezone, location="Metric.where"),
+                ),
                 sample_axes,
                 sample_layers,
             )

@@ -39,7 +39,7 @@ def computation_session(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> mv.S
     datasource.mkdir(parents=True)
     semantic.mkdir(parents=True)
     (datasource / "warehouse.py").write_text(
-        "import marivo.datasource as md\nmd.duckdb(name='warehouse', path='warehouse.duckdb')\n"
+        "import marivo.datasource as md\nmd.duckdb(wall_clock_timezone='UTC', name='warehouse', path='warehouse.duckdb')\n"
     )
     (semantic / "_domain.py").write_text(
         "import marivo.semantic as ms\nms.domain(name='sales', owner='Data', default=True)\n"
@@ -225,7 +225,7 @@ _REMOTE_PHYSICAL = {
         "INSERT INTO {table} VALUES (1, 15.75, 3), (2, 4.25, 1)",
     ),
     "clickhouse": (
-        "CREATE TABLE {table}(id UInt64, amount Decimal(12,2), weight UInt64) "
+        "CREATE TABLE {table}(id Int64, amount Decimal(12,2), weight Int64) "
         "ENGINE=MergeTree ORDER BY id",
         "INSERT INTO {table} VALUES (1, 15.75, 3), (2, 4.25, 1)",
     ),
@@ -233,15 +233,15 @@ _REMOTE_PHYSICAL = {
 
 _REMOTE_DATASOURCE = {
     "postgres": (
-        "md.postgres(name='warehouse', host='127.0.0.1', port=15432, database='analysis', "
+        "md.postgres(wall_clock_timezone='UTC', name='warehouse', host='127.0.0.1', port=15432, database='analysis', "
         "user_env='MARIVO_TEST_POSTGRES_USER', password_env='MARIVO_TEST_POSTGRES_PASSWORD')\n"
     ),
     "mysql": (
-        "md.mysql(name='warehouse', host='127.0.0.1', port=23306, database='analysis', "
+        "md.mysql(wall_clock_timezone='UTC', name='warehouse', host='127.0.0.1', port=23306, database='analysis', "
         "user_env='MARIVO_TEST_MYSQL_USER', password_env='MARIVO_TEST_MYSQL_PASSWORD')\n"
     ),
     "clickhouse": (
-        "md.clickhouse(name='warehouse', host='127.0.0.1', port=18123, database='qualification', "
+        "md.clickhouse(wall_clock_timezone='UTC', name='warehouse', host='127.0.0.1', port=18123, database='qualification', "
         "user_env='MARIVO_TEST_CLICKHOUSE_USER', password_env='MARIVO_TEST_CLICKHOUSE_PASSWORD')\n"
     ),
 }
@@ -405,10 +405,8 @@ def test_mysql_decimal_mean_preserves_declared_carrier(
 
 
 # ---------------------------------------------------------------------------
-# Trino (plan section 4, probe-decided): the live probe measured exact
-# DECIMAL arithmetic for mul/add/sub and SUM, but AVG(DECIMAL) stays at the
-# input scale and rounds (10.005 -> 10.01 decimal(12,2)), so row expressions
-# open and every composed decimal unit keeps its rejection.
+# Trino preserves native DECIMAL arithmetic and SUM. AVG retains the native
+# input scale and rounding rather than requiring higher-precision emulation.
 # ---------------------------------------------------------------------------
 
 _TRINO_PHYSICAL = (
@@ -446,8 +444,8 @@ def trino_session(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[m
         semantic.mkdir(parents=True)
         (datasource / "warehouse.py").write_text(
             "import marivo.datasource as md\n"
-            "md.trino(name='warehouse', host='127.0.0.1', port=18080, catalog='iceberg', "
-            "schema='analysis', timezone='UTC', user_env='MARIVO_TEST_TRINO_USER')\n"
+            "md.trino(wall_clock_timezone='UTC', name='warehouse', host='127.0.0.1', port=18080, catalog='iceberg', "
+            "schema='analysis', user_env='MARIVO_TEST_TRINO_USER')\n"
         )
         (semantic / "_domain.py").write_text(
             "import marivo.semantic as ms\nms.domain(name='sales', owner='Data', default=True)\n"
@@ -498,15 +496,14 @@ def test_trino_computed_measure_decimal_sum_is_exact(
 
 
 @pytest.mark.runtime
-def test_trino_decimal_mean_keeps_rejection(trino_session: mv.Session) -> None:
-    """AVG stays at the input scale and rounds, so the mean cell stays closed."""
-    from marivo.analysis.errors import AnalysisError
-
+def test_trino_decimal_mean_uses_native_avg(trino_session: mv.Session) -> None:
+    """The two Decimal inputs have the exact native mean 10.00."""
     logical = trino_session.observe(
         {"value": trino_session.catalog.get("metric:sales.amount_mean")}
     )
-    with pytest.raises(AnalysisError):
-        logical.persist()
+    value = logical.persist().to_pandas()["value"].iloc[0]
+    assert isinstance(value, Decimal)
+    assert value == Decimal("10.00")
 
 
 @pytest.mark.parametrize("metric", ("net_total", "net_weighted"))

@@ -1479,10 +1479,9 @@ class AnalysisFrame:
             limit: Integer 1..10000, excluding bool; default 1000.
             cursor: Previous page cursor or None; repeat the same request parameters.
             axis_names: Optional full axis name or token to export name mapping.
-            time_details: Include calendar labels and nominal boundaries; default False.
-                Calendar/interval axes export actual .start/.end; ordinary TimeFields
-                export one value. For clipped calendars, .nominal_start is the bucket
-                start and .start is the observation start. axis_names renames prefixes.
+            time_details: Include calendar labels; default False.
+                Calendar axes export one actual key; interval axes export .start/.end.
+                Ordinary TimeFields export one value. axis_names renames prefixes.
         Returns: Immutable FramePage with complete keys, layout and read statistics.
         Example: ``page = frame.compute().read_page(columns=('revenue',), limit=100)``.
         Constraints: Does not execute or persist expressions. Stored pages validate
@@ -1579,20 +1578,20 @@ class AnalysisFrame:
             axis_names: Optional full axis name or token to export name mapping. Names
                 must be nonempty printable strings without surrounding whitespace.
                 Defaults to the final path component of each axis name.
-            time_details: Include calendar labels and nominal boundaries; default False.
+            time_details: Include calendar labels; default False.
 
         Returns:
             A pandas DataFrame with string columns: readable coordinates, full
             output names and independent boolean presence. Composite identities
-            remain tuples. Calendar and interval coordinates include start/end timestamps in their
-            captured axis timezone; mixed interval zones and sub-minute fixed offsets use UTC.
+            remain tuples. Calendar coordinates export one actual key timestamp; interval
+            coordinates export start/end timestamps in their captured timezone.
+            Mixed interval zones and sub-minute fixed offsets use UTC.
             Ordinary TimeField coordinates remain one value column.
-            Calendar details add label/nominal_start/nominal_end. Actual .start may be
-            clipped; .nominal_start is the original bucket start. axis_names renames
-            prefixes only; select the desired exported column for a single start value.
+            Calendar details add label. Actual keys do not describe complete bucket
+            membership intervals; read_periods() exposes saved selection progress.
+            axis_names renames prefixes only.
             Paired coordinates use left/right prefixes.
-            attrs retain isolated axes, units, comparisons and frozen_coordinates;
-            frozen_coordinates entries store rows as immutable pyarrow.Table values.
+            attrs are empty; read axes, units and comparisons from frame.schema.
 
         Example:
             ``fixed = frame.compute(); rows = fixed.to_pandas()``;
@@ -1608,8 +1607,8 @@ class AnalysisFrame:
             Large int64[pyarrow] values mixed with floats may raise ArrowInvalid.
             For approximate arithmetic, use ``rows["value"].astype("float64") / 3600.0``;
             this may round integers and represent pd.NA as NaN.
-            Exported data and attrs grant no typed computation authority or stable
-            deserialization protocol. Continue typed analysis from the Frame.
+            Exported data grants no typed computation authority. Continue typed
+            analysis from the Frame.
             Retain that Frame for typed operations; a DataFrame does not retain it.
             For another process, persist and retain exact IDs before the producer exits.
         """
@@ -1688,6 +1687,20 @@ class AnalysisFrame:
             else "max_output_bytes=None; .schema/.lineage for metadata; .read_page()/.to_pandas() for data",
         )
         card.field("values", repr(self.output_names)).field("presence", repr(self.presence_names))
+        if self._schema.source_times:
+            from marivo.analysis.core.frame_interpretation import source_time_summary
+
+            card.field(
+                "source_times",
+                "\n".join(
+                    source_time_summary(fact)[:640] for fact in self._schema.source_times[:12]
+                ),
+            )
+            if len(self._schema.source_times) > 12:
+                card.field(
+                    "source_times.more",
+                    f"{len(self._schema.source_times) - 12} omitted; read .schema.source_times",
+                )
         if self._schema.alignments:
             card.field("alignments.count", str(len(self._schema.alignments)))
         for index, alignment in enumerate(self._schema.alignments[:3]):

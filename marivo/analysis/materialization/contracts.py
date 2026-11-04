@@ -377,6 +377,7 @@ class SessionRecord:
     question: str | None
     report_timezone_name: str
     report_timezone_resolution: Literal["iana", "fixed_offset"]
+    report_timezone_origin: Literal["explicit", "system"]
     created_at: str
     updated_at: str
 

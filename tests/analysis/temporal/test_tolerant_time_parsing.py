@@ -19,6 +19,7 @@ from tests.analysis.numeric.test_remote_numeric_query import _datasource_model
 from tests.analysis.temporal.encoded_time_fixtures import axis
 from tests.analysis.temporal.test_calendar_native_keys import _maria
 from tests.datasource.source_cases import SourceData, source_case, source_params
+from tests.shared_fixtures import declared_test_timezone
 
 CASES = source_params(
     [
@@ -39,11 +40,11 @@ def test_postgres_parser_preserves_native_relaxed_dates(
     # PostgreSQL TO_TIMESTAMP accepts alternate separators, suffix text and
     # missing trailing fields.
     rows = [
-        {"id": 1, "point": "2026/02/28", "amount": 7},
-        {"id": 2, "point": "2026-02-28trailing", "amount": 11},
-        {"id": 3, "point": "2026-02", "amount": 13},
-        {"id": 4, "point": "2026!02!28", "amount": 17},
-        {"id": 5, "point": "2026-2-8", "amount": 19},
+        {"id": 1, "point": "2026/28/02", "amount": 7},
+        {"id": 2, "point": "2026-28-02trailing", "amount": 11},
+        {"id": 3, "point": "2026-28", "amount": 13},
+        {"id": 4, "point": "2026!28!02", "amount": 17},
+        {"id": 5, "point": "2026-8-2", "amount": 19},
         {"id": 7, "point": None, "amount": 29},
     ]
     values = ",".join(
@@ -55,7 +56,7 @@ def test_postgres_parser_preserves_native_relaxed_dates(
     data = SourceData("id BIGINT, point VARCHAR(100), amount BIGINT", values, "", rows)
     with source_case("postgres", "table", tmp_path, monkeypatch, data) as case:
         table = case.session.bind(case.source, source_identity="relaxed-dates").relation
-        parsed = parse_strptime("postgres", table.point, StrptimeParse("%Y-%m-%d"))
+        parsed = parse_strptime("postgres", table.point, StrptimeParse("%Y-%d-%m"))
         query = table.select("id", parsed=parsed).order_by("id")
         result = case.session.collect_bounded(
             lower_temporal(query, "postgres"), purpose="parser.relaxed", max_rows=8
@@ -63,7 +64,7 @@ def test_postgres_parser_preserves_native_relaxed_dates(
         expected = [
             date(2026, 2, 28),
             date(2026, 2, 28),
-            date(2026, 2, 1),
+            date(2026, 1, 28),
             date(2026, 2, 28),
             date(2026, 2, 8),
         ]
@@ -71,9 +72,13 @@ def test_postgres_parser_preserves_native_relaxed_dates(
             pd.Timestamp(value).date() if pd.notna(value) else None for value in result.parsed
         ] == [*expected, None]
 
-        field = axis("%Y-%m-%d")
+        field = axis("%Y-%d-%m")
         _, authority = source_time(
-            table.point, field, boundary_timezone="UTC", read_timezone="UTC", engine="postgres"
+            table.point,
+            field,
+            boundary_timezone="UTC",
+            source_timezone=declared_test_timezone(field, "UTC"),
+            engine="postgres",
         )
         predicate = source_time_predicate(
             table.point,
@@ -89,7 +94,7 @@ def test_postgres_parser_preserves_native_relaxed_dates(
             purpose="parser.relaxed.membership",
             max_rows=2,
         )
-        assert total.total.tolist() == [67]
+        assert total.total.tolist() == [54]
 
 
 @pytest.mark.runtime
@@ -121,7 +126,7 @@ def test_postgres_parser_preserves_native_relaxed_timestamps(
 
 
 @pytest.mark.runtime
-@pytest.mark.parametrize("point", ["2026-02-30", "broken"])
+@pytest.mark.parametrize("point", ["30/02/2026", "broken"])
 @pytest.mark.parametrize("consumer", ["projection", "membership"])
 def test_postgres_parser_propagates_invalid_data(
     point: str, consumer: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -137,12 +142,16 @@ def test_postgres_parser_propagates_invalid_data(
     with source_case("postgres", "table", tmp_path, monkeypatch, data) as case:
         table = case.session.bind(case.source, source_identity="invalid-date").relation
         if consumer == "projection":
-            parsed = parse_strptime("postgres", table.point, StrptimeParse("%Y-%m-%d"))
+            parsed = parse_strptime("postgres", table.point, StrptimeParse("%d/%m/%Y"))
             query = table.select(parsed=parsed)
         else:
-            field = axis("%Y-%m-%d")
+            field = axis("%d/%m/%Y")
             _, authority = source_time(
-                table.point, field, boundary_timezone="UTC", read_timezone="UTC", engine="postgres"
+                table.point,
+                field,
+                boundary_timezone="UTC",
+                source_timezone=declared_test_timezone(field, "UTC"),
+                engine="postgres",
             )
             predicate = source_time_predicate(
                 table.point,
@@ -168,9 +177,9 @@ def test_postgres_parser_propagates_invalid_data(
     [
         ("%Y%m%d", "20260228", "broken", date(2026, 2, 28)),
         (
-            "%Y-%m-%d %H:%M:%S",
-            "2026-02-28 12:34:56",
-            "2026-13-28 12:34:56",
+            "%Y/%m/%d %H:%M:%S",
+            "2026/02/28 12:34:56",
+            "2026/13/28 12:34:56",
             datetime(2026, 2, 28, 12, 34, 56),
         ),
         ("%b %d %Y", "Feb 28 2026", "invalid", date(2026, 2, 28)),
@@ -238,7 +247,7 @@ def test_native_parser_rejects_bad_data_without_losing_legal_values(
 
 
 @pytest.mark.parametrize("backend,profile", CASES)
-@pytest.mark.parametrize("fmt", ("%Y%m%d", "%Y-%m-%d"))
+@pytest.mark.parametrize("fmt", ("%d%m%Y", "%d-%m-%Y"))
 def test_safe_membership_excludes_invalid_calendar_and_keeps_native_noncanonical_values(
     backend: str,
     profile: str,
@@ -248,9 +257,9 @@ def test_safe_membership_excludes_invalid_calendar_and_keeps_native_noncanonical
 ) -> None:
     _maria(profile, monkeypatch)
     points = (
-        ("20260228", "20260230", "broken")
-        if fmt == "%Y%m%d"
-        else ("2026-02-28", "2026-02-30", "2026-2-8")
+        ("28022026", "30022026", "broken")
+        if fmt == "%d%m%Y"
+        else ("28-02-2026", "30-02-2026", "8-2-2026")
     )
     rows = [
         {"id": 1, "point": points[0], "amount": 7},
@@ -258,7 +267,7 @@ def test_safe_membership_excludes_invalid_calendar_and_keeps_native_noncanonical
         {"id": 3, "point": points[2], "amount": 13},
     ]
     if backend == "postgres":
-        rows = [row for row in rows if row["id"] == 1 or (fmt != "%Y%m%d" and row["id"] == 3)]
+        rows = [row for row in rows if row["id"] == 1 or (fmt != "%d%m%Y" and row["id"] == 3)]
     values = ",".join(f"({row['id']},{row['point']!r},{row['amount']})" for row in rows)
     data = SourceData(
         "id BIGINT, point VARCHAR(100), amount BIGINT",
@@ -270,7 +279,11 @@ def test_safe_membership_excludes_invalid_calendar_and_keeps_native_noncanonical
         table = case.session.bind(case.source, source_identity="parser-membership").relation
         field = axis(fmt)
         _, authority = source_time(
-            table.point, field, boundary_timezone="UTC", read_timezone="UTC", engine=backend
+            table.point,
+            field,
+            boundary_timezone="UTC",
+            source_timezone=declared_test_timezone(field, "UTC"),
+            engine=backend,
         )
         predicate = source_time_predicate(
             table.point,
@@ -285,16 +298,20 @@ def test_safe_membership_excludes_invalid_calendar_and_keeps_native_noncanonical
         result = case.session.collect_bounded(
             lower_temporal(query, backend), purpose="parser.membership", max_rows=2
         )
-        assert result.total.tolist() == [7 if fmt == "%Y%m%d" or backend == "clickhouse" else 20]
+        assert result.total.tolist() == [7 if fmt == "%d%m%Y" or backend == "clickhouse" else 20]
 
 
-def test_parsed_gap_membership_keeps_wall_order() -> None:
+def test_parsed_gap_membership_retains_native_predicate() -> None:
     table = ibis.memtable(
         {"point": ["2026-03-08 02:15", "2026-03-08 03:00", "bad"], "amount": [7, 11, 19]}
     )
     field = axis("%Y-%m-%d %H:%M", "America/New_York")
-    _, authority = source_time(
-        table.point, field, boundary_timezone="UTC", read_timezone="UTC", engine="duckdb"
+    projected, authority = source_time(
+        table.point,
+        field,
+        boundary_timezone="UTC",
+        source_timezone=declared_test_timezone(field, "UTC"),
+        engine="duckdb",
     )
     predicate = source_time_predicate(
         table.point,
@@ -307,14 +324,20 @@ def test_parsed_gap_membership_keeps_wall_order() -> None:
     backend = ibis.duckdb.connect()
     try:
         assert backend.execute(
-            table.filter(predicate).aggregate(total=table.amount.sum())
-        ).total.tolist() == [18]
+            lower_temporal(
+                table.filter(
+                    (projected >= ibis.timestamp("2026-03-08 07:00:00"))
+                    & (projected < ibis.timestamp("2026-03-08 07:10:00"))
+                ).aggregate(total=table.amount.sum()),
+                "duckdb",
+            )
+        ).total.tolist() == [11]
     finally:
         backend.disconnect()
 
 
 @pytest.mark.parametrize("backend,profile", CASES)
-def test_public_parsed_time_predicate_and_calendar_keep_wall_order(
+def test_public_parsed_time_predicate_and_calendar_keep_native_interpretation(
     backend: str,
     profile: str,
     tmp_path: Path,
@@ -336,6 +359,33 @@ def test_public_parsed_time_predicate_and_calendar_keep_wall_order(
     )
     with source_case(backend, profile, tmp_path, monkeypatch, data) as case:
         assert isinstance(case.source, TableSourceIR)
+        native = {
+            "duckdb": "timezone('America/New_York', try_strptime('{value}', '%Y-%m-%d %H:%M'))",
+            "postgres": "CAST(to_timestamp('{value}', 'YYYY-MM-DD HH24:MI') AS TIMESTAMP) AT TIME ZONE 'America/New_York'",
+            "mysql": "CONVERT_TZ(DATE_ADD(STR_TO_DATE('{value}', '%Y-%m-%d %H:%i'), INTERVAL 0 DAY), 'America/New_York', '+00:00')",
+            "trino": "TRY(with_timezone(date_parse('{value}', '%Y-%m-%d %H:%i'), 'America/New_York'))",
+            "clickhouse": "toTimeZone(toDateTime64('{value}:00', 6, 'America/New_York'), 'UTC')",
+        }[backend]
+        oracle = case.session._backend.execute(
+            case.session._backend.sql(
+                " UNION ALL ".join(
+                    f"SELECT {native.format(value=value)} AS point, {amount} AS amount"
+                    for value, amount in (("2026-03-08 02:15", 7), ("2026-03-08 03:00", 11))
+                ),
+                schema={"point": "timestamp('UTC', 6)", "amount": "int64"},
+            )
+        )
+        instants = pd.to_datetime(oracle.point, utc=True)
+        start = pd.Timestamp("2026-03-08T07:00Z")
+        expected = [
+            sum(
+                oracle.amount[
+                    (instants >= start + pd.Timedelta(minutes=i))
+                    & (instants < start + pd.Timedelta(minutes=i + 1))
+                ]
+            )
+            for i in range(10)
+        ]
         semantic_project_factory(
             {
                 "datasources/warehouse.py": _datasource_model(backend, case, monkeypatch),
@@ -347,7 +397,7 @@ def test_public_parsed_time_predicate_and_calendar_keep_wall_order(
             }
         )
         monkeypatch.chdir(tmp_path)
-        session = mv.session.get_or_create("parsed-wall-order", timezone="UTC")
+        session = mv.session.get_or_create("parsed-native-time", timezone="UTC")
         point = session.catalog.get("time_dimension:sales.facts.point")
         amount = session.catalog.get("measure:sales.facts.amount")
         scope = session.time_scope(
@@ -356,11 +406,11 @@ def test_public_parsed_time_predicate_and_calendar_keep_wall_order(
         selected = session.observe(
             {"value": amount.sum()}, by=(), where=point.within(scope)
         ).compute()
-        assert selected.to_pandas()["value"].tolist() == [18]
+        assert selected.to_pandas()["value"].tolist() == [sum(expected)]
         daily = session.observe(
             {"value": amount.sum(time=point)}, by=(scope.by(mv.grain("minute")),)
         ).compute()
-        assert daily.to_pandas()["value"].tolist() == [18] + [0] * 9
+        assert daily.to_pandas()["value"].tolist() == expected
         grouped = session.observe({"value": amount.sum()}, by=(point,)).compute()
         rows = grouped.to_pandas(axis_names={grouped.axes[0].token: "parsed"})
         assert rows.loc[rows.parsed.isna(), "value"].tolist() == [19]

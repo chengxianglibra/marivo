@@ -113,5 +113,4 @@ def snapshot(result: mv.AnalysisFrame, *, frame: pd.DataFrame | None = None) -> 
             if isinstance(backing, StoredFrameBacking)
             else backing.metadata
         ),
-        "attrs": _scalar(rows.attrs),
     }

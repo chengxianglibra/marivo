@@ -748,6 +748,18 @@ def test_entity_help_preserves_the_supported_table_decorator(
     assert "remove the decorated function body" not in text
 
 
+def test_hour_prefix_help_discloses_canonical_hours_without_uniform_errors(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    marivo.help("semantic.hour_prefix")
+    text = capsys.readouterr().out
+    assert "0..23" in text and "'00'..'23'" in text
+    assert "Hour 24 violates the declaration" in text
+    assert "no source scan or uniform parse-error policy" in text
+    assert "SQL NULL retains native semantics" in text
+    assert "including midnight starts" in text
+
+
 @pytest.mark.parametrize("method", ("first", "last"))
 def test_ordered_sample_help_discloses_inference_and_null_default(
     method: str, capsys: pytest.CaptureFixture[str]
@@ -786,8 +798,8 @@ def test_per_help_covers_observed_and_complete_sample_domains(
     assert "explicit non-first fields locate interleaved axes" in text
     assert "(P, rule, ...)" in text
     assert "parameters: memberships" not in text
-    assert "every inner calendar cell" in text
-    assert "week in month is not" in text
+    assert "actual time samples" in text
+    assert "week in month rejects" in text
     assert "Session's current certified snapshot" in text
     assert "Windows inside calendar samples or wrapping calendar folds are unsupported" in text
 

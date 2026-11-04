@@ -6,6 +6,7 @@ import json
 import os
 import sys
 from decimal import Decimal
+from numbers import Integral
 from pathlib import Path
 from unittest.mock import patch
 
@@ -40,7 +41,7 @@ def _author(project: Path, *, mean_measure: str = "quantity") -> None:
     datasource.mkdir(parents=True)
     semantic.mkdir(parents=True)
     (datasource / "warehouse.py").write_text(
-        "import marivo.datasource as md\nmd.duckdb(name='warehouse', path='warehouse.duckdb')\n"
+        "import marivo.datasource as md\nmd.duckdb(wall_clock_timezone='UTC', name='warehouse', path='warehouse.duckdb')\n"
     )
     (semantic / "_domain.py").write_text(
         "import marivo.semantic as ms\nms.domain(name='sales', owner='Data', default=True)\n"
@@ -90,7 +91,7 @@ def author_decimal_mean_project(project: Path) -> Path:
 def _values(result: mv.AnalysisFrame) -> dict[str, Json]:
     frame = result.to_pandas()
     assert isinstance(frame["net_amount"].iloc[0], Decimal)
-    assert isinstance(frame["net_qty"].iloc[0], Decimal)
+    assert isinstance(frame["net_qty"].iloc[0], Integral)
     assert isinstance(frame["amount_mean"].iloc[0], float)
     return {name: str(frame[name].iloc[0]) for name in METRIC_NAMES}
 

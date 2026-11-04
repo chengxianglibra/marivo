@@ -294,6 +294,14 @@ def lower_common_components(
             projections[common_slot(index, layout.payload.value.slot_id)] = lower_row(
                 node.operand, fields
             ).value
+        elif isinstance(node, SourceWeightedMean):
+            assert isinstance(layout.payload, WeightedPayload)
+            projections[common_slot(index, layout.payload.value.slot_id)] = lower_row(
+                node.value, fields
+            ).value
+            projections[common_slot(index, layout.payload.weight.slot_id)] = lower_row(
+                node.weight, fields
+            ).value
     raw = filtered.select(**projections)
     joined = completed.left_join(
         raw,

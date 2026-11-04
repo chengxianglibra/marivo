@@ -267,8 +267,10 @@ def test_independent_roots_and_temporal_fold(
             args["user_env"] = "MARIVO_R93_READER"
         argtext = ", ".join(f"{k}={v!r}" for k, v in args.items())
         models = "import marivo.datasource as md\nimport marivo.semantic as ms\n"
-        # Native MySQL TIMESTAMP already owns its UTC clock.
-        time_parser = "" if backend == "mysql" else ",parse=ms.timestamp(timezone='UTC')"
+        # Native MySQL/ClickHouse timestamps already own their clock.
+        time_parser = (
+            "" if backend in ("mysql", "clickhouse") else ",parse=ms.timestamp(timezone='UTC')"
+        )
         for name, case in (("subjects", subject), ("left", left), ("right", right)):
             assert isinstance(case.source, TableSourceIR)
             primary_key = (
@@ -296,7 +298,7 @@ def test_independent_roots_and_temporal_fold(
                 models += f"@ms.metric()\ndef {name}_folded():\n    return {name}_total.per({name}_clock).{fold}()\n"
         files = {
             "datasources/warehouse.py": "import marivo.datasource as md\n"
-            + f"md.{backend}(name='warehouse',{argtext})\n",
+            + f"md.{backend}(wall_clock_timezone='UTC', name='warehouse',{argtext})\n",
             "semantic/sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales',owner='R9',default=True)\n",
             "semantic/sales/models.py": models,
         }
@@ -338,6 +340,33 @@ def test_independent_roots_and_temporal_fold(
             ),
         )
         if mode.startswith("ratio_decimal_overflow") or mode == "ratio_decimal_output_overflow":
+            if backend == "clickhouse":
+                from tests.datasource.environment import clickhouse_analysis as ch
+
+                assert isinstance(left.source, TableSourceIR)
+                assert isinstance(right.source, TableSourceIR)
+                with ch.connection(admin=True) as native:
+                    sums = [
+                        native.query(
+                            f"SELECT sum(amount) FROM qualification.{table} WHERE owner='a'"
+                        ).first_row
+                        for table in (left.source.table, right.source.table)
+                    ]
+                assert all(row is not None for row in sums)
+                numerator, denominator = (row[0] for row in sums if row is not None)
+                assert numerator != amounts[0] * 6
+                result = values.persist()
+                actual = result.to_pandas().set_index(ordinary_columns(result)[0])["value"]
+                assert actual.loc["a"] == pytest.approx(float(numerator) / float(denominator))
+                assert actual.loc["b"] == 0 and pd.isna(actual.loc["c"])
+                assert (
+                    session.persisted_frame(result.artifact_id)
+                    .to_pandas()
+                    .equals(result.to_pandas())
+                )
+                assert session._runtime.store.resources(session.id) == ()
+                source_trace.record(result)
+                return
             before = set(root.rglob("*.parquet"))
             with pytest.raises(AnalysisError) as refused:
                 values.persist()
@@ -359,7 +388,7 @@ def test_independent_roots_and_temporal_fold(
             return
         result = values.persist()
         exported = result.to_pandas()
-        frame = exported.set_index(ordinary_columns(exported)[0])
+        frame = exported.set_index(ordinary_columns(result)[0])
         actual = frame["value"]
         assert frame.index.tolist() == (["a", "b", "c"] if ratio else ["a", "b"])
         expected: dict[str, int | float | Decimal] = {
@@ -386,7 +415,7 @@ def test_independent_roots_and_temporal_fold(
                 ),
             ).persist()
             sample_rows = samples.to_pandas()
-            groups = sample_rows.groupby(sample_rows.attrs["axes"][1]["name"].rsplit(".", 1)[-1])
+            groups = sample_rows.groupby("subjects")
             assert groups.get_group("a")["value"].tolist() == [15, 21]
             assert groups.get_group("a")["count"].tolist() == [2, 2]
             assert groups.get_group("b")["value"].tolist() == [0, 0]
@@ -404,7 +433,7 @@ def test_independent_roots_and_temporal_fold(
                 {"left": left_total, "right": right_total}, by=members
             ).persist()
             component_rows = components.to_pandas()
-            component_rows = component_rows.set_index(ordinary_columns(component_rows)[0])
+            component_rows = component_rows.set_index(ordinary_columns(components)[0])
             numerators = component_rows["left"]
             denominators = component_rows["right"]
             assert Fraction(numerators.loc["a"]) == Fraction(amounts[0]) + Fraction(amounts[1])

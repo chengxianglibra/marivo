@@ -10,7 +10,6 @@ import re as _re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Literal, TypeAlias, cast
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from marivo._compat import StrEnum
 from marivo.datasource.ir import (
@@ -134,7 +133,11 @@ class SnapshotVersioningIR:
 
     def __post_init__(self) -> None:
         _require_non_empty_str(self.timezone, "SnapshotVersioningIR.timezone")
-        _validate_timezone_value(self.timezone, "SnapshotVersioningIR.timezone")
+        object.__setattr__(
+            self,
+            "timezone",
+            _validate_timezone_value(self.timezone, "SnapshotVersioningIR.timezone"),
+        )
 
 
 @dataclass(frozen=True)
@@ -146,7 +149,6 @@ class ValidityVersioningIR:
     valid_to: str
     interval: Literal["closed_open", "closed_closed"]
     open_end: tuple[str | None, ...]
-    timezone: str | None = None
 
 
 EntityVersioningIR = SnapshotVersioningIR | ValidityVersioningIR
@@ -165,14 +167,18 @@ def _require_kind(value: object, *, field_name: str, expected: str) -> None:
         raise ValueError(f"{field_name} must be {expected!r}, got {value!r}.")
 
 
-def _validate_timezone_value(value: object, field_name: str) -> None:
+def _validate_timezone_value(value: object, field_name: str) -> str | None:
     if value is None:
-        return
+        return None
+    from marivo._timezones import normalize_timezone
+
     timezone = _require_non_empty_str(value, field_name)
     try:
-        ZoneInfo(timezone)
-    except ZoneInfoNotFoundError:
-        raise ValueError(f"{field_name} must be a valid IANA timezone, got {value!r}.") from None
+        return normalize_timezone(timezone).name
+    except (TypeError, ValueError, KeyError) as error:
+        raise ValueError(
+            f"{field_name} must be an IANA or fixed-offset timezone, got {value!r}."
+        ) from error
 
 
 def _validate_sample_interval_value(value: object, field_name: str) -> None:
@@ -432,7 +438,6 @@ class PeriodCalendarIR:
     domain: str
     name: str
     date: str
-    boundary_timezone: str
     coverage: tuple[str, str]
     levels: tuple[tuple[str, str], ...]
     ai_context: AiContextIR
@@ -490,11 +495,15 @@ class SampleIntervalIR:
 
 @dataclass(frozen=True)
 class DateParse:
-    """Parse a time-dimension column as a calendar date."""
+    """Declare a native DATE and its optional business-day timezone."""
 
+    timezone: str | None = None
     kind: Literal["date"] = "date"
 
     def __post_init__(self) -> None:
+        object.__setattr__(
+            self, "timezone", _validate_timezone_value(self.timezone, "DateParse.timezone")
+        )
         _require_kind(self.kind, field_name="DateParse.kind", expected="date")
 
 
@@ -506,13 +515,15 @@ class TimestampParse:
     kind: Literal["timestamp"] = "timestamp"
 
     def __post_init__(self) -> None:
-        _validate_timezone_value(self.timezone, "TimestampParse.timezone")
+        object.__setattr__(
+            self, "timezone", _validate_timezone_value(self.timezone, "TimestampParse.timezone")
+        )
         _require_kind(self.kind, field_name="TimestampParse.kind", expected="timestamp")
 
 
 @dataclass(frozen=True)
 class StrptimeParse:
-    """Declare an explicit native ``strptime`` parse with rejected data becoming NULL."""
+    """Declare native ``strptime`` parsing, retaining backend NULL/error behavior."""
 
     format: str
     timezone: str | None = None
@@ -525,9 +536,9 @@ class StrptimeParse:
         except ValueError as exc:
             raise ValueError(f"StrptimeParse.format is invalid: {exc}") from exc
         object.__setattr__(self, "format", normalized)
-        _validate_timezone_value(self.timezone, "StrptimeParse.timezone")
-        if self.timezone is not None and not is_time_bearing_format(normalized):
-            raise ValueError("StrptimeParse.timezone is only supported for time-bearing formats.")
+        object.__setattr__(
+            self, "timezone", _validate_timezone_value(self.timezone, "StrptimeParse.timezone")
+        )
         _require_kind(self.kind, field_name="StrptimeParse.kind", expected="strptime")
 
 

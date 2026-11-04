@@ -63,11 +63,16 @@ def _datasource_model(
         **case.session.datasource.fields,
         **{key + "_env": value for key, value in case.session.datasource.env_refs.items()},
     }
+    if backend == "trino":
+        arguments.pop("timezone", None)
     if "user" in arguments:
         monkeypatch.setenv("MARIVO_NUMERIC_QUERY_READER", str(arguments.pop("user")))
         arguments["user_env"] = "MARIVO_NUMERIC_QUERY_READER"
     arguments_text = ",".join(f"{key}={value!r}" for key, value in arguments.items())
-    return "import marivo.datasource as md\n" + f"md.{backend}(name='warehouse',{arguments_text})\n"
+    return (
+        "import marivo.datasource as md\n"
+        + f"md.{backend}(wall_clock_timezone='UTC', name='warehouse',{arguments_text})\n"
+    )
 
 
 def _project(
@@ -134,8 +139,11 @@ def test_postgres_sparse_calendar_keeps_window_contributions(
         ordinary = (
             session.observe({"total": amount.sum()}, by=(calendar, category)).compute().to_pandas()
         )
-        assert ordinary["calendar:week"].tolist() == ["2020-12-21", "2021-01-04"]
-        assert ordinary["sales.facts.category"].tolist() == ["selected", "selected"]
+        assert ordinary["calendar:week"].tolist() == [
+            pd.Timestamp("2020-12-21", tz="UTC"),
+            pd.Timestamp("2021-01-04", tz="UTC"),
+        ]
+        assert ordinary["category"].tolist() == ["selected", "selected"]
         assert ordinary["total"].tolist() == [Decimal(10), Decimal(20)]
         windows = (
             session.observe(
@@ -262,9 +270,7 @@ def test_clickhouse_dst_fold_preserves_instants_and_half_open_boundaries(
         assert scalar["total"].tolist() == native.total.tolist()
         assert scalar["count"].tolist() == native["count"].tolist()
         fine = session.observe({"total": amount.sum()}, by=(scope, happened)).compute().to_pandas()
-        assert fine[fine.attrs["axes"][1]["name"].rsplit(".", 1)[-1]].tolist() == [
-            point[1] for point in points[:-1]
-        ]
+        assert fine["happened"].tolist() == [point[1] for point in points[:-1]]
         assert fine["total"].tolist() == [1, 10, 20]
         assert artifact.to_pandas().equals(
             session.persisted_frame(artifact.artifact_id).to_pandas()
@@ -293,17 +299,13 @@ def test_public_native_numeric_query(
         )
         artifact = query.persist()
         frame = artifact.to_pandas()
-        nonnull = frame.loc[frame[frame.attrs["axes"][0]["name"].rsplit(".", 1)[-1]].notna()]
+        nonnull = frame.loc[frame["category"].notna()]
         assert nonnull["total"].tolist() == [Decimal("4.00")]
         assert nonnull["minimum"].tolist() == [Decimal("1.25")]
         assert nonnull["maximum"].tolist() == [Decimal("2.75")]
         assert nonnull["count"].tolist() == [2]
         assert len(frame) == 2
-        assert (
-            frame.loc[frame[frame.attrs["axes"][0]["name"].rsplit(".", 1)[-1]].isna(), "total"]
-            .isna()
-            .all()
-        )
+        assert frame.loc[frame["category"].isna(), "total"].isna().all()
         assert frame.equals(session.persisted_frame(artifact.artifact_id).to_pandas())
         members = session.members(session.catalog.get("entity:sales.facts"))
         direct_query = session.read(
@@ -843,7 +845,7 @@ def test_same_source_read_filter_population_consumer(
         expected = {"string": 1, "null": 103, "nul": 0}[selection]
         assert result["weight"].tolist() == [expected]
         if selection != "nul":
-            coordinate = result[result.attrs["axes"][0]["name"].rsplit(".", 1)[-1]]
+            coordinate = result["category"]
             assert coordinate.isna().all() if selection == "null" else coordinate.tolist() == ["e"]
         else:
             assert all(chr(0) not in statement for statement in statements)
@@ -1024,7 +1026,6 @@ with patch.object(SourceSession, '__init__', forbidden), patch.object(Session, '
     actual = artifact.to_pandas()
     expected = pd.read_pickle('saved-oracle.pkl')
     assert actual.equals(expected)
-    assert actual.attrs == expected.attrs
     artifact.show(n=1)
     assert artifact.source_reads
 """

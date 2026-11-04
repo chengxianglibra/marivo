@@ -184,6 +184,11 @@ export default defineConfig({
           items: docsItems('latest', true),
         },
         {
+          label: 'v0.6',
+          items: docsItems('v0.6', true),
+          collapsed: true,
+        },
+        {
           label: 'v0.5',
           items: docsItems('v0.5'),
           collapsed: true,

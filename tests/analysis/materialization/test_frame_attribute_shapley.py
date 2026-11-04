@@ -36,7 +36,7 @@ def game_session(
         connection.execute("ALTER TABLE facts ADD COLUMN region VARCHAR DEFAULT 'east'")
     semantic_project_factory(
         {
-            "datasources/warehouse.py": f"import marivo.datasource as md\nmd.duckdb(name='warehouse',path={str(database)!r})\n",
+            "datasources/warehouse.py": f"import marivo.datasource as md\nmd.duckdb(wall_clock_timezone='UTC', name='warehouse',path={str(database)!r})\n",
             "sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales',owner='Analytics',default=True)\n",
             "sales/model.py": """import marivo.datasource as md
 import marivo.semantic as ms
