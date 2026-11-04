@@ -4,7 +4,7 @@ title: Marivo 0.6.0
 description: Release notes for Marivo 0.6.0.
 ---
 
-Released on November 3, 2026. Marivo 0.6.0 unifies typed semantic inputs,
+Released on November 4, 2026. Marivo 0.6.0 unifies typed semantic inputs,
 explicit analysis and immutable results. This release contains breaking changes
 from 0.5.x; update integrations using the current guides and native Help.
 
@@ -53,6 +53,11 @@ from 0.5.x; update integrations using the current guides and native Help.
 
 - Corrected calendar bucket assignment, civil DATE keys, raw temporal range
   pruning and skipped/repeated DST-hour handling across qualified backends.
+- Source time comparisons interpret civil boundaries in the receiving Session's
+  report timezone while preserving aware instants. Canonical hour-prefix filters
+  prune same-day partitions without admitting an hour-24 encoding.
+- Named-zone raw range optimization requires matching host and backend timezone
+  rules for the selected dates; rule differences are not probed automatically.
 - Added ordered, canonical time parsing on ClickHouse 22.3 with wide Date32 and
   DateTime64 carriers; unsupported explicit parsers fail before query submission.
   Corrected constant outer joins and compatible date cutoffs on older servers.

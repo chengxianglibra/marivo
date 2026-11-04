@@ -225,7 +225,7 @@ _REMOTE_PHYSICAL = {
         "INSERT INTO {table} VALUES (1, 15.75, 3), (2, 4.25, 1)",
     ),
     "clickhouse": (
-        "CREATE TABLE {table}(id UInt64, amount Decimal(12,2), weight UInt64) "
+        "CREATE TABLE {table}(id Int64, amount Decimal(12,2), weight Int64) "
         "ENGINE=MergeTree ORDER BY id",
         "INSERT INTO {table} VALUES (1, 15.75, 3), (2, 4.25, 1)",
     ),
@@ -405,10 +405,8 @@ def test_mysql_decimal_mean_preserves_declared_carrier(
 
 
 # ---------------------------------------------------------------------------
-# Trino (plan section 4, probe-decided): the live probe measured exact
-# DECIMAL arithmetic for mul/add/sub and SUM, but AVG(DECIMAL) stays at the
-# input scale and rounds (10.005 -> 10.01 decimal(12,2)), so row expressions
-# open and every composed decimal unit keeps its rejection.
+# Trino preserves native DECIMAL arithmetic and SUM. AVG retains the native
+# input scale and rounding rather than requiring higher-precision emulation.
 # ---------------------------------------------------------------------------
 
 _TRINO_PHYSICAL = (
@@ -498,15 +496,14 @@ def test_trino_computed_measure_decimal_sum_is_exact(
 
 
 @pytest.mark.runtime
-def test_trino_decimal_mean_keeps_rejection(trino_session: mv.Session) -> None:
-    """AVG stays at the input scale and rounds, so the mean cell stays closed."""
-    from marivo.analysis.errors import AnalysisError
-
+def test_trino_decimal_mean_uses_native_avg(trino_session: mv.Session) -> None:
+    """The two Decimal inputs have the exact native mean 10.00."""
     logical = trino_session.observe(
         {"value": trino_session.catalog.get("metric:sales.amount_mean")}
     )
-    with pytest.raises(AnalysisError):
-        logical.persist()
+    value = logical.persist().to_pandas()["value"].iloc[0]
+    assert isinstance(value, Decimal)
+    assert value == Decimal("10.00")
 
 
 @pytest.mark.parametrize("metric", ("net_total", "net_weighted"))

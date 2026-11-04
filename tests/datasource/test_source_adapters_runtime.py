@@ -697,7 +697,9 @@ def test_mariadb_pymysql_preserves_exact_table_values(monkeypatch: pytest.Monkey
                     identity=name,
                     expected=[{"id": 9007199254740993, "amount": Decimal("9007199254740993.01")}],
                 )
-                assert session._backend._marivo_timezone_name == "UTC"
+                with session._backend.con.cursor() as timezone_cursor:
+                    timezone_cursor.execute("SELECT @@session.time_zone")
+                    assert timezone_cursor.fetchone() == ("+00:00",)
             assert all(item.connection_disconnected for item in session.submissions)
         finally:
             cursor.execute(f"DROP TABLE IF EXISTS {name}")

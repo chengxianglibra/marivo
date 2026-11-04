@@ -283,6 +283,9 @@ Help：`analysis.analysis_frame.fix`。
 基线为 0 时，相对归因未定义。错误会指出目标、基线值和父坐标。请检查基线时间窗口及来源的保留/过滤条件，或选择绝对变化：
 
 ```python
+target = session.observe({"revenue": revenue}, by=(august,)).compare(
+    {"baseline": mv.baseline(session.observe({"revenue": revenue}, by=(july,)), match=mv.ordinal())}
+)
 absolute = target.select({"change": target["baseline.absolute.revenue"]})
 report = absolute.attribute(by=(region,)).compute()
 ```

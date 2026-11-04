@@ -268,7 +268,7 @@ def test_clickhouse_implicit_instants_and_encoding_in_non_utc_session(
                         "2026-04-30 16:00:00"
                     )
                     sql = owner.submissions[-1].sql
-                    assert "parseDateTimeOrNull" in sql and "'UTC'" in sql
+                    assert "toDateTime64OrNull" in sql and "'UTC'" in sql
                     receipt(
                         "adapters-runtime-clickhouse",
                         {

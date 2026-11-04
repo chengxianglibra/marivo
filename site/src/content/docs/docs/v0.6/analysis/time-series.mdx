@@ -12,6 +12,29 @@ offset such as `timezone="+08:00"`. Omitting the timezone strictly resolves the
 system IANA zone once; ambiguous `TZ` or localtime state requires an explicit
 value. Recovery keeps the saved timezone and origin without checking the host.
 
+Source time comparisons use the same boundary rules as `session.time_scope`.
+Bare ISO dates, Python `date` values and offset-free ISO timestamps use the
+Session's report timezone; aware datetimes and ISO timestamps with an offset keep
+their instant. This covers `observe(where=...)`, `members(where=...)`,
+`Metric.where(...)` and a source reducer's `where=`. Invalid ISO, naive Python
+datetimes and ambiguous/nonexistent local clocks reject before source reads.
+Using the example's order time field, these conditions select the same range:
+
+```python
+from analysis import session
+
+created_at = session.catalog.get("time_dimension:sales.orders.order_date")
+scope = session.time_scope(start="2026-08-01", end="2026-09-01")
+by_boundaries = (created_at >= "2026-08-01") & (created_at < "2026-09-01")
+by_scope = created_at.within(scope)
+```
+
+An output calendar's timezone does not change the implicit comparison timezone.
+Use `within(scope)` with an explicit scope timezone to choose different boundaries.
+DATE rows compare their declared business-day-start instant; `==` means one exact
+instant. Ordinary string fields and fixed Frame Column comparisons retain their
+own types, and saved results are not reinterpreted.
+
 ## Observe days and months
 
 ```python
@@ -111,7 +134,8 @@ before using it as a grain.
 
 Source parsing and report timezones are separate: set a parser timezone for
 naive source values; aware timestamps already identify an instant, and date-only
-encodings do not use a timezone. Projection, filtering and buckets share the
+values use their declared source timezone to identify the business-day start.
+Projection, filtering and buckets share the
 actual backend's native gap/fold interpretation. Original local time data uses
 pandas native operations. Different executors can differ at unusual transitions;
 source-produced keys remain unchanged during local arithmetic and alignment.
@@ -200,7 +224,7 @@ This fragment requires a declared versioned `sales.profiles`, fact Entity
 `sales.facts`, and complete-key relationship `sales.profile`. Control time and
 Metric time are independent choices; this example explicitly uses the same field.
 
-```python
+```python title="Requires a versioned profiles model"
 control = session.catalog.get("time_dimension:sales.facts.event_time")
 # The control may also be the fact Entity's snapshot partition TimeDimension.
 label = session.catalog.get("dimension:sales.profiles.label")

@@ -1222,10 +1222,15 @@ def test_fractional_decimal_scalar_keeps_actual_native_originals_and_facts(
     assert data["detail.current.present.q"].tolist() == [True, True]
     assert data["detail.baseline.present.q"].tolist() == [True, True]
     assert data["contribution.q"].tolist() == (
-        [30.0, -10.0] if mean else [Decimal("60"), Decimal("-20")]
+        [30.0, -10.0] if mean else [Decimal("60.3"), Decimal("-19.7")]
     )
     assert data["contribution_share.q"].tolist() == pytest.approx(
-        [1.5, -0.5] if mean else [float(Fraction(60, 41)), float(Fraction(-20, 41))]
+        [1.5, -0.5]
+        if mean
+        else [
+            float(Fraction(Decimal("60.3")) / Fraction(Decimal("40.5"))),
+            float(Fraction(Decimal("-19.7")) / Fraction(Decimal("40.5"))),
+        ],
     )
     facts = fixed.method_facts
     method = facts[0].parents[0].metrics[0].method
@@ -1241,7 +1246,7 @@ def test_fractional_decimal_scalar_keeps_actual_native_originals_and_facts(
     assert method.left.column.dtype == method.right.column.dtype == expected_dtype
     assert method.left.value == (120.0 if mean else Decimal("240.500000000"))
     assert method.right.value == (100.0 if mean else Decimal("200.000000000"))
-    assert method.change.value == (20.0 if mean else Decimal("41"))
+    assert method.change.value == (20.0 if mean else Decimal("40.5"))
     saved = fixed.persist()
     assert saved.method_facts == facts and saved.compute().method_facts == facts
     assert len(reads) == 6
@@ -1266,7 +1271,7 @@ with patch.object(Session,'catalog',property(forbidden)), patch.object(SourceSes
     method=saved.method_facts[0].parents[0].metrics[0].method
     assert method.left.column.dtype==DecimalDataType(38,1)
     assert method.left.value==Decimal('240.500000000')
-    assert method.change.value==Decimal('41')
+    assert method.change.value==Decimal('40.5')
     assert saved.compute().method_facts==saved.method_facts
     assert saved.source_reads
     assert saved.compute().persist().source_reads == saved.source_reads

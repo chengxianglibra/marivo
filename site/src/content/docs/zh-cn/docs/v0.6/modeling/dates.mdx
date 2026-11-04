@@ -79,6 +79,8 @@ business_date = ms.time_dimension_column(
 
 符合条件的物理列范围直接比较原始字段和源时区下的同类型常量。上海业务日范围 `[2026-10-28,2026-10-29)` 在 `%Y%m%d` 字段上编译为 `log_date >= '20261028' AND log_date < '20261029'`。边界向上对齐到首个可表示刻度：小时编码筛选 `[10:30,12:30)` 时使用 `[11:00,13:00)`。原生 DATE 和时间戳使用相同的范围规则，保留实际类型和精度。UTC、固定偏移量可以直接换算；具名时区要求端点通过资格检查，避开 gap/fold 切换。MySQL/MariaDB 具名时区改写使用共同验证范围 1971–2037。派生表达式与其他格式保留原生解析。
 
+命名时区的原始范围优化使用宿主时区数据库。所选日期的规则必须与源后端的时区数据库保持一致；Marivo 不会在应用优化前探测两者的规则差异。
+
 SQL NULL 保持 NULL，不归属任何期间。输出投影、日历分桶和未通过资格检查的端点保留原生解析及 gap/fold 解释。DuckDB、Trino、ClickHouse 和 MySQL/MariaDB 将解析器拒绝的数据变为 NULL；PostgreSQL 原生 `to_timestamp` 可能使查询报错。有序格式契约以外的原生接受规则可能因后端而异。没有 `on_error`、trim、格式猜测、重试、分区枚举或验证查询。格式、时区、类型与能力错误仍报错。Trino TRY 可捕获部分输入表达式错误，其他后端可能传播错误。NULL 仅用于属性控制时间时保留事实及 NULL 标签。直接谓词为下推提供条件；实际索引使用和分区裁剪取决于后端与表布局。
 
 ClickHouse 22.3 支持上述有序格式的投影和日历分桶：日期保留 `Date32`，时间保留 `DateTime64`。其他格式要求 ClickHouse 23.3 或更新版本。需要不可用解析器的查询会在业务查询提交前报错；可改用有序编码、通过数据源提供原生 `Date32`/`DateTime64` 列，或升级服务端。源时区声明及原生 gap/fold 行为仍然适用。
@@ -89,7 +91,9 @@ ClickHouse 22.3 支持上述有序格式的投影和日历分桶：日期保留 
 | --- | --- | --- | --- |
 | `prefix` | 是 | — | 提供民用日期前缀的 TimeDimension 表达式。小时字段递归继承前缀字段的有效解析器或 Datasource 时区。 |
 
-小时来源值使用 0 到 23 的整数或规范的两位数字符串。
+小时来源值使用 0 到 23 的整数或 `'00'` 到 `'23'` 的规范字符串。
+小时 `24` 及其他不规范的非 NULL 值违反该声明；午夜应使用下一日期和小时 `0`。
+SQL NULL 保留原生语义。Marivo 不为非法编码值增加源数据扫描或统一的解析报错策略。
 
 ```python
 event_hour = ms.time_dimension_column(
@@ -97,6 +101,12 @@ event_hour = ms.time_dimension_column(
     parse=ms.hour_prefix(business_date),
 )
 ```
+
+同一源日期内的正向范围（如 `[03:00,04:00)`）在时区转换通过等价性检查时，
+可以直接比较原始日期列和小时列。该优化适用于观察范围，以及直接使用或位于顶层
+AND 中的必需 `event_hour.within(scope)` 条件，包括午夜起点。跨日范围和未通过检查的
+时区边界保留通用谓词。NULL 值及取反、组合后的布尔表达式保留原生语义。
+是否发生分区裁剪需要检查后端物理计划，不能只根据 SQL 形态判断。
 
 ## 观察范围：`session.time_scope`
 
@@ -200,7 +210,7 @@ import marivo.datasource as md
 import marivo.semantic as ms
 
 catalog = ms.load(workspace_dir=".")
-ref = ms.ref.period_calendar("sales.fiscal")
+ref = catalog.get("period_calendar:sales.fiscal")
 preview = catalog.preview(ref, scope=md.unpruned(max_rows=8, timeout_seconds=30), limit=1)
 assert preview.returned_row_count == 1
 assert not preview.is_truncated
