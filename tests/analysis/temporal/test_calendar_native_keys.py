@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pandas as pd
 import pytest
+import sqlglot as sg
 import sqlglot.expressions as sge
 
 import marivo.analysis as mv
@@ -550,7 +551,23 @@ def test_public_calendar_keeps_facts_when_midnight_fold_returns_to_previous_date
                     "actual_end",
                 }
                 assert len(trace.native_sql) >= before + 2
-                assert "UNION ALL" not in trace.native_sql[-1].upper()
+                if backend == "mysql":
+                    # Only constant digit tables may use UNION; calendar keys
+                    # and their parameters must not be enumerated as SQL rows.
+                    for union in sg.parse_one(trace.native_sql[-1], read="mysql").find_all(
+                        sge.Union
+                    ):
+                        for branch in (union.left, union.right):
+                            if isinstance(branch, sge.Union):
+                                continue
+                            assert isinstance(branch, sge.Select)
+                            assert branch.args.get("from_") is None
+                            assert len(branch.expressions) == 1
+                            digit = branch.expressions[0].unalias()
+                            assert isinstance(digit, sge.Literal) and digit.is_int
+                            assert 0 <= int(digit.this) <= 9
+                else:
+                    assert "UNION ALL" not in trace.native_sql[-1].upper()
                 if backend == "clickhouse":
                     assert len(trace.native_sql[-1].encode()) < 65536
         receipt(

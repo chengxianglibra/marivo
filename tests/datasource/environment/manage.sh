@@ -7,8 +7,8 @@ state_dir="$HOME/.cache/marivo-multisource"
 profile="marivo-multisource"
 socket="unix://$HOME/.colima/$profile/docker.sock"
 
-if [[ $# -ne 2 || ! "$1" =~ ^(start|stop|status|logs)$ || ! "$2" =~ ^(trino|clickhouse|clickhouse-cluster|postgres-analysis|mysql-analysis|mysql-no-timezones|mariadb-analysis)$ ]]; then
-    echo "Usage: $0 {start|stop|status|logs} {trino|clickhouse|clickhouse-cluster|postgres-analysis|mysql-analysis|mysql-no-timezones|mariadb-analysis}" >&2
+if [[ $# -ne 2 || ! "$1" =~ ^(start|stop|status|logs)$ || ! "$2" =~ ^(trino|clickhouse|clickhouse-cluster|postgres-analysis|mysql-analysis|mysql-no-timezones|mariadb-analysis|mariadb-103-analysis)$ ]]; then
+    echo "Usage: $0 {start|stop|status|logs} {trino|clickhouse|clickhouse-cluster|postgres-analysis|mysql-analysis|mysql-no-timezones|mariadb-analysis|mariadb-103-analysis}" >&2
     exit 2
 fi
 if [[ ! -f "$state_dir/secrets.env" || ! -f "$state_dir/docker/config.json" ]]; then
@@ -41,6 +41,8 @@ case "$1" in
             (cd "$repo_root" && "$repo_root/.venv/bin/python" -c 'from tests.datasource.environment.mysql_analysis import setup; setup(port=23308)')
         elif [[ "$2" == mariadb-analysis ]]; then
             (cd "$repo_root" && "$repo_root/.venv/bin/python" -c 'from tests.datasource.environment.mysql_analysis import setup; setup(port=23307)')
+        elif [[ "$2" == mariadb-103-analysis ]]; then
+            (cd "$repo_root" && "$repo_root/.venv/bin/python" -c 'from tests.datasource.environment.mysql_analysis import setup; setup(port=23309)')
         fi
         ;;
     stop)
