@@ -62,8 +62,12 @@ roundoff bounds without that 1% business allowance; other types use their own ru
 admitted, use explicit observations and comparison to investigate it without treating the
 result as a contribution decomposition.
 
-Remote `Attribute` routes require direct physical signed-integer or string identities and
-qualified string collations. The Entity `primary_key` declares complete, non-null identity;
+Remote `Attribute` routes require direct physical signed-integer, string or date32 identities and
+backend-qualified strings. On MySQL/MariaDB, string equality in observation filters and their Attribute
+replays uses the source column's collation. Attribute also uses that collation
+for grouping and membership, including on columns with the database default. Completed Frames and cross-period alignment use the actual returned
+strings, so different group representatives remain different keys. Other backends
+retain their existing string qualification. The Entity `primary_key` declares complete, non-null identity;
 the route trusts that declaration even if physical metadata marks an identity column
 nullable. It does not run a full-source NULL or uniqueness precheck; operation-specific
 identity checks still apply. For scoped data validation, use `ms.source_check` with a bounded

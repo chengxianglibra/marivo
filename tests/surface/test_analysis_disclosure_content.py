@@ -568,6 +568,8 @@ def test_attribute_help_distinguishes_actual_qualification_and_inert_facts() -> 
     for expected in (
         "qualified physical tables",
         "reads are independent",
+        "MySQL/MariaDB use source collations",
+        "align returned strings",
         "1% of abs(total)",
         "unchanged additive/level",
         "Trust semantic identity",
