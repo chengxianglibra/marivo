@@ -48,10 +48,9 @@ def test_mysql_certified_calendar_deadline_terminates_slow_native_view(
         view_name = table_name + "_slow"
         columns = ["id", "revision", "tenant", "amount", "happened", "calendar_day", "period"]
         aggregates = ",".join(f"MIN(a.{column}) AS {column}" for column in columns)
-        joins = " ".join(f"CROSS JOIN {table_name} b{index}" for index in range(18))
         with mysql.connection(admin=True) as admin, admin.cursor() as cursor:
             cursor.execute(
-                f"CREATE VIEW {view_name} AS SELECT {aggregates} FROM {table_name} a {joins} WHERE RAND()>0.5"
+                f"CREATE VIEW {view_name} AS SELECT {aggregates} FROM {table_name} a WHERE SLEEP(2)=0"
             )
         try:
             case.source = TableSourceIR(view_name)

@@ -141,7 +141,7 @@ def test_native_distribution(
         models += (
             "amount=ms.measure_column(name='amount',entity=facts,column='amount',additivity=ms.additive_all())\n"
             if carrier in {"int64", "float64", "decimal"}
-            else "amount=ms.time_dimension_column(name='amount',entity=facts,column='amount',parse=ms.timestamp(timezone='UTC'))\n"
+            else f"amount=ms.time_dimension_column(name='amount',entity=facts,column='amount',parse={timestamp})\n"
             if carrier == "timestamp"
             else "amount=ms.dimension_column(name='amount',entity=facts,column='amount')\n"
         )
@@ -197,9 +197,7 @@ def test_native_distribution(
         native_before = len(source_trace.native_sql)
         before_runs = run_ids(session)
         refuses = (
-            (backend == "mysql" and carrier == "boolean")
-            or (kind in ("distinct", "identity") and backend == "clickhouse")
-            or (kind == "approx_distinct" and backend in ("postgres", "mysql"))
+            (kind == "approx_distinct" and backend in ("postgres", "mysql"))
             or (kind == "quantile" and backend in ("mysql", "trino"))
             or (kind == "approx_quantile" and backend in ("postgres", "mysql"))
         )
@@ -229,6 +227,22 @@ def test_native_distribution(
             if carrier == "decimal"
             else {"a": 4, "b": 6}
         )
+        if backend == "postgres" and kind == "quantile" and carrier == "decimal":
+            from psycopg import sql
+
+            from tests.datasource.environment import postgres_analysis as pg
+
+            assert isinstance(facts.source, TableSourceIR)
+            with pg.connection() as native:
+                expected = dict(
+                    native.execute(
+                        sql.SQL(
+                            "SELECT owner, CAST(percentile_cont(0.25) WITHIN GROUP "
+                            "(ORDER BY amount) AS NUMERIC(38,6)) FROM {} "
+                            "WHERE amount IS NOT NULL GROUP BY owner"
+                        ).format(sql.Identifier(facts.source.table))
+                    ).fetchall()
+                )
         for owner, value in expected.items():
             if kind == "approx_quantile" and owner == "a":
                 assert 2 <= values.loc[owner] <= 6

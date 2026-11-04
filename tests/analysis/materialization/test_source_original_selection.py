@@ -303,7 +303,7 @@ def test_selected_bulk_keys_preserve_large_integer_tuple_correlation(
 
 
 @pytest.mark.parametrize("backend,profile", source_params(CASES))
-def test_empty_selection_retains_widened_parent_sum(
+def test_empty_selection_retains_native_parent_sum(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
@@ -327,7 +327,16 @@ def test_empty_selection_retains_widened_parent_sum(
         fine = session.observe({"value": amount.sum()}, by=(category,))
         query = fine.top(0, by=fine["value"])
         trace = capture_source(monkeypatch)
-        assert fine.compute().to_pandas()["value"].max() >= 2**63
+        if backend == "trino":
+            from marivo.analysis.errors import AnalysisError
+
+            with pytest.raises(AnalysisError, match="overflow"):
+                fine.compute()
+            with pytest.raises(AnalysisError, match="overflow"):
+                query.compute()
+            return
+        # Native Int64 SUM wraps 40 * (2**63 - 1) to -40.
+        assert sorted(fine.compute().to_pandas()["value"].tolist()) == [-40, 80]
         assert query.compute().to_pandas().empty
         assert len(trace.returned_rows) == 2
         assert trace.returned_rows == [2, 2]

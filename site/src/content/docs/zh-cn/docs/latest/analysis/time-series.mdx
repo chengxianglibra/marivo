@@ -194,7 +194,7 @@ Frame 值显式规约。
 以下片段要求模型中已声明版本化 `sales.profiles`、事实表 `sales.facts` 及完整键关系 `sales.profile`。
 控制时间和 Metric 时间角色是两个独立选择；这里显式使用同一字段。
 
-```python
+```python title="需要版本化 profiles 模型"
 control = session.catalog.get("time_dimension:sales.facts.event_time")
 # The control may also be the fact Entity's snapshot partition TimeDimension.
 label = session.catalog.get("dimension:sales.profiles.label")
