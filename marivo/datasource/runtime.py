@@ -168,9 +168,11 @@ class DatasourceConnectionService:
     - ``session_backend(name)`` -- returns a cached backend that lives
       until ``close_all()`` is called.
 
-    Each owned backend has one shared ``BackendLease`` for idempotent
-    disconnection through Ibis. Borrowed source sessions release their streams
-    and staging resources before this service releases the connection.
+    Each owned backend has one shared ``BackendLease``. Release is reported
+    only after Ibis disconnect succeeds. Another close attempts disconnect
+    again when the previous one did not, and a confirmed release is not
+    disconnected twice. Borrowed source sessions release their streams and
+    staging resources before this service releases the connection.
     Connectivity probes handle validated secret caching separately.
     """
 
