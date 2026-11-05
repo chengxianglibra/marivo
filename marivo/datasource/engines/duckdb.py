@@ -264,6 +264,7 @@ def connect(name: str, kwargs: Mapping[str, object]) -> BaseBackend:
     if "read_only" in connect_kwargs:
         connect_kwargs["read_only"] = bool(connect_kwargs["read_only"])
     backend = ibis.duckdb.connect(**connect_kwargs)
+    backend.settings["enable_progress_bar_print"] = False
     _reuse_described_schemas(backend)
     return backend
 

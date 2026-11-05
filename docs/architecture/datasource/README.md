@@ -56,6 +56,7 @@ used everywhere downstream.
 The `duckdb`, `all`, and `dev` extras require DuckDB `>=1.5.3,<2`.
 Frame evaluation requires a declared DuckDB database file to exist before opening it.
 Set `read_only=True` to use DuckDB's native read-only file access.
+Marivo disables terminal progress bar printing on each DuckDB connection it opens.
 
 MySQL and MariaDB use PyMySQL through a private Ibis SQL backend adapter.
 `marivo[mysql]` includes RSA authentication dependencies and needs no local

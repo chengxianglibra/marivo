@@ -26,11 +26,11 @@ from marivo.datasource.ir import AiContextIR, DatasourceIR, DatasourceSourceLoca
 def test_duckdb_connection_settings_are_effective() -> None:
     backend = duckdb_engine.connect("local", {"path": ":memory:", "force_download": True})
     try:
-        timezone, threads, force_download = backend.con.execute(
+        timezone, threads, force_download, print_progress = backend.con.execute(
             "SELECT current_setting('TimeZone'), current_setting('threads'), "
-            "current_setting('force_download')"
+            "current_setting('force_download'), current_setting('enable_progress_bar_print')"
         ).fetchone()
-        assert (timezone, threads, force_download) == ("UTC", 1, True)
+        assert (timezone, threads, force_download, print_progress) == ("UTC", 1, True, False)
     finally:
         backend.disconnect()
 
