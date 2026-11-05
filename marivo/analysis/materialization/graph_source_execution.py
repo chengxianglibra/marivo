@@ -17,6 +17,7 @@ import pandas as pd
 import pyarrow as pa
 from ibis.common.exceptions import IbisError
 
+from marivo._definition.expressions import BuiltinSampleCoordinate
 from marivo._definition.types import IntervalCoordinate
 from marivo._errors import MarivoError
 from marivo.analysis.compiler.graph_plan import (
@@ -2685,14 +2686,15 @@ def prepare_attribute_sources(
             )
             from marivo.analysis.compiler.observation import reduction_input
 
-            reduction = reduction_input(
-                first, "attribute.value", first.calendars[0][1] if first.calendars else None
-            )
+            parent_calendar = first.calendars[0][1] if first.calendars else None
+            assert not isinstance(parent_calendar, BuiltinSampleCoordinate)
+            reduction = reduction_input(first, "attribute.value", parent_calendar)
             parent_slots = tuple(
                 (slot, scoped_map[path]) for slot, path in reduction.axes if path in parent_paths
             )
             for slot, calendar in first.calendars:
                 assert reduction.time_column is not None
+                assert not isinstance(calendar, BuiltinSampleCoordinate)
                 name = "__attribute_calendar_" + slot.replace(".", "_")
 
                 scoped = replace(

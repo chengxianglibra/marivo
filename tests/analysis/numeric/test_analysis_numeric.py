@@ -73,10 +73,6 @@ def test_direct_distribution(
     if floating:
         with duckdb.connect(str(case.database_path)) as db:
             db.execute('ALTER TABLE "order" ALTER amount TYPE DOUBLE')
-    models = case.root / "models/semantic/sales/models.py"
-    models.write_text(
-        models.read_text().replace("parse=ms.timestamp(", "is_default=True, parse=ms.timestamp(", 1)
-    )
     if parquet:
         export_dsl_parquet_models(case, case.root)
     ms.load(workspace_dir=case.root)

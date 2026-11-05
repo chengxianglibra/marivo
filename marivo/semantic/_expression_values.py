@@ -32,6 +32,7 @@ from marivo._definition.types import (
 from marivo._definition.windows import AllHistory, Since, ToDate, TrailingDuration, TrailingPeriods
 from marivo._temporal import Grain, InstantAnchor, TimeScope
 from marivo.render import Card, RenderableResult
+from marivo.semantic._time_parameters import TimeParameter, prepare_time_recipe
 from marivo.semantic.errors import ErrorKind, SemanticExpressionError
 
 if TYPE_CHECKING:
@@ -45,6 +46,32 @@ _RowRoleT = TypeVar("_RowRoleT", bound=RowRole, covariant=True)
 _MetricRoleT = TypeVar("_MetricRoleT", bound=MetricRole, covariant=True)
 NumericLiteral: TypeAlias = int | float | Decimal
 Window: TypeAlias = AllHistory | Since | ToDate | TrailingDuration | TrailingPeriods
+
+
+class _GrainOmitted:
+    def __repr__(self) -> str:
+        return "omitted"
+
+
+_GRAIN_OMITTED = _GrainOmitted()
+
+
+class _OmittedTime:
+    __slots__ = ()
+
+    def __repr__(self) -> str:
+        return "<omitted>"
+
+
+_OMITTED_TIME = _OmittedTime()
+
+
+def _source_arguments(
+    time: TimeExpression | TimeParameter | _OmittedTime, **kwargs: object
+) -> dict[str, object]:
+    if not isinstance(time, _OmittedTime):
+        kwargs["time"] = time
+    return kwargs
 
 
 def _error(message: str) -> NoReturn:
@@ -156,6 +183,7 @@ def _formula(recipe: Resolver, depth: int = 0) -> str:
         NamedResolver,
         RescaleResolver,
         SemanticResolver,
+        TimeSlotResolver,
         attribute_name,
     )
     from marivo._symbolic import SymbolResolver
@@ -170,6 +198,8 @@ def _formula(recipe: Resolver, depth: int = 0) -> str:
         return recipe.reference.ref.key
     if isinstance(recipe, SymbolResolver):
         return recipe.reference.key
+    if isinstance(recipe, TimeSlotResolver):
+        return recipe.name
     if isinstance(recipe, SemanticResolver):
         return recipe.input.reference.ref.key
     if isinstance(recipe, DeclarationResolver):
@@ -223,6 +253,8 @@ class _ExpressionCarrier(RenderableResult):
         object.__setattr__(self, "_captured_role", role)
         try:
             inspection = inspect_capture(Deferred(recipe))
+            if inspection.has_time_parameters and role in {"numeric", "boolean"}:
+                prepare_time_recipe(recipe)
             object.__setattr__(
                 self, "_captured_context", merge_input_contexts(context, inspection.context)
             )
@@ -265,7 +297,7 @@ class _ExpressionCarrier(RenderableResult):
         parameters = {
             key: value
             for key, value in (kwargs or {}).items()
-            if not (key in {"time", "where"} and value is None)
+            if not (key == "where" and value is None)
             and not (key == "nulls" and type(value) is str and value == "ignore")
             and not (key == "include_null" and value is False)
         }
@@ -1216,14 +1248,14 @@ class RowExpression(_ExpressionCarrier, Generic[_RowRoleT]):
     def sum(
         self: RowExpression[Literal["numeric"]],
         *,
-        time: TimeExpression | None = None,
+        time: TimeExpression | TimeParameter | _OmittedTime = _OMITTED_TIME,
         nulls: NullPolicy = "ignore",
         where: RowPredicate | None = None,
     ) -> NumericMetric:
         """Capture the sum reduction using the existing row rules.
 
         Args:
-            time: The explicit time captured for this operation.
+            time: Contribution time field or declared Metric time parameter. Omit for a reduction without a time role.
             nulls: The explicit nulls captured for this operation.
             where: Optional same-root source-row condition captured before reduction.
 
@@ -1238,7 +1270,7 @@ class RowExpression(_ExpressionCarrier, Generic[_RowRoleT]):
             scope validates roots, roles, units, time and operation-specific rules.
         """
         return MetricExpression(
-            self._method("sum", kwargs={"time": time, "nulls": nulls, "where": where}),
+            self._method("sum", kwargs=_source_arguments(time, nulls=nulls, where=where)),
             _merge(self, time, where),
             "numeric",
         )
@@ -1246,14 +1278,14 @@ class RowExpression(_ExpressionCarrier, Generic[_RowRoleT]):
     def mean(
         self: RowExpression[Literal["numeric"]],
         *,
-        time: TimeExpression | None = None,
+        time: TimeExpression | TimeParameter | _OmittedTime = _OMITTED_TIME,
         nulls: NullPolicy = "ignore",
         where: RowPredicate | None = None,
     ) -> NumericMetric:
         """Capture the mean reduction using the existing row rules.
 
         Args:
-            time: The explicit time captured for this operation.
+            time: Contribution time field or declared Metric time parameter. Omit for a reduction without a time role.
             nulls: The explicit nulls captured for this operation.
             where: Optional same-root source-row condition captured before reduction.
 
@@ -1268,7 +1300,7 @@ class RowExpression(_ExpressionCarrier, Generic[_RowRoleT]):
             scope validates roots, roles, units, time and operation-specific rules.
         """
         return MetricExpression(
-            self._method("mean", kwargs={"time": time, "nulls": nulls, "where": where}),
+            self._method("mean", kwargs=_source_arguments(time, nulls=nulls, where=where)),
             _merge(self, time, where),
             "numeric",
         )
@@ -1276,14 +1308,14 @@ class RowExpression(_ExpressionCarrier, Generic[_RowRoleT]):
     def min(
         self: RowExpression[Literal["numeric"]],
         *,
-        time: TimeExpression | None = None,
+        time: TimeExpression | TimeParameter | _OmittedTime = _OMITTED_TIME,
         nulls: NullPolicy = "ignore",
         where: RowPredicate | None = None,
     ) -> NumericMetric:
         """Capture the min reduction using the existing row rules.
 
         Args:
-            time: The explicit time captured for this operation.
+            time: Contribution time field or declared Metric time parameter. Omit for a reduction without a time role.
             nulls: The explicit nulls captured for this operation.
             where: Optional same-root source-row condition captured before reduction.
 
@@ -1298,7 +1330,7 @@ class RowExpression(_ExpressionCarrier, Generic[_RowRoleT]):
             scope validates roots, roles, units, time and operation-specific rules.
         """
         return MetricExpression(
-            self._method("min", kwargs={"time": time, "nulls": nulls, "where": where}),
+            self._method("min", kwargs=_source_arguments(time, nulls=nulls, where=where)),
             _merge(self, time, where),
             "numeric",
         )
@@ -1306,14 +1338,14 @@ class RowExpression(_ExpressionCarrier, Generic[_RowRoleT]):
     def max(
         self: RowExpression[Literal["numeric"]],
         *,
-        time: TimeExpression | None = None,
+        time: TimeExpression | TimeParameter | _OmittedTime = _OMITTED_TIME,
         nulls: NullPolicy = "ignore",
         where: RowPredicate | None = None,
     ) -> NumericMetric:
         """Capture the max reduction using the existing row rules.
 
         Args:
-            time: The explicit time captured for this operation.
+            time: Contribution time field or declared Metric time parameter. Omit for a reduction without a time role.
             nulls: The explicit nulls captured for this operation.
             where: Optional same-root source-row condition captured before reduction.
 
@@ -1328,7 +1360,7 @@ class RowExpression(_ExpressionCarrier, Generic[_RowRoleT]):
             scope validates roots, roles, units, time and operation-specific rules.
         """
         return MetricExpression(
-            self._method("max", kwargs={"time": time, "nulls": nulls, "where": where}),
+            self._method("max", kwargs=_source_arguments(time, nulls=nulls, where=where)),
             _merge(self, time, where),
             "numeric",
         )
@@ -1336,14 +1368,14 @@ class RowExpression(_ExpressionCarrier, Generic[_RowRoleT]):
     def median(
         self: RowExpression[Literal["numeric"]],
         *,
-        time: TimeExpression | None = None,
+        time: TimeExpression | TimeParameter | _OmittedTime = _OMITTED_TIME,
         nulls: NullPolicy = "ignore",
         where: RowPredicate | None = None,
     ) -> NumericMetric:
         """Capture the median reduction using the existing row rules.
 
         Args:
-            time: The explicit time captured for this operation.
+            time: Contribution time field or declared Metric time parameter. Omit for a reduction without a time role.
             nulls: The explicit nulls captured for this operation.
             where: Optional same-root source-row condition captured before reduction.
 
@@ -1358,7 +1390,7 @@ class RowExpression(_ExpressionCarrier, Generic[_RowRoleT]):
             scope validates roots, roles, units, time and operation-specific rules.
         """
         return MetricExpression(
-            self._method("median", kwargs={"time": time, "nulls": nulls, "where": where}),
+            self._method("median", kwargs=_source_arguments(time, nulls=nulls, where=where)),
             _merge(self, time, where),
             "numeric",
         )
@@ -1366,14 +1398,14 @@ class RowExpression(_ExpressionCarrier, Generic[_RowRoleT]):
     def count(
         self,
         *,
-        time: TimeExpression | None = None,
+        time: TimeExpression | TimeParameter | _OmittedTime = _OMITTED_TIME,
         nulls: NullPolicy = "ignore",
         where: RowPredicate | None = None,
     ) -> NumericMetric:
         """Capture the count reduction using the existing row rules.
 
         Args:
-            time: The explicit time captured for this operation.
+            time: Contribution time field or declared Metric time parameter. Omit for a reduction without a time role.
             nulls: The explicit nulls captured for this operation.
             where: Optional same-root source-row condition captured before reduction.
 
@@ -1388,7 +1420,7 @@ class RowExpression(_ExpressionCarrier, Generic[_RowRoleT]):
             scope validates roots, roles, units, time and operation-specific rules.
         """
         return MetricExpression(
-            self._method("count", kwargs={"time": time, "nulls": nulls, "where": where}),
+            self._method("count", kwargs=_source_arguments(time, nulls=nulls, where=where)),
             _merge(self, time, where),
             "numeric",
         )
@@ -1396,14 +1428,14 @@ class RowExpression(_ExpressionCarrier, Generic[_RowRoleT]):
     def count_distinct(
         self,
         *,
-        time: TimeExpression | None = None,
+        time: TimeExpression | TimeParameter | _OmittedTime = _OMITTED_TIME,
         nulls: NullPolicy = "ignore",
         where: RowPredicate | None = None,
     ) -> NumericMetric:
         """Capture the count_distinct reduction using the existing row rules.
 
         Args:
-            time: The explicit time captured for this operation.
+            time: Contribution time field or declared Metric time parameter. Omit for a reduction without a time role.
             nulls: The explicit nulls captured for this operation.
             where: Optional same-root source-row condition captured before reduction.
 
@@ -1418,7 +1450,9 @@ class RowExpression(_ExpressionCarrier, Generic[_RowRoleT]):
             scope validates roots, roles, units, time and operation-specific rules.
         """
         return MetricExpression(
-            self._method("count_distinct", kwargs={"time": time, "nulls": nulls, "where": where}),
+            self._method(
+                "count_distinct", kwargs=_source_arguments(time, nulls=nulls, where=where)
+            ),
             _merge(self, time, where),
             "numeric",
         )
@@ -1426,14 +1460,14 @@ class RowExpression(_ExpressionCarrier, Generic[_RowRoleT]):
     def approx_nunique(
         self,
         *,
-        time: TimeExpression | None = None,
+        time: TimeExpression | TimeParameter | _OmittedTime = _OMITTED_TIME,
         nulls: NullPolicy = "ignore",
         where: RowPredicate | None = None,
     ) -> NumericMetric:
         """Capture the approx_nunique reduction using the existing row rules.
 
         Args:
-            time: The explicit time captured for this operation.
+            time: Contribution time field or declared Metric time parameter. Omit for a reduction without a time role.
             nulls: The explicit nulls captured for this operation.
             where: Optional same-root source-row condition captured before reduction.
 
@@ -1448,7 +1482,9 @@ class RowExpression(_ExpressionCarrier, Generic[_RowRoleT]):
             scope validates roots, roles, units, time and operation-specific rules.
         """
         return MetricExpression(
-            self._method("approx_nunique", kwargs={"time": time, "nulls": nulls, "where": where}),
+            self._method(
+                "approx_nunique", kwargs=_source_arguments(time, nulls=nulls, where=where)
+            ),
             _merge(self, time, where),
             "numeric",
         )
@@ -1456,14 +1492,14 @@ class RowExpression(_ExpressionCarrier, Generic[_RowRoleT]):
     def approx_median(
         self: RowExpression[Literal["numeric"]],
         *,
-        time: TimeExpression | None = None,
+        time: TimeExpression | TimeParameter | _OmittedTime = _OMITTED_TIME,
         nulls: NullPolicy = "ignore",
         where: RowPredicate | None = None,
     ) -> NumericMetric:
         """Capture the approx_median reduction using the existing row rules.
 
         Args:
-            time: The explicit time captured for this operation.
+            time: Contribution time field or declared Metric time parameter. Omit for a reduction without a time role.
             nulls: The explicit nulls captured for this operation.
             where: Optional same-root source-row condition captured before reduction.
 
@@ -1478,7 +1514,7 @@ class RowExpression(_ExpressionCarrier, Generic[_RowRoleT]):
             scope validates roots, roles, units, time and operation-specific rules.
         """
         return MetricExpression(
-            self._method("approx_median", kwargs={"time": time, "nulls": nulls, "where": where}),
+            self._method("approx_median", kwargs=_source_arguments(time, nulls=nulls, where=where)),
             _merge(self, time, where),
             "numeric",
         )
@@ -1487,7 +1523,7 @@ class RowExpression(_ExpressionCarrier, Generic[_RowRoleT]):
         self: RowExpression[Literal["numeric"]],
         q: float,
         *,
-        time: TimeExpression | None = None,
+        time: TimeExpression | TimeParameter | _OmittedTime = _OMITTED_TIME,
         nulls: NullPolicy = "ignore",
         where: RowPredicate | None = None,
     ) -> NumericMetric:
@@ -1495,7 +1531,7 @@ class RowExpression(_ExpressionCarrier, Generic[_RowRoleT]):
 
         Args:
             q: The explicit q captured for this operation.
-            time: The explicit time captured for this operation.
+            time: Contribution time field or declared Metric time parameter. Omit for a reduction without a time role.
             nulls: The explicit nulls captured for this operation.
             where: Optional same-root source-row condition captured before reduction.
 
@@ -1510,7 +1546,7 @@ class RowExpression(_ExpressionCarrier, Generic[_RowRoleT]):
             scope validates roots, roles, units, time and operation-specific rules.
         """
         return MetricExpression(
-            self._method("quantile", (q,), {"time": time, "nulls": nulls, "where": where}),
+            self._method("quantile", (q,), _source_arguments(time, nulls=nulls, where=where)),
             _merge(self, time, where),
             "numeric",
         )
@@ -1519,7 +1555,7 @@ class RowExpression(_ExpressionCarrier, Generic[_RowRoleT]):
         self: RowExpression[Literal["numeric"]],
         q: float,
         *,
-        time: TimeExpression | None = None,
+        time: TimeExpression | TimeParameter | _OmittedTime = _OMITTED_TIME,
         nulls: NullPolicy = "ignore",
         where: RowPredicate | None = None,
     ) -> NumericMetric:
@@ -1527,7 +1563,7 @@ class RowExpression(_ExpressionCarrier, Generic[_RowRoleT]):
 
         Args:
             q: The explicit q captured for this operation.
-            time: The explicit time captured for this operation.
+            time: Contribution time field or declared Metric time parameter. Omit for a reduction without a time role.
             nulls: The explicit nulls captured for this operation.
             where: Optional same-root source-row condition captured before reduction.
 
@@ -1542,7 +1578,9 @@ class RowExpression(_ExpressionCarrier, Generic[_RowRoleT]):
             scope validates roots, roles, units, time and operation-specific rules.
         """
         return MetricExpression(
-            self._method("approx_quantile", (q,), {"time": time, "nulls": nulls, "where": where}),
+            self._method(
+                "approx_quantile", (q,), _source_arguments(time, nulls=nulls, where=where)
+            ),
             _merge(self, time, where),
             "numeric",
         )
@@ -1551,7 +1589,7 @@ class RowExpression(_ExpressionCarrier, Generic[_RowRoleT]):
         self: RowExpression[Literal["numeric"]],
         weight: RowExpression[Literal["numeric"]],
         *,
-        time: TimeExpression | None = None,
+        time: TimeExpression | TimeParameter | _OmittedTime = _OMITTED_TIME,
         nulls: NullPolicy = "ignore",
         where: RowPredicate | None = None,
     ) -> NumericMetric:
@@ -1559,7 +1597,7 @@ class RowExpression(_ExpressionCarrier, Generic[_RowRoleT]):
 
         Args:
             weight: The explicit weight captured for this operation.
-            time: The explicit time captured for this operation.
+            time: Contribution time field or declared Metric time parameter. Omit for a reduction without a time role.
             nulls: The explicit nulls captured for this operation.
             where: Optional same-root source-row condition captured before reduction.
 
@@ -1576,7 +1614,7 @@ class RowExpression(_ExpressionCarrier, Generic[_RowRoleT]):
         return MetricExpression(
             self._method(
                 "weighted_mean",
-                kwargs={"weight": weight, "time": time, "nulls": nulls, "where": where},
+                kwargs=_source_arguments(time, weight=weight, nulls=nulls, where=where),
             ),
             _merge(self, weight, time, where),
             "numeric",
@@ -1590,6 +1628,59 @@ class MetricExpression(_ExpressionCarrier, Generic[_MetricRoleT]):
         if role not in ("numeric", "boolean"):
             _stage_error("MetricExpression requires a closed metric role.", received=repr(role))
         super().__init__(recipe, context, role)
+
+    def _time_parameter_names(self) -> tuple[str, ...]:
+        recipe = self._recipe
+        if not inspect_capture(Deferred(recipe)).has_time_parameters:
+            return ()
+        return tuple(slot.name for slot in prepare_time_recipe(recipe)[1])
+
+    def _card(self) -> Card:
+        card = super()._card()
+        names = self._time_parameter_names()
+        if names:
+            card.listing("time_parameters", names[:6])
+            card.field("next", ".bind_time(" + ", ".join(f"{name}=..." for name in names[:6]) + ")")
+        else:
+            card.field("next", "session.observe({'output': metric})")
+        return card
+
+    def bind_time(
+        self, **bindings: TimeExpression | TimeParameter
+    ) -> MetricExpression[_MetricRoleT]:
+        """Return an anonymous Metric with the selected time parameters fixed.
+
+        Args:
+            **bindings: Remaining parameter names mapped to resolved TimeDimensions.
+                A Metric declaration may connect a child slot to its own TimeParameter.
+
+        Returns:
+            A new Metric expression with the same role and numerical policies.
+
+        Example:
+            >>> paid_revenue = revenue.bind_time(event=paid_at)
+
+        Constraints:
+            At least one name is required. Unknown or already bound names fail.
+            Bind every remaining parameter before observing the Metric.
+        """
+        from marivo.semantic._deferred_semantics import consume_metric
+        from marivo.semantic._time_parameters import binding_error
+
+        for name, value in bindings.items():
+            if not isinstance(value, RowExpression) or value._role != "time":
+                binding_error(
+                    "Metric time bindings require a resolved time field.",
+                    expected="a TimeDimension expression from the loaded Catalog",
+                    received=f"{name}={type(value).__name__}",
+                    parameters=(name,),
+                    action=f"Pass the chosen TimeDimension to bind_time({name}=...).",
+                )
+        recipe = self._method("bind_time", kwargs=bindings)
+        result = MetricExpression(recipe, _merge(self, bindings), cast("_MetricRoleT", self._role))
+        if not inspect_capture(Deferred(recipe)).symbols:
+            consume_metric(result, allow_open=True, allow_boolean=True)
+        return result
 
     def __add__(
         self: MetricExpression[Literal["numeric"]],
@@ -2377,31 +2468,88 @@ class MetricExpression(_ExpressionCarrier, Generic[_MetricRoleT]):
             self._method("where", (predicate,)), _merge(self, predicate), "numeric"
         )
 
+    @overload
+    def per(
+        self: NumericMetric, by: TimeExpression | TimeParameter, *, grain: Grain
+    ) -> _MetricSamples: ...
+
+    @overload
     def per(
         self: NumericMetric,
         by: FieldExpression
         | tuple[FieldExpression | Grouping, ...]
         | Grouping
         | PopulationParameter
+        | TimeParameter
         | Grain,
+    ) -> _MetricSamples: ...
+
+    def per(
+        self: NumericMetric,
+        by: FieldExpression
+        | tuple[FieldExpression | Grouping, ...]
+        | Grouping
+        | PopulationParameter
+        | TimeParameter
+        | Grain,
+        *,
+        grain: Grain | _GrainOmitted = _GRAIN_OMITTED,
     ) -> _MetricSamples:
         """Capture the internal sample domain before its final reduction.
 
         Args:
-            by: The explicit by captured for this operation.
+            by: An internal sample field, grouping, population or Grain.
+            grain: A builtin Grain for one explicit native TimeField.
 
         Returns:
             An internal sample value requiring a final reduction.
 
         Examples:
             ``revenue.per(region).mean()``.
+            ``revenue.per(created_at, grain=mv.grain("day")).last()``.
 
         Notes:
-            Constraints: Captures immutable inputs without source access. The receiving
-            scope validates roots, roles, units, time and operation-specific rules.
+            Builtin calendar samples use the receiving Session's report timezone
+            and the actual contributions. An explicit field selects the sample
+            time independently of the contribution's time role.
         """
         from marivo._temporal import CalendarAxis
 
+        if grain is not _GRAIN_OMITTED:
+            from marivo._definition.deferred import _captured_field_kind, _captured_scalar_path
+            from marivo.refs import SemanticKind
+
+            field = _parameter(by)
+            if (
+                not isinstance(grain, Grain)
+                or grain.kind != "builtin"
+                or _captured_field_kind(field) is not SemanticKind.TIME_DIMENSION
+                or _captured_scalar_path(field)
+            ):
+                raise SemanticExpressionError(
+                    kind=ErrorKind.INVALID_EXPRESSION_STAGE,
+                    message="Explicit calendar samples require one native TimeField and a builtin Grain.",
+                    expected="Metric.per(TimeField, grain=mv.grain(...))",
+                    received=f"{type(by).__name__} with grain={grain!r}",
+                    action='Use a native TimeField with mv.grain("day"), or omit grain for ordinary samples.',
+                    help_target="metric.per",
+                )
+            return _MetricSamples(
+                self._method("per", (by,), {"grain": grain}), _merge(self, by), "samples"
+            )
+
+        from marivo._definition.grouping import _FieldCalendarGrouping
+
+        items = by if isinstance(by, tuple) else (by,)
+        if any(isinstance(item, _FieldCalendarGrouping) for item in items):
+            raise SemanticExpressionError(
+                kind=ErrorKind.INVALID_EXPRESSION_STAGE,
+                message="Metric.per requires an internal sample axis.",
+                expected="an internal sample field, Grain, or Population",
+                received="field calendar grouping",
+                action="Use time_group only in Session.observe.by. To bucket internal samples, use Metric.per(field, grain=...).",
+                help_target="metric.per",
+            )
         if isinstance(by, CalendarAxis):
             raise SemanticExpressionError(
                 kind=ErrorKind.INVALID_EXPRESSION_STAGE,

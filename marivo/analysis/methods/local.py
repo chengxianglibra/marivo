@@ -105,8 +105,10 @@ def _combine_program(
 
     from marivo._definition.correspondence import coordinate_position
     from marivo._definition.expressions import (
+        BuiltinSampleCoordinate,
         DeclaredMetricRef,
         EntityCount,
+        FieldCalendarSample,
         MemberCount,
         MetricNode,
         PerReduce,
@@ -115,6 +117,7 @@ def _combine_program(
         SourceWeightedMean,
     )
     from marivo._definition.graph import children, walk
+    from marivo._definition.observations import SampleAxis
     from marivo._definition.relations import (
         PopulationDependency,
         PopulationProgram,
@@ -192,18 +195,21 @@ def _combine_program(
             if inputs
             else pd.DataFrame(columns=keys)
         )
-        if (
-            program.calendar is not None
-            and program.output_population is None
-            and program.complete_calendar
-        ):
-            buckets = pd.DataFrame({program.calendar_key: time_key_series(program.calendar)})
-            field_keys = [key for key in keys if key != program.calendar_key]
+        calendars = (
+            *(((program.calendar_key, program.calendar),) if program.calendar is not None else ()),
+            *program.field_calendars,
+        )
+        if calendars and program.output_population is None and program.complete_calendar:
+            calendar_slots = {slot for slot, _ in calendars}
+            field_keys = [key for key in keys if key not in calendar_slots]
             completed_domain = (
-                domain.loc[:, field_keys].drop_duplicates().merge(buckets, how="cross")
+                domain.loc[:, field_keys].drop_duplicates()
                 if field_keys
-                else buckets
+                else pd.DataFrame(index=pd.RangeIndex(1))
             )
+            for slot, axis in calendars:
+                buckets = pd.DataFrame({slot: time_key_series(axis)})
+                completed_domain = completed_domain.merge(buckets, how="cross")
             if domain.empty:
                 domain = completed_domain
             elif not completed_domain.empty:
@@ -280,9 +286,13 @@ def _combine_program(
         classified = dict(count.axis_mapping)
         mapping: list[tuple[str, str]] = []
         time_domains: list[tuple[str, CalendarCoordinate | IntervalCoordinate]] = []
+        actual_sample_slots: list[str] = []
         offset = 0
         for axis in program.axes:
-            if (
+            if isinstance(axis, BuiltinSampleCoordinate):
+                actual_sample_slots.append(key_slots[offset])
+                offset += 1
+            elif (
                 isinstance(axis, (CalendarCoordinate, IntervalCoordinate))
                 and axis not in classified
             ):
@@ -305,6 +315,14 @@ def _combine_program(
         selected.columns = [target for _, target in mapping]
         for slot, time_axis in time_domains:
             selected = selected.merge(pd.DataFrame({slot: time_key_series(time_axis)}), how="cross")
+        if actual_sample_slots:
+            ordinary_slots = [slot for slot in keys if slot not in actual_sample_slots]
+            actual = domain.loc[:, keys]
+            selected = (
+                actual.merge(selected, on=ordinary_slots, how="inner")
+                if ordinary_slots
+                else actual.merge(selected, how="cross")
+            )
         return selected
 
     count_data = {}
@@ -387,8 +405,8 @@ def _combine_program(
             if any(binding.occurrence == occurrence for binding in bindings):
                 return
             calendar_sample = dict(program.calendar_samples).get(occurrence)
-            sample_axes: tuple[AxisBinding | CalendarCoordinate | IntervalCoordinate, ...]
-            if isinstance(node.samples, Grain):
+            sample_axes: tuple[SampleAxis, ...]
+            if isinstance(node.samples, (Grain, FieldCalendarSample)):
                 assert calendar_sample is not None
                 sample_axes = (calendar_sample,)
             else:
@@ -410,7 +428,9 @@ def _combine_program(
             next_sample_slot = len(keys)
             fallback_groups = []
             for axis in sample_axes:
-                width = sample_widths.get(axis, 1)
+                width = (
+                    1 if isinstance(axis, BuiltinSampleCoordinate) else sample_widths.get(axis, 1)
+                )
                 fallback_groups.append(
                     tuple(
                         f"key.{index}"
@@ -508,7 +528,7 @@ def _combine_program(
                 calendar_keys = [
                     key
                     for group, axis in zip(sample_groups, sample_axes, strict=True)
-                    if isinstance(axis, CalendarCoordinate)
+                    if isinstance(axis, (CalendarCoordinate, BuiltinSampleCoordinate))
                     for key in group
                 ]
                 if len(calendar_keys) == 1:

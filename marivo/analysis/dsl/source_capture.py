@@ -10,7 +10,7 @@ from ibis.common.deferred import Deferred
 
 from marivo._definition.correspondence import ComparisonAxis
 from marivo._definition.expressions import DeclaredMetricRef, MetricNode
-from marivo._definition.grouping import normalize_groupings
+from marivo._definition.grouping import FieldCalendarBinding, normalize_groupings
 from marivo._definition.query import (
     ResultQuery,
 )
@@ -106,6 +106,17 @@ def _metric_inputs(
                 "a numeric Metric expression",
                 type(metric).__name__,
                 "Obtain a Metric from session.catalog; use {'output': expression} for anonymous expressions.",
+                location,
+                canonical_id="session.observe",
+            )
+        remaining = metric._time_parameter_names()
+        if remaining:
+            reject(
+                "a Metric with every time parameter bound",
+                f"unbound time parameters: {', '.join(remaining)}",
+                "Bind the remaining parameters with .bind_time("
+                + ", ".join(f"{name}=..." for name in remaining[:6])
+                + ") before observing the Metric.",
                 location,
                 canonical_id="session.observe",
             )
@@ -422,9 +433,17 @@ def capture_metrics(
         population = None
     items = () if isinstance(by, Population) else by[1:] if domain is not None else by
     captured: list[ComparisonAxis | MembershipBinding] = []
+    field_calendars: list[FieldCalendarBinding] = []
     for item in items:
         if isinstance(item, Grouping) and isinstance(item._binding, MembershipBinding):
             captured.append(item._binding)
+        elif (
+            domain is None
+            and isinstance(item, Grouping)
+            and isinstance(item._binding, FieldCalendarBinding)
+        ):
+            field_calendars.append(item._binding)
+            captured.append(item._binding.calendar)
         elif domain is None and isinstance(item, (Deferred, Grouping, TimeScope)):
             captured.extend(_axes((item,)))
         else:
@@ -442,6 +461,7 @@ def capture_metrics(
             axes, bindings = normalize_groupings(
                 tuple(captured),
                 population_axes=domain._definition.axes if domain is not None else None,
+                field_calendars=tuple(item.calendar for item in field_calendars),
             )
     except DefinitionGraphError as error:
         reject(
@@ -511,6 +531,7 @@ def capture_metrics(
         calendar_snapshots=calendar_snapshots,
         memberships=bindings,
         population=population,
+        field_calendars=tuple(field_calendars),
     )
     if private_interval is not None:
         binding = replace(

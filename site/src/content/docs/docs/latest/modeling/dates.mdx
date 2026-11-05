@@ -18,17 +18,16 @@ A Time dimension declares the time role used by observations, windows, and calen
 | `column` | Yes | — | Physical column name exposed by the Entity source; may differ from the semantic name. |
 | `sample_interval` | No | `None` | Canonical positive `(count, "minute" or "hour")` subday cadence that divides a nominal day, is shorter than one day, and is representable in the source encoding; DATE fields cannot provide subday samples. |
 | `parse` | No | `None` | Parser for source encoding; `None` uses native temporal type. Encoded strings/integers require an explicit parser. |
-| `is_default` | No | `False` | Marks this as the Entity's default Metric time role. |
 
 
 
 ```python
 order_date = ms.time_dimension_column(
-    name="order_date", entity=orders, column="order_date", parse=ms.date(timezone="UTC"), is_default=True
+    name="order_date", entity=orders, column="order_date", parse=ms.date(timezone="UTC")
 )
 ```
 
-Use `ms.time_dimension_column` for a physical column and `@ms.time_dimension` for a derived field. Native dates and aware timestamps need no parser; encoded strings or integers use `ms.strptime(...)`, while hour-only fields use `ms.hour_prefix(...)`. DATE, naive timestamps and encoded times require a source timezone: set it on the parser or declare Datasource `wall_clock_timezone`. Missing declarations reject before business-data reads. Aware physical timestamps ignore the Datasource default. Choose at most one `is_default=True` time field per Entity. It selects the default Metric time role but does not set the observation range; supply a `TimeScope` for that range. See [business calendars](#business-calendars) for governed fiscal periods.
+Use `ms.time_dimension_column` for a physical column and `@ms.time_dimension` for a derived field. Native dates and aware timestamps need no parser; encoded strings or integers use `ms.strptime(...)`, while hour-only fields use `ms.hour_prefix(...)`. DATE, naive timestamps and encoded times require a source timezone: set it on the parser or declare Datasource `wall_clock_timezone`. Missing declarations reject before business-data reads. Aware physical timestamps ignore the Datasource default. Pass a field as `time=field` on a source reduction to select its contribution time. Omit `time` for a reduction without a time role. Supply a `TimeScope` in `observe.by` when you need an observation range. See [business calendars](#business-calendars) for governed fiscal periods.
 
 `sample_interval` describes source sampling cadence without bucketing or truncating timestamps. All TimeField sample reducers allow missing clocks. Represented NULLs retain their reducer policy; cadence does not assert source completeness.
 
@@ -43,7 +42,7 @@ report zones but cannot reconstruct event-level totals for another natural day.
 
 ## Derived time field: `ms.time_dimension`
 
-Use `@ms.time_dimension` when a time field is an expression over its Entity. It accepts the same `entity`, `parse`, `sample_interval` and `is_default` options described above. The function name is used unless `name=` is supplied.
+Use `@ms.time_dimension` when a time field is an expression over its Entity. It accepts the same `entity`, `parse` and `sample_interval` options described above. The function name is used unless `name=` is supplied.
 
 ## Native timestamp: `ms.timestamp`
 

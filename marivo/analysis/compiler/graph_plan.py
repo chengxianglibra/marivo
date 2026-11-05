@@ -37,7 +37,7 @@ from marivo.analysis.core.unique_keys import UniqueKeys
 from marivo.analysis.methods.physical import QUERY_COMBINE_KERNEL
 
 if TYPE_CHECKING:
-    from marivo._definition.types import CalendarCoordinate, IntervalCoordinate
+    from marivo._definition.types import CalendarCoordinate
     from marivo.analysis.compiler.attribute_inputs import AttributeRootLayout
     from marivo.analysis.compiler.native_query import NativeQueryFinish
     from marivo.analysis.compiler.observation import FormulaProgram, ReductionInput
@@ -674,6 +674,7 @@ def _plan_query(
         SourceAggregate,
     )
     from marivo._definition.graph import computation_fingerprint, walk
+    from marivo._definition.observations import CalendarGrouping
     from marivo._definition.query import PopulationValues
     from marivo._definition.relations import LiteralPopulation, PopulationProduct, PopulationProgram
     from marivo._definition.types import (
@@ -692,17 +693,26 @@ def _plan_query(
     )
     from marivo.analysis.core.value_types import data_type, ibis_type
 
-    def time_name(axis: CalendarCoordinate | IntervalCoordinate) -> str:
-        return f"calendar:{axis.grain}" if isinstance(axis, CalendarCoordinate) else "interval"
+    def time_name(axis: CalendarGrouping) -> str:
+        return (
+            "interval"
+            if isinstance(axis, IntervalCoordinate)
+            else f"calendar:{axis.grain_spec._to_token()}"
+        )
 
     observation = graph.signature.observation
     contributions = () if observation is None else observation.contributions
     base = _plan_source_reads(graph, schemas) if contributions else QueryPlan((), (), "")
+    field_calendars = {
+        item.calendar.identity: item.calendar
+        for item in (() if observation is None else observation.coordinates.field_calendars)
+    }
     calendar = next(
         (
             axis
             for axis in graph.signature.axes
             if isinstance(axis, (CalendarCoordinate, IntervalCoordinate))
+            and axis.identity not in field_calendars
         ),
         None,
     )
@@ -723,6 +733,7 @@ def _plan_query(
         else ()
     )
     calendar_key = "key.0"
+    field_calendar_slots: tuple[tuple[str, CalendarCoordinate], ...] = ()
     source_stages = tuple(stage for stage in base.stages if isinstance(stage, SourceRead))
     for stage, contribution in zip(source_stages, contributions, strict=True):
         reduction = reduction_input(contribution, f"{stage.stage_id}/value", calendar)
@@ -749,6 +760,11 @@ def _plan_query(
             reduction, table, dict(stage.field_columns), stage.predicates
         )
         calendar_slots = dict(reduction.calendars)
+        field_calendar_slots = tuple(
+            (slot, field_calendars[axis.identity])
+            for slot, axis in reduction.calendars
+            if isinstance(axis, CalendarCoordinate) and axis.identity in field_calendars
+        )
         if calendar is not None:
             calendar_key = next(slot for slot, axis in reduction.calendars if axis == calendar)
         stage_keys = tuple(
@@ -772,9 +788,13 @@ def _plan_query(
             for slot in expression.columns
             if slot.startswith("key.")
         )
-        output_width = int(calendar is not None) + sum(
-            len(coordinate_read_keys(read))
-            for read in contribution.coordinates[: contribution.output_axis_count]
+        output_width = (
+            int(calendar is not None)
+            + len(field_calendar_slots)
+            + sum(
+                len(coordinate_read_keys(read))
+                for read in contribution.coordinates[: contribution.output_axis_count]
+            )
         )
         output_keys = stage_keys[:output_width]
         if reads and tuple(c.dtype for c in keys) != tuple(c.dtype for c in output_keys):
@@ -990,6 +1010,7 @@ def _plan_query(
         if observation is not None
         else True,
         calendar_samples=observation.calendar_samples if observation is not None else (),
+        field_calendars=field_calendar_slots,
     )
     count_inputs = []
     for definition, member_population in (
@@ -1076,6 +1097,7 @@ def _plan_query(
         and program.output_population is None
         and direct == contributions[0].definition
         and calendar is None
+        and not field_calendars
     ):
         stage = reads[0]
         assert read_reduction(stage) is not None

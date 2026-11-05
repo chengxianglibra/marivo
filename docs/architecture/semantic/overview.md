@@ -64,9 +64,10 @@ the consuming expression determines contribution selection or allocation.
 
 Physical constructors and `ms.ref.*` return native typed Deferred symbols.
 Compose symbols directly; the loader binds the complete dependency graph and
-publishes immutable named semantic objects. Measure/Metric declarations return
-fixed numeric RowExpression/MetricExpression carriers and capture
-restricted recipes without executing authored functions.
+publishes immutable named semantic objects. Measure and Metric declarations
+capture restricted recipes without executing authored functions and return
+numeric RowExpression and MetricExpression carriers. A Metric can declare
+keyword-only time parameters that must be bound before source observation.
 Entity and categorical/time-field bodies retain their restricted Ibis contract.
 SQL is available only through the terminal datasource escape hatch.
 

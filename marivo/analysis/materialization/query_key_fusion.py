@@ -16,6 +16,7 @@ import pandas as pd
 
 from marivo._definition.correspondence import coordinate_position
 from marivo._definition.expressions import (
+    BuiltinSampleCoordinate,
     DeclaredMetricRef,
     EntityCount,
     MemberCount,
@@ -555,6 +556,9 @@ def _native_member_counts(
     closure = walk((node for _, node in program.outputs), resolve=dict(program.declared).get)
     if any(isinstance(node, (PerReduce, PerWeightedMean)) for node in closure.order):
         return "member count within samples retains its independent sample domain"
+    axes = tuple(axis for axis in program.axes if not isinstance(axis, BuiltinSampleCoordinate))
+    if len(axes) != len(program.axes):
+        return "member count broadcasts only across represented internal calendar samples"
     values = list(program.values)
     declarations = dict(program.declared)
 
@@ -585,7 +589,7 @@ def _native_member_counts(
             mapping = dict(zip(count.keys, binding.keys, strict=True))
             selected = tuple(
                 mapping[name]
-                for axis in program.axes
+                for axis in axes
                 for name in count.axis_mapping[coordinate_position(count.population.axes, axis)][1]
             )
             if len(selected) != len(keys):

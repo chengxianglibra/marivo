@@ -13,7 +13,8 @@ head:
 `AnalysisFrame`。调用 `compute()` 执行计算；调用 `persist()` 则完成计算并发布结果。
 
 `by` 选择输出坐标，`where` 筛选来源贡献。默认的 `by=()` 请求一个整体单元，不设定时间范围。
-若 `Metric` 的窗口或日历样本规则要求有限时间范围，请在 `by` 中加入 `TimeScope` 或
-`CalendarAxis`。原生 TimeField 样本规约允许缺点，声明 `sample_interval` 本身不要求观察期间。
+直接放进 `by` 的 `TimeScope` 或 `CalendarAxis` 按 Metric 的贡献时间筛选，并提供窗口端点。
+`mv.time_group(field, axis=axis)` 按指定字段的范围筛选、分桶并补齐输出轴。
+内置日历样本无需有限观察期间。
 
 完整说明和示例见[分析 DSL 的 observe 部分](/zh-cn/docs/latest/analysis/dsl/#观察指标)。

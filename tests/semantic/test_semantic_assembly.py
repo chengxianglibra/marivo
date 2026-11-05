@@ -394,33 +394,13 @@ _MINIMAL_DOMAIN_PY = textwrap.dedent("""\
 """)
 
 
-def test_duplicate_default_time_dimension_raises() -> None:
-    registry = _make_registry()
-    # Add a second time field with is_default=True on the same dataset
-    registry.dimensions["sales.orders.order_date2"] = DimensionIR(
-        semantic_id="sales.orders.order_date2",
-        domain="sales",
-        entity="sales.orders",
-        name="order_date2",
-        ai_context=AiContextIR(),
-        is_time_dimension=True,
-        kind=DimensionKind.TIME,
-        parse=DateParse(),
-        python_symbol="order_date2",
-        location=_LOC,
-        is_default=True,
-    )
-    # Mark the existing order_date as default too
-    registry.dimensions["sales.orders.order_date"] = dataclasses.replace(
-        registry.dimensions["sales.orders.order_date"],
-        is_default=True,
-    )
+def test_time_dimensions_have_no_default_authoring_option() -> None:
+    import inspect
 
-    errors, _warnings = assembly_validate(registry)
+    import marivo.semantic as ms
 
-    assert any(e.kind == ErrorKind.DUPLICATE_DEFAULT_TIME_DIMENSION for e in errors), (
-        f"Expected DUPLICATE_DEFAULT_TIME_DIMENSION, got: {[e.kind for e in errors]}"
-    )
+    for constructor in (ms.time_dimension, ms.time_dimension_column):
+        assert "is_default" not in inspect.signature(constructor).parameters
 
 
 def test_warnings_in_load_result(semantic_project_factory) -> None:

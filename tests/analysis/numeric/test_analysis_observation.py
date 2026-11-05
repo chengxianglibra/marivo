@@ -252,14 +252,13 @@ def test_anonymous_aggregate_resolves_the_declared_default_axis(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     case = analysis_dsl_case_factory("j1")
-    model = case.root / "models/semantic/sales/models.py"
-    model.write_text(
-        model.read_text().replace("parse=ms.timestamp(", "is_default=True, parse=ms.timestamp(", 1)
-    )
     ms.load(workspace_dir=case.root)
     amount = catalog_value(case.session.catalog, "sales.order.amount", kind="field")
+    time = catalog_value(case.session.catalog, "sales.order.ordered_at", kind="field")
     for windowed in (False, True):
-        rows = _by_member(_observe(case, amount.sum(), windowed=windowed).compute().to_pandas())
+        rows = _by_member(
+            _observe(case, amount.sum(time=time), windowed=windowed).compute().to_pandas()
+        )
         assert rows.loc[["A", "B", "C"]].tolist() == [450 if windowed else 626, 150, 400]
         assert rows.loc["D"] == 0
 

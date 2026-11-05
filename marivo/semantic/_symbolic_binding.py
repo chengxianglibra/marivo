@@ -162,9 +162,7 @@ def bind_recipe(
             return resolver_of(value)
         if isinstance(value, Entity):
             exact = value._exact_ref
-            return SemanticResolver(
-                SemanticInput(exact, exact, "1", SumNone(), value._default_time)
-            )
+            return SemanticResolver(SemanticInput(exact, exact, "1", SumNone()))
         if isinstance(value, Relationship):
             return Just(value._parameter)
         raise SemanticExpressionError(
@@ -492,7 +490,21 @@ def publish_declarations(
                 bind_recipe(resolver_of(original), lookup=lookup, declarations=closed, root=True)
             )
             row = consume_row(value) if target.kind is SemanticKind.MEASURE else None
-            facts = row if row is not None else consume_metric(value)
+            from marivo.semantic._time_parameters import (
+                qualify_declaration_slots,
+                time_parameter_ref,
+                validate_declaration_slots,
+            )
+
+            if row is None:
+                declaration_recipe = resolver_of(value)
+                assert isinstance(declaration_recipe, DeclarationResolver)
+                declaration_recipe = qualify_declaration_slots(declaration_recipe, target.key)
+                validate_declaration_slots(
+                    declaration_recipe.recipe, declaration_recipe.declaration.time_slots
+                )
+                value = Deferred(declaration_recipe)
+            facts = row if row is not None else consume_metric(value, allow_open=True)
             if row is not None and row.root.ref.path != target.path.rsplit(".", 1)[0]:
                 raise SemanticExpressionError(
                     kind=ErrorKind.INVALID_EXPRESSION_VALUE,
@@ -516,7 +528,7 @@ def publish_declarations(
                     action="Keep Session-owned values in the analysis script.",
                 )
             consumed = frozenset(
-                {exact.ref for exact in closure.refs}
+                {exact.ref for exact in closure.refs if not time_parameter_ref(exact)}
                 | {ref for node in closure.order for ref in direct_calendar_refs(node)}
             )
             scope_error = _closure_scope_error(target.path, value, consumed, available)
@@ -531,6 +543,11 @@ def publish_declarations(
                 node=facts.node,
                 unit=facts.unit,
                 ai_context=declaration.ai_context,
+                captured_dependencies=tuple(
+                    exact.ref
+                    for exact in inspect_capture(value).dependencies
+                    if exact.ref.kind is SemanticKind.METRIC
+                ),
             )
             resolver.advance()
             if target.kind is SemanticKind.MEASURE:

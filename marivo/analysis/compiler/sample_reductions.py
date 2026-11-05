@@ -10,9 +10,11 @@ import ibis.expr.operations as ops
 import ibis.expr.types as ir
 
 from marivo._definition.expressions import (
+    BuiltinSampleCoordinate,
     ContributionFilter,
     DeclaredMetricRef,
     EntityCount,
+    FieldCalendarSample,
     MemberCount,
     MetricExpression,
     MetricNode,
@@ -348,13 +350,13 @@ class SampleLowerer:
         groups = bindings[0].key_groups
         remaining = tuple(group for group in groups if not all(key in keys for key in group))
         calendar = dict(self.program.calendar_samples).get(path)
-        if isinstance(node.samples, Grain) and calendar is None:
+        if isinstance(node.samples, (Grain, FieldCalendarSample)) and calendar is None:
             raise SampleReductionUnavailableError(
                 "calendar sample has no captured contribution selection"
             )
         axes = (
             (calendar,)
-            if isinstance(node.samples, Grain)
+            if isinstance(node.samples, (Grain, FieldCalendarSample))
             else node.samples
             if isinstance(node.samples, tuple)
             else node.samples.axes
@@ -462,7 +464,7 @@ class SampleLowerer:
                 (
                     group[0]
                     for group, axis in zip(sample_groups, axes, strict=True)
-                    if isinstance(axis, CalendarCoordinate)
+                    if isinstance(axis, (CalendarCoordinate, BuiltinSampleCoordinate))
                     or (isinstance(axis, AxisBinding) and axis.field == node.order_by)
                 ),
                 None,

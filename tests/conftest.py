@@ -223,7 +223,7 @@ def authoring_evidence_project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
         ")\n"
         "log_date = ms.time_dimension_column(\n"
         "    name='log_date', entity=orders, column='log_date', \n"
-        "    parse=ms.strptime('%Y%m%d'), is_default=True,\n"
+        "    parse=ms.strptime('%Y%m%d'),\n"
         "    ai_context=ms.ai_context(business_definition='UTC order log date.'),\n"
         ")\n"
         "amount = ms.measure_column(\n"
@@ -235,7 +235,7 @@ def authoring_evidence_project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
     # captured before this file finalizes and publishes the Metric.
     (semantic_dir / "revenue.py").write_text(
         "import marivo.semantic as ms\n\n"
-        "from .models import amount as amount_ref\n\n"
+        "from .models import amount as amount_ref, log_date\n\n"
         ""
         "amount = amount_ref\n\n\n"
         "@ms.metric(\n"
@@ -245,7 +245,7 @@ def authoring_evidence_project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
         "    ),\n"
         ")\n"
         "def revenue():\n"
-        "    return amount.sum()\n"
+        "    return amount.sum(time=log_date)\n"
     )
     monkeypatch.chdir(tmp_path)
     return tmp_path
@@ -334,7 +334,7 @@ def bootstrap_sales_project(tmp_path: Path, *, with_time: bool = True) -> None:
         "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales', owner='Mina Zhang')\n"
     )
     time_dimension = (
-        "@ms.time_dimension(entity=orders, is_default=True)\n"
+        "@ms.time_dimension(entity=orders)\n"
         "def order_date(orders):\n"
         "    return orders.created_at.cast('date')\n\n"
         if with_time

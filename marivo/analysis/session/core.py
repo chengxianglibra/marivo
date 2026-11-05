@@ -339,8 +339,9 @@ class Session:
         Args:
             metrics: One directly named Metric, a nonempty list or tuple of named Metrics,
                 or a nonempty ordered mapping with explicit output names for expressions.
-            by: Ordered fields, membership rules and finite TimeScopes, or a complete Population
-                optionally followed by membership rules in a tuple.
+            by: Ordered fields, grouping rules and at most one direct TimeScope or CalendarAxis,
+                or a complete Population optionally followed by membership rules.
+                Use time_group to filter and bucket a specific time field independently.
             where: Extra row Predicate combining field and Population membership conditions.
                 Time comparison boundaries use this Session's report timezone for civil inputs;
                 aware inputs retain their instant, independently of the output scope's timezone.
@@ -353,19 +354,20 @@ class Session:
             ``frame = session.observe(revenue, by=(period,)).compute()``;
             ``frame.show()``.
 
-        Constraints: No source reads/Run at capture. by=() supplies no time range.
+        Constraints: Capture reads no source. by=() supplies no time range.
+        Use at most one direct observation time axis.
         Duplicate calendar/raw time: use calendar alone, TimeScope+field, or explicit Population.
-        TimeField sample reducers allow missing clocks and need no period. sample_interval is cadence.
-        Windows and calendar samples retain their period requirements.
-        Mapping for conflicts; no business identity. Trust semantic primary_key
-        with nullable physical metadata; no full-source NULL/uniqueness precheck. Violations may
-        pass; identity-output and operation checks remain. Use source_check.
+        TimeField sample reducers allow missing clocks. Windows and calendar samples retain their period requirements by rule. Windows need endpoints. Builtin samples use the Session timezone without a required period.
+        Names label outputs without asserting business identity. Trust semantic primary_key with
+        nullable physical metadata; no full-source NULL/uniqueness precheck. Existing
+        identity-output and operation checks remain.
         """
         from marivo.analysis.dsl import frame_sources
         from marivo.analysis.dsl._frame_inputs import collect_frame_key_inputs
         from marivo.analysis.dsl.population import _bind_by
         from marivo.analysis.dsl.source_capture import _metric_inputs
         from marivo.semantic._consumption import bind_metric
+        from marivo.semantic.errors import SemanticExpressionError
 
         selected_metrics = _metric_inputs(metrics)
         for name, metric in selected_metrics:
@@ -381,10 +383,25 @@ class Session:
         captured_frame_inputs = collect_frame_key_inputs(
             *(metric for _, metric in selected_metrics), where, owner=self._runtime.local.owner
         )
-        inputs = tuple(
-            (name, bind_metric(metric, self.catalog, owner=self._runtime.local.owner))
-            for name, metric in selected_metrics
-        )
+        inputs = []
+        for name, metric in selected_metrics:
+            try:
+                inputs.append(
+                    (name, bind_metric(metric, self.catalog, owner=self._runtime.local.owner))
+                )
+            except SemanticExpressionError as error:
+                if error.details.get("unbound_time_parameters") is True:
+                    from marivo.analysis.core.model import reject
+
+                    assert error.expected and error.received and error.repair is not None
+                    reject(
+                        error.expected,
+                        f"unbound time parameters: {error.received}",
+                        error.repair.action,
+                        f"Session.observe.metrics[{name!r}]",
+                        canonical_id="session.observe",
+                    )
+                raise
         bound_by = _bind_by(
             by, self.catalog, self._runtime.local.owner, location="Session.observe.by"
         )
@@ -395,7 +412,7 @@ class Session:
             self._runtime.local,
             self.catalog._state,
             self._runtime.connection_config,
-            inputs,
+            tuple(inputs),
             by=bound_by,
             where=bound_where,
             timezone=self.timezone,

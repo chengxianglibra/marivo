@@ -21,7 +21,7 @@ _DOMAIN = 'import marivo.semantic as ms\nms.domain(name="traffic", owner="Analyt
 _FIELDS = """import marivo.datasource as md
 import marivo.semantic as ms
 flows = ms.entity(name="flows", datasource=ms.ref.datasource("warehouse"), source=md.table("flows"), primary_key=["id"])
-day = ms.time_dimension_column(name="day", entity=flows, column="day", is_default=True)
+day = ms.time_dimension_column(name="day", entity=flows, column="day")
 category = ms.dimension_column(name="category", entity=flows, column="category")
 total_in_flow_value = ms.measure_column(name="total_in_flow_value", entity=flows, column="bytes", unit="By", additivity=ms.additive_all())
 total_in_p95_flow_value = ms.measure_column(name="total_in_p95_flow_value", entity=flows, column="p95_bytes", unit="By", additivity=ms.additive_all())
@@ -60,7 +60,6 @@ def test_rescale_row_and_metric_units_compose_without_mutating_sources(
     assert facts.unit == "GiB/s"
     assert facts.root == source.root
     assert facts.permission == source.permission
-    assert facts.default_time == source.default_time
     assert facts.coordinates == source.coordinates
     assert consume_row(amount).unit == "By"
     assert consume_row(amount / 1024).unit == "By"
@@ -80,7 +79,6 @@ def test_rescale_preserves_sum_denials_fixed_time_and_contribution_roots(
         value = catalog_value(catalog, f"traffic.flows.{name}", kind="field")
         scaled = ms.rescale(value, divisor=2, unit="GiB")
         assert consume_row(scaled).permission == consume_row(value).permission
-        assert consume_row(scaled).default_time == consume_row(value).default_time
         if name == "blocked":
             with pytest.raises(SemanticExpressionError) as original:
                 consume_metric(value.sum())

@@ -20,6 +20,7 @@ from marivo.analysis._capabilities.dataset_model import (
 from marivo.analysis._capabilities.dataset_model import (
     ParameterInput as P,
 )
+from marivo.analysis.dsl.time_group import time_group
 
 
 def provider() -> DisclosureProvider:
@@ -54,6 +55,39 @@ def provider() -> DisclosureProvider:
             )
         )
         exports.append(ExportInput(target, value, "grain.define"))
+    descriptors.append(
+        operation(
+            "time_group",
+            "mv.time_group",
+            time_group,
+            summary="Filter contributions by a time field, bucket that field, and complete the output grid.",
+            discovery_group="inputs.time",
+            parameters=(
+                P(
+                    "field",
+                    "Use a resolved TimeDimension with a single-valued path from every source root.",
+                ),
+                P("axis", "Use scope.by(grain) for the finite range and the bucket timezone."),
+            ),
+            related=("session.observe", "time_scope.by", "grouping"),
+            output="Grouping",
+            constraints=(
+                "Only accepted in Session.observe.by. The half-open field range applies before aggregation and intersects where and Metric period or window conditions. Null time fields contribute to no bucket.",
+                "Use a plain field for raw time values or an authored business date. Pass a TimeScope or CalendarAxis directly in by to provide Metric window endpoints.",
+                "Custom calendars require one complete certified period. Multiple distinct field calendars form a product of their finite bucket grids.",
+            ),
+            effects="Capture only; no source reads.",
+            failures=("AnalysisError: resolve the field and use a scoped CalendarAxis.",),
+            example=ExampleInput(
+                "days = session.time_scope(start='2026-08-01', end='2026-08-04').by(mv.grain('day'))\n"
+                "result = mv.time_group(created_at, axis=days)",
+                ("session", "created_at"),
+                "result",
+                "Grouping",
+            ),
+        )
+    )
+    exports.append(ExportInput("time_group", time_group, "time_group"))
     for type_value, target in (
         (Grain, "Grain"),
         (TimeScope, "TimeScope"),

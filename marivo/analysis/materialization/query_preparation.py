@@ -11,11 +11,12 @@ import ibis.expr.operations as ops
 import ibis.expr.types as ir
 
 from marivo._definition.expressions import (
+    BuiltinSampleCoordinate,
     PredicateExpression,
     RowField,
     TimeBinding,
 )
-from marivo._definition.observations import ObservationPeriod
+from marivo._definition.observations import CalendarGrouping, ObservationPeriod, SampleAxis
 from marivo._definition.relations import MembershipBinding
 from marivo._definition.types import (
     AttributeTime,
@@ -24,7 +25,6 @@ from marivo._definition.types import (
     ExactRef,
     FieldRead,
     IdentityRead,
-    IntervalCoordinate,
     RowAttributeTime,
     TimeInstantFieldRead,
     TimeScopeFieldRead,
@@ -91,9 +91,11 @@ class SourceInputContract:
     memberships: tuple[MembershipBinding, ...]
     population_reads: tuple[tuple[AxisBinding, FieldRead | IdentityRead], ...]
     window_key: int | datetime | None
-    sample_axes: tuple[AxisBinding | CalendarCoordinate | IntervalCoordinate, ...]
-    calendars: tuple[tuple[str, CalendarCoordinate | IntervalCoordinate], ...]
+    sample_axes: tuple[SampleAxis, ...]
+    calendars: tuple[tuple[str, CalendarGrouping], ...]
     time_authorities: tuple[SourceTimeAuthority, ...]
+    field_calendar_reads: tuple[tuple[str, FieldRead], ...] = ()
+    sample_calendar_reads: tuple[tuple[str, FieldRead], ...] = ()
 
     @classmethod
     def capture(
@@ -128,6 +130,8 @@ class SourceInputContract:
             contribution.sample_axes,
             contribution.calendars,
             (),
+            field_calendar_reads=contribution.field_calendar_reads,
+            sample_calendar_reads=contribution.sample_calendar_reads,
         )
 
 
@@ -362,12 +366,15 @@ def prepare_fields(
 
     table = entities[contribution.root.ref.path].view() if root_table is None else root_table
     reserved.update(table.columns)
+    field_calendar_reads = dict(contribution.field_calendar_reads)
     # Calendar membership is independent of the enclosing source read period.
     # Window bindings own their contribution period instead of the output cells.
     selected_calendars = tuple(
         calendar
-        for _, calendar in contribution.calendars
-        if contribution.window_key is None or calendar in contribution.sample_axes
+        for slot, calendar in contribution.calendars
+        if not isinstance(calendar, BuiltinSampleCoordinate)
+        and slot not in field_calendar_reads
+        and (contribution.window_key is None or calendar in contribution.sample_axes)
     )
     selected_owns_period = contribution.period is not None and any(
         all(
@@ -531,6 +538,8 @@ def prepare_fields(
             and not isinstance(read, (TimeScopeFieldRead, TimeInstantFieldRead))
             and contribution.time is not None
             and read.field == contribution.time.field
+            and read.path == contribution.time.path
+            and read.at == contribution.time.at
         ),
         None,
     )
@@ -564,6 +573,10 @@ def prepare_fields(
         ) -> dict[str, ir.Value]:
             if read == time_read:
                 for key, calendar in contribution.calendars:
+                    if isinstance(calendar, BuiltinSampleCoordinate):
+                        continue
+                    if key in field_calendar_reads:
+                        continue
                     name = unique("__bucket_" + key.replace(".", "_"))
                     if isinstance(calendar, CalendarCoordinate):
                         extras[name] = ibis.null().cast("timestamp('UTC', 6)")
@@ -613,7 +626,8 @@ def prepare_fields(
                 read.field.ref.path,
                 relation,
                 time_scope=read if isinstance(read, TimeScopeFieldRead) else None,
-                instant_read=isinstance(read, TimeInstantFieldRead),
+                instant_read=isinstance(read, TimeInstantFieldRead)
+                or read in field_calendar_reads.values(),
             )
 
         slot = unique(f"__field_{index}")
@@ -798,6 +812,74 @@ def prepare_fields(
         )
         if calendar in selected_calendars:
             table = table.filter(table[name].notnull())
+    for key, field_calendar in contribution.calendars:
+        field_read = field_calendar_reads.get(key)
+        if field_read is None:
+            continue
+        assert isinstance(field_calendar, CalendarCoordinate)
+        raw, field_contract, field_authority, _, _ = time_encodings[field_read.field.ref.path]
+        field_engine = entity_engine(
+            registry, normalize_target_entity(registry, field_contract.entity_ref.path)
+        )
+        source_times.extend(
+            capture_source_times((field_authority,), consumption_timezone=field_calendar.timezone)
+        )
+        if field_authority.kind == "civil_date":
+            from marivo._timezones import normalize_timezone
+            from marivo.analysis.core.model import reject
+
+            field_zone = normalize_timezone(field_calendar.timezone).tz
+            grain = field_calendar.grain_spec
+            subday = grain.kind == "builtin" and grain.unit in ("second", "minute", "hour")
+            if subday or any(
+                endpoint.astimezone(field_zone).time() != datetime.min.time()
+                for interval in field_calendar.ranges
+                for endpoint in interval
+            ):
+                reject(
+                    "civil DATE field calendars with complete-day boundaries",
+                    f"{field_read.field.ref.path}: {field_calendar.grain} in {field_calendar.timezone}",
+                    "Use complete days or a timestamp TimeDimension for subday grouping.",
+                    "time_group",
+                )
+        name = unique("__field_bucket_" + key.replace(".", "_"))
+        clock = dict(columns)[field_read_key(field_read)]
+        table = bind_calendar(
+            table,
+            table[clock],
+            field_calendar,
+            name,
+            date_timezone=field_authority.timezone
+            if raw.type().is_date() and field_authority.kind != "instant"
+            else None,
+            engine=field_engine,
+        )
+        originals.append((name, table[name]))
+        table = table.filter(table[name].notnull())
+        columns.append((calendar_field(key), name))
+    prepared_columns = dict(columns)
+    sample_calendars = dict(contribution.sample_calendar_reads)
+    for key, sample_calendar in contribution.calendars:
+        if not isinstance(sample_calendar, BuiltinSampleCoordinate):
+            continue
+        read = sample_calendars[key]
+        _, axis, authority, _, _ = time_encodings[read.field.ref.path]
+        source_times.extend(
+            capture_source_times((authority,), consumption_timezone=sample_calendar.timezone)
+        )
+        name = unique("__sample_bucket_" + key.replace(".", "_"))
+        clock = table[prepared_columns[field_read_key(read)]]
+        if authority.kind == "civil_date" and clock.type().is_date():
+            clock = localize(authority.timezone, timestamp(clock))
+        table = bind_calendar(
+            table,
+            clock,
+            sample_calendar,
+            name,
+            engine=entity_engine(registry, normalize_target_entity(registry, axis.entity_ref.path)),
+        )
+        originals.append((name, table[name]))
+        columns.append((calendar_field(key), name))
     for _, slot in columns:
         if table[slot].type().is_interval():
             from marivo.analysis.compiler.numeric_sql import duration_ticks, interval_part

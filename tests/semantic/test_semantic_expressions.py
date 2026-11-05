@@ -69,7 +69,7 @@ from tests.support.refs import as_ref
 _DOMAIN_PY = (
     'import marivo.semantic as ms\nms.domain(name="sales", owner="Analytics", default=True)\n'
 )
-_OBJECTS_PY = 'import marivo.datasource as md\nimport marivo.semantic as ms\n\norders = ms.entity(\n    name="orders",\n    datasource=ms.ref.datasource("warehouse"),\n    source=md.table("orders"),\n    primary_key=["order_id"],\n)\ncustomers = ms.entity(\n    name="customers",\n    datasource=ms.ref.datasource("warehouse"),\n    source=md.table("customers"),\n    primary_key=["id"],\n)\n\nstatus = ms.dimension_column(name="status", entity=orders, column="status")\ncustomer_id = ms.dimension_column(name="customer_id", entity=orders, column="customer_id")\nid = ms.dimension_column(name="id", entity=customers, column="id")\npaid_at = ms.time_dimension_column(\n    name="paid_at",\n    entity=orders,\n    column="paid_at",\n    \n    parse=ms.timestamp(timezone="UTC"),\n    is_default=True,\n)\ncreated_at = ms.time_dimension_column(\n    name="created_at",\n    entity=customers,\n    column="created_at",\n    \n    parse=ms.timestamp(timezone="UTC"),\n)\n\namount = ms.measure_column(\n    name="amount", entity=orders, column="amount", additivity=ms.additive_all(), unit="CNY"\n)\nunit_price = ms.measure_column(\n    name="unit_price", entity=orders, column="unit_price", additivity=ms.non_additive(), unit="CNY"\n)\nquantity = ms.measure_column(\n    name="quantity", entity=orders, column="quantity", additivity=ms.additive_over(status)\n)\ncost = ms.measure_column(\n    name="cost", entity=orders, column="cost", additivity=ms.additive_all(), unit="CNY"\n)\namount_usd = ms.measure_column(\n    name="amount_usd", entity=orders, column="amount_usd", additivity=ms.additive_all(), unit="USD"\n)\ncredit = ms.measure_column(\n    name="credit", entity=customers, column="credit", additivity=ms.additive_all(), unit="CNY"\n)\nbalance = ms.measure_column(\n    name="balance",\n    entity=orders,\n    column="balance",\n    additivity=ms.additive_except(paid_at),\n    unit="CNY",\n)\n\nms.relationship(\n    name="orders_to_customers",\n    from_entity=orders,\n    to_entity=customers,\n    keys=[ms.join_on(customer_id, id)],\n)\n\nregions = ms.entity(\n    name="regions",\n    datasource=ms.ref.datasource("warehouse"),\n    source=md.table("regions"),\n    primary_key=["id"],\n)\nregion_id = ms.dimension_column(name="region_id", entity=customers, column="region_id")\nregion_key = ms.dimension_column(name="id", entity=regions, column="id")\nopened_at = ms.time_dimension_column(\n    name="opened_at",\n    entity=regions,\n    column="opened_at",\n    \n    parse=ms.timestamp(timezone="UTC"),\n)\nms.relationship(\n    name="customers_to_regions",\n    from_entity=customers,\n    to_entity=regions,\n    keys=[ms.join_on(region_id, region_key)],\n)\nms.relationship(\n    name="customers_to_orders",\n    from_entity=customers,\n    to_entity=orders,\n    keys=[ms.join_on(id, customer_id)],\n)\n'
+_OBJECTS_PY = 'import marivo.datasource as md\nimport marivo.semantic as ms\n\norders = ms.entity(\n    name="orders",\n    datasource=ms.ref.datasource("warehouse"),\n    source=md.table("orders"),\n    primary_key=["order_id"],\n)\ncustomers = ms.entity(\n    name="customers",\n    datasource=ms.ref.datasource("warehouse"),\n    source=md.table("customers"),\n    primary_key=["id"],\n)\n\nstatus = ms.dimension_column(name="status", entity=orders, column="status")\ncustomer_id = ms.dimension_column(name="customer_id", entity=orders, column="customer_id")\nid = ms.dimension_column(name="id", entity=customers, column="id")\npaid_at = ms.time_dimension_column(\n    name="paid_at",\n    entity=orders,\n    column="paid_at",\n    \n    parse=ms.timestamp(timezone="UTC"),\n)\ncreated_at = ms.time_dimension_column(\n    name="created_at",\n    entity=customers,\n    column="created_at",\n    \n    parse=ms.timestamp(timezone="UTC"),\n)\n\namount = ms.measure_column(\n    name="amount", entity=orders, column="amount", additivity=ms.additive_all(), unit="CNY"\n)\nunit_price = ms.measure_column(\n    name="unit_price", entity=orders, column="unit_price", additivity=ms.non_additive(), unit="CNY"\n)\nquantity = ms.measure_column(\n    name="quantity", entity=orders, column="quantity", additivity=ms.additive_over(status)\n)\ncost = ms.measure_column(\n    name="cost", entity=orders, column="cost", additivity=ms.additive_all(), unit="CNY"\n)\namount_usd = ms.measure_column(\n    name="amount_usd", entity=orders, column="amount_usd", additivity=ms.additive_all(), unit="USD"\n)\ncredit = ms.measure_column(\n    name="credit", entity=customers, column="credit", additivity=ms.additive_all(), unit="CNY"\n)\nbalance = ms.measure_column(\n    name="balance",\n    entity=orders,\n    column="balance",\n    additivity=ms.additive_except(paid_at),\n    unit="CNY",\n)\n\nms.relationship(\n    name="orders_to_customers",\n    from_entity=orders,\n    to_entity=customers,\n    keys=[ms.join_on(customer_id, id)],\n)\n\nregions = ms.entity(\n    name="regions",\n    datasource=ms.ref.datasource("warehouse"),\n    source=md.table("regions"),\n    primary_key=["id"],\n)\nregion_id = ms.dimension_column(name="region_id", entity=customers, column="region_id")\nregion_key = ms.dimension_column(name="id", entity=regions, column="id")\nopened_at = ms.time_dimension_column(\n    name="opened_at",\n    entity=regions,\n    column="opened_at",\n    \n    parse=ms.timestamp(timezone="UTC"),\n)\nms.relationship(\n    name="customers_to_regions",\n    from_entity=customers,\n    to_entity=regions,\n    keys=[ms.join_on(region_id, region_key)],\n)\nms.relationship(\n    name="customers_to_orders",\n    from_entity=customers,\n    to_entity=orders,\n    keys=[ms.join_on(id, customer_id)],\n)\n'
 ProjectFactory: TypeAlias = Callable[..., SemanticProject]
 
 
@@ -122,7 +122,6 @@ def test_fields_resolve_with_exact_versions_and_owning_root(catalog: SemanticCat
     assert _facts(amount).root == _reference(orders) == _facts(status).root == _facts(paid_at).root
     assert _facts(amount).unit == "CNY"
     assert orders.primary_key == ("order_id",)
-    assert orders._default_time == _reference(paid_at)
     again = _physical(catalog, ms.ref.measure("sales.orders.amount"))
     assert (
         _reference(again),
@@ -187,12 +186,10 @@ def test_declaration_state_resolves_same_exact_values_as_catalog(
         _facts(declared).root,
         _facts(declared).unit,
         _facts(declared).permission,
-        _facts(declared).default_time,
     ) == (
         _facts(loaded).root,
         _facts(loaded).unit,
         _facts(loaded).permission,
-        _facts(loaded).default_time,
     )
     assert _facts(declared).permission == SumAllExcept(
         (_reference(resolve(catalog, ref_factory.time_dimension("sales.orders.paid_at"))),)
@@ -246,11 +243,13 @@ def test_declared_constructors_capture_catalog_versions_without_business_reads(
     )
 
 
-def test_constructor_snapshots_keep_final_default_time(catalog: SemanticCatalog) -> None:
+def test_constructor_snapshots_bind_explicit_time_in_either_declaration_order(
+    catalog: SemanticCatalog,
+) -> None:
     from marivo.semantic.validator import assembly_validate
 
-    default_first: bool
-    for default_first in (False, True):
+    field_first: bool
+    for field_first in (False, True):
         ctx = LoaderContext(
             default_domain="sales",
             datasource_irs=tuple(catalog._state.registry.datasources.values()),
@@ -263,30 +262,27 @@ def test_constructor_snapshots_keep_final_default_time(catalog: SemanticCatalog)
                 source=md.table("orders"),
                 primary_key=["order_id"],
             )
-            if default_first:
+            if field_first:
                 paid_at_ref = ms.time_dimension_column(
                     name="paid_at",
                     entity=orders_ref,
                     column="paid_at",
                     parse=ms.timestamp(timezone="UTC"),
-                    is_default=True,
                 )
             amount_ref = ms.measure_column(
                 name="amount", entity=orders_ref, column="amount", additivity=ms.additive_all()
             )
-            if not default_first:
+            if not field_first:
                 paid_at_ref = ms.time_dimension_column(
                     name="paid_at",
                     entity=orders_ref,
                     column="paid_at",
                     parse=ms.timestamp(timezone="UTC"),
-                    is_default=True,
                 )
             cost_ref = ms.measure_column(
                 name="cost", entity=orders_ref, column="cost", additivity=ms.additive_all()
             )
             state = captured_catalog()
-            orders = resolve(state, orders_ref)
             amount = resolve(state, amount_ref)
             paid_at = resolve(state, paid_at_ref)
             cost = resolve(state, cost_ref)
@@ -294,11 +290,10 @@ def test_constructor_snapshots_keep_final_default_time(catalog: SemanticCatalog)
         assert errors == []
         finalized = _physical(state, ms.ref.measure("sales.orders.amount"))
         assert _reference(amount) == _reference(finalized)
-        forward, reverse = (_facts((amount + cost).sum()).node, _facts((cost + amount).sum()).node)
+        forward = _facts((amount + cost).sum(time=paid_at)).node
+        reverse = _facts((cost + amount).sum(time=paid_at)).node
         assert isinstance(forward, SourceAggregate) and isinstance(reverse, SourceAggregate)
         assert forward.time == reverse.time == TimeBinding(_reference(paid_at))
-        assert _facts(amount).default_time == _facts(finalized).default_time == _reference(paid_at)
-        assert orders._default_time == _reference(paid_at)
 
 
 def test_constructor_snapshots_accept_later_declared_permission_axis(
@@ -578,11 +573,12 @@ def test_incomplete_scope_can_be_repaired_without_mutating_old_catalog(
         assert "region" in str(incomplete.value)
         ms.dimension_column(name="region", entity=orders, column="region")
         first = captured_catalog()
-        ms.time_dimension_column(name="paid_at", entity=orders, column="paid_at", is_default=True)
+        paid_at = ms.time_dimension_column(name="paid_at", entity=orders, column="paid_at")
         second = captured_catalog()
-    assert resolve(first, orders).default_time is None
-    assert resolve(second, orders).default_time is not None
-    assert _reference(resolve(first, region)) == _reference(resolve(first, region))
+    with pytest.raises(SemanticError, match="not defined"):
+        resolve(first, paid_at)
+    assert _reference(resolve(second, paid_at)).ref.path == "sales.orders.paid_at"
+    assert _reference(resolve(first, region)) == _reference(resolve(second, region))
 
 
 def test_pure_declaration_captures_symbols_before_complete_binding(
@@ -611,7 +607,7 @@ def test_pure_declaration_captures_symbols_before_complete_binding(
     )
 
 
-def test_later_file_contributes_default_time_to_complete_scope(catalog: SemanticCatalog) -> None:
+def test_later_file_adds_an_explicit_time_field_to_complete_scope(catalog: SemanticCatalog) -> None:
     first = LoaderContext(
         default_domain="sales", datasource_irs=tuple(catalog._state.registry.datasources.values())
     )
@@ -622,26 +618,26 @@ def test_later_file_contributes_default_time_to_complete_scope(catalog: Semantic
         earlier = captured_catalog()
     later = LoaderContext(default_domain="sales", datasource_irs=first.datasource_irs)
     with loader_context(later):
-        paid_at = ms.time_dimension_column(
-            name="paid_at", entity=orders, column="paid_at", is_default=True
-        )
+        paid_at = ms.time_dimension_column(name="paid_at", entity=orders, column="paid_at")
         complete = captured_catalog((first, later), datasource_irs=first.datasource_irs)
-    assert resolve(earlier, orders).default_time is None
-    assert resolve(complete, orders)._default_time == _reference(resolve(complete, paid_at))
+    with pytest.raises(SemanticError, match="not defined"):
+        resolve(earlier, paid_at)
+    count = resolve(complete, orders).count(time=resolve(complete, paid_at))
+    assert consume_metric(count).node.time == TimeBinding(_reference(resolve(complete, paid_at)))
 
 
 def test_finalized_capture_imports_once_and_matches_catalog(
     semantic_project_factory: ProjectFactory, tmp_path: Path
 ) -> None:
     counter = tmp_path / "module-effects.txt"
-    physical = 'import marivo.semantic as ms\nimport marivo.datasource as md\nfrom pathlib import Path\nwith Path(COUNTER).open("a") as output:\n    output.write("capture\\n")\norders_ref = ms.entity(name="orders", datasource=ms.ref.datasource("warehouse"), source=md.table("orders"))\namount_ref = ms.measure_column(name="amount", entity=orders_ref, column="amount", additivity=ms.additive_all())\nlater_ref = ms.ref.dimension("sales.orders.region")\n@ms.dimension(entity=orders_ref)\ndef normalized(rows):\n    return ms.bind(later_ref, rows).upper()\npaid_at_ref = ms.time_dimension_column(name="paid_at", entity=orders_ref, column="paid_at", is_default=True)\ncost_ref = ms.measure_column(name="cost", entity=orders_ref, column="cost", additivity=ms.additive_all())\nregion_ref = ms.dimension_column(name="region", entity=orders_ref, column="region")\n'.replace(
+    physical = 'import marivo.semantic as ms\nimport marivo.datasource as md\nfrom pathlib import Path\nwith Path(COUNTER).open("a") as output:\n    output.write("capture\\n")\norders_ref = ms.entity(name="orders", datasource=ms.ref.datasource("warehouse"), source=md.table("orders"))\namount_ref = ms.measure_column(name="amount", entity=orders_ref, column="amount", additivity=ms.additive_all())\nlater_ref = ms.ref.dimension("sales.orders.region")\n@ms.dimension(entity=orders_ref)\ndef normalized(rows):\n    return ms.bind(later_ref, rows).upper()\npaid_at_ref = ms.time_dimension_column(name="paid_at", entity=orders_ref, column="paid_at")\ncost_ref = ms.measure_column(name="cost", entity=orders_ref, column="cost", additivity=ms.additive_all())\nregion_ref = ms.dimension_column(name="region", entity=orders_ref, column="region")\n'.replace(
         "COUNTER", repr(str(counter))
     )
     composition = """import marivo.semantic as ms
 from .z_physical import orders_ref, amount_ref, paid_at_ref, cost_ref, normalized
 @ms.metric()
 def revenue():
-    return (amount_ref + cost_ref).sum()
+    return (amount_ref + cost_ref).sum(time=paid_at_ref)
 """
     loaded = SemanticCatalog(
         semantic_project_factory(
@@ -656,13 +652,10 @@ def revenue():
     amount = catalog_value(loaded, "sales.orders.amount", kind="field")
     cost = catalog_value(loaded, "sales.orders.cost", kind="field")
     normalized = catalog_value(loaded, "sales.orders.normalized", kind="field")
-    orders = loaded.get("entity:sales.orders")
-    assert (
-        consume_metric((amount + cost).sum()).node.time
-        == consume_metric((cost + amount).sum()).node.time
-    )
-    assert orders.default_time is not None
-    assert orders.default_time.path == "sales.orders.paid_at"
+    paid_at = catalog_value(loaded, "sales.orders.paid_at", kind="field")
+    expected = TimeBinding(_reference(paid_at))
+    assert consume_metric((amount + cost).sum(time=paid_at)).node.time == expected
+    assert consume_metric((cost + amount).sum(time=paid_at)).node.time == expected
     assert consume_field(normalized).reference.version.startswith("sha256:")
 
 
@@ -918,7 +911,6 @@ def test_measure_assertions_validate_real_axes_and_retain_fixed_time(
         return -balance_product * 2
 
     assert _facts(fixed_product).permission == SumAllExcept((_reference(paid_at),))
-    assert _facts(fixed_product).default_time == _facts(balance).default_time
     with pytest.raises(SemanticExpressionError) as erased:
 
         @ms.measure(additivity=ms.additive_all())
@@ -1085,7 +1077,6 @@ def test_relationship_resolves_endpoints_and_cardinality(catalog: SemanticCatalo
     )
     assert relationship._parameter.to_entity == _reference(customers)
     assert relationship.cardinality == "many_to_one"
-    assert customers._default_time is None
     created_at = resolve(catalog, ms.ref.time_dimension("sales.customers.created_at"))
     assert _facts(created_at).root == _reference(customers)
 
@@ -1325,24 +1316,21 @@ def test_invalid_predicates_and_truth_conversion_fail(catalog: SemanticCatalog) 
     assert operand.value.kind == ErrorKind.INVALID_EXPRESSION_STAGE.value
 
 
-def test_margin_sum_binds_default_time_on_one_root(catalog: SemanticCatalog) -> None:
+def test_margin_sum_has_no_time_role_unless_supplied(catalog: SemanticCatalog) -> None:
     amount, cost = (_measure(catalog, "amount"), _measure(catalog, "cost"))
     paid_at = resolve(catalog, ms.ref.time_dimension("sales.orders.paid_at"))
-    implicit = (amount - cost).sum()
-    explicit = (amount - cost).sum(time=paid_at)
-    assert type(implicit) is Deferred
-    assert isinstance(_facts(implicit).node, SourceAggregate)
-    assert _facts(implicit).node.reducer == "sum" and _facts(implicit).node.nulls == "ignore"
-    assert _facts(implicit).node.time == TimeBinding(_reference(paid_at))
-    assert computation_fingerprint(_facts(implicit).node) == computation_fingerprint(
-        _facts(explicit).node
-    )
-    assert (_facts(implicit).roots, _facts(implicit).unit) == ((_facts(amount).root,), "CNY")
+    implicit = _facts((amount - cost).sum())
+    explicit = _facts((amount - cost).sum(time=paid_at))
+    assert isinstance(implicit.node, SourceAggregate) and isinstance(explicit.node, SourceAggregate)
+    assert implicit.node.reducer == "sum" and implicit.node.nulls == "ignore"
+    assert implicit.node.time is None
+    assert explicit.node.time == TimeBinding(_reference(paid_at))
+    assert computation_fingerprint(implicit.node) != computation_fingerprint(explicit.node)
+    assert (implicit.roots, implicit.unit) == ((_facts(amount).root,), "CNY")
     strict = (amount - cost).sum(nulls="error")
-    assert computation_fingerprint(_facts(strict).node) != computation_fingerprint(
-        _facts(implicit).node
-    )
-    assert isinstance(implicit, Deferred)
+    assert computation_fingerprint(_facts(strict).node) != computation_fingerprint(implicit.node)
+    with pytest.raises(SemanticExpressionError, match="Explicit None"):
+        _consume_value((amount - cost).sum(time=None))
 
 
 def test_unauthorized_product_sum_is_rejected_but_mean_is_allowed(catalog: SemanticCatalog) -> None:
@@ -1370,7 +1358,7 @@ def test_counts_have_unit_one_and_entity_count_reads_whole_rows(catalog: Semanti
     assert isinstance(_facts(distinct).node, SourceAggregate)
     assert (_facts(distinct).node.reducer, _facts(distinct).unit) == ("count_distinct", "1")
     assert _facts(_measure(catalog, "amount").count()).unit == "1"
-    order_count = orders.count()
+    order_count = orders.count(time=paid_at)
     assert _facts(order_count).node == EntityCount(
         _reference(orders), TimeBinding(_reference(paid_at))
     )
@@ -1383,7 +1371,7 @@ def test_counts_have_unit_one_and_entity_count_reads_whole_rows(catalog: Semanti
 def test_quantile_and_policy_inputs_are_validated(catalog: SemanticCatalog) -> None:
     amount = _measure(catalog, "amount")
     paid_at = resolve(catalog, ms.ref.time_dimension("sales.orders.paid_at"))
-    assert _facts(amount.quantile(0.95)).node == SourceAggregate(
+    assert _facts(amount.quantile(0.95, time=paid_at)).node == SourceAggregate(
         _facts(amount).node, "quantile", TimeBinding(_reference(paid_at)), q=0.95
     )
     for bad in (1.5, -0.1, float("nan")):
@@ -1943,19 +1931,3 @@ def test_permission_intersection_and_time_paths_compare_semantic_references(
     result = amount.sum(time=routed)
     assert isinstance(_facts(result).node, SourceAggregate)
     assert _facts(result).node.time == TimeBinding(_reference(paid_at), (_reference(path),))
-
-
-def test_computation_keys_include_consumed_default_time_facts(catalog: SemanticCatalog) -> None:
-    original = _measure(catalog, "amount")
-    original_key = computation_fingerprint(_facts(original.sum()).node)
-    with loader_context(
-        LoaderContext(datasource_irs=tuple(catalog._state.registry.datasources.values()))
-    ):
-        namespace: dict[str, object] = {}
-        exec(_DOMAIN_PY, namespace)
-        exec(_OBJECTS_PY.replace("is_default=True", "is_default=False"), namespace)
-        changed = resolve(captured_catalog(), ms.ref.measure("sales.orders.amount"))
-    assert _reference(changed) == _reference(original)
-    assert _facts(original).default_time is not None and _facts(changed).default_time is None
-    assert computation_fingerprint(_facts(changed.sum()).node) != original_key
-    assert computation_fingerprint(_facts(original.sum()).node) == original_key

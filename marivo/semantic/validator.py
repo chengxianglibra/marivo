@@ -243,7 +243,6 @@ def normalize_target_dimension(
         is_time_dimension=dimension.is_time_dimension,
         sample_interval=dimension.sample_interval,
         parse=parse,
-        is_default=dimension.is_default,
         timezone=(
             parse.timezone
             if isinstance(parse, DateParse | TimestampParse | StrptimeParse)
@@ -833,11 +832,13 @@ class _BaseMetricASTValidator(ast.NodeVisitor):
         body_label: str = "Metric body",
         symbols: frozenset[str] | None = None,
         pure_declaration: bool = False,
+        time_parameters: frozenset[str] = frozenset(),
     ) -> None:
         self.fn_name = fn_name
         self.body_label = body_label
         self._symbols = symbols
         self._pure_declaration = pure_declaration
+        self._time_parameters = time_parameters
         self.errors: list[SemanticError] = []
         self._param_names: set[str] = set()
         self._parent_map: dict[ast.AST, ast.AST] = {}
@@ -874,7 +875,7 @@ class _BaseMetricASTValidator(ast.NodeVisitor):
         if self._pure_declaration and (
             node.args.posonlyargs
             or node.args.args
-            or node.args.kwonlyargs
+            or any(arg.arg not in self._time_parameters for arg in node.args.kwonlyargs)
             or node.args.vararg is not None
             or node.args.kwarg is not None
         ):
@@ -884,7 +885,9 @@ class _BaseMetricASTValidator(ast.NodeVisitor):
                 ast.unparse(node.args),
             )
         # Extract parameter names and build parent map for context-sensitive checks.
-        self._param_names = {arg.arg for arg in (*node.args.posonlyargs, *node.args.args)}
+        self._param_names = {
+            arg.arg for arg in (*node.args.posonlyargs, *node.args.args)
+        } | self._time_parameters
         self._parent_map = {
             child: parent for parent in ast.walk(node) for child in ast.iter_child_nodes(parent)
         }
@@ -1121,13 +1124,19 @@ def _is_docstring_stmt(node: ast.stmt) -> bool:
     )
 
 
-def validate_declaration_body_ast(function: ast.FunctionDef, *, symbols: frozenset[str]) -> None:
+def validate_declaration_body_ast(
+    function: ast.FunctionDef,
+    *,
+    symbols: frozenset[str],
+    time_parameters: frozenset[str] = frozenset(),
+) -> None:
     """Apply shared statement/local-binding rules to a pure expression declaration."""
     validator = _BaseMetricASTValidator(
         function.name,
         body_label="Expression declaration",
         symbols=symbols,
         pure_declaration=True,
+        time_parameters=time_parameters,
     )
     validator.visit(function)
     if validator.errors:
@@ -1491,36 +1500,6 @@ def _is_filtered_domain_ref(ref: str, loaded_models: set[str] | None) -> bool:
     if loaded_models is None or "." not in ref:
         return False
     return ref.split(".", 1)[0] not in loaded_models
-
-
-def _validate_default_time_dimension_unique(
-    errors: list[SemanticError],
-    registry: Registry,
-) -> None:
-    from collections import defaultdict
-
-    defaults_by_entity: dict[str, list[str]] = defaultdict(list)
-    for f_id, f_ir in registry.dimensions.items():
-        if f_ir.is_time_dimension and getattr(f_ir, "is_default", False):
-            defaults_by_entity[f_ir.entity].append(f_id)
-
-    for entity_id, field_ids in defaults_by_entity.items():
-        if len(field_ids) > 1:
-            errors.append(
-                SemanticLoadError(
-                    kind=ErrorKind.DUPLICATE_DEFAULT_TIME_DIMENSION,
-                    message=(
-                        f"Entity {entity_id!r} has {len(field_ids)} time dimensions "
-                        f"with is_default=True: {field_ids}. At most one is allowed."
-                    ),
-                    refs=tuple(field_ids),
-                    constraint_id=ConstraintId.TIME_DIMENSION_DEFAULT_UNIQUE,
-                    details={
-                        "entity": entity_id,
-                        "default_time_dimensions": field_ids,
-                    },
-                )
-            )
 
 
 def _filtered_domain_ref_warning(
@@ -2168,9 +2147,6 @@ def assembly_validate(
                         ),
                     )
                 )
-
-    # -- Validate at most one default time_dimension per entity --------------
-    _validate_default_time_dimension_unique(errors, registry)
 
     # -- Cross-model cycle detection (basic) --------------------------------
 

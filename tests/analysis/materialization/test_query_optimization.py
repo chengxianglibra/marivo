@@ -95,7 +95,7 @@ amount = ms.measure_column(name='amount', entity=orders, column='amount', additi
 detail = ms.dimension_column(name='detail', entity=orders, column='detail')
 exact = ms.measure_column(name='exact', entity=orders, column='exact', additivity=ms.additive_all(), unit='CNY')
 approximate = ms.measure_column(name='approximate', entity=orders, column='approximate', additivity=ms.additive_all(), unit='CNY')
-ordered_at = ms.time_dimension_column(name='ordered_at', entity=orders, column='ordered_at', is_default=True)
+ordered_at = ms.time_dimension_column(name='ordered_at', entity=orders, column='ordered_at')
 other = ms.entity(name='other', datasource=ms.ref.datasource('second'), source=md.table('orders'), primary_key=['id'])
 other_amount = ms.measure_column(name='amount', entity=other, column='amount', additivity=ms.additive_all(), unit='CNY')
 """,
@@ -650,8 +650,15 @@ def test_observe_different_fields_share_one_actual_aggregate(
     amount = catalog_value(session.catalog, "sales.orders.amount", kind="field")
     exact = catalog_value(session.catalog, "sales.orders.exact", kind="field")
     approximate = catalog_value(session.catalog, "sales.orders.approximate", kind="field")
+    ordered_at = catalog_value(session.catalog, "sales.orders.ordered_at", kind="field")
     scope = session.time_scope(start="2026-01-01", end="2026-01-04")
-    metrics = (amount.sum(), exact.sum(), approximate.mean(), amount.min(), approximate.max())
+    metrics = (
+        amount.sum(time=ordered_at),
+        exact.sum(time=ordered_at),
+        approximate.mean(time=ordered_at),
+        amount.min(time=ordered_at),
+        approximate.max(time=ordered_at),
+    )
     by = (
         ()
         if domain == "overall"

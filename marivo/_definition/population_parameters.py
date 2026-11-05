@@ -35,7 +35,11 @@ from marivo._definition.deferred import (
     resolver_of,
 )
 from marivo._definition.expressions import PredicateExpression
-from marivo._definition.grouping import _CoordinateGrouping, _MembershipGrouping
+from marivo._definition.grouping import (
+    FieldCalendarBinding,
+    _CoordinateGrouping,
+    _MembershipGrouping,
+)
 from marivo._definition.relations import (
     CalendarKeys,
     IntervalKeys,
@@ -501,6 +505,8 @@ def bind_parameter(
                 binding = current._binding
                 if isinstance(binding, MembershipBinding):
                     invalid("Population coordinates cannot contain membership allocation rules")
+                if isinstance(binding, FieldCalendarBinding):
+                    invalid("Field calendar groupings are only accepted in Session.observe.by")
                 result.append(binding)
             elif isinstance(current, Deferred):
                 result.append(build.axis(field(current)))
@@ -633,7 +639,9 @@ def bind_parameter_call(
             invalid(f"Population.{method} requires by=(field_or_grouping, ...)")
         result: list[ComparisonAxis] = []
         for item in value:
-            if isinstance(item, Grouping) and not isinstance(item._binding, MembershipBinding):
+            if isinstance(item, Grouping) and not isinstance(
+                item._binding, (MembershipBinding, FieldCalendarBinding)
+            ):
                 result.append(item._binding)
             elif isinstance(item, Deferred):
                 result.append(build.axis(field(item)))

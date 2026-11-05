@@ -131,11 +131,6 @@ _PARAMETERS: dict[str, tuple[str, str, tuple[LiveHelpTarget, ...]]] = {
         "Omit for an unversioned Entity; choose snapshot or validity history explicitly.",
         _links("snapshot", "validity"),
     ),
-    "is_default": (
-        "bool",
-        "False leaves the Entity's default business time unchanged; True declares this field as that default.",
-        (),
-    ),
     "default": (
         "bool",
         "True makes this Domain the file's default; False requires explicit domain selection for its declarations.",
@@ -211,8 +206,8 @@ _EXTRAS: dict[str, tuple[str, ...]] = {
     "entity": ("primary_key", "versioning", "domain", "ai_context"),
     "dimension": ("domain", "ai_context"),
     "dimension_column": ("domain", "ai_context"),
-    "time_dimension": ("is_default", "domain", "ai_context"),
-    "time_dimension_column": ("is_default", "domain", "ai_context"),
+    "time_dimension": ("domain", "ai_context"),
+    "time_dimension_column": ("domain", "ai_context"),
     "measure_column": ("unit", "domain", "ai_context"),
     "relationship": ("domain", "ai_context"),
     "period_calendar": ("coverage", "domain", "ai_context"),

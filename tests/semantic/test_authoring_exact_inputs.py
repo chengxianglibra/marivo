@@ -338,10 +338,7 @@ def test_pure_measure_additivity_uses_its_frozen_row_scope(policy_kind: str, mod
         )
         assert consume_row(granted).permission.axes == (consume_field(region).reference,)
         assert (consume_field(region).reference == consume_field(old).reference) is (mode == "same")
-        assert (
-            consume_row(granted).root == consume_row(amount).root
-            and consume_row(granted).default_time == consume_row(amount).default_time
-        )
+        assert consume_row(granted).root == consume_row(amount).root
 
 
 @pytest.mark.parametrize(

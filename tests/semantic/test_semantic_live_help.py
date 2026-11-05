@@ -789,7 +789,11 @@ def test_per_help_covers_observed_and_complete_sample_domains(
     assert "(P, rule, ...)" in text
     assert "parameters: memberships" not in text
     assert "actual time samples" in text
-    assert "week in month rejects" in text
+    assert "per(field) uses exact TimeField values" in text
+    assert "per(grain) buckets each contribution's declared time role" in text
+    assert "per(field, grain=grain) buckets one explicit native TimeField" in text
+    assert "Both builtin forms use the Session report timezone" in text
+    assert "Week in month rejects" in text
     assert "Session's current certified snapshot" in text
     assert "Windows inside calendar samples or wrapping calendar folds are unsupported" in text
 

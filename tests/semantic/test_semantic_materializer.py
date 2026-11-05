@@ -130,16 +130,15 @@ _COLUMN_HELPER_PROJECT_PY = textwrap.dedent("""    import marivo.datasource as m
         entity=orders,
         column="created_at",
         parse=ms.timestamp(timezone="UTC"),
-        is_default=True,
     )
     amount_value = amount
     @ms.metric()
     def total_amount():
-        return amount_value.sum()
+        return amount_value.sum(time=created_at)
 
     @ms.metric()
     def amount_again():
-        return amount_value.sum()
+        return amount_value.sum(time=created_at)
 """)
 
 _SQL_VIEW_DATASET_PY = textwrap.dedent("""\

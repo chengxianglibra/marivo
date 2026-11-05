@@ -18,6 +18,7 @@ from marivo.analysis.core.graph import BoundGraph
 from marivo.analysis.core.model import CoreRuleError
 from marivo.analysis.errors import AnalysisError
 from marivo.semantic.catalog import Metric, PeriodCalendar, SemanticCatalog
+from marivo.semantic.errors import SemanticExpressionError
 from marivo.semantic.reader import SemanticProject
 from tests.shared_fixtures import (
     catalog_entry,
@@ -64,9 +65,9 @@ def calendar_window_project(
         f"import marivo.datasource as md\nmd.duckdb(wall_clock_timezone='UTC', name='warehouse', path={str(database)!r})\n"
     )
     files["sales/metrics.py"] = (
-        files["sales/metrics.py"]
-        .replace("source=md.table('events')", "source=md.table('events'), primary_key=['user_id']")
-        .replace("column='event_date')", "column='event_date', is_default=True)")
+        files["sales/metrics.py"].replace(
+            "source=md.table('events')", "source=md.table('events'), primary_key=['user_id']"
+        )
         + """
 import marivo.analysis as mv
 month = ms.calendar_grain(calendar=ms.ref.period_calendar("sales.fiscal"), level="fiscal_month")
@@ -149,6 +150,12 @@ def test_declared_and_adhoc_semantic_calendar_samples_bind_session_snapshot(
             by=(scope.by(calendar.grain("fiscal_week")),),
         )
     assert "static child-to-parent" in (captured.value.expected or "")
+    event_date = catalog_value(session.catalog, "sales.events.event_date", kind="field")
+    assert isinstance(event_date, ms.TimeDimension)
+    with pytest.raises(SemanticExpressionError, match="native TimeField and a builtin Grain"):
+        gmv.per(event_date, grain=calendar.grain("fiscal_week"))
+    with pytest.raises(CoreRuleError, match="one finite observation TimeScope"):
+        session.observe({"v": gmv.per(week).mean()})
 
     def forbidden(*args: object, **kwargs: object) -> None:
         raise AssertionError("execution refreshed the frozen temporal scope")

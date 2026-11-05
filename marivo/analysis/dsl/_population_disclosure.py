@@ -372,7 +372,7 @@ def provider() -> DisclosureProvider:
         ),
         (
             Grouping,
-            ("identity", "membership", "population.axes", "time_scope.by"),
+            ("identity", "membership", "population.axes", "time_scope.by", "time_group"),
             ("session.observe", "Grouping.show"),
         ),
     ):
@@ -381,14 +381,14 @@ def provider() -> DisclosureProvider:
                 value.__name__,
                 value,
                 summary=(
-                    "A field, complete identity, interval, calendar or correlated membership grouping rule."
+                    "A field, complete identity, interval, calendar, field calendar or correlated membership grouping rule."
                     if value is Grouping
                     else "Finite immutable complete coordinate domain with explicit dependencies."
                     if value is Population
                     else "Closed immutable coordinate membership predicate."
                 ),
                 acquisition=(
-                    "Use identity(entity), membership(...), scope.by(grain), or population.axes. This abstract type has no public constructor or extension point."
+                    "Use identity(entity), membership(...), scope.by(grain), time_group(field, axis=axis), or population.axes. Field calendar groupings only enter observe.by. This abstract type has no public constructor or extension point."
                     if value is Grouping
                     else "Use mv.coordinates for literal keys, session.members for source identities, session.population_from for a fixed Frame bridge, mv.product for composition, or Population.project/classify/where/union/intersection/difference/image/preimage for derivation. Direct construction is unsupported."
                 ),

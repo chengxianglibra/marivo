@@ -67,11 +67,11 @@ weight = ms.measure_column(name="weight", entity=orders, column="weight", additi
 order_customer = ms.dimension_column(name="customer_id", entity=orders, column="customer_id")
 region = ms.dimension_column(name="region", entity=orders, column="region")
 code = ms.dimension_column(name="code", entity=orders, column="code")
-order_time = ms.time_dimension_column(name="ordered_at", entity=orders, column="ordered_at", is_default=True)
+order_time = ms.time_dimension_column(name="ordered_at", entity=orders, column="ordered_at")
 amount = ms.measure_column(name="amount", entity=orders, column="amount", additivity=ms.additive_all(), unit="CNY")
 buyer = ms.relationship(name="buyer", from_entity=orders, to_entity=customers, keys=[ms.join_on(order_customer, customer_id)])
 refunds = ms.entity(name="refunds", datasource=warehouse, source=md.table("refunds"), primary_key=["id"])
-refund_time = ms.time_dimension_column(name="refunded_at", entity=refunds, column="refunded_at", is_default=True)
+refund_time = ms.time_dimension_column(name="refunded_at", entity=refunds, column="refunded_at")
 refund_amount = ms.measure_column(name="amount", entity=refunds, column="amount", additivity=ms.additive_all(), unit="CNY")
 amount_value = amount
 refund_value = refund_amount
@@ -79,16 +79,16 @@ region_value = region
 weight_value = weight
 @ms.metric()
 def masked_overflow():
-    return (amount_value.sum() * 4611686018427387904) * 0
+    return (amount_value.sum(time=order_time) * 4611686018427387904) * 0
 @ms.metric()
 def tiny_mean():
-    return (weight_value * 0 + 1e-308).weighted_mean(weight=weight_value)
+    return (weight_value * 0 + 1e-308).weighted_mean(weight=weight_value, time=order_time)
 @ms.metric()
 def revenue():
-    return amount_value.sum()
+    return amount_value.sum(time=order_time)
 @ms.metric()
 def refund_total():
-    return refund_value.sum()
+    return refund_value.sum(time=refund_time)
 @ms.metric()
 def net():
     return revenue - refund_total
@@ -619,13 +619,18 @@ def test_empty_all_na_and_strict_policies(warehouse_session: Session) -> None:
 def test_weighted_mean_pairs_and_zero_policies(warehouse_session: Session) -> None:
     session = warehouse_session
     amount, weight = _numeric_inputs(session)
+    ordered_at = catalog_value(session.catalog, "sales.orders.ordered_at", kind="field")
     january = session.time_scope(start="2026-01-01", end="2026-02-01")
-    output = _compute(session, {"weighted": amount.weighted_mean(weight=weight)}, during=january)
+    weighted = amount.weighted_mean(weight=weight, time=ordered_at)
+    output = _compute(session, {"weighted": weighted}, during=january)
     assert output.table["value.0"].iloc[0] == 10
-    output = _compute(session, {"weighted": amount.weighted_mean(weight=weight)})
+    output = _compute(session, {"weighted": weighted})
     assert pd.isna(output.table["value.0"].iloc[0])
     with pytest.raises(SemanticExpressionError, match="non-NA value/weight pairs"):
-        _compute(session, {"weighted": amount.weighted_mean(weight=weight, nulls="error")})
+        _compute(
+            session,
+            {"weighted": amount.weighted_mean(weight=weight, time=ordered_at, nulls="error")},
+        )
 
 
 def test_row_and_metric_formulas_mask_before_division(warehouse_session: Session) -> None:
@@ -672,8 +677,13 @@ def test_complete_keys_and_null_classification(warehouse_session: Session) -> No
 def test_calendar_fills_only_empty_reductions(warehouse_session: Session) -> None:
     session = warehouse_session
     amount, _ = _numeric_inputs(session)
+    ordered_at = catalog_value(session.catalog, "sales.orders.ordered_at", kind="field")
     calendar = session.time_scope(start="2026-01-05", end="2026-01-09").by(mv.grain("day"))
-    output = _compute(session, {"sum": amount.sum(), "mean": amount.mean()}, during=calendar)
+    output = _compute(
+        session,
+        {"sum": amount.sum(time=ordered_at), "mean": amount.mean(time=ordered_at)},
+        during=calendar,
+    )
     assert output.table["key.0"].tolist() == list(pd.date_range("2026-01-05", periods=4, tz="UTC"))
     assert output.table["value.0"].to_dict() == {0: 10, 1: None, 2: 30, 3: 0}
     assert pd.isna(output.table["value.1"].iloc[1]) and pd.isna(output.table["value.1"].iloc[3])

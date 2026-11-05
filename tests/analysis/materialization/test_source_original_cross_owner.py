@@ -59,7 +59,7 @@ def _session(
         model += (
             f"{name}=ms.entity(name={name!r},datasource=ms.ref.datasource({datasource!r}),source=md.table({table!r}),primary_key=['id'])\n"
             f"{name}_amount=ms.measure_column(name='amount',entity={name},column='amount',additivity=ms.additive_all())\n"
-            f"{name}_day=ms.time_dimension_column(name='day',entity={name},column='day',is_default=True)\n"
+            f"{name}_day=ms.time_dimension_column(name='day',entity={name},column='day')\n"
         )
     files["sales/facts.py"] = model
     factory(files)
@@ -246,7 +246,7 @@ def test_remote_cross_owner_calendar_compacts_before_global_host_formula(
             files[f"datasources/{name}.py"] = datasource.replace(
                 "name='warehouse'", f"name={name!r}"
             )
-            model += f"{name}=ms.entity(name={name!r},datasource=ms.ref.datasource({name!r}),source=md.table({case.source.table!r},database={case.source.database!r}),primary_key=['id'])\n{name}_amount=ms.measure_column(name='amount',entity={name},column='amount',additivity=ms.additive_all())\n{name}_day=ms.time_dimension_column(name='day',entity={name},column='day',is_default=True)\n"
+            model += f"{name}=ms.entity(name={name!r},datasource=ms.ref.datasource({name!r}),source=md.table({case.source.table!r},database={case.source.database!r}),primary_key=['id'])\n{name}_amount=ms.measure_column(name='amount',entity={name},column='amount',additivity=ms.additive_all())\n{name}_day=ms.time_dimension_column(name='day',entity={name},column='day')\n"
         files["sales/facts.py"] = model
         semantic_project_factory(files)
         session = mv.session.get_or_create("remote-cross-owner", timezone="UTC")

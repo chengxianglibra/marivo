@@ -142,6 +142,7 @@ INPUT_FAMILIES = frozenset(
         "Field",
         "FieldExpression",
         "TimeExpression",
+        "TimeExpression | TimeParameter",
         "Dimension | TimeDimension | Measure | DimensionSymbol | TimeDimensionSymbol | MeasureSymbol",
         "Dimension | TimeDimension | DimensionSymbol | TimeDimensionSymbol",
         "TimeDimension | TimeDimensionSymbol",
@@ -909,7 +910,11 @@ def _object_contracts() -> tuple[SemanticObjectContract, ...]:
                 ),
             ),
             construction_modes=(
-                _mode("Declare a zero-argument pure Metric expression.", "default", "metric"),
+                _mode(
+                    "Declare a pure Metric expression with optional time slots.",
+                    "default",
+                    "metric",
+                ),
             ),
             relationships=(
                 _relationship(
@@ -926,6 +931,7 @@ def _object_contracts() -> tuple[SemanticObjectContract, ...]:
                 "row.sum",
                 "Metric.where",
                 "Metric.per",
+                "Metric.bind_time",
                 "Field.via",
                 "measure",
             ),
@@ -1700,6 +1706,7 @@ def _validate_registry(registry: SemanticCapabilityRegistry) -> None:
         "SemanticObject",
         "semantic_catalog",
         "semantic_object",
+        "time_parameter",
     }
     from marivo.datasource._capabilities.registry import REGISTRY as DATASOURCE_REGISTRY
 
@@ -2389,6 +2396,26 @@ def _expression_capabilities() -> tuple[AuthoringCapability, ...]:
     """Canonical receiver contracts; dispatch never depends on method spelling alone."""
     rows: list[AuthoringCapability] = [
         _capability(
+            "Metric.bind_time",
+            "marivo.semantic._expression_values.MetricExpression.bind_time",
+            "Fix named time slots on an immutable Metric expression. Bind one or more remaining names to "
+            "resolved TimeDimensions. Inside a Metric declaration, a value may be the outer TimeParameter, "
+            "explicitly sharing or renaming a child slot. Bind every remaining slot before observe. "
+            "The original template stays open and a bound expression is anonymous. "
+            "Source reduction time= declares a contribution role; bind_time instantiates an existing slot.",
+            kind="method",
+            output="MetricExpression",
+            inputs=(AuthoringInputRequirement(role="receiver", family="MetricExpression"),),
+            effects=_NONE,
+            example=(
+                "template = session.catalog.get('metric:sales.revenue_at')\n"
+                "paid_at = session.catalog.get('time_dimension:sales.orders.paid_at')\n"
+                "paid_revenue = template.bind_time(event=paid_at)"
+            ),
+            public_entrypoint="template.bind_time",
+            see_also=(_target("time_parameter"), _target("metric")),
+        ),
+        _capability(
             "Field.isin",
             "marivo.semantic._expression_values.RowExpression.isin",
             "Test membership in literal values on a resolved scalar field. The predicate retains "
@@ -2468,7 +2495,9 @@ def _expression_capabilities() -> tuple[AuthoringCapability, ...]:
             inputs = [AuthoringInputRequirement(role="receiver", family=family)]
             if prefix == "row":
                 inputs.append(
-                    _parameter_input("dependency", "TimeExpression", "time", optional=True)
+                    _parameter_input(
+                        "dependency", "TimeExpression | TimeParameter", "time", optional=True
+                    )
                 )
                 argument = (
                     "0.95, "
@@ -2506,7 +2535,9 @@ def _expression_capabilities() -> tuple[AuthoringCapability, ...]:
                 inputs.append(_parameter_input("dependency", input_family, parameter))
             elif prefix == "Entity":
                 inputs.append(
-                    _parameter_input("dependency", "TimeExpression", "time", optional=True)
+                    _parameter_input(
+                        "dependency", "TimeExpression | TimeParameter", "time", optional=True
+                    )
                 )
                 example = "orders.count(time=paid_at)"
             else:
@@ -2529,6 +2560,8 @@ def _expression_capabilities() -> tuple[AuthoringCapability, ...]:
                         _parameter_input("dependency", "bool", "include_null", optional=True),
                     )
                 )
+            if prefix == "Metric" and method == "per":
+                inputs.append(_parameter_input("dependency", "Grain", "grain", optional=True))
             if prefix in {"row", "MetricSamples"} and method not in {
                 "count",
                 "count_distinct",
@@ -2545,10 +2578,11 @@ def _expression_capabilities() -> tuple[AuthoringCapability, ...]:
                     "Reject repeated first fields, overlapping rules and reordered member fields. "
                     "Internal P may select a subset; empty or unmatched samples retain external coordinates. "
                     "Each nested layer keeps its own domain and complete allocation rules. "
-                    "A Grain uses actual time samples, including all-NULL samples; absent time buckets are not created. "
-                    "Each contribution uses its own declared time role. A finite observation TimeScope or CalendarAxis "
-                    "supplies timezone and calendar authority; pass the Grain, not scope.by(grain), to per. "
-                    "Static nesting permits day in week/month, month in quarter/year and divisible subday widths; week in month rejects. "
+                    "per(field) uses exact TimeField values. per(grain) buckets each contribution's declared time role. "
+                    "per(field, grain=grain) buckets one explicit native TimeField (or a declared TimeParameter) without changing the contribution time. "
+                    "Both builtin forms use the Session report timezone and actual time samples, including all-NULL quantities. "
+                    "They need no finite period, create no empty buckets, and reject NULL sample times and order_by. "
+                    "Same-field layers require matching timezones and nested grains. Day nests in month. Week in month rejects. "
                     "Custom hierarchies reject; one complete custom period may be sampled under an interval. "
                     "Each nested layer retains complete external, parent and child keys. "
                     "Semantic Grain lookups bind the Session's current certified snapshot and require certification. "
@@ -2575,7 +2609,7 @@ def _expression_capabilities() -> tuple[AuthoringCapability, ...]:
                     "order_by may name an internal TimeField; when omitted, exactly one internal "
                     "TimeField must be inferable. Time keys must uniquely order the samples. "
                     "include_null defaults to False (skip NA); True retains the selected sample's NA."
-                    " Calendar Grain samples use captured cell order; omit order_by."
+                    " Calendar samples use the captured bucket's instant order. Omit order_by."
                 )
             elif prefix == "row" and method in {
                 "median",
@@ -3199,7 +3233,12 @@ def _build_registry() -> SemanticCapabilityRegistry:
         _capability(
             "metric",
             "marivo.semantic._authoring_declarations.metric",
-            "Name a completed Metric with a zero-argument pure expression body. Fresh local expressions, a leading docstring and tuple/list literal arguments are allowed; lists are frozen as tuples. Arbitrary calls, table parameters, Ibis returns and ms.bind are rejected. Operator policies stay on their operators. Declaration is source-free and does not publish a Catalog Metric.",
+            "Name a Metric with a pure expression body. Use zero parameters or keyword-only "
+            "TimeParameter annotations without defaults. The decorator returns a Metric expression; "
+            "use .bind_time(event=paid_at) to choose a field. Fresh locals, a leading docstring, "
+            "and tuple/list literal arguments are allowed; lists are frozen as tuples. "
+            "Arbitrary calls, table parameters, Ibis returns and ms.bind are rejected. "
+            "Operator policies stay on their operators. Declaration is source-free and does not publish a Catalog Metric.",
             output="NumericMetric",
             inputs=(
                 _parameter_input("dependency", "DomainSymbol", "domain", optional=True),
@@ -3214,7 +3253,12 @@ def _build_registry() -> SemanticCapabilityRegistry:
                 "def amount():\n    return quantity * unit_price\n"
                 "@ms.metric()\ndef revenue():\n    return amount.sum()"
             ),
-            see_also=(_target("measure"), _target("expressions")),
+            see_also=(
+                _target("measure"),
+                _target("expressions"),
+                _target("time_parameter"),
+                _target("Metric.bind_time"),
+            ),
             invocation_shape="decorator",
         ),
         _capability(
@@ -3516,7 +3560,11 @@ def _build_registry() -> SemanticCapabilityRegistry:
         _capability(
             "readiness",
             "marivo.semantic.catalog.SemanticCatalog.readiness",
-            "Check selected definitions' physical dependency closures and certified temporal artifacts without connecting or querying. Declared Measures and Metrics are accepted; requested_ids and checked_ids retain the distinction. Unrelated load warnings are excluded. Analysis execution qualifies physical types and operation support.",
+            "Check selected definitions' physical dependency closures and certified temporal artifacts "
+            "without connecting or querying. Declared Measures and Metrics are accepted; an open Metric "
+            "checks only known dependencies. Unselected binding fields and executable Metric instances "
+            "are not certified. requested_ids and checked_ids retain the distinction. Unrelated load "
+            "warnings are excluded. Analysis execution qualifies physical types and operation support.",
             kind="method",
             output="ReadinessReport",
             inputs=(
@@ -3883,7 +3931,12 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
         EntryProvenance,
         FieldDefinition,
         MetricDefinition,
+        MetricNoTimeBinding,
         MetricTimeBinding,
+        MetricTimeConstraint,
+        MetricTimeFieldBinding,
+        MetricTimeParameter,
+        MetricTimeParameterBinding,
         PeriodCalendarDefinition,
         RelationshipDefinition,
         TemporalSetDefinition,
@@ -4037,7 +4090,12 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
         EntityDefinition,
         FieldDefinition,
         MetricDefinition,
+        MetricNoTimeBinding,
         MetricTimeBinding,
+        MetricTimeConstraint,
+        MetricTimeFieldBinding,
+        MetricTimeParameter,
+        MetricTimeParameterBinding,
         RelationshipDefinition,
         PeriodCalendarDefinition,
         TemporalSetDefinition,
@@ -4242,6 +4300,7 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
         methods=("to_dict",),
     )
     from marivo.semantic._expression_values import MetricExpression, RowExpression
+    from marivo.semantic._time_parameters import TimeParameter
     from marivo.semantic.expressions import ExpressionContract
 
     add(
@@ -4257,10 +4316,28 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
         ),
     )
     add(
+        TimeParameter,
+        "TimeParameter",
+        ("metric",),
+        consumers=("Metric.bind_time",),
+        guidance=(
+            "Annotate keyword-only parameters of @ms.metric() without defaults. "
+            "Allowed uses are source reduction time, per field, native sample order_by, "
+            "and a child bind_time value. Bind remaining slots before observing. "
+            "Outside a declaration body, use a loaded Metric and time field.",
+        ),
+        example=(
+            "@ms.metric()\ndef revenue_at(*, event: ms.TimeParameter):\n"
+            "    return amount.sum(time=event)\n\n"
+            "@ms.metric()\ndef paid_revenue():\n"
+            "    return revenue_at.bind_time(event=paid_at)"
+        ),
+    )
+    add(
         MetricExpression,
         "MetricExpression",
         ("metric",),
-        methods=("show", "render"),
+        methods=("show", "render", "bind_time"),
         type_page_methods=("show", "render"),
         guidance=(
             "Role is numeric or boolean. Only completed numeric Metrics can be observed; anonymous outputs require a Mapping name.",

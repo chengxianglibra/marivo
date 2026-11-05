@@ -46,7 +46,7 @@ def test_naive_parquet_identity_keeps_ticks_independent_of_time_parser(
             "sales/events.py": "import marivo.datasource as md\nimport marivo.semantic as ms\n"
             + f"events=ms.entity(name='events', datasource=ms.ref.datasource('warehouse'), source=md.parquet({str(path)!r}), primary_key=['tenant','ts'])\n"
             + (
-                "ts=ms.time_dimension_column(name='ts', entity=events, column='ts', parse=ms.timestamp(timezone='Europe/Berlin'), is_default=True)\n"
+                "ts=ms.time_dimension_column(name='ts', entity=events, column='ts', parse=ms.timestamp(timezone='Europe/Berlin'))\n"
                 if unit == "us"
                 else ""
             )

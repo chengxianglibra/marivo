@@ -1145,7 +1145,6 @@ def test_time_dimension_column_pushes_ir_sidecar_and_pending_ref() -> None:
             entity=orders,
             column="dt",
             parse=ms.strptime("%Y%m%d"),
-            is_default=True,
             ai_context=ms.ai_context(
                 business_definition="Default order reporting date.",
             ),
@@ -1164,7 +1163,6 @@ def test_time_dimension_column_pushes_ir_sidecar_and_pending_ref() -> None:
         assert ir.kind is DimensionKind.TIME
 
         assert ir.parse is not None
-        assert ir.is_default is True
         assert ir.ai_context.business_definition == "Default order reporting date."
         assert sidecar is not None
 
@@ -1417,7 +1415,6 @@ def test_status_time_can_be_declared_without_fold() -> None:
         assert isinstance(ir, MeasureIR)
         assert ir.status_time_fold is None
         assert ir.status_time_dimension == as_ref(axis).path
-        assert consume_field(resolve(captured_catalog(), quantity)).default_time is None
     finally:
         _exit_ctx()
 

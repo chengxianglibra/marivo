@@ -750,7 +750,6 @@ def time_dimension_column(
     column: str,
     sample_interval: tuple[int, Literal["minute", "hour"]] | None = None,
     parse: SemanticParse | None = None,
-    is_default: bool = False,
     domain: DomainSymbol | None = None,
     ai_context: AiContextValue | None = None,
 ) -> TimeDimensionSymbol:
@@ -764,7 +763,6 @@ def time_dimension_column(
         sample_interval: Optional canonical minute/hour source sampling cadence.
             Missing clock points are allowed; this does not assert complete coverage.
         parse: Optional parse variant such as ``ms.strptime(...)``.
-        is_default: Whether this is the default time axis for the entity.
         domain: Override the active domain namespace with a ``DomainSymbol`` returned
             by ``ms.domain(...)``. Defaults to the file's default domain.
         ai_context: Optional ``AiContextValue`` from ``ms.ai_context(...)`` with
@@ -824,7 +822,6 @@ def time_dimension_column(
         kind=DimensionKind.TIME,
         sample_interval=cadence,
         parse=parse,
-        is_default=is_default,
         python_symbol=obj_name,
         location=location,
         body_ast_hash=_compute_column_hash(column_name),
@@ -840,7 +837,6 @@ def time_dimension(
     entity: Entity | EntitySymbol,
     sample_interval: tuple[int, Literal["minute", "hour"]] | None = None,
     parse: SemanticParse | None = None,
-    is_default: bool = False,
     domain: DomainSymbol | None = None,
     ai_context: AiContextValue | None = None,
 ) -> Callable[[Callable[[ibis_ir.Table], ibis_ir.Value]], TimeDimensionSymbol]:
@@ -863,10 +859,6 @@ def time_dimension(
         parse: Optional parse variant. Omit for native temporal columns (the parse
             is inferred at analysis time). Use ``ms.timestamp(timezone=...)``, ``ms.strptime(format)``, or
             ``ms.hour_prefix(prefix)`` when explicit configuration is needed.
-        is_default: Mark this dimension as the default time axis when multiple time dimensions
-            exist on the entity. At most one time dimension per entity may carry
-            is_default=True. Source reductions inherit this axis when ``time=``
-            is omitted. Observation time scopes belong in ``session.observe(by=...)``.
         domain: Override the active domain namespace with a ``DomainSymbol`` returned
             by ``ms.domain(...)``. Defaults to the file's default domain.
         ai_context: Optional ``AiContextValue`` from ``ms.ai_context(...)`` with extra agent-facing hints.
@@ -936,7 +928,6 @@ def time_dimension(
             kind=DimensionKind.TIME,
             sample_interval=cadence,
             parse=parse,
-            is_default=is_default,
             python_symbol=fn.__name__,
             location=location,
             body_ast_hash=expression_body.body_ast_hash,

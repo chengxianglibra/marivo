@@ -414,7 +414,7 @@ def _author(
             physical = pq.read_schema(case.source.path).field("happened").type
             aware = isinstance(physical, pa.TimestampType) and physical.tz is not None
         parser = "ms.timestamp()" if aware else "ms.timestamp(timezone='UTC')"
-        code += f"{name}_time=ms.time_dimension_column(name='happened', entity={name}, column='happened', parse={parser}, is_default=True)\n"
+        code += f"{name}_time=ms.time_dimension_column(name='happened', entity={name}, column='happened', parse={parser})\n"
         code += f"{name}_subject=ms.relationship(name={name + '_subject'!r}, from_entity={name}, to_entity=subjects, keys=[ms.join_on({name}_tenant, subject_tenant),ms.join_on({name}_owner,subject_id)])\n"
     code += ""
     for name in ("facts", "other"):

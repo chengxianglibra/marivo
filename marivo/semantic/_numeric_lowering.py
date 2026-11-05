@@ -55,7 +55,9 @@ def numeric_failure(expected: str, received: str) -> NoReturn:
     from marivo.semantic.errors import ErrorKind, SemanticExpressionError
 
     action = "Repair the input values to satisfy the expected numeric/type constraints, then retry."
-    if "non-NA" in expected:
+    if expected == "non-NULL internal calendar sample time":
+        action = "Filter the named TimeField with where=sample_field.notnull(), or correct its source values."
+    elif "non-NA" in expected:
         action = "Supply non-NA inputs, or explicitly select nulls='ignore' on this reducer."
     elif "native" in expected or "demanded numeric" in expected:
         action = (

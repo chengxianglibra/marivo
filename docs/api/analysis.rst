@@ -36,7 +36,11 @@ requested identity domain. Every identity value is a complete primary-key tuple.
 Coordinates also accepts field coordinates and correlated field/identity tuples.
 ``population.axes`` reuses grouping definitions without selected keys.
 ``by=population`` selects complete output keys, including keys without facts.
-CalendarAxis is a calendar Grouping. Membership rules preserve correlated tuples
+A CalendarAxis directly in ``observe.by`` supplies Metric time and window
+endpoints. ``time_group(field, axis=axis)`` instead selects contributions by
+that field's range and adds its calendar buckets to the output grid.
+Multiple field calendar groupings can coexist with one direct observation
+axis. Each axis retains its own captured calendar interpretation. Membership rules preserve correlated tuples
 directly in observe.by or Metric.per, including interleaved field positions;
 Population stores no allocation rules. External output domains must cover necessary
 complete keys before internal sampling; internal sample domains may select subsets.
@@ -611,6 +615,7 @@ Canonical public exports
    :caption: Functions
 
    coordinates
+   time_group
    membership
    product
    in_population

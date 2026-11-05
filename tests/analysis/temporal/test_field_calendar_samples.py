@@ -1,0 +1,647 @@
+"""Internal field calendar samples operate on represented contributions."""
+
+import os
+import subprocess
+import sys
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+
+import pandas as pd
+import pytest
+
+import marivo.analysis as mv
+import marivo.semantic as ms
+from marivo.analysis.core.model import CoreRuleError
+from marivo.analysis.errors import AnalysisError
+from marivo.analysis.session.core import Session
+from marivo.datasource.ir import TableSourceIR
+from marivo.semantic.errors import SemanticExpressionError
+from marivo.semantic.reader import SemanticProject
+from tests.analysis.numeric.test_remote_numeric_query import _datasource_model
+from tests.datasource.source_cases import SourceData, source_case, source_params
+from tests.shared_fixtures import catalog_value
+from tests.support.paths import PROJECT_ROOT
+from tests.support.source_trace import SourceTrace
+
+_PAID = "2026-11-10 12:00:00"
+_F9 = (
+    ("2026-11-01 09:00:00", _PAID, 10, "East", 1),
+    ("2026-11-01 18:00:00", _PAID, 20, "East", 1),
+    ("2026-11-03 09:00:00", _PAID, 50, "West", 1),
+    ("2026-11-03 18:00:00", _PAID, 90, "West", 1),
+    ("2026-11-09 12:00:00", "2026-12-10 12:00:00", 999, "West", 1),
+)
+
+Row = tuple[str | None, str, int | None, str, int]
+ProjectFactory = Callable[[dict[str, str]], SemanticProject]
+
+
+@contextmanager
+def _sample_project(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    factory: ProjectFactory,
+    rows: tuple[Row, ...],
+    *,
+    backend: str = "duckdb",
+    profile: str = "table",
+) -> Iterator[None]:
+    physical = "DATETIME(6)" if backend == "mysql" else "TIMESTAMP(6)"
+    prefix = "TIMESTAMP " if backend == "trino" else ""
+    data = SourceData(
+        f"id BIGINT, created {physical}, paid {physical}, amount BIGINT, region VARCHAR(10), cost BIGINT",
+        ",".join(
+            "("
+            + ",".join(
+                (
+                    str(i),
+                    "NULL" if created is None else f"{prefix}{created!r}",
+                    f"{prefix}{paid!r}",
+                    "NULL" if amount is None else str(amount),
+                    repr(region),
+                    str(cost),
+                )
+            )
+            + ")"
+            for i, (created, paid, amount, region, cost) in enumerate(rows)
+        ),
+        "id Int64, created Nullable(DateTime64(6, 'UTC')), paid DateTime64(6, 'UTC'), "
+        "amount Nullable(Int64), region String, cost Int64",
+        [
+            {
+                "id": i,
+                "created": None
+                if created is None
+                else datetime.fromisoformat(created).replace(tzinfo=timezone.utc),
+                "paid": datetime.fromisoformat(paid).replace(tzinfo=timezone.utc),
+                "amount": amount,
+                "region": region,
+                "cost": cost,
+            }
+            for i, (created, paid, amount, region, cost) in enumerate(rows)
+        ],
+    )
+    monkeypatch.chdir(tmp_path)
+    with source_case(backend, profile, tmp_path, monkeypatch, data) as case:
+        assert isinstance(case.source, TableSourceIR)
+        factory(
+            {
+                "datasources/warehouse.py": _datasource_model(backend, case, monkeypatch),
+                "sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales', owner='Test', default=True)\n",
+                "sales/facts.py": "import marivo.datasource as md\nimport marivo.semantic as ms\n"
+                + f"facts = ms.entity(name='facts', datasource=ms.ref.datasource('warehouse'), source=md.table({case.source.table!r}, database={case.source.database!r}), primary_key=['id'])\n"
+                + "created = ms.time_dimension_column(name='created', entity=facts, column='created')\n"
+                + "paid = ms.time_dimension_column(name='paid', entity=facts, column='paid')\n"
+                + "region = ms.dimension_column(name='region', entity=facts, column='region')\n"
+                + "amount = ms.measure_column(name='amount', entity=facts, column='amount', additivity=ms.additive_all())\n"
+                + "cost = ms.measure_column(name='cost', entity=facts, column='cost', additivity=ms.additive_all())\n"
+                + "status = ms.measure_column(name='status', entity=facts, column='amount', additivity=ms.additive_except(created), status_time_dimension=created)\n",
+                "sales/refunds.py": "import marivo.datasource as md\nimport marivo.semantic as ms\n"
+                + f"refunds = ms.entity(name='refunds', datasource=ms.ref.datasource('warehouse'), source=md.table({case.source.table!r}, database={case.source.database!r}), primary_key=['id'])\n"
+                + "reviewed = ms.time_dimension_column(name='reviewed', entity=refunds, column='created')\n"
+                + "refunded = ms.time_dimension_column(name='refunded', entity=refunds, column='paid')\n"
+                + "region = ms.dimension_column(name='region', entity=refunds, column='region')\n"
+                + "amount = ms.measure_column(name='amount', entity=refunds, column='amount', additivity=ms.additive_all())\n",
+            }
+        )
+        yield
+
+
+@pytest.fixture
+def sample_session(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    semantic_project_factory: ProjectFactory,
+) -> Iterator[Session]:
+    with _sample_project(tmp_path, monkeypatch, semantic_project_factory, _F9):
+        yield mv.session.get_or_create("field-samples", timezone="UTC")
+
+
+def _fields(
+    session: Session,
+) -> tuple[ms.TimeDimension, ms.TimeDimension, ms.Measure, ms.Dimension]:
+    created = catalog_value(session.catalog, "sales.facts.created", kind="field")
+    paid = catalog_value(session.catalog, "sales.facts.paid", kind="field")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+    region = catalog_value(session.catalog, "sales.facts.region", kind="field")
+    assert isinstance(created, ms.TimeDimension) and isinstance(paid, ms.TimeDimension)
+    assert isinstance(amount, ms.Measure) and isinstance(region, ms.Dimension)
+    return created, paid, amount, region
+
+
+def test_binding_contribution_time_keeps_explicit_sample_field(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    semantic_project_factory: ProjectFactory,
+) -> None:
+    with _sample_project(tmp_path, monkeypatch, semantic_project_factory, _F9):
+        model = tmp_path / "models" / "semantic" / "sales" / "time_roles.py"
+        model.write_text(
+            """import marivo.analysis as mv
+import marivo.semantic as ms
+from .facts import amount, created
+
+day = mv.grain("day")
+
+@ms.metric()
+def last_by_event_day(*, event: ms.TimeParameter):
+    return amount.sum(time=event).per(day).last()
+
+@ms.metric()
+def last_by_created_day(*, event: ms.TimeParameter):
+    return amount.sum(time=event).per(created, grain=day).last()
+
+@ms.metric()
+def last_by_sample_day(*, event: ms.TimeParameter, sample: ms.TimeParameter):
+    return amount.sum(time=event).per(sample, grain=day).last()
+"""
+        )
+        session = mv.session.get_or_create("bind-fold", timezone="UTC")
+        created, paid, _, _ = _fields(session)
+        november = session.time_scope(start="2026-11-01", end="2026-12-01")
+        where = paid.within(november)
+        follows = session.catalog.get("metric:sales.last_by_event_day")
+        fixed = session.catalog.get("metric:sales.last_by_created_day")
+        sample = session.catalog.get("metric:sales.last_by_sample_day")
+        assert isinstance(follows, ms.Metric) and isinstance(fixed, ms.Metric)
+        assert isinstance(sample, ms.Metric)
+
+        first = follows.bind_time(event=created)
+        partial = sample.bind_time(event=paid)
+        metrics = {
+            "follow_created": first,
+            "fixed_created": fixed.bind_time(event=created),
+            "follow_paid": follows.bind_time(event=paid),
+            "fixed_paid": fixed.bind_time(event=paid),
+            "sample_created": partial.bind_time(sample=created),
+            "sample_paid": partial.bind_time(sample=paid),
+        }
+        rows = session.observe(metrics, by=(), where=where).compute().to_pandas()
+        assert rows.loc[0, list(metrics)].tolist() == [140, 140, 170, 140, 140, 170]
+        for open_metric in (follows, fixed, sample, partial):
+            with pytest.raises(AnalysisError, match="bind_time"):
+                session.observe({"open": open_metric}, by=(), where=where)
+        assert session.observe({"v": first}, where=where).compute().to_pandas()["v"].tolist() == [
+            140
+        ]
+
+
+def test_window_recomputes_event_mean_and_daily_fold_weights_days_equally(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    semantic_project_factory: ProjectFactory,
+) -> None:
+    rows = (
+        ("2026-11-01 09:00:00", "2026-11-01 10:00:00", 100, "East", 1),
+        ("2026-11-02 09:00:00", "2026-11-02 10:00:00", 300, "East", 1),
+        ("2026-11-02 09:00:00", "2026-11-02 11:00:00", 300, "East", 1),
+        ("2026-11-02 09:00:00", "2026-11-02 12:00:00", 300, "East", 1),
+    )
+    with _sample_project(tmp_path, monkeypatch, semantic_project_factory, rows):
+        session = mv.session.get_or_create("event-mean", timezone="UTC")
+        _, paid, amount, _ = _fields(session)
+        mean = amount.mean(time=paid)
+        window = mean.window(mv.trailing_duration(duration=timedelta(hours=48)))
+        endpoint = session.time_scope(start="2026-11-02", end="2026-11-03")
+        actual = session.observe({"mean": window}, by=(endpoint,)).compute().to_pandas()
+        assert actual["mean"].tolist() == [250]
+        daily = mean.per(mv.grain("day")).mean()
+        folded = session.observe({"mean": daily}).compute().to_pandas()
+        assert folded["mean"].tolist() == [200]
+
+
+def test_field_and_contribution_samples_are_independent(sample_session: Session) -> None:
+    created, paid, amount, region = _fields(sample_session)
+    day = mv.grain("day")
+    november = sample_session.time_scope(start="2026-11-01", end="2026-12-01")
+    revenue = amount.sum(time=paid)
+    metrics = {
+        "exact_last": revenue.per(created).last(),
+        "created_last": revenue.per(by=created, grain=day).last(),
+        "created_mean": revenue.per(created, grain=day).mean(),
+        "paid_last": revenue.per(day).last(),
+        "paid_last_explicit": revenue.per(paid, grain=day).last(),
+    }
+    rows = sample_session.observe(metrics, by=(november,)).compute().to_pandas()
+    assert rows.loc[0, list(metrics)].tolist() == [90, 140, 85, 170, 170]
+    created_grid = sample_session.time_scope(start="2026-11-01", end="2026-11-05").by(day)
+    completed = (
+        sample_session.observe(
+            {"v": revenue}, by=(november, mv.time_group(created, axis=created_grid))
+        )
+        .compute()
+        .to_pandas()
+        .sort_values("created")
+    )
+    assert completed["v"].tolist() == [30, 0, 140, 0]
+    members = mv.coordinates(by=(region,), keys=(("East",), ("West",)))
+    per_member = (revenue / members.count()).per(created, grain=day).mean()
+    assert sample_session.observe({"v": per_member}, by=(november,)).compute().to_pandas()[
+        "v"
+    ].tolist() == [42.5]
+    rows = sample_session.observe(metrics).compute().to_pandas()
+    assert rows.loc[0, ["paid_last", "paid_last_explicit"]].tolist() == [999, 999]
+    assert sample_session.observe(
+        {"v": amount.sum().per(created, grain=day).mean()}
+    ).compute().to_pandas()["v"].tolist() == [(30 + 140 + 999) / 3]
+
+    categorized = (
+        sample_session.observe(
+            {"v": metrics["created_last"], "same_paid_day": metrics["paid_last"]},
+            by=(region, november.by(mv.grain("month"))),
+        )
+        .compute()
+        .to_pandas()
+        .sort_values("region")
+    )
+    assert categorized["region"].tolist() == ["East", "West"]
+    assert categorized["v"].tolist() == [30, 140]
+    assert categorized["same_paid_day"].tolist() == [30, 140]
+
+    monthly = november.by(mv.grain("month"))
+    different_field = revenue.per(created, grain=mv.grain("week")).last()
+    assert sample_session.observe({"v": different_field}, by=(monthly,)).compute().to_pandas()[
+        "v"
+    ].tolist() == [140]
+    with pytest.raises(CoreRuleError, match="static child-to-parent"):
+        sample_session.observe(
+            {"v": revenue.per(paid, grain=mv.grain("week")).last()}, by=(monthly,)
+        )
+
+
+def test_new_sample_shape_validates_grain_and_windows(
+    sample_session: Session, source_trace: SourceTrace
+) -> None:
+    created, paid, amount, region = _fields(sample_session)
+    revenue = amount.sum(time=paid)
+    day = mv.grain("day")
+    scope = sample_session.time_scope(start="2026-11-01", end="2026-12-01")
+    for field, grain in (
+        (created, None),
+        (created, "day"),
+        (region, day),
+        ((created,), day),
+        (day, day),
+        (mv.time_group(created, axis=scope.by(day)), day),
+        (mv.coordinates(by=(region,), keys=(("East",),)), day),
+        (created, ms.calendar_grain(calendar=ms.ref.period_calendar("sales.fiscal"), level="day")),
+    ):
+        with pytest.raises(SemanticExpressionError, match="native TimeField and a builtin Grain"):
+            revenue.per(field, grain=grain)
+    with pytest.raises(TypeError):
+        revenue.per(created, day)
+    window = mv.all_history()
+    for expression in (
+        revenue.window(window).per(created, grain=day).last(),
+        revenue.per(created, grain=day).last().window(window),
+    ):
+        with pytest.raises(CoreRuleError, match=r"calendar sampl|calendar fold"):
+            sample_session.observe({"v": expression}, by=(scope,))
+    with pytest.raises(SemanticExpressionError, match="calendar order"):
+        sample_session.observe({"v": revenue.per(created, grain=day).last(order_by=created)})
+    sample_session.observe({"v": revenue.per(created, grain=day).last()})
+    assert source_trace.native_sql == []
+    assert sample_session.observe(
+        {"v": revenue.per(created).last().window(window)}, by=(scope,)
+    ).compute().to_pandas()["v"].tolist() == [90]
+
+
+@pytest.mark.parametrize(
+    "backend,profile",
+    source_params(
+        [
+            ("duckdb", "table"),
+            ("postgres", "table"),
+            ("mysql", "innodb-table"),
+            ("trino", "iceberg"),
+            ("clickhouse", "mergetree"),
+        ]
+    ),
+)
+def test_calendar_sample_completes_exact_status_then_folds_actual_days(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    semantic_project_factory: ProjectFactory,
+    backend: str,
+    profile: str,
+) -> None:
+    paid = "2026-11-05 12:00:00"
+    rows = (
+        ("2026-11-01 09:00:00", paid, 10, "A", 1),
+        ("2026-11-01 09:00:00", paid, 20, "B", 1),
+        ("2026-11-01 18:00:00", paid, 5, "A", 1),
+        ("2026-11-01 18:00:00", paid, 40, "B", 1),
+        ("2026-11-03 18:00:00", paid, 20, "A", 1),
+        ("2026-11-03 18:00:00", paid, 30, "B", 1),
+        ("2026-11-03 19:00:00", _PAID, 999, "A", 1),
+    )
+    with _sample_project(
+        tmp_path, monkeypatch, semantic_project_factory, rows, backend=backend, profile=profile
+    ):
+        session = mv.session.get_or_create("status", timezone="UTC")
+        created, paid_field, _, _ = _fields(session)
+        status = catalog_value(session.catalog, "sales.facts.status", kind="field")
+        assert isinstance(status, ms.Measure)
+        day = mv.grain("day")
+        period = session.time_scope(start="2026-11-05", end="2026-11-06")
+        spatial = status.sum(time=paid_field)
+        closing = spatial.per(created).last(include_null=True).per(created, grain=day)
+        actual = (
+            session.observe({"daily_mean": closing.mean(), "last": closing.last()}, by=(period,))
+            .compute()
+            .to_pandas()
+        )
+        assert actual.loc[0, ["daily_mean", "last"]].tolist() == [47.5, 50]
+        for invalid in (spatial.per(created, grain=day).last(), spatial.per(paid_field).last()):
+            with pytest.raises(CoreRuleError, match="exact native status-time"):
+                session.observe({"v": invalid}, by=(period,))
+
+
+def test_calendar_sample_keeps_null_quantities_and_checks_only_selected_clocks(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    semantic_project_factory: ProjectFactory,
+) -> None:
+    rows = (
+        ("2026-11-01 09:00:00", _PAID, 100, "East", 1),
+        ("2026-11-03 09:00:00", _PAID, 900, "West", 3),
+        ("2026-11-04 09:00:00", _PAID, None, "West", 4),
+        (None, _PAID, 999, "West", 1),
+    )
+    with _sample_project(tmp_path, monkeypatch, semantic_project_factory, rows):
+        session = mv.session.get_or_create("null-samples", timezone="UTC")
+        created, paid, amount, _ = _fields(session)
+        cost = catalog_value(session.catalog, "sales.facts.cost", kind="field")
+        assert isinstance(cost, ms.Measure)
+        ratio = amount.sum(time=paid) / cost.sum(time=paid)
+        samples = ratio.per(created, grain=mv.grain("day"))
+        skip = samples.last(include_null=False)
+        keep = samples.last(include_null=True)
+        with pytest.raises(AnalysisError, match="non-NULL internal calendar sample time"):
+            session.observe({"v": skip}).compute()
+        filtered = created.notnull()
+        actual = session.observe({"skip": skip, "keep": keep}, where=filtered).compute().to_pandas()
+        assert actual["skip"].tolist() == [300]
+        assert pd.isna(actual["keep"].iat[0])
+        empty = (
+            session.observe({"last": keep, "mean": samples.mean()}, where=created < "2026-11-01")
+            .compute()
+            .to_pandas()
+        )
+        assert empty[["last", "mean"]].isna().all().all()
+
+
+def test_builtin_samples_freeze_session_timezone_independently_of_scope(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    semantic_project_factory: ProjectFactory,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    rows = (
+        ("2026-11-01 15:59:59", "2026-11-01 15:59:59", 7, "East", 1),
+        ("2026-11-01 16:00:00", "2026-11-01 16:00:00", 11, "East", 1),
+    )
+    with _sample_project(tmp_path, monkeypatch, semantic_project_factory, rows):
+        utc = mv.session.get_or_create("sample-utc", timezone="UTC")
+        shanghai = mv.session.get_or_create("sample-shanghai", timezone="Asia/Shanghai")
+        day = mv.grain("day")
+        for session, values in ((utc, [18, 18]), (shanghai, [7, 11])):
+            created, _, amount, _ = _fields(session)
+            metric = amount.sum(time=created)
+            explicit = metric.per(created, grain=day)
+            following = metric.per(day)
+            metrics = {
+                "first": explicit.first(),
+                "last": explicit.last(),
+                "following_first": following.first(),
+                "following_last": following.last(),
+            }
+            scope = session.time_scope(
+                start="2026-11-01", end="2026-11-03", timezone="Asia/Shanghai"
+            )
+            for by in ((), (scope,)):
+                pending = session.observe(metrics, by=by)
+                pending.show(n=0, max_output_bytes=None)
+                assert (
+                    f"grain=day, timezone={session.timezone}, order=instant"
+                    in capsys.readouterr().out
+                )
+                actual = pending.compute().to_pandas()
+                assert actual.loc[0, list(metrics)].tolist() == values * 2
+            if session is utc:
+                for metric in metrics.values():
+                    with pytest.raises(CoreRuleError, match="matching timezones"):
+                        session.observe({"v": metric}, by=(scope.by(day),))
+
+
+def test_calendar_sample_distinguishes_repeated_civil_hour_instants(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    semantic_project_factory: ProjectFactory,
+) -> None:
+    rows = (
+        ("2026-11-01 05:30:00", _PAID, 7, "East", 1),
+        ("2026-11-01 06:30:00", _PAID, 11, "East", 1),
+    )
+    with _sample_project(tmp_path, monkeypatch, semantic_project_factory, rows):
+        session = mv.session.get_or_create("repeated-hour", timezone="America/New_York")
+        created, _, amount, _ = _fields(session)
+        repeated_hours = amount.sum().per(created, grain=mv.grain("hour"))
+        actual = (
+            session.observe(
+                {
+                    "first": repeated_hours.first(),
+                    "last": repeated_hours.last(),
+                    "mean": repeated_hours.mean(),
+                }
+            )
+            .compute()
+            .to_pandas()
+        )
+        # 05:30 and 06:30 UTC both display as 01:30 locally.
+        assert actual.loc[0, ["first", "last", "mean"]].tolist() == [7, 11, 9]
+
+
+def test_forecast_versions_follow_target_range_and_explicit_release_cutoff(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    semantic_project_factory: ProjectFactory,
+) -> None:
+    target = "2026-12-01 12:00:00"
+    rows = (
+        ("2026-11-01 09:00:00", target, 1000, "A", 1),
+        ("2026-11-05 09:00:00", target, 1200, "A", 1),
+        ("2026-11-05 18:00:00", target, 1300, "A", 1),
+        ("2026-11-12 09:00:00", target, 900, "A", 1),
+        ("2026-11-09 09:00:00", "2026-12-02 00:00:00", 2000, "A", 1),
+    )
+    with _sample_project(tmp_path, monkeypatch, semantic_project_factory, rows):
+        session = mv.session.get_or_create("forecast", timezone="UTC")
+        issued, target_at, _, _ = _fields(session)
+        forecast = catalog_value(session.catalog, "sales.facts.status", kind="field")
+        assert isinstance(forecast, ms.Measure)
+        day = mv.grain("day")
+        period = session.time_scope(start="2026-12-01", end="2026-12-02")
+        latest = forecast.sum(time=target_at).per(issued).last(include_null=True)
+        daily = latest.per(issued, grain=day)
+        cutoff = issued < "2026-11-10"
+        actual = (
+            session.observe(
+                {"latest": latest, "mean": daily.mean(), "last": daily.last()},
+                by=(period,),
+                where=cutoff,
+            )
+            .compute()
+            .to_pandas()
+        )
+        assert actual.loc[0, ["latest", "mean", "last"]].tolist() == [1300, 1150, 1300]
+        assert session.observe(
+            {"v": latest}, by=(period,), where=issued < "2026-11-05T18:00:00+00:00"
+        ).compute().to_pandas()["v"].tolist() == [1200]
+        joint = (
+            session.observe(
+                {"v": latest.per(issued, grain=mv.grain("month")).last()},
+                by=(period.by(day),),
+                where=cutoff,
+            )
+            .compute()
+            .to_pandas()
+        )
+        assert joint["v"].tolist() == [1300]
+
+        history = latest.window(mv.all_history())
+        assert session.observe({"v": history}, by=(period,), where=cutoff).compute().to_pandas()[
+            "v"
+        ].tolist() == [1300]
+        assert session.observe({"v": history}, by=(period,)).compute().to_pandas()[
+            "v"
+        ].tolist() == [900]
+
+
+def test_multiroot_field_folds_preserve_each_completed_branch(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    semantic_project_factory: ProjectFactory,
+) -> None:
+    rows = (
+        ("2026-10-31 09:00:00", "2026-11-01 12:00:00", 100, "Receipt", 1),
+        ("2026-11-02 09:00:00", "2026-11-02 12:00:00", 50, "Receipt", 1),
+        ("2026-10-30 09:00:00", "2026-11-02 12:00:00", 20, "Refund", 1),
+        ("2026-11-01 09:00:00", "2026-11-03 12:00:00", 5, "Refund", 1),
+    )
+    with _sample_project(tmp_path, monkeypatch, semantic_project_factory, rows):
+        session = mv.session.get_or_create("cashflow", timezone="UTC")
+        created, paid, amount, region = _fields(session)
+        reviewed = catalog_value(session.catalog, "sales.refunds.reviewed", kind="field")
+        refunded = catalog_value(session.catalog, "sales.refunds.refunded", kind="field")
+        refund_amount = catalog_value(session.catalog, "sales.refunds.amount", kind="field")
+        refund_kind = catalog_value(session.catalog, "sales.refunds.region", kind="field")
+        assert isinstance(reviewed, ms.TimeDimension) and isinstance(refunded, ms.TimeDimension)
+        assert isinstance(refund_amount, ms.Measure) and isinstance(refund_kind, ms.Dimension)
+        receipts = amount.sum(time=paid).where(region == "Receipt")
+        refunds = refund_amount.sum(time=refunded).where(refund_kind == "Refund")
+        day = mv.grain("day")
+        closing = receipts.per(created, grain=day).last() - refunds.per(reviewed, grain=day).last()
+        period = session.time_scope(start="2026-11-01", end="2026-12-01")
+        actual = (
+            session.observe(
+                {
+                    "closing": closing,
+                    "total": receipts - refunds,
+                    "last_shared_day": (receipts - refunds).per(day).last(),
+                },
+                by=(period,),
+            )
+            .compute()
+            .to_pandas()
+        )
+        assert actual.loc[0, ["closing", "total", "last_shared_day"]].tolist() == [45, 125, -5]
+        with pytest.raises(SemanticExpressionError, match="native to every contribution root"):
+            session.observe(
+                {"v": (receipts - refunds).per(created, grain=day).last()}, by=(period,)
+            )
+
+
+def test_asynchronous_status_last_and_spatial_sum_are_order_sensitive(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    semantic_project_factory: ProjectFactory,
+) -> None:
+    rows = (
+        ("2026-11-01 09:00:00", _PAID, 10, "A", 1),
+        ("2026-11-01 09:00:00", _PAID, 20, "B", 1),
+        ("2026-11-03 18:00:00", _PAID, 15, "A", 1),
+    )
+    with _sample_project(tmp_path, monkeypatch, semantic_project_factory, rows):
+        session = mv.session.get_or_create("asynchronous-status", timezone="UTC")
+        snapshot, paid, _, region = _fields(session)
+        status = catalog_value(session.catalog, "sales.facts.status", kind="field")
+        assert isinstance(status, ms.Measure)
+        last_snapshot = status.sum(time=paid).per(snapshot).last(include_null=True)
+        actual = (
+            session.observe(
+                {
+                    "whole_snapshot": last_snapshot,
+                    "last_per_region": last_snapshot.per(region).sum(),
+                }
+            )
+            .compute()
+            .to_pandas()
+        )
+        assert actual.loc[0, ["whole_snapshot", "last_per_region"]].tolist() == [15, 35]
+
+
+def test_saved_field_calendar_fold_reopens_without_sources_or_sample_axes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    semantic_project_factory: ProjectFactory,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    with _sample_project(tmp_path, monkeypatch, semantic_project_factory, _F9):
+        model = tmp_path / "models" / "semantic" / "sales" / "folded.py"
+        model.write_text(
+            "import marivo.analysis as mv\n"
+            "import marivo.semantic as ms\n"
+            "from .facts import amount, created, paid\n"
+            "day = mv.grain('day')\n"
+            "@ms.metric()\ndef latest_creation_day():\n"
+            "    return amount.sum(time=paid).per(created, grain=day).last()\n"
+        )
+        session = mv.session.get_or_create("persisted-sample", timezone="UTC")
+        metric = catalog_value(session.catalog, "sales.latest_creation_day", kind="metric")
+        assert isinstance(metric, ms.Metric)
+        metric.show(max_output_bytes=None)
+        definition = capsys.readouterr().out
+        assert "time_dimension:sales.facts.paid" in definition
+        assert ".per(time_dimension:sales.facts.created, grain=Grain('day'))" in definition
+        november = session.time_scope(start="2026-11-01", end="2026-12-01")
+        saved = session.observe({"v": metric}, by=(november,)).persist()
+        assert saved.artifact_id is not None
+    (tmp_path / "models").rename(tmp_path / "models.offline")
+    (tmp_path / "source.duckdb").rename(tmp_path / "source.offline")
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            """
+import sys
+import marivo.analysis as mv
+
+frame = mv.session.resume(sys.argv[1]).persisted_frame(sys.argv[2])
+assert len(frame.axes) == 1 and frame.axes[0].role == 'interval'
+assert frame.to_pandas()["v"].tolist() == [140]
+assert not hasattr(frame, "per")
+""",
+            session.id,
+            saved.artifact_id,
+        ],
+        cwd=tmp_path,
+        env=dict(os.environ, PYTHONPATH=str(PROJECT_ROOT), TZ="America/Los_Angeles"),
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr

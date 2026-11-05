@@ -49,7 +49,7 @@ amount = ms.measure_column(name="amount", entity=orders, column="amount", additi
 @ms.dimension(entity=orders)
 def doubled(rows):
     return rows.amount * 2
-stamp = ms.time_dimension_column(name="stamp", entity=orders, column="stamp", parse=ms.strptime("%Y-%m-%d %H:%M:%S", timezone="Asia/Shanghai"), is_default=True)
+stamp = ms.time_dimension_column(name="stamp", entity=orders, column="stamp", parse=ms.strptime("%Y-%m-%d %H:%M:%S", timezone="Asia/Shanghai"))
 day = ms.time_dimension_column(name="day", entity=orders, column="day")
 naive = ms.time_dimension_column(name="naive", entity=orders, column="naive", parse=ms.timestamp(timezone="Asia/Shanghai"))
 buyer = ms.relationship(name="buyer", from_entity=orders, to_entity=customers, keys=[ms.join_on(buyer_id, customer_id)])
@@ -61,10 +61,10 @@ anchor = InstantAnchor.fromisoformat("2026-01-01T00:00:00+00:00")
 anchored_region = region_value.via((buyer_value,)).at(anchor)
 @ms.metric()
 def total():
-    return amount_value.sum()
+    return amount_value.sum(time=stamp)
 @ms.metric()
 def anchored():
-    return amount_value.sum().where(anchored_region == "old")
+    return amount_value.sum(time=stamp).where(anchored_region == "old")
 """
 
 
@@ -265,9 +265,10 @@ def test_window_excludes_unrelated_bad_mapping(prepared_session: Session) -> Non
     )
     buyer = session.catalog.get("relationship:sales.buyer")
     group = region.via((buyer,)).at(session.instant("2026-01-15"))
+    stamp = catalog_value(session.catalog, "sales.orders.stamp", kind="field")
     result = compute(
         session,
-        {"sum": amount.sum()},
+        {"sum": amount.sum(time=stamp)},
         by=(group,),
         during=session.time_scope(start="2026-01-01", end="2026-01-02"),
     )

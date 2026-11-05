@@ -456,8 +456,41 @@ def bind_native_calendars(
     observation = graph.signature.observation
     if observation is None:
         return graph
+    field_axes = tuple(item.calendar for item in observation.coordinates.field_calendars)
+    for axis in field_axes:
+        owners = tuple(
+            dict.fromkeys(
+                sources[state.registry.entities[item.root.ref.path].datasource]
+                for item in observation.contributions
+            )
+        )
+        if not owners:
+            continue
+        native = {owner: output_calendar(axis, owner)[0] for owner in owners}
+        positions = {
+            cell[0]: (cell, bounds)
+            for candidate in native.values()
+            for cell, bounds in zip(candidate.cells, candidate.civil_bounds, strict=True)
+        }
+        ordered = sorted(positions)
+        calendar = replace(
+            axis,
+            cells=tuple(positions[key][0] for key in ordered),
+            civil_bounds=tuple(positions[key][1] for key in ordered),
+        )
+        rebound = _replace_calendar(graph, axis, calendar)
+        assert isinstance(rebound, BoundGraph)
+        graph = rebound
+        observation = graph.signature.observation
+        assert observation is not None
+    field_ids = {axis.identity for axis in field_axes}
     original = next(
-        (axis for axis in graph.signature.axes if isinstance(axis, CalendarCoordinate)), None
+        (
+            axis
+            for axis in graph.signature.axes
+            if isinstance(axis, CalendarCoordinate) and axis.identity not in field_ids
+        ),
+        None,
     )
     if original is None:
         return _interval_windows(graph, state, sources)
@@ -570,11 +603,23 @@ def freeze_output_calendars(
 
     axes: list[DataAxis] = []
     attachments: list[OutputAttachment] = []
+    observation = graph.signature.observation
+    field_ids = {
+        item.calendar.identity
+        for item in (() if observation is None else observation.coordinates.field_calendars)
+    }
     for coordinate, axis in zip(graph.signature.axes, schema.axes, strict=True):
         if isinstance(coordinate, CalendarCoordinate):
             assert isinstance(axis, CalendarDataAxis) and axis.frozen is not None
             captured = {cell[0] for cell in coordinate.cells}
             extra = sorted({_point(value) for value in rows[axis.columns[0].slot_id]} - captured)
+            if extra and coordinate.identity in field_ids:
+                raise MaterializationError(
+                    expected="field calendar keys from the finite output grid",
+                    received=extra[0].isoformat(),
+                    repair="Choose a range and grain supported by the native calendar.",
+                    stage="calendar_execution",
+                )
             if extra:
                 if source is None:
                     labels = [

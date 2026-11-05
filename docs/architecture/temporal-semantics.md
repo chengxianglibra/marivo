@@ -151,7 +151,10 @@ constraint. A time role alone does not require a period.
 
 Windows require an explicit observation endpoint in by. All native TimeField
 sample reducers can use represented samples without a time axis, regardless of
-sample_interval. Calendar Grain samples require finite enclosing coordinates.
+sample_interval. Builtin calendar samples use the Session report timezone and
+actual sample keys, including in an unbounded observation. A field calendar
+grouping filters that field before aggregation and retains its own calendar
+timezone and candidate buckets. Field groupings do not supply window endpoints.
 TimeField.within(scope) is a source predicate
 and field.at(anchor) selects an attribute representation; neither supplies an
 observation endpoint. Membership time, attribute time, Metric observation time
@@ -193,7 +196,7 @@ Grain has no ordering operators. Duplicate subday spellings such as 60second,
 120second and 60minute reject; 24hour is outside the subday contract.
 90second and 90minute remain legal. There are no
 string aliases, guessed tuple grains or direct public Grain constructors.
-Named grains come from ms.calendar_grain or a certified calendar entry. Equality
+Named grains come from `ms.calendar_grain` or a Catalog calendar entry. Equality
 and hashing include captured snapshot identity; a lookup Grain differs from a
 captured Grain. Scope.by requires a captured calendar Grain because it has no
 Session resolution authority.
@@ -226,10 +229,12 @@ creates new category keys. Certified custom output supports exactly one complete
 period; partial, sparse and multiple-period selections reject before business
 reads. Certification remains necessary but does not create an execution map.
 
-`Metric.per(grain)` reduces actual internal time samples within its enclosing
-finite coordinate. Presence includes all-NULL samples; absent time buckets are
-not invented. Each source computes the complete external, parent and child key
-from the same fact time. Static nesting rules apply at every layer: subday widths
+Builtin `Metric.per(grain)` follows each source branch's contribution time.
+`Metric.per(field, grain=grain)` fixes an explicit native sample field.
+Both reduce actual internal samples in the Session's report timezone.
+Presence includes all-NULL samples. Every sample retains complete external,
+parent and child keys. Static nesting rules apply to layers on the same time
+field and require a common timezone. Subday widths
 divide the parent width, day nests in week/month/quarter/year, month in
 quarter/year, and quarter in year. Equal builtin grains are valid; week does not
 nest in month/quarter/year. Custom hierarchies have no implicit containment rule;
@@ -281,7 +286,9 @@ day -7 is seven days, week -1 is one week, week -7 is seven weeks and month -1
 is one month. Negative offsets seek an earlier baseline; they do not count visible
 rows or fixed days. Years means the same civil period, with ISO
 week-year rules for weeks. Neither means a fixed 365-day/52-week duration.
-Public builtin calendar grains currently require count=1; subday offset is unsupported.
+Builtin offsets apply to unit-step day-or-coarser calendar grains. The grain
+factory also admits supported subday widths for bucketing. Subday offsets
+are unsupported.
 
 CalendarAxis.shift supports unit-step builtin week/month/year domains consisting
 of full buckets or bucket-start prefixes. It freezes the exact target selection

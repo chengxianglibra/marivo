@@ -6,6 +6,7 @@ from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Literal
 
 if TYPE_CHECKING:
+    from marivo._definition.grouping import FieldCalendarBinding
     from marivo._definition.relations import MembershipBinding
     from marivo._definition.types import (
         AxisBinding,
@@ -18,9 +19,10 @@ if TYPE_CHECKING:
 class Grouping(ABC):
     """An immutable field, complete identity, calendar or membership grouping.
 
-    Obtain values from ``mv.identity``, ``mv.membership``, ``scope.by`` or
+    Obtain values from ``mv.identity``, ``mv.membership``, ``mv.time_group``, ``scope.by`` or
     ``population.axes``. Pass rules directly in ``observe(..., by=(grouping,))`` or
-    ``Metric.per(grouping)``. Membership expands its full ordered field tuple;
+    ``Metric.per(grouping)`` where supported. Field calendars only enter observe.by.
+    Membership expands its full ordered field tuple;
     explicit non-first fields can locate interleaved coordinates.
     A rule carries no selected Population keys. Concrete variants are private;
     constructing or extending this family is not a public operation.
@@ -37,21 +39,34 @@ class Grouping(ABC):
 
     @property
     @abstractmethod
-    def kind(self) -> Literal["field", "identity", "calendar", "interval", "membership"]:
+    def kind(
+        self,
+    ) -> Literal["field", "identity", "calendar", "field_calendar", "interval", "membership"]:
         """Return the captured grouping kind without source access."""
 
     @property
     @abstractmethod
-    def _binding(self) -> AxisBinding | CalendarCoordinate | IntervalCoordinate | MembershipBinding:
+    def _binding(
+        self,
+    ) -> (
+        AxisBinding
+        | CalendarCoordinate
+        | IntervalCoordinate
+        | MembershipBinding
+        | FieldCalendarBinding
+    ):
         """Return the canonical inert definition consumed by source capture."""
 
     def __repr__(self) -> str:
+        from marivo._definition.grouping import FieldCalendarBinding
         from marivo._definition.relations import MembershipBinding
         from marivo._definition.types import CalendarCoordinate, IntervalCoordinate
 
         binding = self._binding
         if isinstance(binding, (CalendarCoordinate, IntervalCoordinate)):
             identity = binding.identity[:48]
+        elif isinstance(binding, FieldCalendarBinding):
+            identity = binding.field.field.ref.key[:96]
         elif isinstance(binding, MembershipBinding):
             identity = f"fields={len(binding.fields)} paths={len(binding.paths)}"
         else:
@@ -66,6 +81,7 @@ class Grouping(ABC):
         Example: ``population.axes[0].show()``.
         Constraints: Reads frozen metadata only; never enumerates domain keys.
         """
+        from marivo._definition.grouping import FieldCalendarBinding
         from marivo._definition.relations import MembershipBinding
         from marivo._definition.types import CalendarCoordinate, IntervalCoordinate
 
@@ -73,6 +89,20 @@ class Grouping(ABC):
         print(repr(self))
         if isinstance(binding, CalendarCoordinate):
             print(f"grain={binding.grain} timezone={binding.timezone} cells={len(binding.cells)}")
+        elif isinstance(binding, FieldCalendarBinding):
+            axis = binding.calendar
+            print(
+                f"field={binding.field.field.ref.key[:200]} grain={axis.grain} timezone={axis.timezone}"
+            )
+            if binding.field.path:
+                print(f"path={tuple(step.ref.key for step in binding.field.path)!r}"[:600])
+            for start, end in axis.ranges[:4]:
+                print(f"range=[{start.isoformat()}, {end.isoformat()})")
+            if axis.snapshot_digest is not None:
+                print(f"certification={axis.snapshot_digest}")
+            print(
+                "Filters contributions, buckets field values, and fills output cells. No window endpoints."
+            )
         elif isinstance(binding, IntervalCoordinate):
             print(f"start={binding.start} end={binding.end} timezone={binding.timezone}")
         elif isinstance(binding, MembershipBinding):

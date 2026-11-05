@@ -45,14 +45,29 @@ from marivo.semantic._numeric_lowering import (
     lower_source_reduction,
     numeric_failure,
 )
+from marivo.semantic.errors import ErrorKind, SemanticExpressionError
 
 if TYPE_CHECKING:
     from marivo.semantic.resolver import SemanticResolver
 
 
 def validate_preview_metric(value: Deferred) -> None:
-    """Reject sample/Population routes before opening a datasource."""
-    metric = consume_metric(value)
+    """Reject open Metrics and unsupported routes before opening a datasource."""
+    metric = consume_metric(value, allow_open=True)
+    if metric.time_parameters:
+        names = tuple(slot.name for slot, _ in metric.time_parameters)
+        raise SemanticExpressionError(
+            kind=ErrorKind.INVALID_EXPRESSION_VALUE,
+            message="Catalog preview cannot run a Metric with unbound time parameters.",
+            expected="a named Metric with all time parameters fixed",
+            received=", ".join(names),
+            action=(
+                "Publish a zero-parameter Metric that returns the template's .bind_time(...) "
+                "result for preview, or observe the bound expression through session.observe(...)."
+            ),
+            help_target="metric.bind_time",
+            details={"parameters": names, "query_executed": False},
+        )
     closure = walk((metric.node,), resolve=dict(metric._declared).get)
     if any(
         isinstance(

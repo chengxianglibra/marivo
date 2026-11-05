@@ -99,7 +99,7 @@ def test_observe_calendar_preserves_bucket_types_boundaries_and_windows(
                 "sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales', owner='Data', default=True)\n",
                 "sales/events.py": "import marivo.datasource as md\nimport marivo.semantic as ms\n"
                 + f"events = ms.entity(name='events', datasource=ms.ref.datasource('warehouse'), source=md.table({case.source.table!r}, database={case.source.database!r}), primary_key=['id'])\n"
-                + "event_time = ms.time_dimension_column(name='event_time', entity=events, column='event_time', is_default=True)\n"
+                + "event_time = ms.time_dimension_column(name='event_time', entity=events, column='event_time')\n"
                 + "amount = ms.measure_column(name='amount', entity=events, column='amount', additivity=ms.additive_all())\n"
                 + "category = ms.dimension_column(name='category', entity=events, column='category')\n",
             }

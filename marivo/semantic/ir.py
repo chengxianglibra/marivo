@@ -401,7 +401,6 @@ class TargetDimensionContract:
     nullable: bool
     is_time_dimension: bool
     sample_interval: SampleIntervalIR | None
-    is_default: bool
     timezone: str | None
     parse: SemanticParse | None = None
 
@@ -653,7 +652,6 @@ class DimensionIR:
     location: SourceLocation
     sample_interval: SampleIntervalIR | None = None
     parse: SemanticParse | None = None
-    is_default: bool = False
     body_ast_hash: str = ""
     source_column: str | None = None
 

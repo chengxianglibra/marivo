@@ -117,7 +117,6 @@ def entity_dependency_fingerprint(registry: Registry, entity_id: str) -> str:
                 kind=dimension.kind,
                 sample_interval=dimension.sample_interval,
                 parse=dimension.parse,
-                is_default=dimension.is_default,
             )
         entries.append(_DependencyEntry(ref(kind, path), body_digest, values))
     return fingerprint(tuple(entries))

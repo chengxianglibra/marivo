@@ -452,6 +452,8 @@ def _common_sources(plan: QueryPlan) -> QueryPlan:
             and require_reduction(prior).axes == reduction.axes
             and require_reduction(prior).calendar == reduction.calendar
             and require_reduction(prior).calendars == reduction.calendars
+            and require_reduction(prior).field_calendar_reads == reduction.field_calendar_reads
+            and require_reduction(prior).sample_calendar_reads == reduction.sample_calendar_reads
             and require_reduction(prior).time_column == reduction.time_column
             and tuple(column for column in prior.columns if column.slot_id in prior.keys)
             == tuple(column for column in stage.columns if column.slot_id in stage.keys)

@@ -13,6 +13,7 @@ import ibis.expr.types as ir
 
 from marivo._definition.correspondence import ComparisonAxis
 from marivo._definition.expressions import (
+    BuiltinSampleCoordinate,
     ContributionFilter,
     DeclaredMetricRef,
     EntityCount,
@@ -30,6 +31,7 @@ from marivo._definition.expressions import (
     SourceAggregate,
     SourceWeightedMean,
 )
+from marivo._definition.observations import CalendarGrouping, CalendarSample, SampleAxis
 from marivo._definition.relations import PopulationDependency
 from marivo._definition.types import (
     CalendarCoordinate,
@@ -72,9 +74,11 @@ class ReductionInput:
     duration: DurationDataType | None = None
     window_key: int | datetime | None = None
     preserve_sample_presence: bool = False
-    calendars: tuple[tuple[str, CalendarCoordinate | IntervalCoordinate], ...] = ()
+    calendars: tuple[tuple[str, CalendarGrouping], ...] = ()
     sampled: bool = False
     provider: str = "duckdb"
+    field_calendar_reads: tuple[tuple[str, FieldRead], ...] = ()
+    sample_calendar_reads: tuple[tuple[str, FieldRead], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -119,12 +123,13 @@ class FormulaProgram:
     output_population: PopulationDependency | None = None
     calendar_key: str = "key.0"
     counts: tuple[MemberInput, ...] = ()
-    axes: tuple[ComparisonAxis, ...] = ()
+    axes: tuple[SampleAxis, ...] = ()
     complete_calendar: bool = True
     parent_scope: PopulationDependency | None = None
     parent_slots: tuple[str, ...] = ()
     population_checked: bool = False
-    calendar_samples: tuple[tuple[tuple[int, ...], CalendarCoordinate], ...] = ()
+    calendar_samples: tuple[tuple[tuple[int, ...], CalendarSample], ...] = ()
+    field_calendars: tuple[tuple[str, CalendarCoordinate], ...] = ()
 
 
 def calendar_field(slot: str) -> str:
@@ -169,6 +174,8 @@ def reduction_input(
         window_key=contribution.window_key,
         calendars=calendars,
         sampled=bool(contribution.sample_axes),
+        field_calendar_reads=contribution.field_calendar_reads,
+        sample_calendar_reads=contribution.sample_calendar_reads,
     )
 
 
@@ -181,13 +188,23 @@ def bind_reduction_calendars(
     calendars = prepared.calendars or (
         (("key.0", prepared.calendar),) if prepared.calendar is not None else ()
     )
+    field_calendars = dict(prepared.field_calendar_reads)
+    sample_calendars = dict(prepared.sample_calendar_reads)
     for slot, calendar in calendars:
         field = calendar_field(slot)
         if field in bound or (prepared.window_key is not None and calendar == prepared.calendar):
             continue
-        assert prepared.time_column is not None
+        read = (
+            sample_calendars.get(slot)
+            if isinstance(calendar, BuiltinSampleCoordinate)
+            else field_calendars.get(slot)
+        )
+        clock = field_read_key(read) if read is not None else prepared.time_column
+        assert clock is not None
         name = "__bound_calendar_" + slot.replace(".", "_")
-        table = bind_calendar(table, table[bound[prepared.time_column]], calendar, name)
+        table = bind_calendar(table, table[bound[clock]], calendar, name)
+        if slot in field_calendars:
+            table = table.filter(table[name].notnull())
         bound[field] = name
     return table, bound
 
@@ -241,8 +258,26 @@ def lower_observation(
     if window_slot is not None:
         fields[window_slot] = table[window_slot]
     selected = [lower_condition(node, fields) for node in predicates]
+    assignments = {
+        int(path.removeprefix("__sample_assigned_")): table[name]
+        for path, name in columns.items()
+        if path.startswith("__sample_assigned_")
+    }
+    sample_checks = tuple(
+        NumericCheck(
+            ibis.and_(
+                fields[calendar_field(slot)].isnull(),
+                *(item.value for item in selected),
+                *assignments.values(),
+            ),
+            "non-NULL internal calendar sample time",
+            read.field.ref.key,
+        )
+        for slot, read in prepared.sample_calendar_reads
+    )
     predicate_checks = (
         *tuple(check for item in selected for check in item.checks),
+        *sample_checks,
         *(NumericCheck(table[name], expected, received) for name, expected, received in row_checks),
     )
 
@@ -250,11 +285,6 @@ def lower_observation(
     predicate_metrics = {
         f"predicate_check.{i}": check.violation.any().fill_null(False)
         for i, check in enumerate(predicate_checks)
-    }
-    assignments = {
-        int(path.removeprefix("__sample_assigned_")): table[name]
-        for path, name in columns.items()
-        if path.startswith("__sample_assigned_")
     }
     if assignments:
         # Each recursive reducer consumes one physical key prefix. A deeper

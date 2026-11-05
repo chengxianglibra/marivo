@@ -49,7 +49,9 @@ def test_named_formula_rebinds_but_anonymous_operation_and_prior_frame_remain_fi
     expression = original / 2
     source = tmp_path / "models/semantic/sales/objects.py"
     source.write_text(
-        source.read_text().replace("return amount_value.sum()", "return amount_value.sum() * 2")
+        source.read_text().replace(
+            "return amount_value.sum(time=paid_at)", "return amount_value.sum(time=paid_at) * 2"
+        )
     )
     receiving_session = mv.session.get_or_create(name="scope_receiving", timezone="UTC")
     current = receiving_session.catalog.get("metric:sales.revenue")
@@ -265,7 +267,7 @@ def test_clip_preserves_each_loaded_bound_project(
             left.clip(upper=right)
 
 
-def test_local_entity_count_rebinds_default_time_in_receiving_scope(
+def test_local_entity_count_without_time_cannot_observe_period(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -279,8 +281,6 @@ def test_local_entity_count_rebinds_default_time_in_receiving_scope(
     def local_count():
         return orders.count()
 
-    source = tmp_path / "models/semantic/sales/objects.py"
-    source.write_text(source.read_text().replace("is_default=True", "is_default=False"))
     current = mv.session.get_or_create(name="local_count_new_scope", timezone="UTC")
     period = current.time_scope(start="2026-10-01", end="2026-11-01")
     for expression in (orders.count(), local_count):

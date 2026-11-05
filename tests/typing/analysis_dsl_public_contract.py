@@ -44,7 +44,9 @@ if TYPE_CHECKING:
                             assert_type(method.kind, Literal["additive", "level_additive"])
 
     def ordinary_observation(
-        metric: ms.MetricExpression[Literal["numeric"]], region: ms.Dimension
+        metric: ms.MetricExpression[Literal["numeric"]],
+        region: ms.Dimension,
+        created: ms.TimeDimension,
     ) -> mv.AnalysisFrame:
         scope = session.time_scope(start="2026-01-01", end="2026-02-01")
         assert_type(scope.start, mv.InstantAnchor)
@@ -52,6 +54,9 @@ if TYPE_CHECKING:
         assert_type(session.instant(scope.end), mv.InstantAnchor)
         assert_type(scope.by(mv.grain("day")), mv.CalendarAxis)
         assert_type(scope.by(mv.grain("month")).shift(mv.offset(years=-1)), mv.CalendarAxis)
+        created_days = mv.time_group(created, axis=scope.by(mv.grain("day")))
+        assert_type(created_days, mv.Grouping)
+        assert_type(session.observe({"value": metric}, by=(created_days,)), mv.AnalysisFrame)
         query = session.observe({"value": metric}, by=(scope, region), where=region == "APAC")
         assert_type(query, mv.AnalysisFrame)
         return query
@@ -65,7 +70,8 @@ if TYPE_CHECKING:
         assert_type(members, mv.Population)
         assert_type(members.axes, tuple[mv.Grouping, ...])
         assert_type(
-            members.axes[0].kind, Literal["field", "identity", "calendar", "interval", "membership"]
+            members.axes[0].kind,
+            Literal["field", "identity", "calendar", "field_calendar", "interval", "membership"],
         )
         assert_type(session.frame(members), mv.AnalysisFrame)
         fixed = mv.coordinates(by=(mv.identity(entity),), keys=((("C1",),), (("C2",),)))

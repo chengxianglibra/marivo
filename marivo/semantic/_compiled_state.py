@@ -17,6 +17,7 @@ from marivo.refs import ref as ref_factory
 from marivo.semantic._definition_identity import definition_fingerprint
 from marivo.semantic._dsl_authoring import AdditiveAllV1, AdditiveOverV1, AdditivityPolicy
 from marivo.semantic._expression_binding import CompiledExpressionSidecar
+from marivo.semantic._time_parameters import time_parameter_ref
 from marivo.semantic.ir import (
     DimensionIR,
     EntityIR,
@@ -112,7 +113,9 @@ def _published_nodes(registry: Registry) -> dict[Ref[SemanticKindTag], MetricNod
     for key, measure in registry.declared_measures.items():
         nodes[cast("Ref[SemanticKindTag]", ref_factory.measure(key))] = consume_row(measure).node
     for key, metric in registry.declared_metrics.items():
-        nodes[cast("Ref[SemanticKindTag]", ref_factory.metric(key))] = consume_metric(metric).node
+        nodes[cast("Ref[SemanticKindTag]", ref_factory.metric(key))] = consume_metric(
+            metric, allow_open=True
+        ).node
     return nodes
 
 
@@ -169,7 +172,7 @@ def _definition_rows(registry: Registry) -> dict[Ref[SemanticKindTag], object]:
     for key, metric in registry.declared_metrics.items():
         declaration = root_declaration(metric)
         assert declaration is not None
-        metric_facts = consume_metric(metric)
+        metric_facts = consume_metric(metric, allow_open=True)
         rows[cast("Ref[SemanticKindTag]", ref_factory.metric(key))] = PublishedDeclaration(
             "metric",
             declaration.name,
@@ -285,7 +288,11 @@ def definition_graph(
         # defined here, so no edge is filtered out.
         dependencies[ref] = tuple(
             sorted(
-                ({exact.ref for exact in direct_refs(node)} | direct_calendar_refs(node)) - {ref},
+                (
+                    {exact.ref for exact in direct_refs(node) if not time_parameter_ref(exact)}
+                    | direct_calendar_refs(node)
+                )
+                - {ref},
                 key=lambda item: item.key,
             )
         )
@@ -315,13 +322,18 @@ class CompilationGraph:
         node: MetricNode | RowNode,
         unit: str | None,
         ai_context: AiContextValue | None,
+        captured_dependencies: tuple[Ref[SemanticKindTag], ...] = (),
     ) -> None:
         self.definitions[reference] = PublishedDeclaration(
             stage, name, computation_fingerprint(node), unit, _captured_context(ai_context)
         )
         self.dependencies[reference] = tuple(
             sorted(
-                ({exact.ref for exact in direct_refs(node)} | direct_calendar_refs(node))
+                (
+                    {exact.ref for exact in direct_refs(node) if not time_parameter_ref(exact)}
+                    | direct_calendar_refs(node)
+                    | set(captured_dependencies)
+                )
                 - {reference},
                 key=lambda item: item.key,
             )

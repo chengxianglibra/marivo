@@ -130,10 +130,14 @@ repairs for incompatible inputs. Resolve needed inputs from the complete scope;
 the receiving Catalog or Session resolves named leaves in its completed scope,
 while the original object and captured analysis inputs do not refresh.
 
-Reuse constructed fields and Metrics for both reusable declarations and local
-analysis expressions. A pure zero-argument declaration adds a local business
-name and context; it does not register a Catalog object, execute a query or
-prove backend support. New Measure permission is explicit business authority;
+Reuse constructed fields and Metrics for reusable declarations and local
+analysis expressions. A local declaration adds a business name and context.
+Publication and source validation have separate evidence. Fix the contribution
+field when it defines the business rule. Use a Metric time parameter when the
+same rule legitimately supports a choice of time roles. A published template
+can be handed off with its remaining choices explicit. Physical readiness
+does not establish which field should fill a time parameter.
+New Measure permission is explicit business authority;
 naming, filtering or arithmetic cannot grant it. Keep known units, contribution
 roots, status-time constraints and sampling contracts with their owners.
 

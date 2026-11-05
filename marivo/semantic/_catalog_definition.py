@@ -14,6 +14,7 @@ from marivo._definition.expressions import (
     ContributionFilter,
     DeclaredMetricRef,
     EntityCount,
+    FieldCalendarSample,
     MeasureAssertion,
     MemberCount,
     MetricExpression,
@@ -42,7 +43,11 @@ from marivo.semantic.catalog_entries import (
     EntryDefinition,
     FieldDefinition,
     MetricDefinition,
-    MetricTimeBinding,
+    MetricNoTimeBinding,
+    MetricTimeConstraint,
+    MetricTimeFieldBinding,
+    MetricTimeParameter,
+    MetricTimeParameterBinding,
     PeriodCalendarDefinition,
     RelationshipDefinition,
     TemporalSetDefinition,
@@ -192,22 +197,31 @@ def formula(node: RowNode | MetricNode | PredicateExpression) -> str:
         return f"{formula(node.operand)}.where({formula(node.predicate)})"
     if isinstance(node, PerReduce):
         return (
-            f"{formula(node.operand)}.per({_inert_text(node.samples)}).{node.reducer}("
+            f"{formula(node.operand)}.per({_sample_text(node.samples)}).{node.reducer}("
             f"q={node.q!r}, nulls={node.nulls}, order_by={_inert_text(node.order_by)}, "
             f"include_null={node.include_null}, rule_version={node.rule_version})"
         )
     if isinstance(node, PerWeightedMean):
-        return f"weighted_mean({formula(node.value)}, weight={formula(node.weight)}, per={_inert_text(node.samples)}, nulls={node.nulls}, rule_version={node.rule_version})"
+        return f"weighted_mean({formula(node.value)}, weight={formula(node.weight)}, per={_sample_text(node.samples)}, nulls={node.nulls}, rule_version={node.rule_version})"
     if isinstance(node, MetricWindow):
         return f"{formula(node.operand)}.window({_inert_text(node.rule)})"
     return f"member_count({_inert_text(node.population)})"
 
 
+def _sample_text(value: object) -> str:
+    if isinstance(value, FieldCalendarSample):
+        return f"{_inert_text(value.field.field)}, grain={_inert_text(value.grain)}"
+    return _inert_text(value)
+
+
 def _inert_text(value: object) -> str:
     """Only captured dataclass facts; never resolver or executable reprs."""
     from marivo._definition.types import ExactRef
+    from marivo.semantic._time_parameters import time_parameter_ref
 
     if isinstance(value, ExactRef):
+        if time_parameter_ref(value):
+            return f"TimeParameter({value.version.rsplit(':', 1)[-1]})"
         return value.ref.key
     if isinstance(value, Grain):
         return repr(value)
@@ -394,7 +408,6 @@ def definition_for(catalog: SemanticCatalog, ref: Ref[SemanticKindTag]) -> Entry
             entity_expression,
             captured.primary_key,
             captured.versioning,
-            contract._default_time.ref.key if contract._default_time is not None else None,
             tuple(
                 item.key
                 for item in catalog._index._refs
@@ -405,73 +418,41 @@ def definition_for(catalog: SemanticCatalog, ref: Ref[SemanticKindTag]) -> Entry
             dependencies,
         )
     if ref.kind is SemanticKind.METRIC:
-        metric = consume_metric(registry.declared_metrics[ref.path])
+        from marivo.semantic._time_parameters import time_parameter_ref
+
+        metric = consume_metric(registry.declared_metrics[ref.path], allow_open=True)
         reductions: list[str] = []
         conditions: list[str] = []
-        bindings: list[MetricTimeBinding] = []
-        from ibis.common.deferred import Call, Just
-
-        from marivo.semantic._deferred_semantics import MetricFacts, _consume, _inspect
-
-        for use in _inspect(registry.declared_metrics[ref.path]).semantic_calls:
-            if not isinstance(use.recipe, Call):
-                continue
-            if use.symbol not in {
-                "sum",
-                "mean",
-                "min",
-                "max",
-                "median",
-                "quantile",
-                "count",
-                "count_distinct",
-                "approx_nunique",
-                "approx_median",
-                "approx_quantile",
-                "first",
-                "last",
-                "weighted_mean",
-            }:
-                continue
-            consumed = _consume(use.recipe)
-            if not isinstance(consumed, MetricFacts) or not isinstance(
-                consumed.node, (SourceAggregate, SourceWeightedMean, EntityCount)
-            ):
-                continue
-            time = consumed.node.time
-            root = consumed.roots[0]
-            entity_contract = catalog._describe(root.ref)
-            default = (
-                entity_contract._default_time.ref.key
-                if entity_contract._default_time is not None
-                else None
-            )
-            authored_time = use.recipe.kwargs.get("time")
-            explicit = authored_time is not None and not (
-                isinstance(authored_time, Just) and authored_time.value is None
-            )
-            bindings.append(
-                MetricTimeBinding(
-                    formula(consumed.node),
-                    time.field.ref.key if time else None,
-                    tuple(item.ref.key for item in time.path) if time else (),
-                    "explicit" if explicit else "entity_default" if time is not None else "none",
-                    default,
-                )
-            )
+        bindings: list[
+            MetricTimeFieldBinding | MetricTimeParameterBinding | MetricNoTimeBinding
+        ] = []
         nulls: list[str] = []
         seen: set[int] = set()
+        declared = dict(metric._declared)
 
         def visit(node: MetricNode | RowNode | PredicateExpression) -> None:
             if id(node) in seen:
                 return
             seen.add(id(node))
             if isinstance(node, DeclaredMetricRef):
-                visit(consume_metric(registry.declared_metrics[node.ref.ref.path]).node)
+                visit(declared[node.ref])
             if isinstance(node, (SourceAggregate, SourceWeightedMean, EntityCount)):
                 branch = formula(node)
                 reductions.append(branch)
                 nulls.append(f"{branch}: {_source_null_rule(node)}")
+                time = node.time
+                if time is None:
+                    bindings.append(MetricNoTimeBinding(branch))
+                elif time_parameter_ref(time.field):
+                    bindings.append(
+                        MetricTimeParameterBinding(branch, time.field.version.rsplit(":", 1)[-1])
+                    )
+                else:
+                    bindings.append(
+                        MetricTimeFieldBinding(
+                            branch, time.field.ref.key, tuple(item.ref.key for item in time.path)
+                        )
+                    )
             if isinstance(node, ContributionFilter):
                 conditions.append(formula(node.predicate))
             for edge in children(node):
@@ -504,6 +485,21 @@ def definition_for(catalog: SemanticCatalog, ref: Ref[SemanticKindTag]) -> Entry
             tuple(reductions),
             tuple(conditions),
             tuple(bindings),
+            tuple(
+                MetricTimeParameter(
+                    slot.name,
+                    tuple(dict.fromkeys(use.root.ref.key for use in uses)),
+                    tuple(
+                        MetricTimeConstraint(
+                            use.kind,
+                            use.root.ref.key,
+                            use.required_field.ref.key if use.required_field is not None else None,
+                        )
+                        for use in uses
+                    ),
+                )
+                for slot, uses in metric.time_parameters
+            ),
             metric.unit,
             tuple(nulls),
             dependencies,
@@ -527,10 +523,8 @@ def definition_for(catalog: SemanticCatalog, ref: Ref[SemanticKindTag]) -> Entry
         expression,
         contract.unit,
         str(contract.sum_permission) if contract.sum_permission is not None else None,
-        contract._default_time.ref.key if contract._default_time is not None else None,
         captured.parse if isinstance(captured, DimensionIR) else None,
         captured.sample_interval if isinstance(captured, DimensionIR) else None,
-        captured.is_default if isinstance(captured, DimensionIR) else False,
         dependencies,
         dependency_context(catalog, ref),
         contract.facts,
