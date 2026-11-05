@@ -10,6 +10,7 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Literal
 
+import numpy as np
 import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
@@ -330,10 +331,11 @@ def test_degenerate_and_empty_scalar(
         assert grouped.to_pandas().empty and len(grouped.axes) == 1
 
 
+@pytest.mark.filterwarnings("error::RuntimeWarning")
 @pytest.mark.parametrize(
-    "x,y,x_type,expected",
+    "x,y,x_type",
     (
-        ((2**53, 2**53 + 1, 2**53 + 2), (1, 2, 3), ScalarDataType("int64"), 1.0),
+        ((2**53, 2**53 + 1, 2**53 + 2), (1, 2, 3), ScalarDataType("int64")),
         (
             (
                 Decimal("1000000000000000000000000.00"),
@@ -342,10 +344,9 @@ def test_degenerate_and_empty_scalar(
             ),
             (1, 2, 3),
             DecimalDataType(27, 2),
-            1.0,
         ),
-        ((1.0, 1.0 + 2**-52, 1.0 + 2**-51), (1, 2, 3), ScalarDataType("float64"), 1.0),
-        ((1e308, -1e308, 0.0), (1, -1, 0), ScalarDataType("float64"), 1.0),
+        ((1.0, 1.0 + 2**-52, 1.0 + 2**-51), (1, 2, 3), ScalarDataType("float64")),
+        ((1e308, -1e308, 0.0), (1, -1, 0), ScalarDataType("float64")),
         (
             (
                 0.0,
@@ -354,13 +355,11 @@ def test_degenerate_and_empty_scalar(
             ),
             (1, 2, 3),
             ScalarDataType("float64"),
-            1.0,
         ),
         (
             (1.3, 1.3 + 2**-52, 1.3 + 3 * 2**-52),
             (1, 2, 3),
             ScalarDataType("float64"),
-            math.sqrt(27 / 28),
         ),
     ),
 )
@@ -369,19 +368,20 @@ def test_numeric_precision_witnesses(
     x: tuple[Number, ...],
     y: tuple[Number, ...],
     x_type: DataType,
-    expected: float,
 ) -> None:
-    """C06: preserve exact differences, adjacent floats and binary scaling."""
+    """C06: preserve native coefficients for precision and scale edge cases."""
     frame = _pairs(local, x, y, x_type=x_type)
     for method in ("pearson", "spearman"):
         a, b = pd.Series(list(x)), pd.Series(list(y))
         if method == "spearman":
             a, b = a.rank(), b.rank()
-        oracle = a.corr(b)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            oracle = a.corr(b)
         result = frame.correlate(frame["x"], frame["y"], method=method).compute()
         _assert_schema(result)
         table = result.to_pandas()
         assert table["n_pairs"].tolist() == [3]
+        assert pa.array(table["coefficient"]).is_valid().to_pylist() == [True]
         actual = table["coefficient"].iloc[0]
         assert (
             math.isnan(actual) if math.isnan(oracle) else actual == pytest.approx(oracle, abs=1e-12)
@@ -624,6 +624,7 @@ def test_pending_correlate_shares_one_mutable_source_batch(
     assert terminal_runs(case.session) == ()
 
 
+@pytest.mark.filterwarnings("error::RuntimeWarning")
 def test_effective_source_float_types_and_native_nonfinite_values(
     analysis_dsl_case_factory: DslCaseFactory,
     monkeypatch: pytest.MonkeyPatch,
