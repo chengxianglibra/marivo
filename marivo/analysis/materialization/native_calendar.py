@@ -114,7 +114,7 @@ def _source_output_calendar(
         start = ibis.literal(first, type=clock_type) + positions.position * interval
     key = localize(coordinate.timezone, timestamp(start))
     if grain.kind == "builtin":
-        key = timestamp(builtin_key(key, coordinate))
+        key = timestamp(builtin_key(key, coordinate, engine=source.provider.name))
         # Keep the native key as a query-local column. The exact range bound
         # makes this LIMIT lossless and prevents repeated clock expressions
         # from being inlined through every endpoint/label on older engines.
@@ -135,7 +135,7 @@ def _source_output_calendar(
     for index, rule in enumerate(windows):
         wall_start: ir.Value | None = None
         if isinstance(rule, ToDate) and rule.grain.kind == "builtin":
-            wall_start = builtin_wall_key(timestamp(start), rule.grain)
+            wall_start = builtin_wall_key(timestamp(start), rule.grain, engine=source.provider.name)
         elif isinstance(rule, TrailingPeriods) and grain.kind == "builtin":
             wall_start = start - (rule.count - 1) * interval
         if wall_start is not None:
@@ -408,7 +408,7 @@ def _interval_windows(
                 assert unit is not None
                 end = ibis.literal(period.end, type=dt.Timestamp(timezone="UTC", scale=6))
                 wall = render(period.timezone, timestamp(end))
-                reset = builtin_wall_key(wall, rule.grain)
+                reset = builtin_wall_key(wall, rule.grain, engine=owner.provider.name)
                 step = (
                     ibis.interval(
                         seconds={"second": 1, "minute": 60, "hour": 3600}[unit]

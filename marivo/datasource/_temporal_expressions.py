@@ -116,6 +116,19 @@ _clickhouse_datetime: Callable[[ir.StringValue, int, str], ir.TimestampValue] = 
 )
 
 
+def _substring_signature(text: str, start: int, width: int) -> str:
+    raise NotImplementedError("native ClickHouse substring")
+
+
+_clickhouse_substring: Callable[[ir.StringValue, int, int], ir.StringValue] = (
+    ibis.udf.scalar.builtin(
+        _substring_signature,
+        name="substring",
+        signature=((dt.string, dt.int64, dt.int64), dt.string),
+    )
+)
+
+
 def _canonical_clickhouse_parse(text: ir.StringValue, format: str) -> ir.Value:
     """Translate a declared fixed-width clock into native ISO conversion input."""
     parts: dict[str, ir.StringValue] = {}
@@ -123,7 +136,9 @@ def _canonical_clickhouse_parse(text: ir.StringValue, format: str) -> ir.Value:
     for token in _STRPTIME_DIRECTIVE.finditer(format):
         offset += token.start() - previous
         width = 4 if token.group() == "%Y" else 2
-        parts[token.group()] = text.substr(offset, width)
+        # The format supplies a fixed positive byte position. Ibis's general
+        # substring lowering includes an unused negative-index branch.
+        parts[token.group()] = _clickhouse_substring(text, offset + 1, width)
         offset += width
         previous = token.end()
     day = parts["%Y"] + "-" + parts["%m"] + "-" + parts["%d"]

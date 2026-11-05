@@ -299,7 +299,7 @@ def test_date_calendar_day_keeps_dates_and_completes_only_missing_days(
         )
         for unit, end in subdays:
             subday = session.time_scope(start="2026-10-28", end=end).by(mv.grain(unit))
-            with pytest.raises(AnalysisError, match="subday output"):
+            with pytest.raises(AnalysisError, match="subday calendar"):
                 session.observe({"total": amount.sum(time=point)}, by=(subday,)).compute()
         partial = session.time_scope(start="2026-10-28T01:00:00", end="2026-10-29").by(
             mv.grain("day")

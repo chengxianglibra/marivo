@@ -17,8 +17,28 @@ def exact_unsigned(value: ir.Value) -> ir.Value:
     return value
 
 
+def _projected_unsigned(project: ops.Project, name: str) -> ops.Value | None:
+    definition = project.values[name]
+    # Observation can alias the Decimal value in a second projection. Reuse
+    # the original UInt64 only if that projection also retained the raw input.
+    if isinstance(definition, ops.Field) and isinstance(definition.rel, ops.Project):
+        origin = definition.rel.values[definition.name]
+        if isinstance(origin, ops.Cast) and isinstance(origin.arg, ops.Field):
+            for field_name, value in definition.rel.values.items():
+                if value == origin.arg:
+                    definition = origin.copy(arg=ops.Field(definition.rel, field_name))
+                    break
+    if (
+        isinstance(definition, ops.Cast)
+        and definition.to == dt.Decimal(20, 0, nullable=definition.to.nullable)
+        and definition.arg.dtype.is_uint64()
+    ):
+        return definition.arg
+    return None
+
+
 def _unsigned_aggregate(aggregate: ops.Aggregate) -> ops.Aggregate:
-    # Widen only this aggregate's input branch. The original parent may also
+    # Extend only this aggregate's input branch. The original parent may also
     # feed DISTINCT, UNION or another consumer that needs its exact schema.
     project = aggregate.parent
     branch: set[ops.Relation] = {aggregate, project}
@@ -30,23 +50,19 @@ def _unsigned_aggregate(aggregate: ops.Aggregate) -> ops.Aggregate:
 
     extra: dict[str, ops.Value] = {}
     consumers: dict[ops.Node, str] = {}
+    eligible = (ops.Cast, ops.Count, ops.CountDistinct, ops.Min, ops.Max)
     for metric in aggregate.metrics.values():
-        for node in metric.find((ops.Cast, ops.Count), filter=ops.Value):
-            assert isinstance(node, ops.Cast | ops.Count)
+        for node in metric.find(eligible, filter=ops.Value):
+            assert isinstance(node, eligible)
             if isinstance(node, ops.Cast) and not node.to.is_float64():
                 continue
             if not isinstance(node.arg, ops.Field) or node.arg.rel != aggregate.parent:
                 continue
             name = node.arg.name
-            definition = project.values[name]
+            raw = _projected_unsigned(project, name)
             column = f"{name}:uint64"
-            if (
-                isinstance(definition, ops.Cast)
-                and definition.to == dt.Decimal(20, 0, nullable=definition.to.nullable)
-                and definition.arg.dtype.is_uint64()
-                and column not in project.values
-            ):
-                extra[column] = definition.arg
+            if raw is not None and column not in project.values:
+                extra[column] = raw
                 consumers[node] = column
     if not extra:
         return aggregate
@@ -62,8 +78,12 @@ def _unsigned_aggregate(aggregate: ops.Aggregate) -> ops.Aggregate:
             return project.copy(values={**project.values, **extra})
         updated = node.copy(**kwargs) if kwargs else node
         if node in consumers:
-            assert isinstance(updated, ops.Cast | ops.Count) and isinstance(updated.arg, ops.Field)
-            return updated.copy(arg=ops.Field(updated.arg.rel, consumers[node]))
+            assert isinstance(updated, eligible) and isinstance(updated.arg, ops.Field)
+            native = updated.copy(arg=ops.Field(updated.arg.rel, consumers[node]))
+            # Extrema commute with the exact UInt64-to-Decimal conversion.
+            if isinstance(updated, (ops.Min, ops.Max)):
+                return ops.Cast(native, to=updated.dtype)
+            return native
         return updated
 
     updated = aggregate.replace(rewrite, filter=in_branch)
@@ -71,8 +91,8 @@ def _unsigned_aggregate(aggregate: ops.Aggregate) -> ops.Aggregate:
     return updated
 
 
-def unsigned_float_inputs(expression: ir.Table) -> ir.Table:
-    """Feed Float64 and COUNT aggregate inputs directly from exact UInt64 fields."""
+def native_unsigned_aggregates(expression: ir.Table) -> ir.Table:
+    """Use exact UInt64 inputs for aggregates that do not require Decimal arithmetic."""
 
     def rewrite(node: ops.Node, kwargs: dict[str, object] | None) -> ops.Node:
         updated = node.copy(**kwargs) if kwargs else node

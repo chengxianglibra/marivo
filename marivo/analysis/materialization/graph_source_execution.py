@@ -1445,9 +1445,9 @@ def _native_query_expression(
         assert isinstance(rewritten, ir.Table)
         expression = rewritten
     if source.provider.name in ("clickhouse", "duckdb"):
-        from marivo._numeric_types import unsigned_float_inputs
+        from marivo._numeric_types import native_unsigned_aggregates
 
-        expression = unsigned_float_inputs(expression)
+        expression = native_unsigned_aggregates(expression)
     prepared.native_expressions[key] = expression
     return expression
 
