@@ -422,6 +422,9 @@ executing backend is known and qualified. Unbound compiler expressions retain
 the general midnight arithmetic. Builtin samples in named zones still distinguish
 the two instants in a repeated civil hour. UTC and explicit fixed offsets have
 no such ambiguity.
+Trino constructs dynamic whole-second intervals by integer multiplication with
+a native second interval. Negative timezone offsets and NULL remain native
+values rather than passing through duration-string parsing.
 It has no calendar directory JOIN, per-bucket CASE/UNION, global UTC lattice,
 parent/child execution map, or internal completion grid. Source-produced keys
 passed to pandas participate in exact-key alignment and arithmetic without being
