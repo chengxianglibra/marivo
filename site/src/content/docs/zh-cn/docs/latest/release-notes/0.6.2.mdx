@@ -1,0 +1,12 @@
+---
+title: "0.6.2 (Unreleased)"
+description: "Datasource credential input changes."
+---
+
+破坏性变更：数据源凭据统一为 `user=md.env("USER")`、
+`password=md.env("PASSWORD")` 和 Trino 的 `auth=md.env("AUTH")`。
+全部 `*_env` 构造参数直接移除，不保留别名。DuckDB 的 `http_scope`、
+`http_bearer_token_env` 和 `http_headers_env` 改为 `secrets=[...]`，接受
+`md.s3_secret`、`md.http_bearer_secret` 和 `md.http_headers_secret`。
+加载前请更新声明；旧参数会抛出 `TypeError`。
+关系型连接指纹保持不变，使用 HTTP 凭据的 DuckDB 指纹会变化。

@@ -268,7 +268,7 @@ def test_datasource_management_results_render_shared_card_shape() -> None:
     assert _datasource_description().render() == "\n".join(
         [
             "DatasourceDescription name=wh backend=trino fields=2 env_refs=1",
-            "columns: catalog | host | auth_env",
+            "columns: catalog | host | auth",
             "wall-clock timezone: undeclared",
             "available:",
             "- .show()",
@@ -321,7 +321,7 @@ def test_datasource_description_render_includes_all_field_names() -> None:
     )
 
     assert "field_09" in result.render()
-    assert "secret_02_env" in result.render()
+    assert "secret_02" in result.render()
 
 
 def test_semantic_dto_and_report_results_render_shared_card_shape() -> None:

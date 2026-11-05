@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import inspect
 import re
+from collections.abc import Sequence
 from contextvars import ContextVar
 from dataclasses import MISSING, Field, dataclass, field, fields
 from pathlib import Path
@@ -15,10 +16,19 @@ from marivo._symbolic import (
     native_symbol_ref,
     symbol_factory,
 )
+from marivo.datasource.credential_inputs import (
+    DuckDBSecret,
+    EnvRef,
+    credential_labels,
+    invalid,
+    normalize_secrets,
+    require_env,
+    secret_metadata,
+    secret_refs,
+)
 from marivo.datasource.errors import (
     DatasourceFieldInvalidError,
     DatasourceObservedEffects,
-    DatasourceSecretInPlaintextError,
     repair,
 )
 from marivo.datasource.ir import (
@@ -154,51 +164,6 @@ def _validate_jsonable_field(name: str, key: str, value: object) -> JsonValue:
     return normalized
 
 
-def _http_headers_env(name: str, value: object) -> dict[str, str]:
-    if not isinstance(value, dict) or not value:
-        raise DatasourceFieldInvalidError(
-            message=f"datasource {name!r} http_headers_env must be a non-empty mapping",
-            expected="HTTP header names mapped to environment variable names",
-            received=repr(value),
-            location=f"datasource {name!r} HTTP auth",
-            repair=repair(
-                kind="reauthor",
-                canonical_id="duckdb",
-                action="Map each required HTTP header to one secret environment variable.",
-            ),
-        )
-    normalized: dict[str, str] = {}
-    for header_name, env_var in value.items():
-        if not isinstance(header_name, str) or not re.fullmatch(
-            r"[!#$%&'*+\-.^_`|~0-9A-Za-z]+", header_name
-        ):
-            raise DatasourceFieldInvalidError(
-                message="DuckDB custom HTTP authentication header name is invalid",
-                expected="a non-empty HTTP header token",
-                received=repr(header_name),
-                location=f"datasource {name!r} HTTP auth",
-                repair=repair(
-                    kind="reauthor",
-                    canonical_id="duckdb",
-                    action="Use valid header names such as x-secretid and x-signature.",
-                ),
-            )
-        if not isinstance(env_var, str) or not env_var:
-            raise DatasourceFieldInvalidError(
-                message="DuckDB custom HTTP header environment reference is invalid",
-                expected="a non-empty environment variable name",
-                received=repr(env_var),
-                location=f"datasource {name!r} HTTP auth header {header_name!r}",
-                repair=repair(
-                    kind="environment",
-                    canonical_id="duckdb",
-                    action="Reference a non-empty environment variable name.",
-                ),
-            )
-        normalized[header_name] = env_var
-    return normalized
-
-
 @dataclass
 class DatasourceLoaderContext:
     pending_objects: list[DatasourceIR] = field(default_factory=list)
@@ -266,12 +231,7 @@ class _SpecBase(RenderableResult):
         rendered_target = " | ".join(
             f"{name}={self.fields[name]!r}" for name in target_fields if name in self.fields
         )
-        credential_fields = sorted(
-            {
-                "http_headers_env" if name.startswith("http_header:") else f"{name}_env"
-                for name in self.env_refs
-            }
-        )
+        credential_fields = credential_labels(self.fields, self.env_refs)
         additional_fields = set(self.fields).difference(target_fields)
         for dataclass_field in fields(self):
             if dataclass_field.name not in additional_fields:
@@ -296,7 +256,7 @@ class _SpecBase(RenderableResult):
         if credential_fields:
             ref_count = len(self.env_refs)
             card.field(
-                "credential fields",
+                "credentials",
                 f"{' | '.join(credential_fields)} "
                 f"({ref_count} {'ref' if ref_count == 1 else 'refs'})",
             )
@@ -312,7 +272,7 @@ class _SpecBase(RenderableResult):
         for dataclass_field in fields(self):
             if dataclass_field.name in _META_FIELDS:
                 continue
-            if dataclass_field.name.endswith("_env"):
+            if dataclass_field.name in {"user", "password", "auth"}:
                 continue
             value = getattr(self, dataclass_field.name)
             if value is None:
@@ -343,29 +303,31 @@ class _SpecBase(RenderableResult):
             value = getattr(self, key)
             if value is None and _allows_none(dataclass_field.type):
                 continue
-            if key == "http_headers_env":
-                for header_name, env_var in _http_headers_env(self.name, value).items():
-                    env_refs[f"http_header:{header_name}"] = env_var
-                continue
-            if key.endswith("_env"):
-                stem = key[: -len("_env")]
-                if not isinstance(value, str) or not value:
-                    raise DatasourceFieldInvalidError(
-                        message=f"datasource {self.name!r} field {key!r} must be a non-empty env var name",
-                        expected="a non-empty environment variable name",
-                        received=repr(value),
-                        location=f"models/datasources/ entry {self.name!r} field {key!r}",
-                        repair=repair(
-                            kind="reauthor",
-                            canonical_id=self.backend_type,
-                            action="Reference a non-empty environment variable name.",
-                        ),
+            if key == "secrets":
+                secrets = normalize_secrets(value)
+                object.__setattr__(self, "secrets", secrets)
+                if secrets:
+                    literal_fields[key] = _validate_jsonable_field(
+                        self.name, key, [secret_metadata(item) for item in secrets]
                     )
-                env_refs[stem] = value
+                    for item in secrets:
+                        env_refs.update(secret_refs(item))
+                continue
+            if key in {"user", "password", "auth"}:
+                env_refs[key] = require_env(value, key).name
                 continue
             literal_fields[key] = _validate_jsonable_field(self.name, key, value)
 
-        if self.extra:
+        if self.extra is not None:
+            if not isinstance(self.extra, dict) or not all(
+                isinstance(key, str) for key in self.extra
+            ):
+                raise invalid(
+                    "extra",
+                    "a dictionary with string keys",
+                    self.extra,
+                    "Use a dictionary of literal backend options with string keys.",
+                )
             for key, value in self.extra.items():
                 if key == "wall_clock_timezone" or (
                     self.backend_type == "trino" and key == "timezone"
@@ -381,21 +343,37 @@ class _SpecBase(RenderableResult):
                             action="Remove this extra option and declare wall_clock_timezone explicitly.",
                         ),
                     )
-                if key in SENSITIVE_FIELD_STEMS:
-                    raise DatasourceSecretInPlaintextError(
-                        message=(
-                            f"datasource {self.name!r} field {key!r} is sensitive and must not "
-                            "be stored as a literal"
-                        ),
-                        expected="an environment-variable reference for a sensitive field",
-                        received=key,
-                        location=f"models/datasources/ entry {self.name!r} field {key!r}",
-                        repair=repair(
-                            kind="environment",
-                            canonical_id=self.backend_type,
-                            action="Use the matching *_env datasource field.",
-                            snippet=f'{key}_env="<ENV_VAR>"',
-                        ),
+                if (
+                    key.lower() in SENSITIVE_FIELD_STEMS
+                    or key
+                    in {
+                        "secrets",
+                        "key_id",
+                        "session_token",
+                        "http_scope",
+                        "http_bearer_token",
+                        "http_headers",
+                    }
+                    or (
+                        self.backend_type == "duckdb"
+                        and key.lower()
+                        in {
+                            "s3_access_key_id",
+                            "s3_secret_access_key",
+                            "s3_session_token",
+                            "http_proxy_username",
+                            "http_proxy_password",
+                        }
+                    )
+                    or key.endswith("_env")
+                    or "@" in key
+                    or key.startswith("http_header:")
+                ):
+                    raise invalid(
+                        key,
+                        "credentials declared with md.env and secret constructors",
+                        value,
+                        'Remove credential options from extra; use md.env("NAME") in the corresponding credential field.',
                     )
                 literal_fields[key] = _validate_jsonable_field(self.name, key, value)
         return literal_fields, env_refs
@@ -426,73 +404,10 @@ class DuckDBSpec(_SpecBase):
         default=False,
         metadata=_description("Open a DuckDB database file in native read-only mode."),
     )
-    http_scope: str | None = field(
-        default=None,
-        metadata=_description("Optional HTTP(S) URL prefix for scoped remote JSON auth."),
+    secrets: Sequence[DuckDBSecret] = field(
+        default=(),
+        metadata=_description("Scoped S3 and HTTP secrets containing md.env references."),
     )
-    http_bearer_token_env: str | None = field(
-        default=None,
-        metadata=_description("Environment variable for a scoped HTTP bearer token."),
-    )
-    http_headers_env: dict[str, str] | None = field(
-        default=None,
-        metadata=_description(
-            "Optional custom HTTP header names mapped to secret environment variables."
-        ),
-    )
-
-    def __post_init__(self) -> None:
-        super().__post_init__()
-        has_bearer = self.http_bearer_token_env is not None
-        has_custom_headers = self.http_headers_env is not None
-        if has_bearer and has_custom_headers:
-            raise DatasourceFieldInvalidError(
-                message="DuckDB HTTP auth accepts bearer token or custom headers, not both",
-                expected="one HTTP authentication mode",
-                received="bearer and custom headers",
-                location=f"datasource {self.name!r} HTTP auth",
-                repair=repair(
-                    kind="reauthor",
-                    canonical_id="duckdb",
-                    action="Keep either http_bearer_token_env or http_headers_env.",
-                ),
-            )
-        if (has_bearer or has_custom_headers) and self.http_scope is None:
-            raise DatasourceFieldInvalidError(
-                message="DuckDB HTTP auth requires an explicit URL scope",
-                expected="an http(s) http_scope prefix",
-                received="missing http_scope",
-                location=f"datasource {self.name!r} HTTP auth",
-                repair=repair(
-                    kind="reauthor",
-                    canonical_id="duckdb",
-                    action="Set http_scope to the narrow API URL prefix.",
-                ),
-            )
-        if self.http_scope is not None and not (has_bearer or has_custom_headers):
-            raise DatasourceFieldInvalidError(
-                message="DuckDB HTTP auth scope requires an authentication declaration",
-                expected="http_bearer_token_env or http_headers_env",
-                received="http_scope without authentication",
-                location=f"datasource {self.name!r} HTTP auth",
-                repair=repair(
-                    kind="reauthor",
-                    canonical_id="duckdb",
-                    action="Remove http_scope or declare one environment-backed auth mode.",
-                ),
-            )
-        if self.http_scope is not None and not re.match(r"^https?://", self.http_scope, re.I):
-            raise DatasourceFieldInvalidError(
-                message="DuckDB HTTP auth scope must be an HTTP(S) URL prefix",
-                expected="http_scope beginning with http:// or https://",
-                received=self.http_scope,
-                location=f"datasource {self.name!r} HTTP auth",
-                repair=repair(
-                    kind="reauthor",
-                    canonical_id="duckdb",
-                    action="Use an explicit HTTP(S) URL prefix.",
-                ),
-            )
 
 
 @dataclass(frozen=True, kw_only=True, repr=False)
@@ -504,9 +419,7 @@ class TrinoSpec(_SpecBase):
     catalog: str = field(
         metadata=_description("Trino catalog; mapped to ibis database at connect time.")
     )
-    user_env: str = field(
-        metadata=_description("Required environment variable for the Trino user.")
-    )
+    user: EnvRef = field(metadata=_description("Required EnvRef from md.env for the Trino user."))
     port: int | None = field(
         default=None, metadata=_description("Trino port; ibis default is 8080.")
     )
@@ -521,9 +434,9 @@ class TrinoSpec(_SpecBase):
     session_properties: dict[str, JsonValue] | None = field(
         default=None, metadata=_description("Optional Trino session properties.")
     )
-    auth_env: str | None = field(
+    auth: EnvRef | None = field(
         default=None,
-        metadata=_description("Environment variable for Trino auth token or password."),
+        metadata=_description("EnvRef from md.env for Trino auth token or password."),
     )
 
 
@@ -540,11 +453,11 @@ class MySQLSpec(_SpecBase):
     autocommit: bool | None = field(
         default=None, metadata=_description("Use True or omit this option to use autocommit.")
     )
-    user_env: str | None = field(
-        default=None, metadata=_description("Environment variable for MySQL user.")
+    user: EnvRef | None = field(
+        default=None, metadata=_description("EnvRef from md.env for MySQL user.")
     )
-    password_env: str | None = field(
-        default=None, metadata=_description("Environment variable for MySQL password.")
+    password: EnvRef | None = field(
+        default=None, metadata=_description("EnvRef from md.env for MySQL password.")
     )
 
 
@@ -562,11 +475,11 @@ class PostgresSpec(_SpecBase):
     autocommit: bool | None = field(
         default=None, metadata=_description("Use True or omit this option to use autocommit.")
     )
-    user_env: str | None = field(
-        default=None, metadata=_description("Environment variable for Postgres user.")
+    user: EnvRef | None = field(
+        default=None, metadata=_description("EnvRef from md.env for Postgres user.")
     )
-    password_env: str | None = field(
-        default=None, metadata=_description("Environment variable for Postgres password.")
+    password: EnvRef | None = field(
+        default=None, metadata=_description("EnvRef from md.env for Postgres password.")
     )
 
 
@@ -587,11 +500,11 @@ class ClickHouseSpec(_SpecBase):
     settings: dict[str, JsonValue] | None = field(
         default=None, metadata=_description("Optional ClickHouse settings map.")
     )
-    user_env: str | None = field(
-        default=None, metadata=_description("Environment variable for ClickHouse user.")
+    user: EnvRef | None = field(
+        default=None, metadata=_description("EnvRef from md.env for ClickHouse user.")
     )
-    password_env: str | None = field(
-        default=None, metadata=_description("Environment variable for ClickHouse password.")
+    password: EnvRef | None = field(
+        default=None, metadata=_description("EnvRef from md.env for ClickHouse password.")
     )
 
 
@@ -719,9 +632,7 @@ def duckdb(
     *,
     path: str = ":memory:",
     read_only: bool = False,
-    http_scope: str | None = None,
-    http_bearer_token_env: str | None = None,
-    http_headers_env: dict[str, str] | None = None,
+    secrets: Sequence[DuckDBSecret] = (),
     wall_clock_timezone: str | None = None,
     ai_context: AiContextValue | None = None,
     extra: dict[str, JsonValue] | None = None,
@@ -732,10 +643,8 @@ def duckdb(
         name: Global datasource name; must match ``[a-z][a-z0-9_]*``.
         path: DuckDB database path or :memory:.
         read_only: Open a DuckDB database file in native read-only mode.
-        http_scope: Optional HTTP(S) URL prefix limiting remote JSON authentication.
-        http_bearer_token_env: Environment variable containing a bearer token.
-        http_headers_env: Optional custom HTTP header names mapped to environment
-            variables containing their secret values.
+        secrets: Scoped md.s3_secret, md.http_bearer_secret or md.http_headers_secret
+            values; credentials must use md.env references.
         wall_clock_timezone: Optional source timezone for undeclared naive timestamps,
             encoded local times and business dates. Accepts IANA names or fixed offsets;
             physical instants and connection settings are unaffected.
@@ -767,9 +676,7 @@ def duckdb(
         name=name,
         path=path,
         read_only=read_only,
-        http_scope=http_scope,
-        http_bearer_token_env=http_bearer_token_env,
-        http_headers_env=http_headers_env,
+        secrets=secrets,
         wall_clock_timezone=wall_clock_timezone,
         ai_context=ai_context,
         extra=extra,
@@ -783,14 +690,14 @@ def trino(
     *,
     host: str,
     catalog: str,
-    user_env: str,
+    user: EnvRef,
     port: int | None = None,
     schema: str | None = None,
     source: str | None = None,
     http_scheme: str | None = None,
     client_tags: tuple[str, ...] | None = None,
     session_properties: dict[str, JsonValue] | None = None,
-    auth_env: str | None = None,
+    auth: EnvRef | None = None,
     wall_clock_timezone: str | None = None,
     ai_context: AiContextValue | None = None,
     extra: dict[str, JsonValue] | None = None,
@@ -801,14 +708,14 @@ def trino(
         name: Global datasource name; must match ``[a-z][a-z0-9_]*``.
         host: Trino coordinator host.
         catalog: Trino catalog; mapped to ibis database at connect time.
-        user_env: Required explicit environment variable for the Trino user.
+        user: Required EnvRef from md.env for the Trino user.
         port: Trino port; ibis default is 8080.
         schema: Optional default schema.
         source: Optional client application/source tag.
         http_scheme: Set to 'https' for TLS.
         client_tags: Optional Trino client tags.
         session_properties: Optional Trino session properties.
-        auth_env: Optional explicit environment variable for a Trino auth token
+        auth: Optional EnvRef from md.env for a Trino auth token
             or password. When omitted, Marivo passes no auth value.
         wall_clock_timezone: Optional source timezone for undeclared naive timestamps,
             encoded local times and business dates. Accepts IANA names or fixed offsets;
@@ -827,8 +734,8 @@ def trino(
         ...     host="trino.example",
         ...     catalog="hive",
         ...     schema="analytics",
-        ...     user_env="WAREHOUSE_USER",
-        ...     auth_env="WAREHOUSE_AUTH",
+        ...     user=md.env("WAREHOUSE_USER"),
+        ...     auth=md.env("WAREHOUSE_AUTH"),
         ... )
         >>> md.register(spec)
         >>> md.load().test(spec.ref).show()
@@ -837,7 +744,7 @@ def trino(
     Constraints:
         When called while loading a datasource file, the spec is automatically
         declared for that project.
-        Sensitive fields must use ``*_env`` references, not plaintext literals.
+        Sensitive fields must use ``md.env(...)`` references, not plaintext literals.
         Marivo never infers credential environment-variable names.
         Trino uses native autocommit. Omit ``isolation_level`` from ``extra``.
         Exact ``median()`` and ``quantile(q)`` fail source compilation because
@@ -851,14 +758,14 @@ def trino(
         name=name,
         host=host,
         catalog=catalog,
-        user_env=user_env,
+        user=user,
         port=port,
         schema=schema,
         source=source,
         http_scheme=http_scheme,
         client_tags=client_tags,
         session_properties=session_properties,
-        auth_env=auth_env,
+        auth=auth,
         wall_clock_timezone=wall_clock_timezone,
         ai_context=ai_context,
         extra=extra,
@@ -874,8 +781,8 @@ def mysql(
     database: str,
     port: int | None = None,
     autocommit: bool | None = None,
-    user_env: str | None = None,
-    password_env: str | None = None,
+    user: EnvRef | None = None,
+    password: EnvRef | None = None,
     wall_clock_timezone: str | None = None,
     ai_context: AiContextValue | None = None,
     extra: dict[str, JsonValue] | None = None,
@@ -888,8 +795,8 @@ def mysql(
         database: MySQL database name.
         port: MySQL port; default is 3306.
         autocommit: Use True or omit this option to use autocommit.
-        user_env: Environment variable for MySQL user.
-        password_env: Environment variable for MySQL password.
+        user: EnvRef from md.env for MySQL user.
+        password: EnvRef from md.env for MySQL password.
         wall_clock_timezone: Optional source timezone for undeclared naive timestamps,
             encoded local times and business dates. Accepts IANA names or fixed offsets;
             physical instants and connection settings are unaffected.
@@ -906,8 +813,8 @@ def mysql(
         ...     name="oltp",
         ...     host="mysql.example",
         ...     database="app",
-        ...     user_env="WAREHOUSE_USER",
-        ...     password_env="WAREHOUSE_PASSWORD",
+        ...     user=md.env("WAREHOUSE_USER"),
+        ...     password=md.env("WAREHOUSE_PASSWORD"),
         ... )
         >>> md.register(spec)
         >>> md.load().test(spec.ref).show()
@@ -916,7 +823,7 @@ def mysql(
     Constraints:
         When called while loading a datasource file, the spec is automatically
         declared for that project.
-        Sensitive fields must use ``*_env`` references, not plaintext literals.
+        Sensitive fields must use ``md.env(...)`` references, not plaintext literals.
         Install ``marivo[mysql]`` for PyMySQL and RSA authentication support;
         no local MySQL client C library is required. mysqlclient-specific
         ``ssl_mode``, ``auth_plugin`` and protocol compression are unsupported.
@@ -927,8 +834,8 @@ def mysql(
         database=database,
         port=port,
         autocommit=autocommit,
-        user_env=user_env,
-        password_env=password_env,
+        user=user,
+        password=password,
         wall_clock_timezone=wall_clock_timezone,
         ai_context=ai_context,
         extra=extra,
@@ -945,8 +852,8 @@ def postgres(
     port: int | None = None,
     schema: str | None = None,
     autocommit: bool | None = None,
-    user_env: str | None = None,
-    password_env: str | None = None,
+    user: EnvRef | None = None,
+    password: EnvRef | None = None,
     wall_clock_timezone: str | None = None,
     ai_context: AiContextValue | None = None,
     extra: dict[str, JsonValue] | None = None,
@@ -960,8 +867,8 @@ def postgres(
         port: Postgres port; ibis default is 5432.
         schema: Optional default schema.
         autocommit: Use True or omit this option to use autocommit.
-        user_env: Environment variable for Postgres user.
-        password_env: Environment variable for Postgres password.
+        user: EnvRef from md.env for Postgres user.
+        password: EnvRef from md.env for Postgres password.
         wall_clock_timezone: Optional source timezone for undeclared naive timestamps,
             encoded local times and business dates. Accepts IANA names or fixed offsets;
             physical instants and connection settings are unaffected.
@@ -978,8 +885,8 @@ def postgres(
         ...     name="oltp",
         ...     host="pg.example",
         ...     database="app",
-        ...     user_env="WAREHOUSE_USER",
-        ...     password_env="WAREHOUSE_PASSWORD",
+        ...     user=md.env("WAREHOUSE_USER"),
+        ...     password=md.env("WAREHOUSE_PASSWORD"),
         ... )
         >>> md.register(spec)
         >>> md.load().test(spec.ref).show()
@@ -988,7 +895,7 @@ def postgres(
     Constraints:
         When called while loading a datasource file, the spec is automatically
         declared for that project.
-        Sensitive fields must use ``*_env`` references, not plaintext literals.
+        Sensitive fields must use ``md.env(...)`` references, not plaintext literals.
     """
     spec = PostgresSpec(
         name=name,
@@ -997,8 +904,8 @@ def postgres(
         port=port,
         schema=schema,
         autocommit=autocommit,
-        user_env=user_env,
-        password_env=password_env,
+        user=user,
+        password=password,
         wall_clock_timezone=wall_clock_timezone,
         ai_context=ai_context,
         extra=extra,
@@ -1015,8 +922,8 @@ def clickhouse(
     database: str | None = None,
     secure: bool | None = None,
     settings: dict[str, JsonValue] | None = None,
-    user_env: str | None = None,
-    password_env: str | None = None,
+    user: EnvRef | None = None,
+    password: EnvRef | None = None,
     wall_clock_timezone: str | None = None,
     ai_context: AiContextValue | None = None,
     extra: dict[str, JsonValue] | None = None,
@@ -1030,8 +937,8 @@ def clickhouse(
         database: ClickHouse database; ibis default is 'default'.
         secure: Enable TLS for ClickHouse.
         settings: Optional ClickHouse settings map.
-        user_env: Environment variable for ClickHouse user.
-        password_env: Environment variable for ClickHouse password.
+        user: EnvRef from md.env for ClickHouse user.
+        password: EnvRef from md.env for ClickHouse password.
         wall_clock_timezone: Optional source timezone for undeclared naive timestamps,
             encoded local times and business dates. Accepts IANA names or fixed offsets;
             physical instants and connection settings are unaffected.
@@ -1052,8 +959,8 @@ def clickhouse(
         ...     name="warehouse",
         ...     host="clickhouse.example",
         ...     database="analytics",
-        ...     user_env="WAREHOUSE_USER",
-        ...     password_env="WAREHOUSE_PASSWORD",
+        ...     user=md.env("WAREHOUSE_USER"),
+        ...     password=md.env("WAREHOUSE_PASSWORD"),
         ... )
         >>> md.register(spec)
         >>> md.load().test(spec.ref).show()
@@ -1062,7 +969,7 @@ def clickhouse(
     Constraints:
         When called while loading a datasource file, the spec is automatically
         declared for that project.
-        Sensitive fields must use ``*_env`` references, not plaintext literals.
+        Sensitive fields must use ``md.env(...)`` references, not plaintext literals.
     """
     spec = ClickHouseSpec(
         name=name,
@@ -1071,8 +978,8 @@ def clickhouse(
         database=database,
         secure=secure,
         settings=settings,
-        user_env=user_env,
-        password_env=password_env,
+        user=user,
+        password=password,
         wall_clock_timezone=wall_clock_timezone,
         ai_context=ai_context,
         extra=extra,

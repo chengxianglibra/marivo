@@ -139,7 +139,7 @@ class EngineProfile:
     connection_conflict: Callable[[Exception], bool] = no_connection_conflict
     # Native failures that resubmitting the same issued read can clear.
     transient_failure: Callable[[Exception], bool] = no_transient_failure
-    http_credentials: Callable[..., ProviderHttpCredentials | None] | None = None
+    install_credentials: Callable[..., ProviderHttpCredentials | None] | None = None
 
     def __post_init__(self) -> None:
         timeout_enforced = self.native_query_timeout is not None

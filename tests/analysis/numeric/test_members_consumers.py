@@ -8,13 +8,14 @@ import ibis
 import pytest
 
 import marivo.analysis as mv
+import marivo.datasource as md
 from marivo.analysis.core.frame_data import ExpressionFrameBacking, SourceFrameBinding
 from marivo.analysis.errors import AnalysisError
 from marivo.datasource.adapters import SourceSession, provider_for
 from marivo.datasource.ir import TableSourceIR
 from marivo.semantic.reader import SemanticProject
 from tests.datasource.source_cases import Case, SourceData, datasource, source_case
-from tests.shared_fixtures import catalog_value, terminal_runs
+from tests.shared_fixtures import catalog_value, datasource_arguments_source, terminal_runs
 from tests.support.source_trace import SourceTrace
 
 
@@ -70,17 +71,17 @@ def test_complete_versioned_members(
         assert isinstance(case.source, TableSourceIR)
         arguments = {
             **case.session.datasource.fields,
-            **{key + "_env": value for key, value in case.session.datasource.env_refs.items()},
+            **{key: md.env(value) for key, value in case.session.datasource.env_refs.items()},
         }
-        if "user" in arguments:
+        if isinstance(arguments.get("user"), str):
             monkeypatch.setenv("MARIVO_R93_READER", str(arguments.pop("user")))
-            arguments["user_env"] = "MARIVO_R93_READER"
+            arguments["user"] = md.env("MARIVO_R93_READER")
         version = "ms.snapshot(partition_field=ms.ref.time_dimension('sales.subjects.beginning'),timezone='UTC')"
         semantic_project_factory(
             {
                 "datasources/warehouse.py": "import marivo.datasource as md\n"
                 + f"md.{backend}(wall_clock_timezone='UTC', name='warehouse',"
-                + ",".join(f"{key}={value!r}" for key, value in arguments.items())
+                + datasource_arguments_source(arguments)
                 + ")\n",
                 "sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales',owner='R9',default=True)\n",
                 "sales/models.py": "import marivo.datasource as md\nimport marivo.semantic as ms\n"
@@ -260,11 +261,11 @@ def test_scalar_path_scopes_complete_keys_and_trusts_cardinality(
         )
         arguments = {
             **root.session.datasource.fields,
-            **{key + "_env": value for key, value in root.session.datasource.env_refs.items()},
+            **{key: md.env(value) for key, value in root.session.datasource.env_refs.items()},
         }
-        if "user" in arguments:
+        if isinstance(arguments.get("user"), str):
             monkeypatch.setenv("MARIVO_R93_READER", str(arguments.pop("user")))
-            arguments["user_env"] = "MARIVO_R93_READER"
+            arguments["user"] = md.env("MARIVO_R93_READER")
         definitions = "import marivo.datasource as md\nimport marivo.semantic as ms\n"
         for name, case in (("subjects", root), ("attributes", target)):
             assert isinstance(case.source, TableSourceIR)
@@ -275,7 +276,7 @@ def test_scalar_path_scopes_complete_keys_and_trusts_cardinality(
             {
                 "datasources/warehouse.py": "import marivo.datasource as md\n"
                 + f"md.{backend}(wall_clock_timezone='UTC', name='warehouse',"
-                + ",".join(f"{key}={value!r}" for key, value in arguments.items())
+                + datasource_arguments_source(arguments)
                 + ")\n",
                 "sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales',owner='R9',default=True)\n",
                 "sales/models.py": definitions,

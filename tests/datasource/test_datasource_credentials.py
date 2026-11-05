@@ -45,8 +45,9 @@ def register_project(project: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         md.duckdb(
             name="warehouse",
             path=":memory:",
-            http_scope="http://127.0.0.1/",
-            http_bearer_token_env="FIXTURE_TOKEN",
+            secrets=[
+                md.http_bearer_secret(scope="http://127.0.0.1/", token=md.env("FIXTURE_TOKEN"))
+            ],
         )
     )
 
@@ -77,7 +78,7 @@ def test_owned_backend_probes_and_no_default_cache(
     assert len(resolver.requests) == 3
     for request in resolver.requests:
         assert request.project_root == tmp_path
-        assert request.fields == ("http_bearer_token",)
+        assert request.fields == ("http@http://127.0.0.1/.token",)
         assert not hasattr(request, "deadline_monotonic")
         assert not hasattr(request, "cancelled")
     for path in tmp_path.rglob("*"):
@@ -198,8 +199,8 @@ def test_grouped_reference_and_runtime_binding(
             name="grouped",
             host="example.invalid",
             catalog="hive",
-            user_env="SHARED",
-            auth_env="SHARED",
+            user=md.env("SHARED"),
+            auth=md.env("SHARED"),
         )
     )
     resolver = HostResolver()
@@ -340,8 +341,9 @@ def test_observe_source_materialization_failure_redacts_credentials(
         md.duckdb(
             name="warehouse",
             path=str(project / "warehouse.duckdb"),
-            http_scope="http://127.0.0.1/",
-            http_bearer_token_env="FIXTURE_TOKEN",
+            secrets=[
+                md.http_bearer_secret(scope="http://127.0.0.1/", token=md.env("FIXTURE_TOKEN"))
+            ],
         ),
     )
     resolver = HostResolver()
@@ -394,8 +396,9 @@ def test_raw_sql_failure_keeps_contract_and_redacts_credentials(
             md.duckdb(
                 name="warehouse",
                 path=str(project / "warehouse.duckdb"),
-                http_scope="http://127.0.0.1/",
-                http_bearer_token_env="FIXTURE_TOKEN",
+                secrets=[
+                    md.http_bearer_secret(scope="http://127.0.0.1/", token=md.env("FIXTURE_TOKEN"))
+                ],
             ),
         )
     original_raw_sql = Backend.raw_sql
@@ -438,7 +441,9 @@ def test_injected_metadata_denial_keeps_projected_schema_fallback(
     monkeypatch.setenv("MARIVO_PROJECT_ROOT", str(tmp_path))
     monkeypatch.setenv("FIXTURE_USER", "fixture-default-user")
     md.register(
-        md.trino(name="warehouse", host="example.invalid", catalog="hive", user_env="FIXTURE_USER")
+        md.trino(
+            name="warehouse", host="example.invalid", catalog="hive", user=md.env("FIXTURE_USER")
+        )
     )
     resolver = HostResolver()
 
@@ -522,7 +527,7 @@ def test_public_semantic_analysis_and_resume(
     declaration.write_text(
         declaration.read_text().replace(
             ")\n",
-            ", http_scope='http://127.0.0.1/', http_bearer_token_env='FIXTURE_TOKEN')\n",
+            ", secrets=[md.http_bearer_secret(scope='http://127.0.0.1/', token=md.env('FIXTURE_TOKEN'))])\n",
         )
     )
     resolver = HostResolver()
@@ -648,8 +653,7 @@ def test_real_http_authentication(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
         md.duckdb(
             name="warehouse",
             path=":memory:",
-            http_scope=scope,
-            http_bearer_token_env="FIXTURE_TOKEN",
+            secrets=[md.http_bearer_secret(scope=scope, token=md.env("FIXTURE_TOKEN"))],
         )
     )
     try:

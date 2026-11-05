@@ -6,6 +6,7 @@ from typing import cast
 import pytest
 from ibis.backends import BaseBackend
 
+import marivo.datasource as md
 from marivo.datasource.authoring import (
     ClickHouseSpec,
     DuckDBSpec,
@@ -141,7 +142,7 @@ def test_unknown_backend_name_resolves_to_generic_profile() -> None:
 def test_authoring_specs_resolve_to_profiles() -> None:
     specs = (
         DuckDBSpec(name="duck"),
-        TrinoSpec(name="tri", host="h", catalog="c", user_env="TRINO_USER"),
+        TrinoSpec(name="tri", host="h", catalog="c", user=md.env("TRINO_USER")),
         MySQLSpec(name="my", host="h", database="d"),
         PostgresSpec(name="pg", host="h", database="d"),
         ClickHouseSpec(name="ch", host="h"),

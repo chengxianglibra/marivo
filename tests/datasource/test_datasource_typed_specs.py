@@ -24,7 +24,6 @@ from marivo.datasource.authoring import (
 )
 from marivo.datasource.errors import (
     DatasourceFieldInvalidError,
-    DatasourceSecretInPlaintextError,
 )
 from marivo.datasource.ir import DatasourceIR, DatasourceSourceLocation
 from marivo.refs import ref as ref_factory
@@ -58,62 +57,44 @@ def test_duckdb_http_auth_is_scoped_and_environment_backed() -> None:
     bearer = _ir(
         DuckDBSpec(
             name="hawkeye",
-            http_scope="http://hawkeye.example/report/api/",
-            http_bearer_token_env="HAWKEYE_TOKEN",
+            secrets=[
+                md.http_bearer_secret(
+                    scope="http://hawkeye.example/report/api/", token=md.env("HAWKEYE_TOKEN")
+                )
+            ],
         )
     )
     custom = _ir(
         DuckDBSpec(
             name="custom",
-            http_scope="https://api.example/v1/",
-            http_headers_env={
-                "x-secretid": "CHANGE_FOCUS_SECRET_ID",
-                "x-signature": "CHANGE_FOCUS_SIGNATURE",
-            },
+            secrets=[
+                md.http_headers_secret(
+                    scope="https://api.example/v1/",
+                    headers={
+                        "x-secretid": md.env("CHANGE_FOCUS_SECRET_ID"),
+                        "x-signature": md.env("CHANGE_FOCUS_SIGNATURE"),
+                    },
+                )
+            ],
         )
     )
 
     assert bearer.fields == {
         "path": ":memory:",
         "read_only": False,
-        "http_scope": "http://hawkeye.example/report/api/",
+        "secrets": [{"type": "http", "scope": "http://hawkeye.example/report/api/"}],
     }
-    assert bearer.env_refs == {"http_bearer_token": "HAWKEYE_TOKEN"}
+    assert bearer.env_refs == {"http@http://hawkeye.example/report/api/.token": "HAWKEYE_TOKEN"}
     assert custom.env_refs == {
-        "http_header:x-secretid": "CHANGE_FOCUS_SECRET_ID",
-        "http_header:x-signature": "CHANGE_FOCUS_SIGNATURE",
+        "http@https://api.example/v1/.header:x-secretid": "CHANGE_FOCUS_SECRET_ID",
+        "http@https://api.example/v1/.header:x-signature": "CHANGE_FOCUS_SIGNATURE",
     }
 
 
-@pytest.mark.parametrize(
-    "kwargs",
-    [
-        {"http_scope": "https://api.example/"},
-        {"http_bearer_token_env": "TOKEN"},
-        {
-            "http_scope": "https://api.example/",
-            "http_headers_env": {},
-        },
-        {
-            "http_scope": "https://api.example/",
-            "http_headers_env": {"bad header": "API_KEY"},
-        },
-        {
-            "http_scope": "https://api.example/",
-            "http_headers_env": {"X-API-Key": ""},
-        },
-        {
-            "http_scope": "https://api.example/",
-            "http_bearer_token_env": "TOKEN",
-            "http_headers_env": {"X-API-Key": "API_KEY"},
-        },
-    ],
-)
-def test_duckdb_http_auth_rejects_ambiguous_or_incomplete_declarations(
-    kwargs: dict[str, object],
-) -> None:
+@pytest.mark.parametrize("headers", [{}, {"bad header": md.env("KEY")}, {"X-Key": "literal"}])
+def test_duckdb_headers_reject_invalid_inputs(headers: object) -> None:
     with pytest.raises(DatasourceFieldInvalidError):
-        DuckDBSpec(name="hawkeye", **kwargs)  # type: ignore[arg-type]
+        md.http_headers_secret(scope="https://api.example/", headers=headers)
 
 
 @pytest.mark.parametrize(
@@ -145,8 +126,8 @@ def test_trino_spec_maps_declared_fields_and_named_secret_env_refs() -> None:
         wall_clock_timezone="Asia/Shanghai",
         client_tags=("agent", "semantic-authoring"),
         session_properties={"query_max_run_time": "5m"},
-        user_env="TRINO_USER",
-        auth_env="TRINO_AUTH",
+        user=md.env("TRINO_USER"),
+        auth=md.env("TRINO_AUTH"),
     )
     ir = _ir(spec)
 
@@ -162,46 +143,46 @@ def test_trino_spec_maps_declared_fields_and_named_secret_env_refs() -> None:
     assert ir.wall_clock_timezone == "Asia/Shanghai"
 
 
-def test_trino_user_env_is_required_by_spec_and_helper() -> None:
-    assert inspect.signature(TrinoSpec).parameters["user_env"].default is inspect.Parameter.empty
-    assert inspect.signature(md.trino).parameters["user_env"].default is inspect.Parameter.empty
+def test_trino_user_is_required_by_spec_and_helper() -> None:
+    assert inspect.signature(TrinoSpec).parameters["user"].default is inspect.Parameter.empty
+    assert inspect.signature(md.trino).parameters["user"].default is inspect.Parameter.empty
 
-    with pytest.raises(TypeError, match="user_env"):
+    with pytest.raises(TypeError, match="user"):
         TrinoSpec(  # type: ignore[call-arg]
             name="warehouse",
             host="trino.example",
             catalog="hive",
         )
 
-    with pytest.raises(TypeError, match="user_env"):
+    with pytest.raises(TypeError, match="user"):
         md.trino(  # type: ignore[call-arg]
             name="warehouse",
             host="trino.example",
             catalog="hive",
         )
 
-    for invalid_user_env in ("", None):
+    for invalid_user in ("", None):
         with pytest.raises(DatasourceFieldInvalidError) as exc_info:
             TrinoSpec(
                 name="warehouse",
                 host="trino.example",
                 catalog="hive",
-                user_env=invalid_user_env,  # type: ignore[arg-type]
+                user=invalid_user,  # type: ignore[arg-type]
             )
 
-        assert exc_info.value.expected == "a non-empty environment variable name"
-        assert exc_info.value.location.endswith("field 'user_env'")
-        assert exc_info.value.repair.help_target.canonical_id == "trino"
+        assert exc_info.value.expected == "an EnvRef"
+        assert exc_info.value.location.endswith("field 'user'")
+        assert exc_info.value.repair.help_target.canonical_id == "env"
 
     with pytest.raises(DatasourceFieldInvalidError) as exc_info:
         md.trino(
             name="warehouse",
             host="trino.example",
             catalog="hive",
-            user_env=None,  # type: ignore[arg-type]
+            user=None,  # type: ignore[arg-type]
         )
 
-    assert exc_info.value.repair.help_target.canonical_id == "trino"
+    assert exc_info.value.repair.help_target.canonical_id == "env"
 
 
 def test_mysql_postgres_and_clickhouse_required_shapes() -> None:
@@ -230,14 +211,14 @@ def test_unknown_field_raises_native_type_error() -> None:
             name="warehouse",
             host="trino.example",
             catalog="hive",
-            user_env="TRINO_USER",
+            user=md.env("TRINO_USER"),
             prot=8080,
         )
 
 
 def test_empty_required_string_raises_teaching_error() -> None:
     with pytest.raises(DatasourceFieldInvalidError) as exc_info:
-        TrinoSpec(name="warehouse", host="", catalog="hive", user_env="TRINO_USER")
+        TrinoSpec(name="warehouse", host="", catalog="hive", user=md.env("TRINO_USER"))
 
     assert exc_info.value.location == "models/datasources/ entry 'warehouse' field 'host'"
     assert "non-empty string" in str(exc_info.value)
@@ -258,17 +239,17 @@ def test_extra_merges_json_safe_passthrough_fields() -> None:
 
 
 def test_extra_rejects_plaintext_sensitive_stems() -> None:
-    with pytest.raises(DatasourceSecretInPlaintextError) as exc_info:
+    with pytest.raises(DatasourceFieldInvalidError) as exc_info:
         TrinoSpec(
             name="warehouse",
             host="trino.example",
             catalog="hive",
-            user_env="TRINO_USER",
+            user=md.env("TRINO_USER"),
             extra={"password": "literal-secret"},
         )
 
-    assert exc_info.value.received == "password"
-    assert "password_env" in str(exc_info.value)
+    assert exc_info.value.received == "str"
+    assert "password" in str(exc_info.value)
 
 
 def test_extra_rejects_non_json_values() -> None:
@@ -277,7 +258,7 @@ def test_extra_rejects_non_json_values() -> None:
             name="warehouse",
             host="trino.example",
             catalog="hive",
-            user_env="TRINO_USER",
+            user=md.env("TRINO_USER"),
             extra={"custom_option": object()},
         )
 
@@ -342,8 +323,8 @@ def test_store_writes_convenience_function_call(
             name="warehouse",
             host="trino.example",
             catalog="hive",
-            user_env="MARIVO_WAREHOUSE_USER",
-            auth_env="TRINO_AUTH",
+            user=md.env("MARIVO_WAREHOUSE_USER"),
+            auth=md.env("TRINO_AUTH"),
         )
     )
 
@@ -352,10 +333,10 @@ def test_store_writes_convenience_function_call(
     assert "md.trino(" in text
     assert "backend_type" not in text
     assert "description" not in text
-    assert "user_env='MARIVO_WAREHOUSE_USER'" in text or (
-        'user_env="MARIVO_WAREHOUSE_USER"' in text
+    assert "user=md.env('MARIVO_WAREHOUSE_USER')" in text or (
+        'user=md.env("MARIVO_WAREHOUSE_USER")' in text
     )
-    assert "auth_env='TRINO_AUTH'" in text or 'auth_env="TRINO_AUTH"' in text
+    assert "auth=md.env('TRINO_AUTH')" in text or 'auth=md.env("TRINO_AUTH")' in text
     assert md.load().describe("warehouse").env_refs == {
         "user": "MARIVO_WAREHOUSE_USER",
         "auth": "TRINO_AUTH",
@@ -416,8 +397,8 @@ def test_catalog_show_renders_full_datasource_model_without_secrets(
             name="warehouse",
             host="trino.example",
             catalog="hive",
-            user_env="TRINO_USER",
-            auth_env="TRINO_AUTH",
+            user=md.env("TRINO_USER"),
+            auth=md.env("TRINO_AUTH"),
             ai_context=ms.ai_context(
                 business_definition="Curated warehouse tables.",
                 guardrails=["Use partition filters."],
@@ -432,7 +413,7 @@ def test_catalog_show_renders_full_datasource_model_without_secrets(
     assert "warehouse:" in rendered
     assert "backend_type=trino" in rendered
     assert "fields=catalog: hive, host: trino.example" in rendered
-    assert "env_refs=auth_env=TRINO_AUTH, user_env=TRINO_USER" in rendered
+    assert "credentials=auth | user (2 refs)" in rendered
     assert "business_definition: Curated warehouse tables." in rendered
     assert "guardrails: Use partition filters." in rendered
     assert ".test(name)" in rendered
@@ -480,7 +461,7 @@ def test_catalog_show_uses_one_current_declaration_snapshot(
 def test_declared_spec_fields_are_visible_to_dataclasses_help() -> None:
     trino_field_names = {field.name for field in fields(TrinoSpec)}
 
-    assert {"name", "host", "catalog", "port", "user_env", "auth_env", "extra"} <= trino_field_names
+    assert {"name", "host", "catalog", "port", "user", "auth", "extra"} <= trino_field_names
     assert "description" not in trino_field_names
     assert "backend_type" not in trino_field_names
 
@@ -494,7 +475,7 @@ def test_declared_spec_fields_are_visible_to_dataclasses_help() -> None:
                 name="warehouse",
                 host="trino.example",
                 catalog="hive",
-                user_env="TRINO_USER",
+                user=md.env("TRINO_USER"),
                 port=8443,
                 schema="sales",
                 http_scheme="https",
@@ -561,15 +542,15 @@ def test_datasource_spec_render_summarizes_hidden_configuration_and_credentials(
         name="warehouse",
         host="trino.example",
         catalog="hive",
-        user_env="WAREHOUSE_USER",
-        auth_env="WAREHOUSE_AUTH",
+        user=md.env("WAREHOUSE_USER"),
+        auth=md.env("WAREHOUSE_AUTH"),
         session_properties={f"property_{index}": "x" * 100 for index in range(100)},
         extra={"custom_options": {f"option_{index}": "y" * 100 for index in range(100)}},
     )
 
     rendered = spec.render()
 
-    assert "credential fields: auth_env | user_env (2 refs)" in rendered
+    assert "credentials: auth | user (2 refs)" in rendered
     assert "additional configuration: 2 fields; inspect .fields" in rendered
     assert "WAREHOUSE_USER" not in rendered
     assert "WAREHOUSE_AUTH" not in rendered
@@ -590,7 +571,7 @@ def test_datasource_spec_render_summarizes_hidden_configuration_and_credentials(
             name="tr",
             host="trino.example",
             catalog="hive",
-            user_env="TRINO_USER",
+            user=md.env("TRINO_USER"),
             wall_clock_timezone="UTC+08:00:00",
         ),
         md.clickhouse(name="ch", host="ch.example", wall_clock_timezone="UTC+08:00"),
@@ -664,7 +645,7 @@ def test_trino_timezone_is_removed_from_spec_and_constructor() -> None:
                 name="warehouse",
                 host="trino.example",
                 catalog="hive",
-                user_env="TRINO_USER",
+                user=md.env("TRINO_USER"),
                 **{"timezone": "UTC"},
             )
     with pytest.raises(DatasourceFieldInvalidError, match="extra cannot contain"):
@@ -672,7 +653,7 @@ def test_trino_timezone_is_removed_from_spec_and_constructor() -> None:
             name="warehouse",
             host="trino.example",
             catalog="hive",
-            user_env="TRINO_USER",
+            user=md.env("TRINO_USER"),
             extra={"timezone": "Asia/Shanghai"},
         )
     with pytest.raises(DatasourceFieldInvalidError, match="extra cannot contain"):

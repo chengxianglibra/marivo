@@ -20,7 +20,7 @@ head:
 有界数据检查时才读取数据行。元数据和样本可帮助选择物理来源；业务含义应由语义定义承载。详见
 [语义模型验证](/zh-cn/docs/latest/modeling/semantic-layer/#加载与检查)。
 
-凭据使用 `*_env` 引用。连接测试成功后，Marivo 可能将解析出的环境变量凭据以明文
+凭据使用 `md.env("NAME")` 引用。连接测试成功后，Marivo 可能将解析出的环境变量凭据以明文
 缓存到 `~/.marivo/secrets.toml`；设置 `MARIVO_PERSIST_CREDENTIALS=0` 可关闭缓存。
 
 ## 确认访问与结构

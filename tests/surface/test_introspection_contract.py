@@ -59,14 +59,14 @@ def test_shared_catalog_hint_lookup_supports_semantic() -> None:
 
 
 def test_datasource_error_requires_typed_repair() -> None:
-    from marivo.datasource.errors import DatasourceSecretInPlaintextError, repair
+    from marivo.datasource.errors import DatasourceFieldInvalidError, repair
 
-    err = DatasourceSecretInPlaintextError(
+    err = DatasourceFieldInvalidError(
         message="secret",
         expected="an environment-variable reference",
         received="password",
         location="models/datasources/",
-        repair=repair(kind="environment", canonical_id="trino", action="Use password_env."),
+        repair=repair(kind="environment", canonical_id="trino", action="Use password=md.env(...)."),
     )
 
     assert err.repair is not None

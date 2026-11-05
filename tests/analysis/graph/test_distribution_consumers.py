@@ -12,6 +12,7 @@ import pandas as pd
 import pytest
 
 import marivo.analysis as mv
+import marivo.datasource as md
 from marivo.analysis.errors import AnalysisError
 from marivo.datasource.adapters import CompiledRead, SourceSession, provider_for
 from marivo.datasource.ir import TableSourceIR
@@ -19,7 +20,7 @@ from marivo.semantic.reader import SemanticProject
 from tests.analysis.graph.distribution_fixtures import Carrier, distribution_data
 from tests.analysis.numeric.pandas_coordinates import ordinary_columns
 from tests.datasource.source_cases import Case, datasource, source_case, source_params
-from tests.shared_fixtures import catalog_value, run_ids
+from tests.shared_fixtures import catalog_value, datasource_arguments_source, run_ids
 from tests.support.source_trace import SourceTrace
 
 
@@ -118,11 +119,11 @@ def test_native_distribution(
             ]
         args = {
             **subject.session.datasource.fields,
-            **{key + "_env": value for key, value in subject.session.datasource.env_refs.items()},
+            **{key: md.env(value) for key, value in subject.session.datasource.env_refs.items()},
         }
-        if "user" in args:
+        if isinstance(args.get("user"), str):
             monkeypatch.setenv("MARIVO_R93_READER", str(args.pop("user")))
-            args["user_env"] = "MARIVO_R93_READER"
+            args["user"] = md.env("MARIVO_R93_READER")
         timestamp = (
             "ms.timestamp()"
             if backend in ("mysql", "clickhouse")
@@ -150,7 +151,7 @@ def test_native_distribution(
             {
                 "datasources/warehouse.py": "import marivo.datasource as md\n"
                 + f"md.{backend}(wall_clock_timezone='UTC', name='warehouse',"
-                + ",".join(f"{key}={value!r}" for key, value in args.items())
+                + datasource_arguments_source(args)
                 + ")\n",
                 "sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales',owner='R9',default=True)\n",
                 "sales/models.py": models,

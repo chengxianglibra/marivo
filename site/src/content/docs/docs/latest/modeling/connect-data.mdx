@@ -23,7 +23,7 @@ schema metadata. It reads data only for explicit checks with a bounded
 scope. Metadata and samples help you choose a source; use semantic definitions
 to assign business meaning. See [semantic model validation](/docs/latest/modeling/semantic-layer/#load-and-validate).
 
-Declare credentials with `*_env` references. After a successful connection test,
+Declare credentials with `md.env("NAME")` references. After a successful connection test,
 Marivo may cache resolved environment credentials as plaintext in
 `~/.marivo/secrets.toml`; set `MARIVO_PERSIST_CREDENTIALS=0` to disable the cache.
 

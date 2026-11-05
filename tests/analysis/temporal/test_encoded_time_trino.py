@@ -122,7 +122,7 @@ def test_native_partition_constraints_and_scanned_rows(
                             "import marivo.datasource as md\n"
                             "md.trino(name='warehouse',host='127.0.0.1',port=18080,"
                             "catalog='iceberg',schema='analysis',"
-                            "user_env='MARIVO_PARTITION_READER',wall_clock_timezone='Asia/Shanghai')\n"
+                            "user=md.env('MARIVO_PARTITION_READER'),wall_clock_timezone='Asia/Shanghai')\n"
                         )
                         (semantic / "_domain.py").write_text(
                             "import marivo.semantic as ms\nms.domain(name='sales',owner='Test',default=True)\n"
@@ -228,7 +228,7 @@ def test_hour_prefix_public_filters_prune_both_iceberg_partitions(
             semantic_project_factory(
                 {
                     "datasources/warehouse.py": "import marivo.datasource as md\n"
-                    "md.trino(name='warehouse',host='127.0.0.1',port=18080,catalog='iceberg',schema='analysis',user_env='MARIVO_PARTITION_READER',wall_clock_timezone='Asia/Shanghai')\n",
+                    "md.trino(name='warehouse',host='127.0.0.1',port=18080,catalog='iceberg',schema='analysis',user=md.env('MARIVO_PARTITION_READER'),wall_clock_timezone='Asia/Shanghai')\n",
                     "sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales',owner='Test',default=True)\n",
                     "sales/events.py": "import marivo.semantic as ms\nimport marivo.datasource as md\n"
                     f"events=ms.entity(name='events',datasource=ms.ref.datasource('warehouse'),source=md.table({name!r}),primary_key=['id'])\n"

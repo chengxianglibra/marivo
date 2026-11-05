@@ -7,8 +7,8 @@ state_dir="$HOME/.cache/marivo-multisource"
 profile="marivo-multisource"
 socket="unix://$HOME/.colima/$profile/docker.sock"
 
-if [[ $# -ne 2 || ! "$1" =~ ^(start|stop|status|logs)$ || ! "$2" =~ ^(trino|clickhouse|clickhouse-cluster|postgres-analysis|mysql-analysis|mysql-no-timezones|mariadb-analysis|mariadb-103-analysis)$ ]]; then
-    echo "Usage: $0 {start|stop|status|logs} {trino|clickhouse|clickhouse-cluster|postgres-analysis|mysql-analysis|mysql-no-timezones|mariadb-analysis|mariadb-103-analysis}" >&2
+if [[ $# -ne 2 || ! "$1" =~ ^(start|stop|status|logs)$ || ! "$2" =~ ^(trino|clickhouse|clickhouse-cluster|postgres-analysis|mysql-analysis|mysql-no-timezones|mariadb-analysis|mariadb-103-analysis|minio)$ ]]; then
+    echo "Usage: $0 {start|stop|status|logs} {trino|clickhouse|clickhouse-cluster|postgres-analysis|mysql-analysis|mysql-no-timezones|mariadb-analysis|mariadb-103-analysis|minio}" >&2
     exit 2
 fi
 if [[ ! -f "$state_dir/secrets.env" || ! -f "$state_dir/docker/config.json" ]]; then

@@ -18,6 +18,7 @@ from marivo.semantic.catalog import SemanticCatalog
 from marivo.semantic.errors import SemanticExpressionError
 from marivo.semantic.reader import SemanticProject
 from tests.datasource.source_cases import SourceData, source_case, source_params
+from tests.shared_fixtures import datasource_arguments_source
 from tests.support.execution_logs import execution_records
 
 
@@ -165,11 +166,11 @@ def test_native_metric_preview(
         assert isinstance(case.source, TableSourceIR)
         arguments = {
             **case.session.datasource.fields,
-            **{key + "_env": value for key, value in case.session.datasource.env_refs.items()},
+            **{key: md.env(value) for key, value in case.session.datasource.env_refs.items()},
         }
-        if "user" in arguments:
+        if isinstance(arguments.get("user"), str):
             monkeypatch.setenv("MARIVO_METRIC_PREVIEW_READER", str(arguments.pop("user")))
-            arguments["user_env"] = "MARIVO_METRIC_PREVIEW_READER"
+            arguments["user"] = md.env("MARIVO_METRIC_PREVIEW_READER")
         metrics = {
             "total": "amount.sum()",
             "average": "amount.mean()",
@@ -193,7 +194,7 @@ def test_native_metric_preview(
         definitions = {
             "datasources/warehouse.py": "import marivo.datasource as md\n"
             + f"md.{backend}(name='warehouse',"
-            + ",".join(f"{key}={value!r}" for key, value in arguments.items())
+            + datasource_arguments_source(arguments)
             + ")\n",
             "sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales',owner='Data',default=True)\n",
             "sales/models.py": "import marivo.datasource as md\nimport marivo.semantic as ms\n"

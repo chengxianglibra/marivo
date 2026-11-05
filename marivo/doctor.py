@@ -6,16 +6,14 @@ import ast
 import os
 import stat
 import sys
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from importlib import import_module
 from pathlib import Path
 from typing import Literal
-from zoneinfo import ZoneInfoNotFoundError
 
 from marivo import __version__
 from marivo._compat import tomllib
-from marivo._timezones import normalize_timezone
 from marivo.config import (
     AGENTS_SKILLS_DIR,
     AUTHORED_DIR,
@@ -33,10 +31,25 @@ from marivo.datasource._builtin import (
     DEFAULT_DATASOURCE_NAME,
     default_datasource,
 )
-from marivo.datasource.authoring import _http_headers_env
+from marivo.datasource.authoring import (
+    ClickHouseSpec,
+    DatasourceSpec,
+    DuckDBSpec,
+    MySQLSpec,
+    PostgresSpec,
+    TrinoSpec,
+)
+from marivo.datasource.credential_inputs import (
+    DuckDBSecret,
+    EnvRef,
+    env,
+    http_bearer_secret,
+    http_headers_secret,
+    s3_secret,
+)
 from marivo.datasource.engines import ENGINE_PROFILES, SUPPORTED_BACKEND_TYPES
 from marivo.datasource.errors import DatasourceFieldInvalidError
-from marivo.datasource.ir import AiContextIR, DatasourceIR, DatasourceSourceLocation
+from marivo.datasource.ir import DatasourceIR, DatasourceSourceLocation
 
 DoctorStatus = Literal["ok", "info", "warning", "fail", "skipped"]
 ReportStatus = Literal["ok", "warning", "fail"]
@@ -616,6 +629,42 @@ def _backend_call_name(call: ast.Call) -> str | None:
 
 
 def _static_literal(value: ast.AST) -> object:
+    if isinstance(value, ast.Call):
+        constructors: dict[str, Callable[..., EnvRef | DuckDBSecret]] = {
+            "env": env,
+            "s3_secret": s3_secret,
+            "http_bearer_secret": http_bearer_secret,
+            "http_headers_secret": http_headers_secret,
+        }
+        func = value.func
+        if (
+            not isinstance(func, ast.Attribute)
+            or not isinstance(func.value, ast.Name)
+            or func.value.id != "md"
+            or func.attr not in constructors
+        ):
+            raise ValueError("Only md.env and secret constructors are supported")
+        names = [keyword.arg for keyword in value.keywords]
+        if None in names or len(names) != len(set(names)):
+            raise ValueError("Expanded or duplicate keyword arguments are not supported")
+        return constructors[func.attr](
+            *[_static_literal(arg) for arg in value.args],
+            **{
+                keyword.arg: _static_literal(keyword.value)
+                for keyword in value.keywords
+                if keyword.arg is not None
+            },
+        )
+    if isinstance(value, (ast.List, ast.Tuple)):
+        return [_static_literal(item) for item in value.elts]
+    if isinstance(value, ast.Dict):
+        if any(key is None for key in value.keys):
+            raise ValueError("Expanded mappings are not supported")
+        return {
+            ast.literal_eval(key): _static_literal(item)
+            for key, item in zip(value.keys, value.values, strict=True)
+            if key is not None
+        }
     return ast.literal_eval(value)
 
 
@@ -633,13 +682,15 @@ def _static_datasource_from_call(
         )
 
     kwargs: dict[str, object] = {}
+    seen: set[str] = set()
     for keyword in call.keywords:
-        if keyword.arg is None:
+        if keyword.arg is None or keyword.arg in seen:
             return None, _datasource_parse_check(
                 filepath,
-                f"unsupported **kwargs in static datasource declaration for {backend_type}",
+                f"unsupported expanded or duplicate keyword arguments for {backend_type}",
                 line=call.lineno,
             )
+        seen.add(keyword.arg)
         if keyword.arg == "ai_context":
             continue
         try:
@@ -651,91 +702,24 @@ def _static_datasource_from_call(
                 line=getattr(keyword.value, "lineno", call.lineno),
             )
 
-    name = kwargs.pop("name", None)
-    if not isinstance(name, str) or not name:
+    constructors: dict[str, Callable[..., DatasourceSpec]] = {
+        "duckdb": DuckDBSpec,
+        "trino": TrinoSpec,
+        "mysql": MySQLSpec,
+        "postgres": PostgresSpec,
+        "clickhouse": ClickHouseSpec,
+    }
+    try:
+        spec = constructors[backend_type](**kwargs)
+    except (TypeError, ValueError, DatasourceFieldInvalidError) as error:
         return None, _datasource_parse_check(
             filepath,
-            "datasource name must be a non-empty literal string for static inspection",
+            f"Invalid datasource declaration: {error}. Use user/password/auth=md.env('NAME') or secrets=[md.s3_secret(...), md.http_bearer_secret(...), md.http_headers_secret(...)].",
             line=call.lineno,
         )
-
-    declared_timezone = kwargs.pop("wall_clock_timezone", None)
-    wall_clock_timezone: str | None = None
-    if declared_timezone is not None:
-        try:
-            if not isinstance(declared_timezone, str):
-                raise TypeError("wall_clock_timezone must be a string or None")
-            wall_clock_timezone = normalize_timezone(declared_timezone).name
-        except (TypeError, ValueError, ZoneInfoNotFoundError):
-            return None, _datasource_parse_check(
-                filepath,
-                "wall_clock_timezone must be an IANA timezone name or fixed offset",
-                line=call.lineno,
-            )
-    if backend_type == "trino" and "timezone" in kwargs:
-        return None, _datasource_parse_check(
-            filepath,
-            "Trino has no timezone parameter; declare source wall_clock_timezone explicitly",
-            line=call.lineno,
-        )
-
-    extra = kwargs.pop("extra", None)
-    if extra is not None:
-        if not isinstance(extra, dict) or not all(isinstance(key, str) for key in extra):
-            return None, _datasource_parse_check(
-                filepath,
-                "datasource extra must be a literal dict with string keys for static inspection",
-                line=call.lineno,
-            )
-        if "wall_clock_timezone" in extra or (backend_type == "trino" and "timezone" in extra):
-            return None, _datasource_parse_check(
-                filepath,
-                "source timezone declarations cannot be supplied through extra",
-                line=call.lineno,
-            )
-        kwargs.update(extra)
-
-    fields: dict[str, object] = {}
-    env_refs: dict[str, str] = {}
-    for key, value in kwargs.items():
-        if backend_type == "duckdb" and key == "http_headers_env":
-            if value is None:
-                continue
-            try:
-                headers = _http_headers_env(name, value)
-            except DatasourceFieldInvalidError as error:
-                return None, _datasource_parse_check(filepath, error.message, line=call.lineno)
-            env_refs.update(
-                (f"http_header:{header_name}", env_var) for header_name, env_var in headers.items()
-            )
-            continue
-        if key.endswith("_env"):
-            if value is None:
-                continue
-            if not isinstance(value, str) or not value:
-                return None, _datasource_parse_check(
-                    filepath,
-                    f"datasource field {key!r} must be a non-empty env var name",
-                    line=call.lineno,
-                )
-            env_refs[key[: -len("_env")]] = value
-            continue
-        fields[key] = value
-
-    return (
-        DatasourceIR(
-            semantic_id=name,
-            name=name,
-            backend_type=backend_type,
-            wall_clock_timezone=wall_clock_timezone,
-            fields=fields,
-            env_refs=env_refs,
-            ai_context=AiContextIR(),
-            python_symbol=name,
-            location=DatasourceSourceLocation(file=str(filepath), line=call.lineno),
-        ),
-        None,
-    )
+    return spec._to_ir(
+        location=DatasourceSourceLocation(file=str(filepath), line=call.lineno)
+    ), None
 
 
 def _static_datasources_from_file(filepath: Path) -> _StaticDatasourceLoadResult:

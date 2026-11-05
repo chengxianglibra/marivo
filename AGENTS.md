@@ -164,7 +164,7 @@ The public entry points are `marivo.help`, `marivo.datasource`,
   Do not introduce automatic persistence or cross-process result caches.
   See [result retention](docs/architecture/analysis/session-state-and-runtime.md#session-and-invocation-ownership).
 - Persistent semantic and analysis state belongs in `<project_root>/.marivo/`.
-  Author credentials as `*_env` references; never write secrets to project
+  Author credentials as `md.env(...)` references; never write secrets to project
   state. After a validated datasource round-trip, resolved secrets may be
   cached in plaintext user-global state at `~/.marivo/secrets.toml`.
 - New exceptions inherit from the owning `DatasourceError`, `SemanticError`,

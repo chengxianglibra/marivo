@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 from marivo._symbolic import DatasourceSymbol
 from marivo.datasource import store as _store
 from marivo.datasource._builtin import DEFAULT_DATASOURCE_DESCRIPTION, DEFAULT_DATASOURCE_NAME
+from marivo.datasource.credential_inputs import credential_labels
 from marivo.datasource.ir import AiContextIR
 from marivo.datasource.manage import (
     DEFAULT_CONNECTION_TIMEOUT_SECONDS,
@@ -32,19 +33,10 @@ def _format_mapping(mapping: dict[str, object]) -> str:
     return ", ".join(f"{key}: {value}" for key, value in sorted(mapping.items()))
 
 
-def _format_env_refs(mapping: dict[str, str]) -> str:
+def _format_env_refs(fields: dict[str, object], mapping: dict[str, str]) -> str:
     if not mapping:
         return "(none)"
-    regular: list[str] = []
-    http_headers: list[str] = []
-    for key, value in sorted(mapping.items()):
-        if key.startswith("http_header:"):
-            http_headers.append(f"{key.removeprefix('http_header:')}: {value}")
-        else:
-            regular.append(f"{key}_env={value}")
-    if http_headers:
-        regular.append(f"http_headers_env={{{', '.join(http_headers)}}}")
-    return ", ".join(regular)
+    return " | ".join(credential_labels(fields, mapping)) + f" ({len(mapping)} refs)"
 
 
 def _format_tuple(values: tuple[str, ...]) -> str:
@@ -181,7 +173,7 @@ class DatasourceCatalog(RenderableResult):
                 items=(
                     f"backend_type={datasource.backend_type}",
                     f"fields={_format_mapping(datasource.fields)}",
-                    f"env_refs={_format_env_refs(datasource.env_refs)}",
+                    f"credentials={_format_env_refs(datasource.fields, datasource.env_refs)}",
                     *_ai_context_lines(datasource.ai_context),
                 ),
             )

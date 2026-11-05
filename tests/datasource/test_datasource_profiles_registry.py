@@ -115,8 +115,8 @@ def test_describe_redacts_secrets(project_root: Path) -> None:
             host="trino.example",
             port=8080,
             catalog="hive",
-            user_env="TRINO_USER",
-            auth_env="TRINO_AUTH",
+            user=md.env("TRINO_USER"),
+            auth=md.env("TRINO_AUTH"),
         )
     )
     desc = md.load().describe("wh")
@@ -134,7 +134,7 @@ def test_datasource_test_uses_scalar_probe_instead_of_list_tables(
             backend_type="trino",
             host="trino.example",
             catalog="hive",
-            user_env="TRINO_USER",
+            user=md.env("TRINO_USER"),
         )
     )
 
@@ -181,8 +181,8 @@ def test_datasource_test_success_persists_env_sourced_secret(
             backend_type="trino",
             host="trino.example",
             catalog="hive",
-            user_env="TRINO_USER",
-            auth_env="TRINO_AUTH",
+            user=md.env("TRINO_USER"),
+            auth=md.env("TRINO_AUTH"),
         )
     )
     monkeypatch.setenv("TRINO_USER", "reader")
@@ -237,8 +237,8 @@ def test_datasource_test_failure_does_not_persist_env_sourced_secret(
             backend_type="trino",
             host="trino.example",
             catalog="hive",
-            user_env="TRINO_USER",
-            auth_env="TRINO_AUTH",
+            user=md.env("TRINO_USER"),
+            auth=md.env("TRINO_AUTH"),
         )
     )
     monkeypatch.setenv("TRINO_USER", "reader")

@@ -209,7 +209,7 @@ def missing_driver(backend: str) -> dict[str, object]:
             host="127.0.0.1",
             catalog="unused",
             schema="unused",
-            user_env="MARIVO_BOUNDARY_USER",
+            user=md.env("MARIVO_BOUNDARY_USER"),
         ),
         "clickhouse": md.clickhouse(name="missing", host="127.0.0.1", database="unused"),
     }

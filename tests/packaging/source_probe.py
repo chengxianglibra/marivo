@@ -83,18 +83,16 @@ def configure(engine: str, project: Path, prefix: str) -> None:
     (project / "marivo.toml").write_text('[project]\nname = "installed-multisource"\n')
     datasources = project / "models/datasources"
     datasources.mkdir(parents=True)
-    common = "name='warehouse', host='127.0.0.1', user_env='MARIVO_WHEEL_READER'"
+    common = "name='warehouse', host='127.0.0.1', user=md.env('MARIVO_WHEEL_READER')"
     if engine == "trino":
-        declaration = (
-            f"md.trino({common}, port=18080, catalog='iceberg', schema='analysis', timezone='UTC')"
-        )
+        declaration = f"md.trino({common}, port=18080, catalog='iceberg', schema='analysis', wall_clock_timezone='UTC')"
     else:
         port, database = {
             "postgres": (15432, "analysis"),
             "mysql": (23306, "analysis"),
             "clickhouse": (18123, "qualification"),
         }[engine]
-        declaration = f"md.{engine}({common}, port={port}, database={database!r}, password_env='MARIVO_WHEEL_PASSWORD')"
+        declaration = f"md.{engine}({common}, port={port}, database={database!r}, password=md.env('MARIVO_WHEEL_PASSWORD'))"
     (datasources / "warehouse.py").write_text(
         "import marivo.datasource as md\n" + declaration + "\n"
     )

@@ -28,6 +28,7 @@ from marivo.datasource.authoring import (
     _storage_name,
 )
 from marivo.datasource.backends import BuiltDatasourceBackend
+from marivo.datasource.credential_inputs import credential_labels
 from marivo.datasource.engines import require_profile_for_backend_type
 from marivo.datasource.engines.base import decode_cursor_frame
 from marivo.datasource.errors import (
@@ -130,10 +131,10 @@ class DatasourceDescription(RenderableResult):
 
     def _card(self) -> Card:
         field_names = sorted(self.literal_fields)
-        env_ref_names = sorted(self.env_refs)
+        env_ref_names = credential_labels(self.literal_fields, self.env_refs)
         card = Card(identity=self._repr_identity(), available=(".show()",)).field(
             label="columns",
-            value=" | ".join(field_names + [f"{name}_env" for name in env_ref_names]),
+            value=" | ".join(field_names + env_ref_names),
         )
 
         card.field("wall-clock timezone", self.wall_clock_timezone or "undeclared")
@@ -310,8 +311,8 @@ def register(
         loading. Declaration files call datasource constructors directly;
         constructors auto-declare while the datasource loader runs.
         Use one of the public typed specs. Sensitive fields use named
-        ``*_env`` references, not plaintext literals or generic keyword bags.
-        Every explicit ``*_env`` name is persisted; no credential names are
+        ``md.env(...)`` references, not plaintext literals or generic keyword bags.
+        Every explicit ``md.env(...)`` name is persisted; no credential names are
         inferred or omitted by convention.
         Saves only the local target file without loading other declarations.
         Success confirms persistence; load the project separately to validate it.
@@ -759,7 +760,7 @@ def raw_sql(
                         query.rows = len(extracted_rows)
                     finally:
                         close = getattr(cursor, "close", None)
-                        if callable(close):
+                        if backend_type != "duckdb" and callable(close):
                             close()
         except DatasourceError:
             raise

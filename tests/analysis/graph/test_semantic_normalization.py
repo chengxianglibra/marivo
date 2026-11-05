@@ -80,7 +80,7 @@ def _registry() -> Registry:
         "warehouse",
         "duckdb",
         {},
-        {"http_bearer_token": "API_TOKEN"},
+        {"http@https://api.example/.token": "API_TOKEN"},
         AiContextIR(),
         "warehouse",
         DatasourceSourceLocation("declared.py", 1),
@@ -147,7 +147,7 @@ def test_entity_identity_is_ordered_and_independent_of_version_row_key() -> None
     assert normalized.primary_key == ("tenant", "id")
     assert normalized.identity_signature == (("tenant", "unknown"), ("id", "unknown"))
     assert normalized.version_row_key == ("tenant", "id")
-    assert normalized.credential_slots == ("http_bearer_token",)
+    assert normalized.credential_slots == ("http@https://api.example/.token",)
     assert normalized.datasource_ref.path == "warehouse"
     assert normalize_target_entity(registry, "sales.customers").identity_signature == (
         ("id", "unknown"),

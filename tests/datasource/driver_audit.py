@@ -123,7 +123,10 @@ def classify(sql: str, stack: tuple[FrameType, ...], *, store_connection: bool) 
             if not isinstance(submission, ProviderStatementSubmission):
                 return Origin("unknown", "provider submission missing")
             statement = provider_statement(submission.provider, submission.statement_id)
-            if sql != submission.sql or submission.purpose not in statement.allowed_purposes:
+            expected_sql = local.get("sql") if statement.parameterized else submission.sql
+            if statement.parameterized and submission.sql != statement.template:
+                return Origin("unknown", "parameterized provider log must retain only its template")
+            if sql != expected_sql or submission.purpose not in statement.allowed_purposes:
                 return Origin("unknown", "provider text or purpose mismatch")
             parameters = local.get("parameters")
             names = (
@@ -131,9 +134,7 @@ def classify(sql: str, stack: tuple[FrameType, ...], *, store_connection: bool) 
                 if isinstance(parameters, Mapping)
                 else ()
             )
-            return Origin(
-                "provider", submission.statement_id, submission.purpose, submission.sql, names
-            )
+            return Origin("provider", submission.statement_id, submission.purpose, sql, names)
         if path.endswith("/marivo/datasource/adapters.py") and name == "execute":
             owner = local.get("self")
             proof = local.get("proof")

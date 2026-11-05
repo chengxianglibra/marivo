@@ -19,11 +19,17 @@ def author_http_case(
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
 ) -> None:
     assert isinstance(case.source, JsonSourceIR)
-    arguments = {
-        **case.session.datasource.fields,
-        **{key + "_env": value for key, value in case.session.datasource.env_refs.items()},
-    }
+    arguments = dict(case.session.datasource.fields)
+    metadata = arguments.pop("secrets", [])
+    assert isinstance(metadata, list)
+    secret_calls = []
+    for item in metadata:
+        scope = item["scope"]
+        reference = case.session.datasource.env_refs[f"http@{scope}.token"]
+        secret_calls.append(f"md.http_bearer_secret(scope={scope!r}, token=md.env({reference!r}))")
     argument_text = ", ".join(f"{key}={value!r}" for key, value in arguments.items())
+    if secret_calls:
+        argument_text += ", secrets=[" + ", ".join(secret_calls) + "]"
     url = case.source.path + "?page=7"
     semantic_project_factory(
         {

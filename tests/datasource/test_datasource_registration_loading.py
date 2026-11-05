@@ -217,8 +217,11 @@ def test_loader_scope_restores_normal_registration_and_replacement(
     spec = md.duckdb(
         name="warehouse",
         path="first.duckdb",
-        http_scope="https://warehouse.example/",
-        http_bearer_token_env="WAREHOUSE_TOKEN",
+        secrets=[
+            md.http_bearer_secret(
+                scope="https://warehouse.example/", token=md.env("WAREHOUSE_TOKEN")
+            )
+        ],
         ai_context=context,
     )
     assert md.register(spec, project_root=target).name == "warehouse"
@@ -227,6 +230,6 @@ def test_loader_scope_restores_normal_registration_and_replacement(
     stored = store.load_one("warehouse", target)
     assert stored is not None
     assert stored.fields["path"] == "second.duckdb"
-    assert stored.env_refs == {"http_bearer_token": "WAREHOUSE_TOKEN"}
+    assert stored.env_refs == {"http@https://warehouse.example/.token": "WAREHOUSE_TOKEN"}
     assert stored.ai_context.business_definition == "Development warehouse."
     assert stored.ai_context.guardrails == ("Local only.",)

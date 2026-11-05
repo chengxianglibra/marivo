@@ -14,6 +14,7 @@ from marivo.datasource.ir import TableSourceIR
 from marivo.datasource.secrets import LocalPlaintextCache
 from marivo.semantic.reader import SemanticProject
 from tests.datasource.source_cases import ROWS, source_case, source_params
+from tests.shared_fixtures import datasource_arguments_source
 from tests.support.source_trace import SourceTrace
 
 
@@ -50,16 +51,16 @@ def test_public_metadata_and_bounded_sample(
         assert isinstance(case.source, TableSourceIR)
         arguments = {
             **case.session.datasource.fields,
-            **{key + "_env": value for key, value in case.session.datasource.env_refs.items()},
+            **{key: md.env(value) for key, value in case.session.datasource.env_refs.items()},
         }
-        if "user" in arguments:
+        if isinstance(arguments.get("user"), str):
             monkeypatch.setenv("MARIVO_AUTHORING_USER", str(arguments.pop("user")))
-            arguments["user_env"] = "MARIVO_AUTHORING_USER"
+            arguments["user"] = md.env("MARIVO_AUTHORING_USER")
         semantic_project_factory(
             {
                 "datasources/authoring.py": "import marivo.datasource as md\n"
                 + f"md.{backend}(name='authoring',"
-                + ",".join(f"{key}={value!r}" for key, value in arguments.items())
+                + datasource_arguments_source(arguments)
                 + ")\n",
                 "sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales',owner='Data',default=True)\n",
             }

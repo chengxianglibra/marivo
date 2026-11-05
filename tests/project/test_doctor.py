@@ -439,7 +439,7 @@ def test_default_doctor_loads_datasources_without_connecting(tmp_path: Path) -> 
     ds_dir.joinpath("warehouse.py").write_text(
         "import marivo.datasource as md\n"
         "md.trino(name='warehouse', host='trino.example', catalog='hive', "
-        "user_env='TRINO_USER', auth_env='TRINO_AUTH')\n",
+        "user=md.env('TRINO_USER'), auth=md.env('TRINO_AUTH'))\n",
         encoding="utf-8",
     )
 
@@ -464,7 +464,7 @@ def test_default_doctor_ignores_unreferenced_ambient_secrets(
     ds_dir.joinpath("warehouse.py").write_text(
         "import marivo.datasource as md\n"
         "md.trino(name='warehouse', host='trino.example', catalog='hive', "
-        "user_env='TRINO_USER')\n",
+        "user=md.env('TRINO_USER'))\n",
         encoding="utf-8",
     )
     monkeypatch.setenv("MARIVO_WAREHOUSE_USER", "ambient-user")
@@ -568,7 +568,7 @@ def test_default_doctor_does_not_write_secret_cache(
     ds_dir.joinpath("warehouse.py").write_text(
         "import marivo.datasource as md\n"
         "md.trino(name='warehouse', host='trino.example', catalog='hive', "
-        "user_env='TRINO_USER', auth_env='TRINO_AUTH')\n",
+        "user=md.env('TRINO_USER'), auth=md.env('TRINO_AUTH'))\n",
         encoding="utf-8",
     )
     monkeypatch.setattr(Path, "home", lambda: home)
@@ -645,11 +645,18 @@ def test_doctor_statically_checks_custom_http_header_credentials(
     directory = tmp_path / "models" / "datasources"
     directory.mkdir(parents=True)
     side_effect = tmp_path / "executed.txt"
+    header_source = (
+        "{"
+        + ", ".join(f"{name!r}: md.env({reference!r})" for name, reference in headers.items())
+        + "}"
+        if isinstance(headers, dict)
+        else repr(headers)
+    )
     (directory / "api.py").write_text(
         "from pathlib import Path\nimport marivo.datasource as md\n"
         f"Path({str(side_effect)!r}).write_text('executed')\n"
-        "md.duckdb(name='api',http_scope='https://api.example/v1/',"
-        f"http_headers_env={headers!r})\n",
+        "md.duckdb(name='api',secrets=[md.http_headers_secret(scope='https://api.example/v1/',"
+        f"headers={header_source})])\n",
         encoding="utf-8",
     )
 
@@ -661,10 +668,14 @@ def test_doctor_statically_checks_custom_http_header_credentials(
         check.id != "datasource.parse_error.api" for check in _section(report, "datasources").checks
     )
     for header, env_var in headers.items():
-        check = _check(report, "secrets", f"secret.env.api.http_header:{header}.{env_var}")
+        check = _check(
+            report,
+            "secrets",
+            f"secret.env.api.http@https://api.example/v1/.header:{header}.{env_var}",
+        )
         assert check.status == ("ok" if credentials_set else "fail")
         assert check.details is not None
-        assert check.details["field"] == f"http_header:{header}"
+        assert check.details["field"] == f"http@https://api.example/v1/.header:{header}"
     assert "test-value" not in json.dumps(report.to_dict())
 
 
@@ -684,10 +695,17 @@ def test_doctor_reports_invalid_http_header_mappings(
     _write_manifest(tmp_path)
     directory = tmp_path / "models" / "datasources"
     directory.mkdir(parents=True)
+    header_source = (
+        "{"
+        + ", ".join(f"{name!r}: md.env({reference!r})" for name, reference in headers.items())
+        + "}"
+        if isinstance(headers, dict)
+        else repr(headers)
+    )
     (directory / "api.py").write_text(
         "import marivo.datasource as md\n"
-        "md.duckdb(name='api',http_scope='https://api.example/v1/',"
-        f"http_headers_env={headers!r})\n",
+        "md.duckdb(name='api',secrets=[md.http_headers_secret(scope='https://api.example/v1/',"
+        f"headers={header_source})])\n",
         encoding="utf-8",
     )
 
@@ -695,7 +713,7 @@ def test_doctor_reports_invalid_http_header_mappings(
 
     check = _check(report, "datasources", "datasource.parse_error.api")
     assert check.status == "warning"
-    assert summary in check.summary
+    assert "must be a literal value" in check.summary
 
 
 def test_doctor_accepts_omitted_custom_http_headers(tmp_path: Path) -> None:
@@ -703,7 +721,7 @@ def test_doctor_accepts_omitted_custom_http_headers(tmp_path: Path) -> None:
     directory = tmp_path / "models" / "datasources"
     directory.mkdir(parents=True)
     (directory / "api.py").write_text(
-        "import marivo.datasource as md\nmd.duckdb(name='api',http_headers_env=None)\n",
+        "import marivo.datasource as md\nmd.duckdb(name='api')\n",
         encoding="utf-8",
     )
 
@@ -720,7 +738,7 @@ def test_scoped_doctor_ignores_unrelated_broken_datasource_files(tmp_path: Path)
     ds_dir.joinpath("warehouse.py").write_text(
         "import marivo.datasource as md\n"
         "md.trino(name='warehouse', host='trino.example', catalog='hive', "
-        "user_env='TRINO_USER', auth_env='TRINO_AUTH')\n",
+        "user=md.env('TRINO_USER'), auth=md.env('TRINO_AUTH'))\n",
         encoding="utf-8",
     )
     ds_dir.joinpath("broken.py").write_text("this is not valid python(\n", encoding="utf-8")
@@ -739,13 +757,13 @@ def test_scoped_doctor_detects_duplicate_datasource_names(tmp_path: Path) -> Non
     ds_dir.joinpath("warehouse.py").write_text(
         "import marivo.datasource as md\n"
         "md.trino(name='warehouse', host='trino.example', catalog='hive', "
-        "user_env='TRINO_USER', auth_env='TRINO_AUTH')\n",
+        "user=md.env('TRINO_USER'), auth=md.env('TRINO_AUTH'))\n",
         encoding="utf-8",
     )
     ds_dir.joinpath("warehouse_copy.py").write_text(
         "import marivo.datasource as md\n"
         "md.trino(name='warehouse', host='trino-backup.example', catalog='hive', "
-        "user_env='TRINO_USER', auth_env='TRINO_AUTH')\n",
+        "user=md.env('TRINO_USER'), auth=md.env('TRINO_AUTH'))\n",
         encoding="utf-8",
     )
 
@@ -763,13 +781,13 @@ def test_secret_check_ids_are_unique_when_env_var_is_reused(tmp_path: Path) -> N
     ds_dir.joinpath("warehouse.py").write_text(
         "import marivo.datasource as md\n"
         "md.trino(name='warehouse', host='trino.example', catalog='hive', "
-        "user_env='TRINO_USER', auth_env='TRINO_AUTH')\n",
+        "user=md.env('TRINO_USER'), auth=md.env('TRINO_AUTH'))\n",
         encoding="utf-8",
     )
     ds_dir.joinpath("analytics.py").write_text(
         "import marivo.datasource as md\n"
         "md.trino(name='analytics', host='trino.example', catalog='hive', "
-        "user_env='TRINO_USER', auth_env='TRINO_AUTH')\n",
+        "user=md.env('TRINO_USER'), auth=md.env('TRINO_AUTH'))\n",
         encoding="utf-8",
     )
 

@@ -124,7 +124,7 @@ def test_closed_requests_support_observe_read_members_and_fixed_continuations(
         _project(
             semantic_project_factory,
             (_source(url + "/api", method=method),),
-            datasource_args=f", http_scope={url + '/'!r}, http_bearer_token_env='TEST_HTTP_JSON_TOKEN'",
+            datasource_args=f", secrets=[md.http_bearer_secret(scope={url + '/'!r}, token=md.env('TEST_HTTP_JSON_TOKEN'))]",
         )
         session = mv.session.get_or_create("http-json", timezone="UTC")
         entity = catalog_value(session.catalog, "ops.entity0", kind="entity")

@@ -19,6 +19,7 @@ from marivo.datasource.runtime import DatasourceConnectionService
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.graph.source_fixtures import author_source_project
 from tests.datasource.source_cases import ROWS, source_case, source_params
+from tests.shared_fixtures import datasource_arguments_source
 
 
 @pytest.mark.parametrize("backend", source_params(("postgres", "mysql", "trino", "clickhouse")))
@@ -173,16 +174,16 @@ def test_terminal_exact_rows_and_typed_reentry_refusal(
     with source_case(backend, profile, tmp_path, monkeypatch) as case:
         arguments = {
             **case.session.datasource.fields,
-            **{key + "_env": value for key, value in case.session.datasource.env_refs.items()},
+            **{key: md.env(value) for key, value in case.session.datasource.env_refs.items()},
         }
-        if "user" in arguments:
+        if isinstance(arguments.get("user"), str):
             monkeypatch.setenv("MARIVO_R93_TERMINAL_USER", str(arguments.pop("user")))
-            arguments["user_env"] = "MARIVO_R93_TERMINAL_USER"
+            arguments["user"] = md.env("MARIVO_R93_TERMINAL_USER")
         semantic_project_factory(
             {
                 "datasources/terminal.py": "import marivo.datasource as md\n"
                 + f"md.{backend}(wall_clock_timezone='UTC', name='terminal',"
-                + ",".join(f"{key}={value!r}" for key, value in arguments.items())
+                + datasource_arguments_source(arguments)
                 + ")\n",
                 "sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales',owner='R9',default=True)\n",
             }

@@ -163,12 +163,23 @@ def datasource_inputs(
 
 
 _BACKENDS: dict[str, tuple[str, ...]] = {
+    "env": ("name",),
+    "s3_secret": (
+        "scope",
+        "region",
+        "key_id",
+        "secret",
+        "session_token",
+        "endpoint",
+        "url_style",
+        "use_ssl",
+    ),
+    "http_bearer_secret": ("scope", "token"),
+    "http_headers_secret": ("scope", "headers"),
     "duckdb": (
         "path",
         "read_only",
-        "http_scope",
-        "http_bearer_token_env",
-        "http_headers_env",
+        "secrets",
         "wall_clock_timezone",
         "ai_context",
         "extra",
@@ -176,14 +187,14 @@ _BACKENDS: dict[str, tuple[str, ...]] = {
     "trino": (
         "host",
         "catalog",
-        "user_env",
+        "user",
         "port",
         "schema",
         "source",
         "http_scheme",
         "client_tags",
         "session_properties",
-        "auth_env",
+        "auth",
         "wall_clock_timezone",
         "ai_context",
         "extra",
@@ -193,8 +204,8 @@ _BACKENDS: dict[str, tuple[str, ...]] = {
         "database",
         "port",
         "autocommit",
-        "user_env",
-        "password_env",
+        "user",
+        "password",
         "wall_clock_timezone",
         "ai_context",
         "extra",
@@ -205,8 +216,8 @@ _BACKENDS: dict[str, tuple[str, ...]] = {
         "port",
         "schema",
         "autocommit",
-        "user_env",
-        "password_env",
+        "user",
+        "password",
         "wall_clock_timezone",
         "ai_context",
         "extra",
@@ -217,8 +228,8 @@ _BACKENDS: dict[str, tuple[str, ...]] = {
         "database",
         "secure",
         "settings",
-        "user_env",
-        "password_env",
+        "user",
+        "password",
         "wall_clock_timezone",
         "ai_context",
         "extra",
@@ -227,9 +238,18 @@ _BACKENDS: dict[str, tuple[str, ...]] = {
 _CONNECTION_FACTS: dict[str, str] = {
     "path": "DuckDB database file path or :memory: for a connection-local database.",
     "read_only": "Choose whether a DuckDB database file opens in native read-only mode.",
-    "http_scope": "Explicit URL prefix that constrains HTTP credential use.",
-    "http_bearer_token_env": "Environment variable name for the bearer token; mutually exclusive with custom headers.",
-    "http_headers_env": "Map HTTP header names to environment variable names; mutually exclusive with bearer credentials.",
+    "secrets": "List of scoped md.s3_secret, md.http_bearer_secret and md.http_headers_secret values. File and named in-memory databases with scoped secrets require exclusive managed access.",
+    "scope": "Explicit S3 or HTTP(S) URL prefix; unique per type in one datasource.",
+    "region": "Required non-empty S3 region.",
+    "key_id": "Access key EnvRef from md.env.",
+    "secret": "Secret access key EnvRef from md.env.",
+    "session_token": "Optional session token EnvRef from md.env.",
+    "endpoint": "Optional S3 endpoint host and port; defaults to s3.amazonaws.com.",
+    "url_style": "Optional vhost (default) or path style.",
+    "use_ssl": "Optional bool; defaults to True.",
+    "token": "Bearer token EnvRef from md.env.",
+    "headers": "Non-empty mapping of HTTP header names to EnvRef values from md.env.",
+    "name": "Non-empty credential lookup name; never a resolved secret.",
     "host": "Exact server host supplied by connection authority.",
     "port": "Server port; omission uses the reflected backend default.",
     "database": "Physical database selected by the connection; omission uses the reflected backend default where allowed.",
@@ -239,9 +259,9 @@ _CONNECTION_FACTS: dict[str, str] = {
     "http_scheme": "HTTP transport scheme configured for the server.",
     "client_tags": "Optional sequence of Trino client tags.",
     "session_properties": "Optional Trino session property mapping.",
-    "user_env": "Environment variable name for the account; explicit user_env is required by Trino.",
-    "password_env": "Environment variable name for the password; omit only when the backend's authentication allows it.",
-    "auth_env": "Environment variable name for Trino authentication; omit for an unauthenticated deployment.",
+    "user": "EnvRef from md.env for the account; required by Trino.",
+    "password": "EnvRef from md.env for the password; omit only when the backend's authentication allows it.",
+    "auth": "EnvRef from md.env for Trino authentication; omit for an unauthenticated deployment.",
     "autocommit": "Use True or omit this option to use autocommit.",
     "secure": "Choose the ClickHouse secure transport setting.",
     "settings": "Optional ClickHouse settings mapping.",
@@ -257,7 +277,15 @@ def connection_inputs(canonical_id: str) -> tuple[AuthoringInputRequirement, ...
     if canonical_id in {"mysql", "postgres"}:
         required.add("database")
     if canonical_id == "trino":
-        required.update(("catalog", "user_env"))
+        required.update(("catalog", "user"))
+    required.update(
+        {
+            "env": {"name"},
+            "s3_secret": {"scope", "region", "key_id", "secret"},
+            "http_bearer_secret": {"scope", "token"},
+            "http_headers_secret": {"scope", "headers"},
+        }.get(canonical_id, set())
+    )
     return tuple(
         AuthoringInputRequirement(
             role="dependency",
@@ -267,6 +295,11 @@ def connection_inputs(canonical_id: str) -> tuple[AuthoringInputRequirement, ...
             description=_CONNECTION_FACTS[name],
             acquisition=(LiveHelpTarget(surface="semantic", canonical_id="ai_context"),)
             if name == "ai_context"
+            else _links("s3_secret", "http_bearer_secret", "http_headers_secret")
+            if name == "secrets"
+            else _links("env")
+            if name
+            in {"user", "password", "auth", "key_id", "secret", "session_token", "token", "headers"}
             else (),
         )
         for name in _BACKENDS.get(canonical_id, ())

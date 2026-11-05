@@ -24,9 +24,7 @@ Each table lists constructor parameters and their Python defaults. An omitted op
 | `name` | Yes | — | Project-wide lowercase snake_case datasource name; referenced by `ms.ref.datasource(name)`. |
 | `path` | No | `':memory:'` | DuckDB database file path, or a connection-local database with `:memory:`. |
 | `read_only` | No | `False` | Open a DuckDB database file in native read-only mode when true. |
-| `http_scope` | No | `None` | HTTP(S) URL prefix bounding remote JSON authentication; required when an HTTP auth mode is supplied. |
-| `http_bearer_token_env` | No | `None` | Environment variable name for a bearer token; mutually exclusive with header authentication. |
-| `http_headers_env` | No | `None` | Mapping from HTTP header names to environment variable names containing their secret values; mutually exclusive with bearer authentication. |
+| `secrets` | No | `()` | List of `md.s3_secret`, `md.http_bearer_secret` or `md.http_headers_secret` values. |
 | `wall_clock_timezone` | No | `None` | Source timezone for undeclared naive timestamps, encoded clocks and business dates; IANA name or fixed offset. |
 | `ai_context` | No | `None` | Optional business context via `ms.ai_context(...)`. |
 | `extra` | No | `None` | Additional JSON-compatible Ibis connection arguments not modeled above. |
@@ -51,8 +49,8 @@ Exact reference: `marivo.help("datasource.duckdb")`.
 | `port` | No | `None` | Connection port; set explicitly for a non-default endpoint. |
 | `schema` | No | `None` | Default schema for table resolution. |
 | `autocommit` | No | `None` | Omit or set to `True` to use autocommit. |
-| `user_env` | No | `None` | Environment variable name for the database user. |
-| `password_env` | No | `None` | Environment variable name for the password. |
+| `user` | No | `None` | EnvRef from `md.env` for the database user. |
+| `password` | No | `None` | EnvRef from `md.env` for the password. |
 | `wall_clock_timezone` | No | `None` | Source timezone for undeclared naive timestamps, encoded clocks and business dates; IANA name or fixed offset. |
 | `ai_context` | No | `None` | Optional business context via `ms.ai_context(...)`. |
 | `extra` | No | `None` | Additional JSON-compatible Ibis connection arguments not modeled above. |
@@ -65,7 +63,7 @@ import marivo.datasource as md
 md.postgres(
     name="reporting", host="postgres.example.internal", database="sales",
     port=5432, schema="public",
-    user_env="PG_USER", password_env="PG_PASSWORD",
+    user=md.env("PG_USER"), password=md.env("PG_PASSWORD"),
 )
 ```
 
@@ -83,8 +81,8 @@ on MySQL and seconds on MariaDB.
 | `database` | Yes | — | Database to connect to. |
 | `port` | No | `None` | Connection port; set explicitly for a non-default endpoint. |
 | `autocommit` | No | `None` | Omit or set to `True` to use autocommit. |
-| `user_env` | No | `None` | Environment variable name for the database user. |
-| `password_env` | No | `None` | Environment variable name for the password. |
+| `user` | No | `None` | EnvRef from `md.env` for the database user. |
+| `password` | No | `None` | EnvRef from `md.env` for the password. |
 | `wall_clock_timezone` | No | `None` | Source timezone for undeclared naive timestamps, encoded clocks and business dates; IANA name or fixed offset. |
 | `ai_context` | No | `None` | Optional business context via `ms.ai_context(...)`. |
 | `extra` | No | `None` | Additional JSON-compatible PyMySQL connection options not modeled above. |
@@ -96,7 +94,7 @@ import marivo.datasource as md
 
 md.mysql(
     name="commerce", host="mysql.example.internal", database="shop",
-    port=3306, user_env="MYSQL_USER", password_env="MYSQL_PASSWORD",
+    port=3306, user=md.env("MYSQL_USER"), password=md.env("MYSQL_PASSWORD"),
     wall_clock_timezone="Asia/Shanghai",
 )
 ```
@@ -113,8 +111,8 @@ Exact reference: `marivo.help("datasource.mysql")`.
 | `database` | No | `None` | Database name; defaults to `"default"` in the Marivo adapter. |
 | `secure` | No | `None` | Enable TLS when true. |
 | `settings` | No | `None` | ClickHouse session settings mapping. |
-| `user_env` | No | `None` | Environment variable name for the database user. |
-| `password_env` | No | `None` | Environment variable name for the password. |
+| `user` | No | `None` | EnvRef from `md.env` for the database user. |
+| `password` | No | `None` | EnvRef from `md.env` for the password. |
 | `wall_clock_timezone` | No | `None` | Source timezone for undeclared naive timestamps, encoded clocks and business dates; IANA name or fixed offset. |
 | `ai_context` | No | `None` | Optional business context via `ms.ai_context(...)`. |
 | `extra` | No | `None` | Additional JSON-compatible Ibis connection arguments not modeled above. |
@@ -126,7 +124,7 @@ import marivo.datasource as md
 
 md.clickhouse(
     name="events", host="clickhouse.example.internal", database="analytics",
-    secure=True, user_env="CH_USER", password_env="CH_PASSWORD",
+    secure=True, user=md.env("CH_USER"), password=md.env("CH_PASSWORD"),
     settings={"max_threads": 4},
 )
 ```
@@ -140,14 +138,14 @@ Exact reference: `marivo.help("datasource.clickhouse")`.
 | `name` | Yes | — | Project-wide lowercase snake_case datasource name; referenced by `ms.ref.datasource(name)`. |
 | `host` | Yes | — | Database server host name or IP address. |
 | `catalog` | Yes | — | Trino catalog, mapped to the Ibis database connection argument. |
-| `user_env` | Yes | — | Required environment variable name for the Trino user; no implicit backend user fallback. |
+| `user` | Yes | — | Required EnvRef from `md.env` for the Trino user; no implicit backend user fallback. |
 | `port` | No | `None` | Connection port; set explicitly for a non-default endpoint. |
 | `schema` | No | `None` | Default schema for table resolution. |
 | `source` | No | `None` | Client application/source tag sent to Trino. |
 | `http_scheme` | No | `None` | HTTP transport scheme; use `"https"` for TLS. |
 | `client_tags` | No | `None` | Tuple of client tags, passed to Trino as a list. |
 | `session_properties` | No | `None` | Trino session property mapping. |
-| `auth_env` | No | `None` | Environment variable name for authentication material, when the server requires it. |
+| `auth` | No | `None` | EnvRef from `md.env` for authentication material, when the server requires it. |
 | `wall_clock_timezone` | No | `None` | Source timezone for undeclared naive timestamps, encoded clocks and business dates; IANA name or fixed offset. |
 | `ai_context` | No | `None` | Optional business context via `ms.ai_context(...)`. |
 | `extra` | No | `None` | Additional JSON-compatible Ibis connection arguments not modeled above. Omit `isolation_level` to use native autocommit. |
@@ -159,7 +157,7 @@ import marivo.datasource as md
 
 md.trino(
     name="lake", host="trino.example.internal", catalog="hive", schema="sales",
-    user_env="TRINO_USER", auth_env="TRINO_AUTH", http_scheme="https",
+    user=md.env("TRINO_USER"), auth=md.env("TRINO_AUTH"), http_scheme="https",
     client_tags=("marivo", "reporting"),
 )
 ```
@@ -168,7 +166,7 @@ Exact reference: `marivo.help("datasource.trino")`.
 
 ## Credentials and connection checks
 
-Reference credentials by environment variable name with `*_env`; Marivo does not infer variable names. After a successful `md.load().test(...)` round-trip, Marivo may cache environment-resolved values as plaintext in the user-global `~/.marivo/secrets.toml`. Caching is disabled when `MARIVO_PERSIST_CREDENTIALS=0` or `CI` is non-empty. The cache file is restricted to owner access (`0600`), its parent directory to `0700`, and Marivo refuses to write it inside a Git repository. Keep secret values out of model files and `extra`.
+Reference credentials by environment variable name with `md.env("NAME")`; Marivo does not infer variable names. After a successful `md.load().test(...)` round-trip, Marivo may cache environment-resolved values as plaintext in the user-global `~/.marivo/secrets.toml`. Caching is disabled when `MARIVO_PERSIST_CREDENTIALS=0` or `CI` is non-empty. The cache file is restricted to owner access (`0600`), its parent directory to `0700`, and Marivo refuses to write it inside a Git repository. Keep secret values out of model files and `extra`.
 
 After creating the [tutorial database](/docs/latest/start/python/), run this from its project root:
 
@@ -190,3 +188,25 @@ HTTP JSON columns that are missing or null in every returned record retain the `
 PostgreSQL, MySQL/MariaDB and Trino CHAR/CHARACTER columns retain their physical type and width. Entity/Dimension validation maps them to logical strings, including expression Entity inputs and declared keys. This mapping adds no SQL cast, trimming, padding or collation emulation; reads, comparisons and grouping follow the native backend. CHAR cannot supply a numeric Measure.
 
 For `md.time_range(...)`, match endpoints to the inspected physical type: aware datetimes for aware timestamps, naive datetimes or dates for naive timestamps, and dates for DATE. Both endpoints must have the same kind and awareness. Mismatches fail before acquisition with `query_executed=False`; `wall_clock_timezone` does not fill boundary awareness.
+
+## Scoped DuckDB credentials
+
+All credential fields accept only `md.env("NAME")`; literal strings are rejected. S3 requires a region and static access key references. Optional `session_token` also takes `md.env`; `endpoint`, `url_style` (`vhost` or `path`) and `use_ssl` are non-secret options. Defaults are `s3.amazonaws.com`, `vhost`, and `True`. Declare multiple scopes in one list; bearer and headers cannot share a scope.
+
+```python
+import marivo.datasource as md
+
+md.duckdb(name="lake", secrets=[
+    md.s3_secret(scope="s3://analytics-lake/warehouse/", region="us-west-2",
+                 key_id=md.env("LAKE_KEY_ID"), secret=md.env("LAKE_SECRET")),
+    md.http_bearer_secret(scope="https://api.example/v1/", token=md.env("API_TOKEN")),
+    md.http_headers_secret(scope="https://change-focus.example/api/",
+                           headers={"x-api-key": md.env("API_KEY")}),
+])
+```
+
+Without a host resolver, lookup uses the environment and then `~/.marivo/secrets.toml`. `md.credential_scope` routes the same references to a host resolver without persistence. Each operation resolves again, so rotated credentials apply on the next operation. `md.load().test` checks a literal round-trip, not access to S3 or HTTP; cached keys have not necessarily been validated at those endpoints.
+
+Scopes accept host and path prefixes without user info, queries or fragments. DuckDB shares its secret catalog across connections to the same database instance. A file or named in-memory database with scoped secrets requires exclusive managed access until the Marivo connection closes. Use separate databases for concurrent access with different credentials.
+
+DuckDB persistent secrets remain enabled. Its longest matching scope wins, including a persistent secret more specific than the declaration. JSON requests choose the longest matching declared HTTP scope; authenticated GET and all POST requests reject redirects.

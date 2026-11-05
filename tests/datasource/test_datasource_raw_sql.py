@@ -255,7 +255,7 @@ def test_raw_sql_trino_describe_executes_directly_without_readonly_transaction(
             name="trino_wh",
             host="trino.example",
             catalog="hive",
-            user_env="TRINO_USER",
+            user=md.env("TRINO_USER"),
         ),
         project_root=tmp_path,
     )
@@ -296,7 +296,7 @@ def test_raw_sql_trino_show_executes_directly_and_bounds_rows(
             name="trino_wh",
             host="trino.example",
             catalog="hive",
-            user_env="TRINO_USER",
+            user=md.env("TRINO_USER"),
         ),
         project_root=tmp_path,
     )
@@ -335,7 +335,7 @@ def test_raw_sql_trino_select_submits_verbatim_without_transaction(
             name="trino_wh",
             host="trino.example",
             catalog="hive",
-            user_env="TRINO_USER",
+            user=md.env("TRINO_USER"),
         ),
         project_root=tmp_path,
     )
@@ -374,7 +374,7 @@ def test_raw_sql_trino_group_by_order_by_is_submitted_verbatim(
             name="trino_wh",
             host="trino.example",
             catalog="hive",
-            user_env="TRINO_USER",
+            user=md.env("TRINO_USER"),
         ),
         project_root=tmp_path,
     )
@@ -410,7 +410,7 @@ def test_raw_sql_trino_user_limit_is_preserved(
             name="trino_wh",
             host="trino.example",
             catalog="hive",
-            user_env="TRINO_USER",
+            user=md.env("TRINO_USER"),
         ),
         project_root=tmp_path,
     )
@@ -441,7 +441,7 @@ def test_raw_sql_trino_user_offset_is_preserved(
             name="trino_wh",
             host="trino.example",
             catalog="hive",
-            user_env="TRINO_USER",
+            user=md.env("TRINO_USER"),
         ),
         project_root=tmp_path,
     )
@@ -472,7 +472,7 @@ def test_raw_sql_trino_user_fetch_first_is_preserved(
             name="trino_wh",
             host="trino.example",
             catalog="hive",
-            user_env="TRINO_USER",
+            user=md.env("TRINO_USER"),
         ),
         project_root=tmp_path,
     )
@@ -503,7 +503,7 @@ def test_raw_sql_trino_cte_is_submitted_verbatim(
             name="trino_wh",
             host="trino.example",
             catalog="hive",
-            user_env="TRINO_USER",
+            user=md.env("TRINO_USER"),
         ),
         project_root=tmp_path,
     )
@@ -538,7 +538,7 @@ def test_raw_sql_trino_select_into_is_not_normalized_to_ctas(
             name="trino_wh",
             host="trino.example",
             catalog="hive",
-            user_env="TRINO_USER",
+            user=md.env("TRINO_USER"),
         ),
         project_root=tmp_path,
     )

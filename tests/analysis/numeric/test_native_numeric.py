@@ -13,12 +13,13 @@ import pyarrow.parquet as pq
 import pytest
 
 import marivo.analysis as mv
+import marivo.datasource as md
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.datasource.ir import TableSourceIR
 from tests.analysis.materialization.publication_fixtures import publication_counts
 from tests.datasource.source_cases import SourceData, source_case
-from tests.shared_fixtures import catalog_value
+from tests.shared_fixtures import catalog_value, datasource_arguments_source
 
 
 def _value(result: mv.AnalysisFrame) -> pd.Series:
@@ -273,16 +274,16 @@ def _clickhouse_weight_sum_retains_native_int64_arithmetic(
         assert isinstance(case.source, TableSourceIR)
         arguments = {
             **case.session.datasource.fields,
-            **{key + "_env": value for key, value in case.session.datasource.env_refs.items()},
+            **{key: md.env(value) for key, value in case.session.datasource.env_refs.items()},
         }
-        user = arguments.pop("user", None)
-        if user is not None:
+        user = arguments.get("user")
+        if isinstance(user, str):
             monkeypatch.setenv("MARIVO_NATIVE_READER", str(user))
-            arguments["user_env"] = "MARIVO_NATIVE_READER"
+            arguments["user"] = md.env("MARIVO_NATIVE_READER")
         (tmp_path / "models/datasources/warehouse.py").write_text(
             "import marivo.datasource as md\n"
             + "md.clickhouse(wall_clock_timezone='UTC', name='warehouse',"
-            + ",".join(f"{key}={value!r}" for key, value in arguments.items())
+            + datasource_arguments_source(arguments)
             + ")\n"
         )
         model = tmp_path / "models/semantic/sales/facts.py"

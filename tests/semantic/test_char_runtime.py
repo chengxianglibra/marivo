@@ -12,7 +12,7 @@ import marivo.datasource as md
 from marivo.datasource.ir import TableSourceIR
 from marivo.semantic.reader import SemanticProject
 from tests.datasource.source_cases import SourceData, source_case
-from tests.shared_fixtures import catalog_value
+from tests.shared_fixtures import catalog_value, datasource_arguments_source
 
 pytestmark = pytest.mark.runtime
 
@@ -57,11 +57,12 @@ def test_char_entity_preview_and_analysis(
         assert isinstance(case.source, TableSourceIR)
         arguments = {
             **case.session.datasource.fields,
-            **{key + "_env": value for key, value in case.session.datasource.env_refs.items()},
+            **{key: md.env(value) for key, value in case.session.datasource.env_refs.items()},
         }
-        monkeypatch.setenv("MARIVO_CHAR_READER", str(arguments.pop("user")))
-        arguments["user_env"] = "MARIVO_CHAR_READER"
-        arguments_text = ", ".join(f"{key}={value!r}" for key, value in arguments.items())
+        if isinstance(arguments.get("user"), str):
+            monkeypatch.setenv("MARIVO_CHAR_READER", str(arguments.pop("user")))
+            arguments["user"] = md.env("MARIVO_CHAR_READER")
+        arguments_text = datasource_arguments_source(arguments)
         source = f"md.table({case.source.table!r}, database={case.source.database!r})"
         semantic_project_factory(
             {

@@ -5,9 +5,11 @@ from typing import Literal, NoReturn
 
 import pytest
 
+import marivo.datasource as md
 from marivo.datasource.ir import TableSourceIR
 from marivo.semantic.reader import SemanticProject
 from tests.datasource.source_cases import Case
+from tests.shared_fixtures import datasource_arguments_source
 
 
 def author_source_project(
@@ -32,12 +34,12 @@ def author_source_project(
         monkeypatch.setattr(type(case.session._backend), "drop_table", forbid_staging_write)
     arguments = {
         **case.session.datasource.fields,
-        **{key + "_env": value for key, value in case.session.datasource.env_refs.items()},
+        **{key: md.env(value) for key, value in case.session.datasource.env_refs.items()},
     }
-    if "user" in arguments:
+    if isinstance(arguments.get("user"), str):
         monkeypatch.setenv("MARIVO_R93_READER", str(arguments.pop("user")))
-        arguments["user_env"] = "MARIVO_R93_READER"
-    argument_text = ", ".join(f"{key}={value!r}" for key, value in arguments.items())
+        arguments["user"] = md.env("MARIVO_R93_READER")
+    argument_text = datasource_arguments_source(arguments)
     primary_key = (
         ["tenant", "id", "revision"] if identity_type == "string" else ["id", "revision", "tenant"]
     )

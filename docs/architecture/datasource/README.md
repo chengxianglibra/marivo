@@ -35,8 +35,8 @@ md.trino(
     host="trino.example.com",
     catalog="hive",  # connection target, mapped to the ibis database
     schema="sales_mart",  # optional default schema
-    user_env="WAREHOUSE_USER",
-    auth_env="WAREHOUSE_AUTH",
+    user=md.env("WAREHOUSE_USER"),
+    auth=md.env("WAREHOUSE_AUTH"),
 )
 ```
 Every constructor returns its spec and, when executed inside a datasource loader
@@ -74,8 +74,8 @@ explicitly. Use PyMySQL's documented TLS options without weakening the required
 certificate or server identity checks. Driver installation alone does not prove
 that a server's authentication or TLS policy is supported.
 
-Trino requires an explicit `user_env` declaration so connection identity never
-falls through to a backend-library default. `auth_env` remains optional for
+Trino requires an explicit `user` declaration so connection identity never
+falls through to a backend-library default. `auth` remains optional for
 Trino deployments that do not require an authentication token or password.
 
 Trino exact `.median()` and `.quantile(q)` fail source compilation because no
@@ -99,8 +99,8 @@ one-line pointer to this card rather than a dataclass field dump.
 
 - **Literal fields** (`host`, `port`, `catalog`, `database`, `schema`, `path`, …)
   are stored verbatim in the project file and must be JSON-safe.
-- **Env-ref fields** end in `_env` (`user_env`, `password_env`, `auth_env`,
-  `host_env`, …) and store the *name* of an environment variable.
+- **Credential fields** (`user`, `password`, `auth`) accept immutable
+  `md.env("NAME")` references; literal strings are rejected. There is no host credential field.
 - **`ai_context=`** accepts an `ms.ai_context(...)` value (never a raw dict) so a
   datasource can carry business annotations; text belongs in
   `business_definition`. There is no `md.ai_context` constructor — the semantic
@@ -119,7 +119,7 @@ orders = ms.entity(name="orders", datasource=warehouse, source=md.table("orders"
 `ms.ref.datasource(...)` accepts only the one-segment datasource path. Bare
 strings and kind-qualified strings such as `"datasource.warehouse"` are
 rejected — the exact ref is the contract. Renaming a datasource changes
-its semantic identity. Explicit `*_env` references remain unchanged unless the
+its semantic identity. Explicit `md.env("NAME")` references remain unchanged unless the
 author edits them.
 
 ## Credentials and secret persistence
@@ -131,10 +131,10 @@ Marivo resolves them at connect time through a provider chain:
 EnvProvider (os.environ)  →  LocalPlaintextCache (~/.marivo/secrets.toml)
 ```
 
-- **Resolution.** Each `*_env` name is resolved against the chain. A name that is
+- **Resolution.** Each `md.env("NAME")` name is resolved against the chain. A name that is
   set in neither environment nor cache raises `DatasourceEnvVarMissingError`
   naming the datasource, field, and env var.
-- **No implicit names.** Marivo resolves only explicitly declared `*_env`
+- **No implicit names.** Marivo resolves only explicitly declared `md.env("NAME")`
   references. It does not scan ambient `MARIVO_<DATASOURCE>_<FIELD>` variables;
   when a connection field is omitted, the selected Ibis backend owns its default
   or required-field behavior.
@@ -154,43 +154,74 @@ EnvProvider (os.environ)  →  LocalPlaintextCache (~/.marivo/secrets.toml)
 
 The persistence boundary is a hard rule: resolved secret values may be cached in
 plaintext **user-global** state, but must never be written into **project-local**
-`models/datasources/` files, which only carry `*_env` names.
+`models/datasources/` files, which only carry `md.env("NAME")` names.
 
-DuckDB HTTP authentication is datasource-owned because credentials describe how
-the connection reaches a protected host, not which rows one Entity requests.
-The project stores only an environment variable name and an explicit URL scope:
-
-```python
-md.duckdb(
-    name="hawkeye",
-    path=":memory:",
-    http_scope="http://hawkeye.example/report/api/",
-    http_bearer_token_env="HAWKEYE_TOKEN",
-)
-```
-For custom headers, map every header name to its secret environment variable.
-This supports single-header APIs and machine authentication that requires a
-header pair:
+DuckDB credentials are datasource-owned and declared as closed variants in
+`secrets=[...]`. The constructor has seven parameters: `name`, `path`, `read_only`,
+`secrets`, `wall_clock_timezone`, `ai_context`, and `extra`.
 
 ```python
-md.duckdb(
-    name="change_focus",
-    http_scope="http://change-focus.example/api/v2/change/list",
-    http_headers_env={
-        "x-secretid": "CHANGE_FOCUS_SECRET_ID",
-        "x-signature": "CHANGE_FOCUS_SIGNATURE",
-    },
-)
+md.duckdb(name="lake", secrets=[
+    md.s3_secret(scope="s3://analytics-lake/warehouse/", region="us-west-2",
+                 key_id=md.env("LAKE_KEY_ID"), secret=md.env("LAKE_SECRET")),
+    md.http_bearer_secret(scope="https://api.example/v1/", token=md.env("API_TOKEN")),
+    md.http_headers_secret(scope="https://change-focus.example/api/v2/",
+                           headers={"x-secretid": md.env("CF_ID"),
+                                    "x-signature": md.env("CF_SIG")}),
+])
 ```
-Bearer and custom-header modes are mutually exclusive. At connection time
-Marivo resolves every environment-backed value and installs a temporary DuckDB
-HTTP secret constrained by `http_scope`; the same connection keeps the scoped
-headers in memory for JSON execution. Static `marivo doctor` inspection recognizes
-each custom header's environment reference without executing declaration files.
-Authenticated GET requests and all POST requests reject automatic redirects;
-author the final in-scope URL explicitly.
-Resolved values are never serialized into
-`md.json(...)` or project metadata.
+
+S3 requires a region and static key references; optional `session_token` is also
+an EnvRef. `endpoint`, `url_style` and `use_ssl` default to `s3.amazonaws.com`,
+`vhost` and `True`. MinIO uses its endpoint with `url_style="path"` and the
+appropriate TLS setting. SDK credential chains are not supported. HTTP headers
+must be a non-empty mapping to EnvRef values. Scopes are unique per DuckDB type;
+bearer and headers share type `http`, so cannot occupy the same scope.
+`extra` cannot carry secrets or credential fields.
+
+IR stores non-secret secret metadata in `fields["secrets"]`, including header
+names and whether an S3 session token is declared. `env_refs` uses keys such as
+`s3@s3://analytics-lake/warehouse/.key_id` and
+`http@https://change-focus.example/api/v2/.header:x-secretid`. Consumers generate
+keys from the metadata; they never split keys to recover scopes or header names.
+Relational `env_refs` retains `user`, `password`, and `auth`, preserving those
+connection fingerprints. HTTP DuckDB fingerprints change with this representation.
+Registration writes constructor calls and `md.env` references; static doctor
+recognizes these literal calls without executing declaration files.
+
+With `md.credential_scope(resolver=...)`, each reference becomes a
+`CredentialRequest.reference`, with the corresponding IR keys in `fields`.
+References shared by multiple fields resolve once per acquisition. Host values
+never enter the default cache. Every operation opens a connection and resolves
+again, so credential rotation applies to the next operation.
+
+Scopes are host and path prefixes. User info, query strings, and fragments are
+rejected. Native S3 credentials and HTTP proxy credentials cannot be passed
+through `extra`.
+
+Connections install temporary secrets in `(type, scope)` order, named
+`marivo_<datasource>_<index>`. DuckDB shares its secret catalog across connections
+to the same database instance. Marivo requires exclusive managed access when a
+file or named in-memory database uses scoped credentials. Connections created
+outside Marivo can still see the instance's temporary secrets while installed.
+Use a separate DuckDB database for concurrent access with a different credential
+scope. Marivo drops its temporary secrets on disconnect, including after a
+partial installation. Parameterized installation statements bind credential
+values, quote the name identifier, and log only the template. Installation
+failure reports type and scope with a repair. `md.load().test` performs a literal
+round-trip, so a successful test can cache S3 or HTTP credentials without
+validating access to the remote endpoint.
+
+HTTP JSON execution retains scoped headers in connection memory and selects the
+longest matching declared scope. No match means no credential headers.
+Authenticated GET and all POST requests reject automatic redirects; author the
+final URL explicitly. Resolved values never enter source descriptors or metadata.
+
+DuckDB persistent secrets remain enabled. DuckDB chooses the longest matching
+scope, including persistent secrets in `~/.duckdb/stored_secrets`; a persistent
+secret more specific than a declaration can therefore override it. Marivo does
+not isolate or inspect this native behavior. See the
+[DuckDB secrets manager](https://duckdb.org/docs/stable/configuration/secrets_manager).
 
 ## Registration and state storage
 

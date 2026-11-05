@@ -198,8 +198,12 @@ def source_case(
                         )
                         ds = datasource(
                             backend,
-                            {"path": str(path), "read_only": True, "http_scope": url + "/private/"},
-                            {"http_bearer_token": "MARIVO_SOURCE_PROFILE_HTTP_TOKEN"},
+                            {
+                                "path": str(path),
+                                "read_only": True,
+                                "secrets": [{"type": "http", "scope": url + "/private/"}],
+                            },
+                            {f"http@{url}/private/.token": "MARIVO_SOURCE_PROFILE_HTTP_TOKEN"},
                         )
                     with (
                         provider_for(backend).open(ds)

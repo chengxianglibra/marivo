@@ -188,7 +188,29 @@ services:
       - clickhouse-shard-b:/var/lib/clickhouse
       - ./clickhouse-cluster/topology.xml:/etc/clickhouse-server/config.d/qualification.xml:ro
       - ./clickhouse-cluster/shard-b.xml:/etc/clickhouse-server/config.d/cluster-ports.xml:ro
+  minio:
+    # Preserved upstream RELEASE.2025-04-22T22-12-26Z ARM64 image; official registries were removed.
+    image: jcometki/minio@sha256:54d3d6a0a58fb25b4e9943d1db3828d3b4de44666f911381b4fda57175488194
+    platform: linux/arm64
+    profiles: [minio]
+    mem_limit: 512m
+    cpus: 1
+    command: [server, /data, --console-address, ':9001']
+    environment:
+      MINIO_ROOT_USER: analysis_admin
+      MINIO_ROOT_PASSWORD: ${QUALIFICATION_PASSWORD:?Use the private environment file}
+    ports: [127.0.0.1:19000:9000]
+    volumes:
+      - minio:/data
+    healthcheck:
+      test: [CMD, curl, -f, http://localhost:9000/minio/health/live]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+    logging: *logging
+
 volumes:
+  minio:
   clickhouse-shard-a:
   clickhouse-shard-b:
   mysql-analysis:

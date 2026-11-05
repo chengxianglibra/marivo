@@ -152,7 +152,7 @@ def test_datasource_catalog_render_uses_card_listing_shape(
     assert "warehouse:" in rendered
     assert "- backend_type=duckdb" in rendered
     assert "- fields=path:" in rendered
-    assert "- env_refs=(none)" in rendered
+    assert "- credentials=(none)" in rendered
     assert "- name:" not in rendered
     assert "backend_type: duckdb" not in rendered
     assert repr(catalog).count("\n") == 0
