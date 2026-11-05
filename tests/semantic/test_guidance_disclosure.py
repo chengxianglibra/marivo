@@ -42,7 +42,7 @@ def _no_io(*args: object, **kwargs: object) -> object:
 _REVENUE_MODEL = """import marivo.datasource as md
 import marivo.semantic as ms
 orders = ms.entity(name='orders', datasource=ms.ref.datasource('warehouse'), source=md.table('orders'), primary_key=['order_id'])
-paid_at = ms.time_dimension_column(name='paid_at', entity=orders, column='paid_at', parse=ms.timestamp(timezone='UTC'), is_default=True)
+paid_at = ms.time_dimension_column(name='paid_at', entity=orders, column='paid_at', parse=ms.timestamp(timezone='UTC'))
 amount = ms.measure_column(name='amount', entity=orders, column='amount', additivity=ms.additive_all(), unit='USD')
 amount_value = amount
 paid_at_value = paid_at

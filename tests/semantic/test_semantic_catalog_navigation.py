@@ -47,7 +47,6 @@ ordered_at = ms.time_dimension_column(
     entity=orders,
     column="ordered_at",
     parse=ms.timestamp(timezone="UTC"),
-    is_default=True,
 )
 amount = ms.measure_column(
     name="amount", entity=orders, column="amount", additivity=ms.additive_all(), unit="USD"

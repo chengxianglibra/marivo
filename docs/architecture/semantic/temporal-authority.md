@@ -72,9 +72,11 @@ retail_calendar = ms.period_calendar(
 retail_month = ms.calendar_grain(calendar=retail_calendar, level="month")
 ```
 
-ms.calendar_grain captures a source-free lookup. A Catalog entry's grain(level)
-binds the already certified snapshot. Both return the common Grain family, with
-distinct lookup and bound stages.
+`ms.calendar_grain` captures a source-free lookup. A Catalog entry's `grain(level)`
+captures its current certified snapshot when available and otherwise returns an
+unbound lookup. Both return a Grain without certifying the calendar or reading
+business rows. `scope.by(grain)` requires a captured snapshot. Session consumers
+resolve lookups according to their own certification requirements.
 
 ## Temporal sets
 

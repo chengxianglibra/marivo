@@ -90,21 +90,21 @@ def _project(
             + f"facts=ms.entity(name='facts',datasource=ms.ref.datasource('warehouse'),source=md.table({case.source.table!r},database={case.source.database!r}),primary_key=['tenant','id'])\n"
             + "tenant=ms.dimension_column(name='tenant',entity=facts,column='tenant')\n"
             + "category=ms.dimension_column(name='category',entity=facts,column='category')\n"
-            + "day=ms.time_dimension_column(name='day',entity=facts,column='day',is_default=True)\n"
+            + "day=ms.time_dimension_column(name='day',entity=facts,column='day')\n"
             + "amount=ms.measure_column(name='amount',entity=facts,column='amount',additivity=ms.additive_all())\n"
             + "big=ms.measure_column(name='big',entity=facts,column='big',additivity=ms.additive_all())\n"
             + "weight=ms.measure_column(name='weight',entity=facts,column='weight',additivity=ms.additive_all())\n"
             + "a=amount\nb=big\nw=weight\n"
-            + "@ms.metric()\ndef total():\n    return a.sum()\n"
-            + "@ms.metric()\ndef minimum():\n    return a.min()\n"
-            + "@ms.metric()\ndef maximum():\n    return a.max()\n"
-            + "@ms.metric()\ndef count():\n    return a.count()\n"
-            + "@ms.metric()\ndef average():\n    return a.mean()\n"
-            + "@ms.metric()\ndef weighted():\n    return a.weighted_mean(weight=w)\n"
-            + "@ms.metric()\ndef distinct():\n    return a.count_distinct()\n"
+            + "@ms.metric()\ndef total():\n    return a.sum(time=day)\n"
+            + "@ms.metric()\ndef minimum():\n    return a.min(time=day)\n"
+            + "@ms.metric()\ndef maximum():\n    return a.max(time=day)\n"
+            + "@ms.metric()\ndef count():\n    return a.count(time=day)\n"
+            + "@ms.metric()\ndef average():\n    return a.mean(time=day)\n"
+            + "@ms.metric()\ndef weighted():\n    return a.weighted_mean(weight=w, time=day)\n"
+            + "@ms.metric()\ndef distinct():\n    return a.count_distinct(time=day)\n"
             + "@ms.metric()\ndef quantile():\n    return a.quantile(q=0.5)\n"
-            + "@ms.metric()\ndef empty():\n    return a.sum().where(a>100)\n"
-            + "@ms.metric()\ndef zero_weight():\n    return a.weighted_mean(weight=w-w)\n",
+            + "@ms.metric()\ndef empty():\n    return a.sum(time=day).where(a>100)\n"
+            + "@ms.metric()\ndef zero_weight():\n    return a.weighted_mean(weight=w-w, time=day)\n",
         }
     )
 
@@ -178,7 +178,7 @@ def test_mysql_direct_physical_utc_time_preserves_instants(
                 "sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales',owner='Data',default=True)\n",
                 "sales/facts.py": "import marivo.datasource as md\nimport marivo.semantic as ms\n"
                 + f"facts=ms.entity(name='facts',datasource=ms.ref.datasource('warehouse'),source=md.table({case.source.table!r},database={case.source.database!r}),primary_key=['id'])\n"
-                + "happened=ms.time_dimension_column(name='happened',entity=facts,column='happened',parse=ms.timestamp(),is_default=True)\n",
+                + "happened=ms.time_dimension_column(name='happened',entity=facts,column='happened',parse=ms.timestamp())\n",
             }
         )
         table = case.session.bind(case.source, source_identity="utc-native-oracle").relation
@@ -240,7 +240,7 @@ def test_clickhouse_dst_fold_preserves_instants_and_half_open_boundaries(
                 "sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales',owner='Data',default=True)\n",
                 "sales/facts.py": "import marivo.datasource as md\nimport marivo.semantic as ms\n"
                 + f"facts=ms.entity(name='facts',datasource=ms.ref.datasource('warehouse'),source=md.table({case.source.table!r},database={case.source.database!r}),primary_key=['id'])\n"
-                + "happened=ms.time_dimension_column(name='happened',entity=facts,column='happened',parse=ms.timestamp(),is_default=True)\n"
+                + "happened=ms.time_dimension_column(name='happened',entity=facts,column='happened',parse=ms.timestamp())\n"
                 + "amount=ms.measure_column(name='amount',entity=facts,column='amount',additivity=ms.additive_all())\n",
             }
         )

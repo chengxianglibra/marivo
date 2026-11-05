@@ -66,12 +66,14 @@ Typed expression authoring
 
 Physical Entity/Field/Relationship constructors and ``ms.ref.*`` capture native
 Ibis Deferred symbols with typed identity roles. Compose them directly; the
-loader binds the complete dependency scope before publishing closed Catalog
-objects. Measure and Metric decorators always return numeric RowExpression and
-MetricExpression carriers respectively, independent of closure. Default time,
-coordinates and supported Ibis forward references use
-that complete scope without replaying imports or calling authored functions.
-Measure and Metric functions remain pure zero-argument declarations.
+loader binds the complete dependency scope before publishing Catalog objects.
+Measure and Metric decorators return numeric RowExpression and MetricExpression
+carriers respectively. Measure declarations take zero arguments. Metric
+declarations can also use required keyword-only ``TimeParameter`` slots.
+Supported forward references bind without replaying imports or calling authored
+functions. ``MetricExpression.bind_time`` returns an immutable binding. Observe
+and preview require every slot to be bound. A source reduction without ``time``
+has no contribution time. Explicit ``time=None`` is invalid.
 ``ms.load()`` publishes declarations bound at module level in their owning
 model files; aliases are collected once. Distinct declarations cannot share a
 full identity, and Session-owned closures are not admitted for publication.
@@ -125,7 +127,11 @@ scheduled-clock coverage checks or implicit zero/NULL completion, regardless of
 ``sample_interval``. Cadence never buckets timestamps or requires an observation
 period. This policy is independent of formula shape and execution route; explicit
 Population and calendar Grain domains, NULL and weight policies remain authoritative.
-Windows and calendar samples retain their own period requirements.
+Both builtin calendar sample forms use the Session report timezone and
+actual samples, even without a finite observation period. ``per(grain)`` uses
+each branch's contribution time. ``per(field, grain=grain)`` fixes the sample
+field. Windows require an observation endpoint and custom calendar samples
+require a complete certified period.
 
 ``ms.rescale(expr, divisor=..., unit=...)`` explicitly divides a numeric Row or
 completed Metric by a finite positive constant and declares its target unit.
@@ -294,6 +300,11 @@ Captured definitions
    FieldDefinition
    MetricDefinition
    MetricTimeBinding
+   MetricTimeFieldBinding
+   MetricTimeParameterBinding
+   MetricNoTimeBinding
+   MetricTimeParameter
+   MetricTimeConstraint
    RelationshipDefinition
    PeriodCalendarDefinition
    TemporalSetDefinition
@@ -365,6 +376,7 @@ creating alternate identities.
    Relationship
    RowExpression
    MetricExpression
+   TimeParameter
    SemanticKind
    PeriodCalendar
    CalendarPeriodPage

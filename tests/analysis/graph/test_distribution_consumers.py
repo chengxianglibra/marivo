@@ -136,7 +136,7 @@ def test_native_distribution(
             models += (
                 f"{name}_owner=ms.dimension_column(name='owner',entity={name},column='owner')\n"
             )
-            models += f"{name}_time=ms.time_dimension_column(name='time',entity={name},column='happened',parse={timestamp},is_default=True)\n"
+            models += f"{name}_time=ms.time_dimension_column(name='time',entity={name},column='happened',parse={timestamp})\n"
         models += "identity=ms.measure_column(name='identity',entity=facts,column='id',additivity=ms.additive_all())\n"
         models += (
             "amount=ms.measure_column(name='amount',entity=facts,column='amount',additivity=ms.additive_all())\n"

@@ -49,7 +49,7 @@ def window_session(
 import marivo.semantic as ms
 orders = ms.entity(name="orders", datasource=ms.ref.datasource("warehouse"), source=md.table("orders"), primary_key=["id"])
 amount_ref = ms.measure_column(name="amount", entity=orders, column="amount", additivity=ms.additive_all(), unit="CNY")
-at_ref = ms.time_dimension_column(name="ordered_at", entity=orders, column="ordered_at", is_default=True)
+at_ref = ms.time_dimension_column(name="ordered_at", entity=orders, column="ordered_at")
 sample_ref = ms.time_dimension_column(name="sample_at", entity=orders, column="ordered_at", parse=SAMPLING_PARSER, sample_interval=(1, "hour"))
 sample2_ref = ms.time_dimension_column(name="sample_two", entity=orders, column="ordered_at", parse=SAMPLING_PARSER, sample_interval=(2, "hour"))
 encoded_ref = ms.time_dimension_column(name="encoded_at", entity=orders, column="encoded_at", parse=ms.strptime("%Y%m%d%H", timezone="UTC"), sample_interval=(1, "hour"))
@@ -62,7 +62,7 @@ amount = amount_ref
 customer = customer_ref
 @ms.metric()
 def revenue():
-    return amount.sum()
+    return amount.sum(time=at_ref)
 """.replace("SAMPLING_PARSER", parser),
         },
         load=False,
@@ -205,12 +205,13 @@ def test_date_contributions_reject_subday_and_non_midnight_windows(
 ) -> None:
     session = window_session
     amount = catalog_value(session.catalog, "sales.orders.amount", kind="field")
+    at = catalog_value(session.catalog, "sales.orders.ordered_at", kind="field")
+    revenue = amount.sum(time=at)
     scope = session.time_scope(start="2026-10-07", end="2026-10-08")
     assert session.observe(
-        {"revenue": amount.sum()}, by=(scope.by(mv.grain("day")),)
+        {"revenue": revenue}, by=(scope.by(mv.grain("day")),)
     ).compute().to_pandas()["revenue"].tolist() == [20]
-    at = catalog_value(session.catalog, "sales.orders.ordered_at", kind="field")
-    assert session.observe({"revenue": amount.sum()}, where=at.within(scope)).compute().to_pandas()[
+    assert session.observe({"revenue": revenue}, where=at.within(scope)).compute().to_pandas()[
         "revenue"
     ].tolist() == [20]
     from marivo.datasource.adapters import CompiledRead, SourceSession
@@ -224,11 +225,11 @@ def test_date_contributions_reject_subday_and_non_midnight_windows(
 
     monkeypatch.setattr(SourceSession, "execute", fail_read)
     for metric, axis in (
-        (amount.sum(), scope.by(mv.grain("hour"))),
-        (amount.sum().window(mv.to_date(grain=mv.grain("hour"))), scope),
-        (amount.sum().window(mv.trailing_duration(duration=timedelta(hours=6))), scope),
-        (amount.sum().window(mv.trailing_duration(duration=timedelta(hours=25))), scope),
-        (amount.sum(), session.time_scope(start="2026-10-07", end="2026-10-07T12:00Z")),
+        (revenue, scope.by(mv.grain("hour"))),
+        (revenue.window(mv.to_date(grain=mv.grain("hour"))), scope),
+        (revenue.window(mv.trailing_duration(duration=timedelta(hours=6))), scope),
+        (revenue.window(mv.trailing_duration(duration=timedelta(hours=25))), scope),
+        (revenue, session.time_scope(start="2026-10-07", end="2026-10-07T12:00Z")),
     ):
         with pytest.raises(AnalysisError, match=r"DATE|midnight"):
             session.observe({"revenue": metric}, by=(axis,)).compute()
@@ -236,7 +237,7 @@ def test_date_contributions_reject_subday_and_non_midnight_windows(
         dst_scope = session.time_scope(start=start, end=end, timezone="America/New_York")
         with pytest.raises(AnalysisError, match=r"DATE|midnight"):
             session.observe(
-                {"bad": amount.sum().window(mv.trailing_duration(duration=timedelta(hours=24)))},
+                {"bad": revenue.window(mv.trailing_duration(duration=timedelta(hours=24)))},
                 by=(dst_scope,),
             ).compute()
 
@@ -393,16 +394,18 @@ def test_sparse_shift_observes_raw_contributions_and_nominal_windows(
     session = window_session
     amount = catalog_value(session.catalog, "sales.orders.amount", kind="field")
     customer = catalog_value(session.catalog, "sales.orders.customer", kind="field")
+    at = catalog_value(session.catalog, "sales.orders.ordered_at", kind="field")
+    revenue = amount.sum(time=at)
     calendar = (
         session.time_scope(start="2019-12-23", end="2020-01-06")
         .by(mv.grain("week"))
         .shift(mv.offset(years=1))
     )
     metrics = {
-        "revenue": amount.sum(),
-        "aov": amount.sum() / amount.count(),
-        "customers": customer.count_distinct(),
-        "median": amount.quantile(q=0.5),
+        "revenue": revenue,
+        "aov": revenue / amount.count(time=at),
+        "customers": customer.count_distinct(time=at),
+        "median": amount.quantile(q=0.5, time=at),
     }
     observed = {
         **metrics,
@@ -439,12 +442,14 @@ def test_empty_shift_is_typed_zero_endpoint_observation(
 ) -> None:
     session = window_session
     amount = catalog_value(session.catalog, "sales.orders.amount", kind="field")
+    at = catalog_value(session.catalog, "sales.orders.ordered_at", kind="field")
     calendar = (
         session.time_scope(start="2020-12-28", end="2021-01-04")
         .by(mv.grain("week"))
         .shift(mv.offset(years=-1))
     )
-    metric = amount.count() / (amount.count() * 0)
+    count = amount.count(time=at)
+    metric = count / (count * 0)
     if windowed:
         metric = metric.window(mv.trailing_periods(count=2))
     sampled = catalog_value(session.catalog, "sales.orders.sample_at", kind="field")
@@ -472,17 +477,19 @@ def test_sparse_calendar_joint_groups_and_fixed_populations(
     amount = catalog_value(session.catalog, "sales.orders.amount", kind="field")
     region = catalog_value(session.catalog, "sales.orders.region", kind="field")
     channel = catalog_value(session.catalog, "sales.orders.channel", kind="field")
+    at = catalog_value(session.catalog, "sales.orders.ordered_at", kind="field")
+    total = amount.sum(time=at)
     calendar = (
         session.time_scope(start="2019-12-23", end="2020-01-06")
         .by(mv.grain("week"))
         .shift(mv.offset(years=1))
     )
-    strict = amount.sum() / (amount.count() - 1)
+    strict = total / (amount.count(time=at) - 1)
     assert session.observe({"strict": strict}, by=(calendar,)).compute().to_pandas(
         time_details=True
     )["strict"].tolist() == [40.0, 75.0]
     rows = (
-        session.observe({"total": amount.sum()}, by=(calendar, region, channel))
+        session.observe({"total": total}, by=(calendar, region, channel))
         .compute()
         .to_pandas(time_details=True)
     )
@@ -503,7 +510,7 @@ def test_sparse_calendar_joint_groups_and_fixed_populations(
     pairs = mv.coordinates(by=(region, channel), keys=(("north", "web"), ("south", "shop")))
     explicit = (
         session.observe(
-            {"total": amount.sum()}, by=mv.product(calendar, pairs), where=mv.in_population(pairs)
+            {"total": total}, by=mv.product(calendar, pairs), where=mv.in_population(pairs)
         )
         .compute()
         .to_pandas(time_details=True)
@@ -521,7 +528,7 @@ def test_sparse_calendar_joint_groups_and_fixed_populations(
     selected = mv.coordinates(by=(mv.identity(orders),), keys=(((2,),), ((5,),)))
     filtered = (
         session.observe(
-            {"total": amount.sum(), "history": amount.sum().window(mv.trailing_periods(count=2))},
+            {"total": total, "history": total.window(mv.trailing_periods(count=2))},
             by=(calendar,),
             where=mv.in_population(selected),
         )
@@ -530,10 +537,9 @@ def test_sparse_calendar_joint_groups_and_fixed_populations(
     )
     assert filtered["total"].tolist() == [10, 20]
     assert filtered["history"].tolist() == [10, 20]
-    at = catalog_value(session.catalog, "sales.orders.ordered_at", kind="field")
     hard = (
         session.observe(
-            {"history": amount.sum().window(mv.trailing_periods(count=2))},
+            {"history": total.window(mv.trailing_periods(count=2))},
             by=(calendar,),
             where=at >= datetime(2021, 1, 1, tzinfo=timezone.utc),
         )
@@ -555,15 +561,16 @@ def test_window_recomputes_history_ratio_and_distinct(
     revenue = session.catalog.get("metric:sales.revenue")
     customer = catalog_value(session.catalog, "sales.orders.customer", kind="field")
     amount = catalog_value(session.catalog, "sales.orders.amount", kind="field")
+    at = catalog_value(session.catalog, "sales.orders.ordered_at", kind="field")
     scope = session.time_scope(start="2026-10-07", end="2026-10-09")
     values = (
         session.observe(
             {
                 "revenue": revenue.window(mv.all_history()),
-                "aov": (revenue / amount.count()).window(mv.all_history()),
-                "customers": customer.count_distinct().window(mv.all_history()),
-                "mean": amount.mean().window(mv.all_history()),
-                "median": amount.quantile(q=0.5).window(mv.all_history()),
+                "aov": (revenue / amount.count(time=at)).window(mv.all_history()),
+                "customers": customer.count_distinct(time=at).window(mv.all_history()),
+                "mean": amount.mean(time=at).window(mv.all_history()),
+                "median": amount.quantile(q=0.5, time=at).window(mv.all_history()),
                 "filtered": revenue.where(amount >= 20).window(mv.all_history()),
             },
             by=(scope.by(mv.grain("day")),),
@@ -578,7 +585,9 @@ def test_window_recomputes_history_ratio_and_distinct(
     assert values["filtered"].tolist() == [130, 190]
     assert values["customers"].tolist() == [1, 1]
     daily = (
-        session.observe({"daily": customer.count_distinct()}, by=(scope.by(mv.grain("day")),))
+        session.observe(
+            {"daily": customer.count_distinct(time=at)}, by=(scope.by(mv.grain("day")),)
+        )
         .compute()
         .to_pandas()
     )
@@ -845,13 +854,14 @@ def test_interval_selection_keeps_window_history_and_hard_fact_filter(
     session = window_session
     amount = catalog_value(session.catalog, "sales.orders.amount", kind="field")
     at = catalog_value(session.catalog, "sales.orders.ordered_at", kind="field")
+    revenue = amount.sum(time=at)
     customer = catalog_value(session.catalog, "sales.orders.customer", kind="field")
     scope = session.time_scope(start="2026-10-07", end="2026-10-09")
     customers = mv.coordinates(by=(customer,), keys=((7,), (8,)))
     domain = mv.product(scope, customers)
     rows = (
         session.observe(
-            {"ordinary": amount.sum(), "history": amount.sum().window(mv.all_history())},
+            {"ordinary": revenue, "history": revenue.window(mv.all_history())},
             by=domain,
         )
         .compute()
@@ -861,7 +871,7 @@ def test_interval_selection_keeps_window_history_and_hard_fact_filter(
     assert rows["history"].to_dict() == {0: 120, 1: 0}
     restricted = (
         session.observe(
-            {"history": amount.sum().window(mv.all_history())},
+            {"history": revenue.window(mv.all_history())},
             by=(scope,),
             where=at >= session.instant("2026-10-01"),
         )
@@ -890,10 +900,11 @@ def test_interval_internal_sample_domain_keeps_its_own_time(window_session: Sess
     session = window_session
     amount = catalog_value(session.catalog, "sales.orders.amount", kind="field")
     customer = catalog_value(session.catalog, "sales.orders.customer", kind="field")
+    at = catalog_value(session.catalog, "sales.orders.ordered_at", kind="field")
     scope = session.time_scope(start="2026-10-07", end="2026-10-09")
     customers = mv.coordinates(by=(customer,), keys=((7,), (8,)))
     rows = (
-        session.observe({"mean": amount.sum().per(mv.product(scope, customers)).mean()})
+        session.observe({"mean": amount.sum(time=at).per(mv.product(scope, customers)).mean()})
         .compute()
         .to_pandas()
     )
@@ -915,9 +926,10 @@ def test_time_product_reuses_checked_domain_with_direct_count(
     session = window_session
     people = session.members(session.catalog.get("entity:sales.orders"))
     amount = catalog_value(session.catalog, "sales.orders.amount", kind="field")
+    at = catalog_value(session.catalog, "sales.orders.ordered_at", kind="field")
     scope = session.time_scope(start="2026-10-07", end="2026-10-09")
     frame = session.observe(
-        {"value": amount.sum(), "people": people.count()},
+        {"value": amount.sum(time=at), "people": people.count()},
         by=mv.product(scope, people),
         where=mv.in_population(people) if predicate else None,
     )

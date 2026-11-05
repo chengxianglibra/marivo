@@ -48,7 +48,6 @@ class ConstraintId(StrEnum):
     METRIC_REF_EXISTS = "metric_ref_exists"
     TIME_DIMENSION_PARTITION_PUSHDOWN = "time_dimension_partition_pushdown"
     TIME_DIMENSION_DTYPE_COMPAT = "time_dimension_dtype_compat"
-    TIME_DIMENSION_DEFAULT_UNIQUE = "time_dimension_default_unique"
     RELATIONSHIP_ENDPOINTS = "relationship_endpoints"
     RELATIONSHIP_MAPPING = "relationship_mapping"
     PROJECT_ORGANIZATION = "project_organization"
@@ -392,15 +391,6 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Use ms.strptime(format, ...) for string/integer columns, ms.hour_prefix(prefix) "
         "for hour-only columns, and ms.timestamp(timezone=...) "
         "to declare a known source timezone for naive native temporal columns.",
-    ),
-    ConstraintId.TIME_DIMENSION_DEFAULT_UNIQUE: _constraint(
-        ConstraintId.TIME_DIMENSION_DEFAULT_UNIQUE,
-        "duplicate_default_time_dimension",
-        "assembly",
-        ("time_dimension",),
-        "At most one time dimension per entity may carry is_default=True.",
-        "Multiple default time dimensions create ambiguity at observe() time.",
-        "Remove is_default=True from all but one time dimension on this entity.",
     ),
     ConstraintId.RELATIONSHIP_ENDPOINTS: _constraint(
         ConstraintId.RELATIONSHIP_ENDPOINTS,

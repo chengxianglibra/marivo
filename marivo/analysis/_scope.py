@@ -5,6 +5,8 @@ from __future__ import annotations
 import re
 
 from marivo._definition.expressions import (
+    BuiltinSampleCoordinate,
+    FieldCalendarSample,
     PerReduce,
     PerWeightedMean,
     PredicateExpression,
@@ -73,7 +75,47 @@ def _observation_summary(observation: ObservationBinding) -> str:
         if observation.condition is None
         else _bounded(predicate_summary(observation.condition), 400)
     )
-    return f"period={time}; where={where}"
+    field_ranges = [
+        f"field_calendar {item.field.field.ref.path} "
+        + " or ".join(
+            f"[{start.isoformat()}, {end.isoformat()})" for start, end in item.calendar.ranges[:4]
+        )
+        + f" {item.calendar.timezone}, grain={item.calendar.grain}"
+        for item in observation.coordinates.field_calendars[:6]
+    ]
+    if len(observation.coordinates.field_calendars) > len(field_ranges):
+        field_ranges.append("... field calendars omitted")
+    if field_ranges:
+        field_ranges.append(
+            "field ranges intersect where and Metric period or window conditions before reduction; "
+            "only direct time axes provide endpoints"
+        )
+    samples = []
+    for occurrence, sample in observation.calendar_samples[:6]:
+        field = (
+            sample.sample.field.field
+            if isinstance(sample, BuiltinSampleCoordinate)
+            and isinstance(sample.sample, FieldCalendarSample)
+            else None
+        )
+        clocks = (
+            field.ref.path
+            if field is not None
+            else ", ".join(
+                dict.fromkeys(
+                    item.time.field.ref.path
+                    for item in observation.contributions
+                    if item.time is not None and item.occurrence[: len(occurrence)] == occurrence
+                )
+            )
+        )
+        samples.append(
+            f"sample[{'.'.join(map(str, occurrence))}] field={clocks}, "
+            f"grain={sample.grain_spec._to_token()}, timezone={sample.timezone}, order=instant"
+        )
+    if len(observation.calendar_samples) > len(samples):
+        samples.append("... sample layers omitted")
+    return "; ".join((f"period={time}", f"where={where}", *field_ranges, *samples))
 
 
 def _observation_scopes(observation: ObservationBinding) -> tuple[tuple[str, DefinitionNode], ...]:

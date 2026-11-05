@@ -103,7 +103,7 @@ def test_date_day_grouping_keeps_empty_null_and_category_domains(
                 "sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales', owner='Test', default=True)\n",
                 "sales/facts.py": "import marivo.datasource as md\nimport marivo.semantic as ms\n"
                 + f"facts=ms.entity(name='facts', datasource=ms.ref.datasource('warehouse'), source=md.table({case.source.table!r}, database={case.source.database!r}), primary_key=['id'])\n"
-                + f"point=ms.time_dimension_column(name='point', entity=facts, column='point', parse={parser}, is_default=True)\n"
+                + f"point=ms.time_dimension_column(name='point', entity=facts, column='point', parse={parser})\n"
                 + "amount=ms.measure_column(name='amount', entity=facts, column='amount', additivity=ms.additive_all())\n"
                 + "category=ms.dimension_column(name='category', entity=facts, column='category')\n",
             }
@@ -111,16 +111,18 @@ def test_date_day_grouping_keeps_empty_null_and_category_domains(
         session = mv.session.get_or_create("late-date-keys", timezone="Asia/Shanghai")
         amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
         category = catalog_value(session.catalog, "sales.facts.category", kind="field")
+        point = catalog_value(session.catalog, "sales.facts.point", kind="field")
         assert isinstance(amount, ms.Measure) and isinstance(category, ms.Dimension)
+        assert isinstance(point, ms.TimeDimension)
         days = session.time_scope(start="2026-10-28", end="2026-10-31").by(mv.grain("day"))
         metrics = {
-            "sum": amount.sum(),
-            "mean": amount.mean(),
-            "count": amount.count(),
-            "minimum": amount.min(),
+            "sum": amount.sum(time=point),
+            "mean": amount.mean(time=point),
+            "count": amount.count(time=point),
+            "minimum": amount.min(time=point),
         }
         if backend in ("duckdb", "postgres", "clickhouse"):
-            metrics["quantile"] = amount.quantile(0)
+            metrics["quantile"] = amount.quantile(0, time=point)
         frame = session.observe(metrics, by=(days, category)).compute()
         result = frame.to_pandas().sort_values(["calendar:day", "category"]).reset_index(drop=True)
         assert result["calendar:day"].tolist() == [
@@ -160,7 +162,7 @@ def test_date_day_grouping_keeps_empty_null_and_category_domains(
         pd.testing.assert_frame_equal(saved.to_pandas(), frame.to_pandas())
         if backend in ("duckdb", "postgres", "clickhouse"):
             strict = session.observe(
-                {"strict": amount.quantile(0, nulls="error")}, by=(days, category)
+                {"strict": amount.quantile(0, time=point, nulls="error")}, by=(days, category)
             )
             with pytest.raises(AnalysisError) as error:
                 strict.compute()

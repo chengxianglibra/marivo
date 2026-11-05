@@ -58,7 +58,7 @@ def author_source_project(
             + "bucket = ms.dimension_column(name='bucket', entity=facts, column='tenant')\n"
             + "revision = ms.dimension_column(name='revision', entity=facts, column='revision')\n"
             + "amount = ms.measure_column(name='amount', entity=facts, column='amount', additivity=ms.additive_all())\n"
-            + f"happened = ms.time_dimension_column(name='happened', entity=facts, column='happened', parse={parse}, is_default=True)\n"
+            + f"happened = ms.time_dimension_column(name='happened', entity=facts, column='happened', parse={parse})\n"
             + (
                 "from datetime import date\n"
                 "calendar_day = ms.time_dimension_column(name='calendar_day', entity=facts, column='calendar_day', parse=ms.date(timezone='Asia/Shanghai'))\n"

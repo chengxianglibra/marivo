@@ -35,7 +35,6 @@ paid_at_ref = ms.time_dimension_column(
     entity=orders_ref,
     column="paid_at",
     parse=ms.timestamp(timezone="UTC"),
-    is_default=True,
 )
 amount_ref = ms.measure_column(
     name="amount",

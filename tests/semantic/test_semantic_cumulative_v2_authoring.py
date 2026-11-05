@@ -103,7 +103,7 @@ import marivo.semantic as ms
 wh = ms.ref.datasource("wh")
 orders = ms.entity(name="orders", datasource=wh, source=md.table("orders"))
 event_time = ms.time_dimension_column(
-    name="event_time", entity=orders, column="created_at", is_default=True)
+    name="event_time", entity=orders, column="created_at")
 amount = ms.measure_column(
     name="amount", entity=orders, column="amount", additivity=ms.additive_all())
 amount_value = amount

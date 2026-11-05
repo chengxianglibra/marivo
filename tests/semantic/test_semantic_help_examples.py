@@ -89,13 +89,13 @@ def orders_backend() -> Iterator[Backend]:
     backend = ibis.duckdb.connect(":memory:")
     backend.con.execute(
         "CREATE TABLE orders (id BIGINT, total DOUBLE, price DOUBLE, quantity BIGINT, "
-        "amount DOUBLE, state VARCHAR, region VARCHAR)"
+        "amount DOUBLE, state VARCHAR, region VARCHAR, paid_at TIMESTAMP)"
     )
     backend.con.execute(
         "INSERT INTO orders VALUES "
-        "(1, 20, 10, 2, 999, 'FAILED', 'US'), "
-        "(2, 21, 7, 3, 999, 'ERROR', 'CA'), "
-        "(3, 5, 5, 1, 999, 'OK', 'US')"
+        "(1, 20, 10, 2, 999, 'FAILED', 'US', TIMESTAMP '2026-11-01'), "
+        "(2, 21, 7, 3, 999, 'ERROR', 'CA', TIMESTAMP '2026-11-02'), "
+        "(3, 5, 5, 1, 999, 'OK', 'US', TIMESTAMP '2026-11-03')"
     )
     try:
         yield backend
@@ -319,7 +319,10 @@ def test_filter_help_examples_declare_their_local_dimensions_and_execute(
         "aggregate": "row.sum",
         "membership": "field.isin",
     }[target]
-    source = _ORDERS + "paid_at = None\n"
+    source = _ORDERS + (
+        "paid_at = ms.time_dimension_column(name='paid_at', entity=orders, column='paid_at', "
+        "parse=ms.timestamp(timezone='UTC'))\n"
+    )
     source += "amount = ms.measure_column(name='amount', entity=orders, column='amount', additivity=ms.additive_all())\n"
     source += "status = ms.dimension_column(name='status', entity=orders, column='state')\n"
     source += "region = ms.dimension_column(name='region', entity=orders, column='region')\n"

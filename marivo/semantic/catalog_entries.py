@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from collections.abc import Mapping
 from dataclasses import dataclass, fields, is_dataclass
+from dataclasses import field as dataclass_field
 from datetime import date, datetime
 from enum import Enum
 from pathlib import Path
@@ -136,7 +137,6 @@ class EntityDefinition:
     expression: str
     primary_key: tuple[str, ...]
     versioning: EntityVersioningIR | None
-    default_time: str | None
     fields: tuple[str, ...]
     dependencies: tuple[str, ...]
 
@@ -150,10 +150,8 @@ class FieldDefinition:
     expression: str
     unit: str | None
     additivity: str | None
-    default_time: str | None
     parse: SemanticParse | None
     sample_interval: SampleIntervalIR | None
-    is_default_time: bool
     dependencies: tuple[str, ...]
     dependency_context: tuple[DependencyContext, ...]
     facts: tuple[tuple[str, str], ...]
@@ -161,13 +159,51 @@ class FieldDefinition:
 
 @dataclass(frozen=True)
 class MetricTimeBinding:
-    """Effective source-aggregation time, distinct from a dependency read."""
+    """Contribution time role of a single source reduction."""
 
     branch: str
-    field: str | None
+
+
+@dataclass(frozen=True)
+class MetricTimeFieldBinding(MetricTimeBinding):
+    """A source reduction bound to a concrete TimeDimension."""
+
+    field: str
     path: tuple[str, ...]
-    source: Literal["explicit", "entity_default", "none"]
-    entity_default: str | None
+    source: Literal["explicit"] = dataclass_field(default="explicit", init=False)
+
+
+@dataclass(frozen=True)
+class MetricTimeParameterBinding(MetricTimeBinding):
+    """A source reduction whose time role names a Metric parameter."""
+
+    parameter: str
+    source: Literal["parameter"] = dataclass_field(default="parameter", init=False)
+
+
+@dataclass(frozen=True)
+class MetricNoTimeBinding(MetricTimeBinding):
+    """A source reduction with no contribution time role."""
+
+    source: Literal["none"] = dataclass_field(default="none", init=False)
+
+
+@dataclass(frozen=True)
+class MetricTimeConstraint:
+    """Required role and contribution root of a single time parameter use."""
+
+    use: Literal["contribution", "native_sample", "calendar_sample", "sample_order"]
+    root: str
+    required_field: str | None
+
+
+@dataclass(frozen=True)
+class MetricTimeParameter:
+    """An exposed lexical slot and its inferred constraints, in occurrence order."""
+
+    name: str
+    roots: tuple[str, ...]
+    constraints: tuple[MetricTimeConstraint, ...]
 
 
 @dataclass(frozen=True)
@@ -179,7 +215,10 @@ class MetricDefinition:
     formula: str
     reductions: tuple[str, ...]
     conditions: tuple[str, ...]
-    time_bindings: tuple[MetricTimeBinding, ...]
+    time_bindings: tuple[
+        MetricTimeFieldBinding | MetricTimeParameterBinding | MetricNoTimeBinding, ...
+    ]
+    time_parameters: tuple[MetricTimeParameter, ...]
     unit: str | None
     null_rules: tuple[str, ...]
     dependencies: tuple[str, ...]

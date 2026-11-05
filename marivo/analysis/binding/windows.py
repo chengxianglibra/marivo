@@ -8,8 +8,10 @@ from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING
 
 from marivo._definition.expressions import (
+    BuiltinSampleCoordinate,
     DeclaredMetricRef,
     EntityCount,
+    FieldCalendarSample,
     MetricNode,
     MetricWindow,
     PerReduce,
@@ -166,9 +168,22 @@ def validate_date_contribution(contribution: ContributionBinding, path: str) -> 
         isinstance(read, FieldRead) and read.field.ref.path == path
         for read in contribution.coordinates[contribution.output_axis_count :]
     )
-    if not is_role and not is_sample:
+    sample_slots = {
+        slot for slot, read in contribution.sample_calendar_reads if read.field.ref.path == path
+    }
+    if not is_role and not is_sample and not sample_slots:
         return
-    calendars = tuple(axis for _, axis in contribution.calendars)
+    field_slots = dict(contribution.field_calendar_reads)
+    calendars = tuple(
+        axis
+        for slot, axis in contribution.calendars
+        if slot in sample_slots
+        or (
+            (is_role or is_sample)
+            and slot not in field_slots
+            and not isinstance(axis, BuiltinSampleCoordinate)
+        )
+    )
     if any(isinstance(axis, CalendarCoordinate) and not axis.cells for axis in calendars):
         return
 
@@ -191,13 +206,15 @@ def validate_date_contribution(contribution: ContributionBinding, path: str) -> 
     ):
         fail(f"{path}: subday reset {rule.grain!r}")
     for axis in calendars:
-        if isinstance(axis, CalendarCoordinate):
+        if isinstance(axis, (CalendarCoordinate, BuiltinSampleCoordinate)):
             if axis.grain_spec.kind == "builtin" and axis.grain_spec.unit in (
                 "second",
                 "minute",
                 "hour",
             ):
-                fail(f"{path}: subday output {axis.grain}")
+                fail(f"{path}: subday calendar {axis.grain_spec._to_token()}")
+            if isinstance(axis, BuiltinSampleCoordinate):
+                continue
             bounds = tuple(bound for cell in axis.cells for bound in cell[2:])
         else:
             bounds = (axis.start, axis.end)
@@ -210,7 +227,7 @@ def validate_date_contribution(contribution: ContributionBinding, path: str) -> 
             local = offending.astimezone(zone).isoformat()
             fail(f"{path}: calendar boundary {local} is not local midnight in {axis.timezone}")
     period = contribution.period
-    if period is not None:
+    if period is not None and (is_role or is_sample):
         zone = normalize_timezone(period.timezone).tz
         if any(
             bound is not None and bound.astimezone(zone).time() != datetime.min.time()
@@ -259,7 +276,8 @@ def bind_windows(
                     "Metric.window",
                 )
             if any(
-                isinstance(child, (PerReduce, PerWeightedMean)) and isinstance(child.samples, Grain)
+                isinstance(child, (PerReduce, PerWeightedMean))
+                and isinstance(child.samples, (Grain, FieldCalendarSample))
                 for child in walk((node.operand,), resolve=declared.get).order
             ):
                 reject(
@@ -313,7 +331,7 @@ def bind_windows(
                 in_calendar_sample
                 or (
                     isinstance(node, (PerReduce, PerWeightedMean))
-                    and isinstance(node.samples, Grain)
+                    and isinstance(node.samples, (Grain, FieldCalendarSample))
                 ),
             )
 

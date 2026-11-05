@@ -133,7 +133,6 @@ def test_semantic_error_normalizes_target_dimension_refs() -> None:
         nullable=False,
         is_time_dimension=False,
         sample_interval=None,
-        is_default=False,
         timezone=None,
     )
     err = errors_mod.SemanticError(
@@ -231,7 +230,6 @@ _EXPECTED_ASSEMBLY_KINDS = {
     "cross_model_cycle",
     "definition_cycle",
     "cross_datasource_not_supported",
-    "duplicate_default_time_dimension",
     "invalid_relationship_endpoint",
     "invalid_relationship_mapping",
     "organization_error",

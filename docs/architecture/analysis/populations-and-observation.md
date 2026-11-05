@@ -34,8 +34,9 @@ bound graphs after a later load.
 not supply an observation time range. A time-related Metric does not universally
 require a scope. All native TimeField sample reducers use represented samples
 without a TimeScope or CalendarAxis in `by`; `sample_interval` describes cadence
-and does not require complete clock coverage. Windows and calendar Grain samples
-retain their own period requirements. Some checks run
+and does not require complete clock coverage. Builtin calendar samples also
+work without an observation period. Windows require an observation endpoint,
+and custom samples require a complete certified period. Some checks run
 only during `compute()` or `persist()`, so successful capture alone does not prove
 that an unbounded observation is supported. When a period is required, pass
 `by=(session.time_scope(start=..., end=...),)`.
@@ -104,6 +105,22 @@ other orders of that customer, so it does not reconstruct the original subset.
 Paths must be explicit, contiguous and legal for the consumer.
 
 ## Observation domain, contributions and counts
+
+Place a TimeScope or CalendarAxis directly in `by` to observe each source
+reduction by its declared contribution time. At most one direct time coordinate
+provides the observation period and window endpoints. To group by a different
+time field, pass `mv.time_group(field, axis=axis)` to `observe.by`. The field
+must be reachable through a valid single-valued path on every contribution root.
+Its half-open range intersects other filters before aggregation, while the axis
+provides bucket keys and output completion. It can coexist with a direct time
+coordinate or with other distinct field calendar groupings. A field grouping's
+range stays fixed during window evaluation. Use a plain field for original-value
+categories or `field.within(scope)` for a range filter alone.
+
+With multiple calendar axes, output completion crosses the finite bucket sets
+with complete observed ordinary category tuples. In the absence of ordinary
+categories the calendar grid survives an empty fact domain. This grid never
+creates internal Metric samples.
 
 observe accepts one named Metric object, a nonempty list or tuple of them, or a
 nonempty ordered Mapping of explicit names to closed Metric expressions. Only
@@ -234,23 +251,11 @@ Each nested layer independently selects and completes samples. Even empty or
 entirely unmatched samples preserve necessary external coordinates, producing
 zero for empty sum children and NA where the reducer's empty policy requires it.
 
-`Metric.per(grain)` folds actual time samples inside the finite observation
-coordinate. For example, a weekly `revenue.per(mv.grain("day")).mean()` uses only
-days with contributions, including all-NULL days. Missing days do not become zero
-samples. Each source component computes complete external, parent and child keys
-using its own time role and executor. Calendar samples inherit the coordinate's
-timezone; supported builtin nesting is static (day in week/month, month in
-quarter/year, divisible subday widths; never week in month). Undefined custom
-hierarchies reject; one complete certified custom period may be sampled under an
-interval axis. Final calendar completion is independent of internal sampling.
-Native TimeField samples likewise use represented timestamps without clock
-completion. A CalendarAxis is not a per argument. Missing time roles or finite
-coordinates produce typed repair errors.
-Semantic sample Grain lookups require the Session's current certified snapshot;
-declared folds include that calendar in readiness dependencies. Windows inside
-calendar samples or wrapping calendar folds are unsupported and reject before
-execution. Use a direct windowed observation and explicit captured Frame
-reductions for those questions.
+Builtin calendar folds use actual sample keys in the Session's report timezone.
+`Metric.per(grain)` follows each branch's contribution time, while
+`Metric.per(field, grain=grain)` uses the named native sample field. Both preserve
+the full external, parent and sample tuple until the entire child Metric has
+completed. Internal samples never inherit an output calendar's candidate grid.
 
 ## Fixed-data bridge to a new source question
 

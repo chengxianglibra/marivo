@@ -208,6 +208,7 @@ def mean_session(
     nullable_amount: bool = True,
     sample_points: tuple[str, ...] | None = None,
     sample_groups: int = 1,
+    fixed_status: bool = True,
 ) -> Iterator[tuple[Session, Case]]:
     times: tuple[str, ...] = ("00:00:00", "00:30:00", "00:30:00", "00:30:00", "01:00:00")
     if sample_count is not None:
@@ -278,7 +279,13 @@ def mean_session(
                     else ""
                 )
                 + "category=ms.dimension_column(name='category',entity=facts,column='category')\n"
-                + "amount=ms.measure_column(name='amount',entity=facts,column='amount',additivity=ms.additive_except(point),status_time_dimension=point)\n"
+                + "amount=ms.measure_column(name='amount',entity=facts,column='amount',"
+                + (
+                    "additivity=ms.additive_except(point),status_time_dimension=point"
+                    if fixed_status
+                    else "additivity=ms.additive_all()"
+                )
+                + ")\n"
                 + "@ms.metric()\ndef average():\n    return amount.mean(time=point).per(point).mean()\n",
             }
         )
@@ -2072,6 +2079,7 @@ def test_ordered_single_axis_proofs_reach_native_and_local_consumers(
         semantic_project_factory,
         values=(10, 20, 20, 20, 100),
         aware=True,
+        fixed_status=sample_axis == "point",
     ) as (session, _):
         amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
         point = catalog_value(session.catalog, "sales.facts.point", kind="field")

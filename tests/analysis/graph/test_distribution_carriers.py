@@ -49,10 +49,6 @@ def test_named_distribution_carriers_recover_independently(
                     'INSERT INTO "order" VALUES (?, ?, ?, ?, ?, ?)',
                     [str(index), member, "web", "paid", "2026-08-15", amount],
                 )
-    model = case.root / "models/semantic/sales/models.py"
-    model.write_text(
-        model.read_text().replace("parse=ms.timestamp(", "is_default=True, parse=ms.timestamp(", 1)
-    )
     ms.load(workspace_dir=case.root)
     trace = capture_source(monkeypatch)
     session = case.session

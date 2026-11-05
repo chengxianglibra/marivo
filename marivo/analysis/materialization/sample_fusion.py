@@ -12,6 +12,7 @@ import pandas as pd
 from marivo._definition.expressions import (
     ContributionFilter,
     DeclaredMetricRef,
+    FieldCalendarSample,
     MemberCount,
     MetricExpression,
     MetricNode,
@@ -370,7 +371,7 @@ def fuse_sample_reductions(prepared: PreparedSources, lowered: LoweredQuery) -> 
                 len(node.samples)
                 if isinstance(node.samples, tuple)
                 else len(node.samples.axes)
-                if not isinstance(node.samples, Grain)
+                if not isinstance(node.samples, (Grain, FieldCalendarSample))
                 else 1
             )
             child_keys = (*keys, *(key for group in remaining[:count] for key in group))

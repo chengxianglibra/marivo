@@ -14,14 +14,11 @@ def test_coherent_slice_loads_once_and_resolves_every_authored_ref(
 ) -> None:
     source_path = authoring_evidence_project / "models" / "semantic" / "sales" / "revenue.py"
     source_path.write_text(
-        source_path.read_text().replace(
-            "from .models import amount as amount_ref\n",
-            "from .models import amount as amount_ref\nfrom .models import orders as orders_ref\n",
-        )
-        + "\n\norders = orders_ref\n\n\n"
+        source_path.read_text()
+        + "\n\nfrom .models import orders\n\n\n"
         + "@ms.metric(ai_context=ms.ai_context(business_definition='Accepted order count.'))\n"
         + "def order_count():\n"
-        + "    return orders.count()\n\n\n"
+        + "    return orders.count(time=log_date)\n\n\n"
         + "@ms.metric(\n"
         + "    ai_context=ms.ai_context(\n"
         + "        business_definition='Accepted revenue divided by accepted order count.',\n"

@@ -635,7 +635,7 @@ def fiscal_analysis_project_files() -> dict[str, str]:
             "amount_value = amount\n"
             "@ms.metric()\n"
             "def gmv():\n"
-            "    return amount_value.sum()\n"
+            "    return amount_value.sum(time=event_date)\n"
         ),
     }
 
@@ -1165,7 +1165,7 @@ orders = ms.entity(name="orders", datasource=ms.ref.datasource("warehouse"),
     source=md.table("orders"), primary_key=["order_id"])
 status = ms.dimension_column(name="status", entity=orders, column="status")
 paid_at = ms.time_dimension_column(name="paid_at", entity=orders, column="paid_at",
-    parse=ms.timestamp(timezone="UTC"), is_default=True)
+    parse=ms.timestamp(timezone="UTC"))
 amount = ms.measure_column(name="amount", entity=orders, column="amount",
     additivity=ms.additive_all(), unit="USD")
 ms.relationship(name="orders_self", from_entity=orders, to_entity=orders,
@@ -1173,7 +1173,7 @@ ms.relationship(name="orders_self", from_entity=orders, to_entity=orders,
 amount_value = amount
 @ms.metric()
 def revenue():
-    return amount_value.sum()
+    return amount_value.sum(time=paid_at)
 """)
     datasource = tmp_path / "models" / "datasources"
     datasource.mkdir()

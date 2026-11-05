@@ -46,12 +46,12 @@ def project(root: Path, predicate: str = "raw.amount > 0") -> None:
         f"    return raw.filter({predicate}).group_by('region', 'day').aggregate(total=raw.amount.sum())\n"
         "region = ms.dimension_column(name='region', entity=regional, column='region')\n"
         "total = ms.measure_column(name='total', entity=regional, column='total', additivity=ms.additive_all(), unit='USD')\n"
-        "day = ms.time_dimension_column(name='day', entity=regional, column='day', is_default=True)\n"
+        "day = ms.time_dimension_column(name='day', entity=regional, column='day')\n"
         ""
         "total_value = total\n"
         "@ms.metric()\n"
         "def revenue():\n"
-        "    return total_value.sum()\n"
+        "    return total_value.sum(time=day)\n"
     )
 
 

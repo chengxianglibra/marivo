@@ -85,6 +85,7 @@ def test_multi_field_aggregate_keeps_nulls_types_and_empty_buckets(
         exact = catalog_value(session.catalog, "sales.facts.big", kind="field")
         weight = catalog_value(session.catalog, "sales.facts.weight", kind="field")
         category = catalog_value(session.catalog, "sales.facts.category", kind="field")
+        day = catalog_value(session.catalog, "sales.facts.day", kind="field")
         by = (
             session.time_scope(start="2026-07-01", end="2026-07-04").by(mv.grain("day"))
             if calendar
@@ -92,23 +93,23 @@ def test_multi_field_aggregate_keeps_nulls_types_and_empty_buckets(
         )
         query = session.observe(
             {
-                "total": amount.sum(),
-                "exact": exact.sum(),
-                "average": weight.mean(),
-                "minimum": amount.min(),
-                "maximum": weight.max(),
-                "count": amount.count(),
-                "distinct": amount.count_distinct(),
-                "weighted": amount.weighted_mean(weight=weight),
+                "total": amount.sum(time=day),
+                "exact": exact.sum(time=day),
+                "average": weight.mean(time=day),
+                "minimum": amount.min(time=day),
+                "maximum": weight.max(time=day),
+                "count": amount.count(time=day),
+                "distinct": amount.count_distinct(time=day),
+                "weighted": amount.weighted_mean(weight=weight, time=day),
                 **(
-                    {"median": amount.median(), "q25": amount.quantile(0.25)}
+                    {"median": amount.median(time=day), "q25": amount.quantile(0.25, time=day)}
                     if backend in ("duckdb", "postgres", "clickhouse")
                     else {}
                 ),
                 **(
                     {
-                        "approx_median": amount.approx_median(),
-                        "approx_distinct": amount.approx_nunique(),
+                        "approx_median": amount.approx_median(time=day),
+                        "approx_distinct": amount.approx_nunique(time=day),
                     }
                     if backend in ("duckdb", "trino", "clickhouse")
                     else {}
@@ -195,14 +196,15 @@ def test_count_and_quantiles_share_actual_scan(
         session = mv.session.get_or_create("quantile-fusion", timezone="UTC")
         amount = catalog_value(session.catalog, "sales.facts.weight", kind="field")
         category = catalog_value(session.catalog, "sales.facts.category", kind="field")
+        day = catalog_value(session.catalog, "sales.facts.day", kind="field")
         scope = session.time_scope(start="2026-07-01", end="2026-07-03")
         by = () if domain == "overall" else (scope,) if domain == "interval" else (category,)
         quantile = amount.approx_quantile if approximate else amount.quantile
         metrics = {
-            "count": amount.count(),
-            "p50": quantile(0.5),
-            "p90": quantile(0.9),
-            "p99": quantile(0.99),
+            "count": amount.count(time=day),
+            "p50": quantile(0.5, time=day),
+            "p90": quantile(0.9, time=day),
+            "p99": quantile(0.99, time=day),
         }
         query = session.observe(metrics, by=by)
         with monkeypatch.context() as control:
@@ -214,7 +216,7 @@ def test_count_and_quantiles_share_actual_scan(
             baseline = query.compute().to_pandas()
         with monkeypatch.context() as control:
             single_trace = capture_source(control)
-            session.observe({"count": amount.count()}, by=by).compute()
+            session.observe({"count": amount.count(time=day)}, by=by).compute()
         trace = capture_source(monkeypatch)
         result = query.compute().to_pandas()
         pd.testing.assert_frame_equal(result, baseline, check_exact=not approximate, rtol=1e-5)

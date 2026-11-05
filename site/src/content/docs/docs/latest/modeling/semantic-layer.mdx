@@ -214,7 +214,7 @@ A Metric is a completed source reduction or a composition of Metrics. Revenue su
 | `domain` | No | `None` | Explicit domain; `None` uses the applicable declared default domain. |
 | `ai_context` | No | `None` | Optional `ms.ai_context(...)` with business meaning and guardrails; no context is attached when omitted. |
 
-The function name supplies the published name. Its zero-argument body composes closed Metrics or source reductions; time/null/sample policies belong on those operators.
+The function name supplies the published name. Its restricted body composes typed Metrics or source reductions. Set time, null and sample policies on those operators. To reuse a formula across time roles, declare a keyword-only `ms.TimeParameter` and bind it before observation.
 
 ```python
 @ms.metric()
@@ -227,11 +227,32 @@ def average_order_value():
     return revenue / orders.count(time=order_date)
 ```
 
+If the same sum can legitimately follow different event times, declare the
+slot in the Metric. Use `bind_time` with the field chosen for the question.
+For a fixed business rule that previously relied on an Entity's default time,
+pass that same field explicitly to each source reduction. Omitting `time`
+now leaves the reduction without a contribution time.
+
+```python
+@ms.metric()
+def revenue_at(*, event: ms.TimeParameter):
+    return amount.sum(time=event)
+```
+
+After loading the model, select both objects from the Catalog.
+
+```python
+template = catalog.get("metric:sales.revenue_at")
+date_field = catalog.get("time_dimension:sales.orders.order_date")
+assert template.kind == "metric" and date_field.kind == "time_dimension"
+by_order_date = template.bind_time(event=date_field)
+```
+
 Bodies may contain fresh local expression bindings and a final return, but no table parameters, `ms.bind`, queries or arbitrary Python calls. Empty sum is zero; a nonempty all-null sum is unknown. Division by zero yields NA. Use `revenue.where(region == "east")` for a contribution condition, or `revenue.per(region).mean()` for the mean of regional revenues. These are different from filtering or averaging a completed Frame. Existing closed Metrics can be composed for one question without publishing a new definition. Help: `semantic.metric.define` and `semantic.expressions`.
 
 Tuple and list literals are both accepted in captured arguments. For example,
 `return amount.sum(time=order_date).where(region.isin(["east", "west"]))` is valid
-inside a zero-argument Metric body. Lists are frozen as tuples; comprehensions,
+inside a Metric body. Lists are frozen as tuples; comprehensions,
 subscripting and arbitrary helper calls remain outside this grammar.
 
 ### Exact and approximate quantiles
@@ -379,7 +400,7 @@ orders = ms.entity(
 )
 region = ms.dimension_column(name="region", entity=orders, column="region")
 order_date = ms.time_dimension_column(
-    name="order_date", entity=orders, column="order_date", is_default=True
+    name="order_date", entity=orders, column="order_date"
 )
 amount = ms.measure_column(
     name="amount",

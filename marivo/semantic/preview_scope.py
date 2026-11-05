@@ -145,7 +145,9 @@ def _exact_semantic_ref(ref: str, kind: SemanticKind) -> Ref[SemanticKindTag]:
     return factory(ref)
 
 
-def dependency_entities(ref: str, kind: SemanticKind, registry: Registry) -> tuple[str, ...]:
+def dependency_entities(
+    ref: str, kind: SemanticKind, registry: Registry, *, for_preview: bool = True
+) -> tuple[str, ...]:
     """Return every entity required to execute one semantic ref."""
     if kind == SemanticKind.ENTITY:
         return (ref,)
@@ -170,14 +172,16 @@ def dependency_entities(ref: str, kind: SemanticKind, registry: Registry) -> tup
         from marivo.semantic._numeric_preview import validate_preview_metric
 
         metric = registry.declared_metrics[ref]
-        validate_preview_metric(metric)
-        return tuple(root.ref.path for root in consume_metric(metric).roots)
+        facts = consume_metric(metric, allow_open=True)
+        if for_preview or not facts.time_parameters:
+            validate_preview_metric(metric)
+        return tuple(root.ref.path for root in facts.roots)
 
     return ()
 
 
 def dependency_entities_for_ref(ref: str, *, registry: Registry) -> tuple[str, ...]:
-    return dependency_entities(ref, _semantic_kind(ref, registry), registry)
+    return dependency_entities(ref, _semantic_kind(ref, registry), registry, for_preview=False)
 
 
 def _normalize_entity_key(

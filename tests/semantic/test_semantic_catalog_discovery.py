@@ -58,7 +58,9 @@ def test_metric_definition_discloses_formula_effective_time_and_dependency_guard
     parse=ms.timestamp(timezone="UTC"))
 settled_value = settled_at
 amount_value = amount""",
-    ).replace("return amount_value.sum()", "return amount_value.sum(time=settled_value)")
+    ).replace(
+        "return amount_value.sum(time=paid_at)", "return amount_value.sum(time=settled_value)"
+    )
     path.write_text(text)
     catalog = ms.load(workspace_dir=tmp_path)
     metric = catalog.get("metric:sales.revenue")
@@ -67,7 +69,6 @@ amount_value = amount""",
     assert "sum(measure:sales.orders.amount" in definition.formula
     assert definition.time_bindings[0].field == "time_dimension:sales.orders.settled_at"
     assert definition.time_bindings[0].source == "explicit"
-    assert definition.time_bindings[0].entity_default == "time_dimension:sales.orders.paid_at"
     assert definition.unit == "USD"
     assert any(
         context.id == "measure:sales.orders.amount"
@@ -489,7 +490,9 @@ def test_new_resolvers_reuse_only_their_captured_state_definition_versions(tmp_p
 
     source = tmp_path / "models/semantic/sales/objects.py"
     source.write_text(
-        source.read_text().replace("return amount_value.sum()", "return amount_value.sum() * 2")
+        source.read_text().replace(
+            "return amount_value.sum(time=paid_at)", "return amount_value.sum(time=paid_at) * 2"
+        )
     )
     current = ms.load(workspace_dir=tmp_path)
     current_version = _Resolver(current._state).exact(target)

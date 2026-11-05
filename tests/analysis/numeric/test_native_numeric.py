@@ -220,7 +220,7 @@ def _model(tmp_path: Path) -> None:
     (models / "facts.py").write_text(
         "import marivo.datasource as md\nimport marivo.semantic as ms\n"
         "facts=ms.entity(name='facts', datasource=ms.ref.datasource('warehouse'), source=md.table('facts', columns={k:k for k in ['id','day','value','weight','category']}), primary_key=['id'])\n"
-        "day=ms.time_dimension_column(name='day', entity=facts, column='day', is_default=True)\n"
+        "day=ms.time_dimension_column(name='day', entity=facts, column='day')\n"
         "category=ms.dimension_column(name='category', entity=facts, column='category')\n"
         "value=ms.measure_column(name='value', entity=facts, column='value', additivity=ms.additive_all())\n"
         "weight=ms.measure_column(name='weight', entity=facts, column='weight', additivity=ms.additive_all())\n"
@@ -384,7 +384,7 @@ def _component_model(tmp_path: Path, *, parquet: bool = True) -> None:
         "facts=ms.entity(name='facts', datasource=ms.ref.datasource('warehouse'), source="
         + facts
         + " columns={k:k for k in ['id','person','day','value','weight','cancel','category']}), primary_key=['id'])\n"
-        "day=ms.time_dimension_column(name='day', entity=facts, column='day', is_default=True)\n"
+        "day=ms.time_dimension_column(name='day', entity=facts, column='day')\n"
         "category=ms.dimension_column(name='category', entity=facts, column='category')\n"
         "value=ms.measure_column(name='value', entity=facts, column='value', additivity=ms.additive_all())\n"
         "weight=ms.measure_column(name='weight', entity=facts, column='weight', additivity=ms.additive_all())\n"

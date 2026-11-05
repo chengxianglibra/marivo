@@ -37,7 +37,6 @@ from marivo._symbolic import (
     EntitySymbol,
     LookupSymbol,
     RelationshipSymbol,
-    TimeDimensionSymbol,
     symbol_factory,
     symbol_from_ref,
 )
@@ -62,6 +61,7 @@ from marivo.semantic._dsl_authoring import (
     AdditivityPolicy,
     NonAdditiveV1,
 )
+from marivo.semantic._expression_values import _OMITTED_TIME, _OmittedTime
 from marivo.semantic.errors import ErrorKind, SemanticExpressionError
 from marivo.semantic.ir import (
     DimensionIR,
@@ -142,7 +142,7 @@ class ExpressionContract(RenderableResult):
     """Bounded definition contract of one expression value.
 
     It discloses the stage, identity, contribution roots, unit, sum permission,
-    default time, computation fingerprint, the semantic refs it reads, declared
+    computation fingerprint, the semantic refs it reads, declared
     metadata and the operations valid at this stage. Reading it never touches
     a source, executes a query, or enumerates a domain.
     """
@@ -152,7 +152,6 @@ class ExpressionContract(RenderableResult):
     _roots: tuple[ExactRef, ...]
     unit: str | None
     sum_permission: SumPermission | None
-    _default_time: ExactRef | None
     computation: str | None
     _reads: tuple[Ref[SemanticKindTag], ...]
     name: str | None
@@ -172,16 +171,6 @@ class ExpressionContract(RenderableResult):
         """Return the contribution-root lookup symbols in captured order."""
         return tuple(symbol_factory.entity(root.ref.path) for root in self._roots)
 
-    @property
-    def default_time(self) -> TimeDimensionSymbol | None:
-        """Return the optional default-time lookup symbol."""
-        return (
-            symbol_factory.time_dimension(self._default_time.ref.path)
-            if self._default_time is not None
-            else None
-        )
-
-    @property
     def reads(self) -> tuple[LookupSymbol, ...]:
         """Return the captured definition dependencies as lookup symbols."""
         return tuple(symbol_from_ref(reference) for reference in self._reads)
@@ -203,8 +192,6 @@ class ExpressionContract(RenderableResult):
             card = card.field("unit", self.unit)
         if self.sum_permission is not None:
             card = card.field("sum_permission", _permission_text(self.sum_permission))
-        if self._default_time is not None:
-            card = card.field("default_time", self._default_time.ref.key)
         if self.computation is not None:
             card = card.field("computation", self.computation[:26])
         card = card.field("reads", _bounded_refs(self._reads) or "(none)")
@@ -250,7 +237,7 @@ class _ExpressionDisplay:
         """Return this value's bounded definition contract.
 
         Returns: An ExpressionContract with stage, identity, roots, unit, sum
-            permission, default time, computation fingerprint, refs read,
+            permission, computation fingerprint, refs read,
             declared metadata and the operations valid at this stage.
         Example: ``amount.contract().show()``.
         Constraints: Definition facts only; never reads a source or executes.
@@ -277,7 +264,6 @@ class _Entity(_ExpressionDisplay):
             "meaning": "Ordered complete Entity output identity. Naive timestamp keys preserve wall-clock values and exact precision without a timezone; TimeDimension parser and Session timezones do not rewrite identity. Naive and aware identities require explicit compatible representations before matching."
         }
     )
-    _default_time: ExactRef | None
     _facts: DefinitionFacts | None = field(default=None, compare=False, repr=False, kw_only=True)
 
     @property
@@ -285,23 +271,14 @@ class _Entity(_ExpressionDisplay):
         """Return a native lookup symbol for this Entity's identity."""
         return symbol_factory.entity(self._exact_ref.ref.path)
 
-    @property
-    def default_time(self) -> TimeDimensionSymbol | None:
-        """Return the captured default-time identity as a lookup symbol."""
-        return (
-            symbol_factory.time_dimension(self._default_time.ref.path)
-            if self._default_time is not None
-            else None
-        )
-
-    def count(self, *, time: Deferred | None = None) -> Deferred:
+    def count(self, *, time: Deferred | _OmittedTime = _OMITTED_TIME) -> Deferred:
         """Capture a count of complete contribution rows without reading a source."""
         from marivo._definition.deferred import SemanticInput, semantic_input
 
-        value = semantic_input(
-            SemanticInput(self._exact_ref, self._exact_ref, "1", SumNone(), self._default_time)
+        value = semantic_input(SemanticInput(self._exact_ref, self._exact_ref, "1", SumNone()))
+        return cast(
+            "Deferred", value.count() if isinstance(time, _OmittedTime) else value.count(time=time)
         )
-        return cast("Deferred", value.count(time=time))
 
     def __repr__(self) -> str:
         return f"Entity {self._exact_ref.ref.path}@{self._exact_ref.version[:19]} (use .show())"
@@ -370,7 +347,6 @@ class _FieldMetadata(_ExpressionDisplay):
 class Dimension(_FieldMetadata):
     ref: ExactRef
     root: ExactRef
-    default_time: ExactRef | None
     anchor: InstantAnchor | None = field(default=None, kw_only=True)
     _versioned: bool = field(default=False, compare=False, repr=False, kw_only=True)
     path: tuple[_Relationship, ...] = field(default=(), kw_only=True)
@@ -381,7 +357,6 @@ class Dimension(_FieldMetadata):
 class TimeField(_FieldMetadata):
     ref: ExactRef
     root: ExactRef
-    default_time: ExactRef | None
     path: tuple[_Relationship, ...] = ()
     anchor: InstantAnchor | None = field(default=None, kw_only=True)
     _versioned: bool = field(default=False, compare=False, repr=False, kw_only=True)
@@ -394,7 +369,6 @@ class Measure(_FieldMetadata):
     root: ExactRef
     unit: str | None
     permission: SumPermission
-    default_time: ExactRef | None
     coordinates: tuple[ExactRef, ...] = ()
     anchor: InstantAnchor | None = field(default=None, kw_only=True)
     _versioned: bool = field(default=False, compare=False, repr=False, kw_only=True)
@@ -700,15 +674,6 @@ class _Resolver:
             return self.exact(ref_factory.time_dimension(path))
         return self.exact(ref_factory.dimension(path))
 
-    def default_time(self, entity_path: str) -> ExactRef | None:
-        """The Entity's unique declared default time field; none when absent."""
-        defaults = sorted(
-            key
-            for key, field in self._registry.dimensions.items()
-            if field.entity == entity_path and field.is_time_dimension and field.is_default
-        )
-        return self.coordinate(defaults[0]) if len(defaults) == 1 else None
-
     def facts(self, target: Ref[SemanticKindTag]) -> DefinitionFacts:
         """Declared metadata and physical binding facts; never part of a computation."""
         definition = self._state.definitions[target]
@@ -728,8 +693,6 @@ class _Resolver:
                 details.append(("sample_interval", definition.sample_interval.to_token()))
             if definition.parse is not None:
                 details.append(("parse", repr(definition.parse)))
-            if definition.is_default:
-                details.append(("default_time", "true"))
         elif isinstance(definition, RelationshipIR):
             details.append(
                 ("join_keys", ", ".join(f"{key.from_key}={key.to_key}" for key in definition.keys))
@@ -748,7 +711,6 @@ class _Resolver:
         return _Entity(
             _exact_ref=self.entity_ref(path),
             primary_key=self._registry.entities[path].primary_key,
-            _default_time=self.default_time(path),
             _facts=self.facts(target),
         )
 
@@ -789,7 +751,6 @@ class _Resolver:
             root=self.entity_ref(measure.entity),
             unit=measure.unit,
             permission=self.permission(path),
-            default_time=self.default_time(measure.entity),
             coordinates=tuple(
                 self.coordinate(path)
                 for path, field in sorted(self._registry.dimensions.items())
@@ -802,17 +763,12 @@ class _Resolver:
     def field(self, path: str) -> Dimension | TimeField:
         field = self._registry.dimensions[path]
         root = self.entity_ref(field.entity)
-        default = self.default_time(field.entity)
         ref = self.coordinate(path)
         facts = self.facts(ref.ref)
         versioned = self._registry.entities[field.entity].versioning is not None
         if field.is_time_dimension:
-            return TimeField(
-                ref=ref, root=root, default_time=default, _facts=facts, _versioned=versioned
-            )
-        return Dimension(
-            ref=ref, root=root, default_time=default, _facts=facts, _versioned=versioned
-        )
+            return TimeField(ref=ref, root=root, _facts=facts, _versioned=versioned)
+        return Dimension(ref=ref, root=root, _facts=facts, _versioned=versioned)
 
     def metric(self, path: str) -> Deferred:
         """Return a qualified declaration view without changing its captured source."""
@@ -944,7 +900,6 @@ def author_value(value: ResolvedValue) -> ResolvedValue:
                 root=value.root,
                 unit=value.unit if isinstance(value, Measure) else None,
                 permission=value.permission if isinstance(value, Measure) else SumNone(),
-                default_time=value.default_time,
                 coordinates=value.coordinates if isinstance(value, Measure) else (),
                 versioned=value._versioned,
                 field_read=FieldRead(
@@ -1111,11 +1066,6 @@ def _expression_contract(value: object) -> ExpressionContract:
         _roots=roots,
         unit=value.unit if isinstance(value, Measure) else None,
         sum_permission=value.permission if isinstance(value, Measure) else None,
-        _default_time=value._default_time
-        if isinstance(value, _Entity)
-        else value.default_time
-        if not isinstance(value, _Relationship)
-        else None,
         computation=None,
         _reads=facts.reads if facts else (),
         name=facts.name

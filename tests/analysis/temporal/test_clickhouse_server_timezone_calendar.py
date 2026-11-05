@@ -74,7 +74,7 @@ def _shanghai_session(
                 "sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales', owner='Test', default=True)\n",
                 "sales/facts.py": "import marivo.datasource as md\nimport marivo.semantic as ms\n"
                 + f"facts=ms.entity(name='facts', datasource=ms.ref.datasource('warehouse'), source=md.table({case.source.table!r}, database={case.source.database!r}), primary_key=['id'])\n"
-                + f"point=ms.time_dimension_column(name='point', entity=facts, column='point', is_default=True{time_options})\n"
+                + f"point=ms.time_dimension_column(name='point', entity=facts, column='point'{time_options})\n"
                 + "amount=ms.measure_column(name='amount', entity=facts, column='amount', additivity=ms.additive_all())\n",
             }
         )
@@ -231,7 +231,9 @@ def test_date_calendar_day_keeps_dates_and_completes_only_missing_days(
     ) as (session, point, amount):
         single = session.time_scope(start="2026-10-28", end="2026-10-29").by(mv.grain("day"))
         first_submission = len(source_trace.native_sql)
-        rows = session.observe({"total": amount.sum()}, by=(single,)).compute().to_pandas()
+        rows = (
+            session.observe({"total": amount.sum(time=point)}, by=(single,)).compute().to_pandas()
+        )
         assert rows["calendar:day"].tolist() == [pd.Timestamp("2026-10-28", tz=report_timezone)]
         assert rows.total.tolist() == [2]
         fact_sql = [sql for sql in source_trace.native_sql[first_submission:] if '"amount"' in sql]

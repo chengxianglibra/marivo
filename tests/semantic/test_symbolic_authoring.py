@@ -124,7 +124,7 @@ def test_invalid_complete_recipes_fail_at_declaration_capture() -> None:
         _assert_invalid_recipe_fails_at_declaration_capture(bad)
 
 
-def test_forward_fields_named_dependencies_and_late_default_time_bind_once(
+def test_forward_fields_and_named_dependencies_bind_once(
     semantic_project_factory: ProjectFactory, tmp_path: Path
 ) -> None:
     marker = tmp_path / "imports.txt"
@@ -137,14 +137,15 @@ marker.write_text(marker.read_text() + "x" if marker.exists() else "x")
         + """
 future_margin = ms.ref.measure("sales.orders.margin")
 future_orders = ms.ref.entity("sales.orders")
+future_paid = ms.ref.time_dimension("sales.orders.paid_at")
 @ms.metric()
 def margin_per_order():
-    return future_margin.sum() / future_orders.count()
+    return future_margin.sum(time=future_paid) / future_orders.count(time=future_paid)
 @ms.measure(additivity=ms.additive_all())
 def margin():
     return amount - cost
 alias = margin_per_order
-paid_at = ms.time_dimension_column(name="paid_at", entity=orders, column="paid_at", parse=ms.timestamp(timezone="UTC"), is_default=True)
+paid_at = ms.time_dimension_column(name="paid_at", entity=orders, column="paid_at", parse=ms.timestamp(timezone="UTC"))
 """
     )
     catalog = _catalog(semantic_project_factory, source)
@@ -152,8 +153,6 @@ paid_at = ms.time_dimension_column(name="paid_at", entity=orders, column="paid_a
     margin = catalog_value(catalog, "sales.orders.margin", kind="field")
     assert consume_row(margin).unit == "CNY"
     assert consume_row(margin).root.ref.path == "sales.orders"
-    assert consume_row(margin).default_time is not None
-    assert consume_row(margin).default_time.ref.path == "sales.orders.paid_at"
     assert set(catalog._state.registry.declared_metrics) == {"sales.margin_per_order"}
     assert not inspect_deferred(_recipe(catalog.get("metric:sales.margin_per_order"))).symbols
 

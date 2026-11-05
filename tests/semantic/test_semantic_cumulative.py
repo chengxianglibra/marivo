@@ -24,7 +24,7 @@ import marivo.semantic as ms
 import marivo.analysis as mv
 warehouse = ms.ref.datasource("warehouse")
 orders = ms.entity(name="orders", datasource=warehouse, source=md.table("orders"), primary_key=["id"])
-event_time_ref = ms.time_dimension_column(name="event_time", entity=orders, column="created_at", is_default=True)
+event_time_ref = ms.time_dimension_column(name="event_time", entity=orders, column="created_at")
 paid_time_ref = ms.time_dimension_column(name="paid_time", entity=orders, column="paid_at")
 amount_ref = ms.measure_column(name="amount", entity=orders, column="amount", additivity=ms.additive_all())
 quantity_ref = ms.measure_column(name="quantity", entity=orders, column="quantity", additivity=ms.additive_all())

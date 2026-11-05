@@ -198,7 +198,7 @@ def provider() -> DisclosureProvider:
         "cursor": "Use the preceding page's opaque next_cursor with the identical selection.",
         "session_id": "Use the exact existing Session id.",
         "artifact_id": "Use the exact saved Frame's artifact_id string from this Session; objects and Refs are not IDs.",
-        "metrics": "Named Metric object or nonempty list/tuple/Mapping. Only a published root Metric supplies local names; anonymous expressions need Mapping. Names exclude dots, backslashes, controls and left_present/right_present. Names/order remain fixed.",
+        "metrics": "Use a published root Metric or nonempty list/tuple/Mapping. Name expressions in a Mapping. Names exclude dots, backslashes, controls and left_present/right_present.",
         "entity": "Pass a resolved governed Entity, not a Ref or path.",
     }
     parameter_targets: dict[str, tuple[str, ...]] = {
@@ -239,7 +239,6 @@ def provider() -> DisclosureProvider:
                 if name == "persisted_frames"
                 else (
                     "analysis_frame.compute",
-                    "analysis_frame.persist",
                     "semantic.source_check",
                 )
                 if name == "observe"
@@ -259,11 +258,11 @@ def provider() -> DisclosureProvider:
                         if name == "get_or_create" and n == "domains"
                         else "Choose an integer from 1 through 100, excluding bool; default 20. Keep the same limit when continuing a cursor."
                         if name == "persisted_frames" and n == "limit"
-                        else "fields/Grouping/TimeScope/memberships, Population P or (P, rule, ...); () gives one zero-axis cell. P fixes joint keys; population.axes: no keys. Interleave fields; cover necessary output keys before sampling; extras empty. TimeScope/CalendarAxis: intervals/buckets."
+                        else "fields/Grouping/TimeScope/memberships or Population P. P fixes joint keys, population.axes does not. Cover necessary output keys before sampling. () gives one zero-axis cell. TimeScope/CalendarAxis: intervals/buckets. time_group filters and buckets a field, without endpoints."
                         if name == "observe" and n == "by"
                         else "Pass resolved fields or field or identity Grouping values; calendar and membership groupings are rejected. Use () for scalar literal rows."
                         if name == "values" and n == "by"
-                        else "Deferred field/Population contribution condition. Population.count domains stay fixed; count-only conditions reject."
+                        else "Contribution condition. Population.count domains stay fixed."
                         if name == "observe" and n == "where"
                         else "Population with exactly one complete Entity identity axis, unowned or from this Session. Project that identity axis before reading a classified or multi-axis domain."
                         if name == "read" and n == "population"
@@ -273,6 +272,7 @@ def provider() -> DisclosureProvider:
                             "inputs.population",
                             "session.time_scope",
                             "time_scope.by",
+                            "time_group",
                         )
                         if name == "observe" and n == "by"
                         else ("inputs.catalog", "identity")

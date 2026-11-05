@@ -216,11 +216,34 @@ class ContributionFilter:
 
 
 @dataclass(frozen=True, slots=True)
+class FieldCalendarSample:
+    """An internal calendar sample on one explicit native time field."""
+
+    field: FieldRead
+    grain: Grain
+
+
+@dataclass(frozen=True, slots=True)
+class BuiltinSampleCoordinate:
+    """A sample clock frozen at observation capture, without a selection range."""
+
+    sample: Grain | FieldCalendarSample
+    timezone: str
+
+    @property
+    def grain_spec(self) -> Grain:
+        return self.sample.grain if isinstance(self.sample, FieldCalendarSample) else self.sample
+
+
+SampleDomainSpec: TypeAlias = "tuple[AxisBinding, ...] | SampleDomain | LiteralPopulation | PopulationProgram | Grain | FieldCalendarSample"
+
+
+@dataclass(frozen=True, slots=True)
 class PerReduce:
     """Complete the child metric per internal sample, then reduce the samples."""
 
     operand: MetricNode
-    samples: tuple[AxisBinding, ...] | SampleDomain | LiteralPopulation | PopulationProgram | Grain
+    samples: SampleDomainSpec
     reducer: Reducer
     q: float | None = None
     nulls: NullPolicy = "ignore"
@@ -238,7 +261,7 @@ class PerReduce:
 class PerWeightedMean:
     value: MetricNode
     weight: MetricNode
-    samples: tuple[AxisBinding, ...] | SampleDomain | LiteralPopulation | PopulationProgram | Grain
+    samples: SampleDomainSpec
     nulls: NullPolicy = "ignore"
     rule_version: int = NUMERIC_RULE_VERSION
 

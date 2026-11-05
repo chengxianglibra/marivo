@@ -8,6 +8,7 @@ import ibis
 import ibis.expr.datatypes as dt
 import ibis.expr.types as ir
 
+from marivo._definition.expressions import BuiltinSampleCoordinate
 from marivo._definition.types import CalendarCoordinate, IntervalCoordinate
 from marivo._temporal import Grain
 from marivo._timezones import same_timezone
@@ -80,10 +81,30 @@ def builtin_wall_key(wall: ir.Value, grain: Grain) -> ir.Value:
     return bucket
 
 
+def builtin_sample_key(value: ir.Value, calendar: BuiltinSampleCoordinate) -> ir.Value:
+    """Build an actual sample key and distinguish the two instants in a civil fold."""
+    from marivo.datasource._temporal_expressions import localize
+
+    zone = calendar.timezone
+    instant = timestamp(value)
+    wall = render(zone, instant)
+    grain = calendar.grain_spec
+    bucket = timestamp(builtin_wall_key(wall, grain))
+    key = localize(zone, bucket)
+    if grain.unit in ("second", "minute", "hour") and not same_timezone(zone, "UTC"):
+        utc = render("UTC", instant)
+        offset = wall.delta(utc, unit="second")
+        candidate = localize("UTC", timestamp(bucket - offset.as_interval("s")))
+        # The row's offset can differ from the bucket's when a transition lies
+        # inside a wider bucket. Use it only when it names the exact boundary.
+        key = (render(zone, candidate) == bucket).ifelse(candidate, key)
+    return key.cast(KEY_TYPE)
+
+
 def bind_calendar(
     table: ir.Table,
     time: ir.Value,
-    calendar: CalendarCoordinate | IntervalCoordinate,
+    calendar: CalendarCoordinate | IntervalCoordinate | BuiltinSampleCoordinate,
     slot: str,
     *,
     date_timezone: str | None = None,
@@ -92,6 +113,8 @@ def bind_calendar(
     """Attach a native bucket identity without a calendar directory or JOIN."""
     from marivo.analysis.compiler.observation import temporal_bound
 
+    if isinstance(calendar, BuiltinSampleCoordinate):
+        return table.mutate(**{slot: builtin_sample_key(time, calendar)})
     if isinstance(calendar, IntervalCoordinate):
         condition = (time >= temporal_bound(time, calendar.start, calendar.timezone)) & (
             time < temporal_bound(time, calendar.end, calendar.timezone)

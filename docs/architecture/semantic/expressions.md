@@ -47,8 +47,8 @@ def revenue():
 
 This fragment requires a declared warehouse and a domain when collected into a
 model. The loader binds the complete physical and named dependency graph before
-publishing closed Catalog values. It validates default time, permissions, units,
-paths and cycles without reading a source or replaying a module. Physical fields
+publishing Catalog values. It validates time roles, permissions, units, paths
+and cycles without reading a source or replaying a module. Physical fields
 and dependencies may be declared later in the same complete load scope.
 
 `ms.ref.*` produces exact declaration selectors for authoring and explicitly
@@ -80,9 +80,10 @@ signature participate in definition identity; execution still requires backend
 support. Arbitrary Python helpers and Python/Pandas/Arrow UDFs are not Entity
 body symbols.
 
-Measure/Metric decorators take zero-argument functions. The validator captures a
-leading docstring, fresh local expressions and one final return without invoking
-the authored function. Imports, arbitrary helpers, control flow, reassignment,
+Measure decorators take zero-argument functions. Metric decorators also admit
+keyword-only parameters annotated with `ms.TimeParameter`, without defaults.
+The validator captures a leading docstring, fresh local expressions and one final
+return without invoking the authored function. Imports, arbitrary helpers, control flow, reassignment,
 Ibis tables and ms.bind in these bodies are rejected.
 Tuple and list literals are accepted as captured expression arguments, including
 `status.isin(["paid", "shipped"])`; lists are frozen as tuples. This does not admit
@@ -103,6 +104,37 @@ numeric stage carrier, whether dependencies are closed or forward declarations.
 Deferred itself has no Marivo show, contract or
 public manual schema-resolution step. Do not call the decorated value as a
 function after capture.
+
+## Contribution time and Metric parameters
+
+`time=field` sets the contribution time of one source reduction. Omitting
+`time` yields a reduction without a time role. Explicit `time=None` is invalid.
+To preserve a former Entity-default business definition, pass the original
+field to every source reduction that used it.
+
+```python
+@ms.metric()
+def order_amount(*, event: ms.TimeParameter):
+    return amount.sum(time=event)
+```
+
+After loading the model, select the published Metric and time field from
+the Catalog.
+
+```python
+template = catalog.get("metric:sales.order_amount")
+paid = catalog.get("time_dimension:sales.orders.paid_at")
+assert template.kind == "metric" and paid.kind == "time_dimension"
+paid_amount = template.bind_time(event=paid)
+```
+
+The same declared parameter can also select a native internal time sample
+or its ordering. A parameter belongs to its declaration and its uses impose
+root, path and state constraints. Compose distinct templates after binding
+them separately, or connect their parameters to a common outer parameter
+with `bind_time`. Binding returns a new expression and accepts a subset of the
+remaining parameters. Each remaining parameter must be bound before
+observation or preview, including a zero-axis observation.
 
 ## Row quantities and Metric equations
 
@@ -267,12 +299,16 @@ each (external coordinate, internal sample) before reduction. Field samples use
 observed keys. An explicit Population preserves its compatible tuples, including
 empty samples under the child's empty policy, and may select a subset.
 
-`revenue.per(mv.grain("day")).mean()` folds actual daily completed revenues.
-A finite observation TimeScope or CalendarAxis supplies timezone and selection.
-Each source child uses its declared time role and actual executor. Presence,
-including an all-NULL contribution, creates a sample; an absent time bucket does
-not. Missing operands on an existing joint sample retain their owning empty and
-NULL policy. Explicit Population completion remains separate.
+`revenue.per(mv.grain("day")).mean()` folds actual daily completed revenues
+using each source child's declared contribution time.
+`revenue.per(created_at, grain=mv.grain("day")).mean()` uses one explicit native
+sample field while preserving each child's contribution time. Use
+`per(created_at)` to retain exact native timestamps. Both builtin calendar
+forms use the receiving Session's report timezone and need no finite
+observation period. An existing observation period still selects contributions
+by each source reduction's time role. Presence, including an all-NULL
+contribution, creates a sample. Missing operands on an existing joint sample
+retain their empty and NULL policy. Explicit Population completion remains separate.
 
 Static nesting permits equal builtin grains, divisible subday widths, day in
 week/month/quarter/year, month in quarter/year, and quarter in year. Week does not
@@ -296,9 +332,11 @@ CalendarAxis and explicitly reduce the captured Frame values instead. Windows
 on independent formula branches and existing field-sample windows retain their
 own semantics.
 
-Pass a Grain directly to per, not a CalendarAxis or TimeScope. Missing finite
-coordinates, missing child time roles and non-nesting grains raise typed repair
-errors. A completed Metric requires per before another reduction.
+Pass a Grain directly to `per` or use a native time field with a keyword-only
+builtin `grain`. A bare Grain needs contribution time on each source branch.
+Calendar nesting checks apply to layers on the same field, which must agree
+on their timezone. Ordered calendar reducers use chronological bucket order.
+A completed Metric requires `per` before another reduction.
 
 Internal weighted means consume a completed Metric weight on the same sample
 domain. Row weighted means consume same-root row value/weight pairs. Both sums
@@ -319,8 +357,9 @@ Same-time facts finish spatial reduction first. Represented NULLs retain the
 reducer's NULL policy; weighted means retain their common valid-pair mask.
 Explicit Population sample domains retain their declared tuples and empty-sample
 policy. Calendar Grain samples consume actual represented bucket keys. TimeField
-samples alone require no observation period; windows and calendar samples retain
-their own endpoint and finite-coordinate requirements.
+samples and builtin calendar samples require no observation period. Windows
+retain their endpoint requirements, and custom grains require a complete
+certified period.
 Naive source values use parser timezone or Datasource wall_clock_timezone;
 missing declarations reject before reading rows. Aware values retain their
 physical instant. Source wall clocks follow backend-native DST gap/fold interpretation.

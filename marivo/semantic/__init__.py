@@ -34,6 +34,7 @@ from marivo.refs import (
 from marivo.semantic import errors as errors
 from marivo.semantic import typing as typing
 from marivo.semantic._expression_values import MetricExpression, RowExpression
+from marivo.semantic._time_parameters import TimeParameter
 from marivo.semantic.authoring import (
     additive_all,
     additive_except,
@@ -116,7 +117,12 @@ from marivo.semantic.catalog_entries import (
     EntryProvenance,
     FieldDefinition,
     MetricDefinition,
+    MetricNoTimeBinding,
     MetricTimeBinding,
+    MetricTimeConstraint,
+    MetricTimeFieldBinding,
+    MetricTimeParameter,
+    MetricTimeParameterBinding,
     PeriodCalendarDefinition,
     RelationshipDefinition,
     TemporalSetDefinition,
@@ -155,7 +161,12 @@ __all__ = [
     "Metric",
     "MetricDefinition",
     "MetricExpression",
+    "MetricNoTimeBinding",
     "MetricTimeBinding",
+    "MetricTimeConstraint",
+    "MetricTimeFieldBinding",
+    "MetricTimeParameter",
+    "MetricTimeParameterBinding",
     "PeriodCalendar",
     "PeriodCalendarDefinition",
     "PeriodCalendarKind",
@@ -173,6 +184,7 @@ __all__ = [
     "TemporalSetDefinition",
     "TemporalSetKind",
     "TimeDimension",
+    "TimeParameter",
     "ValidationReport",
     "additive_all",
     "additive_except",

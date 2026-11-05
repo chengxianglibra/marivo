@@ -4,10 +4,16 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Literal
+from typing import Literal, TypeAlias
 
 from marivo._definition.correspondence import ComparisonAxis
-from marivo._definition.expressions import MetricNode, PredicateExpression, TimeBinding
+from marivo._definition.expressions import (
+    BuiltinSampleCoordinate,
+    MetricNode,
+    PredicateExpression,
+    TimeBinding,
+)
+from marivo._definition.grouping import FieldCalendarBinding
 from marivo._definition.relations import (
     MembershipBinding,
     PopulationDependency,
@@ -23,12 +29,16 @@ from marivo._definition.types import (
 from marivo._definition.windows import ObservationWindow
 from marivo._temporal import InstantAnchor
 
+CalendarGrouping: TypeAlias = CalendarCoordinate | IntervalCoordinate | BuiltinSampleCoordinate
+SampleAxis: TypeAlias = AxisBinding | CalendarGrouping
+CalendarSample: TypeAlias = CalendarCoordinate | BuiltinSampleCoordinate
+
 
 @dataclass(frozen=True, slots=True)
 class SampleLayer:
     """One occurrence's sample axes and membership allocation."""
 
-    axes: tuple[AxisBinding | CalendarCoordinate | IntervalCoordinate, ...]
+    axes: tuple[SampleAxis, ...]
     memberships: tuple[MembershipBinding, ...]
 
 
@@ -42,6 +52,7 @@ class CoordinateBinding:
     memberships: tuple[MembershipBinding, ...] = ()
     complete_calendar: bool = True
     parent_scope: PopulationDependency | None = None
+    field_calendars: tuple[FieldCalendarBinding, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -68,13 +79,15 @@ class ContributionBinding:
     logical_occurrence: tuple[int, ...] | None = None
     window_key: int | datetime | None = None
     window_calendar_digest: str | None = None
-    sample_axes: tuple[AxisBinding | CalendarCoordinate | IntervalCoordinate, ...] = ()
+    sample_axes: tuple[SampleAxis, ...] = ()
     memberships: tuple[MembershipBinding, ...] = ()
     output_axis_count: int = 0
-    calendars: tuple[tuple[str, CalendarCoordinate | IntervalCoordinate], ...] = ()
+    calendars: tuple[tuple[str, CalendarGrouping], ...] = ()
+    sample_calendar_reads: tuple[tuple[str, FieldRead], ...] = ()
     population_reads: tuple[tuple[AxisBinding, FieldRead | IdentityRead], ...] = ()
     window_rule: ObservationWindow | None = None
     metric: str = ""
+    field_calendar_reads: tuple[tuple[str, FieldRead], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -86,7 +99,7 @@ class ObservationBinding:
     coordinates: CoordinateBinding
     contributions: tuple[ContributionBinding, ...]
     count_populations: tuple[tuple[PopulationDependency, PopulationDependency], ...] = ()
-    calendar_samples: tuple[tuple[tuple[int, ...], CalendarCoordinate], ...] = ()
+    calendar_samples: tuple[tuple[tuple[int, ...], CalendarSample], ...] = ()
 
     @property
     def fingerprint(self) -> str:

@@ -74,12 +74,12 @@ region = ms.dimension_column(name="region", entity=customers, column="region")
 customer_time = ms.time_dimension_column(name="created_at", entity=customers, column="created_at")
 orders = ms.entity(name="orders", datasource=warehouse, source=md.table("orders"), primary_key=["id"])
 order_customer = ms.dimension_column(name="customer_id", entity=orders, column="customer_id")
-order_time = ms.time_dimension_column(name="ordered_at", entity=orders, column="ordered_at", is_default=True)
+order_time = ms.time_dimension_column(name="ordered_at", entity=orders, column="ordered_at")
 amount = ms.measure_column(name="amount", entity=orders, column="amount", additivity=ms.additive_all(), unit="CNY")
 buyer = ms.relationship(name="buyer", from_entity=orders, to_entity=customers, keys=[ms.join_on(order_customer, customer_id)])
 refunds = ms.entity(name="refunds", datasource=warehouse, source=md.table("refunds"), primary_key=["id"])
 refund_customer = ms.dimension_column(name="customer_id", entity=refunds, column="customer_id")
-refund_time = ms.time_dimension_column(name="refunded_at", entity=refunds, column="refunded_at", is_default=True)
+refund_time = ms.time_dimension_column(name="refunded_at", entity=refunds, column="refunded_at")
 refund_amount = ms.measure_column(name="amount", entity=refunds, column="amount", additivity=ms.additive_all(), unit="CNY")
 """
     if versioned:
@@ -95,8 +95,8 @@ refund_amount = ms.measure_column(name="amount", entity=refunds, column="amount"
         )
     if sampled:
         code = code.replace(
-            'column="ordered_at", is_default=True',
-            'column="ordered_at", parse=ms.timestamp(timezone="UTC"), sample_interval=(1, "hour"), is_default=True',
+            'column="ordered_at"',
+            'column="ordered_at", parse=ms.timestamp(timezone="UTC"), sample_interval=(1, "hour")',
         )
     if not missing:
         code += 'refund_buyer = ms.relationship(name="refund_buyer", from_entity=refunds, to_entity=customers, keys=[ms.join_on(refund_customer, customer_id)])\n'
@@ -109,10 +109,10 @@ amount_value = amount
 refund_value = refund_amount
 @ms.metric()
 def revenue():
-    return amount_value.sum()
+    return amount_value.sum(time=order_time)
 @ms.metric()
 def refund_total():
-    return refund_value.sum()
+    return refund_value.sum(time=refund_time)
 @ms.metric()
 def net():
     return revenue - refund_total
@@ -186,7 +186,10 @@ def test_each_fact_occurrence_keeps_its_condition_and_complete_classification(
     refunds = catalog.get("metric:sales.refund_total")
     # Two occurrences of the same fact root with different intrinsic conditions.
     amount = catalog_value(catalog, "sales.orders.amount", kind="field")
-    branches = amount.sum().where(amount > 10) + amount.sum().where(amount < 5)
+    ordered_at = catalog_value(catalog, "sales.orders.ordered_at", kind="field")
+    branches = amount.sum(time=ordered_at).where(amount > 10) + amount.sum(time=ordered_at).where(
+        amount < 5
+    )
     scope = session.time_scope(start="2026-01-01", end="2026-02-01")
     query = session.observe(
         {"net": revenue - refunds, "branches": branches},
@@ -536,6 +539,7 @@ def test_explicit_count_capture_keeps_each_domain_without_reading(
     session = bound_catalog()
     entity = session.catalog.get("entity:sales.orders")
     amount = catalog_value(session.catalog, "sales.orders.amount", kind="field")
+    ordered_at = catalog_value(session.catalog, "sales.orders.ordered_at", kind="field")
     p = mv.coordinates(by=(mv.identity(entity),), keys=(((1,),), ((3,),), ((999,),)))
     q = mv.coordinates(by=(mv.identity(entity),), keys=(((2,),),))
 
@@ -545,7 +549,8 @@ def test_explicit_count_capture_keeps_each_domain_without_reading(
     monkeypatch.setattr(SourceSession, "__enter__", forbidden)
     scope = session.time_scope(start="2026-01-01", end="2026-02-01")
     frame = session.observe(
-        {"p": p.count(), "q": q.count(), "ratio": amount.sum() / p.count()}, by=(scope,)
+        {"p": p.count(), "q": q.count(), "ratio": amount.sum(time=ordered_at) / p.count()},
+        by=(scope,),
     )
     graph = _captured_graph(frame)
     counts = tuple(
@@ -557,7 +562,7 @@ def test_explicit_count_capture_keeps_each_domain_without_reading(
     assert len(_captured_observation(frame).count_populations) == 2
     assert frame.axes[0].role == "interval"
     assert terminal_runs(session) == ()
-    with pytest.raises(AnalysisError, match="at most one output time axis"):
+    with pytest.raises(AnalysisError, match="at most one direct observation time axis"):
         session.observe({"p": p.count()}, by=(scope, scope.by(mv.grain("day"))))
 
 

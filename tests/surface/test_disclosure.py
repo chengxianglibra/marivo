@@ -49,7 +49,6 @@ _OBJECTS_PY = textwrap.dedent("""    import marivo.datasource as md
         entity=orders_ref,
         column="created_at",
         parse=ms.timestamp(timezone="UTC"),
-        is_default=True,
     )
 
     orders = orders_ref

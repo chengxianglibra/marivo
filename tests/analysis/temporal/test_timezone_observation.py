@@ -93,7 +93,7 @@ def _project(
             "order_customer=ms.dimension_column(name='customer', entity=orders, column='customer')\n"
             "buyer=ms.relationship(name='buyer', from_entity=orders, to_entity=customers, keys=[ms.join_on(order_customer, customer_id)])\n"
             "amount=ms.measure_column(name='amount', entity=orders, column='amount', additivity=ms.additive_all())\n"
-            f"happened=ms.time_dimension_column(name='happened', entity=orders, column='happened', parse={parser}, is_default=True)\n"
+            f"happened=ms.time_dimension_column(name='happened', entity=orders, column='happened', parse={parser})\n"
             ""
             "amount_value=amount\n"
             "time_value=happened\n"

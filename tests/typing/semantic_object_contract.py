@@ -59,6 +59,18 @@ def expression_roles(
     assert_type(orders.count(time=paid_at), ms.MetricExpression[Literal["numeric"]])
     assert_type(revenue / 2, ms.MetricExpression[Literal["numeric"]])
     assert_type(revenue > 0, ms.MetricExpression[Literal["boolean"]])
+    assert_type(
+        revenue.per(by=paid_at, grain=mv.grain("day")).last(),
+        ms.MetricExpression[Literal["numeric"]],
+    )
+    assert_type(revenue.bind_time(event=paid_at), ms.MetricExpression[Literal["numeric"]])
+    assert_type((revenue > 0).bind_time(event=paid_at), ms.MetricExpression[Literal["boolean"]])
+
+    @ms.metric()
+    def revenue_at(*, event: ms.TimeParameter) -> ms.MetricExpression[Literal["numeric"]]:
+        return amount.sum(time=event)
+
+    assert_type(revenue_at, ms.MetricExpression[Literal["numeric"]])
     row_condition = status == "paid"
     metric_condition = revenue > 0
     assert_type(row_condition.ifelse(amount, cost), ms.RowExpression[Literal["numeric"]])
@@ -75,7 +87,6 @@ def expression_roles(
     assert_type(session.observe({"margin": (amount - cost).sum(time=paid_at)}), mv.AnalysisFrame)
     check: ms.SourceCheck = ms.source_check.not_null(status)
     assert check is not None
-    assert_type(orders.default_time, ms.TimeDimension | None)
 
 
 def declaration_stage(amount: ms.Measure, authoring: Deferred) -> None:

@@ -117,6 +117,7 @@ SEMANTIC_METHODS: Final = frozenset(
         "where",
         "per",
         "window",
+        "bind_time",
     }
 )
 _TOP_FUNCTIONS: Final = (
@@ -155,7 +156,6 @@ class SemanticInput:
     root: ExactRef
     unit: str | None
     permission: SumPermission
-    default_time: ExactRef | None = None
     coordinates: tuple[ExactRef, ...] = ()
     field_read: FieldRead | None = None
     versioned: bool = False
@@ -214,6 +214,7 @@ class DeclarationRecord:
     reference: ExactRef | None = None
     pending_additivity: tuple[Literal["over", "all", "none"], tuple[str, ...]] | None = None
     pending_assertion: bool = False
+    time_slots: tuple[TimeSlotResolver, ...] = ()
 
 
 # Ibis does not ship py.typed. Keep its untyped inheritance at this one
@@ -226,6 +227,21 @@ else:
 
     class _FrozenResolver(FrozenSlotted, Resolver):
         __slots__ = ()
+
+
+class TimeSlotResolver(_FrozenResolver):
+    """One lexical slot, independent of the spelling used at a binding site."""
+
+    __slots__ = ("binder", "name", "owner")
+    binder: str
+    name: str
+    owner: str
+
+    def __init__(self, binder: str, name: str, owner: str) -> None:
+        super().__init__(binder=binder, name=name, owner=owner)
+
+    def resolve(self, context: dict[str, object]) -> NoReturn:
+        invalid("Metric time slots require bind_time().")
 
 
 class SemanticResolver(_FrozenResolver):
@@ -341,6 +357,7 @@ class DeferredInspection:
     symbols: tuple[Ref[SemanticKindTag], ...] = ()
     context: InputContext = field(default_factory=InputContext)
     identity_keys: tuple[tuple[str, tuple[str, ...]], ...] = ()
+    has_time_parameters: bool = False
 
     @property
     def semantic_calls(self) -> tuple[RecipeUse, ...]:
@@ -405,6 +422,8 @@ def _permission(value: SumPermission | None) -> tuple[str, ...]:
 
 def _captured_field_kind(recipe: Resolver) -> SemanticKind | None:
     """Read a field role only from native leaves and admitted field modifiers."""
+    if isinstance(recipe, TimeSlotResolver):
+        return SemanticKind.TIME_DIMENSION
     if isinstance(recipe, NamedResolver):
         return _captured_field_kind(recipe.recipe)
     if isinstance(recipe, SymbolResolver):
@@ -568,6 +587,7 @@ class _Inspector:
         self.identity_keys: dict[str, tuple[str, ...]] = {}
         self.has_population_count = False
         self.has_population_contains = False
+        self.has_time_parameters = False
 
     def capture_identity_keys(self, values: tuple[tuple[str, tuple[str, ...]], ...]) -> None:
         for identity, keys in values:
@@ -636,6 +656,9 @@ class _Inspector:
             from marivo._definition.graph import computation_fingerprint
 
             self.token("population_count", computation_fingerprint(recipe.population._definition))
+        elif type(recipe) is TimeSlotResolver:
+            self.has_time_parameters = True
+            self.token("time_parameter", recipe.binder, recipe.name)
         elif type(recipe) is SemanticResolver:
             value = recipe.input
             self.uses.append(SemanticUse(path, value))
@@ -643,9 +666,6 @@ class _Inspector:
             self.dependency(value.root)
             self.token("semantic", *_reference(value.reference), *_reference(value.root))
             self.token("unit", value.unit or "", *_permission(value.permission))
-            if value.default_time is not None:
-                self.dependency(value.default_time)
-                self.token("time", *_reference(value.default_time))
             for axis in value.coordinates:
                 self.dependency(axis)
                 self.token("axis", *_reference(axis))
@@ -993,6 +1013,8 @@ class _Inspector:
         self, symbol: str, recipe: Call, path: tuple[str, ...], *, population: bool = False
     ) -> None:
         """Reject known method arity and keyword mistakes at capture time."""
+        if symbol == "bind_time" and recipe.args:
+            invalid("bind_time accepts only named time parameters.", path=path)
         reducers = {
             "sum",
             "mean",
@@ -1014,7 +1036,7 @@ class _Inspector:
             "at": (1, 1, set()),
             "within": (1, 1, set()),
             "where": (1, 1, set()),
-            "per": (1, 1, set()),
+            "per": (0, 1, {"by", "grain"}),
             "window": (1, 1, set()),
             "abs": (0, 0, set()),
             "sqrt": (0, 0, set()),
@@ -1146,7 +1168,24 @@ class _Inspector:
                         path=(*path, f"parameter:{parameter}"),
                     )
             if symbol == "per":
-                _capture_sample(recipe.args[0], (*path, "samples"))
+                by = recipe.kwargs.get("by")
+                if bool(recipe.args) == (by is not None):
+                    invalid("per requires one sample specification named by.", path=path)
+                sample = recipe.args[0] if recipe.args else by
+                assert sample is not None
+                grain = recipe.kwargs.get("grain")
+                if grain is None:
+                    _capture_sample(sample, (*path, "samples"))
+                elif (
+                    not isinstance(grain, Just)
+                    or not isinstance(grain.value, _BuiltinGrain)
+                    or _captured_field_kind(sample) is not SemanticKind.TIME_DIMENSION
+                    or _captured_scalar_path(sample)
+                ):
+                    invalid(
+                        'Use per(TimeField, grain=mv.grain("day")) with one native time field and a builtin Grain.',
+                        path=(*path, "samples"),
+                    )
             if symbol == "at" and (
                 not (
                     isinstance(recipe.args[0], Just)
@@ -1226,6 +1265,7 @@ class _Inspector:
         path: tuple[str, ...],
     ) -> None:
         self.operations.append(RecipeUse(path, symbol, recipe))
+        self.has_time_parameters |= symbol == "bind_time"
         self.token("call", symbol, str(len(args)))
         roles = (
             ("condition", "true", "false")
@@ -1301,6 +1341,7 @@ def inspect_deferred(value: Deferred, *, capture: bool = False) -> DeferredInspe
         tuple(value for _, value in sorted(inspector.symbols.items())),
         merge_input_contexts(*inspector.contexts),
         tuple(sorted(inspector.identity_keys.items())),
+        inspector.has_time_parameters,
     )
 
 

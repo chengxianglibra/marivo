@@ -88,6 +88,11 @@ def pending_schema(graph: BoundGraph, state: CompiledSemanticState | None) -> Pe
     offset = 0
     role: Literal["field", "identity"]
     components: tuple[str, ...]
+    observation = graph.signature.observation
+    field_calendars = {
+        item.calendar.identity: item.field.field.ref.path
+        for item in (() if observation is None else observation.coordinates.field_calendars)
+    }
     for index, axis in enumerate(graph.signature.axes):
         if isinstance(axis, IntervalCoordinate):
             name = "interval"
@@ -101,7 +106,7 @@ def pending_schema(graph: BoundGraph, state: CompiledSemanticState | None) -> Pe
             offset += len(interval.axis.columns)
             continue
         if isinstance(axis, CalendarCoordinate):
-            name = f"calendar:{axis.grain}"
+            name = field_calendars.get(axis.identity, f"calendar:{axis.grain}")
             frozen_axis = calendar_descriptor(
                 axis,
                 token=f"axis.{index}",

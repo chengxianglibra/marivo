@@ -18,17 +18,16 @@ Time dimension 声明观察、窗口和日历使用的时间角色。将普通 D
 | `column` | 是 | — | Entity 来源暴露的物理列名，可以与语义名称不同。 |
 | `sample_interval` | 否 | `None` | 规范的正数日内采样间隔 `(count, "minute" 或 "hour")`，时长小于一天且能整除一个标准日，并且来源编码可表达该间隔；DATE 字段不能提供日内样本。 |
 | `parse` | 否 | `None` | 来源编码解析器；`None` 使用原生时间类型，编码字符串或整数须显式解析。 |
-| `is_default` | 否 | `False` | 标记为该 Entity 的默认 Metric 时间角色。 |
 
 
 
 ```python
 order_date = ms.time_dimension_column(
-    name="order_date", entity=orders, column="order_date", parse=ms.date(timezone="UTC"), is_default=True
+    name="order_date", entity=orders, column="order_date", parse=ms.date(timezone="UTC")
 )
 ```
 
-物理列使用 `ms.time_dimension_column`，派生字段使用 `@ms.time_dimension`。原生日期和带时区时间戳无需解析器；编码字符串或整数使用 `ms.strptime(...)`，只有小时的字段使用 `ms.hour_prefix(...)`。DATE、无时区时间戳和编码时间必须在解析器或 Datasource `wall_clock_timezone` 上声明源时区；两者都缺失时在读取业务数据前拒绝。原生带时区时间戳忽略 Datasource 默认值。每个 Entity 最多设置一个 `is_default=True` 的时间字段。它指定 Metric 默认时间角色，但不设定观察范围；观察范围仍需通过 `TimeScope` 提供。财务期间参见[业务日历](#业务日历)。
+物理列使用 `ms.time_dimension_column`，派生字段使用 `@ms.time_dimension`。原生日期和带时区时间戳无需解析器；编码字符串或整数使用 `ms.strptime(...)`，只有小时的字段使用 `ms.hour_prefix(...)`。DATE、无时区时间戳和编码时间必须在解析器或 Datasource `wall_clock_timezone` 上声明源时区；两者都缺失时在读取业务数据前拒绝。原生带时区时间戳忽略 Datasource 默认值。在源规约中用 `time=field` 指定贡献时间。省略 `time` 即无时间角色。需要观察范围时，在 `observe.by` 中提供 `TimeScope`。财务期间参见[业务日历](#业务日历)。
 
 `sample_interval` 描述来源采样节拍，不会将时间戳截断或分桶。所有 TimeField 样本规约均允许缺点；已表示样本上的 NULL 遵循规约自身策略，声明节拍不代表来源完整。
 
@@ -41,7 +40,7 @@ order_date = ms.time_dimension_column(
 
 ## 派生时间字段：`ms.time_dimension`
 
-当时间字段是 Entity 表达式时，使用 `@ms.time_dimension`。它接受上文介绍的 `entity`、`parse`、`sample_interval` 和 `is_default` 参数。默认使用函数名，也可通过 `name=` 指定名称。
+当时间字段是 Entity 表达式时，使用 `@ms.time_dimension`。它接受上文介绍的 `entity`、`parse` 和 `sample_interval` 参数。默认使用函数名，也可通过 `name=` 指定名称。
 
 ## 原生时间戳：`ms.timestamp`
 

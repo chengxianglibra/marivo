@@ -986,12 +986,12 @@ def attribute_input_program(
                         and binding.time is not None
                         and read_reduction(leaf.read) is not None
                     )
-                    slot, calendar = next(iter(require_reduction(leaf.read).calendars))
+                    slot, window_calendar = next(iter(require_reduction(leaf.read).calendars))
                     from marivo._definition.types import CalendarCoordinate
 
-                    assert isinstance(calendar, CalendarCoordinate)
+                    assert isinstance(window_calendar, CalendarCoordinate)
                     window = AttributeWindowInput(
-                        binding.window_key, slot, binding.period, binding.time, calendar
+                        binding.window_key, slot, binding.period, binding.time, window_calendar
                     )
                 grouped[(native.path, "native_value")] = [
                     (

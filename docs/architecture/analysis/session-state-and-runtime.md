@@ -319,6 +319,12 @@ scan whole files, so bounded memory does not imply bounded total I/O. Captured
 read_stats records actual decoded/checked data rows, coordinate rows and receipt
 hash bytes. It does not measure peak memory or all disk I/O.
 
+An observation with several output calendars stores a separate frozen
+directory for each axis. Recovery uses the saved axis keys, timezone, bucket
+interpretation and selected boundaries. Internal calendar samples are reduced
+before output publication, so reopening the Frame does not execute the Metric
+or reapply any source filter.
+
 `read_periods(target, limit=1000, cursor=None)` reads frozen calendar/interval periods,
 paired endpoints or consumed time-comparison correspondences from a complete memory or stored
 Frame. The target is a current time `FrameAxis` or `FrameComparison` from the exact input; ordinary

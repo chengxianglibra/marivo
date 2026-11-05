@@ -17,17 +17,17 @@ _MODEL = """import marivo.datasource as md
 import marivo.semantic as ms
 flows = ms.entity(name="flows", datasource=ms.ref.datasource("warehouse"), source=md.table("flows"), primary_key=["id"])
 category = ms.dimension_column(name="category", entity=flows, column="category")
-day = ms.time_dimension_column(name="day", entity=flows, column="day", is_default=True)
+day = ms.time_dimension_column(name="day", entity=flows, column="day")
 total_in_flow_value = ms.measure_column(name="total_in_flow_value", entity=flows, column="bytes", unit="By", additivity=ms.additive_all())
 total_in_p95_flow_value = ms.measure_column(name="total_in_p95_flow_value", entity=flows, column="p95_bytes", unit="By", additivity=ms.additive_all())
 amount = ms.measure_column(name="amount", entity=flows, column="amount", unit="CNY", additivity=ms.additive_all())
 fixed = ms.measure_column(name="fixed", entity=flows, column="bytes", unit="By", additivity=ms.additive_except(day), status_time_dimension=day)
 @ms.metric()
 def daily_bandwidth():
-    return ms.rescale(total_in_flow_value.sum(), divisor=86400 * 1024**3, unit="GiB/s")
+    return ms.rescale(total_in_flow_value.sum(time=day), divisor=86400 * 1024**3, unit="GiB/s")
 @ms.metric()
 def hourly_p95_bandwidth():
-    return ms.rescale(total_in_p95_flow_value.sum(), divisor=3600 * 1024**3, unit="GiB/s")
+    return ms.rescale(total_in_p95_flow_value.sum(time=day), divisor=3600 * 1024**3, unit="GiB/s")
 @ms.measure()
 def row_daily_bandwidth():
     return ms.rescale(total_in_flow_value, divisor=86400 * 1024**3, unit="GiB/s")

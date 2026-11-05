@@ -343,9 +343,6 @@ hh = ms.time_dimension_column(name="hh", entity=orders, column="hh", parse=ms.ho
   hour_prefix recursively inherits its prefix field's effective declaration.
   An aware timestamp ignores the Datasource default and rejects every parser timezone,
   including the physical zone, because its instant is already defined.
-- **`is_default`** (default `False`) selects the Entity's default Metric time
-  role. It does not select members, versions, output boundaries or windows.
-  Only one field per Entity may be the default.
 - **`sample_interval`** belongs to the field and optionally declares
   `(count, "minute" | "hour")`. The positive subday width must tile one nominal
   day and use a unique spelling: `(60, "minute")` requires `(1, "hour")`;
@@ -354,6 +351,10 @@ hh = ms.time_dimension_column(name="hh", entity=orders, column="hh", parse=ms.ho
   preparation. Cadence does not assert complete source coverage; missing clocks
   are allowed. [Sampled expressions](expressions.md#internal-samples-and-windows)
   own the reduction behavior.
+
+Source reductions select the contribution time explicitly with `time=field`.
+Omit the argument for a reduction with no contribution time. Status-time
+coordinates on Measures retain their independent additivity contract.
 
 DATE contribution roles require day-or-coarser output/reset and finite boundaries
 at business midnight. Duration windows require positive integer multiples of

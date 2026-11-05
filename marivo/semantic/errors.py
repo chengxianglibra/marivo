@@ -152,7 +152,6 @@ class ErrorKind(StrEnum):
     INVALID_METRIC_FANOUT_POLICY = "invalid_metric_fanout_policy"
     DERIVED_METRIC_FANOUT_POLICY = "derived_metric_fanout_policy"
 
-    DUPLICATE_DEFAULT_TIME_DIMENSION = "duplicate_default_time_dimension"
     INVALID_SAMPLE_INTERVAL = "invalid_sample_interval"
     INVALID_TIME_FOLD = "invalid_time_fold"
     TIME_FOLD_REQUIRES_SEMI_ADDITIVE = "time_fold_requires_semi_additive"

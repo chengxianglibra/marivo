@@ -161,10 +161,6 @@ def test_decimal_boundary_fixed_rollup_does_not_round_range_check(
             'INSERT INTO "order" VALUES (?, ?, ?, ?, ?, ?)',
             ["one", "A", "web", "paid", "2026-08-15", str(value)],
         )
-    models = case.root / "models/semantic/sales/models.py"
-    models.write_text(
-        models.read_text().replace("parse=ms.timestamp(", "is_default=True, parse=ms.timestamp(", 1)
-    )
     ms.load(workspace_dir=case.root)
     session = case.session
     amount = catalog_value(session.catalog, "sales.order.amount", kind="field")
@@ -209,10 +205,6 @@ def test_numeric_raw_order_and_exchange_batches(
                 'INSERT INTO "order" VALUES (?, ?, ?, ?, ?, ?)',
                 [str(index), member, "web", "paid", "2026-08-15", value],
             )
-    models = case.root / "models/semantic/sales/models.py"
-    models.write_text(
-        models.read_text().replace("parse=ms.timestamp(", "is_default=True, parse=ms.timestamp(", 1)
-    )
     ms.load(workspace_dir=case.root)
     session = case.session
     amount_field = catalog_value(session.catalog, "sales.order.amount", kind="field")

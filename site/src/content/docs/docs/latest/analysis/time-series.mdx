@@ -170,8 +170,8 @@ adjusted.show()
 
 `samples.quantile(0.95)`, min/max and first/last share the same missing-clock
 policy as means. Declaring cadence triggers no complete-coverage check and
-requires no finite observation period; windows and calendar samples retain their
-own period requirements. Represented NULLs still follow `nulls`. Results describe
+requires no finite observation period. Windows still require an observation
+endpoint, and custom calendar samples require a complete certified period. Represented NULLs still follow `nulls`. Results describe
 the observed samples and do not prove completeness of the whole period.
 
 
@@ -185,11 +185,13 @@ not trigger local recomputation. Completed Frames continue to use captured data.
 
 ## Fold Metrics over calendar cells
 
-Use a Grain in `Metric.per` to fold completed daily values without declaring
-another TimeDimension. The observation supplies the finite scope and timezone;
-each source component uses its own declared time field. A weekly mean of daily
-revenue includes days with contributions, including all-NULL days. Missing days
-do not become zero-valued internal samples.
+Use `Metric.per(grain)` to fold completed buckets by each source component's
+declared contribution time. Use `Metric.per(created_at, grain=mv.grain("day"))`
+to fix the sample field while the original Metric keeps its contribution time.
+Both builtin forms use the Session report timezone and need no finite
+observation period. If you previously chose the sample timezone through an
+observation axis, set the Session timezone explicitly. An all-NULL day with
+contributions is still a sample. A missing day adds no sample.
 
 {/* example: calendar-sample-fold */}
 
@@ -210,7 +212,7 @@ Undefined custom hierarchies reject; one complete certified custom period may be
 sampled under an interval axis. Pass the Grain to `per`, and the CalendarAxis or
 TimeScope to `observe(by=...)`. Help: `semantic.metric.per`.
 
-`ms.calendar_grain(...)` bind to the Session's current
+Semantic grains from `ms.calendar_grain(...)` bind to the Session's current
 certified calendar snapshot. Declared calendar folds require calendar
 certification. Windows inside calendar samples and windows wrapping calendar
 folds currently raise a typed error. Observe the windowed Metric directly on a

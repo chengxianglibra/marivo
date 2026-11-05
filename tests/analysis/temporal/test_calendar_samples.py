@@ -223,7 +223,6 @@ def test_calendar_sample_binding_errors_are_structured(calendar_session: Session
     metric = amount.sum(time=point)
     month = session.time_scope(start="2026-10-05", end="2026-11-02").by(mv.grain("month"))
     for value, by, expected, received in (
-        (metric.per(mv.grain("day")).mean(), (), "finite", "None"),
         (metric.per(mv.grain("week")).mean(), (month,), "static", "week"),
         (amount.sum().per(mv.grain("day")).mean(), (month,), "time role", "SourceAggregate"),
     ):

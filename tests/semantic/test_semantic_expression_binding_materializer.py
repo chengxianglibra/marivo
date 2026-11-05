@@ -26,7 +26,7 @@ discount_ref = ms.measure_column(name="discount", entity=orders, column="discoun
 @ms.dimension(entity=orders)
 def country(rows):
     return rows.country
-@ms.time_dimension(entity=orders, is_default=True, parse=ms.date(timezone="UTC"))
+@ms.time_dimension(entity=orders, parse=ms.date(timezone="UTC"))
 def ordered_at(rows):
     return rows.ordered_at
 amount = amount_ref
@@ -36,7 +36,7 @@ def net_amount():
     return amount * 0.9
 @ms.metric()
 def revenue():
-    return net_amount.sum()
+    return net_amount.sum(time=ordered_at)
 """
 
 
@@ -59,7 +59,8 @@ def test_pure_measure_composition_and_physical_fields_execute(
             "return amount * 0.9", "value = amount\n    net = value * 0.9\n    return net"
         )
         source = source.replace(
-            "return net_amount.sum()", "value = net_amount\n    return value.sum()"
+            "return net_amount.sum(time=ordered_at)",
+            "value = net_amount\n    return value.sum(time=ordered_at)",
         )
     project = _project(semantic_project_factory, source)
     assert project.is_ready(), project.errors()

@@ -243,7 +243,7 @@ def hour_session(
             "sales/events.py": "import marivo.semantic as ms\nimport marivo.datasource as md\n"
             "events=ms.entity(name='events',datasource=ms.ref.datasource('warehouse'),source=md.table('events'),primary_key=['id'])\n"
             "identity=ms.dimension_column(name='id',entity=events,column='id')\n"
-            "day=ms.time_dimension_column(name='day',entity=events,column='day',parse=ms.strptime('%Y%m%d'),is_default=True)\n"
+            "day=ms.time_dimension_column(name='day',entity=events,column='day',parse=ms.strptime('%Y%m%d'))\n"
             "hour=ms.time_dimension_column(name='hour',entity=events,column='hour',parse=ms.hour_prefix(day))\n"
             "@ms.metric()\ndef hourly_count():\n    return events.count(time=hour)\n",
         }

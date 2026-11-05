@@ -101,7 +101,6 @@ def _registry() -> Registry:
                 column,
                 _LOCATION,
                 parse=DateParse(),
-                is_default=column == "day",
                 source_column=column,
                 body_ast_hash=ExpressionBody.for_column(column).body_ast_hash,
             )
@@ -138,7 +137,6 @@ def test_normalized_time_dimension_preserves_declared_type_and_role() -> None:
     normalized = normalize_target_dimension(registry, "sales.orders.day")
 
     assert normalized.logical_type == "date"
-    assert normalized.is_default
     assert normalized.sample_interval is None
 
 

@@ -130,7 +130,7 @@ def test_native_partition_constraints_and_scanned_rows(
                         (semantic / "events.py").write_text(
                             "import marivo.datasource as md\nimport marivo.semantic as ms\n"
                             f"events=ms.entity(name='events',datasource=ms.ref.datasource('warehouse'),source=md.table({name!r}),primary_key=['id'])\n"
-                            "point=ms.time_dimension_column(name='point',entity=events,column='point',parse=ms.strptime('%Y%m%d'),is_default=True)\n"
+                            "point=ms.time_dimension_column(name='point',entity=events,column='point',parse=ms.strptime('%Y%m%d'))\n"
                         )
                         with monkeypatch.context() as patch:
                             patch.setenv("MARIVO_PARTITION_READER", "analysis_reader")
@@ -233,7 +233,7 @@ def test_hour_prefix_public_filters_prune_both_iceberg_partitions(
                     "sales/events.py": "import marivo.semantic as ms\nimport marivo.datasource as md\n"
                     f"events=ms.entity(name='events',datasource=ms.ref.datasource('warehouse'),source=md.table({name!r}),primary_key=['id'])\n"
                     "identity=ms.dimension_column(name='id',entity=events,column='id')\n"
-                    "day=ms.time_dimension_column(name='day',entity=events,column='day',parse=ms.strptime('%Y%m%d'),is_default=True)\n"
+                    "day=ms.time_dimension_column(name='day',entity=events,column='day',parse=ms.strptime('%Y%m%d'))\n"
                     "hour=ms.time_dimension_column(name='hour',entity=events,column='hour',parse=ms.hour_prefix(day))\n"
                     "amount=ms.measure_column(name='amount',entity=events,column='amount',additivity=ms.additive_all())\n"
                     "@ms.metric()\ndef total():\n    return amount.sum(time=hour)\n",
