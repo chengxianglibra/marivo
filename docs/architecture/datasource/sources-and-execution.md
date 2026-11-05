@@ -218,7 +218,7 @@ gpu_servers = md.json(
 )
 ```
 Authentication headers are resolved from the owning DuckDB datasource and are
-sent only when the final URL is inside its declared `http_scope`. The body shape
+sent only when the final URL is inside its declared HTTP secret `scope`. The body shape
 stays in `md.json(...)`; explicit reads supply declared non-secret parameter
 values without changing that declaration.
 
@@ -375,9 +375,10 @@ provider exposes them, partition topology, physical estimates, and ClickHouse
 projectable columns — through the provider statement channel: a closed
 registry of provider-owned fixed statements (statement text is pinned by snapshot tests and submissions are audited on the
 backend). Every registered metadata statement has exactly the
-owning `datasource.metadata.<backend>` purpose; scoped HTTP credential statements
-have only `datasource.http_credentials`. Empty purpose sets grant no submission
-authority. Cross-provider and cross-purpose requests reject before native SQL.
+owning `datasource.metadata.<backend>` purpose; scoped S3 and HTTP credential statements
+have only `datasource.credentials`. Empty purpose sets grant no submission
+authority. Parameterized statements may render quoted identifier slots but never
+literal slots; bound credential values stay out of submission logs. Cross-provider and cross-purpose requests reject before native SQL.
 Each fact query that fails yields that fact's
 unavailable warning while inspection still succeeds; a total failure yields
 schema-only. MySQL invocation-local bulk key requests additionally read the
@@ -396,7 +397,7 @@ of those facts rejects the affected cell. Trino `$partitions` and ClickHouse
 `system.tables` / `system.parts` partition-value reads continue through bound
 Ibis expressions. Authenticated DuckDB HTTP sources install a scoped temporary
 secret at connection time and send credentials only inside the declared
-`http_scope`; see [connection credentials](README.md#credentials-and-secret-persistence) for the declaration contract.
+HTTP secret `scope`; see [connection credentials](README.md#credentials-and-secret-persistence) for the declaration contract.
 
 MySQL isolated authoring readers install and read back the native session
 `max_execution_time` through two provider-owned statements. Their purpose is

@@ -14,7 +14,8 @@ from marivo.config import (
     load_project_config,
 )
 from marivo.datasource._builtin import default_datasource, require_user_datasource_name
-from marivo.datasource.authoring import DatasourceSpec, _storage_name
+from marivo.datasource.authoring import DatasourceSpec, DuckDBSpec, _storage_name
+from marivo.datasource.credential_inputs import EnvRef, secret_literal
 from marivo.datasource.engines import require_profile_for_backend_type
 from marivo.datasource.errors import (
     DatasourceLoadError,
@@ -53,6 +54,8 @@ def require_project_config(project_root: Path) -> ProjectConfig:
 
 
 def _literal(value: Any) -> str:
+    if isinstance(value, EnvRef):
+        return f"md.env({value.name!r})"
     return repr(value)
 
 
@@ -95,14 +98,8 @@ def _write_datasource_file(
     kwargs: dict[str, Any] = {"name": spec.name, **declared_kwargs}
     if spec.wall_clock_timezone is not None:
         kwargs["wall_clock_timezone"] = spec.wall_clock_timezone
-    http_headers_env: dict[str, str] = {}
-    for stem, env_var in spec.env_refs.items():
-        if stem.startswith("http_header:"):
-            http_headers_env[stem.removeprefix("http_header:")] = env_var
-            continue
-        kwargs[f"{stem}_env"] = env_var
-    if http_headers_env:
-        kwargs["http_headers_env"] = http_headers_env
+    if not isinstance(spec, DuckDBSpec):
+        kwargs.update({name: EnvRef(reference) for name, reference in spec.env_refs.items()})
     ai_context_call = _ai_context_literal(cast("AiContextIR", spec.ai_context))
     if extra_kwargs:
         kwargs["extra"] = extra_kwargs
@@ -114,7 +111,12 @@ def _write_datasource_file(
     constructor_line = len(lines) + 1
     lines.append(f"md.{func_name}(")
     for key, value in kwargs.items():
-        lines.append(f"    {key}={_literal(value)},")
+        if key == "secrets" and isinstance(spec, DuckDBSpec):
+            lines.append(
+                "    secrets=[" + ", ".join(secret_literal(item) for item in spec.secrets) + "],"
+            )
+        else:
+            lines.append(f"    {key}={_literal(value)},")
     if ai_context_call is not None:
         lines.append(f"    ai_context={ai_context_call},")
     lines.append(")")

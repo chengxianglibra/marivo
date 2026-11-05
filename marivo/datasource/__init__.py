@@ -16,6 +16,16 @@ from marivo.datasource.authoring import (
     trino,
 )
 from marivo.datasource.catalog import DatasourceCatalog, load
+from marivo.datasource.credential_inputs import (
+    EnvRef,
+    HttpBearerSecret,
+    HttpHeadersSecret,
+    S3Secret,
+    env,
+    http_bearer_secret,
+    http_headers_secret,
+    s3_secret,
+)
 from marivo.datasource.credentials import (
     CredentialRequest,
     CredentialResolver,
@@ -64,9 +74,13 @@ __all__ = [
     "DatasourceTestResult",
     "DiscoverySnapshot",
     "DuckDBSpec",
+    "EnvRef",
+    "HttpBearerSecret",
+    "HttpHeadersSecret",
     "MySQLSpec",
     "PartitionInspection",
     "PostgresSpec",
+    "S3Secret",
     "SecretValue",
     "SourceInspection",
     "TableSource",
@@ -75,6 +89,9 @@ __all__ = [
     "credential_scope",
     "csv",
     "duckdb",
+    "env",
+    "http_bearer_secret",
+    "http_headers_secret",
     "inspect",
     "json",
     "load",
@@ -85,6 +102,7 @@ __all__ = [
     "raw_sql",
     "register",
     "remove",
+    "s3_secret",
     "source_param",
     "table",
     "time_range",

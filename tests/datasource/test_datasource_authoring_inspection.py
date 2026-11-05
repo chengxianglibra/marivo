@@ -422,7 +422,7 @@ def test_file_source_requires_duckdb_without_opening_backend(
             name="warehouse",
             host="localhost",
             catalog="hive",
-            user_env="TRINO_USER",
+            user=md.env("TRINO_USER"),
         ),
         project_root=project_root,
     )

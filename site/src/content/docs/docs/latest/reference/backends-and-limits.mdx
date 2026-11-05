@@ -17,7 +17,7 @@ does not guarantee that a method supports the source's types and structure.
 | DuckDB | `duckdb` | Local database and file-source engine; the tutorial needs no server |
 | PostgreSQL | `postgres` | Requires libpq and database access |
 | MySQL / MariaDB | `mysql` | PyMySQL includes RSA authentication support; no local MySQL client C library |
-| Trino | `trino` | Requires `catalog` and `user_env`; `schema` is optional |
+| Trino | `trino` | Requires `catalog` and `user`; `schema` is optional |
 | ClickHouse | `clickhouse` | Physical joins require a qualified MergeTree table; Distributed join routes are restricted |
 
 Marivo 0.6.1 requires DuckDB `>=1.5.3,<2` in the `duckdb`, `all`, and `dev`

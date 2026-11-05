@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
+from pathlib import Path
+from threading import Lock
 from typing import TYPE_CHECKING, Any
+from urllib.parse import urlsplit
 
 import ibis.expr.operations as ops
 import ibis.expr.types as ir
@@ -24,7 +27,7 @@ from marivo.datasource.engines.base import (
     default_table_name_parts,
     identity_str,
 )
-from marivo.datasource.errors import DatasourceFieldInvalidError, repair
+from marivo.datasource.errors import DatasourceConnectionError, repair
 
 if TYPE_CHECKING:
     from marivo.datasource.metadata import TableMetadata
@@ -32,22 +35,39 @@ if TYPE_CHECKING:
 register_provider_statements(
     "duckdb",
     {
-        "http_secret_bearer": ProviderStatement(
-            statement_id="duckdb.http_secret_bearer",
-            template=(
-                "CREATE OR REPLACE SECRET marivo_http_auth (TYPE HTTP, BEARER_TOKEN ?, SCOPE ?)"
-            ),
+        "secret_s3": ProviderStatement(
+            statement_id="duckdb.secret_s3",
+            template="CREATE TEMPORARY SECRET {name} (TYPE S3, PROVIDER config, KEY_ID ?, SECRET ?, REGION ?, ENDPOINT ?, URL_STYLE ?, USE_SSL ?, SCOPE ?)",
+            identifier_slots=frozenset({"name"}),
             parameterized=True,
-            allowed_purposes=frozenset({"datasource.http_credentials"}),
+            allowed_purposes=frozenset({"datasource.credentials"}),
         ),
-        "http_secret_headers": ProviderStatement(
-            statement_id="duckdb.http_secret_headers",
-            template=(
-                "CREATE OR REPLACE SECRET marivo_http_auth "
-                "(TYPE HTTP, EXTRA_HTTP_HEADERS ?, SCOPE ?)"
-            ),
+        "secret_s3_session": ProviderStatement(
+            statement_id="duckdb.secret_s3_session",
+            template="CREATE TEMPORARY SECRET {name} (TYPE S3, PROVIDER config, KEY_ID ?, SECRET ?, REGION ?, ENDPOINT ?, URL_STYLE ?, USE_SSL ?, SCOPE ?, SESSION_TOKEN ?)",
+            identifier_slots=frozenset({"name"}),
             parameterized=True,
-            allowed_purposes=frozenset({"datasource.http_credentials"}),
+            allowed_purposes=frozenset({"datasource.credentials"}),
+        ),
+        "secret_http_bearer": ProviderStatement(
+            statement_id="duckdb.secret_http_bearer",
+            template="CREATE TEMPORARY SECRET {name} (TYPE HTTP, BEARER_TOKEN ?, SCOPE ?)",
+            identifier_slots=frozenset({"name"}),
+            parameterized=True,
+            allowed_purposes=frozenset({"datasource.credentials"}),
+        ),
+        "secret_http_headers": ProviderStatement(
+            statement_id="duckdb.secret_http_headers",
+            template="CREATE TEMPORARY SECRET {name} (TYPE HTTP, EXTRA_HTTP_HEADERS ?, SCOPE ?)",
+            identifier_slots=frozenset({"name"}),
+            parameterized=True,
+            allowed_purposes=frozenset({"datasource.credentials"}),
+        ),
+        "secret_drop": ProviderStatement(
+            statement_id="duckdb.secret_drop",
+            template="DROP TEMPORARY SECRET IF EXISTS {name}",
+            identifier_slots=frozenset({"name"}),
+            allowed_purposes=frozenset({"datasource.credentials"}),
         ),
         "tables.comment_size": ProviderStatement(
             statement_id="duckdb.tables.comment_size",
@@ -132,94 +152,118 @@ register_provider_statements(
 )
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, repr=False)
 class DuckDbHttpCredentials:
     """Scoped HTTP credentials installed on one DuckDB connection."""
 
-    scope: str
-    headers: tuple[tuple[str, str], ...]
+    scopes: tuple[tuple[str, tuple[tuple[str, str], ...]], ...]
 
     def headers_for(self, url: str) -> dict[str, str]:
-        if not url_is_in_http_scope(url, self.scope):
+        matches = [
+            (scope, headers) for scope, headers in self.scopes if url_is_in_http_scope(url, scope)
+        ]
+        if not matches:
             return {}
-        return dict(self.headers)
+        return dict(max(matches, key=lambda item: len(urlsplit(item[0]).path.rstrip("/")))[1])
 
 
-def http_credentials(
+def install_credentials(
     backend: BaseBackend,
     *,
-    scope: object,
-    bearer_token: object,
-    headers: object,
+    name: str,
+    metadata: object,
+    resolved: Mapping[str, object],
 ) -> DuckDbHttpCredentials | None:
-    """Install the declared scoped HTTP secret and return in-memory headers.
-
-    The secret values are passed as statement parameters, so they never appear
-    in rendered SQL text or the capability submission log.
-    """
-    if bearer_token is None and not headers:
+    """Install secrets with bound values; keep only HTTP headers in connection memory."""
+    if not metadata:
         return None
-    raw_sql = getattr(backend, "raw_sql", None)
-    if not callable(raw_sql):
-        raise DatasourceFieldInvalidError(
-            message="DuckDB HTTP auth requires a backend with raw_sql support",
-            expected="a DuckDB backend",
-            received=type(backend).__name__,
-            location="DuckDB HTTP auth",
-            repair=repair(
-                kind="reconnect",
-                canonical_id="datasource_catalog.test",
-                action="Reconnect using the declared DuckDB datasource.",
-            ),
-        )
-    if not isinstance(scope, str):
-        raise DatasourceFieldInvalidError(
-            message="DuckDB HTTP auth scope was not resolved",
-            expected="an HTTP(S) scope string",
-            received=repr(scope),
-            location="DuckDB HTTP auth",
-            repair=repair(
-                kind="reauthor",
-                canonical_id="duckdb",
-                action="Declare an explicit HTTP(S) scope on the DuckDB datasource.",
-            ),
-        )
-    if isinstance(bearer_token, str):
-        execute_provider_statement(
-            backend,
-            PROFILE,
-            "duckdb.http_secret_bearer",
-            purpose="datasource.http_credentials",
-            parameters=[bearer_token, scope],
-        )
-        return DuckDbHttpCredentials(
-            scope=scope,
-            headers=(("Authorization", f"Bearer {bearer_token}"),),
-        )
-    if (
-        isinstance(headers, Mapping)
-        and headers
-        and all(isinstance(name, str) and isinstance(value, str) for name, value in headers.items())
-    ):
-        execute_provider_statement(
-            backend,
-            PROFILE,
-            "duckdb.http_secret_headers",
-            purpose="datasource.http_credentials",
-            parameters=[dict(headers), scope],
-        )
-        return DuckDbHttpCredentials(scope=scope, headers=tuple(headers.items()))
-    raise DatasourceFieldInvalidError(
-        message="DuckDB custom HTTP authentication was not fully resolved",
-        expected="environment-sourced custom HTTP headers",
-        received="incomplete HTTP authentication fields",
-        location="DuckDB HTTP auth",
-        repair=repair(
-            kind="reauthor",
-            canonical_id="duckdb",
-            action="Declare one complete environment-backed HTTP auth mode.",
-        ),
-    )
+    if not isinstance(metadata, list):
+        raise TypeError("Secret metadata must be a list")
+    scopes: list[tuple[str, tuple[tuple[str, str], ...]]] = []
+    from duckdb import TransactionException
+
+    installed: list[str] = []
+    disconnect = backend.disconnect
+
+    def disconnect_with_secrets() -> None:
+        try:
+            if installed:
+                # Closing a native connection rolls back pending user work.
+                # Do that before dropping secrets so a later rollback cannot
+                # restore them in an instance kept alive by another handle.
+                try:
+                    backend.con.rollback()
+                except TransactionException as error:
+                    if "no transaction is active" not in str(error):
+                        raise
+            while installed:
+                execute_provider_statement(
+                    backend,
+                    PROFILE,
+                    "duckdb.secret_drop",
+                    identifiers={"name": installed.pop()},
+                    purpose="datasource.credentials",
+                )
+        finally:
+            disconnect()
+
+    backend.disconnect = disconnect_with_secrets
+    entries = sorted(metadata, key=lambda item: (item["type"], item["scope"]))
+    for index, item in enumerate(entries):
+        secret_type, scope = item["type"], item["scope"]
+        prefix = f"{secret_type}@{scope}."
+        secret_name = f"marivo_{name}_{index}"
+        try:
+            parameters: list[object]
+            if secret_type == "s3":
+                statement = "secret_s3_session" if item["session_token"] else "secret_s3"
+                parameters = [
+                    resolved[prefix + "key_id"],
+                    resolved[prefix + "secret"],
+                    item["region"],
+                    item.get("endpoint") or "s3.amazonaws.com",
+                    item.get("url_style") or "vhost",
+                    True if item.get("use_ssl") is None else item["use_ssl"],
+                    scope,
+                ]
+                if item["session_token"]:
+                    parameters.append(resolved[prefix + "session_token"])
+            else:
+                if "headers" in item:
+                    headers = {
+                        header: str(resolved[prefix + "header:" + header])
+                        for header in item["headers"]
+                    }
+                    statement = "secret_http_headers"
+                    parameters = [headers, scope]
+                else:
+                    token = resolved[prefix + "token"]
+                    headers = {"Authorization": f"Bearer {token}"}
+                    statement = "secret_http_bearer"
+                    parameters = [token, scope]
+                scopes.append((scope, tuple(headers.items())))
+            execute_provider_statement(
+                backend,
+                PROFILE,
+                "duckdb." + statement,
+                identifiers={"name": secret_name},
+                purpose="datasource.credentials",
+                parameters=parameters,
+            )
+            installed.append(secret_name)
+        except Exception:
+            raise DatasourceConnectionError(
+                message=f"Could not install {secret_type} secret for scope {scope!r}.",
+                expected="a supported DuckDB secret with resolved credentials",
+                received="secret installation failed",
+                location=f"datasource {name!r} secret {secret_type}@{scope}",
+                repair=repair(
+                    kind="reconnect",
+                    canonical_id="duckdb",
+                    action="Check the secret declaration, credential references and DuckDB httpfs availability, then reconnect.",
+                ),
+            ) from None
+    return DuckDbHttpCredentials(tuple(scopes)) if scopes else None
 
 
 def _reuse_described_schemas(backend: BaseBackend) -> None:
@@ -247,6 +291,71 @@ def _reuse_described_schemas(backend: BaseBackend) -> None:
         return schema
 
     backend.get_schema = get_schema
+
+
+# Native temporary secrets are database-wide. Keep credentialed file
+# connections exclusive among Marivo connections for the same resolved path.
+_file_connection_lock = Lock()
+_file_connections: dict[str | Path, tuple[int, bool]] = {}
+
+
+def connect_owned(
+    connect_backend: Callable[[str, Mapping[str, object]], BaseBackend],
+    name: str,
+    kwargs: Mapping[str, object],
+    *,
+    scoped_credentials: bool,
+) -> BaseBackend:
+    path = kwargs.get("path", ":memory:")
+    if path == ":memory:" or not isinstance(path, (str, Path)):
+        return connect_backend(name, kwargs)
+    key = (
+        path
+        if isinstance(path, str) and path.startswith(":memory:")
+        else Path(path).expanduser().resolve()
+    )
+    with _file_connection_lock:
+        count, scoped = _file_connections.get(key, (0, False))
+        if scoped or (scoped_credentials and count):
+            raise DatasourceConnectionError(
+                message="DuckDB scoped credentials require exclusive Marivo access to the database file.",
+                expected="no other live Marivo connection to the same database file",
+                received="a concurrent file connection",
+                location=f"datasource {name!r}",
+                repair=repair(
+                    kind="reconnect",
+                    canonical_id="duckdb",
+                    action="Close the other Marivo connection or use a separate DuckDB database.",
+                ),
+            )
+        _file_connections[key] = (count + 1, scoped_credentials)
+
+    def release() -> None:
+        with _file_connection_lock:
+            active, scoped = _file_connections[key]
+            if active == 1:
+                del _file_connections[key]
+            else:
+                _file_connections[key] = (active - 1, scoped)
+
+    try:
+        backend = connect_backend(name, kwargs)
+    except BaseException:
+        release()
+        raise
+
+    disconnect = backend.disconnect
+    released = False
+
+    def disconnect_owned() -> None:
+        nonlocal released
+        disconnect()
+        if not released:
+            release()
+            released = True
+
+    backend.disconnect = disconnect_owned
+    return backend
 
 
 def connect(name: str, kwargs: Mapping[str, object]) -> BaseBackend:
@@ -548,5 +657,5 @@ PROFILE = EngineProfile(
     translate_strptime_format=identity_str,
     datetime_decode_policy="local_naive_label",
     native_query_timeout=None,
-    http_credentials=http_credentials,
+    install_credentials=install_credentials,
 )

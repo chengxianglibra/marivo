@@ -21,7 +21,7 @@ Backend = Literal["trino", "duckdb", "clickhouse"]
 
 def _catalog(factory: ProjectFactory, backend: Backend = "trino") -> ms.SemanticCatalog:
     declarations = {
-        "trino": "md.trino(name='warehouse', host='trino.example', catalog='hive', user_env='TRINO_USER')",
+        "trino": "md.trino(name='warehouse', host='trino.example', catalog='hive', user=md.env('TRINO_USER'))",
         "duckdb": "md.duckdb(name='warehouse', path=':memory:')",
         "clickhouse": "md.clickhouse(name='warehouse', host='clickhouse.example', database='sales')",
     }

@@ -15,6 +15,7 @@ import pandas as pd
 import pytest
 
 import marivo.analysis as mv
+import marivo.datasource as md
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.datasource.adapters import SourceSession, provider_for
@@ -22,7 +23,7 @@ from marivo.datasource.ir import TableSourceIR
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.numeric.pandas_coordinates import ordinary_columns
 from tests.datasource.source_cases import Case, SourceData, datasource, source_case, source_params
-from tests.shared_fixtures import catalog_value, terminal_runs
+from tests.shared_fixtures import catalog_value, datasource_arguments_source, terminal_runs
 from tests.support.source_trace import SourceTrace
 
 
@@ -260,12 +261,12 @@ def test_independent_roots_and_temporal_fold(
             ]
         args = {
             **subject.session.datasource.fields,
-            **{k + "_env": v for k, v in subject.session.datasource.env_refs.items()},
+            **{k: md.env(v) for k, v in subject.session.datasource.env_refs.items()},
         }
-        if "user" in args:
+        if isinstance(args.get("user"), str):
             monkeypatch.setenv("MARIVO_R93_READER", str(args.pop("user")))
-            args["user_env"] = "MARIVO_R93_READER"
-        argtext = ", ".join(f"{k}={v!r}" for k, v in args.items())
+            args["user"] = md.env("MARIVO_R93_READER")
+        argtext = datasource_arguments_source(args)
         models = "import marivo.datasource as md\nimport marivo.semantic as ms\n"
         # Native MySQL/ClickHouse timestamps already own their clock.
         time_parser = (

@@ -10,7 +10,7 @@ head:
 ---
 
 Declare each connection in `models/datasources/`; loading a declaration does
-not open a connection. For environment-based credentials, declare `*_env`
+not open a connection. For environment-based credentials, declare `md.env("NAME")`
 references. After a validated connection test, Marivo may cache
 environment-sourced credentials as plaintext in the user-global
 `~/.marivo/secrets.toml`. Set

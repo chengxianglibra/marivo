@@ -24,9 +24,7 @@ Marivo 提供五种数据源构造函数。将声明保存在 `models/datasource
 | `name` | 是 | — | 项目内全局唯一的小写 snake_case 数据源名称，用 `ms.ref.datasource(name)` 引用。 |
 | `path` | 否 | `':memory:'` | DuckDB 数据库文件的路径。使用 `:memory:` 时，数据库仅在本次连接内存在。 |
 | `read_only` | 否 | `False` | 为 True 时以原生只读模式打开 DuckDB 文件库。 |
-| `http_scope` | 否 | `None` | 限定远程 JSON 认证范围的 HTTP(S) URL 前缀；指定 HTTP 认证方式时必须提供。 |
-| `http_bearer_token_env` | 否 | `None` | Bearer token 的环境变量名；与请求头认证互斥。 |
-| `http_headers_env` | 否 | `None` | HTTP 请求头名到保存秘密值的环境变量名的映射；与 Bearer 认证互斥。 |
+| `secrets` | 否 | `()` | `md.s3_secret`、`md.http_bearer_secret` 或 `md.http_headers_secret` 的列表。 |
 | `wall_clock_timezone` | 否 | `None` | 未单独声明时区的 naive timestamp、编码时钟和业务日使用的源时区；接受 IANA 名或固定偏移。 |
 | `ai_context` | 否 | `None` | 可选 `ms.ai_context(...)` 业务上下文与使用约束。 |
 | `extra` | 否 | `None` | 未在此列出的其他 JSON 可序列化 Ibis 连接参数。 |
@@ -51,8 +49,8 @@ md.duckdb(name="warehouse", path="warehouse.duckdb", read_only=False, wall_clock
 | `port` | 否 | `None` | 连接端口；使用非默认端点时请显式指定。 |
 | `schema` | 否 | `None` | 表解析使用的默认 schema。 |
 | `autocommit` | 否 | `None` | 省略或设为 `True`，使用自动提交。 |
-| `user_env` | 否 | `None` | 保存数据库用户名的环境变量名。 |
-| `password_env` | 否 | `None` | 保存密码的环境变量名。 |
+| `user` | 否 | `None` | 通过 `md.env` 引用数据库用户名。 |
+| `password` | 否 | `None` | 通过 `md.env` 引用密码。 |
 | `wall_clock_timezone` | 否 | `None` | 未单独声明时区的 naive timestamp、编码时钟和业务日使用的源时区；接受 IANA 名或固定偏移。 |
 | `ai_context` | 否 | `None` | 可选 `ms.ai_context(...)` 业务上下文与使用约束。 |
 | `extra` | 否 | `None` | 未在此列出的其他 JSON 可序列化 Ibis 连接参数。 |
@@ -65,7 +63,7 @@ import marivo.datasource as md
 md.postgres(
     name="reporting", host="postgres.example.internal", database="sales",
     port=5432, schema="public",
-    user_env="PG_USER", password_env="PG_PASSWORD",
+    user=md.env("PG_USER"), password=md.env("PG_PASSWORD"),
 )
 ```
 
@@ -83,8 +81,8 @@ MariaDB 服务使用同一个构造函数。托管查询的超时限制在 MySQL
 | `database` | 是 | — | 要连接的数据库。 |
 | `port` | 否 | `None` | 连接端口；使用非默认端点时请显式指定。 |
 | `autocommit` | 否 | `None` | 省略或设为 `True`，使用自动提交。 |
-| `user_env` | 否 | `None` | 保存数据库用户名的环境变量名。 |
-| `password_env` | 否 | `None` | 保存密码的环境变量名。 |
+| `user` | 否 | `None` | 通过 `md.env` 引用数据库用户名。 |
+| `password` | 否 | `None` | 通过 `md.env` 引用密码。 |
 | `wall_clock_timezone` | 否 | `None` | 未单独声明时区的 naive timestamp、编码时钟和业务日使用的源时区；接受 IANA 名或固定偏移。 |
 | `ai_context` | 否 | `None` | 可选 `ms.ai_context(...)` 业务上下文与使用约束。 |
 | `extra` | 否 | `None` | 未在此列出的其他 JSON 可序列化 PyMySQL 连接参数。 |
@@ -96,7 +94,7 @@ import marivo.datasource as md
 
 md.mysql(
     name="commerce", host="mysql.example.internal", database="shop",
-    port=3306, user_env="MYSQL_USER", password_env="MYSQL_PASSWORD",
+    port=3306, user=md.env("MYSQL_USER"), password=md.env("MYSQL_PASSWORD"),
     wall_clock_timezone="Asia/Shanghai",
 )
 ```
@@ -113,8 +111,8 @@ md.mysql(
 | `database` | 否 | `None` | 数据库名称；Marivo 适配器默认使用 `"default"`。 |
 | `secure` | 否 | `None` | 为 True 时启用 TLS。 |
 | `settings` | 否 | `None` | ClickHouse 会话设置映射。 |
-| `user_env` | 否 | `None` | 保存数据库用户名的环境变量名。 |
-| `password_env` | 否 | `None` | 保存密码的环境变量名。 |
+| `user` | 否 | `None` | 通过 `md.env` 引用数据库用户名。 |
+| `password` | 否 | `None` | 通过 `md.env` 引用密码。 |
 | `wall_clock_timezone` | 否 | `None` | 未单独声明时区的 naive timestamp、编码时钟和业务日使用的源时区；接受 IANA 名或固定偏移。 |
 | `ai_context` | 否 | `None` | 可选 `ms.ai_context(...)` 业务上下文与使用约束。 |
 | `extra` | 否 | `None` | 未在此列出的其他 JSON 可序列化 Ibis 连接参数。 |
@@ -126,7 +124,7 @@ import marivo.datasource as md
 
 md.clickhouse(
     name="events", host="clickhouse.example.internal", database="analytics",
-    secure=True, user_env="CH_USER", password_env="CH_PASSWORD",
+    secure=True, user=md.env("CH_USER"), password=md.env("CH_PASSWORD"),
     settings={"max_threads": 4},
 )
 ```
@@ -140,14 +138,14 @@ md.clickhouse(
 | `name` | 是 | — | 项目内全局唯一的小写 snake_case 数据源名称，用 `ms.ref.datasource(name)` 引用。 |
 | `host` | 是 | — | 数据库服务器主机名或 IP 地址。 |
 | `catalog` | 是 | — | Trino catalog，连接时映射到 Ibis database 参数。 |
-| `user_env` | 是 | — | 必填的 Trino 用户环境变量名，不隐式回退到后端默认用户。 |
+| `user` | 是 | — | 必填的 Trino 用户 `md.env` 引用，不隐式回退到后端默认用户。 |
 | `port` | 否 | `None` | 连接端口；使用非默认端点时请显式指定。 |
 | `schema` | 否 | `None` | 表解析使用的默认 schema。 |
 | `source` | 否 | `None` | 发送给 Trino 的客户端应用标识。 |
 | `http_scheme` | 否 | `None` | HTTP 传输协议；使用 TLS 时请设为 `"https"`。 |
 | `client_tags` | 否 | `None` | 客户端标签元组，传给 Trino 时转换为列表。 |
 | `session_properties` | 否 | `None` | Trino 会话属性映射。 |
-| `auth_env` | 否 | `None` | 服务器要求认证时所用认证材料的环境变量名。 |
+| `auth` | 否 | `None` | 服务器要求认证时所用认证材料的 `md.env` 引用。 |
 | `wall_clock_timezone` | 否 | `None` | 未单独声明时区的 naive timestamp、编码时钟和业务日使用的源时区；接受 IANA 名或固定偏移。 |
 | `ai_context` | 否 | `None` | 可选 `ms.ai_context(...)` 业务上下文与使用约束。 |
 | `extra` | 否 | `None` | 未在此列出的其他 JSON 可序列化 Ibis 连接参数。 省略 `isolation_level` 以使用原生自动提交。 |
@@ -159,7 +157,7 @@ import marivo.datasource as md
 
 md.trino(
     name="lake", host="trino.example.internal", catalog="hive", schema="sales",
-    user_env="TRINO_USER", auth_env="TRINO_AUTH", http_scheme="https",
+    user=md.env("TRINO_USER"), auth=md.env("TRINO_AUTH"), http_scheme="https",
     client_tags=("marivo", "reporting"),
 )
 ```
@@ -168,7 +166,7 @@ md.trino(
 
 ## 凭据与连接检查
 
-凭据通过 `*_env` 引用环境变量名；Marivo 不会推断变量名。`md.load().test(...)` 成功完成连接往返后，Marivo 可能将从环境变量解析的值以明文缓存到用户级 `~/.marivo/secrets.toml`。设置 `MARIVO_PERSIST_CREDENTIALS=0` 或 `CI` 环境变量非空时会关闭缓存。缓存文件权限限制为仅所有者可读写（`0600`），父目录权限为 `0700`，且 Marivo 不会将其写入 Git 仓库内。请勿将秘密值写入模型文件或 `extra`。
+凭据通过 `md.env("NAME")` 引用环境变量名；Marivo 不会推断变量名。`md.load().test(...)` 成功完成连接往返后，Marivo 可能将从环境变量解析的值以明文缓存到用户级 `~/.marivo/secrets.toml`。设置 `MARIVO_PERSIST_CREDENTIALS=0` 或 `CI` 环境变量非空时会关闭缓存。缓存文件权限限制为仅所有者可读写（`0600`），父目录权限为 `0700`，且 Marivo 不会将其写入 Git 仓库内。请勿将秘密值写入模型文件或 `extra`。
 
 创建[教程数据库](/zh-cn/docs/latest/start/python/)后，从项目根运行：
 
@@ -190,3 +188,25 @@ HTTP JSON 中全部缺失或全为 null 的列保留 `null` 类型。未使用�
 PostgreSQL、MySQL/MariaDB 和 Trino 的 CHAR/CHARACTER 列保留物理类型与长度，Entity/Dimension 验证将其映射为逻辑字符串；也支持表达式 Entity 输入与声明主键。该映射不增加 SQL cast、trim、补空格或排序规则模拟，读取、比较与分组遵循原生后端。CHAR 不能作为数值 Measure。
 
 `md.time_range(...)` 的边界必须匹配检查得到的物理类型：aware timestamp 使用 aware datetime，naive timestamp 使用 naive datetime 或 date，DATE 只接受 date。两端必须保持相同类别和 awareness。不匹配会在取数前失败并报告 `query_executed=False`；`wall_clock_timezone` 不补全边界时区。
+
+## DuckDB 凭据作用域
+
+所有凭据字段只接受 `md.env("NAME")`，不接受字面字符串。S3 必须提供 region 和静态 key 引用；可选的 `session_token` 也使用 `md.env`。`endpoint`、`url_style`（`vhost` 或 `path`）和 `use_ssl` 是非机密选项，默认分别为 `s3.amazonaws.com`、`vhost`、`True`。列表支持多个作用域；bearer 与 headers 不能使用同一个 scope。
+
+```python
+import marivo.datasource as md
+
+md.duckdb(name="lake", secrets=[
+    md.s3_secret(scope="s3://analytics-lake/warehouse/", region="us-west-2",
+                 key_id=md.env("LAKE_KEY_ID"), secret=md.env("LAKE_SECRET")),
+    md.http_bearer_secret(scope="https://api.example/v1/", token=md.env("API_TOKEN")),
+    md.http_headers_secret(scope="https://change-focus.example/api/",
+                           headers={"x-api-key": md.env("API_KEY")}),
+])
+```
+
+没有宿主 resolver 时，依次从环境变量和 `~/.marivo/secrets.toml` 查找；`md.credential_scope` 将相同引用交给宿主，返回值不落盘。每次操作重新解析，轮换的凭据在下一次操作生效。`md.load().test` 只验证字面量往返，不验证 S3 或 HTTP 访问，因此缓存的 key 未必经过对应端点验证。
+
+作用域使用主机和路径前缀，不能包含 URL 用户信息、查询字符串或片段。DuckDB 中，同一个数据库实例的连接共享 secret 目录。文件数据库或命名的内存数据库使用作用域凭据时，Marivo 要求独占其托管连接，直到连接关闭。需要使用不同凭据并发访问时，请使用不同的数据库。
+
+DuckDB 持久 secret 保持启用，按最长 scope 匹配；比声明更具体的持久 secret 会被选中。JSON 请求使用最长匹配的已声明 HTTP scope；带认证的 GET 和所有 POST 拒绝自动重定向。

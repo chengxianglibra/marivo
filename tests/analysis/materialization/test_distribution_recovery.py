@@ -14,13 +14,14 @@ import pandas as pd
 import pytest
 
 import marivo.analysis as mv
+import marivo.datasource as md
 from marivo.datasource.adapters import provider_for
 from marivo.datasource.ir import TableSourceIR
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.graph.distribution_fixtures import distribution_data
 from tests.analysis.materialization.domain_recovery_worker import snapshot
 from tests.datasource.source_cases import Case, datasource, source_case
-from tests.shared_fixtures import catalog_value
+from tests.shared_fixtures import catalog_value, datasource_arguments_source
 from tests.support.json import Json, encode, obj, read
 from tests.support.paths import PROJECT_ROOT
 from tests.support.source_trace import SourceTrace
@@ -77,11 +78,11 @@ def test_native_distributions_independent_fixed_and_cold(
             ]
         args = {
             **subject.session.datasource.fields,
-            **{key + "_env": value for key, value in subject.session.datasource.env_refs.items()},
+            **{key: md.env(value) for key, value in subject.session.datasource.env_refs.items()},
         }
-        if "user" in args:
+        if isinstance(args.get("user"), str):
             monkeypatch.setenv("MARIVO_R93_READER", str(args.pop("user")))
-            args["user_env"] = "MARIVO_R93_READER"
+            args["user"] = md.env("MARIVO_R93_READER")
         models = "import marivo.datasource as md\nimport marivo.semantic as ms\n"
         for name, case in (("subjects", subject), ("facts", facts)):
             assert isinstance(case.source, TableSourceIR)
@@ -99,7 +100,7 @@ def test_native_distributions_independent_fixed_and_cold(
             {
                 "datasources/warehouse.py": "import marivo.datasource as md\n"
                 + f"md.{backend}(wall_clock_timezone='UTC', name='warehouse',"
-                + ",".join(f"{key}={value!r}" for key, value in args.items())
+                + datasource_arguments_source(args)
                 + ")\n",
                 "sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales',owner='R9',default=True)\n",
                 "sales/models.py": models,

@@ -59,6 +59,7 @@ from marivo._temporal import (
 )
 from marivo.datasource import credentials as cr
 from marivo.datasource._builtin import DEFAULT_DATASOURCE_DESCRIPTION, DEFAULT_DATASOURCE_NAME
+from marivo.datasource.credential_inputs import credential_labels
 from marivo.datasource.engines import require_profile_for_backend_type
 from marivo.datasource.errors import DatasourceError, _backend_failure_summary
 from marivo.datasource.ir import (
@@ -526,7 +527,10 @@ class DatasourceDetails(_DetailsBase):
                     label="wall_clock_timezone", value=self.wall_clock_timezone or "(none)"
                 ),
                 FieldSection(label="fields", value=_format_mapping(self.fields)),
-                FieldSection(label="env_refs", value=_format_mapping(self.env_refs)),
+                FieldSection(
+                    label="credentials",
+                    value=" | ".join(credential_labels(self.fields, self.env_refs)),
+                ),
             )
         )
         if self.name == DEFAULT_DATASOURCE_NAME:

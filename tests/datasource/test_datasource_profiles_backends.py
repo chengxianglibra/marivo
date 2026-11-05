@@ -75,7 +75,7 @@ def test_duckdb_extra_kwargs_pass_through(
         @staticmethod
         def connect(**kwargs: object) -> object:
             captured.update(kwargs)
-            return SimpleNamespace(settings={})
+            return SimpleNamespace(settings={}, disconnect=lambda: None)
 
     class _FakeIbis:
         duckdb = _FakeDuckdb()
@@ -101,7 +101,7 @@ def test_duckdb_extra_kwargs_pass_through(
         )
     )
 
-    datasource_backends.build_backend(datasource)
+    datasource_backends.build_backend(datasource).disconnect()
 
     assert captured["database"] == "/tmp/test.duckdb"
     assert "path" not in captured
@@ -112,8 +112,27 @@ def test_duckdb_extra_kwargs_pass_through(
 @pytest.mark.parametrize(
     ("auth_kwargs", "env_name"),
     [
-        ({"http_bearer_token_env": "HAWKEYE_TOKEN"}, "HAWKEYE_TOKEN"),
-        ({"http_headers_env": {"X-API-Key": "HAWKEYE_KEY"}}, "HAWKEYE_KEY"),
+        (
+            {
+                "secrets": [
+                    md.http_bearer_secret(
+                        scope="https://api.example/v1/", token=md.env("HAWKEYE_TOKEN")
+                    )
+                ]
+            },
+            "HAWKEYE_TOKEN",
+        ),
+        (
+            {
+                "secrets": [
+                    md.http_headers_secret(
+                        scope="https://api.example/v1/",
+                        headers={"X-API-Key": md.env("HAWKEYE_KEY")},
+                    )
+                ]
+            },
+            "HAWKEYE_KEY",
+        ),
     ],
 )
 def test_non_duckdb_http_auth_env_refs_reject_before_connect_or_secret_resolution(
@@ -125,7 +144,7 @@ def test_non_duckdb_http_auth_env_refs_reject_before_connect_or_secret_resolutio
     connected = False
 
     class Profile:
-        http_credentials = None
+        install_credentials = None
 
         def connect(self, _name: str, _kwargs: dict[str, object]) -> None:
             nonlocal connected
@@ -138,13 +157,12 @@ def test_non_duckdb_http_auth_env_refs_reject_before_connect_or_secret_resolutio
     datasource = datasource_store.save_one(
         DuckDBSpec(
             name="hawkeye",
-            http_scope="https://api.example/v1/",
             **auth_kwargs,  # type: ignore[arg-type]
         )
     )
 
     with pytest.raises(
-        DatasourceFieldInvalidError, match="require a provider that owns scoped HTTP credentials"
+        DatasourceFieldInvalidError, match="require a provider that owns scoped credentials"
     ) as error:
         datasource_backends.build_backend(datasource)
 
@@ -156,8 +174,27 @@ def test_non_duckdb_http_auth_env_refs_reject_before_connect_or_secret_resolutio
 @pytest.mark.parametrize(
     ("auth_kwargs", "env_name"),
     [
-        ({"http_bearer_token_env": "HAWKEYE_TOKEN"}, "HAWKEYE_TOKEN"),
-        ({"http_headers_env": {"X-API-Key": "HAWKEYE_KEY"}}, "HAWKEYE_KEY"),
+        (
+            {
+                "secrets": [
+                    md.http_bearer_secret(
+                        scope="https://api.example/v1/", token=md.env("HAWKEYE_TOKEN")
+                    )
+                ]
+            },
+            "HAWKEYE_TOKEN",
+        ),
+        (
+            {
+                "secrets": [
+                    md.http_headers_secret(
+                        scope="https://api.example/v1/",
+                        headers={"X-API-Key": md.env("HAWKEYE_KEY")},
+                    )
+                ]
+            },
+            "HAWKEYE_KEY",
+        ),
     ],
 )
 def test_duckdb_http_auth_installs_scoped_secret_on_connect(
@@ -173,7 +210,6 @@ def test_duckdb_http_auth_installs_scoped_secret_on_connect(
     datasource = datasource_store.save_one(
         DuckDBSpec(
             name="hawkeye",
-            http_scope="https://api.example/v1/",
             **auth_kwargs,  # type: ignore[arg-type]
         )
     )
@@ -182,8 +218,8 @@ def test_duckdb_http_auth_installs_scoped_secret_on_connect(
     try:
         auth = getattr(built.backend, "_marivo_duckdb_http_auth", None)
         assert isinstance(auth, DuckDbHttpCredentials)
-        assert auth.scope == "https://api.example/v1/"
-        if "http_bearer_token_env" in auth_kwargs:
+        assert auth.scopes[0][0] == "https://api.example/v1/"
+        if env_name == "HAWKEYE_TOKEN":
             assert auth.headers_for("https://api.example/v1/orders") == {
                 "Authorization": "Bearer sensitive-token"
             }
@@ -192,7 +228,7 @@ def test_duckdb_http_auth_installs_scoped_secret_on_connect(
                 "X-API-Key": "sensitive-token"
             }
         secrets_count = built.backend.raw_sql(
-            "SELECT count(*) FROM duckdb_secrets() WHERE name = 'marivo_http_auth'"
+            "SELECT count(*) FROM duckdb_secrets() WHERE name = 'marivo_hawkeye_0'"
         ).fetchone()[0]
         assert secrets_count == 1
         from marivo.datasource.capabilities import provider_statement_log
@@ -200,7 +236,7 @@ def test_duckdb_http_auth_installs_scoped_secret_on_connect(
         log = provider_statement_log(built.backend)
         assert len(log) == 1
         assert log[0].state == "succeeded"
-        assert log[0].statement_id.startswith("duckdb.http_secret_")
+        assert log[0].statement_id.startswith("duckdb.secret_http_")
         assert "sensitive-token" not in repr(log)
         assert auth.headers_for("https://api.example/v2/orders") == {}
         assert auth.headers_for("https://evil.example/v1/orders") == {}
@@ -215,8 +251,11 @@ def test_md_test_round_trips_authenticated_duckdb_datasource(
     datasource_store.save_one(
         DuckDBSpec(
             name="hawkeye",
-            http_scope="https://api.example/v1/",
-            http_bearer_token_env="HAWKEYE_TOKEN",
+            secrets=[
+                md.http_bearer_secret(
+                    scope="https://api.example/v1/", token=md.env("HAWKEYE_TOKEN")
+                )
+            ],
         )
     )
 
@@ -226,7 +265,7 @@ def test_md_test_round_trips_authenticated_duckdb_datasource(
     datasource_file = (project_root / "models" / "datasources" / "hawkeye.py").read_text(
         encoding="utf-8"
     )
-    assert "http_bearer_token_env" in datasource_file
+    assert "md.http_bearer_secret" in datasource_file
     assert "HAWKEYE_TOKEN" in datasource_file
     assert "sensitive-token" not in datasource_file
 
@@ -240,8 +279,8 @@ def test_env_ref_resolution(project_root: Path, monkeypatch: pytest.MonkeyPatch)
             backend_type="trino",
             host="h",
             catalog="c",
-            user_env="TRINO_USER",
-            auth_env="TRINO_AUTH",
+            user=md.env("TRINO_USER"),
+            auth=md.env("TRINO_AUTH"),
         )
     )
     effective = datasource_backends._effective_kwargs(
@@ -279,8 +318,8 @@ def test_env_ref_resolution_uses_cache_when_env_is_unset(
             backend_type="trino",
             host="h",
             catalog="c",
-            user_env="TRINO_USER",
-            auth_env="TRINO_AUTH",
+            user=md.env("TRINO_USER"),
+            auth=md.env("TRINO_AUTH"),
         )
     )
 
@@ -305,8 +344,8 @@ def test_env_ref_missing_var(project_root: Path, monkeypatch: pytest.MonkeyPatch
             backend_type="trino",
             host="h",
             catalog="c",
-            user_env="TRINO_USER",
-            auth_env="TRINO_AUTH",
+            user=md.env("TRINO_USER"),
+            auth=md.env("TRINO_AUTH"),
         )
     )
     with pytest.raises(DatasourceEnvVarMissingError) as exc_info:
@@ -377,7 +416,7 @@ def test_trino_session_properties_pass_through(
             backend_type="trino",
             host="h",
             catalog="c",
-            user_env="TRINO_USER",
+            user=md.env("TRINO_USER"),
             session_properties={"query_max_run_time": "5m"},
         )
     )
@@ -422,8 +461,8 @@ def test_trino_catalog_maps_to_ibis_database_and_optional_kwargs_pass_through(
             backend_type="trino",
             host="trino.example",
             catalog="hive",
-            user_env="TRINO_USER",
-            auth_env="TRINO_AUTH",
+            user=md.env("TRINO_USER"),
+            auth=md.env("TRINO_AUTH"),
             wall_clock_timezone="Asia/Shanghai",
             client_tags="agent, semantic-authoring",
         )
@@ -683,8 +722,8 @@ def test_clickhouse_optional_fields_pass_through(
             host="ch.example.com",
             port=9440,
             database="analytics",
-            user_env="CLICKHOUSE_USER",
-            password_env="CLICKHOUSE_PASSWORD",
+            user=md.env("CLICKHOUSE_USER"),
+            password=md.env("CLICKHOUSE_PASSWORD"),
             secure=True,
             settings={"max_execution_time": 60},
             extra={"client_name": "marivo", "compression": "lz4"},
@@ -718,7 +757,7 @@ def test_effective_kwargs_ignores_unreferenced_ambient_secrets(
             backend_type="trino",
             host="h",
             catalog="c",
-            user_env="TRINO_USER",
+            user=md.env("TRINO_USER"),
         )
     )
 
@@ -743,7 +782,7 @@ def test_effective_kwargs_resolves_only_explicit_env_refs(
             "warehouse",
             backend_type="clickhouse",
             host="ch.example",
-            password_env="CUSTOM_PASSWORD_VAR",
+            password=md.env("CUSTOM_PASSWORD_VAR"),
         )
     )
     effective = datasource_backends._effective_kwargs(

@@ -1,0 +1,12 @@
+---
+title: "0.6.2 (Unreleased)"
+description: "Datasource credential input changes."
+---
+
+Breaking change: datasource credentials now use `user=md.env("USER")`,
+`password=md.env("PASSWORD")`, and Trino `auth=md.env("AUTH")`. All `*_env`
+constructor parameters are removed without aliases. DuckDB replaces `http_scope`,
+`http_bearer_token_env`, and `http_headers_env` with `secrets=[...]`, accepting
+`md.s3_secret`, `md.http_bearer_secret`, and `md.http_headers_secret`.
+Update declarations before loading; old keyword arguments raise `TypeError`.
+Relational connection fingerprints are preserved; HTTP DuckDB fingerprints change.

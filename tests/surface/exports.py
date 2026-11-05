@@ -172,6 +172,14 @@ ANALYSIS_PUBLIC = (
 )
 
 DATASOURCE_PUBLIC = {
+    "EnvRef",
+    "S3Secret",
+    "HttpBearerSecret",
+    "HttpHeadersSecret",
+    "env",
+    "s3_secret",
+    "http_bearer_secret",
+    "http_headers_secret",
     "CredentialRequest",
     "CredentialResolver",
     "SecretValue",

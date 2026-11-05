@@ -44,8 +44,8 @@ class ProviderStatement:
     def __post_init__(self) -> None:
         if not self.statement_id or "." not in self.statement_id:
             raise ValueError("statement_id must be a non-empty '<provider>.<name>' key")
-        if self.parameterized and (self.literal_slots or self.identifier_slots):
-            raise ValueError("parameterized statements carry no render slots")
+        if self.parameterized and self.literal_slots:
+            raise ValueError("parameterized statements carry no literal slots")
         slots = self.literal_slots | self.identifier_slots
         for slot, lower, upper in self.integer_ranges:
             if slot not in self.literal_slots or lower > upper:
@@ -76,9 +76,6 @@ class ProviderStatementSubmission:
 @runtime_checkable
 class ProviderHttpCredentials(Protocol):
     """Scoped HTTP credentials attached to a provider connection."""
-
-    @property
-    def scope(self) -> str: ...
 
     def headers_for(self, url: str) -> dict[str, str]: ...
 
@@ -165,8 +162,6 @@ def render_provider_statement(
         or supplied_identifiers != statement.identifier_slots
     ):
         raise ValueError("statement slots must use their declared literal or identifier kind")
-    if statement.parameterized:
-        return statement.template
     rendered: dict[str, str] = {}
     for slot, lower, upper in statement.integer_ranges:
         value = values[slot]
@@ -240,13 +235,13 @@ def execute_provider_statement(
         provider=profile.name,
         statement_id=statement_id,
         purpose=purpose,
-        sql=sql,
+        sql=statement.template if statement.parameterized else sql,
         state="submitted",
     )
     log = _submissions(backend)
     log.append(submission)
     query = _execution_log.QueryLog(
-        sql,
+        statement.template if statement.parameterized else sql,
         backend=profile.name,
         purpose=purpose,
         sensitive=statement.parameterized or bool(cr.injected_values(backend)),

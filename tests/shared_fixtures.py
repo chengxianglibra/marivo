@@ -1180,3 +1180,13 @@ def revenue():
     (datasource / "warehouse.py").write_text(
         'import marivo.datasource as md\nmd.duckdb(name="warehouse", wall_clock_timezone="UTC", path=":memory:")\n'
     )
+
+
+def datasource_arguments_source(arguments: Mapping[str, object]) -> str:
+    """Render test declaration kwargs, preserving EnvRef constructor syntax."""
+    from marivo.datasource.credential_inputs import EnvRef
+
+    return ", ".join(
+        f"{key}=md.env({value.name!r})" if isinstance(value, EnvRef) else f"{key}={value!r}"
+        for key, value in arguments.items()
+    )

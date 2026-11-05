@@ -26,7 +26,7 @@ explains how to choose the project root.
 
 Declare environment-variable references in datasource models rather than secret
 values. The [datasource guide](/docs/latest/guides/datasources/) explains
-`*_env` references, the optional plaintext user-global credential cache and
+`md.env("NAME")` references, the optional plaintext user-global credential cache and
 `MARIVO_PERSIST_CREDENTIALS=0`. For a host-managed credential resolver, see
 [Configuration and deployment](/docs/latest/reference/configuration/#integrate-host-credentials)
 and `marivo.help("datasource.credential_scope")`.

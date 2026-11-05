@@ -54,6 +54,31 @@ business dates in Semantic, and leaves physical instants unchanged. No reader or
 host timezone supplies missing source meaning. Trino has no public ``timezone``
 parameter; its private UTC setting only stabilizes transport.
 
+Credential references and scoped secrets
+----------------------------------------
+
+.. autosummary::
+   :toctree: api/
+   :nosignatures:
+
+   env
+   EnvRef
+   s3_secret
+   S3Secret
+   http_bearer_secret
+   HttpBearerSecret
+   http_headers_secret
+   HttpHeadersSecret
+
+Relational ``user``, ``password`` and Trino ``auth`` accept only ``md.env("NAME")``
+references. DuckDB accepts ``secrets=[...]`` containing the scoped variants above.
+The former ``*_env`` and flat HTTP credential constructor parameters are removed.
+A file or named in-memory DuckDB database with scoped secrets requires
+exclusive managed access until its Marivo connection closes.
+References resolve through the environment and user-global cache, or through
+``credential_scope`` without persistence. DuckDB connection tests perform a literal
+round-trip; they do not validate S3 or HTTP endpoint access before caching values.
+
 Inspection & snapshots
 ----------------------
 
@@ -123,7 +148,7 @@ Use ``catalog = md.load(workspace_dir=...)`` to bind a project, then
 ``catalog.list()``, ``catalog.describe(name)`` and ``catalog.test(name_or_ref)``.
 The Catalog retains that workspace when cwd or environment variables change.
 Listing and description read declarations without opening a connection;
-testing performs a live round trip and may cache validated environment credentials.
+testing performs a live literal round trip and may cache environment credentials.
 Read datasource names with ``[item.name for item in catalog.list()]``.
 
 .. autosummary::

@@ -18,6 +18,7 @@ from marivo.datasource.ir import TableSourceIR
 from marivo.semantic.reader import SemanticProject
 from tests.datasource.environment import mysql_analysis as mysql
 from tests.datasource.source_cases import source_case
+from tests.shared_fixtures import datasource_arguments_source
 from tests.support.execution_logs import execution_records
 
 
@@ -33,14 +34,15 @@ def test_mysql_sample_native_timeout_releases_reader_without_kill(
         assert isinstance(case.source, TableSourceIR)
         arguments = {
             **case.session.datasource.fields,
-            **{key + "_env": value for key, value in case.session.datasource.env_refs.items()},
+            **{key: md.env(value) for key, value in case.session.datasource.env_refs.items()},
         }
-        monkeypatch.setenv("MARIVO_DEADLINE_READER", str(arguments.pop("user")))
-        arguments["user_env"] = "MARIVO_DEADLINE_READER"
+        if isinstance(arguments.get("user"), str):
+            monkeypatch.setenv("MARIVO_DEADLINE_READER", str(arguments.pop("user")))
+            arguments["user"] = md.env("MARIVO_DEADLINE_READER")
         semantic_project_factory(
             {
                 "datasources/warehouse.py": 'import marivo.datasource as md\nmd.mysql(name="warehouse",'
-                + ",".join(f"{key}={value!r}" for key, value in arguments.items())
+                + datasource_arguments_source(arguments)
                 + ")\n"
             }
         )

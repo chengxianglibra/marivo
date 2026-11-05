@@ -12,6 +12,10 @@ from marivo.datasource.inspection import SourceInspection
 from marivo.datasource.snapshot import DiscoverySnapshot
 
 PUBLIC_CALLABLE_TARGETS = {
+    "env",
+    "s3_secret",
+    "http_bearer_secret",
+    "http_headers_secret",
     "credential_scope",
     "credential_resolver.resolve",
     "secret_value.reveal",
@@ -51,6 +55,10 @@ def test_datasource_surface_uses_the_native_registry_without_copying() -> None:
 
 
 EXPECTED_EFFECTS = {
+    "env": AuthoringEffects(data_access="none", connection="none"),
+    "s3_secret": AuthoringEffects(data_access="none", connection="none"),
+    "http_bearer_secret": AuthoringEffects(data_access="none", connection="none"),
+    "http_headers_secret": AuthoringEffects(data_access="none", connection="none"),
     "credential_scope": AuthoringEffects(data_access="none", connection="none"),
     "credential_resolver.resolve": AuthoringEffects(data_access="none", connection="none"),
     "secret_value.reveal": AuthoringEffects(data_access="none", connection="none"),

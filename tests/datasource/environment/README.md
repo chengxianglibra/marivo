@@ -286,3 +286,25 @@ MARIVO_INSTALLED_MULTISOURCE_TEST=1 MARIVO_INSTALLED_BACKENDS=trino make install
 
 Use `MARIVO_TEST_WHEEL_DIR` for an isolated candidate directory. Process receipts
 and logs live under the installed-wheel pytest temporary directory.
+
+## Private S3 through MinIO
+
+The `minio` profile exposes only `127.0.0.1:19000` and retains a separate data
+volume. It reuses the private qualification password. Runtime tests create and
+delete UUID-named private buckets, upload Parquet with PyArrow, and never start
+or stop services.
+
+Official MinIO Docker Hub and Quay repositories no longer serve this release.
+The profile pins the ARM64 manifest of the preserved upstream
+`RELEASE.2025-04-22T22-12-26Z` image from
+[jcometki/minio](https://hub.docker.com/r/jcometki/minio), not a moving tag.
+This is an isolated test fixture, independent of production backend selection.
+
+```bash
+bash tests/datasource/environment/manage.sh start minio
+MARIVO_MINIO_TEST=1 make runtime-test RUNTIME_WORKERS=1 TESTS='tests/datasource/test_s3_runtime.py'
+```
+
+The tests cover private Parquet files and globs with path-style addressing,
+plain HTTP on the loopback endpoint, anonymous denial outside the credential
+scope, and host resolver injection. STS/session tokens remain local coverage.

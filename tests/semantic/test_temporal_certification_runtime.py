@@ -17,6 +17,7 @@ from marivo.datasource.ir import TableSourceIR
 from marivo.semantic.catalog import SemanticCatalog, TemporalSet
 from marivo.semantic.reader import SemanticProject
 from tests.datasource.source_cases import Case, SourceData, source_case, source_params
+from tests.shared_fixtures import datasource_arguments_source
 
 pytestmark = pytest.mark.runtime
 
@@ -48,17 +49,17 @@ def _catalog(
     assert isinstance(case.source, TableSourceIR)
     arguments = {
         **case.session.datasource.fields,
-        **{key + "_env": value for key, value in case.session.datasource.env_refs.items()},
+        **{key: md.env(value) for key, value in case.session.datasource.env_refs.items()},
     }
     # The provider fixture's private transport setting is not a public Trino input.
     arguments.pop("timezone", None)
-    if "user" in arguments:
+    if isinstance(arguments.get("user"), str):
         monkeypatch.setenv("MARIVO_CERTIFICATION_READER", str(arguments.pop("user")))
-        arguments["user_env"] = "MARIVO_CERTIFICATION_READER"
+        arguments["user"] = md.env("MARIVO_CERTIFICATION_READER")
     datasource = (
         "import marivo.datasource as md\n"
         + f"md.{backend}(name='warehouse',wall_clock_timezone='America/New_York',"
-        + ",".join(f"{key}={value!r}" for key, value in arguments.items())
+        + datasource_arguments_source(arguments)
         + ")\n"
     )
     project = factory(

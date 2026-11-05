@@ -7,10 +7,11 @@ from pathlib import Path
 import pytest
 
 import marivo.analysis as mv
+import marivo.datasource as md
 from marivo.datasource.ir import TableSourceIR
 from marivo.semantic.reader import SemanticProject
 from tests.datasource.source_cases import SourceData, source_case, source_params
-from tests.shared_fixtures import catalog_value
+from tests.shared_fixtures import catalog_value, datasource_arguments_source
 
 
 @pytest.mark.parametrize(
@@ -63,12 +64,12 @@ def test_membership_preserves_explicit_coordinate_and_predicate_paths(
         datasource = cases[0].session.datasource
         arguments = {
             **datasource.fields,
-            **{key + "_env": value for key, value in datasource.env_refs.items()},
+            **{key: md.env(value) for key, value in datasource.env_refs.items()},
         }
-        if "user" in arguments:
+        if isinstance(arguments.get("user"), str):
             monkeypatch.setenv("MARIVO_MEMBERSHIP_READER", str(arguments.pop("user")))
-            arguments["user_env"] = "MARIVO_MEMBERSHIP_READER"
-        arguments_text = ", ".join(f"{key}={value!r}" for key, value in arguments.items())
+            arguments["user"] = md.env("MARIVO_MEMBERSHIP_READER")
+        arguments_text = datasource_arguments_source(arguments)
         semantic_project_factory(
             {
                 "datasources/warehouse.py": f"import marivo.datasource as md\nmd.{backend}(wall_clock_timezone='UTC', name='warehouse', {arguments_text})\n",

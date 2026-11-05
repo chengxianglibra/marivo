@@ -34,7 +34,7 @@ class ConstraintId(StrEnum):
     DATASOURCE_PROJECT_ROOTS = "datasource_project_roots"
     DATASOURCE_ENV_AVAILABLE = "datasource_env_available"
     DATASOURCE_BACKEND_SUPPORTED = "datasource_backend_supported"
-    DUCKDB_HTTP_AUTH_SCOPED = "duckdb_http_auth_scoped"
+    DUCKDB_SECRET_SCOPED = "duckdb_secret_scoped"
     JSON_REQUEST_SHAPE = "json_request_shape"
     JSON_SOURCE_PARAMS_EXACT = "json_source_params_exact"
     PROJECTED_SOURCE_RUNTIME_EVIDENCE = "projected_source_runtime_evidence"
@@ -104,7 +104,7 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "Agents should choose the backend function directly instead of passing backend_type as a string.",
         (
             "Use md.trino(name='warehouse', host='...', catalog='...', "
-            "user_env='TRINO_USER') or md.duckdb(name='warehouse')."
+            "user=md.env('TRINO_USER')) or md.duckdb(name='warehouse')."
         ),
     ),
     ConstraintId.DATASOURCE_FIELD_JSONABLE: _constraint(
@@ -118,15 +118,15 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
     ),
     ConstraintId.DATASOURCE_SECRET_ENV_REF: _constraint(
         ConstraintId.DATASOURCE_SECRET_ENV_REF,
-        "DatasourceSecretInPlaintext",
+        "DatasourceFieldInvalid",
         "decorator",
         ("duckdb", "trino", "mysql", "postgres", "clickhouse", "register"),
-        "Datasource secrets resolve only from explicit *_env references; ambient MARIVO_* names are ignored.",
+        "Datasource secrets resolve only from explicit md.env references; ambient MARIVO_* names are ignored.",
         "Datasource files are project metadata; plaintext credentials in them can leak into git and agent context.",
-        'Use *_env fields such as password_env="ENV_VAR_NAME"; each named variable resolves from the environment and then ~/.marivo/secrets.toml.',
+        'Use md.env references such as password=md.env("ENV_VAR_NAME"); each named variable resolves from the environment and then ~/.marivo/secrets.toml.',
         example=(
             'md.trino(name="warehouse", host="trino.example", catalog="hive", '
-            'user_env="TRINO_USER", auth_env="TRINO_AUTH")'
+            'user=md.env("TRINO_USER"), auth=md.env("TRINO_AUTH"))'
         ),
     ),
     ConstraintId.DATASOURCE_UNIQUE_NAME: _constraint(
@@ -193,17 +193,17 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
         "The analysis runtime can only create ibis connections for supported datasource backend types.",
         "Use a supported backend_type or add an adapter before relying on datasource auto-loading.",
     ),
-    ConstraintId.DUCKDB_HTTP_AUTH_SCOPED: _constraint(
-        ConstraintId.DUCKDB_HTTP_AUTH_SCOPED,
+    ConstraintId.DUCKDB_SECRET_SCOPED: _constraint(
+        ConstraintId.DUCKDB_SECRET_SCOPED,
         "DatasourceFieldInvalid",
         "decorator",
         ("duckdb",),
-        "DuckDB HTTP credentials require one explicit URL scope and one auth mode.",
+        "DuckDB credentials require explicit URL scopes, unique per secret type.",
         "Remote JSON credentials must not be sent outside their declared host and path boundary.",
-        "Set http_scope plus exactly one of http_bearer_token_env or http_headers_env; keep secret values in the referenced environment variables.",
+        "Declare secrets with md.s3_secret, md.http_bearer_secret or md.http_headers_secret and unique scopes per type; reference values with md.env.",
         example=(
-            'md.duckdb(name="api", http_scope="https://api.example/v1/", '
-            'http_bearer_token_env="API_TOKEN")'
+            'md.duckdb(name="api", secrets=[md.http_bearer_secret(scope="https://api.example/v1/", '
+            'token=md.env("API_TOKEN"))])'
         ),
     ),
     ConstraintId.JSON_REQUEST_SHAPE: _constraint(
@@ -260,7 +260,6 @@ CONSTRAINTS: dict[ConstraintId, Constraint] = {
 
 _DEFAULT_BY_ERROR_KIND: dict[str, ConstraintId] = {
     "DatasourceFieldInvalid": ConstraintId.DATASOURCE_FIELD_JSONABLE,
-    "DatasourceSecretInPlaintext": ConstraintId.DATASOURCE_SECRET_ENV_REF,
     "DatasourceLoad": ConstraintId.DATASOURCE_FILE_LOADABLE,
     "DatasourceDuplicate": ConstraintId.DATASOURCE_UNIQUE_NAME,
     "DatasourceMissing": ConstraintId.DATASOURCE_CONFIGURED,

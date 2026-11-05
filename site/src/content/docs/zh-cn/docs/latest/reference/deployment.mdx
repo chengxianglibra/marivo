@@ -23,7 +23,7 @@ head:
 
 数据源模型应使用环境变量名引用凭据，不要写入秘密值。
 
-[数据源指南](/zh-cn/docs/latest/guides/datasources/)介绍 `*_env` 引用、可选的用户级明文凭据缓存，以及如何用 `MARIVO_PERSIST_CREDENTIALS=0` 关闭缓存。
+[数据源指南](/zh-cn/docs/latest/guides/datasources/)介绍 `md.env("NAME")` 引用、可选的用户级明文凭据缓存，以及如何用 `MARIVO_PERSIST_CREDENTIALS=0` 关闭缓存。
 
 若要接入宿主管理的凭据解析器，请参阅[配置与部署](/zh-cn/docs/latest/reference/configuration/#集成宿主凭据)，并查询 `marivo.help("datasource.credential_scope")`。
 

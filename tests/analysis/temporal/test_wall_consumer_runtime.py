@@ -11,6 +11,7 @@ import pytest
 from ibis.backends import BaseBackend
 
 import marivo.analysis as mv
+import marivo.datasource as md
 import marivo.semantic as ms
 from marivo.analysis.compiler.source_time import _hour_clock
 from marivo.analysis.materialization.temporal_sql import lower_temporal
@@ -22,7 +23,7 @@ from marivo.datasource.errors import DatasourceConnectionError
 from marivo.datasource.ir import TableSourceIR
 from marivo.semantic.reader import SemanticProject
 from tests.datasource.source_cases import Case, SourceData, receipt, source_case
-from tests.shared_fixtures import catalog_value
+from tests.shared_fixtures import catalog_value, datasource_arguments_source
 from tests.support.source_trace import SourceTrace
 
 pytestmark = pytest.mark.runtime
@@ -39,15 +40,16 @@ def _model(
     assert isinstance(case.source, TableSourceIR)
     arguments = {
         **case.session.datasource.fields,
-        **{key + "_env": value for key, value in case.session.datasource.env_refs.items()},
+        **{key: md.env(value) for key, value in case.session.datasource.env_refs.items()},
     }
-    monkeypatch.setenv("MARIVO_WALL_TEST_READER", str(arguments.pop("user")))
-    arguments["user_env"] = "MARIVO_WALL_TEST_READER"
+    if isinstance(arguments.get("user"), str):
+        monkeypatch.setenv("MARIVO_WALL_TEST_READER", str(arguments.pop("user")))
+        arguments["user"] = md.env("MARIVO_WALL_TEST_READER")
     factory(
         {
             "datasources/warehouse.py": "import marivo.datasource as md\n"
             + f"md.{case.session.provider.name}(wall_clock_timezone={wall_clock_timezone!r}, name='warehouse',"
-            + ",".join(f"{key}={value!r}" for key, value in arguments.items())
+            + datasource_arguments_source(arguments)
             + ")\n",
             "sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales',owner='Test',default=True)\n",
             "sales/models.py": "import marivo.datasource as md\nimport marivo.semantic as ms\n"

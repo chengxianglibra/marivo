@@ -13,6 +13,7 @@ import ibis
 import pytest
 
 import marivo.analysis as mv
+import marivo.datasource as md
 import marivo.semantic as ms
 from marivo.datasource.adapters import provider_for
 from marivo.datasource.ir import TableSourceIR
@@ -21,7 +22,7 @@ from tests.analysis.graph.execution_fixtures import source_graph
 from tests.analysis.materialization.domain_recovery_worker import forbidden, snapshot
 from tests.analysis.numeric.pandas_coordinates import ordinary_columns
 from tests.datasource.source_cases import Case, SourceData, datasource, source_case
-from tests.shared_fixtures import catalog_value, terminal_runs
+from tests.shared_fixtures import catalog_value, datasource_arguments_source, terminal_runs
 from tests.support.source_trace import capture_source
 
 
@@ -136,11 +137,11 @@ def test_long_path_sum_and_count(
             ]
         args = dict(cases[0].session.datasource.fields)
         args.update(
-            {key + "_env": value for key, value in cases[0].session.datasource.env_refs.items()}
+            {key: md.env(value) for key, value in cases[0].session.datasource.env_refs.items()}
         )
-        if "user" in args:
+        if isinstance(args.get("user"), str):
             monkeypatch.setenv("MARIVO_PATH_READER", str(args.pop("user")))
-            args["user_env"] = "MARIVO_PATH_READER"
+            args["user"] = md.env("MARIVO_PATH_READER")
         models = "import marivo.datasource as md\nimport marivo.semantic as ms\n"
         for name, case in zip(names, cases, strict=True):
             assert isinstance(case.source, TableSourceIR)
@@ -166,7 +167,7 @@ def test_long_path_sum_and_count(
             {
                 "datasources/warehouse.py": "import marivo.datasource as md\n"
                 + f"md.{backend}(wall_clock_timezone='UTC', name='warehouse',"
-                + ",".join(f"{key}={value!r}" for key, value in args.items())
+                + datasource_arguments_source(args)
                 + ")\n",
                 "sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales',owner='Analytics',default=True)\n",
                 "sales/models.py": models,

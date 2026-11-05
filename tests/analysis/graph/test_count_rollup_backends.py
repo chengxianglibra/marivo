@@ -17,13 +17,14 @@ import pyarrow.parquet as pq
 import pytest
 
 import marivo.analysis as mv
+import marivo.datasource as md
 from marivo.analysis.errors import AnalysisError
 from marivo.datasource.adapters import CompiledRead, SourceSession
 from marivo.datasource.ir import TableSourceIR
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.numeric.pandas_coordinates import ordinary_columns
 from tests.datasource.source_cases import SourceData, source_case
-from tests.shared_fixtures import catalog_value
+from tests.shared_fixtures import catalog_value, datasource_arguments_source
 from tests.support.paths import PROJECT_ROOT
 
 
@@ -107,17 +108,17 @@ def test_native_count_rollup_and_group_state(
         assert isinstance(case.source, TableSourceIR)
         arguments: dict[str, object] = dict(case.session.datasource.fields)
         arguments.update(
-            {key + "_env": value for key, value in case.session.datasource.env_refs.items()}
+            {key: md.env(value) for key, value in case.session.datasource.env_refs.items()}
         )
-        user = arguments.pop("user", None)
-        if user is not None:
+        user = arguments.get("user")
+        if isinstance(user, str):
             monkeypatch.setenv("MARIVO_COUNT_READER", str(user))
-            arguments["user_env"] = "MARIVO_COUNT_READER"
+            arguments["user"] = md.env("MARIVO_COUNT_READER")
         semantic_project_factory(
             {
                 "datasources/warehouse.py": "import marivo.datasource as md\n"
                 + f"md.{backend}(wall_clock_timezone='UTC', name='warehouse',"
-                + ",".join(f"{key}={value!r}" for key, value in arguments.items())
+                + datasource_arguments_source(arguments)
                 + ")\n",
                 "counts/_domain.py": "import marivo.semantic as ms\nms.domain(name='counts',owner='Analytics',default=True)\n",
                 "counts/models.py": "import marivo.datasource as md\nimport marivo.semantic as ms\n"

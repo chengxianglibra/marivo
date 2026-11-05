@@ -18,6 +18,7 @@ from marivo.datasource.capabilities import (
     render_provider_statement,
 )
 from marivo.datasource.engines import duckdb, postgres
+from marivo.datasource.errors import DatasourceConnectionError
 from marivo.datasource.ir import JsonSourceIR
 from marivo.datasource.json_source import _request_payload
 from marivo.datasource.metadata import inspect_table
@@ -66,7 +67,7 @@ def test_authenticated_get_does_not_follow_redirect(header: str) -> None:
     backend = ibis.duckdb.connect()
     url = f"http://127.0.0.1:{server.server_port}/private/"
     backend._marivo_duckdb_http_auth = duckdb.DuckDbHttpCredentials(
-        scope=url, headers=((header, "synthetic-token"),)
+        scopes=((url, ((header, "synthetic-token"),)),)
     )
     try:
         with pytest.raises(HTTPError) as error:
@@ -146,17 +147,17 @@ def test_failed_secret_install_is_audited_without_parameter_values(
 
     monkeypatch.setattr(backend, "raw_sql", fail)
     try:
-        with pytest.raises(RuntimeError):
-            duckdb.http_credentials(
+        with pytest.raises(DatasourceConnectionError):
+            duckdb.install_credentials(
                 backend,
-                scope="https://example.invalid/private/",
-                bearer_token="synthetic-secret",
-                headers=None,
+                name="probe",
+                metadata=[{"type": "http", "scope": "https://example.invalid/private/"}],
+                resolved={"http@https://example.invalid/private/.token": "synthetic-secret"},
             )
         log = provider_statement_log(backend)
         assert len(log) == 1
         assert log[0].state == "failed"
-        assert log[0].statement_id == "duckdb.http_secret_bearer"
+        assert log[0].statement_id == "duckdb.secret_http_bearer"
         assert "synthetic-secret" not in repr(log)
     finally:
         backend.disconnect()

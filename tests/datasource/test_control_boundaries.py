@@ -204,8 +204,8 @@ def test_clickhouse_unsettable_timeout_blocks_before_user_sql(
             host="127.0.0.1",
             port=18123,
             database="qualification",
-            user_env="MARIVO_SOURCE_CONTROL_CH_USER",
-            password_env="MARIVO_SOURCE_CONTROL_CH_PASSWORD",
+            user=md.env("MARIVO_SOURCE_CONTROL_CH_USER"),
+            password=md.env("MARIVO_SOURCE_CONTROL_CH_PASSWORD"),
         ),
         project_root=tmp_path,
     )

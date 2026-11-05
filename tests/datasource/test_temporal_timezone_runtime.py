@@ -106,8 +106,8 @@ def test_clickhouse_catalog_validation_shares_preview_and_analysis_contracts(
                 "datasources/warehouse.py": (
                     "import marivo.datasource as md\n"
                     "md.clickhouse(name='warehouse', host='127.0.0.1', port=18123, "
-                    "database='qualification', user_env='MARIVO_SOURCE_PROFILE_USER', "
-                    "password_env='MARIVO_SOURCE_PROFILE_PASSWORD')\n"
+                    "database='qualification', user=md.env('MARIVO_SOURCE_PROFILE_USER'), "
+                    "password=md.env('MARIVO_SOURCE_PROFILE_PASSWORD'))\n"
                 ),
                 "sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales', owner='Data', default=True)\n",
                 "sales/events.py": (

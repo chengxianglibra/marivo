@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+import marivo.datasource as md
 from marivo.datasource import store as datasource_store
 from marivo.datasource.authoring import (
     ClickHouseSpec,
@@ -15,7 +16,7 @@ from marivo.datasource.authoring import (
     PostgresSpec,
     TrinoSpec,
 )
-from marivo.datasource.errors import DatasourceFieldInvalidError, DatasourceSecretInPlaintextError
+from marivo.datasource.errors import DatasourceFieldInvalidError
 
 
 @pytest.fixture(autouse=True)
@@ -44,9 +45,9 @@ def test_save_roundtrip() -> None:
             backend_type="trino",
             host="trino.example",
             port=8080,
-            user_env="TRINO_USER",
+            user=md.env("TRINO_USER"),
             catalog="hive",
-            auth_env="TRINO_AUTH",
+            auth=md.env("TRINO_AUTH"),
         )
     )
     datasources = datasource_store.load_all()
@@ -62,24 +63,28 @@ def test_duckdb_multiple_http_header_env_refs_round_trip() -> None:
     datasource_store.save_one(
         DuckDBSpec(
             name="change_focus",
-            http_scope="http://change-focus.example/api/",
-            http_headers_env={
-                "x-secretid": "CHANGE_FOCUS_SECRET_ID",
-                "x-signature": "CHANGE_FOCUS_SIGNATURE",
-            },
+            secrets=[
+                md.http_headers_secret(
+                    scope="http://change-focus.example/api/",
+                    headers={
+                        "x-secretid": md.env("CHANGE_FOCUS_SECRET_ID"),
+                        "x-signature": md.env("CHANGE_FOCUS_SIGNATURE"),
+                    },
+                )
+            ],
         )
     )
 
     restored = datasource_store.load_one("change_focus")
 
     assert restored is not None
-    assert restored.fields["http_scope"] == "http://change-focus.example/api/"
+    assert restored.fields["secrets"][0]["scope"] == "http://change-focus.example/api/"
     assert restored.env_refs == {
-        "http_header:x-secretid": "CHANGE_FOCUS_SECRET_ID",
-        "http_header:x-signature": "CHANGE_FOCUS_SIGNATURE",
+        "http@http://change-focus.example/api/.header:x-secretid": "CHANGE_FOCUS_SECRET_ID",
+        "http@http://change-focus.example/api/.header:x-signature": "CHANGE_FOCUS_SIGNATURE",
     }
     persisted = datasource_store.datasource_path("change_focus").read_text()
-    assert "http_headers_env=" in persisted
+    assert "md.http_headers_secret(" in persisted
     assert "CHANGE_FOCUS_SECRET_ID" in persisted
     assert "CHANGE_FOCUS_SIGNATURE" in persisted
 
@@ -92,47 +97,47 @@ def test_save_overwrites_same_name() -> None:
 
 
 def test_save_rejects_plaintext_sensitive_field() -> None:
-    with pytest.raises(DatasourceSecretInPlaintextError) as exc_info:
+    with pytest.raises(DatasourceFieldInvalidError) as exc_info:
         datasource_store.save_one(
             TrinoSpec(
                 name="wh",
                 host="h",
                 catalog="c",
-                user_env="TRINO_USER",
+                user=md.env("TRINO_USER"),
                 extra={"password": "literal-secret"},
             )
         )
-    assert exc_info.value.received == "password"
-    assert "password_env" in str(exc_info.value)
+    assert exc_info.value.received == "str"
+    assert "password" in str(exc_info.value)
 
 
 def test_save_rejects_plaintext_user() -> None:
-    with pytest.raises(DatasourceSecretInPlaintextError) as exc_info:
+    with pytest.raises(DatasourceFieldInvalidError) as exc_info:
         datasource_store.save_one(
             TrinoSpec(
                 name="wh",
                 host="h",
                 catalog="c",
-                user_env="TRINO_USER",
+                user=md.env("TRINO_USER"),
                 extra={"user": "analytics"},
             )
         )
-    assert exc_info.value.received == "user"
+    assert exc_info.value.received == "str"
 
 
 def test_save_rejects_plaintext_auth() -> None:
-    with pytest.raises(DatasourceSecretInPlaintextError) as exc_info:
+    with pytest.raises(DatasourceFieldInvalidError) as exc_info:
         datasource_store.save_one(
             TrinoSpec(
                 name="wh",
                 host="h",
                 catalog="c",
-                user_env="TRINO_USER",
+                user=md.env("TRINO_USER"),
                 extra={"auth": "literal-token"},
             )
         )
-    assert exc_info.value.received == "auth"
-    assert "auth_env" in str(exc_info.value)
+    assert exc_info.value.received == "str"
+    assert "auth" in str(exc_info.value)
 
 
 def test_save_allows_json_object_fields() -> None:
@@ -142,7 +147,7 @@ def test_save_allows_json_object_fields() -> None:
             backend_type="trino",
             host="h",
             catalog="c",
-            user_env="TRINO_USER",
+            user=md.env("TRINO_USER"),
             session_properties={"query_max_run_time": "5m"},
         )
     )
@@ -158,7 +163,7 @@ def test_save_rejects_non_json_object_value() -> None:
                 name="wh",
                 host="h",
                 catalog="c",
-                user_env="TRINO_USER",
+                user=md.env("TRINO_USER"),
                 extra={"nested": object()},
             )
         )
@@ -171,11 +176,11 @@ def test_save_rejects_env_ref_non_string() -> None:
                 name="wh",
                 host="h",
                 catalog="c",
-                user_env="TRINO_USER",
-                auth_env="",
+                user=md.env("TRINO_USER"),
+                auth="",
             )
         )
-    assert exc_info.value.location.endswith("field 'auth_env'")
+    assert exc_info.value.location.endswith("field 'auth'")
 
 
 @pytest.mark.parametrize("name", ["foo/bar", "foo\\bar", " foo", "foo bar", "../foo"])

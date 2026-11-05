@@ -17,11 +17,13 @@ import pyarrow.parquet as pq
 import pytest
 
 import marivo.analysis as mv
+import marivo.datasource as md
 import marivo.semantic as ms
 from marivo.analysis.core.frame_data import MemoryFrameBacking, StoredFrameBacking
 from marivo.datasource.adapters import provider_for
 from marivo.datasource.ir import CsvSourceIR, JsonSourceIR, ParquetSourceIR, TableSourceIR
 from tests.datasource.source_cases import Case, SourceData, datasource, source_case
+from tests.shared_fixtures import datasource_arguments_source
 
 START = datetime(2026, 8, 1, tzinfo=timezone.utc)
 GROUPS = 16
@@ -377,13 +379,12 @@ def _author(
         facts_source = f"md.json({case.source.path!r})"
     arguments = {
         **case.session.datasource.fields,
-        **{key + "_env": value for key, value in case.session.datasource.env_refs.items()},
+        **{key: md.env(value) for key, value in case.session.datasource.env_refs.items()},
     }
-    if "user" in arguments:
+    if isinstance(arguments.get("user"), str):
         reader = arguments.pop("user")
-        if "user_env" not in arguments:
-            monkeypatch.setenv("MARIVO_R96_READER", str(reader))
-            arguments["user_env"] = "MARIVO_R96_READER"
+        monkeypatch.setenv("MARIVO_R96_READER", str(reader))
+        arguments["user"] = md.env("MARIVO_R96_READER")
     models = root / "models"
     (models / "datasources").mkdir(parents=True)
     (models / "semantic" / "cost").mkdir(parents=True)
@@ -391,7 +392,7 @@ def _author(
     (models / "datasources" / "warehouse.py").write_text(
         "import marivo.datasource as md\n"
         + f"md.{backend}(wall_clock_timezone='UTC', name='warehouse', "
-        + ", ".join(f"{key}={value!r}" for key, value in arguments.items())
+        + datasource_arguments_source(arguments)
         + ")\n"
     )
     (models / "semantic" / "cost" / "_domain.py").write_text(

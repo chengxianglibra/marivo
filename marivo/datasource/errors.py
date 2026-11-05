@@ -262,10 +262,6 @@ class DatasourceContractScopeError(DatasourceError):
         )
 
 
-class DatasourceSecretInPlaintextError(DatasourceError):
-    pass
-
-
 class DatasourceFieldInvalidError(DatasourceError):
     pass
 

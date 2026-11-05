@@ -90,10 +90,10 @@ def _probe(
 ) -> Iterator[_Probe]:
     declaration = (
         'md.trino(name="warehouse", host="localhost", catalog="memory", '
-        'user_env="MARIVO_PREVIEW_TEST_USER")'
+        'user=md.env("MARIVO_PREVIEW_TEST_USER"))'
         if backend_kind == "trino"
         else f'md.{backend_kind}(name="warehouse", host="localhost", database="preview", '
-        'user_env="MARIVO_PREVIEW_TEST_USER")'
+        'user=md.env("MARIVO_PREVIEW_TEST_USER"))'
     )
     project = semantic_project_factory(
         {

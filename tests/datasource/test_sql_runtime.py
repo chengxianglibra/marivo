@@ -17,6 +17,7 @@ from marivo.datasource.secrets import LocalPlaintextCache
 from marivo.semantic.reader import SemanticProject
 from tests.datasource.driver_audit import native_audit
 from tests.datasource.source_cases import ROWS, source_case, source_params
+from tests.shared_fixtures import datasource_arguments_source
 from tests.support.execution_logs import execution_records
 
 
@@ -38,14 +39,13 @@ def test_scoped_http_provider_sql_audit(tmp_path: Path, monkeypatch: pytest.Monk
             rows = len(case.session.execute(read))
             assert rows == len(ROWS)
             assert any(
-                item.category == "provider" and item.purpose == "datasource.http_credentials"
+                item.category == "provider" and item.purpose == "datasource.credentials"
                 for item in audit.submissions
             )
             assert all("synthetic-source_profile" not in item.sql for item in audit.submissions)
             assert "synthetic-source_profile" not in str(execution_records(tmp_path))
             assert any(
-                r.get("purpose") == "datasource.http_credentials"
-                for r in execution_records(tmp_path)
+                r.get("purpose") == "datasource.credentials" for r in execution_records(tmp_path)
             )
             environment = case.environment
         audit.save(
@@ -77,16 +77,16 @@ def test_public_sql_owner_audit(
             assert isinstance(case.source, TableSourceIR)
             arguments = {
                 **case.session.datasource.fields,
-                **{key + "_env": value for key, value in case.session.datasource.env_refs.items()},
+                **{key: md.env(value) for key, value in case.session.datasource.env_refs.items()},
             }
-            if "user" in arguments:
+            if isinstance(arguments.get("user"), str):
                 monkeypatch.setenv("MARIVO_SQL_OWNER_READER", str(arguments.pop("user")))
-                arguments["user_env"] = "MARIVO_SQL_OWNER_READER"
+                arguments["user"] = md.env("MARIVO_SQL_OWNER_READER")
             semantic_project_factory(
                 {
                     "datasources/warehouse.py": "import marivo.datasource as md\n"
                     + f"md.{backend}(name='warehouse',"
-                    + ",".join(f"{key}={value!r}" for key, value in arguments.items())
+                    + datasource_arguments_source(arguments)
                     + ")\n",
                     "sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales',owner='R9',default=True)\n",
                     "sales/models.py": "import marivo.datasource as md\nimport marivo.semantic as ms\n"

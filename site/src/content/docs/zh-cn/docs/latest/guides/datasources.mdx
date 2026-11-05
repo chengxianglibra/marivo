@@ -10,7 +10,7 @@ head:
 ---
 
 在 `models/datasources/` 中声明连接；加载声明时不会打开连接。环境变量凭据使用
-`*_env` 引用声明。连接测试通过后，Marivo 可能将来自环境变量的凭据以明文
+`md.env("NAME")` 引用声明。连接测试通过后，Marivo 可能将来自环境变量的凭据以明文
 缓存到用户级 `~/.marivo/secrets.toml`。设置 `MARIVO_PERSIST_CREDENTIALS=0`
 可关闭此缓存。
 

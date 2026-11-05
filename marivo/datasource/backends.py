@@ -27,20 +27,12 @@ class EffectiveDatasourceKwargs:
     env_sourced_secrets: tuple[secrets.ResolvedSecret, ...]
 
 
-def _reject_unqualified_http_auth(datasource: DatasourceIR, profile: Any) -> None:
-    if (
-        any(
-            stem == "http_bearer_token" or stem.startswith("http_header:")
-            for stem in datasource.env_refs
-        )
-        and getattr(profile, "http_credentials", None) is None
-    ):
+def _reject_unqualified_credentials(datasource: DatasourceIR, profile: Any) -> None:
+    if datasource.fields.get("secrets") and getattr(profile, "install_credentials", None) is None:
         raise DatasourceFieldInvalidError(
-            message=(
-                "Authenticated HTTP sources require a provider that owns scoped HTTP credentials."
-            ),
-            expected="an unauthenticated HTTP source or a credentials-owning provider",
-            received=f"authenticated HTTP datasource on backend {datasource.backend_type!r}",
+            message=("Declared secrets require a provider that owns scoped credentials."),
+            expected="a credentials-owning provider",
+            received=f"scoped credentials on backend {datasource.backend_type!r}",
             location=f"datasource {datasource.name!r}",
             repair=repair(
                 kind="reauthor",
@@ -54,7 +46,7 @@ def _reject_unqualified_http_auth(datasource: DatasourceIR, profile: Any) -> Non
 
 
 def _effective_kwargs(datasource: DatasourceIR, profile: Any) -> EffectiveDatasourceKwargs:
-    _reject_unqualified_http_auth(datasource, profile)
+    _reject_unqualified_credentials(datasource, profile)
     resolved: dict[str, Any] = dict(datasource.fields)
     env_sourced: list[secrets.ResolvedSecret] = []
     resolver = cr.current_resolver()
@@ -63,16 +55,15 @@ def _effective_kwargs(datasource: DatasourceIR, profile: Any) -> EffectiveDataso
         if not isinstance(env_var, str) or not env_var:
             raise DatasourceFieldInvalidError(
                 message=(
-                    f"datasource {datasource.name!r} field {stem}_env must be a non-empty "
-                    "env var name"
+                    f"datasource {datasource.name!r} field {stem} must be a non-empty env var name"
                 ),
                 expected="a non-empty environment variable name",
                 received=repr(env_var),
-                location=f"models/datasources/ entry {datasource.name!r} field {stem}_env",
+                location=f"models/datasources/ entry {datasource.name!r} field {stem}",
                 repair=repair(
                     kind="environment",
                     canonical_id="datasource_catalog.test",
-                    action="Set a non-empty environment variable reference.",
+                    action='Declare a non-empty credential reference with md.env("NAME").',
                 ),
             )
         if resolver is not None:
@@ -145,7 +136,7 @@ def _build_backend_from_effective(
 ) -> BuiltDatasourceBackend:
     """Open from already resolved operation-local credentials without resolving twice."""
     profile = require_profile_for_backend_type(datasource.backend_type)
-    _reject_unqualified_http_auth(datasource, profile)
+    _reject_unqualified_credentials(datasource, profile)
     kwargs = dict(effective.kwargs)
     if connection_timeout_seconds is not None:
         if datasource.backend_type in {"postgres", "mysql", "clickhouse"}:
@@ -157,15 +148,12 @@ def _build_backend_from_effective(
             kwargs["send_receive_timeout"] = connection_timeout_seconds
         elif datasource.backend_type == "trino":
             kwargs["request_timeout"] = connection_timeout_seconds
-    http_scope: object = None
-    http_bearer_token: object = None
-    http_headers: dict[str, object] = {}
+    secret_metadata: object = None
+    resolved_credentials: dict[str, object] = {}
     if datasource.backend_type == "duckdb":
-        http_scope = kwargs.pop("http_scope", None)
-        http_bearer_token = kwargs.pop("http_bearer_token", None)
-        for key in tuple(kwargs):
-            if key.startswith("http_header:"):
-                http_headers[key.removeprefix("http_header:")] = kwargs.pop(key)
+        secret_metadata = kwargs.pop("secrets", None)
+        for key in datasource.env_refs:
+            resolved_credentials[key] = kwargs.pop(key)
     if terminal_timeout_seconds is not None:
         if datasource.backend_type == "postgres":
             kwargs["options"] = (
@@ -181,10 +169,14 @@ def _build_backend_from_effective(
     if datasource.backend_type == "trino":
         kwargs["timezone"] = "UTC"
     try:
-        backend = profile.connect(datasource.name, kwargs)
-        from marivo.datasource.engines._aggregate_compilers import configure_aggregate_compiler
+        if datasource.backend_type == "duckdb":
+            from marivo.datasource.engines.duckdb import connect_owned
 
-        configure_aggregate_compiler(backend)
+            backend = connect_owned(
+                profile.connect, datasource.name, kwargs, scoped_credentials=bool(secret_metadata)
+            )
+        else:
+            backend = profile.connect(datasource.name, kwargs)
     except ImportError as exc:
         raise DatasourceConnectionError(
             message="The selected datasource driver could not be imported.",
@@ -197,6 +189,8 @@ def _build_backend_from_effective(
                 action=f"Install marivo[{profile.name}] in the active Python environment and retry the connection.",
             ),
         ) from exc
+    except DatasourceConnectionError:
+        raise
     except Exception as exc:
         if profile.connection_conflict(exc):
             raise DatasourceConnectionError(
@@ -219,14 +213,17 @@ def _build_backend_from_effective(
         injected=effective.injected,
     )
     try:
+        from marivo.datasource.engines._aggregate_compilers import configure_aggregate_compiler
+
+        configure_aggregate_compiler(backend)
         if datasource.backend_type == "duckdb":
-            install_credentials = profile.http_credentials
+            install_credentials = profile.install_credentials
             if install_credentials is not None:
                 credentials = install_credentials(
                     backend,
-                    scope=http_scope,
-                    bearer_token=http_bearer_token,
-                    headers=http_headers or None,
+                    name=datasource.name,
+                    metadata=secret_metadata,
+                    resolved=resolved_credentials,
                 )
                 if credentials is not None:
                     backend._marivo_duckdb_http_auth = credentials
@@ -238,6 +235,8 @@ def _build_backend_from_effective(
                     pass
     except BaseException as exc:
         built.disconnect()
+        if isinstance(exc, DatasourceConnectionError):
+            raise
         if effective.injected and isinstance(exc, Exception):
             raise cr.connection_error(exc, effective.injected) from None
         raise

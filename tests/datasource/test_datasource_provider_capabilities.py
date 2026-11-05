@@ -71,6 +71,18 @@ def test_registered_statements_are_pinned_by_snapshot() -> None:
     # (provider, statement_id) -> sha256(template) pair when registering one.
     pinned: dict[tuple[str, str], str] = {
         (
+            "duckdb",
+            "duckdb.secret_drop",
+        ): "7096566f23612d32069c4aacc456d9be15197424ea0813dd227bf3d47c476952",
+        (
+            "duckdb",
+            "duckdb.secret_s3",
+        ): "2fd34347169c9a0d71ee4256c31f0d04a32504a419950927fff13da14f596303",
+        (
+            "duckdb",
+            "duckdb.secret_s3_session",
+        ): "4b836a96a6f216a5f4067fafa5c4de8b739426cc6c11a751620dae48bc5332e2",
+        (
             "mysql",
             "mysql.authoring.install_select_deadline",
         ): "52da100c9a351a428ffae1adb7616ae4fca2ca3bd6de25dc7a2c1118f788f090",
@@ -132,12 +144,12 @@ def test_registered_statements_are_pinned_by_snapshot() -> None:
         ): "b3c719890b8aedcf09a746953e758fc288df2c0446d1364fadc0afd88452a36c",
         (
             "duckdb",
-            "duckdb.http_secret_bearer",
-        ): "fd508a63cb457ea45d964ff9db5bf9958c70a9ae9639b376616972f5f7447f7d",
+            "duckdb.secret_http_bearer",
+        ): "2d43e7a1b7eaf94507edb6de0aa0e060f16ae6558b9a98cded3f6d26ea110d9c",
         (
             "duckdb",
-            "duckdb.http_secret_headers",
-        ): "b1f8b0fbc9dcafd9a51b3876bd3409d122c7e78f54b9e3c121c856db281c7f0e",
+            "duckdb.secret_http_headers",
+        ): "f755899e3403b39bfb6b920699ba6bdd3c998bb28def08735f2f9d3e10b5f51b",
         (
             "duckdb",
             "duckdb.namespace.current",
@@ -330,8 +342,8 @@ def test_every_production_statement_has_exact_authorized_purposes() -> None:
                 expected = {"datasource.native_query_timeout"}
             elif statement.statement_id == "mysql.timezone.verify":
                 expected = {"datasource.timezone"}
-            elif statement.statement_id.startswith("duckdb.http_secret_"):
-                expected = {"datasource.http_credentials"}
+            elif statement.statement_id.startswith("duckdb.secret_"):
+                expected = {"datasource.credentials"}
             else:
                 expected = {f"datasource.metadata.{backend}"}
             assert statement.allowed_purposes == frozenset(expected)
@@ -465,9 +477,9 @@ def test_execute_failure_marks_submission_failed_and_reraises() -> None:
 def test_http_credentials_field_is_owned_only_by_duckdb() -> None:
     for backend, profile in ENGINE_PROFILES.items():
         if backend == "duckdb":
-            assert profile.http_credentials is not None
+            assert profile.install_credentials is not None
         else:
-            assert profile.http_credentials is None, f"{backend} must not own credentials"
+            assert profile.install_credentials is None, f"{backend} must not own credentials"
 
 
 def test_url_is_in_http_scope_boundaries() -> None:
@@ -596,7 +608,9 @@ def test_parameterized_credential_failure_logs_template_without_bound_values(
     backend = ibis.duckdb.connect()
 
     def fail(sql: str, **kwargs: object) -> None:
-        assert sql == provider_statement("duckdb", "duckdb.http_secret_bearer").template
+        assert sql == provider_statement("duckdb", "duckdb.secret_http_bearer").template.replace(
+            "{name}", '"marivo_test_0"'
+        )
         assert kwargs["parameters"] == [secret, "https://example.test/"]
         raise RuntimeError(secret)
 
@@ -606,14 +620,15 @@ def test_parameterized_credential_failure_logs_template_without_bound_values(
             execute_provider_statement(
                 backend,
                 ENGINE_PROFILES["duckdb"],
-                "duckdb.http_secret_bearer",
-                purpose="datasource.http_credentials",
+                "duckdb.secret_http_bearer",
+                identifiers={"name": "marivo_test_0"},
+                purpose="datasource.credentials",
                 parameters=[secret, "https://example.test/"],
             )
     finally:
         backend.disconnect()
     submitted, completed = execution_records(tmp_path)
-    assert submitted["sql"] == provider_statement("duckdb", "duckdb.http_secret_bearer").template
+    assert submitted["sql"] == provider_statement("duckdb", "duckdb.secret_http_bearer").template
     assert completed["state"] == "failed" and completed["error_type"] == "RuntimeError"
     assert "error_message" not in completed
     assert secret not in str([submitted, completed])
