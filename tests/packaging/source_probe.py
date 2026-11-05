@@ -289,7 +289,7 @@ def _native_weighted(session: mv.Session, project: Path) -> dict[str, Json]:
     datasource = session.catalog._state.registry.datasources["warehouse"]
     with (
         session._runtime.connection_config.operation() as service,
-        service.use_backend("warehouse", read_only=True) as backend,
+        service.use_backend("warehouse") as backend,
         SourceSession(
             provider_for(datasource.backend_type),
             datasource,

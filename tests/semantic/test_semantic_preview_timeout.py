@@ -168,6 +168,7 @@ def _probe(
     )
 
     def bind(
+        service: DatasourceConnectionService,
         name: str,
         identity: str,
         datasource: DatasourceIR,
@@ -187,7 +188,14 @@ def _probe(
             {"order_id": "int64", "amount": "float64", "region": "string"}, name=identity
         )
 
-    def collect(name: str, expression: ir.Table, *, purpose: str, max_rows: int) -> pd.DataFrame:
+    def collect(
+        service: DatasourceConnectionService,
+        name: str,
+        expression: ir.Table,
+        *,
+        purpose: str,
+        max_rows: int,
+    ) -> pd.DataFrame:
         assert probe.active_backend is service.session_backend(name)
         probe.collected.append((purpose, max_rows))
         if probe.failure == "read":
@@ -199,8 +207,8 @@ def _probe(
             }
         )
 
-    monkeypatch.setattr(service, "bind_source", bind)
-    monkeypatch.setattr(service, "collect_source", collect)
+    monkeypatch.setattr(DatasourceConnectionService, "bind_source", bind)
+    monkeypatch.setattr(DatasourceConnectionService, "collect_source", collect)
 
     def inspect_source(
         datasource: DatasourceIR,
@@ -277,8 +285,8 @@ def test_preview_prepares_deadline_before_source_resolution(
             assert (
                 probe.connect_kwargs[1]["options"] == "-c statement_timeout=30000 -c TimeZone=UTC"
             )
-            assert probe.drivers[1].read_only and not probe.drivers[1].autocommit
-            assert probe.drivers[1].rollbacks == 1
+            assert not probe.drivers[1].read_only and probe.drivers[1].autocommit
+            assert probe.drivers[1].rollbacks == 0
         else:
             assert len(probe.created) >= 2
             assert not hasattr(probe.created[1], "_marivo_authoring_cancel_control")
@@ -309,7 +317,7 @@ def test_preview_releases_remote_connections_and_restores_cache_after_failure(
         for bounded in probe.created[1:]:
             bounded.disconnect.assert_called_once_with()
         if backend_kind == "postgres":
-            assert probe.drivers[1].rollbacks == 1
+            assert probe.drivers[1].rollbacks == 0
 
 
 def test_batch_groups_use_their_own_deadlines_and_preserve_order(
@@ -343,8 +351,6 @@ def test_batch_groups_use_their_own_deadlines_and_preserve_order(
         )
         assert len(probe.collected) == 2
         assert [backend._marivo_terminal_timeout_seconds for backend in probe.created] == [
-            30,
-            11,
             30,
             11,
         ]

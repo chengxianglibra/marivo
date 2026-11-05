@@ -225,8 +225,8 @@ _BACKENDS: dict[str, tuple[str, ...]] = {
     ),
 }
 _CONNECTION_FACTS: dict[str, str] = {
-    "path": "DuckDB database path; :memory: is connection-local and non-persistent.",
-    "read_only": "Choose whether the DuckDB database opens read-only.",
+    "path": "DuckDB database file path or :memory: for a connection-local database.",
+    "read_only": "Choose whether a DuckDB database file opens in native read-only mode.",
     "http_scope": "Explicit URL prefix that constrains HTTP credential use.",
     "http_bearer_token_env": "Environment variable name for the bearer token; mutually exclusive with custom headers.",
     "http_headers_env": "Map HTTP header names to environment variable names; mutually exclusive with bearer credentials.",
@@ -242,7 +242,7 @@ _CONNECTION_FACTS: dict[str, str] = {
     "user_env": "Environment variable name for the account; explicit user_env is required by Trino.",
     "password_env": "Environment variable name for the password; omit only when the backend's authentication allows it.",
     "auth_env": "Environment variable name for Trino authentication; omit for an unauthenticated deployment.",
-    "autocommit": "Choose driver autocommit behavior; omission uses the reflected default.",
+    "autocommit": "Use True or omit this option to use autocommit.",
     "secure": "Choose the ClickHouse secure transport setting.",
     "settings": "Optional ClickHouse settings mapping.",
     "extra": "Optional JSON-safe backend connection options; never put resolved secrets in project declarations.",

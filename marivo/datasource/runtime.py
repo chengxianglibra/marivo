@@ -35,6 +35,7 @@ from marivo.datasource.ir import (
     QueryParamScalar,
     QueryParamScalarList,
 )
+from marivo.datasource.json_source import JsonResponseCache
 
 DEFAULT_CONNECTION_TIMEOUT_SECONDS = 30
 _ResultT = TypeVar("_ResultT")
@@ -44,7 +45,6 @@ def open_backend(
     datasource: DatasourceIR,
     *,
     project_root: Path | None = None,
-    read_only: bool = False,
     timeout_seconds: int | None = None,
     terminal_timeout_seconds: int | None = None,
 ) -> backends.BuiltDatasourceBackend:
@@ -57,7 +57,6 @@ def open_backend(
         try:
             return backends.build_backend_with_secrets(
                 datasource,
-                read_only=read_only,
                 terminal_timeout_seconds=terminal_timeout_seconds,
                 connection_timeout_seconds=timeout_seconds,
             )
@@ -125,13 +124,27 @@ def _build_backend_from_store(
     name: str,
     project_root: Path | None,
     *,
-    read_only: bool = False,
     terminal_timeout_seconds: int | None = None,
+    require_existing_file: bool = False,
 ) -> backends.BuiltDatasourceBackend:
+    datasource = load_datasource(name, project_root)
+    if require_existing_file and datasource.backend_type == "duckdb":
+        path = datasource.fields.get("path", ":memory:")
+        if isinstance(path, str) and path != ":memory:" and not Path(path).expanduser().is_file():
+            raise DatasourceConnectionError(
+                message="The DuckDB datasource file is unavailable.",
+                expected="an existing DuckDB database file for Frame evaluation",
+                received="missing or inaccessible datasource file",
+                location=f"datasource {name!r}",
+                repair=repair(
+                    kind="reconnect",
+                    canonical_id="duckdb",
+                    action="Restore the declared DuckDB file or correct the datasource path.",
+                ),
+            )
     return open_backend(
-        load_datasource(name, project_root),
+        datasource,
         project_root=project_root,
-        read_only=read_only,
         terminal_timeout_seconds=terminal_timeout_seconds,
         timeout_seconds=DEFAULT_CONNECTION_TIMEOUT_SECONDS
         if terminal_timeout_seconds is not None
@@ -159,7 +172,7 @@ class DatasourceConnectionConfig:
 
 
 class DatasourceConnectionService:
-    """Manages scoped and session-scoped backend connections.
+    """Owns live backend connections for a datasource operation.
 
     Provides two access patterns:
 
@@ -192,15 +205,17 @@ class DatasourceConnectionService:
         self._terminal_timeout_seconds: int | None = None
         self._session_backends: dict[str, Any] = {}
         self._leases: dict[str, BackendLease] = {}
-        self._source_sessions: dict[str, SourceSession] = {}
+        self._source_sessions: dict[tuple[str, object | None], SourceSession] = {}
 
     @property
     def project_root(self) -> Path | None:
         return self._project_root
 
     @contextmanager
-    def operation(self) -> Iterator[DatasourceConnectionService]:
-        """Yield a fresh batch cache; never close the parent owner's connections."""
+    def operation(
+        self, *, terminal_timeout_seconds: int | None = None
+    ) -> Iterator[DatasourceConnectionService]:
+        """Yield a fresh cache with one native query budget for its connections."""
         with cr.bind_resolver(self._resolver):
             child = DatasourceConnectionService(
                 self._project_root,
@@ -208,19 +223,25 @@ class DatasourceConnectionService:
                 backend_factory=self._backend_factory,
                 use_datasources=self._use_datasources,
             )
+            child._terminal_timeout_seconds = terminal_timeout_seconds
         try:
             yield child
         finally:
             child.close_all()
 
-    def backend_for(self, datasource: DatasourceIR, *, read_only: bool = False) -> BaseBackend:
+    def backend_for(self, datasource: DatasourceIR) -> BaseBackend:
         """Borrow a Marivo-owned backend from this operation's cache."""
         cr.check_binding(self._resolver)
         backend = self._session_backends.get(datasource.name)
         if backend is None:
             with cr.bind_resolver(self._resolver):
                 built = open_backend(
-                    datasource, project_root=self._project_root, read_only=read_only
+                    datasource,
+                    project_root=self._project_root,
+                    terminal_timeout_seconds=self._terminal_timeout_seconds,
+                    timeout_seconds=DEFAULT_CONNECTION_TIMEOUT_SECONDS
+                    if self._terminal_timeout_seconds is not None
+                    else None,
                 )
             self._session_backends[datasource.name] = built.backend
             self._leases[datasource.name] = built.lease
@@ -239,7 +260,6 @@ class DatasourceConnectionService:
         self,
         name: str,
         *,
-        read_only: bool = False,
         terminal_timeout_seconds: int | None = None,
         on_disconnect: Callable[[bool], None] | None = None,
     ) -> Iterator[Any]:
@@ -250,7 +270,6 @@ class DatasourceConnectionService:
                 built = _build_backend_from_store(
                     datasource_name,
                     self._project_root,
-                    read_only=read_only,
                     terminal_timeout_seconds=terminal_timeout_seconds,
                 )
             try:
@@ -261,7 +280,7 @@ class DatasourceConnectionService:
                 if on_disconnect is not None:
                     on_disconnect(disconnected)
 
-    def _build_session_backend(self, name: str) -> Any:
+    def _build_session_backend(self, name: str, *, require_existing_file: bool) -> Any:
         datasource_name = _storage_name(name)
         override = self._backend_overrides.get(datasource_name)
         if override is not None:
@@ -276,8 +295,8 @@ class DatasourceConnectionService:
             built = _build_backend_from_store(
                 datasource_name,
                 self._project_root,
-                read_only=self._terminal_timeout_seconds is not None,
                 terminal_timeout_seconds=self._terminal_timeout_seconds,
+                require_existing_file=require_existing_file,
             )
             self._leases[datasource_name] = built.lease
             return built.backend
@@ -297,7 +316,10 @@ class DatasourceConnectionService:
 
     @contextmanager
     def terminal_scope(self, timeout_seconds: int) -> Iterator[None]:
-        """Isolate bounded authoring connections and release them before restoring the cache."""
+        """Use matching bounded connections or own an isolated reader for this scope."""
+        if timeout_seconds == self._terminal_timeout_seconds:
+            yield
+            return
         previous = (
             self._session_backends,
             self._leases,
@@ -321,7 +343,7 @@ class DatasourceConnectionService:
                     self._terminal_timeout_seconds,
                 ) = previous
 
-    def session_backend(self, name: str) -> Any:
+    def session_backend(self, name: str, *, require_existing_file: bool = False) -> Any:
         """Return a cached backend for the named datasource.
 
         The same backend instance is returned on repeated calls for the
@@ -335,19 +357,33 @@ class DatasourceConnectionService:
         if backend is None:
             with _execution_log.scope(self._project_root, datasource=datasource_name):
                 if external:
-                    backend = self._build_session_backend(datasource_name)
+                    backend = self._build_session_backend(
+                        datasource_name, require_existing_file=require_existing_file
+                    )
                 else:
                     with cr.bind_resolver(self._resolver):
-                        backend = self._build_session_backend(datasource_name)
+                        backend = self._build_session_backend(
+                            datasource_name, require_existing_file=require_existing_file
+                        )
             self._session_backends[datasource_name] = backend
         return backend
 
-    def source_session(self, name: str, datasource: DatasourceIR) -> SourceSession:
+    def source_session(
+        self,
+        name: str,
+        datasource: DatasourceIR,
+        *,
+        binding_scope: object | None = None,
+        json_responses: JsonResponseCache | None = None,
+    ) -> SourceSession:
         """Return the source owner sharing this connection service's backend."""
         datasource_name = _storage_name(name)
-        session = self._source_sessions.get(datasource_name)
+        key = (datasource_name, binding_scope)
+        session = self._source_sessions.get(key)
         if session is None:
-            backend = self.session_backend(datasource_name)
+            backend = self.session_backend(
+                datasource_name, require_existing_file=binding_scope is not None
+            )
             if not isinstance(backend, BaseBackend):
                 raise TypeError("a live Ibis backend is required for governed source reads")
             session = SourceSession(
@@ -356,8 +392,9 @@ class DatasourceConnectionService:
                 backend,
                 owns_backend=False,
                 project_root=self._project_root,
+                json_responses=json_responses,
             )
-            self._source_sessions[datasource_name] = session
+            self._source_sessions[key] = session
         return session
 
     def bind_source(
@@ -386,7 +423,7 @@ class DatasourceConnectionService:
         max_rows: int,
     ) -> pd.DataFrame:
         """Collect a bounded derived expression through its bound source session."""
-        session = self._source_sessions.get(_storage_name(name))
+        session = self._source_sessions.get((_storage_name(name), None))
         if session is None:
             raise RuntimeError("source expression has no session binding")
         frame = session.collect_bounded(expression, purpose=purpose, max_rows=max_rows)
@@ -397,7 +434,11 @@ class DatasourceConnectionService:
     def close_all(self) -> None:
         """Disconnect all cached session backends and clear the cache."""
         failure: BaseException | None = None
-        for session in self._source_sessions.values():
+        sessions_by_datasource: dict[str, list[SourceSession]] = {}
+        for (name, _), session in self._source_sessions.items():
+            sessions_by_datasource.setdefault(name, []).append(session)
+            if session._closed:
+                continue
             try:
                 session.close()
             except BaseException as error:
@@ -417,8 +458,7 @@ class DatasourceConnectionService:
                             action="Inspect the original connection owner and release failure before retrying.",
                         ),
                     )
-                bound_session = self._source_sessions.get(name)
-                if bound_session is not None:
+                for bound_session in sessions_by_datasource.get(name, ()):
                     bound_session.mark_backend_disconnected()
             except BaseException as error:
                 if failure is None:

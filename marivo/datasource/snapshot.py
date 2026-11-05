@@ -503,7 +503,6 @@ def acquire_snapshot(
         try:
             session = profile.open(
                 datasource_ir,
-                read_only=True,
                 terminal_timeout_seconds=scope.timeout_seconds,
             )
         except (DatasourceCredentialError, DatasourceCredentialScopeError):

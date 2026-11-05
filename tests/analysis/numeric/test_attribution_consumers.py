@@ -60,10 +60,6 @@ def test_source_and_retained(
         ],
     )
 
-    def forbid_snapshot(*args: object, **kwargs: object) -> NoReturn:
-        pytest.fail("Ordinary C09 reads must not claim a snapshot capture")
-
-    monkeypatch.setattr("marivo.datasource.domain_snapshot.capture", forbid_snapshot)
     with source_case(backend, profile, tmp_path, monkeypatch, data) as case:
         author_source_project(backend, case, monkeypatch, semantic_project_factory)
         models = tmp_path / "models/semantic/sales/models.py"

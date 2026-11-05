@@ -85,9 +85,10 @@ def test_source_identity_metadata_preserves_binding_and_compact_aggregates(
         assert isinstance(shared._backing.root, SourceFrameBinding)
         graph = shared._backing.root.graph
         trace = capture_source(monkeypatch)
-        with open_query_sources(
-            session._runtime.connection_service(), graph, session.catalog._state
-        ) as prepared:
+        with (
+            session._runtime.connection_service().operation() as connections,
+            open_query_sources(connections, graph, session.catalog._state) as prepared,
+        ):
             assert all(schema.binding_id for schema in prepared.schemas)
             assert len({schema.binding_id for schema in prepared.schemas}) == 1
             plan = optimize_query(plan_query(graph, prepared.schemas))

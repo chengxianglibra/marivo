@@ -430,7 +430,7 @@ def forbidden(*args, **kwargs):
     raise AssertionError('Cold Frame recovery accessed semantic/source state')
 ms.load = forbidden
 mv.Session.catalog = property(forbidden)
-DatasourceConnectionService.use_backend = forbidden
+DatasourceConnectionService.session_backend = forbidden
 session = mv.session.resume(sys.argv[1])
 frame = session.persisted_frame(sys.argv[2])
 at = frame.schema.axes[0].at

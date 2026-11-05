@@ -400,9 +400,12 @@ def test_private_native_union_finish_executes_source_order_layout_and_checks(
         return complete(stage, frame, numeric_checks, value_keys=value_keys)
 
     monkeypatch.setattr(graph_source_execution, "_complete_source_frame", capture_complete)
-    with graph_source_execution.open_query_sources(
-        session._runtime.connection_service(), graph, session.catalog._state
-    ) as prepared:
+    with (
+        session._runtime.connection_service().operation() as connections,
+        graph_source_execution.open_query_sources(
+            connections, graph, session.catalog._state
+        ) as prepared,
+    ):
         plan = plan_query(graph, prepared.schemas)
         endpoint = next(stage for stage in plan.stages if stage.stage_id == plan.publish)
         assert isinstance(endpoint, LocalCompute)

@@ -85,6 +85,34 @@ def _normalized_wall_clock_timezone(
         ) from exc
 
 
+def _validate_connection_options(name: str, backend: str, options: Mapping[str, object]) -> None:
+    if backend in {"mysql", "postgres"} and options.get("autocommit", True) is not True:
+        option = "autocommit"
+        expected = "autocommit=True or omission"
+        action = "Remove the autocommit override or set autocommit=True."
+    elif backend == "trino" and "isolation_level" in options:
+        option = "isolation_level"
+        expected = "the native Trino AUTOCOMMIT default"
+        action = "Remove isolation_level from the datasource extra options."
+    elif (
+        backend == "duckdb"
+        and options.get("path", ":memory:") == ":memory:"
+        and options.get("read_only")
+    ):
+        option = "read_only"
+        expected = "a file-backed database for native read-only mode"
+        action = "Set read_only=False for :memory: or choose a DuckDB database file."
+    else:
+        return
+    raise DatasourceFieldInvalidError(
+        message=f"Unsupported connection option {option!r} for {backend}.",
+        expected=expected,
+        received=f"the declared {option} option",
+        location=f"datasource {name!r}",
+        repair=repair(kind="reauthor", canonical_id=backend, action=action),
+    )
+
+
 @dataclass(frozen=True)
 class DatasourceIR:
     """Project-level datasource configuration."""
@@ -100,6 +128,7 @@ class DatasourceIR:
     wall_clock_timezone: str | None = None
 
     def __post_init__(self) -> None:
+        _validate_connection_options(self.name, self.backend_type, self.fields)
         object.__setattr__(
             self,
             "wall_clock_timezone",

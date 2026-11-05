@@ -703,7 +703,7 @@ def test_clickhouse_optional_fields_pass_through(
     assert captured["client_name"] == "marivo"
     assert captured["secure"] is True
     assert captured["compression"] == "lz4"
-    assert captured["settings"] == {"max_execution_time": 60}
+    assert captured["settings"] == {"max_execution_time": 60, "timeout_overflow_mode": "throw"}
 
 
 def test_effective_kwargs_ignores_unreferenced_ambient_secrets(

@@ -39,7 +39,6 @@ def test_every_profile_populates_required_fields() -> None:
         assert profile.authoring_func
         assert profile.required_modules
         assert callable(profile.connect)
-        assert callable(profile.apply_read_only_kwargs)
         assert profile.identifier_quote in {'"', "`"}
         assert callable(profile.table_name_parts)
         assert profile.metadata.inspect_table is not None
@@ -108,10 +107,7 @@ def test_remote_timeout_uses_driver_state_without_control_sql(backend_type: str)
     assert hook is not None
     with hook(cast("BaseBackend", backend), 2):
         assert not hasattr(backend, "raw_sql")
-    if backend_type == "postgres":
-        assert backend.con.rollbacks == 1
-    else:
-        assert backend.con.rollbacks == 0
+    assert backend.con.rollbacks == 0
     assert backend.con.params["max_execution_time"] == "60"
 
 

@@ -22,8 +22,8 @@ Each table lists constructor parameters and their Python defaults. An omitted op
 | Parameter | Required | Default | Meaning |
 | --- | --- | --- | --- |
 | `name` | Yes | — | Project-wide lowercase snake_case datasource name; referenced by `ms.ref.datasource(name)`. |
-| `path` | No | `':memory:'` | DuckDB file path, or `":memory:"` for a process-local database. Use a file for the tutorial. |
-| `read_only` | No | `False` | Open the database in read-only mode when true. |
+| `path` | No | `':memory:'` | DuckDB database file path, or a connection-local database with `:memory:`. |
+| `read_only` | No | `False` | Open a DuckDB database file in native read-only mode when true. |
 | `http_scope` | No | `None` | HTTP(S) URL prefix bounding remote JSON authentication; required when an HTTP auth mode is supplied. |
 | `http_bearer_token_env` | No | `None` | Environment variable name for a bearer token; mutually exclusive with header authentication. |
 | `http_headers_env` | No | `None` | Mapping from HTTP header names to environment variable names containing their secret values; mutually exclusive with bearer authentication. |
@@ -50,7 +50,7 @@ Exact reference: `marivo.help("datasource.duckdb")`.
 | `database` | Yes | — | Database to connect to. |
 | `port` | No | `None` | Connection port; set explicitly for a non-default endpoint. |
 | `schema` | No | `None` | Default schema for table resolution. |
-| `autocommit` | No | `None` | Driver autocommit override. |
+| `autocommit` | No | `None` | Omit or set to `True` to use autocommit. |
 | `user_env` | No | `None` | Environment variable name for the database user. |
 | `password_env` | No | `None` | Environment variable name for the password. |
 | `wall_clock_timezone` | No | `None` | Source timezone for undeclared naive timestamps, encoded clocks and business dates; IANA name or fixed offset. |
@@ -82,7 +82,7 @@ on MySQL and seconds on MariaDB.
 | `host` | Yes | — | Database server host name or IP address. |
 | `database` | Yes | — | Database to connect to. |
 | `port` | No | `None` | Connection port; set explicitly for a non-default endpoint. |
-| `autocommit` | No | `None` | Driver autocommit override. |
+| `autocommit` | No | `None` | Omit or set to `True` to use autocommit. |
 | `user_env` | No | `None` | Environment variable name for the database user. |
 | `password_env` | No | `None` | Environment variable name for the password. |
 | `wall_clock_timezone` | No | `None` | Source timezone for undeclared naive timestamps, encoded clocks and business dates; IANA name or fixed offset. |
@@ -150,7 +150,7 @@ Exact reference: `marivo.help("datasource.clickhouse")`.
 | `auth_env` | No | `None` | Environment variable name for authentication material, when the server requires it. |
 | `wall_clock_timezone` | No | `None` | Source timezone for undeclared naive timestamps, encoded clocks and business dates; IANA name or fixed offset. |
 | `ai_context` | No | `None` | Optional business context via `ms.ai_context(...)`. |
-| `extra` | No | `None` | Additional JSON-compatible Ibis connection arguments not modeled above. |
+| `extra` | No | `None` | Additional JSON-compatible Ibis connection arguments not modeled above. Omit `isolation_level` to use native autocommit. |
 
 
 ```python

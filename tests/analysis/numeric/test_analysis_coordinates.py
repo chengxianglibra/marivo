@@ -287,7 +287,7 @@ def forbidden(*args, **kwargs):
 ms.load = forbidden
 duckdb.connect = forbidden
 ibis.duckdb.connect = forbidden
-DatasourceConnectionService.use_backend = forbidden
+DatasourceConnectionService.session_backend = forbidden
 session = mv.session.resume(sys.argv[1])
 before = len(terminal_runs(session))
 frame = session.persisted_frame(sys.argv[2]).to_pandas()

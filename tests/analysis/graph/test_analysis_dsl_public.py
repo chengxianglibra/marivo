@@ -249,6 +249,7 @@ def test_public_failed_run_preserves_prior_artifact(
         before = terminal_runs(case.session)
         with pytest.raises(DatasourceConnectionError):
             logical.persist()
+        assert not case.database_path.exists()
         assert terminal_runs(case.session) == before
         assert case.session.persisted_frame(first.artifact_id).to_pandas().equals(expected)
     finally:

@@ -54,12 +54,16 @@ used everywhere downstream.
 | `md.clickhouse(...)` | `ClickHouseSpec` | `clickhouse` | Session-id autogeneration defaults off for analysis stability. |
 
 The `duckdb`, `all`, and `dev` extras require DuckDB `>=1.5.3,<2`.
+Frame evaluation requires a declared DuckDB database file to exist before opening it.
+Set `read_only=True` to use DuckDB's native read-only file access.
 
 MySQL and MariaDB use PyMySQL through a private Ibis SQL backend adapter.
 `marivo[mysql]` includes RSA authentication dependencies and needs no local
 MySQL/MariaDB client C library. Ibis still owns MySQL SQL compilation.
-Connections retain autocommit enabled by default and initialize the connection to UTC
-for transport.
+MySQL, MariaDB, PostgreSQL, and Trino managed connections use autocommit.
+For MySQL or PostgreSQL declarations that specify `autocommit=False`, omit the
+option or set it to `True`. Omit `isolation_level` from Trino `extra` to use its
+native autocommit mode. MySQL and MariaDB connections initialize to UTC for transport.
 MySQL reader initialization uses the fixed offset `+00:00`, so connecting does not
 require populated named time zone tables. Native conversions involving named
 source timezones still require the selected names in those tables.

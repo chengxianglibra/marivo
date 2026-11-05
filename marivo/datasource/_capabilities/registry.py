@@ -470,8 +470,8 @@ def _build_registry() -> DatasourceCapabilityRegistry:
             "marivo.datasource.manage.raw_sql",
             "Run terminal SQL exploration; all returned rows load into client memory without "
             "a row or byte cap. Control query size with filters, partition predicates, aggregation, "
-            "and SQL LIMIT; LIMIT does not bound scan cost. Use read-only SQL and credentials: "
-            "Trino relies on database-side permissions, not Marivo write prevention. "
+            "and SQL LIMIT; LIMIT does not bound scan cost. Use read-only SQL and credentials. "
+            "The backend enforces its native permissions, and write-capable credentials can allow changes. "
             "Native query timeout defaults to 600 seconds; connection settings remain 30 seconds. "
             "Unsupported query timeouts are skipped. "
             "Results cannot enter typed analysis. Actual submitted SQL is recorded in .marivo/logs/ independently of telemetry.",
@@ -489,7 +489,7 @@ def _build_registry() -> DatasourceCapabilityRegistry:
             ),
             constraints=constraints["configured"],
             example='md.raw_sql(ms.ref.datasource("default"), "SELECT 1 LIMIT 1", reason="check connectivity")',
-            preconditions=("read-only SQL; Trino credentials must deny writes at the database",),
+            preconditions=("read-only SQL and credentials scoped to source reads",),
         ),
         _capability(
             "DatasourceCatalog.list",

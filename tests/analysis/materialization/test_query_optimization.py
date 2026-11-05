@@ -128,9 +128,10 @@ def _execute(
         graph = _source_graph(query)
         events: list[str] = []
         actual: dict[str, tuple[str, ...]] = {}
-        with open_query_sources(
-            session._runtime.connection_service(), graph, session.catalog._state
-        ) as prepared:
+        with (
+            session._runtime.connection_service().operation() as connections,
+            open_query_sources(connections, graph, session.catalog._state) as prepared,
+        ):
             plan = plan_query(graph, prepared.schemas)
             if optimized:
                 plan = optimize_query(plan)
@@ -402,9 +403,10 @@ def test_actual_plan_memo_hits_and_binding_changes_invalidate(
         {"kept": catalog_value(session.catalog, "sales.orders.amount", kind="field").sum()}
     )
     graph = _source_graph(source)
-    with open_query_sources(
-        session._runtime.connection_service(), graph, session.catalog._state
-    ) as prepared:
+    with (
+        session._runtime.connection_service().operation() as connections,
+        open_query_sources(connections, graph, session.catalog._state) as prepared,
+    ):
         memo = InvocationMemo()
         first = plan_query(graph, prepared.schemas, memo=memo)
         before = memo.hits
@@ -449,11 +451,14 @@ def test_memo_node_identity_does_not_serialize_the_definition_subgraph(
 ) -> None:
     source = _wide(optimization_session)
     graph = _source_graph(source)
-    with open_query_sources(
-        optimization_session._runtime.connection_service(),
-        graph,
-        optimization_session.catalog._state,
-    ) as prepared:
+    with (
+        optimization_session._runtime.connection_service().operation() as connections,
+        open_query_sources(
+            connections,
+            graph,
+            optimization_session.catalog._state,
+        ) as prepared,
+    ):
         schemas = prepared.schemas
 
     def forbidden_fingerprint(graph: BoundGraph) -> str:
@@ -482,9 +487,10 @@ def test_actual_plan_memo_keeps_consumed_policy_and_relation_scope(
     amount = catalog_value(session.catalog, "sales.orders.amount", kind="field")
     graph = _source_graph(session.observe({"sales": amount.sum()}))
     strict = _source_graph(session.observe({"sales": amount.sum(nulls="error")}))
-    with open_query_sources(
-        session._runtime.connection_service(), graph, session.catalog._state
-    ) as prepared:
+    with (
+        session._runtime.connection_service().operation() as connections,
+        open_query_sources(connections, graph, session.catalog._state) as prepared,
+    ):
         memo = InvocationMemo()
         first = plan_query(graph, prepared.schemas, memo=memo)
         assert plan_query(graph, prepared.schemas, memo=memo) is first
@@ -492,9 +498,10 @@ def test_actual_plan_memo_keeps_consumed_policy_and_relation_scope(
         assert compilation_key(graph, prepared.schemas, relations=prepared.relations) == original
         rebound = {name: table.view() for name, table in prepared.relations.items()}
         assert compilation_key(graph, prepared.schemas, relations=rebound) != original
-        with open_query_sources(
-            session._runtime.connection_service(), strict, session.catalog._state
-        ) as scoped_sources:
+        with (
+            session._runtime.connection_service().operation() as connections,
+            open_query_sources(connections, strict, session.catalog._state) as scoped_sources,
+        ):
             second = plan_query(strict, scoped_sources.schemas, memo=memo)
             assert second is not first
             assert plan_query(strict, scoped_sources.schemas, memo=memo) is second
@@ -658,7 +665,8 @@ def test_observe_different_fields_share_one_actual_aggregate(
     assert len(trace.native_sql) == (2 if domain == "calendar" else 1)
     assert trace.uploaded_key_rows == []
     if domain == "overall" and width == 20:
-        with duckdb.connect(str(tmp_path / "optimization.duckdb"), read_only=True) as connection:
+        assert trace.owners and all(owner._backend_disconnected for owner in trace.owners)
+        with duckdb.connect(str(tmp_path / "optimization.duckdb")) as connection:
             physical_plan = connection.execute("EXPLAIN " + trace.native_sql[0]).fetchone()
         assert physical_plan is not None
         assert physical_plan[1].count("SEQ_SCAN") == 1
@@ -841,9 +849,12 @@ def test_physical_binding_ids_do_not_change_logical_fingerprints_or_artifacts(
     fingerprint = _source_graph(query).fingerprint
     bindings: list[str] = []
     for _ in range(2):
-        with open_query_sources(
-            session._runtime.connection_service(), _source_graph(query), session.catalog._state
-        ) as prepared:
+        with (
+            session._runtime.connection_service().operation() as connections,
+            open_query_sources(
+                connections, _source_graph(query), session.catalog._state
+            ) as prepared,
+        ):
             plan = optimize_query(plan_query(_source_graph(query), prepared.schemas))
             bindings.append(
                 next(stage.binding_id for stage in plan.stages if isinstance(stage, SourceRead))
@@ -1325,9 +1336,10 @@ def test_frequency_payload_survives_ordinary_aggregate_optimization(
             }
         )
     )
-    with open_query_sources(
-        session._runtime.connection_service(), graph, session.catalog._state
-    ) as prepared:
+    with (
+        session._runtime.connection_service().operation() as connections,
+        open_query_sources(connections, graph, session.catalog._state) as prepared,
+    ):
         plan = plan_query(graph, prepared.schemas)
         stages = []
         for stage in plan.stages:
@@ -1369,9 +1381,10 @@ def test_joint_weighted_components_retain_both_raw_operands(
             }
         )
     )
-    with open_query_sources(
-        session._runtime.connection_service(), graph, session.catalog._state
-    ) as prepared:
+    with (
+        session._runtime.connection_service().operation() as connections,
+        open_query_sources(connections, graph, session.catalog._state) as prepared,
+    ):
         plan = _common_sources(
             retain_components(plan_query(graph, prepared.schemas), prepared.schemas)
         )

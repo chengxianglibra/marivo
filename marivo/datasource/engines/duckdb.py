@@ -10,7 +10,6 @@ import ibis.expr.operations as ops
 import ibis.expr.types as ir
 from ibis.backends import BaseBackend
 
-from marivo.datasource._lifetime import BackendLease
 from marivo.datasource.capabilities import (
     ProviderStatement,
     execute_provider_statement,
@@ -33,11 +32,6 @@ if TYPE_CHECKING:
 register_provider_statements(
     "duckdb",
     {
-        "connection.read_only": ProviderStatement(
-            statement_id="duckdb.connection.read_only",
-            template="BEGIN TRANSACTION READ ONLY",
-            allowed_purposes=frozenset({"datasource.connection"}),
-        ),
         "http_secret_bearer": ProviderStatement(
             statement_id="duckdb.http_secret_bearer",
             template=(
@@ -269,19 +263,8 @@ def connect(name: str, kwargs: Mapping[str, object]) -> BaseBackend:
     connect_kwargs.pop("TimeZone", None)
     if "read_only" in connect_kwargs:
         connect_kwargs["read_only"] = bool(connect_kwargs["read_only"])
-    memory_read_only = path == ":memory:" and bool(connect_kwargs.get("read_only"))
-    if memory_read_only:
-        connect_kwargs["read_only"] = False
     backend = ibis.duckdb.connect(**connect_kwargs)
     _reuse_described_schemas(backend)
-    if memory_read_only:
-        try:
-            execute_provider_statement(
-                backend, PROFILE, "duckdb.connection.read_only", purpose="datasource.connection"
-            )
-        except BaseException:
-            BackendLease(backend).close(suppress_errors=False)
-            raise
     return backend
 
 
@@ -290,12 +273,6 @@ def connection_conflict(exc: Exception) -> bool:
         type(exc).__name__ == "ConnectionException"
         and "different configuration than existing connections" in str(exc)
     )
-
-
-def apply_read_only_kwargs(kwargs: Mapping[str, object]) -> dict[str, object]:
-    out = dict(kwargs)
-    out["read_only"] = True
-    return out
 
 
 def _duckdb_rows(
@@ -557,7 +534,6 @@ PROFILE = EngineProfile(
     required_modules=("ibis.backends.duckdb",),
     connect=connect,
     connection_conflict=connection_conflict,
-    apply_read_only_kwargs=apply_read_only_kwargs,
     identifier_quote='"',
     table_name_parts=default_table_name_parts,
     inspect_partition_values=None,

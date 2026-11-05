@@ -62,6 +62,7 @@ from marivo.datasource.json_source import JsonResponseCache
 
 if TYPE_CHECKING:
     from marivo.analysis.dsl.frame import AnalysisFrame
+    from marivo.datasource.runtime import DatasourceConnectionService
 
 
 @dataclass(frozen=True, slots=True)
@@ -157,6 +158,7 @@ def prepare_frame_sources(captured: CapturedFrameInputs, stack: ExitStack) -> Pr
             backing.root, SourceFrameBinding
         ):
             qualify_source_inputs(backing.root.graph, backing.root.state)
+    connection_services: dict[tuple[Path, int], DatasourceConnectionService] = {}
     json_responses: dict[tuple[Path, int], dict[str, JsonResponseCache]] = {}
     prepared_by_input: dict[str, PreparedSources] = {}
     source_plans: dict[str, CompiledSourceFrame] = {}
@@ -198,7 +200,11 @@ def prepare_frame_sources(captured: CapturedFrameInputs, stack: ExitStack) -> Pr
                 for item in binding.frame_key_inputs
             }
             if _query_entities(binding.graph, binding.state):
-                service = stack.enter_context(binding.connection.operation())
+                scope = (binding.connection.project_root, id(binding.connection.resolver))
+                service = connection_services.get(scope)
+                if service is None:
+                    service = stack.enter_context(binding.connection.operation())
+                    connection_services[scope] = service
                 prepared = stack.enter_context(
                     open_query_sources(
                         service,
@@ -207,9 +213,7 @@ def prepare_frame_sources(captured: CapturedFrameInputs, stack: ExitStack) -> Pr
                         memo=memo,
                         consumption_timezone=current._local.record().report_timezone_name,
                         frame_schemas=key_schemas,
-                        json_responses=json_responses.setdefault(
-                            (binding.connection.project_root, id(binding.connection.resolver)), {}
-                        ),
+                        json_responses=json_responses.setdefault(scope, {}),
                     )
                 )
                 prepared_by_input[input_id] = prepared

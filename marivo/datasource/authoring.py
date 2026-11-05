@@ -26,6 +26,7 @@ from marivo.datasource.ir import (
     DatasourceIR,
     DatasourceSourceLocation,
     _normalized_wall_clock_timezone,
+    _validate_connection_options,
 )
 from marivo.datasource.typing import AiContextValue
 from marivo.refs import DatasourceKind, Ref, SemanticKind, _validate_segment
@@ -252,6 +253,7 @@ class _SpecBase(RenderableResult):
             ),
         )
         literal_fields, env_refs = self._split_declared_fields()
+        _validate_connection_options(self.name, self.backend_type, literal_fields)
         object.__setattr__(self, "fields", literal_fields)
         object.__setattr__(self, "env_refs", env_refs)
         object.__setattr__(self, "ai_context", _build_ai_context(self.ai_context))
@@ -418,10 +420,11 @@ class DuckDBSpec(_SpecBase):
 
     backend_type: ClassVar[str] = "duckdb"
     path: str = field(
-        default=":memory:", metadata=_description("DuckDB database path; defaults to in-memory.")
+        default=":memory:", metadata=_description("DuckDB database path or :memory:.")
     )
     read_only: bool = field(
-        default=False, metadata=_description("Open the DuckDB database in read-only mode.")
+        default=False,
+        metadata=_description("Open a DuckDB database file in native read-only mode."),
     )
     http_scope: str | None = field(
         default=None,
@@ -535,7 +538,7 @@ class MySQLSpec(_SpecBase):
         default=None, metadata=_description("MySQL port; ibis default is 3306.")
     )
     autocommit: bool | None = field(
-        default=None, metadata=_description("Optional autocommit override.")
+        default=None, metadata=_description("Use True or omit this option to use autocommit.")
     )
     user_env: str | None = field(
         default=None, metadata=_description("Environment variable for MySQL user.")
@@ -557,7 +560,7 @@ class PostgresSpec(_SpecBase):
     )
     schema: str | None = field(default=None, metadata=_description("Optional default schema."))
     autocommit: bool | None = field(
-        default=None, metadata=_description("Optional autocommit override.")
+        default=None, metadata=_description("Use True or omit this option to use autocommit.")
     )
     user_env: str | None = field(
         default=None, metadata=_description("Environment variable for Postgres user.")
@@ -727,8 +730,8 @@ def duckdb(
 
     Args:
         name: Global datasource name; must match ``[a-z][a-z0-9_]*``.
-        path: DuckDB database path; defaults to in-memory.
-        read_only: Open the DuckDB database in read-only mode.
+        path: DuckDB database path or :memory:.
+        read_only: Open a DuckDB database file in native read-only mode.
         http_scope: Optional HTTP(S) URL prefix limiting remote JSON authentication.
         http_bearer_token_env: Environment variable containing a bearer token.
         http_headers_env: Optional custom HTTP header names mapped to environment
@@ -836,6 +839,7 @@ def trino(
         declared for that project.
         Sensitive fields must use ``*_env`` references, not plaintext literals.
         Marivo never infers credential environment-variable names.
+        Trino uses native autocommit. Omit ``isolation_level`` from ``extra``.
         Exact ``median()`` and ``quantile(q)`` fail source compilation because
         Trino has no qualified native exact quantile algorithm. Explicit ``approx_median()`` and
         ``approx_quantile(q)`` use native ``approx_percentile``. Analysis
@@ -883,7 +887,7 @@ def mysql(
         host: MySQL host.
         database: MySQL database name.
         port: MySQL port; default is 3306.
-        autocommit: Optional autocommit override.
+        autocommit: Use True or omit this option to use autocommit.
         user_env: Environment variable for MySQL user.
         password_env: Environment variable for MySQL password.
         wall_clock_timezone: Optional source timezone for undeclared naive timestamps,
@@ -955,7 +959,7 @@ def postgres(
         database: Postgres database name.
         port: Postgres port; ibis default is 5432.
         schema: Optional default schema.
-        autocommit: Optional autocommit override.
+        autocommit: Use True or omit this option to use autocommit.
         user_env: Environment variable for Postgres user.
         password_env: Environment variable for Postgres password.
         wall_clock_timezone: Optional source timezone for undeclared naive timestamps,

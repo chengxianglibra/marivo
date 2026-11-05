@@ -122,7 +122,6 @@ class BuiltDatasourceBackend:
 def build_backend_with_secrets(
     datasource: DatasourceIR,
     *,
-    read_only: bool = False,
     terminal_timeout_seconds: int | None = None,
     connection_timeout_seconds: int | None = None,
 ) -> BuiltDatasourceBackend:
@@ -132,7 +131,6 @@ def build_backend_with_secrets(
     return _build_backend_from_effective(
         datasource,
         effective,
-        read_only=read_only,
         terminal_timeout_seconds=terminal_timeout_seconds,
         connection_timeout_seconds=connection_timeout_seconds,
     )
@@ -142,7 +140,6 @@ def _build_backend_from_effective(
     datasource: DatasourceIR,
     effective: EffectiveDatasourceKwargs,
     *,
-    read_only: bool = False,
     terminal_timeout_seconds: int | None = None,
     connection_timeout_seconds: int | None = None,
 ) -> BuiltDatasourceBackend:
@@ -171,7 +168,6 @@ def _build_backend_from_effective(
                 http_headers[key.removeprefix("http_header:")] = kwargs.pop(key)
     if terminal_timeout_seconds is not None:
         if datasource.backend_type == "postgres":
-            kwargs["autocommit"] = False
             kwargs["options"] = (
                 str(kwargs.get("options", ""))
                 + f" -c statement_timeout={terminal_timeout_seconds * 1000} -c TimeZone=UTC"
@@ -184,8 +180,6 @@ def _build_backend_from_effective(
             }
     if datasource.backend_type == "trino":
         kwargs["timezone"] = "UTC"
-    if read_only:
-        kwargs = profile.apply_read_only_kwargs(kwargs)
     try:
         backend = profile.connect(datasource.name, kwargs)
         from marivo.datasource.engines._aggregate_compilers import configure_aggregate_compiler
@@ -237,8 +231,6 @@ def _build_backend_from_effective(
                 if credentials is not None:
                     backend._marivo_duckdb_http_auth = credentials
         if terminal_timeout_seconds is not None:
-            if datasource.backend_type == "postgres":
-                backend.con.read_only = True
             if datasource.backend_type in {"postgres", "trino", "mysql"}:
                 backend._marivo_terminal_timeout_seconds = terminal_timeout_seconds
             if datasource.backend_type == "mysql" and profile.native_query_timeout is not None:
@@ -261,12 +253,10 @@ def _build_backend_from_effective(
 def build_backend(
     datasource: DatasourceIR,
     *,
-    read_only: bool = False,
     terminal_timeout_seconds: int | None = None,
 ) -> Any:
     """Open and return a live ibis backend for the given datasource."""
     return build_backend_with_secrets(
         datasource,
-        read_only=read_only,
         terminal_timeout_seconds=terminal_timeout_seconds,
     ).backend

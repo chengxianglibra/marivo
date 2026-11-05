@@ -34,8 +34,8 @@ def test_use_backend_disconnects_after_success(
     monkeypatch.setattr(
         runtime,
         "_build_backend_from_store",
-        lambda name, project_root, read_only=False, terminal_timeout_seconds=None: (
-            BuiltDatasourceBackend(backend=backend, env_sourced_secrets=())
+        lambda name, project_root, terminal_timeout_seconds=None: BuiltDatasourceBackend(
+            backend=backend, env_sourced_secrets=()
         ),
     )
 
@@ -54,8 +54,8 @@ def test_use_backend_disconnects_after_error(
     monkeypatch.setattr(
         runtime,
         "_build_backend_from_store",
-        lambda name, project_root, read_only=False, terminal_timeout_seconds=None: (
-            BuiltDatasourceBackend(backend=backend, env_sourced_secrets=())
+        lambda name, project_root, terminal_timeout_seconds=None: BuiltDatasourceBackend(
+            backend=backend, env_sourced_secrets=()
         ),
     )
     service = runtime.DatasourceConnectionService(project_root=tmp_path)
@@ -284,18 +284,18 @@ def test_terminal_scope_replaces_unbounded_cache_and_restores_it_after_exit(
     fails: bool,
 ) -> None:
     created: list[FakeBackend] = []
-    options: list[tuple[bool, int | None]] = []
+    options: list[int | None] = []
 
     def build(
         name: str,
         project_root: Path | None,
         *,
-        read_only: bool = False,
         terminal_timeout_seconds: int | None = None,
+        require_existing_file: bool = False,
     ) -> BuiltDatasourceBackend:
         backend = FakeBackend()
         created.append(backend)
-        options.append((read_only, terminal_timeout_seconds))
+        options.append(terminal_timeout_seconds)
         return BuiltDatasourceBackend(backend=backend, env_sourced_secrets=())
 
     monkeypatch.setattr(runtime, "_build_backend_from_store", build)
@@ -306,7 +306,7 @@ def test_terminal_scope_replaces_unbounded_cache_and_restores_it_after_exit(
             bounded = service.session_backend("warehouse")
             assert bounded is not original
             assert bounded is service.session_backend("warehouse")
-            assert options[-1] == (True, 17)
+            assert options[-1] == 17
             if fails:
                 raise ValueError("certification failed")
     except ValueError as exc:

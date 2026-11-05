@@ -19,7 +19,6 @@ from marivo.datasource.engines.base import (
     EngineProfile,
     MetadataInspectRequest,
     TableRefRequest,
-    identity_read_only_kwargs,
     quote_identifier,
     require_field,
     structured_exception_chain,
@@ -466,13 +465,7 @@ def classify_table_resolution_failure(exc: Exception) -> Literal["metadata_unava
 def native_query_timeout(backend: BaseBackend, timeout_seconds: int) -> Iterator[None]:
     if getattr(backend, "_marivo_terminal_timeout_seconds", None) != timeout_seconds:
         raise RuntimeError("postgres terminal connection has no configured statement timeout")
-    connection = backend.con
-    if connection.read_only is not True or connection.autocommit:
-        raise RuntimeError("postgres terminal connection is not in read-only transaction mode")
-    try:
-        yield
-    finally:
-        connection.rollback()
+    yield
 
 
 PROFILE = EngineProfile(
@@ -481,7 +474,6 @@ PROFILE = EngineProfile(
     authoring_func="postgres",
     required_modules=("ibis.backends.postgres",),
     connect=connect,
-    apply_read_only_kwargs=identity_read_only_kwargs,
     identifier_quote='"',
     table_name_parts=table_name_parts,
     inspect_partition_values=None,

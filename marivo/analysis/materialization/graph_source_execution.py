@@ -88,7 +88,6 @@ from marivo.datasource.adapters import (
     PhysicalRequirement,
     QualifiedSource,
     SourceSession,
-    provider_for,
 )
 from marivo.datasource.ir import JsonSourceIR
 from marivo.datasource.json_source import JsonResponseCache
@@ -1195,21 +1194,21 @@ def open_query_sources(
     datasources = tuple(
         dict.fromkeys(state.registry.entities[path].datasource for path in entities)
     )
+    binding_scope = object()
     with ExitStack() as stack:
         sources: dict[str, SourceSession] = {}
         for name in datasources:
             datasource = state.registry.datasources[name]
-            backend = stack.enter_context(service.use_backend(datasource.name, read_only=True))
             namespace = dumps(
                 (name, datasource.backend_type, dict(datasource.fields), dict(datasource.env_refs)),
                 sort_keys=True,
                 allow_nan=False,
             )
             sources[name] = stack.enter_context(
-                SourceSession(
-                    provider_for(datasource.backend_type),
+                service.source_session(
+                    name,
                     datasource,
-                    backend,
+                    binding_scope=binding_scope,
                     json_responses=responses.setdefault(namespace, {}),
                 )
             )

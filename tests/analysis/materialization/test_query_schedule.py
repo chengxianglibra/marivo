@@ -190,9 +190,10 @@ def test_single_root_plan_reads_once_and_publishes_its_source_stage(
     time = _dimension(session, "sales.orders.ordered_at")
     scope = session.time_scope(start="2026-01-01", end="2026-02-01")
     graph = _query(session, "revenue", where=(region == "APAC") & time.within(scope))
-    with open_query_sources(
-        session._runtime.connection_service(), graph, session.catalog._state
-    ) as prepared:
+    with (
+        session._runtime.connection_service().operation() as connections,
+        open_query_sources(connections, graph, session.catalog._state) as prepared,
+    ):
         assert prepared.source.submissions == []
         plan = plan_query(graph, prepared.schemas)
         assert len(plan.stages) == 1 and isinstance(plan.stages[0], SourceRead)
@@ -224,9 +225,10 @@ def test_multi_root_plan_combines_locally_without_mutating_shared_reads(
             frame.iloc[:, 0] = -1
         return pd.DataFrame({"key.0": [0], "n.0": [sum(len(frame) for frame in inputs)]})
 
-    with open_query_sources(
-        session._runtime.connection_service(), graph, session.catalog._state
-    ) as prepared:
+    with (
+        session._runtime.connection_service().operation() as connections,
+        open_query_sources(connections, graph, session.catalog._state) as prepared,
+    ):
         plan = plan_query(graph, prepared.schemas)
         reads = [stage for stage in plan.stages if isinstance(stage, SourceRead)]
         combine = plan.stages[-1]
@@ -262,9 +264,10 @@ def test_uint64_prepares_exact_decimal_before_any_business_read(
         raise AssertionError("preparation submitted a business read")
 
     monkeypatch.setattr(SourceSession, "execute", forbidden)
-    with open_query_sources(
-        session._runtime.connection_service(), graph, session.catalog._state
-    ) as prepared:
+    with (
+        session._runtime.connection_service().operation() as connections,
+        open_query_sources(connections, graph, session.catalog._state) as prepared,
+    ):
         code_field = next(
             field for field in prepared.schemas[0].fields if field.field == "sales.orders.code"
         )
@@ -318,9 +321,10 @@ def test_persist_publishes_prepared_numeric_and_path_routes(warehouse_session: S
 def test_planning_is_pure_over_prepared_schema_facts(warehouse_session: Session) -> None:
     session = warehouse_session
     graph = _query(session, "net")
-    with open_query_sources(
-        session._runtime.connection_service(), graph, session.catalog._state
-    ) as prepared:
+    with (
+        session._runtime.connection_service().operation() as connections,
+        open_query_sources(connections, graph, session.catalog._state) as prepared,
+    ):
         schemas = prepared.schemas
     # The source session is closed; planning consumes only the frozen schema facts.
     plan = plan_query(graph, schemas)
@@ -379,9 +383,10 @@ def test_real_source_checks_and_strict_formula_keep_occurrence_order(
         events.append(("local-complete", stage.stage_id))
 
     monkeypatch.setattr(execution, "_validate_source_checks", checked)
-    with open_query_sources(
-        session._runtime.connection_service(), graph, session.catalog._state
-    ) as prepared:
+    with (
+        session._runtime.connection_service().operation() as connections,
+        open_query_sources(connections, graph, session.catalog._state) as prepared,
+    ):
         plan = plan_query(graph, prepared.schemas)
         reads = tuple(stage for stage in plan.stages if isinstance(stage, SourceRead))
         assert len(reads) == 2 and reads[0].occurrence != reads[1].occurrence
@@ -495,9 +500,10 @@ def test_parquet_source_metadata_controls_lossless_preparation(
     session = mv.session.get_or_create("metadata", timezone="UTC")
     graph = _query(session, "total")
     if kind == "duration":
-        with open_query_sources(
-            session._runtime.connection_service(), graph, session.catalog._state
-        ) as prepared:
+        with (
+            session._runtime.connection_service().operation() as connections,
+            open_query_sources(connections, graph, session.catalog._state) as prepared,
+        ):
             output = _run(prepared, graph)
         slot = "value.0"
         assert str(output.table[slot].dtype) == "duration[ns][pyarrow]"
@@ -507,9 +513,8 @@ def test_parquet_source_metadata_controls_lossless_preparation(
         # physical contract now rejects it during source preparation.
         with (
             pytest.raises(SemanticRuntimeError, match="numeric or duration physical type"),
-            open_query_sources(
-                session._runtime.connection_service(), graph, session.catalog._state
-            ) as prepared,
+            session._runtime.connection_service().operation() as connections,
+            open_query_sources(connections, graph, session.catalog._state) as prepared,
         ):
             plan_query(graph, prepared.schemas)
     else:
@@ -521,9 +526,8 @@ def test_parquet_source_metadata_controls_lossless_preparation(
         expected = MaterializationError
         with (
             pytest.raises(expected, match=r"Duration|timestamp"),
-            open_query_sources(
-                session._runtime.connection_service(), graph, session.catalog._state
-            ),
+            session._runtime.connection_service().operation() as connections,
+            open_query_sources(connections, graph, session.catalog._state),
         ):
             pytest.fail("lossy source metadata was ignored")
     assert terminal_runs(session) == ()
@@ -556,9 +560,10 @@ def _compute(
     graph = _source_graph(
         session.observe(metrics, by=by if during is None else (during, *by), where=where)
     )
-    with open_query_sources(
-        session._runtime.connection_service(), graph, session.catalog._state
-    ) as prepared:
+    with (
+        session._runtime.connection_service().operation() as connections,
+        open_query_sources(connections, graph, session.catalog._state) as prepared,
+    ):
         return _run(prepared, graph)
 
 

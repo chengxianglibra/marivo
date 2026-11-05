@@ -128,7 +128,6 @@ class EngineProfile:
     authoring_func: str
     required_modules: tuple[str, ...]
     connect: Callable[[str, Mapping[str, object]], BaseBackend]
-    apply_read_only_kwargs: Callable[[Mapping[str, object]], dict[str, object]]
     identifier_quote: str
     table_name_parts: Callable[[TableRefRequest], tuple[str, ...]]
     inspect_partition_values: Callable[[PartitionProbeRequest], PartitionProbeResult] | None
@@ -154,7 +153,6 @@ class EngineProfile:
         self,
         datasource: DatasourceIR,
         *,
-        read_only: bool = True,
         terminal_timeout_seconds: int | None = None,
     ) -> SourceSession:
         """Open the selected provider's owned source session."""
@@ -176,21 +174,20 @@ class EngineProfile:
             )
         selected = open_backend(
             datasource,
-            read_only=read_only,
             timeout_seconds=30 if terminal_timeout_seconds is not None else None,
             terminal_timeout_seconds=terminal_timeout_seconds,
         )
-        return SourceSession(self, datasource, selected.backend, backend_lease=selected.lease)
+        try:
+            return SourceSession(self, datasource, selected.backend, backend_lease=selected.lease)
+        except BaseException:
+            selected.disconnect()
+            raise
 
     def probe(self, backend: BaseBackend) -> None:
         """Round-trip an Ibis literal through this provider's native transport."""
         from marivo.datasource.adapters import _probe_backend
 
         _probe_backend(self.name, backend)
-
-
-def identity_read_only_kwargs(kwargs: Mapping[str, object]) -> dict[str, object]:
-    return dict(kwargs)
 
 
 def identity_str(value: str) -> str:
@@ -335,7 +332,6 @@ GENERIC_PROFILE = EngineProfile(
     authoring_func="",
     required_modules=(),
     connect=_generic_connect_unsupported,
-    apply_read_only_kwargs=identity_read_only_kwargs,
     identifier_quote='"',
     table_name_parts=default_table_name_parts,
     inspect_partition_values=None,

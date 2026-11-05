@@ -54,8 +54,11 @@ def connect(name: str, kwargs: Mapping[str, object]) -> BaseBackend:
     connect_kwargs.setdefault("query_retries", 0)
     if "secure" in kwargs:
         connect_kwargs["secure"] = bool(kwargs["secure"])
-    if "settings" in kwargs and isinstance(kwargs["settings"], dict):
-        connect_kwargs["settings"] = dict(kwargs["settings"])
+    settings = kwargs.get("settings")
+    connect_kwargs["settings"] = {
+        **(settings if isinstance(settings, dict) else {}),
+        "timeout_overflow_mode": "throw",
+    }
     return ibis.clickhouse.connect(**connect_kwargs)
 
 
@@ -97,16 +100,6 @@ def transient_failure(error: Exception) -> bool:
         seen.add(id(cause))
         cause = cause.__cause__ or cause.__context__
     return False
-
-
-def apply_read_only_kwargs(kwargs: Mapping[str, object]) -> dict[str, object]:
-    out = dict(kwargs)
-    raw_settings = out.get("settings")
-    settings: dict[str, object] = dict(raw_settings) if isinstance(raw_settings, dict) else {}
-    settings["readonly"] = 1
-    settings["timeout_overflow_mode"] = "throw"
-    out["settings"] = settings
-    return out
 
 
 def validate_temporal_parsers(backend: BaseBackend, sql: str) -> None:
@@ -1010,7 +1003,6 @@ PROFILE = EngineProfile(
     authoring_func="clickhouse",
     required_modules=("ibis.backends.clickhouse",),
     connect=connect,
-    apply_read_only_kwargs=apply_read_only_kwargs,
     identifier_quote="`",
     table_name_parts=table_name_parts,
     inspect_partition_values=inspect_partition_values,

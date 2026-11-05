@@ -292,11 +292,9 @@ def test_source_preparation_precedes_reads_and_unwinds_in_reverse(
             ("source_open", 0),
             ("prepare", 0),
             ("qualified", 0),
-            ("connection_open", 1),
             ("source_open", 1),
             ("prepare", 1),
             ("source_close", 1),
-            ("connection_close", 1),
             ("source_close", 0),
             ("connection_close", 0),
         ]
@@ -309,18 +307,18 @@ def test_source_preparation_precedes_reads_and_unwinds_in_reverse(
             ("source_open", 0),
             ("prepare", 0),
             ("qualified", 0),
-            ("connection_open", 1),
             ("source_open", 1),
             ("prepare", 1),
             ("qualified", 1),
             ("read", 0),
             ("read", 1),
             ("source_close", 1),
-            ("connection_close", 1),
             ("source_close", 0),
             ("connection_close", 0),
         ]
     assert len(owners) == 2 and all(owner._closed for owner in owners)
+    assert owners[0]._backend is owners[1]._backend
+    assert all(owner._backend_disconnected for owner in owners)
     assert _inventory(session) == before
     assert terminal_runs(session) == ()
 
