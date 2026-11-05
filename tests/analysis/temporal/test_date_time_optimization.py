@@ -3,6 +3,7 @@
 import operator
 import os
 from datetime import date, datetime, time, timedelta, timezone
+from pathlib import Path
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 
@@ -14,11 +15,60 @@ import sqlglot
 import sqlglot.expressions as sge
 
 import marivo.analysis as mv
-from marivo.analysis.compiler.calendar import KEY_TYPE, builtin_key
+from marivo.analysis.compiler.calendar import KEY_TYPE, builtin_key, builtin_wall_key
 from marivo.analysis.dsl.temporal import exact_scope
 from marivo.analysis.materialization.date_day_keys import deferred_day_key
 from marivo.analysis.materialization.temporal_sql import lower_temporal
 from marivo.datasource._temporal_expressions import localize, render, timestamp
+from tests.datasource.source_cases import SourceData, source_case, source_params
+
+
+@pytest.mark.parametrize(
+    "backend,profile", source_params([("duckdb", "table"), ("postgres", "table")])
+)
+@pytest.mark.parametrize(
+    "unit,expected",
+    [
+        ("hour", datetime(2026, 11, 1, 18)),
+        ("minute", datetime(2026, 11, 1, 18, 29)),
+        ("second", datetime(2026, 11, 1, 18, 29, 44)),
+    ],
+)
+def test_single_unit_truncation_preserves_missing_infinite_clocks(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    backend: str,
+    profile: str,
+    unit: str,
+    expected: datetime,
+) -> None:
+    data = SourceData(
+        "id BIGINT, point TIMESTAMP",
+        "(1, '2026-11-01 18:29:44.999999'), (2, 'infinity'), (3, '-infinity'), (4, NULL)",
+        "",
+        [],
+    )
+    with source_case(backend, profile, tmp_path, monkeypatch, data) as case:
+        table = case.session.bind(case.source, source_identity="civil-clock").relation
+        key = builtin_wall_key(table.point, mv.grain(unit), engine=backend)
+        rows = case.session.collect_bounded(
+            table.select("id", key=key).order_by("id"),
+            purpose="calendar.infinite_clock",
+            max_rows=4,
+        )
+    assert rows["key"].iloc[0] == expected
+    assert rows["key"].isna().tolist() == [False, True, True, True]
+
+
+@pytest.mark.parametrize("engine", ["mysql", "clickhouse", "trino"])
+def test_unbound_calendar_does_not_assume_duckdb_functions(engine: str) -> None:
+    table = ibis.table({"point": "timestamp('UTC', 6)"}, name="events")
+    calendar = exact_scope("2026-11-01", "2026-11-02", "UTC").by(mv.grain("hour"))
+    # Generic reduction/attribute compilers can bind the key before its engine is known.
+    key = builtin_key(table.point, calendar._binding)
+    sql = str(ibis.to_sql(lower_temporal(table.select(key=key), engine), dialect=engine))
+    assert "isfinite" not in sql.lower()
+    assert key.type() == KEY_TYPE
 
 
 @pytest.mark.parametrize(
@@ -47,7 +97,7 @@ def test_date_day_keys_match_native_civil_grouping(
             "business_days", ibis.memtable({"point": [*days, None]}, schema={"point": "date"})
         )
         clock = localize(source_zone, timestamp(table.point))
-        key = builtin_key(clock, calendar, date_timezone=source_zone)
+        key = builtin_key(clock, calendar, date_timezone=source_zone, engine="duckdb")
         deferred = deferred_day_key(table, table.point, calendar, source_zone, "duckdb")
         assert (deferred is not None) == fast
         if deferred is not None:

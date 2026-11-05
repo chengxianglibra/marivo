@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import datetime, time, timedelta
 
 import ibis
@@ -11,10 +12,19 @@ import ibis.expr.types as ir
 from marivo._definition.expressions import BuiltinSampleCoordinate
 from marivo._definition.types import CalendarCoordinate, IntervalCoordinate
 from marivo._temporal import Grain
-from marivo._timezones import same_timezone
+from marivo._timezones import normalize_timezone, same_timezone
 from marivo.datasource._temporal_expressions import render, timestamp
 
 KEY_TYPE = dt.Timestamp(timezone="UTC", scale=6)
+
+
+def _isfinite_signature(value: datetime) -> bool:
+    raise NotImplementedError("native timestamp finiteness")
+
+
+_finite_clock: Callable[[ir.TimestampValue], ir.BooleanValue] = ibis.udf.scalar.builtin(
+    _isfinite_signature, name="isfinite", signature=((dt.timestamp,), dt.boolean)
+)
 
 
 def reusable_date_day(calendar: CalendarCoordinate, date_timezone: str, engine: str) -> bool:
@@ -50,25 +60,39 @@ def builtin_key(
     calendar: CalendarCoordinate,
     *,
     date_timezone: str | None = None,
-    engine: str = "duckdb",
+    engine: str | None = None,
 ) -> ir.Value:
     """Use the executing backend's civil truncation and native interpretation."""
     from marivo.datasource._temporal_expressions import localize
 
     grain = calendar.grain_spec
     assert grain.kind == "builtin" and grain.unit is not None
-    if date_timezone is not None and reusable_date_day(calendar, date_timezone, engine):
+    if (
+        engine is not None
+        and date_timezone is not None
+        and reusable_date_day(calendar, date_timezone, engine)
+    ):
         return value.cast(KEY_TYPE)
     wall = (
         timestamp(value) if value.type().is_date() else render(calendar.timezone, timestamp(value))
     )
-    return localize(calendar.timezone, timestamp(builtin_wall_key(wall, grain))).cast(KEY_TYPE)
+    return localize(
+        calendar.timezone, timestamp(builtin_wall_key(wall, grain, engine=engine))
+    ).cast(KEY_TYPE)
 
 
-def builtin_wall_key(wall: ir.Value, grain: Grain) -> ir.Value:
+def builtin_wall_key(wall: ir.Value, grain: Grain, *, engine: str | None) -> ir.Value:
     """Truncate a civil clock without choosing a timezone interpretation."""
     assert grain.kind == "builtin" and grain.unit is not None
     if grain.unit in ("second", "minute", "hour"):
+        # Generic compiler paths also build expressions before a provider is
+        # known. Only an explicit engine can qualify backend-specific functions.
+        if grain.count == 1 and engine in ("duckdb", "postgres", "trino", "clickhouse"):
+            bucket = wall.truncate({"second": "s", "minute": "m", "hour": "h"}[grain.unit])
+            if engine in ("duckdb", "postgres"):
+                # Extraction in the original arithmetic produced NULL for infinite clocks.
+                return _finite_clock(timestamp(wall)).ifelse(bucket, ibis.null())
+            return bucket
         units = {"second": 1, "minute": 60, "hour": 3600}
         assert grain.count is not None
         width = units[grain.unit] * grain.count
@@ -81,7 +105,9 @@ def builtin_wall_key(wall: ir.Value, grain: Grain) -> ir.Value:
     return bucket
 
 
-def builtin_sample_key(value: ir.Value, calendar: BuiltinSampleCoordinate) -> ir.Value:
+def builtin_sample_key(
+    value: ir.Value, calendar: BuiltinSampleCoordinate, *, engine: str | None
+) -> ir.Value:
     """Build an actual sample key and distinguish the two instants in a civil fold."""
     from marivo.datasource._temporal_expressions import localize
 
@@ -89,9 +115,13 @@ def builtin_sample_key(value: ir.Value, calendar: BuiltinSampleCoordinate) -> ir
     instant = timestamp(value)
     wall = render(zone, instant)
     grain = calendar.grain_spec
-    bucket = timestamp(builtin_wall_key(wall, grain))
+    bucket = timestamp(builtin_wall_key(wall, grain, engine=engine))
     key = localize(zone, bucket)
-    if grain.unit in ("second", "minute", "hour") and not same_timezone(zone, "UTC"):
+    if (
+        grain.unit in ("second", "minute", "hour")
+        and not same_timezone(zone, "UTC")
+        and normalize_timezone(zone).kind == "iana"
+    ):
         utc = render("UTC", instant)
         offset = wall.delta(utc, unit="second")
         candidate = localize("UTC", timestamp(bucket - offset.as_interval("s")))
@@ -108,13 +138,13 @@ def bind_calendar(
     slot: str,
     *,
     date_timezone: str | None = None,
-    engine: str = "duckdb",
+    engine: str | None = None,
 ) -> ir.Table:
     """Attach a native bucket identity without a calendar directory or JOIN."""
     from marivo.analysis.compiler.observation import temporal_bound
 
     if isinstance(calendar, BuiltinSampleCoordinate):
-        return table.mutate(**{slot: builtin_sample_key(time, calendar)})
+        return table.mutate(**{slot: builtin_sample_key(time, calendar, engine=engine)})
     if isinstance(calendar, IntervalCoordinate):
         condition = (time >= temporal_bound(time, calendar.start, calendar.timezone)) & (
             time < temporal_bound(time, calendar.end, calendar.timezone)

@@ -417,6 +417,11 @@ nullable truth values. Real TimeScope and contribution ranges remain half-open;
 one-sided windows need no invented lower bound.
 
 Calendar assignment emits native truncation or local-midnight subday arithmetic.
+Single-unit subday buckets can truncate the civil clock directly when the
+executing backend is known and qualified. Unbound compiler expressions retain
+the general midnight arithmetic. Builtin samples in named zones still distinguish
+the two instants in a repeated civil hour. UTC and explicit fixed offsets have
+no such ambiguity.
 It has no calendar directory JOIN, per-bucket CASE/UNION, global UTC lattice,
 parent/child execution map, or internal completion grid. Source-produced keys
 passed to pandas participate in exact-key alignment and arithmetic without being

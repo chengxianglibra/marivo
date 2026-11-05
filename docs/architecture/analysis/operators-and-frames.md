@@ -85,7 +85,8 @@ and fixed-duration s/ms/us/ns ticks. Boolean is not a numeric quantity. Every
 physical route fixes its actual input and output types before business execution.
 Keys are never passed through float, including integers above 2**53.
 UInt64 source identities and quantities use Decimal(20,0), preserving the complete
-0..18446744073709551615 domain before semantic predicates, arithmetic and reductions.
+0..18446744073709551615 domain. Qualified source aggregates can consume the exact
+UInt64 representation directly as described below.
 UInt8/16/32 use the admitted int64 carrier. This source normalization is a
 representation contract, not a guarantee that subsequent native arithmetic cannot
 overflow. Exact Decimal transport must not pass through float. Explicit floating
@@ -206,7 +207,9 @@ q=0.5 on that same algorithm. Sketches consume floating inputs and Decimal
 results explicitly converge to the declared Decimal carrier. On DuckDB and
 ClickHouse, a sketch and its NULL-count guard can read a projected UInt64
 field directly. It rounds to the same Float64 as its exact Decimal(20,0)
-carrier. The aggregate keeps this input private so shared projections,
+carrier. Exact distinct and extrema can also read the original UInt64.
+Extrema restore Decimal(20,0) after aggregation. SUM retains its Decimal
+input. The aggregate keeps the raw input private so shared projections,
 including DISTINCT and UNION inputs, retain their declared columns. PostgreSQL
 and MySQL reject approximate quantiles and distinct counts during compilation.
 Approximate distinct uses DuckDB `approx_count_distinct`, Trino `approx_distinct`,

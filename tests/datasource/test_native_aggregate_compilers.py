@@ -1,13 +1,17 @@
 """Native aggregate identity and composition through instance-scoped Ibis compilers."""
 
 from collections.abc import Callable
+from decimal import Decimal
+from pathlib import Path
 
 import ibis
 import ibis.expr.types as ir
+import pandas as pd
 import pytest
 
 from marivo.datasource.errors import DatasourceSourceCapabilityError
 from tests.datasource.aggregate_fixtures import compiler_backend
+from tests.datasource.source_cases import SourceData, source_case, source_params
 
 OPERATIONS: dict[str, Callable[[ir.NumericColumn], ir.Scalar]] = {
     "count_distinct": lambda x: x.nunique(),
@@ -96,10 +100,10 @@ def _uint64_sketch_query(table: ir.Table) -> ir.Table:
 
 @pytest.mark.parametrize("backend", ["clickhouse", "duckdb"])
 def test_uint64_sketch_inputs_skip_the_decimal_carrier(backend: str) -> None:
-    from marivo._numeric_types import unsigned_float_inputs
+    from marivo._numeric_types import native_unsigned_aggregates
 
     expression = _uint64_sketch_query(ibis.table({"k": "string", "v": "uint64"}, name="t"))
-    rewritten = unsigned_float_inputs(expression)
+    rewritten = native_unsigned_aggregates(expression)
     assert rewritten.schema() == expression.schema()
     sql = compiler_backend(backend).compile(rewritten).lower()
     carrier = "nullable(decimal(20, 0))" if backend == "clickhouse" else "decimal(20, 0)"
@@ -109,13 +113,13 @@ def test_uint64_sketch_inputs_skip_the_decimal_carrier(backend: str) -> None:
     assert 'count("t1"."v:uint64")' in sql
     assert "cast(cast(" not in sql.split("from")[0].replace(f"cast(null as {carrier})", "")
     assert 'sum("t1"."v")' in sql
-    assert unsigned_float_inputs(rewritten).op() == rewritten.op()
+    assert native_unsigned_aggregates(rewritten).op() == rewritten.op()
 
 
 def test_uint64_sketch_input_rewrite_preserves_native_results() -> None:
     import pandas as pd
 
-    from marivo._numeric_types import unsigned_float_inputs
+    from marivo._numeric_types import native_unsigned_aggregates
 
     big = (2**53 + 1, 2**64 - 1, 2**63 + 1025, 7)
     con = ibis.duckdb.connect()
@@ -127,13 +131,13 @@ def test_uint64_sketch_input_rewrite_preserves_native_results() -> None:
     )
     expression = _uint64_sketch_query(con.table("t"))
     expected = con.to_pyarrow(expression.order_by("k")).to_pandas()
-    actual = con.to_pyarrow(unsigned_float_inputs(expression).order_by("k")).to_pandas()
+    actual = con.to_pyarrow(native_unsigned_aggregates(expression).order_by("k")).to_pandas()
     pd.testing.assert_frame_equal(actual, expected)
     assert expected["k"].tolist() == ["a", "b"] and pd.isna(expected["q"].iloc[1])
 
 
 def test_uint64_rewrite_keeps_distinct_and_union_input_schemas() -> None:
-    from marivo._numeric_types import exact_unsigned, unsigned_float_inputs
+    from marivo._numeric_types import exact_unsigned, native_unsigned_aggregates
 
     table = ibis.table({"v": "uint64"}, name="t")
     projected = table.select(v=exact_unsigned(table.v))
@@ -142,7 +146,64 @@ def test_uint64_rewrite_keeps_distinct_and_union_input_schemas() -> None:
     # The aggregate shares its Decimal input with the non-aggregate branch.
     aggregate = filtered.aggregate(v=filtered.v.count().cast("decimal(20,0)"))
     for query in (distinct, filtered.union(aggregate)):
-        rewritten = unsigned_float_inputs(query)
+        rewritten = native_unsigned_aggregates(query)
         assert rewritten.schema() == ibis.schema({"v": "decimal(20,0)"})
         for backend in ("clickhouse", "duckdb"):
             compiler_backend(backend).compile(rewritten)
+
+
+@pytest.mark.parametrize(
+    "backend,profile", source_params([("duckdb", "table"), ("clickhouse", "mergetree")])
+)
+def test_uint64_extrema_keep_decimal_and_nulls_through_aliases(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, backend: str, profile: str
+) -> None:
+    from marivo._numeric_types import exact_unsigned, native_unsigned_aggregates
+
+    low, high = 2**53 + 1, 2**64 - 1
+    data = SourceData(
+        "k VARCHAR, v UBIGINT",
+        f"('a',{low}),('a',{high}),('a',{high}),('a',NULL),('b',NULL)",
+        "k String, v Nullable(UInt64)",
+        [{"k": "a", "v": value} for value in (low, high, high, None)] + [{"k": "b", "v": None}],
+    )
+    with source_case(backend, profile, tmp_path, monkeypatch, data) as case:
+        raw = case.session.bind(case.source, source_identity="unsigned-extrema").relation
+        carrier = raw.mutate(exact=exact_unsigned(raw.v))
+        aliased = carrier.select("k", amount=carrier.exact)
+        query = aliased.group_by("k").aggregate(
+            minimum=aliased.amount.min(),
+            maximum=aliased.amount.max(),
+            distinct=aliased.amount.nunique(),
+            selected=aliased.amount.min(where=aliased.amount > low),
+        )
+        rewritten = native_unsigned_aggregates(query)
+        assert rewritten.schema() == query.schema()
+        assert native_unsigned_aggregates(rewritten).op() == rewritten.op()
+        sql = case.session._backend.compile(rewritten).lower()
+        assert "amount:uint64" in sql
+        expected_type = "Nullable(Decimal(20, 0))" if backend == "clickhouse" else "DECIMAL(20,0)"
+        rows = case.session.collect_bounded(
+            rewritten.mutate(physical_type=rewritten.minimum.typeof()).order_by("k"),
+            purpose="numeric.unsigned_extrema",
+            max_rows=2,
+        )
+        assert rows["k"].tolist() == ["a", "b"]
+        assert rows["distinct"].tolist() == [2, 0]
+        assert rows["physical_type"].tolist() == [expected_type, expected_type]
+        for name, expected in (("minimum", low), ("maximum", high), ("selected", high)):
+            assert isinstance(rows[name].iloc[0], Decimal)
+            assert rows[name].iloc[0] == Decimal(expected)
+            assert pd.isna(rows[name].iloc[1])
+
+        empty = aliased.filter(aliased.k == "absent")
+        result = native_unsigned_aggregates(
+            empty.aggregate(minimum=empty.amount.min(), maximum=empty.amount.max())
+        )
+        rows = case.session.collect_bounded(
+            result.mutate(physical_type=result.maximum.typeof()),
+            purpose="numeric.empty_extrema",
+            max_rows=1,
+        )
+        assert len(rows) == 1 and rows[["minimum", "maximum"]].isna().all().all()
+        assert rows["physical_type"].tolist() == [expected_type]

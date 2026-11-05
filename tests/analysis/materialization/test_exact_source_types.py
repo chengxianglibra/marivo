@@ -133,6 +133,9 @@ def test_uint64_identity_quantity_and_arithmetic_are_exact(
             session.observe(
                 {
                     "total": amount.sum(),
+                    "minimum": amount.min(),
+                    "maximum": amount.max(),
+                    "distinct": amount.count_distinct(),
                     "negative": (amount - amount - 1).sum(),
                     "double": (amount * 2).sum(),
                     "wide": (amount * 100000).max(),
@@ -142,6 +145,14 @@ def test_uint64_identity_quantity_and_arithmetic_are_exact(
             .to_pandas()
         )
         assert totals["total"].tolist() == [expected]
+        assert totals["minimum"].tolist() == [Decimal(0)]
+        assert totals["maximum"].tolist() == [Decimal(2**64 - 1)]
+        assert totals["distinct"].tolist() == [4]
+        assert (
+            totals["minimum"].dtype
+            == totals["maximum"].dtype
+            == pd.ArrowDtype(pa.decimal128(20, 0))
+        )
         day = catalog_value(session.catalog, "sales.events.day", kind="field")
         scope = session.time_scope(start="2026-01-01", end="2026-01-02")
         assert session.observe({"total": amount.sum(time=day)}, by=(scope,)).compute().to_pandas()[

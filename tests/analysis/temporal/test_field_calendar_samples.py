@@ -464,6 +464,61 @@ def test_calendar_sample_distinguishes_repeated_civil_hour_instants(
         assert actual.loc[0, ["first", "last", "mean"]].tolist() == [7, 11, 9]
 
 
+@pytest.mark.parametrize("unit", ["hour", "minute", "second"])
+@pytest.mark.parametrize(
+    "zone,clock",
+    [("UTC+05:30:15", "2026-11-01 18:29:44"), ("UTC-05:30:15", "2026-11-02 05:30:14")],
+)
+@pytest.mark.parametrize(
+    "backend,profile",
+    source_params(
+        [
+            ("duckdb", "table"),
+            ("mysql", "innodb-table"),
+            ("postgres", "table"),
+            ("clickhouse", "mergetree"),
+            ("trino", "iceberg"),
+        ]
+    ),
+)
+def test_fixed_offset_samples_split_at_civil_midnight(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    semantic_project_factory: ProjectFactory,
+    backend: str,
+    profile: str,
+    unit: str,
+    zone: str,
+    clock: str,
+) -> None:
+    final_second = datetime.fromisoformat(clock)
+    rows = (
+        (final_second.replace(microsecond=1).isoformat(sep=" "), _PAID, 7, "East", 1),
+        (final_second.replace(microsecond=999999).isoformat(sep=" "), _PAID, 11, "East", 1),
+        ((final_second + timedelta(seconds=1)).isoformat(sep=" "), _PAID, 23, "East", 1),
+    )
+    with _sample_project(
+        tmp_path, monkeypatch, semantic_project_factory, rows, backend=backend, profile=profile
+    ):
+        session = mv.session.get_or_create("fixed-offset-midnight", timezone=zone)
+        created, _, amount, _ = _fields(session)
+        samples = amount.sum().per(created, grain=mv.grain(unit))
+        actual = (
+            session.observe(
+                {
+                    "minimum": samples.min(),
+                    "maximum": samples.max(),
+                    "mean": samples.mean(),
+                    "count": samples.count(),
+                }
+            )
+            .compute()
+            .to_pandas()
+        )
+        # The first two events are in the final civil second of November 1.
+        assert actual.loc[0, ["minimum", "maximum", "mean", "count"]].tolist() == [18, 23, 20.5, 2]
+
+
 def test_forecast_versions_follow_target_range_and_explicit_release_cutoff(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
