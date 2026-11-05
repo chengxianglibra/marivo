@@ -1,0 +1,62 @@
+---
+slug: docs/v0.6/release-notes/0.6.2
+title: Marivo 0.6.2
+description: Release notes for Marivo 0.6.2.
+---
+
+Released on November 5, 2026. Marivo 0.6.2 adds explicit Metric time binding
+and scoped datasource credentials. It includes breaking changes to datasource
+declarations and time roles; update existing models before loading them.
+
+## Highlights
+
+- Reuse a Metric across contribution-time roles with keyword-only
+  `ms.TimeParameter` slots and `bind_time(...)`. Bind every slot before preview
+  or observation. `mv.time_group(...)` groups by an explicitly selected field,
+  and calendar samples can use a field independently of the Metric's time.
+- DuckDB datasource declarations support scoped S3 and HTTP credentials through
+  `md.s3_secret`, `md.http_bearer_secret`, and `md.http_headers_secret`.
+  Credentials use `md.env(...)` references and are resolved for each operation.
+
+## Changed
+
+- **Datasource migration:** replace `user_env`, `password_env`, and Trino's
+  `auth_env` with `user=md.env(...)`, `password=md.env(...)`, and
+  `auth=md.env(...)`. Replace DuckDB's `http_scope`, `http_bearer_token_env`,
+  and `http_headers_env` with scoped entries in `secrets=[...]`. The old
+  constructor parameters have been removed. Relational connection fingerprints
+  are preserved; HTTP DuckDB fingerprints change.
+- **Time migration:** `is_default` was removed from TimeDimension declarations,
+  and source reductions no longer inherit an Entity's default time. Pass the
+  original time field explicitly to each reduction whose business meaning
+  depends on it. A reduction without `time=` has no contribution time.
+- Builtin calendar samples use the Session report timezone and actual sample
+  keys without requiring a finite observation period. If a sample previously
+  obtained its timezone from an observation axis, set the Session timezone
+  explicitly. Custom calendar samples still require a complete certified period.
+- Source connections are scoped to operations. MySQL and PostgreSQL declarations
+  must omit `autocommit` or set it to `True`; omit Trino's `extra` isolation
+  level for native autocommit. `md.raw_sql` uses the source's native permissions:
+  with write-capable credentials, SQL can change the source even if fetching
+  the result fails. Use read-only SQL and source-reader credentials.
+- A file or named in-memory DuckDB database using scoped secrets requires
+  exclusive managed access until the connection closes. Use separate databases
+  for concurrent operations with different credentials.
+
+## Fixed
+
+- Preserve chronological first and last calendar samples on ClickHouse 22.3,
+  and handle negative timezone offsets in Trino integer-second conversions.
+- Suppress DuckDB terminal progress bars and expected NumPy correlation
+  warnings without changing the resulting coefficients or pair counts.
+
+## Documentation
+
+- Updated the English and Chinese datasource, time-modeling, and analysis guides,
+  including migration guidance and the current 0.6 documentation snapshot.
+
+## Internal
+
+- Reuse shared relationship prefixes and defer eligible encoded-day parsing
+  until after aggregation. Optimize qualified native temporal and numeric
+  conversions while preserving their existing result contracts.

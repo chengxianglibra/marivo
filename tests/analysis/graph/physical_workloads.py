@@ -198,7 +198,6 @@ def _tables(
                                 f"INSERT INTO {prefix}{case.source.table} VALUES "
                                 + _values(batch, backend)
                             )
-                    admin.execute("GRANT SELECT ON ALL TABLES IN SCHEMA public TO analysis_reader")
                     case.environment["profile"] = native_profile
                     yield case, subjects_name, other
                 finally:

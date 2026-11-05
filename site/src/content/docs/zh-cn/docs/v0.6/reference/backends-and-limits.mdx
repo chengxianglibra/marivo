@@ -18,7 +18,7 @@ description: 查询驱动、来源形式、分析方法和数值限制。
 | DuckDB | `duckdb` | 本地数据库与文件来源引擎；教程无需服务器 |
 | PostgreSQL | `postgres` | 需要 libpq 和数据库访问权限 |
 | MySQL / MariaDB | `mysql` | PyMySQL 包含 RSA 认证支持；无需本地 MySQL 客户端 C 库 |
-| Trino | `trino` | 必须设置 `catalog` 和 `user_env`；`schema` 可选 |
+| Trino | `trino` | 必须设置 `catalog` 和 `user`；`schema` 可选 |
 | ClickHouse | `clickhouse` | JOIN 操作要求通过准入的 MergeTree 表；Distributed 表的 JOIN 路线受限 |
 
 Marivo 0.6.1 的 `duckdb`、`all` 和 `dev` 可选依赖要求 DuckDB `>=1.5.3,<2`。
@@ -101,7 +101,7 @@ md.raw_sql(
 )
 ```
 
-`md.raw_sql()` 只应执行只读 SQL；Trino 依赖数据库权限禁止写入。它会把查询返回的全部
+`md.raw_sql()` 应使用只读 SQL 和只读凭据。访问权限由 backend 的原生连接设置和数据库权限决定。它会把查询返回的全部
 行加载到内存。可使用筛选、聚合或 SQL `LIMIT` 控制结果大小；`LIMIT` 不限制来源扫描成本。
 
 数值精度和溢出遵循后端与数据类型。整数 SUM 使用 `int64` 结果：本地求和可能回绕，

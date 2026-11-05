@@ -15,6 +15,12 @@ from clickhouse_connect.driver.exceptions import DatabaseError
 from tests.datasource.environment.credentials import password
 
 
+def _reset_unexpected_grants(con: Client, allowed: set[str]) -> None:
+    grants = {row[0] for row in con.query("SHOW GRANTS FOR analysis_reader").result_rows}
+    if grants - allowed:
+        con.command("REVOKE ALL ON *.* FROM analysis_reader")
+
+
 @contextmanager
 def connection(*, admin: bool = False, port: int | None = None) -> Iterator[Client]:
     client = clickhouse_connect.get_client(
@@ -46,7 +52,13 @@ def setup() -> dict[str, object]:
                 "CREATE USER IF NOT EXISTS analysis_reader IDENTIFIED BY {password:String}",
                 parameters={"password": password()},
             )
-        con.command("REVOKE ALL ON *.* FROM analysis_reader")
+        _reset_unexpected_grants(
+            con,
+            {
+                "GRANT SELECT ON qualification.* TO analysis_reader",
+                "GRANT SELECT(query, query_id, user) ON system.processes TO analysis_reader",
+            },
+        )
         con.command("GRANT SELECT ON qualification.* TO analysis_reader")
         con.command("GRANT SELECT(query, query_id, user) ON system.processes TO analysis_reader")
         if con.server_version.startswith("22."):
@@ -102,7 +114,14 @@ def setup_cluster() -> dict[str, object]:
                 "CREATE USER IF NOT EXISTS analysis_reader IDENTIFIED BY {password:String}",
                 parameters={"password": password()},
             )
-            con.command("REVOKE ALL ON *.* FROM analysis_reader")
+            _reset_unexpected_grants(
+                con,
+                {
+                    "GRANT SELECT ON qualification.* TO analysis_reader",
+                    "GRANT SELECT ON qualification_cluster.* TO analysis_reader",
+                    "GRANT SELECT(query, query_id, user) ON system.processes TO analysis_reader",
+                },
+            )
             con.command("GRANT SELECT ON qualification.* TO analysis_reader")
             con.command(
                 "ALTER USER analysis_reader SETTINGS readonly=1, join_use_nulls=1, "
