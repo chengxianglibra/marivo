@@ -332,9 +332,12 @@ connection scopes. The backend lease closes after its final consumer. Ibis
 and native drivers manage the transactions required by their operations. Close confirms release only after Ibis disconnect succeeds. A failed
 close, or a backend without disconnect, leaves the lease unreleased so a later
 close attempts disconnect again; a confirmed release is not disconnected twice.
-Borrowed source sessions leave disconnection to the connection owner. Cleanup
-continues across resource failures and records disconnection only after
-confirmed release; it does not actively cancel remote queries.
+An owned source session that has begun closing rejects ordinary operations
+while that release is still unconfirmed, and a later session close finishes it
+through the same lease. Borrowed source sessions leave disconnection to the
+connection owner. Cleanup continues across resource failures and records
+disconnection only after confirmed release; it does not actively cancel remote
+queries.
 
 `SourceSession.execute` resubmits the same issued read at most twice when its
 engine profile classifies the raw native failure as transient, waiting a jittered

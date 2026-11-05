@@ -886,6 +886,7 @@ class SourceSession:
 
     def close(self) -> None:
         if self._closed:
+            self._release_backend()
             return
         self._closed = True
         failure: BaseException | None = None
@@ -910,12 +911,12 @@ class SourceSession:
             raise failure
 
     def _release_backend(self) -> None:
-        if self._backend_lease is not None and not self._backend_disconnected:
-            if not self._backend_lease.close(suppress_errors=False):
-                raise _invalid(
-                    "confirmed owned connection release", "connection release unconfirmed"
-                )
-            self.mark_backend_disconnected()
+        lease = self._backend_lease
+        if lease is None or self._backend_disconnected:
+            return
+        if not lease.close(suppress_errors=False):
+            raise _invalid("confirmed owned connection release", "connection release unconfirmed")
+        self.mark_backend_disconnected()
 
     def mark_backend_disconnected(self) -> None:
         """Record only a connection release confirmed by the backend owner."""
