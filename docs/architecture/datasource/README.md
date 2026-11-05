@@ -161,14 +161,22 @@ DuckDB credentials are datasource-owned and declared as closed variants in
 `secrets`, `wall_clock_timezone`, `ai_context`, and `extra`.
 
 ```python
-md.duckdb(name="lake", secrets=[
-    md.s3_secret(scope="s3://analytics-lake/warehouse/", region="us-west-2",
-                 key_id=md.env("LAKE_KEY_ID"), secret=md.env("LAKE_SECRET")),
-    md.http_bearer_secret(scope="https://api.example/v1/", token=md.env("API_TOKEN")),
-    md.http_headers_secret(scope="https://change-focus.example/api/v2/",
-                           headers={"x-secretid": md.env("CF_ID"),
-                                    "x-signature": md.env("CF_SIG")}),
-])
+md.duckdb(
+    name="lake",
+    secrets=[
+        md.s3_secret(
+            scope="s3://analytics-lake/warehouse/",
+            region="us-west-2",
+            key_id=md.env("LAKE_KEY_ID"),
+            secret=md.env("LAKE_SECRET"),
+        ),
+        md.http_bearer_secret(scope="https://api.example/v1/", token=md.env("API_TOKEN")),
+        md.http_headers_secret(
+            scope="https://change-focus.example/api/v2/",
+            headers={"x-secretid": md.env("CF_ID"), "x-signature": md.env("CF_SIG")},
+        ),
+    ],
+)
 ```
 
 S3 requires a region and static key references; optional `session_token` is also
