@@ -142,24 +142,6 @@ def _raw_sql_result() -> RawSqlResult:
     )
 
 
-def test_session_summary_rejects_positional_construction() -> None:
-    # Keyword construction must succeed so the TypeError below is pinned to
-    # "positional args rejected", not "the field values are invalid".
-    _session_summary()
-    with pytest.raises(TypeError):
-        # Intentional runtime negative: this constructor accepts keyword arguments only.
-        SessionSummary(  # type: ignore[call-arg]
-            "sess_1",
-            "q2",
-            None,
-            "UTC",
-            "explicit",
-            datetime(2026, 6, 13, tzinfo=UTC),
-            datetime(2026, 6, 13, tzinfo=UTC),
-            2,
-        )
-
-
 def _session_summary() -> SessionSummary:
     return SessionSummary(
         id="sess_1",

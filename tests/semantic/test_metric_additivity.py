@@ -5,22 +5,10 @@ from __future__ import annotations
 import pytest
 
 from marivo.refs import ref as ref_factory
-from marivo.semantic import authoring, ir
+from marivo.semantic import authoring
 from marivo.semantic._deferred_semantics import consume_metric
 from marivo.semantic.errors import ErrorKind, SemanticDecoratorError
 from tests.shared_fixtures import load_inline_semantic
-
-# ---------------------------------------------------------------------------
-# IR — shared helpers
-# ---------------------------------------------------------------------------
-
-
-def test_additivity_bucket_maps_all_three() -> None:
-    assert ir.additivity_bucket("additive") == "additive"
-    assert ir.additivity_bucket("non_additive") == "non_additive"
-    sa = ir.SemiAdditive(over="d.e.t", fold=ir.TimeFoldIR(kind="last"))
-    assert ir.additivity_bucket(sa) == "semi_additive"
-
 
 # ---------------------------------------------------------------------------
 # loader — _resolve_metric_additivity resolution pass

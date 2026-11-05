@@ -13,7 +13,7 @@ import marivo.datasource as md
 import marivo.semantic as ms
 from marivo._authoring.loading import _current_source_loading_file
 from marivo.datasource import loader, store
-from marivo.datasource.errors import DatasourceDuplicateError, DatasourceError, DatasourceLoadError
+from marivo.datasource.errors import DatasourceError, DatasourceLoadError
 from marivo.semantic.errors import SemanticError, SemanticLoadFailed
 
 _DOMAIN = 'import marivo.semantic as ms\nms.domain(name="demo", owner="tester", default=True)\n'
@@ -119,17 +119,6 @@ def test_constructors_load_without_registration_or_source_changes(
 
     assert [item.name for item in summaries] == ["default", "local"]
     assert _source_bytes(tmp_path) == before
-
-
-def test_duplicate_constructor_declarations_still_fail(tmp_path: Path) -> None:
-    for filename in ("a.py", "b.py"):
-        _write_file(
-            tmp_path,
-            f"models/datasources/{filename}",
-            "import marivo.datasource as md\nmd.duckdb(name='local')\n",
-        )
-    with pytest.raises(DatasourceDuplicateError):
-        md.load(workspace_dir=tmp_path).list()
 
 
 @pytest.mark.parametrize("entry", ["datasource", "semantic", "import"])

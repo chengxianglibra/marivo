@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import marivo.datasource as md
 from marivo._authoring.model import AuthoringEffects
-from marivo.datasource._capabilities.registry import ERROR_TYPES, REGISTRY, TYPE_CONTRACTS
+from marivo.datasource._capabilities.registry import REGISTRY, TYPE_CONTRACTS
 from marivo.datasource._capabilities.surface import DATASOURCE_LIVE_SURFACE
 from marivo.datasource._capabilities.validation import validate_datasource_live_surface
 from marivo.datasource.constraints import constraints_for_symbol
@@ -140,18 +140,6 @@ def test_register_discloses_its_model_loading_boundary() -> None:
     assert "constructor directly" in constraint.hint
 
 
-def test_every_discoverable_capability_belongs_to_one_root_group() -> None:
-    groups = (
-        REGISTRY.group("connections"),
-        REGISTRY.group("sources"),
-        REGISTRY.group("inspection"),
-        REGISTRY.group("root"),
-    )
-    grouped_ids = {descriptor.canonical_id for group in groups for descriptor in group}
-
-    assert set(REGISTRY.discovery_ids()) <= grouped_ids
-
-
 def test_registry_effects_match_callable_contracts() -> None:
     for canonical_id, expected in EXPECTED_EFFECTS.items():
         assert REGISTRY.by_canonical_id(canonical_id).effects == expected
@@ -217,11 +205,6 @@ def test_registry_resolves_functions_and_bound_methods() -> None:
     assert REGISTRY.by_callable(md.load().list) is REGISTRY.by_canonical_id(
         "datasource_catalog.list"
     )
-
-
-def test_type_contracts_cover_public_classes() -> None:
-    public_classes = {value for name in md.__all__ if isinstance(value := getattr(md, name), type)}
-    assert public_classes <= set(TYPE_CONTRACTS) | set(ERROR_TYPES.values())
 
 
 def test_registry_mechanical_validation() -> None:

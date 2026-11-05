@@ -152,7 +152,6 @@ if TYPE_CHECKING:
         assert_type(query.persist(), mv.AnalysisFrame)
         assert_type(value + 1, mv.Column)
         assert_type(value / 2, mv.Column)
-        assert_type(value / 2, mv.Column)
         assert_type(value.share(along=(axis,)), mv.Column)
         assert_type(value.share(along=query.axes), mv.Column)
         assert_type(query.over(value.sum(), by=(axis,)), mv.Column)

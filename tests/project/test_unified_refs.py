@@ -81,6 +81,8 @@ def test_subclassing_is_sealed() -> None:
         (ref_factory.datasource, "Warehouse"),
         (ref_factory.datasource, "1warehouse"),
         (ref_factory.datasource, " warehouse"),
+        (ref_factory.entity, "  sales.x  "),
+        (ref_factory.entity, ""),
         (ref_factory.metric, "revenue"),
         (ref_factory.metric, "sales.revenue.extra"),
         (ref_factory.entity, "sales."),
@@ -95,9 +97,11 @@ def test_path_grammar_is_exact_and_never_normalizes(factory, path: str) -> None:
 def test_value_identity_is_kind_and_path_only() -> None:
     left = ref_factory.metric("sales.revenue")
     equal = ref_factory.metric("sales.revenue")
+    other_path = ref_factory.metric("other.revenue")
     other_kind = ref_factory.entity("sales.revenue")
     assert left == equal
     assert hash(left) == hash(equal)
+    assert left != other_path
     assert left != other_kind
     assert {left: "value"}[equal] == "value"
     assert str(left) == "metric:sales.revenue"

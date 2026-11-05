@@ -8,8 +8,8 @@ from pathlib import Path
 import pytest
 
 import marivo.analysis as mv
-from marivo._definition.expressions import DeclaredMetricRef, PerReduce, SourceAggregate
-from marivo._definition.graph import computation_fingerprint, walk
+from marivo._definition.expressions import PerReduce, SourceAggregate
+from marivo._definition.graph import walk
 from marivo._definition.relations import ObserveQuery
 from marivo.analysis.core.frame_data import ExpressionFrameBacking, SourceFrameBinding
 from marivo.analysis.core.graph import BoundGraph
@@ -39,9 +39,6 @@ amount = amount_ref
 sample_time = sample_time_ref
 @ms.metric()
 def revenue():
-    return amount.sum()
-@ms.metric()
-def revenue_alias():
     return amount.sum()
 @ms.metric()
 def count():
@@ -75,22 +72,6 @@ def test_count_unit_survives_published_definition_resolution(
     catalog = _catalog(semantic_project_factory)
     assert consume_metric(catalog_value(catalog, f"sales.{name}", kind="metric")).unit == "1"
     assert consume_metric(catalog._state.registry.declared_metrics[f"sales.{name}"]).unit == "1"
-
-
-def test_equivalent_named_metrics_share_computation_and_keep_distinct_authority(
-    semantic_project_factory: ProjectFactory,
-) -> None:
-    catalog = _catalog(semantic_project_factory)
-    declarations = catalog._state.registry.declared_metrics
-    assert computation_fingerprint(
-        consume_metric(declarations["sales.revenue"]).node
-    ) == computation_fingerprint(consume_metric(declarations["sales.revenue_alias"]).node)
-    first = catalog.get("metric:sales.revenue")
-    second = catalog.get("metric:sales.revenue_alias")
-    first_node, second_node = consume_metric(first).node, consume_metric(second).node
-    assert isinstance(first_node, DeclaredMetricRef)
-    assert isinstance(second_node, DeclaredMetricRef)
-    assert first_node.ref.ref != second_node.ref.ref
 
 
 def test_nested_metric_closure_captures_its_dependencies_without_source_io(

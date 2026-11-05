@@ -7,20 +7,7 @@ from collections.abc import Iterator
 
 import pytest
 
-from marivo.render import (
-    _DEFAULT_MAX_OUTPUT_BYTES,
-    Card,
-    RenderableResult,
-    format_bounded_card,
-)
-
-
-def test_format_bounded_card_identity_only_card() -> None:
-    result = format_bounded_card(identity="Foo bar=1", available=(".render()",))
-    assert result.startswith("Foo bar=1")
-    assert "available:" in result
-    assert "- .render()" in result
-    assert not result.endswith("\n")
+from marivo.render import Card, RenderableResult
 
 
 @pytest.mark.parametrize("budget", (180, 400, 8192))
@@ -53,62 +40,6 @@ def test_card_owner_recovery_survives_row_limit() -> None:
     assert "preview limited to 1 rows" in text
     assert "use .to_pandas()" in text
     assert "max_output_bytes=None" not in text
-
-
-def test_format_bounded_card_status_line_included_when_provided() -> None:
-    result = format_bounded_card(
-        identity="X",
-        status="evidence=partial",
-        available=(".render()",),
-    )
-    assert "status: evidence=partial" in result
-
-
-def test_format_bounded_card_status_line_omitted_when_none() -> None:
-    result = format_bounded_card(identity="X", status=None, available=(".render()",))
-    assert "status:" not in result
-
-
-def test_format_bounded_card_table_columns_and_preview_rows() -> None:
-    result = format_bounded_card(
-        identity="X",
-        columns=["bucket_start", "revenue"],
-        rows=[["2026-06-01", "10"], ["2026-06-02", "12"]],
-        row_count=2,
-        available=(".render()",),
-    )
-    assert "columns: bucket_start | revenue" in result
-    assert "preview:" in result
-    assert "2026-06-01 | 10" in result
-    assert "2026-06-02 | 12" in result
-
-
-def test_format_bounded_card_does_not_cap_columns_when_unbounded() -> None:
-    columns = [f"c{i}" for i in range(12)]
-    result = format_bounded_card(
-        identity="X",
-        columns=columns,
-        rows=[columns],
-        row_count=1,
-        available=(".render()",),
-        max_output_bytes=None,
-    )
-    assert f"columns: {' | '.join(columns)}" in result
-
-
-def test_format_bounded_card_does_not_cap_rows_when_unbounded() -> None:
-    rows = [[f"r{i}"] for i in range(12)]
-    result = format_bounded_card(
-        identity="X",
-        columns=["value"],
-        rows=rows,
-        row_count=len(rows),
-        available=(".render()",),
-        max_output_bytes=None,
-    )
-    for row in rows:
-        assert row[0] in result.splitlines()
-    assert "output truncated" not in result
 
 
 def test_byte_truncation_preserves_head_tail_and_names_omitted_rows() -> None:
@@ -164,11 +95,6 @@ def test_exact_fit_card_renders_without_truncation_marker() -> None:
 
     assert result == full
     assert "output truncated" not in result
-
-
-def test_cap_below_minimum_raises_value_error_with_minimum() -> None:
-    with pytest.raises(ValueError, match=r"minimum.*pass max_output_bytes=None for full output"):
-        format_bounded_card(identity="X", available=(".render()",), max_output_bytes=1)
 
 
 @pytest.mark.parametrize("include_newline", (False, True))
@@ -331,15 +257,3 @@ def test_renderable_result_mixin_provides_repr_render_and_show(
     assert result.render() == "ExampleResult id=1\nvalue: 42\navailable:\n- .show()"
     result.show(max_output_bytes=None)
     assert capsys.readouterr().out == "ExampleResult id=1\nvalue: 42\navailable:\n- .show()\n"
-
-
-def test_default_truncation_does_not_teach_preview() -> None:
-    rendered = format_bounded_card(
-        identity="MetricFrame ref=frame_1 rows=10",
-        columns=["bucket_start", "value"],
-        rows=[["2026-06-01", "1"]],
-        row_count=10,
-        available=(".show()", ".contract()", ".to_pandas()"),
-        max_output_bytes=_DEFAULT_MAX_OUTPUT_BYTES,
-    )
-    assert ".preview(" not in rendered

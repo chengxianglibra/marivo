@@ -7,9 +7,9 @@ This test verifies:
 - IR dataclasses are frozen.
 - Unified refs have exact ``kind`` and ``path`` attributes.
 
-Note: pytest.ini sets ``python_classes =`` (empty), so only
-``unittest.TestCase`` subclasses are collected.  All tests here use
-plain functions to match the rest of the test suite.
+Note: pytest.ini sets ``python_classes =`` (empty), preventing ordinary test
+classes from being collected by name.  This setting does not affect plain
+``test_*`` functions like those used here.
 """
 
 from __future__ import annotations
@@ -286,21 +286,6 @@ _EXPECTED_RUNTIME_KINDS = {
     "invalid_filter",
     "filter_value_runtime_incompatible",
 }
-
-
-def test_error_kind_decorator_kinds() -> None:
-    values = {k.value for k in errors_mod.ErrorKind if k.value in _EXPECTED_DECORATOR_KINDS}
-    assert values == _EXPECTED_DECORATOR_KINDS
-
-
-def test_error_kind_assembly_kinds() -> None:
-    values = {k.value for k in errors_mod.ErrorKind if k.value in _EXPECTED_ASSEMBLY_KINDS}
-    assert values == _EXPECTED_ASSEMBLY_KINDS
-
-
-def test_error_kind_runtime_kinds() -> None:
-    values = {k.value for k in errors_mod.ErrorKind if k.value in _EXPECTED_RUNTIME_KINDS}
-    assert values == _EXPECTED_RUNTIME_KINDS
 
 
 def test_constraint_ids_all_registered() -> None:

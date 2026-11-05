@@ -25,7 +25,7 @@ Decimal kernels may have different valid results or failures. Do not require pro
 widening, extra scans or retries unless the owning contract requires them. Preserve
 explicit NULL, identity, time, unit and storage guarantees.
 
-The tracked [test quality standard](../../../docs/testing/test-quality.md) provides
+The tracked [test quality standard](../marivo-review/references/test-quality.md) provides
 detailed criteria. The local, Git-ignored [coverage map](../../../docs/testing/runtime-coverage.md)
 is optional evidence of test ownership; it does not define the current contract.
 

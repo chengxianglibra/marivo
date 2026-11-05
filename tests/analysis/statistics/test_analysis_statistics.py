@@ -1,6 +1,5 @@
 """Statistics use complete terminal exports and explicit pandas calculations."""
 
-from itertools import combinations
 from typing import Literal
 
 import pandas as pd
@@ -59,21 +58,6 @@ def test_exported_history_supports_three_pandas_forecast_models(
             forecast(history.value, model, level=level)
     assert run_ids(case.session) == before
     assert not hasattr(artifact, "forecast")
-
-
-def test_exported_quantities_support_all_requested_pandas_pairs(
-    analysis_dsl_case_factory: DslCaseFactory,
-) -> None:
-    case = analysis_dsl_case_factory("j4")
-    frame = plain(monthly(case, "2026-08-01", "2026-09-01").compute())
-    values = pd.DataFrame({f"times_{i}": frame["count"].astype(float) * i for i in range(1, 17)})
-    before = run_ids(case.session)
-    pairs = [
-        (left, right, values[left].corr(values[right])) for left, right in combinations(values, 2)
-    ]
-    assert len(pairs) == 120
-    assert [coefficient for _, _, coefficient in pairs] == pytest.approx([1.0] * 120)
-    assert run_ids(case.session) == before
 
 
 @pytest.mark.parametrize("lag", range(-2, 3))

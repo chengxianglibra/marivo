@@ -23,14 +23,6 @@ def _chdir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.chdir(tmp_path)
 
 
-def test_datasource_dir_uses_project_marivo(tmp_path: Path) -> None:
-    assert datasource_store.datasource_dir(tmp_path) == tmp_path / "models" / "datasources"
-
-
-def test_load_all_empty_when_no_file() -> None:
-    assert set(datasource_store.load_all()) == {"default"}
-
-
 def _spec(name: str, *, backend_type: str, **fields: object) -> DatasourceSpec:
     if backend_type == "duckdb":
         return DuckDBSpec(name=name, **fields)

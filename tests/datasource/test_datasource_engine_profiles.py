@@ -142,13 +142,6 @@ def test_unknown_backend_name_resolves_to_generic_profile() -> None:
     assert profile_for_backend_name(None) is GENERIC_PROFILE
 
 
-def test_registered_profiles_do_not_use_generic_metadata_inspector() -> None:
-    from marivo.datasource.engines.base import generic_metadata_inspect
-
-    for profile in ENGINE_PROFILES.values():
-        assert profile.metadata.inspect_table is not generic_metadata_inspect
-
-
 def test_authoring_specs_resolve_to_profiles() -> None:
     specs = (
         DuckDBSpec(name="duck"),

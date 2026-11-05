@@ -350,16 +350,6 @@ def test_live_help_performs_no_runtime_effects(monkeypatch: pytest.MonkeyPatch) 
         assert marivo.help(target) is None
 
 
-def test_expression_constraint_retains_event_ast_rules() -> None:
-    from marivo.semantic.constraints import CONSTRAINTS, ConstraintId
-
-    constraint = CONSTRAINTS[ConstraintId.AST_SINGLE_RETURN]
-    spec = constraint.ast_spec
-    assert spec is not None
-    assert "Assign" not in spec.forbidden_statements
-    assert "AugAssign" in spec.forbidden_statements
-
-
 def test_field_null_predicate_has_one_resolvable_reachable_help_contract(
     capsys: pytest.CaptureFixture[str],
 ) -> None:

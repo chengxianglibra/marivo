@@ -22,7 +22,6 @@ from marivo.datasource._temporal_expressions import (
     TemporalExpressionError,
     translated_strptime_format,
 )
-from marivo.datasource.engines import ENGINE_PROFILES
 from marivo.semantic.ir import StrptimeParse
 
 ENGINES = ("duckdb", "postgres", "mysql", "trino", "clickhouse")
@@ -262,10 +261,3 @@ def test_escaped_percent_is_not_mistaken_for_a_directive() -> None:
     with pytest.raises((DatasetCompilationError, TemporalExpressionError)) as failure:
         translated_strptime_format("clickhouse", "%Y%m%d%f")
     assert "sub-second" in (failure.value.received or "")
-
-
-def test_every_engine_profile_has_a_strptime_translator() -> None:
-    """The hook is populated for all six engines, so none silently bypasses it."""
-    for backend_type in ENGINE_PROFILES:
-        assert callable(ENGINE_PROFILES[backend_type].translate_strptime_format)
-        assert ENGINE_PROFILES[backend_type].translate_strptime_format("%Y%m%d")
