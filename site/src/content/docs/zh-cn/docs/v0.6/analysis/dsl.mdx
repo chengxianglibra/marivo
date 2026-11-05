@@ -64,7 +64,7 @@ session = mv.session.get_or_create("revenue-review", timezone="UTC", domains="sa
 
 `session.observe(metrics, by=())` 请求一个零轴的整体单元，不提供观察时间范围。
 所有原生 TimeField 样本规约均可使用实际样本，无须在 `by` 中提供 TimeScope 或 CalendarAxis。
-`sample_interval` 描述节拍，不要求完整时钟覆盖；窗口和日历 Grain 样本保留各自的范围要求。
+`sample_interval` 描述节拍，不要求完整时钟覆盖。内置日历样本无需观察期间。窗口需要观察端点，自定义样本需要完整认证期间。
 部分检查只在 `compute()` 或 `persist()` 时执行，
 因此成功构造 Frame 并不能证明支持无范围观测。需要范围时，传入
 `by=(session.time_scope(start=..., end=...),)`。
@@ -153,6 +153,11 @@ Entity/Population count 和未命名表达式同样需要显式名称，不读�
 重复 Metric 或不同域的同一本地名会冲突，应使用不同 Mapping 键。名称必须是合法单段，
 不能含点号或使用保留的 presence 名 `left_present`/`right_present`；非法名称不自动清洗或编号。
 名称在捕获时确定，可立即读取 `output_names`，空结果、compute、persist 和恢复都不重新命名。
+
+直接使用 `TimeScope` 或 `CalendarAxis`，按各 Metric 的贡献时间观察。
+在 `by` 中使用 `mv.time_group(created_at, axis=august.by(mv.grain("day")))`，
+可以按创建日筛选并分组，同时保留各 Metric 的贡献时间。该范围与其他筛选条件在聚合前取交集，
+输出保留该轴的候选桶。字段日历分组不提供窗口端点。
 
 ### 读取 8 月收入
 

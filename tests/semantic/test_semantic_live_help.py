@@ -597,7 +597,7 @@ def test_type_method_navigation_uses_the_actual_documentation_owner(
     ):
         marivo.help(type_obj)
         page = capsys.readouterr().out
-        method_targets = dict(re.findall(r'  (\w+): marivo.help\("([a-z_.]+)"\)', page))
+        method_targets = dict(re.findall(r'  (\w+): marivo.help\("([a-z0-9_.]+)"\)', page))
         assert set(contract.public_methods) <= method_targets.keys(), contract.name
         assert set(contract.type_page_methods) <= set(contract.public_methods)
         for name in contract.public_methods:

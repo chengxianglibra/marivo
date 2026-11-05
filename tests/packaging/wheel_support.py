@@ -48,7 +48,6 @@ PROBE_MODULES = (
     "tests.analysis.temporal.test_temporal_public_runtime",
     "tests.analysis.statistics.test_analysis_statistics_boundaries",
     "tests.analysis.statistics.test_analysis_statistics",
-    "tests.analysis.statistics.test_analysis_statistics_kernel",
     "tests.analysis.statistics.test_composition",
     "tests.analysis.materialization.test_public_schema_drift",
 )

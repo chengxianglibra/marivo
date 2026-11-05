@@ -40,7 +40,6 @@ def test_clickhouse_physical_utc_window_is_independent_of_session_timezone(
             False,
             True,
             None,
-            True,
             "UTC",
             TimestampParse(),
         )

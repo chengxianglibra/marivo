@@ -8,6 +8,7 @@ import pandas as pd
 import pytest
 
 import marivo.analysis as mv
+import marivo.semantic as ms
 from marivo.datasource.ir import TableSourceIR
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.numeric.test_remote_numeric_query import _project
@@ -91,7 +92,10 @@ def test_clickhouse_attribute_input_carriers(
             entity = session.catalog.get("entity:sales.facts")
             tenant = catalog_value(session.catalog, "sales.facts.tenant", kind="field")
             event = catalog_value(session.catalog, "sales.facts.category", kind="field")
-            metric = entity.count().where(event.isin(("z_finish", "a_exception")))
+            day = catalog_value(session.catalog, "sales.facts.day", kind="field")
+            assert isinstance(entity, ms.Entity) and isinstance(day, ms.TimeDimension)
+            assert isinstance(tenant, ms.Dimension) and isinstance(event, ms.Dimension)
+            metric = entity.count(time=day).where(event.isin(("z_finish", "a_exception")))
             current = session.observe(
                 {"n": metric}, by=(session.time_scope(start="2026-10-25", end="2026-10-29"),)
             ).compute()
@@ -119,7 +123,8 @@ def test_clickhouse_attribute_input_carriers(
             ]
             if shape == "enum8":
                 amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
-                nonlinear = amount.median().where(event.isin(("z_finish", "a_exception")))
+                assert isinstance(amount, ms.Measure)
+                nonlinear = amount.median(time=day).where(event.isin(("z_finish", "a_exception")))
                 left = session.observe(
                     {"m": nonlinear}, by=(session.time_scope(start="2026-10-25", end="2026-10-29"),)
                 )

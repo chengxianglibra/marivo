@@ -15,6 +15,7 @@ import pytest
 
 import marivo.analysis as mv
 import marivo.datasource as md
+import marivo.semantic as ms
 from marivo.datasource.ir import TableSourceIR
 from marivo.semantic.reader import SemanticProject
 from tests.datasource.source_cases import Case, SourceData, source_case, source_params
@@ -132,13 +133,18 @@ def test_postgres_sparse_calendar_keeps_window_contributions(
         session = mv.session.get_or_create("sparse_remote", timezone="UTC")
         amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
         category = catalog_value(session.catalog, "sales.facts.category", kind="field")
+        day = catalog_value(session.catalog, "sales.facts.day", kind="field")
+        assert isinstance(amount, ms.Measure) and isinstance(category, ms.Dimension)
+        assert isinstance(day, ms.TimeDimension)
         calendar = (
             session.time_scope(start="2019-12-23", end="2020-01-06")
             .by(mv.grain("week"))
             .shift(mv.offset(years=1))
         )
         ordinary = (
-            session.observe({"total": amount.sum()}, by=(calendar, category)).compute().to_pandas()
+            session.observe({"total": amount.sum(time=day)}, by=(calendar, category))
+            .compute()
+            .to_pandas()
         )
         assert ordinary["calendar:week"].tolist() == [
             pd.Timestamp("2020-12-21", tz="UTC"),
@@ -148,7 +154,7 @@ def test_postgres_sparse_calendar_keeps_window_contributions(
         assert ordinary["total"].tolist() == [Decimal(10), Decimal(20)]
         windows = (
             session.observe(
-                {"total": amount.sum().window(mv.trailing_periods(count=2))}, by=(calendar,)
+                {"total": amount.sum(time=day).window(mv.trailing_periods(count=2))}, by=(calendar,)
             )
             .compute()
             .to_pandas()
@@ -259,18 +265,23 @@ def test_clickhouse_dst_fold_preserves_instants_and_half_open_boundaries(
         session = mv.session.get_or_create("clickhouse_dst", timezone="UTC")
         amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
         happened = catalog_value(session.catalog, "sales.facts.happened", kind="field")
+        assert isinstance(amount, ms.Measure) and isinstance(happened, ms.TimeDimension)
         scope = session.time_scope(
             start="2026-11-01T01:00:00-04:00",
             end="2026-11-01T02:00:00-05:00",
             timezone="America/New_York",
         )
         artifact = session.observe(
-            {"total": amount.sum(), "count": amount.count()}, by=(scope,)
+            {"total": amount.sum(time=happened), "count": amount.count(time=happened)}, by=(scope,)
         ).persist()
         scalar = artifact.to_pandas()
         assert scalar["total"].tolist() == native.total.tolist()
         assert scalar["count"].tolist() == native["count"].tolist()
-        fine = session.observe({"total": amount.sum()}, by=(scope, happened)).compute().to_pandas()
+        fine = (
+            session.observe({"total": amount.sum(time=happened)}, by=(scope, happened))
+            .compute()
+            .to_pandas()
+        )
         assert fine["happened"].tolist() == [point[1] for point in points[:-1]]
         assert fine["total"].tolist() == [1, 10, 20]
         assert artifact.to_pandas().equals(

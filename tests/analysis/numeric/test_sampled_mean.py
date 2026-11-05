@@ -1871,7 +1871,9 @@ def test_postgres_sample_domain_preserves_nonnullable_char_padding(
 
     from tests.datasource.environment import postgres_analysis as pg
 
-    with mean_session("postgres", "table", tmp_path, monkeypatch, semantic_project_factory) as (
+    with mean_session(
+        "postgres", "table", tmp_path, monkeypatch, semantic_project_factory, fixed_status=False
+    ) as (
         session,
         case,
     ):

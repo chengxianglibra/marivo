@@ -268,7 +268,16 @@ def source_case(
                 admin.execute(f"CREATE TABLE {schema}.{name} ({columns})")
                 admin.execute(f"INSERT INTO {schema}.{name} VALUES {values}")
                 admin.execute(f"CREATE VIEW {schema}.{name}_view AS SELECT * FROM {schema}.{name}")
-                admin.execute(f"GRANT SELECT ON ALL TABLES IN SCHEMA {schema} TO analysis_reader")
+                # Public fixtures inherit SELECT from pg.setup(); isolated schemas need their own grant.
+                if schema != "public":
+                    admin.execute(
+                        sql.SQL("GRANT SELECT ON {}.{}, {}.{} TO analysis_reader").format(
+                            sql.Identifier(schema),
+                            sql.Identifier(name),
+                            sql.Identifier(schema),
+                            sql.Identifier(name + "_view"),
+                        )
+                    )
                 ds = datasource(
                     backend,
                     {"host": pg.HOST, "port": pg.PORT, "database": pg.DATABASE, "user": pg.READER},

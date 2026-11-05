@@ -1,12 +1,45 @@
 ---
-title: "0.6.2 (Unreleased)"
-description: "Datasource credential input changes."
+slug: zh-cn/docs/latest/release-notes/0.6.2
+title: Marivo 0.6.2
+description: Marivo 0.6.2 版本说明。
 ---
 
-破坏性变更：数据源凭据统一为 `user=md.env("USER")`、
-`password=md.env("PASSWORD")` 和 Trino 的 `auth=md.env("AUTH")`。
-全部 `*_env` 构造参数直接移除，不保留别名。DuckDB 的 `http_scope`、
-`http_bearer_token_env` 和 `http_headers_env` 改为 `secrets=[...]`，接受
-`md.s3_secret`、`md.http_bearer_secret` 和 `md.http_headers_secret`。
-加载前请更新声明；旧参数会抛出 `TypeError`。
-关系型连接指纹保持不变，使用 HTTP 凭据的 DuckDB 指纹会变化。
+发布于 2026 年 11 月 5 日。Marivo 0.6.2 增加显式 Metric 时间绑定和有作用范围的数据源凭据。
+数据源声明和时间角色包含破坏性变更；请在加载前更新已有模型。
+
+## 亮点
+
+- 使用仅限关键字的 `ms.TimeParameter` 和 `bind_time(...)`，在不同贡献时间角色之间复用 Metric；
+  预览或观测前必须绑定所有时参。`mv.time_group(...)` 可按显式选择的字段分组，日历样本字段也可独立于 Metric 的时间字段。
+- DuckDB 数据源通过 `md.s3_secret`、`md.http_bearer_secret` 和 `md.http_headers_secret` 支持限定范围的
+  S3 与 HTTP 凭据。凭据使用 `md.env(...)` 引用，每次操作时重新解析。
+
+## 变更
+
+- **数据源迁移：** 将 `user_env`、`password_env` 和 Trino 的 `auth_env` 分别改为
+  `user=md.env(...)`、`password=md.env(...)` 和 `auth=md.env(...)`。DuckDB 的 `http_scope`、
+  `http_bearer_token_env` 和 `http_headers_env` 改为 `secrets=[...]` 中限定范围的条目。
+  旧构造参数已移除。关系型连接指纹保持不变，使用 HTTP 凭据的 DuckDB 指纹会变化。
+- **时间角色迁移：** TimeDimension 声明不再接受 `is_default`，源规约也不再继承 Entity 的默认时间。
+  对业务含义依赖该时间的每个规约显式传入原时间字段；省略 `time=` 的规约没有贡献时间。
+- 内置日历样本使用 Session 报表时区和实际样本键，无需有限的观测区间。如果此前通过观测轴选择样本时区，
+  请显式设置 Session 时区。自定义日历样本仍要求完整且已认证的周期。
+- 数据源连接按操作作用范围复用和关闭。MySQL 与 PostgreSQL 声明须省略 `autocommit` 或将其设为 `True`；
+  Trino 应省略 `extra` 中的隔离级别以使用原生自动提交。`md.raw_sql` 使用数据源的原生权限；
+  凭据具有写权限时，即使获取结果失败，SQL 也可能修改数据源。请使用只读 SQL 和只读凭据。
+- 使用限定范围凭据的 DuckDB 文件或具名内存数据库在连接关闭前要求独占的受管访问。
+  不同凭据的并发操作请使用独立数据库。
+
+## 修复
+
+- 保持 ClickHouse 22.3 日历样本的首尾时间顺序，并修复 Trino 整数秒转换中的负时区偏移处理。
+- 关闭 DuckDB 终端进度条并抑制预期的 NumPy 相关性警告，不改变相关系数或配对数量。
+
+## 文档
+
+- 更新中英文数据源、时间建模与分析指南，包括迁移说明和当前 0.6 文档快照。
+
+## 内部改进
+
+- 复用关系路径的公共前缀，并将符合条件的编码日期解析推迟到聚合之后。
+  优化符合条件的原生时间和数值转换，同时保留既有结果契约。
