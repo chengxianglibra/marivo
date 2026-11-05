@@ -165,9 +165,10 @@ def compute(
     graph = _source_graph(
         session.observe(metrics, by=by if during is None else (during, *by), where=where)
     )
-    with open_query_sources(
-        session._runtime.connection_service(), graph, session.catalog._state
-    ) as prepared:
+    with (
+        session._runtime.connection_service().operation() as connections,
+        open_query_sources(connections, graph, session.catalog._state) as prepared,
+    ):
         return execute_numeric_query(
             prepared, lower_query(plan_query(graph, prepared.schemas), prepared.relations)
         )

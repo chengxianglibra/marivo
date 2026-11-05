@@ -244,7 +244,7 @@ def forbidden(*args, **kwargs):
     raise AssertionError('cold output consulted a source or current Semantic')
 ibis.duckdb.connect = forbidden
 ms.load = forbidden
-DatasourceConnectionService.use_backend = forbidden
+DatasourceConnectionService.session_backend = forbidden
 session = mv.session.resume(sys.argv[1])
 before = run_ids(session)
 saved = session.persisted_frame(sys.argv[2])

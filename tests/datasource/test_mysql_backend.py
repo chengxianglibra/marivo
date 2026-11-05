@@ -5,8 +5,9 @@ from unittest.mock import MagicMock, Mock
 import ibis
 import pytest
 
+import marivo.datasource as md
 from marivo.datasource.engines import _mysql_backend as mysql
-from marivo.datasource.errors import DatasourceConnectionError
+from marivo.datasource.errors import DatasourceConnectionError, DatasourceFieldInvalidError
 
 
 def test_mysql_defaults_and_explicit_options_reach_pymysql(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -26,27 +27,12 @@ def test_mysql_defaults_and_explicit_options_reach_pymysql(monkeypatch: pytest.M
     cursor = connection.cursor.return_value.__enter__.return_value
     cursor.execute.assert_called_once_with("SET @@session.time_zone = '+00:00'")
 
-    connect.reset_mock()
-    mysql.MySQLBackend().connect(
-        host="mysql.example",
-        user="reader",
-        password="password",
-        port=3307,
-        database="warehouse",
-        autocommit=False,
-        charset="utf8mb4",
-        connect_timeout=3,
-    )
-    connect.assert_called_once_with(
-        host="mysql.example",
-        user="reader",
-        password="password",
-        port=3307,
-        database="warehouse",
-        autocommit=False,
-        charset="utf8mb4",
-        connect_timeout=3,
-    )
+
+@pytest.mark.parametrize("backend", ("mysql", "postgres"))
+def test_disabling_autocommit_reports_declaration_repair(backend: str) -> None:
+    constructor = md.mysql if backend == "mysql" else md.postgres
+    with pytest.raises(DatasourceFieldInvalidError, match="autocommit=True"):
+        constructor(name="warehouse", host="localhost", database="analysis", autocommit=False)
 
 
 @pytest.mark.parametrize(

@@ -541,7 +541,6 @@ def _test_in_project(
             load_datasource(datasource_name, cr.operation_root(project_root)),
             project_root=project_root,
             timeout_seconds=timeout_seconds,
-            read_only=True,
             terminal_timeout_seconds=timeout_seconds,
         )
         state.backend = connection
@@ -681,10 +680,9 @@ def raw_sql(
         and SQL ``LIMIT``. A returned-row limit does not bound backend scan cost.
         Use query plans and a narrow statement to control expensive diagnostics.
 
-        Use read-only SQL and credentials. Existing backend read-only connection
-        or transaction protections remain active where supported. Trino relies on
-        database-side permissions: use an account denied writes. Marivo does not
-        parse SQL for write detection or enforce read-only execution on Trino.
+        Use read-only SQL and credentials. The backend applies its native connection
+        settings and permissions to the submitted SQL. Write-capable credentials can
+        allow changes even when the call reports an error.
 
         Query timeout coverage follows the backend's native semantics; it does
         not guarantee a total execution-and-fetching deadline. Unsupported native
@@ -735,7 +733,6 @@ def raw_sql(
     service = DatasourceConnectionService(project_root)
     with service.use_backend(
         datasource_id,
-        read_only=True,
         terminal_timeout_seconds=timeout_seconds,
     ) as backend:
         start = time.monotonic()
@@ -789,7 +786,7 @@ def raw_sql(
                 repair=repair(
                     kind="reconnect",
                     canonical_id="raw_sql",
-                    action="Verify the datasource connection and retry the diagnostic.",
+                    action="Inspect the native error and confirm any source changes before retrying.",
                 ),
             ) from cr.safe_backend_exception(exc, backend)
         duration_ms = int((time.monotonic() - start) * 1000)

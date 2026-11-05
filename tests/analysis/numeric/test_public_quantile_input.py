@@ -92,7 +92,7 @@ from tests.shared_fixtures import run_ids
 def forbidden(*args, **kwargs):
     raise AssertionError('quantile output loaded Semantic or connected a source')
 ms.load = forbidden
-DatasourceConnectionService.use_backend = forbidden
+DatasourceConnectionService.session_backend = forbidden
 session = mv.session.resume(sys.argv[1])
 before = run_ids(session)
 fixed = session.persisted_frame(sys.argv[2])

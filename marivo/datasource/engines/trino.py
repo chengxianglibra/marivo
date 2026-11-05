@@ -24,7 +24,6 @@ from marivo.datasource.engines.base import (
     PartitionProbeRequest,
     PartitionProbeResult,
     TableRefRequest,
-    identity_read_only_kwargs,
     require_field,
     structured_exception_chain,
 )
@@ -715,7 +714,6 @@ PROFILE = EngineProfile(
     authoring_func="trino",
     required_modules=("ibis.backends.trino",),
     connect=connect,
-    apply_read_only_kwargs=identity_read_only_kwargs,
     identifier_quote='"',
     table_name_parts=table_name_parts,
     inspect_partition_values=inspect_partition_values,

@@ -20,7 +20,6 @@ from marivo.datasource.engines.base import (
     EngineProfile,
     MetadataInspectRequest,
     TableRefRequest,
-    identity_read_only_kwargs,
     require_field,
     structured_exception_chain,
 )
@@ -42,6 +41,7 @@ def connect(name: str, kwargs: Mapping[str, object]) -> BaseBackend:
     host = require_field(name, kwargs, "host", help_target="mysql")
     database = require_field(name, kwargs, "database", help_target="mysql")
     connect_kwargs: dict[str, object] = dict(kwargs)
+    connect_kwargs.pop("autocommit", None)
     connect_kwargs["host"] = host
     connect_kwargs["database"] = database
     return MySQLBackend().connect(**connect_kwargs)
@@ -632,7 +632,6 @@ PROFILE = EngineProfile(
     authoring_func="mysql",
     required_modules=("pymysql",),
     connect=connect,
-    apply_read_only_kwargs=identity_read_only_kwargs,
     identifier_quote="`",
     table_name_parts=table_name_parts,
     inspect_partition_values=None,

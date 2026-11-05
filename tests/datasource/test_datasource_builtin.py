@@ -15,11 +15,11 @@ import marivo
 import marivo.datasource as md
 import marivo.semantic as ms
 from marivo.datasource import store
-from marivo.datasource.backends import build_backend_with_secrets
 from marivo.datasource.errors import (
     DatasourceDuplicateError,
     DatasourceFieldInvalidError,
     DatasourceMissingError,
+    DatasourceRawSqlError,
 )
 from marivo.datasource.loader import load_datasources
 from marivo.semantic.loader import load_project
@@ -242,10 +242,19 @@ def test_builtin_help_is_reachable(capsys: pytest.CaptureFixture[str]) -> None:
         assert "Unknown" not in output
 
 
-def test_builtin_read_only_acquisition_rejects_database_writes(project_root: Path) -> None:
-    built = build_backend_with_secrets(store.load_all(project_root)["default"], read_only=True)
-    try:
-        with pytest.raises(Exception, match="read-only"):
-            built.backend.raw_sql("CREATE TABLE forbidden(value INTEGER)")
-    finally:
-        built.lease.close()
+def test_builtin_raw_sql_uses_a_fresh_native_memory_database(project_root: Path) -> None:
+    source = ms.ref.datasource("default")
+    result = md.raw_sql(
+        source,
+        "CREATE TABLE scratch AS SELECT 1 AS value; SELECT value FROM scratch",
+        reason="verify native execution on an isolated in-memory database",
+        project_root=project_root,
+    )
+    assert result.rows == ({"value": 1},)
+    with pytest.raises(DatasourceRawSqlError, match="scratch"):
+        md.raw_sql(
+            source,
+            "SELECT value FROM scratch",
+            reason="verify isolation",
+            project_root=project_root,
+        )

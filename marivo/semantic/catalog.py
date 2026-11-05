@@ -9,7 +9,7 @@ import base64
 import binascii
 import json
 from collections.abc import Iterable, Iterator, Mapping, Sequence
-from contextlib import contextmanager, nullcontext
+from contextlib import ExitStack, contextmanager, nullcontext
 from dataclasses import dataclass, replace
 from datetime import date, datetime, timedelta
 from difflib import SequenceMatcher
@@ -4340,11 +4340,12 @@ class SemanticCatalog(RenderableResult):
             registry=reg,
             catalog=self,
         )
-        with self._project._connection_operation() as connections:
+        with self._project._connection_operation() as connections, ExitStack() as stack:
             return self._preview_batch(
                 normalized_refs,
                 normalized=normalized,
                 connections=connections,
+                stack=stack,
                 source_bindings=source_bindings,
                 limit=limit,
                 include_types=include_types,
@@ -4680,6 +4681,7 @@ class SemanticCatalog(RenderableResult):
         *,
         normalized: tuple[NormalizedPreviewScope, ...],
         connections: DatasourceConnectionService,
+        stack: ExitStack,
         source_bindings: PreviewSourceBindings | None,
         limit: int,
         include_types: bool,
@@ -4690,13 +4692,26 @@ class SemanticCatalog(RenderableResult):
         preview_limit = validate_preview_limit(limit)
         sidecar = self._project._expression_sidecar
         assert sidecar is not None
+        readers: dict[int, DatasourceConnectionService] = {}
+
+        def reader_for(bindings: NormalizedPreviewScope) -> DatasourceConnectionService:
+            timeout = bindings.timeout_seconds
+            reader = readers.get(timeout)
+            if reader is None:
+                reader = stack.enter_context(
+                    connections.operation(terminal_timeout_seconds=timeout)
+                )
+                readers[timeout] = reader
+            return reader
+
         checked_scopes: set[tuple[tuple[str, AuthoringScope], ...]] = set()
         for bindings in normalized:
             if bindings.scopes in checked_scopes:
                 continue
-            with _preview_reader(bindings, connections):
+            reader = reader_for(bindings)
+            with _preview_reader(bindings, reader):
                 preflight_preview_scope(
-                    bindings, registry=reg, connections=connections, project_root=self.workspace_dir
+                    bindings, registry=reg, connections=reader, project_root=self.workspace_dir
                 )
             checked_scopes.add(bindings.scopes)
         items = tuple(
@@ -4725,13 +4740,14 @@ class SemanticCatalog(RenderableResult):
 
         by_order: dict[int, PreviewResult] = {}
         for group_key, group_items in groups.items():
+            bindings = group_items[0].bindings
+            reader = reader_for(bindings)
             try:
                 if group_key[0] == "row":
-                    bindings = group_items[0].bindings
-                    with _preview_reader(bindings, connections):
+                    with _preview_reader(bindings, reader):
                         raw_results = self._preview_row_group(
                             tuple(group_items),
-                            connections=connections,
+                            connections=reader,
                             limit=preview_limit,
                             include_types=include_types,
                         )
@@ -4751,7 +4767,7 @@ class SemanticCatalog(RenderableResult):
                     results = (
                         self._preview_one(
                             item.ref,
-                            connections=connections,
+                            connections=reader,
                             bindings=item.bindings,
                             limit=preview_limit,
                             include_types=include_types,

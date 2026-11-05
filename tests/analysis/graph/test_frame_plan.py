@@ -246,9 +246,10 @@ def test_later_native_rewrite_removes_invalid_group_output_but_keeps_decisions(
     amount = catalog_value(case.session.catalog, "sales.order.amount", kind="field")
     query = case.session.observe({"amount": amount.sum()})
     graph = _captured_graph(query)
-    with open_query_sources(
-        case.session._runtime.connection_service(), graph, case.session.catalog._state
-    ) as prepared:
+    with (
+        case.session._runtime.connection_service().operation() as connections,
+        open_query_sources(connections, graph, case.session.catalog._state) as prepared,
+    ):
         original = plan_query(graph, prepared.schemas)
         read = original.source_read(original.publish)
         first = _filter_stage("first", read, "ge", 0)
@@ -284,9 +285,10 @@ def test_composed_common_members_keep_embedded_prefixed_identity(
     amount = catalog_value(case.session.catalog, "sales.order.amount", kind="field")
     query = case.session.observe({"one": amount.sum(), "two": amount.sum()})
     graph = _captured_graph(query)
-    with open_query_sources(
-        case.session._runtime.connection_service(), graph, case.session.catalog._state
-    ) as prepared:
+    with (
+        case.session._runtime.connection_service().operation() as connections,
+        open_query_sources(connections, graph, case.session.catalog._state) as prepared,
+    ):
         child = optimize_query(plan_query(graph, prepared.schemas))
         common = next(
             stage for stage in child.stages if isinstance(stage, SourceRead) and read_members(stage)
@@ -563,11 +565,14 @@ def test_native_source_child_keeps_one_prefixed_schedule(
     case = analysis_dsl_case_factory("j1")
     amount = catalog_value(case.session.catalog, "sales.order.amount", kind="field")
     query = case.session.observe({"amount": amount.sum()})
-    with open_query_sources(
-        case.session._runtime.connection_service(),
-        _captured_graph(query),
-        case.session.catalog._state,
-    ) as prepared:
+    with (
+        case.session._runtime.connection_service().operation() as connections,
+        open_query_sources(
+            connections,
+            _captured_graph(query),
+            case.session.catalog._state,
+        ) as prepared,
+    ):
         child = optimize_query(plan_query(_captured_graph(query), prepared.schemas))
         lowered = lower_query(child, prepared.relations)
         qualify_query_sources(prepared, lowered)
@@ -615,9 +620,10 @@ def test_paired_reductions_stay_local_and_keep_both_endpoints(
     amount = catalog_value(case.session.catalog, "sales.order.amount", kind="field")
     query = case.session.observe({"amount": amount.sum(), "other": amount.mean()})
     graph = _captured_graph(query)
-    with open_query_sources(
-        case.session._runtime.connection_service(), graph, case.session.catalog._state
-    ) as prepared:
+    with (
+        case.session._runtime.connection_service().operation() as connections,
+        open_query_sources(connections, graph, case.session.catalog._state) as prepared,
+    ):
         child = optimize_query(plan_query(graph, prepared.schemas))
         final = next(stage for stage in child.stages if stage.stage_id == child.publish)
         schema = DataSchema((), final.columns, value_paths=(("amount",), ("other",)))

@@ -39,7 +39,6 @@ def test_terminal_native_timeout_is_not_analysis_cancellation(
         service: DatasourceConnectionService,
         name: str,
         *,
-        read_only: bool = False,
         terminal_timeout_seconds: int | None = None,
         on_disconnect: Callable[[bool], None] | None = None,
     ) -> Iterator[BaseBackend]:
@@ -51,7 +50,6 @@ def test_terminal_native_timeout_is_not_analysis_cancellation(
         with original(
             service,
             name,
-            read_only=read_only,
             terminal_timeout_seconds=terminal_timeout_seconds,
             on_disconnect=released,
         ) as owner:
@@ -148,7 +146,6 @@ def test_terminal_exact_rows_and_typed_reentry_refusal(
         service: DatasourceConnectionService,
         name: str,
         *,
-        read_only: bool = False,
         terminal_timeout_seconds: int | None = None,
         on_disconnect: Callable[[bool], None] | None = None,
     ) -> Iterator[BaseBackend]:
@@ -160,7 +157,6 @@ def test_terminal_exact_rows_and_typed_reentry_refusal(
         with original(
             service,
             name,
-            read_only=read_only,
             terminal_timeout_seconds=terminal_timeout_seconds,
             on_disconnect=released,
         ) as owner:

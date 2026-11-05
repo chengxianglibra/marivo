@@ -355,7 +355,7 @@ from marivo.datasource.runtime import DatasourceConnectionService
 def forbidden(*args, **kwargs):
     raise AssertionError('Artifact branch accessed current Semantic or source')
 ms.load = forbidden
-DatasourceConnectionService.use_backend = forbidden
+DatasourceConnectionService.session_backend = forbidden
 session = mv.session.resume(sys.argv[1])
 fixed = session.persisted_frame(sys.argv[2])
 frame = fixed.to_pandas()

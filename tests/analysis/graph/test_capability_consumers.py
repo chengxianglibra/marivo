@@ -15,6 +15,7 @@ import marivo.semantic as ms
 from marivo.datasource.adapters import SourceSession
 from marivo.datasource.capabilities import provider_statement_log
 from marivo.datasource.ir import DatasourceIR
+from marivo.datasource.json_source import JsonResponseCache
 from marivo.datasource.runtime import DatasourceConnectionService
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.graph.source_fixtures import author_source_project
@@ -707,10 +708,21 @@ def test_certified_unequal_calendar_owns_native_boundaries(
         certification_owners: list[SourceSession] = []
 
         def capture_certification_owner(
-            connections: DatasourceConnectionService, name: str, datasource: DatasourceIR
+            connections: DatasourceConnectionService,
+            name: str,
+            datasource: DatasourceIR,
+            *,
+            binding_scope: object | None = None,
+            json_responses: JsonResponseCache | None = None,
         ) -> SourceSession:
-            owner = source_session(connections, name, datasource)
-            if owner not in certification_owners:
+            owner = source_session(
+                connections,
+                name,
+                datasource,
+                binding_scope=binding_scope,
+                json_responses=json_responses,
+            )
+            if binding_scope is None and owner not in certification_owners:
                 certification_owners.append(owner)
             return owner
 

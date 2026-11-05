@@ -126,7 +126,6 @@ def test_native_configuration_precedes_reader_use_without_control_connection(
     built = backends._build_backend_from_effective(
         datasource(backend_kind, {}),
         backends.EffectiveDatasourceKwargs(kwargs=kwargs, injected={}, env_sourced_secrets=()),
-        read_only=True,
         terminal_timeout_seconds=7,
         connection_timeout_seconds=3,
     )
@@ -137,7 +136,7 @@ def test_native_configuration_precedes_reader_use_without_control_connection(
             assert "application_name=native_timeout_fixture" in str(actual["options"])
             assert "statement_timeout=7000" in str(actual["options"])
             assert actual["connect_timeout"] == 3
-            assert backend.con.read_only
+            assert "autocommit" not in actual
         elif backend_kind == "trino":
             assert actual["session_properties"] == {
                 "query_max_run_time": "7s",
@@ -155,7 +154,6 @@ def test_native_configuration_precedes_reader_use_without_control_connection(
             assert backend._marivo_configured_query_timeout_seconds == 7
         else:
             assert actual["connect_timeout"] == actual["send_receive_timeout"] == 3
-            assert actual["settings"]["timeout_overflow_mode"] == "throw"
         assert not hasattr(backend, "_marivo_authoring_cancel_control")
     finally:
         built.disconnect()
@@ -364,9 +362,11 @@ def test_connection_service_closes_other_owners_after_source_cleanup_failure(
 
     service = runtime.DatasourceConnectionService(tmp_path)
     owners = [Mock(spec=SourceSession), Mock(spec=SourceSession)]
+    for owner in owners:
+        owner._closed = False
     owners[0].close.side_effect = OSError("first source cleanup failed")
     backends = [Mock(spec=BaseBackend), Mock(spec=BaseBackend)]
-    service._source_sessions = dict(zip(("first", "second"), owners, strict=True))
+    service._source_sessions = dict(zip((("first", None), ("second", None)), owners, strict=True))
     service._session_backends = dict(zip(("first", "second"), backends, strict=True))
     service._leases = {
         name: BackendLease(backend) for name, backend in service._session_backends.items()

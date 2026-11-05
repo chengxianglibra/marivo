@@ -1,6 +1,6 @@
 """Private PyMySQL transport for Ibis-compiled Marivo reads.
 
-The transaction, schema and temporal conversion behavior follows Ibis 12's
+The schema and temporal conversion behavior follows Ibis 12's
 MySQL backend (Apache-2.0), without importing its mysqlclient-dependent package.
 SQL compilation remains owned by Ibis.
 """
@@ -76,7 +76,6 @@ class MySQLBackend(SQLBackend):  # type: ignore[misc]
         user: str | None = None,
         password: str | None = None,
         port: int = 3306,
-        autocommit: bool = True,
         **kwargs: object,
     ) -> None:
         try:
@@ -87,7 +86,7 @@ class MySQLBackend(SQLBackend):  # type: ignore[misc]
                 user=user or getpass.getuser(),
                 password=password or "",
                 port=port,
-                autocommit=autocommit,
+                autocommit=True,
                 **kwargs,
             )
         except (TypeError, NotImplementedError) as cause:
@@ -134,7 +133,7 @@ class MySQLBackend(SQLBackend):  # type: ignore[misc]
         self, name: str, *, catalog: str | None = None, database: str | None = None
     ) -> sch.Schema:
         table = sge.table_(name, db=database, catalog=catalog, quoted=self.compiler.quoted)
-        with self.begin() as cursor:
+        with self.con.cursor() as cursor:
             try:
                 cursor.execute(sge.Describe(this=table).sql(self.dialect))
             except ProgrammingError as cause:
@@ -180,37 +179,12 @@ class MySQLBackend(SQLBackend):  # type: ignore[misc]
     ) -> list[str]:
         raise com.UnsupportedOperationError("The Marivo MySQL reader binds named tables and views.")
 
-    @contextmanager
-    def begin(self) -> Iterator[Cursor]:
-        with self.con.cursor() as cursor:
-            autocommit = self.con.get_autocommit()
-            if not autocommit:
-                self.con.begin()
-            try:
-                yield cursor
-            except Exception:
-                if not autocommit:
-                    self.con.rollback()
-                raise
-            else:
-                if not autocommit:
-                    self.con.commit()
-
     def raw_sql(self, query: str) -> Cursor:
         cursor = self.con.cursor()
-        autocommit = self.con.get_autocommit()
         try:
-            if not autocommit:
-                self.con.begin()
             cursor.execute(query)
-            if not autocommit:
-                self.con.commit()
-        except Exception:
-            try:
-                if not autocommit:
-                    self.con.rollback()
-            finally:
-                cursor.close()
+        except BaseException:
+            cursor.close()
             raise
         return cursor
 

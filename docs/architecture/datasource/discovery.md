@@ -86,8 +86,7 @@ and a bounded predicate preview. Large partition predicates report omissions
 and point to `.values` for the exact mapping; unpruned scope is labeled as a
 broad read.
 
-Read-only ClickHouse acquisition uses the server setting `readonly=1` together
-with optional native query timeout settings and throwing overflow. Connection, source-resolution, timeout, and
+ClickHouse acquisition uses native query timeout settings with throwing overflow. Connection, source-resolution, timeout, and
 post-execution failures surface as `DatasourceAuthoringError` values with
 `query_executed`, a sanitized backend summary, and one focused repair; they do
 not escape as raw driver exceptions.
@@ -139,6 +138,5 @@ when reusable meaning is needed.
 
 [inspection.py](../../../marivo/datasource/inspection.py) and
 [metadata.py](../../../marivo/datasource/metadata.py) own metadata acquisition.
-[snapshot.py](../../../marivo/datasource/snapshot.py) and
-[domain_snapshot.py](../../../marivo/datasource/domain_snapshot.py) own bounded
+[snapshot.py](../../../marivo/datasource/snapshot.py) owns bounded
 evidence capture and retention.

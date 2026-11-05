@@ -71,10 +71,6 @@ def test_registered_statements_are_pinned_by_snapshot() -> None:
     # (provider, statement_id) -> sha256(template) pair when registering one.
     pinned: dict[tuple[str, str], str] = {
         (
-            "duckdb",
-            "duckdb.connection.read_only",
-        ): "3eb12e5bafe877f825399d2905523e26201831b46d6ebc54e734cdb0961a8fd5",
-        (
             "mysql",
             "mysql.authoring.install_select_deadline",
         ): "52da100c9a351a428ffae1adb7616ae4fca2ca3bd6de25dc7a2c1118f788f090",
@@ -336,8 +332,6 @@ def test_every_production_statement_has_exact_authorized_purposes() -> None:
                 expected = {"datasource.timezone"}
             elif statement.statement_id.startswith("duckdb.http_secret_"):
                 expected = {"datasource.http_credentials"}
-            elif statement.statement_id == "duckdb.connection.read_only":
-                expected = {"datasource.connection"}
             else:
                 expected = {f"datasource.metadata.{backend}"}
             assert statement.allowed_purposes == frozenset(expected)
@@ -399,7 +393,6 @@ def _probe_profile() -> EngineProfile:
         AuthoringCapabilities,
         EngineMetadataIntrospection,
         EngineProfile,
-        identity_read_only_kwargs,
         identity_str,
     )
 
@@ -412,7 +405,6 @@ def _probe_profile() -> EngineProfile:
         authoring_func="",
         required_modules=(),
         connect=lambda name, kwargs: None,
-        apply_read_only_kwargs=identity_read_only_kwargs,
         identifier_quote='"',
         table_name_parts=lambda request: (request.source.table,),
         inspect_partition_values=None,

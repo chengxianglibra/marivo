@@ -3,7 +3,6 @@
 import math
 import sys
 from collections.abc import Callable
-from contextlib import contextmanager
 from decimal import Decimal
 from pathlib import Path
 
@@ -964,22 +963,10 @@ def test_native_reads_can_change_between_queries_while_players_and_endpoints_sta
 ) -> None:
     import marivo.analysis.materialization.graph_local_execution as local_execution
     from marivo.datasource.adapters import SourceSession
-    from marivo.datasource.runtime import DatasourceConnectionService
 
     x = catalog_value(game_session.catalog, "sales.facts.x", kind="field")
     player = catalog_value(game_session.catalog, "sales.facts.player", kind="field")
     target = _comparison(game_session, {"q": x.quantile(0.5) * x.count()}).compute()
-    open_backend = DatasourceConnectionService.use_backend
-
-    @contextmanager
-    def writable_fixture(service, name, **kwargs):
-        # This test permits an independent fixture writer while real native
-        # reducers run. Production still uses its ordinary read-only connections.
-        kwargs["read_only"] = False
-        with open_backend(service, name, **kwargs) as backend:
-            yield backend
-
-    monkeypatch.setattr(DatasourceConnectionService, "use_backend", writable_fixture)
     execute, run_local = SourceSession.execute, local_execution.run_local
     local_active = False
     native_queries: list[str] = []

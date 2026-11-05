@@ -3,12 +3,9 @@
 from __future__ import annotations
 
 from pathlib import Path
-from types import SimpleNamespace
-from typing import cast
 
 import ibis
 import pytest
-from ibis.backends import BaseBackend
 
 import marivo.analysis as mv
 import marivo.datasource as md
@@ -16,9 +13,7 @@ import marivo.semantic as ms
 from marivo.analysis.errors import AnalysisError
 from marivo.datasource import store
 from marivo.datasource.authoring import DuckDBSpec, TrinoSpec
-from marivo.datasource.engines import ENGINE_PROFILES
 from marivo.datasource.errors import (
-    DatasourceError,
     DatasourceRawSqlError,
     DatasourceSourceCapabilityError,
 )
@@ -26,12 +21,13 @@ from marivo.refs import ref as ref_factory
 from tests.support.refs import as_ref
 
 
-def _register_raw_sql_fixture(project_root: Path) -> None:
+def _register_raw_sql_fixture(project_root: Path) -> Path:
     db_path = project_root / "warehouse.duckdb"
     con = ibis.duckdb.connect(db_path)
     con.create_table("orders", {"id": [1, 2], "amount": [10.0, 20.0]})
     con.disconnect()
     md.register(DuckDBSpec(name="warehouse", path=str(db_path)), project_root=project_root)
+    return db_path
 
 
 def _register_raw_sql_ranking_fixture(project_root: Path) -> None:
@@ -127,14 +123,7 @@ def test_raw_sql_result_cannot_reenter_typed_analysis(
 
 
 def test_raw_sql_works_after_inspect_table_on_same_duckdb_file(tmp_path: Path) -> None:
-    """raw_sql's read-only open must not be blocked by a prior discover/inspect call.
-
-    Regression guard: ``inspect_table`` opens a read-write backend and must release
-    it. DuckDB refuses a read-only connection to a file that already has a live
-    read-write connection, so a leaked handle would surface as a connection error
-    here. The discover-first workflow (gather evidence, then run a raw diagnostic)
-    must keep working.
-    """
+    """Metadata inspection must release its handle before a native file reader opens."""
     _register_raw_sql_fixture(tmp_path)
 
     from marivo.datasource.metadata import inspect_table as _inspect_table
@@ -150,64 +139,33 @@ def test_raw_sql_works_after_inspect_table_on_same_duckdb_file(tmp_path: Path) -
     assert int(result.rows[0]["n"]) == 2
 
 
-def test_raw_sql_write_attempt_surfaces_typed_error(tmp_path: Path) -> None:
-    """A write attempt must surface as a typed DatasourceError, never a silent side effect."""
-    _register_raw_sql_fixture(tmp_path)
-
-    with pytest.raises(DatasourceError) as exc_info:
-        md.raw_sql(
-            ms.ref.datasource("warehouse"),
-            "INSERT INTO orders VALUES (3, 30.0)",
-            reason="attempt to mutate via escape hatch",
-            project_root=tmp_path,
-        )
-    assert isinstance(exc_info.value, DatasourceRawSqlError)
-    # The write did not execute: orders still holds the fixture's two rows.
-    result = md.raw_sql(
-        ms.ref.datasource("warehouse"),
-        "SELECT count(*) AS n FROM orders",
-        reason="verify no mutation",
+def test_raw_sql_honors_declared_duckdb_file_mode(tmp_path: Path) -> None:
+    db_path = _register_raw_sql_fixture(tmp_path)
+    source = ms.ref.datasource("warehouse")
+    md.raw_sql(
+        source,
+        "INSERT INTO orders VALUES (3, 30.0)",
+        reason="exercise native permissions on the fixture database",
         project_root=tmp_path,
     )
-    assert int(result.rows[0]["n"]) == 2
-
-
-def test_apply_read_only_kwargs_injects_connection_level_read_only() -> None:
-    duckdb_profile = ENGINE_PROFILES["duckdb"]
-    assert duckdb_profile.apply_read_only_kwargs({"path": "x"}) == {
-        "path": "x",
-        "read_only": True,
-    }
-    clickhouse_profile = ENGINE_PROFILES["clickhouse"]
-    clickhouse = clickhouse_profile.apply_read_only_kwargs(
-        {"host": "h", "settings": {"max_threads": 8, "readonly": 0}}
+    md.register(
+        DuckDBSpec(name="warehouse", path=str(db_path), read_only=True),
+        project_root=tmp_path,
     )
-    assert clickhouse["settings"]["readonly"] == 1
-    assert clickhouse["settings"]["max_threads"] == 8
-    assert "access_mode" not in clickhouse["settings"]
-    timeout = clickhouse_profile.native_query_timeout
-    assert timeout is not None
-    backend = cast(
-        "BaseBackend",
-        SimpleNamespace(
-            con=SimpleNamespace(
-                params=dict(clickhouse["settings"]),
-                server_settings={},
-            )
-        ),
+    with pytest.raises(DatasourceRawSqlError):
+        md.raw_sql(
+            source,
+            "INSERT INTO orders VALUES (4, 40.0)",
+            reason="exercise explicitly configured file mode",
+            project_root=tmp_path,
+        )
+    result = md.raw_sql(
+        source,
+        "SELECT count(*) AS n FROM orders",
+        reason="verify native file permissions",
+        project_root=tmp_path,
     )
-    with timeout(backend, 9):
-        assert backend.con.params["readonly"] == 1
-        assert backend.con.params["max_execution_time"] == "9"
-    assert backend.con.params["readonly"] == 1
-    assert "max_execution_time" not in backend.con.params
-    # Transaction-based backends enforce read-only via transaction, not kwargs.
-    postgres_profile = ENGINE_PROFILES["postgres"]
-    assert postgres_profile.apply_read_only_kwargs({"host": "h"}) == {"host": "h"}
-    trino_profile = ENGINE_PROFILES["trino"]
-    assert trino_profile.apply_read_only_kwargs({"host": "h"}) == {"host": "h"}
-    mysql_profile = ENGINE_PROFILES["mysql"]
-    assert mysql_profile.apply_read_only_kwargs({"host": "h"}) == {"host": "h"}
+    assert int(result.rows[0]["n"]) == 3
 
 
 class _FakeCursor:
@@ -254,16 +212,15 @@ class _RawSqlBackendContext:
 class _RawSqlService:
     def __init__(self, backend: _RawSqlBackend) -> None:
         self.backend = backend
-        self.calls: list[tuple[str, bool]] = []
+        self.calls: list[tuple[str, int | None]] = []
 
     def use_backend(
         self,
         datasource: str,
         *,
-        read_only: bool,
         terminal_timeout_seconds: int | None = None,
     ) -> _RawSqlBackendContext:
-        self.calls.append((datasource, read_only))
+        self.calls.append((datasource, terminal_timeout_seconds))
         return _RawSqlBackendContext(self.backend)
 
 
@@ -322,7 +279,7 @@ def test_raw_sql_trino_describe_executes_directly_without_readonly_transaction(
     )
 
     assert backend.calls == ["DESCRIBE orders"]
-    assert service.calls == [("trino_wh", True)]
+    assert service.calls == [("trino_wh", 600)]
     assert result.rows == (
         {"Column": "order_id", "Type": "bigint"},
         {"Column": "amount", "Type": "double"},
@@ -767,8 +724,8 @@ def test_raw_sql_error_includes_execution_context(tmp_path: Path) -> None:
     with pytest.raises(DatasourceRawSqlError) as exc_info:
         md.raw_sql(
             ms.ref.datasource("warehouse"),
-            "INSERT INTO orders VALUES (3, 30.0)",
-            reason="write attempt",
+            "SELECT missing FROM orders",
+            reason="query error",
             timeout_seconds=10,
             project_root=tmp_path,
         )

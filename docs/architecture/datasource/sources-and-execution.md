@@ -325,8 +325,11 @@ there is no additional per-value Arrow round-trip audit. Column
 order, source binding, requested row/time bounds, and downstream key, nullable-value,
 time, and persisted-schema checks remain governed. A completed DataFrame read
 does not prove server-side query termination after an interruption or timeout.
-Connection probes and owned source sessions share the backend's single internal
-lease. Close confirms release only after Ibis disconnect succeeds. A failed
+A Frame evaluation reuses one backend per datasource within each project and
+credential scope. Graph inputs retain their own bindings and share the live
+backend. Preview, sampling, connectivity probes and terminal SQL own their
+connection scopes. The backend lease closes after its final consumer. Ibis
+and native drivers manage the transactions required by their operations. Close confirms release only after Ibis disconnect succeeds. A failed
 close, or a backend without disconnect, leaves the lease unreleased so a later
 close attempts disconnect again; a confirmed release is not disconnected twice.
 Borrowed source sessions leave disconnection to the connection owner. Cleanup
@@ -414,7 +417,7 @@ Errors retain diagnostics and actual submission facts. Cleanup releases owned
 source connections; connection closure alone never proves remote query
 termination. Failed reads do not publish or replace a certified snapshot.
 
-`md.raw_sql(datasource: DatasourceSymbol, sql: str, *, reason: str,
+`md.raw_sql(datasource: DatasourceSymbol | Datasource, sql: str, *, reason: str,
 timeout_seconds: int = 600, include_types: bool = True,
 project_root: Path | None = None) -> RawSqlResult` remains Marivo's managed
 terminal SQL escape hatch for questions outside its governed Analysis capability.
@@ -424,8 +427,10 @@ requested native timeout (600 seconds by default); unsupported query timeouts ar
 Connection acquisition retains separate native 30-second settings. Explicit
 `timeout_seconds` values override the query default; Trino receives this value
 as its `query_max_run_time` session property. The input is not parsed to classify
-SQL as a diagnostic. Read-only protection relies on connection and backend permissions
-and is best effort where the backend cannot guarantee it.
+SQL as a diagnostic. Each call uses a dedicated connection and applies its
+declared settings and native permissions. Use read-only SQL and source-reader
+credentials. With write-capable credentials, submitted SQL can change the
+source even if fetching the result fails.
 The result retains all rows returned by the query, plus columns, types and
 execution context. Control query size in SQL with predicates, aggregation and
 an explicit LIMIT. Complete query rows are loaded into client memory; a LIMIT
@@ -448,7 +453,7 @@ Ibis expressions and executed through the selected Ibis backend. The execution
 record retains the compiled SQL, expression identity, purpose and submission
 outcome. The user-authored text submitted by
 `md.raw_sql` is the explicit terminal exception, not an implementation route
-for Analysis or a way to satisfy an unqualified method/backend cell. Driver settings and read-only controls use connection APIs; required timezone or complete-result facts block the affected execution cell. A required governed operation
+for Analysis or a way to satisfy an unqualified method/backend cell. Driver settings use connection APIs. Required timezone or complete-result facts block the affected execution cell. A required governed operation
 without an Ibis or registered prepare-then-Python route is blocked. Local Store
 SQLite transactions have separate internal persistence authority. SQLite is not
 a supported datasource; the local Store remains independent.

@@ -85,7 +85,7 @@ def test_governed_probe_submits_exact_ibis_compilation(
     os.environ.get("MARIVO_POSTGRES_ANALYSIS_TEST") != "1",
     reason="opt-in PostgreSQL service",
 )
-def test_postgres_terminal_control_uses_server_timeout_and_read_only(
+def test_postgres_terminal_control_uses_server_timeout_and_autocommit(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from tests.datasource.environment import postgres_analysis as pg
@@ -101,9 +101,9 @@ def test_postgres_terminal_control_uses_server_timeout_and_read_only(
         python_symbol="source_control",
         location=DatasourceSourceLocation("source_control.py", 1),
     )
-    backend = build_backend(datasource, read_only=True, terminal_timeout_seconds=1)
+    backend = build_backend(datasource, terminal_timeout_seconds=1)
     try:
-        assert backend.con.read_only is True
+        assert backend.con.autocommit is True
         assert backend.con.info.parameter_status("TimeZone") == "UTC"
         setting = backend.raw_sql("SHOW statement_timeout")
         try:
@@ -151,7 +151,7 @@ def test_trino_terminal_session_timeout_and_timezone_are_effective() -> None:
         python_symbol="source_control",
         location=DatasourceSourceLocation("source_control.py", 1),
     )
-    backend = build_backend(datasource, read_only=True, terminal_timeout_seconds=1)
+    backend = build_backend(datasource, terminal_timeout_seconds=1)
     try:
         profile = adapters.provider_for("trino")
         assert profile.native_query_timeout is not None
@@ -261,7 +261,7 @@ def test_mysql_unavailable_named_zone_blocks_time_sensitive_conversion(
         python_symbol="source_control",
         location=DatasourceSourceLocation("source_control.py", 1),
     )
-    backend = build_backend(datasource, read_only=True)
+    backend = build_backend(datasource)
     try:
         with pytest.raises(DatasourceConnectionError) as failure:
             verify_source_timezone(backend, "Marivo/Unavailable")

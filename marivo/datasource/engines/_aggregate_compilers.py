@@ -428,7 +428,8 @@ def configure_aggregate_compiler(backend: BaseBackend) -> None:
     if not isinstance(backend, SQLBackend):
         return
     if backend.name == "duckdb":
-        backend.compiler = _DuckDBCompiler()
+        if not isinstance(backend.compiler, _DuckDBCompiler):
+            backend.compiler = _DuckDBCompiler()
     elif backend.name == "postgres":
         backend.compiler = _PostgresCompiler()
     elif backend.name == "mysql":

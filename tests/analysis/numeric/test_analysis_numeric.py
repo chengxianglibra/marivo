@@ -720,7 +720,7 @@ def forbidden(*args, **kwargs):
 ms.load = forbidden
 duckdb.connect = forbidden
 ibis.duckdb.connect = forbidden
-DatasourceConnectionService.use_backend = forbidden
+DatasourceConnectionService.session_backend = forbidden
 manifests = json.loads(Path('recovery-manifests.json').read_text())
 session = mv.session.resume(sys.argv[1])
 before = run_ids(session)

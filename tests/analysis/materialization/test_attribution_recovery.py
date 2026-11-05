@@ -8,7 +8,6 @@ from collections.abc import Callable
 from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import NoReturn
 
 import pytest
 
@@ -61,10 +60,6 @@ def test_native_duckdb_attribution_independent_fixed_and_cold(
         ],
     )
 
-    def forbid_snapshot(*args: object, **kwargs: object) -> NoReturn:
-        pytest.fail("Ordinary C09 reads must not claim a snapshot capture")
-
-    monkeypatch.setattr("marivo.datasource.domain_snapshot.capture", forbid_snapshot)
     with source_case(backend, profile, tmp_path, monkeypatch, data) as case:
         author_source_project(backend, case, monkeypatch, semantic_project_factory)
         ms.load(workspace_dir=tmp_path)

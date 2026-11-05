@@ -22,8 +22,8 @@ Marivo 提供五种数据源构造函数。将声明保存在 `models/datasource
 | 参数 | 必填 | 默认值 | 语义 |
 | --- | --- | --- | --- |
 | `name` | 是 | — | 项目内全局唯一的小写 snake_case 数据源名称，用 `ms.ref.datasource(name)` 引用。 |
-| `path` | 否 | `':memory:'` | DuckDB 文件路径，`":memory:"` 为进程内数据库；教程使用文件。 |
-| `read_only` | 否 | `False` | 为 True 时只读打开数据库。 |
+| `path` | 否 | `':memory:'` | DuckDB 数据库文件的路径。使用 `:memory:` 时，数据库仅在本次连接内存在。 |
+| `read_only` | 否 | `False` | 为 True 时以原生只读模式打开 DuckDB 文件库。 |
 | `http_scope` | 否 | `None` | 限定远程 JSON 认证范围的 HTTP(S) URL 前缀；指定 HTTP 认证方式时必须提供。 |
 | `http_bearer_token_env` | 否 | `None` | Bearer token 的环境变量名；与请求头认证互斥。 |
 | `http_headers_env` | 否 | `None` | HTTP 请求头名到保存秘密值的环境变量名的映射；与 Bearer 认证互斥。 |
@@ -50,7 +50,7 @@ md.duckdb(name="warehouse", path="warehouse.duckdb", read_only=False, wall_clock
 | `database` | 是 | — | 要连接的数据库。 |
 | `port` | 否 | `None` | 连接端口；使用非默认端点时请显式指定。 |
 | `schema` | 否 | `None` | 表解析使用的默认 schema。 |
-| `autocommit` | 否 | `None` | 驱动自动提交行为的覆盖值。 |
+| `autocommit` | 否 | `None` | 省略或设为 `True`，使用自动提交。 |
 | `user_env` | 否 | `None` | 保存数据库用户名的环境变量名。 |
 | `password_env` | 否 | `None` | 保存密码的环境变量名。 |
 | `wall_clock_timezone` | 否 | `None` | 未单独声明时区的 naive timestamp、编码时钟和业务日使用的源时区；接受 IANA 名或固定偏移。 |
@@ -82,7 +82,7 @@ MariaDB 服务使用同一个构造函数。托管查询的超时限制在 MySQL
 | `host` | 是 | — | 数据库服务器主机名或 IP 地址。 |
 | `database` | 是 | — | 要连接的数据库。 |
 | `port` | 否 | `None` | 连接端口；使用非默认端点时请显式指定。 |
-| `autocommit` | 否 | `None` | 驱动自动提交行为的覆盖值。 |
+| `autocommit` | 否 | `None` | 省略或设为 `True`，使用自动提交。 |
 | `user_env` | 否 | `None` | 保存数据库用户名的环境变量名。 |
 | `password_env` | 否 | `None` | 保存密码的环境变量名。 |
 | `wall_clock_timezone` | 否 | `None` | 未单独声明时区的 naive timestamp、编码时钟和业务日使用的源时区；接受 IANA 名或固定偏移。 |
@@ -150,7 +150,7 @@ md.clickhouse(
 | `auth_env` | 否 | `None` | 服务器要求认证时所用认证材料的环境变量名。 |
 | `wall_clock_timezone` | 否 | `None` | 未单独声明时区的 naive timestamp、编码时钟和业务日使用的源时区；接受 IANA 名或固定偏移。 |
 | `ai_context` | 否 | `None` | 可选 `ms.ai_context(...)` 业务上下文与使用约束。 |
-| `extra` | 否 | `None` | 未在此列出的其他 JSON 可序列化 Ibis 连接参数。 |
+| `extra` | 否 | `None` | 未在此列出的其他 JSON 可序列化 Ibis 连接参数。 省略 `isolation_level` 以使用原生自动提交。 |
 
 
 ```python

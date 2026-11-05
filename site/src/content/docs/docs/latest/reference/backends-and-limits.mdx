@@ -118,7 +118,7 @@ md.raw_sql(
 )
 ```
 
-`md.raw_sql()` expects read-only SQL; Trino relies on database permissions to deny writes.
+Use read-only SQL and credentials with `md.raw_sql()`. The backend applies its native connection settings and permissions.
 It loads all returned rows into memory. Use filters, aggregation or SQL `LIMIT` to control
 result size; `LIMIT` does not bound source scan cost.
 

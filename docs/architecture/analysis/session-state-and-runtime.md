@@ -229,8 +229,10 @@ active writers, unresolved ownership or integrity checks.
 
 ## Resource lifetime and native cancellation
 
-Each source invocation owns its connection/read resources and releases them after
-its actual consumers. Fixed data does not retain those resources. Existing native
+Each evaluation owns its source connections and reuses them by datasource
+within the same project and credential scope. It releases graph bindings and
+backend connections after their final consumers. Fixed data does not retain
+those resources. Existing native
 query-timeout/cleanup contracts apply to source reads; a caller row limit is not
 a scan bound or an end-to-end deadline. A cleanup failure is reported through the
 owning structured error. No new timer, automatic route retry or cancellation

@@ -252,7 +252,7 @@ def test_projected_sample_missing_table_capability_is_structured_before_executio
 
     monkeypatch.setattr(
         "marivo.datasource.engines.base.EngineProfile.open",
-        lambda profile, datasource, *, read_only=True, terminal_timeout_seconds=None: SourceSession(
+        lambda profile, datasource, *, terminal_timeout_seconds=None: SourceSession(
             profile, datasource, backend
         ),
     )
@@ -618,7 +618,7 @@ def test_source_resolution_failure_is_structured_and_disconnects(
 
     monkeypatch.setattr(
         "marivo.datasource.engines.base.EngineProfile.open",
-        lambda profile, datasource, *, read_only=True, terminal_timeout_seconds=None: SourceSession(
+        lambda profile, datasource, *, terminal_timeout_seconds=None: SourceSession(
             profile, datasource, backend
         ),
     )
