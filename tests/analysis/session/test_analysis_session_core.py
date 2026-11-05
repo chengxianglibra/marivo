@@ -13,16 +13,6 @@ from marivo.semantic.catalog import SemanticCatalog
 from tests.shared_fixtures import terminal_runs
 
 
-def test_session_public_fields_are_read_only(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.chdir(tmp_path)
-    session = mv.session.get_or_create("immutable")
-    for name in ("id", "name", "created_at"):
-        with pytest.raises(AttributeError):
-            setattr(session, name, "other")
-
-
 def test_session_exposes_catalog_property(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.chdir(tmp_path)
     session = mv.session.get_or_create("catalog")

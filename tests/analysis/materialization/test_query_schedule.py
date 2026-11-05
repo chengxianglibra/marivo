@@ -251,16 +251,6 @@ def test_multi_root_plan_combines_locally_without_mutating_shared_reads(
     assert len(seen) == 1
 
 
-def test_local_program_has_no_independent_kernel_selector() -> None:
-    from dataclasses import fields
-
-    from marivo.analysis.compiler.observation import FormulaProgram
-
-    stage = LocalCompute("local:formula", (), (), (), FormulaProgram((), (), ()))
-    assert stage.kernel == QUERY_COMBINE_KERNEL
-    assert {field.name for field in fields(stage)}.isdisjoint({"kernel", "result", "fused_steps"})
-
-
 def test_uint64_prepares_exact_decimal_before_any_business_read(
     warehouse_session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:

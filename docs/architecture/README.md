@@ -10,7 +10,7 @@
 | --- | --- |
 | Datasource | [连接与凭据](datasource/README.md)、[物理来源与执行](datasource/sources-and-execution.md)、[发现与证据](datasource/discovery.md) |
 | Semantic | [总览](semantic/overview.md)、[对象模型](semantic/semantic-object-model.md)、[表达式](semantic/expressions.md)、[加载与验证](semantic/loading-validation-introspection.md)、[编写工作流](semantic/authoring-workflow.md)、[时间认证](semantic/temporal-authority.md) |
-| Analysis | [分析架构](analysis/README.md)：Population、来源观察、Frame 运算、执行、持久化与审计 |
+| Analysis | [分析架构](analysis/README.md)：Population、来源观察、Frame 运算、执行与持久化 |
 | 跨模块契约 | [时间语义](temporal-semantics.md)、[Agent 公共界面](agent-friendly-public-surface.md) |
 | API 参考 | [Sphinx 源文件](../api/)；具体调用以当前安装版本的 Live Help 为准 |
 
@@ -19,7 +19,8 @@ datasource: connection / source / scoped evidence
     -> semantic: identity / fields / Metric definitions / certified time
     -> analysis: explicit Population and source bindings
     -> AnalysisFrame: expression -> complete memory -> stored data
-    -> Artifact: submission and audit
+    -> Session: persisted-Frame discovery and exact reopening
+    -> AnalysisFrame: commit identity / source_reads / method_facts
 ```
 
 `marivo.datasource`、`marivo.semantic` 和 `marivo.analysis` 分别拥有物理访问、业务含义和

@@ -207,11 +207,7 @@ class DatasourceLoaderContext:
 class _SpecBase(RenderableResult):
     """Shared behavior for concrete datasource specification classes."""
 
-    name: str = field(
-        metadata=_description(
-            "Global datasource name; letters, digits, underscores, and hyphens only."
-        )
-    )
+    name: str = field(metadata=_description("Global datasource name; must match [a-z][a-z0-9_]*."))
     ai_context: AiContextValue | None = field(
         default=None,
         metadata=_description(
@@ -730,7 +726,7 @@ def duckdb(
     """Declare a DuckDB datasource.
 
     Args:
-        name: Global datasource name; letters, digits, underscores, and hyphens only.
+        name: Global datasource name; must match ``[a-z][a-z0-9_]*``.
         path: DuckDB database path; defaults to in-memory.
         read_only: Open the DuckDB database in read-only mode.
         http_scope: Optional HTTP(S) URL prefix limiting remote JSON authentication.
@@ -799,7 +795,7 @@ def trino(
     """Declare a Trino datasource.
 
     Args:
-        name: Global datasource name; letters, digits, underscores, and hyphens only.
+        name: Global datasource name; must match ``[a-z][a-z0-9_]*``.
         host: Trino coordinator host.
         catalog: Trino catalog; mapped to ibis database at connect time.
         user_env: Required explicit environment variable for the Trino user.
@@ -883,7 +879,7 @@ def mysql(
     """Declare a MySQL datasource.
 
     Args:
-        name: Global datasource name; letters, digits, underscores, and hyphens only.
+        name: Global datasource name; must match ``[a-z][a-z0-9_]*``.
         host: MySQL host.
         database: MySQL database name.
         port: MySQL port; default is 3306.
@@ -954,7 +950,7 @@ def postgres(
     """Declare a Postgres datasource.
 
     Args:
-        name: Global datasource name; letters, digits, underscores, and hyphens only.
+        name: Global datasource name; must match ``[a-z][a-z0-9_]*``.
         host: Postgres host.
         database: Postgres database name.
         port: Postgres port; ibis default is 5432.
@@ -1024,7 +1020,7 @@ def clickhouse(
     """Declare a ClickHouse datasource.
 
     Args:
-        name: Global datasource name; letters, digits, underscores, and hyphens only.
+        name: Global datasource name; must match ``[a-z][a-z0-9_]*``.
         host: ClickHouse host.
         port: ClickHouse port; native default is 9000, secure default is 9440.
         database: ClickHouse database; ibis default is 'default'.

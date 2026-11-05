@@ -1,12 +1,11 @@
-"""Shared error payloads for help-target and contract-scope failures."""
+"""Shared error payloads for help-target failures."""
 
 from __future__ import annotations
 
-from marivo._authoring.errors import build_contract_scope_error_payload
 from marivo.introspection.live.errors import (
     build_help_target_error_payload,
 )
-from marivo.introspection.live.model import SURFACE_LIMITS, LiveHelpTarget
+from marivo.introspection.live.model import SURFACE_LIMITS
 
 
 def test_help_target_error_payload_string_target():
@@ -52,17 +51,3 @@ def test_help_target_error_payload_candidates_bounded():
     many = tuple(f"cap{i}" for i in range(SURFACE_LIMITS.help_suggestion_limit + 5))
     payload = build_help_target_error_payload("x", surface="semantic", candidates=many)
     assert len(payload.candidates) == SURFACE_LIMITS.help_suggestion_limit
-
-
-def test_contract_scope_error_payload_carries_repair_target():
-    payload = build_contract_scope_error_payload(
-        requested_subjects=("metric:a", "metric:b", "metric:c"),
-        allowed_maximum=SURFACE_LIMITS.object_contract_max_subjects,
-        owned_subjects=("metric:a", "metric:b"),
-        repair_target=LiveHelpTarget(surface="semantic", canonical_id="readiness"),
-    )
-    assert payload.requested_subjects == ("metric:a", "metric:b", "metric:c")
-    assert payload.allowed_maximum == SURFACE_LIMITS.object_contract_max_subjects
-    assert payload.owned_subjects == ("metric:a", "metric:b")
-    assert payload.repair_target.canonical_id == "readiness"
-    assert len(payload.owned_subjects) <= SURFACE_LIMITS.object_contract_max_subjects

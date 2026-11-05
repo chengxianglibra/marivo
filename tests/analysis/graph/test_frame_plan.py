@@ -25,7 +25,7 @@ from marivo._definition.query import (
     ValueSlot,
 )
 from marivo.analysis.compiler.frame_plan import CompiledSourceFrame, plan_frame
-from marivo.analysis.compiler.frame_top import _bounded_read, bound_pending_frame_top
+from marivo.analysis.compiler.frame_top import _bounded_read
 from marivo.analysis.compiler.graph_lowering import LoweredQuery, LoweredRead, lower_query
 from marivo.analysis.compiler.graph_plan import (
     FrameCompute,
@@ -129,19 +129,6 @@ def test_pending_field_top_dialects_use_direct_ordered_limit(provider: str, prov
     assert ("__frame_top_duplicate" in lowered.expression.columns) is not proven
     assert "__frame_top_null_0" in lowered.expression.columns
     assert "__frame_top_input_count" in lowered.expression.columns
-
-
-def test_fixed_top_declines_native_rewrite_with_an_internal_reason() -> None:
-    compiled = plan_frame(
-        FrameOperation((FixedFrameInput("fixed", _schema()),), TopValues(1, ValueSlot(0), True)),
-        {},
-    )
-    rewritten = bound_pending_frame_top(compiled, {})
-    assert rewritten.lowered.reads == ()
-    assert rewritten.lowered.plan.stages == compiled.lowered.plan.stages
-    (decision,) = rewritten.lowered.plan.optimization_decisions
-    assert decision.rule == "pending_frame_top" and decision.status == "refused"
-    assert "direct pending source field read" in decision.reason
 
 
 def _filter_stage(

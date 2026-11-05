@@ -685,27 +685,6 @@ def test_shadowed_semantic_alias_keeps_general_runtime_diagnostic(
     assert result.errors[0].kind == ErrorKind.ORGANIZATION_ERROR
 
 
-def test_ibis_table_detection(semantic_project_factory, duckdb_backend) -> None:
-    """Dataset using backend.table() should be detected as IBIS_TABLE provenance."""
-
-    def factory(ds_id: str):
-        return duckdb_backend
-
-    project = semantic_project_factory(
-        {
-            "sales/_domain.py": _DOMAIN_PY,
-            "sales/datasets.py": _DATASET_AND_METRIC_PY,
-        }
-    )
-    with patch_semantic_connections(project, factory) as connections:
-        _materialize_dataset(project, connections, "sales.orders")
-
-    meta = project._runtime_metadata.get("sales.orders")
-    assert meta is not None
-    assert meta.entity_provenance == EntityProvenance.IBIS_TABLE
-    assert meta.raw_sql_snippet is None
-
-
 # ---------------------------------------------------------------------------
 # Not found errors
 # ---------------------------------------------------------------------------
@@ -758,6 +737,7 @@ def test_runtime_metadata_lifecycle(semantic_project_factory, duckdb_backend) ->
     assert meta is not None
     assert isinstance(meta, EntityRuntimeMetadata)
     assert meta.entity_provenance == EntityProvenance.IBIS_TABLE
+    assert meta.raw_sql_snippet is None
     assert meta.detected_at is not None
 
     project.load()

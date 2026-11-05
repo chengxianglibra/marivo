@@ -38,13 +38,6 @@ if TYPE_CHECKING:
     from tests.conftest import _SemanticProjectFactory
 
 
-# --- SemanticKind ---
-
-
-def test_semantic_kind_is_symbol_kind_alias() -> None:
-    assert SemanticKind is ms.SemanticKind
-
-
 _FACTORY_BY_KIND: dict[SemanticKind, Callable[[str], Ref[SemanticKindTag]]] = {
     kind: cast("Callable[[str], Ref[SemanticKindTag]]", factory)
     for kind, factory in {

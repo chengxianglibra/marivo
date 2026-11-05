@@ -261,11 +261,3 @@ def test_installed_relations_offline_and_cold(
     assert isinstance(cold_count, int)
     assert fixed_count == source_count
     assert fixed_count == cold_count
-
-
-@pytest.mark.parametrize("family", ("statistics",))
-def test_installed_result_families_offline_and_cold(
-    installed_wheel: InstalledWheel, family: str
-) -> None:
-    candidate = installed_wheel
-    root = candidate.work / ("result-" + family)

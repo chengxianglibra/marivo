@@ -16,15 +16,6 @@ from tests.packaging.installer_helpers import (
 pytestmark = pytest.mark.release
 
 
-def test_installers_default_to_duckdb_trino_and_clickhouse_without_mysql() -> None:
-    for installer in (INSTALLER, CN_INSTALLER):
-        content = installer.read_text(encoding="utf-8")
-
-        assert 'readonly DEFAULT_MARIVO_EXTRAS="duckdb,trino,clickhouse"' in content
-        assert 'MARIVO_EXTRAS="$DEFAULT_MARIVO_EXTRAS"' in content
-        assert 'local package_spec="marivo[$MARIVO_EXTRAS]"' in content
-
-
 def test_chinese_installer_supports_external_runtime_contract(
     tmp_path: Path, installer_env: InstallerEnv
 ) -> None:
@@ -216,14 +207,15 @@ def test_prepares_the_environment_with_uv_even_when_local_python_is_available(
     assert "uv:venv --python" in log
 
 
+@pytest.mark.parametrize("installer", (INSTALLER, CN_INSTALLER), ids=("default", "china"))
 def test_installs_default_marivo_backends_and_initializes_target(
-    tmp_path: Path, installer_env: InstallerEnv
+    tmp_path: Path, installer_env: InstallerEnv, installer: Path
 ) -> None:
     toolchain, env = installer_env
     toolchain.activate(env, toolchain.uv)
     env["FAKE_MANAGED_PYTHON"] = str(toolchain.managed_python)
 
-    completed = _run_installer(tmp_path, env, "--yes")
+    completed = _run_installer(tmp_path, env, "--yes", installer=installer)
 
     assert completed.returncode == 0, completed.stderr
     log = Path(env["FAKE_LOG"]).read_text(encoding="utf-8")

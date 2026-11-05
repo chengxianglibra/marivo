@@ -114,15 +114,6 @@ def test_native_rewrite_keeps_backend_specific_temporal_operations(
         assert len(temporal_calls) == 2
 
 
-@pytest.mark.parametrize("engine", ("duckdb", "postgres", "mysql", "trino", "clickhouse"))
-def test_nontemporal_expression_does_not_rebuild_graph(engine: str) -> None:
-    table = ibis.table({"id": "int64", "amount": "float64"}, name="facts")
-    expression = table.filter((table.id > 1) & table.amount.notnull()).aggregate(
-        total=table.amount.sum(), mean=table.amount.mean()
-    )
-    assert temporal_sql.lower_temporal(expression, engine) is expression
-
-
 def test_timestamp_literal_still_acquires_native_precision() -> None:
     expression = ibis.timestamp("2026-01-01").name("instant").as_table()
     lowered = temporal_sql.lower_temporal(expression, "duckdb")

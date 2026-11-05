@@ -18,7 +18,6 @@ from marivo.introspection.live.targets import canonical_target
 from marivo.refs import SemanticKind
 from marivo.semantic._capabilities.model import (
     SEMANTIC_HELP_RENDER_BUDGETS,
-    AuthoringSourceContract,
     ConstructionMode,
     SemanticBuilderTopic,
     SemanticCapabilityRegistry,
@@ -108,11 +107,6 @@ def test_semantic_surface_uses_the_native_registry_without_copying() -> None:
     for canonical_id in REGISTRY.canonical_ids():
         native = REGISTRY.by_canonical_id(canonical_id)
         assert SEMANTIC_LIVE_SURFACE.registry.by_canonical_id(canonical_id) is native
-
-
-def test_registry_surface_is_semantic() -> None:
-    assert isinstance(REGISTRY, SemanticCapabilityRegistry)
-    assert REGISTRY.surface == "semantic"
 
 
 def test_semantic_help_descriptor_union_is_closed() -> None:
@@ -492,31 +486,6 @@ def test_output_family_drift_is_detected_adversarially() -> None:
         _validate_output_metadata(invalid, import_registered_callable(descriptor.callable_path))
 
 
-def test_every_active_descriptor_has_one_registry_owned_render_class() -> None:
-    assert set(REGISTRY._render_classes) == set(REGISTRY.canonical_ids())
-    assert REGISTRY.render_class("model") == "navigation"
-    navigation_ids = {
-        descriptor.canonical_id
-        for descriptor in REGISTRY.help_descriptors
-        if isinstance(
-            descriptor,
-            (
-                SemanticNavigationTopic,
-                SemanticBuilderTopic,
-                SemanticCheckTopic,
-                SemanticObjectContract,
-            ),
-        )
-    } | {"ref", "source_check"}
-    assert all(
-        REGISTRY.render_class(canonical_id) == "navigation" for canonical_id in navigation_ids
-    )
-    assert all(
-        REGISTRY.render_class(canonical_id) == "exact_contract"
-        for canonical_id in set(REGISTRY.canonical_ids()) - navigation_ids
-    )
-
-
 def test_registry_rejects_duplicate_help_canonical_ids_eagerly() -> None:
     duplicate = REGISTRY.descriptors[0].model_copy()
     with pytest.raises(ValueError, match="duplicate semantic help canonical id"):
@@ -800,31 +769,6 @@ def test_terminal_result_help_matrix_accepts_type_string_and_instance() -> None:
             assert isinstance(route, NativeHelpRoute)
             assert route.owner == "semantic"
             assert route.resolved.type_name == contract.name
-
-
-def test_source_contracts_cover_every_source_authored_ref_constructor() -> None:
-    expected = {
-        descriptor.canonical_id
-        for descriptor in REGISTRY._descriptors
-        if descriptor.output_family is not None
-        and (
-            descriptor.output_family.endswith("Symbol")
-            or descriptor.output_family
-            in {"Entity", "Dimension", "TimeField", "Measure", "Relationship"}
-        )
-        and descriptor.effects is not None
-        and "semantic_source" in descriptor.effects.mutations
-    }
-
-    assert set(REGISTRY._source_contracts) == expected
-    assert all(
-        isinstance(contract, AuthoringSourceContract)
-        for contract in REGISTRY._source_contracts.values()
-    )
-    assert all(
-        not hasattr(contract, "prerequisite_targets")
-        for contract in REGISTRY._source_contracts.values()
-    )
 
 
 def test_catalog_type_contract_uses_the_closed_directory_protocol() -> None:

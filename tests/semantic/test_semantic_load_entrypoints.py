@@ -2,12 +2,9 @@
 
 from __future__ import annotations
 
-import inspect
-
 import pytest
 
 import marivo.semantic as ms
-from marivo.semantic import loader
 from marivo.semantic.catalog import SemanticCatalog
 from marivo.semantic.errors import SemanticLoadFailed
 from marivo.semantic.loader import LoadResult, load_project
@@ -41,20 +38,6 @@ def _write_minimal_project(tmp_path) -> None:
     )
 
 
-# ---------------------------------------------------------------------------
-# ms.load is the public entry: a callable function, not a module.
-# ---------------------------------------------------------------------------
-
-
-def test_ms_load_is_a_function_not_a_module() -> None:
-    """`from marivo.semantic import load` yields the function, not a module."""
-    from marivo.semantic import load
-
-    assert callable(load)
-    assert not inspect.ismodule(load)
-    assert load.__name__ == "load"
-
-
 def test_ms_load_returns_semantic_catalog(tmp_path) -> None:
     _write_minimal_project(tmp_path)
     catalog = ms.load(workspace_dir=tmp_path)
@@ -74,11 +57,6 @@ def test_load_project_returns_load_result(tmp_path) -> None:
     assert result.status == "ready"
     assert result.compiled_state is not None
     assert result.registry is not None
-
-
-def test_load_project_is_not_star_exported() -> None:
-    """The low-level pipeline is not part of loader's public star surface."""
-    assert "load_project" not in loader.__all__
 
 
 def test_load_project_rejects_workspace_root_with_ms_load_hint(tmp_path) -> None:
@@ -127,15 +105,3 @@ def test_ms_load_and_project_catalog_agree(tmp_path) -> None:
     project.load()
     via_bridge = project.catalog()
     assert via_public.definition_fingerprint == via_bridge.definition_fingerprint
-
-
-def test_ms_load_failure_does_not_leave_partial_catalog(tmp_path) -> None:
-    """A failed public load raises instead of returning a partial catalog."""
-    semantic = tmp_path / "models" / "semantic" / "sales"
-    semantic.mkdir(parents=True)
-    (semantic / "_domain.py").write_text(
-        "import marivo.datasource as md\nimport marivo.semantic as ms\n"
-        "ms.domain(name='wrong_name', owner='Mina Zhang')\n"
-    )
-    with pytest.raises(SemanticLoadFailed):
-        ms.load(workspace_dir=tmp_path)

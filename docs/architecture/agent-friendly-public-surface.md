@@ -96,7 +96,7 @@ implicitly recover the original source declarations.
 | Live Help | Static API, expression grammar, exact examples and navigation |
 | Logical object show / typed fields | Captured definitions, inputs, scopes and ownership |
 | Completed Frame show | Bounded current data and interpretation |
-| Artifact / Finding / Evidence | Exact committed submission and audit facts |
+| Completed / persisted Frame | Values, captured source reads and method facts; persisted commit identity |
 | Structured error | Expected/received facts and concrete current repair |
 | Packaged skill | Workflow boundaries, judgment and handoff |
 
@@ -134,10 +134,12 @@ saved.show(n=0)
 ```
 
 This fragment requires a project with the declared Metric and qualified source
-route. Frame owns rows, export and data operations. Artifact owns submission,
-Findings and Evidence, without row export or DSL continuation. Source-free cold
-recovery and fixed-data operations do not choose current models or datasources.
-The full lifecycle and read integrity contract belongs to
+route. Completed Frames own row data, export and data operations; persisted
+Frames also expose commit identity and captured source-read metadata.
+`Session.persisted_frames()` discovers saved Frames, and
+`Session.persisted_frame(id)` reopens an exact commit. Source-free cold recovery
+and fixed-data operations do not choose current models or datasources. The full
+lifecycle and read integrity contract belongs to
 [Runtime](analysis/session-state-and-runtime.md).
 
 ## Data display contracts
@@ -145,7 +147,7 @@ The full lifecycle and read integrity contract belongs to
 | Receiver | Display controls | Meaning |
 | --- | --- | --- |
 | AnalysisFrame | show(*, n=20, max_output_bytes=8192) | Metadata or actual result-order prefix, according to carrier |
-| Artifact | show() | Submission and audit only |
+| PersistedFrameSummary / PersistedFrameSummaryPage | show() | Commit metadata, description, outputs and axes |
 | PreviewResult / RawSqlResult | show(*, n=None, max_output_bytes=8192), corresponding render | Bounded source result display |
 | Entry/report/page | Owning type's show/render protocol | Definitions, check outcomes or bounded items |
 

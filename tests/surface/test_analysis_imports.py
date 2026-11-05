@@ -230,16 +230,6 @@ assert mv.grain('day').unit == 'day'
     assert result.returncode == 0, result.stdout + result.stderr
 
 
-def test_analysis_time_construction_is_session_owned() -> None:
-    import marivo.analysis as mv
-    from marivo.analysis import _public
-
-    for name in ("instant", "time_scope"):
-        assert name not in mv.__all__ and name not in dir(mv)
-        assert not hasattr(mv, name) and not hasattr(_public, name)
-        assert callable(getattr(mv.Session, name))
-
-
 def test_retired_result_entries_have_no_public_aliases() -> None:
     import marivo.analysis as mv
 

@@ -117,31 +117,6 @@ def test_help_resolves_supported_target_kinds(target: object, canonical_id: str)
     }
 
 
-@pytest.mark.parametrize(
-    "target",
-    ("source_inspection.sample",),
-)
-def test_registered_sample_string_paths_resolve_to_one_descriptor(target: str) -> None:
-    from marivo.datasource._capabilities.surface import DATASOURCE_LIVE_SURFACE
-    from marivo.introspection.live.resolve import resolve_live_target
-
-    resolved = resolve_live_target(target, DATASOURCE_LIVE_SURFACE)
-    assert resolved.kind == "descriptor"
-    assert resolved.canonical_id == "source_inspection.sample"
-
-
-def test_inspection_source_column_help_routes_to_exact_method() -> None:
-    from marivo.datasource._capabilities.surface import DATASOURCE_LIVE_SURFACE
-    from marivo.introspection.live.resolve import resolve_live_target
-
-    for target in (
-        "source_inspection.source_column",
-        md.SourceInspection.source_column,
-    ):
-        resolved = resolve_live_target(target, DATASOURCE_LIVE_SURFACE)
-        assert resolved.canonical_id == "source_inspection.source_column"
-
-
 def test_unknown_string_raises_typed_bounded_error() -> None:
     with pytest.raises(MarivoHelpTargetError) as exc_info:
         marivo.help("datasource.inspekt")

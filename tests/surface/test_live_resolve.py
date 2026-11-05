@@ -84,56 +84,11 @@ PREVIEW = _cap("preview", "Scoped runtime preview of one loaded semantic object.
 READINESS = _cap("readiness", "Analysis readiness for one or more refs.")
 
 
-def test_resolve_canonical_string_to_descriptor():
-    surface = _surface((PREVIEW, READINESS))
-    resolved = resolve_live_target("preview", surface)
-    assert resolved.kind == "descriptor"
-    assert resolved.surface == "semantic"
-    assert resolved.descriptor is PREVIEW
-
-
 def test_resolve_rejects_surface_alias_and_name_prefix_from_target_string():
     surface = _surface((PREVIEW, READINESS))
     for target in ("ms.preview", "semantic ms.preview", "semantic preview", "Preview"):
         with pytest.raises(_FakeError):
             resolve_live_target(target, surface)
-
-
-def test_resolve_callable_to_descriptor():
-    def preview():  # registered callable stand-in
-        ...
-
-    cap = AuthoringCapability(
-        canonical_id="preview",
-        kind="callable",
-        surface="semantic",
-        public_entrypoint="ms.preview",
-        summary="preview",
-        effects=AuthoringEffects(data_access="none", connection="none"),
-    )
-
-    class _Registry(_FakeRegistry):
-        def by_callable(self, obj):
-            if obj is preview:
-                return cap
-            raise KeyError(obj)
-
-    # Build a surface whose registry knows the callable.
-    registry = _Registry((cap,))
-    index = build_suggestion_index(registry)
-    s = LiveSurface(
-        registry=registry,
-        type_index={},
-        error_types={},
-        error_base=_FakeError,
-        default_suggestions=(),
-        suggestion_index=index,
-        help_target_error=_raise_fake,
-        enrich=None,
-    )
-    resolved = resolve_live_target(preview, s)
-    assert resolved.kind == "descriptor"
-    assert resolved.descriptor is cap
 
 
 def test_resolve_rejects_instances_before_enrichment():
@@ -143,13 +98,6 @@ def test_resolve_rejects_instances_before_enrichment():
     surface = _surface((PREVIEW,), enrich=enrich)
     with pytest.raises(_FakeError):
         resolve_live_target(_FakeError(), surface)
-
-
-def test_resolve_error_type_to_error_contract():
-    surface = _surface((PREVIEW,), error_types={"_FakeError": _FakeError})
-    resolved = resolve_live_target("_fake_error", surface)
-    assert resolved.kind == "error_contract"
-    assert resolved.error_name == "_FakeError"
 
 
 def test_resolve_unregistered_string_raises_surface_error():

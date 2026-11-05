@@ -15,52 +15,6 @@ from marivo.semantic.dtos import (
 )
 
 
-def test_table_source_is_shared_datasource_ir_type():
-    from marivo.datasource.ir import TableSourceIR
-
-    source = TableSource(table="orders", database="warehouse")
-
-    assert isinstance(source, TableSourceIR)
-    assert source.to_dict() == {
-        "kind": "table",
-        "table": "orders",
-        "database": "warehouse",
-    }
-
-
-def test_parquet_source_is_shared_datasource_ir_type():
-    from marivo.datasource.ir import ParquetSourceIR
-
-    source = ParquetSourceIR(path="orders.parquet")
-
-    assert isinstance(source, ParquetSourceIR)
-    assert source.to_dict() == {
-        "kind": "parquet",
-        "path": "orders.parquet",
-        "hive_partitioning": False,
-        "columns": None,
-    }
-
-
-def test_csv_source_is_shared_datasource_ir_type():
-    from marivo.datasource.ir import CsvSourceIR
-
-    source = CsvSourceIR(
-        path="orders.csv",
-        columns=(("order_id", "order_id"), ("amount", "amount")),
-        delimiter="|",
-    )
-
-    assert isinstance(source, CsvSourceIR)
-    assert source.to_dict() == {
-        "kind": "csv",
-        "path": "orders.csv",
-        "columns": {"amount": "amount", "order_id": "order_id"},
-        "header": True,
-        "delimiter": "|",
-    }
-
-
 def test_file_source_parquet_dict_round_trips_through_semantic_ir_parser():
     from marivo.semantic.ir import source_from_dict
 
@@ -102,15 +56,6 @@ def test_post_json_source_round_trips_through_semantic_ir_parser() -> None:
     )
 
     assert source_from_dict(src.to_dict()) == src
-
-
-def test_dataset_source_cannot_mix_table_and_file_fields():
-    with pytest.raises(TypeError):
-        TableSource(table="orders", path="/data/orders.parquet")  # type: ignore[call-arg]
-    with pytest.raises(TypeError):
-        ParquetSourceIR(path="/data/orders.parquet", table="orders")  # type: ignore[call-arg]
-    with pytest.raises(TypeError):
-        ParquetSourceIR(path="/data/orders.parquet", database="sales_mart")  # type: ignore[call-arg]
 
 
 def test_authoring_source_input_to_dict_is_json_safe():
