@@ -143,6 +143,20 @@ class _MySQLCompiler(MySQLCompiler):  # type: ignore[misc]
 
 
 class _TrinoCompiler(TrinoCompiler):  # type: ignore[misc]
+    def visit_IntervalFromInteger(
+        self, op: ops.IntervalFromInteger, *, arg: sge.Expr, unit: object
+    ) -> sge.Expr:
+        if op.unit.short == "s":
+            # PARSE_DURATION rejects negative offsets. Native integer interval
+            # multiplication preserves signed seconds without a text/float path.
+            return sge.Mul(
+                this=arg,
+                expression=sge.Interval(this=sge.Literal.string("1"), unit=self.v.SECOND),
+            )
+        result = super().visit_IntervalFromInteger(op, arg=arg, unit=unit)
+        assert isinstance(result, sge.Expr)
+        return result
+
     def visit_CalendarRange(self, op: CalendarRange, **kwargs: object) -> sge.Expr:
         return compile_calendar_range(op, "trino")
 

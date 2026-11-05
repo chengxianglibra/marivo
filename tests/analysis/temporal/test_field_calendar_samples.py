@@ -9,6 +9,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pandas as pd
+import pyarrow as pa
 import pytest
 
 import marivo.analysis as mv
@@ -436,19 +437,29 @@ def test_builtin_samples_freeze_session_timezone_independently_of_scope(
                         session.observe({"v": metric}, by=(scope.by(day),))
 
 
+@pytest.mark.parametrize(
+    "backend,profile",
+    source_params([("duckdb", "table"), ("trino", "iceberg"), ("clickhouse", "mergetree")]),
+)
+@pytest.mark.parametrize("unit", ["hour", "minute", "second"])
 def test_calendar_sample_distinguishes_repeated_civil_hour_instants(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     semantic_project_factory: ProjectFactory,
+    backend: str,
+    profile: str,
+    unit: str,
 ) -> None:
     rows = (
         ("2026-11-01 05:30:00", _PAID, 7, "East", 1),
         ("2026-11-01 06:30:00", _PAID, 11, "East", 1),
     )
-    with _sample_project(tmp_path, monkeypatch, semantic_project_factory, rows):
+    with _sample_project(
+        tmp_path, monkeypatch, semantic_project_factory, rows, backend=backend, profile=profile
+    ):
         session = mv.session.get_or_create("repeated-hour", timezone="America/New_York")
         created, _, amount, _ = _fields(session)
-        repeated_hours = amount.sum().per(created, grain=mv.grain("hour"))
+        repeated_hours = amount.sum().per(created, grain=mv.grain(unit))
         actual = (
             session.observe(
                 {
@@ -462,6 +473,62 @@ def test_calendar_sample_distinguishes_repeated_civil_hour_instants(
         )
         # 05:30 and 06:30 UTC both display as 01:30 locally.
         assert actual.loc[0, ["first", "last", "mean"]].tolist() == [7, 11, 9]
+        assert actual["first"].dtype == actual["last"].dtype == pd.ArrowDtype(pa.int64())
+        assert actual["mean"].dtype == pd.ArrowDtype(pa.float64())
+
+
+@pytest.mark.parametrize(
+    "backend,profile",
+    source_params([("duckdb", "table"), ("trino", "iceberg"), ("clickhouse", "mergetree")]),
+)
+def test_ordered_calendar_samples_preserve_parent_nulls_and_empty_types(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    semantic_project_factory: ProjectFactory,
+    backend: str,
+    profile: str,
+) -> None:
+    rows = tuple(
+        (f"2026-11-01 {hour:02}:00:00", _PAID, value, region, 1)
+        for region, values in (
+            ("A", (None, 7, 11)),
+            ("B", (13, 17, None)),
+            ("C", (None, None, None)),
+        )
+        for hour, value in enumerate(values)
+    )
+    with _sample_project(
+        tmp_path, monkeypatch, semantic_project_factory, rows, backend=backend, profile=profile
+    ):
+        session = mv.session.get_or_create("ordered-null-samples", timezone="UTC")
+        created, _, amount, region = _fields(session)
+        samples = amount.sum().per(created, grain=mv.grain("hour"))
+        floating = (amount.sum() / 2).per(created, grain=mv.grain("hour"))
+        metrics = {
+            "first": samples.first(),
+            "last": samples.last(),
+            "keep_first": samples.first(include_null=True),
+            "keep_last": samples.last(include_null=True),
+            "floating_last": floating.last(),
+        }
+        actual = session.observe(metrics, by=(region,)).compute().to_pandas()
+        actual = actual.set_index(actual.columns[0]).sort_index()
+        expected = {
+            "first": [7, 13, None],
+            "last": [11, 17, None],
+            "keep_first": [None, 13, None],
+            "keep_last": [11, None, None],
+            "floating_last": [5.5, 8.5, None],
+        }
+        assert actual.index.tolist() == ["A", "B", "C"]
+        for name, values in expected.items():
+            dtype = pd.ArrowDtype(pa.float64() if name == "floating_last" else pa.int64())
+            pd.testing.assert_series_equal(
+                actual[name].reset_index(drop=True), pd.Series(values, dtype=dtype, name=name)
+            )
+        empty = session.observe(metrics, where=created < "2020-01-01").compute().to_pandas()
+        assert len(empty) == 1 and empty.isna().all().all()
+        assert empty.dtypes.to_dict() == actual.dtypes.to_dict()
 
 
 @pytest.mark.parametrize("unit", ["hour", "minute", "second"])

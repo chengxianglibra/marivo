@@ -6,6 +6,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 
 import ibis
+import ibis.expr.datatypes as dt
 import ibis.expr.operations as ops
 import ibis.expr.types as ir
 
@@ -46,6 +47,15 @@ from marivo.semantic._numeric_lowering import (
     lower_metric_formula,
     native_mean,
     numeric_binary,
+)
+
+
+def _row_number_signature() -> int:
+    raise NotImplementedError("native one-based row number")
+
+
+_clickhouse_row_number: Callable[[], ir.IntegerScalar] = ibis.udf.agg.builtin(
+    _row_number_signature, name="row_number", signature=((), dt.int64)
 )
 
 
@@ -491,9 +501,15 @@ class SampleLowerer:
                 )
             candidate = table if node.include_null else table.filter(value.notnull())
             rank = self.name("rank")
+            # ClickHouse 22.3 cannot evaluate arithmetic over a window function
+            # in the same projection. Keep its native one-based rank private,
+            # avoiding Ibis's row_number() - 1 normalization.
+            position = (
+                _clickhouse_row_number() if self.provider == "clickhouse" else ibis.row_number()
+            )
             ordered = candidate.mutate(
                 **{
-                    rank: ibis.row_number().over(
+                    rank: position.over(
                         ibis.window(
                             group_by=[
                                 string_bytes(candidate[key], self.provider)
@@ -508,7 +524,7 @@ class SampleLowerer:
                     )
                 }
             )
-            selected = ordered.filter(ordered[rank] == 0)
+            selected = ordered.filter(ordered[rank] == (1 if self.provider == "clickhouse" else 0))
             result = (
                 table.group_by(*keys).aggregate(**metrics)
                 if keys

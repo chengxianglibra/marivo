@@ -38,6 +38,36 @@ pytestmark = pytest.mark.runtime
 
 
 @pytest.mark.skipif(
+    os.environ.get("MARIVO_TRINO_ANALYSIS_TEST") != "1", reason="opt-in Trino service"
+)
+def test_trino_dynamic_seconds_preserve_sign_null_and_integer_precision() -> None:
+    from tests.datasource.aggregate_fixtures import compiler_backend
+    from tests.datasource.environment.trino_analysis import connection
+
+    seconds = [-18000, -14400, 0, 20700, 2**53 - 1, -(2**53 - 1), None]
+    table = ibis.table({"n": "int64"}, name="offsets")
+    query = table.select("n", duration=table.n.as_interval("s"))
+    compiled = compiler_backend("trino").compile(query)
+    assert isinstance(compiled, str) and "PARSE_DURATION" not in compiled.upper()
+    values = ",".join(f"(CAST({'NULL' if n is None else n} AS BIGINT))" for n in seconds)
+    sql = (
+        f"WITH offsets(n) AS (VALUES {values}) "
+        f"SELECT n, to_milliseconds(duration), typeof(duration) FROM ({compiled}) AS converted"
+    )
+    with connection() as owner:
+        cursor = owner.cursor()
+        try:
+            rows = cursor.execute(sql).fetchall()
+        finally:
+            cursor.close()
+    assert len(rows) == len(seconds)
+    assert {n: milliseconds for n, milliseconds, _ in rows} == {
+        n: None if n is None else n * 1000 for n in seconds
+    }
+    assert all(kind == "interval day to second" for _, _, kind in rows)
+
+
+@pytest.mark.skipif(
     os.environ.get("MARIVO_CLICKHOUSE_ANALYSIS_TEST") != "1", reason="opt-in ClickHouse service"
 )
 @pytest.mark.parametrize(

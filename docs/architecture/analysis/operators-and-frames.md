@@ -228,6 +228,9 @@ parts, does not establish that order. Unknown relations retain the check.
 It must not substitute an unordered backend first/last. include_null and strict
 sample policy remain attached to the original occurrence. Window overlap and
 per-sample keys retain their independent obligations.
+ClickHouse uses a private native one-based window rank for endpoint selection,
+avoiding arithmetic on the window expression that 22.3 cannot execute. This
+does not change the selected child's value type or NULL policy.
 
 Qualified numeric internal samples execute as nested native relations on DuckDB,
 PostgreSQL, MySQL, Trino and ClickHouse. Each layer completes its child Metric at

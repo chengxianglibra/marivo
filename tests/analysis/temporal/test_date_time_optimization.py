@@ -15,12 +15,67 @@ import sqlglot
 import sqlglot.expressions as sge
 
 import marivo.analysis as mv
-from marivo.analysis.compiler.calendar import KEY_TYPE, builtin_key, builtin_wall_key
+from marivo._definition.expressions import BuiltinSampleCoordinate
+from marivo.analysis.compiler.calendar import (
+    KEY_TYPE,
+    builtin_key,
+    builtin_sample_key,
+    builtin_wall_key,
+)
 from marivo.analysis.dsl.temporal import exact_scope
 from marivo.analysis.materialization.date_day_keys import deferred_day_key
 from marivo.analysis.materialization.temporal_sql import lower_temporal
 from marivo.datasource._temporal_expressions import localize, render, timestamp
 from tests.datasource.source_cases import SourceData, source_case, source_params
+
+
+@pytest.mark.parametrize(
+    "backend,profile", source_params([("duckdb", "table"), ("trino", "iceberg")])
+)
+def test_new_york_sample_keys_preserve_gap_fold_and_utc_type(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, backend: str, profile: str
+) -> None:
+    points = [
+        "2026-03-08 06:59:59.999999",
+        "2026-03-08 07:00:00.000001",
+        "2026-11-01 05:30:00.123456",
+        "2026-11-01 06:30:00.123456",
+    ]
+    literal = "TIMESTAMP " if backend == "trino" else ""
+    data = SourceData(
+        "id BIGINT, point TIMESTAMP(6)",
+        ",".join(f"({i},{literal}'{point}')" for i, point in enumerate(points)) + ",(4,NULL)",
+        "",
+        [],
+    )
+    with source_case(backend, profile, tmp_path, monkeypatch, data) as case:
+        table = case.session.bind(case.source, source_identity="new-york-samples").relation
+        instant = localize("UTC", timestamp(table.point))
+        keys = {
+            unit: builtin_sample_key(
+                instant,
+                BuiltinSampleCoordinate(mv.grain(unit), "America/New_York"),
+                engine=backend,
+            )
+            for unit in ("hour", "minute", "second")
+        }
+        assert all(key.type() == KEY_TYPE for key in keys.values())
+        rows = case.session.collect_bounded(
+            lower_temporal(table.select("id", **keys).order_by("id"), backend),
+            purpose="calendar.new_york_samples",
+            max_rows=5,
+        )
+        expected = {
+            "hour": ["03-08 06:00", "03-08 07:00", "11-01 05:00", "11-01 06:00"],
+            "minute": ["03-08 06:59", "03-08 07:00", "11-01 05:30", "11-01 06:30"],
+            "second": ["03-08 06:59:59", "03-08 07:00", "11-01 05:30", "11-01 06:30"],
+        }
+        for unit, clocks in expected.items():
+            assert rows[unit].iloc[:4].tolist() == [
+                pd.Timestamp("2026-" + value, tz="UTC") for value in clocks
+            ]
+            assert pd.isna(rows[unit].iloc[4])
+            assert str(rows[unit].dt.tz) == "UTC"
 
 
 @pytest.mark.parametrize(
