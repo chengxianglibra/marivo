@@ -191,6 +191,12 @@ def classify(sql: str, stack: tuple[FrameType, ...], *, store_connection: bool) 
                 "clickhouse_connect.Client._init_common_settings",
                 "connection_metadata",
             )
+        if (
+            path.endswith("/marivo/datasource/engines/duckdb.py")
+            and name == "connect"
+            and sql == "SET enable_progress_bar_print = 'False'"
+        ):
+            return Origin("native_driver_setup", "duckdb.connect", "disable_progress_bar_print")
     product = [
         frame
         for frame in stack

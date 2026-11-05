@@ -75,7 +75,7 @@ def test_duckdb_extra_kwargs_pass_through(
         @staticmethod
         def connect(**kwargs: object) -> object:
             captured.update(kwargs)
-            return SimpleNamespace()
+            return SimpleNamespace(settings={})
 
     class _FakeIbis:
         duckdb = _FakeDuckdb()
