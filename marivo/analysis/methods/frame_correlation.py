@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Literal
 
+import numpy as np
 import pandas as pd
 
 from marivo.analysis.core.data_types import DataType
@@ -29,4 +30,6 @@ def correlation(
     a, b = pd.Series(list(left)), pd.Series(list(right))
     if method == "spearman":
         a, b = a.rank(method="average"), b.rank(method="average")
-    return float(a.corr(b))
+    # Keep the native coefficient when covariance or normalization is nonfinite.
+    with np.errstate(divide="ignore", invalid="ignore"):
+        return float(a.corr(b))

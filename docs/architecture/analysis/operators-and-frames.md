@@ -283,7 +283,8 @@ the expression's non-NA count. No source correlation pushdown is qualified.
 Correlation retains pair selection and constant/insufficient-pair rules, then uses
 pandas' native correlation (average ranks before Pearson for Spearman). It adds no
 finite scan or precision-preserving centering conversions. Native NaN coefficients
-remain valid NaN. The numeric implementation is owned by
+remain valid NaN. NumPy divide-by-zero and invalid-operation warnings are silenced
+only during the pandas correlation call. The numeric implementation is owned by
 [frame_correlation.py](../../../marivo/analysis/methods/frame_correlation.py).
 Group coefficients and counts cannot reconstruct pooled correlation.
 
