@@ -899,9 +899,10 @@ def _object_contracts() -> tuple[SemanticObjectContract, ...]:
                 ),
                 _business_decision(
                     "temporal_behavior",
-                    "Which source time roles and internal sample reductions are required?",
+                    "Is contribution time fixed (time=field), caller-selected (TimeParameter), "
+                    "or omitted for explicit field filtering/grouping at observation?",
+                    "metric",
                     "Metric.per",
-                    "Field.via",
                 ),
                 _business_decision(
                     "guardrails",
@@ -2692,6 +2693,13 @@ def _expression_capabilities() -> tuple[AuthoringCapability, ...]:
                     "independently of formula shape or execution route. Explicit domains "
                     "and NULL/weight policies still apply."
                 )
+            if prefix in {"row", "Entity"}:
+                summary += (
+                    " time= declares this source reduction's contribution clock; no Entity default is inherited. "
+                    "Omit it for no contribution clock. Direct TimeScope/CalendarAxis in observe.by requires "
+                    "time= on every source reduction; explicit field filtering/grouping does not. "
+                    "See semantic.metric.define for choosing the time contract."
+                )
             if prefix in {"row", "MetricSamples"} and method not in {"count", "count_distinct"}:
                 summary += (
                     " nulls='ignore' adds no assertion; nulls='error' asserts no NULLs on the demanded input; "
@@ -2719,7 +2727,12 @@ def _expression_capabilities() -> tuple[AuthoringCapability, ...]:
                     )
                     if prefix == "Metric" and method == "where"
                     else (
-                        (_target("expressions.row"),)
+                        (
+                            _target("expressions.row"),
+                            _target("metric"),
+                        )
+                        if prefix in {"row", "Entity"}
+                        else (_target("expressions.row"),)
                         if prefix in {"row", "MetricSamples", "Entity"}
                         else (_target("expressions"),)
                     ),
@@ -3238,7 +3251,14 @@ def _build_registry() -> SemanticCapabilityRegistry:
             "use .bind_time(event=paid_at) to choose a field. Fresh locals, a leading docstring, "
             "and tuple/list literal arguments are allowed; lists are frozen as tuples. "
             "Arbitrary calls, table parameters, Ibis returns and ms.bind are rejected. "
-            "Operator policies stay on their operators. Declaration is source-free and does not publish a Catalog Metric.",
+            "Operator policies stay on their operators. Declaration is source-free and does not publish a Catalog Metric. "
+            "Choose contribution time on each source reduction: use amount.sum(time=paid_at) for a fixed "
+            "business clock; use time=event with a TimeParameter and bind_time(event=paid_at) when callers "
+            "must choose the clock. Omit time= when the Metric has no contribution clock: observe by=() "
+            "needs none; choose a field at observation with mv.time_group(field, axis=scope.by(grain)) "
+            "or where=field.within(scope). A direct TimeScope/CalendarAxis in by requires time= on every "
+            "source reduction, including composed Metrics. No Entity default is inherited. "
+            "time_group does not bind a time slot or supply Metric window endpoints.",
             output="NumericMetric",
             inputs=(
                 _parameter_input("dependency", "DomainSymbol", "domain", optional=True),
@@ -3258,6 +3278,8 @@ def _build_registry() -> SemanticCapabilityRegistry:
                 _target("expressions"),
                 _target("time_parameter"),
                 _target("Metric.bind_time"),
+                LiveHelpTarget(surface="analysis", canonical_id="time_group"),
+                LiveHelpTarget(surface="analysis", canonical_id="session.observe"),
             ),
             invocation_shape="decorator",
         ),

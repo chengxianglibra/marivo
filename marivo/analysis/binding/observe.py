@@ -606,8 +606,14 @@ def bind_observation(
             ) and node.time is None:
                 reject(
                     "a declared business time role for this period",
-                    root.ref.path,
-                    "Construct the reduction with time=field, or omit the observation time coordinate.",
+                    f"Metric {metrics[occurrence[0]][0]!r}, source {root.ref.path!r}: reduction without time=",
+                    "To use a direct TimeScope/CalendarAxis, declare time=field on every source reduction "
+                    "(or bind an existing TimeParameter with bind_time). To select a field only for this "
+                    "observation, replace the direct time coordinate with "
+                    "mv.time_group(field, axis=scope.by(grain)); for range filtering only, remove that "
+                    "coordinate and use where=field.within(scope). Choose a resolved TimeDimension "
+                    "reachable from every contribution root. time_group does not supply Metric window "
+                    "endpoints. Omit the time coordinate if no time restriction is intended.",
                     "session.observe",
                 )
 

@@ -139,6 +139,21 @@ def test_field_calendar_filters_before_reduction_and_completes_cross_grid(
         # A direct observation axis uses the Metric's payment clock; the same
         # scope passed to time_group selects the explicitly supplied field instead.
         payment = mv.time_group(paid, axis=paid_axis)
+        for direct_time in (paid_scope, paid_axis):
+            with pytest.raises(
+                AnalysisError, match="a declared business time role"
+            ) as missing_time:
+                session.observe({"sum": amount.sum()}, by=(direct_time,))
+            error = missing_time.value
+            assert error.received is not None and "Metric 'sum'" in error.received
+            assert "source 'sales.facts'" in error.received
+            assert error.repair is not None
+            assert "time=field on every source reduction" in error.repair.action
+            assert "mv.time_group(field, axis=scope.by(grain))" in error.repair.action
+            assert "where=field.within(scope)" in error.repair.action
+            assert "does not supply Metric window endpoints" in error.repair.action
+        filtered = session.observe({"sum": amount.sum()}, where=paid.within(paid_scope)).compute()
+        assert filtered.to_pandas()["sum"].tolist() == [2140]
         matrix = session.observe({"sum": amount.sum()}, by=(creation, payment)).compute()
         assert matrix.to_pandas().sort_values(["created", "paid"])["sum"].tolist() == [
             100,
@@ -340,6 +355,8 @@ def test_field_calendar_help_routes_to_observe(capsys: pytest.CaptureFixture[str
     assert "Target: analysis.time_group" in help_text
     assert "Session.observe.by" in help_text
     assert "window endpoints" in help_text
+    assert "omit time=" in help_text
+    assert "where=field.within(scope)" in help_text
 
 
 def test_field_calendar_filters_before_custom_period_assignment(

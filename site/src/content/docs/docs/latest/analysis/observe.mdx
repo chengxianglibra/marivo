@@ -20,4 +20,37 @@ time and supplies window endpoints. `mv.time_group(field, axis=axis)` filters by
 the field's range, buckets the field and completes its output axis.
 Builtin calendar samples work without a finite observation period.
 
+Choose the time contract when defining and observing a Metric:
+
+| Intended meaning | Definition and observation |
+| --- | --- |
+| Fixed business clock, such as payment time | Declare `amount.sum(time=paid_at)`; pass `scope` or `scope.by(mv.grain("day"))` directly in `by`. |
+| Caller chooses the contribution clock | Declare a keyword-only `TimeParameter`, use it in each source reduction's `time=`, and call `.bind_time(...)` before observation. |
+| No contribution clock; choose a field for this question | Omit `time=` and use `mv.time_group(field, axis=scope.by(grain))`, or `where=field.within(scope)` for filtering only. |
+| Overall value without a time restriction | Omit the time coordinate from `by`; no contribution clock is required. |
+
+For example, with a loaded Measure `amount` and TimeDimension `created_at`:
+
+```python
+import marivo.analysis as mv
+
+scope = session.time_scope(start="2026-11-01", end="2026-12-01")
+frame = session.observe(
+    {"revenue": amount.sum()},
+    by=(mv.time_group(created_at, axis=scope.by(mv.grain("day"))),),
+).compute()
+```
+
+A direct `TimeScope` or `CalendarAxis` requires `time=` on **every source
+reduction**, including dependencies inside a composed Metric. No Entity default
+time is inherited. If the error reports “a declared business time role for this
+period”, either declare the contribution clock or replace the direct time
+coordinate with explicit field grouping/filtering as above. The chosen field
+must be a TimeDimension reachable from every contribution root through a
+single-valued path. `time_group` neither binds open time parameters nor supplies
+Metric `.window(...)` endpoints.
+
+Inspect `marivo.help("semantic.metric.define")` for authoring choices and
+`marivo.help("analysis.time_group")` for field grouping.
+
 See the [observe section of Analysis DSL](/docs/latest/analysis/dsl/#observe-metrics) for the full guide and example.

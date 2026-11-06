@@ -667,6 +667,31 @@ def test_sum_help_discloses_fixed_empty_and_native_numeric_rules(
     assert "parameters: empty" not in page
 
 
+@pytest.mark.parametrize("target", ("semantic.row.sum", "semantic.entity.count"))
+def test_source_reduction_help_explains_optional_contribution_time(
+    target: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    marivo.help(target)
+    page = capsys.readouterr().out
+    assert "no Entity default is inherited" in page
+    assert "time= on every source reduction" in page
+    assert "explicit field filtering/grouping does not" in page
+    assert 'marivo.help("semantic.metric.define")' in page
+
+
+def test_metric_definition_help_explains_time_choices(capsys: pytest.CaptureFixture[str]) -> None:
+    marivo.help("semantic.metric.define")
+    page = capsys.readouterr().out
+    assert "amount.sum(time=paid_at)" in page
+    assert "time=event with a TimeParameter" in page
+    assert "bind_time(event=paid_at)" in page
+    assert "Omit time=" in page
+    assert "mv.time_group(field, axis=scope.by(grain))" in page
+    assert "where=field.within(scope)" in page
+    assert "including composed Metrics" in page
+    assert "window endpoints" in page
+
+
 @pytest.mark.parametrize("target", ("semantic.row.mean", "semantic.metric_samples.mean"))
 def test_mean_help_discloses_fixed_null_rules_and_sampling(
     target: str, capsys: pytest.CaptureFixture[str]

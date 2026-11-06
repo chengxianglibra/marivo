@@ -258,7 +258,7 @@ def provider() -> DisclosureProvider:
                         if name == "get_or_create" and n == "domains"
                         else "Choose an integer from 1 through 100, excluding bool; default 20. Keep the same limit when continuing a cursor."
                         if name == "persisted_frames" and n == "limit"
-                        else "fields/Grouping/TimeScope/memberships or Population P. P fixes joint keys, population.axes does not. Cover necessary output keys before sampling. () gives one zero-axis cell. TimeScope/CalendarAxis: intervals/buckets. time_group filters and buckets a field, without endpoints."
+                        else "fields/Grouping/TimeScope/memberships or Population P. P fixes joint keys, population.axes does not. Cover necessary output keys before sampling. () gives one zero-axis cell. One direct time axis at most."
                         if name == "observe" and n == "by"
                         else "Pass resolved fields or field or identity Grouping values; calendar and membership groupings are rejected. Use () for scalar literal rows."
                         if name == "values" and n == "by"

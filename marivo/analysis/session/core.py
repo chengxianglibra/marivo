@@ -354,10 +354,13 @@ class Session:
             ``frame = session.observe(revenue, by=(period,)).compute()``;
             ``frame.show()``.
 
-        Constraints: Capture reads no source. by=() supplies no time range.
-        Use at most one direct observation time axis.
+        Constraints: No source reads; by=() has no time range.
+        Direct TimeScope/CalendarAxis requires time= on every source reduction.
+        Use mv.time_group(field, axis=scope.by(grain)) or where=field.within(scope) without time=.
+        time_group supplies no TimeParameter bindings or window endpoints.
         Duplicate calendar/raw time: use calendar alone, TimeScope+field, or explicit Population.
-        TimeField sample reducers allow missing clocks. Windows and calendar samples retain their period requirements by rule. Windows need endpoints. Builtin samples use the Session timezone without a required period.
+        TimeField samples allow missing clocks. Windows need endpoints; custom samples need complete periods.
+        Builtin samples use Session timezone; no period required.
         Names label outputs without asserting business identity. Trust semantic primary_key with
         nullable physical metadata; no full-source NULL/uniqueness precheck. Existing
         identity-output and operation checks remain.

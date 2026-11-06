@@ -72,6 +72,7 @@ def provider() -> DisclosureProvider:
             related=("session.observe", "time_scope.by", "grouping"),
             output="Grouping",
             constraints=(
+                "Works with source reductions that omit time=. Select the time field for this observation; this does not bind TimeParameter slots or supply Metric window endpoints. For range filtering only, use observe(where=field.within(scope)).",
                 "Only accepted in Session.observe.by. The half-open field range applies before aggregation and intersects where and Metric period or window conditions. Null time fields contribute to no bucket.",
                 "Use a plain field for raw time values or an authored business date. Pass a TimeScope or CalendarAxis directly in by to provide Metric window endpoints.",
                 "Custom calendars require one complete certified period. Multiple distinct field calendars form a product of their finite bucket grids.",

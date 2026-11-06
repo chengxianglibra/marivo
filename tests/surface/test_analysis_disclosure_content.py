@@ -81,6 +81,17 @@ def test_observe_help_discloses_semantic_primary_key_trust() -> None:
         assert "identity-output and operation checks remain" in text
 
 
+def test_observe_help_explains_time_selection_without_a_metric_clock() -> None:
+    from marivo.analysis.session.core import Session
+
+    for target in ("analysis.session.observe", Session.observe):
+        text = render_help_text(target)[0]
+        assert "requires time= on every source reduction" in text
+        assert "mv.time_group(field, axis=scope.by(grain))" in text
+        assert "where=field.within(scope)" in text
+        assert "supplies no TimeParameter bindings or window endpoints" in text
+
+
 def test_simplified_policies_have_one_public_route() -> None:
     assert not hasattr(mv.Column, "divide")
     with pytest.raises((AnalysisError, MarivoHelpTargetError)):

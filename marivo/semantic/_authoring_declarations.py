@@ -133,6 +133,11 @@ def metric(
         To publish, save at model module top level and load; retrieve
         ``metric:<domain>.<function_name>`` with ``catalog.get(...)``.
         Outside a declaration body, bind a loaded Metric to a loaded time field.
+        Declare time=field on each source reduction for a fixed contribution clock,
+        or time=slot with a TimeParameter for caller selection. Omit time= for no
+        contribution clock; observe can use explicit time_group or field.within filters.
+        A direct TimeScope/CalendarAxis in observe.by requires a contribution clock
+        on every source reduction. time_group does not supply Metric window endpoints.
     """
     from marivo._definition.deferred import DeclarationRecord, declare
     from marivo._definition.types import SourceLocation
