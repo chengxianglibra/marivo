@@ -29,9 +29,9 @@ repos:
         types: [python]
         pass_filenames: false
       - id: typecheck
-        name: typecheck (mypy marivo)
-        entry: .venv/bin/mypy marivo
+        name: typecheck (mypy marivo and tests)
+        entry: make typecheck
         language: system
         types: [python]
-        files: ^marivo/
+        files: ^(marivo|tests)/
         pass_filenames: false

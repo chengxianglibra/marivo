@@ -72,6 +72,7 @@ bare `python`, `pytest`, `mypy`, or `ruff` in this repository.
 | --- | --- |
 | Focused tests | `make test TESTS='tests/test_file.py'` |
 | Focused typing | `make typecheck TYPECHECK_TARGETS='marivo/path'` |
+| Default typing | `make typecheck` |
 | Focused lint | `make lint LINT_TARGETS='marivo/path tests/test_file.py'` |
 | Default tests | `make test` |
 | Local inner loop | `make check-fast` |
@@ -79,8 +80,10 @@ bare `python`, `pytest`, `mypy`, or `ruff` in this repository.
 | Relevant Runtime tests | `make runtime-test TESTS='tests/test_file.py'` |
 | Full release acceptance | `make release-check` |
 
-- Modified Python modules must pass typing. Do not introduce implicit `Any`,
-  broad `cast(...)`, or `# type: ignore` without strict local justification.
+- Modified Python modules must pass typing. The default typecheck covers `marivo/`
+  and all of `tests/`, including Runtime and release test modules. Do not introduce
+  implicit `Any`, broad `cast(...)`, or `# type: ignore` without strict local
+  justification.
   Public API parameters and return values require concrete, specific types;
   they must not use `Any` or other ambiguous types.
 - Reuse `tests/conftest.py` and `tests/shared_fixtures.py` for repeated setup.

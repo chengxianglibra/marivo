@@ -18,7 +18,7 @@ VENV_RUFF := $(VENV_BIN)/ruff$(EXE_SUFFIX)
 VENV_LINT_IMPORTS := $(VENV_BIN)/lint-imports$(EXE_SUFFIX)
 VENV_TWINE := $(VENV_BIN)/twine$(EXE_SUFFIX)
 MYPY_PYTHON_VERSION ?= 3.10
-TYPECHECK_TARGETS ?= marivo tests/typing
+TYPECHECK_TARGETS ?= marivo tests
 LINT_TARGETS ?= .
 RUNTIME_WORKERS ?= 2
 # One worker per logical CPU, capped so a large host does not start a worker

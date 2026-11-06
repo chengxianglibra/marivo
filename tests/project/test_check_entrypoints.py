@@ -88,6 +88,7 @@ def _run_make(
             "PYTEST_WORKER_CAP",
             "RUNTIME_WORKERS",
             "PYTEST_NATIVE_THREADS",
+            "TYPECHECK_TARGETS",
         }
     }
     environment.update(
@@ -133,6 +134,7 @@ def test_daily_checks_exclude_runtime_and_release(tmp_path: Path) -> None:
         "--no-color-output",
         "--no-warn-unused-configs",
     ]
+    assert mypy_command[-2:] == ["marivo", "tests"]
     assert {"ruff", "lint-imports", "mypy", "sphinx-build"} <= {command[0] for command in commands}
     assert commands[0] == ["ruff", "format", "--check", "."]
     assert ["ruff", "check", "--output-format", "concise", "."] in commands
