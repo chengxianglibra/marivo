@@ -1,0 +1,130 @@
+---
+title: 项目读取服务
+description: 让客户端读取当前 Catalog 和完整的已保存 Frame 报告。
+---
+
+在项目所用的 Marivo Runtime 中安装可选 API 依赖。用
+`secrets.token_urlsafe(32)` 一次性生成令牌，将它保存到部署凭据配置，并在
+服务环境中设置 `MARIVO_API_TOKEN`。普通重启沿用该值。需要轮换时更新
+配置并重启服务。
+
+```bash
+pip install 'marivo[api]'
+marivo serve --project-root /path/to/project --port 0
+```
+
+默认监听 `127.0.0.1:8765`。端口 `0` 由操作系统分配可用端口。
+从 stdout 的单行 JSON 回执读取 `host`、`port`、`protocol`、`pid`、
+`marivo_version` 和 `api_version`。服务日志写入 stderr。
+
+## 读取报告
+
+保留 `persist()` 返回的已提交 Frame 的两个身份字段。
+
+```python
+saved = frame.persist(description="Recorded revenue")
+ref = {
+    "schema": "marivo.frame_ref/v1",
+    "session_id": saved.session_id,
+    "artifact_id": saved.artifact_id,
+}
+```
+
+向服务地址发送准确的引用。下面使用默认端口，由客户端环境提供管理员配置的令牌。
+
+```bash
+curl --fail-with-body -H "Authorization: Bearer ${MARIVO_API_TOKEN}" \
+  "http://127.0.0.1:8765/v1/sessions/${session_id}/frames/${artifact_id}"
+```
+
+一次成功请求返回 `ref`、`description`、`committed_at`、`schema`、
+`lineage`、`source_reads`、`data` 和 `periods`。每行的单元格顺序由
+`data.layout` 决定。通过字段 slot 或坐标身份在 `schema` 中取得原始显示名和
+类型。坐标默认名称冲突时，导出名会加上确定的后缀。`data.coordinates` 按 key slot
+提供与结果行一一对应的原始坐标值。
+
+按 schema 类型解码业务值。整数和 Decimal 使用精确字符串，日期和时间戳使用 ISO
+字符串，duration 使用声明单位的整数 tick。有限浮点数用 JSON number，非有限浮点数
+使用 `{"float":"nan"}` 等标签值。NULL 与布尔 presence 独立。期间键和标签均带
+`dtype` 和 `value`。保存的期间可以没有对应结果行，比较期间保留已保存的端点
+或缺失原因。
+
+## 完整单值响应
+
+```json
+{
+  "ref": {"schema":"marivo.frame_ref/v1","session_id":"session_example","artifact_id":"artifact_example"},
+  "description": "Recorded revenue",
+  "committed_at": "2026-11-06T00:00:00+00:00",
+  "schema": {
+    "input_id": "stored_example",
+    "values": {"revenue":{"slot_id":"amount","name":"revenue","dtype":{"kind":"decimal","precision":18,"scale":2},"nullable":false,"unit":"CNY"}},
+    "presence": {},
+    "axes": [],
+    "layout": [{"kind":"field","name":"revenue","slot_id":"amount"}],
+    "fixed_axes": [],
+    "value_contexts": {},
+    "source_times": [],
+    "alignments": [],
+    "comparisons": [],
+    "decompositions": []
+  },
+  "lineage": {
+    "input_id": "stored_example",
+    "values": {"revenue":{"value_origins":[],"context_origins":[]}},
+    "axes": {},
+    "presence": {}
+  },
+  "source_reads": [],
+  "data": {
+    "layout": [{"kind":"field","name":"revenue","slot_id":"amount"}],
+    "coordinates": {},
+    "rows": [["123.45"]],
+    "row_count": 1
+  },
+  "periods": []
+}
+```
+
+## 浏览当前定义
+
+所有 API 请求使用相同的 Bearer 请求头。通过 `GET /v1/openapi.json` 获取类型化
+的路由和载荷合同。`GET /v1/info` 返回版本、Store 和当前 Catalog 加载状态。
+语义对象使用规范 `kind:path` 身份，作为路径参数时使用 URL 编码。
+
+| 操作 | 路由 |
+| --- | --- |
+| 列出语义对象 | `GET /v1/semantic/objects`，可选 `kind` 和 `domain` |
+| 读取定义 | `GET /v1/semantic/objects/{id}` |
+| 浏览依赖或被依赖对象 | `GET /v1/semantic/objects/{id}/related?relation=dependencies` |
+| 刷新当前定义 | `POST /v1/semantic/reload`，请求体为空 |
+| 发现 Session 和 Frame | `GET /v1/sessions` 和 `GET /v1/sessions/{session_id}/frames` |
+
+目录默认每页 20 条，允许 1 到 100 条。使用 `next_cursor` 续读并保留相同过滤条件
+和页大小。Catalog 刷新成功后旧语义游标失效，失败时保留上次成功加载的目录。
+已保存报告独立于当前模型加载。
+
+## 部署和处理错误
+
+原生 TLS 需要成对提供 PEM 文件。也可通过现有 HTTPS 入口终止 TLS，再转发给受
+保护的 HTTP 监听地址。
+
+```bash
+marivo serve --project-root /path/to/project --host 0.0.0.0 --port 8765 \
+  --ssl-certfile /etc/tls/fullchain.pem --ssl-keyfile /etc/tls/privkey.pem \
+  --allow-origin https://analysis.example.com
+```
+
+对每个允许的浏览器 Origin 分别指定 `--allow-origin`，按完整 Origin 匹配。
+默认配置允许携带 Bearer、无 Origin 的服务端请求。合法预检无需令牌，实际业务请求
+始终要求 Bearer。允许的 Origin 可读取成功和错误响应。公开 API 主机名应使用浏览器
+信任的证书。宿主负责用户授权与项目绑定。
+
+`--max-response-mib` 默认 128，`--read-timeout-seconds` 默认 300。两者都接受
+正整数，覆盖整份报告，Catalog 加载使用同样的限制。遇到 `response_too_large`
+或 `read_timeout` 时，可由管理员调高对应设置并重启，再重试同一引用，也可显式
+保存较小的结果。成功响应包含完整报告，表格分页在客户端进行。
+
+失败时查看 `error.code`、`location`、`repair` 和可空的 Help `target`。
+`invalid_cursor` 应从目录首屏重新读取，`not_found` 应核对项目和身份，
+`corrupt_artifact` 应恢复已提交文件。DataFrameView 的数据随宿主报告或消息保留。

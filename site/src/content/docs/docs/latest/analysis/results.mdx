@@ -5,6 +5,10 @@ description: Save result identifiers, discover committed Frames, reopen data, an
 
 Run the [analysis DSL example](/docs/latest/analysis/dsl/#complete-example-and-shared-inputs), which persists its comparison as `saved`. Use `compute()` for a completed Frame you will keep in the same Python process. Persist the result when you need to reopen it in another process.
 
+## Read a report over HTTP
+
+Use the [project read service](/docs/latest/reference/read-service/) to retrieve a complete saved Frame by its IDs.
+
 ## Save the result identifiers
 
 In `analysis.py`, add these lines after `saved = change.persist()` and run the producing script:

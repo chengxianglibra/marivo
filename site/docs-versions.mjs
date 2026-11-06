@@ -11,7 +11,7 @@ const commonDocs = [
   'concepts/evidence.mdx',
   'contributing.mdx',
 ];
-export const latestOnlyDocs = [];
+export const latestOnlyDocs = ['reference/read-service.mdx'];
 export const docsByVersion = {
   latest: [
     ...usageDocs,

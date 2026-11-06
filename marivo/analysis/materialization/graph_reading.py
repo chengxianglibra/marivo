@@ -103,8 +103,9 @@ class FramePreview:
 class OutputRead:
     """One call's receipt validation; no data cache or saved display permutation."""
 
-    def __init__(self, root: Path) -> None:
+    def __init__(self, root: Path, checkpoint: Callable[[], None] | None = None) -> None:
         self.root = root
+        self.checkpoint = checkpoint
         self._validated: set[ParquetHandle] = set()
         self.data_rows_read = 0
         self.coordinate_rows_read = 0
@@ -126,6 +127,8 @@ class OutputRead:
                 hashed.update(entry.relative_path.encode())
                 with path.open("rb") as stream:
                     while block := stream.read(1024 * 1024):
+                        if self.checkpoint is not None:
+                            self.checkpoint()
                         self.receipt_bytes_hashed += len(block)
                         hashed.update(block)
             if hashed.hexdigest() != handle.payload_digest:
@@ -180,6 +183,8 @@ class OutputRead:
                 for batch in parquet.iter_batches(
                     batch_size=POLICY.batch_rows, row_groups=[group], columns=names
                 ):
+                    if self.checkpoint is not None:
+                        self.checkpoint()
                     self.data_rows_read += batch.num_rows
                     lower, upper = max(start - position, 0), min(end - position, batch.num_rows)
                     if upper > lower:
@@ -268,11 +273,15 @@ class OutputRead:
         if keys:
             with self._open(layout) as parquet:
                 for batch in parquet.iter_batches(batch_size=POLICY.batch_rows):
+                    if self.checkpoint is not None:
+                        self.checkpoint()
                     self.coordinate_rows_read += batch.num_rows
                     decoded = pa.Table.from_batches([batch]).cast(arrow_schema(schema), safe=True)
                     key_table = decoded.select([column.slot_id for column in columns])
                     mask = pc.is_valid(pa.nulls(key_table.num_rows))
                     for index in range(requested.num_rows):
+                        if self.checkpoint is not None:
+                            self.checkpoint()
                         match = pc.is_null(pa.nulls(key_table.num_rows))
                         for column in columns:
                             values = key_table.column(column.slot_id)
@@ -359,6 +368,7 @@ def _frame_read_boundary() -> Iterator[None]:
 class FrameReader:
     store: SessionStore
     session_id: str
+    checkpoint: Callable[[], None] | None = None
 
     def manifest(self, backing: StoredFrameBacking) -> ArtifactManifest:
         value = open_manifest(self.store, self.session_id, backing.artifact_id)
@@ -424,7 +434,7 @@ class FrameReader:
     ) -> tuple[FramePreview, FrameReadStats]:
         value = self.manifest(backing)
         with _frame_read_boundary():
-            reader = OutputRead(self.store.project_root)
+            reader = OutputRead(self.store.project_root, self.checkpoint)
             schema = value.data.schema
             rows = reader.range(ReadLayout(schema, value.data.rows), start, limit, columns)
             saved = {part.name: part for part in value.data.attachments}
@@ -463,7 +473,7 @@ class FrameReader:
         if part is None:
             raise invalid("required frozen coordinate attachment is missing")
         with _frame_read_boundary():
-            reader = OutputRead(self.store.project_root)
+            reader = OutputRead(self.store.project_root, self.checkpoint)
             rows = reader.coordinate_range(
                 ReadLayout(part.schema, part.rows), start, limit, ordinal=ordinal
             )
@@ -478,7 +488,7 @@ class FrameReader:
         if part is None:
             raise invalid("required frozen coordinate attachment is missing")
         with _frame_read_boundary():
-            reader = OutputRead(self.store.project_root)
+            reader = OutputRead(self.store.project_root, self.checkpoint)
             rows = reader.select(ReadLayout(part.schema, part.rows), keys)
             return OutputAttachment(name, part.schema, rows), reader.stats
 

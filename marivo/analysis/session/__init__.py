@@ -12,7 +12,6 @@ from marivo.analysis.errors import (
     SessionAlreadyExistsError,
     SessionStateError,
 )
-from marivo.analysis.materialization.contracts import invalid
 from marivo.analysis.materialization.layout import MaterializationLayout
 from marivo.analysis.materialization.prior_generations import warn_prior_generations
 from marivo.analysis.materialization.reconciliation import reconcile_session
@@ -33,18 +32,6 @@ def _invalid(expected: str, received: str) -> DatasetConstructionError:
         repair="Inspect mv.session.recent() for identities, or create a new named Session with mv.session.get_or_create(name).",
         location="session.identity",
     )
-
-
-def _existing_store(root: Path) -> SessionStore | None:
-    """Read only the current-generation Store; absence never creates state."""
-    layout = MaterializationLayout(root)
-    try:
-        layout.store_db.lstat()
-    except FileNotFoundError:
-        return None
-    except OSError:
-        raise invalid(f"selected Store {layout.generation} is unavailable") from None
-    return SessionStore.open_existing(root)
 
 
 def _validate_project_manifest(root: Path) -> None:
@@ -113,7 +100,7 @@ def get_or_create(
                 hint="Pass exact domain names without surrounding whitespace.",
             )
         selected_domains = tuple(sorted(set(names)))
-    store = _existing_store(root)
+    store = SessionStore.find_existing(root)
     warn_prior_generations(MaterializationLayout(root))
     record = None if store is None else store.session_by_name(name)
     if record is None:
@@ -181,7 +168,7 @@ def resume(session_id: str) -> Session:
     if not isinstance(session_id, str) or not session_id.strip():
         raise _invalid("an exact existing Session ID", "empty or invalid identity")
     root = resolve_project_root()
-    store = _existing_store(root)
+    store = SessionStore.find_existing(root)
     if store is None:
         raise _lazy_history.not_found(
             MaterializationLayout(root), session_id, location="mv.session.resume(session_id)"
@@ -217,7 +204,7 @@ def recent(*, limit: int = 20, cursor: str | None = None) -> SessionSummaryPage:
 
     after = page_after(limit, cursor)
     root = resolve_project_root()
-    store = _existing_store(root)
+    store = SessionStore.find_existing(root)
     warn_prior_generations(MaterializationLayout(root))
     if store is None:
         return SessionSummaryPage(items=(), limit=limit, has_more=False, next_cursor=None)
@@ -240,7 +227,7 @@ def inspect(session_id: str) -> SessionSummary:
     from marivo.analysis.session import _lazy_history
 
     root = resolve_project_root()
-    store = _existing_store(root)
+    store = SessionStore.find_existing(root)
     if store is None:
         raise _lazy_history.not_found(
             MaterializationLayout(root), session_id, location="session.inspect"

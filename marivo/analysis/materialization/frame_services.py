@@ -18,6 +18,7 @@ if TYPE_CHECKING:
         StoredFrameBacking,
     )
     from marivo.analysis.core.frame_method_facts import FrameMethodFacts
+    from marivo.analysis.dsl.frame import AnalysisFrame
     from marivo.analysis.materialization.graph_reading import FramePreview
 
 
@@ -80,6 +81,20 @@ class LocalFrameServices:
         value = open_manifest(self.store, self.session_ref, artifact_id)
         return StoredFrameBacking(
             value.artifact_id, value.data, value.metadata, value.method_facts, value.description
+        )
+
+    def reopen(self, artifact_id: str) -> AnalysisFrame:
+        """Bind a committed root without activating its producing Session."""
+        from marivo.analysis.dsl.frame import AnalysisFrame
+
+        backing = self.open_frame(artifact_id)
+        return AnalysisFrame._from_stored(
+            self,
+            backing.data,
+            artifact_id=backing.artifact_id,
+            metadata=backing.metadata,
+            method_facts=backing.method_facts,
+            description=backing.description,
         )
 
     def read_method_facts(self, backing: StoredFrameBacking) -> tuple[FrameMethodFacts, ...]:

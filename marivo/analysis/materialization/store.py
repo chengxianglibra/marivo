@@ -180,6 +180,18 @@ class SessionStore:
         except (sqlite3.Error, OSError):
             raise invalid("selected Store 28 is unavailable") from None
 
+    @classmethod
+    def find_existing(cls, project_root: Path) -> SessionStore | None:
+        """Locate only the current Store, distinguishing absence from corruption."""
+        layout = MaterializationLayout(project_root)
+        try:
+            layout.store_db.lstat()
+        except FileNotFoundError:
+            return None
+        except OSError:
+            raise invalid(f"selected Store {layout.generation} is unavailable") from None
+        return cls.open_existing(project_root)
+
     @property
     def project_root(self) -> Path:
         return self.layout.project_root

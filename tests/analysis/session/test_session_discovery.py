@@ -219,16 +219,11 @@ def test_concurrent_current_store_creation_preserves_old_generation(tmp_path: Pa
 def test_history_invalid_cursor_precedes_store_lookup_and_preserves_repair(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from marivo.analysis.materialization.store import SessionStore
-
     monkeypatch.chdir(tmp_path)
+    store_path = MaterializationLayout(tmp_path).store_db
+    store_path.parent.mkdir(parents=True)
+    store_path.write_bytes(b"invalid current Store")
     before = _project_state(tmp_path)
-    monkeypatch.setattr(
-        mv.session, "_existing_store", lambda _root: pytest.fail("history opened a Store")
-    )
-    monkeypatch.setattr(
-        SessionStore, "open_existing", lambda _root: pytest.fail("inspect opened a Store")
-    )
     with pytest.raises(mv.errors.SessionStateError) as caught:
         mv.session.recent(cursor="invalid")
     error = caught.value

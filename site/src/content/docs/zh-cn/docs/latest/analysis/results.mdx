@@ -5,6 +5,10 @@ description: 保存结果标识、发现已提交 Frame、恢复数据并查看�
 
 运行[分析 DSL 示例](/zh-cn/docs/latest/analysis/dsl/#完整示例与后续输入)，其中将比较结果持久化为 `saved`。`compute()` 会完成 Frame，供同一 Python 进程后续使用；需要在另一个进程中恢复时，使用 `persist()` 保存结果。
 
+## 通过 HTTP 读取报告
+
+可使用[项目读取服务](/zh-cn/docs/latest/reference/read-service/)，凭已保存的身份一次读取完整 Frame。
+
 ## 保存结果标识
 
 在 `analysis.py` 中 `saved = change.persist()` 之后添加以下代码，并运行生成结果的脚本：

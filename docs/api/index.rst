@@ -49,3 +49,9 @@ Indices
 * :ref:`genindex`
 * :ref:`modindex`
 * :ref:`search`
+
+.. toctree::
+   :maxdepth: 1
+   :caption: HTTP
+
+   read-service

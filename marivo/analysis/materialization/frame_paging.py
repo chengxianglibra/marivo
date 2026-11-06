@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import json
+from collections.abc import Callable
 from hashlib import sha256
 
 import pandas as pd
@@ -199,6 +200,7 @@ def read_frame_page(
     cursor: str | None,
     axis_names: tuple[str, ...],
     time_details: bool = False,
+    checkpoint: Callable[[], None] | None = None,
 ) -> FramePage:
     """Validate one exact request before consuming its projected fixed data."""
     if (
@@ -262,7 +264,7 @@ def read_frame_page(
     if isinstance(backing, MemoryFrameBacking):
         preview, stats = _memory_range(backing.data, start, limit, read_columns)
     else:
-        preview, stats = FrameReader(local.store, local.session_ref).range(
+        preview, stats = FrameReader(local.store, local.session_ref, checkpoint).range(
             backing, start, limit, read_columns
         )
     rows = export_frame(
@@ -292,10 +294,13 @@ class _PeriodRead:
     """Transient per-call attachment access; pages never retain this reader."""
 
     def __init__(
-        self, backing: MemoryFrameBacking | StoredFrameBacking, local: LocalFrameServices
+        self,
+        backing: MemoryFrameBacking | StoredFrameBacking,
+        local: LocalFrameServices,
+        checkpoint: Callable[[], None] | None,
     ) -> None:
         self.backing = backing
-        self.reader = FrameReader(local.store, local.session_ref)
+        self.reader = FrameReader(local.store, local.session_ref, checkpoint)
         self.stats = FrameReadStats(0, 0, 0)
 
     def _add(self, stats: FrameReadStats) -> None:
@@ -435,6 +440,7 @@ def read_frame_periods(
     target: FrameAxisSchema | FrameComparison,
     limit: int = 1000,
     cursor: str | None = None,
+    checkpoint: Callable[[], None] | None = None,
 ) -> FramePeriodPage:
     """Read one captured time directory or consumed correspondence, with exact keys."""
     if (
@@ -496,7 +502,7 @@ def read_frame_periods(
             "frame.read_periods",
             canonical_id="analysis_frame.read_periods",
         )
-    read = _PeriodRead(backing, local)
+    read = _PeriodRead(backing, local, checkpoint)
     total = read.count(name)
     version = (
         digest(

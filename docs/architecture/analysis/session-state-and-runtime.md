@@ -331,8 +331,8 @@ Frame. The target is a current time `FrameAxis` or `FrameComparison` from the ex
 targets reject. `FramePeriodPage` retains only the selected immutable records and the endpoint
 records those items consume. Period keys use the complete ordered key of the target axis and can be
 joined to that axis's schema key slots in `read_page().coordinates`. The directory is not reduced
-to rows still present after filtering. Calendar records return only saved typed labels, bounds and
-civil facts; interval records do not infer missing civil bounds; paired missing endpoints do not
+to rows still present after filtering. Calendar records return saved keys, typed labels, ordinals, selection, cutoff and timezone;
+interval records retain saved endpoints; paired missing endpoints do not
 carry an invented reason. Comparison periods preserve their stored missing reason separately from
 row presence. Cursors bind the exact input, target, result version and limit. Statistics count
 decoded coordinate records and receipt-hash bytes; receipt checks and endpoint lookup can scan
@@ -372,6 +372,16 @@ atomic publication/readback and unknown-commit reconciliation. A saved derivativ
 owns its exact inherited payloads; deleting the original Artifact does not force
 an origin lookup or source/calendar rebuild. Origin explains the original total,
 not a freshly filtered or aggregated decomposition.
+
+## Independent report access
+
+The [project read service](read-service.md) opens an existing current-generation
+Store and exact committed Frame without activating a Session. It validates the
+same commit ownership and consumed receipts as local reads. Each HTTP report
+contains all ordered rows and saved periods for its current time targets.
+Internal batches reuse the local readers and share the HTTP deadline and
+byte budget. The report uses saved interpretation and source-read metadata
+and skips method payloads and the current Catalog.
 
 ## Execution diagnostics and usage telemetry
 

@@ -1,0 +1,142 @@
+---
+title: Project read service
+description: Connect a client to the current Catalog and complete saved Frame reports.
+---
+
+Install the optional API dependencies in the project's Marivo Runtime. Generate
+a token once with `secrets.token_urlsafe(32)`, store it in deployment
+credentials, and set `MARIVO_API_TOKEN` in the service environment. Restart
+with the same value to keep access. To rotate the token, change the configuration
+and restart the service.
+
+```bash
+pip install 'marivo[api]'
+marivo serve --project-root /path/to/project --port 0
+```
+
+The default listener is `127.0.0.1:8765`. Port `0` requests an available port.
+Read the one-line JSON receipt from stdout for `host`, `port`, `protocol`,
+`pid`, `marivo_version` and `api_version`. Service logs go to stderr.
+
+## Read a report
+
+Keep the IDs from the stored root returned by `persist()`.
+
+```python
+saved = frame.persist(description="Recorded revenue")
+ref = {
+    "schema": "marivo.frame_ref/v1",
+    "session_id": saved.session_id,
+    "artifact_id": saved.artifact_id,
+}
+```
+
+Use the service address and the saved IDs. This example assumes the default
+listener port. The client environment supplies the configured token.
+
+```bash
+curl --fail-with-body -H "Authorization: Bearer ${MARIVO_API_TOKEN}" \
+  "http://127.0.0.1:8765/v1/sessions/${session_id}/frames/${artifact_id}"
+```
+
+One successful request returns `ref`, `description`, `committed_at`,
+`schema`, `lineage`, `source_reads`, `data` and `periods`.
+`data.layout` orders the cells in each row. Join by field slot or coordinate
+identity to find the original display names and types in `schema`.
+Coordinate export names use deterministic suffixes if default names collide.
+`data.coordinates` maps key slots to the original values per row.
+
+Use the types in the schema to decode business values. Integers and Decimal
+values use exact strings. Dates and timestamps use ISO strings, and durations
+use integer ticks in the declared unit. Finite floats are numbers and
+nonfinite floats are tagged values such as `{"float":"nan"}`. Null and
+Boolean presence are distinct. Period keys and labels carry a `dtype` and
+`value`. Saved periods may have no result row. Comparison records include
+the saved endpoint or its absence reason.
+
+## Complete scalar response
+
+```json
+{
+  "ref": {"schema":"marivo.frame_ref/v1","session_id":"session_example","artifact_id":"artifact_example"},
+  "description": "Recorded revenue",
+  "committed_at": "2026-11-06T00:00:00+00:00",
+  "schema": {
+    "input_id": "stored_example",
+    "values": {"revenue":{"slot_id":"amount","name":"revenue","dtype":{"kind":"decimal","precision":18,"scale":2},"nullable":false,"unit":"CNY"}},
+    "presence": {},
+    "axes": [],
+    "layout": [{"kind":"field","name":"revenue","slot_id":"amount"}],
+    "fixed_axes": [],
+    "value_contexts": {},
+    "source_times": [],
+    "alignments": [],
+    "comparisons": [],
+    "decompositions": []
+  },
+  "lineage": {
+    "input_id": "stored_example",
+    "values": {"revenue":{"value_origins":[],"context_origins":[]}},
+    "axes": {},
+    "presence": {}
+  },
+  "source_reads": [],
+  "data": {
+    "layout": [{"kind":"field","name":"revenue","slot_id":"amount"}],
+    "coordinates": {},
+    "rows": [["123.45"]],
+    "row_count": 1
+  },
+  "periods": []
+}
+```
+
+## Browse current definitions
+
+Use the same Bearer header on all API calls. Fetch `GET /v1/openapi.json`
+for typed routes and payloads. `GET /v1/info` identifies the versions,
+Store and current Catalog load state. Semantic object IDs use canonical
+`kind:path`, with URL encoding in path parameters.
+
+| Operation | Route |
+| --- | --- |
+| List semantic objects | `GET /v1/semantic/objects` with optional `kind` and `domain` |
+| Read a definition | `GET /v1/semantic/objects/{id}` |
+| Browse dependencies or dependents | `GET /v1/semantic/objects/{id}/related?relation=dependencies` |
+| Reload current definitions | `POST /v1/semantic/reload` with an empty body |
+| Discover Sessions and Frames | `GET /v1/sessions` and `GET /v1/sessions/{session_id}/frames` |
+
+Directory limits default to 20 and accept 1 through 100. Continue with
+`next_cursor` and the same filters and limit. A successful Catalog reload
+invalidates semantic cursors. A failed reload retains the last loaded Catalog.
+The saved report is independent of current model loading.
+
+## Deploy and handle failures
+
+Use both PEM options for native TLS or terminate TLS at an existing HTTPS
+entry point and forward to a protected listener.
+
+```bash
+marivo serve --project-root /path/to/project --host 0.0.0.0 --port 8765 \
+  --ssl-certfile /etc/tls/fullchain.pem --ssl-keyfile /etc/tls/privkey.pem \
+  --allow-origin https://analysis.example.com
+```
+
+Repeat `--allow-origin` for each exact browser Origin. The default permits
+server-to-server requests with Bearer and no Origin. Valid preflight needs no
+token. Actual requests always use Bearer. The service provides CORS headers
+for allowed Origins on successful and error responses. Use a certificate
+trusted by browsers for the public API hostname. Host integrations own user
+authorization and project binding.
+
+`--max-response-mib` defaults to 128 and `--read-timeout-seconds` defaults to
+300. Both accept positive integers and cover the whole report. The same
+limits apply to Catalog loading. On `response_too_large` or `read_timeout`,
+an administrator can increase the corresponding setting and restart. Retry
+the same reference or explicitly persist a smaller result. The response is
+complete on success. Table display pagination stays on the client.
+
+Inspect `error.code`, `location`, `repair` and optional Help `target` when
+a request fails. Restart a listing on `invalid_cursor`, check project and IDs
+on `not_found`, and restore the saved files on `corrupt_artifact`.
+DataFrameView data travels with its host report or message.

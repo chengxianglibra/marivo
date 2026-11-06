@@ -221,6 +221,39 @@ def main(argv: list[str] | None = None) -> None:
     doctor_parser.add_argument(
         "--datasource", default=None, help="Limit datasource checks to one name"
     )
+    from marivo.server.wire import DEFAULT_MIB, DEFAULT_SECONDS
+
+    serve_parser = subparsers.add_parser("serve", help="Serve current definitions and saved Frames")
+    serve_parser.add_argument(
+        "--project-root", type=Path, help="Bind an existing project directory"
+    )
+    serve_parser.add_argument(
+        "--host", default="127.0.0.1", help="Bind address (default 127.0.0.1)"
+    )
+    serve_parser.add_argument(
+        "--port", type=int, default=8765, help="Bind port, or 0 for a free port"
+    )
+    serve_parser.add_argument("--ssl-certfile", help="TLS PEM certificate chain")
+    serve_parser.add_argument("--ssl-keyfile", help="TLS PEM private key")
+    serve_parser.add_argument(
+        "--allow-origin", action="append", default=[], help="Allow one exact browser Origin"
+    )
+    serve_parser.add_argument(
+        "--max-response-mib",
+        type=int,
+        default=DEFAULT_MIB,
+        help=f"Maximum JSON response size in MiB (default {DEFAULT_MIB})",
+    )
+    serve_parser.add_argument(
+        "--read-timeout-seconds",
+        type=int,
+        default=DEFAULT_SECONDS,
+        help=f"Time budget per read, in seconds (default {DEFAULT_SECONDS})",
+    )
+    serve_parser.epilog = (
+        "Set MARIVO_API_TOKEN in the environment. See marivo help analysis.results.service."
+    )
+
     help_parser = subparsers.add_parser("help", help="Read live Help for one canonical target")
     help_parser.add_argument(
         "target",
@@ -261,6 +294,33 @@ def main(argv: list[str] | None = None) -> None:
         code = exit_code(report)
         if code:
             raise SystemExit(code)
+    elif args.command == "serve":
+        if args.max_response_mib <= 0 or args.read_timeout_seconds <= 0:
+            serve_parser.error(
+                "--max-response-mib and --read-timeout-seconds must be positive integers."
+            )
+        try:
+            from marivo.server.command import serve
+        except ModuleNotFoundError as error:
+            if error.name != "uvicorn":
+                raise
+            serve_parser.error(
+                "Install the optional API dependencies with pip install 'marivo[api]'."
+            )
+        from marivo.server.wire import Limits
+
+        try:
+            serve(
+                project_root=args.project_root,
+                host=args.host,
+                port=args.port,
+                origins=args.allow_origin,
+                certfile=args.ssl_certfile,
+                keyfile=args.ssl_keyfile,
+                limits=Limits(args.max_response_mib, args.read_timeout_seconds),
+            )
+        except ValueError as error:
+            serve_parser.error(str(error))
     elif args.command == "help":
         from marivo._help.model import MarivoHelpSurfaceError, MarivoHelpTargetError
         from marivo._help.render import _print_help

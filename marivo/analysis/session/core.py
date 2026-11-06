@@ -622,7 +622,6 @@ class Session:
         IDs fail. For audit metadata, use saved.
         """
         from marivo.analysis.core.model import reject
-        from marivo.analysis.dsl.frame import AnalysisFrame
 
         if (
             type(artifact_id) is not str
@@ -635,15 +634,7 @@ class Session:
                 "Pass the exact committed output ID, not a Frame object or Ref.",
                 "session.persisted_frame",
             )
-        backing = self._runtime.local.open_frame(artifact_id)
-        return AnalysisFrame._from_stored(
-            self._runtime.local,
-            backing.data,
-            artifact_id=backing.artifact_id,
-            metadata=backing.metadata,
-            method_facts=backing.method_facts,
-            description=backing.description,
-        )
+        return self._runtime.local.reopen(artifact_id)
 
     def population_from(
         self,

@@ -252,6 +252,17 @@ _PAGES = (
         ),
     ),
     NavigationInput(
+        "results.service",
+        "Read saved Frame reports and current semantic definitions over HTTP.",
+        (),
+        guidance=(
+            "Install marivo[api], set MARIVO_API_TOKEN in the service environment, and run marivo serve --project-root PATH. Use marivo serve --help for TLS, CORS and read budgets.",
+            "Persist the Frame and retain session_id and artifact_id. With Authorization: Bearer TOKEN, GET /v1/sessions/{session_id}/frames/{artifact_id} for the complete report. GET /v1/openapi.json describes the protocol.",
+            "Report reads use the committed Store without loading the model, recovering the Session or querying sources.",
+        ),
+        discovery_group="results",
+    ),
+    NavigationInput(
         "sessions",
         "Create or recover the exact working context.",
         (),

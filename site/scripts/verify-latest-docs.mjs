@@ -39,7 +39,7 @@ for (const edition of docsRoots) {
 }
 console.log(`Verified ${count} latest usage pages and ${checked.size} internal route/anchor targets.`);
 
-for (const page of usageDocs) {
+for (const page of [...usageDocs, ...latestOnlyDocs]) {
   const examples = docsRoots.map((edition) => {
     const source = readFileSync(join(site, 'src/content/docs', edition, 'latest', page), 'utf8');
     return [...source.matchAll(/```(?:python|bash|toml)\n([\s\S]*?)```/g)].map((match) => match[0]);

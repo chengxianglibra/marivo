@@ -124,6 +124,11 @@ revision/encoding parameters and scope. Changed definitions invalidate affected
 projections; stale/deleted members cannot reappear through vector reuse. No
 business datasource is read by load, search, get, show or related navigation.
 
+The [project read service](../analysis/read-service.md) loads the current Catalog
+in a fresh process and publishes its safe browse projection atomically. This
+snapshot contains public definitions and canonical links. Reload replaces the
+current projection and invalidates its cursors.
+
 ## Validation boundaries
 
 | Operation | Reads | Establishes | Does not establish |
