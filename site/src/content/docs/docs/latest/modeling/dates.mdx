@@ -106,10 +106,12 @@ event_hour = ms.time_dimension_column(
 A positive range such as `[03:00,04:00)` within one source day can compare the
 original date and hour columns directly when timezone conversion is qualified.
 This applies to observation ranges and required direct or top-level AND
-`event_hour.within(scope)` conditions, including midnight starts. Cross-day ranges and
-unqualified timezone boundaries retain the general predicate. NULL values and
-negated/composed Boolean expressions keep their native semantics. Check the
-backend's physical plan to confirm partition pruning; SQL shape alone is insufficient.
+`event_hour.within(scope)` conditions, including midnight starts. Whole-day,
+cross-day and one-sided ranges can add original date-column bounds for each
+qualified endpoint while retaining the general time predicate. Unqualified endpoints
+retain the general path. NULL values and negated/composed Boolean expressions keep
+their native semantics. Check the backend's physical plan to confirm partition
+pruning; SQL shape alone is insufficient.
 
 ## Observation range: `session.time_scope`
 

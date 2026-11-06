@@ -389,6 +389,17 @@ _RENDERED_DUCKDB_LOCK = threading.Lock()
 
 
 class _DuckDBCompiler(DuckDBCompiler):  # type: ignore[misc]
+    def visit_IsNull(self, op: ops.IsNull, *, arg: sge.Expr) -> sge.Expr:
+        # DuckDB parses NOT x IS NULL as NOT (x IS NULL), not (NOT x) IS NULL.
+        if isinstance(arg, sge.Not):
+            arg = sge.paren(arg, copy=False)
+        return arg.is_(sge.Null())
+
+    def visit_NotNull(self, op: ops.NotNull, *, arg: sge.Expr) -> sge.Expr:
+        if isinstance(arg, sge.Not):
+            arg = sge.paren(arg, copy=False)
+        return arg.is_(sge.Not(this=sge.Null()))
+
     def visit_CalendarRange(self, op: CalendarRange, **kwargs: object) -> sge.Expr:
         return compile_calendar_range(op, "duckdb")
 

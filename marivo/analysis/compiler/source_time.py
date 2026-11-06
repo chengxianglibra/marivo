@@ -438,7 +438,82 @@ def source_time_predicate(
             first = native >= ibis.literal(_boundary_instant(start, authority)).cast(native.type())
         if end is not None and last is None:
             last = native < ibis.literal(_boundary_instant(end, authority)).cast(native.type())
-    return last if first is None else first if last is None else first & last
+    exact = last if first is None else first if last is None else first & last
+    if use == "filter" and exact is not None:
+        guard = _hour_date_guard(
+            value,
+            axis,
+            authority,
+            start=start,
+            end=end,
+            prefix=prefix,
+            prefix_axis=prefix_axis,
+            engine=engine,
+        )
+        if guard is not None:
+            return guard & exact
+    return exact
+
+
+def _hour_date_guard(
+    raw: ir.Value,
+    axis: TargetDimensionContract,
+    authority: SourceTimeAuthority,
+    *,
+    start: date | datetime | None,
+    end: date | datetime | None,
+    prefix: ir.Value | None,
+    prefix_axis: TargetDimensionContract | None,
+    engine: str,
+) -> ir.BooleanValue | None:
+    """Expose necessary date bounds while retaining the exact time predicate."""
+    if (
+        not isinstance(axis.parse, HourPrefixParse)
+        or authority.kind != "wall_clock"
+        or prefix is None
+        or prefix_axis is None
+        or not _raw_lineage(raw)
+        or not _raw_lineage(prefix)
+        or not (raw.type().is_string() or raw.type().is_integer())
+    ):
+        return None
+    parse = prefix_axis.parse
+    if isinstance(parse, StrptimeParse):
+        if is_time_bearing_format(parse.format) or not _ordered_encoding(prefix, parse):
+            return None
+    elif not prefix.type().is_date():
+        return None
+
+    guards: list[ir.BooleanValue] = []
+    for bound, upper in ((start, False), (end, True)):
+        if bound is None:
+            continue
+        try:
+            instant = _boundary_instant(bound, authority)
+            if not endpoint_rewrite_safe(instant, authority.timezone, engine):
+                continue
+            point = instant.astimezone(normalize_timezone(authority.timezone).tz).replace(
+                tzinfo=None
+            )
+            text = ordered_time_literal(point, "%Y%m%d%H")
+            if text is None:
+                continue
+            tick = datetime.strptime(text, "%Y%m%d%H")
+            midnight = tick.replace(hour=0)
+            # For an exclusive upper bound within a day, keep that entire day.
+            inclusive = not (upper and tick.hour != 0)
+            if isinstance(parse, StrptimeParse):
+                cutoff = _encoded_cutoff(prefix, midnight, parse, inclusive=inclusive)
+            else:
+                cutoff = _scalar_cutoff(prefix, midnight, inclusive=inclusive, engine=engine)
+            if cutoff is not None and isinstance(cutoff.op(), ops.GreaterEqual):
+                guards.append(_complement(cutoff) if upper else cutoff)
+        except (OverflowError, ValueError):
+            # An unrepresentable endpoint must keep the original predicate.
+            continue
+    if not guards:
+        return None
+    return guards[0] if len(guards) == 1 else guards[0] & guards[1]
 
 
 def _same_day_hour_filter(

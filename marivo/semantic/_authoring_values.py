@@ -479,8 +479,10 @@ def hour_prefix(
     analysis time.
 
     Qualified positive ranges within one source day can filter the original
-    date and hour columns directly, including midnight starts. Cross-day ranges
-    and unqualified timezone boundaries retain the general time predicate.
+    date and hour columns directly, including midnight starts. Qualified
+    positive whole-day, cross-day and one-sided ranges can add original date-column
+    bounds while retaining the general time predicate. Unqualified endpoints
+    retain the general path.
     SQL NULL retains native semantics. Hour 24 and other noncanonical non-NULL
     values violate the declaration; there is no automatic source scan or
     uniform parse-error policy. Partition pruning depends on the backend's

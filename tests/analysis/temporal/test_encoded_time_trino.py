@@ -292,14 +292,14 @@ def test_hour_prefix_public_filters_prune_both_iceberg_partitions(
             with connection() as reader:
                 read = reader.cursor()
                 try:
-                    expected = read.execute(raw_sql).fetchone()
+                    expected = read.execute(raw_sql).fetchall()[0]
                     raw_stats = dict(read.stats)
                     assert expected == [10, 55]
-                    assert read.execute(native_sql).fetchone() == expected
+                    assert read.execute(native_sql).fetchall()[0] == expected
                     native_stats = dict(read.stats)
                     read.execute(
                         f"SELECT count(*),sum(amount) FROM {target} WHERE day='20261028'"
-                    ).fetchone()
+                    ).fetchall()
                     day_stats = dict(read.stats)
                     for mode in ("scope", "calendar", "within", "and"):
                         source_trace.native_sql.clear()
@@ -334,6 +334,65 @@ def test_hour_prefix_public_filters_prune_both_iceberg_partitions(
                         assert stats["processedRows"] == raw_stats["processedRows"] == 10
                         assert stats["processedRows"] < day_stats["processedRows"]
                         evidence[mode] = {"sql": sql, "plan": plan, "stats": stats}
+                    # The exact clock predicate retains NULL semantics; the separate day
+                    # bounds must still prune Iceberg's date partitions on full/multi-day scopes.
+                    for label, first, last, day_end, expected_result in (
+                        (
+                            "full_day",
+                            "2026-10-28 00:00:00",
+                            "2026-10-29 00:00:00",
+                            "20261029",
+                            [240, 1320],
+                        ),
+                        (
+                            "cross_day",
+                            "2026-10-28 10:30:00",
+                            "2026-10-29 12:30:00",
+                            "20261030",
+                            [260, 1430],
+                        ),
+                    ):
+                        baseline_sql = f"SELECT count(*),sum(amount) FROM {target} WHERE day >= '20261028' AND day < '{day_end}'"
+                        read.execute(baseline_sql).fetchall()
+                        baseline_stats = dict(read.stats)
+                        read.execute(f"SELECT count(*),sum(amount) FROM {target}").fetchall()
+                        all_stats = dict(read.stats)
+                        independent = (
+                            f"SELECT count(*),sum(amount) FROM {target} "
+                            f"WHERE {native_clock} >= TIMESTAMP '{first}' AND {native_clock} < TIMESTAMP '{last}'"
+                        )
+                        assert read.execute(independent).fetchone() == expected_result
+                        scope = session.time_scope(start=first, end=last)
+                        for mode in ("scope", "calendar", "within", "and"):
+                            source_trace.native_sql.clear()
+                            if mode in ("scope", "calendar"):
+                                axis = scope.by(mv.grain("day")) if mode == "calendar" else scope
+                                frame = session.observe(metrics, by=(axis,))
+                            else:
+                                predicate = hour.within(scope)
+                                if mode == "and":
+                                    predicate = predicate & (identity > 0)
+                                frame = session.observe(metrics, where=predicate)
+                            actual = frame.compute().to_pandas()
+                            assert actual[["n", "total"]].sum().tolist() == expected_result
+                            sql = next(
+                                sql
+                                for sql in source_trace.native_sql
+                                if name in sql and "WHERE" in sql
+                            )
+                            plan = json.loads(
+                                read.execute("EXPLAIN (TYPE IO, FORMAT JSON) " + sql).fetchone()[0]
+                            )
+                            assert any(
+                                item["columnName"] == "day" and item["domain"]["ranges"]
+                                for entry in plan["inputTableColumnInfos"]
+                                for item in entry["constraint"]["columnConstraints"]
+                            ), plan
+                            read.execute(sql).fetchall()
+                            stats = dict(read.stats)
+                            assert 0 < stats["processedRows"] <= baseline_stats["processedRows"]
+                            assert stats["processedRows"] < all_stats["processedRows"]
+                            evidence[f"{label}-{mode}"] = {"sql": sql, "plan": plan, "stats": stats}
                     destination = os.environ.get("MARIVO_TEMPORAL_EVIDENCE_DIR")
                     if destination:
                         Path(destination).mkdir(parents=True, exist_ok=True)

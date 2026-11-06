@@ -361,9 +361,13 @@ and hour lower/upper bounds. MySQL string dates use equivalent ordered date
 bounds to avoid the backend compiler's binary cast on string equality.
 Both endpoints must pass timezone qualification and round to hours on the same
 source day, including a midnight lower endpoint. An empty rounded range selects
-no rows. Cross-day/one-sided ranges and unsupported expressions retain the general path.
-The optimization preserves the rows for which the native predicate is true;
-it is not a replacement for nullable Boolean values. Negation, NULL inspection,
+no rows. For qualified whole-day, cross-day and one-sided ranges, each eligible
+endpoint may additionally expose a comparison on the original date column;
+the general time predicate remains in place to select the exact hours and preserve
+NULL behavior. Endpoint qualification and source-time rounding are independent;
+unsupported expressions and unqualified endpoints retain the general path.
+The optimizations preserve the rows for which the native predicate is true;
+they are not replacements for nullable Boolean values. Negation, NULL inspection,
 Boolean projection and other compositions retain their exact expressions.
 Required `within` conditions may add raw scan guards while retaining their
 prepared Boolean values. No non-null declaration, source audit or partition

@@ -82,6 +82,18 @@ def test_boolean_operations_return_plain_columns_and_select_only_true(
         flag & other["flag"]
 
 
+def test_negated_boolean_null_checks_preserve_unknown(
+    boolean_frame: tuple[DslCase, mv.AnalysisFrame],
+) -> None:
+    _, frame = boolean_frame
+    missing = (~frame["flag"]).is_null()
+    projected = frame.select({"missing": missing}).compute().to_pandas()
+    assert projected["missing"].tolist() == [False, True, False, False]
+    key = ordinary_columns(frame)[0]
+    assert frame.where(missing).compute().to_pandas()[key].tolist() == ["B"]
+    assert frame.where(~missing).compute().to_pandas()[key].tolist() == ["A", "C", "D"]
+
+
 def test_presence_and_nullable_boolean_filtering_survive_storage(
     boolean_frame: tuple[DslCase, mv.AnalysisFrame],
 ) -> None:

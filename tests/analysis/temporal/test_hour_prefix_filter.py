@@ -205,9 +205,6 @@ def test_hour_filter_exposes_typed_date_and_hour_constraints(
 @pytest.mark.parametrize(
     "case",
     [
-        "cross_day",
-        "rounded_midnight",
-        "one_sided",
         "dst",
         "derived_hour",
         "derived_prefix",
@@ -219,17 +216,13 @@ def test_unqualified_hour_filters_keep_the_exact_predicate(case: str) -> None:
     hour, authority, day = _inputs(table, zone=zone)
     start = datetime(2026, 3, 8, 3, tzinfo=ZoneInfo(zone))
     end = start.replace(hour=4)
-    if case == "cross_day":
-        end = end.replace(day=9)
-    elif case == "rounded_midnight":
-        start, end = start.replace(hour=23), end.replace(hour=23, minute=30)
     raw = table.hour.concat("") if case == "derived_hour" else table.hour
     prefix = table.day.concat("") if case == "derived_prefix" else table.day
     exact = source_time_predicate(
         raw,
         hour,
         authority,
-        start=None if case == "one_sided" else start,
+        start=start,
         end=end,
         prefix=prefix,
         prefix_axis=day,
@@ -238,13 +231,212 @@ def test_unqualified_hour_filters_keep_the_exact_predicate(case: str) -> None:
         raw,
         hour,
         authority,
-        start=None if case == "one_sided" else start,
+        start=start,
         end=end,
         prefix=prefix,
         prefix_axis=day,
         use="filter",
     )
     assert exact is not None and filtered is not None and filtered.equals(exact)
+
+
+@pytest.mark.parametrize("prefix_type", ["date", "string", "int64"])
+@pytest.mark.parametrize("hour_type", ["string", "int8"])
+@pytest.mark.parametrize(
+    "start_text,end_text",
+    [
+        ("2024-02-28T00:00:00+08:00", "2024-02-29T00:00:00+08:00"),
+        ("2024-02-28T23:30:00+08:00", "2024-03-01T01:30:00+08:00"),
+        ("2024-12-31T23:00:00+08:00", "2025-01-01T00:00:00+08:00"),
+        (None, "2024-03-01T00:00:00+08:00"),
+        ("2024-02-28T15:30:00+00:00", None),
+    ],
+)
+def test_multiday_hour_filter_matches_independent_clock_and_preserves_values(
+    prefix_type: str, hour_type: str, start_text: str | None, end_text: str | None
+) -> None:
+    days = [
+        date.fromisoformat(value)
+        for value in (
+            "2024-02-27",
+            "2024-02-28",
+            "2024-02-29",
+            "2024-03-01",
+            "2024-12-31",
+            "2025-01-01",
+        )
+    ] + [None]
+    pairs = [(day, hour) for day in days for hour in (None, 0, 1, 10, 23)]
+    data = {
+        "id": list(range(len(pairs))),
+        "day": [
+            day
+            if prefix_type == "date" or day is None
+            else int(day.strftime("%Y%m%d"))
+            if prefix_type == "int64"
+            else day.strftime("%Y%m%d")
+            for day, _ in pairs
+        ],
+        "hour": [f"{h:02d}" if hour_type == "string" and h is not None else h for _, h in pairs],
+    }
+    backend = ibis.duckdb.connect()
+    try:
+        table = backend.create_table(
+            "events",
+            ibis.memtable(data, schema={"id": "int64", "day": prefix_type, "hour": hour_type}),
+        )
+        hour, authority, day = _inputs(table)
+        start = datetime.fromisoformat(start_text) if start_text else None
+        end = datetime.fromisoformat(end_text) if end_text else None
+        exact = source_time_predicate(
+            table.hour, hour, authority, start=start, end=end, prefix=table.day, prefix_axis=day
+        )
+        filtered = source_time_predicate(
+            table.hour,
+            hour,
+            authority,
+            start=start,
+            end=end,
+            prefix=table.day,
+            prefix_axis=day,
+            use="filter",
+        )
+        assert exact is not None and filtered is not None
+        # A raw date predicate must be a required top-level conjunct, not hidden in P.
+        pending = [filtered.op()]
+        conjuncts = []
+        while pending:
+            atom = pending.pop()
+            if isinstance(atom, ops.And):
+                pending.extend((atom.left, atom.right))
+            else:
+                conjuncts.append(atom)
+        date_guards = [
+            atom
+            for atom in conjuncts
+            if isinstance(atom, (ops.GreaterEqual, ops.Less))
+            and isinstance(atom.left, ops.Field)
+            and atom.left.name == "day"
+        ]
+        assert len(date_guards) == int(start is not None) + int(end is not None)
+        native_day = (
+            "CAST(day AS TIMESTAMP)"
+            if prefix_type == "date"
+            else "try_strptime(CAST(day AS VARCHAR), '%Y%m%d')"
+        )
+        clock = f"({native_day} + CAST(hour AS BIGINT) * INTERVAL '1 hour')"
+        boundaries = []
+        params = []
+        for op, bound in ((">=", start), ("<", end)):
+            if bound is not None:
+                boundaries.append(f"{clock} {op} ?")
+                params.append(bound.astimezone(ZoneInfo("Asia/Shanghai")).replace(tzinfo=None))
+        predicate = " AND ".join(boundaries)
+        expected = backend.con.execute(
+            f"SELECT id FROM events WHERE {predicate} ORDER BY id", params
+        ).fetchall()
+        assert backend.execute(table.filter(filtered).order_by("id")).id.tolist() == [
+            r[0] for r in expected
+        ]
+        # Exact values and Boolean composition remain ordinary SQL Booleans.
+        actual = backend.execute(
+            table.select(
+                "id",
+                p=exact,
+                neg=~exact,
+                disjunction=exact | (table.id == 0),
+            ).order_by("id")
+        )
+        expected_values = backend.con.execute(
+            f"SELECT id, ({predicate}) p, NOT ({predicate}) neg, "
+            f"({predicate}) OR id=0 disjunction FROM events ORDER BY id",
+            params * 3,
+        ).fetchdf()
+        import pandas as pd
+
+        nullable = {
+            "p": "boolean",
+            "neg": "boolean",
+            "disjunction": "boolean",
+        }
+        pd.testing.assert_frame_equal(
+            actual.astype(nullable), expected_values.astype(nullable), check_dtype=False
+        )
+    finally:
+        backend.disconnect()
+
+
+@pytest.mark.parametrize(
+    "first,last,guard_count",
+    [
+        ("2026-03-01T00:00:00-05:00", "2026-03-15T00:00:00-04:00", 2),
+        ("2026-03-08T03:00:00-04:00", "2026-03-15T00:00:00-04:00", 1),
+        ("2026-03-01T00:00:00-05:00", "2026-03-08T03:00:00-04:00", 1),
+    ],
+)
+def test_date_guards_across_dst_use_only_safe_endpoints(
+    first: str, last: str, guard_count: int
+) -> None:
+    backend = ibis.duckdb.connect()
+    try:
+        table = backend.create_table(
+            "events",
+            ibis.memtable(
+                {
+                    "id": list(range(11)),
+                    "day": [
+                        "20260228",
+                        "20260301",
+                        "20260307",
+                        "20260308",
+                        "20260308",
+                        "20260308",
+                        "20260309",
+                        "20260314",
+                        "20260315",
+                        None,
+                        "20260308",
+                    ],
+                    "hour": ["23", "00", "23", "01", "02", "03", "00", "23", "00", "03", None],
+                },
+                schema={"id": "int64", "day": "string", "hour": "string"},
+            ),
+        )
+        hour, authority, day = _inputs(table, zone="America/New_York")
+        start, end = datetime.fromisoformat(first), datetime.fromisoformat(last)
+        filtered = source_time_predicate(
+            table.hour,
+            hour,
+            authority,
+            start=start,
+            end=end,
+            prefix=table.day,
+            prefix_axis=day,
+            use="filter",
+        )
+        assert filtered is not None
+        pending = [filtered.op()]
+        guards = []
+        while pending:
+            atom = pending.pop()
+            if isinstance(atom, ops.And):
+                pending.extend((atom.left, atom.right))
+            elif (
+                isinstance(atom, (ops.GreaterEqual, ops.Less))
+                and isinstance(atom.left, ops.Field)
+                and atom.left.name == "day"
+            ):
+                guards.append(atom)
+        assert len(guards) == guard_count
+        native = "timezone('America/New_York', try_strptime(day, '%Y%m%d') + CAST(hour AS BIGINT) * INTERVAL '1 hour')"
+        expected = backend.con.execute(
+            f"SELECT id FROM events WHERE {native} >= ? AND {native} < ? ORDER BY id", [start, end]
+        ).fetchall()
+        assert backend.execute(table.filter(filtered).order_by("id")).id.tolist() == [
+            r[0] for r in expected
+        ]
+    finally:
+        backend.disconnect()
 
 
 @pytest.fixture
@@ -339,6 +531,33 @@ def test_public_observe_only_pushes_required_hour_membership(
 
 
 @pytest.mark.parametrize(
+    "mode,expected",
+    [("within", 3), ("not", 2), ("or", 4), ("isnull", 4), ("not_isnull", 4), ("not_notnull", 5)],
+)
+def test_public_multiday_boolean_conditions(
+    hour_session: mv.Session, mode: str, expected: int
+) -> None:
+    session = hour_session
+    events = _entity(session.catalog, "entity:sales.events")
+    hour = _time_dimension(session.catalog, "time_dimension:sales.events.hour")
+    identity = _dimension(session.catalog, "dimension:sales.events.id")
+    scope = session.time_scope(start="2026-10-28T03:00", end="2026-10-29T04:00")
+    predicate = hour.within(scope)
+    if mode == "not":
+        predicate = ~predicate
+    elif mode == "or":
+        predicate = predicate | (identity == 6)
+    elif mode == "isnull":
+        predicate = predicate.isnull()
+    elif mode == "not_isnull":
+        predicate = (~predicate).isnull()
+    elif mode == "not_notnull":
+        predicate = (~predicate).notnull()
+    actual = session.observe({"n": events.count(time=hour)}, where=predicate).compute()
+    assert actual.to_pandas().n.tolist() == [expected]
+
+
+@pytest.mark.parametrize(
     "backend,profile",
     source_params(
         [
@@ -372,6 +591,7 @@ def test_hour_filter_executes_on_native_backends(
         ("20261028", None),
         ("20261028", 0),
         ("20261028", 1),
+        ("20261029", 0),
     ]
     rows: list[dict[str, object]] = [
         {"id": index, "day": day, "hour": hour if integer or hour is None else f"{hour:02d}"}
@@ -406,3 +626,25 @@ def test_hour_filter_executes_on_native_backends(
         query = lower_temporal(table.filter(predicate).select("id").order_by("id"), backend)
         actual = case.session.collect_bounded(query, purpose="time.hour_filter", max_rows=8)
         assert actual.id.tolist() == ([8] if start_hour == 0 else [1, 2])
+        if not integer and start_hour == 0:
+            for first, last, expected in (
+                ("2026-10-28T00:00:00+08:00", "2026-10-29T00:00:00+08:00", [1, 2, 3, 8, 9]),
+                ("2026-10-27T23:30:00+08:00", "2026-10-29T00:30:00+08:00", [1, 2, 3, 8, 9, 10]),
+            ):
+                predicate = source_time_predicate(
+                    table.hour,
+                    hour,
+                    authority,
+                    start=datetime.fromisoformat(first),
+                    end=datetime.fromisoformat(last),
+                    prefix=table.day,
+                    prefix_axis=day,
+                    engine=backend,
+                    use="filter",
+                )
+                assert predicate is not None
+                query = lower_temporal(table.filter(predicate).select("id").order_by("id"), backend)
+                actual = case.session.collect_bounded(
+                    query, purpose="time.hour_filter", max_rows=12
+                )
+                assert actual.id.tolist() == expected

@@ -781,6 +781,9 @@ def test_hour_prefix_help_discloses_canonical_hours_without_uniform_errors(
     assert "no source scan or uniform parse-error policy" in text
     assert "SQL NULL retains native semantics" in text
     assert "including midnight starts" in text
+    assert "Whole-day, cross-day and one-sided ranges" in text
+    assert "while retaining the exact predicate" in text
+    assert "Partition pruning depends on the backend plan" in text
 
 
 @pytest.mark.parametrize("method", ("first", "last"))
