@@ -17,6 +17,7 @@ from sqlglot import expressions as sge
 import marivo.analysis as mv
 from marivo.analysis.errors import AnalysisError
 from marivo.datasource.ir import TableSourceIR
+from marivo.semantic._expression_values import RowExpression
 from marivo.semantic.errors import SemanticExpressionError
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.numeric.test_remote_numeric_query import _datasource_model
@@ -76,11 +77,11 @@ def test_encoded_daily_snapshot_selects_same_identity_and_version(
     )
     monkeypatch.chdir(tmp_path)
     session = mv.session.get_or_create("encoded-version", timezone="UTC")
-    profiles = session.catalog.get("entity:sales.profiles")
-    links_entity = session.catalog.get("entity:sales.links")
-    relation = session.catalog.get("relationship:sales.profile")
-    scalar_relation = session.catalog.get("relationship:sales.scalar_profile")
-    label = catalog_value(session.catalog, "sales.profiles.label", kind="field")
+    profiles = catalog_value(session.catalog, "sales.profiles", kind="entity")
+    links_entity = catalog_value(session.catalog, "sales.links", kind="entity")
+    relation = catalog_value(session.catalog, "sales.profile", kind="relationship")
+    scalar_relation = catalog_value(session.catalog, "sales.scalar_profile", kind="relationship")
+    label = catalog_value(session.catalog, "sales.profiles.label", kind="dimension")
     for hour in (0, 12):
         anchor = session.instant(datetime(2026, 8, 2, hour, tzinfo=ZoneInfo("Asia/Shanghai")))
         members = session.members(profiles, at=anchor)
@@ -93,6 +94,7 @@ def test_encoded_daily_snapshot_selects_same_identity_and_version(
         )
         assert session.frame(selected).compute().to_pandas().iloc[:, 0].tolist() == [100]
         image = links.image(via=(relation,), at=anchor)
+        assert isinstance(image, mv.Population)
         assert session.frame(image).compute().to_pandas().iloc[:, 0].tolist() == [1]
 
 
@@ -150,13 +152,18 @@ def test_row_attribute_time_preserves_facts_and_explains_current_axis(
             connection.execute("ALTER TABLE facts ALTER COLUMN event_time TYPE TIMESTAMP")
         session = mv.session.get_or_create("iana-row-rejection", timezone="UTC")
         label = (
-            session.catalog.get("dimension:sales.profiles.label")
-            .via((session.catalog.get("relationship:sales.profile"),))
-            .at(session.catalog.get("time_dimension:sales.facts.event_time"))
+            catalog_value(session.catalog, "sales.profiles.label", kind="dimension")
+            .via((catalog_value(session.catalog, "sales.profile", kind="relationship"),))
+            .at(catalog_value(session.catalog, "sales.facts.event_time", kind="time_dimension"))
         )
         with pytest.raises(AnalysisError, match="fixed-offset"):
             session.observe(
-                {"value": session.catalog.get("measure:sales.facts.amount").sum()}, by=(label,)
+                {
+                    "value": catalog_value(
+                        session.catalog, "sales.facts.amount", kind="measure"
+                    ).sum()
+                },
+                by=(label,),
             ).compute()
         return
     # Encoding-specific selection and SQL remain covered for every carrier.
@@ -173,10 +180,10 @@ def test_row_attribute_time_preserves_facts_and_explains_current_axis(
         + "\n"
     )
     session = mv.session.get_or_create("inferred-row-root", timezone="UTC")
-    control = session.catalog.get("time_dimension:sales.facts.event_time")
-    label = session.catalog.get("dimension:sales.profiles.label").at(control)
+    control = catalog_value(session.catalog, "sales.facts.event_time", kind="time_dimension")
+    label = catalog_value(session.catalog, "sales.profiles.label", kind="dimension").at(control)
     result = session.observe(
-        {"value": session.catalog.get("measure:sales.facts.amount").sum()},
+        {"value": catalog_value(session.catalog, "sales.facts.amount", kind="measure").sum()},
         by=(label,),
         where=label == "B",
     ).compute()
@@ -233,10 +240,10 @@ def test_snapshot_fact_partition_controls_row_attribute_time(
 
 def _assert_snapshot_row_result() -> None:
     session = mv.session.get_or_create("snapshot-row-version", timezone="UTC")
-    control = session.catalog.get("time_dimension:sales.facts.event_time")
-    label = session.catalog.get("dimension:sales.profiles.label")
-    route = session.catalog.get("relationship:sales.profile")
-    metric = session.catalog.get("measure:sales.facts.amount").sum(time=control)
+    control = catalog_value(session.catalog, "sales.facts.event_time", kind="time_dimension")
+    label = catalog_value(session.catalog, "sales.profiles.label", kind="dimension")
+    route = catalog_value(session.catalog, "sales.profile", kind="relationship")
+    metric = catalog_value(session.catalog, "sales.facts.amount", kind="measure").sum(time=control)
     historical = label.via((route,)).at(control)
     pending = session.observe({"value": metric}, by=(historical,))
     assert isinstance(pending.schema.axes[0].at, mv.FrameRowAttributeTime)
@@ -249,7 +256,8 @@ def _assert_snapshot_row_result() -> None:
     ).compute()
     assert selected.to_pandas()["value"].tolist() == [11]
     authored = session.observe(
-        {"value": session.catalog.get("metric:sales.historical_b")}, by=(historical,)
+        {"value": catalog_value(session.catalog, "sales.historical_b", kind="metric")},
+        by=(historical,),
     ).compute()
     assert authored.to_pandas()["value"].tolist() == [11]
     fixed = session.observe(
@@ -278,25 +286,30 @@ def test_snapshot_row_attribute_time_retains_control_boundaries(
     )
     monkeypatch.chdir(tmp_path)
     session = mv.session.get_or_create("row-control-boundaries", timezone="UTC")
-    control = session.catalog.get("time_dimension:sales.facts.event_time")
-    route = session.catalog.get("relationship:sales.profile")
-    label = session.catalog.get("dimension:sales.profiles.label").via((route,))
-    metric = session.catalog.get("measure:sales.facts.amount").sum()
+    control: RowExpression[Literal["time"]] | RowExpression[Literal["numeric"]] = catalog_value(
+        session.catalog, "sales.facts.event_time", kind="time_dimension"
+    )
+    route = catalog_value(session.catalog, "sales.profile", kind="relationship")
+    label = catalog_value(session.catalog, "sales.profiles.label", kind="dimension").via((route,))
+    metric = catalog_value(session.catalog, "sales.facts.amount", kind="measure").sum()
     expected = "native, unanchored"
     if kind == "computed":
-        control = session.catalog.get("measure:sales.facts.amount") + 1
+        control = catalog_value(session.catalog, "sales.facts.amount", kind="measure") + 1
         expected = "named fact-root TimeDimension"
     elif kind == "path":
-        control = session.catalog.get("time_dimension:sales.profiles.point").via((route,))
+        control = catalog_value(session.catalog, "sales.profiles.point", kind="time_dimension").via(
+            (route,)
+        )
     elif kind == "anchored":
         control = control.at(session.instant("2026-09-03"))
     elif kind == "foreign":
-        control = session.catalog.get("time_dimension:sales.profiles.point")
+        control = catalog_value(session.catalog, "sales.profiles.point", kind="time_dimension")
         expected = "native TimeDimension on fact root sales.facts"
     elif kind == "validity":
         expected = "unversioned or snapshot fact root"
     with pytest.raises((AnalysisError, SemanticExpressionError), match=expected):
-        session.observe({"value": metric}, by=(label.at(control),))
+        # The computed case intentionally passes a numeric expression as time control.
+        session.observe({"value": metric}, by=(label.at(control),))  # type: ignore[arg-type]
 
 
 def _row_project(
@@ -362,10 +375,10 @@ def _row_project(
 
 def _assert_row_result(tmp_path: Path, *, extended: bool = True) -> None:
     session = mv.session.get_or_create("row-version", timezone="UTC")
-    label = session.catalog.get("dimension:sales.profiles.label")
-    control = session.catalog.get("time_dimension:sales.facts.event_time")
-    route = session.catalog.get("relationship:sales.profile")
-    metric = session.catalog.get("measure:sales.facts.amount").sum()
+    label = catalog_value(session.catalog, "sales.profiles.label", kind="dimension")
+    control = catalog_value(session.catalog, "sales.facts.event_time", kind="time_dimension")
+    route = catalog_value(session.catalog, "sales.profile", kind="relationship")
+    metric = catalog_value(session.catalog, "sales.facts.amount", kind="measure").sum()
     historical = label.via((route,)).at(control)
     pending = session.observe({"value": metric}, by=(historical,))
     assert isinstance(pending.schema.axes[0].at, mv.FrameRowAttributeTime)
@@ -383,14 +396,14 @@ def _assert_row_result(tmp_path: Path, *, extended: bool = True) -> None:
     assert selected.to_pandas()["value"].tolist() == [11]
     if not extended:
         return
-    facts = session.members(session.catalog.get("entity:sales.facts"))
+    facts = session.members(catalog_value(session.catalog, "sales.facts", kind="entity"))
     with pytest.raises((AnalysisError, SemanticExpressionError), match="fixed InstantAnchor"):
         session.read(facts, {"label": historical})
     scope = session.time_scope(start="2026-08-25", end="2026-09-08")
     with pytest.raises((AnalysisError, SemanticExpressionError), match="single-root observe"):
         session.observe(
             {
-                "value": session.catalog.get("measure:sales.facts.amount")
+                "value": catalog_value(session.catalog, "sales.facts.amount", kind="measure")
                 .sum(time=control)
                 .window(mv.all_history())
             },
@@ -399,13 +412,14 @@ def _assert_row_result(tmp_path: Path, *, extended: bool = True) -> None:
     # Catalog values are project-scoped; receiving kind/path binding, not the
     # Session which acquired a Catalog, owns their closed interpretation.
     other = mv.session.get_or_create("other-row-owner", timezone="UTC")
-    shared_control = other.catalog.get("time_dimension:sales.facts.event_time")
+    shared_control = catalog_value(other.catalog, "sales.facts.event_time", kind="time_dimension")
     session.observe({"value": metric}, by=(label.via((route,)).at(shared_control),))
     domain = mv.coordinates(by=(historical,), keys=(("A",), ("B",), ("tenant2",), (None,)))
     covered = session.observe({"value": metric}, by=domain).compute()
     assert covered.to_pandas()["value"].sum() == 67
     authored = session.observe(
-        {"value": session.catalog.get("metric:sales.historical_b")}, by=(historical,)
+        {"value": catalog_value(session.catalog, "sales.historical_b", kind="metric")},
+        by=(historical,),
     ).compute()
     assert authored.to_pandas()["value"].tolist() == [11]
     fixed_axis = complete.fix(complete.axes[0], "B").compute()
@@ -519,13 +533,15 @@ def test_trino_row_version_join_and_daily_statement_count(
         _assert_row_result(tmp_path)
         _assert_shared_routes(monkeypatch, "trino", target.source.table)
         session = mv.session.get_or_create("row-version", timezone="UTC")
-        control = session.catalog.get("time_dimension:sales.facts.event_time")
+        control = catalog_value(session.catalog, "sales.facts.event_time", kind="time_dimension")
         label = (
-            session.catalog.get("dimension:sales.profiles.label")
-            .via((session.catalog.get("relationship:sales.profile"),))
+            catalog_value(session.catalog, "sales.profiles.label", kind="dimension")
+            .via((catalog_value(session.catalog, "sales.profile", kind="relationship"),))
             .at(control)
         )
-        metric = session.catalog.get("measure:sales.facts.amount").sum(time=control)
+        metric = catalog_value(session.catalog, "sales.facts.amount", kind="measure").sum(
+            time=control
+        )
         trace = capture_source(monkeypatch, measure_cost=True)
         for end, expected in (("2026-08-27", 26), ("2026-09-08", 50)):
             before = len(trace.native_sql)
@@ -574,13 +590,15 @@ def test_trino_snapshot_fact_row_time_uses_one_business_query(
         monkeypatch.chdir(tmp_path)
         _assert_snapshot_row_result()
         session = mv.session.get_or_create("snapshot-row-version", timezone="UTC")
-        control = session.catalog.get("time_dimension:sales.facts.event_time")
+        control = catalog_value(session.catalog, "sales.facts.event_time", kind="time_dimension")
         historical = (
-            session.catalog.get("dimension:sales.profiles.label")
-            .via((session.catalog.get("relationship:sales.profile"),))
+            catalog_value(session.catalog, "sales.profiles.label", kind="dimension")
+            .via((catalog_value(session.catalog, "sales.profile", kind="relationship"),))
             .at(control)
         )
-        metric = session.catalog.get("measure:sales.facts.amount").sum(time=control)
+        metric = catalog_value(session.catalog, "sales.facts.amount", kind="measure").sum(
+            time=control
+        )
         trace = capture_source(monkeypatch, measure_cost=True)
         for end, expected in (("2026-08-27", 7), ("2026-09-08", 31)):
             before = len(trace.native_sql)
@@ -604,19 +622,23 @@ def test_trino_snapshot_fact_row_time_uses_one_business_query(
 
 def _assert_shared_routes(monkeypatch: pytest.MonkeyPatch, backend: str, target_table: str) -> None:
     session = mv.session.get_or_create("row-version", timezone="UTC")
-    control = session.catalog.get("time_dimension:sales.facts.event_time")
-    other = session.catalog.get("time_dimension:sales.facts.other_time")
-    route = session.catalog.get("relationship:sales.profile")
-    label = session.catalog.get("dimension:sales.profiles.label").via((route,))
-    member = session.catalog.get("dimension:sales.profiles.id").via((route,)).at(control)
-    amount = session.catalog.get("measure:sales.facts.amount")
+    control = catalog_value(session.catalog, "sales.facts.event_time", kind="time_dimension")
+    other = catalog_value(session.catalog, "sales.facts.other_time", kind="time_dimension")
+    route = catalog_value(session.catalog, "sales.profile", kind="relationship")
+    label = catalog_value(session.catalog, "sales.profiles.label", kind="dimension").via((route,))
+    member = (
+        catalog_value(session.catalog, "sales.profiles.id", kind="dimension")
+        .via((route,))
+        .at(control)
+    )
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
     trace = capture_source(monkeypatch)
     for second, joins in (
         (member, 1),
         (label.at(other), 2),
         (
-            session.catalog.get("dimension:sales.profiles.label")
-            .via((session.catalog.get("relationship:sales.other_profile"),))
+            catalog_value(session.catalog, "sales.profiles.label", kind="dimension")
+            .via((catalog_value(session.catalog, "sales.other_profile", kind="relationship"),))
             .at(control),
             2,
         ),

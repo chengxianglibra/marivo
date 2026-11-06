@@ -189,7 +189,8 @@ def test_shift_is_immutable_and_records_only_immediate_stripped_origin() -> None
     assert second.grid.origin.grid.cells == first.grid.cells
     assert current.grid.origin is None
     with pytest.raises(FrozenInstanceError):
-        first.scope = current.scope
+        # The frozen axis must reject mutation at runtime.
+        first.scope = current.scope  # type: ignore[misc]
     equivalent = current.shift(mv.offset(periods=-12))
     assert first.grid.cells == equivalent.grid.cells
     assert first.grid.identity != equivalent.grid.identity
@@ -290,6 +291,7 @@ def test_offset_exclusive_integer_keywords_and_out_of_range_errors() -> None:
         {"years": -1, "periods": None},
     ):
         with pytest.raises(AnalysisError):
-            offset.__call__(**kwargs)
+            # Invalid combinations must reach runtime validation.
+            offset.__call__(**kwargs)  # type: ignore[operator]
     with pytest.raises(ValueError, match="representable"):
         calendar("2026-01-01", "2026-02-01", "month").shift(mv.offset(years=-2026))

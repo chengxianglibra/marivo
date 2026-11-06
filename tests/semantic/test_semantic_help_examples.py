@@ -178,7 +178,7 @@ def test_freshness_help_distinguishes_lookup_symbols_from_closed_fields(
     check = ms.source_check.freshness(entry, max_age=timedelta(days=1))
     assert check.kind == "freshness"
     with pytest.raises(SemanticRuntimeError, match="native named"):
-        ms.source_check.freshness(entry.isnull(), max_age=timedelta(days=1))
+        ms.source_check.freshness(entry.isnull(), max_age=timedelta(days=1))  # type: ignore[arg-type]  # Exercise an invalid expression.
 
 
 def test_relationship_check_docstring_example_uses_the_public_method() -> None:

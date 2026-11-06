@@ -39,7 +39,7 @@ def test_postgres_parser_preserves_native_relaxed_dates(
 ) -> None:
     # PostgreSQL TO_TIMESTAMP accepts alternate separators, suffix text and
     # missing trailing fields.
-    rows = [
+    rows: list[dict[str, object]] = [
         {"id": 1, "point": "2026/28/02", "amount": 7},
         {"id": 2, "point": "2026-28-02trailing", "amount": 11},
         {"id": 3, "point": "2026-28", "amount": 13},
@@ -101,7 +101,7 @@ def test_postgres_parser_preserves_native_relaxed_dates(
 def test_postgres_parser_preserves_native_relaxed_timestamps(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    rows = [
+    rows: list[dict[str, object]] = [
         {"id": 1, "point": "2026/02/28 12:34:56extra"},
         {"id": 2, "point": "2026-02-28 12:34"},
         {"id": 3, "point": None},
@@ -220,7 +220,9 @@ def test_native_parser_rejects_bad_data_without_losing_legal_values(
         return
     _maria(profile, monkeypatch)
     points = (good, None) if backend == "postgres" else (good, bad, "", None)
-    rows = [{"id": index, "point": point} for index, point in enumerate(points)]
+    rows: list[dict[str, object]] = [
+        {"id": index, "point": point} for index, point in enumerate(points)
+    ]
     values = ",".join(
         f"({row['id']}," + ("NULL" if row["point"] is None else repr(row["point"])) + ")"
         for row in rows
@@ -400,6 +402,7 @@ def test_public_parsed_time_predicate_and_calendar_keep_native_interpretation(
         session = mv.session.get_or_create("parsed-native-time", timezone="UTC")
         point = session.catalog.get("time_dimension:sales.facts.point")
         amount = session.catalog.get("measure:sales.facts.amount")
+        assert point.kind == "time_dimension" and amount.kind == "measure"
         scope = session.time_scope(
             start="2026-03-08T07:00:00+00:00", end="2026-03-08T07:10:00+00:00"
         )
@@ -438,6 +441,7 @@ def test_native_input_expression_error_boundary(
             result = case.session.collect_bounded(expression, purpose="parser.input", max_rows=2)
             assert result.parsed.isna().all()
         else:
+            native_error: type[Exception]
             if backend == "duckdb":
                 from duckdb import ConversionException
 

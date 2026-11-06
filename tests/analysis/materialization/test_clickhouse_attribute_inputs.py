@@ -89,10 +89,10 @@ def test_clickhouse_attribute_input_carriers(
                 case = Case(case.session, TableSourceIR(proxy, database), case.environment)
             _project("clickhouse", case, monkeypatch, semantic_project_factory)
             session = mv.session.get_or_create("ck-inputs", timezone="UTC")
-            entity = session.catalog.get("entity:sales.facts")
-            tenant = catalog_value(session.catalog, "sales.facts.tenant", kind="field")
-            event = catalog_value(session.catalog, "sales.facts.category", kind="field")
-            day = catalog_value(session.catalog, "sales.facts.day", kind="field")
+            entity = catalog_value(session.catalog, "sales.facts", kind="entity")
+            tenant = catalog_value(session.catalog, "sales.facts.tenant", kind="dimension")
+            event = catalog_value(session.catalog, "sales.facts.category", kind="dimension")
+            day = catalog_value(session.catalog, "sales.facts.day", kind="time_dimension")
             assert isinstance(entity, ms.Entity) and isinstance(day, ms.TimeDimension)
             assert isinstance(tenant, ms.Dimension) and isinstance(event, ms.Dimension)
             metric = entity.count(time=day).where(event.isin(("z_finish", "a_exception")))
@@ -122,7 +122,7 @@ def test_clickhouse_attribute_input_carriers(
                 "z_finish",
             ]
             if shape == "enum8":
-                amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+                amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
                 assert isinstance(amount, ms.Measure)
                 nonlinear = amount.median(time=day).where(event.isin(("z_finish", "a_exception")))
                 left = session.observe(
@@ -169,8 +169,8 @@ def test_multishard_distributed_attribute_uses_global_joins(
     with source_case("clickhouse", "distributed", tmp_path, monkeypatch, DATA) as case:
         _project("clickhouse", case, monkeypatch, semantic_project_factory)
         session = mv.session.get_or_create("multishard", timezone="UTC")
-        entity = session.catalog.get("entity:sales.facts")
-        tenant = catalog_value(session.catalog, "sales.facts.tenant", kind="field")
+        entity = catalog_value(session.catalog, "sales.facts", kind="entity")
+        tenant = catalog_value(session.catalog, "sales.facts.tenant", kind="dimension")
         parent = session.observe({"n": entity.count()}).compute()
         trace = capture_source(monkeypatch)
         result = parent.attribute(by=(tenant,)).compute().to_pandas()

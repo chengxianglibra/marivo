@@ -306,6 +306,7 @@ def test_default_doctor_accepts_zero_initialized_project(tmp_path: Path) -> None
     check = _check(report, "project", "project.marivo_toml")
     assert check.status == "info"
     assert "using defaults" in check.summary
+    assert check.details is not None
     assert check.details["name"] == tmp_path.name
     assert check.details["semantic_layer_paths"] == []
     assert check.details["telemetry_enabled"] is True
@@ -523,7 +524,10 @@ def test_doctor_reports_current_store_and_retained_old_paths_without_rewriting(
         prior = _check(report, "state", "state.prior_generations")
         assert prior.status == "warning"
         assert prior.details is not None
-        assert [item["generation"] for item in prior.details["stores"]] == [8, 9, 10]
+        stores = prior.details["stores"]
+        assert isinstance(stores, list)
+        assert all(isinstance(item, dict) for item in stores)
+        assert [item["generation"] for item in stores if isinstance(item, dict)] == [8, 9, 10]
         assert "file_mtime" in json.dumps(report.to_dict())
         text = render_text(report)
         assert "Older Session Stores" in text and "compatible Marivo environment" in text
@@ -1362,12 +1366,13 @@ def test_test_no_persist_uses_project_root_and_suppresses_disconnect_errors(
         )()
 
     from marivo.datasource import backends
+    from marivo.datasource import store as datasource_store
     from marivo.datasource.backends import BuiltDatasourceBackend
 
     def fake_build_backend_with_secrets(datasource, **kwargs):  # type: ignore[no-untyped-def]
-        return BuiltDatasourceBackend(backend=backend, env_sourced_secrets={})
+        return BuiltDatasourceBackend(backend=backend, env_sourced_secrets=())
 
-    monkeypatch.setattr(datasource_manage._store, "load_one", fake_load_one)
+    monkeypatch.setattr(datasource_store, "load_one", fake_load_one)
     monkeypatch.setattr(
         backends,
         "build_backend_with_secrets",

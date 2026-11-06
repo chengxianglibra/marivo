@@ -272,15 +272,15 @@ def test_field_calendar_filters_before_reduction_and_completes_cross_grid(
         with pytest.raises(AnalysisError):
             session.observe({"sum": metric}, by=(created_axis, paid_axis))
         with pytest.raises(AnalysisError):
-            mv.product(creation)
+            mv.product(creation)  # type: ignore[call-overload]  # Deliberately invalid grouping.
         with pytest.raises(SemanticExpressionError, match="internal sample"):
             metric.per(creation)
         with pytest.raises(AnalysisError):
-            mv.time_group(created, axis=created_scope)
+            mv.time_group(created, axis=created_scope)  # type: ignore[arg-type]  # Unbucketed scope.
         with pytest.raises(AnalysisError):
-            mv.time_group(created, axis=mv.grain("day"))
+            mv.time_group(created, axis=mv.grain("day"))  # type: ignore[arg-type]  # Grain lacks a scope.
         with pytest.raises(AnalysisError):
-            mv.time_group(amount, axis=created_axis)
+            mv.time_group(amount, axis=created_axis)  # type: ignore[arg-type]  # Numeric field.
         assert creation.kind == "field_calendar"
         # Reusing an axis handle for a different field does not identify the
         # field and observation coordinates.
@@ -396,9 +396,9 @@ def test_field_calendar_filters_before_custom_period_assignment(
     frame = session.observe(gmv, by=(grouped,)).compute()
     assert frame.to_pandas()["gmv"].tolist() == [10]
     assert frozen_coordinates(frame)[0].rows["selection"].tolist() == ["full"]
-    for end in ("2026-01-05", "2026-01-15"):
+    for end_text in ("2026-01-05", "2026-01-15"):
         with pytest.raises(ValueError, match="one complete custom calendar period"):
-            session.time_scope(start="2026-01-01", end=end).by(week)
+            session.time_scope(start="2026-01-01", end=end_text).by(week)
     from marivo._temporal import certify_period_calendar_rows, semantic_grain
     from marivo.refs import ref
 

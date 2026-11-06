@@ -8,6 +8,7 @@ from pathlib import Path
 import duckdb
 import pandas as pd
 import pytest
+from ibis.common.deferred import Deferred
 
 import marivo.analysis as mv
 from marivo.analysis.materialization.errors import MaterializationError
@@ -17,6 +18,11 @@ from tests.analysis.materialization.test_population_membership import _session
 from tests.datasource.source_cases import source_params
 from tests.shared_fixtures import catalog_value
 from tests.support.source_trace import SourceTrace, capture_source
+
+
+def _population(value: mv.Population | Deferred) -> mv.Population:
+    assert isinstance(value, mv.Population)
+    return value
 
 
 def _save_trace(
@@ -93,10 +99,12 @@ def test_population_product_only_deduplicates_when_projection_drops_an_axis(
     from marivo.analysis.materialization.population_preparation import prepare_population
 
     session = _case(semantic_project_factory, tmp_path, monkeypatch, size=4)
-    orders = session.members(session.catalog.get("entity:sales.orders"))
-    tags = session.members(session.catalog.get("entity:sales.tags"))
+    orders = session.members(catalog_value(session.catalog, "sales.orders", kind="entity"))
+    tags = session.members(catalog_value(session.catalog, "sales.tags", kind="entity"))
     product = mv.product(orders, tags)
-    selected = product.project(by=(tags.axes[0],) if drop_axis else (tags.axes[0], orders.axes[0]))
+    selected = _population(
+        product.project(by=(tags.axes[0],) if drop_axis else (tags.axes[0], orders.axes[0]))
+    )
     prepared = prepare_population(
         selected._definition,
         {
@@ -130,18 +138,18 @@ def test_relationship_population_only_returns_consumed_domain_or_value(
     operation: str,
 ) -> None:
     session = _case(semantic_project_factory, tmp_path, monkeypatch)
-    orders = session.members(session.catalog.get("entity:sales.orders"))
+    orders = session.members(catalog_value(session.catalog, "sales.orders", kind="entity"))
     path = (
-        session.catalog.get("relationship:sales.order_links"),
-        session.catalog.get("relationship:sales.link_tags"),
+        catalog_value(session.catalog, "sales.order_links", kind="relationship"),
+        catalog_value(session.catalog, "sales.link_tags", kind="relationship"),
     )
-    image = orders.image(via=path)
+    image = _population(orders.image(via=path))
     if operation == "image":
         query = session.frame(image)
     elif operation == "image_count":
         query = session.observe(
             {
-                "v": catalog_value(session.catalog, "sales.tags.id", kind="field")
+                "v": catalog_value(session.catalog, "sales.tags.id", kind="dimension")
                 .count()
                 .where(mv.in_population(image))
             }
@@ -149,22 +157,25 @@ def test_relationship_population_only_returns_consumed_domain_or_value(
     else:
         if operation == "literal_preimage":
             targets = mv.coordinates(
-                by=(mv.identity(session.catalog.get("entity:sales.tags")),), keys=(((1,),),)
+                by=(mv.identity(catalog_value(session.catalog, "sales.tags", kind="entity")),),
+                keys=(((1,),),),
             )
         else:
-            tags = session.members(session.catalog.get("entity:sales.tags"))
+            tags = session.members(catalog_value(session.catalog, "sales.tags", kind="entity"))
             fields = session.read(
-                tags, {"label": catalog_value(session.catalog, "sales.tags.label", kind="field")}
+                tags,
+                {"label": catalog_value(session.catalog, "sales.tags.label", kind="dimension")},
             )
             chosen = fields.where(
                 fields["label"] == ("missing" if operation == "empty_query" else "A")
             )
             targets = session.population_from(
-                chosen, on=((chosen.axes[0], session.catalog.get("entity:sales.tags")),)
+                chosen,
+                on=((chosen.axes[0], catalog_value(session.catalog, "sales.tags", kind="entity")),),
             )
-        selected = orders.preimage(targets, via=path)
+        selected = _population(orders.preimage(targets, via=path))
         query = session.observe(
-            {"v": session.catalog.get("metric:sales.revenue")},
+            {"v": catalog_value(session.catalog, "sales.revenue", kind="metric")},
             where=mv.in_population(selected),
         )
     trace = capture_source(monkeypatch)
@@ -188,16 +199,16 @@ def test_relationship_population_identity_failure_survives_empty_top(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     session = _case(semantic_project_factory, tmp_path, monkeypatch)
-    orders = session.members(session.catalog.get("entity:sales.orders"))
+    orders = session.members(catalog_value(session.catalog, "sales.orders", kind="entity"))
     path = (
-        session.catalog.get("relationship:sales.order_links"),
-        session.catalog.get("relationship:sales.link_tags"),
+        catalog_value(session.catalog, "sales.order_links", kind="relationship"),
+        catalog_value(session.catalog, "sales.link_tags", kind="relationship"),
     )
     with duckdb.connect(str(tmp_path / "population.duckdb")) as db:
         db.execute("INSERT INTO orders VALUES (NULL,0,1)")
-    selected = orders.image(via=path)
+    selected = _population(orders.image(via=path))
     metric = (
-        catalog_value(session.catalog, "sales.tags.id", kind="field")
+        catalog_value(session.catalog, "sales.tags.id", kind="dimension")
         .count()
         .where(mv.in_population(selected))
     )
@@ -220,18 +231,19 @@ def test_relationship_member_count_returns_completed_count(
     with_sum: bool,
 ) -> None:
     session = _case(semantic_project_factory, tmp_path, monkeypatch, size=size)
-    orders = session.members(session.catalog.get("entity:sales.orders"))
+    orders = session.members(catalog_value(session.catalog, "sales.orders", kind="entity"))
     path = (
-        session.catalog.get("relationship:sales.order_links"),
-        session.catalog.get("relationship:sales.link_tags"),
+        catalog_value(session.catalog, "sales.order_links", kind="relationship"),
+        catalog_value(session.catalog, "sales.link_tags", kind="relationship"),
     )
     targets = mv.coordinates(
-        by=(mv.identity(session.catalog.get("entity:sales.tags")),), keys=(((1,),),)
+        by=(mv.identity(catalog_value(session.catalog, "sales.tags", kind="entity")),),
+        keys=(((1,),),),
     )
-    selected = orders.preimage(targets, via=path)
+    selected = _population(orders.preimage(targets, via=path))
     metrics = {"n": selected.count()}
     if with_sum:
-        metrics["v"] = session.catalog.get("metric:sales.revenue")
+        metrics["v"] = catalog_value(session.catalog, "sales.revenue", kind="metric")
     query = session.observe(
         metrics,
         where=mv.in_population(selected) if with_sum else None,
@@ -254,12 +266,15 @@ def test_relationship_image_missing_source_uses_empty_set(
 ) -> None:
     session = _case(semantic_project_factory, tmp_path, monkeypatch)
     missing = mv.coordinates(
-        by=(mv.identity(session.catalog.get("entity:sales.orders")),), keys=(((9999,),),)
+        by=(mv.identity(catalog_value(session.catalog, "sales.orders", kind="entity")),),
+        keys=(((9999,),),),
     )
-    selected = missing.image(
-        via=(
-            session.catalog.get("relationship:sales.order_links"),
-            session.catalog.get("relationship:sales.link_tags"),
+    selected = _population(
+        missing.image(
+            via=(
+                catalog_value(session.catalog, "sales.order_links", kind="relationship"),
+                catalog_value(session.catalog, "sales.link_tags", kind="relationship"),
+            )
         )
     )
     assert session.frame(selected).compute().to_pandas().empty
@@ -276,7 +291,9 @@ def test_source_member_count_zero_axes_preserves_empty_and_unit(
     if empty:
         with duckdb.connect(str(tmp_path / "population.duckdb")) as db:
             db.execute("DELETE FROM orders")
-    domain = session.members(session.catalog.get("entity:sales.orders")).project(by=())
+    domain = session.members(catalog_value(session.catalog, "sales.orders", kind="entity")).project(
+        by=()
+    )
     trace = capture_source(monkeypatch)
     result = session.observe({"n": domain.count()}).compute().to_pandas()
     assert result["n"].tolist() == [0 if empty else 1]
@@ -292,8 +309,8 @@ def test_source_member_counts_keep_complete_tuples_and_null_categories(
     session = _case(semantic_project_factory, tmp_path, monkeypatch, size=100)
     with duckdb.connect(str(tmp_path / "population.duckdb")) as db:
         db.execute("UPDATE orders SET customer=NULL WHERE customer=0")
-    entity = session.catalog.get("entity:sales.orders")
-    customer = catalog_value(session.catalog, "sales.orders.customer", kind="field")
+    entity = catalog_value(session.catalog, "sales.orders", kind="entity")
+    customer = catalog_value(session.catalog, "sales.orders.customer", kind="dimension")
     selected = session.members(entity).classify(by=(mv.identity(entity), customer))
     categories = selected.project(by=(customer,))
     trace = capture_source(monkeypatch)
@@ -313,7 +330,9 @@ def test_source_member_count_projection_preserves_identity_check(
     session = _case(semantic_project_factory, tmp_path, monkeypatch)
     with duckdb.connect(str(tmp_path / "population.duckdb")) as db:
         db.execute("INSERT INTO orders VALUES (NULL,0,1)")
-    domain = session.members(session.catalog.get("entity:sales.orders")).project(by=())
+    domain = session.members(catalog_value(session.catalog, "sales.orders", kind="entity")).project(
+        by=()
+    )
     trace = capture_source(monkeypatch)
     with pytest.raises(MaterializationError, match="non-null complete identity keys"):
         session.observe({"n": domain.count()}).compute()
@@ -328,13 +347,16 @@ def test_source_output_coverage_returns_bounded_actual_missing_keys(
     size: int,
 ) -> None:
     session = _case(semantic_project_factory, tmp_path, monkeypatch, size=size)
-    identifier = catalog_value(session.catalog, "sales.orders.id", kind="field")
+    identifier = catalog_value(session.catalog, "sales.orders.id", kind="dimension")
     output = mv.coordinates(by=(identifier,), keys=((0,),))
-    query = session.observe({"v": session.catalog.get("metric:sales.revenue")}, by=output)
+    query = session.observe(
+        {"v": catalog_value(session.catalog, "sales.revenue", kind="metric")}, by=output
+    )
     trace = capture_source(monkeypatch, measure_cost=True)
     with pytest.raises(MaterializationError, match="missing output coordinates") as error:
         query.top(0, by=query["v"]).compute()
     assert error.value.stage == "population_coverage"
+    assert error.value.received is not None
     assert "'key.0': 1" in error.value.received
     assert "'key.0': 6" in error.value.received
     assert "'key.0': 0" not in error.value.received
@@ -350,11 +372,12 @@ def test_member_read_preserves_missing_requested_identity_as_null(
 ) -> None:
     session = _case(semantic_project_factory, tmp_path, monkeypatch)
     domain = mv.coordinates(
-        by=(mv.identity(session.catalog.get("entity:sales.tags")),), keys=(((1,),), ((999,),))
+        by=(mv.identity(catalog_value(session.catalog, "sales.tags", kind="entity")),),
+        keys=(((1,),), ((999,),)),
     )
     rows = (
         session.read(
-            domain, {"label": catalog_value(session.catalog, "sales.tags.label", kind="field")}
+            domain, {"label": catalog_value(session.catalog, "sales.tags.label", kind="dimension")}
         )
         .compute()
         .to_pandas()
@@ -453,7 +476,7 @@ def test_native_member_count_preserves_exact_string_groups_and_distinct_tuples(
     from tests.datasource.source_cases import SourceData, source_case
 
     labels = ("A", "a", "Á", "A ", "a ", "", None, "A")
-    rows = [
+    rows: list[dict[str, object]] = [
         {
             "id": index,
             "tenant": "t",
@@ -478,8 +501,8 @@ def test_native_member_count_preserves_exact_string_groups_and_distinct_tuples(
     with source_case(backend, profile, tmp_path, monkeypatch, data) as case:
         _project(backend, case, monkeypatch, semantic_project_factory)
         session = mv.session.get_or_create("exact-native-count", timezone="UTC")
-        entity = session.catalog.get("entity:sales.facts")
-        category = catalog_value(session.catalog, "sales.facts.category", kind="field")
+        entity = catalog_value(session.catalog, "sales.facts", kind="entity")
+        category = catalog_value(session.catalog, "sales.facts.category", kind="dimension")
         members = session.members(entity)
         classified = members.classify(by=(mv.identity(entity), category))
         categories = classified.project(by=(category,))
@@ -579,21 +602,25 @@ def test_remote_relationship_domains_and_explicit_frame_targets(
             }
         )
         session = mv.session.get_or_create("remote-population-fusion", timezone="UTC")
-        source = session.members(session.catalog.get("entity:sales.orders"))
+        source = session.members(catalog_value(session.catalog, "sales.orders", kind="entity"))
         path = (
-            session.catalog.get("relationship:sales.order_links"),
-            session.catalog.get("relationship:sales.link_tags"),
+            catalog_value(session.catalog, "sales.order_links", kind="relationship"),
+            catalog_value(session.catalog, "sales.link_tags", kind="relationship"),
         )
-        image = source.image(via=path)
+        image = _population(source.image(via=path))
         one_tag = mv.coordinates(
-            by=(mv.identity(session.catalog.get("entity:sales.tags")),), keys=(((1,),),)
+            by=(mv.identity(catalog_value(session.catalog, "sales.tags", kind="entity")),),
+            keys=(((1,),),),
         )
-        counted = source.preimage(one_tag, via=path)
+        counted = _population(source.preimage(one_tag, via=path))
         with monkeypatch.context() as count_patch:
             count_trace = capture_source(count_patch, measure_cost=True)
             for metrics in (
                 {"n": counted.count()},
-                {"n": counted.count(), "v": session.catalog.get("metric:sales.revenue")},
+                {
+                    "n": counted.count(),
+                    "v": catalog_value(session.catalog, "sales.revenue", kind="metric"),
+                },
             ):
                 result = (
                     session.observe(
@@ -612,7 +639,7 @@ def test_remote_relationship_domains_and_explicit_frame_targets(
         count = (
             session.observe(
                 {
-                    "v": catalog_value(session.catalog, "sales.tags.id", kind="field")
+                    "v": catalog_value(session.catalog, "sales.tags.id", kind="dimension")
                     .count()
                     .where(mv.in_population(image))
                 }
@@ -622,18 +649,19 @@ def test_remote_relationship_domains_and_explicit_frame_targets(
         )
         assert count["v"].tolist() == [2]
         fields = session.read(
-            session.members(session.catalog.get("entity:sales.tags")),
-            {"label": catalog_value(session.catalog, "sales.tags.label", kind="field")},
+            session.members(catalog_value(session.catalog, "sales.tags", kind="entity")),
+            {"label": catalog_value(session.catalog, "sales.tags.label", kind="dimension")},
         )
         for label, expected in (("A", 500), ("missing", 0)):
             chosen = fields.where(fields["label"] == label)
             targets = session.population_from(
-                chosen, on=((chosen.axes[0], session.catalog.get("entity:sales.tags")),)
+                chosen,
+                on=((chosen.axes[0], catalog_value(session.catalog, "sales.tags", kind="entity")),),
             )
-            selected = source.preimage(targets, via=path)
+            selected = _population(source.preimage(targets, via=path))
             frame = (
                 session.observe(
-                    {"v": session.catalog.get("metric:sales.revenue")},
+                    {"v": catalog_value(session.catalog, "sales.revenue", kind="metric")},
                     where=mv.in_population(selected),
                 )
                 .compute()
@@ -645,20 +673,21 @@ def test_remote_relationship_domains_and_explicit_frame_targets(
                 "rows": trace.returned_rows,
                 "sql": trace.native_sql,
             }
-        category = catalog_value(session.catalog, "sales.tags.label", kind="field")
+        category = catalog_value(session.catalog, "sales.tags.label", kind="dimension")
         allocation = mv.membership(category, via=(path,), unmatched="exclude")
         incomplete = mv.coordinates(by=(category,), keys=(("A",),))
         empty = mv.coordinates(
-            by=(catalog_value(session.catalog, "sales.orders.id", kind="field"),), keys=()
+            by=(catalog_value(session.catalog, "sales.orders.id", kind="dimension"),), keys=()
         )
         required = session.observe(
-            {"v": session.catalog.get("metric:sales.revenue").per(empty).mean()},
+            {"v": catalog_value(session.catalog, "sales.revenue", kind="metric").per(empty).mean()},
             by=(incomplete, allocation),
-            where=mv.in_population(source.preimage(image, via=path)),
+            where=mv.in_population(_population(source.preimage(image, via=path))),
         )
         with pytest.raises(MaterializationError, match="missing output coordinates") as error:
             required.top(0, by=required["v"]).compute()
         assert error.value.stage == "population_coverage"
+        assert error.value.received is not None
         assert "B" in error.value.received
         if backend != "postgres":
             assert trace.uploaded_key_rows == [1, 0], {
@@ -673,29 +702,30 @@ def test_output_coverage_survives_source_population_fusion_and_empty_top(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     session = _case(semantic_project_factory, tmp_path, monkeypatch)
-    revenue = session.catalog.get("metric:sales.revenue")
-    orders = session.members(session.catalog.get("entity:sales.orders"))
+    revenue = catalog_value(session.catalog, "sales.revenue", kind="metric")
+    orders = session.members(catalog_value(session.catalog, "sales.orders", kind="entity"))
     path = (
-        session.catalog.get("relationship:sales.order_links"),
-        session.catalog.get("relationship:sales.link_tags"),
+        catalog_value(session.catalog, "sales.order_links", kind="relationship"),
+        catalog_value(session.catalog, "sales.link_tags", kind="relationship"),
     )
     # The independent relationship image is source-fused into the fact predicate.
-    selected = orders.image(via=path)
-    label = catalog_value(session.catalog, "sales.tags.label", kind="field")
+    selected = _population(orders.image(via=path))
+    label = catalog_value(session.catalog, "sales.tags.label", kind="dimension")
     allocation = mv.membership(label, via=(path,), unmatched="exclude")
     incomplete = mv.coordinates(by=(label,), keys=(("A",),))
     empty = mv.coordinates(
-        by=(catalog_value(session.catalog, "sales.orders.id", kind="field"),), keys=()
+        by=(catalog_value(session.catalog, "sales.orders.id", kind="dimension"),), keys=()
     )
     query = session.observe(
         {"v": revenue.per(empty).mean()},
         by=(incomplete, allocation),
-        where=mv.in_population(orders.preimage(selected, via=path)),
+        where=mv.in_population(_population(orders.preimage(selected, via=path))),
     )
     trace = capture_source(monkeypatch)
     with pytest.raises(MaterializationError, match="missing output coordinates") as error:
         query.top(0, by=query["v"]).compute()
     assert error.value.stage == "population_coverage"
+    assert error.value.received is not None
     assert "B" in error.value.received
     assert trace.uploaded_key_rows == []
 

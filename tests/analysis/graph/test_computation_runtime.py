@@ -25,7 +25,7 @@ from trino.dbapi import Connection, Cursor
 import marivo.analysis as mv
 import marivo.datasource as md
 from tests.datasource.source_cases import source_params
-from tests.shared_fixtures import catalog_value, terminal_runs
+from tests.shared_fixtures import catalog_get, catalog_value, terminal_runs
 
 _ROWS = "INSERT INTO orders VALUES (1,'2026-07-01',15.75,5.25,3), (2,'2026-07-01',4.25,1.75,1)"
 
@@ -133,7 +133,7 @@ def _aggregate(session: mv.Session, metric: str) -> mv.AnalysisFrame:
 
 def _semantic_value(session: mv.Session, metric: str) -> object:
     preview = session.catalog.preview(
-        session.catalog.get(f"metric:sales.{metric}"),
+        catalog_get(session.catalog, f"metric:sales.{metric}", kind="metric"),
         scope=md.unpruned(max_rows=10, timeout_seconds=30),
     )
     assert preview.returned_row_count == 1
@@ -170,8 +170,10 @@ def test_computed_measure_integer_arithmetic_aggregates_exactly(
 def test_runtime_linear_over_integer_sums_retains_native_int64(
     computation_session: mv.Session,
 ) -> None:
-    quantity = computation_session.catalog.get("metric:sales.quantity_total")
-    count = computation_session.catalog.get("metric:sales.gmv_quantity")
+    quantity = catalog_get(
+        computation_session.catalog, "metric:sales.quantity_total", kind="metric"
+    )
+    count = catalog_get(computation_session.catalog, "metric:sales.gmv_quantity", kind="metric")
     result = computation_session.observe({"value": quantity + count - quantity}).persist()
     rows = result.to_pandas()
     assert pa.array(rows["value"]).type == pa.int64()
@@ -499,7 +501,7 @@ def test_trino_computed_measure_decimal_sum_is_exact(
 def test_trino_decimal_mean_uses_native_avg(trino_session: mv.Session) -> None:
     """The two Decimal inputs have the exact native mean 10.00."""
     logical = trino_session.observe(
-        {"value": trino_session.catalog.get("metric:sales.amount_mean")}
+        {"value": catalog_get(trino_session.catalog, "metric:sales.amount_mean", kind="metric")}
     )
     value = logical.persist().to_pandas()["value"].iloc[0]
     assert isinstance(value, Decimal)

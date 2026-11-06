@@ -243,7 +243,7 @@ def test_later_native_rewrite_removes_invalid_group_output_but_keeps_decisions(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     case = analysis_dsl_case_factory("j1")
-    amount = catalog_value(case.session.catalog, "sales.order.amount", kind="field")
+    amount = catalog_value(case.session.catalog, "sales.order.amount", kind="measure")
     query = case.session.observe({"amount": amount.sum()})
     graph = _captured_graph(query)
     with (
@@ -282,7 +282,7 @@ def test_composed_common_members_keep_embedded_prefixed_identity(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     case = analysis_dsl_case_factory("j1")
-    amount = catalog_value(case.session.catalog, "sales.order.amount", kind="field")
+    amount = catalog_value(case.session.catalog, "sales.order.amount", kind="measure")
     query = case.session.observe({"one": amount.sum(), "two": amount.sum()})
     graph = _captured_graph(query)
     with (
@@ -563,7 +563,7 @@ def test_native_source_child_keeps_one_prefixed_schedule(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     case = analysis_dsl_case_factory("j1")
-    amount = catalog_value(case.session.catalog, "sales.order.amount", kind="field")
+    amount = catalog_value(case.session.catalog, "sales.order.amount", kind="measure")
     query = case.session.observe({"amount": amount.sum()})
     with (
         case.session._runtime.connection_service().operation() as connections,
@@ -617,7 +617,7 @@ def test_paired_reductions_stay_local_and_keep_both_endpoints(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     case = analysis_dsl_case_factory("j1")
-    amount = catalog_value(case.session.catalog, "sales.order.amount", kind="field")
+    amount = catalog_value(case.session.catalog, "sales.order.amount", kind="measure")
     query = case.session.observe({"amount": amount.sum(), "other": amount.mean()})
     graph = _captured_graph(query)
     with (

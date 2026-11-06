@@ -511,7 +511,7 @@ def measure_column(
     entity: Entity | EntitySymbol,
     column: str,
     additivity: AdditivityPolicy,
-    status_time_dimension: TimeField | TimeDimensionSymbol | None = None,
+    status_time_dimension: TimeField | Deferred | None = None,
     unit: str | None = None,
     domain: DomainSymbol | None = None,
     ai_context: AiContextValue | None = None,

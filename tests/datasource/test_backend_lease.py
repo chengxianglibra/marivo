@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from threading import Event, Lock, Thread
 
 import pytest
@@ -69,6 +70,8 @@ def test_failed_close_retries_disconnect_and_closed_means_confirmed() -> None:
 
 def test_missing_disconnect_stays_unreleased_until_a_later_close() -> None:
     class Backend:
+        disconnect: Callable[[], None]
+
         def __init__(self) -> None:
             self.calls = 0
 

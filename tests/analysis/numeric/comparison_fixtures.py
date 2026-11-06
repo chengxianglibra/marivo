@@ -5,6 +5,7 @@ from typing import Literal
 import pandas as pd
 
 import marivo.analysis as mv
+import marivo.semantic as ms
 from marivo.analysis.core.artifact_data import DataSchema
 from marivo.analysis.core.data_types import ScalarDataType
 
@@ -13,9 +14,21 @@ COMPLETE = {("a", 2**53, 1), ("a", 2**53 + 1, 2), ("b", 2**53 + 1, 1)}
 DEFINED = {("a", 2**53, 1): 2, ("a", 2**53 + 1, 2): None, ("b", 2**53 + 1, 1): 4}
 
 
+def _entity(catalog: ms.SemanticCatalog, path: str) -> ms.Entity:
+    result = catalog.get(path)
+    assert result.kind == "entity"
+    return result
+
+
+def _metric(catalog: ms.SemanticCatalog, path: str) -> ms.Metric:
+    result = catalog.get(path)
+    assert result.kind == "metric"
+    return result
+
+
 def comparison_queries(session: mv.Session) -> dict[Operation, mv.AnalysisFrame]:
-    members = session.members(session.catalog.get("entity:sales.facts"))
-    metric = session.catalog.get("metric:sales.total")
+    members = session.members(_entity(session.catalog, "entity:sales.facts"))
+    metric = _metric(session.catalog, "metric:sales.total")
 
     def observe(month: int) -> mv.AnalysisFrame:
         return session.observe(

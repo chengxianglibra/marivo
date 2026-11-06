@@ -12,6 +12,7 @@ from pathlib import Path
 import pytest
 
 from tests.analysis.numeric.rollup_worker import MONTH_EXPECTED
+from tests.shared_fixtures import catalog_get
 from tests.support.json import Json, checked, obj
 
 
@@ -66,7 +67,7 @@ def test_duckdb_decimal_mean_retains_captured_scale(
     monkeypatch.chdir(project)
     session = mv.session.get_or_create("equation-mean", timezone="UTC")
     query = session.observe(
-        {"value": session.catalog.get("metric:sales.amount_mean")},
+        {"value": catalog_get(session.catalog, "metric:sales.amount_mean", kind="metric")},
         by=(session.time_scope(start="2026-07-01", end="2026-08-01"),),
     )
     result = query.persist()

@@ -10,9 +10,11 @@ import pandas as pd
 import pytest
 
 import marivo.analysis as mv
+import marivo.semantic as ms
 from marivo.analysis.compiler.source_time import parse_strptime
 from marivo.analysis.materialization.temporal_sql import lower_temporal
 from marivo.datasource.errors import DatasourceSourceCapabilityError
+from marivo.datasource.ir import TableSourceIR
 from marivo.semantic.ir import StrptimeParse
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.numeric.test_remote_numeric_query import _datasource_model
@@ -31,6 +33,18 @@ FORMATS = (
     "%Y%m%d%H%M%S",
     "%Y-%m-%d %H:%M:%S",
 )
+
+
+def _measure(catalog: ms.SemanticCatalog, path: str) -> ms.Measure:
+    result = catalog.get(path)
+    assert result.kind == "measure"
+    return result
+
+
+def _time_dimension(catalog: ms.SemanticCatalog, path: str) -> ms.TimeDimension:
+    result = catalog.get(path)
+    assert result.kind == "time_dimension"
+    return result
 
 
 def test_help_discloses_clickhouse_parser_version_boundary() -> None:
@@ -135,6 +149,7 @@ def test_nonordered_parser_is_qualified_before_business_submission(
         if tuple(int(part) for part in case.session._backend.version.split(".")[:2]) < (23, 3):
             with pytest.raises(DatasourceSourceCapabilityError) as failure:
                 case.session.collect_bounded(query, purpose="parser.nonordered", max_rows=1)
+            assert failure.value.expected is not None and failure.value.received is not None
             assert "23.3" in failure.value.expected
             assert case.session._backend.version in failure.value.received
             assert "point" in failure.value.received and "%d/%m/%Y" in failure.value.received
@@ -168,6 +183,7 @@ def test_public_historical_calendar_preserves_wide_source_carriers(
         ],
     )
     with source_case("clickhouse", "mergetree", tmp_path, monkeypatch, data) as case:
+        assert isinstance(case.source, TableSourceIR)
         semantic_project_factory(
             {
                 "datasources/warehouse.py": _datasource_model("clickhouse", case, monkeypatch),
@@ -180,8 +196,8 @@ def test_public_historical_calendar_preserves_wide_source_carriers(
         )
         monkeypatch.chdir(tmp_path)
         session = mv.session.get_or_create("historical-encoded", timezone="Asia/Shanghai")
-        point = session.catalog.get("time_dimension:sales.facts.point")
-        amount = session.catalog.get("measure:sales.facts.amount")
+        point = _time_dimension(session.catalog, "time_dimension:sales.facts.point")
+        amount = _measure(session.catalog, "measure:sales.facts.amount")
         grid = session.time_scope(start="1960-02-29", end="1960-03-01").by(mv.grain("day"))
         rows = (
             session.observe({"value": amount.sum(time=point)}, by=(grid,))

@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import asdict
 from datetime import date, timedelta
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 from pydantic import TypeAdapter
@@ -17,6 +18,9 @@ from marivo.refs import ref as internal_ref
 from marivo.semantic.catalog import SemanticCatalog
 from marivo.semantic.errors import SemanticRuntimeError
 from marivo.semantic.preview_scope import _normalize_scopes
+
+if TYPE_CHECKING:
+    from tests.conftest import _SemanticProjectFactory
 
 
 def test_source_checks_extract_only_native_keys_and_keep_value_identity() -> None:
@@ -33,7 +37,7 @@ def test_source_checks_extract_only_native_keys_and_keep_value_identity() -> Non
         internal_ref.measure("sales.orders.amount"),
     ):
         with pytest.raises(SemanticRuntimeError, match="native named field"):
-            ms.source_check.not_null(invalid)
+            ms.source_check.not_null(invalid)  # type: ignore[arg-type]  # Invalid field selectors.
     with pytest.raises(ValueError, match="must not repeat"):
         ms.source_check.unique(fields=(field, ms.ref.measure("sales.orders.amount")))
     freshness = ms.source_check.freshness(
@@ -43,7 +47,7 @@ def test_source_checks_extract_only_native_keys_and_keep_value_identity() -> Non
 
 
 def test_preview_pairs_validate_keys_duplicates_and_exact_coverage(
-    semantic_project_factory,
+    semantic_project_factory: _SemanticProjectFactory,
 ) -> None:
     project = semantic_project_factory(
         {
@@ -55,6 +59,7 @@ def test_preview_pairs_validate_keys_duplicates_and_exact_coverage(
     catalog = SemanticCatalog(project)
     orders = catalog.get("entity:sales.orders")
     customers = catalog.get("entity:sales.customers")
+    assert orders.kind == customers.kind == "entity"
     scope = md.unpruned(max_rows=3, timeout_seconds=5)
     normalized = _normalize_scopes(
         ("sales.orders", "sales.customers"),
@@ -74,7 +79,7 @@ def test_preview_pairs_validate_keys_duplicates_and_exact_coverage(
         with pytest.raises(SemanticRuntimeError):
             _normalize_scopes(
                 ("sales.orders", "sales.customers"),
-                invalid,
+                invalid,  # type: ignore[arg-type]  # Invalid pair variants.
                 preview_ref="sales.link",
                 catalog=catalog,
             )
@@ -131,7 +136,7 @@ def test_temporal_navigation_preserves_identity_and_wire() -> None:
 
 
 def test_catalog_navigation_is_reusable_without_deferred_comparison(
-    semantic_project_factory,
+    semantic_project_factory: _SemanticProjectFactory,
 ) -> None:
     project = semantic_project_factory(
         {
@@ -155,7 +160,7 @@ def test_catalog_navigation_is_reusable_without_deferred_comparison(
     ]
     for invalid in (selected + 1, internal_ref.measure("sales.orders.amount"), selected):
         with pytest.raises(SemanticRuntimeError):
-            catalog.get(invalid)
+            catalog.get(invalid)  # type: ignore[arg-type]  # Invalid catalog selectors.
 
 
 def test_datasource_selectors_reject_internal_keys_before_inspection(tmp_path: Path) -> None:
@@ -167,8 +172,11 @@ def test_datasource_selectors_reject_internal_keys_before_inspection(tmp_path: P
         spec.ref + 1,
     ):
         with pytest.raises(TypeError, match="native datasource"):
-            md.inspect(invalid, md.table("orders"), workspace_dir=tmp_path)
+            md.inspect(invalid, md.table("orders"), workspace_dir=tmp_path)  # type: ignore[arg-type]  # Invalid selectors.
         with pytest.raises(TypeError, match="native datasource"):
             md.raw_sql(
-                invalid, "SELECT 1", reason="native selector boundary", project_root=tmp_path
+                invalid,  # type: ignore[arg-type]  # Invalid selector.
+                "SELECT 1",
+                reason="native selector boundary",
+                project_root=tmp_path,
             )

@@ -116,17 +116,20 @@ def test_attribute_fact_read_repairs_are_exact_and_unrelated_errors_stay_at_root
     pending = session.values(by=(), columns={"q": None}, rows=(((), {"q": 1}),))
     with pytest.raises(AnalysisError) as captured:
         _ = pending.method_facts
+    assert captured.value.repair is not None
     assert captured.value.repair.help_target.display == "analysis.analysis_frame.method_facts"
     assert "Call compute() or persist()" in str(captured.value)
     assert "Kind: attribute" in render_help_text(captured.value.repair.help_target.display)[0]
     support = FrameMethodSupport("root", "rows", 1, 1, 1, 1)
     with pytest.raises(AnalysisError) as captured:
         support.show(n=-1)
+    assert captured.value.repair is not None
     assert captured.value.repair.help_target.display == "analysis.frame_method_facts.show"
     assert "Kind: callable" in render_help_text(captured.value.repair.help_target.display)[0]
     unrelated = CoreRuleError(
         expected="a valid value", received="invalid", repair="Repair it.", location="frame.show"
     )
+    assert unrelated.repair is not None
     assert unrelated.repair.help_target.display == "analysis"
 
 
@@ -138,6 +141,7 @@ def test_pending_export_repairs_with_the_returned_complete_frame(
         pending.to_pandas()
     _assert_repair(captured.value, "analysis.analysis_frame.to_pandas")
     assert captured.value.received == "expression"
+    assert captured.value.repair is not None
     assert "compute() or persist()" in captured.value.repair.action
     assert pending.compute().to_pandas()["renamed"].tolist() == [1, 3]
     with pytest.raises(CoreRuleError):
@@ -158,6 +162,7 @@ def test_stale_statistics_keep_the_actual_consumer_and_repair(
     _assert_repair(captured.value, f"analysis.analysis_frame.{consumer}")
     assert captured.value.location == f"frame.{consumer}"
     assert captured.value.expected == "a statistic from this exact Frame input"
+    assert captured.value.repair is not None
     assert "Reacquire the Column on this Frame" in captured.value.repair.action
     current = selected["value"].sum()
     repaired = (
@@ -448,6 +453,7 @@ def test_source_reads_requires_explicit_persist_and_reads_captured_metadata_only
         with pytest.raises(CoreRuleError) as captured:
             _ = frame.source_reads
         _assert_repair(captured.value, "analysis.analysis_frame.source_reads")
+        assert captured.value.repair is not None
         assert "persist()" in captured.value.repair.action
     saved = literal_frame.persist()
 

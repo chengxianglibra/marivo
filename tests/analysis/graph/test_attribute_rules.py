@@ -3,6 +3,7 @@
 import operator
 from dataclasses import replace
 from decimal import Decimal
+from typing import Literal
 
 import pytest
 from ibis.common.deferred import Attr, BinaryOperator, Call, Just, Resolver, UnaryOperator, Variable
@@ -18,6 +19,7 @@ from marivo._definition.expressions import (
     MetricWindow,
     PerReduce,
     PerWeightedMean,
+    PredicateExpression,
     RowExpression,
     RowField,
     SourceAggregate,
@@ -108,12 +110,26 @@ def bindings(
                 output_axis_count=1,
             ),
         )
-    return tuple(
-        binding
-        for edge in children(node)
-        if edge.role in ("operand", "value", "weight")
-        for binding in bindings(edge.child, declared, (*path, edge.index))
-    )
+    result: list[ContributionBinding] = []
+    for edge in children(node):
+        if edge.role in ("operand", "value", "weight"):
+            assert isinstance(
+                edge.child,
+                (
+                    SourceAggregate,
+                    EntityCount,
+                    SourceWeightedMean,
+                    ContributionFilter,
+                    PerReduce,
+                    PerWeightedMean,
+                    MemberCount,
+                    DeclaredMetricRef,
+                    MetricExpression,
+                    MetricWindow,
+                ),
+            )
+            result.extend(bindings(edge.child, declared, (*path, edge.index)))
+    return tuple(result)
 
 
 def build(
@@ -226,7 +242,7 @@ def test_row_permission_preserves_source_stage_and_explicit_assertions() -> None
 
 def test_mean_and_weighted_mean_require_distinct_common_masks() -> None:
     mean = SourceAggregate(field(), "mean", None, nulls="error")
-    weighted = SourceWeightedMean(field(), field("weight"), None, "error", "error")
+    weighted = SourceWeightedMean(field(), field("weight"), None, "error")
     mean_rule, weighted_rule = build(mean), build(weighted)
     assert isinstance(mean_rule, RatioComponentRule)
     assert isinstance(mean_rule.operation, NativeMean)
@@ -384,8 +400,11 @@ def test_calendar_roles_match_across_periods_without_comparing_endpoint_director
     july = captured("2026-07-01", "2026-07-03", builtin_grain("day"))
     august = captured("2026-08-01", "2026-08-03", builtin_grain("day"))
     assert july.period != august.period
-    assert july.calendars[0][1].identity != august.calendars[0][1].identity
-    assert july.calendars[0][1].cells != august.calendars[0][1].cells
+    july_coordinate, august_coordinate = july.calendars[0][1], august.calendars[0][1]
+    assert isinstance(july_coordinate, CalendarCoordinate)
+    assert isinstance(august_coordinate, CalendarCoordinate)
+    assert july_coordinate.identity != august_coordinate.identity
+    assert july_coordinate.cells != august_coordinate.cells
     july_rule = build(node, captured=(july,))
     assert rules_match(july_rule, build(node, captured=(august,)))
 
@@ -399,6 +418,7 @@ def test_calendar_roles_match_across_periods_without_comparing_endpoint_director
     # Role matching deliberately does not replace each endpoint's separate
     # frozen directory/snapshot validation in the parent projection.
     coordinate = august.calendars[0][1]
+    assert isinstance(coordinate, CalendarCoordinate)
     fiscal = semantic_grain(calendar=ref.period_calendar("sales.fiscal"), level="month")
     named = replace(coordinate, grain_spec=fiscal, snapshot_digest="captured-left")
     named_left = replace(august, calendars=(("key.0", named),))
@@ -423,7 +443,7 @@ def test_calendar_roles_match_across_periods_without_comparing_endpoint_director
 
 def test_declared_filtered_and_repeated_uses_have_distinct_paths() -> None:
     declared_ref = ExactRef(ref.metric("sales.revenue"), "v1")
-    predicate = RowExpression(Just(True), ())
+    predicate = PredicateExpression(Just(True), ())
     node = binary(
         operator.add,
         DeclaredMetricRef(declared_ref),
@@ -464,7 +484,9 @@ def test_missing_or_mismatched_component_binding_fails_closed(failure: str) -> N
 
 
 @pytest.mark.parametrize("reducer", ["min", "max", "quantile", "approx_nunique", "approx_median"])
-def test_unsupported_source_reducers_do_not_gain_a_rule(reducer: str) -> None:
+def test_unsupported_source_reducers_do_not_gain_a_rule(
+    reducer: Literal["min", "max", "quantile", "approx_nunique", "approx_median"],
+) -> None:
     node = replace(total(), reducer=reducer, q=0.95 if reducer == "quantile" else None)
     with pytest.raises(AttributeRuleError) as caught:
         build(node)

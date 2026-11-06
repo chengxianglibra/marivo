@@ -397,7 +397,7 @@ def test_retired_status_fold_requires_explicit_sample_reduction(
 
 @pytest.mark.parametrize("parse", ("None", "ms.timestamp()", "ms.timestamp(timezone='UTC')"))
 def test_readiness_defers_native_timestamp_kind_and_authority_without_probing(
-    semantic_project_factory,
+    semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
     monkeypatch: pytest.MonkeyPatch,
     parse: str,
 ) -> None:

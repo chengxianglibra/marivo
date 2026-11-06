@@ -8,15 +8,15 @@ from typing import TypeVar
 
 import ibis.expr.types as ibis_ir
 import pytest
+from ibis.common.deferred import Deferred
 
 import marivo.datasource as md
 import marivo.semantic as ms
 from marivo._definition.types import SumAllExcept, SumAxes
-from marivo.refs import DimensionKind, EntityKind, Ref, SemanticKindTag, TimeDimensionKind
+from marivo._symbolic import EntitySymbol
 from marivo.semantic._deferred_semantics import consume_field, consume_row
 from marivo.semantic._definition_identity import scoped_definition_fingerprint
 from marivo.semantic.catalog import SemanticCatalog
-from marivo.semantic.expressions import Dimension, Measure, TimeField
 from marivo.semantic.expressions import _Entity as Entity
 from marivo.semantic.loader import LoaderContext, loader_context
 from tests.shared_fixtures import captured_catalog, in_memory_datasource_ir
@@ -138,18 +138,30 @@ def _consume(
     *,
     lookup: bool,
     helper_copy: str | None = None,
-) -> Ref[SemanticKindTag]:
-    def entity(path: str) -> Entity | Ref[EntityKind]:
+) -> Deferred:
+    def entity(path: str) -> Entity | EntitySymbol:
         ref = ms.ref.entity(path)
-        return resolve(old, ref) if path == selected and not lookup else ref
+        if path == selected and not lookup:
+            value = resolve(old, ref)
+            assert isinstance(value, Entity)
+            return value
+        return ref
 
-    def dimension(path: str) -> Dimension | Ref[DimensionKind]:
+    def dimension(path: str) -> Deferred:
         ref = ms.ref.dimension(path)
-        return resolve(old, ref) if path == selected and not lookup else ref
+        if path == selected and not lookup:
+            value = resolve(old, ref)
+            assert isinstance(value, Deferred)
+            return value
+        return ref
 
-    def time(path: str) -> TimeField | Ref[TimeDimensionKind]:
+    def time(path: str) -> Deferred:
         ref = ms.ref.time_dimension(path)
-        return resolve(old, ref) if path == selected and not lookup else ref
+        if path == selected and not lookup:
+            value = resolve(old, ref)
+            assert isinstance(value, Deferred)
+            return value
+        return ref
 
     orders = entity("sales.orders")
     if family == "dimension_column":
@@ -248,9 +260,11 @@ def _consume(
     raise AssertionError(f"unknown input family: {family}")
 
 
-def _version(state: SemanticCatalog, ref: Ref[SemanticKindTag]) -> str:
+def _version(state: SemanticCatalog, ref: object) -> str:
+    reference = as_ref(ref)
+    assert reference is not None
     return scoped_definition_fingerprint(
-        root=as_ref(ref),
+        root=reference,
         definitions=state._state.definitions,
         dependencies=state._state.dependencies,
         sidecar=state._state.sidecar,
@@ -299,6 +313,7 @@ def test_capture_helpers_are_frozen_computational_records() -> None:
         _dependencies()
         state = captured_catalog()
     region = resolve(state, ms.ref.dimension("sales.orders.region"))
+    assert isinstance(region, Deferred)
     policy = ms.additive_over(region)
     assert policy.coordinates == ("sales.orders.region",)
     assert policy.version == 1
@@ -312,6 +327,7 @@ def test_pure_measure_additivity_uses_its_frozen_row_scope(policy_kind: str, mod
     with loader_context(_context()):
         _dependencies()
         old = resolve(captured_catalog(), ms.ref.dimension("sales.orders.region"))
+        assert isinstance(old, Deferred)
     with loader_context(_context()):
         _dependencies(changed="sales.orders.region" if mode != "same" else None)
         amount_ref = ms.measure_column(
@@ -324,19 +340,20 @@ def test_pure_measure_additivity_uses_its_frozen_row_scope(policy_kind: str, mod
         state = captured_catalog()
         amount = resolve(state, amount_ref)
         region = resolve(state, ms.ref.dimension("sales.orders.region"))
+        assert isinstance(amount, Deferred)
+        assert isinstance(region, Deferred)
     axis = ms.ref.dimension("sales.orders.region") if mode == "lookup" else old
     for helper_copy in (None, "copy", "deepcopy"):
         policy = ms.additive_over(axis) if policy_kind == "over" else ms.additive_except(axis)
         policy = _copy_helper(policy, helper_copy)
 
         @ms.measure(additivity=policy)
-        def granted() -> Measure:
+        def granted() -> Deferred:
             return amount
 
-        assert isinstance(
-            consume_row(granted).permission, SumAxes if policy_kind == "over" else SumAllExcept
-        )
-        assert consume_row(granted).permission.axes == (consume_field(region).reference,)
+        permission = consume_row(granted).permission
+        assert isinstance(permission, SumAxes if policy_kind == "over" else SumAllExcept)
+        assert permission.axes == (consume_field(region).reference,)
         assert (consume_field(region).reference == consume_field(old).reference) is (mode == "same")
         assert consume_row(granted).root == consume_row(amount).root
 

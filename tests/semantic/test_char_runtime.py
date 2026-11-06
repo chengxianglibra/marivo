@@ -111,15 +111,20 @@ def test_char_entity_preview_and_analysis(
             preview = catalog.preview(
                 entity, scope=md.unpruned(max_rows=10, timeout_seconds=30), limit=10
             )
-            assert {row["id"].rstrip(): row["category"] for row in preview.rows} == {
+            assert all(isinstance(row["id"], str) for row in preview.rows)
+            assert {
+                row["id"].rstrip(): row["category"]
+                for row in preview.rows
+                if isinstance(row["id"], str)
+            } == {
                 "one": label,
                 "two": label,
                 "three": empty,
                 "four": None,
                 "five": cat,
             }
-            category = catalog_value(catalog, f"sales.{path}.category", kind="field")
-            amount = catalog_value(catalog, f"sales.{path}.amount", kind="field")
+            category = catalog_value(catalog, f"sales.{path}.category", kind="dimension")
+            amount = catalog_value(catalog, f"sales.{path}.amount", kind="measure")
             rows = session.observe({"total": amount.sum()}, by=(category,)).compute().to_pandas()
             actual = {
                 None if pd.isna(key) else key: value

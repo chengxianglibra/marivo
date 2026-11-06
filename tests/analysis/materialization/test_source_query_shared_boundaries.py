@@ -97,8 +97,8 @@ def test_shared_selected_keys_keep_both_host_endpoint_values(
     shared_session: Session, monkeypatch: pytest.MonkeyPatch, backend: str
 ) -> None:
     session = shared_session
-    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
-    category = catalog_value(session.catalog, "sales.facts.category", kind="field")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
+    category = catalog_value(session.catalog, "sales.facts.category", kind="dimension")
     producer = session.observe({"n": amount.count()}, by=(category,))
     chosen = producer.where(producer["n"] >= 0)
     keys = session.population_from(chosen, on=((chosen.axes[0], category),))
@@ -122,14 +122,15 @@ def test_shared_predicate_keeps_plain_and_per_grids_independent(
     shared_session: Session, monkeypatch: pytest.MonkeyPatch, same_grid: bool, backend: str
 ) -> None:
     session = shared_session
-    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
-    category = catalog_value(session.catalog, "sales.facts.category", kind="field")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
+    category = catalog_value(session.catalog, "sales.facts.category", kind="dimension")
     attributes = session.read(
-        session.members(session.catalog.get("entity:sales.facts")), {"amount": amount}
+        session.members(catalog_value(session.catalog, "sales.facts", kind="entity")),
+        {"amount": amount},
     )
     chosen = attributes.where(attributes["amount"] >= 10)
     keys = session.population_from(
-        chosen, on=((chosen.axes[0], session.catalog.get("entity:sales.facts")),)
+        chosen, on=((chosen.axes[0], catalog_value(session.catalog, "sales.facts", kind="entity")),)
     )
     total = amount.sum().where(mv.in_population(keys))
     query = session.observe(
@@ -153,8 +154,8 @@ def test_shared_query_population_remains_a_real_host_sample_domain(
     shared_session: Session, monkeypatch: pytest.MonkeyPatch, selected: bool
 ) -> None:
     session = shared_session
-    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
-    category = catalog_value(session.catalog, "sales.facts.category", kind="field")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
+    category = catalog_value(session.catalog, "sales.facts.category", kind="dimension")
     producer = session.observe({"n": amount.count()}, by=(category,))
     chosen = producer.where(producer["n"] >= 0) if selected else producer
     samples = session.population_from(chosen, on=((chosen.axes[0], category),))
@@ -208,8 +209,8 @@ def test_shared_selected_host_domain_stays_fixed_when_source_ranking_changes(
     )
     monkeypatch.chdir(tmp_path)
     session = mv.session.get_or_create("shared-fixed-selection", timezone="UTC")
-    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
-    category = catalog_value(session.catalog, "sales.facts.category", kind="field")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
+    category = catalog_value(session.catalog, "sales.facts.category", kind="dimension")
     producer = session.observe({"n": amount.sum()}, by=(category,))
     chosen = (
         producer.top(1, by=producer["n"])
@@ -238,8 +239,8 @@ def test_shared_empty_selection_cannot_erase_parent_strict_error(
     shared_session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     session = shared_session
-    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
-    category = catalog_value(session.catalog, "sales.facts.category", kind="field")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
+    category = catalog_value(session.catalog, "sales.facts.category", kind="dimension")
     producer = session.observe({"n": amount.sum(nulls="error")}, by=(category,))
     chosen = producer.top(0, by=producer["n"])
     samples = session.population_from(chosen, on=((chosen.axes[0], category),))
@@ -266,9 +267,9 @@ def test_shared_population_does_not_merge_distinct_window_occurrences(
     with _session(
         backend, profile, tmp_path, monkeypatch, semantic_project_factory, window=True
     ) as (session, _):
-        amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
-        customer = catalog_value(session.catalog, "sales.facts.customer", kind="field")
-        day = catalog_value(session.catalog, "sales.facts.day", kind="field")
+        amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
+        customer = catalog_value(session.catalog, "sales.facts.customer", kind="dimension")
+        day = catalog_value(session.catalog, "sales.facts.day", kind="time_dimension")
         producer = session.observe({"n": amount.count()}, by=(customer,))
         chosen = producer.where(producer["n"] > 0)
         selected = session.population_from(chosen, on=((chosen.axes[0], customer),))

@@ -71,16 +71,19 @@ def test_bandwidth_formulas_named_local_and_row_execution_keep_values_and_units(
 ) -> None:
     session = traffic_session
     catalog = session.catalog
-    daily = catalog_value(catalog, "traffic.flows.total_in_flow_value", kind="field")
-    hourly = catalog_value(catalog, "traffic.flows.total_in_p95_flow_value", kind="field")
-    group = catalog_value(catalog, "traffic.flows.category", kind="field")
+    daily = catalog_value(catalog, "traffic.flows.total_in_flow_value", kind="measure")
+    hourly = catalog_value(catalog, "traffic.flows.total_in_p95_flow_value", kind="measure")
+    group = catalog_value(catalog, "traffic.flows.category", kind="dimension")
+    daily_metric = catalog.get("metric:traffic.daily_bandwidth")
+    hourly_metric = catalog.get("metric:traffic.hourly_p95_bandwidth")
+    assert daily_metric.kind == "metric" and hourly_metric.kind == "metric"
     metrics = {
-        "daily": catalog.get("metric:traffic.daily_bandwidth"),
-        "hourly": catalog.get("metric:traffic.hourly_p95_bandwidth"),
+        "daily": daily_metric,
+        "hourly": hourly_metric,
         "local_daily": ms.rescale(daily.sum(), divisor=86400 * 1024**3, unit="GiB/s"),
         "local_hourly": ms.rescale(hourly.sum(), divisor=3600 * 1024**3, unit="GiB/s"),
         "row_daily": catalog_value(
-            catalog, "traffic.flows.row_daily_bandwidth", kind="field"
+            catalog, "traffic.flows.row_daily_bandwidth", kind="measure"
         ).sum(),
         "combined_rows": (
             ms.rescale(daily, divisor=86400 * 1024**3, unit="GiB/s")
@@ -100,7 +103,9 @@ def test_bandwidth_formulas_named_local_and_row_execution_keep_values_and_units(
     assert {column.name: column.unit for column in saved._schema.values} == {
         name: "By" if name == "ordinary" else "GiB/s" for name in metrics
     }
-    assert catalog.get("measure:traffic.flows.total_in_flow_value").definition.unit == "By"
+    declared = catalog.get("measure:traffic.flows.total_in_flow_value")
+    assert declared.kind == "measure"
+    assert declared.definition.unit == "By"
     reopened = session.persisted_frame(saved.artifact_id)
     assert reopened.to_pandas().equals(saved_data)
     assert reopened._schema.values == saved._schema.values
@@ -110,8 +115,8 @@ def test_rescale_decimal_division_and_divisor_one_keep_existing_numeric_null_rul
     traffic_session: Session,
 ) -> None:
     session = traffic_session
-    amount = catalog_value(session.catalog, "traffic.flows.amount", kind="field")
-    group = catalog_value(session.catalog, "traffic.flows.category", kind="field")
+    amount = catalog_value(session.catalog, "traffic.flows.amount", kind="measure")
+    group = catalog_value(session.catalog, "traffic.flows.category", kind="dimension")
     frame = session.observe(
         {
             "row": ms.rescale(amount, divisor=Decimal("0.1"), unit="scaled_CNY").sum(),
@@ -162,9 +167,9 @@ def test_large_integer_rescale_and_mixed_metrics_use_float64_before_local_arithm
         "unit='By', additivity=ms.additive_all())\n"
     )
     session = mv.session.get_or_create("large-rescale", timezone="UTC")
-    large = catalog_value(session.catalog, "traffic.flows.total_in_flow_value", kind="field")
-    small = catalog_value(session.catalog, "traffic.other.bytes", kind="field")
-    floating = catalog_value(session.catalog, "traffic.other.floating", kind="field")
+    large = catalog_value(session.catalog, "traffic.flows.total_in_flow_value", kind="measure")
+    small = catalog_value(session.catalog, "traffic.other.bytes", kind="measure")
+    floating = catalog_value(session.catalog, "traffic.other.floating", kind="measure")
     native = (
         session.observe({"native_pib": ms.rescale(large.sum(), divisor=1024**5, unit="PiB")})
         .compute()
@@ -192,6 +197,7 @@ def test_large_integer_rescale_and_mixed_metrics_use_float64_before_local_arithm
         session.observe({"overflowing_bytes": large.sum() + small.sum()}).compute()
     error = captured.value
     assert error.expected == "valid demanded numeric values"
+    assert error.received is not None
     assert "overflowing_bytes" in error.received
     assert "Add" in error.received
     assert "int64[pyarrow]" in error.received

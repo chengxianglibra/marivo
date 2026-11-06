@@ -242,9 +242,9 @@ def test_native_calendar_and_actual_samples_without_multipart(
                 }
             )
             session = mv.session.get_or_create("native-calendar-" + profile, timezone="UTC")
-            point = catalog_value(session.catalog, "sales.facts.point", kind="field")
-            amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
-            category = catalog_value(session.catalog, "sales.facts.category", kind="field")
+            point = catalog_value(session.catalog, "sales.facts.point", kind="time_dimension")
+            amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
+            category = catalog_value(session.catalog, "sales.facts.category", kind="dimension")
             total = amount.sum(time=point)
             trace = capture_source(monkeypatch)
             scope = session.time_scope(start="2026-01-01", end="2026-01-16")

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from pathlib import Path
-from typing import NoReturn, TypeAlias
+from typing import Literal, NoReturn, TypeAlias
 
 import pytest
 from ibis.common.deferred import Deferred
@@ -18,7 +18,7 @@ from marivo.refs import ref as ref_factory
 from marivo.semantic._deferred_semantics import consume_metric, consume_row
 from marivo.semantic.catalog import SemanticCatalog
 from marivo.semantic.errors import ErrorKind, SemanticExpressionError
-from marivo.semantic.expressions import catalog_metric_definition, entity_exact
+from marivo.semantic.expressions import _Entity, catalog_metric_definition, entity_exact
 from marivo.semantic.reader import SemanticProject
 from tests.shared_fixtures import catalog_value
 from tests.shared_fixtures import resolve_test_symbol as resolve
@@ -48,6 +48,12 @@ def _catalog(factory: ProjectFactory, objects: str = _DECLARATIONS_PY) -> Semant
     return SemanticCatalog(project)
 
 
+def _metric_ref_node(value: Deferred | ms.Metric) -> DeclaredMetricRef:
+    node = consume_metric(value).node
+    assert isinstance(node, DeclaredMetricRef)
+    return node
+
+
 def test_module_level_declarations_publish_once_under_their_function_name(
     semantic_project_factory: ProjectFactory,
 ) -> None:
@@ -72,19 +78,21 @@ def test_catalog_metric_resolves_through_declared_metric_ref(
     revenue = resolve(catalog, ms.ref.metric("sales.revenue"))
     orders = resolve(catalog, ms.ref.entity("sales.orders"))
     assert type(revenue) is Deferred
+    assert isinstance(orders, _Entity)
     assert isinstance(consume_metric(revenue).node, DeclaredMetricRef)
-    assert consume_metric(revenue).node.ref.ref == ref_factory.metric("sales.revenue")
-    assert consume_metric(revenue).node.ref.version.startswith("sha256:")
+    assert _metric_ref_node(revenue).ref.ref == ref_factory.metric("sales.revenue")
+    assert _metric_ref_node(revenue).ref.version.startswith("sha256:")
     assert consume_metric(revenue).roots == (entity_exact(orders),)
     assert consume_metric(revenue).unit == "CNY"
     stored = catalog._state.registry.declared_metrics["sales.revenue"]
     assert (
-        catalog_metric_definition(catalog, consume_metric(revenue).node.ref)
+        catalog_metric_definition(catalog, _metric_ref_node(revenue).ref)
         == consume_metric(stored).node
     )
     aov = revenue / resolve(catalog, ms.ref.metric("sales.order_count"))
-    assert isinstance(consume_metric(aov).node, MetricExpression)
-    assert isinstance(consume_metric(aov).node.operands[0], DeclaredMetricRef)
+    aov_node = consume_metric(aov).node
+    assert isinstance(aov_node, MetricExpression)
+    assert isinstance(aov_node.operands[0], DeclaredMetricRef)
 
 
 def test_catalog_closure_expands_to_the_stored_declaration_body(
@@ -95,6 +103,7 @@ def test_catalog_closure_expands_to_the_stored_declaration_body(
     catalog = _catalog(semantic_project_factory)
     revenue = resolve(catalog, ms.ref.metric("sales.revenue"))
     stored = catalog._state.registry.declared_metrics["sales.revenue"]
+    assert type(revenue) is Deferred
     closure = catalog_closure(catalog, revenue)
     assert consume_metric(stored).node in closure.order
     assert computation_fingerprint(closure.order[-1]) == computation_fingerprint(
@@ -120,14 +129,19 @@ def test_published_versions_follow_consumed_definitions(
     count_ref = ms.ref.metric("sales.order_count")
     first_revenue = resolve(first, revenue_ref)
     second_revenue = resolve(second, revenue_ref)
+    assert type(first_revenue) is Deferred
+    assert type(second_revenue) is Deferred
     assert isinstance(consume_metric(first_revenue).node, DeclaredMetricRef)
     assert isinstance(consume_metric(second_revenue).node, DeclaredMetricRef)
     assert (
-        consume_metric(first_revenue).node.ref.version
-        != consume_metric(second_revenue).node.ref.version
+        _metric_ref_node(first_revenue).ref.version != _metric_ref_node(second_revenue).ref.version
     )
-    first_count = consume_metric(resolve(first, count_ref)).node
-    second_count = consume_metric(resolve(second, count_ref)).node
+    first_count_value = resolve(first, count_ref)
+    second_count_value = resolve(second, count_ref)
+    assert type(first_count_value) is Deferred
+    assert type(second_count_value) is Deferred
+    first_count = consume_metric(first_count_value).node
+    second_count = consume_metric(second_count_value).node
     assert isinstance(first_count, DeclaredMetricRef)
     assert isinstance(second_count, DeclaredMetricRef)
     assert first_count.ref.version == second_count.ref.version
@@ -216,7 +230,7 @@ def test_collection_reads_no_business_source(
     [("cycle", ErrorKind.DEFINITION_CYCLE), ("unresolved", ErrorKind.MISSING_METRIC_REF)],
 )
 def test_graph_failures_keep_their_definition_kind(
-    definition_kind: str, error_kind: ErrorKind
+    definition_kind: Literal["cycle", "unresolved"], error_kind: ErrorKind
 ) -> None:
     error = DefinitionGraphError(
         "boom", kind=definition_kind, path=("DeclaredMetricRef.metric[0]",)
@@ -232,8 +246,10 @@ def test_catalog_closure_reports_an_unpublished_metric(
     from marivo.semantic.expressions import catalog_closure
 
     catalog = _catalog(semantic_project_factory)
+    revenue = resolve(catalog, ms.ref.metric("sales.revenue"))
+    assert type(revenue) is Deferred
     missing = declare(
-        resolve(catalog, ms.ref.metric("sales.revenue")),
+        revenue,
         DeclarationRecord(
             kind="metric",
             name="missing",
@@ -280,17 +296,23 @@ def test_published_single_source_metric_keeps_where(
     catalog = _catalog(semantic_project_factory)
     status = catalog_value(catalog, "sales.orders.status", kind="field")
     order_count = catalog.get("metric:sales.order_count")
+    assert order_count.kind == "metric"
+    revenue = catalog.get("metric:sales.revenue")
+    assert revenue.kind == "metric"
+    average = catalog.get("metric:sales.average_order_value")
+    assert average.kind == "metric"
     paid = order_count.where(status == "paid")
-    assert isinstance(consume_metric(paid).node, ContributionFilter)
-    assert isinstance(consume_metric(paid).node.operand, DeclaredMetricRef)
+    paid_node = consume_metric(paid).node
+    assert isinstance(paid_node, ContributionFilter)
+    assert isinstance(paid_node.operand, DeclaredMetricRef)
     settled = paid.where(status != "void")
     assert isinstance(consume_metric(settled).node, ContributionFilter)
     assert isinstance(
-        consume_metric(catalog.get("metric:sales.revenue").where(status == "paid")).node,
+        consume_metric(revenue.where(status == "paid")).node,
         ContributionFilter,
     )
     with pytest.raises(SemanticExpressionError) as raised:
-        consume_metric(catalog.get("metric:sales.average_order_value").where(status == "paid"))
+        consume_metric(average.where(status == "paid"))
     assert raised.value.kind == ErrorKind.INVALID_WHERE_SCOPE
 
 
@@ -318,25 +340,25 @@ def test_closure_resolves_an_updated_metric_by_current_path(
     assert isinstance(old_revenue, ms.Metric)
     captured_formula = old_revenue.definition.formula
     assert isinstance(consume_metric(old_revenue).node, DeclaredMetricRef)
-    old_version = consume_metric(old_revenue).node.ref.version
+    old_version = _metric_ref_node(old_revenue).ref.version
     second = _changed_catalog(
         semantic_project_factory, tmp_path, 'status == "paid"', 'status == "settled"'
     )
     current = second.get("metric:sales.revenue")
     assert isinstance(current, ms.Metric)
     assert isinstance(consume_metric(current).node, DeclaredMetricRef)
-    assert consume_metric(current).node.ref.version != old_version
+    assert _metric_ref_node(current).ref.version != old_version
     closure = catalog_closure(second, old_revenue)
     assert computation_fingerprint(closure.order[-1]) == computation_fingerprint(
         consume_metric(current).node
     )
-    assert consume_metric(current).node.ref in closure.refs
-    assert consume_metric(old_revenue).node.ref not in closure.refs
+    assert _metric_ref_node(current).ref in closure.refs
+    assert _metric_ref_node(old_revenue).ref not in closure.refs
     assert (
         consume_metric(second._state.registry.declared_metrics["sales.revenue"]).node
         in closure.order
     )
-    assert consume_metric(old_revenue).node.ref.version == old_version
+    assert _metric_ref_node(old_revenue).ref.version == old_version
     assert old_revenue.definition.formula == captured_formula
 
 
@@ -347,7 +369,9 @@ def test_closure_rechecks_where_scope_against_the_current_definition(
 
     first = _catalog(semantic_project_factory)
     status = catalog_value(first, "sales.orders.status", kind="field")
-    paid_orders = first.get("metric:sales.order_count").where(status == "paid")
+    order_count = first.get("metric:sales.order_count")
+    assert order_count.kind == "metric"
+    paid_orders = order_count.where(status == "paid")
     second = _changed_catalog(
         semantic_project_factory,
         tmp_path,

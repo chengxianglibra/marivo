@@ -5,11 +5,10 @@ from pathlib import Path
 
 import duckdb
 import pytest
-from ibis.common.deferred import Deferred
 
 import marivo.analysis as mv
 from marivo.analysis.errors import AnalysisError
-from marivo.semantic._expression_values import RowExpression
+from marivo.semantic._expression_values import RowExpression, RowPredicate
 from marivo.semantic.errors import SemanticError
 from marivo.semantic.reader import SemanticProject
 from tests.shared_fixtures import catalog_value
@@ -73,12 +72,12 @@ def predicate_session(
 
 
 def _preferred(session: mv.Session) -> mv.Population:
-    entity = session.catalog.get("entity:sales.order")
+    entity = catalog_value(session.catalog, "sales.order", kind="entity")
     return mv.coordinates(by=(mv.identity(entity),), keys=((("O1",),), (("O2",),), (("O3",),)))
 
 
-def _condition(session: mv.Session, form: str) -> Deferred:
-    field = catalog_value(session.catalog, "sales.order.status", kind="field") == "paid"
+def _condition(session: mv.Session, form: str) -> RowPredicate:
+    field = catalog_value(session.catalog, "sales.order.status", kind="dimension") == "paid"
     member = mv.in_population(_preferred(session))
     if form == "and":
         return field & member
@@ -106,8 +105,8 @@ def test_mixed_condition_public_consumers(
 ) -> None:
     """U01/U02: six rows include every nullable field/member truth-table case."""
     session = predicate_session
-    amount = catalog_value(session.catalog, "sales.order.amount", kind="field")
-    entity = session.catalog.get("entity:sales.order")
+    amount = catalog_value(session.catalog, "sales.order.amount", kind="measure")
+    entity = catalog_value(session.catalog, "sales.order", kind="entity")
     condition = _condition(session, form)
     assert isinstance(condition, RowExpression)
     observed = session.observe({"amount": amount.sum()}, where=condition).compute().to_pandas()
@@ -121,8 +120,8 @@ def test_mixed_condition_public_consumers(
 def test_reverse_nested_and_repeated_where(predicate_session: mv.Session) -> None:
     """U01: operand order and extraction preserve boolean meaning."""
     session = predicate_session
-    amount = catalog_value(session.catalog, "sales.order.amount", kind="field")
-    paid = catalog_value(session.catalog, "sales.order.status", kind="field") == "paid"
+    amount = catalog_value(session.catalog, "sales.order.amount", kind="measure")
+    paid = catalog_value(session.catalog, "sales.order.status", kind="dimension") == "paid"
     member = mv.in_population(_preferred(session))
     values = (
         session.observe(
@@ -142,9 +141,9 @@ def test_reverse_nested_and_repeated_where(predicate_session: mv.Session) -> Non
 def test_correlated_null_coordinates_and_composite_identity(predicate_session: mv.Session) -> None:
     """U02: tuple matching preserves correlation, null categories and tenant identity."""
     session = predicate_session
-    region = catalog_value(session.catalog, "sales.order.region", kind="field")
-    channel = catalog_value(session.catalog, "sales.order.channel", kind="field")
-    amount = catalog_value(session.catalog, "sales.order.amount", kind="field")
+    region = catalog_value(session.catalog, "sales.order.region", kind="dimension")
+    channel = catalog_value(session.catalog, "sales.order.channel", kind="dimension")
+    amount = catalog_value(session.catalog, "sales.order.amount", kind="measure")
     joint = mv.coordinates(by=(region, channel), keys=(("east", "web"), ("west", None)))
     selected = session.observe({"amount": amount.sum()}, where=mv.in_population(joint)).compute()
     assert selected.to_pandas()["amount"].tolist() == [100]
@@ -152,13 +151,15 @@ def test_correlated_null_coordinates_and_composite_identity(predicate_session: m
         by=(region, channel),
         keys=(("east", "web"), ("east", None), ("west", "web"), ("west", None)),
     )
-    keys = session.frame(all_keys.where(~mv.in_population(joint))).compute().to_pandas()
+    remaining = all_keys.where(~mv.in_population(joint))
+    assert isinstance(remaining, mv.Population)
+    keys = session.frame(remaining).compute().to_pandas()
     assert keys.iloc[:, 0].tolist() == ["east", "west"]
     assert keys.iloc[:, 1].isna().tolist() == [True, False]
     assert keys.iloc[1, 1] == "web"
-    tenant = session.catalog.get("entity:sales.tenant_order")
+    tenant = catalog_value(session.catalog, "sales.tenant_order", kind="entity")
     population = mv.coordinates(by=(mv.identity(tenant),), keys=((("A", "1"),),))
-    tenant_amount = catalog_value(session.catalog, "sales.tenant_order.amount", kind="field")
+    tenant_amount = catalog_value(session.catalog, "sales.tenant_order.amount", kind="measure")
     result = session.observe({"amount": tenant_amount.sum()}, where=mv.in_population(population))
     assert result.compute().to_pandas()["amount"].tolist() == [7]
     with pytest.raises((AnalysisError, SemanticError), match="None"):
@@ -168,8 +169,8 @@ def test_correlated_null_coordinates_and_composite_identity(predicate_session: m
 def test_empty_unit_relative_complements_and_output_domain(predicate_session: mv.Session) -> None:
     """U03: conditions select existing rows; complete requested coordinates survive."""
     session = predicate_session
-    amount = catalog_value(session.catalog, "sales.order.amount", kind="field")
-    region = catalog_value(session.catalog, "sales.order.region", kind="field")
+    amount = catalog_value(session.catalog, "sales.order.amount", kind="measure")
+    region = catalog_value(session.catalog, "sales.order.region", kind="dimension")
     empty = mv.coordinates(by=(region,), keys=())
     unit = mv.coordinates(by=(), keys=((),))
     empty_unit = mv.coordinates(by=(), keys=())
@@ -188,7 +189,9 @@ def test_empty_unit_relative_complements_and_output_domain(predicate_session: mv
     )
     assert result["none"].tolist() == [0]
     assert result.iloc[0, 1:].tolist() == [0, 0, 165, 165]
-    assert session.frame(empty.where(~mv.in_population(empty))).compute().to_pandas().empty
+    empty_complement = empty.where(~mv.in_population(empty))
+    assert isinstance(empty_complement, mv.Population)
+    assert session.frame(empty_complement).compute().to_pandas().empty
     output = mv.coordinates(by=(region,), keys=(("east",), ("missing",)))
     retained = session.observe(
         {"amount": amount.sum()}, by=output, where=_condition(session, "and")
@@ -205,9 +208,9 @@ def test_boolean_membership_does_not_shield_strict_checks(
 ) -> None:
     """U04: invalid field functions remain checked across membership booleans."""
     session = predicate_session
-    amount = catalog_value(session.catalog, "sales.order.amount", kind="field")
-    divisor = catalog_value(session.catalog, "sales.order.divisor", kind="field")
-    entity = session.catalog.get("entity:sales.order")
+    amount = catalog_value(session.catalog, "sales.order.amount", kind="measure")
+    divisor = catalog_value(session.catalog, "sales.order.divisor", kind="measure")
+    entity = catalog_value(session.catalog, "sales.order", kind="entity")
     risky = divisor.log() > 0
     population = (
         mv.coordinates(by=(mv.identity(entity),), keys=((("O1",),),))
@@ -225,15 +228,15 @@ def test_boolean_membership_does_not_shield_strict_checks(
 def test_population_count_is_not_reselected(predicate_session: mv.Session) -> None:
     """U05: one missing literal identity belongs to the independent denominator."""
     session = predicate_session
-    entity = session.catalog.get("entity:sales.order")
-    amount = catalog_value(session.catalog, "sales.order.amount", kind="field")
+    entity = catalog_value(session.catalog, "sales.order", kind="entity")
+    amount = catalog_value(session.catalog, "sales.order.amount", kind="measure")
     population = mv.coordinates(
         by=(mv.identity(entity),), keys=tuple(((value,),) for value in ("O1", "O2", "O3", "O999"))
     )
     member = mv.in_population(population)
     fact_count = entity.count().where(member)
     condition = (
-        catalog_value(session.catalog, "sales.order.status", kind="field") == "paid"
+        catalog_value(session.catalog, "sales.order.status", kind="dimension") == "paid"
     ) & member
     result = (
         session.observe(
@@ -253,9 +256,9 @@ def test_population_count_is_not_reselected(predicate_session: mv.Session) -> No
 def test_independent_roots_and_common_weighted_pairs(predicate_session: mv.Session) -> None:
     """U05: each root reduces its own rows and value/weight selection stays paired."""
     session = predicate_session
-    amount = catalog_value(session.catalog, "sales.order.amount", kind="field")
-    weight = catalog_value(session.catalog, "sales.order.divisor", kind="field")
-    refund = catalog_value(session.catalog, "sales.refund.amount", kind="field")
+    amount = catalog_value(session.catalog, "sales.order.amount", kind="measure")
+    weight = catalog_value(session.catalog, "sales.order.divisor", kind="measure")
+    refund = catalog_value(session.catalog, "sales.refund.amount", kind="measure")
     unit = mv.coordinates(by=(), keys=((),))
     independent = (
         session.observe({"net": amount.sum() - refund.sum()}, where=mv.in_population(unit) | False)
@@ -278,8 +281,8 @@ def test_pure_field_branch_demand_and_constant_producer_failure(
 ) -> None:
     """U04/U06: pure field branches retain protection; constant members retain producers."""
     session = predicate_session
-    amount = catalog_value(session.catalog, "sales.order.amount", kind="field")
-    divisor = catalog_value(session.catalog, "sales.order.divisor", kind="field")
+    amount = catalog_value(session.catalog, "sales.order.amount", kind="measure")
+    divisor = catalog_value(session.catalog, "sales.order.divisor", kind="measure")
     risky = amount / divisor
     guarded = (divisor != 0).ifelse(risky, 0) > 0
     result = (
@@ -290,7 +293,7 @@ def test_pure_field_branch_demand_and_constant_producer_failure(
         .to_pandas()
     )
     assert result["amount"].tolist() == [100]
-    entity = session.catalog.get("entity:sales.order")
+    entity = catalog_value(session.catalog, "sales.order", kind="entity")
     source = session.read(session.members(entity), {"amount": amount})
     invalid = source.select({"invalid": source["amount"] * 1e308})
     empty = invalid.top(0, by=invalid["invalid"])
@@ -306,38 +309,38 @@ def test_pure_field_branch_demand_and_constant_producer_failure(
 def test_native_grammar_and_consumer_repairs(predicate_session: mv.Session) -> None:
     """U01/U04: invalid member methods and unselected leaves cannot bypass admission."""
     session = predicate_session
-    amount = catalog_value(session.catalog, "sales.order.amount", kind="field")
-    paid = catalog_value(session.catalog, "sales.order.status", kind="field") == "paid"
+    amount = catalog_value(session.catalog, "sales.order.amount", kind="measure")
+    paid = catalog_value(session.catalog, "sales.order.status", kind="dimension") == "paid"
     population = _preferred(session)
     member = mv.in_population(population)
     invalid_conditions = (
         lambda: member == True,  # noqa: E712 - deliberately invalid membership comparison
         lambda: member.isnull(),
-        lambda: member.cast("boolean"),
-        lambda: member + 1,
+        lambda: member.cast("boolean"),  # type: ignore[misc]  # Deliberately invalid method.
+        lambda: member + 1,  # type: ignore[operator]  # Deliberately invalid arithmetic.
     )
     for condition in invalid_conditions:
         with pytest.raises((AnalysisError, SemanticError)):
-            session.observe({"amount": amount.sum()}, where=condition())
+            session.observe({"amount": amount.sum()}, where=condition())  # type: ignore[arg-type]  # Invalid conditions are intentional.
     with pytest.raises((AnalysisError, SemanticError)) as captured:
         population.where(member | paid)
     assert "members" in str(captured.value)
     with pytest.raises((AnalysisError, SemanticError)):
         session.observe({"amount": amount.sum(where=member)})
-    foreign = catalog_value(session.catalog, "sales.refund.amount", kind="field")
+    foreign = catalog_value(session.catalog, "sales.refund.amount", kind="measure")
     with pytest.raises((AnalysisError, SemanticError)):
         session.observe({"amount": amount.sum()}, where=member | ((foreign > 0) & False))
     frame = session.observe({"amount": amount.sum()})
     with pytest.raises(AnalysisError):
-        frame.where(paid)
+        frame.where(paid)  # type: ignore[arg-type]  # A source predicate is not a Frame column.
 
 
 def test_fixed_and_pending_frame_keys_in_nested_conditions(predicate_session: mv.Session) -> None:
     """U06: public population_from retains exact fixed input and pending selection."""
     session = predicate_session
-    entity = session.catalog.get("entity:sales.order")
-    amount = catalog_value(session.catalog, "sales.order.amount", kind="field")
-    status = catalog_value(session.catalog, "sales.order.status", kind="field")
+    entity = catalog_value(session.catalog, "sales.order", kind="entity")
+    amount = catalog_value(session.catalog, "sales.order.amount", kind="measure")
+    status = catalog_value(session.catalog, "sales.order.status", kind="dimension")
     source = session.read(session.members(entity), {"amount": amount})
     chosen = source.where(source["amount"] > 50)
     fixed = chosen.persist()

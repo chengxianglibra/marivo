@@ -17,10 +17,10 @@ def test_metric_ref_requires_two_segment_path() -> None:
 
 def test_ref_factory_namespace_is_immutable() -> None:
     with pytest.raises(AttributeError):
-        ms.ref.metric = lambda _path: None  # type: ignore[method-assign]
+        ms.ref.metric = ms.ref.metric  # type: ignore[method-assign]  # Test immutability.
 
 
 def test_field_ref_bind_without_binding_context_raises() -> None:
     with pytest.raises(SemanticRuntimeError) as exc_info:
-        ms.bind(ms.ref.dimension("sales.orders.country"), "table")  # type: ignore[arg-type]
+        ms.bind(ms.ref.dimension("sales.orders.country"), "table")
     assert exc_info.value.kind == "binding_context_missing"

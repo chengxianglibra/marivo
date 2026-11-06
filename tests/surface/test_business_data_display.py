@@ -7,16 +7,17 @@ from decimal import Decimal
 import pandas as pd
 import pytest
 
-import marivo.semantic as ms
 from marivo._data_render import _DataCard
 from marivo.datasource.manage import RawSqlResult
 from marivo.preview import PreviewCoverage, PreviewResult
-from tests.support.refs import as_ref
+from marivo.refs import ref as ref_factory
 
 
 @pytest.fixture(params=("preview", "raw_sql"))
 def result(request: pytest.FixtureRequest) -> PreviewResult | RawSqlResult:
-    rows = tuple({"amount": Decimal(f"9007199254740993.{i:06d}")} for i in range(12))
+    rows: tuple[dict[str, object], ...] = tuple(
+        {"amount": Decimal(f"9007199254740993.{i:06d}")} for i in range(12)
+    )
     if request.param == "preview":
         return PreviewResult(
             kind="semantic_metric",
@@ -31,7 +32,7 @@ def result(request: pytest.FixtureRequest) -> PreviewResult | RawSqlResult:
             coverage=PreviewCoverage((), 13, "truncated", "sample_only"),
         )
     return RawSqlResult(
-        _datasource=as_ref(ms.ref.datasource("warehouse")),
+        _datasource=ref_factory.datasource("warehouse"),
         backend_type="duckdb",
         sql="SELECT amount",
         reason="inspect amounts",
@@ -110,7 +111,7 @@ def test_invalid_controls_reject_before_reading(result: PreviewResult | RawSqlRe
         for value in invalid_values:
             with pytest.raises(ValueError, match=argument):
                 # Runtime invalid inputs deliberately bypass static signatures.
-                result.show(**{argument: value})
+                result.show(**{argument: value})  # type: ignore[arg-type]  # Invalid controls.
 
 
 def test_byte_budget_must_be_positive(result: PreviewResult | RawSqlResult) -> None:

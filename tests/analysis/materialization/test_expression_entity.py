@@ -64,7 +64,7 @@ def test_transformed_grain_and_cold_terminal_reads(
     monkeypatch.setenv("MARIVO_PROJECT_ROOT", str(tmp_path))
     session = mv.session.get_or_create("expression-entity")
     logical = session.observe(
-        {"value": session.catalog.get("metric:sales.revenue")},
+        {"value": catalog_value(session.catalog, "sales.revenue", kind="metric")},
         by=(catalog_value(session.catalog, "sales.regional.region", kind="field"),),
     )
     result = logical.persist()
@@ -81,7 +81,7 @@ def test_transformed_grain_and_cold_terminal_reads(
     project(tmp_path, "raw.amount > 15")
     other = mv.session.get_or_create("changed-expression")
     changed = other.observe(
-        {"value": other.catalog.get("metric:sales.revenue")},
+        {"value": catalog_value(other.catalog, "sales.revenue", kind="metric")},
         by=(catalog_value(other.catalog, "sales.regional.region", kind="field"),),
     )
     assert isinstance(changed._backing, ExpressionFrameBacking)
@@ -119,7 +119,9 @@ def test_output_keys_rejected_before_run(tmp_path: Path, monkeypatch: pytest.Mon
     monkeypatch.setenv("MARIVO_PROJECT_ROOT", str(tmp_path))
     session = mv.session.get_or_create("invalid-output-key")
     with pytest.raises(ms.errors.SemanticRuntimeError) as caught:
-        session.frame(session.members(session.catalog.get("entity:sales.regional"))).compute()
+        session.frame(
+            session.members(catalog_value(session.catalog, "sales.regional", kind="entity"))
+        ).compute()
     cause = caught.value
     assert cause.expected == "primary_key 'amount' present on the Entity output schema"
     assert cause.received == "output columns: 'region', 'day', 'total'"

@@ -120,7 +120,8 @@ def test_named_and_anonymous_metrics_execute_and_reopen_without_semantic_reads(
     session = mv.session.get_or_create("current-metric", timezone="UTC")
     current = session.catalog
     named = current.get("metric:sales.revenue")
-    anonymous = catalog_value(current, "sales.orders.amount", kind="field").sum()
+    assert named.kind == "metric"
+    anonymous = catalog_value(current, "sales.orders.amount", kind="measure").sum()
     artifact = session.observe({"named": named, "anonymous": anonymous}).persist()
     expected = artifact.to_pandas()
     assert expected["named"].tolist() == [100]

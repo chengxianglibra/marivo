@@ -18,6 +18,7 @@ from marivo.datasource.errors import (
     DatasourceLoadError,
     DatasourceMissingError,
 )
+from marivo.datasource.source import TableSource
 from marivo.semantic.errors import SemanticLoadFailed
 from marivo.semantic.reader import SemanticProject
 
@@ -201,7 +202,9 @@ def test_external_datasource_is_usable_without_a_local_copy(
     sample = inspection.sample(
         scope=md.unpruned(max_rows=2, timeout_seconds=30), columns=("amount",), persist_values=True
     )
-    assert sorted(row["amount"] for row in sample.retained_values) == [10, 20]
+    amounts = [row["amount"] for row in sample.retained_values]
+    assert all(isinstance(amount, int) for amount in amounts)
+    assert sorted(amount for amount in amounts if isinstance(amount, int)) == [10, 20]
     assert not (local / "models" / "datasources").exists()
 
 
@@ -384,14 +387,17 @@ def test_inspect_executes_declarations_once_and_reload_keeps_old_catalog(
         load=False,
     )
     catalog = ms.load(workspace_dir=tmp_path)
-    old = catalog.get("datasource:warehouse").definition
+    old_entry = catalog.get("datasource:warehouse")
+    assert old_entry.kind == "datasource"
+    old = old_entry.definition
     marker.write_text("")
-    source = {
+    sources: dict[str, TableSource] = {
         "table": md.table("orders"),
         "csv": md.csv(str(tmp_path / "orders.csv")),
         "json": md.json(str(tmp_path / "orders.json")),
         "parquet": md.parquet(str(parquet)),
-    }[kind]
+    }
+    source = sources[kind]
     inspected = md.inspect(ms.ref.datasource("warehouse"), source, workspace_dir=tmp_path)
     assert inspected.schema[0].name == "id"
     assert marker.read_text() == "loaded\n"
@@ -399,10 +405,12 @@ def test_inspect_executes_declarations_once_and_reload_keeps_old_catalog(
         declaration + f"md.duckdb(name='warehouse', path={str(second)!r})\n"
     )
     assert dict(old.fields)["path"] == str(first)
-    assert dict(catalog.get("datasource:warehouse").definition.fields)["path"] == str(first)
-    assert dict(ms.load(workspace_dir=tmp_path).get("datasource:warehouse").definition.fields)[
-        "path"
-    ] == str(second)
+    existing_entry = catalog.get("datasource:warehouse")
+    fresh_entry = ms.load(workspace_dir=tmp_path).get("datasource:warehouse")
+    assert existing_entry.kind == "datasource"
+    assert fresh_entry.kind == "datasource"
+    assert dict(existing_entry.definition.fields)["path"] == str(first)
+    assert dict(fresh_entry.definition.fields)["path"] == str(second)
     marker.write_text("")
     inspected = md.inspect(ms.ref.datasource("warehouse"), source, workspace_dir=tmp_path)
     assert inspected.schema[0].name == ("new_id" if kind == "table" else "id")

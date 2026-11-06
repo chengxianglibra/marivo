@@ -38,9 +38,9 @@ def test_every_loaded_kind_has_one_immutable_canonical_entry(tmp_path: Path) -> 
         assert len(repr(entry).encode()) < 200
         assert "show" in repr(entry)
         with pytest.raises((FrozenInstanceError, AttributeError)):
-            entry.name = "changed"
+            entry.name = "changed"  # type: ignore[misc]  # Verify immutable property.
         with pytest.raises((FrozenInstanceError, AttributeError)):
-            entry.new_attribute = 1
+            entry.new_attribute = 1  # type: ignore[union-attr]  # Verify immutable objects.
     assert not hasattr(catalog, "metrics")
     assert not hasattr(catalog, "describe")
     assert "CatalogCollection" not in ms.__all__
@@ -85,9 +85,9 @@ def test_get_preserves_requested_kind_and_relevant_repair(tmp_path: Path) -> Non
         assert wrong.value.semantic_refs == ("measure:sales.orders.status",)
         assert wrong.value.repair is not None
         assert wrong.value.repair.candidates == ("dimension:sales.orders.status",)
-    for identity in ("metric:sales.reveneu", ms.ref.metric("sales.reveneu")):
+    for metric_identity in ("metric:sales.reveneu", ms.ref.metric("sales.reveneu")):
         with pytest.raises(SemanticRuntimeError) as typo:
-            catalog.get(identity)
+            catalog.get(metric_identity)
         assert typo.value.details["reason"] == "not_found"
         assert typo.value.received == "metric:sales.reveneu"
         assert typo.value.semantic_refs == ("metric:sales.reveneu",)

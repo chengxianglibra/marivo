@@ -14,13 +14,13 @@ from marivo.semantic.ir import AiContextIR, SourceLocation
 # ---------------------------------------------------------------------------
 
 
-def _loc():
+def _loc() -> SourceLocation:
     return SourceLocation(file="t.py", line=1)
 
 
-def test_categorical_dimension_rejects_additivity():
+def test_categorical_dimension_rejects_additivity() -> None:
     with pytest.raises(TypeError):
-        ir.DimensionIR(
+        ir.DimensionIR(  # type: ignore[call-arg]  # Reject retired additivity field.
             semantic_id="d.e.x",
             domain="d",
             entity="d.e",
@@ -40,7 +40,7 @@ def test_categorical_dimension_rejects_additivity():
 # ---------------------------------------------------------------------------
 
 
-def test_status_time_policy_keeps_fixed_axis():
+def test_status_time_policy_keeps_fixed_axis() -> None:
     order_date = ms.ref.time_dimension("sales.orders.order_date")
     policy = authoring.additive_except(order_date)
     assert policy.exceptions == ("sales.orders.order_date",)
@@ -105,21 +105,21 @@ def test_additivity_retired_entrypoint_and_keyword_forms_are_removed() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_metric_global_additivity_requires_reauthoring():
+def test_metric_global_additivity_requires_reauthoring() -> None:
     from marivo.semantic.errors import SemanticExpressionError
 
     with pytest.raises(SemanticExpressionError) as caught:
-        authoring.metric(entities=[ms.ref.entity("sales.orders")], additivity=ms.additive_all())
+        authoring.metric(entities=[ms.ref.entity("sales.orders")], additivity=ms.additive_all())  # type: ignore[call-arg]  # Reject retired keywords.
     assert caught.value.kind == "invalid_component_body"
     assert caught.value.repair is not None
     assert "sum permission on source Measures" in caught.value.repair.action
 
 
-def test_metric_global_status_fold_requires_explicit_sample_reduction():
+def test_metric_global_status_fold_requires_explicit_sample_reduction() -> None:
     from marivo.semantic.errors import SemanticExpressionError
 
     with pytest.raises(SemanticExpressionError) as caught:
-        authoring.metric(
+        authoring.metric(  # type: ignore[call-arg]  # Reject retired keywords.
             entities=[ms.ref.entity("ops.samples")],
             additivity=authoring.additive_except(ms.ref.time_dimension("ops.samples.t")),
             status_time_dimension=ms.ref.time_dimension("ops.samples.t"),

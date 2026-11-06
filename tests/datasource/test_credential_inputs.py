@@ -2,20 +2,24 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from dataclasses import FrozenInstanceError, replace
 from pathlib import Path
 
 import pytest
+from ibis.backends import BaseBackend
 
 import marivo.datasource as md
 from marivo.datasource import backends, secrets, store
 from marivo.datasource.authoring import _ir_from_spec
 from marivo.datasource.capabilities import (
     ProviderStatement,
+    execute_provider_statement,
     provider_statement_log,
     render_provider_statement,
 )
 from marivo.datasource.engines import ENGINE_PROFILES
+from marivo.datasource.engines.base import EngineProfile
 from marivo.datasource.errors import DatasourceConnectionError, DatasourceFieldInvalidError
 from marivo.datasource.ir import DatasourceSourceLocation
 from marivo.datasource.runtime import load_datasource, open_backend
@@ -30,7 +34,7 @@ def s3(**changes: object) -> md.S3Secret:
         "secret": md.env("SECRET"),
     }
     kwargs.update(changes)
-    return md.s3_secret(**kwargs)
+    return md.s3_secret(**kwargs)  # type: ignore[arg-type]  # Exercise valid and invalid declaration fields.
 
 
 @pytest.mark.parametrize(
@@ -59,19 +63,19 @@ def test_s3_rejects_invalid_declarations_without_echoing_values(changes: dict[st
 @pytest.mark.parametrize("name", ["", " ", None, 42])
 def test_env_requires_nonempty_name(name: object) -> None:
     with pytest.raises(DatasourceFieldInvalidError):
-        md.env(name)
+        md.env(name)  # type: ignore[arg-type]  # Exercise invalid names.
 
 
 def test_secret_values_are_immutable_and_disclose_references() -> None:
     ref = md.env("KEY")
     with pytest.raises(FrozenInstanceError):
-        ref.name = "OTHER"
+        ref.name = "OTHER"  # type: ignore[misc]  # Verify runtime immutability.
     headers = {"x.api.key": ref}
     secret = md.http_headers_secret(scope="https://api.example/v1/", headers=headers)
     headers["x.api.key"] = md.env("CHANGED")
     assert secret.headers["x.api.key"] == ref
     with pytest.raises(TypeError):
-        secret.headers["x.api.key"] = md.env("OTHER")
+        secret.headers["x.api.key"] = md.env("OTHER")  # type: ignore[index]  # Verify runtime immutability.
     for value in (
         ref,
         s3(),
@@ -89,7 +93,7 @@ def test_duplicate_scopes_and_extra_credentials_are_rejected() -> None:
     headers = md.http_headers_secret(scope=bearer.scope, headers={"x-key": md.env("KEY")})
     for values in ([s3(), s3()], [bearer, headers], ["literal-canary"]):
         with pytest.raises(DatasourceFieldInvalidError):
-            md.duckdb(name="lake", secrets=values)
+            md.duckdb(name="lake", secrets=values)  # type: ignore[arg-type]  # Exercise invalid secret entries.
     for key in (
         "secrets",
         "key_id",
@@ -348,12 +352,28 @@ def test_partial_install_cleans_up_a_shared_native_instance(
     observer = duckdb.connect("observer", {"path": str(path)})
     monkeypatch.setenv("KEY", "fixture-key")
     monkeypatch.setenv("SECRET", "fixture-secret")
-    execute = duckdb.execute_provider_statement
 
-    def fail_second(backend, profile, statement_id, **kwargs):
-        if statement_id == "duckdb.secret_s3" and kwargs["identifiers"]["name"] == "marivo_lake_1":
+    def fail_second(
+        backend: BaseBackend,
+        profile: EngineProfile,
+        statement_id: str,
+        *,
+        identifiers: Mapping[str, str | tuple[str, ...]],
+        purpose: str,
+        values: Mapping[str, object] = {},
+        parameters: Sequence[object] | Mapping[str, str] | None = None,
+    ) -> tuple[dict[str, object], ...]:
+        if statement_id == "duckdb.secret_s3" and identifiers["name"] == "marivo_lake_1":
             raise RuntimeError("private-install-canary")
-        return execute(backend, profile, statement_id, **kwargs)
+        return execute_provider_statement(
+            backend,
+            profile,
+            statement_id,
+            identifiers=identifiers,
+            purpose=purpose,
+            values=values,
+            parameters=parameters,
+        )
 
     monkeypatch.setattr(duckdb, "execute_provider_statement", fail_second)
     spec = md.duckdb(name="lake", path=str(path), secrets=[s3(), s3(scope="s3://other/")])

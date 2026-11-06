@@ -9,22 +9,30 @@ Materialization of the compiled body is out of scope here (Phase 2).
 
 from __future__ import annotations
 
+from collections.abc import Callable, Iterator
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING
 
 import ibis
 import ibis.expr.datatypes as dt
+import ibis.expr.types as ibis_ir
 import pytest
 from ibis.common.deferred import Deferred
 
 import marivo.datasource as md
 import marivo.semantic as ms
-from marivo.refs import Ref
+from marivo._symbolic import EntitySymbol
+from marivo.datasource.ir import TableSourceIR
+from marivo.refs import Ref, SemanticKindTag
 from marivo.refs import ref as ref_factory
 from marivo.semantic._expression_binding import ExpressionBody
 from marivo.semantic.errors import ErrorKind, SemanticDecoratorError, SemanticLoadError
+from marivo.semantic.ir import EntityIR
 from marivo.semantic.loader import _LOADER_CTX, LoaderContext
 from tests.support.refs import as_ref
+
+if TYPE_CHECKING:
+    from tests.conftest import _SemanticProjectFactory
 
 
 def _enter_ctx(**kwargs: object) -> LoaderContext:
@@ -38,7 +46,7 @@ def _exit_ctx() -> None:
 
 
 @pytest.fixture(autouse=True)
-def _clean_ctx():
+def _clean_ctx() -> Iterator[None]:
     _exit_ctx()
     yield
     _exit_ctx()
@@ -54,19 +62,21 @@ def _pending_entity_bodies(ctx: LoaderContext) -> dict[str, ExpressionBody]:
     }
 
 
-def _compile_entity_body(fn: object, ref: object = None) -> ExpressionBody:
+def _compile_entity_body(
+    fn: Callable[..., object], ref: Ref[SemanticKindTag] | None = None
+) -> ExpressionBody:
     """Compile one Entity body through the shared expression compiler."""
     from marivo.semantic._expression_binding import compile_expression_body
 
     entity_ref = ref if ref is not None else ref_factory.entity("sales.t")
-    return compile_expression_body(  # type: ignore[arg-type]
+    return compile_expression_body(
         fn,
         owning_ref=entity_ref,
         body_kind="entity_table",
     )
 
 
-def _direct_entity(name: str = "orders") -> object:
+def _direct_entity(name: str = "orders") -> EntitySymbol:
     return ms.entity(
         name=name,
         datasource=ms.ref.datasource("warehouse"),
@@ -74,7 +84,7 @@ def _direct_entity(name: str = "orders") -> object:
     )
 
 
-def daily_orders(raw: object) -> object:
+def daily_orders(raw: ibis_ir.Table) -> object:
     """Identity body used for decorator-form registration tests."""
     return raw
 
@@ -91,8 +101,10 @@ def test_entity_without_name_returns_decorator_that_registers_ref() -> None:
             datasource=ms.ref.datasource("warehouse"),
             source=md.table("orders"),
         )(daily_orders)
-        assert isinstance(ref, Deferred) and as_ref(ref).kind is ms.SemanticKind.ENTITY
-        assert as_ref(ref).path == "sales.daily_orders"
+        assert isinstance(ref, Deferred)
+        reference = as_ref(ref)
+        assert reference is not None and reference.kind is ms.SemanticKind.ENTITY
+        assert reference.path == "sales.daily_orders"
         ir, body = [
             (pending.definition, pending.expression_body)
             for pending in ctx.pending_definitions
@@ -116,6 +128,7 @@ def test_entity_decorator_derives_name_from_function() -> None:
             for pending in ctx.pending_definitions
             if getattr(pending.definition, "name", None) == "daily_orders"
         )
+        assert isinstance(ir, EntityIR)
         assert ir.name == "daily_orders"
         assert ir.python_symbol == "daily_orders"
         assert ir.semantic_id == "sales.daily_orders"
@@ -127,9 +140,12 @@ def test_direct_entity_still_returns_ref_immediately_and_has_no_body() -> None:
     ctx = _enter_ctx(default_domain="sales")
     try:
         ref = _direct_entity()
-        assert isinstance(ref, Deferred) and as_ref(ref).kind is ms.SemanticKind.ENTITY
+        assert isinstance(ref, Deferred)
+        reference = as_ref(ref)
+        assert reference is not None and reference.kind is ms.SemanticKind.ENTITY
         pending = ctx.pending_definitions[-1]
         assert pending.expression_body is None
+        assert isinstance(pending.definition, EntityIR)
         assert pending.definition.name == "orders"
         assert pending.definition.python_symbol == "orders"
     finally:
@@ -157,7 +173,7 @@ def test_entity_duplicate_name_via_decorator_collides_with_direct() -> None:
 
 
 def test_entity_body_accepts_docstring_and_single_return() -> None:
-    def body(raw: object) -> object:
+    def body(raw: ibis_ir.Table) -> object:
         """One latest order per day."""
         return raw.filter(raw.is_deleted == False)  # noqa: E712
 
@@ -167,7 +183,7 @@ def test_entity_body_accepts_docstring_and_single_return() -> None:
 
 
 def test_entity_body_rejects_two_positional_parameters() -> None:
-    def body(raw: object, other: object) -> object:
+    def body(raw: ibis_ir.Table, other: object) -> object:
         return raw
 
     with pytest.raises(SemanticLoadError) as exc_info:
@@ -185,7 +201,7 @@ def test_entity_body_rejects_defaulted_parameter() -> None:
 
 
 def test_entity_body_rejects_assignment() -> None:
-    def body(raw: object) -> object:
+    def body(raw: ibis_ir.Table) -> object:
         filtered = raw.filter(raw.is_deleted == False)  # noqa: E712
         return filtered
 
@@ -195,7 +211,7 @@ def test_entity_body_rejects_assignment() -> None:
 
 
 def test_entity_body_rejects_nested_function() -> None:
-    def body(raw: object) -> object:
+    def body(raw: ibis_ir.Table) -> object:
         def helper(t: object) -> object:
             return t
 
@@ -210,8 +226,8 @@ def test_entity_body_rejects_nested_function() -> None:
 
 
 def test_entity_body_rejects_execution_attribute() -> None:
-    def body(raw: object) -> object:
-        return raw.filter(raw.amount > 0).execute()  # type: ignore[attr-defined]
+    def body(raw: ibis_ir.Table) -> object:
+        return raw.filter(raw.amount > 0).execute()
 
     with pytest.raises(SemanticLoadError) as exc_info:
         _compile_entity_body(body)
@@ -221,8 +237,8 @@ def test_entity_body_rejects_execution_attribute() -> None:
 def test_entity_body_rejects_ms_bind() -> None:
     from marivo.semantic import _expression_binding
 
-    def body(raw: object) -> object:
-        return _expression_binding.bind(ref_factory.dimension("sales.orders.region"), raw)
+    def body(raw: ibis_ir.Table) -> object:
+        return _expression_binding.bind(ref_factory.dimension("sales.orders.region"), raw)  # type: ignore[arg-type]  # Test invalid binding syntax.
 
     with pytest.raises(SemanticLoadError) as exc_info:
         _compile_entity_body(body)
@@ -230,10 +246,10 @@ def test_entity_body_rejects_ms_bind() -> None:
 
 
 def test_entity_body_rejects_clock_and_random_symbols() -> None:
-    def body_now(raw: object) -> object:
+    def body_now(raw: ibis_ir.Table) -> object:
         return raw.mutate(t=ibis.now())
 
-    def body_random(raw: object) -> object:
+    def body_random(raw: ibis_ir.Table) -> object:
         return raw.mutate(r=ibis.random())
 
     for body in (body_now, body_random):
@@ -246,10 +262,10 @@ def test_entity_body_rejects_clock_and_random_import_aliases() -> None:
     from ibis import now as sort_clock
     from ibis import random as pick_random
 
-    def body_alias_clock(raw: object) -> object:
+    def body_alias_clock(raw: ibis_ir.Table) -> object:
         return raw.mutate(t=sort_clock())
 
-    def body_alias_random(raw: object) -> object:
+    def body_alias_random(raw: ibis_ir.Table) -> object:
         return raw.mutate(r=pick_random())
 
     for body in (body_alias_clock, body_alias_random):
@@ -259,7 +275,7 @@ def test_entity_body_rejects_clock_and_random_import_aliases() -> None:
 
 
 def test_entity_body_rejects_named_expression() -> None:
-    def body(raw: object) -> object:
+    def body(raw: ibis_ir.Table) -> object:
         return (raw := raw.filter(raw.amount > 0))
 
     with pytest.raises(SemanticLoadError) as exc_info:
@@ -268,10 +284,10 @@ def test_entity_body_rejects_named_expression() -> None:
 
 
 def test_entity_body_rejects_comprehensions() -> None:
-    def body_listcomp(raw: object) -> object:
-        return [raw for _ in [1]][0]  # type: ignore[index]  # noqa: RUF015
+    def body_listcomp(raw: ibis_ir.Table) -> object:
+        return [raw for _ in [1]][0]  # noqa: RUF015
 
-    def body_genexp(raw: object) -> object:
+    def body_genexp(raw: ibis_ir.Table) -> object:
         return next(t for t in [raw])
 
     for body in (body_listcomp, body_genexp):
@@ -298,12 +314,12 @@ def test_entity_body_rejects_captured_table() -> None:
         _exit_ctx()
 
 
-def captured_branch(raw: object) -> object:
+def captured_branch(raw: ibis_ir.Table) -> object:
     return captured.join(raw)  # type: ignore[name-defined] # noqa: F821
 
 
 def test_entity_body_rejects_scalar_return_ast_classified_at_runtime() -> None:
-    def body(raw: object) -> object:
+    def body(raw: ibis_ir.Table) -> object:
         return raw.amount.sum()
 
     compiled = _compile_entity_body(body)
@@ -311,7 +327,7 @@ def test_entity_body_rejects_scalar_return_ast_classified_at_runtime() -> None:
 
 
 def test_entity_body_binds_injected_parameter_by_position() -> None:
-    def body(orders_table: object) -> object:
+    def body(orders_table: ibis_ir.Table) -> object:
         return orders_table.filter(orders_table["amount"] > 0)
 
     compiled = _compile_entity_body(body)
@@ -320,7 +336,7 @@ def test_entity_body_binds_injected_parameter_by_position() -> None:
 
 def test_entity_body_rejects_variadic_parameter() -> None:
     def body(*raw: object) -> object:
-        return raw[0]  # type: ignore[index]
+        return raw[0]
 
     with pytest.raises(SemanticLoadError) as exc_info:
         _compile_entity_body(body)
@@ -333,11 +349,11 @@ def test_entity_body_rejects_variadic_parameter() -> None:
 
 
 def test_entity_body_hash_ignores_parameter_name_and_docstring() -> None:
-    def body_a(raw: object) -> object:
+    def body_a(raw: ibis_ir.Table) -> object:
         """Docstring one."""
         return raw.filter(raw.amount > 0)
 
-    def body_b(table: object) -> object:
+    def body_b(table: ibis_ir.Table) -> object:
         """Docstring two."""
         return table.filter(table.amount > 0)
 
@@ -347,10 +363,10 @@ def test_entity_body_hash_ignores_parameter_name_and_docstring() -> None:
 
 
 def test_entity_body_hash_changes_with_expression_change() -> None:
-    def body_a(raw: object) -> object:
+    def body_a(raw: ibis_ir.Table) -> object:
         return raw.filter(raw.amount > 0)
 
-    def body_b(raw: object) -> object:
+    def body_b(raw: ibis_ir.Table) -> object:
         return raw.filter(raw.amount > 1)
 
     assert _compile_entity_body(body_a).body_ast_hash != _compile_entity_body(body_b).body_ast_hash
@@ -370,8 +386,11 @@ def test_decorator_entity_ref_joins_same_ref_family() -> None:
         )(daily_orders)
         direct_ref = ms.ref.entity("sales.daily_orders")
         assert type(decorator_ref) is type(direct_ref)
-        assert as_ref(decorator_ref).kind is as_ref(direct_ref).kind
-        assert as_ref(decorator_ref).path == as_ref(direct_ref).path
+        decorated = as_ref(decorator_ref)
+        direct = as_ref(direct_ref)
+        assert decorated is not None and direct is not None
+        assert decorated.kind is direct.kind
+        assert decorated.path == direct.path
         assert as_ref(decorator_ref) == as_ref(direct_ref)
     finally:
         _exit_ctx()
@@ -506,10 +525,10 @@ def test_entity_body_hash_resolves_alias_identity_within_compile() -> None:
     from ibis import asc as sort_first
     from ibis import asc as sort_second
 
-    def body_first(raw: object) -> object:
+    def body_first(raw: ibis_ir.Table) -> object:
         return raw.order_by(sort_first(raw.amount)).limit(1)
 
-    def body_second(raw: object) -> object:
+    def body_second(raw: ibis_ir.Table) -> object:
         return raw.order_by(sort_second(raw.amount)).limit(1)
 
     assert (
@@ -519,7 +538,7 @@ def test_entity_body_hash_resolves_alias_identity_within_compile() -> None:
 
 
 def test_entity_card_discloses_captured_expression_body(
-    semantic_project_factory: Any,
+    semantic_project_factory: _SemanticProjectFactory,
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -564,7 +583,7 @@ def test_entity_card_discloses_captured_expression_body(
 
 
 def test_direct_entity_card_keeps_direct_form_disclosure(
-    semantic_project_factory: Any,
+    semantic_project_factory: _SemanticProjectFactory,
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -593,6 +612,7 @@ def test_direct_entity_card_keeps_direct_form_disclosure(
     entity = catalog.get("entity:sales.orders")
     assert isinstance(entity, ms.Entity)
     assert entity.definition.expression.startswith("source(")
+    assert isinstance(entity.definition.source, TableSourceIR)
     assert entity.definition.source.table == "orders"
     rendered = entity.render()
     assert "source(" in rendered and "orders" in rendered

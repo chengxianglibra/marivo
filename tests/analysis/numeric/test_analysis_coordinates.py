@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from typing import Literal
 
 import duckdb
 import pandas as pd
@@ -26,8 +27,20 @@ from tests.shared_fixtures import (
 from tests.support.paths import PROJECT_ROOT
 
 
+def _metric(catalog: ms.SemanticCatalog, path: str) -> ms.Metric:
+    result = catalog.get(path)
+    assert result.kind == "metric"
+    return result
+
+
+def _entity(catalog: ms.SemanticCatalog, path: str) -> ms.Entity:
+    result = catalog.get(path)
+    assert result.kind == "entity"
+    return result
+
+
 def _members(case: DslCase) -> mv.Population:
-    return case.session.members(case.session.catalog.get("entity:sales.customer"))
+    return case.session.members(_entity(case.session.catalog, "entity:sales.customer"))
 
 
 def _observe(
@@ -39,7 +52,7 @@ def _observe(
     members: mv.Population | None = None,
 ) -> mv.AnalysisFrame:
     population = _members(case) if members is None else members
-    region = catalog_value(case.session.catalog, "sales.customer.region", kind="field")
+    region = catalog_value(case.session.catalog, "sales.customer.region", kind="dimension")
     scope = case.session.time_scope(start="2026-08-01", end="2026-09-01")
     domain = (
         (scope,)
@@ -50,8 +63,9 @@ def _observe(
         if classified
         else mv.product(scope, population)
     )
+    assert not isinstance(domain, Deferred)
     return case.session.observe(
-        {"value": case.session.catalog.get("metric:sales.revenue")},
+        {"value": _metric(case.session.catalog, "metric:sales.revenue")},
         by=domain,
         where=mv.in_population(population),
     )
@@ -59,9 +73,9 @@ def _observe(
 
 def _source(
     case: DslCase,
-    metric: Deferred,
+    metric: ms.MetricExpression[Literal["numeric"]],
     *,
-    by: tuple[Deferred, ...] = (),
+    by: tuple[ms.Dimension, ...] = (),
     members: mv.Population | None = None,
 ) -> mv.AnalysisFrame:
     return case.session.observe(
@@ -77,7 +91,7 @@ def _selected_members(case: DslCase, frame: mv.AnalysisFrame) -> mv.Population:
         on=(
             (
                 next(axis for axis in frame.axes if axis.role == "identity"),
-                case.session.catalog.get("entity:sales.customer"),
+                _entity(case.session.catalog, "entity:sales.customer"),
             ),
         ),
     )
@@ -86,7 +100,7 @@ def _selected_members(case: DslCase, frame: mv.AnalysisFrame) -> mv.Population:
 def _region(case: DslCase) -> mv.AnalysisFrame:
     return case.session.read(
         _members(case),
-        {"region": catalog_value(case.session.catalog, "sales.customer.region", kind="field")},
+        {"region": catalog_value(case.session.catalog, "sales.customer.region", kind="dimension")},
     )
 
 
@@ -120,15 +134,15 @@ def test_complete_coordinate_tuple_rollup(analysis_dsl_case_factory: DslCaseFact
     with duckdb.connect(str(case.database_path)) as connection:
         connection.execute("UPDATE \"order\" SET status='refunded' WHERE channel='mobile'")
     session = case.session
-    customer = catalog_value(session.catalog, "sales.order.customer_id", kind="field")
-    channel = catalog_value(session.catalog, "sales.order.channel", kind="field")
-    status = catalog_value(session.catalog, "sales.order.status", kind="field")
+    customer = catalog_value(session.catalog, "sales.order.customer_id", kind="dimension")
+    channel = catalog_value(session.catalog, "sales.order.channel", kind="dimension")
+    status = catalog_value(session.catalog, "sales.order.status", kind="dimension")
     observed = session.observe(
-        {"value": session.catalog.get("metric:sales.revenue")},
+        {"value": _metric(session.catalog, "metric:sales.revenue")},
         by=(session.time_scope(start="2026-08-01", end="2026-09-01"), customer, channel, status),
     )
     result = _source(
-        case, session.catalog.get("metric:sales.revenue"), by=(channel, status)
+        case, _metric(session.catalog, "metric:sales.revenue"), by=(channel, status)
     ).persist()
     frame = result.to_pandas()
     assert frame["value"].tolist() == [150, 850]
@@ -174,7 +188,7 @@ def test_selected_row_groups_preserve_count_mean_state(
     selected_values = regions.where(regions["region"] == "east")
     selected = _selected_members(case, selected_values)
     observed = _observe(case, classified=True, members=selected)
-    region = catalog_value(case.session.catalog, "sales.customer.region", kind="field")
+    region = catalog_value(case.session.catalog, "sales.customer.region", kind="dimension")
     stats = observed.reduce(
         {"count": mv.row_count(), "sum": observed["value"].sum(), "mean": observed["value"].mean()},
         by=(observed.axes[2],),
@@ -201,13 +215,13 @@ def test_original_mean_merges_support_not_finished_values(
     ms.load(workspace_dir=case.root)
     session = case.session
     observed = session.observe(
-        {"value": session.catalog.get("metric:sales.mean_amount")},
+        {"value": _metric(session.catalog, "metric:sales.mean_amount")},
         by=mv.product(session.time_scope(start="2026-08-01", end="2026-09-01"), _members(case)),
     )
     fixed = observed.compute()
     assert fixed.to_pandas()["value"].tolist() == [1, 100]
     assert _source(
-        case, session.catalog.get("metric:sales.mean_amount"), members=_members(case)
+        case, _metric(session.catalog, "metric:sales.mean_amount"), members=_members(case)
     ).compute().to_pandas()["value"].tolist() == pytest.approx([200 / 101])
     assert fixed.to_pandas()["value"].mean() == 50.5
 
@@ -217,16 +231,18 @@ def test_partial_reduction_matches_components_and_preserves_keys(
 ) -> None:
     case = analysis_dsl_case_factory("j1")
     session = case.session
-    customer = catalog_value(session.catalog, "sales.order.customer_id", kind="field")
-    channel = catalog_value(session.catalog, "sales.order.channel", kind="field")
-    status = catalog_value(session.catalog, "sales.order.status", kind="field")
+    customer = catalog_value(session.catalog, "sales.order.customer_id", kind="dimension")
+    channel = catalog_value(session.catalog, "sales.order.channel", kind="dimension")
+    status = catalog_value(session.catalog, "sales.order.status", kind="dimension")
     observed = session.observe(
-        {"value": session.catalog.get("metric:sales.revenue")},
+        {"value": _metric(session.catalog, "metric:sales.revenue")},
         by=(session.time_scope(start="2026-08-01", end="2026-09-01"), customer, channel, status),
     )
-    partial = _source(case, session.catalog.get("metric:sales.revenue"), by=(customer, channel))
+    partial = _source(
+        case, _metric(session.catalog, "metric:sales.revenue"), by=(customer, channel)
+    )
     assert partial.compute().to_pandas()["value"].tolist() == [450, 150, 400]
-    direct = _source(case, session.catalog.get("metric:sales.revenue")).compute()
+    direct = _source(case, _metric(session.catalog, "metric:sales.revenue")).compute()
     assert direct.to_pandas()["value"].tolist() == [1000]
     assert len(frozen_coordinates(direct)) == 1
     assert direct.axes[0].role == "interval"
@@ -237,7 +253,7 @@ def test_row_statistics_grouped_merge_preserves_mean_state_and_identity(
 ) -> None:
     case = retained_coordinates_case
     values = _observe(case, classified=True)
-    region = catalog_value(case.session.catalog, "sales.customer.region", kind="field")
+    region = catalog_value(case.session.catalog, "sales.customer.region", kind="dimension")
     grouped = values.reduce(
         {"sum": values["value"].sum(), "count": mv.row_count()}, by=(values.axes[2],)
     ).compute()
@@ -315,9 +331,9 @@ def test_full_tuple_union_retains_denominator_only_and_cancelled_coordinates(
 ) -> None:
     case = analysis_dsl_case_factory("j1")
     session = case.session
-    channel = catalog_value(session.catalog, "sales.order.channel", kind="field")
-    status = catalog_value(session.catalog, "sales.order.status", kind="field")
-    count = session.catalog.get("metric:sales.order_count")
+    channel = catalog_value(session.catalog, "sales.order.channel", kind="dimension")
+    status = catalog_value(session.catalog, "sales.order.status", kind="dimension")
+    count = _metric(session.catalog, "metric:sales.order_count")
     web = count.where(channel == "web")
     expressions = {"ratio": web / count, "linear": count - count}
     scope = session.time_scope(start="2026-08-01", end="2026-09-01")
@@ -371,15 +387,15 @@ def test_weighted_coordinates_merge_paired_components(
     )
     ms.load(workspace_dir=case.root)
     session = case.session
-    customer = catalog_value(session.catalog, "sales.order.customer_id", kind="field")
-    channel = catalog_value(session.catalog, "sales.order.channel", kind="field")
+    customer = catalog_value(session.catalog, "sales.order.customer_id", kind="dimension")
+    channel = catalog_value(session.catalog, "sales.order.channel", kind="dimension")
     observed = session.observe(
-        {"value": session.catalog.get("metric:sales.weighted")},
+        {"value": _metric(session.catalog, "metric:sales.weighted")},
         by=(session.time_scope(start="2026-08-01", end="2026-09-01"), customer, channel),
     )
-    partial = _source(case, session.catalog.get("metric:sales.weighted"), by=(channel,))
+    partial = _source(case, _metric(session.catalog, "metric:sales.weighted"), by=(channel,))
     assert partial.compute().to_pandas()["value"].tolist() == [150, 425]
-    assert _source(case, session.catalog.get("metric:sales.weighted")).compute().to_pandas()[
+    assert _source(case, _metric(session.catalog, "metric:sales.weighted")).compute().to_pandas()[
         "value"
     ].tolist() == pytest.approx([1000 / 3])
 
@@ -397,11 +413,12 @@ def test_combined_member_classifications_do_not_expand_facts(
     )
     ms.load(workspace_dir=case.root)
     session = case.session
-    region = catalog_value(session.catalog, "sales.customer.region", kind="field")
-    cohort = catalog_value(session.catalog, "sales.customer.cohort", kind="field")
+    region = catalog_value(session.catalog, "sales.customer.region", kind="dimension")
+    cohort = catalog_value(session.catalog, "sales.customer.cohort", kind="dimension")
     population = _members(case).classify(by=(region, cohort))
+    assert isinstance(population, mv.Population)
     grouped = session.observe(
-        {"value": session.catalog.get("metric:sales.revenue")},
+        {"value": _metric(session.catalog, "metric:sales.revenue")},
         by=mv.product(session.time_scope(start="2026-08-01", end="2026-09-01"), population),
     )
     frame = grouped.compute().to_pandas()
@@ -415,11 +432,11 @@ def test_numeric_read_grouping_creates_only_row_statistics(
 ) -> None:
     case = retained_coordinates_case
     session = case.session
-    channel = catalog_value(session.catalog, "sales.order.channel", kind="field")
+    channel = catalog_value(session.catalog, "sales.order.channel", kind="dimension")
     raw = session.read(
-        session.members(session.catalog.get("entity:sales.order")),
+        session.members(_entity(session.catalog, "entity:sales.order")),
         {
-            "amount": catalog_value(session.catalog, "sales.order.amount", kind="field"),
+            "amount": catalog_value(session.catalog, "sales.order.amount", kind="measure"),
             "channel": channel,
         },
     )
@@ -441,11 +458,12 @@ def test_invalid_classification_rejects(retained_coordinates_case: DslCase) -> N
     with duckdb.connect(str(case.database_path)) as connection:
         connection.execute("UPDATE customer SET region=NULL WHERE customer_id='C'")
     # Source Null is a real None classification in the current Field-axis contract.
-    field = catalog_value(case.session.catalog, "sales.customer.region", kind="field")
+    field = catalog_value(case.session.catalog, "sales.customer.region", kind="dimension")
     domain = _members(case).classify(by=(field,))
+    assert isinstance(domain, mv.Population)
     grouped = (
         case.session.observe(
-            {"value": case.session.catalog.get("metric:sales.revenue")},
+            {"value": _metric(case.session.catalog, "metric:sales.revenue")},
             by=mv.product(case.session.time_scope(start="2026-08-01", end="2026-09-01"), domain),
         )
         .compute()
@@ -459,11 +477,11 @@ def test_duplicate_classification_rejects_source_and_fixed(
     retained_coordinates_case: DslCase,
 ) -> None:
     case = retained_coordinates_case
-    region = catalog_value(case.session.catalog, "sales.customer.region", kind="field")
+    region = catalog_value(case.session.catalog, "sales.customer.region", kind="dimension")
     values = _observe(case, classified=True)
     before = terminal_runs(case.session)
     with pytest.raises(AnalysisError):
-        _source(case, case.session.catalog.get("metric:sales.revenue"), by=(region, region))
+        _source(case, _metric(case.session.catalog, "metric:sales.revenue"), by=(region, region))
     with pytest.raises(AnalysisError):
         values.reduce({"count": mv.row_count()}, by=(values.axes[1], values.axes[1]))
     assert terminal_runs(case.session) == before
@@ -511,12 +529,14 @@ def test_typed_integer_classification_and_singleton(retained_coordinates_case: D
     )
     ms.load(workspace_dir=case.root)
     session = case.session
-    band = catalog_value(session.catalog, "sales.customer.band", kind="field")
+    band = catalog_value(session.catalog, "sales.customer.band", kind="dimension")
+    band_population = _members(case).classify(by=(band,))
+    assert isinstance(band_population, mv.Population)
     grouped = session.observe(
-        {"value": session.catalog.get("metric:sales.revenue")},
+        {"value": _metric(session.catalog, "metric:sales.revenue")},
         by=mv.product(
             session.time_scope(start="2026-08-01", end="2026-09-01"),
-            _members(case).classify(by=(band,)),
+            band_population,
         ),
     )
     assert _dict(grouped.compute()) == {1: 120, 2: 27}
@@ -563,8 +583,8 @@ def test_review_foreign_fact_predicate_transports_source_bindings(
     session = case.session
     quantities = session.observe(
         {
-            "value": session.catalog.get("metric:sales.revenue"),
-            "lines": session.catalog.get("metric:sales.line_revenue"),
+            "value": _metric(session.catalog, "metric:sales.revenue"),
+            "lines": _metric(session.catalog, "metric:sales.line_revenue"),
         },
         by=mv.product(session.time_scope(start="2026-08-01", end="2026-09-01"), _members(case)),
     )
@@ -583,7 +603,7 @@ def test_review_fixed_group_statistics_keep_axes_and_current_rows(
 ) -> None:
     case = retained_coordinates_case
     session = case.session
-    region = catalog_value(session.catalog, "sales.customer.region", kind="field")
+    region = catalog_value(session.catalog, "sales.customer.region", kind="dimension")
     grouped = _observe(case, grouped=True)
     fixed = grouped.compute()
     assert _dict(fixed) == {"east": 140, "south": 7}
@@ -600,7 +620,7 @@ def test_fixed_grouped_statistic_preserves_cell_binding_and_empty_schema(
 ) -> None:
     case = analysis_dsl_case_factory("j1")
     observed = _observe(case, classified=True)
-    region = catalog_value(case.session.catalog, "sales.customer.region", kind="field")
+    region = catalog_value(case.session.catalog, "sales.customer.region", kind="dimension")
     for empty, method in ((False, "count"), (False, "mean"), (True, "mean")):
         current = observed
         if method == "mean":

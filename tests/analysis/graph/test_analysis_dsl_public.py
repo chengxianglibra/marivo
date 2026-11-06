@@ -13,7 +13,14 @@ from marivo._help.route import route_help_target
 from marivo.analysis.errors import AnalysisError
 from marivo.datasource.errors import DatasourceConnectionError
 from marivo.semantic.errors import SemanticExpressionError
-from tests.shared_fixtures import DSL_NAMES, DslCase, DslCaseFactory, catalog_value, terminal_runs
+from tests.shared_fixtures import (
+    DSL_NAMES,
+    DslCase,
+    DslCaseFactory,
+    catalog_get,
+    catalog_value,
+    terminal_runs,
+)
 
 
 def _observe(
@@ -66,7 +73,9 @@ def test_public_contract_actions_and_result_card(
     analysis_dsl_case_factory: DslCaseFactory, capsys: pytest.CaptureFixture[str]
 ) -> None:
     case = analysis_dsl_case_factory("j1")
-    population = case.session.members(case.session.catalog.get("entity:sales.customer"))
+    population = case.session.members(
+        catalog_get(case.session.catalog, "entity:sales.customer", kind="entity")
+    )
     assert isinstance(route_help_target("analysis.population"), NativeHelpRoute)
     assert ".show()" in repr(population)
     subject_key = "subject-key-only-private-7b5d4e"
@@ -113,7 +122,9 @@ def test_public_empty_and_undefined_cards(
     analysis_dsl_case_factory: DslCaseFactory, capsys: pytest.CaptureFixture[str]
 ) -> None:
     empty = analysis_dsl_case_factory("empty_domain")
-    members = empty.session.members(empty.session.catalog.get("entity:sales.customer"))
+    members = empty.session.members(
+        catalog_get(empty.session.catalog, "entity:sales.customer", kind="entity")
+    )
     saved = empty.session.frame(members).persist()
     assert saved.to_pandas().empty
     saved.show()
@@ -130,8 +141,8 @@ def test_public_singleton_same_entity_observation_allows_omitted_route(
 ) -> None:
     case = analysis_dsl_case_factory("j1")
     session = case.session
-    metric = session.catalog.get("metric:sales.revenue")
-    channel = catalog_value(session.catalog, "sales.order.channel", kind="field")
+    metric = catalog_get(session.catalog, "metric:sales.revenue", kind="metric")
+    channel = catalog_value(session.catalog, "sales.order.channel", kind="dimension")
     window = session.time_scope(start="2026-08-01", end="2026-09-01")
     grouped = session.observe({"value": metric}, by=(window, channel))
     frame = grouped.persist().to_pandas()
@@ -149,13 +160,14 @@ def test_public_grouped_foreign_entity_observation_infers_unique_route(
 ) -> None:
     case = analysis_dsl_case_factory("j1")
     session = case.session
-    region = catalog_value(session.catalog, "sales.customer.region", kind="field")
-    population = session.members(session.catalog.get("entity:sales.customer")).classify(
-        by=(region,)
-    )
+    region = catalog_value(session.catalog, "sales.customer.region", kind="dimension")
+    population = session.members(
+        catalog_get(session.catalog, "entity:sales.customer", kind="entity")
+    ).classify(by=(region,))
+    assert isinstance(population, mv.Population)
     before = terminal_runs(session)
     query = session.observe(
-        {"value": session.catalog.get("metric:sales.revenue")},
+        {"value": catalog_get(session.catalog, "metric:sales.revenue", kind="metric")},
         by=mv.product(session.time_scope(start="2026-08-01", end="2026-09-01"), population),
     )
     assert terminal_runs(session) == before
@@ -172,17 +184,17 @@ def test_public_coordinate_rollup_is_composed_before_terminal_publication(
 ) -> None:
     case = analysis_dsl_case_factory("j1")
     session = case.session
-    channel = catalog_value(session.catalog, "sales.order.channel", kind="field")
-    customer = catalog_value(session.catalog, "sales.order.customer_id", kind="field")
+    channel = catalog_value(session.catalog, "sales.order.channel", kind="dimension")
+    customer = catalog_value(session.catalog, "sales.order.customer_id", kind="dimension")
     query = session.observe(
-        {"value": session.catalog.get("metric:sales.revenue")},
+        {"value": catalog_get(session.catalog, "metric:sales.revenue", kind="metric")},
         by=(session.time_scope(start="2026-08-01", end="2026-09-01"), customer, channel),
     )
     grouped = query.reduce(
         {"value": query["value"].sum()}, by=(query.axes[0], query.axes[2])
     ).persist()
     direct = session.observe(
-        {"value": session.catalog.get("metric:sales.revenue")},
+        {"value": catalog_get(session.catalog, "metric:sales.revenue", kind="metric")},
         by=(session.time_scope(start="2026-08-01", end="2026-09-01"), channel),
     ).persist()
     grouped_rows, direct_rows = grouped.to_pandas(), direct.to_pandas()
@@ -273,7 +285,13 @@ def test_public_j2_selected_members_and_next_month_mean(
     )
     chosen = change.where(change["reference.absolute.value"] < 0)
     selected = case.session.population_from(
-        chosen, on=((chosen.axes[1], case.session.catalog.get("entity:sales.customer")),)
+        chosen,
+        on=(
+            (
+                chosen.axes[1],
+                catalog_get(case.session.catalog, "entity:sales.customer", kind="entity"),
+            ),
+        ),
     )
     observed = _observe(case, "2026-09-01", "2026-10-01", members=selected)
     summary = (
@@ -321,11 +339,15 @@ def test_public_j4_renamed_entity_and_fields_keep_the_public_route(
     )
     case = analysis_dsl_case_factory("j4", names=names, revenue_unit="kWh")
     session = case.session
-    devices = session.members(session.catalog.get("entity:telemetry.device"))
+    devices = session.members(
+        catalog_get(session.catalog, "entity:telemetry.device", kind="entity")
+    )
     query = session.observe(
         {
-            "signal": session.catalog.get("metric:telemetry.signal_sum"),
-            "readings": session.catalog.get("metric:telemetry.reading_count"),
+            "signal": catalog_get(session.catalog, "metric:telemetry.signal_sum", kind="metric"),
+            "readings": catalog_get(
+                session.catalog, "metric:telemetry.reading_count", kind="metric"
+            ),
         },
         by=mv.product(session.time_scope(start="2026-08-01", end="2026-09-01"), devices),
     )
@@ -342,9 +364,9 @@ def test_public_wrong_relationship_rejects_before_execution(
 ) -> None:
     case = analysis_dsl_case_factory("j2")
     session = case.session
-    members = session.members(session.catalog.get("entity:sales.order"))
-    wrong = session.catalog.get("relationship:sales.line_order")
-    region = catalog_value(session.catalog, "sales.customer.region", kind="field")
+    members = session.members(catalog_get(session.catalog, "entity:sales.order", kind="entity"))
+    wrong = catalog_get(session.catalog, "relationship:sales.line_order", kind="relationship")
+    region = catalog_value(session.catalog, "sales.customer.region", kind="dimension")
     before = terminal_runs(session)
     with pytest.raises(SemanticExpressionError) as route:
         session.read(members, {"region": region.via((wrong,))})

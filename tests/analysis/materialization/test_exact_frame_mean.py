@@ -15,7 +15,7 @@ from marivo.analysis.core.frame_data import MemoryFrameBacking
 from marivo.analysis.dsl.frame import AnalysisFrame
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.materialization.errors import MaterializationError
-from tests.shared_fixtures import DslCase, DslCaseFactory, catalog_value, terminal_runs
+from tests.shared_fixtures import DslCase, DslCaseFactory, catalog_get, catalog_value, terminal_runs
 from tests.support.source_trace import capture_source
 
 
@@ -175,7 +175,9 @@ def test_source_read_mean_retains_receipts_and_native_integer_sum(
             [2**62, 2**62],
         )
     source = case.session.read(
-        case.session.members(case.session.catalog.get("entity:sales.order")),
+        case.session.members(
+            catalog_get(case.session.catalog, "entity:sales.order", kind="entity")
+        ),
         {"x": catalog_value(case.catalog, "sales.order.amount", kind="field")},
     )
     trace = capture_source(monkeypatch)

@@ -15,6 +15,30 @@ from marivo.semantic.reader import SemanticProject
 from tests.support.source_trace import SourceTrace
 
 
+def _entity(catalog: ms.SemanticCatalog, path: str) -> ms.Entity:
+    result = catalog.get(path)
+    assert result.kind == "entity"
+    return result
+
+
+def _measure(catalog: ms.SemanticCatalog, path: str) -> ms.Measure:
+    result = catalog.get(path)
+    assert result.kind == "measure"
+    return result
+
+
+def _relationship(catalog: ms.SemanticCatalog, path: str) -> ms.Relationship:
+    result = catalog.get(path)
+    assert result.kind == "relationship"
+    return result
+
+
+def _time_dimension(catalog: ms.SemanticCatalog, path: str) -> ms.TimeDimension:
+    result = catalog.get(path)
+    assert result.kind == "time_dimension"
+    return result
+
+
 def _project(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -74,10 +98,12 @@ def test_date_within_uses_source_business_day_start_and_explicit_scope_timezone(
 ) -> None:
     _project(tmp_path, monkeypatch, semantic_project_factory, source_timezone)
     session = mv.session.get_or_create("date-within", timezone="America/New_York")
-    day = session.catalog.get("time_dimension:sales.facts.day")
+    day = _time_dimension(session.catalog, "time_dimension:sales.facts.day")
     assert isinstance(day, ms.TimeDimension)
     scope = session.time_scope(start="2026-07-01", end="2026-07-02", timezone=scope_timezone)
-    members = session.members(session.catalog.get("entity:sales.facts"), where=day.within(scope))
+    members = session.members(
+        _entity(session.catalog, "entity:sales.facts"), where=day.within(scope)
+    )
     result = session.frame(members).compute()
 
     # Tokyo July 1 starts June 30 at 15:00Z; Tokyo July 2 starts July 1 at
@@ -100,10 +126,12 @@ def test_date_within_preserves_date_identity_coordinates(
     with duckdb.connect(str(tmp_path / "date_scopes.duckdb")) as connection:
         connection.execute("DELETE FROM facts WHERE day IS NULL")
     session = mv.session.get_or_create("date-identity-within", timezone="UTC")
-    day = session.catalog.get("time_dimension:sales.facts.day")
+    day = _time_dimension(session.catalog, "time_dimension:sales.facts.day")
     assert isinstance(day, ms.TimeDimension)
     scope = session.time_scope(start="2026-07-01", end="2026-07-02")
-    selected = session.members(session.catalog.get("entity:sales.facts"), where=day.within(scope))
+    selected = session.members(
+        _entity(session.catalog, "entity:sales.facts"), where=day.within(scope)
+    )
     result = session.frame(selected).compute()
     assert result.to_pandas().iloc[:, 0].tolist() == [date(2026, 7, 2)]
     assert result.schema.axes[0].keys[0].dtype == ScalarDataType("date")
@@ -116,9 +144,9 @@ def test_date_within_composition_preserves_raw_projection_and_exact_equality(
 ) -> None:
     _project(tmp_path, monkeypatch, semantic_project_factory, "Asia/Tokyo")
     session = mv.session.get_or_create("composed-date-within", timezone="UTC")
-    entity = session.catalog.get("entity:sales.facts")
-    day = session.catalog.get("time_dimension:sales.facts.day")
-    amount = session.catalog.get("measure:sales.facts.amount")
+    entity = _entity(session.catalog, "entity:sales.facts")
+    day = _time_dimension(session.catalog, "time_dimension:sales.facts.day")
+    amount = _measure(session.catalog, "measure:sales.facts.amount")
     assert isinstance(day, ms.TimeDimension) and isinstance(amount, ms.Measure)
     scope = session.time_scope(start="2026-07-01", end="2026-07-02")
     within = day.within(scope)
@@ -152,9 +180,9 @@ def test_date_within_requires_whole_days_in_scope_timezone_but_timestamp_does_no
 ) -> None:
     _project(tmp_path, monkeypatch, semantic_project_factory, "Asia/Tokyo")
     session = mv.session.get_or_create("date-scope-grain", timezone="UTC")
-    entity = session.catalog.get("entity:sales.facts")
-    day = session.catalog.get("time_dimension:sales.facts.day")
-    clock = session.catalog.get("time_dimension:sales.facts.clock")
+    entity = _entity(session.catalog, "entity:sales.facts")
+    day = _time_dimension(session.catalog, "time_dimension:sales.facts.day")
+    clock = _time_dimension(session.catalog, "time_dimension:sales.facts.clock")
     assert isinstance(day, ms.TimeDimension) and isinstance(clock, ms.TimeDimension)
     scope = session.time_scope(start="2026-07-01T14:00Z", end="2026-07-01T16:00Z")
     selected = session.members(entity, where=day.within(scope))
@@ -190,10 +218,12 @@ def test_date_within_uses_backend_native_start_at_a_midnight_fold(
     # Python fold branch (04:00Z) would incorrectly exclude November 2.
     assert oracle == [(2,)]
     session = mv.session.get_or_create("native-date-start", timezone="UTC")
-    day = session.catalog.get("time_dimension:sales.facts.day")
+    day = _time_dimension(session.catalog, "time_dimension:sales.facts.day")
     assert isinstance(day, ms.TimeDimension)
     scope = session.time_scope(start="2025-11-02", end="2025-11-03", timezone="-04:30")
-    selected = session.members(session.catalog.get("entity:sales.facts"), where=day.within(scope))
+    selected = session.members(
+        _entity(session.catalog, "entity:sales.facts"), where=day.within(scope)
+    )
     assert session.frame(selected).compute().to_pandas().iloc[:, 0].tolist() == [2]
 
 
@@ -247,15 +277,15 @@ def test_date_within_through_versioned_relationship_retains_scope_read(
     )
     monkeypatch.chdir(tmp_path)
     session = mv.session.get_or_create("versioned-date-scope", timezone="UTC")
-    day = session.catalog.get("time_dimension:sales.profiles.day")
-    relationship = session.catalog.get("relationship:sales.profile")
-    amount = session.catalog.get("measure:sales.facts.amount")
+    day = _time_dimension(session.catalog, "time_dimension:sales.profiles.day")
+    relationship = _relationship(session.catalog, "relationship:sales.profile")
+    amount = _measure(session.catalog, "measure:sales.facts.amount")
     assert isinstance(day, ms.TimeDimension) and isinstance(amount, ms.Measure)
     assert isinstance(relationship, ms.Relationship)
     historical_day = day.via((relationship,)).at(session.instant("2026-06-30T16:00Z"))
     scope = session.time_scope(start="2026-07-01", end="2026-07-02")
     selected = session.members(
-        session.catalog.get("entity:sales.facts"), where=historical_day.within(scope)
+        _entity(session.catalog, "entity:sales.facts"), where=historical_day.within(scope)
     )
     result = session.read(selected, {"day": historical_day}).compute()
     data = result.to_pandas()

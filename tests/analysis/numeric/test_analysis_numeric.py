@@ -5,7 +5,6 @@ from __future__ import annotations
 from typing import Literal
 
 import pytest
-from ibis.common.deferred import Deferred
 
 import marivo.analysis as mv
 import marivo.semantic as ms
@@ -23,11 +22,17 @@ from tests.shared_fixtures import (
 from tests.support.paths import PROJECT_ROOT
 
 
+def _entity(catalog: ms.SemanticCatalog, path: str) -> ms.Entity:
+    result = catalog.get(path)
+    assert result.kind == "entity"
+    return result
+
+
 def _distribution(case: DslCase, agg: AggKind, *, overall: bool = False) -> mv.AnalysisFrame:
     session = case.session
-    amount = catalog_value(session.catalog, "sales.order.amount", kind="field")
-    time = catalog_value(session.catalog, "sales.order.ordered_at", kind="field")
-    metric: Deferred
+    amount = catalog_value(session.catalog, "sales.order.amount", kind="measure")
+    time = catalog_value(session.catalog, "sales.order.ordered_at", kind="time_dimension")
+    metric: ms.MetricExpression[Literal["numeric"]]
     if agg == "count_distinct":
         metric = amount.count_distinct(time=time)
     elif agg == "approx_count_distinct":
@@ -48,7 +53,7 @@ def _distribution(case: DslCase, agg: AggKind, *, overall: bool = False) -> mv.A
         if overall
         else mv.product(
             session.time_scope(start="2026-08-01", end="2026-09-01"),
-            session.members(session.catalog.get("entity:sales.customer")),
+            session.members(_entity(session.catalog, "entity:sales.customer")),
         ),
     )
 
@@ -180,11 +185,11 @@ def test_float_mean_and_decimal_original_state(analysis_dsl_case_factory: DslCas
     )
     ms.load(workspace_dir=case.root)
     session = case.session
-    amount = catalog_value(session.catalog, "sales.order.amount", kind="field")
-    weight = catalog_value(session.catalog, "sales.order.weight", kind="field")
-    decimal_amount = catalog_value(session.catalog, "sales.order.decimal_amount", kind="field")
-    time = catalog_value(session.catalog, "sales.order.ordered_at", kind="field")
-    members = session.members(session.catalog.get("entity:sales.customer"))
+    amount = catalog_value(session.catalog, "sales.order.amount", kind="measure")
+    weight = catalog_value(session.catalog, "sales.order.weight", kind="measure")
+    decimal_amount = catalog_value(session.catalog, "sales.order.decimal_amount", kind="measure")
+    time = catalog_value(session.catalog, "sales.order.ordered_at", kind="time_dimension")
+    members = session.members(_entity(session.catalog, "entity:sales.customer"))
     float_metrics = {
         "mean": amount.mean(time=time),
         "weighted_mean": amount.weighted_mean(weight=weight, time=time),
@@ -280,13 +285,13 @@ def test_numeric_composition_matrix(analysis_dsl_case_factory: DslCaseFactory) -
     )
     ms.load(workspace_dir=case.root)
     session = case.session
-    value = catalog_value(session.catalog, "sales.order.amount", kind="field")
-    weight = catalog_value(session.catalog, "sales.order.weight", kind="field")
-    floating_value = catalog_value(session.catalog, "sales.order.float_amount", kind="field")
-    time = catalog_value(session.catalog, "sales.order.ordered_at", kind="field")
-    members = session.members(session.catalog.get("entity:sales.customer"))
-    channel = catalog_value(session.catalog, "sales.order.channel", kind="field")
-    customer_id = catalog_value(session.catalog, "sales.order.customer_id", kind="field")
+    value = catalog_value(session.catalog, "sales.order.amount", kind="measure")
+    weight = catalog_value(session.catalog, "sales.order.weight", kind="measure")
+    floating_value = catalog_value(session.catalog, "sales.order.float_amount", kind="measure")
+    time = catalog_value(session.catalog, "sales.order.ordered_at", kind="time_dimension")
+    members = session.members(_entity(session.catalog, "entity:sales.customer"))
+    channel = catalog_value(session.catalog, "sales.order.channel", kind="dimension")
+    customer_id = catalog_value(session.catalog, "sales.order.customer_id", kind="dimension")
     numbers = [Fraction(amount) for _, amount, _ in facts if amount is not None]
     pairs = [
         (Fraction(amount), Fraction(weight))
@@ -295,7 +300,7 @@ def test_numeric_composition_matrix(analysis_dsl_case_factory: DslCaseFactory) -
     ]
     kinds = ("sum", "min", "max", "mean", "weighted", "ratio", "linear")
     base = value.sum(time=time)
-    expressions: dict[str, Deferred] = {
+    expressions: dict[str, ms.MetricExpression[Literal["numeric"]]] = {
         "sum": base,
         "min": floating_value.min(time=time),
         "max": value.max(time=time),
@@ -460,14 +465,14 @@ def test_duration_matrix(
         )
     ms.load(workspace_dir=case.root)
     session = case.session
-    value = catalog_value(session.catalog, "sales.order.amount", kind="field")
-    weight = catalog_value(session.catalog, "sales.order.weight", kind="field")
-    time = catalog_value(session.catalog, "sales.order.ordered_at", kind="field")
+    value = catalog_value(session.catalog, "sales.order.amount", kind="measure")
+    weight = catalog_value(session.catalog, "sales.order.weight", kind="measure")
+    time = catalog_value(session.catalog, "sales.order.ordered_at", kind="time_dimension")
     base = value.sum(time=time)
-    members = session.members(session.catalog.get("entity:sales.customer"))
-    channel = catalog_value(session.catalog, "sales.order.channel", kind="field")
-    customer_id = catalog_value(session.catalog, "sales.order.customer_id", kind="field")
-    expressions: dict[str, Deferred] = {}
+    members = session.members(_entity(session.catalog, "entity:sales.customer"))
+    channel = catalog_value(session.catalog, "sales.order.channel", kind="dimension")
+    customer_id = catalog_value(session.catalog, "sales.order.customer_id", kind="dimension")
+    expressions: dict[str, ms.MetricExpression[Literal["numeric"]]] = {}
     for kind in kinds:
         expressions[kind] = (
             value.weighted_mean(weight=weight, time=time)
@@ -581,10 +586,10 @@ def test_typed_temporal_matrix(
                 'ALTER TABLE "order" ALTER amount TYPE INTERVAL USING to_microseconds(amount)'
             )
     session = case.session
-    value = catalog_value(session.catalog, "sales.order.amount", kind="field")
-    time = catalog_value(session.catalog, "sales.order.ordered_at", kind="field")
-    members = session.members(session.catalog.get("entity:sales.customer"))
-    metrics: dict[str, Deferred] = {}
+    value = catalog_value(session.catalog, "sales.order.amount", kind="measure")
+    time = catalog_value(session.catalog, "sales.order.ordered_at", kind="time_dimension")
+    members = session.members(_entity(session.catalog, "entity:sales.customer"))
+    metrics: dict[str, ms.MetricExpression[Literal["numeric"]]] = {}
     for kind in kinds:
         base = value.sum(time=time)
         samples = base.per(time)
@@ -770,9 +775,9 @@ def test_numeric_boundary_facts(analysis_dsl_case_factory: DslCaseFactory, case_
             db.execute("UPDATE \"order\" SET amount='Infinity'::DOUBLE")
         elif case_kind == "calendar":
             db.execute("ALTER TABLE \"order\" ALTER amount TYPE INTERVAL USING INTERVAL '1 month'")
-    amount = catalog_value(case.session.catalog, "sales.order.amount", kind="field")
+    amount = catalog_value(case.session.catalog, "sales.order.amount", kind="measure")
     metric = amount.mean() if case_kind == "large_mean" else amount.sum()
-    customer = catalog_value(case.session.catalog, "sales.order.customer_id", kind="field")
+    customer = catalog_value(case.session.catalog, "sales.order.customer_id", kind="dimension")
     logical = case.session.observe({"boundary": metric}, by=(customer,))
     if case_kind in {"calendar", "overflow"}:
         with pytest.raises(AnalysisError):
@@ -800,8 +805,8 @@ def test_definition_quantile_checks_q_and_accepts_endpoints(
 ) -> None:
     case = analysis_dsl_case_factory("j1")
     session = case.session
-    value = catalog_value(session.catalog, "sales.order.amount", kind="field")
-    time = catalog_value(session.catalog, "sales.order.ordered_at", kind="field")
+    value = catalog_value(session.catalog, "sales.order.amount", kind="measure")
+    time = catalog_value(session.catalog, "sales.order.ordered_at", kind="time_dimension")
     for q in (True, -0.01, 1.01, float("nan"), float("inf")):
         for expression in (value.quantile, value.approx_quantile):
             with pytest.raises(ms.errors.SemanticExpressionError):
@@ -867,12 +872,12 @@ def test_linear_cancellation_checks_final_integer_and_float_bound(
     )
     ms.load(workspace_dir=case.root)
     session = case.session
-    time = catalog_value(session.catalog, "sales.order.ordered_at", kind="field")
+    time = catalog_value(session.catalog, "sales.order.ordered_at", kind="time_dimension")
     first, small, cancel = (
-        catalog_value(session.catalog, "sales.order." + name, kind="field").sum(time=time)
+        catalog_value(session.catalog, "sales.order." + name, kind="measure").sum(time=time)
         for name in ("amount", "small", "cancel")
     )
-    members = session.members(session.catalog.get("entity:sales.customer"))
+    members = session.members(_entity(session.catalog, "entity:sales.customer"))
     original = session.observe({"value": first + small - cancel}, by=members)
     if not floating:
         # Pandas Arrow integer addition raises at its native intermediate boundary.
@@ -903,13 +908,13 @@ def test_current_row_counts_keep_numeric_null_policy(
 
     case = analysis_dsl_case_factory("j1")
     session = case.session
-    value = catalog_value(session.catalog, "sales.order.amount", kind="field")
-    time = catalog_value(session.catalog, "sales.order.ordered_at", kind="field")
+    value = catalog_value(session.catalog, "sales.order.amount", kind="measure")
+    time = catalog_value(session.catalog, "sales.order.ordered_at", kind="time_dimension")
     logical = session.observe(
         {"value": value.sum(time=time)},
         by=mv.product(
             session.time_scope(start="2026-08-01", end="2026-09-01"),
-            session.members(session.catalog.get("entity:sales.customer")),
+            session.members(_entity(session.catalog, "entity:sales.customer")),
         ),
     )
     frame = logical.compute().to_pandas()

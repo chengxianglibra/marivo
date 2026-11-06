@@ -25,7 +25,7 @@ CASES = [("trino", "iceberg"), ("clickhouse", "mergetree")]
 
 
 def _data(boundary: str = "ordinary") -> SourceData:
-    amounts = (2.5, None, None, 2.5, -1.0, 0.0)
+    amounts: tuple[float | None, ...] = (2.5, None, None, 2.5, -1.0, 0.0)
     if boundary == "nan":
         amounts = (2.5, None, float("nan"), 2.5, -1.0, 0.0)
     integers: tuple[int | None, ...] = (10, 20, 30, 40, 50, 60)
@@ -97,8 +97,8 @@ def test_native_numeric_field_filters_and_top_preserve_nulls(
         _project(backend, case, monkeypatch, semantic_project_factory)
         session = mv.session.get_or_create("numeric-query", timezone="UTC")
         source = session.read(
-            session.members(session.catalog.get("entity:sales.facts")),
-            {"amount": catalog_value(session.catalog, "sales.facts.amount", kind="field")},
+            session.members(catalog_value(session.catalog, "sales.facts", kind="entity")),
+            {"amount": catalog_value(session.catalog, "sales.facts.amount", kind="measure")},
         )
         queries = (
             (source.where(source["amount"] > 0.5), [1, 4]),
@@ -128,9 +128,9 @@ def test_source_numeric_aggregate_frame_selection_and_explicit_bridge(
     with source_case(backend, profile, tmp_path, monkeypatch, _data()) as case:
         _project(backend, case, monkeypatch, semantic_project_factory)
         session = mv.session.get_or_create("numeric-aggregate-query", timezone="UTC")
-        big = catalog_value(session.catalog, "sales.facts.big", kind="field")
-        weight = catalog_value(session.catalog, "sales.facts.weight", kind="field")
-        category = catalog_value(session.catalog, "sales.facts.category", kind="field")
+        big = catalog_value(session.catalog, "sales.facts.big", kind="measure")
+        weight = catalog_value(session.catalog, "sales.facts.weight", kind="measure")
+        category = catalog_value(session.catalog, "sales.facts.category", kind="dimension")
         metric = (
             big.weighted_mean(weight=weight)
             if method == "weighted_mean"
@@ -165,11 +165,13 @@ def test_native_integer_predicate_uses_actual_source_value_before_pandas_roundin
     with source_case(backend, profile, tmp_path, monkeypatch, _data("precision")) as case:
         _project(backend, case, monkeypatch, semantic_project_factory)
         session = mv.session.get_or_create("numeric-native-precision", timezone="UTC")
-        big = catalog_value(session.catalog, "sales.facts.big", kind="field")
+        big = catalog_value(session.catalog, "sales.facts.big", kind="measure")
         # This is now an explicit source row predicate, independently checked
         # before its admitted native pandas handoff, not a Frame fusion claim.
         source = session.read(
-            session.members(session.catalog.get("entity:sales.facts"), where=big > 2**53),
+            session.members(
+                catalog_value(session.catalog, "sales.facts", kind="entity"), where=big > 2**53
+            ),
             {"big": big},
         )
         table = case.session.bind(case.source, source_identity="integer-predicate-oracle").relation
@@ -179,7 +181,7 @@ def test_native_integer_predicate_uses_actual_source_value_before_pandas_roundin
         assert frame.iloc[:, 0].tolist() == [("t1", 1)]
         assert frame["big"].tolist() == native.big.tolist()
         # Fixed host integer data retains its exact current-row predicate.
-        category = catalog_value(session.catalog, "sales.facts.category", kind="field")
+        category = catalog_value(session.catalog, "sales.facts.category", kind="dimension")
         fixed = session.values(
             by=(category,),
             columns={"big": None},
@@ -204,10 +206,10 @@ def test_native_numeric_parent_obligations_survive_top_zero(
     with source_case(backend, profile, tmp_path, monkeypatch, _data(boundary)) as case:
         _project(backend, case, monkeypatch, semantic_project_factory)
         session = mv.session.get_or_create("numeric-native-errors", timezone="UTC")
-        big = catalog_value(session.catalog, "sales.facts.big", kind="field")
-        amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
-        weight = catalog_value(session.catalog, "sales.facts.weight", kind="field")
-        category = catalog_value(session.catalog, "sales.facts.category", kind="field")
+        big = catalog_value(session.catalog, "sales.facts.big", kind="measure")
+        amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
+        weight = catalog_value(session.catalog, "sales.facts.weight", kind="measure")
+        category = catalog_value(session.catalog, "sales.facts.category", kind="dimension")
         metric = (
             big.sum()
             if boundary == "overflow"
@@ -273,8 +275,8 @@ def test_native_decimal_field_filter_keeps_actual_source_comparison(
         _project(backend, case, monkeypatch, semantic_project_factory)
         session = mv.session.get_or_create("decimal-native-query", timezone="UTC")
         source = session.read(
-            session.members(session.catalog.get("entity:sales.facts")),
-            {"amount": catalog_value(session.catalog, "sales.facts.amount", kind="field")},
+            session.members(catalog_value(session.catalog, "sales.facts", kind="entity")),
+            {"amount": catalog_value(session.catalog, "sales.facts.amount", kind="measure")},
         )
         trace = capture_source(monkeypatch)
         frame = source.where(source["amount"] > Decimal("2.5")).compute().to_pandas()
@@ -309,8 +311,8 @@ def test_numeric_attribute_where_and_empty_top_preserve_valid_keys(
         _project(backend, case, monkeypatch, semantic_project_factory)
         session = mv.session.get_or_create("numeric-attribute-error", timezone="UTC")
         source = session.read(
-            session.members(session.catalog.get("entity:sales.facts")),
-            {"amount": catalog_value(session.catalog, "sales.facts.amount", kind="field")},
+            session.members(catalog_value(session.catalog, "sales.facts", kind="entity")),
+            {"amount": catalog_value(session.catalog, "sales.facts.amount", kind="measure")},
         )
         filtered = source.where(
             source["amount"] > (Decimal("100.5") if carrier == "decimal" else 100.5)
@@ -350,8 +352,8 @@ def test_nonnullable_float_source_keeps_valid_nan_through_filter_and_top(
         _project(backend, case, monkeypatch, semantic_project_factory)
         session = mv.session.get_or_create("nonnull-float-native-query", timezone="UTC")
         source = session.read(
-            session.members(session.catalog.get("entity:sales.facts")),
-            {"amount": catalog_value(session.catalog, "sales.facts.amount", kind="field")},
+            session.members(catalog_value(session.catalog, "sales.facts", kind="entity")),
+            {"amount": catalog_value(session.catalog, "sales.facts.amount", kind="measure")},
         )
         trace = capture_source(monkeypatch)
         values = pa.array(source.compute().to_pandas()["amount"])
@@ -377,8 +379,8 @@ def test_native_integer_overflow_keeps_backend_behavior_and_fixed_values(
     with source_case(backend, profile, tmp_path, monkeypatch, _data("overflow")) as case:
         _project(backend, case, monkeypatch, semantic_project_factory)
         session = mv.session.get_or_create("native-overflow", timezone="UTC")
-        big = catalog_value(session.catalog, "sales.facts.big", kind="field")
-        category = catalog_value(session.catalog, "sales.facts.category", kind="field")
+        big = catalog_value(session.catalog, "sales.facts.big", kind="measure")
+        category = catalog_value(session.catalog, "sales.facts.category", kind="dimension")
         source = session.observe({"value": (big + 1).sum() + 1}, by=(category,))
         trace = capture_source(monkeypatch)
         if backend == "duckdb":
@@ -395,7 +397,8 @@ def test_native_integer_overflow_keeps_backend_behavior_and_fixed_values(
             assert session.persisted_frame(saved.artifact_id).to_pandas().equals(saved.to_pandas())
             assert trace.native_sql
         fixed = session.read(
-            session.members(session.catalog.get("entity:sales.facts")), {"big": big}
+            session.members(catalog_value(session.catalog, "sales.facts", kind="entity")),
+            {"big": big},
         ).compute()
         # The public fixed operation uses its ordinary pandas/Arrow kernel;
         # independently run that kernel instead of imposing a wider carrier.
@@ -451,7 +454,7 @@ def test_decimal_overflow_matches_native_result_or_failure(
     with source_case(backend, profile, tmp_path, monkeypatch, data) as case:
         _project(backend, case, monkeypatch, semantic_project_factory)
         session = mv.session.get_or_create("decimal-native-overflow", timezone="UTC")
-        big = catalog_value(session.catalog, "sales.facts.big", kind="field")
+        big = catalog_value(session.catalog, "sales.facts.big", kind="measure")
         native = case.session.bind(case.source, source_identity="decimal-overflow-oracle").relation
         operand = (
             "CAST(big + CAST(1 AS DECIMAL(1,0)) AS DECIMAL(38,0))" if operation == "add" else "big"
@@ -479,6 +482,7 @@ def test_decimal_overflow_matches_native_result_or_failure(
         if failed:
             with pytest.raises((MaterializationError, DatasourceError)) as error:
                 source.compute()
+            assert isinstance(error.value, (MaterializationError, DatasourceError))
             assert error.value.expected and error.value.received and error.value.repair
         else:
             saved = source.persist()

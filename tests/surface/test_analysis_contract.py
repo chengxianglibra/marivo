@@ -164,7 +164,9 @@ def test_unicode_scope_keeps_every_continuation_visible(
     ]
     population = domains[0]
     for domain in domains[1:]:
-        population = population.union(domain)
+        updated = population.union(domain)
+        assert isinstance(updated, mv.Population)
+        population = updated
     population.show()
     card = capsys.readouterr().out
     assert "omitted" in card
@@ -193,7 +195,7 @@ def test_output_names_and_column_show_preserve_complete_metadata(
     assert all(name in text for name in names)
     column = query[query.output_names[-1]]
     assert ".show()" in repr(column)
-    assert column.show() is None
+    assert column.show() is None  # type: ignore[func-returns-value]  # Verify runtime return contract.
     card = capsys.readouterr().out
     assert "name=amount_19" in card and "role=value" in card
     assert "kind=unresolved" in card and "unit=CNY" in card

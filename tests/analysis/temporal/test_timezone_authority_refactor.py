@@ -2,6 +2,7 @@
 
 from dataclasses import replace
 from datetime import date, datetime, timedelta, timezone
+from pathlib import Path
 
 import ibis
 import pytest
@@ -108,7 +109,7 @@ def test_fixed_offset_never_reaches_backend_as_a_timezone_name(engine: str, awar
 @pytest.mark.runtime
 @pytest.mark.parametrize("engine,profile", [("postgres", "table"), ("mysql", "innodb-table")])
 def test_fixed_offset_native_projection_matches_independent_offset_sql(
-    engine: str, profile: str, tmp_path, monkeypatch: pytest.MonkeyPatch
+    engine: str, profile: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from marivo.datasource._temporal_expressions import render
     from tests.datasource.source_cases import SourceData, source_case

@@ -65,7 +65,9 @@ def test_report_day_buckets_preserve_declared_read_time_authority(
     # The declared DuckDB source defaults to UTC for naive source timestamps.
     session = mv.session.get_or_create("report-days", timezone="Asia/Shanghai")
     grid = session.time_scope(start="2026-07-01", end="2026-07-03").by(mv.grain("day"))
-    logical = session.observe({"value": session.catalog.get("metric:sales.revenue")}, by=(grid,))
+    metric = session.catalog.get("metric:sales.revenue")
+    assert metric.kind == "metric"
+    logical = session.observe({"value": metric}, by=(grid,))
     assert terminal_runs(session) == ()
     frame = logical.compute()
     result = frame.to_pandas(time_details=True)

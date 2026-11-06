@@ -21,7 +21,7 @@ from marivo.datasource.adapters import SourceSession
 from tests.analysis.materialization.domain_recovery_worker import snapshot
 from tests.analysis.statistics.pandas_workflows import forecast, receipt_paths
 from tests.analysis.statistics.runs_worker import segments
-from tests.shared_fixtures import terminal_runs
+from tests.shared_fixtures import catalog_get, terminal_runs
 from tests.support.json import encode
 from tests.support.paths import PROJECT_ROOT
 
@@ -73,10 +73,10 @@ def coverage_project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 def _query(session: mv.Session) -> mv.AnalysisFrame:
     period = session.time_scope(start=START, end=START + timedelta(days=3))
     return session.observe(
-        {"value": session.catalog.get("metric:sales.total_0")},
+        {"value": catalog_get(session.catalog, "metric:sales.total_0", kind="metric")},
         by=mv.product(
             period.by(mv.grain("day")),
-            session.members(session.catalog.get("entity:sales.order")),
+            session.members(catalog_get(session.catalog, "entity:sales.order", kind="entity")),
         ),
     )
 

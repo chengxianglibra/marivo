@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from pathlib import Path
+from typing import Literal
 
 import pytest
 from ibis.common.deferred import Deferred
@@ -21,7 +22,12 @@ from marivo.semantic.catalog import SemanticCatalog
 from marivo.semantic.errors import ErrorKind, SemanticExpressionError
 from marivo.semantic.loader import LoaderContext, loader_context
 from marivo.semantic.reader import SemanticProject
-from tests.shared_fixtures import captured_catalog, catalog_value, in_memory_datasource_ir
+from tests.shared_fixtures import (
+    captured_catalog,
+    catalog_get,
+    catalog_value,
+    in_memory_datasource_ir,
+)
 
 ProjectFactory = Callable[..., SemanticProject]
 _DOMAIN = 'import marivo.semantic as ms\nms.domain(name="sales", owner="Analytics")\n'
@@ -70,7 +76,7 @@ def test_native_factories_preserve_private_identity_and_expression_protocol() ->
         assert isinstance(value == getattr(ms.ref, kind)(path), Deferred)
     assert native_symbol_ref(ms.ref.measure("sales.orders.amount") + 1) is None
     with pytest.raises(AttributeError):
-        ms.ref.metric = lambda path: path
+        setattr(ms.ref, "metric", lambda path: path)  # noqa: B010  (Runtime immutability check.)
     with pytest.raises(ValueError):
         ms.ref.domain("sales.orders")
 
@@ -154,7 +160,9 @@ paid_at = ms.time_dimension_column(name="paid_at", entity=orders, column="paid_a
     assert consume_row(margin).unit == "CNY"
     assert consume_row(margin).root.ref.path == "sales.orders"
     assert set(catalog._state.registry.declared_metrics) == {"sales.margin_per_order"}
-    assert not inspect_deferred(_recipe(catalog.get("metric:sales.margin_per_order"))).symbols
+    assert not inspect_deferred(
+        _recipe(catalog_get(catalog, "metric:sales.margin_per_order", kind="metric"))
+    ).symbols
 
 
 def test_complete_lookup_graph_rejects_missing_wrong_kind_and_self_cycles(
@@ -182,7 +190,9 @@ def {name}():
         assert project.errors()[0].expected and project.errors()[0].received
 
 
-def _physical_scope(unit: str, declarations: tuple[Deferred, ...]) -> SemanticCatalog:
+def _physical_scope(
+    unit: str, declarations: tuple[Deferred | _ExpressionCarrier, ...]
+) -> SemanticCatalog:
     context = LoaderContext(datasource_irs=(in_memory_datasource_ir("warehouse"),))
     with loader_context(context):
         ms.domain(name="sales", owner="Analytics")
@@ -199,43 +209,45 @@ def _physical_scope(unit: str, declarations: tuple[Deferred, ...]) -> SemanticCa
 def test_same_template_binds_independently_without_calling_or_rereading_author() -> None:
     dependency = ms.ref.measure("sales.orders.amount")
 
-    def authored():
-        return dependency.sum()
+    def authored() -> Deferred:
+        return dependency.sum()  # type: ignore[no-any-return]  # Ibis Deferred methods are dynamically typed.
 
     template = ms.metric(domain=ms.ref.domain("sales"))(authored)
     captured = inspect_capture(_recipe(template)).fingerprint
 
-    def forbidden():
+    def forbidden() -> None:
         raise AssertionError(f"author callback executed: {dependency}")
 
     authored.__code__ = forbidden.__code__
     dependency = ms.ref.measure("sales.orders.missing")
     first = _physical_scope("CNY", (template,))
-    first_facts = consume_metric(first.get("metric:sales.authored"))
+    first_facts = consume_metric(catalog_get(first, "metric:sales.authored", kind="metric"))
     second = _physical_scope("USD", (template,))
     assert first_facts.unit == "CNY"
-    assert consume_metric(second.get("metric:sales.authored")).unit == "USD"
-    assert consume_metric(first.get("metric:sales.authored")) == first_facts
+    assert consume_metric(catalog_get(second, "metric:sales.authored", kind="metric")).unit == "USD"
+    assert consume_metric(catalog_get(first, "metric:sales.authored", kind="metric")) == first_facts
     assert inspect_capture(_recipe(template)).fingerprint == captured
     assert inspect_capture(_recipe(template)).symbols == (
         ref_factory.measure("sales.orders.amount"),
     )
-    assert root_declaration(_recipe(template)).reference is None
+    declaration = root_declaration(_recipe(template))
+    assert declaration is not None
+    assert declaration.reference is None
 
 
 def test_named_loaded_leaf_rebinds_when_published_in_receiving_scope() -> None:
     first = _physical_scope("CNY", ())
-    old_amount = catalog_value(first, "sales.orders.amount", kind="field")
+    old_amount = catalog_value(first, "sales.orders.amount", kind="measure")
 
     @ms.metric(domain=ms.ref.domain("sales"))
-    def old_revenue():
+    def old_revenue() -> ms.MetricExpression[Literal["numeric"]]:
         return old_amount.sum()
 
     second = _physical_scope("USD", (old_revenue,))
-    reopened = consume_metric(second.get("metric:sales.old_revenue"))
+    reopened = consume_metric(catalog_get(second, "metric:sales.old_revenue", kind="metric"))
     assert reopened.unit == "USD"
     assert isinstance(reopened._declared[-1][1], SourceAggregate)
-    assert consume_row(catalog_value(second, "sales.orders.amount", kind="field")).unit == "USD"
+    assert consume_row(catalog_value(second, "sales.orders.amount", kind="measure")).unit == "USD"
     assert consume_row(old_amount).unit == "CNY"
 
 
@@ -326,8 +338,8 @@ def direct():
 """
     )
     catalog = _catalog(semantic_project_factory, source)
-    direct = consume_metric(catalog.get("metric:sales.direct"))
-    lookup = consume_metric(catalog.get("metric:sales.lookup"))
+    direct = consume_metric(catalog_get(catalog, "metric:sales.direct", kind="metric"))
+    lookup = consume_metric(catalog_get(catalog, "metric:sales.lookup", kind="metric"))
     assert direct._declared[0][0] == lookup._declared[0][0]
     assert direct._declared[0][0].ref.path == "sales.revenue"
     assert computation_fingerprint(direct._declared[-1][1]) == computation_fingerprint(
@@ -340,7 +352,7 @@ def test_malformed_measure_additivity_rejects_equally_for_symbols_and_closed_row
     closed: bool,
 ) -> None:
     dependency = (
-        catalog_value(_physical_scope("CNY", ()), "sales.orders.amount", kind="field")
+        catalog_value(_physical_scope("CNY", ()), "sales.orders.amount", kind="measure")
         if closed
         else ms.ref.measure("sales.orders.amount")
     )
@@ -348,12 +360,13 @@ def test_malformed_measure_additivity_rejects_equally_for_symbols_and_closed_row
         case = f"closed={closed}, additivity={type(bad).__name__}"
         with pytest.raises(SemanticExpressionError) as failure:
 
-            @ms.measure(additivity=bad)
-            def malformed_policy():
+            @ms.measure(additivity=bad)  # type: ignore[arg-type]  # Deliberately invalid policy.
+            def malformed_policy() -> Deferred | ms.RowExpression[Literal["numeric"]]:
                 return dependency * 2
 
         assert failure.value.kind == ErrorKind.INVALID_EXPRESSION_VALUE.value, case
         assert "closed additivity policy" in failure.value.message, case
+        assert failure.value.expected is not None
         for policy in (
             "ms.additive_all()",
             "ms.additive_except(...)",
@@ -386,6 +399,7 @@ Path({str(marker)!r}).write_text("unexpected")
     error = project.errors()[0]
     assert error.kind == ErrorKind.INVALID_EXPRESSION_VALUE.value
     assert "invalid_duplicate" in error.message
+    assert error.received is not None
     assert "more than once" in error.received
 
 
@@ -408,8 +422,13 @@ ms.dimension_column(name="region", entity=orders, column="region")
 """
     )
     catalog = _catalog(semantic_project_factory, source)
-    assert consume_metric(catalog.get("metric:sales.selected_median")).unit == "CNY"
-    assert not inspect_deferred(_recipe(catalog.get("metric:sales.selected_median"))).symbols
+    assert (
+        consume_metric(catalog_get(catalog, "metric:sales.selected_median", kind="metric")).unit
+        == "CNY"
+    )
+    assert not inspect_deferred(
+        _recipe(catalog_get(catalog, "metric:sales.selected_median", kind="metric"))
+    ).symbols
 
 
 _MALFORMED_CASE_CALLS = (
@@ -443,6 +462,7 @@ Path({str(marker)!r}).write_text("unexpected")
         error = project.errors()[0]
         assert error.kind == ErrorKind.INVALID_EXPRESSION_VALUE.value
         assert "malformed_cases" in error.message
+        assert error.received is not None
         assert "branch pairs" in error.received
 
 
@@ -516,7 +536,10 @@ def all_valid_top_calls():
         consume_row(catalog_value(catalog, "sales.orders.native_top_calls", kind="field")).unit
         == "CNY"
     )
-    assert consume_metric(catalog.get("metric:sales.all_valid_top_calls")).unit == "CNY"
+    assert (
+        consume_metric(catalog_get(catalog, "metric:sales.all_valid_top_calls", kind="metric")).unit
+        == "CNY"
+    )
 
 
 def test_publication_graph_matches_full_reconstruction_and_survives_failed_reload(

@@ -3,7 +3,7 @@
 import pytest
 
 import marivo.analysis as mv
-from tests.shared_fixtures import DslCaseFactory
+from tests.shared_fixtures import DslCaseFactory, catalog_get
 
 
 def test_reduced_count_compares_as_an_independent_quantity(
@@ -11,9 +11,9 @@ def test_reduced_count_compares_as_an_independent_quantity(
 ) -> None:
     case = analysis_dsl_case_factory("j2")
     session = case.session
-    members = session.members(session.catalog.get("entity:sales.customer"))
+    members = session.members(catalog_get(session.catalog, "entity:sales.customer", kind="entity"))
     values = session.observe(
-        {"value": session.catalog.get("metric:sales.order_count")},
+        {"value": catalog_get(session.catalog, "metric:sales.order_count", kind="metric")},
         by=mv.product(session.time_scope(start="2026-08-01", end="2026-09-01"), members),
     )
     selected = values.where(values.coord(values.axes[1]) != "D")

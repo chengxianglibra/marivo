@@ -30,9 +30,9 @@ def test_source_columns_context_and_fixed_lifecycle(
 ) -> None:
     case = analysis_dsl_case_factory("j2")
     session = case.session
-    revenue = case.catalog.get("metric:sales.revenue")
-    count = case.catalog.get("metric:sales.order_count")
-    region = catalog_value(case.catalog, "sales.customer.region", kind="field")
+    revenue = catalog_value(case.catalog, "sales.revenue", kind="metric")
+    count = catalog_value(case.catalog, "sales.order_count", kind="metric")
+    region = catalog_value(case.catalog, "sales.customer.region", kind="dimension")
     frame = session.observe({"revenue": revenue, "orders": count}, by=(region,))
     rev = frame.lineage.values["revenue"]
     assert {"sales.revenue", "sales.order.amount", "sales.order", "warehouse"} <= paths(
@@ -42,8 +42,8 @@ def test_source_columns_context_and_fixed_lifecycle(
     assert "sales.customer.region" in paths(rev.context_origins)
     assert "sales.order.ordered_at" in paths(rev.context_origins)
     assert "sales.order_buyer" in paths(rev.context_origins)
-    members = session.members(case.catalog.get("entity:sales.customer"))
-    customer_id = case.catalog.get("dimension:sales.customer.customer_id")
+    members = session.members(catalog_value(case.catalog, "sales.customer", kind="entity"))
+    customer_id = catalog_value(case.catalog, "sales.customer.customer_id", kind="dimension")
     read = session.read(members, {"region": region, "id": customer_id})
     region_lineage = read.lineage.values["region"]
     assert "sales.customer.customer_id" not in paths(
@@ -88,9 +88,10 @@ def test_source_columns_context_and_fixed_lifecycle(
         == saved.lineage.values["total"]
     )
     with pytest.raises(TypeError):
-        operator.setitem(reopened.lineage.values, "bad", lineage)
+        # Intentionally mutate the read-only mapping to check its runtime contract.
+        operator.setitem(reopened.lineage.values, "bad", lineage)  # type: ignore[call-overload]
     with pytest.raises(FrozenInstanceError):
-        lineage.value_origins = ()
+        lineage.value_origins = ()  # type: ignore[misc]  # Verify frozen instances reject writes.
 
 
 def test_named_measures_survive_expansion_without_changed_computation(
@@ -118,7 +119,7 @@ def named_total():
     )
     catalog = ms.load(workspace_dir=case.root)
     session = mv.session.get_or_create("named-lineage", timezone="UTC")
-    metric = catalog.get("metric:sales.named_total")
+    metric = catalog_value(catalog, "sales.named_total", kind="metric")
     result = session.observe({"named": metric})
     captured_origins = result.lineage.values["named"].value_origins
     assert len([o for o in captured_origins if o.path == "sales.order.nested_amount"]) == 1
@@ -132,8 +133,8 @@ def named_total():
     from marivo._definition.graph import computation_fingerprint
     from marivo.semantic._deferred_semantics import consume_metric
 
-    direct = catalog.get("measure:sales.order.amount")
-    derived = catalog.get("measure:sales.order.named_amount")
+    direct = catalog_value(catalog, "sales.order.amount", kind="measure")
+    derived = catalog_value(catalog, "sales.order.named_amount", kind="measure")
     assert computation_fingerprint(consume_metric(direct.sum()).node) == computation_fingerprint(
         consume_metric(derived.sum()).node
     )
@@ -162,10 +163,10 @@ def positive_count():
     )
     catalog = ms.load(workspace_dir=case.root)
     session = mv.session.get_or_create("predicate-lineage", timezone="UTC")
-    amount = catalog.get("measure:sales.order.amount")
-    named = catalog.get("measure:sales.order.threshold")
-    count = catalog.get("metric:sales.order_count")
-    published = catalog.get("metric:sales.positive_count")
+    amount = catalog_value(catalog, "sales.order.amount", kind="measure")
+    named = catalog_value(catalog, "sales.order.threshold", kind="measure")
+    count = catalog_value(catalog, "sales.order_count", kind="metric")
+    published = catalog_value(catalog, "sales.positive_count", kind="metric")
     aliases = {"sales.order.named_amount", "sales.order.threshold"}
     common = session.observe({"n": count}, where=named > 0)
     for frame in (
@@ -222,15 +223,16 @@ def weight_total():
     )
     catalog = ms.load(workspace_dir=case.root)
     session = mv.session.get_or_create("component-lineage", timezone="UTC")
-    amount = catalog.get("measure:sales.order.amount")
-    weight = catalog.get("measure:sales.order.named_weight")
-    channel = catalog.get("dimension:sales.order.channel")
+    amount = catalog_value(catalog, "sales.order.amount", kind="measure")
+    weight = catalog_value(catalog, "sales.order.named_weight", kind="measure")
+    channel = catalog_value(catalog, "sales.order.channel", kind="dimension")
     metric = (
         amount.mean()
         if method == "mean"
         else amount.weighted_mean(weight=weight)
         if method == "weighted"
-        else catalog.get("metric:sales.revenue") / catalog.get("metric:sales.weight_total")
+        else catalog_value(catalog, "sales.revenue", kind="metric")
+        / catalog_value(catalog, "sales.weight_total", kind="metric")
     )
     report = session.observe({"q": metric}).attribute(by=(channel,))
     numerator = report.lineage.values["component.value.numerator.q"]
@@ -264,9 +266,9 @@ def test_compare_attribute_and_key_bridge_keep_output_roles(
 ) -> None:
     case = analysis_dsl_case_factory("j2")
     session = case.session
-    metric = case.catalog.get("metric:sales.revenue")
-    region = catalog_value(case.catalog, "sales.customer.region", kind="field")
-    channel = catalog_value(case.catalog, "sales.order.channel", kind="field")
+    metric = catalog_value(case.catalog, "sales.revenue", kind="metric")
+    region = catalog_value(case.catalog, "sales.customer.region", kind="dimension")
+    channel = catalog_value(case.catalog, "sales.order.channel", kind="dimension")
     left = session.observe({"revenue": metric})
     right = session.observe({"revenue": metric * 2})
     compared = left.compare(right)
@@ -300,7 +302,7 @@ def test_cold_lineage_has_no_model_or_source_dependency(
     case = analysis_dsl_case_factory("j2")
     calendar = case.session.time_scope(start="2026-08-15", end="2026-08-16").by(mv.grain("day"))
     observed = case.session.observe(
-        {"revenue": case.catalog.get("metric:sales.revenue")}, by=(calendar,)
+        {"revenue": catalog_value(case.catalog, "sales.revenue", kind="metric")}, by=(calendar,)
     )
     saved = observed.persist()
     (case.root / "models").rename(case.root / "hidden_models")

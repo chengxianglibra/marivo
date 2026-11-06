@@ -14,6 +14,18 @@ from tests.support.execution_logs import execution_records
 from tests.support.paths import PROJECT_ROOT
 
 
+def _entity(catalog: ms.SemanticCatalog, path: str) -> ms.Entity:
+    result = catalog.get(path)
+    assert result.kind == "entity"
+    return result
+
+
+def _metric(catalog: ms.SemanticCatalog, path: str) -> ms.Metric:
+    result = catalog.get(path)
+    assert result.kind == "metric"
+    return result
+
+
 def test_observation_algorithm_override_is_not_public() -> None:
     assert not hasattr(ms, "quantile_metric")
     assert not hasattr(ms, "QuantileMetricInput")
@@ -46,11 +58,13 @@ def test_defined_quantiles_survive_source_offline_recovery(
     session = case.session
     query = session.observe(
         {
-            "median": session.catalog.get("metric:sales.median_amount"),
-            "approximate_median": session.catalog.get("metric:sales.approximate_median_amount"),
-            "approximate_p95": session.catalog.get("metric:sales.approximate_p95_amount"),
+            "median": _metric(session.catalog, "metric:sales.median_amount"),
+            "approximate_median": _metric(
+                session.catalog, "metric:sales.approximate_median_amount"
+            ),
+            "approximate_p95": _metric(session.catalog, "metric:sales.approximate_p95_amount"),
         },
-        by=session.members(session.catalog.get("entity:sales.customer")),
+        by=session.members(_entity(session.catalog, "entity:sales.customer")),
     )
     output = query.persist()
     exported = output.to_pandas()
@@ -71,8 +85,10 @@ def test_defined_quantiles_survive_source_offline_recovery(
     total = (
         session.observe(
             {
-                "median": session.catalog.get("metric:sales.median_amount"),
-                "approximate_median": session.catalog.get("metric:sales.approximate_median_amount"),
+                "median": _metric(session.catalog, "metric:sales.median_amount"),
+                "approximate_median": _metric(
+                    session.catalog, "metric:sales.approximate_median_amount"
+                ),
             }
         )
         .compute()

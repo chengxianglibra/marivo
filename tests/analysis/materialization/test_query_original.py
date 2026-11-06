@@ -75,9 +75,9 @@ def test_raw_mean_and_weighted_pairs_finish_after_regrouping(
     original_source_session: Session,
 ) -> None:
     session = original_source_session
-    amount = catalog_value(session.catalog, "sales.orders.amount", kind="field")
-    weight = catalog_value(session.catalog, "sales.orders.weight", kind="field")
-    region = catalog_value(session.catalog, "sales.orders.region", kind="field")
+    amount = catalog_value(session.catalog, "sales.orders.amount", kind="measure")
+    weight = catalog_value(session.catalog, "sales.orders.weight", kind="measure")
+    region = catalog_value(session.catalog, "sales.orders.region", kind="dimension")
     fine = session.observe({"mean": amount.mean()}, by=(region,)).compute()
     assert fine.to_pandas()["mean"].tolist() == [20.0, 300.0]
     overall = session.observe(
@@ -96,8 +96,8 @@ def test_original_constant_and_ratio_recompute_the_formula(
     original_source_session: Session,
 ) -> None:
     session = original_source_session
-    amount = catalog_value(session.catalog, "sales.orders.amount", kind="field")
-    region = catalog_value(session.catalog, "sales.orders.region", kind="field")
+    amount = catalog_value(session.catalog, "sales.orders.amount", kind="measure")
+    region = catalog_value(session.catalog, "sales.orders.region", kind="dimension")
     original_ratio = session.observe({"ratio": amount.sum() / amount.count()}).compute()
     assert original_ratio.to_pandas()["ratio"].tolist() == pytest.approx([340 / 3])
     with duckdb.connect(str(session.project_root / "original-source.duckdb")) as connection:
@@ -122,9 +122,9 @@ def test_per_keeps_full_internal_identity(
         connection.execute("DELETE FROM orders WHERE id=2")
         connection.execute("UPDATE orders SET amount=100 WHERE id=1")
         connection.execute("UPDATE orders SET customer=? WHERE id=3", [customer])
-    amount = catalog_value(session.catalog, "sales.orders.amount", kind="field")
-    sample = catalog_value(session.catalog, "sales.orders.customer", kind="field")
-    region = catalog_value(session.catalog, "sales.orders.region", kind="field")
+    amount = catalog_value(session.catalog, "sales.orders.amount", kind="measure")
+    sample = catalog_value(session.catalog, "sales.orders.customer", kind="dimension")
+    region = catalog_value(session.catalog, "sales.orders.region", kind="dimension")
     fine = session.observe({"value": amount.sum().per(sample).mean()}, by=(region,)).compute()
     assert fine.to_pandas()["value"].tolist() == [100.0, 300.0]
     result = session.observe({"value": amount.sum().per(sample).mean()}).compute()
@@ -133,8 +133,8 @@ def test_per_keeps_full_internal_identity(
 
 def test_exact_quantile_and_distinct_use_complete_values(original_source_session: Session) -> None:
     session = original_source_session
-    amount = catalog_value(session.catalog, "sales.orders.amount", kind="field")
-    customer = catalog_value(session.catalog, "sales.orders.customer", kind="field")
+    amount = catalog_value(session.catalog, "sales.orders.amount", kind="measure")
+    customer = catalog_value(session.catalog, "sales.orders.customer", kind="dimension")
     result = session.observe(
         {"quantile": amount.quantile(0.95), "distinct": customer.count_distinct()}
     ).compute()
@@ -147,8 +147,8 @@ def test_explicit_source_signed_sum_and_zero_denominator(original_source_session
     with duckdb.connect(str(session.project_root / "original-source.duckdb")) as connection:
         connection.execute("DELETE FROM orders WHERE id=2")
         connection.execute("UPDATE orders SET amount=CASE id WHEN 1 THEN 100 ELSE -100 END")
-    amount = catalog_value(session.catalog, "sales.orders.amount", kind="field")
-    region = catalog_value(session.catalog, "sales.orders.region", kind="field")
+    amount = catalog_value(session.catalog, "sales.orders.amount", kind="measure")
+    region = catalog_value(session.catalog, "sales.orders.region", kind="dimension")
     fine = session.observe({"value": amount.sum()}, by=(region,)).compute()
     assert fine.to_pandas()["value"].tolist() == [100, -100]
     result = session.observe(
@@ -162,10 +162,12 @@ def test_member_count_uses_complete_identities_and_selected_fine_keys(
     original_source_session: Session,
 ) -> None:
     session = original_source_session
-    amount = catalog_value(session.catalog, "sales.orders.amount", kind="field")
-    region = catalog_value(session.catalog, "sales.orders.region", kind="field")
-    members = session.members(session.catalog.get("entity:sales.orders"))
-    members = members.classify(by=(members.axes[0], region))
+    amount = catalog_value(session.catalog, "sales.orders.amount", kind="measure")
+    region = catalog_value(session.catalog, "sales.orders.region", kind="dimension")
+    members = session.members(catalog_value(session.catalog, "sales.orders", kind="entity"))
+    classified = members.classify(by=(members.axes[0], region))
+    assert isinstance(classified, mv.Population)
+    members = classified
     fine = session.observe({"members": members.count()}, by=(region,))
     fixed = fine.where(fine.coord(fine.axes[0]) == "East").compute()
     keys = session.population_from(fixed, on=((fixed.axes[0], region),))
@@ -174,7 +176,7 @@ def test_member_count_uses_complete_identities_and_selected_fine_keys(
     control = session.observe({"members": members.count()}).compute()
     assert control.to_pandas()["members"].tolist() == [3]
     selected_members = session.members(
-        session.catalog.get("entity:sales.orders"), where=mv.in_population(keys)
+        catalog_value(session.catalog, "sales.orders", kind="entity"), where=mv.in_population(keys)
     )
     result = session.observe({"members": selected_members.count()}).compute()
     assert result.to_pandas()["members"].tolist() == [2]
@@ -190,10 +192,14 @@ def test_member_count_drill_reuses_selected_complete_member_identities(
     original_source_session: Session,
 ) -> None:
     session = original_source_session
-    region = catalog_value(session.catalog, "sales.orders.region", kind="field")
-    channel = catalog_value(session.catalog, "sales.orders.channel", kind="field")
-    members = session.members(session.catalog.get("entity:sales.orders"), where=region == "East")
-    members = members.classify(by=(members.axes[0], region, channel))
+    region = catalog_value(session.catalog, "sales.orders.region", kind="dimension")
+    channel = catalog_value(session.catalog, "sales.orders.channel", kind="dimension")
+    members = session.members(
+        catalog_value(session.catalog, "sales.orders", kind="entity"), where=region == "East"
+    )
+    classified = members.classify(by=(members.axes[0], region, channel))
+    assert isinstance(classified, mv.Population)
+    members = classified
     result = session.observe({"members": members.count()}, by=(region, channel)).compute()
     assert result.to_pandas()["members"].tolist() == [1, 1]
     assert len(result.to_pandas()) == 2
@@ -203,11 +209,15 @@ def test_version_coordinate_is_part_of_the_complete_contribution_identity(
     original_source_session: Session,
 ) -> None:
     session = original_source_session
-    amount = catalog_value(session.catalog, "sales.snapshots.amount", kind="field")
+    amount = catalog_value(session.catalog, "sales.snapshots.amount", kind="measure")
     first = session.instant("2026-01-01T12:00:00+00:00")
     second = session.instant("2026-01-02T12:00:00+00:00")
-    first_members = session.members(session.catalog.get("entity:sales.snapshots"), at=first)
-    second_members = session.members(session.catalog.get("entity:sales.snapshots"), at=second)
+    first_members = session.members(
+        catalog_value(session.catalog, "sales.snapshots", kind="entity"), at=first
+    )
+    second_members = session.members(
+        catalog_value(session.catalog, "sales.snapshots", kind="entity"), at=second
+    )
     one = session.read(first_members, {"amount": amount.at(first)}).compute().to_pandas()
     two = session.read(second_members, {"amount": amount.at(second)}).compute().to_pandas()
     assert one["amount"].tolist() == [10, 300]
@@ -219,8 +229,8 @@ def test_window_space_rollup_preserves_both_original_endpoints(
     original_source_session: Session,
 ) -> None:
     session = original_source_session
-    amount = catalog_value(session.catalog, "sales.orders.amount", kind="field")
-    day = catalog_value(session.catalog, "sales.orders.day", kind="field")
+    amount = catalog_value(session.catalog, "sales.orders.amount", kind="measure")
+    day = catalog_value(session.catalog, "sales.orders.day", kind="time_dimension")
     calendar = session.time_scope(start="2026-01-01", end="2026-01-03").by(mv.grain("day"))
     metric = amount.sum(time=day).window(mv.all_history())
     result = session.observe({"window": metric}, by=(calendar,)).compute().to_pandas()
@@ -231,9 +241,9 @@ def test_drill_reads_only_selected_contributions_and_recomputes_mean(
     original_source_session: Session,
 ) -> None:
     session = original_source_session
-    amount = catalog_value(session.catalog, "sales.orders.amount", kind="field")
-    region = catalog_value(session.catalog, "sales.orders.region", kind="field")
-    channel = catalog_value(session.catalog, "sales.orders.channel", kind="field")
+    amount = catalog_value(session.catalog, "sales.orders.amount", kind="measure")
+    region = catalog_value(session.catalog, "sales.orders.region", kind="dimension")
+    channel = catalog_value(session.catalog, "sales.orders.channel", kind="dimension")
     fine = session.observe({"mean": amount.mean()}, by=(region,))
     fixed = fine.where(fine.coord(fine.axes[0]) == "East").compute()
     keys = session.population_from(fixed, on=((fixed.axes[0], region),))
@@ -253,9 +263,9 @@ def test_rollup_then_drill_keeps_per_identity_after_key_renumbering(
     original_source_session: Session,
 ) -> None:
     session = original_source_session
-    amount = catalog_value(session.catalog, "sales.orders.amount", kind="field")
-    customer = catalog_value(session.catalog, "sales.orders.customer", kind="field")
-    channel = catalog_value(session.catalog, "sales.orders.channel", kind="field")
+    amount = catalog_value(session.catalog, "sales.orders.amount", kind="measure")
+    customer = catalog_value(session.catalog, "sales.orders.customer", kind="dimension")
+    channel = catalog_value(session.catalog, "sales.orders.channel", kind="dimension")
     metric = amount.sum().per(customer).mean()
     overall = session.observe({"value": metric}).compute()
     assert overall.to_pandas()["value"].tolist() == [170]
@@ -268,14 +278,18 @@ def test_drill_attribute_template_preserves_declared_single_matches(
     original_source_session: Session,
 ) -> None:
     session = original_source_session
-    region = catalog_value(session.catalog, "sales.orders.region", kind="field")
-    channel = catalog_value(session.catalog, "sales.orders.channel", kind="field")
-    segment = catalog_value(session.catalog, "sales.profiles.segment", kind="field")
-    east = session.members(session.catalog.get("entity:sales.orders"), where=region == "East")
+    region = catalog_value(session.catalog, "sales.orders.region", kind="dimension")
+    channel = catalog_value(session.catalog, "sales.orders.channel", kind="dimension")
+    segment = catalog_value(session.catalog, "sales.profiles.segment", kind="dimension")
+    east = session.members(
+        catalog_value(session.catalog, "sales.orders", kind="entity"), where=region == "East"
+    )
     rows = session.read(east, {"channel": channel, "segment": segment}).compute().to_pandas()
     assert rows["channel"].tolist() == ["Web", "Store"]
     assert rows["segment"].tolist() == ["Good", "Good"]
-    west = session.members(session.catalog.get("entity:sales.orders"), where=region == "West")
+    west = session.members(
+        catalog_value(session.catalog, "sales.orders", kind="entity"), where=region == "West"
+    )
     western = session.read(west, {"segment": segment}).compute().to_pandas()
     assert western.iloc[:, 0].tolist() == [3]
     assert western["segment"].tolist() == ["Bad"]
@@ -285,8 +299,8 @@ def test_versioned_members_and_read_select_the_same_exact_snapshot(
     original_source_session: Session,
 ) -> None:
     session = original_source_session
-    entity = session.catalog.get("entity:sales.snapshots")
-    amount = catalog_value(session.catalog, "sales.snapshots.amount", kind="field")
+    entity = catalog_value(session.catalog, "sales.snapshots", kind="entity")
+    amount = catalog_value(session.catalog, "sales.snapshots.amount", kind="measure")
     for instant, identities, expected in (
         ("2026-01-01", [1, 2], [10, 300]),
         ("2026-01-02", [1], [30]),
@@ -366,8 +380,8 @@ def test_current_row_mean_differs_from_explicit_source_mean(
         connection.execute(
             "INSERT INTO orders SELECT i,CASE WHEN i=0 THEN 'A' ELSE 'B' END,'customer','Web',CASE WHEN i=0 THEN 100 ELSE 10 END,1,'2026-01-01',1 FROM range(91) t(i)"
         )
-    amount = catalog_value(session.catalog, "sales.orders.amount", kind="field")
-    region = catalog_value(session.catalog, "sales.orders.region", kind="field")
+    amount = catalog_value(session.catalog, "sales.orders.amount", kind="measure")
+    region = catalog_value(session.catalog, "sales.orders.region", kind="dimension")
     fixed = session.observe({"mean": amount.mean()}, by=(region,)).compute()
     assert fixed.to_pandas()["mean"].tolist() == [100.0, 10.0]
     rows = fixed.reduce({"mean": fixed["mean"].mean()}).compute()
@@ -390,8 +404,8 @@ def test_current_row_distinct_sum_differs_from_explicit_source_distinct(
         connection.execute(
             "INSERT INTO orders VALUES (1,'A','1','Web',0,1,'2026-01-01',1),(2,'A','2','Web',0,1,'2026-01-01',1),(3,'B','2','Web',0,1,'2026-01-01',1),(4,'B','3','Web',0,1,'2026-01-01',1)"
         )
-    customer = catalog_value(session.catalog, "sales.orders.customer", kind="field")
-    region = catalog_value(session.catalog, "sales.orders.region", kind="field")
+    customer = catalog_value(session.catalog, "sales.orders.customer", kind="dimension")
+    region = catalog_value(session.catalog, "sales.orders.region", kind="dimension")
     fixed = session.observe({"distinct": customer.count_distinct()}, by=(region,)).compute()
     assert fixed.to_pandas()["distinct"].tolist() == [2, 2]
     assert fixed.reduce({"count": fixed["distinct"].sum()}).compute().to_pandas()[

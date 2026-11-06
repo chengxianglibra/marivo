@@ -86,10 +86,10 @@ def string_case(
 @pytest.mark.parametrize("collation", (None, "utf8mb4_bin"))
 def test_mysql_attribute_groups_and_metrics_follow_native_collation(string_case: Case) -> None:
     session = mv.session.get_or_create("mysql-native-strings", timezone="UTC")
-    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
-    weight = catalog_value(session.catalog, "sales.facts.weight", kind="field")
-    tenant = catalog_value(session.catalog, "sales.facts.tenant", kind="field")
-    category = catalog_value(session.catalog, "sales.facts.category", kind="field")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
+    weight = catalog_value(session.catalog, "sales.facts.weight", kind="measure")
+    tenant = catalog_value(session.catalog, "sales.facts.tenant", kind="dimension")
+    category = catalog_value(session.catalog, "sales.facts.category", kind="dimension")
     parent = session.observe(
         {"sum": amount.sum(), "mean": amount.mean(), "ratio": amount.sum() / weight.sum()},
         where=tenant == "base",
@@ -103,7 +103,7 @@ def test_mysql_attribute_groups_and_metrics_follow_native_collation(string_case:
         )
         assert len(rows) == len(cursor.fetchall())
         members = []
-        for index, row in rows.iterrows():
+        for _, row in rows.iterrows():
             label = row.iloc[1]
             cursor.execute(
                 "SELECT GROUP_CONCAT(id ORDER BY id), SUM(amount), COUNT(amount), SUM(weight) "
@@ -114,14 +114,10 @@ def test_mysql_attribute_groups_and_metrics_follow_native_collation(string_case:
             assert native is not None
             identities, total, count, weights = native
             members.append(identities)
-            assert rows.loc[index, "detail.value.sum"] == total
-            assert float(rows.loc[index, "detail.value.mean"]) == pytest.approx(
-                float(total) / count
-            )
-            assert float(rows.loc[index, "detail.value.ratio"]) == pytest.approx(
-                float(total / weights)
-            )
-            assert float(rows.loc[index, "contribution.mean"]) == pytest.approx(float(total) / 7)
+            assert row["detail.value.sum"] == total
+            assert float(row["detail.value.mean"]) == pytest.approx(float(total) / count)
+            assert float(row["detail.value.ratio"]) == pytest.approx(float(total / weights))
+            assert float(row["contribution.mean"]) == pytest.approx(float(total) / 7)
     assert len(set(members)) == len(members)
     assert rows["contribution.sum"].sum() == 127
     assert rows["contribution.mean"].sum() == pytest.approx(127 / 7)
@@ -132,9 +128,9 @@ def test_mysql_attribute_groups_and_metrics_follow_native_collation(string_case:
 @pytest.mark.parametrize("amount_type", ("DECIMAL(18,2)",))
 def test_mysql_attribute_paired_shapley_keeps_native_groups(string_case: Case) -> None:
     session = mv.session.get_or_create("mysql-native-shapley", timezone="UTC")
-    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
-    tenant = catalog_value(session.catalog, "sales.facts.tenant", kind="field")
-    category = catalog_value(session.catalog, "sales.facts.category", kind="field")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
+    tenant = catalog_value(session.catalog, "sales.facts.tenant", kind="dimension")
+    category = catalog_value(session.catalog, "sales.facts.category", kind="dimension")
     metrics = {
         "product": amount.sum() * amount.count(),
         "distinct": category.count_distinct() * amount.sum(),
@@ -178,9 +174,9 @@ def test_mysql_attribute_population_and_parent_subset_use_native_membership(
     string_case: Case,
 ) -> None:
     session = mv.session.get_or_create("mysql-native-population", timezone="UTC")
-    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
-    tenant = catalog_value(session.catalog, "sales.facts.tenant", kind="field")
-    category = catalog_value(session.catalog, "sales.facts.category", kind="field")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
+    tenant = catalog_value(session.catalog, "sales.facts.tenant", kind="dimension")
+    category = catalog_value(session.catalog, "sales.facts.category", kind="dimension")
     members = mv.coordinates(by=(category,), keys=(("a",),))
     observed = session.observe(
         {"sum": amount.sum()}, by=(tenant,), where=mv.in_population(members)
@@ -216,9 +212,9 @@ def test_mysql_attribute_alignment_uses_returned_representatives(string_case: Ca
         )
         totals = dict(cursor.fetchall())
     session = mv.session.get_or_create("mysql-returned-strings", timezone="UTC")
-    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
-    tenant = catalog_value(session.catalog, "sales.facts.tenant", kind="field")
-    category = catalog_value(session.catalog, "sales.facts.category", kind="field")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
+    tenant = catalog_value(session.catalog, "sales.facts.tenant", kind="dimension")
+    category = catalog_value(session.catalog, "sales.facts.category", kind="dimension")
     current = session.observe({"sum": amount.sum()}, where=tenant == "current")
     baseline = session.observe({"sum": amount.sum()}, where=tenant == "base")
     compared = current.compare({"base": mv.baseline(baseline, on=())}).compute()
@@ -233,9 +229,9 @@ def test_mysql_attribute_alignment_uses_returned_representatives(string_case: Ca
 @pytest.mark.parametrize("port,flag", SERVERS)
 def test_mysql_attribute_source_condition_keeps_native_equality(string_case: Case) -> None:
     session = mv.session.get_or_create("mysql-native-condition", timezone="UTC")
-    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
-    tenant = catalog_value(session.catalog, "sales.facts.tenant", kind="field")
-    category = catalog_value(session.catalog, "sales.facts.category", kind="field")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
+    tenant = catalog_value(session.catalog, "sales.facts.tenant", kind="dimension")
+    category = catalog_value(session.catalog, "sales.facts.category", kind="dimension")
     predicate = (tenant == "BASE") & ~(category == "b")
     parent = session.observe({"sum": amount.sum()}, where=predicate).compute()
     # The native filter excludes both B and NULL. Freezing and re-reading

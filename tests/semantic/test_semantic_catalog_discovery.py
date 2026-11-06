@@ -10,6 +10,7 @@ import pytest
 
 import marivo.semantic as ms
 from marivo.render import _DEFAULT_MAX_OUTPUT_BYTES
+from marivo.semantic.catalog_entries import MetricTimeFieldBinding
 from marivo.semantic.errors import SemanticError
 from tests.shared_fixtures import write_minimal_catalog_project
 
@@ -67,6 +68,7 @@ amount_value = amount""",
     assert metric.kind == "metric"
     definition = metric.definition
     assert "sum(measure:sales.orders.amount" in definition.formula
+    assert isinstance(definition.time_bindings[0], MetricTimeFieldBinding)
     assert definition.time_bindings[0].field == "time_dimension:sales.orders.settled_at"
     assert definition.time_bindings[0].source == "explicit"
     assert definition.unit == "USD"
@@ -127,7 +129,7 @@ def test_browse_pagination_is_complete_stable_and_snapshot_bound(
     assert "preview rows: total=3" in limited
     assert "displayed=" in limited and "omitted=" in limited
     assert "next_cursor=" in limited and first.next_cursor in limited
-    assert first.show(max_output_bytes=700) is None
+    assert first.show(max_output_bytes=700) is None  # type: ignore[func-returns-value]  # Verify runtime contract.
     assert len(capsys.readouterr().out.encode("utf-8")) <= 700
     for display in (first.show, first.render):
         with pytest.raises(ValueError, match="minimum") as caught:
@@ -422,7 +424,7 @@ def test_get_rejects_composed_deferred_without_guessing_an_identity(tmp_path: Pa
     catalog = ms.load(workspace_dir=tmp_path)
     # A composed Deferred has no single canonical identity to suggest.
     with pytest.raises(SemanticError) as composed:
-        catalog.get(ms.ref.metric("sales.revenue") + 1)
+        catalog.get(ms.ref.metric("sales.revenue") + 1)  # type: ignore[arg-type]  # Composed selector is invalid.
     assert "subject = catalog.get(" not in str(composed.value)
 
 

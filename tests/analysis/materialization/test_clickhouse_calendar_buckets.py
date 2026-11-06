@@ -105,9 +105,11 @@ def test_observe_calendar_preserves_bucket_types_boundaries_and_windows(
             }
         )
         session = mv.session.get_or_create("calendar-compatibility", timezone="UTC")
-        amount = catalog_value(session.catalog, "sales.events.amount", kind="field")
-        event_time = catalog_value(session.catalog, "sales.events.event_time", kind="field")
-        category = catalog_value(session.catalog, "sales.events.category", kind="field")
+        amount = catalog_value(session.catalog, "sales.events.amount", kind="measure")
+        event_time = catalog_value(
+            session.catalog, "sales.events.event_time", kind="time_dimension"
+        )
+        category = catalog_value(session.catalog, "sales.events.category", kind="dimension")
         assert isinstance(amount, (ms.RowExpression, ms.MetricExpression)) and isinstance(
             event_time, (ms.RowExpression, ms.MetricExpression)
         )

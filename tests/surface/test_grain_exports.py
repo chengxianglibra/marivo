@@ -18,7 +18,7 @@ def test_public_grain_value_and_factory() -> None:
     assert g._to_token() == "5minute"
 
 
-def test_public_grain_constructors_share_one_value_type():
+def test_public_grain_constructors_share_one_value_type() -> None:
     calendar = ref.period_calendar("sales.fiscal")
     builtin = mv.grain("minute", count=5)
     semantic = ms.calendar_grain(calendar=ms.ref.period_calendar("sales.fiscal"), level="week")
@@ -34,16 +34,20 @@ def test_public_grain_constructors_share_one_value_type():
     assert semantic._to_token() == "sales.fiscal::week"
 
 
-def test_semantic_grain_identity_and_by_require_exact_snapshot():
+def test_semantic_grain_identity_and_by_require_exact_snapshot() -> None:
     from datetime import date
 
-    from marivo._temporal import certify_period_calendar_rows, semantic_grain
+    from marivo._temporal import (
+        PeriodCalendarSnapshotV2,
+        certify_period_calendar_rows,
+        semantic_grain,
+    )
     from marivo._temporal_grid import bind_grid
     from marivo.analysis.dsl.temporal import exact_scope
 
     calendar = ref.period_calendar("sales.fiscal")
 
-    def snapshot(key):
+    def snapshot(key: str) -> PeriodCalendarSnapshotV2:
         return certify_period_calendar_rows(
             calendar_ref=calendar,
             boundary_timezone="UTC",
@@ -74,7 +78,7 @@ def test_semantic_grain_identity_and_by_require_exact_snapshot():
         bind_grid(scope, captured, report_timezone="UTC", snapshot=second)
 
 
-def test_unzoned_scope_cannot_be_created_or_rehydrated():
+def test_unzoned_scope_cannot_be_created_or_rehydrated() -> None:
     import marivo._temporal as temporal
 
     assert not hasattr(temporal, "time_scope")

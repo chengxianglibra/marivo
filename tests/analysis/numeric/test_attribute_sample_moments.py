@@ -7,14 +7,17 @@ from fractions import Fraction
 
 import pytest
 
+from marivo.analysis.core.data_types import ScalarDataType
 from marivo.analysis.methods.frame_attribute_shapley import _sample_moments, _scaled_sum
 from marivo.semantic.errors import SemanticExpressionError
 
 
 def _oracle(values: list[float]) -> tuple[float, float]:
     exact = [Fraction(value) for value in values]
-    mean = sum(exact) / len(exact)
-    variance = sum((value - mean) ** 2 for value in exact) / (len(exact) * (len(exact) - 1))
+    mean = sum(exact, Fraction()) / len(exact)
+    variance = sum(((value - mean) ** 2 for value in exact), Fraction()) / (
+        len(exact) * (len(exact) - 1)
+    )
     with localcontext() as context:
         context.prec = 1000
         error = (Decimal(variance.numerator) / Decimal(variance.denominator)).sqrt()
@@ -40,7 +43,9 @@ def test_scaled_moments_match_independent_rational_oracle(values: list[float]) -
     assert all(math.isfinite(value) for value in (mean, error, budget))
     assert mean == pytest.approx(expected_mean, rel=5e-15, abs=math.ulp(0.0))
     assert error == pytest.approx(expected_error, rel=5e-15, abs=math.ulp(0.0))
-    assert abs(Fraction(mean) - sum(map(Fraction, values)) / len(values)) <= Fraction(budget)
+    assert abs(Fraction(mean) - sum(map(Fraction, values), Fraction()) / len(values)) <= Fraction(
+        budget
+    )
 
 
 def test_scaled_closure_sum_cancels_before_overflow_and_retains_subnormal() -> None:
@@ -59,7 +64,7 @@ def test_unrepresentable_statistic_retains_metric_and_parent_context() -> None:
     from marivo.analysis.core.attribute import AttributeFailureContext, AttributeParentFiber
     from marivo.analysis.methods.frame_attribute_shapley import _attribute_numeric_context
 
-    parent = (("region", "West"),)
+    parent = ((ScalarDataType("string"), "West"),)
     with (
         pytest.raises(SemanticExpressionError) as caught,
         _attribute_numeric_context((), "revenue_growth", parent, ()),

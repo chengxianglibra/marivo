@@ -321,6 +321,7 @@ def test_native_shanghai_ranges_match_independent_membership_and_original_predic
 ) -> None:
     _maria(profile, monkeypatch)
     points: list[str | int | None]
+    parse: TimestampParse | DateParse | StrptimeParse
     if physical == "timestamp":
         sql_type = "DATETIME(3)" if backend == "mysql" else "TIMESTAMP(3)"
         clickhouse_type = "DateTime64(3, 'UTC')"

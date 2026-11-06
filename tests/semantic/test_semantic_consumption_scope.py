@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Literal
 
 import duckdb
 import pytest
+from ibis.common.deferred import Deferred
 
 import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo._definition.deferred import inspect_deferred
+from marivo._definition.types import LiteralValue, SumAxes
 from marivo.analysis.errors import AnalysisError
 from marivo.semantic._consumption import bind_field, bind_metric
 from marivo.semantic._expression_values import MetricExpression, RowExpression, _as_deferred
@@ -82,7 +85,9 @@ def test_bound_scope_requires_exact_kind_path_and_preserves_cross_project_constr
     with pytest.raises(SemanticError, match="projects"):
         bind_field(amount, other)
     with pytest.raises(SemanticError, match="projects"):
-        _ = revenue + other.get("metric:sales.revenue")
+        other_revenue = other.get("metric:sales.revenue")
+        assert other_revenue.kind == "metric"
+        _ = revenue + other_revenue
     objects = first_root / "models/semantic/sales/objects.py"
     objects.write_text(objects.read_text().replace('name="amount"', 'name="gross"'))
     # The declaration still uses the renamed physical symbol, but the original field id is gone.
@@ -105,10 +110,10 @@ def test_typed_condition_and_frozen_collection_keep_one_stage(tmp_path: Path) ->
     with pytest.raises(SemanticError, match="truth value"):
         bool(row_condition)
     with pytest.raises(SemanticError, match="same stage"):
-        _ = amount + revenue
+        _ = amount + revenue  # type: ignore[operator]  # Mixed expression stages.
     with pytest.raises(SemanticError, match="numeric"):
-        _ = status + 1
-    values = ["paid"]
+        _ = status + 1  # type: ignore[operator]  # Non-numeric dimension.
+    values: list[LiteralValue] = ["paid"]
     condition = status.isin(values)
     captured = inspect_deferred(_as_deferred(condition)).fingerprint
     values.append("refund")
@@ -128,21 +133,24 @@ def test_decorators_keep_fixed_stage_for_loaded_and_forward_inputs(tmp_path: Pat
     assert amount.kind == "measure" and status.kind == "dimension"
 
     @ms.metric()
-    def local_total():
+    def local_total() -> ms.MetricExpression[Literal["numeric"]]:
         return amount.sum()
 
     future = ms.ref.measure("sales.orders.amount")
 
+    future_sum = future.sum()
+    assert isinstance(future_sum, Deferred)
+
     @ms.metric()
-    def forward_total():
-        return future.sum()
+    def forward_total() -> Deferred:
+        return future_sum
 
     @ms.measure(additivity=ms.additive_over(status))
-    def protected_amount():
+    def protected_amount() -> ms.RowExpression[Literal["numeric"]]:
         return amount
 
     @ms.measure()
-    def forward_amount():
+    def forward_amount() -> Deferred:
         return future
 
     assert type(local_total) is type(forward_total) is ms.MetricExpression
@@ -150,6 +158,7 @@ def test_decorators_keep_fixed_stage_for_loaded_and_forward_inputs(tmp_path: Pat
     assert not hasattr(local_total, "id")
     assert bind_metric(local_total, catalog) is not None
     permission = consume_row(bind_row(protected_amount, catalog)).permission
+    assert isinstance(permission, SumAxes)
     assert tuple(axis.ref.key for axis in permission.axes) == (status.id,)
     with pytest.raises(SemanticError, match="authoring symbols"):
         bind_metric(forward_total, catalog)
@@ -185,19 +194,19 @@ def test_local_loaded_authorization_preserves_project_and_rechecks_receiving_axe
     assert relationship.kind == "relationship"
 
     @ms.measure(additivity=ms.additive_over(status))
-    def protected_amount():
+    def protected_amount() -> ms.RowExpression[Literal["numeric"]]:
         return amount
 
     with pytest.raises(SemanticError, match="projects"):
 
         @ms.measure(additivity=ms.additive_over(foreign_status))
-        def foreign_authorization():
+        def foreign_authorization() -> ms.RowExpression[Literal["numeric"]]:
             return amount
 
     with pytest.raises(SemanticError):
-        ms.additive_over(status.via((relationship,)))
+        ms.additive_over(status.via((relationship,)))  # type: ignore[arg-type]  # Routed axes are invalid.
     with pytest.raises(SemanticError, match="tuple"):
-        status.via([relationship])
+        status.via([relationship])  # type: ignore[arg-type]  # A tuple is required.
     source = first_root / "models/semantic/sales/objects.py"
     source.write_text(source.read_text().replace('name="status"', 'name="state"'))
     changed = ms.load(workspace_dir=first_root)
@@ -228,19 +237,19 @@ def test_local_declaration_defers_captured_units_to_actual_receiving_scope(tmp_p
     assert current_cost.kind == "measure" and current_revenue.kind == "metric"
 
     @ms.measure()
-    def local_rows():
+    def local_rows() -> ms.RowExpression[Literal["numeric"]]:
         return old_amount + current_cost
 
     @ms.metric()
-    def local_metric():
+    def local_metric() -> ms.MetricExpression[Literal["numeric"]]:
         return old_revenue + current_revenue
 
     assert consume_row(bind_row(local_rows, current)).unit == "EUR"
     assert consume_metric(bind_metric(local_metric, current)).unit == "EUR"
     with pytest.raises(SemanticError, match="completed Metric"):
 
-        @ms.metric()
-        def wrong_stage():
+        @ms.metric()  # type: ignore[arg-type]  # Exercise invalid row-stage return.
+        def wrong_stage() -> ms.Measure:
             return old_amount
 
 
@@ -261,10 +270,18 @@ def test_clip_preserves_each_loaded_bound_project(
     )
     assert isinstance(left, (ms.Measure, ms.Metric)) and isinstance(right, (ms.Measure, ms.Metric))
     with pytest.raises(SemanticError, match="different projects"):
-        if side == "lower":
-            left.clip(lower=right)
+        if isinstance(left, ms.Measure):
+            assert isinstance(right, ms.Measure)
+            if side == "lower":
+                left.clip(lower=right)
+            else:
+                left.clip(upper=right)
         else:
-            left.clip(upper=right)
+            assert isinstance(right, ms.Metric)
+            if side == "lower":
+                left.clip(lower=right)
+            else:
+                left.clip(upper=right)
 
 
 def test_local_entity_count_without_time_cannot_observe_period(
@@ -278,7 +295,7 @@ def test_local_entity_count_without_time_cannot_observe_period(
     assert orders.kind == "entity"
 
     @ms.metric()
-    def local_count():
+    def local_count() -> ms.MetricExpression[Literal["numeric"]]:
         return orders.count()
 
     current = mv.session.get_or_create(name="local_count_new_scope", timezone="UTC")
@@ -319,7 +336,7 @@ def test_local_relationship_dependency_matches_direct_routed_formula(
     )
 
     @ms.metric()
-    def local_routed():
+    def local_routed() -> ms.MetricExpression[Literal["numeric"]]:
         return amount.sum().where(status.via((relationship,)) == "paid")
 
     rows = (
@@ -346,11 +363,11 @@ def test_local_native_functions_defer_unit_facts_to_receiving_scope(
     assert revenue.kind == "metric" and revenue.definition.unit == "USD"
 
     @ms.metric()
-    def local_log():
+    def local_log() -> ms.MetricExpression[Literal["numeric"]]:
         return revenue.log()
 
     @ms.metric()
-    def local_sqrt():
+    def local_sqrt() -> ms.MetricExpression[Literal["numeric"]]:
         return revenue.sqrt()
 
     source = tmp_path / "models/semantic/sales/objects.py"
@@ -368,7 +385,7 @@ def test_get_object_repair_explains_direct_use_and_explicit_reacquisition(tmp_pa
     catalog = ms.load(workspace_dir=tmp_path)
     revenue = catalog.get("metric:sales.revenue")
     with pytest.raises(SemanticError) as caught:
-        catalog.get(revenue)
+        catalog.get(revenue)  # type: ignore[arg-type]  # Named objects require direct use.
     assert caught.value.repair is not None
     assert "directly" in caught.value.repair.action
     assert "object.id" in caught.value.repair.action

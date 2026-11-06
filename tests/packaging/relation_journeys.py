@@ -37,6 +37,7 @@ from tests.shared_fixtures import (
     DslRows,
     analysis_dsl_project_files,
     analysis_dsl_rows,
+    catalog_get,
     catalog_value,
     export_dsl_parquet_models,
     frozen_coordinates,
@@ -193,9 +194,11 @@ def _records(frame: pd.DataFrame) -> Json:
 def _produce(
     session: mv.Session, scenario: Scenario, patch: pytest.MonkeyPatch
 ) -> tuple[dict[str, mv.AnalysisFrame], dict[str, Json]]:
-    targets = session.members(session.catalog.get("entity:operations.device"))
-    metric = session.catalog.get("metric:operations.energy_total")
-    count = session.catalog.get("metric:operations.reading_count")
+    targets = session.members(
+        catalog_get(session.catalog, "entity:operations.device", kind="entity")
+    )
+    metric = catalog_get(session.catalog, "metric:operations.energy_total", kind="metric")
+    count = catalog_get(session.catalog, "metric:operations.reading_count", kind="metric")
 
     def monthly(month: int) -> mv.AnalysisFrame:
         return session.observe(
@@ -227,12 +230,12 @@ def _produce(
             on=(
                 (
                     next(axis for axis in chosen.axes if axis.role == "identity"),
-                    session.catalog.get("entity:operations.device"),
+                    catalog_get(session.catalog, "entity:operations.device", kind="entity"),
                 ),
             ),
         )
         selected = session.members(
-            session.catalog.get("entity:operations.device"),
+            catalog_get(session.catalog, "entity:operations.device", kind="entity"),
             where=mv.in_population(keys),
         )
         frames = {
@@ -351,7 +354,7 @@ def _produce(
             {"energy": metric, "count": count},
             by=mv.product(session.time_scope(start="2026-08-01", end="2026-09-01"), targets),
         )
-        sensor = catalog_value(session.catalog, "operations.reading.sensor", kind="field")
+        sensor = catalog_value(session.catalog, "operations.reading.sensor", kind="dimension")
         branch = count.where(sensor == "web") / count
         grids = [
             session.time_scope(start=start, end=end).by(mv.grain("month"))
@@ -371,11 +374,19 @@ def _produce(
         )
         temporal = session.time_scope(start="2026-07-01", end="2026-10-01").by(mv.grain("month"))
         running = session.observe(
-            {"value": session.catalog.get("metric:operations.running_energy")},
+            {
+                "value": catalog_get(
+                    session.catalog, "metric:operations.running_energy", kind="metric"
+                )
+            },
             by=mv.product(temporal, targets),
         )
         folded = session.observe(
-            {"value": session.catalog.get("metric:operations.folded_energy")},
+            {
+                "value": catalog_get(
+                    session.catalog, "metric:operations.folded_energy", kind="metric"
+                )
+            },
             by=mv.product(temporal, targets),
         )
         frames = {
@@ -396,12 +407,20 @@ def _produce(
             "period": period,
             "running": running,
             "running_total": session.observe(
-                {"value": session.catalog.get("metric:operations.running_energy")},
+                {
+                    "value": catalog_get(
+                        session.catalog, "metric:operations.running_energy", kind="metric"
+                    )
+                },
                 by=(temporal,),
             ),
             "folded": folded,
             "folded_total": session.observe(
-                {"value": session.catalog.get("metric:operations.folded_energy")},
+                {
+                    "value": catalog_get(
+                        session.catalog, "metric:operations.folded_energy", kind="metric"
+                    )
+                },
                 by=mv.product(session.time_scope(start="2026-07-01", end="2026-10-01"), targets),
             ),
         }
@@ -409,7 +428,7 @@ def _produce(
         saved["shared_ratio"] = reused
         return saved, shared
     elif scenario == "a07":
-        region = catalog_value(session.catalog, "operations.device.zone", kind="field")
+        region = catalog_value(session.catalog, "operations.device.zone", kind="dimension")
         counts = session.observe(
             {"value": count},
             by=mv.product(session.time_scope(start="2026-08-01", end="2026-09-01"), targets),
@@ -435,19 +454,23 @@ def _produce(
             "groups": groups,
             "difference": difference,
         }
-        readings = session.members(session.catalog.get("entity:operations.reading"))
+        readings = session.members(
+            catalog_get(session.catalog, "entity:operations.reading", kind="entity")
+        )
         basis = session.read(
             readings,
             {
                 "member": catalog_value(
-                    session.catalog, "operations.reading.device_id", kind="field"
+                    session.catalog, "operations.reading.device_id", kind="dimension"
                 ),
                 "channel": catalog_value(
-                    session.catalog, "operations.reading.sensor", kind="field"
+                    session.catalog, "operations.reading.sensor", kind="dimension"
                 ),
-                "amount": catalog_value(session.catalog, "operations.reading.energy", kind="field"),
+                "amount": catalog_value(
+                    session.catalog, "operations.reading.energy", kind="measure"
+                ),
                 "time": catalog_value(
-                    session.catalog, "operations.reading.recorded_at", kind="field"
+                    session.catalog, "operations.reading.recorded_at", kind="time_dimension"
                 ),
             },
         )

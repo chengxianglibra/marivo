@@ -11,7 +11,7 @@ import pyarrow as pa
 import pytest
 
 import marivo.analysis as mv
-from marivo.analysis.core.data_types import DataType, DecimalDataType, ScalarDataType
+from marivo.analysis.core.data_types import DataColumn, DataType, DecimalDataType, ScalarDataType
 from marivo.analysis.core.frame_data import MemoryFrameBacking
 from marivo.analysis.dsl.frame import AnalysisFrame
 from marivo.analysis.materialization.errors import MaterializationError
@@ -56,8 +56,8 @@ def session(
 
 def _read(session: Session, name: str = "big") -> AnalysisFrame:
     return session.read(
-        session.members(session.catalog.get("entity:sales.facts")),
-        {name: catalog_value(session.catalog, "sales.facts." + name, kind="field")},
+        session.members(catalog_value(session.catalog, "sales.facts", kind="entity")),
+        {name: catalog_value(session.catalog, "sales.facts." + name, kind="measure")},
     )
 
 
@@ -125,13 +125,16 @@ def test_native_float_read_pending_chain_and_reducers(
     assert values.isna().tolist() == [False, True, False, True]
     assert _schema(fixed) == (ScalarDataType("float64"),)
     assert fixed._schema.values[0].unit == "USD"
-    assert fixed._schema.axes[0].columns[0].dtype == ScalarDataType("int64")
+    key_column = fixed._schema.axes[0].columns[0]
+    assert isinstance(key_column, DataColumn)
+    assert key_column.dtype == ScalarDataType("int64")
     assert source._schema is captured
     pending = _chain(source).compute()
     assert calls == [4, 4]
     completed = _chain(fixed).compute()
     pd.testing.assert_frame_equal(pending.to_pandas(), completed.to_pandas())
     assert _schema(pending) == (ScalarDataType("float64"),) * 2
+    assert isinstance(pending._backing, MemoryFrameBacking)
     assert len(pending._backing.metadata.source_reads) > 0
     assert calls == [4, 4]
     for frame in (source, fixed):
@@ -162,7 +165,8 @@ def test_native_float_binary_pending_shared_input_matches_completed(
             return frame.compare(
                 {"reference": mv.baseline(right, on=((frame.axes[0], right.axes[0]),))}
             )
-        return getattr(frame, operation)(right, on=((frame.axes[0], right.axes[0]),))
+        assert operation == "align"
+        return frame.align(right, on=((frame.axes[0], right.axes[0]),))
 
     pending = combine(source).compute()
     assert calls == [4, 4]  # The two branches consume one explicit source input.
@@ -209,7 +213,9 @@ def test_native_types_empty_all_null_persist_and_reopen(
     saved = source.persist()
     read_count = len(calls)
     reopened = session.persisted_frame(saved.artifact_id)
-    assert reopened._schema.values[0].dtype == ScalarDataType("float64")
+    reopened_column = reopened._schema.values[0]
+    assert isinstance(reopened_column, DataColumn)
+    assert reopened_column.dtype == ScalarDataType("float64")
     pd.testing.assert_frame_equal(saved.to_pandas(), reopened.to_pandas())
     continued = _chain(reopened).compute()
     assert _schema(continued) == (ScalarDataType("float64"),) * 2
@@ -252,10 +258,12 @@ def test_native_all_null_and_empty_source_carriers(
     session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _native_float(monkeypatch)
-    big = catalog_value(session.catalog, "sales.facts.big", kind="field")
+    big = catalog_value(session.catalog, "sales.facts.big", kind="measure")
     for condition, count in ((big.isnull(), 2), (big < 0, 0)):
         source = session.read(
-            session.members(session.catalog.get("entity:sales.facts"), where=condition),
+            session.members(
+                catalog_value(session.catalog, "sales.facts", kind="entity"), where=condition
+            ),
             {"big": big},
         )
         fixed = source.compute()
@@ -280,7 +288,7 @@ def test_native_invalid_integer_keys_and_strict_nulls_publish_nothing(
             source.top(1, by=source["big"]).compute()
         assert calls == [1] and failure.value.stage == "stage_output"
     assert terminal_runs(session) == ()
-    big = catalog_value(session.catalog, "sales.facts.big", kind="field")
+    big = catalog_value(session.catalog, "sales.facts.big", kind="measure")
     source = session.observe({"strict": big.sum(nulls="error")})
     with pytest.raises(MaterializationError, match="non-NA"):
         source.top(0, by=source["strict"]).compute()
@@ -303,7 +311,7 @@ def test_native_generated_infinity_nan_and_null_survive_public_roundtrip(
         ).fetchone()
     assert oracle is not None and math.isinf(oracle[0]) and math.isnan(oracle[1])
     assert oracle[2] is None
-    big = catalog_value(session.catalog, "sales.facts.big", kind="field")
+    big = catalog_value(session.catalog, "sales.facts.big", kind="measure")
     total = big.sum()
     fixed = session.observe(
         {"infinite": total, "not_a_number": total - total, "missing": total / 0}

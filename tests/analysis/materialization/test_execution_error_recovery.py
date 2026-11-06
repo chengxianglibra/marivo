@@ -6,6 +6,7 @@ import pandas as pd
 import pytest
 
 import marivo.analysis as mv
+import marivo.semantic as ms
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.materialization import frame_evaluation, terminal_publication
 from marivo.analysis.materialization.errors import (
@@ -16,6 +17,18 @@ from marivo.analysis.materialization.errors import (
 from marivo.datasource.adapters import SourceSession
 from tests.shared_fixtures import DslCase, DslCaseFactory, catalog_value, terminal_runs
 from tests.support.execution_logs import execution_records
+
+
+def _entity(catalog: ms.SemanticCatalog, path: str) -> ms.Entity:
+    result = catalog.get(path)
+    assert result.kind == "entity"
+    return result
+
+
+def _metric(catalog: ms.SemanticCatalog, path: str) -> ms.Metric:
+    result = catalog.get(path)
+    assert result.kind == "metric"
+    return result
 
 
 def _members(case: DslCase) -> mv.AnalysisFrame:
@@ -163,16 +176,17 @@ def test_real_pairing_check_failure_has_no_publication_run(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     session = analysis_dsl_case_factory("j2").session
-    members = session.members(session.catalog.get("entity:sales.customer"))
+    members = session.members(_entity(session.catalog, "entity:sales.customer"))
     region = session.read(
-        members, {"region": catalog_value(session.catalog, "sales.customer.region", kind="field")}
+        members,
+        {"region": catalog_value(session.catalog, "sales.customer.region", kind="dimension")},
     )
     chosen = region.where(region["region"] == "east")
     selected = session.population_from(
-        chosen, on=((chosen.axes[0], session.catalog.get("entity:sales.customer")),)
+        chosen, on=((chosen.axes[0], _entity(session.catalog, "entity:sales.customer")),)
     )
     scope = session.time_scope(start="2026-08-01", end="2026-09-01")
-    metric = session.catalog.get("metric:sales.revenue")
+    metric = _metric(session.catalog, "metric:sales.revenue")
     current = session.observe({"value": metric}, by=mv.product(scope, selected))
     baseline = session.observe({"value": metric}, by=mv.product(scope, members))
     with pytest.raises(AnalysisError) as caught:

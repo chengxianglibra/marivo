@@ -6,6 +6,7 @@ from __future__ import annotations
 import shutil
 import textwrap
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 
@@ -17,6 +18,9 @@ from marivo.semantic.catalog import (
 )
 from marivo.semantic.errors import ErrorKind, SemanticRuntimeError
 from tests.shared_fixtures import catalog_entry, catalog_value
+
+if TYPE_CHECKING:
+    from tests.conftest import _SemanticProjectFactory
 
 _DOMAIN_PY = """\
 import marivo.semantic as ms
@@ -93,7 +97,7 @@ def region(table):
 
 
 def _catalog(
-    semantic_project_factory,
+    semantic_project_factory: _SemanticProjectFactory,
     *,
     workspace_dir: Path | None = None,
 ) -> SemanticCatalog:
@@ -109,7 +113,9 @@ def _catalog(
     return SemanticCatalog(project)
 
 
-def test_relationship_endpoints_navigate_captured_entity_objects(semantic_project_factory) -> None:
+def test_relationship_endpoints_navigate_captured_entity_objects(
+    semantic_project_factory: _SemanticProjectFactory,
+) -> None:
     catalog = _catalog(semantic_project_factory)
     relationship = catalog.get("relationship:sales.orders_to_users")
     assert relationship.kind == "relationship"
@@ -121,7 +127,7 @@ def test_relationship_endpoints_navigate_captured_entity_objects(semantic_projec
 
 
 def test_semantic_input_normalization_accepts_direct_named_objects(
-    semantic_project_factory,
+    semantic_project_factory: _SemanticProjectFactory,
 ) -> None:
     catalog = _catalog(semantic_project_factory)
     for identity in (
@@ -137,7 +143,7 @@ def test_semantic_input_normalization_accepts_direct_named_objects(
 
 
 def test_semantic_input_rejects_published_metric_as_a_physical_input(
-    semantic_project_factory,
+    semantic_project_factory: _SemanticProjectFactory,
 ) -> None:
     catalog = _catalog(semantic_project_factory)
     with pytest.raises(SemanticRuntimeError, match="requires physical inputs") as exc_info:
@@ -154,7 +160,7 @@ def test_semantic_input_rejects_published_metric_as_a_physical_input(
 
 
 def test_semantic_input_normalization_accepts_reloaded_same_project(
-    semantic_project_factory,
+    semantic_project_factory: _SemanticProjectFactory,
 ) -> None:
     original = _catalog(semantic_project_factory)
     sales = original.get("domain:sales")
@@ -166,7 +172,7 @@ def test_semantic_input_normalization_accepts_reloaded_same_project(
 
 
 def test_semantic_input_rejects_unregistered_entry_subclass_and_duck_type(
-    semantic_project_factory,
+    semantic_project_factory: _SemanticProjectFactory,
 ) -> None:
     catalog = _catalog(semantic_project_factory)
     sales = catalog_entry(catalog, "sales", kind="domain")
@@ -187,7 +193,7 @@ def test_semantic_input_rejects_unregistered_entry_subclass_and_duck_type(
     with pytest.raises(SemanticRuntimeError, match="named semantic object") as duck:
         _normalize_semantic_input(
             catalog,
-            DuckDomain(),
+            DuckDomain(),  # type: ignore[arg-type]  # Exercise duck-typed input rejection.
             allowed_kinds=frozenset({SemanticKind.DOMAIN}),
             location="test.domain",
         )
@@ -195,7 +201,7 @@ def test_semantic_input_rejects_unregistered_entry_subclass_and_duck_type(
 
 
 def test_semantic_input_rejects_bare_string_and_wrong_kind_without_guessing(
-    semantic_project_factory,
+    semantic_project_factory: _SemanticProjectFactory,
 ) -> None:
     catalog = _catalog(semantic_project_factory)
 
@@ -225,7 +231,7 @@ def test_semantic_input_rejects_bare_string_and_wrong_kind_without_guessing(
 
 
 def test_semantic_input_rejects_cross_catalog_entry_without_retry(
-    tmp_path: Path, semantic_project_factory
+    tmp_path: Path, semantic_project_factory: _SemanticProjectFactory
 ) -> None:
     catalog = _catalog(semantic_project_factory)
     other_workspace = tmp_path / "other"
@@ -244,7 +250,9 @@ def test_semantic_input_rejects_cross_catalog_entry_without_retry(
     assert exc_info.value.repair.snippet == "subject = catalog.get('domain:sales')"
 
 
-def test_original_object_navigation_keeps_captured_catalog(semantic_project_factory) -> None:
+def test_original_object_navigation_keeps_captured_catalog(
+    semantic_project_factory: _SemanticProjectFactory,
+) -> None:
     original = _catalog(semantic_project_factory)
     sales = original.get("domain:sales")
     receiving = _catalog(semantic_project_factory)
@@ -259,7 +267,7 @@ def test_original_object_navigation_keeps_captured_catalog(semantic_project_fact
 
 
 def test_semantic_input_stale_missing_path_requires_explicit_current_choice(
-    tmp_path: Path, semantic_project_factory
+    tmp_path: Path, semantic_project_factory: _SemanticProjectFactory
 ) -> None:
     old_catalog = _catalog(semantic_project_factory)
     stale_domain = catalog_entry(old_catalog, "ops", kind="domain")
@@ -292,7 +300,7 @@ def test_semantic_input_stale_missing_path_requires_explicit_current_choice(
 
 
 def test_relationship_definition_discloses_endpoints_and_cardinality(
-    semantic_project_factory,
+    semantic_project_factory: _SemanticProjectFactory,
 ) -> None:
     catalog = _catalog(semantic_project_factory)
     relationship = catalog.get("relationship:sales.orders_to_users")

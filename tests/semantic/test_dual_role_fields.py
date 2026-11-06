@@ -59,13 +59,14 @@ def test_numeric_column_supports_separate_dimension_and_measure_roles(
     session = mv.session.get_or_create("dual-role-fields", timezone="UTC")
     dimension = catalog_value(session.catalog, "sales.orders.quantity_axis", kind="dimension")
     quantity = catalog_value(session.catalog, "sales.orders.quantity", kind="measure")
-    for expression in (dimension.mean(), dimension.sum()):
+    # Deliberately exercise aggregate operations on a non-numeric dimension.
+    for expression in (dimension.mean(), dimension.sum()):  # type: ignore[misc]
         with pytest.raises(SemanticExpressionError, match="numeric Measure"):
             consume_metric(expression)
     with pytest.raises(SemanticExpressionError, match="numeric row expression"):
 
-        @ms.measure()
-        def invalid_conversion():
+        @ms.measure()  # type: ignore[arg-type]  # Exercise an invalid dimension return.
+        def invalid_conversion() -> ms.Dimension:
             return dimension
 
     frame = session.observe(

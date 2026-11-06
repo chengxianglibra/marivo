@@ -141,11 +141,14 @@ def test_certification_matches_native_gap_and_fold_in_one_read(
         catalog.preview(entry, scope=md.unpruned(max_rows=5, timeout_seconds=30))
         for identity, bounds in expected.items():
             occurrence = entry.occurrence(identity)
+            assert isinstance(occurrence.start, datetime) and isinstance(occurrence.end, datetime)
             assert (_epoch_us(occurrence.start), _epoch_us(occurrence.end)) == bounds
         assert [read.purpose for read in reads] == ["semantic.certified_preview"]
         assert entry.definition.snapshot_status == "current"
         declaration = tmp_path / "models/datasources/warehouse.py"
         declaration.write_text(declaration.read_text().replace("America/New_York", "UTC"))
         changed = ms.load(workspace_dir=tmp_path)
-        assert changed.get("temporal_set:sales.periods").definition.snapshot_status == "stale"
+        changed_entry = changed.get("temporal_set:sales.periods")
+        assert isinstance(changed_entry, TemporalSet)
+        assert changed_entry.definition.snapshot_status == "stale"
         assert len(reads) == 1

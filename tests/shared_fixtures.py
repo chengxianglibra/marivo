@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 from functools import lru_cache
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal, Protocol
+from typing import TYPE_CHECKING, Literal, Protocol, overload
 from unittest.mock import patch
 
 import duckdb
@@ -33,7 +33,19 @@ if TYPE_CHECKING:
     from marivo.analysis.session.core import Session
     from marivo.datasource.ir import DatasourceIR
     from marivo.semantic._source_timezone import DeclaredSourceTimezone
-    from marivo.semantic.catalog import SemanticCatalog, SemanticObject
+    from marivo.semantic.catalog import (
+        Dimension,
+        Domain,
+        Entity,
+        Measure,
+        Metric,
+        PeriodCalendar,
+        Relationship,
+        SemanticCatalog,
+        SemanticObject,
+        TemporalSet,
+        TimeDimension,
+    )
     from marivo.semantic.expressions import ResolvedValue
     from marivo.semantic.ir import TargetDimensionContract
     from marivo.semantic.loader import LoaderContext, LoadResult
@@ -47,6 +59,36 @@ if TYPE_CHECKING:
 
 _SALES_ORDERS_V = "v1"
 _AUTHORING_EVIDENCE_V = "v2"
+
+
+@overload
+def catalog_entry(
+    catalog: SemanticCatalog | SemanticObject, name: str, *, kind: Literal["domain"]
+) -> Domain: ...
+
+
+@overload
+def catalog_entry(
+    catalog: SemanticCatalog | SemanticObject, name: str, *, kind: Literal["period_calendar"]
+) -> PeriodCalendar: ...
+
+
+@overload
+def catalog_entry(
+    catalog: SemanticCatalog | SemanticObject, name: str, *, kind: Literal["temporal_set"]
+) -> TemporalSet: ...
+
+
+@overload
+def catalog_entry(
+    catalog: SemanticCatalog | SemanticObject, name: str, *, kind: Literal["metric"]
+) -> Metric: ...
+
+
+@overload
+def catalog_entry(
+    catalog: SemanticCatalog | SemanticObject, name: str, *, kind: str
+) -> SemanticObject: ...
 
 
 def catalog_entry(
@@ -76,11 +118,96 @@ def catalog_entry(
     return selected[0]
 
 
+@overload
+def catalog_value(
+    catalog: SemanticCatalog | SemanticObject, name: str, *, kind: Literal["entity"]
+) -> Entity: ...
+
+
+@overload
+def catalog_value(
+    catalog: SemanticCatalog | SemanticObject, name: str, *, kind: Literal["dimension"]
+) -> Dimension: ...
+
+
+@overload
+def catalog_value(
+    catalog: SemanticCatalog | SemanticObject, name: str, *, kind: Literal["time_dimension"]
+) -> TimeDimension: ...
+
+
+@overload
+def catalog_value(
+    catalog: SemanticCatalog | SemanticObject, name: str, *, kind: Literal["measure"]
+) -> Measure: ...
+
+
+@overload
+def catalog_value(
+    catalog: SemanticCatalog | SemanticObject, name: str, *, kind: Literal["metric"]
+) -> Metric: ...
+
+
+@overload
+def catalog_value(
+    catalog: SemanticCatalog | SemanticObject, name: str, *, kind: Literal["relationship"]
+) -> Relationship: ...
+
+
+@overload
+def catalog_value(
+    catalog: SemanticCatalog | SemanticObject, name: str, *, kind: Literal["field"]
+) -> Dimension | TimeDimension | Measure: ...
+
+
+@overload
+def catalog_value(
+    catalog: SemanticCatalog | SemanticObject, name: str, *, kind: str
+) -> SemanticObject: ...
+
+
 def catalog_value(
     catalog: SemanticCatalog | SemanticObject, name: str, *, kind: str
 ) -> SemanticObject:
     """Return the directly consumable public object selected through Catalog APIs."""
     return catalog_entry(catalog, name, kind=kind)
+
+
+@overload
+def catalog_get(catalog: SemanticCatalog, name: str, *, kind: Literal["entity"]) -> Entity: ...
+
+
+@overload
+def catalog_get(
+    catalog: SemanticCatalog, name: str, *, kind: Literal["dimension"]
+) -> Dimension: ...
+
+
+@overload
+def catalog_get(
+    catalog: SemanticCatalog, name: str, *, kind: Literal["time_dimension"]
+) -> TimeDimension: ...
+
+
+@overload
+def catalog_get(catalog: SemanticCatalog, name: str, *, kind: Literal["measure"]) -> Measure: ...
+
+
+@overload
+def catalog_get(catalog: SemanticCatalog, name: str, *, kind: Literal["metric"]) -> Metric: ...
+
+
+@overload
+def catalog_get(
+    catalog: SemanticCatalog, name: str, *, kind: Literal["relationship"]
+) -> Relationship: ...
+
+
+def catalog_get(catalog: SemanticCatalog, name: str, *, kind: str) -> SemanticObject:
+    """Get a public Catalog object and assert its expected kind."""
+    value = catalog.get(name)
+    assert value.kind == kind, (name, kind, value.kind)
+    return value
 
 
 class _PreviewConnections:

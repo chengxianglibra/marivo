@@ -42,7 +42,7 @@ def test_grouped_source_metrics_keep_original_order_and_exclude_unrequested_reci
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     case = analysis_dsl_case_factory("j1")
-    amount = catalog_value(case.session.catalog, "sales.order.amount", kind="field")
+    amount = catalog_value(case.session.catalog, "sales.order.amount", kind="measure")
     source = case.session.observe(
         {"sum": amount.sum(), "mean": amount.mean(), "unused": amount.max()}
     )
@@ -60,7 +60,7 @@ def test_comparison_and_level_references_share_each_endpoint_requested_inventory
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     case = analysis_dsl_case_factory("j1")
-    amount = catalog_value(case.session.catalog, "sales.order.amount", kind="field")
+    amount = catalog_value(case.session.catalog, "sales.order.amount", kind="measure")
     current = case.session.observe({"sum": amount.sum(), "mean": amount.mean()})
     baseline = case.session.observe({"sum": amount.sum(), "mean": amount.mean()})
     compared = current.compare({"reference": mv.baseline(baseline)})
@@ -88,8 +88,8 @@ def test_distinct_metric_formulas_share_each_role_read_and_exclude_unused_rules(
     from marivo.datasource.adapters import CompiledRead, SourceSession
 
     case = analysis_dsl_case_factory("j1")
-    amount = catalog_value(case.session.catalog, "sales.order.amount", kind="field")
-    channel = catalog_value(case.session.catalog, "sales.order.channel", kind="field")
+    amount = catalog_value(case.session.catalog, "sales.order.amount", kind="measure")
+    channel = catalog_value(case.session.catalog, "sales.order.channel", kind="dimension")
     captured = case.session.observe(
         {"sum": amount.sum(), "count": amount.count(), "unused": amount.max()}
     ).compute()
@@ -131,8 +131,8 @@ def test_reordered_comparison_metrics_and_level_target_share_endpoint_reads(
     from marivo.datasource.adapters import CompiledRead, SourceSession
 
     case = analysis_dsl_case_factory("j1")
-    amount = catalog_value(case.session.catalog, "sales.order.amount", kind="field")
-    channel = catalog_value(case.session.catalog, "sales.order.channel", kind="field")
+    amount = catalog_value(case.session.catalog, "sales.order.amount", kind="measure")
+    channel = catalog_value(case.session.catalog, "sales.order.channel", kind="dimension")
     current = case.session.observe({"sum": amount.sum(), "count": amount.count()})
     baseline = case.session.observe({"count": amount.count(), "sum": amount.sum()})
     compared = current.compare({"reference": mv.baseline(baseline)}).compute()

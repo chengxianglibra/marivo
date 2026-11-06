@@ -12,6 +12,30 @@ import marivo.semantic as ms
 from marivo.semantic.reader import SemanticProject
 
 
+def _dimension(catalog: ms.SemanticCatalog, path: str) -> ms.Dimension:
+    result = catalog.get(path)
+    assert result.kind == "dimension"
+    return result
+
+
+def _measure(catalog: ms.SemanticCatalog, path: str) -> ms.Measure:
+    result = catalog.get(path)
+    assert result.kind == "measure"
+    return result
+
+
+def _relationship(catalog: ms.SemanticCatalog, path: str) -> ms.Relationship:
+    result = catalog.get(path)
+    assert result.kind == "relationship"
+    return result
+
+
+def _time_dimension(catalog: ms.SemanticCatalog, path: str) -> ms.TimeDimension:
+    result = catalog.get(path)
+    assert result.kind == "time_dimension"
+    return result
+
+
 @pytest.mark.parametrize("version", ("snapshot", "validity"))
 def test_utc_date_control_selects_previous_los_angeles_business_day(
     version: Literal["snapshot", "validity"],
@@ -77,13 +101,13 @@ def test_utc_date_control_selects_previous_los_angeles_business_day(
     monkeypatch.chdir(tmp_path)
     ms.load(workspace_dir=tmp_path)
     session = mv.session.get_or_create(f"date-version-{version}", timezone="UTC")
-    fact_day = session.catalog.get("time_dimension:sales.facts.fact_day")
-    category = session.catalog.get("dimension:sales.profiles.category")
-    relationship = session.catalog.get("relationship:sales.profile")
+    fact_day = _time_dimension(session.catalog, "time_dimension:sales.facts.fact_day")
+    category = _dimension(session.catalog, "dimension:sales.profiles.category")
+    relationship = _relationship(session.catalog, "relationship:sales.profile")
     historical_category = category.via((relationship,)).at(fact_day)
     period = session.time_scope(start="2026-07-01", end="2026-07-02")
     result = session.observe(
-        {"value": session.catalog.get("measure:sales.facts.amount").sum(time=fact_day)},
+        {"value": _measure(session.catalog, "measure:sales.facts.amount").sum(time=fact_day)},
         by=(period, historical_category),
     ).compute()
     data = result.to_pandas(axis_names={result.axes[-1].token: "category"})
@@ -94,11 +118,11 @@ def test_utc_date_control_selects_previous_los_angeles_business_day(
     assert data["value"].tolist() == [10]
 
     historical_day = (
-        session.catalog.get("time_dimension:sales.profiles.day")
+        _time_dimension(session.catalog, "time_dimension:sales.profiles.day")
         .via((relationship,))
         .at(session.instant("2026-07-01T00:00:00Z"))
     )
-    amount = session.catalog.get("measure:sales.facts.amount")
+    amount = _measure(session.catalog, "measure:sales.facts.amount")
     # The selected June 30 LA DATE begins at 07:00Z, after the 01:00Z cutoff.
     # Comparing a raw DATE label at UTC midnight would incorrectly exclude it.
     selected = session.observe(

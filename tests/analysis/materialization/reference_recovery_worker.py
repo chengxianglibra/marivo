@@ -53,7 +53,10 @@ def recipes(outputs: Mapping[str, mv.AnalysisFrame]) -> dict[str, Json]:
     ]
     ranks = current.value.rank(method="dense", ascending=False).astype("Int64")
     assert [None if pd.isna(value) else value for value in ranks.tolist()] == [2, None, 1]
-    standardized = sum(float(row.value) * fractions[row.key_0] for row in groups.itertuples())
+    standardized = 0.0
+    for row in groups.itertuples():
+        assert isinstance(row.value, (int, float))
+        standardized += float(row.value) * fractions[row.key_0]
     assert math.isclose(standardized, 2 * (1 / 3) + 4 * (2 / 3))
     opportunities = plain(outputs["opportunities"])
     assert len(opportunities) == 6

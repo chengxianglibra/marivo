@@ -35,7 +35,7 @@ from marivo.datasource.backends import (
 )
 from marivo.datasource.ir import DatasourceIR
 from tests.analysis.materialization.concurrency_worker import observation, snapshot
-from tests.shared_fixtures import DslCase, terminal_run, terminal_runs
+from tests.shared_fixtures import DslCase, catalog_get, terminal_run, terminal_runs
 
 
 def _evidence(name: str, value: dict[str, object]) -> None:
@@ -75,7 +75,9 @@ def test_busy_contender_preserves_real_producer(
 
     monkeypatch.setattr(SourceSession, "execute", capture)
     committed = case.session.frame(
-        case.session.members(case.session.catalog.get("entity:sales.customer"))
+        case.session.members(
+            catalog_get(case.session.catalog, "entity:sales.customer", kind="entity")
+        )
     ).persist()
     logical = observation(case.session, "sales.revenue")
     metric = "sales.revenue" if key == "same" else "sales.order_count"

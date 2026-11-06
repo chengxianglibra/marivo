@@ -45,6 +45,18 @@ from tests.support.paths import PROJECT_ROOT
 from tests.support.source_trace import capture_source
 
 
+def _entity(catalog: ms.SemanticCatalog, path: str) -> ms.Entity:
+    result = catalog.get(path)
+    assert result.kind == "entity"
+    return result
+
+
+def _metric(catalog: ms.SemanticCatalog, path: str) -> ms.Metric:
+    result = catalog.get(path)
+    assert result.kind == "metric"
+    return result
+
+
 def _inputs(case: DslCase, *, weight: bool = False) -> tuple[mv.AnalysisFrame, mv.AnalysisFrame]:
     return basis_query(case, 8, weight=weight).persist(), basis_query(
         case, 7, weight=weight
@@ -56,13 +68,13 @@ def _count(case: DslCase, month: int) -> mv.AnalysisFrame:
     customer = catalog_value(session.catalog, "sales.order.customer_id", kind="field")
     channel = catalog_value(session.catalog, "sales.order.channel", kind="field")
     values = session.observe(
-        {"value": session.catalog.get("metric:sales.order_count")},
+        {"value": _metric(session.catalog, "metric:sales.order_count")},
         by=(
             session.time_scope(start=f"2026-{month:02d}-01", end=f"2026-{month + 1:02d}-01"),
             customer,
             channel,
         ),
-        where=mv.in_population(session.members(session.catalog.get("entity:sales.customer"))),
+        where=mv.in_population(session.members(_entity(session.catalog, "entity:sales.customer"))),
     )
     return values
 
@@ -153,6 +165,7 @@ def test_additive_source_and_fixed(analysis_dsl_case_factory: DslCaseFactory) ->
     for value in restored:
         with pytest.raises(AnalysisError) as caught:
             value.attribute(by=(region,))
+        assert caught.value.expected is not None
         assert "retained source declaration" in caught.value.expected
 
 
@@ -366,9 +379,11 @@ def test_period_buckets_and_retained_coarsened_partition(
         scope = session.time_scope(start=f"2026-{month:02d}-01", end=f"2026-{month + 1:02d}-01")
         calendar = scope.by(mv.grain("month"))
         values = session.observe(
-            {"value": session.catalog.get("metric:sales.order_count")},
+            {"value": _metric(session.catalog, "metric:sales.order_count")},
             by=(calendar, customer, channel),
-            where=mv.in_population(session.members(session.catalog.get("entity:sales.customer"))),
+            where=mv.in_population(
+                session.members(_entity(session.catalog, "entity:sales.customer"))
+            ),
         )
         return values
 

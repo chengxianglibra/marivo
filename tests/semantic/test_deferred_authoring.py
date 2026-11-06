@@ -72,9 +72,9 @@ def test_deferred_capture_declaration_collection_and_native_composition(
     semantic_project_factory: ProjectFactory,
 ) -> None:
     catalog = _catalog(semantic_project_factory)
-    amount = catalog_value(catalog, "sales.orders.amount", kind="field")
+    amount = catalog_value(catalog, "sales.orders.amount", kind="measure")
     revenue = catalog.get("metric:sales.revenue")
-    margin = catalog_value(catalog, "sales.orders.margin", kind="field")
+    margin = catalog_value(catalog, "sales.orders.margin", kind="measure")
     assert isinstance(amount, ms.RowExpression)
     assert isinstance(revenue, ms.MetricExpression)
     assert isinstance(margin, ms.RowExpression)
@@ -118,8 +118,8 @@ def average_sample():
 """
     )
     catalog = _catalog(semantic_project_factory, source)
-    amount = catalog_value(catalog, "sales.orders.amount", kind="field")
-    status = catalog_value(catalog, "sales.orders.status", kind="field")
+    amount = catalog_value(catalog, "sales.orders.amount", kind="measure")
+    status = catalog_value(catalog, "sales.orders.status", kind="dimension")
     samples = (
         mv.coordinates(by=(status,), keys=(("paid",),)).axes[0]
         if kind == "field"
@@ -127,8 +127,10 @@ def average_sample():
     )
     sample = samples
     argument_value = (sample,) if as_tuple else sample
-    expected = catalog.get("metric:sales.revenue").per(argument_value).mean()
+    revenue = catalog.get("metric:sales.revenue")
     declared = catalog.get("metric:sales.average_sample")
+    assert revenue.kind == "metric" and declared.kind == "metric"
+    expected = revenue.per(argument_value).mean()
     body = next(
         body
         for reference, body in consume_metric(declared)._declared
@@ -151,8 +153,8 @@ def test_native_branches_retain_dependencies_and_require_sum_authorization(
     semantic_project_factory: ProjectFactory,
 ) -> None:
     catalog = _catalog(semantic_project_factory)
-    amount = catalog_value(catalog, "sales.orders.amount", kind="field")
-    cost = catalog_value(catalog, "sales.orders.cost", kind="field")
+    amount = catalog_value(catalog, "sales.orders.amount", kind="measure")
+    cost = catalog_value(catalog, "sales.orders.cost", kind="measure")
     positive = (amount > cost).ifelse(amount - cost, 0)
     assert consume_row(positive).unit == "CNY"
     with pytest.raises(SemanticExpressionError):
@@ -163,10 +165,10 @@ def test_native_branches_retain_dependencies_and_require_sum_authorization(
         "sales.orders.cost",
     }
     with pytest.raises(SemanticExpressionError):
-        consume_metric(amount.sum() + amount)
-    status = catalog_value(catalog, "sales.orders.status", kind="field")
+        consume_metric(amount.sum() + amount)  # type: ignore[operator]  # Reject mixed stages.
+    status = catalog_value(catalog, "sales.orders.status", kind="dimension")
     with pytest.raises(SemanticExpressionError):
-        consume_row(status.cast("float64"))
+        consume_row(status.cast("float64"))  # type: ignore[misc]  # Reject nonnumeric casts.
 
 
 def test_declaration_rejects_helper_before_invocation(
@@ -229,8 +231,8 @@ def test_native_selection_units_and_reciprocal_authorization(
         'column="cost", unit="CNY"', 'column="cost", unit="USD"'
     )
     catalog = _catalog(semantic_project_factory, source)
-    amount = catalog_value(catalog, "sales.orders.amount", kind="field")
-    cost = catalog_value(catalog, "sales.orders.cost", kind="field")
+    amount = catalog_value(catalog, "sales.orders.amount", kind="measure")
+    cost = catalog_value(catalog, "sales.orders.cost", kind="measure")
     for expression in (amount > cost, amount.least(cost), amount.clip(lower=cost)):
         with pytest.raises(SemanticExpressionError, match="incompatible units"):
             consume_row(expression)
@@ -247,6 +249,7 @@ def test_catalog_description_owns_definition_facts(
     revenue = catalog.get("metric:sales.revenue")
     margin = catalog.get("measure:sales.orders.margin")
     assert revenue.kind == "metric"
+    assert margin.kind == "measure"
     assert revenue.definition.unit == margin.definition.unit == "CNY"
     assert revenue.id == "metric:sales.revenue"
     assert ".show()" in repr(revenue)
@@ -260,7 +263,10 @@ def test_published_metric_rebinds_in_the_consumers_frozen_scope(
 
     original = _catalog(semantic_project_factory)
     revenue = original.get("metric:sales.revenue")
-    old_reference = root_declaration(_recipe(revenue)).reference
+    assert revenue.kind == "metric"
+    old_declaration = root_declaration(_recipe(revenue))
+    assert old_declaration is not None
+    old_reference = old_declaration.reference
     changed_root = original.workspace_dir
     project = semantic_project_factory(
         {
@@ -271,27 +277,32 @@ def test_published_metric_rebinds_in_the_consumers_frozen_scope(
     )
     changed = SemanticCatalog(project)
     current = changed.get("metric:sales.revenue")
+    assert current.kind == "metric"
     rebound = consume_metric(bind_metric(revenue, changed))
     assert rebound.node == consume_metric(current).node
     assert rebound._declared == consume_metric(current)._declared
-    assert root_declaration(_recipe(revenue)).reference == old_reference
-    assert root_declaration(_recipe(current)).reference != old_reference
+    revenue_declaration = root_declaration(_recipe(revenue))
+    current_declaration = root_declaration(_recipe(current))
+    assert revenue_declaration is not None and current_declaration is not None
+    assert revenue_declaration.reference == old_reference
+    assert current_declaration.reference != old_reference
 
 
 def test_sum_has_one_fixed_rule_and_rejects_removed_empty_parameter(
     semantic_project_factory: ProjectFactory,
 ) -> None:
     catalog = _catalog(semantic_project_factory)
-    amount = catalog_value(catalog, "sales.orders.amount", kind="field")
-    status = catalog_value(catalog, "sales.orders.status", kind="field")
+    amount = catalog_value(catalog, "sales.orders.amount", kind="measure")
+    status = catalog_value(catalog, "sales.orders.status", kind="dimension")
     for expression in (amount.sum(), amount.sum().per(status).sum()):
         node = consume_metric(expression).node
         assert isinstance(node, (SourceAggregate, PerReduce))
         assert not hasattr(node, "empty")
-    for operation in (
-        lambda: amount.sum(empty="zero"),
-        lambda: amount.sum().per(status).sum(empty="null"),
-    ):
+    operations: tuple[Callable[[], object], ...] = (
+        lambda: amount.sum(empty="zero"),  # type: ignore[call-arg]  # Reject removed parameter.
+        lambda: amount.sum().per(status).sum(empty="null"),  # type: ignore[call-arg]  # Reject removed parameter.
+    )
+    for operation in operations:
         with pytest.raises(TypeError, match="empty"):
             operation()
     count = consume_metric(amount.count()).node

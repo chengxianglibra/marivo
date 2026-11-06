@@ -131,12 +131,12 @@ def test_source_execution_cost(
     with duckdb.connect(str(database)) as db:
         db.execute("DELETE FROM orders")
         db.execute(f"INSERT INTO orders SELECT i,i%{groups},i%2,i%7,i%3+1 FROM range({facts}) t(i)")
-    amount = catalog_value(session.catalog, "sales.orders.amount", kind="field")
-    bucket = catalog_value(session.catalog, "sales.orders.bucket", kind="field")
-    channel = catalog_value(session.catalog, "sales.orders.channel", kind="field")
+    amount = catalog_value(session.catalog, "sales.orders.amount", kind="measure")
+    bucket = catalog_value(session.catalog, "sales.orders.bucket", kind="dimension")
+    channel = catalog_value(session.catalog, "sales.orders.channel", kind="dimension")
     if scenario == "numeric_top":
         parent = session.read(
-            session.members(session.catalog.get("entity:sales.orders")),
+            session.members(catalog_value(session.catalog, "sales.orders", kind="entity")),
             {"metric": amount},
         )
         eligible = parent.where(parent["metric"] >= 5)
@@ -188,32 +188,37 @@ def test_population_source_execution_cost(
         db.execute(f"INSERT INTO orders SELECT i,i%10,1 FROM range({facts}) t(i)")
         db.execute(f"INSERT INTO links SELECT i,i,i%2+1 FROM range({facts}) t(i)")
         db.execute(f"INSERT INTO links SELECT i+{facts},i,i%2+1 FROM range({facts}) t(i)")
-    orders = session.members(session.catalog.get("entity:sales.orders"))
+    orders = session.members(catalog_value(session.catalog, "sales.orders", kind="entity"))
     path = (
-        session.catalog.get("relationship:sales.order_links"),
-        session.catalog.get("relationship:sales.link_tags"),
+        catalog_value(session.catalog, "sales.order_links", kind="relationship"),
+        catalog_value(session.catalog, "sales.link_tags", kind="relationship"),
     )
     if scenario == "image_count":
+        image = orders.image(via=path)
+        assert isinstance(image, mv.Population)
         query = session.observe(
             {
-                "metric": catalog_value(session.catalog, "sales.tags.id", kind="field")
+                "metric": catalog_value(session.catalog, "sales.tags.id", kind="dimension")
                 .count()
-                .where(mv.in_population(orders.image(via=path)))
+                .where(mv.in_population(image))
             }
         )
         expected = 2
     else:
         fields = session.read(
-            session.members(session.catalog.get("entity:sales.tags")),
-            {"label": catalog_value(session.catalog, "sales.tags.label", kind="field")},
+            session.members(catalog_value(session.catalog, "sales.tags", kind="entity")),
+            {"label": catalog_value(session.catalog, "sales.tags.label", kind="dimension")},
         )
         fixed = fields.where(fields["label"] == "A").compute()
         targets = session.population_from(
-            fixed, on=((fixed.axes[0], session.catalog.get("entity:sales.tags")),)
+            fixed,
+            on=((fixed.axes[0], catalog_value(session.catalog, "sales.tags", kind="entity")),),
         )
+        preimage = orders.preimage(targets, via=path)
+        assert isinstance(preimage, mv.Population)
         query = session.observe(
-            {"metric": session.catalog.get("metric:sales.revenue")},
-            where=mv.in_population(orders.preimage(targets, via=path)),
+            {"metric": catalog_value(session.catalog, "sales.revenue", kind="metric")},
+            where=mv.in_population(preimage),
         )
         expected = facts // 2
     repetitions = 3 if os.environ.get("MARIVO_SOURCE_COST_DIR") else 1

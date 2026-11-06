@@ -114,6 +114,7 @@ def test_public_sql_owner_audit(
             session = mv.session.get_or_create("sql_ownership-sql-owner", timezone="UTC")
             if backend == "duckdb":
                 facts = session.catalog.get("entity:sales.facts")
+                assert facts.kind == "entity"
                 result = session.observe({"rows": facts.count()}).compute()
                 assert result.to_pandas()["rows"].tolist() == [len(ROWS)]
             else:

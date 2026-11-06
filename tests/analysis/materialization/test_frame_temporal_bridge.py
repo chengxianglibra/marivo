@@ -39,9 +39,9 @@ from marivo.analysis.errors import AnalysisError
 from marivo.analysis.methods.query_population import _token, evaluate_population
 from marivo.analysis.session.core import Session
 from marivo.datasource.adapters import SourceSession
-from marivo.semantic.expressions import _Entity as Entity
+from marivo.semantic.catalog import Dimension, Entity
 from marivo.semantic.reader import SemanticProject
-from tests.shared_fixtures import catalog_value, terminal_runs
+from tests.shared_fixtures import catalog_get, catalog_value, terminal_runs
 
 
 @pytest.fixture
@@ -122,22 +122,26 @@ def _population(
     session: Session, frame: AnalysisFrame, *, joint: bool = False, identity: bool = False
 ) -> Population:
     target = (
-        session.catalog.get("entity:sales.facts")
+        catalog_get(session.catalog, "entity:sales.facts", kind="entity")
         if identity
-        else catalog_value(session.catalog, "sales.facts.t", kind="field")
+        else catalog_value(session.catalog, "sales.facts.t", kind="dimension")
     )
-    on: tuple[tuple[FrameAxis, Entity | Deferred], ...] = ((frame.axes[0], target),)
+    on: tuple[tuple[FrameAxis, Entity | Dimension], ...] = ((frame.axes[0], target),)
     if joint:
         on = (
             *on,
-            (frame.axes[1], catalog_value(session.catalog, "sales.facts.channel", kind="field")),
+            (
+                frame.axes[1],
+                catalog_value(session.catalog, "sales.facts.channel", kind="dimension"),
+            ),
         )
     return session.population_from(frame, on=on)
 
 
 def _ticks(
-    session: Session, population: Population, integer: pa.DataType | None = None
+    session: Session, population: Population | Deferred, integer: pa.DataType | None = None
 ) -> list[int | None]:
+    assert isinstance(population, Population)
     result = session.frame(population).compute().to_pandas()
     ticks: list[int | None] = (
         pa.array(result.iloc[:, 0]).cast(pa.int64() if integer is None else integer).to_pylist()
@@ -163,7 +167,7 @@ def test_frame_keys_keep_extrema_nulls_joint_dedup_and_order(
     stored = memory.persist()
     reopened = session.persisted_frame(stored.artifact_id)
     # Catalog resolution is metadata only; the dependent fixed-key plan remains source free.
-    catalog_value(session.catalog, "sales.facts.t", kind="field")
+    catalog_value(session.catalog, "sales.facts.t", kind="dimension")
 
     def forbidden(*args: object, **kwargs: object) -> None:
         raise AssertionError("fixed temporal key projection attempted a source read")
@@ -219,7 +223,7 @@ def test_frame_keys_match_ordinary_python_temporal_literals(
     frame = _frame(session, dtype, physical, [minimum, 0, None])
     selected = _population(session, frame)
     finite = mv.coordinates(
-        by=(catalog_value(session.catalog, "sales.facts.t", kind="field"),),
+        by=(catalog_value(session.catalog, "sales.facts.t", kind="dimension"),),
         keys=((literal,), (None,)),
     )
     rows = pd.DataFrame({"t": _series([minimum, 0, None], physical)})
@@ -228,6 +232,7 @@ def test_frame_keys_match_ordinary_python_temporal_literals(
         (selected.difference(finite), (pa.scalar(minimum, type=physical),)),
         (selected.where(mv.in_population(finite)), (literal, None)),
     ):
+        assert isinstance(operation, Population)
         actual = evaluate_population(
             operation._definition, (selected._definition,), (rows,), ((("t",),),)
         )
@@ -279,6 +284,7 @@ def test_source_free_shared_axis_rejects_incompatible_exact_duration_units(
     left = _frame(session, DurationDataType("ns"), pa.duration("ns"), [1])
     right = _frame(session, DurationDataType("ms"), pa.duration("ms"), [1])
     population = _population(session, left).union(_population(session, right))
+    assert isinstance(population, Population)
     with pytest.raises(AnalysisError, match="compatible complete types"):
         session.frame(population).compute()
 
@@ -332,7 +338,7 @@ def test_explicit_source_key_transport_preserves_minimum_tick_and_null(
     monkeypatch.setattr(SourceSession, "_bind_key_relation", bind)
     population = _population(session, selected, joint=True)
     computed = session.observe(
-        {"amount": catalog_value(session.catalog, "sales.facts.amount", kind="field").sum()},
+        {"amount": catalog_value(session.catalog, "sales.facts.amount", kind="measure").sum()},
         where=mv.in_population(population),
     ).compute()
     assert len(transported) == 1

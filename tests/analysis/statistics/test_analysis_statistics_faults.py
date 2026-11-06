@@ -10,6 +10,18 @@ from tests.analysis.statistics.pandas_workflows import ForecastModel, forecast, 
 from tests.shared_fixtures import DslCaseFactory, catalog_value, run_ids
 
 
+def _entity(catalog: ms.SemanticCatalog, path: str) -> ms.Entity:
+    result = catalog.get(path)
+    assert result.kind == "entity"
+    return result
+
+
+def _metric(catalog: ms.SemanticCatalog, path: str) -> ms.Metric:
+    result = catalog.get(path)
+    assert result.kind == "metric"
+    return result
+
+
 def test_three_quantity_search_and_forecast_views(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
@@ -62,8 +74,8 @@ def test_large_export_does_not_truncate_pandas_forecast_rows(
     session = case.session
     grid = session.time_scope(start="2026-08-01", end="2026-08-04").by(mv.grain("day"))
     artifact = session.observe(
-        {"value": session.catalog.get("metric:sales.order_count")},
-        by=mv.product(grid, session.members(session.catalog.get("entity:sales.customer"))),
+        {"value": _metric(session.catalog, "metric:sales.order_count")},
+        by=mv.product(grid, session.members(_entity(session.catalog, "entity:sales.customer"))),
     ).persist()
     frame = plain(artifact)
     assert len(frame) == 3003

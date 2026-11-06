@@ -50,7 +50,7 @@ def _post_json_server(
     server = ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
     thread = Thread(target=server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True)
     thread.start()
-    host, port = server.server_address
+    host, port = "127.0.0.1", server.server_port
     try:
         yield f"http://{host}:{port}/change-focus/api/v2/change/list", requests
     finally:
@@ -90,7 +90,7 @@ def test_json_source_url_requires_exact_declared_runtime_bindings() -> None:
     with pytest.raises(ValueError, match=r"extra=\('end',\)"):
         json_source_url(source, {"start": 1, "end": 2})
     with pytest.raises(TypeError, match="must be str, int, float, or bool"):
-        json_source_url(source, {"start": [1, {"nested": True}]})  # type: ignore[dict-item]
+        json_source_url(source, {"start": [1, {"nested": True}]})  # type: ignore[list-item]  # Invalid nested query value.
 
 
 def test_json_source_url_encodes_list_query_value() -> None:
@@ -134,7 +134,7 @@ def test_json_source_url_rejects_non_scalar_list_items() -> None:
         md.json(
             "https://api.example/query",
             columns={"value": "value"},
-            query_params={"specificsource": ["app-1", ["nested"]]},  # type: ignore[dict-item]
+            query_params={"specificsource": ["app-1", ["nested"]]},  # type: ignore[list-item]  # Invalid nested query value.
         )
 
 
@@ -145,7 +145,7 @@ def test_json_source_url_rejects_nested_list_binding() -> None:
         query_params={"specificsource": md.source_param("apps")},
     )
     with pytest.raises(TypeError, match="must be flat"):
-        json_source_url(source, {"apps": [["app-1", "app-2"]]})
+        json_source_url(source, {"apps": [["app-1", "app-2"]]})  # type: ignore[list-item]  # Invalid nested binding.
 
 
 def test_json_source_url_rejects_empty_list_binding() -> None:
@@ -445,6 +445,7 @@ def test_load_and_require_json_entity(tmp_path: Path) -> None:
     result = ms.SemanticCatalog(project).get("entity:sales.events")
 
     assert result.id == "entity:sales.events"
+    assert result.kind == "entity"
     assert result.primary_key == ()
 
 
@@ -461,6 +462,7 @@ def test_load_and_require_json_entity_with_auto_format(tmp_path: Path) -> None:
     result = ms.SemanticCatalog(project).get("entity:sales.events")
 
     assert result.id == "entity:sales.events"
+    assert result.kind == "entity"
     assert result.primary_key == ()
 
 

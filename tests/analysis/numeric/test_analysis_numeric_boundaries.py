@@ -12,6 +12,12 @@ import marivo.semantic as ms
 from tests.shared_fixtures import DslCaseFactory, catalog_value, export_dsl_parquet_models
 
 
+def _entity(catalog: ms.SemanticCatalog, path: str) -> ms.Entity:
+    result = catalog.get(path)
+    assert result.kind == "entity"
+    return result
+
+
 @pytest.mark.parametrize(
     "parquet,kind,split,coordinates",
     [
@@ -57,18 +63,18 @@ def test_native_float_nonzero_denominator_survives_cancellation(
         export_dsl_parquet_models(case, case.root)
     ms.load(workspace_dir=case.root)
     session = case.session
-    value = catalog_value(session.catalog, "sales.order.amount", kind="field")
-    weight = catalog_value(session.catalog, "sales.order.weight", kind="field")
-    time = catalog_value(session.catalog, "sales.order.ordered_at", kind="field")
+    value = catalog_value(session.catalog, "sales.order.amount", kind="measure")
+    weight = catalog_value(session.catalog, "sales.order.weight", kind="measure")
+    time = catalog_value(session.catalog, "sales.order.ordered_at", kind="time_dimension")
     numerator, denominator = value.sum(time=time), weight.sum(time=time)
     metric = (
         numerator / denominator
         if kind == "ratio"
         else value.weighted_mean(weight=weight, time=time)
     )
-    members = session.members(session.catalog.get("entity:sales.customer"))
-    customer = catalog_value(session.catalog, "sales.order.customer_id", kind="field")
-    channel = catalog_value(session.catalog, "sales.order.channel", kind="field")
+    members = session.members(_entity(session.catalog, "entity:sales.customer"))
+    customer = catalog_value(session.catalog, "sales.order.customer_id", kind="dimension")
+    channel = catalog_value(session.catalog, "sales.order.channel", kind="dimension")
     logical = session.observe(
         {"value": metric},
         by=(customer, channel) if coordinates else members,
@@ -118,15 +124,15 @@ def test_decimal_fold_retains_widened_sample_type(
         export_dsl_parquet_models(case, case.root)
     ms.load(workspace_dir=case.root)
     session = case.session
-    value = catalog_value(session.catalog, "sales.order.amount", kind="field")
-    time = catalog_value(session.catalog, "sales.order.ordered_at", kind="field")
+    value = catalog_value(session.catalog, "sales.order.amount", kind="measure")
+    time = catalog_value(session.catalog, "sales.order.ordered_at", kind="time_dimension")
     # The sample sum widens DECIMAL(3,0) before the ordinary mean finish.
     folded = value.sum(time=time).per(time).mean()
     logical = session.observe(
         {"value": folded},
         by=mv.product(
             session.time_scope(start="2026-08-01", end="2026-08-03"),
-            session.members(session.catalog.get("entity:sales.customer")),
+            session.members(_entity(session.catalog, "entity:sales.customer")),
         ),
     )
     fixed = logical.persist()
@@ -135,7 +141,9 @@ def test_decimal_fold_retains_widened_sample_type(
         session.observe(
             {"value": folded},
             by=(session.time_scope(start="2026-08-01", end="2026-08-03"),),
-            where=mv.in_population(session.members(session.catalog.get("entity:sales.customer"))),
+            where=mv.in_population(
+                session.members(_entity(session.catalog, "entity:sales.customer"))
+            ),
         ).compute(),
     ):
         assert result.to_pandas()["value"].tolist() == [Decimal(1800)]
@@ -163,8 +171,8 @@ def test_decimal_boundary_fixed_rollup_does_not_round_range_check(
         )
     ms.load(workspace_dir=case.root)
     session = case.session
-    amount = catalog_value(session.catalog, "sales.order.amount", kind="field")
-    time = catalog_value(session.catalog, "sales.order.ordered_at", kind="field")
+    amount = catalog_value(session.catalog, "sales.order.amount", kind="measure")
+    time = catalog_value(session.catalog, "sales.order.ordered_at", kind="time_dimension")
     metric = (
         amount.sum(time=time)
         if kind == "sum"
@@ -174,13 +182,15 @@ def test_decimal_boundary_fixed_rollup_does_not_round_range_check(
     )
     logical = session.observe(
         {"value": metric},
-        by=session.members(session.catalog.get("entity:sales.customer")),
+        by=session.members(_entity(session.catalog, "entity:sales.customer")),
     )
     fixed = logical.persist()
     for result in (
         session.observe(
             {"value": metric},
-            where=mv.in_population(session.members(session.catalog.get("entity:sales.customer"))),
+            where=mv.in_population(
+                session.members(_entity(session.catalog, "entity:sales.customer"))
+            ),
         ).compute(),
     ):
         assert result.to_pandas()["value"].tolist() == [value]
@@ -207,11 +217,11 @@ def test_numeric_raw_order_and_exchange_batches(
             )
     ms.load(workspace_dir=case.root)
     session = case.session
-    amount_field = catalog_value(session.catalog, "sales.order.amount", kind="field")
-    time = catalog_value(session.catalog, "sales.order.ordered_at", kind="field")
+    amount_field = catalog_value(session.catalog, "sales.order.amount", kind="measure")
+    time = catalog_value(session.catalog, "sales.order.ordered_at", kind="time_dimension")
     logical = session.observe(
         {"value": amount_field.sum(time=time)},
-        by=session.members(session.catalog.get("entity:sales.customer")),
+        by=session.members(_entity(session.catalog, "entity:sales.customer")),
     )
     fixed = logical.persist()
     assert session.persisted_frame(fixed.artifact_id).to_pandas().equals(fixed.to_pandas())
@@ -220,7 +230,9 @@ def test_numeric_raw_order_and_exchange_batches(
     for result in (
         session.observe(
             {"value": amount_field.sum(time=time)},
-            where=mv.in_population(session.members(session.catalog.get("entity:sales.customer"))),
+            where=mv.in_population(
+                session.members(_entity(session.catalog, "entity:sales.customer"))
+            ),
         ).compute(),
     ):
         assert abs(result.to_pandas()["value"].iloc[0] - float(exact)) <= bound

@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import textwrap
+from collections.abc import Callable
+
+from marivo.semantic.reader import SemanticProject
 
 _DOMAIN_PY = textwrap.dedent("""\
     import marivo.datasource as md
@@ -27,7 +30,9 @@ _OBJECTS_PY = textwrap.dedent("""    import marivo.datasource as md
 """)
 
 
-def test_reader_project_loads_and_exposes_status(semantic_project_factory) -> None:
+def test_reader_project_loads_and_exposes_status(
+    semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
+) -> None:
     project = semantic_project_factory(
         {
             "sales/_domain.py": _DOMAIN_PY,

@@ -52,8 +52,8 @@ def test_rescale_row_and_metric_units_compose_without_mutating_sources(
     semantic_project_factory: ProjectFactory,
 ) -> None:
     catalog = _catalog(semantic_project_factory)
-    amount = catalog_value(catalog, "traffic.flows.total_in_flow_value", kind="field")
-    duration = catalog_value(catalog, "traffic.flows.duration", kind="field")
+    amount = catalog_value(catalog, "traffic.flows.total_in_flow_value", kind="measure")
+    duration = catalog_value(catalog, "traffic.flows.duration", kind="measure")
     source = consume_row(amount)
     scaled = ms.rescale(amount, divisor=Decimal("1024"), unit="s.GiB/s.s")
     facts = consume_row(scaled)
@@ -76,7 +76,7 @@ def test_rescale_preserves_sum_denials_fixed_time_and_contribution_roots(
 ) -> None:
     catalog = _catalog(semantic_project_factory)
     for name in ("blocked", "fixed"):
-        value = catalog_value(catalog, f"traffic.flows.{name}", kind="field")
+        value = catalog_value(catalog, f"traffic.flows.{name}", kind="measure")
         scaled = ms.rescale(value, divisor=2, unit="GiB")
         assert consume_row(scaled).permission == consume_row(value).permission
         if name == "blocked":
@@ -86,13 +86,13 @@ def test_rescale_preserves_sum_denials_fixed_time_and_contribution_roots(
                 consume_metric(scaled.sum())
             assert rescaled.value.kind == original.value.kind
             assert rescaled.value.expected and rescaled.value.received and rescaled.value.repair
-    local = catalog_value(catalog, "traffic.flows.total_in_flow_value", kind="field")
-    foreign = catalog_value(catalog, "traffic.other.bytes", kind="field")
+    local = catalog_value(catalog, "traffic.flows.total_in_flow_value", kind="measure")
+    foreign = catalog_value(catalog, "traffic.other.bytes", kind="measure")
     with pytest.raises(SemanticExpressionError) as cross_root:
         consume_row(ms.rescale(local + foreign, divisor=1, unit="GiB"))
     assert cross_root.value.kind == ErrorKind.CROSS_ROOT_ROW_EXPRESSION.value
     with pytest.raises(SemanticExpressionError) as mixed:
-        consume_metric(ms.rescale(local + local.sum(), divisor=1, unit="GiB"))
+        consume_metric(ms.rescale(local + local.sum(), divisor=1, unit="GiB"))  # type: ignore[operator]  # Mixed stages are invalid.
     assert mixed.value.kind == ErrorKind.INVALID_EXPRESSION_STAGE.value
 
 
@@ -115,7 +115,7 @@ def test_rescale_preserves_sum_denials_fixed_time_and_contribution_roots(
 )
 def test_rescale_rejects_invalid_or_dynamic_divisors(divisor: object) -> None:
     with pytest.raises(SemanticExpressionError) as failure:
-        ms.rescale(ms.ref.measure("traffic.flows.total_in_flow_value"), divisor=divisor, unit="GiB")
+        ms.rescale(ms.ref.measure("traffic.flows.total_in_flow_value"), divisor=divisor, unit="GiB")  # type: ignore[call-overload]  # Invalid divisor.
     assert failure.value.kind == ErrorKind.INVALID_EXPRESSION_VALUE.value
     assert failure.value.expected and failure.value.received and failure.value.repair
     assert "divisor" in failure.value.repair.action
@@ -124,7 +124,7 @@ def test_rescale_rejects_invalid_or_dynamic_divisors(divisor: object) -> None:
 @pytest.mark.parametrize("unit", ["", "GiB / s", "字节", None, 1])
 def test_rescale_rejects_invalid_target_units(unit: object) -> None:
     with pytest.raises(SemanticExpressionError) as failure:
-        ms.rescale(ms.ref.measure("traffic.flows.total_in_flow_value"), divisor=1, unit=unit)
+        ms.rescale(ms.ref.measure("traffic.flows.total_in_flow_value"), divisor=1, unit=unit)  # type: ignore[call-overload]  # Invalid unit.
     assert failure.value.kind == ErrorKind.INVALID_EXPRESSION_VALUE.value
     assert failure.value.expected and failure.value.received and failure.value.repair
 
@@ -133,18 +133,18 @@ def test_rescale_rejects_unknown_units_and_nonnumeric_or_unfinished_inputs(
     semantic_project_factory: ProjectFactory,
 ) -> None:
     catalog = _catalog(semantic_project_factory)
-    unknown = catalog_value(catalog, "traffic.flows.unknown", kind="field")
+    unknown = catalog_value(catalog, "traffic.flows.unknown", kind="measure")
     with pytest.raises(SemanticExpressionError) as failure:
         consume_row(ms.rescale(unknown, divisor=1, unit="GiB"))
     assert failure.value.kind == ErrorKind.INVALID_EXPRESSION_VALUE.value
     assert failure.value.received == "unknown input unit"
     assert failure.value.expected and failure.value.repair
-    amount = catalog_value(catalog, "traffic.flows.total_in_flow_value", kind="field")
-    category = catalog_value(catalog, "traffic.flows.category", kind="field")
-    day = catalog_value(catalog, "traffic.flows.day", kind="field")
+    amount = catalog_value(catalog, "traffic.flows.total_in_flow_value", kind="measure")
+    category = catalog_value(catalog, "traffic.flows.category", kind="dimension")
+    day = catalog_value(catalog, "traffic.flows.day", kind="time_dimension")
     for value in (category, day, amount > 1, amount.sum() > 1, amount.sum().per(category)):
         with pytest.raises(SemanticExpressionError) as invalid:
-            consume_row(ms.rescale(value, divisor=1, unit="GiB"))
+            consume_row(ms.rescale(value, divisor=1, unit="GiB"))  # type: ignore[arg-type]  # Invalid input stage.
         assert invalid.value.kind == ErrorKind.INVALID_EXPRESSION_STAGE.value
         assert invalid.value.expected and invalid.value.received and invalid.value.repair
     with pytest.raises(SemanticExpressionError) as literal:
@@ -170,10 +170,12 @@ def nested():
 """
     )
     catalog = _catalog(semantic_project_factory, source)
-    amount = catalog_value(catalog, "traffic.flows.total_in_flow_value", kind="field")
+    amount = catalog_value(catalog, "traffic.flows.total_in_flow_value", kind="measure")
     original = ms.rescale(amount.sum(), divisor=1024, unit="GiB/s")
+    bandwidth = catalog.get("metric:traffic.bandwidth")
+    assert bandwidth.kind == "metric"
     assert (
-        inspect_deferred(_as_deferred(catalog.get("metric:traffic.bandwidth"))).fingerprint
+        inspect_deferred(_as_deferred(bandwidth)).fingerprint
         == inspect_deferred(_as_deferred(original)).fingerprint
     )
     variants = (
@@ -185,11 +187,13 @@ def nested():
     assert len({inspect_deferred(_as_deferred(value)).fingerprint for value in variants}) == 4
     assert len({computation_fingerprint(consume_metric(value).node) for value in variants}) == 4
     contract = catalog.get("metric:traffic.bandwidth")
+    assert contract.kind == "metric"
     assert ("rescale", "input_unit='By', divisor=1024, unit='GiB/s'") in contract.definition.facts
     contract.show()
     shown = capsys.readouterr().out
     assert "rescale" in shown and "divisor=1024" in shown and "GiB/s" in shown
     nested = catalog.get("metric:traffic.nested")
+    assert nested.kind == "metric"
     assert nested.definition.facts == (
         ("rescale", "input_unit='GiB', divisor=2, unit='GiB/s'"),
         ("rescale", "input_unit='By', divisor=1024, unit='GiB'"),

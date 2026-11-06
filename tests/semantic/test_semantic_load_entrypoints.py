@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 import marivo.semantic as ms
@@ -10,7 +12,7 @@ from marivo.semantic.errors import SemanticLoadFailed
 from marivo.semantic.loader import LoadResult, load_project
 
 
-def _write_minimal_project(tmp_path) -> None:
+def _write_minimal_project(tmp_path: Path) -> None:
     semantic = tmp_path / "models" / "semantic" / "sales"
     ds = tmp_path / "models" / "datasources"
     semantic.mkdir(parents=True)
@@ -38,7 +40,7 @@ def _write_minimal_project(tmp_path) -> None:
     )
 
 
-def test_ms_load_returns_semantic_catalog(tmp_path) -> None:
+def test_ms_load_returns_semantic_catalog(tmp_path: Path) -> None:
     _write_minimal_project(tmp_path)
     catalog = ms.load(workspace_dir=tmp_path)
     assert isinstance(catalog, SemanticCatalog)
@@ -49,7 +51,7 @@ def test_ms_load_returns_semantic_catalog(tmp_path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_load_project_returns_load_result(tmp_path) -> None:
+def test_load_project_returns_load_result(tmp_path: Path) -> None:
     _write_minimal_project(tmp_path)
     semantic_root = tmp_path / "models" / "semantic"
     result = load_project(semantic_root)
@@ -59,7 +61,7 @@ def test_load_project_returns_load_result(tmp_path) -> None:
     assert result.registry is not None
 
 
-def test_load_project_rejects_workspace_root_with_ms_load_hint(tmp_path) -> None:
+def test_load_project_rejects_workspace_root_with_ms_load_hint(tmp_path: Path) -> None:
     """Passing a workspace root (not models/semantic/) errors with the correct
     usage in the hint, so the public entry is discoverable from the failure."""
     _write_minimal_project(tmp_path)
@@ -75,7 +77,7 @@ def test_load_project_rejects_workspace_root_with_ms_load_hint(tmp_path) -> None
 # ---------------------------------------------------------------------------
 
 
-def test_project_catalog_returns_semantic_catalog(tmp_path) -> None:
+def test_project_catalog_returns_semantic_catalog(tmp_path: Path) -> None:
     _write_minimal_project(tmp_path)
     from marivo.semantic.reader import SemanticProject
 
@@ -86,7 +88,7 @@ def test_project_catalog_returns_semantic_catalog(tmp_path) -> None:
     assert isinstance(catalog, SemanticCatalog)
 
 
-def test_project_catalog_raises_when_not_ready(tmp_path) -> None:
+def test_project_catalog_raises_when_not_ready(tmp_path: Path) -> None:
     _write_minimal_project(tmp_path)
     from marivo.semantic.reader import SemanticProject
 
@@ -95,7 +97,7 @@ def test_project_catalog_raises_when_not_ready(tmp_path) -> None:
         project.catalog()
 
 
-def test_ms_load_and_project_catalog_agree(tmp_path) -> None:
+def test_ms_load_and_project_catalog_agree(tmp_path: Path) -> None:
     """Both the public entry and the reader bridge yield the same catalog."""
     _write_minimal_project(tmp_path)
     from marivo.semantic.reader import SemanticProject

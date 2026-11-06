@@ -34,6 +34,24 @@ from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.materialization.frame_services import LocalFrameServices
 from tests.shared_fixtures import DslCaseFactory, catalog_value
 
+
+def _share_context(value: object) -> FrameShareContext:
+    assert isinstance(value, FrameShareContext)
+    return value
+
+
+def _pair_context(value: object) -> FramePairStatisticContext:
+    assert isinstance(value, FramePairStatisticContext)
+    return value
+
+
+def _row_context(
+    value: object,
+) -> FrameStatisticContext | FrameShareContext | FramePairStatisticContext:
+    assert isinstance(value, (FrameStatisticContext, FrameShareContext, FramePairStatisticContext))
+    return value
+
+
 INT64 = ScalarDataType("int64")
 A = SemanticObjectIdentity("metric", "test.a", "a")
 B = SemanticObjectIdentity("metric", "test.b", "b")
@@ -109,8 +127,8 @@ def test_share_filter_timing_signed_values_and_zero_sum(local: LocalFrameService
     before = filtered.select({"share": filtered["input.x"].share(along=filtered.axes)}).compute()
     assert after.to_pandas()["share"].tolist() == [Decimal("0.75")]
     assert before.to_pandas()["share"].tolist() == [Decimal("1")]
-    assert after.schema.value_contexts["share"].row_scope == "restricted"
-    assert before.schema.value_contexts["share"].row_scope == "complete"
+    assert _row_context(after.schema.value_contexts["share"]).row_scope == "restricted"
+    assert _row_context(before.schema.value_contexts["share"]).row_scope == "complete"
     signed = _frame(local, ((0, 0, 2, 1), (0, 1, -1, 1)))
     result = signed.select({"s": signed["input.x"].share(along=signed.axes)}).compute()
     assert result.to_pandas()["s"].tolist() == [Decimal("2"), Decimal("-1")]
@@ -135,7 +153,7 @@ def test_ordered_inputs_capture_names_subjects_and_independent_origins(
         assert isinstance(context, FramePairStatisticContext)
         assert context.x == FrameNamedValueInput("input.y", None)
         assert context.y == FrameNamedValueInput("input.x", A)
-        assert current.schema.value_contexts["n_pairs"].statistic == "pair_count"
+        assert _pair_context(current.schema.value_contexts["n_pairs"]).statistic == "pair_count"
     derived = frame.reduce({"r": (x * 1).corr(y + 0, method="spearman")})
     for current in (derived, derived.compute()):
         context = current.schema.value_contexts["r"]
@@ -143,7 +161,9 @@ def test_ordered_inputs_capture_names_subjects_and_independent_origins(
         assert context.x == FrameDerivedValueInput((A, B))
         assert context.y == FrameDerivedValueInput((C,))
     shared = frame.select({"s": (x * 1).share(along=frame.axes)})
-    assert shared.schema.value_contexts["s"].numerator == FrameDerivedValueInput((A, B))
+    assert _share_context(shared.schema.value_contexts["s"]).numerator == FrameDerivedValueInput(
+        (A, B)
+    )
     assert shared.compute().schema.value_contexts == shared.schema.value_contexts
 
 
@@ -154,6 +174,7 @@ def test_same_origins_do_not_identify_same_expression_and_nested_share_executes(
     x, y = frame["input.x"], frame["input.y"]
     pair = frame.correlate(x + y, x - y, method="pearson")
     context = pair.schema.value_contexts["coefficient"]
+    assert isinstance(context, FramePairStatisticContext)
     assert context.x == context.y == FrameDerivedValueInput((A, B, C))
     assert pair.compute().to_pandas()["coefficient"].iloc[0] == pytest.approx(0)
     nested = frame.select({"r": frame.over(x.share(along=frame.axes).pair_count(y))})
@@ -183,11 +204,13 @@ def test_direct_copy_rename_fix_and_reduction_keep_only_valid_facts(
         {"renamed": output["s"], "copy": output["s"], "r": output["r"], "new": output["s"] + 0}
     )
     assert tuple(copied.schema.value_contexts) == ("renamed", "copy", "r")
-    assert copied.schema.value_contexts["renamed"].numerator.name == "input.x"
+    renamed = _share_context(copied.schema.value_contexts["renamed"]).numerator
+    assert isinstance(renamed, FrameNamedValueInput)
+    assert renamed.name == "input.x"
     for axis, expected in ((0, "complete"), (1, "restricted")):
         fixed = output.fix(output.axes[axis], 0)
-        share = fixed.schema.value_contexts["s"]
-        pair = fixed.schema.value_contexts["r"]
+        share = _share_context(fixed.schema.value_contexts["s"])
+        pair = _pair_context(fixed.schema.value_contexts["r"])
         assert share.row_scope == pair.row_scope == expected
         assert isinstance((share.groups if axis == 0 else share.along)[0], FrameFixedGroup)
         assert fixed.compute().schema.value_contexts == fixed.schema.value_contexts
@@ -246,24 +269,34 @@ def test_outer_align_and_compare_preserve_original_complete_endpoint_scope(
     extra = _frame(local, ((0, 2, 4, 8),))
     other = extra.select({"s": extra["input.x"]})
     aligned = share.align(other).compute()
-    assert aligned.schema.value_contexts["left.s"].row_scope == "complete"
+    assert _row_context(aligned.schema.value_contexts["left.s"]).row_scope == "complete"
     rows = aligned.to_pandas()
     assert rows["left_present"].tolist() == [True, True, False]
     assert rows["left.s"].iloc[:2].tolist() == [Decimal("0.25"), Decimal("0.75")]
     assert pd.isna(rows["left.s"].iloc[2])
     same = share.align(share)
-    assert all(c.row_scope == "complete" for c in same.schema.value_contexts.values())
+    assert all(_row_context(c).row_scope == "complete" for c in same.schema.value_contexts.values())
     compared = share.compare(share)
-    assert compared.schema.value_contexts["s"].row_scope == "complete"
-    assert compared.schema.comparisons[0].groups[0].baseline_context.row_scope == "complete"
+    assert _row_context(compared.schema.value_contexts["s"]).row_scope == "complete"
+    assert (
+        _row_context(compared.schema.comparisons[0].groups[0].baseline_context).row_scope
+        == "complete"
+    )
     restricted = share.top(0, by=share["s"])
-    assert restricted.align(share).schema.value_contexts["left.s"].row_scope == "restricted"
+    assert (
+        _row_context(restricted.align(share).schema.value_contexts["left.s"]).row_scope
+        == "restricted"
+    )
     pair = frame.select(
         {"r": frame.over(frame["input.x"].corr(frame["input.y"], method="pearson"))}
     )
-    assert all(c.row_scope == "complete" for c in pair.align(pair).schema.value_contexts.values())
+    assert all(
+        _row_context(c).row_scope == "complete"
+        for c in pair.align(pair).schema.value_contexts.values()
+    )
     assert (
-        pair.compare(pair).schema.comparisons[0].groups[0].current_context.row_scope == "complete"
+        _row_context(pair.compare(pair).schema.comparisons[0].groups[0].current_context).row_scope
+        == "complete"
     )
 
 
@@ -272,7 +305,9 @@ def test_time_mapping_retains_representable_nested_relation_and_shift_drops_only
 ) -> None:
     case = analysis_dsl_case_factory("j2")
     time = case.session.time_scope(start="2026-08-15", end="2026-08-17").by(mv.grain("day"))
-    source = case.session.observe({"q": case.catalog.get("metric:sales.revenue")}, by=(time,))
+    source = case.session.observe(
+        {"q": catalog_value(case.catalog, "sales.revenue", kind="metric")}, by=(time,)
+    )
     equality = source.align(source)
     paired = equality.align(source, match=mv.ordinal())
     old, current = paired.schema.alignments
@@ -294,7 +329,7 @@ def test_time_mapping_retains_representable_nested_relation_and_shift_drops_only
     )
     earlier_time = case.session.time_scope(start="2026-08-14", end="2026-08-16").by(mv.grain("day"))
     earlier_source = case.session.observe(
-        {"q": case.catalog.get("metric:sales.revenue")}, by=(earlier_time,)
+        {"q": catalog_value(case.catalog, "sales.revenue", kind="metric")}, by=(earlier_time,)
     )
     earlier = earlier_source.align(earlier_source)
     shifted = equality.compare(earlier, match=mv.offset(periods=-1))
@@ -309,12 +344,12 @@ def test_pending_source_inputs_survive_physical_type_closing_and_attribute_stays
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     case = analysis_dsl_case_factory("j2")
-    region = catalog_value(case.catalog, "sales.customer.region", kind="field")
+    region = catalog_value(case.catalog, "sales.customer.region", kind="dimension")
     frame = case.session.observe(
         {
-            "a": case.catalog.get("metric:sales.revenue"),
-            "b": case.catalog.get("metric:sales.line_revenue"),
-            "c": case.catalog.get("metric:sales.order_count"),
+            "a": catalog_value(case.catalog, "sales.revenue", kind="metric"),
+            "b": catalog_value(case.catalog, "sales.line_revenue", kind="metric"),
+            "c": catalog_value(case.catalog, "sales.order_count", kind="metric"),
         },
         by=(region,),
     )
@@ -325,7 +360,9 @@ def test_pending_source_inputs_survive_physical_type_closing_and_attribute_stays
     )
     expected_paths = {o.path for o in expected_x}
     for current in (pair, pair.compute()):
-        context = current.schema.value_contexts["coefficient"]
+        context = _pair_context(current.schema.value_contexts["coefficient"])
+        assert isinstance(context.x, FrameDerivedValueInput)
+        assert isinstance(context.y, FrameDerivedValueInput)
         assert {o.path for o in context.x.origins} == expected_paths
         assert {o.path for o in context.y.origins} == {
             o.path for o in frame.lineage.values["c"].value_origins
@@ -394,11 +431,13 @@ def test_fixed_axes_and_later_normalization_keep_only_their_captured_ownership(
     frame = _frame(local)
     before = frame.select({"share": frame["input.x"].share(along=(frame.axes[1],))})
     fixed_existing = before.fix(before.axes[0], 0)
-    assert isinstance(fixed_existing.schema.value_contexts["share"].groups[0], FrameFixedGroup)
+    assert isinstance(
+        _share_context(fixed_existing.schema.value_contexts["share"]).groups[0], FrameFixedGroup
+    )
     assert fixed_existing.align(fixed_existing).compute().schema.alignments
     fixed_first = frame.fix(frame.axes[0], 0)
     new = fixed_first.select({"share": fixed_first["input.x"].share(along=fixed_first.axes)})
-    context = new.schema.value_contexts["share"]
+    context = _share_context(new.schema.value_contexts["share"])
     assert context.groups == ()
     assert context.along == (FrameAxisGroup("sample"),)
     assert new.compute().schema.fixed_axes
@@ -410,10 +449,10 @@ def test_pending_statistic_fixed_groups_rebind_without_replacing_operand_snapsho
     analysis_dsl_case_factory: DslCaseFactory, kind: str
 ) -> None:
     case = analysis_dsl_case_factory("j2")
-    region = catalog_value(case.catalog, "sales.customer.region", kind="field")
+    region = catalog_value(case.catalog, "sales.customer.region", kind="dimension")
     days = case.session.time_scope(start="2026-08-01", end="2026-08-04").by(mv.grain("day"))
     source = case.session.observe(
-        {"q": case.catalog.get("metric:sales.revenue")}, by=(region, days)
+        {"q": catalog_value(case.catalog, "sales.revenue", kind="metric")}, by=(region, days)
     )
     if kind == "pair":
         statistic = source.correlate(
@@ -510,6 +549,7 @@ def test_nested_target_context_keeps_parent_axes_without_claiming_fine_axes(
         ),
     )
     validate_current_facts(nested)
+    assert isinstance(nested.decompositions[0].target, FrameLevelTarget)
     assert nested.decompositions[0].target.context == context
 
 

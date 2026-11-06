@@ -9,11 +9,7 @@ import pytest
 import marivo.datasource as md
 from marivo.datasource import store as datasource_store
 from marivo.datasource.authoring import (
-    ClickHouseSpec,
-    DatasourceSpec,
     DuckDBSpec,
-    MySQLSpec,
-    PostgresSpec,
     TrinoSpec,
 )
 from marivo.datasource.errors import DatasourceFieldInvalidError
@@ -24,25 +20,10 @@ def _chdir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.chdir(tmp_path)
 
 
-def _spec(name: str, *, backend_type: str, **fields: object) -> DatasourceSpec:
-    if backend_type == "duckdb":
-        return DuckDBSpec(name=name, **fields)
-    if backend_type == "trino":
-        return TrinoSpec(name=name, **fields)
-    if backend_type == "mysql":
-        return MySQLSpec(name=name, **fields)
-    if backend_type == "postgres":
-        return PostgresSpec(name=name, **fields)
-    if backend_type == "clickhouse":
-        return ClickHouseSpec(name=name, **fields)
-    raise AssertionError(f"unexpected backend_type: {backend_type}")
-
-
 def test_save_roundtrip() -> None:
     datasource_store.save_one(
-        _spec(
-            "warehouse",
-            backend_type="trino",
+        TrinoSpec(
+            name="warehouse",
             host="trino.example",
             port=8080,
             user=md.env("TRINO_USER"),
@@ -90,8 +71,8 @@ def test_duckdb_multiple_http_header_env_refs_round_trip() -> None:
 
 
 def test_save_overwrites_same_name() -> None:
-    datasource_store.save_one(_spec("wh", backend_type="duckdb", path=":memory:"))
-    datasource_store.save_one(_spec("wh", backend_type="duckdb", path="/tmp/foo.ddb"))
+    datasource_store.save_one(DuckDBSpec(name="wh", path=":memory:"))
+    datasource_store.save_one(DuckDBSpec(name="wh", path="/tmp/foo.ddb"))
     assert datasource_store.load_one("wh") is not None
     assert datasource_store.load_one("wh").fields["path"] == "/tmp/foo.ddb"  # type: ignore[union-attr]
 
@@ -142,9 +123,8 @@ def test_save_rejects_plaintext_auth() -> None:
 
 def test_save_allows_json_object_fields() -> None:
     datasource_store.save_one(
-        _spec(
-            "wh",
-            backend_type="trino",
+        TrinoSpec(
+            name="wh",
             host="h",
             catalog="c",
             user=md.env("TRINO_USER"),
@@ -164,7 +144,7 @@ def test_save_rejects_non_json_object_value() -> None:
                 host="h",
                 catalog="c",
                 user=md.env("TRINO_USER"),
-                extra={"nested": object()},
+                extra={"nested": object()},  # type: ignore[dict-item]  # Invalid JSON value.
             )
         )
 
@@ -177,22 +157,23 @@ def test_save_rejects_env_ref_non_string() -> None:
                 host="h",
                 catalog="c",
                 user=md.env("TRINO_USER"),
-                auth="",
+                auth="",  # type: ignore[arg-type]  # Invalid credential.
             )
         )
+    assert exc_info.value.location is not None
     assert exc_info.value.location.endswith("field 'auth'")
 
 
 @pytest.mark.parametrize("name", ["foo/bar", "foo\\bar", " foo", "foo bar", "../foo"])
 def test_save_rejects_path_unsafe_name(name: str) -> None:
     with pytest.raises(DatasourceFieldInvalidError) as exc_info:
-        datasource_store.save_one(_spec(name, backend_type="duckdb", path=":memory:"))
+        datasource_store.save_one(DuckDBSpec(name=name, path=":memory:"))
     assert exc_info.value.location == "datasource name"
     assert not (Path.cwd() / "models" / "datasources" / "foo").exists()
 
 
 def test_delete_one_returns_true_when_removed() -> None:
-    datasource_store.save_one(_spec("wh", backend_type="duckdb", path=":memory:"))
+    datasource_store.save_one(DuckDBSpec(name="wh", path=":memory:"))
     assert datasource_store.delete_one("wh") is True
     assert datasource_store.load_one("wh") is None
 
@@ -202,6 +183,6 @@ def test_delete_one_idempotent() -> None:
 
 
 def test_list_names_sorted() -> None:
-    datasource_store.save_one(_spec("b", backend_type="duckdb", path=":memory:"))
-    datasource_store.save_one(_spec("a", backend_type="duckdb", path=":memory:"))
+    datasource_store.save_one(DuckDBSpec(name="b", path=":memory:"))
+    datasource_store.save_one(DuckDBSpec(name="a", path=":memory:"))
     assert datasource_store.list_names() == ["a", "b", "default"]

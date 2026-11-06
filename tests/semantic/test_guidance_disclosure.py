@@ -8,6 +8,7 @@ from dataclasses import replace
 from pathlib import Path
 
 import pytest
+from ibis.common.deferred import Deferred
 
 import marivo
 import marivo.datasource as md
@@ -142,7 +143,7 @@ def test_error_instance_keeps_concrete_facts(
 def test_readiness_card_discloses_scope_and_repair_without_empty_fix() -> None:
     report = ReadinessReport(
         status="blocked",
-        _analysis_ready_inputs=tuple(as_ref(item) for item in (ms.ref.metric("sales.ready"),)),
+        _analysis_ready_inputs=(ref_factory.metric("sales.ready"),),
         blockers=(ReadinessIssue("unknown_ref", "blocker", ("sales.missing",), "Not found"),),
         warnings=(
             ReadinessIssue(
@@ -185,10 +186,10 @@ def test_validate_cards_disclose_failed_facts_and_scope_without_queries(
     check = ValidationCheckResult(
         kind="not_null",
         status="failed",
-        _datasource=as_ref(ms.ref.datasource("warehouse")),
+        _datasource=ref_factory.datasource("warehouse"),
         source=TableSourceIR(table="orders"),
-        _target_refs=tuple(as_ref(item) for item in (entity,)),
-        _affected_refs=tuple(as_ref(item) for item in (ms.ref.metric("sales.revenue"),)),
+        _target_refs=(ref_factory.entity("sales.orders"),),
+        _affected_refs=(ref_factory.metric("sales.revenue"),),
         checked_at="2026-10-07T00:00:00Z",
         observed_schema_fingerprint=None,
         observed_capability_fingerprint=None,
@@ -199,9 +200,8 @@ def test_validate_cards_disclose_failed_facts_and_scope_without_queries(
             help_target=LiveHelpTarget(surface="semantic", canonical_id="measure.from_column"),
         ),
         user_data_queried=True,
-        _scopes=tuple(
-            (as_ref(item), scope)
-            for item, scope in ((entity, md.unpruned(max_rows=10, timeout_seconds=5)),)
+        _scopes=(
+            (ref_factory.entity("sales.orders"), md.unpruned(max_rows=10, timeout_seconds=5)),
         ),
     )
     report = ValidationReport("failed", (check,), check.checked_at, "definition:fixture")
@@ -342,9 +342,9 @@ def test_readiness_repair_names_admissible_physical_dependencies(
     assert report.requested_ids == ("metric:sales.zeta_revenue",)
     assert "measure:sales.orders.amount" in report.checked_ids
     assert "metric:sales.zeta_revenue" not in report.checked_ids
-    assert all(
-        as_ref(value).kind is not ms.SemanticKind.METRIC for value in report.analysis_ready_inputs
-    )
+    for value in report.analysis_ready_inputs:
+        reference = as_ref(value)
+        assert reference is not None and reference.kind is not ms.SemanticKind.METRIC
 
 
 def test_missing_path_ranks_real_collection_paths_before_bounding(
@@ -365,6 +365,7 @@ def test_row_filter_failure_points_to_its_exact_expression_role(
 ) -> None:
     # The restricted declaration grammar still diagnoses invalid row-level filters.
     amount = resolve(expression_catalog, ms.ref.measure("sales.orders.amount"))
+    assert isinstance(amount, Deferred)
     with pytest.raises(SemanticExpressionError) as captured:
         consume_metric(amount.where(amount > 0).sum())
     repair = captured.value.repair

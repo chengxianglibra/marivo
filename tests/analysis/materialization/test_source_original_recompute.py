@@ -53,8 +53,8 @@ def test_native_rollup_returns_one_original_result(
     original_session: Session, monkeypatch: pytest.MonkeyPatch, method: str
 ) -> None:
     session = original_session
-    amount = catalog_value(session.catalog, "sales.orders.amount", kind="field")
-    bucket = catalog_value(session.catalog, "sales.orders.bucket", kind="field")
+    amount = catalog_value(session.catalog, "sales.orders.amount", kind="measure")
+    bucket = catalog_value(session.catalog, "sales.orders.bucket", kind="dimension")
     metric = amount.quantile(0.9) if method == "quantile" else getattr(amount, method)()
     trace = capture_source(monkeypatch)
     result = session.observe({"metric": metric}).compute().to_pandas()
@@ -78,8 +78,8 @@ def test_native_rollup_keeps_selected_parent_fibers(
     original_session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     session = original_session
-    amount = catalog_value(session.catalog, "sales.orders.amount", kind="field")
-    bucket = catalog_value(session.catalog, "sales.orders.bucket", kind="field")
+    amount = catalog_value(session.catalog, "sales.orders.amount", kind="measure")
+    bucket = catalog_value(session.catalog, "sales.orders.bucket", kind="dimension")
     fine = session.observe({"metric": amount.mean()}, by=(bucket,))
     eligible = fine.where(fine["metric"] >= 3)
     fixed = eligible.top(1, by=eligible["metric"]).compute()
@@ -103,9 +103,9 @@ def test_native_weighted_mean_and_ratio_recompute_source_formula(
     original_session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     session = original_session
-    amount = catalog_value(session.catalog, "sales.orders.amount", kind="field")
-    weight = catalog_value(session.catalog, "sales.orders.weight", kind="field")
-    bucket = catalog_value(session.catalog, "sales.orders.bucket", kind="field")
+    amount = catalog_value(session.catalog, "sales.orders.amount", kind="measure")
+    weight = catalog_value(session.catalog, "sales.orders.weight", kind="measure")
+    bucket = catalog_value(session.catalog, "sales.orders.bucket", kind="dimension")
     for metric, expected in (
         (amount.weighted_mean(weight=weight), 59987 / 19999),
         (amount.sum() / amount.count(), 29994 / 10000),
@@ -122,9 +122,9 @@ def test_native_top_drill_returns_only_selected_group_values(
     original_session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     session = original_session
-    amount = catalog_value(session.catalog, "sales.orders.amount", kind="field")
-    bucket = catalog_value(session.catalog, "sales.orders.bucket", kind="field")
-    channel = catalog_value(session.catalog, "sales.orders.channel", kind="field")
+    amount = catalog_value(session.catalog, "sales.orders.amount", kind="measure")
+    bucket = catalog_value(session.catalog, "sales.orders.bucket", kind="dimension")
+    channel = catalog_value(session.catalog, "sales.orders.channel", kind="dimension")
     fine = session.observe({"metric": amount.mean()}, by=(bucket,))
     fixed = fine.top(1, by=fine["metric"]).compute()
     selected = session.population_from(fixed, on=((fixed.axes[0], bucket),))
@@ -148,8 +148,8 @@ def test_source_original_preserves_parent_numeric_contract_after_empty_selection
     from marivo.analysis.errors import AnalysisError
 
     session = original_session
-    amount = catalog_value(session.catalog, "sales.orders.amount", kind="field")
-    bucket = catalog_value(session.catalog, "sales.orders.bucket", kind="field")
+    amount = catalog_value(session.catalog, "sales.orders.amount", kind="measure")
+    bucket = catalog_value(session.catalog, "sales.orders.bucket", kind="dimension")
     with duckdb.connect(str(session.project_root / "original.duckdb")) as connection:
         if failure == "null":
             connection.execute("UPDATE orders SET amount=NULL WHERE id=0")
@@ -191,9 +191,9 @@ def test_source_original_empty_selected_drill_has_no_business_rows(
     original_session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     session = original_session
-    amount = catalog_value(session.catalog, "sales.orders.amount", kind="field")
-    bucket = catalog_value(session.catalog, "sales.orders.bucket", kind="field")
-    channel = catalog_value(session.catalog, "sales.orders.channel", kind="field")
+    amount = catalog_value(session.catalog, "sales.orders.amount", kind="measure")
+    bucket = catalog_value(session.catalog, "sales.orders.bucket", kind="dimension")
+    channel = catalog_value(session.catalog, "sales.orders.channel", kind="dimension")
     fine = session.observe({"metric": amount.mean()}, by=(bucket,))
     fixed = fine.top(0, by=fine["metric"]).compute()
     selected = session.population_from(fixed, on=((fixed.axes[0], bucket),))
@@ -218,9 +218,9 @@ def test_float_original_reduction_uses_qualified_native_precision(
         connection.execute(
             "UPDATE orders SET bucket=id,weight=1,amount=CASE id WHEN 0 THEN 1e16 WHEN 1 THEN 1.0 ELSE -1e16 END"
         )
-    amount = catalog_value(session.catalog, "sales.orders.amount", kind="field")
-    weight = catalog_value(session.catalog, "sales.orders.weight", kind="field")
-    bucket = catalog_value(session.catalog, "sales.orders.bucket", kind="field")
+    amount = catalog_value(session.catalog, "sales.orders.amount", kind="measure")
+    weight = catalog_value(session.catalog, "sales.orders.weight", kind="measure")
+    bucket = catalog_value(session.catalog, "sales.orders.bucket", kind="dimension")
     metric = (
         amount.weighted_mean(weight=weight)
         if method == "weighted_mean"
@@ -258,9 +258,9 @@ def test_fractional_original_values_are_not_integer_truncated(
         connection.execute(
             "UPDATE orders SET bucket=id,weight=id+1,amount=CASE id WHEN 0 THEN 1.25 WHEN 1 THEN 2.75 ELSE NULL END"
         )
-    amount = catalog_value(session.catalog, "sales.orders.amount", kind="field")
-    weight = catalog_value(session.catalog, "sales.orders.weight", kind="field")
-    bucket = catalog_value(session.catalog, "sales.orders.bucket", kind="field")
+    amount = catalog_value(session.catalog, "sales.orders.amount", kind="measure")
+    weight = catalog_value(session.catalog, "sales.orders.weight", kind="measure")
+    bucket = catalog_value(session.catalog, "sales.orders.bucket", kind="dimension")
     metric = (
         amount.weighted_mean(weight=weight)
         if method == "weighted_mean"
@@ -287,9 +287,9 @@ def test_fractional_weighted_target_masks_cancelled_weight_sum(
         connection.execute(
             "UPDATE orders SET bucket=id,weight=CASE id WHEN 0 THEN 1 ELSE -1 END,amount=CASE id WHEN 0 THEN 1.25 ELSE 2.75 END"
         )
-    amount = catalog_value(session.catalog, "sales.orders.amount", kind="field")
-    weight = catalog_value(session.catalog, "sales.orders.weight", kind="field")
-    bucket = catalog_value(session.catalog, "sales.orders.bucket", kind="field")
+    amount = catalog_value(session.catalog, "sales.orders.amount", kind="measure")
+    weight = catalog_value(session.catalog, "sales.orders.weight", kind="measure")
+    bucket = catalog_value(session.catalog, "sales.orders.bucket", kind="dimension")
     metric = amount.weighted_mean(weight=weight)
     trace = capture_source(monkeypatch)
     assert session.observe({"metric": metric}).compute().to_pandas()["metric"].isna().all()
@@ -306,9 +306,9 @@ def test_compact_integer_means_keep_their_native_rounding_boundary(
         connection.execute(
             "UPDATE orders SET bucket=id,weight=1,amount=CASE id WHEN 0 THEN 9007199254740993 ELSE 0 END"
         )
-    amount = catalog_value(session.catalog, "sales.orders.amount", kind="field")
-    weight = catalog_value(session.catalog, "sales.orders.weight", kind="field")
-    bucket = catalog_value(session.catalog, "sales.orders.bucket", kind="field")
+    amount = catalog_value(session.catalog, "sales.orders.amount", kind="measure")
+    weight = catalog_value(session.catalog, "sales.orders.weight", kind="measure")
+    bucket = catalog_value(session.catalog, "sales.orders.bucket", kind="dimension")
     metric = amount.weighted_mean(weight=weight) if method == "weighted_mean" else amount.mean()
     trace = capture_source(monkeypatch)
     result = session.observe({"metric": metric}).compute().to_pandas()
@@ -331,8 +331,8 @@ def test_source_original_top_ties_keep_null_key_first(
     with duckdb.connect(str(session.project_root / "original.duckdb")) as connection:
         connection.execute("DELETE FROM orders WHERE id>=2")
         connection.execute("UPDATE orders SET amount=1,bucket=CASE id WHEN 0 THEN NULL ELSE 1 END")
-    amount = catalog_value(session.catalog, "sales.orders.amount", kind="field")
-    bucket = catalog_value(session.catalog, "sales.orders.bucket", kind="field")
+    amount = catalog_value(session.catalog, "sales.orders.amount", kind="measure")
+    bucket = catalog_value(session.catalog, "sales.orders.bucket", kind="dimension")
     fine = session.observe({"metric": amount.sum()}, by=(bucket,))
     trace = capture_source(monkeypatch)
     result = fine.top(1, by=fine["metric"]).compute().to_pandas()
@@ -349,8 +349,8 @@ def test_source_share_finishes_exact_integer_division_on_host(
         connection.execute(
             "UPDATE orders SET bucket=id,amount=CASE id WHEN 0 THEN 9007199254740993 ELSE -9007199254740990 END"
         )
-    amount = catalog_value(session.catalog, "sales.orders.amount", kind="field")
-    bucket = catalog_value(session.catalog, "sales.orders.bucket", kind="field")
+    amount = catalog_value(session.catalog, "sales.orders.amount", kind="measure")
+    bucket = catalog_value(session.catalog, "sales.orders.bucket", kind="dimension")
     metric = amount.sum().where(bucket == 0) / amount.sum()
     result = session.observe({"ratio": metric}).compute().to_pandas()
     with duckdb.connect(str(session.project_root / "original.duckdb")) as connection:
@@ -378,10 +378,10 @@ def test_source_original_does_not_deduplicate_or_admit_invalid_identity(
     session = original_session
     with duckdb.connect(str(session.project_root / "original.duckdb")) as connection:
         connection.execute("UPDATE orders SET id=NULL WHERE id=0")
-    amount = catalog_value(session.catalog, "sales.orders.amount", kind="field")
-    bucket = catalog_value(session.catalog, "sales.orders.bucket", kind="field")
+    amount = catalog_value(session.catalog, "sales.orders.amount", kind="measure")
+    bucket = catalog_value(session.catalog, "sales.orders.bucket", kind="dimension")
     trace = capture_source(monkeypatch)
-    members = session.members(session.catalog.get("entity:sales.orders"))
+    members = session.members(catalog_value(session.catalog, "sales.orders", kind="entity"))
     with pytest.raises(AnalysisError, match="non-null complete identity keys"):
         session.observe({"metric": amount.sum()}, where=mv.in_population(members)).compute()
     assert trace.returned_rows
@@ -392,8 +392,8 @@ def test_compact_original_prefix_keeps_outer_local_consumer(
     original_session: Session, monkeypatch: pytest.MonkeyPatch, outer: str
 ) -> None:
     session = original_session
-    amount = catalog_value(session.catalog, "sales.orders.amount", kind="field")
-    bucket = catalog_value(session.catalog, "sales.orders.bucket", kind="field")
+    amount = catalog_value(session.catalog, "sales.orders.amount", kind="measure")
+    bucket = catalog_value(session.catalog, "sales.orders.bucket", kind="dimension")
     coarse = session.observe({"metric": amount.mean()})
     if outer == "where":
         query = coarse.where(coarse["metric"] > 2)
@@ -423,9 +423,9 @@ def test_source_original_retains_native_sum_transport_boundary(
         connection.execute(
             "UPDATE orders SET bucket=CASE id WHEN 2 THEN 1 ELSE 0 END,channel=id,amount=CASE id WHEN 0 THEN 9223372036854775807 WHEN 1 THEN 1 ELSE -9223372036854775808 END"
         )
-    amount = catalog_value(session.catalog, "sales.orders.amount", kind="field")
-    bucket = catalog_value(session.catalog, "sales.orders.bucket", kind="field")
-    channel = catalog_value(session.catalog, "sales.orders.channel", kind="field")
+    amount = catalog_value(session.catalog, "sales.orders.amount", kind="measure")
+    bucket = catalog_value(session.catalog, "sales.orders.bucket", kind="dimension")
+    channel = catalog_value(session.catalog, "sales.orders.channel", kind="dimension")
     fine = session.observe({"metric": amount.sum()}, by=(bucket,))
     trace = capture_source(monkeypatch)
     before = publication_counts(session)
@@ -440,9 +440,9 @@ def test_compact_drill_prefix_leaves_top_on_finished_values(
     original_session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     session = original_session
-    amount = catalog_value(session.catalog, "sales.orders.amount", kind="field")
-    bucket = catalog_value(session.catalog, "sales.orders.bucket", kind="field")
-    channel = catalog_value(session.catalog, "sales.orders.channel", kind="field")
+    amount = catalog_value(session.catalog, "sales.orders.amount", kind="measure")
+    bucket = catalog_value(session.catalog, "sales.orders.bucket", kind="dimension")
+    channel = catalog_value(session.catalog, "sales.orders.channel", kind="dimension")
     detail = session.observe({"metric": amount.mean()}, by=(bucket, channel))
     trace = capture_source(monkeypatch)
     result = detail.top(1, by=detail["metric"]).compute().to_pandas()
@@ -455,8 +455,8 @@ def test_compact_original_prefix_keeps_compare_completion_local(
     original_session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     session = original_session
-    amount = catalog_value(session.catalog, "sales.orders.amount", kind="field")
-    bucket = catalog_value(session.catalog, "sales.orders.bucket", kind="field")
+    amount = catalog_value(session.catalog, "sales.orders.amount", kind="measure")
+    bucket = catalog_value(session.catalog, "sales.orders.bucket", kind="dimension")
     coarse = session.observe({"metric": amount.mean()})
     baseline = session.values(by=(), columns={"metric": None}, rows=(((), {"metric": 1}),))
     trace = capture_source(monkeypatch)
@@ -474,8 +474,8 @@ def test_nested_float_formula_checks_its_native_denominator(
         connection.execute(
             "UPDATE orders SET bucket=0,amount=CASE id WHEN 0 THEN 9007199254740993 ELSE 0 END"
         )
-    amount = catalog_value(session.catalog, "sales.orders.amount", kind="field")
-    bucket = catalog_value(session.catalog, "sales.orders.bucket", kind="field")
+    amount = catalog_value(session.catalog, "sales.orders.amount", kind="measure")
+    bucket = catalog_value(session.catalog, "sales.orders.bucket", kind="dimension")
     denominator = amount.sum() / amount.count() - 3002399751580330.5
     metric = amount.count() / denominator
     trace = capture_source(monkeypatch)

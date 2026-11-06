@@ -44,6 +44,12 @@ from marivo.semantic._capabilities.surface import SEMANTIC_LIVE_SURFACE
 from marivo.semantic.errors import SemanticHelpTargetError
 
 
+def _authoring(canonical_id: str) -> AuthoringCapability:
+    descriptor = REGISTRY.by_canonical_id(canonical_id)
+    assert isinstance(descriptor, AuthoringCapability)
+    return descriptor
+
+
 def _semantic_target(canonical_id: str) -> LiveHelpTarget:
     return LiveHelpTarget(surface="semantic", canonical_id=canonical_id)
 
@@ -293,12 +299,9 @@ def test_object_construction_modes_return_the_owning_ref_kind() -> None:
         expected = (
             "".join(part.title() for part in contract.semantic_kind.value.split("_")) + "Symbol"
         )
-        assert (
-            REGISTRY.by_canonical_id(contract.ref_target.canonical_id or "").output_family
-            == expected
-        )
+        assert _authoring(contract.ref_target.canonical_id or "").output_family == expected
         for mode in contract.construction_modes:
-            descriptor = REGISTRY.by_canonical_id(mode.target.canonical_id or "")
+            descriptor = _authoring(mode.target.canonical_id or "")
             expected_values = {
                 SemanticKind.MEASURE: ("MeasureSymbol", "NumericRow"),
                 SemanticKind.METRIC: ("NumericMetric",),
@@ -465,7 +468,8 @@ def test_signature_parameter_drift_is_detected_adversarially() -> None:
     from marivo.introspection.live.reflect import import_registered_callable
     from marivo.semantic._capabilities.validation import _validate_parameter_metadata
 
-    descriptor = REGISTRY.by_canonical_id("entity.define")
+    descriptor = _authoring("entity.define")
+    assert descriptor.callable_path is not None
     first = descriptor.input_requirements[0].model_copy(
         update={"parameter_names": ("removed_parameter",)}
     )
@@ -480,7 +484,8 @@ def test_output_family_drift_is_detected_adversarially() -> None:
     from marivo.introspection.live.reflect import import_registered_callable
     from marivo.semantic._capabilities.validation import _validate_output_metadata
 
-    descriptor = REGISTRY.by_canonical_id("dimension.from_column")
+    descriptor = _authoring("dimension.from_column")
+    assert descriptor.callable_path is not None
     invalid = descriptor.model_copy(update={"output_family": "Ref[metric]"})
     with pytest.raises(AssertionError, match="output family drift"):
         _validate_output_metadata(invalid, import_registered_callable(descriptor.callable_path))
@@ -611,11 +616,11 @@ def test_ref_factory_namespace_and_every_exact_method_share_registry_contracts()
         if not name.startswith("_") and callable(value)
     }
     assert public_methods == {kind.value for kind in SemanticKind}
-    parent = REGISTRY.by_canonical_id("ref")
+    parent = _authoring("ref")
     assert {target.canonical_id for target in parent.see_also} == expected
     for kind in SemanticKind:
         method = getattr(ms.ref, kind.value)
-        descriptor = REGISTRY.by_canonical_id(f"ref.{kind.value}")
+        descriptor = _authoring(f"ref.{kind.value}")
         assert REGISTRY.by_callable(method) is descriptor
         assert resolve_live_target(method, SEMANTIC_LIVE_SURFACE).descriptor is descriptor
         assert (
@@ -668,7 +673,9 @@ def test_every_bound_input_fact_names_live_parameters() -> None:
     for descriptor in REGISTRY.descriptors:
         if descriptor.callable_path is None:
             continue
-        signature = inspect.signature(import_registered_callable(descriptor.callable_path))
+        target = import_registered_callable(descriptor.callable_path)
+        assert callable(target)
+        signature = inspect.signature(target)
         parameters = tuple(signature.parameters.values())
         if parameters and parameters[0].name in {"self", "cls"}:
             signature = signature.replace(parameters=parameters[1:])
@@ -710,7 +717,8 @@ def test_type_and_error_help_matrices_are_closed_and_equivalent() -> None:
     for error_name, error_type in ERROR_TYPES.items():
         by_type = resolve_live_target(error_type, SEMANTIC_LIVE_SURFACE)
         by_name = resolve_live_target(canonical_target(error_name), SEMANTIC_LIVE_SURFACE)
-        repair_free_instance = error_type.__new__(error_type)
+        # Construct the exception without its required repair fields to test rejection.
+        repair_free_instance = error_type.__new__(error_type)  # type: ignore[call-overload]
         with pytest.raises(SemanticHelpTargetError):
             resolve_live_target(repair_free_instance, SEMANTIC_LIVE_SURFACE)
         assert by_type.kind == by_name.kind == "error_contract"
@@ -742,8 +750,8 @@ def test_terminal_result_help_matrix_accepts_type_string_and_instance() -> None:
     assert TYPE_CONTRACTS[TemporalOccurrencePage].producers == (
         LiveHelpTarget(surface="analysis", canonical_id="temporal_set.occurrences"),
     )
-    for result_type in (CalendarPeriodPage, TemporalOccurrencePage):
-        for producer in TYPE_CONTRACTS[result_type].producers:
+    for page_type in (CalendarPeriodPage, TemporalOccurrencePage):
+        for producer in TYPE_CONTRACTS[page_type].producers:
             route = route_help_target(f"{producer.surface}.{producer.canonical_id}")
             assert isinstance(route, NativeHelpRoute)
             assert route.owner == producer.surface
@@ -811,7 +819,7 @@ def test_catalog_type_contract_uses_the_closed_directory_protocol() -> None:
 def test_additivity_capabilities_disclose_one_or_more_positional_axes(target: str) -> None:
     import marivo.semantic as ms
 
-    capability = REGISTRY.by_canonical_id(target)
+    capability = _authoring(target)
     (requirement,) = capability.input_requirements
     assert requirement.parameter_names == ("axes",)
     assert requirement.min_count == 1
@@ -823,7 +831,7 @@ def test_additivity_capabilities_disclose_one_or_more_positional_axes(target: st
 def test_preview_capability_accepts_one_named_object() -> None:
     import marivo.semantic as ms
 
-    preview = REGISTRY.by_canonical_id("preview")
+    preview = _authoring("preview")
     subject = next(
         requirement for requirement in preview.input_requirements if requirement.role == "subject"
     )
@@ -835,7 +843,7 @@ def test_preview_capability_accepts_one_named_object() -> None:
     assert preview.effects is not None
     assert preview.effects.mutations == ("project_state",)
     assert "may_publish_certified_artifact" in preview.effects.flags
-    preview_many = REGISTRY.by_canonical_id("preview_many")
+    preview_many = _authoring("preview_many")
     assert preview_many.output_family == "PreviewBatchResult"
     assert preview_many.effects is not None
     assert "may_publish_certified_artifact" not in preview_many.effects.flags

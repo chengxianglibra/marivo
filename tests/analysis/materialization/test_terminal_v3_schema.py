@@ -308,6 +308,7 @@ def test_share_pair_inputs_and_alignment_are_closed_interned_manifest_facts() ->
     share, pair = contexts["share"], contexts["coefficient"]
     assert share is contexts["copy"]
     assert isinstance(share, FrameShareContext)
+    assert isinstance(share.numerator, FrameNamedValueInput)
     assert share.numerator == FrameNamedValueInput("previous.revenue", share.numerator.subject)
     assert isinstance(pair, FramePairStatisticContext)
     assert isinstance(pair.x, FrameDerivedValueInput)

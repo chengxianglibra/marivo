@@ -21,6 +21,18 @@ from tests.shared_fixtures import catalog_value
 from tests.support.source_trace import SourceTrace
 
 
+def _entity(catalog: ms.SemanticCatalog, path: str) -> ms.Entity:
+    result = catalog.get(path)
+    assert result.kind == "entity"
+    return result
+
+
+def _metric(catalog: ms.SemanticCatalog, path: str) -> ms.Metric:
+    result = catalog.get(path)
+    assert result.kind == "metric"
+    return result
+
+
 @contextmanager
 def _session(
     tmp_path: Path,
@@ -46,11 +58,15 @@ def _session(
     values = []
     for day in (27, 28, 29, 30, 31):
         text = f"2026-10-{day}"
-        point = text if representation == "date" else f"{text} 00:00:00"
+        point_literal_value = text if representation == "date" else f"{text} 00:00:00"
         if representation == "aware":
-            point += "+08:00"
+            point_literal_value += "+08:00"
         rows.append({"id": day, "point": date(2026, 10, day), "label": text, "amount": day})
-        point_literal = f"DATE '{point}'" if representation == "date" else f"'{point}'"
+        point_literal = (
+            f"DATE '{point_literal_value}'"
+            if representation == "date"
+            else f"'{point_literal_value}'"
+        )
         values.append(f"({day},{point_literal},'{text}',{day})")
     rows.append({"id": 99, "point": None, "label": "not-a-date", "amount": 99})
     values.append("(99,NULL,'not-a-date',99)")
@@ -76,10 +92,10 @@ def _session(
             }
         )
         session = mv.session.get_or_create("boundaries", timezone=report_zone)
-        entity = session.catalog.get("entity:sales.facts")
-        point = catalog_value(session.catalog, "sales.facts.point", kind="field")
-        amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
-        label = catalog_value(session.catalog, "sales.facts.label", kind="field")
+        entity = _entity(session.catalog, "entity:sales.facts")
+        point = catalog_value(session.catalog, "sales.facts.point", kind="time_dimension")
+        amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
+        label = catalog_value(session.catalog, "sales.facts.label", kind="dimension")
         assert isinstance(entity, ms.Entity)
         assert isinstance(point, ms.TimeDimension)
         assert isinstance(amount, ms.Measure)
@@ -89,7 +105,10 @@ def _session(
 
 @pytest.mark.parametrize("representation", ["date", "naive", "aware", "text"])
 def test_all_source_predicate_entries_use_report_midnight(
-    tmp_path, monkeypatch, semantic_project_factory, representation: str
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
+    representation: str,
 ) -> None:
     with _session(
         tmp_path, monkeypatch, semantic_project_factory, representation=representation
@@ -98,7 +117,7 @@ def test_all_source_predicate_entries_use_report_midnight(
         metrics = {
             "metric": amount.sum().where(condition),
             "reduction": amount.sum(where=condition),
-            "declared": session.catalog.get("metric:sales.filtered"),
+            "declared": _metric(session.catalog, "metric:sales.filtered"),
         }
         assert session.observe(metrics).compute().to_pandas().iloc[0].tolist() == [57, 57, 57]
         grouped = session.observe({"value": amount.sum()}, by=(label,), where=condition).compute()
@@ -111,7 +130,10 @@ def test_all_source_predicate_entries_use_report_midnight(
 
 @pytest.mark.parametrize("form", ["date", "civil", "aware", "offset", "anchor"])
 def test_literal_forms_and_comparisons_have_exact_instant_semantics(
-    tmp_path, monkeypatch, semantic_project_factory, form: str
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
+    form: str,
 ) -> None:
     with _session(tmp_path, monkeypatch, semantic_project_factory) as (
         session,
@@ -120,13 +142,14 @@ def test_literal_forms_and_comparisons_have_exact_instant_semantics(
         amount,
         label,
     ):
-        boundary = {
+        boundaries: dict[str, str | date | datetime] = {
             "date": date(2026, 10, 28),
             "civil": "2026-10-28T00:00:00",
             "aware": datetime(2026, 10, 28, tzinfo=timezone(timedelta(hours=8))),
             "offset": "2026-10-27T16:00:00Z",
             "anchor": session.instant("2026-10-27T16:00:00Z"),
-        }[form]
+        }
+        boundary = boundaries[form]
         for compare, expected in (
             (operator.eq, 28),
             (operator.ne, 117),
@@ -153,7 +176,9 @@ def test_literal_forms_and_comparisons_have_exact_instant_semantics(
 
 
 def test_temporal_branches_preserve_conditions_and_normalize_only_time_values(
-    tmp_path, monkeypatch, semantic_project_factory
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
 ) -> None:
     with _session(tmp_path, monkeypatch, semantic_project_factory) as (
         session,
@@ -185,7 +210,9 @@ def test_temporal_branches_preserve_conditions_and_normalize_only_time_values(
 
 
 def test_session_timezone_is_frozen_independently_of_output_scope(
-    tmp_path, monkeypatch, semantic_project_factory
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
 ) -> None:
     with _session(tmp_path, monkeypatch, semantic_project_factory) as (
         session,
@@ -224,9 +251,9 @@ def test_session_timezone_is_frozen_independently_of_output_scope(
     ],
 )
 def test_date_comparisons_assign_declared_day_start_across_report_zones(
-    tmp_path,
-    monkeypatch,
-    semantic_project_factory,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
     source_zone: str,
     report_zone: str,
     expected: int,
@@ -248,9 +275,9 @@ def test_date_comparisons_assign_declared_day_start_across_report_zones(
     "boundary", [datetime(2026, 10, 28), "not-a-date", "2026-03-08T02:30:00", "2026-11-01T01:30:00"]
 )
 def test_invalid_boundaries_fail_at_capture_without_source_reads(
-    tmp_path,
-    monkeypatch,
-    semantic_project_factory,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
     source_trace: SourceTrace,
     boundary: str | datetime,
 ) -> None:
@@ -281,9 +308,9 @@ def test_invalid_boundaries_fail_at_capture_without_source_reads(
     ),
 )
 def test_native_date_predicates_use_typed_source_cutoffs(
-    tmp_path,
-    monkeypatch,
-    semantic_project_factory,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
     source_trace: SourceTrace,
     backend: str,
     profile: str,

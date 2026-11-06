@@ -15,18 +15,12 @@ from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.session.core import Session
 from marivo.semantic._capabilities.registry import REGISTRY
 from marivo.semantic._deferred_semantics import consume_metric
-from marivo.semantic._expression_values import FieldExpression, MetricExpression, RowExpression
+from marivo.semantic._expression_values import MetricExpression
 from marivo.semantic.catalog import Entity, Metric
 from marivo.semantic.errors import ErrorKind, SemanticExpressionError
 from marivo.semantic.reader import SemanticProject
 from tests.shared_fixtures import catalog_value
 from tests.support.documentation import _example as documentation_example
-
-
-def _field(session: Session, path: str) -> FieldExpression:
-    value = catalog_value(session.catalog, path, kind="field")
-    assert isinstance(value, RowExpression)
-    return value
 
 
 @pytest.fixture
@@ -101,9 +95,9 @@ def test_weekly_calendar_samples_use_actual_days_and_finish_daily_p95(
     expected: float,
 ) -> None:
     session = calendar_session
-    amount = _field(session, "sales.facts.amount")
-    point = _field(session, "sales.facts.point")
-    region = _field(session, "sales.facts.region")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
+    point = catalog_value(session.catalog, "sales.facts.point", kind="time_dimension")
+    region = catalog_value(session.catalog, "sales.facts.region", kind="dimension")
     facts_entry = session.catalog.get("entity:sales.facts")
     assert isinstance(facts_entry, Entity)
     facts = facts_entry
@@ -136,8 +130,8 @@ def test_calendar_samples_clip_partial_month_edges_and_plain_scope(
     calendar_session: Session,
 ) -> None:
     session = calendar_session
-    amount = _field(session, "sales.facts.amount")
-    point = _field(session, "sales.facts.point")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
+    point = catalog_value(session.catalog, "sales.facts.point", kind="time_dimension")
     metric = amount.sum(time=point).per(mv.grain("day")).mean()
     scope = session.time_scope(start="2026-10-05T06:00:00", end="2026-11-02T06:00:00")
     monthly = (
@@ -152,9 +146,9 @@ def test_calendar_samples_clip_partial_month_edges_and_plain_scope(
 
 def test_calendar_samples_bucket_each_component_by_its_own_clock(calendar_session: Session) -> None:
     session = calendar_session
-    amount = _field(session, "sales.facts.amount")
-    point = _field(session, "sales.facts.point")
-    other = _field(session, "sales.facts.other")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
+    point = catalog_value(session.catalog, "sales.facts.point", kind="time_dimension")
+    other = catalog_value(session.catalog, "sales.facts.other", kind="time_dimension")
     metric = (amount.sum(time=point) + amount.sum(time=other)).per(mv.grain("day")).max()
     scope = session.time_scope(start="2026-10-05", end="2026-10-12").by(mv.grain("week"))
     assert session.observe({"v": metric}, by=(scope,)).compute().to_pandas()["v"].tolist() == [300]
@@ -164,8 +158,8 @@ def test_final_completion_keeps_empty_policies_and_historical_window_values(
     calendar_session: Session,
 ) -> None:
     session = calendar_session
-    amount = _field(session, "sales.facts.amount")
-    point = _field(session, "sales.facts.point")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
+    point = catalog_value(session.catalog, "sales.facts.point", kind="time_dimension")
     total = amount.sum(time=point)
     days = session.time_scope(start="2026-10-12", end="2026-10-14").by(mv.grain("day"))
     rows = (
@@ -195,8 +189,8 @@ def test_actual_null_sample_is_retained_while_missing_samples_are_absent(
     finally:
         backend.disconnect()
     session = calendar_session
-    amount = _field(session, "sales.facts.amount")
-    point = _field(session, "sales.facts.point")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
+    point = catalog_value(session.catalog, "sales.facts.point", kind="time_dimension")
     metric = amount.sum(time=point)
     days = session.time_scope(start="2027-01-01", end="2027-01-03").by(mv.grain("day"))
     rows = session.observe({"v": metric + 1}, by=(days,)).compute().to_pandas()
@@ -218,8 +212,8 @@ def test_actual_null_sample_is_retained_while_missing_samples_are_absent(
 
 def test_calendar_sample_binding_errors_are_structured(calendar_session: Session) -> None:
     session = calendar_session
-    amount = _field(session, "sales.facts.amount")
-    point = _field(session, "sales.facts.point")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
+    point = catalog_value(session.catalog, "sales.facts.point", kind="time_dimension")
     metric = amount.sum(time=point)
     month = session.time_scope(start="2026-10-05", end="2026-11-02").by(mv.grain("month"))
     for value, by, expected, received in (
@@ -234,7 +228,7 @@ def test_calendar_sample_binding_errors_are_structured(calendar_session: Session
         assert received in (error.received or "")
         assert error.repair is not None and error.repair.action
     with pytest.raises(AttributeError):
-        absent = metric.sum
+        absent = metric.sum  # type: ignore[attr-defined]  # Verify the missing Metric method.
         assert absent is None
     with pytest.raises(SemanticExpressionError) as semantic_error:
         consume_metric(metric.per(month).mean())
@@ -248,8 +242,8 @@ def test_calendar_folding_keeps_sparse_native_samples_and_empty_cells(
     calendar_session: Session,
 ) -> None:
     session = calendar_session
-    amount = _field(session, "sales.facts.amount")
-    sampled = _field(session, "sales.facts.sampled")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
+    sampled = catalog_value(session.catalog, "sales.facts.sampled", kind="time_dimension")
     p95 = amount.sum(time=sampled).per(sampled).quantile(0.95).per(mv.grain("day")).mean()
     scope = session.time_scope(start="2026-10-05", end="2026-10-07")
     assert session.observe({"v": p95}, by=(scope,)).compute().to_pandas()["v"].tolist() == [34]
@@ -273,9 +267,9 @@ def test_published_calendar_metric_can_be_nested_under_another_calendar_layer(
 
 def test_calendar_sample_help_and_bilingual_examples_execute(calendar_session: Session) -> None:
     session = calendar_session
-    amount = _field(session, "sales.facts.amount")
-    point = _field(session, "sales.facts.point")
-    region = _field(session, "sales.facts.region")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
+    point = catalog_value(session.catalog, "sales.facts.point", kind="time_dimension")
+    region = catalog_value(session.catalog, "sales.facts.region", kind="dimension")
     descriptor = REGISTRY.by_canonical_id("metric.per")
     assert isinstance(descriptor, AuthoringCapability) and descriptor.minimal_example is not None
     sources = [
@@ -301,8 +295,8 @@ def test_calendar_sample_help_and_bilingual_examples_execute(calendar_session: S
 
 def test_calendar_sample_mean_uses_present_hours_during_dst(calendar_session: Session) -> None:
     session = mv.session.get_or_create("calendar-new-york", timezone="America/New_York")
-    amount = _field(session, "sales.facts.amount")
-    point = _field(session, "sales.facts.point")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
+    point = catalog_value(session.catalog, "sales.facts.point", kind="time_dimension")
     day = session.time_scope(start="2026-11-01", end="2026-11-02").by(mv.grain("day"))
     rows = (
         session.observe({"v": amount.sum(time=point).per(mv.grain("hour")).mean()}, by=(day,))
@@ -319,7 +313,9 @@ def test_calendar_sample_windows_reject_instead_of_silently_ignoring_rules(
     calendar_session: Session, empty: bool, placement: str, reset: bool
 ) -> None:
     session = calendar_session
-    revenue = _field(session, "sales.facts.amount").sum(time=_field(session, "sales.facts.point"))
+    revenue = catalog_value(session.catalog, "sales.facts.amount", kind="measure").sum(
+        time=catalog_value(session.catalog, "sales.facts.point", kind="time_dimension")
+    )
     scope = session.time_scope(
         start="2026-10-12" if empty else "2026-10-05",
         end="2026-10-19" if empty else "2026-10-12",
@@ -347,7 +343,9 @@ def test_calendar_window_rejection_reaches_weighted_nested_and_declared_formulas
     calendar_session: Session,
 ) -> None:
     session = calendar_session
-    revenue = _field(session, "sales.facts.amount").sum(time=_field(session, "sales.facts.point"))
+    revenue = catalog_value(session.catalog, "sales.facts.amount", kind="measure").sum(
+        time=catalog_value(session.catalog, "sales.facts.point", kind="time_dimension")
+    )
     daily = catalog_value(session.catalog, "sales.daily_average", kind="metric")
     assert isinstance(daily, MetricExpression)
     metrics = (
@@ -367,8 +365,8 @@ def test_calendar_folds_and_windows_on_independent_branches_keep_their_values(
     calendar_session: Session,
 ) -> None:
     session = calendar_session
-    point = _field(session, "sales.facts.point")
-    revenue = _field(session, "sales.facts.amount").sum(time=point)
+    point = catalog_value(session.catalog, "sales.facts.point", kind="time_dimension")
+    revenue = catalog_value(session.catalog, "sales.facts.amount", kind="measure").sum(time=point)
     weeks = session.time_scope(start="2026-10-12", end="2026-10-19").by(mv.grain("week"))
     data = (
         session.observe(

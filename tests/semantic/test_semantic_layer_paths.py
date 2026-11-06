@@ -9,9 +9,19 @@ import duckdb
 import pytest
 
 import marivo.datasource as md
+from marivo._definition.expressions import DeclaredMetricRef
 from marivo.config import load_semantic_layer_paths
 from marivo.semantic._deferred_semantics import consume_metric
+from marivo.semantic.catalog import SemanticCatalog
 from marivo.semantic.reader import SemanticProject
+
+
+def _declared_metric(catalog: SemanticCatalog, name: str) -> DeclaredMetricRef:
+    metric = catalog.get(name)
+    assert metric.kind == "metric"
+    node = consume_metric(metric).node
+    assert isinstance(node, DeclaredMetricRef)
+    return node
 
 
 def _write_manifest(root: Path, body: str) -> None:
@@ -281,9 +291,9 @@ def test_ms_load_reads_local_and_external_models_roots(tmp_path: Path) -> None:
         "local_warehouse",
         "external_warehouse",
     } <= top_level_refs
-    assert consume_metric(catalog.get("metric:sales.revenue")).node.ref.ref.path == "sales.revenue"
+    assert _declared_metric(catalog, "metric:sales.revenue").ref.ref.path == "sales.revenue"
     assert (
-        consume_metric(catalog.get("metric:finance.refunds_total")).node.ref.ref.path
+        _declared_metric(catalog, "metric:finance.refunds_total").ref.ref.path
         == "finance.refunds_total"
     )
 
@@ -299,7 +309,7 @@ def test_domain_filter_applies_across_external_models_roots(tmp_path: Path) -> N
     assert "finance" in top_level_refs
     assert "sales" not in top_level_refs
     assert (
-        consume_metric(catalog.get("metric:finance.refunds_total")).node.ref.ref.path
+        _declared_metric(catalog, "metric:finance.refunds_total").ref.ref.path
         == "finance.refunds_total"
     )
 
@@ -331,7 +341,7 @@ def test_catalog_load_reloads_external_models_roots(tmp_path: Path) -> None:
     catalog = ms.load(workspace_dir=project_root)
 
     assert (
-        consume_metric(catalog.get("metric:finance.net_refunds")).node.ref.ref.path
+        _declared_metric(catalog, "metric:finance.net_refunds").ref.ref.path
         == "finance.net_refunds"
     )
 
@@ -370,7 +380,7 @@ def test_external_layer_datasource_supports_entity_verify_and_preview(
 
     catalog = ms.load(workspace_dir=project_root)
     entity = catalog.get("entity:finance.refunds")
-    metric_ref = consume_metric(catalog.get("metric:finance.refunds_total")).node.ref.ref
+    metric_ref = _declared_metric(catalog, "metric:finance.refunds_total").ref.ref
     monkeypatch.chdir(project_root)
     snapshot = md.inspect(ms.ref.datasource("warehouse"), md.table("refunds")).sample(
         scope=md.unpruned(max_rows=2, timeout_seconds=30),

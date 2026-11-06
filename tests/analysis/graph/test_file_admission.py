@@ -16,7 +16,7 @@ from marivo.semantic.reader import SemanticProject
 from tests.analysis.graph.reference_fixtures import reference_data
 from tests.analysis.materialization.file_fixtures import author_file_case
 from tests.datasource.source_cases import source_case
-from tests.shared_fixtures import catalog_value, terminal_runs
+from tests.shared_fixtures import catalog_get, catalog_value, terminal_runs
 from tests.support.json import encode
 from tests.support.source_trace import SourceTrace
 
@@ -127,7 +127,9 @@ def test_unresolved_json_parameters_are_refused_before_source_open(
 
         for name in ("__enter__", "bind", "compile", "execute"):
             monkeypatch.setattr(SourceSession, name, forbidden)
-        query = session.observe({"value": session.catalog.get("metric:sales.total")})
+        query = session.observe(
+            {"value": catalog_get(session.catalog, "metric:sales.total", kind="metric")}
+        )
         with pytest.raises(AnalysisError) as caught:
             query.persist()
         error = caught.value

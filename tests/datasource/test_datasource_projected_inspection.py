@@ -32,6 +32,7 @@ from marivo.datasource.inspection import (
     _project_table_metadata,
     _structured_inspection_warnings,
 )
+from marivo.datasource.ir import TableSourceIR
 from marivo.datasource.metadata import (
     ColumnMetadata,
     PartitionMetadata,
@@ -94,7 +95,7 @@ def _metadata(
     )
 
 
-def _projected_source(*, include_partition: bool = True) -> md.TableSourceIR:
+def _projected_source(*, include_partition: bool = True) -> TableSourceIR:
     columns = {
         "order_key": "order_id",
         "value": "amount",
@@ -486,7 +487,7 @@ def test_only_classified_projected_resolution_failure_degrades_to_declared_only(
     )
     monkeypatch.setattr(
         "marivo.datasource.backends.build_backend_with_secrets",
-        lambda *_args, **_kwargs: BuiltDatasourceBackend(backend=backend, env_sourced_secrets={}),
+        lambda *_args, **_kwargs: BuiltDatasourceBackend(backend=backend, env_sourced_secrets=()),
     )
     monkeypatch.setattr(
         "marivo.datasource.engines.require_profile_for_backend_type",
@@ -514,7 +515,7 @@ def test_unclassified_resolution_failure_remains_closed(
     backend = _ResolutionBackend(516)
     monkeypatch.setattr(
         "marivo.datasource.backends.build_backend_with_secrets",
-        lambda *_args, **_kwargs: BuiltDatasourceBackend(backend=backend, env_sourced_secrets={}),
+        lambda *_args, **_kwargs: BuiltDatasourceBackend(backend=backend, env_sourced_secrets=()),
     )
 
     with pytest.raises(DatasourceMetadataError) as exc_info:

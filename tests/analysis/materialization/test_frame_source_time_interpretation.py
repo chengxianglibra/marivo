@@ -16,7 +16,7 @@ from marivo.analysis.core.frame_interpretation import (
 )
 from marivo.datasource.adapters import SourceSession
 from marivo.semantic.reader import SemanticProject
-from tests.shared_fixtures import catalog_value
+from tests.shared_fixtures import catalog_get, catalog_value
 
 
 @pytest.fixture
@@ -70,7 +70,7 @@ def test_source_time_facts_are_resolved_only_on_compute_and_preserved_on_fixed_o
     scope = session.time_scope(start="2026-08-01", end="2026-08-03").by(mv.grain("day"))
     pending = session.observe(
         {
-            name: session.catalog.get(f"metric:sales.{name}_total")
+            name: catalog_get(session.catalog, f"metric:sales.{name}_total", kind="metric")
             for name in ("naive", "aware", "day")
         },
         by=(scope,),
@@ -133,7 +133,7 @@ def test_full_record_merge_preserves_changed_same_path_interpretations() -> None
 def test_hour_prefix_records_the_effective_declaration_origin(temporal_session: mv.Session) -> None:
     session = temporal_session
     result = session.observe(
-        {"total": session.catalog.get("metric:sales.hourly_total")},
+        {"total": catalog_get(session.catalog, "metric:sales.hourly_total", kind="metric")},
         by=(session.time_scope(start="2026-08-01", end="2026-08-03"),),
     ).compute()
     assert tuple(fact.axis for fact in result.schema.source_times) == (
@@ -149,7 +149,7 @@ def test_hour_prefix_records_the_effective_declaration_origin(temporal_session: 
 
 def test_source_projection_captures_session_consumer_timezone(temporal_session: mv.Session) -> None:
     session = temporal_session
-    members = session.members(session.catalog.get("entity:sales.events"))
+    members = session.members(catalog_get(session.catalog, "entity:sales.events", kind="entity"))
     projected = session.read(
         members,
         {
@@ -169,7 +169,7 @@ def test_membership_version_clock_is_captured_without_direct_observation(
 ) -> None:
     session = temporal_session
     members = session.members(
-        session.catalog.get("entity:sales.profiles"),
+        catalog_get(session.catalog, "entity:sales.profiles", kind="entity"),
         at=session.instant("2026-08-01T12:00:00+00:00"),
     )
     result = session.frame(members).compute()

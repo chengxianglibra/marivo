@@ -178,7 +178,7 @@ def test_failed_backend_build_leaves_no_cache_or_lease(
 def test_cached_backend_release_records_only_successful_disconnect(
     tmp_path: Path, fails: bool
 ) -> None:
-    class ObservedBackend(Backend):
+    class ObservedBackend(Backend):  # type: ignore[misc]  # Ibis DuckDB has no published type information.
         def __init__(self) -> None:
             super().__init__()
             self.disconnect_calls = 0
@@ -213,7 +213,9 @@ def test_cached_backend_release_records_only_successful_disconnect(
     assert backend.disconnect_calls == 1
     assert lease.closed is (not fails)
     assert submission.connection_disconnected is not fails
-    assert service._session_backends == service._leases == service._source_sessions == {}
+    assert service._session_backends == {}
+    assert service._leases == {}
+    assert service._source_sessions == {}
 
 
 def test_py_file_datasource_visible_via_list(

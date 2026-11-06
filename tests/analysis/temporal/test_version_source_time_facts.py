@@ -1,13 +1,18 @@
+from collections.abc import Callable
 from pathlib import Path
 
 import duckdb
+import pytest
 
 import marivo.analysis as mv
+from marivo.semantic.reader import SemanticProject
 
 
 def test_version_hour_prefix_captures_consumed_prefix(
-    tmp_path: Path, monkeypatch, semantic_project_factory
-):
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
+) -> None:
     database = tmp_path / "versions.duckdb"
     with duckdb.connect(str(database)) as db:
         db.execute("CREATE TABLE profiles(id BIGINT, day DATE, hour BIGINT)")
@@ -21,9 +26,9 @@ def test_version_hour_prefix_captures_consumed_prefix(
     )
     monkeypatch.chdir(tmp_path)
     session = mv.session.get_or_create("version_facts", timezone="UTC")
-    members = session.members(
-        session.catalog.get("entity:sales.profiles"), at=session.instant("2026-07-01T12:00:00Z")
-    )
+    entity = session.catalog.get("entity:sales.profiles")
+    assert entity.kind == "entity"
+    members = session.members(entity, at=session.instant("2026-07-01T12:00:00Z"))
     fixed = session.frame(members).compute()
     assert fixed.to_pandas().iloc[:, 0].tolist() == [1]
     facts = fixed.schema.source_times

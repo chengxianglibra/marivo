@@ -25,12 +25,14 @@ def test_public_identity_observation_executes_and_retains_outside_window_members
 
     monkeypatch.setattr(SourceSession, "execute", traced)
     amount = catalog_value(
-        session.catalog, f"{case.names.domain}.{case.names.order}.{case.names.amount}", kind="field"
+        session.catalog,
+        f"{case.names.domain}.{case.names.order}.{case.names.amount}",
+        kind="measure",
     )
     time = catalog_value(
         session.catalog,
         f"{case.names.domain}.{case.names.order}.{case.names.ordered_at}",
-        kind="field",
+        kind="time_dimension",
     )
     members = session.members(
         catalog_value(session.catalog, f"{case.names.domain}.{case.names.order}", kind="entity")

@@ -187,7 +187,7 @@ def test_upper_ceiling_and_integer_limits_never_emit_overflow_literal() -> None:
     assert "FALSE" in sql and "TRY_STRPTIME" not in sql
     table = ibis.table({"point": "string"}, name="events")
     field = axis("%Y-%m-%d %H:%M:%S")
-    _, authority = source_time(
+    _, parsed_authority = source_time(
         table.point,
         field,
         boundary_timezone="UTC",
@@ -197,7 +197,7 @@ def test_upper_ceiling_and_integer_limits_never_emit_overflow_literal() -> None:
     predicate = source_time_predicate(
         table.point,
         field,
-        authority,
+        parsed_authority,
         start=datetime(9999, 12, 31, 23, 59, 59),
         end=datetime.max,
     )

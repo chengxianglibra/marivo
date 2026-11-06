@@ -6,7 +6,7 @@ import pytest
 
 from tests.analysis.graph.physical_workloads import workload
 from tests.analysis.numeric.pandas_coordinates import ordinary_columns
-from tests.shared_fixtures import catalog_value, terminal_runs
+from tests.shared_fixtures import catalog_get, catalog_value, terminal_runs
 from tests.support.source_trace import SourceTrace
 
 
@@ -56,7 +56,7 @@ def test_duckdb_local_original_sum_consumes_group_input(
         session = work.session
         axis = catalog_value(session.catalog, "cost.facts.kind", kind="field")
         grouped = session.observe(
-            {"value": session.catalog.get("metric:cost.facts_total")},
+            {"value": catalog_get(session.catalog, "metric:cost.facts_total", kind="metric")},
             by=(session.time_scope(start="2026-08-01", end="2026-08-02"), axis),
         )
         saved = grouped.persist()

@@ -7,12 +7,14 @@ from typing import TYPE_CHECKING, Literal
 from ibis.common.deferred import Deferred
 from typing_extensions import assert_type
 
+import marivo
 import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.semantic import Entity, Relationship
 
 if TYPE_CHECKING:
     session = mv.session.get_or_create("typing-public", timezone="UTC")
+    assert_type(marivo.help("analysis"), None)
 
     def inspect_method_facts(frame: mv.AnalysisFrame) -> None:
         assert_type(frame.method_facts, tuple[mv.FrameMethodFacts, ...])
@@ -99,6 +101,9 @@ if TYPE_CHECKING:
         assert revenue_entry.kind == "metric"
         revenue = revenue_entry
         assert_type(revenue, ms.Metric)
+        assert_type(
+            revenue.per((complete, descriptor)).mean(), ms.MetricExpression[Literal["numeric"]]
+        )
         assert_type(
             session.observe({"value": revenue}, by=(descriptor,)),
             mv.AnalysisFrame,

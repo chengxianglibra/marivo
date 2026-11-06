@@ -1,10 +1,11 @@
 """Native equality buckets agree with frozen boundaries without SQL enumeration."""
 
 import os
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from datetime import date, datetime, timedelta, timezone
 from functools import partial
 from pathlib import Path
+from typing import Literal
 
 import pandas as pd
 import pytest
@@ -52,7 +53,7 @@ def _maria(profile: str, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(mysql, "PORT", 23307)
 
 
-def _data(backend: str, points: list[datetime | None]) -> SourceData:
+def _data(backend: str, points: Sequence[datetime | None]) -> SourceData:
     physical = "DATETIME(6)" if backend == "mysql" else "TIMESTAMP(6)"
     values = ",".join(
         f"({index},"
@@ -107,31 +108,39 @@ def test_native_calendar_boundary_membership(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _maria(profile, monkeypatch)
+    samples: tuple[
+        tuple[
+            str, str, str, Literal["second", "hour", "day", "week", "month", "quarter", "year"], int
+        ],
+        ...,
+    ] = (
+        ("2026-01-01T00:00:00.000001", "2026-01-01T00:06:00.000001", "UTC", "second", 90),
+        ("2026-01-01", "2026-01-02", "UTC+08:00", "hour", 6),
+        ("2026-01-01", "2026-01-02", "UTC+05:30", "hour", 1),
+        ("2026-01-01", "2026-01-03", "Asia/Shanghai", "day", 1),
+        ("2025-12-28", "2026-01-06", "Asia/Shanghai", "week", 1),
+        ("2025-12-30T06:00:00", "2026-02-02", "UTC", "month", 1),
+        ("2025-12-30", "2026-04-02", "UTC", "quarter", 1),
+        ("2025-12-30", "2026-01-02", "UTC", "year", 1),
+    )
     axes = [
         exact_scope(start, end, zone).by(mv.grain(unit, count=count))
-        for start, end, zone, unit, count in (
-            ("2026-01-01T00:00:00.000001", "2026-01-01T00:06:00.000001", "UTC", "second", 90),
-            ("2026-01-01", "2026-01-02", "UTC+08:00", "hour", 6),
-            ("2026-01-01", "2026-01-02", "UTC+05:30", "hour", 1),
-            ("2026-01-01", "2026-01-03", "Asia/Shanghai", "day", 1),
-            ("2025-12-28", "2026-01-06", "Asia/Shanghai", "week", 1),
-            ("2025-12-30T06:00:00", "2026-02-02", "UTC", "month", 1),
-            ("2025-12-30", "2026-04-02", "UTC", "quarter", 1),
-            ("2025-12-30", "2026-01-02", "UTC", "year", 1),
-        )
+        for start, end, zone, unit, count in samples
     ]
     axes.append(_custom())
 
-    points: list[datetime | None] = sorted(
-        {
-            boundary + timedelta(microseconds=delta)
-            for axis in axes
-            for cell in axis._binding.cells
-            for boundary in cell[2:]
-            for delta in (-1, 0, 1)
-        }
-    )
-    points.append(None)
+    points: list[datetime | None] = [
+        *sorted(
+            {
+                boundary + timedelta(microseconds=delta)
+                for axis in axes
+                for cell in axis._binding.cells
+                for boundary in cell[2:]
+                for delta in (-1, 0, 1)
+            }
+        ),
+        None,
+    ]
     with source_case(backend, profile, tmp_path, monkeypatch, _data(backend, points)) as case:
         table = case.session.bind(case.source, source_identity="calendar-facts").relation
         clock = (
@@ -215,8 +224,8 @@ def test_calendar_capacity_and_sum_before_p95(
             }
         )
         session = mv.session.get_or_create("calendar-capacity", timezone="UTC")
-        point = catalog_value(session.catalog, "sales.facts.point", kind="field")
-        amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+        point = catalog_value(session.catalog, "sales.facts.point", kind="time_dimension")
+        amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
         trace = capture_source(monkeypatch, measure_cost=True)
         evidence = []
         for days in (1, 14):
@@ -358,7 +367,7 @@ def test_public_encoded_clocks_retain_wall_bucket_membership(
             }
         )
         session = mv.session.get_or_create("wall-calendar", timezone="UTC")
-        amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+        amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
         namespace = case.source.database
         parts = (
             namespace
@@ -392,7 +401,7 @@ def test_public_encoded_clocks_retain_wall_bucket_membership(
             for value in native_rows.point
         ]
         for clock in ("wall", "encoded"):
-            point = catalog_value(session.catalog, "sales.facts." + clock, kind="field")
+            point = catalog_value(session.catalog, "sales.facts." + clock, kind="time_dimension")
             for start, end in (
                 ("2026-03-08T06:55Z", "2026-03-08T07:10Z"),
                 ("2026-11-01T05:25Z", "2026-11-01T06:40Z"),
@@ -476,8 +485,8 @@ def test_public_calendar_keeps_facts_when_midnight_fold_returns_to_previous_date
             }
         )
         session = mv.session.get_or_create("midnight-fold", timezone="UTC")
-        point = catalog_value(session.catalog, "sales.facts.point", kind="field")
-        amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+        point = catalog_value(session.catalog, "sales.facts.point", kind="time_dimension")
+        amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
         trace = capture_source(monkeypatch)
         for unit in ("day", "month"):
             for start, end, expected in ranges:
@@ -513,11 +522,14 @@ def test_public_calendar_keeps_facts_when_midnight_fold_returns_to_previous_date
                 lower, upper = (
                     pd.Timestamp(day + " " + clock).isoformat(sep=" ") for clock in (start, end)
                 )
-                bound = lambda value: (
-                    f"toDateTime64('{value}', 6, 'UTC')"
-                    if backend == "clickhouse"
-                    else f"TIMESTAMP '{value}'"
-                )
+
+                def bound(value: str) -> str:
+                    return (
+                        f"toDateTime64('{value}', 6, 'UTC')"
+                        if backend == "clickhouse"
+                        else f"TIMESTAMP '{value}'"
+                    )
+
                 # Read Trino's chosen instant numerically: a client decoding a
                 # named-zone midnight may select the other side of the fold.
                 bucket = (
@@ -537,6 +549,7 @@ def test_public_calendar_keeps_facts_when_midnight_fold_returns_to_previous_date
                 )
 
                 def key(value: object) -> pd.Timestamp:
+                    assert isinstance(value, (str, datetime, date, int, float))
                     stamp = pd.Timestamp(value)
                     return (
                         stamp.tz_localize("UTC")
@@ -626,7 +639,7 @@ def test_source_free_calendar_preserves_pandas_native_ambiguity(
     start: str,
     end: str,
     zone: str,
-    unit: str,
+    unit: Literal["hour", "day"],
     clocks: list[str],
     error_name: str,
 ) -> None:
@@ -676,8 +689,8 @@ def test_public_hour_index_follows_native_gap_and_fold_interpretation(
             }
         )
         session = mv.session.get_or_create("native-hour-index", timezone="UTC")
-        point = catalog_value(session.catalog, "sales.facts.point", kind="field")
-        amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+        point = catalog_value(session.catalog, "sales.facts.point", kind="time_dimension")
+        amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
         for day, start, end, clocks in (
             ("2026-03-08", "05:00", "09:00", ("00:00", "01:00", "02:00", "03:00", "04:00")),
             ("2026-11-01", "05:00", "06:00", ("01:00",)),

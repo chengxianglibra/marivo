@@ -11,7 +11,7 @@ from marivo.analysis.errors import (
 from marivo.introspection.live.model import LiveHelpTarget
 
 
-def test_base_is_exception():
+def test_base_is_exception() -> None:
     assert issubclass(AnalysisError, Exception)
 
 
@@ -41,7 +41,7 @@ def test_analysis_repair_is_frozen() -> None:
         help_target=LiveHelpTarget(surface="analysis", canonical_id="observe"),
     )
     with pytest.raises(ValidationError):
-        repair.action = "mutated"  # type: ignore[misc]
+        repair.action = "mutated"
 
 
 def test_analysis_repair_rejects_extra_fields() -> None:
@@ -69,7 +69,7 @@ def test_analysis_repair_candidates_is_tuple() -> None:
         kind="retry",
         action="Use the registered metric id.",
         help_target=LiveHelpTarget(surface="analysis", canonical_id="observe"),
-        candidates=["metric.sales.revenue", "metric.sales.orders"],
+        candidates=["metric.sales.revenue", "metric.sales.orders"],  # type: ignore[arg-type]  # Verify list coercion.
     )
     assert repair.candidates == ("metric.sales.revenue", "metric.sales.orders")
     assert isinstance(repair.candidates, tuple)

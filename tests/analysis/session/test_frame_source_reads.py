@@ -22,7 +22,7 @@ from marivo.analysis.materialization import graph_source_execution
 from marivo.analysis.materialization.graph_exchange import StageOutput
 from marivo.analysis.materialization.graph_source_execution import PreparedSources
 from marivo.datasource.adapters import CompiledRead, SourceSession
-from tests.shared_fixtures import DslCaseFactory, analysis_dsl_rows
+from tests.shared_fixtures import DslCaseFactory, analysis_dsl_rows, catalog_get
 from tests.support.source_trace import capture_source
 
 NOW = datetime(2026, 10, 30, tzinfo=timezone.utc)
@@ -38,7 +38,9 @@ def test_actual_completion_ids_and_counts_survive_fixed_and_mixed_inputs(
 ) -> None:
     case = analysis_dsl_case_factory("j2")
     session = case.session
-    pending = session.observe({"value": session.catalog.get("metric:sales.revenue")})
+    pending = session.observe(
+        {"value": catalog_get(session.catalog, "metric:sales.revenue", kind="metric")}
+    )
     trace = capture_source(monkeypatch)
     execute = SourceSession.execute
     returned_at: list[datetime] = []
@@ -104,7 +106,7 @@ def test_missing_raw_count_does_not_fall_back_to_completed_row_count(
 
     monkeypatch.setattr(graph_source_execution, "read_stage", unknown_count)
     saved = case.session.observe(
-        {"value": case.session.catalog.get("metric:sales.revenue")}
+        {"value": catalog_get(case.session.catalog, "metric:sales.revenue", kind="metric")}
     ).persist()
     assert len(saved.to_pandas()) == 1
     assert len(saved.source_reads) == 1

@@ -10,7 +10,7 @@ import marivo.analysis as mv
 import marivo.datasource as md
 from marivo.datasource.errors import DatasourceFieldInvalidError
 from marivo.semantic.errors import SemanticLoadFailed
-from tests.shared_fixtures import terminal_runs
+from tests.shared_fixtures import catalog_get, terminal_runs
 
 
 def test_model_qualified_datasource_name_is_rejected(
@@ -31,7 +31,9 @@ def test_missing_datasource_is_named_when_sources_are_requested(
     session = mv.session.get_or_create("missing-source")
     assert terminal_runs(session) == ()
     with pytest.raises(SemanticLoadFailed) as caught:
-        session.observe({"revenue": session.catalog.get("metric:sales.revenue")})
+        session.observe(
+            {"revenue": catalog_get(session.catalog, "metric:sales.revenue", kind="metric")}
+        )
     assert "warehouse" in str(caught.value)
     assert "unknown datasource" in str(caught.value)
     assert terminal_runs(session) == ()
@@ -64,7 +66,9 @@ def test_observe_uses_registered_global_datasource(
         .replace("parse=ms.strptime('%Y%m%d')", "parse=None")
     )
     session = mv.session.get_or_create("registered", timezone="UTC")
-    output = session.observe({"revenue": session.catalog.get("metric:sales.revenue")}).compute()
+    output = session.observe(
+        {"revenue": catalog_get(session.catalog, "metric:sales.revenue", kind="metric")}
+    ).compute()
     assert output.to_pandas()["revenue"].tolist() == [expected]
     assert terminal_runs(session) == ()
     saved = output.persist()

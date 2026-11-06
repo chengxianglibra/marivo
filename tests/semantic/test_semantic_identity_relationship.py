@@ -3,12 +3,17 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 import pytest
 
 from marivo.semantic.catalog import Relationship, SemanticCatalog
 from marivo.semantic.errors import SemanticLoadFailed
 from marivo.semantic.ir import TargetSnapshotSelection
+
+if TYPE_CHECKING:
+    from marivo.semantic.reader import SemanticProject
+    from tests.conftest import _SemanticProjectFactory
 from marivo.semantic.validator import (
     normalize_target_entity,
     normalize_target_relationship,
@@ -54,16 +59,20 @@ line_to_order = ms.relationship(
 """
 
 
-def _project(semantic_project_factory, source: str = _OBJECTS):
+def _project(
+    semantic_project_factory: _SemanticProjectFactory, source: str = _OBJECTS
+) -> SemanticProject:
     return semantic_project_factory({"sales/_domain.py": _DOMAIN, "sales/objects.py": source})
 
 
 def test_composite_identity_and_versioned_relationship_are_declared_without_source_io(
-    semantic_project_factory,
+    semantic_project_factory: _SemanticProjectFactory,
 ) -> None:
     project = _project(semantic_project_factory)
     catalog = SemanticCatalog(project)
+    assert project._registry is not None
     orders = normalize_target_entity(project._registry, "sales.orders")
+    assert project._registry is not None
     mapping = normalize_target_relationship(project._registry, "sales.line_to_order")
 
     assert orders.primary_key == ("tenant_id", "order_id")
@@ -101,29 +110,32 @@ def test_composite_identity_and_versioned_relationship_are_declared_without_sour
     ],
 )
 def test_invalid_relationship_keys_fail_at_load(
-    semantic_project_factory, old: str, new: str, expected: str
+    semantic_project_factory: _SemanticProjectFactory, old: str, new: str, expected: str
 ) -> None:
     project = _project(semantic_project_factory, _OBJECTS.replace(old, new))
     with pytest.raises(SemanticLoadFailed) as exc_info:
         SemanticCatalog(project)
     assert any(
-        error.kind == "invalid_relationship_mapping" and expected in error.expected
+        error.kind == "invalid_relationship_mapping"
+        and error.expected is not None
+        and expected in error.expected
         for error in exc_info.value.errors
     )
 
 
 def test_incomplete_identity_coverage_remains_many_to_many(
-    semantic_project_factory,
+    semantic_project_factory: _SemanticProjectFactory,
 ) -> None:
     source = _OBJECTS.replace(", ms.join_on(line_order, order_id)", "")
     project = _project(semantic_project_factory, source)
     SemanticCatalog(project)
+    assert project._registry is not None
     mapping = normalize_target_relationship(project._registry, "sales.line_to_order")
     assert mapping.cardinality == "many_to_many"
 
 
 def test_extra_join_condition_preserves_complete_target_key_coverage(
-    semantic_project_factory,
+    semantic_project_factory: _SemanticProjectFactory,
 ) -> None:
     source = (
         _OBJECTS.replace(
@@ -147,12 +159,13 @@ def test_extra_join_condition_preserves_complete_target_key_coverage(
     )
     project = _project(semantic_project_factory, source)
     SemanticCatalog(project)
+    assert project._registry is not None
     mapping = normalize_target_relationship(project._registry, "sales.line_to_order")
     assert mapping.cardinality == "many_to_one"
 
 
 def test_alternate_role_is_a_distinct_governed_relationship(
-    semantic_project_factory,
+    semantic_project_factory: _SemanticProjectFactory,
 ) -> None:
     project = _project(semantic_project_factory)
     second = (
@@ -168,14 +181,14 @@ def test_alternate_role_is_a_distinct_governed_relationship(
     catalog = SemanticCatalog(ambiguous)
     line_to_order_mapping = catalog.get("relationship:sales.line_to_order")
     alternate_order_mapping = catalog.get("relationship:sales.alternate_order")
-    assert line_to_order_mapping is not None
-    assert alternate_order_mapping is not None
+    assert isinstance(line_to_order_mapping, Relationship)
+    assert isinstance(alternate_order_mapping, Relationship)
     assert line_to_order_mapping.cardinality == "many_to_one"
     assert alternate_order_mapping.cardinality == "many_to_one"
 
 
 def test_nonversioned_duplicate_identity_declaration_fails_at_load(
-    semantic_project_factory,
+    semantic_project_factory: _SemanticProjectFactory,
 ) -> None:
     source = _OBJECTS.replace(
         "primary_key=['tenant_id', 'line_id']", "primary_key=['tenant_id', 'tenant_id']"
@@ -186,7 +199,9 @@ def test_nonversioned_duplicate_identity_declaration_fails_at_load(
     assert any(error.kind == "duplicate_identity_key" for error in exc_info.value.errors)
 
 
-def test_identity_key_requires_concrete_column_names(semantic_project_factory) -> None:
+def test_identity_key_requires_concrete_column_names(
+    semantic_project_factory: _SemanticProjectFactory,
+) -> None:
     source = _OBJECTS.replace("primary_key=['tenant_id', 'line_id']", "primary_key='tenant_id'")
     project = _project(semantic_project_factory, source)
     with pytest.raises(SemanticLoadFailed) as exc_info:

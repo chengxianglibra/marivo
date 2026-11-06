@@ -108,16 +108,16 @@ def test_raw_sql_result_cannot_reenter_typed_analysis(
     monkeypatch.chdir(tmp_path)
     session = mv.session.get_or_create("raw-sql-terminal", timezone="UTC")
     with pytest.raises(AnalysisError, match="RawSqlResult"):
-        session.observe({"raw": result})
+        session.observe({"raw": result})  # type: ignore[dict-item]  # Terminal results are invalid analysis inputs.
     from marivo.datasource.adapters import provider_for
 
     datasource = store.load_one("warehouse", project_root=tmp_path)
     assert datasource is not None
     with (
-        provider_for("duckdb").open(datasource) as session,
+        provider_for("duckdb").open(datasource) as source_session,
         pytest.raises(DatasourceSourceCapabilityError),
     ):
-        session.bind(result, source_identity="raw-sql-terminal")
+        source_session.bind(result, source_identity="raw-sql-terminal")  # type: ignore[arg-type]  # Reject a terminal result.
     assert not hasattr(result, "contract")
     assert not hasattr(result, "execute")
 
@@ -136,7 +136,9 @@ def test_raw_sql_works_after_inspect_table_on_same_duckdb_file(tmp_path: Path) -
         reason="diagnose after inspect",
         project_root=tmp_path,
     )
-    assert int(result.rows[0]["n"]) == 2
+    count = result.rows[0]["n"]
+    assert isinstance(count, int)
+    assert count == 2
 
 
 def test_raw_sql_honors_declared_duckdb_file_mode(tmp_path: Path) -> None:
@@ -165,7 +167,9 @@ def test_raw_sql_honors_declared_duckdb_file_mode(tmp_path: Path) -> None:
         reason="verify native file permissions",
         project_root=tmp_path,
     )
-    assert int(result.rows[0]["n"]) == 3
+    count = result.rows[0]["n"]
+    assert isinstance(count, int)
+    assert count == 3
 
 
 class _FakeCursor:
@@ -230,6 +234,7 @@ def _patch_trino_timeout_to_noop(monkeypatch: pytest.MonkeyPatch) -> None:
 
     from marivo.datasource import manage as manage_mod
     from marivo.datasource.engines import require_profile_for_backend_type
+    from marivo.datasource.engines.base import EngineProfile
 
     original = require_profile_for_backend_type
     trino_profile = original("trino")
@@ -238,7 +243,7 @@ def _patch_trino_timeout_to_noop(monkeypatch: pytest.MonkeyPatch) -> None:
         native_query_timeout=lambda backend, ts: nullcontext(),
     )
 
-    def _patched(backend_type: str):
+    def _patched(backend_type: str) -> EngineProfile:
         if backend_type == "trino":
             return noop_profile
         return original(backend_type)
@@ -671,7 +676,9 @@ def test_raw_sql_to_pandas_recursive_isolation_for_object_columns() -> None:
     )
     df = result.to_pandas()
     assert df.iloc[0, 0] == [1, 2, 3]
-    df.iloc[0, 0].append(999)
+    cell = df.iloc[0, 0]
+    assert isinstance(cell, list)
+    cell.append(999)
     assert result.rows[0]["data"] == [1, 2, 3]
 
 
@@ -732,6 +739,7 @@ def test_raw_sql_error_includes_execution_context(tmp_path: Path) -> None:
     err = exc_info.value
     assert err.effect_observed is not None
     assert err.effect_observed.query_executed is True
+    assert err.location is not None
     assert "warehouse" in err.location
     rendered = str(err)
     assert "raw_sql execution or result fetching failed" in rendered

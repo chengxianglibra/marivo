@@ -36,16 +36,19 @@ def test_public_composition_refuses_before_source_or_run(
         session = mv.session.get_or_create("r94-refusal", timezone="UTC")
         entity = ms.ref.entity("sales.facts")
         measure = ms.ref.measure("sales.facts.amount")
+        entity_ref = as_ref(entity)
+        measure_ref = as_ref(measure)
+        assert entity_ref is not None and measure_ref is not None
         live = session.read(
-            session.members(catalog_value(session.catalog, as_ref(entity).path, kind="entity")),
-            {"value": catalog_value(session.catalog, as_ref(measure).path, kind="field")},
+            session.members(catalog_value(session.catalog, entity_ref.path, kind="entity")),
+            {"value": catalog_value(session.catalog, measure_ref.path, kind="measure")},
         )
         previous = live.persist()
         saved = snapshot(previous)
         foreign = mv.session.get_or_create("r94-foreign", timezone="UTC")
         other = foreign.read(
-            foreign.members(catalog_value(foreign.catalog, as_ref(entity).path, kind="entity")),
-            {"value": catalog_value(foreign.catalog, as_ref(measure).path, kind="field")},
+            foreign.members(catalog_value(foreign.catalog, entity_ref.path, kind="entity")),
+            {"value": catalog_value(foreign.catalog, measure_ref.path, kind="measure")},
         )
         published_before = publication_counts(session)
         calls: list[str] = []
@@ -129,8 +132,8 @@ def test_public_required_output_receipts_block_consumption_without_new_work(
     with source_case("duckdb", "table", tmp_path, monkeypatch, reference_data("duckdb")) as case:
         author_source_project("duckdb", case, monkeypatch, semantic_project_factory)
         session = mv.session.get_or_create("required-output", timezone="UTC")
-        members = session.members(session.catalog.get("entity:sales.facts"))
-        metric = session.catalog.get("metric:sales.total")
+        members = session.members(catalog_value(session.catalog, "sales.facts", kind="entity"))
+        metric = catalog_value(session.catalog, "sales.total", kind="metric")
         current = session.observe(
             {"value": metric},
             by=mv.product(
@@ -234,7 +237,7 @@ def test_public_cross_datasource_observation_refuses_before_business_read(
             }
         )
         session = mv.session.get_or_create("r94-cross-datasource", timezone="UTC")
-        members = session.members(session.catalog.get("entity:sales.subjects"))
+        members = session.members(catalog_value(session.catalog, "sales.subjects", kind="entity"))
         previous = session.read(
             members,
             {
@@ -258,7 +261,7 @@ def test_public_cross_datasource_observation_refuses_before_business_read(
         monkeypatch.setattr(terminal_store, "admit", forbidden)
         with pytest.raises(AnalysisError) as caught:
             session.observe(
-                {"value": session.catalog.get("metric:sales.total")}, by=members
+                {"value": catalog_value(session.catalog, "sales.total", kind="metric")}, by=members
             ).persist()
         error = caught.value
         assert error.expected == "scalar relationship endpoints on one datasource"

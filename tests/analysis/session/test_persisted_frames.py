@@ -6,6 +6,7 @@ import os
 import sqlite3
 import subprocess
 import sys
+from collections.abc import Callable
 from contextlib import AbstractContextManager
 from pathlib import Path
 
@@ -121,12 +122,13 @@ def test_pagination_is_stable_for_equal_times_and_scoped_to_selection(
     assert found == expected and page.next_cursor is None
     other = mv.session.get_or_create("other", timezone="UTC")
     assert other.persisted_frames().items == ()
-    for read in (
+    reads: tuple[Callable[[], object], ...] = (
         lambda: session.persisted_frames(limit=2, cursor=cursor),
         lambda: other.persisted_frames(limit=1, cursor=cursor),
         lambda: session.persisted_frames(cursor="invalid"),
         lambda: session.persisted_frames(limit=1, cursor=mv.session.recent(limit=1).next_cursor),
-    ):
+    )
+    for read in reads:
         with pytest.raises(SessionStateError) as caught:
             read()
         assert caught.value.repair is not None

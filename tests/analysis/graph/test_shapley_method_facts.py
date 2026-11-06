@@ -156,22 +156,15 @@ def _facts(kind: Literal["absolute", "relative"] = "absolute") -> FrameMethodFac
         captures,
     )
     mappings = (
-        *tuple(
-            FrameMethodOutput(role, path)
-            for role, path in zip(
-                (
-                    "contribution",
-                    "total",
-                    "observed_total",
-                    "share",
-                    "contribution_std_error",
-                    "current",
-                    "baseline",
-                    "absolute",
-                ),
-                paths,
-                strict=True,
-            )
+        *(
+            FrameMethodOutput("contribution", paths[0]),
+            FrameMethodOutput("total", paths[1]),
+            FrameMethodOutput("observed_total", paths[2]),
+            FrameMethodOutput("share", paths[3]),
+            FrameMethodOutput("contribution_std_error", paths[4]),
+            FrameMethodOutput("current", paths[5]),
+            FrameMethodOutput("baseline", paths[6]),
+            FrameMethodOutput("absolute", paths[7]),
         ),
         FrameMethodOutput("current_present", schema.presence_paths[0]),
         FrameMethodOutput("baseline_present", schema.presence_paths[1]),
@@ -284,6 +277,7 @@ def _summary_facts(reducer: Literal["sum", "mean", "weighted_mean"]) -> FrameMet
         mask_policy="co_valid_value_weight" if reducer == "weighted_mean" else "non_null_value",
         weight_null_policy="skip" if reducer == "weighted_mean" else "not_applicable",
     )
+    assert isinstance(method.game, FrameShapleyGame)
     method = replace(
         method,
         leaves=(leaf,),
@@ -327,7 +321,7 @@ def test_sampled_facts_roundtrip_preserves_native_values_and_separation(
     ):
         assert forbidden not in encoded
     with pytest.raises(FrozenInstanceError):
-        method.seed = 9
+        method.seed = 9  # type: ignore[misc]  # Verify runtime immutability.
 
 
 def test_sampled_facts_count_shared_endpoint_capture_once() -> None:
@@ -343,6 +337,7 @@ def test_sampled_facts_count_shared_endpoint_capture_once() -> None:
 
 def test_sampled_cost_directory_includes_auxiliary_and_split_component_reads() -> None:
     method = _method(_facts())
+    assert isinstance(method.captures[0], FrameShapleyCapture)
     auxiliary = replace(method.captures[0], capture_id="domain", endpoint="both", state_entries=0)
     split = replace(method.captures[0], capture_id="extra.component")
     leaf = replace(method.leaves[0], current_capture_ids=("capture.current", "extra.component"))
@@ -373,7 +368,7 @@ def test_sampled_cost_directory_includes_auxiliary_and_split_component_reads() -
 )
 def test_sampled_facts_reject_inconsistent_costs(changed: dict[str, object]) -> None:
     with pytest.raises(CoreRuleError):
-        replace(_method(_facts()), **changed)
+        replace(_method(_facts()), **changed)  # type: ignore[arg-type]  # Deliberately malformed facts.
 
 
 def test_sampled_facts_reject_wrong_capture_endpoints_and_masks() -> None:
@@ -391,6 +386,7 @@ def test_sampled_facts_reject_wrong_capture_endpoints_and_masks() -> None:
     with pytest.raises(CoreRuleError):
         replace(method.game, current_formula_id="sum(raw_value)")
     with pytest.raises(CoreRuleError):
+        assert isinstance(method.game, FrameShapleyGame)
         replace(method.game, domain_proof=())
     weighted = replace(
         method.leaves[0],
@@ -413,13 +409,18 @@ def test_quantile_facts_require_original_parameter_and_frequency_route() -> None
     )
     with pytest.raises(CoreRuleError):
         replace(method, leaves=(leaf,))
+    assert all(isinstance(item, FrameShapleyCapture) for item in method.captures)
     captures = tuple(
-        replace(item, state_route="typed_value_frequency/v1") for item in method.captures
+        replace(item, state_route="typed_value_frequency/v1")
+        for item in method.captures
+        if isinstance(item, FrameShapleyCapture)
     )
     frequency = replace(
         method, leaves=(leaf,), captures=captures, state_route="typed_value_frequency/v1"
     )
+    assert isinstance(frequency.leaves[0].reduction, FrameShapleyQuantile)
     assert frequency.leaves[0].reduction.q == 0.95
+    assert isinstance(method.captures[0], FrameShapleyCapture)
     auxiliary = replace(
         method.captures[0], capture_id="shared.domain", endpoint="both", state_entries=0
     )
@@ -435,6 +436,7 @@ def test_quantile_facts_require_original_parameter_and_frequency_route() -> None
         state_route="typed_sufficient_frequency/v1",
         captured_source_reads=3,
     )
+    assert isinstance(mixed.leaves[0].reduction, FrameShapleyQuantile)
     assert mixed.leaves[0].reduction.q == 0.95
 
 
@@ -447,8 +449,11 @@ def test_quantile_finisher_is_closed_captured_metadata_and_survives_wire(
     method = _method(facts)
     reduction = FrameShapleyQuantile("quantile", "quantile", 0.95, finisher)
     leaf = replace(method.leaves[0], reduction=reduction)
+    assert all(isinstance(item, FrameShapleyCapture) for item in method.captures)
     captures = tuple(
-        replace(item, state_route="typed_value_frequency/v1") for item in method.captures
+        replace(item, state_route="typed_value_frequency/v1")
+        for item in method.captures
+        if isinstance(item, FrameShapleyCapture)
     )
     method = replace(
         method, leaves=(leaf,), captures=captures, state_route="typed_value_frequency/v1"
@@ -464,7 +469,7 @@ def test_quantile_finisher_is_closed_captured_metadata_and_survives_wire(
     captured.show(n=20)
     assert f"finisher='{finisher}'" in capsys.readouterr().out
     with pytest.raises(CoreRuleError, match="finishing recipe"):
-        replace(reduction, finisher="other_interpolation")
+        replace(reduction, finisher="other_interpolation")  # type: ignore[arg-type]  # Deliberately invalid finisher.
     wire = json.loads(encode_method_record(parent))
     wire["value"]["fields"]["metrics"][0]["fields"]["method"]["fields"]["leaves"][0]["fields"][
         "reduction"
@@ -552,10 +557,16 @@ def test_saved_float_values_are_not_recomputed(
 def test_replacement_method_cannot_be_nested_under_an_exact_rule() -> None:
     method = _method(_facts())
     with pytest.raises(CoreRuleError, match="complete target"):
-        FrameLinearTerm(1, method)
+        FrameLinearTerm(1, method)  # type: ignore[arg-type]  # Shapley is not an exact child.
     with pytest.raises(CoreRuleError, match="complete target"):
         FrameDivisionMethod(
-            "division", method.left, method.right, method.change, 2, "divide", method
+            "division",
+            method.left,
+            method.right,
+            method.change,
+            2,
+            "divide",
+            method,  # type: ignore[arg-type]  # Invalid child kind.
         )
 
     # Cold decoding also owns the exact child variant boundary. Replacing the
@@ -797,9 +808,9 @@ def test_sampled_native_change_aligns_losslessly_to_common_report_carrier(native
 def test_sampled_report_alignment_rejects_precision_loss_and_changed_unit(native: bool) -> None:
     facts = _native_facts() if native else _facts()
     method = _method(facts)
-    native = DecimalDataType(38, 1)
+    native_dtype = DecimalDataType(38, 1)
     values = tuple(
-        replace(column, dtype=native) if index in (5, 6, 7) else column
+        replace(column, dtype=native_dtype) if index in (5, 6, 7) else column
         for index, column in enumerate(facts.output_schema.values)
     )
     assert isinstance(method.right.value, Decimal)
@@ -873,6 +884,7 @@ def test_native_quantiles_keep_original_algorithm_and_separate_metric_approximat
         0.5 if "median" in reducer else 0.95,
         "original_native_reducer/v1",
     )
+    assert isinstance(method.game, FrameShapleyQueryGame)
     game = replace(
         method.game,
         metric_approximation="native_approximate_metric/v1"
@@ -885,7 +897,9 @@ def test_native_quantiles_keep_original_algorithm_and_separate_metric_approximat
     assert decode_method_record(encode_method_record(parent), FrameMethodParent) == parent
     assert not any(isinstance(item, FrameShapleyCapture) for item in method.captures)
     assert method.game.standard_error == "observed_marginal_mean/v1"
-    wrong = "exact_metric/v1" if reducer.startswith("approx") else "native_approximate_metric/v1"
+    wrong: Literal["exact_metric/v1", "native_approximate_metric/v1"] = (
+        "exact_metric/v1" if reducer.startswith("approx") else "native_approximate_metric/v1"
+    )
     with pytest.raises(CoreRuleError, match="approximation"):
         replace(method, game=replace(game, metric_approximation=wrong))
 
@@ -904,7 +918,7 @@ def test_native_query_facts_reject_false_state_cache_or_query_costs(
     changed: dict[str, object],
 ) -> None:
     with pytest.raises(CoreRuleError):
-        replace(_method(_native_facts()), **changed)
+        replace(_method(_native_facts()), **changed)  # type: ignore[arg-type]  # Deliberately malformed facts.
 
 
 def test_state_and_native_query_fact_variants_are_correlated() -> None:
@@ -974,7 +988,7 @@ def test_native_receipt_requires_an_actual_closed_measured_query(
     changed: dict[str, object],
 ) -> None:
     with pytest.raises(CoreRuleError):
-        replace(_method(_native_facts()).captures[0], **changed)
+        replace(_method(_native_facts()).captures[0], **changed)  # type: ignore[arg-type]  # Deliberately malformed receipt.
 
 
 @pytest.mark.parametrize(
@@ -988,7 +1002,7 @@ def test_native_receipt_requires_an_actual_closed_measured_query(
 )
 def test_native_query_game_cannot_claim_state_guarantees(changed: dict[str, object]) -> None:
     with pytest.raises(CoreRuleError):
-        replace(_method(_native_facts()).game, **changed)
+        replace(_method(_native_facts()).game, **changed)  # type: ignore[arg-type]  # Deliberately malformed game.
 
 
 @pytest.mark.parametrize(
@@ -1007,7 +1021,7 @@ def test_native_quantile_metadata_is_closed_and_nonexecutable(changed: dict[str,
         "native_quantile", "quantile", 0.95, "original_native_reducer/v1"
     )
     with pytest.raises(CoreRuleError):
-        replace(quantile, **changed)
+        replace(quantile, **changed)  # type: ignore[arg-type]  # Deliberately malformed metadata.
     with pytest.raises(CoreRuleError, match=r"q=0\.5"):
         replace(quantile, reducer="approx_median")
 
@@ -1103,6 +1117,7 @@ def test_summary_state_facts_keep_permutation_error_separate_from_unbounded_bias
     assert captured.value.received == "exact_metric/v1"
     with pytest.raises(CoreRuleError, match="state metric approximation"):
         exact = _method(_facts())
+        assert isinstance(exact.game, FrameShapleyGame)
         replace(exact, game=replace(exact.game, metric_approximation="summary_reconstruction/v1"))
 
 
@@ -1110,6 +1125,7 @@ def test_native_approximate_distinct_has_closed_accuracy_and_cannot_enter_state(
     facts = _native_facts()
     method = _method(facts)
     leaf = replace(method.leaves[0], reduction=FrameShapleyReduction("aggregate", "approx_nunique"))
+    assert isinstance(method.game, FrameShapleyQueryGame)
     game = replace(method.game, metric_approximation="native_approximate_metric/v1")
     method = replace(method, game=game, leaves=(leaf,))
     parent = FrameMethodParent((), (replace(facts.parents[0].metrics[0], method=method),))

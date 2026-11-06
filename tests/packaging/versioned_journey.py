@@ -12,7 +12,7 @@ import pyarrow as pa
 import marivo.analysis as mv
 from tests.analysis.materialization.domain_recovery_worker import snapshot
 from tests.packaging.graph_journeys import _frame, _offline, _ordinary_keys, _remove_sources
-from tests.shared_fixtures import catalog_value, run_ids
+from tests.shared_fixtures import catalog_get, catalog_value, run_ids
 from tests.support.json import Json, checked, encode, obj, read
 
 FACTS = (
@@ -186,8 +186,8 @@ def run(root: Path, phase: str) -> dict[str, Json]:
             members = session.members(
                 catalog_value(session.catalog, entity, kind="entity"), at=august
             )
-            amount = catalog_value(session.catalog, entity + ".amount", kind="field")
-            enabled = catalog_value(session.catalog, entity + ".enabled", kind="field")
+            amount = catalog_value(session.catalog, entity + ".amount", kind="measure")
+            enabled = catalog_value(session.catalog, entity + ".enabled", kind="dimension")
             queries[kind + "_aug"] = session.read(members, {"value": amount.at(august)})
             queries[kind + "_sep"] = session.read(
                 session.members(
@@ -213,11 +213,11 @@ def run(root: Path, phase: str) -> dict[str, Json]:
                 ("settled_early", "2026-09-01", "2026-10-01"),
                 ("settled", "2026-10-01", "2026-11-01"),
             ):
-                energy = catalog_value(session.catalog, "sales.readings.energy", kind="field")
+                energy = catalog_value(session.catalog, "sales.readings.energy", kind="measure")
                 time = catalog_value(
                     session.catalog,
                     "sales.readings." + ("recorded_at" if clock == "recorded" else "settled_at"),
-                    kind="field",
+                    kind="time_dimension",
                 )
                 metric = energy.sum(time=time)
                 queries[kind + "_" + clock] = session.observe(
@@ -225,13 +225,21 @@ def run(root: Path, phase: str) -> dict[str, Json]:
                     by=mv.product(session.time_scope(start=start, end=end), chosen),
                     where=mv.in_population(chosen),
                 )
-        stable = session.members(session.catalog.get("entity:sales.subjects"))
+        stable = session.members(
+            catalog_get(session.catalog, "entity:sales.subjects", kind="entity")
+        )
         profile = catalog_value(
             session.catalog, "sales.subjects_snapshot.amount", kind="field"
-        ).via((session.catalog.get("relationship:sales.subject_profiles"),))
+        ).via(
+            (
+                catalog_get(
+                    session.catalog, "relationship:sales.subject_profiles", kind="relationship"
+                ),
+            )
+        )
         queries["attributes_aug"] = session.read(stable, {"value": profile.at(august)})
         first = mv.coordinates(
-            by=(mv.identity(session.catalog.get("entity:sales.subjects")),),
+            by=(mv.identity(catalog_get(session.catalog, "entity:sales.subjects", kind="entity")),),
             keys=(((9007199254740992, "a"),),),
         )
         queries["attribute_sep"] = session.read(first, {"value": profile.at(september)})

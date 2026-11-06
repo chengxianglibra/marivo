@@ -30,7 +30,7 @@ from marivo.analysis.errors import AnalysisError
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.materialization.frame_services import LocalFrameServices
 from marivo.semantic.reader import SemanticProject
-from tests.shared_fixtures import catalog_value
+from tests.shared_fixtures import catalog_get, catalog_value
 
 STRING = ScalarDataType("string")
 INTEGER = ScalarDataType("int64")
@@ -82,7 +82,7 @@ def _calendar(
     local: LocalFrameServices,
     start: str,
     end: str,
-    rows: tuple[tuple[object, ...], ...],
+    rows: tuple[tuple[int, ...], ...],
     *,
     grain: str = "day",
     zone: str = "UTC",
@@ -304,12 +304,12 @@ account_match = ms.relationship(name='account_match', from_entity=crm, to_entity
     monkeypatch.chdir(tmp_path)
     session = mv.session.get_or_create("kernel-comparison", timezone="UTC")
     domains = (
-        session.members(session.catalog.get("entity:sales.crm")),
-        session.members(session.catalog.get("entity:sales.billing")),
+        session.members(catalog_get(session.catalog, "entity:sales.crm", kind="entity")),
+        session.members(catalog_get(session.catalog, "entity:sales.billing", kind="entity")),
     )
     frames = tuple(
         session.observe(
-            {"m": catalog_value(session.catalog, f"sales.{name}.amount", kind="field").sum()},
+            {"m": catalog_value(session.catalog, f"sales.{name}.amount", kind="measure").sum()},
             by=domain,
         ).persist()
         for name, domain in zip(("crm", "billing"), domains, strict=True)

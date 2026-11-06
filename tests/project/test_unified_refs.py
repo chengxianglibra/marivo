@@ -6,6 +6,7 @@ import copy
 import dataclasses
 import json
 import pickle
+from collections.abc import Callable
 
 import pytest
 from pydantic import BaseModel, TypeAdapter, ValidationError
@@ -16,6 +17,7 @@ from marivo.refs import (
     Ref,
     RefPayloadV1,
     SemanticKind,
+    SemanticKindTag,
     TimeDimensionKind,
     _decode_ref_key,
     _decode_ref_payload,
@@ -42,7 +44,9 @@ from marivo.refs import (
         (ref_factory.relationship, "sales.orders_to_users", SemanticKind.RELATIONSHIP),
     ],
 )
-def test_exact_factories_cover_all_kinds(factory, path: str, kind: SemanticKind) -> None:
+def test_exact_factories_cover_all_kinds(
+    factory: Callable[[str], Ref[SemanticKindTag]], path: str, kind: SemanticKind
+) -> None:
     ref = factory(path)
     assert type(ref) is Ref
     assert ref.kind is kind
@@ -62,15 +66,17 @@ def test_exact_factories_cover_all_kinds(factory, path: str, kind: SemanticKind)
         ((SemanticKind.METRIC, "sales.revenue", "extra"), {}),
     ],
 )
-def test_every_raw_construction_form_is_sealed(args, kwargs) -> None:
+def test_every_raw_construction_form_is_sealed(
+    args: tuple[object, ...], kwargs: dict[str, object]
+) -> None:
     with pytest.raises(TypeError, match="no public raw constructor"):
-        Ref(*args, **kwargs)  # type: ignore[call-arg]
+        Ref(*args, **kwargs)  # type: ignore[arg-type]  # Reject raw construction.
 
 
 def test_subclassing_is_sealed() -> None:
     with pytest.raises(TypeError, match="sealed"):
 
-        class InvalidRef(Ref[MetricKind]):
+        class InvalidRef(Ref[MetricKind]):  # type: ignore[misc]  # Verify the runtime subclass seal.
             pass
 
 
@@ -89,7 +95,9 @@ def test_subclassing_is_sealed() -> None:
         (ref_factory.dimension, "sales.orders.OrderID"),
     ],
 )
-def test_path_grammar_is_exact_and_never_normalizes(factory, path: str) -> None:
+def test_path_grammar_is_exact_and_never_normalizes(
+    factory: Callable[[str], Ref[SemanticKindTag]], path: str
+) -> None:
     with pytest.raises((TypeError, ValueError)):
         factory(path)
 
@@ -107,9 +115,9 @@ def test_value_identity_is_kind_and_path_only() -> None:
     assert str(left) == "metric:sales.revenue"
     assert repr(left) == "Ref[metric](metric:sales.revenue)"
     with pytest.raises(AttributeError, match="immutable"):
-        left.path = "sales.other"  # type: ignore[misc]
+        left.path = "sales.other"
     with pytest.raises(AttributeError, match="immutable"):
-        left.kind = SemanticKind.ENTITY  # type: ignore[misc]
+        left.kind = SemanticKind.ENTITY
     assert not hasattr(left, "__dict__")
     assert not hasattr(left, "_resolver")
 
@@ -123,7 +131,7 @@ def test_copy_deepcopy_pickle_and_replace_contract() -> None:
         assert restored == ref
         assert type(restored) is Ref
     with pytest.raises(TypeError):
-        dataclasses.replace(ref, path="sales.orders.region")
+        dataclasses.replace(ref, path="sales.orders.region")  # type: ignore[type-var]  # Ref is not a dataclass.
 
 
 def test_ref_is_data_only_and_factories_are_separate() -> None:

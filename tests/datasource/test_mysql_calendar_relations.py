@@ -128,17 +128,17 @@ def test_mysql_calendar_parameters_retain_types_and_nulls(mysql_case: Case) -> N
     )
     assert rows.id.tolist() == [0, 1, 2]
     assert rows.loc[1].iloc[1:].isna().all()
-    assert rows["key.0"].iloc[[0, 2]].tolist() == [pd.Timestamp(point)] * 2
-    assert rows.day.dt.date.iloc[[0, 2]].tolist() == [date(1960, 1, 3), date(2026, 1, 2)]
-    assert rows.signed.iloc[[0, 2]].tolist() == [-(2**63), 2**63 - 1]
-    assert rows.unsigned.iloc[[0, 2]].tolist() == [2**64 - 1, 0]
-    assert rows.flag.iloc[[0, 2]].tolist() == [True, False]
-    assert rows.text.iloc[[0, 2]].tolist() == [special, "null"]
-    assert rows["decimal"].iloc[[0, 2]].tolist() == [
+    assert rows["key.0"].take([0, 2]).tolist() == [pd.Timestamp(point)] * 2
+    assert rows.day.dt.date.take([0, 2]).tolist() == [date(1960, 1, 3), date(2026, 1, 2)]
+    assert rows.signed.take([0, 2]).tolist() == [-(2**63), 2**63 - 1]
+    assert rows.unsigned.take([0, 2]).tolist() == [2**64 - 1, 0]
+    assert rows.flag.take([0, 2]).tolist() == [True, False]
+    assert rows.text.take([0, 2]).tolist() == [special, "null"]
+    assert rows["decimal"].take([0, 2]).tolist() == [
         Decimal("123456789012.123456"),
         Decimal("-0.000001"),
     ]
-    assert rows.number.iloc[[0, 2]].tolist() == [1.25, -1.25e-15]
+    assert rows.number.take([0, 2]).tolist() == [1.25, -1.25e-15]
     assert pd.api.types.is_bool_dtype(rows.flag.dtype)
     assert pd.api.types.is_integer_dtype(rows.signed.dtype)
     assert pd.api.types.is_integer_dtype(rows.unsigned.dtype)
@@ -176,8 +176,8 @@ def test_mysql_public_daily_output_completes_missing_days(
         }
     )
     session = mv.session.get_or_create("mysql-calendar", timezone="Asia/Shanghai")
-    point = catalog_value(session.catalog, "sales.facts.point", kind="field")
-    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+    point = catalog_value(session.catalog, "sales.facts.point", kind="time_dimension")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
     axis = session.time_scope(start="2026-01-01", end="2026-01-15").by(mv.grain("day"))
     trace = capture_source(monkeypatch)
     rows = session.observe({"total": amount.sum(time=point)}, by=(axis,)).compute().to_pandas()

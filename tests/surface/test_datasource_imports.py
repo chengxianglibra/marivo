@@ -52,7 +52,7 @@ print(json.dumps({"after_import": after_import, "after_help": after_help}))
 
 
 @pytest.fixture(scope="module")
-def _datasource_isolation_probe() -> dict:
+def _datasource_isolation_probe() -> dict[str, dict[str, bool]]:
     """Fresh-process probe of marivo.datasource import isolation (shared)."""
     proc = subprocess.run(
         [sys.executable, "-c", _ISOLATION_PROBE_CODE],
@@ -60,11 +60,21 @@ def _datasource_isolation_probe() -> dict:
         text=True,
         check=True,
     )
-    return json.loads(proc.stdout)
+    payload = json.loads(proc.stdout)
+    assert isinstance(payload, dict)
+    result: dict[str, dict[str, bool]] = {}
+    for name, raw_values in payload.items():
+        assert isinstance(name, str) and isinstance(raw_values, dict)
+        values: dict[str, bool] = {}
+        for key, value in raw_values.items():
+            assert isinstance(key, str) and isinstance(value, bool)
+            values[key] = value
+        result[name] = values
+    return result
 
 
 def test_datasource_import_does_not_load_semantic_analysis_or_packaged_skills(
-    _datasource_isolation_probe: dict,
+    _datasource_isolation_probe: dict[str, dict[str, bool]],
 ) -> None:
     probe = _datasource_isolation_probe["after_import"]
     assert probe["duckdb_present"]
@@ -74,7 +84,7 @@ def test_datasource_import_does_not_load_semantic_analysis_or_packaged_skills(
 
 
 def test_datasource_help_does_not_load_semantic_analysis_or_packaged_skills(
-    _datasource_isolation_probe: dict,
+    _datasource_isolation_probe: dict[str, dict[str, bool]],
 ) -> None:
     probe = _datasource_isolation_probe["after_help"]
     assert not probe["semantic_loaded"]
@@ -118,7 +128,9 @@ def test_load_datasources_rejects_required_trino_user_none(tmp_path: Path) -> No
     assert len(result.errors) == 1
     error = result.errors[0]
     assert isinstance(error, DatasourceFieldInvalidError)
+    assert error.location is not None
     assert error.location.endswith("field 'user'")
+    assert error.repair is not None
     assert error.repair.help_target.canonical_id == "env"
 
 
@@ -142,9 +154,11 @@ def test_trino_spec_splits_literal_fields_and_env_refs() -> None:
 def test_datasource_ref_uses_kind_qualified_identity() -> None:
     ref = ms.ref.datasource("warehouse")
 
-    assert as_ref(ref).kind is ms.SemanticKind.DATASOURCE
-    assert as_ref(ref).path == "warehouse"
-    assert as_ref(ref).name == "warehouse"
+    reference = as_ref(ref)
+    assert reference is not None
+    assert reference.kind is ms.SemanticKind.DATASOURCE
+    assert reference.path == "warehouse"
+    assert reference.name == "warehouse"
     assert isinstance(ref, Deferred)
 
 

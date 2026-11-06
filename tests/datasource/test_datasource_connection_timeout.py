@@ -7,14 +7,15 @@ import pytest
 import marivo.datasource as md
 from marivo.datasource import backends
 from marivo.datasource import manage as manage_mod
-from marivo.datasource.ir import DatasourceIR
+from marivo.datasource import store as datasource_store
+from marivo.datasource.ir import AiContextIR, DatasourceIR, DatasourceSourceLocation
 from marivo.datasource.manage import DEFAULT_CONNECTION_TIMEOUT_SECONDS
 
 
 def _patch_load_one(monkeypatch: pytest.MonkeyPatch) -> None:
     """Make ``_store.load_one`` resolve a synthetic datasource (never None)."""
     monkeypatch.setattr(
-        manage_mod._store,
+        datasource_store,
         "load_one",
         lambda name, project_root=None: DatasourceIR(
             name=name,
@@ -22,9 +23,9 @@ def _patch_load_one(monkeypatch: pytest.MonkeyPatch) -> None:
             backend_type="postgres",
             fields={},
             env_refs={},
-            ai_context=None,
+            ai_context=AiContextIR(),
             python_symbol=name,
-            location=None,
+            location=DatasourceSourceLocation(file="<test>", line=1),
         ),
     )
 

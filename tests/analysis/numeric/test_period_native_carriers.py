@@ -7,6 +7,7 @@ from typing import Literal
 import pytest
 
 import marivo.analysis as mv
+import marivo.semantic as ms
 from marivo.analysis.core.artifact_data import DataSchema
 from marivo.analysis.core.data_types import ScalarDataType
 from marivo.analysis.errors import AnalysisError
@@ -15,6 +16,18 @@ from tests.analysis.graph.source_fixtures import author_source_project
 from tests.analysis.numeric.test_period_alignment import paired_tables, temporal_keys
 from tests.datasource.source_cases import SourceData, source_case, source_params
 from tests.support.source_trace import SourceTrace
+
+
+def _entity(catalog: ms.SemanticCatalog, path: str) -> ms.Entity:
+    result = catalog.get(path)
+    assert result.kind == "entity"
+    return result
+
+
+def _metric(catalog: ms.SemanticCatalog, path: str) -> ms.Metric:
+    result = catalog.get(path)
+    assert result.kind == "metric"
+    return result
 
 
 @pytest.mark.parametrize(
@@ -48,8 +61,8 @@ def test_period_alignment_native_carriers(
             backend, case, monkeypatch, semantic_project_factory, time_parse="string"
         )
         session = mv.session.get_or_create("period-native", timezone="UTC")
-        members = session.members(session.catalog.get("entity:sales.facts"))
-        metric = session.catalog.get("metric:sales.total")
+        members = session.members(_entity(session.catalog, "entity:sales.facts"))
+        metric = _metric(session.catalog, "metric:sales.total")
         current_axis = session.time_scope(start="2026-08-01", end="2026-08-03").by(mv.grain("day"))
         baseline_axis = (
             session.time_scope(start="2026-07-01", end="2026-07-04").by(mv.grain("day"))

@@ -268,7 +268,9 @@ def test_attribute_context_budget(analysis_dsl_case_factory: DslCaseFactory) -> 
     trace.help("analysis.frame_method_facts.show")
     trace.read("original explanation facts", lambda: facts[0].show(n=3))
     assert fixed.to_pandas()["contribution.revenue"].tolist() == [-20, -50, 0]
-    assert facts[0].parents[0].metrics[0].method.change.value == -70
+    method = facts[0].parents[0].metrics[0].method
+    assert method.kind == "additive"
+    assert method.change.value == -70
     measured = trace.metrics()
     recording = os.environ.get("MARIVO_ATTRIBUTE_HELP_BUDGET_RECORD")
     if recording is not None:

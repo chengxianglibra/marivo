@@ -359,10 +359,12 @@ def test_observe_source_materialization_failure_redacts_credentials(
     monkeypatch.setattr(Backend, "table", fail_table)
     before_runs = terminal_runs(session)
     before = publication_counts(session)
+    revenue = session.catalog.get("metric:sales.revenue")
+    assert revenue.kind == "metric"
     try:
         with pytest.raises(DatasourceConnectionError) as captured:
             session.observe(
-                {"revenue": session.catalog.get("metric:sales.revenue")},
+                {"revenue": revenue},
                 by=(session.time_scope(start="2026-07-01", end="2026-08-01"),),
             ).compute()
         assert "<redacted>" in str(captured.value)
@@ -542,9 +544,13 @@ def test_public_semantic_analysis_and_resume(
         )
         assert preview.rows
         assert catalog.validate([catalog.get("entity:sales.orders")]).status == "current"
+        revenue = catalog.get("metric:sales.revenue")
+        entity = session.catalog.get("entity:sales.orders")
+        assert revenue.kind == "metric"
+        assert entity.kind == "entity"
         query = session.observe(
-            {"revenue": catalog.get("metric:sales.revenue")},
-            where=mv.in_population(session.members(session.catalog.get("entity:sales.orders"))),
+            {"revenue": revenue},
+            where=mv.in_population(session.members(entity)),
         )
         frame = query.compute()
         assert not frame.to_pandas().empty
@@ -582,10 +588,14 @@ def test_public_semantic_analysis_and_resume(
     with md.credential_scope(resolver=other):
         resumed = mv.session.resume(session_id)
     try:
+        resumed_revenue = resumed.catalog.get("metric:sales.revenue")
+        resumed_entity = resumed.catalog.get("entity:sales.orders")
+        assert resumed_revenue.kind == "metric"
+        assert resumed_entity.kind == "entity"
         assert (
             not resumed.observe(
-                {"revenue": resumed.catalog.get("metric:sales.revenue")},
-                where=mv.in_population(resumed.members(resumed.catalog.get("entity:sales.orders"))),
+                {"revenue": resumed_revenue},
+                where=mv.in_population(resumed.members(resumed_entity)),
             )
             .compute()
             .to_pandas()

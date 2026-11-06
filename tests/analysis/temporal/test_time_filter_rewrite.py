@@ -165,12 +165,14 @@ def test_common_filter_reaches_parquet_scan(tmp_path: Path, representation: str)
 
         native_scans = scans(plan)
         assert native_scans
+        extra_info = native_scans[0]["extra_info"]
+        assert isinstance(extra_info, dict)
         if representation in ("encoded", "civil_date"):
             assert "try_strptime" in backend.compile(optimized).lower()
-            if "Filters" in native_scans[0]["extra_info"]:
-                assert "try_strptime" in str(native_scans[0]["extra_info"]["Filters"]).lower()
+            if "Filters" in extra_info:
+                assert "try_strptime" in str(extra_info["Filters"]).lower()
         else:
-            assert "Filters" in native_scans[0]["extra_info"]
+            assert "Filters" in extra_info
     finally:
         backend.disconnect()
 

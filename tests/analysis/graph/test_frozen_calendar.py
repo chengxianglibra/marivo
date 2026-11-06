@@ -212,6 +212,7 @@ def test_named_identity_includes_level_and_only_ordinal_is_supported() -> None:
         )
         with pytest.raises(CoreRuleError, match="builtin"):
             build_partial_calendar_map(frozen, frozen, rule)
+    assert named.frozen is not None
     other = replace(
         named,
         frozen=replace(named.frozen, definition=NamedCalendarData("business", "digest", "quarter")),

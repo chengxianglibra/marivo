@@ -14,7 +14,6 @@ from marivo.datasource import secrets as datasource_secrets
 from marivo.datasource import store as datasource_store
 from marivo.datasource.authoring import (
     ClickHouseSpec,
-    DatasourceSpec,
     DuckDBSpec,
     MySQLSpec,
     PostgresSpec,
@@ -34,20 +33,6 @@ def project_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     return tmp_path
 
 
-def _spec(name: str, *, backend_type: str, **fields: object) -> DatasourceSpec:
-    if backend_type == "duckdb":
-        return DuckDBSpec(name=name, **fields)
-    if backend_type == "trino":
-        return TrinoSpec(name=name, **fields)
-    if backend_type == "mysql":
-        return MySQLSpec(name=name, **fields)
-    if backend_type == "postgres":
-        return PostgresSpec(name=name, **fields)
-    if backend_type == "clickhouse":
-        return ClickHouseSpec(name=name, **fields)
-    raise AssertionError(f"unexpected backend_type: {backend_type}")
-
-
 def _raw_ir(name: str, *, backend_type: str, fields: dict[str, object]) -> DatasourceIR:
     return DatasourceIR(
         semantic_id=name,
@@ -62,7 +47,7 @@ def _raw_ir(name: str, *, backend_type: str, fields: dict[str, object]) -> Datas
 
 
 def test_build_duckdb_in_memory(project_root: Path) -> None:
-    md.register(_spec("local", backend_type="duckdb", path=":memory:"))
+    md.register(DuckDBSpec(name="local", path=":memory:"))
     assert md.load().test("local").ok is True
 
 
@@ -92,9 +77,8 @@ def test_duckdb_extra_kwargs_pass_through(
     assert all(name in ENGINE_PROFILES for name in ENGINE_PROFILES)
     monkeypatch.setitem(__import__("sys").modules, "ibis", _FakeIbis())
     datasource = datasource_store.save_one(
-        _spec(
-            "local",
-            backend_type="duckdb",
+        DuckDBSpec(
+            name="local",
             path="/tmp/test.duckdb",
             read_only=True,
             extra={"force_download": True},
@@ -274,9 +258,8 @@ def test_env_ref_resolution(project_root: Path, monkeypatch: pytest.MonkeyPatch)
     monkeypatch.setenv("TRINO_USER", "reader")
     monkeypatch.setenv("TRINO_AUTH", "shhh")
     datasource = datasource_store.save_one(
-        _spec(
-            "wh",
-            backend_type="trino",
+        TrinoSpec(
+            name="wh",
             host="h",
             catalog="c",
             user=md.env("TRINO_USER"),
@@ -313,9 +296,8 @@ def test_env_ref_resolution_uses_cache_when_env_is_unset(
         lambda: (_CacheProvider(),),
     )
     datasource = datasource_store.save_one(
-        _spec(
-            "wh",
-            backend_type="trino",
+        TrinoSpec(
+            name="wh",
             host="h",
             catalog="c",
             user=md.env("TRINO_USER"),
@@ -339,9 +321,8 @@ def test_env_ref_missing_var(project_root: Path, monkeypatch: pytest.MonkeyPatch
         datasource_secrets, "default_chain", lambda: (datasource_secrets.EnvProvider(),)
     )
     datasource = datasource_store.save_one(
-        _spec(
-            "wh",
-            backend_type="trino",
+        TrinoSpec(
+            name="wh",
             host="h",
             catalog="c",
             user=md.env("TRINO_USER"),
@@ -376,6 +357,7 @@ def test_trino_required_field_missing(project_root: Path) -> None:
     with pytest.raises(DatasourceFieldInvalidError) as exc_info:
         datasource_backends.build_backend(datasource)
     assert exc_info.value.expected == "required datasource field 'catalog'"
+    assert exc_info.value.repair is not None
     assert exc_info.value.repair.help_target.canonical_id == "trino"
 
 
@@ -390,6 +372,7 @@ def test_trino_resolved_user_missing_fails_before_ibis_connect(project_root: Pat
         datasource_backends.build_backend(datasource)
 
     assert exc_info.value.expected == "required datasource field 'user'"
+    assert exc_info.value.repair is not None
     assert exc_info.value.repair.help_target.canonical_id == "trino"
 
 
@@ -411,9 +394,8 @@ def test_trino_session_properties_pass_through(
     monkeypatch.setenv("MARIVO_WH_USER", "ambient-user")
     monkeypatch.setenv("MARIVO_WH_AUTH", "ambient-auth")
     datasource = datasource_store.save_one(
-        _spec(
-            "wh",
-            backend_type="trino",
+        TrinoSpec(
+            name="wh",
             host="h",
             catalog="c",
             user=md.env("TRINO_USER"),
@@ -456,15 +438,14 @@ def test_trino_catalog_maps_to_ibis_database_and_optional_kwargs_pass_through(
     monkeypatch.setenv("TRINO_USER", "reader")
     monkeypatch.setenv("TRINO_AUTH", "token")
     datasource = datasource_store.save_one(
-        _spec(
-            "wh",
-            backend_type="trino",
+        TrinoSpec(
+            name="wh",
             host="trino.example",
             catalog="hive",
             user=md.env("TRINO_USER"),
             auth=md.env("TRINO_AUTH"),
             wall_clock_timezone="Asia/Shanghai",
-            client_tags="agent, semantic-authoring",
+            client_tags="agent, semantic-authoring",  # type: ignore[arg-type]  # Exercise legacy comma-separated tags.
         )
     )
     import marivo.semantic  # noqa: F401  (its module tree imports ibis.expr)
@@ -502,7 +483,7 @@ def test_mysql_user_is_optional(monkeypatch: pytest.MonkeyPatch, project_root: P
 
     monkeypatch.setattr(Backend, "connect", fake_connect)
     datasource = datasource_store.save_one(
-        _spec("mysql_wh", backend_type="mysql", host="mysql.example", database="mart", port=3307)
+        MySQLSpec(name="mysql_wh", host="mysql.example", database="mart", port=3307)
     )
 
     datasource_backends.build_backend(datasource)
@@ -534,9 +515,8 @@ def test_postgres_user_is_optional(monkeypatch: pytest.MonkeyPatch, project_root
     assert all(name in ENGINE_PROFILES for name in ENGINE_PROFILES)
     monkeypatch.setitem(__import__("sys").modules, "ibis", _FakeIbis())
     datasource = datasource_store.save_one(
-        _spec(
-            "pg_wh",
-            backend_type="postgres",
+        PostgresSpec(
+            name="pg_wh",
             host="pg.example",
             database="mart",
             extra={"sslmode": "require"},
@@ -574,9 +554,7 @@ def test_clickhouse_dispatch_with_host(monkeypatch: pytest.MonkeyPatch, project_
     # under the fake ibis installed below.
     assert all(name in ENGINE_PROFILES for name in ENGINE_PROFILES)
     monkeypatch.setitem(__import__("sys").modules, "ibis", _FakeIbis())
-    datasource = datasource_store.save_one(
-        _spec("ch_ds", backend_type="clickhouse", host="ch.example.com")
-    )
+    datasource = datasource_store.save_one(ClickHouseSpec(name="ch_ds", host="ch.example.com"))
 
     datasource_backends.build_backend(datasource)
 
@@ -597,6 +575,8 @@ def _chained(error: Exception, *causes: Exception) -> Exception:
 
 def test_clickhouse_transient_failure_classifies_native_driver_errors() -> None:
     from clickhouse_connect.driver.exceptions import DatabaseError, OperationalError
+    from urllib3.connection import HTTPConnection
+    from urllib3.connectionpool import HTTPConnectionPool
     from urllib3.exceptions import MaxRetryError, NewConnectionError, ReadTimeoutError
 
     from marivo.datasource.engines.clickhouse import PROFILE
@@ -615,8 +595,8 @@ def test_clickhouse_transient_failure_classifies_native_driver_errors() -> None:
         status(503),
         _chained(
             OperationalError("Error executing HTTP request attempt 1"),
-            MaxRetryError(None, "/", "refused"),
-            NewConnectionError(None, "refused"),
+            MaxRetryError(HTTPConnectionPool("localhost"), "/", RuntimeError("refused")),
+            NewConnectionError(HTTPConnection("localhost"), "refused"),
         ),
     ]
     # Earlier clickhouse-connect versions have no structured error code.
@@ -631,7 +611,7 @@ def test_clickhouse_transient_failure_classifies_native_driver_errors() -> None:
         status(500),
         _chained(
             OperationalError("Error executing HTTP request attempt 1"),
-            ReadTimeoutError(None, "/", "read timed out"),
+            ReadTimeoutError(HTTPConnectionPool("localhost"), "/", "read timed out"),
         ),
         OperationalError("Failed to read response data from server"),
         RuntimeError("busy"),
@@ -669,9 +649,8 @@ def test_clickhouse_allows_explicit_autogenerated_session_override(
     assert all(name in ENGINE_PROFILES for name in ENGINE_PROFILES)
     monkeypatch.setitem(__import__("sys").modules, "ibis", _FakeIbis())
     datasource = datasource_store.save_one(
-        _spec(
-            "ch_ds",
-            backend_type="clickhouse",
+        ClickHouseSpec(
+            name="ch_ds",
             host="ch.example.com",
             extra={"autogenerate_session_id": True, "query_retries": 2},
         )
@@ -716,9 +695,8 @@ def test_clickhouse_optional_fields_pass_through(
     assert all(name in ENGINE_PROFILES for name in ENGINE_PROFILES)
     monkeypatch.setitem(__import__("sys").modules, "ibis", _FakeIbis())
     datasource = datasource_store.save_one(
-        _spec(
-            "ch_ds",
-            backend_type="clickhouse",
+        ClickHouseSpec(
+            name="ch_ds",
             host="ch.example.com",
             port=9440,
             database="analytics",
@@ -752,9 +730,8 @@ def test_effective_kwargs_ignores_unreferenced_ambient_secrets(
     monkeypatch.setenv("MARIVO_WAREHOUSE_USER", "ambient-user")
     monkeypatch.setenv("MARIVO_WAREHOUSE_AUTH", "ambient-auth")
     datasource = datasource_store.save_one(
-        _spec(
-            "warehouse",
-            backend_type="trino",
+        TrinoSpec(
+            name="warehouse",
             host="h",
             catalog="c",
             user=md.env("TRINO_USER"),
@@ -778,9 +755,8 @@ def test_effective_kwargs_resolves_only_explicit_env_refs(
     monkeypatch.setenv("CUSTOM_PASSWORD_VAR", "custom-secret")
     monkeypatch.setenv("MARIVO_WAREHOUSE_PASSWORD", "ambient-secret")
     datasource = datasource_store.save_one(
-        _spec(
-            "warehouse",
-            backend_type="clickhouse",
+        ClickHouseSpec(
+            name="warehouse",
             host="ch.example",
             password=md.env("CUSTOM_PASSWORD_VAR"),
         )

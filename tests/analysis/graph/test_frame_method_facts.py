@@ -211,7 +211,7 @@ def metric(
 
 
 def make_facts(
-    kind: str,
+    kind: Literal["attribute"],
     origin: str,
     output: DataSchema,
     coordinates: tuple[FrameMethodCoordinate, ...],
@@ -279,7 +279,7 @@ def test_wrong_scalar_carriers_are_rejected() -> None:
     )
     for dtype, value in cases:
         with pytest.raises(CoreRuleError, match="exact finite scalar"):
-            FrameMethodValue(column("value", dtype), value)  # Test malformed runtime input.
+            FrameMethodValue(column("value", dtype), value)  # type: ignore[arg-type]  # Malformed runtime input.
 
 
 def test_null_decimal_and_ticks_boundaries() -> None:
@@ -306,9 +306,9 @@ def test_records_are_frozen_slotted_and_have_exact_fields() -> None:
     )
     assert not hasattr(value, "__dict__")
     with pytest.raises(FrozenInstanceError):
-        value.origin_result_id = "other"
+        value.origin_result_id = "other"  # type: ignore[misc]  # Verify runtime immutability.
     with pytest.raises(TypeError):
-        FrameMethodFacts("attribute", "r", value.output_schema, (), 0, (), extra=True)
+        FrameMethodFacts("attribute", "r", value.output_schema, (), 0, (), extra=True)  # type: ignore[call-arg]  # Reject undeclared field.
 
 
 @pytest.mark.parametrize("counts", [(True, 1, 0, 0), (-1, 2, 0, 0), (1, 2, 2, 1), (1, 2, 1, 3)])
@@ -319,12 +319,12 @@ def test_support_counts_are_exact_and_bounded_by_input(counts: tuple[int, int, i
 
 def test_closed_support_policy_and_root_uniqueness() -> None:
     with pytest.raises(CoreRuleError):
-        replace(support(), policy="unknown")
+        replace(support(), policy="unknown")  # type: ignore[arg-type]  # Reject unknown policy.
     with pytest.raises(CoreRuleError):
         replace(support(), root_id="")
     for supports in ((), (support(), support()), [support()]):
         with pytest.raises(CoreRuleError):
-            replace(additive(), support=supports)
+            replace(additive(), support=supports)  # type: ignore[arg-type]  # Reject non-tuple support.
 
 
 def test_method_types_units_nonnull_totals_and_zero_denominator() -> None:
@@ -361,7 +361,7 @@ def test_method_types_units_nonnull_totals_and_zero_denominator() -> None:
 )
 def test_linear_coefficients_are_closed_finite_original_scalars(coefficient: object) -> None:
     with pytest.raises(CoreRuleError, match="finite non-bool"):
-        FrameLinearTerm(coefficient, additive())
+        FrameLinearTerm(coefficient, additive())  # type: ignore[arg-type]  # Reject invalid coefficients.
 
 
 def test_nested_linear_terms_preserve_order_and_explanatory_values() -> None:
@@ -371,8 +371,12 @@ def test_nested_linear_terms_preserve_order_and_explanatory_values() -> None:
     outer = FrameLinearMethod(
         "linear", leaf.left, leaf.right, leaf.change, (FrameLinearTerm(0.5, rule),)
     )
-    assert outer.terms[0].method.terms == terms
-    assert outer.terms[0].method.terms[1].coefficient.as_tuple().exponent == -3
+    inner = outer.terms[0].method
+    assert isinstance(inner, FrameLinearMethod)
+    assert inner.terms == terms
+    coefficient = inner.terms[1].coefficient
+    assert isinstance(coefficient, Decimal)
+    assert coefficient.as_tuple().exponent == -3
     assert (
         make_facts(
             "attribute", "r", schema(outer), (), 0, (FrameMethodParent((), (metric(outer),)),)
@@ -384,9 +388,9 @@ def test_nested_linear_terms_preserve_order_and_explanatory_values() -> None:
     )
     for invalid in ((), [terms[0]], (leaf,)):
         with pytest.raises(CoreRuleError):
-            replace(rule, terms=invalid)
+            replace(rule, terms=invalid)  # type: ignore[arg-type]  # Reject malformed terms.
     with pytest.raises(CoreRuleError):
-        FrameLinearTerm(1, "recipe")
+        FrameLinearTerm(1, "recipe")  # type: ignore[arg-type]  # Reject non-method child.
 
 
 def test_share_state_uses_exact_change_and_support_roots_are_consistent() -> None:
@@ -408,7 +412,7 @@ def test_share_state_uses_exact_change_and_support_roots_are_consistent() -> Non
 
 def test_origin_parent_count_and_exact_output_schema() -> None:
     original = facts()
-    for changes in (
+    cases: tuple[dict[str, object], ...] = (
         {"kind": "other"},
         {"origin_result_id": ""},
         {"origin_result_id": "a\nb"},
@@ -418,9 +422,10 @@ def test_origin_parent_count_and_exact_output_schema() -> None:
         {"parents": list(original.parents)},
         {"coordinates": []},
         {"output_schema": None},
-    ):
+    )
+    for changes in cases:
         with pytest.raises(CoreRuleError):
-            replace(original, **changes)
+            replace(original, **changes)  # type: ignore[arg-type]  # Reject malformed fields.
     assert replace(original, parents=()).parents == ()
     with pytest.raises(CoreRuleError, match="unique canonically ordered"):
         replace(original, parents=original.parents * 2)
@@ -562,7 +567,7 @@ def test_coordinate_exact_scalars_width_and_calendar_parent_domain() -> None:
     with pytest.raises(CoreRuleError):
         replace(snap, rows=((True, *snap.rows[0][1:]),))
     with pytest.raises(CoreRuleError):
-        replace(snap, rows=[snap.rows[0]])
+        replace(snap, rows=[snap.rows[0]])  # type: ignore[arg-type]  # Reject mutable rows.
     malformed = replace(snap, rows=((*snap.rows[0][:2], 1, *snap.rows[0][3:]),))
     with pytest.raises(CoreRuleError, match="ordinal sequence"):
         replace(result, coordinates=(malformed,))
@@ -597,7 +602,7 @@ def test_paired_snapshot_closure_and_canonical_names() -> None:
 @pytest.mark.parametrize("n", [True, -1, 1.0, "1"])
 def test_show_count_matches_frame_exact_integer_rule(n: object) -> None:
     with pytest.raises(CoreRuleError, match="nonnegative integer preview"):
-        facts().show(n=n)
+        facts().show(n=n)  # type: ignore[arg-type]  # Reject invalid preview counts.
 
 
 def test_all_records_have_bounded_repr_and_metadata_only_show(
@@ -790,7 +795,9 @@ def test_pure_decimal_scale_uses_captured_actual_carrier_and_preserves_direct_sc
         "attribute", "native", schema(rule), (), 0, (FrameMethodParent((), (metric(rule),)),)
     )
     validate_method_facts(facts)
-    assert rule.terms[0].coefficient.as_tuple() == scalar.as_tuple()
+    coefficient = rule.terms[0].coefficient
+    assert isinstance(coefficient, Decimal)
+    assert coefficient.as_tuple() == scalar.as_tuple()
     bad = replace(
         rule,
         left=replace(rule.left, value=Decimal("11.000000000")),
@@ -827,6 +834,7 @@ def test_float_facts_skip_arithmetic_before_overflow(kind: str) -> None:
     )
     validate_method_facts(captured)
     if kind == "linear":
+        assert isinstance(method, FrameLinearMethod)
         malformed = replace(method, terms=(FrameLinearTerm(1, rule),) * 3)
         with pytest.raises(CoreRuleError, match="topology"):
             validate_method_facts(

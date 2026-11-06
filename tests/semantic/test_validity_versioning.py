@@ -2,10 +2,15 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from pathlib import Path
+
 import pytest
 
 from marivo.semantic.catalog import Entity, SemanticCatalog
 from marivo.semantic.errors import SemanticLoadFailed
+from marivo.semantic.ir import ValidityVersioningIR
+from marivo.semantic.reader import SemanticProject
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -34,7 +39,9 @@ user_history = ms.entity(
 # ---------------------------------------------------------------------------
 
 
-def test_validity_versioning_round_trip(semantic_project_factory):
+def test_validity_versioning_round_trip(
+    semantic_project_factory: Callable[..., SemanticProject],
+) -> None:
     """ValidityVersioningIR is stored on the dataset and readable after load."""
     project = semantic_project_factory(
         {
@@ -45,8 +52,10 @@ def test_validity_versioning_round_trip(semantic_project_factory):
 
     dataset = SemanticCatalog(project).get("entity:sales.user_history")
     assert isinstance(dataset, Entity)
-    versioning = project._registry.entities["sales.user_history"].versioning
-    assert versioning is not None
+    registry = project._registry
+    assert registry is not None
+    versioning = registry.entities["sales.user_history"].versioning
+    assert isinstance(versioning, ValidityVersioningIR)
     assert versioning.kind == "validity"
     assert versioning.valid_from == "sales.user_history.valid_from"
     assert versioning.valid_to == "sales.user_history.valid_to"
@@ -60,7 +69,9 @@ def test_validity_versioning_round_trip(semantic_project_factory):
 # ---------------------------------------------------------------------------
 
 
-def test_validity_empty_open_end_rejected(semantic_project_factory):
+def test_validity_empty_open_end_rejected(
+    semantic_project_factory: Callable[..., SemanticProject],
+) -> None:
     """ms.validity() with open_end=() raises invalid_entity_versioning at decorator time."""
     project = semantic_project_factory(
         {
@@ -100,7 +111,9 @@ def test_validity_empty_open_end_rejected(semantic_project_factory):
 # ---------------------------------------------------------------------------
 
 
-def test_validity_invalid_interval_rejected(semantic_project_factory):
+def test_validity_invalid_interval_rejected(
+    semantic_project_factory: Callable[..., SemanticProject],
+) -> None:
     """ms.validity() with interval='open_closed' raises invalid_ref at decorator time."""
     project = semantic_project_factory(
         {
@@ -140,7 +153,9 @@ def test_validity_invalid_interval_rejected(semantic_project_factory):
 # ---------------------------------------------------------------------------
 
 
-def test_validity_valid_from_in_primary_key_rejected(semantic_project_factory):
+def test_validity_valid_from_in_primary_key_rejected(
+    semantic_project_factory: Callable[..., SemanticProject],
+) -> None:
     """Validity row coordinates cannot become stable Entity identity."""
     project = semantic_project_factory(
         {
@@ -168,7 +183,9 @@ def test_validity_valid_from_in_primary_key_rejected(semantic_project_factory):
 # ---------------------------------------------------------------------------
 
 
-def test_validity_rejects_unknown_field_ref(semantic_project_factory):
+def test_validity_rejects_unknown_field_ref(
+    semantic_project_factory: Callable[..., SemanticProject],
+) -> None:
     """Unknown temporal bounds fail semantic validation without source I/O."""
     project = semantic_project_factory(
         {
@@ -190,8 +207,11 @@ def test_validity_rejects_unknown_field_ref(semantic_project_factory):
 
 @pytest.mark.parametrize("sentinel", ["20260802", "OPEN"])
 def test_encoded_validity_open_end_matches_the_authored_source_sentinel(
-    semantic_project_factory, tmp_path, monkeypatch, sentinel
-):
+    semantic_project_factory: Callable[..., SemanticProject],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    sentinel: str,
+) -> None:
     import duckdb
 
     import marivo.analysis as mv
@@ -213,7 +233,7 @@ def test_encoded_validity_open_end_matches_the_authored_source_sentinel(
     )
     monkeypatch.chdir(tmp_path)
     session = mv.session.get_or_create("encoded-open-end", timezone="UTC")
-    members = session.members(
-        session.catalog.get("entity:sales.history"), at=session.instant("2026-08-03")
-    )
+    entity = session.catalog.get("entity:sales.history")
+    assert entity.kind == "entity"
+    members = session.members(entity, at=session.instant("2026-08-03"))
     assert session.frame(members).compute().to_pandas().iloc[:, 0].tolist() == [1]

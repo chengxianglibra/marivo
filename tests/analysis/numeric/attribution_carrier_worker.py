@@ -66,7 +66,8 @@ def run(root: Path, phase: str, output: Path) -> None:
         assert len(terminal_runs(session)) == before
         for value in inputs:
             with pytest.raises(AnalysisError) as caught:
-                value.attribute(by=(ms.ref.dimension("sales.order.channel"),))
+                # Exercise rejection of an unresolved reference on a retained Frame.
+                value.attribute(by=(ms.ref.dimension("sales.order.channel"),))  # type: ignore[arg-type]
             assert caught.value.expected == "a retained source declaration on this Frame instance"
             assert not hasattr(value, "drill")
         assert len(terminal_runs(session)) == before

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from datetime import date, datetime, timezone
 from decimal import Decimal
 from pathlib import Path
@@ -100,7 +100,7 @@ def _assert_table_read(
     source: TableSourceIR,
     *,
     identity: str,
-    expected: list[dict[str, object]],
+    expected: Sequence[Mapping[str, object]],
     expected_metadata: Callable[[TableMetadata], None] | None = None,
 ) -> None:
     bound = session.bind(source, source_identity=identity)
@@ -337,7 +337,7 @@ def test_postgres_arrow_integer_transport_preserves_mixed_values_and_bounds(
         assert rows.id.dtype == pd.ArrowDtype(pa.int64())
         assert isinstance(rows.amount.iloc[0], Decimal)
         assert type(rows.day.iloc[0]) is date
-        assert rows.instant.dtype == pd.DatetimeTZDtype(unit="us", tz="UTC")
+        assert rows.instant.dtype == pd.DatetimeTZDtype.construct_from_string("datetime64[us, UTC]")
         assert rows.payload.iloc[0] == b"\x00\xff"
         basic = owner.qualify(
             bound,
@@ -418,7 +418,7 @@ def test_clickhouse_query_blocks_preserve_nullable_mixed_values(
         assert rows.enabled.tolist() == [True, None]
         assert rows.day.tolist() == [date(2026, 10, 8), None]
         assert rows.instant.iloc[0] == instant and pd.isna(rows.instant.iloc[1])
-        assert rows.instant.dtype == pd.DatetimeTZDtype(unit="us", tz="UTC")
+        assert rows.instant.dtype == pd.DatetimeTZDtype.construct_from_string("datetime64[us, UTC]")
         assert len(owner.submissions) == 1 and owner.submissions[0].sql == read.sql
         empty_expression = expression.filter(expression.id < 0)
         empty = owner.compile(
@@ -530,6 +530,7 @@ def test_mysql_reader_without_named_timezone_tables(monkeypatch: pytest.MonkeyPa
                 with pytest.raises(DatasourceConnectionError) as unavailable:
                     verify_source_timezone(session._backend, "Asia/Tokyo")
                 assert unavailable.value.received == "Asia/Tokyo"
+                assert unavailable.value.repair is not None
                 assert "time zone tables" in unavailable.value.repair.action
                 bound = session.bind(TableSourceIR(name), source_identity=name)
                 assert bound.relation.point.type().timezone == "UTC"

@@ -56,8 +56,8 @@ def test_naive_parquet_identity_keeps_ticks_independent_of_time_parser(
     )
     monkeypatch.chdir(tmp_path)
     session = mv.session.get_or_create("naive-identity", timezone="America/New_York")
-    entity = session.catalog.get("entity:sales.events")
-    amount = catalog_value(session.catalog, "sales.events.amount", kind="field")
+    entity = catalog_value(session.catalog, "sales.events", kind="entity")
+    amount = catalog_value(session.catalog, "sales.events.amount", kind="measure")
     members = session.members(entity)
     fixed = session.read(members, {"amount": amount}).compute()
     rows = fixed.to_pandas()
@@ -68,7 +68,7 @@ def test_naive_parquet_identity_keeps_ticks_independent_of_time_parser(
         pa.int64()
     ).to_pylist()
     if unit == "us":
-        time = catalog_value(session.catalog, "sales.events.ts", kind="field")
+        time = catalog_value(session.catalog, "sales.events.ts", kind="time_dimension")
         scope = session.time_scope(start="2025-10-25T23:00:00Z", end="2025-10-26T23:00:00Z")
         assert session.observe({"total": amount.sum(time=time)}, by=(scope,)).compute().to_pandas()[
             "total"
@@ -80,7 +80,7 @@ def test_naive_parquet_identity_keeps_ticks_independent_of_time_parser(
     assert session.observe(
         {"total": amount.sum()}, where=mv.in_population(selected)
     ).compute().to_pandas()["total"].tolist() == [18]
-    aware = session.catalog.get("entity:sales.aware")
+    aware = catalog_value(session.catalog, "sales.aware", kind="entity")
     incompatible = session.population_from(restored, on=((restored.axes[0], aware),))
     with pytest.raises(CoreRuleError, match="naive and aware"):
         session.observe({"count": aware.count()}, where=mv.in_population(incompatible)).compute()
@@ -97,12 +97,15 @@ def test_uint64_identity_quantity_and_arithmetic_are_exact(
     profile: str,
 ) -> None:
     values = [0, 2**53 + 1, 2**63, 2**64 - 1]
+    source_rows: list[dict[str, object]] = [
+        {"id": value, "amount": value, "encoded_day": 20260101} for value in values
+    ]
+    source_rows.append({"id": 1, "amount": None, "encoded_day": 20260101})
     data = SourceData(
         "id UBIGINT, amount UBIGINT, encoded_day UBIGINT",
         ",".join(f"({value},{value},20260101)" for value in values) + ",(1,NULL,20260101)",
         "id UInt64, amount Nullable(UInt64), encoded_day UInt64",
-        [{"id": value, "amount": value, "encoded_day": 20260101} for value in values]
-        + [{"id": 1, "amount": None, "encoded_day": 20260101}],
+        source_rows,
     )
     monkeypatch.chdir(tmp_path)
     with source_case(backend, profile, tmp_path, monkeypatch, data) as case:
@@ -118,8 +121,8 @@ def test_uint64_identity_quantity_and_arithmetic_are_exact(
             }
         )
         session = mv.session.get_or_create("unsigned", timezone="UTC")
-        entity = session.catalog.get("entity:sales.events")
-        amount = catalog_value(session.catalog, "sales.events.amount", kind="field")
+        entity = catalog_value(session.catalog, "sales.events", kind="entity")
+        amount = catalog_value(session.catalog, "sales.events.amount", kind="measure")
         members = session.members(entity)
         fixed = session.read(members, {"amount": amount}).compute()
         rows = fixed.to_pandas()
@@ -153,7 +156,7 @@ def test_uint64_identity_quantity_and_arithmetic_are_exact(
             == totals["maximum"].dtype
             == pd.ArrowDtype(pa.decimal128(20, 0))
         )
-        day = catalog_value(session.catalog, "sales.events.day", kind="field")
+        day = catalog_value(session.catalog, "sales.events.day", kind="time_dimension")
         scope = session.time_scope(start="2026-01-01", end="2026-01-02")
         assert session.observe({"total": amount.sum(time=day)}, by=(scope,)).compute().to_pandas()[
             "total"
@@ -197,16 +200,19 @@ def test_decimal_transport_rejects_float_and_accepts_exact_unsigned() -> None:
             pd.DataFrame({"value": [float(2**64 - 1)]}),
             pa.schema([pa.field("value", pa.decimal128(20, 0))]),
         )
+    assert caught.value.repair is not None
     assert "precision cannot be recovered" in caught.value.repair.action
 
 
 def test_source_type_repairs_and_help_explain_exact_conversions() -> None:
     with pytest.raises(MaterializationError) as caught:
         admit_source_type(pa.field("payload", pa.binary()), "sales.events.payload")
+    assert caught.value.repair is not None
     assert "Entity body" in caught.value.repair.action
     assert ".cast('string')" in caught.value.repair.action
     with pytest.raises(MaterializationError) as caught:
         admit_source_type(pa.field("amount", pa.uint64()), "sales.events.amount")
+    assert caught.value.repair is not None
     assert ".cast('decimal(20,0)')" in caught.value.repair.action
     assert "unchecked int64" in caught.value.repair.action
     for target, required in (

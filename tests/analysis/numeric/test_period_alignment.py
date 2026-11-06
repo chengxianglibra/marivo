@@ -27,6 +27,18 @@ from tests.shared_fixtures import (
 )
 
 
+def _metric(catalog: ms.SemanticCatalog, path: str) -> ms.Metric:
+    result = catalog.get(path)
+    assert result.kind == "metric"
+    return result
+
+
+def _entity(catalog: ms.SemanticCatalog, path: str) -> ms.Entity:
+    result = catalog.get(path)
+    assert result.kind == "entity"
+    return result
+
+
 def period(
     session: mv.Session,
     month: int,
@@ -38,14 +50,15 @@ def period(
     axis = session.time_scope(
         start=f"2026-{month:02d}-01", end=f"2026-{month:02d}-{length + 1:02d}"
     ).by(mv.grain("day"))
-    members = session.members(session.catalog.get("entity:sales.customer"))
+    members = session.members(_entity(session.catalog, "entity:sales.customer"))
     domain = (
         members.classify(
-            by=(catalog_value(session.catalog, "sales.customer.region", kind="field"),)
+            by=(catalog_value(session.catalog, "sales.customer.region", kind="dimension"),)
         )
         if grouped
         else members
     )
+    assert isinstance(domain, mv.Population)
     return axis, session.observe(
         {"value": catalog_value(session.catalog, "sales." + metric, kind="metric")},
         by=mv.product(axis, domain),
@@ -166,6 +179,7 @@ def test_period_outer_keeps_time_missing_and_original_keys(
         assert row[presence[0]] == a
         assert row[presence[1]] == b
         expected = int(position == 0 and customer == "A")
+        assert isinstance(index, int)
         if a and b:
             assert changes.loc[index, "change"] == expected
         else:
@@ -234,10 +248,10 @@ def test_period_comparison_preserves_independent_spatial_endpoint_oracles(
     current_axis, current = period(case.session, 8, 3, grouped=True)
     baseline_axis, baseline = period(case.session, 7, 3, grouped=True)
     current_totals = case.session.observe(
-        {"value": case.session.catalog.get("metric:sales.order_count")}, by=(current_axis,)
+        {"value": _metric(case.session.catalog, "metric:sales.order_count")}, by=(current_axis,)
     )
     baseline_totals = case.session.observe(
-        {"value": case.session.catalog.get("metric:sales.order_count")}, by=(baseline_axis,)
+        {"value": _metric(case.session.catalog, "metric:sales.order_count")}, by=(baseline_axis,)
     )
     comparison = current_totals.compare(
         {
@@ -264,14 +278,14 @@ def test_period_outer_distinguishes_absent_groups_from_zero_activity(
     with duckdb.connect(str(case.database_path)) as connection:
         connection.execute("UPDATE \"order\" SET channel='mobile' WHERE order_id='j2_aa'")
     session = case.session
-    channel = catalog_value(session.catalog, "sales.order.channel", kind="field")
+    channel = catalog_value(session.catalog, "sales.order.channel", kind="dimension")
 
     def observe(month: int, start: int) -> mv.AnalysisFrame:
         axis = session.time_scope(
             start=f"2026-{month:02}-{start:02}", end=f"2026-{month:02}-{start + 3:02}"
         ).by(mv.grain("day"))
         return session.observe(
-            {"value": session.catalog.get("metric:sales.order_count")}, by=(axis, channel)
+            {"value": _metric(session.catalog, "metric:sales.order_count")}, by=(axis, channel)
         )
 
     current, baseline = observe(8, 1), observe(7, 9)

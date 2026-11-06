@@ -176,7 +176,7 @@ def test_all_context_owners_capture_aliases_in_loaded_definitions(
 
     definitions = {ref.key: definition for ref, definition in state.definitions.items()}
     for identity, alias in expected.items():
-        context = definitions[identity].ai_context
+        context = getattr(definitions[identity], "ai_context", None)
         assert isinstance(context, AiContextIR)
         assert context.aliases == (alias,)
         assert json.loads(json.dumps(asdict(context)))["aliases"] == [alias]
@@ -187,7 +187,7 @@ def test_all_context_owners_capture_aliases_in_loaded_definitions(
     )
     for ref, definition in rebuilt.definitions.items():
         if isinstance(definition, PublishedDeclaration):
-            assert definition.ai_context == state.definitions[ref].ai_context
+            assert definition.ai_context == getattr(state.definitions[ref], "ai_context", None)
 
 
 @pytest.mark.parametrize(

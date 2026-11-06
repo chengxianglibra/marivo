@@ -7,6 +7,7 @@ from typing import NoReturn
 import pytest
 
 import marivo.analysis as mv
+import marivo.semantic as ms
 from marivo.datasource.adapters import SourceSession
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.graph.reference_fixtures import reference_data
@@ -20,6 +21,12 @@ from tests.analysis.numeric.comparison_fixtures import (
 from tests.datasource.source_cases import source_case
 from tests.shared_fixtures import terminal_runs
 from tests.support.source_trace import SourceTrace
+
+
+def _entity(catalog: ms.SemanticCatalog, path: str) -> ms.Entity:
+    result = catalog.get(path)
+    assert result.kind == "entity"
+    return result
 
 
 @pytest.mark.parametrize("operation", ("nested", "union", "ratio"))
@@ -44,7 +51,7 @@ def test_complete_keys_source_and_fixed(
             selected_values = source.where(source["value"] > 0).compute()
             selected = session.population_from(
                 selected_values,
-                on=((selected_values.axes[0], session.catalog.get("entity:sales.facts")),),
+                on=((selected_values.axes[0], _entity(session.catalog, "entity:sales.facts")),),
             )
             keys = session.frame(selected).compute().to_pandas().iloc[:, 0]
             assert set(keys) == {

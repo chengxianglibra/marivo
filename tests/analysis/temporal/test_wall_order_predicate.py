@@ -18,7 +18,7 @@ from marivo.analysis.compiler.source_time import (
     source_time_comparison,
     source_time_predicate,
 )
-from marivo.analysis.core.time_authority import CivilDateSourceTime
+from marivo.analysis.core.time_authority import CivilDateSourceTime, WallClockSourceTime
 from marivo.analysis.materialization.temporal_sql import lower_temporal
 from marivo.semantic.ir import DateParse, HourPrefixParse, TimestampParse
 from tests.analysis.temporal.encoded_time_fixtures import axis
@@ -151,6 +151,7 @@ def test_hour_prefix_preserves_native_gap_and_inherited_source_zone(
         prefix=prepared_prefix,
         engine="duckdb",
     )
+    assert isinstance(authority, WallClockSourceTime)
     assert authority.timezone == "America/New_York"
     predicate = source_time_predicate(
         table.point,

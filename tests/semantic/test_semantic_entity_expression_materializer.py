@@ -9,6 +9,8 @@ identity relation and their existing behavior.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import ibis
 import pytest
 
@@ -17,7 +19,11 @@ from marivo.semantic.catalog import SemanticCatalog
 from marivo.semantic.errors import ErrorKind, SemanticRuntimeError
 from marivo.semantic.ir import EntityProvenance
 from marivo.semantic.materializer import Materializer
+from marivo.semantic.reader import SemanticProject
 from tests.shared_fixtures import patch_semantic_connections
+
+if TYPE_CHECKING:
+    from tests.conftest import _SemanticProjectFactory
 
 _WAREHOUSE_FILES = {
     "datasources/warehouse.py": (
@@ -62,7 +68,7 @@ orders = ms.entity(name="orders", datasource=ms.ref.datasource("warehouse"), sou
 """
 
 
-def _expr_project(semantic_project_factory, model: str):
+def _expr_project(semantic_project_factory: _SemanticProjectFactory, model: str) -> SemanticProject:
     project = semantic_project_factory({**_WAREHOUSE_FILES, "sales/entities.py": model})
     assert project.is_ready(), project.errors()
     return project
@@ -74,7 +80,7 @@ def _expr_project(semantic_project_factory, model: str):
 
 
 def test_expression_entity_materializes_output_rows_and_metric(
-    semantic_project_factory,
+    semantic_project_factory: _SemanticProjectFactory,
 ) -> None:
     project = _expr_project(semantic_project_factory, _DEDUP_MODEL)
     connection = _warehouse_connection()
@@ -93,7 +99,7 @@ def test_expression_entity_materializes_output_rows_and_metric(
 
 
 def test_expression_entity_grouping_exposes_output_grain(
-    semantic_project_factory,
+    semantic_project_factory: _SemanticProjectFactory,
 ) -> None:
     project = _expr_project(semantic_project_factory, _GROUPED_MODEL)
     connection = _warehouse_connection()
@@ -116,7 +122,7 @@ def test_expression_entity_grouping_exposes_output_grain(
 
 
 def test_expression_entity_accepts_self_derived_branches(
-    semantic_project_factory,
+    semantic_project_factory: _SemanticProjectFactory,
 ) -> None:
     branch_model = """\
 import ibis
@@ -151,7 +157,9 @@ branch_amount = ms.measure_column(
 # ---------------------------------------------------------------------------
 
 
-def test_partition_scope_applies_before_entity_body(semantic_project_factory) -> None:
+def test_partition_scope_applies_before_entity_body(
+    semantic_project_factory: _SemanticProjectFactory,
+) -> None:
     project = _expr_project(semantic_project_factory, _DEDUP_MODEL)
     connection = _warehouse_connection()
     scope = md.partition({"region": "east"}, max_rows=100, timeout_seconds=30)
@@ -168,7 +176,7 @@ def test_partition_scope_applies_before_entity_body(semantic_project_factory) ->
 
 
 def test_scope_max_rows_limits_entity_output_not_raw_input(
-    semantic_project_factory,
+    semantic_project_factory: _SemanticProjectFactory,
 ) -> None:
     project = _expr_project(semantic_project_factory, _DEDUP_MODEL)
     connection = _warehouse_connection()
@@ -190,7 +198,7 @@ def test_scope_max_rows_limits_entity_output_not_raw_input(
 
 
 def test_metric_sample_size_limits_entity_output_before_aggregation(
-    semantic_project_factory,
+    semantic_project_factory: _SemanticProjectFactory,
 ) -> None:
     project = _expr_project(semantic_project_factory, _GROUPED_MODEL)
     connection = _warehouse_connection()
@@ -211,7 +219,7 @@ def test_metric_sample_size_limits_entity_output_before_aggregation(
 
 
 def test_expression_entity_rejects_captured_memtable_root(
-    semantic_project_factory,
+    semantic_project_factory: _SemanticProjectFactory,
 ) -> None:
     model = _DIRECT_MODEL + (
         "\n"
@@ -231,7 +239,7 @@ def test_expression_entity_rejects_captured_memtable_root(
 
 
 def test_expression_entity_rejects_scope_bypass_through_op_ancestors(
-    semantic_project_factory,
+    semantic_project_factory: _SemanticProjectFactory,
 ) -> None:
     """A body must not walk above the injected relation to escape input scope.
 
@@ -275,7 +283,7 @@ def test_expression_entity_rejects_scope_bypass_through_op_ancestors(
 
 
 def test_expression_entity_without_scope_allows_op_ancestors(
-    semantic_project_factory,
+    semantic_project_factory: _SemanticProjectFactory,
 ) -> None:
     """Without an input scope the op chain is the Source itself; no bypass.
 
@@ -297,7 +305,7 @@ def test_expression_entity_without_scope_allows_op_ancestors(
 
 
 def test_expression_entity_rejects_detached_same_named_table(
-    semantic_project_factory,
+    semantic_project_factory: _SemanticProjectFactory,
 ) -> None:
     model = _DIRECT_MODEL + (
         "\n"
@@ -316,7 +324,7 @@ def test_expression_entity_rejects_detached_same_named_table(
 
 
 def test_expression_entity_missing_output_primary_key_fails(
-    semantic_project_factory,
+    semantic_project_factory: _SemanticProjectFactory,
 ) -> None:
     """A declared primary key must exist on the Entity output schema."""
     model = _DIRECT_MODEL + (
@@ -341,7 +349,7 @@ def test_expression_entity_missing_output_primary_key_fails(
 
 
 def test_expression_entity_output_primary_key_satisfied_passes(
-    semantic_project_factory,
+    semantic_project_factory: _SemanticProjectFactory,
 ) -> None:
     """A dedup key present in the output relation keeps materialization green."""
     model = """\
@@ -380,7 +388,7 @@ keyed_amount = ms.measure_column(
 
 
 def test_expression_entity_scalar_return_fails_at_materialization(
-    semantic_project_factory,
+    semantic_project_factory: _SemanticProjectFactory,
 ) -> None:
     model = _DIRECT_MODEL + (
         "\n"
@@ -402,7 +410,9 @@ def test_expression_entity_scalar_return_fails_at_materialization(
 # ---------------------------------------------------------------------------
 
 
-def test_direct_entity_materialization_unchanged(semantic_project_factory) -> None:
+def test_direct_entity_materialization_unchanged(
+    semantic_project_factory: _SemanticProjectFactory,
+) -> None:
     from marivo.refs import ref as ref_factory
 
     project = _expr_project(semantic_project_factory, _DIRECT_MODEL)
@@ -425,7 +435,7 @@ def test_direct_entity_materialization_unchanged(semantic_project_factory) -> No
 
 
 def test_expression_entity_provenance_reports_physical_source(
-    semantic_project_factory,
+    semantic_project_factory: _SemanticProjectFactory,
 ) -> None:
     project = _expr_project(semantic_project_factory, _DEDUP_MODEL)
     connection = _warehouse_connection()
@@ -443,7 +453,9 @@ def test_expression_entity_provenance_reports_physical_source(
 # ---------------------------------------------------------------------------
 
 
-def test_entity_preview_reports_output_columns(semantic_project_factory) -> None:
+def test_entity_preview_reports_output_columns(
+    semantic_project_factory: _SemanticProjectFactory,
+) -> None:
 
     project = _expr_project(semantic_project_factory, _GROUPED_MODEL)
     connection = _warehouse_connection()
@@ -462,7 +474,7 @@ def test_entity_preview_reports_output_columns(semantic_project_factory) -> None
 
 
 def test_metric_preview_over_expression_entity_keeps_sampling_disclosure(
-    semantic_project_factory,
+    semantic_project_factory: _SemanticProjectFactory,
 ) -> None:
 
     project = _expr_project(semantic_project_factory, _DEDUP_MODEL)

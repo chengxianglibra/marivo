@@ -166,9 +166,9 @@ def _selected_original_case(
                     cursor.close()
         _project(backend, case, monkeypatch, semantic_project_factory)
         session = mv.session.get_or_create("selected-original", timezone="UTC")
-        amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
-        category = catalog_value(session.catalog, "sales.facts.category", kind="field")
-        tenant = catalog_value(session.catalog, "sales.facts.tenant", kind="field")
+        amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
+        category = catalog_value(session.catalog, "sales.facts.category", kind="dimension")
+        tenant = catalog_value(session.catalog, "sales.facts.tenant", kind="dimension")
         axes = (tenant, category) if operation == "rollup" else (category,)
         fine = session.observe({"value": amount.sum()}, by=axes)
         fixed = fine.top(0 if operation == "empty" else 1, by=fine["value"]).compute()
@@ -181,9 +181,11 @@ def _selected_original_case(
         keys = session.population_from(fixed, on=tuple(zip(fixed.axes, axes, strict=True)))
         _mutate(backend, case, mutation)
         if operation == "rollup":
+            projected = keys.project(by=(tenant,))
+            assert isinstance(projected, mv.Population)
             query = session.observe(
                 {"value": amount.sum()},
-                by=keys.project(by=(tenant,)),
+                by=projected,
                 where=mv.in_population(keys),
             )
         elif operation == "drill":
@@ -322,8 +324,8 @@ def test_empty_selection_retains_native_parent_sum(
     with source_case(backend, profile, tmp_path, monkeypatch, data) as case:
         _project(backend, case, monkeypatch, semantic_project_factory)
         session = mv.session.get_or_create("selected-overflow", timezone="UTC")
-        amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
-        category = catalog_value(session.catalog, "sales.facts.category", kind="field")
+        amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
+        category = catalog_value(session.catalog, "sales.facts.category", kind="dimension")
         fine = session.observe({"value": amount.sum()}, by=(category,))
         query = fine.top(0, by=fine["value"])
         trace = capture_source(monkeypatch)
@@ -360,8 +362,8 @@ def test_parent_mean_filter_keeps_initial_native_pandas_value(
     with source_case(backend, profile, tmp_path, monkeypatch, data) as case:
         _project(backend, case, monkeypatch, semantic_project_factory)
         session = mv.session.get_or_create("selected-parent-mean", timezone="UTC")
-        amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
-        category = catalog_value(session.catalog, "sales.facts.category", kind="field")
+        amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
+        category = catalog_value(session.catalog, "sales.facts.category", kind="dimension")
         fine = session.observe({"value": amount.mean()}, by=(category,))
         fixed = fine.compute()
         threshold = fixed.to_pandas()["value"].iloc[0]
@@ -409,9 +411,9 @@ def test_parquet_selected_original_rereads_file_without_reselecting_parent(
     )
     monkeypatch.chdir(tmp_path)
     session = mv.session.get_or_create("selected-file", timezone="UTC")
-    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
-    tenant = catalog_value(session.catalog, "sales.facts.tenant", kind="field")
-    category = catalog_value(session.catalog, "sales.facts.category", kind="field")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
+    tenant = catalog_value(session.catalog, "sales.facts.tenant", kind="dimension")
+    category = catalog_value(session.catalog, "sales.facts.category", kind="dimension")
     fine = session.observe({"value": amount.sum()}, by=(tenant, category))
     fixed = fine.top(1, by=fine["value"]).compute()
     initial = fixed.to_pandas()

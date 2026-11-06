@@ -165,10 +165,11 @@ def test_same_owner_roots_reduce_separately_before_formula_alignment(
     operation: str,
 ) -> None:
     with _session(backend, profile, tmp_path, monkeypatch, semantic_project_factory) as session:
-        category = catalog_value(session.catalog, "sales.facts.category", kind="field")
-        tenant = catalog_value(session.catalog, "sales.facts.tenant", kind="field")
-        amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+        category = catalog_value(session.catalog, "sales.facts.category", kind="dimension")
+        tenant = catalog_value(session.catalog, "sales.facts.tenant", kind="dimension")
+        amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
         metric = session.catalog.get("metric:sales.combined")
+        assert metric.kind == "metric"
         if operation == "rollup":
             query = session.observe({"combined": metric, "amount": amount.sum()})
         else:
@@ -202,7 +203,7 @@ def test_row_recipes_recompute_at_source_with_both_physical_operands(
     name: str,
 ) -> None:
     with _session(backend, profile, tmp_path, monkeypatch, semantic_project_factory) as session:
-        category = catalog_value(session.catalog, "sales.facts.category", kind="field")
+        category = catalog_value(session.catalog, "sales.facts.category", kind="dimension")
         metric = catalog_value(session.catalog, "sales." + name, kind="metric")
         query = session.observe({"value": metric})
         trace = capture_source(monkeypatch)
@@ -225,7 +226,7 @@ def test_native_recipe_and_formula_checks_survive_empty_parent_selection(
     with _session(
         backend, profile, tmp_path, monkeypatch, semantic_project_factory, boundary
     ) as session:
-        category = catalog_value(session.catalog, "sales.facts.category", kind="field")
+        category = catalog_value(session.catalog, "sales.facts.category", kind="dimension")
         name = {
             "formula_overflow": "combined",
             "row_overflow": "adjusted_total",

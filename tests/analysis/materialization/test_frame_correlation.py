@@ -43,6 +43,7 @@ from marivo.datasource.adapters import CompiledRead, SourceSession
 from tests.shared_fixtures import (
     DslCase,
     DslCaseFactory,
+    catalog_get,
     catalog_value,
     export_dsl_parquet_models,
     terminal_runs,
@@ -102,33 +103,36 @@ def _assert_schema(frame: AnalysisFrame) -> None:
     assert type(frame) is AnalysisFrame
     assert frame.output_names == ("coefficient", "n_pairs")
     assert frame.presence_names == ()
-    coefficient, count = frame._schema.values
-    assert (coefficient.nullable, coefficient.unit) == (True, "1")
-    assert (count.nullable, count.unit) == (False, None)
-    if isinstance(frame._schema, PendingDataSchema):
-        assert coefficient.kind == count.kind == "numeric"
+    schema = frame._schema
+    assert (schema.values[0].nullable, schema.values[0].unit) == (True, "1")
+    assert (schema.values[1].nullable, schema.values[1].unit) == (False, None)
+    if isinstance(schema, PendingDataSchema):
+        assert schema.values[0].kind == schema.values[1].kind == "numeric"
     else:
-        assert coefficient.dtype == ScalarDataType("float64")
-        assert count.dtype == ScalarDataType("int64")
+        assert schema.values[0].dtype == ScalarDataType("float64")
+        assert schema.values[1].dtype == ScalarDataType("int64")
 
 
 def test_required_method_binding_and_invalid_arguments(local: LocalFrameServices) -> None:
     """C01: both endpoints and grouping handles belong to the exact receiver."""
     frame = _pairs(local, (1, 2), (2, 3))
     other = frame.select({"x": frame["x"], "y": frame["y"]})
-    for method in (AnalysisFrame.correlate, type(frame["x"]).corr):
-        assert inspect.signature(method).parameters["method"].default is inspect.Parameter.empty
+    for endpoint_method in (AnalysisFrame.correlate, type(frame["x"]).corr):
+        assert (
+            inspect.signature(endpoint_method).parameters["method"].default
+            is inspect.Parameter.empty
+        )
     assert "method" not in inspect.signature(type(frame["x"]).pair_count).parameters
     for method in ("kendall", "Pearson", "pair_count", None):
         with pytest.raises(AnalysisError):
-            frame.correlate(frame["x"], frame["y"], method=method)
+            frame.correlate(frame["x"], frame["y"], method=method)  # type: ignore[arg-type]  # Reject unsupported correlation methods.
         with pytest.raises(AnalysisError):
-            frame["x"].corr(frame["y"], method=method)
+            frame["x"].corr(frame["y"], method=method)  # type: ignore[arg-type]  # Reject unsupported methods.
     for operand in ("x", 1, [1, 2], frame, frame.coord(frame.axes[0])._expression):
         with pytest.raises(AnalysisError):
-            frame.correlate(operand, frame["y"], method="pearson")
+            frame.correlate(operand, frame["y"], method="pearson")  # type: ignore[arg-type]  # Reject non-column operands.
         with pytest.raises(AnalysisError):
-            frame["x"].pair_count(operand)
+            frame["x"].pair_count(operand)  # type: ignore[arg-type]  # Reject non-column operands.
     with pytest.raises(AnalysisError):
         frame["x"].corr(other["y"], method="pearson")
     with pytest.raises(AnalysisError):
@@ -193,6 +197,7 @@ def test_group_domain_masks_composite_keys_and_two_layer_equivalence(
     result = pending.compute()
     _assert_schema(result)
     assert result._schema.axes == (schema.axes[0],)
+    assert isinstance(result._backing, MemoryFrameBacking)
     rows = result._backing.data.copy_rows()
     assert rows["country"].tolist() == [pd.NA, "CN", "US", "US"]
     assert rows["city"].tolist() == ["X"] * 3 + ["Y"]
@@ -276,6 +281,7 @@ def test_spearman_average_ties_and_group_local_ranks(local: LocalFrameServices) 
     assert result["coefficient"].iloc[0] == pytest.approx(math.sqrt(3) / 2, abs=1e-12)
     assert result["n_pairs"].tolist() == [3]
     group = DataColumn("group", "group", ScalarDataType("string"), False)
+    assert isinstance(frame._schema, DataSchema)
     schema = replace(
         frame._schema, axes=(DataAxis("group", (group,), name="group"), *frame._schema.axes)
     )
@@ -292,10 +298,12 @@ def test_spearman_average_ties_and_group_local_ranks(local: LocalFrameServices) 
             dtype=object,
         ),
     )
-    result = grouped.correlate(
+    grouped_result = grouped.correlate(
         grouped["x"], grouped["y"], method="spearman", by=(grouped.axes[0],)
     ).compute()
-    assert result.to_pandas()["coefficient"].tolist() == pytest.approx([1.0, 1.0], abs=1e-12)
+    assert grouped_result.to_pandas()["coefficient"].tolist() == pytest.approx(
+        [1.0, 1.0], abs=1e-12
+    )
 
 
 @pytest.mark.parametrize(
@@ -427,6 +435,8 @@ def test_float64_decimal_division_endpoints_match_explicit_select(
 def test_known_duration_rejected_at_each_endpoint(local: LocalFrameServices) -> None:
     """C06: numeric ticks require the caller's explicit external conversion."""
     numeric = _pairs(local, (1, 2), (2, 3))
+    assert isinstance(numeric._schema, DataSchema)
+    assert isinstance(numeric._backing, MemoryFrameBacking)
     schema = replace(
         numeric._schema,
         values=(
@@ -485,6 +495,8 @@ def test_arrow_valid_nonfinite_endpoint_uses_native_correlation(
         x_type=ScalarDataType("float64"),
         y_type=ScalarDataType("float64"),
     )
+    assert isinstance(initial._backing, MemoryFrameBacking)
+    assert isinstance(initial._schema, DataSchema)
     rows = initial._backing.data.copy_rows()
     rows["x"] = pd.Series(
         pd.arrays.ArrowExtensionArray(pa.array([nonfinite, None], type=pa.float64()))
@@ -552,6 +564,8 @@ def test_complete_key_alignment_zero_and_explicit_presence(local: LocalFrameServ
         both.correlate(both["left.x"], both["right.x"], method="pearson").compute().to_pandas()
     )
     pd.testing.assert_frame_equal(result, filtered)
+    assert isinstance(aligned._backing, MemoryFrameBacking)
+    assert isinstance(aligned._schema, DataSchema)
     rows = aligned._backing.data.copy_rows()
     for column in aligned._schema.presence:
         rows[column.slot_id] = False
@@ -573,9 +587,11 @@ def test_complete_key_alignment_zero_and_explicit_presence(local: LocalFrameServ
 
 
 def _source(case: DslCase) -> AnalysisFrame:
-    amount = catalog_value(case.session.catalog, "sales.order.amount", kind="field")
+    amount = catalog_value(case.session.catalog, "sales.order.amount", kind="measure")
     return case.session.read(
-        case.session.members(case.session.catalog.get("entity:sales.order")),
+        case.session.members(
+            catalog_get(case.session.catalog, "entity:sales.order", kind="entity")
+        ),
         {"x": amount, "y": amount},
     )
 
@@ -651,6 +667,7 @@ def test_effective_source_float_types_and_native_nonfinite_values(
     _assert_schema(pending)
     fixed = source.compute()
     assert isinstance(fixed._backing, MemoryFrameBacking)
+    assert isinstance(fixed._schema, DataSchema)
     assert (
         tuple(column.dtype for column in fixed._schema.values) == (ScalarDataType("float64"),) * 2
     )

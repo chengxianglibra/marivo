@@ -1,6 +1,7 @@
 """Closed one-endpoint records preserve reread and historical totals independently."""
 
 from dataclasses import fields, replace
+from pathlib import Path
 
 import pytest
 
@@ -110,7 +111,9 @@ def test_target_facts_check_structure_and_preserve_captured_float_total() -> Non
         replace(metric, share_state="zero_total")
 
 
-def test_level_facts_survive_independent_store_read_and_reject_changed_payload(tmp_path) -> None:
+def test_level_facts_survive_independent_store_read_and_reject_changed_payload(
+    tmp_path: Path,
+) -> None:
     import subprocess
     import sys
     from datetime import datetime, timezone

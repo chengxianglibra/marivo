@@ -361,6 +361,7 @@ def test_discovery_and_parameter_links_support_a_fresh_question(
 def test_authoring_parameters_keep_complete_native_acquisition_and_real_links() -> None:
     import inspect
 
+    from marivo._authoring.model import AuthoringCapability
     from marivo.introspection.live.reflect import import_registered_callable
     from marivo.semantic._capabilities.registry import REGISTRY as SEMANTIC_REGISTRY
 
@@ -385,7 +386,9 @@ def test_authoring_parameters_keep_complete_native_acquisition_and_real_links() 
             ("period_calendar", "temporal_set")
         ):
             assert "Example inputs:" in render_help_text("semantic." + target)[0]
-        signature = inspect.signature(import_registered_callable(descriptor.callable_path))
+        callable_value = import_registered_callable(descriptor.callable_path)
+        assert callable(callable_value)
+        signature = inspect.signature(callable_value)
         assert {
             name
             for requirement in descriptor.input_requirements
@@ -408,6 +411,7 @@ def test_authoring_parameters_keep_complete_native_acquisition_and_real_links() 
     }
     for target, parameters in expected.items():
         descriptor = SEMANTIC_REGISTRY.by_canonical_id(target)
+        assert isinstance(descriptor, AuthoringCapability)
         for name, producer in parameters.items():
             requirement = next(
                 r for r in descriptor.input_requirements if name in r.parameter_names
@@ -421,7 +425,9 @@ def test_authoring_parameters_keep_complete_native_acquisition_and_real_links() 
     for backend in ("duckdb", "trino", "mysql", "postgres", "clickhouse"):
         connection = DATASOURCE_REGISTRY.by_canonical_id(backend)
         assert connection.callable_path is not None
-        signature = inspect.signature(import_registered_callable(connection.callable_path))
+        callable_value = import_registered_callable(connection.callable_path)
+        assert callable(callable_value)
+        signature = inspect.signature(callable_value)
         assert {
             name
             for requirement in connection.input_requirements

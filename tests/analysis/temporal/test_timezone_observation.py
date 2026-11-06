@@ -16,6 +16,7 @@ import pyarrow.parquet as pq
 import pytest
 
 import marivo.analysis as mv
+import marivo.semantic as ms
 from marivo._temporal import CalendarAxis, TimeScope
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.session.core import Session
@@ -34,6 +35,24 @@ _ROWS = (
     ("next_a2", "A", 60, "2026-08-06 12:00:00"),
     ("next_b", "B", 120, "2026-08-05 12:00:00"),
 )
+
+
+def _entity(catalog: ms.SemanticCatalog, path: str) -> ms.Entity:
+    result = catalog.get(path)
+    assert result.kind == "entity"
+    return result
+
+
+def _metric(catalog: ms.SemanticCatalog, path: str) -> ms.Metric:
+    result = catalog.get(path)
+    assert result.kind == "metric"
+    return result
+
+
+def _relationship(catalog: ms.SemanticCatalog, path: str) -> ms.Relationship:
+    result = catalog.get(path)
+    assert result.kind == "relationship"
+    return result
 
 
 def _project(
@@ -108,8 +127,8 @@ def _project(
 
 def _observe(session: Session, scope: TimeScope | CalendarAxis) -> mv.AnalysisFrame:
     return session.observe(
-        {"value": session.catalog.get("metric:sales.average")},
-        by=mv.product(scope, session.members(session.catalog.get("entity:sales.customers"))),
+        {"value": _metric(session.catalog, "metric:sales.average")},
+        by=mv.product(scope, session.members(_entity(session.catalog, "entity:sales.customers"))),
     )
 
 
@@ -132,11 +151,11 @@ def test_report_mean_members_and_next_window_have_independent_oracles(
     assert _values(values) == {"A": 20, "B": 60}
     chosen = values.where(values["value"] < 50)
     selected = session.population_from(
-        chosen, on=((chosen.axes[1], session.catalog.get("entity:sales.customers")),)
+        chosen, on=((chosen.axes[1], _entity(session.catalog, "entity:sales.customers")),)
     )
     assert case_members(session, selected) == ["A"]
     following = session.observe(
-        {"value": session.catalog.get("metric:sales.total")},
+        {"value": _metric(session.catalog, "metric:sales.total")},
         by=mv.product(session.time_scope(start="2026-08-03", end="2026-08-10"), selected),
         where=mv.in_population(selected),
     )
@@ -230,11 +249,11 @@ def test_dst_mean_grid_and_cumulative_preserve_exact_windows(
     assert (scope.end - scope.start).total_seconds() == hours * 3600
     assert _values(_observe(session, scope)) == {"A": 20, "B": 60}
     grid = scope.by(mv.grain("day"))
-    members = session.members(session.catalog.get("entity:sales.customers"))
+    members = session.members(_entity(session.catalog, "entity:sales.customers"))
     gridded = _observe(session, grid)
     assert _values(gridded) == {"A": 20, "B": 60}
     running = session.observe(
-        {"value": session.catalog.get("metric:sales.total").window(mv.all_history())},
+        {"value": _metric(session.catalog, "metric:sales.total").window(mv.all_history())},
         by=mv.product(grid, members),
     )
     assert _values(running) == {"A": 928, "B": 60}
@@ -436,9 +455,11 @@ def test_population_time_predicate_uses_source_authority_and_owns_its_period(
     _project(tmp_path, monkeypatch, semantic_project_factory, read_zone=read_zone)
     session = mv.session.get_or_create("within-members", timezone="Asia/Shanghai")
     scope = session.time_scope(start="2026-08-01", end="2026-08-02")
-    time = catalog_value(session.catalog, "sales.orders.happened", kind="field")
-    metric = session.catalog.get("metric:sales.total")
-    members = session.members(session.catalog.get("entity:sales.orders"), where=time.within(scope))
+    time = catalog_value(session.catalog, "sales.orders.happened", kind="time_dimension")
+    metric = _metric(session.catalog, "metric:sales.total")
+    members = session.members(
+        _entity(session.catalog, "entity:sales.orders"), where=time.within(scope)
+    )
     assert case_members(session, members) == expected_ids
     for period in (scope, session.time_scope(start="2026-07-01", end="2026-09-01")):
         for condition in ("members", "predicate"):
@@ -449,10 +470,16 @@ def test_population_time_predicate_uses_source_authority_and_owns_its_period(
             )
             assert query.compute().to_pandas()["value"].tolist() == [expected_total]
     # Image and set selection consume the same already governed identity selection.
-    buyer = session.catalog.get("relationship:sales.buyer")
-    assert case_members(session, members.image(via=(buyer,))) == ["A", "B"]
-    assert case_members(session, members.intersection(members)) == expected_ids
-    assert case_members(session, members.difference(members)) == []
+    buyer = _relationship(session.catalog, "relationship:sales.buyer")
+    image = members.image(via=(buyer,))
+    intersection = members.intersection(members)
+    difference = members.difference(members)
+    assert isinstance(image, mv.Population)
+    assert isinstance(intersection, mv.Population)
+    assert isinstance(difference, mv.Population)
+    assert case_members(session, image) == ["A", "B"]
+    assert case_members(session, intersection) == expected_ids
+    assert case_members(session, difference) == []
     assert session.observe({"value": metric}, by=(scope,)).compute().to_pandas()[
         "value"
     ].tolist() == [expected_total]

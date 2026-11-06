@@ -72,19 +72,19 @@ def _native_times(backend: str, root: Path, monkeypatch: pytest.MonkeyPatch) -> 
             ),
             project_root=root,
         )
-        with clickhouse.connection(admin=True, port=port) as connection:
-            connection.command(
+        with clickhouse.connection(admin=True, port=port) as ch_connection:
+            ch_connection.command(
                 f"CREATE TABLE {table} (id Int64, instant DateTime, day Date) ENGINE=MergeTree ORDER BY id"
             )
             try:
-                connection.command(
+                ch_connection.command(
                     f"INSERT INTO {table} VALUES "
                     "(1,toDateTime(1767268800),'2026-01-01'),"
                     "(2,toDateTime(1767312000),'2026-01-02')"
                 )
                 yield table
             finally:
-                connection.command(f"DROP TABLE IF EXISTS {table}")
+                ch_connection.command(f"DROP TABLE IF EXISTS {table}")
 
 
 @pytest.mark.parametrize("backend", ("mysql", "clickhouse"))
@@ -164,6 +164,7 @@ def test_native_time_range_matches_physical_instants_and_dates_before_business_r
                     refresh=True,
                 )
             assert caught.value.code == "time_range_boundary_mismatch"
+            assert caught.value.effect_observed is not None
             assert caught.value.effect_observed.query_executed is False
         assert queries == before_mismatches
 
@@ -191,9 +192,11 @@ def test_native_wall_clock_localization_keeps_non_null_gap_fold_values(backend: 
                 None,
             )
     else:
-        from tests.datasource.environment.clickhouse_analysis import connection
+        from tests.datasource.environment.clickhouse_analysis import (
+            connection as clickhouse_connection,
+        )
 
-        with connection() as client:
+        with clickhouse_connection() as client:
             row = client.query(
                 "SELECT toUnixTimestamp64Micro(toDateTime64('2026-03-08 02:30:00', 6, 'America/New_York')), "
                 "toUnixTimestamp64Micro(toDateTime64('2026-11-01 01:30:00', 6, 'America/New_York')), "

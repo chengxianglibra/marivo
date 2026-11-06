@@ -2,6 +2,7 @@
 
 import textwrap
 from pathlib import Path
+from typing import Literal
 
 import duckdb
 import pytest
@@ -9,8 +10,9 @@ import pytest
 import marivo.analysis as mv
 from marivo._definition.expressions import DeclaredMetricRef
 from marivo.semantic._deferred_semantics import consume_metric
+from marivo.semantic._expression_values import MetricExpression
 from marivo.semantic.catalog import SemanticCatalog
-from tests.shared_fixtures import terminal_runs
+from tests.shared_fixtures import catalog_get, terminal_runs
 
 
 def test_session_exposes_catalog_property(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -82,7 +84,9 @@ def test_session_catalog_loads_external_semantic_layer(
 
     session = mv.session.get_or_create(name="external_layer_session")
 
-    refunds = consume_metric(session.catalog.get("metric:finance.refunds_total"))
+    refunds = consume_metric(
+        catalog_get(session.catalog, "metric:finance.refunds_total", kind="metric")
+    )
     assert isinstance(refunds.node, DeclaredMetricRef)
     assert refunds.node.ref.ref.path == "finance.refunds_total"
 
@@ -148,7 +152,7 @@ def test_session_observe_uses_external_layer_datasource(
     monkeypatch.chdir(project_root)
 
     session = mv.session.get_or_create(name="external_layer_observe", timezone="UTC")
-    metric = session.catalog.get("metric:finance.refunds_total")
+    metric = catalog_get(session.catalog, "metric:finance.refunds_total", kind="metric")
     frame = session.observe({"refunds": metric}).compute()
 
     assert frame.to_pandas()["refunds"].tolist() == [150.0]
@@ -207,15 +211,15 @@ def test_named_objects_and_observe_containers_capture_independent_results(
     _write_object_model(tmp_path)
     monkeypatch.chdir(tmp_path)
     session = mv.session.get_or_create("object-arithmetic")
-    revenue = session.catalog.get("metric:sales.revenue")
-    orders = session.catalog.get("metric:sales.order_count")
-    profit = session.catalog.get("metric:sales.profit")
+    revenue = catalog_get(session.catalog, "metric:sales.revenue", kind="metric")
+    orders = catalog_get(session.catalog, "metric:sales.order_count", kind="metric")
+    profit = catalog_get(session.catalog, "metric:sales.profit", kind="metric")
     assert (
         isinstance(revenue, ms.Metric)
         and isinstance(orders, ms.Metric)
         and isinstance(profit, ms.Metric)
     )
-    metrics = [revenue, orders, profit]
+    metrics: list[MetricExpression[Literal["numeric"]]] = [revenue, orders, profit]
     pending = session.observe(metrics)
     metrics[:] = [orders]
     assert pending.output_names == ("revenue", "order_count", "profit")
@@ -232,6 +236,7 @@ def test_named_objects_and_observe_containers_capture_independent_results(
     assert session.observe(revenue).compute().to_pandas()["revenue"].tolist() == [30]
     from marivo.analysis.errors import AnalysisError
 
+    invalid: object
     for invalid in ([], (), {}, [revenue / orders], (revenue * 1,)):
         with pytest.raises(AnalysisError) as caught:
             session.observe(invalid)
@@ -248,7 +253,7 @@ def test_receiving_session_rebinds_named_leaves_but_keeps_captured_frames(
     _write_object_model(tmp_path)
     monkeypatch.chdir(tmp_path)
     first = mv.session.get_or_create("scope-one")
-    old = first.catalog.get("metric:sales.revenue")
+    old = catalog_get(first.catalog, "metric:sales.revenue", kind="metric")
     assert isinstance(old, ms.Metric)
     captured = first.observe(old)
     old_definition = old.definition
@@ -272,7 +277,7 @@ def test_loaded_wrappers_keep_project_and_axes_do_not_gain_selection_owner(
     _write_object_model(project_b)
     monkeypatch.chdir(project_a)
     first = mv.session.get_or_create("first")
-    entity = first.catalog.get("entity:sales.facts")
+    entity = catalog_get(first.catalog, "entity:sales.facts", kind="entity")
     region = first.catalog.get("dimension:sales.facts.region")
     assert isinstance(entity, ms.Entity) and isinstance(region, ms.Dimension)
     grouping = mv.identity(entity)
@@ -288,7 +293,7 @@ def test_loaded_wrappers_keep_project_and_axes_do_not_gain_selection_owner(
         other.observe({"size": people.count()})
     monkeypatch.chdir(project_b)
     foreign = mv.session.get_or_create("foreign")
-    metric = foreign.catalog.get("metric:sales.revenue")
+    metric = catalog_get(foreign.catalog, "metric:sales.revenue", kind="metric")
     assert isinstance(metric, ms.Metric)
     for by in ((grouping,), fields, fields.axes, literal):
         with pytest.raises((SemanticError, AnalysisError)):
@@ -316,7 +321,7 @@ def test_attribute_resolves_each_endpoint_classification_without_rebinding_metri
         )
     monkeypatch.chdir(tmp_path)
     first = mv.session.get_or_create("retained-scopes")
-    revenue = first.catalog.get("metric:sales.revenue")
+    revenue = catalog_get(first.catalog, "metric:sales.revenue", kind="metric")
     assert isinstance(revenue, ms.Metric)
     old = first.observe(revenue)
     _write_object_model(tmp_path, classification="alternate", numeric_column="doubled")
@@ -351,7 +356,7 @@ def test_attribute_missing_classification_reports_the_retained_endpoint_before_r
     )
     monkeypatch.chdir(tmp_path)
     first = mv.session.get_or_create("missing-classification")
-    metric = first.catalog.get("metric:sales.revenue")
+    metric = catalog_get(first.catalog, "metric:sales.revenue", kind="metric")
     assert isinstance(metric, ms.Metric)
     old = first.observe(metric)
     _write_object_model(tmp_path)
@@ -381,7 +386,7 @@ def test_literal_identity_keys_cannot_be_reinterpreted_after_primary_key_change(
     _write_object_model(tmp_path)
     monkeypatch.chdir(tmp_path)
     first = mv.session.get_or_create("identity-one")
-    entity = first.catalog.get("entity:sales.facts")
+    entity = catalog_get(first.catalog, "entity:sales.facts", kind="entity")
     assert isinstance(entity, ms.Entity)
     selected = mv.coordinates(by=(mv.identity(entity),), keys=(((1,),),))
     model = tmp_path / "models/semantic/sales/model.py"
@@ -393,7 +398,7 @@ def test_literal_identity_keys_cannot_be_reinterpreted_after_primary_key_change(
 
     with pytest.raises((AnalysisError, SemanticError), match="primary-key interpretation"):
         second.observe({"size": selected.count()})
-    metric = second.catalog.get("metric:sales.revenue")
+    metric = catalog_get(second.catalog, "metric:sales.revenue", kind="metric")
     assert isinstance(metric, ms.Metric)
     with pytest.raises((AnalysisError, SemanticError), match="primary-key interpretation"):
         second.observe(metric, where=mv.in_population(selected))
@@ -411,16 +416,16 @@ def test_analysis_input_roles_reject_authoring_and_wrong_stage_with_parameter_pa
     monkeypatch.chdir(tmp_path)
     session = mv.session.get_or_create("role-boundaries")
     metric = session.catalog.get(ms.ref.metric("sales.revenue"))
-    entity = session.catalog.get("entity:sales.facts")
+    entity = catalog_get(session.catalog, "entity:sales.facts", kind="entity")
     assert isinstance(metric, ms.Metric) and isinstance(entity, ms.Entity)
     with pytest.raises(AnalysisError, match="metrics"):
-        session.observe(ms.ref.metric("sales.revenue"))
+        session.observe(ms.ref.metric("sales.revenue"))  # type: ignore[arg-type]  # Reject unresolved symbols.
     with pytest.raises(AnalysisError, match=r"by\[0\]"):
-        session.observe(metric, by=(metric,))
+        session.observe(metric, by=(metric,))  # type: ignore[arg-type]  # Metric is not a grouping.
     with pytest.raises(AnalysisError, match=r"observe\.where"):
-        session.observe(metric, where=metric > 0)
+        session.observe(metric, where=metric > 0)  # type: ignore[arg-type]  # Reject metric predicates.
     with pytest.raises(AnalysisError, match=r"read\.fields"):
-        session.read(session.members(entity), {"wrong": metric})
+        session.read(session.members(entity), {"wrong": metric})  # type: ignore[dict-item]  # Reject Metric as row field.
     frame = session.observe(metric)
     with pytest.raises(AnalysisError, match=r"population_from\.on"):
-        session.population_from(frame, on=((None, metric),))
+        session.population_from(frame, on=((None, metric),))  # type: ignore[arg-type]  # Reject invalid axis binding.

@@ -89,6 +89,16 @@ def expression_roles(
     assert check is not None
 
 
+def closed_time_authoring(closed_time: Deferred) -> None:
+    ms.measure_column(
+        name="amount",
+        entity=ms.ref.entity("sales.orders"),
+        column="amount",
+        additivity=ms.additive_all(),
+        status_time_dimension=closed_time,
+    )
+
+
 def declaration_stage(amount: ms.Measure, authoring: Deferred) -> None:
     @ms.measure()
     def closed_rows() -> ms.RowExpression[Literal["numeric"]]:

@@ -15,7 +15,7 @@ from marivo.semantic.dtos import (
 )
 
 
-def test_file_source_parquet_dict_round_trips_through_semantic_ir_parser():
+def test_file_source_parquet_dict_round_trips_through_semantic_ir_parser() -> None:
     from marivo.semantic.ir import source_from_dict
 
     src = ParquetSourceIR(path="/data/orders.parquet", hive_partitioning=True)
@@ -58,7 +58,7 @@ def test_post_json_source_round_trips_through_semantic_ir_parser() -> None:
     assert source_from_dict(src.to_dict()) == src
 
 
-def test_authoring_source_input_to_dict_is_json_safe():
+def test_authoring_source_input_to_dict_is_json_safe() -> None:
     src = AuthoringSourceInput(
         role="from",
         datasource="warehouse",
@@ -73,14 +73,14 @@ def test_authoring_source_input_to_dict_is_json_safe():
     }
 
 
-def test_authoring_source_role_is_finite_public_vocabulary():
+def test_authoring_source_role_is_finite_public_vocabulary() -> None:
     from marivo.semantic.dtos import AuthoringSourceRole
 
     assert get_args(AuthoringSourceRole) == ("primary", "from", "to", "component")
     assert get_type_hints(AuthoringSourceInput)["role"] == AuthoringSourceRole
 
 
-def test_derive_status_blocked_on_blocker_issue():
+def test_derive_status_blocked_on_blocker_issue() -> None:
     issue = AssessmentIssue(
         kind="missing_column",
         severity="blocker",
@@ -91,7 +91,7 @@ def test_derive_status_blocked_on_blocker_issue():
     assert derive_status((issue,)) == "blocked"
 
 
-def test_derive_status_needs_input_then_supported():
+def test_derive_status_needs_input_then_supported() -> None:
     needs = AssessmentIssue(
         kind="missing_evidence",
         severity="warning",
@@ -103,7 +103,7 @@ def test_derive_status_needs_input_then_supported():
     assert derive_status(()) == "supported"
 
 
-def test_authoring_assessment_is_frozen():
+def test_authoring_assessment_is_frozen() -> None:
     assessment = AuthoringAssessment(status="supported", issues=())
     with pytest.raises(AttributeError):
         assessment.status = "blocked"  # type: ignore[misc]

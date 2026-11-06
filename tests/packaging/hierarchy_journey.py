@@ -16,7 +16,7 @@ from tests.packaging.graph_journeys import (
     _ordinary_keys,
     _remove_sources,
 )
-from tests.shared_fixtures import analysis_dsl_rows, catalog_value, run_ids
+from tests.shared_fixtures import analysis_dsl_rows, catalog_get, catalog_value, run_ids
 from tests.support.json import Json, checked, encode, obj, read
 
 
@@ -79,12 +79,16 @@ def run(root: Path, phase: str) -> dict[str, Json]:
     state_path = root / "hierarchy.json"
     if phase == "produce":
         session = _create(root, "j1", "parquet")
-        members = session.members(session.catalog.get("entity:operations.device"))
-        category = catalog_value(session.catalog, "operations.device.zone", kind="field")
-        amount = catalog_value(session.catalog, "operations.reading.energy", kind="field")
-        time = catalog_value(session.catalog, "operations.reading.recorded_at", kind="field")
-        device = catalog_value(session.catalog, "operations.reading.device_id", kind="field")
-        sensor = catalog_value(session.catalog, "operations.reading.sensor", kind="field")
+        members = session.members(
+            catalog_get(session.catalog, "entity:operations.device", kind="entity")
+        )
+        category = catalog_value(session.catalog, "operations.device.zone", kind="dimension")
+        amount = catalog_value(session.catalog, "operations.reading.energy", kind="measure")
+        time = catalog_value(
+            session.catalog, "operations.reading.recorded_at", kind="time_dimension"
+        )
+        device = catalog_value(session.catalog, "operations.reading.device_id", kind="dimension")
+        sensor = catalog_value(session.catalog, "operations.reading.sensor", kind="dimension")
         scope = session.time_scope(start="2026-08-01", end="2026-09-01")
         metric = amount.sum(time=time)
         base = session.observe({"value": metric}, by=mv.product(scope, members))
@@ -92,14 +96,18 @@ def run(root: Path, phase: str) -> dict[str, Json]:
         coordinates = session.observe(
             {"value": metric}, by=(scope, device, sensor), where=mv.in_population(members)
         )
+        category_domain = mv.product(scope, members.classify(by=(category,)))
+        classified_domain = mv.product(scope, members.classify(by=(members.axes[0], category)))
+        assert isinstance(category_domain, mv.Population)
+        assert isinstance(classified_domain, mv.Population)
         direct = session.observe(
             {"value": metric},
-            by=mv.product(scope, members.classify(by=(category,))),
+            by=category_domain,
             where=mv.in_population(members),
         )
         classified = session.observe(
             {"value": metric},
-            by=mv.product(scope, members.classify(by=(members.axes[0], category))),
+            by=classified_domain,
             where=mv.in_population(members),
         )
         selected = category_query.where(category_query["value"] == "east")

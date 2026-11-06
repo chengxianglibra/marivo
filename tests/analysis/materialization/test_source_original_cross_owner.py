@@ -75,13 +75,14 @@ def test_calendar_rollup_reduces_each_root_before_host_formula(
     same_owner: bool,
 ) -> None:
     session = _session(tmp_path, monkeypatch, semantic_project_factory, same_owner=same_owner)
-    one = catalog_value(session.catalog, "sales.one.amount", kind="field")
-    two = catalog_value(session.catalog, "sales.two.amount", kind="field")
-    one_day = catalog_value(session.catalog, "sales.one.day", kind="field")
-    two_day = catalog_value(session.catalog, "sales.two.day", kind="field")
+    one = catalog_value(session.catalog, "sales.one.amount", kind="measure")
+    two = catalog_value(session.catalog, "sales.two.amount", kind="measure")
+    one_day = catalog_value(session.catalog, "sales.one.day", kind="time_dimension")
+    two_day = catalog_value(session.catalog, "sales.two.day", kind="time_dimension")
     days = session.time_scope(start="2026-10-01", end="2026-10-03").by(mv.grain("day"))
     metric = one.sum(time=one_day) - two.sum(time=two_day)
     trace = capture_source(monkeypatch)
+    assert days.scope is not None
     result = session.observe({"net": metric}, by=(days.scope,)).compute().to_pandas()
     assert result["net"].tolist() == [-120]
     assert trace.uploaded_key_rows == []
@@ -97,10 +98,10 @@ def test_calendar_parent_formula_retains_native_integer_boundaries(
     session = _session(
         tmp_path, monkeypatch, semantic_project_factory, same_owner=same_owner, boundary="overflow"
     )
-    one = catalog_value(session.catalog, "sales.one.amount", kind="field")
-    two = catalog_value(session.catalog, "sales.two.amount", kind="field")
-    one_day = catalog_value(session.catalog, "sales.one.day", kind="field")
-    two_day = catalog_value(session.catalog, "sales.two.day", kind="field")
+    one = catalog_value(session.catalog, "sales.one.amount", kind="measure")
+    two = catalog_value(session.catalog, "sales.two.amount", kind="measure")
+    one_day = catalog_value(session.catalog, "sales.one.day", kind="time_dimension")
+    two_day = catalog_value(session.catalog, "sales.two.day", kind="time_dimension")
     days = session.time_scope(start="2026-10-01", end="2026-10-03").by(mv.grain("day"))
     metric = one.sum(time=one_day) + two.sum(time=two_day)
     query = session.observe({"net": metric}, by=(days,))
@@ -118,12 +119,13 @@ def test_cross_owner_calendar_missing_days_use_additive_zero(
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
 ) -> None:
     session = _session(tmp_path, monkeypatch, semantic_project_factory, boundary="disjoint")
-    one = catalog_value(session.catalog, "sales.one.amount", kind="field")
-    two = catalog_value(session.catalog, "sales.two.amount", kind="field")
-    one_day = catalog_value(session.catalog, "sales.one.day", kind="field")
-    two_day = catalog_value(session.catalog, "sales.two.day", kind="field")
+    one = catalog_value(session.catalog, "sales.one.amount", kind="measure")
+    two = catalog_value(session.catalog, "sales.two.amount", kind="measure")
+    one_day = catalog_value(session.catalog, "sales.one.day", kind="time_dimension")
+    two_day = catalog_value(session.catalog, "sales.two.day", kind="time_dimension")
     days = session.time_scope(start="2026-10-01", end="2026-10-03").by(mv.grain("day"))
     metric = one.sum(time=one_day).where(one > 0) - two.sum(time=two_day).where(two > 0)
+    assert days.scope is not None
     query = session.observe({"net": metric}, by=(days.scope,))
     daily = session.observe({"net": metric}, by=(days,)).compute().to_pandas()
     assert len(daily) == 2
@@ -144,8 +146,8 @@ def test_plain_calendar_coarsening_recomputes_with_original_clipped_period(
     if partial:
         with duckdb.connect(str(tmp_path / "warehouse.duckdb")) as connection:
             connection.execute("ALTER TABLE facts_one ALTER COLUMN day TYPE TIMESTAMP")
-    amount = catalog_value(session.catalog, "sales.one.amount", kind="field")
-    day = catalog_value(session.catalog, "sales.one.day", kind="field")
+    amount = catalog_value(session.catalog, "sales.one.amount", kind="measure")
+    day = catalog_value(session.catalog, "sales.one.day", kind="time_dimension")
     scope = session.time_scope(
         start="2026-10-01T12:00:00" if partial else "2026-10-01",
         end="2026-10-02T12:00:00" if partial else "2026-11-01",
@@ -166,8 +168,8 @@ def test_daily_formula_retains_native_integer_boundaries(
     session = _session(
         tmp_path, monkeypatch, semantic_project_factory, same_owner=True, boundary="overflow"
     )
-    amount = catalog_value(session.catalog, "sales.one.amount", kind="field")
-    day = catalog_value(session.catalog, "sales.one.day", kind="field")
+    amount = catalog_value(session.catalog, "sales.one.amount", kind="measure")
+    day = catalog_value(session.catalog, "sales.one.day", kind="time_dimension")
     scope = session.time_scope(start="2026-10-01", end="2026-11-01")
     days, month = (scope.by(mv.grain("day")), scope.by(mv.grain("month")))
     query = session.observe({"value": amount.sum(time=day) + 1}, by=(days,))
@@ -250,10 +252,10 @@ def test_remote_cross_owner_calendar_compacts_before_global_host_formula(
         files["sales/facts.py"] = model
         semantic_project_factory(files)
         session = mv.session.get_or_create("remote-cross-owner", timezone="UTC")
-        one = catalog_value(session.catalog, "sales.one.amount", kind="field")
-        two = catalog_value(session.catalog, "sales.two.amount", kind="field")
-        one_day = catalog_value(session.catalog, "sales.one.day", kind="field")
-        two_day = catalog_value(session.catalog, "sales.two.day", kind="field")
+        one = catalog_value(session.catalog, "sales.one.amount", kind="measure")
+        two = catalog_value(session.catalog, "sales.two.amount", kind="measure")
+        one_day = catalog_value(session.catalog, "sales.one.day", kind="time_dimension")
+        two_day = catalog_value(session.catalog, "sales.two.day", kind="time_dimension")
         scope = session.time_scope(
             start="2026-10-01T12:00:00" if boundary == "partial" else "2026-10-01",
             end="2026-10-02T12:00:00"

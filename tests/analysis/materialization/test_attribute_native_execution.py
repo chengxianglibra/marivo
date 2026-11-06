@@ -9,8 +9,10 @@ import ibis
 import pytest
 
 import marivo.analysis as mv
+from marivo._definition.expressions import SourceAggregate
 from marivo.analysis.compiler.attribute_native_queries import lower_native_coalition
 from marivo.analysis.compiler.graph_plan import PeriodFilter, ReductionRead, read_reduction
+from marivo.analysis.core.frame_method_facts import FrameShapleyMethod, FrameShapleyQuery
 from marivo.analysis.session.core import Session
 from tests.analysis.materialization.test_attribute_frequencies import _stage
 from tests.analysis.materialization.test_frame_attribute_shapley import game_session as game_session
@@ -26,6 +28,7 @@ def test_native_mean_sql_retains_union_recipes_null_keys_and_periods(backend: st
     stage = _stage(table, backend)
     reduction = read_reduction(stage)
     assert reduction is not None
+    assert isinstance(reduction.node, SourceAggregate)
     stage = replace(
         stage,
         program=ReductionRead(
@@ -70,10 +73,10 @@ def test_native_parent_methods_keep_only_their_coalition_receipts(
             "(13,'A',11,1,DATE '2026-08-01','west'),"
             "(14,'B',22,1,DATE '2026-08-01','west')"
         )
-    x = catalog_value(game_session.catalog, "sales.facts.x", kind="field")
-    day = catalog_value(game_session.catalog, "sales.facts.day", kind="field")
-    region = catalog_value(game_session.catalog, "sales.facts.region", kind="field")
-    player = catalog_value(game_session.catalog, "sales.facts.player", kind="field")
+    x = catalog_value(game_session.catalog, "sales.facts.x", kind="measure")
+    day = catalog_value(game_session.catalog, "sales.facts.day", kind="time_dimension")
+    region = catalog_value(game_session.catalog, "sales.facts.region", kind="dimension")
+    player = catalog_value(game_session.catalog, "sales.facts.player", kind="dimension")
     metric = x.quantile(0.5) * x.count()
     current = game_session.observe({"q": metric}, by=(region,), where=day >= "2026-08-01")
     baseline = game_session.observe({"q": metric}, by=(region,), where=day < "2026-08-01")
@@ -92,11 +95,23 @@ def test_native_parent_methods_keep_only_their_coalition_receipts(
         for metric in parent.metrics
     ]
     assert len(methods) == 2
+    assert all(isinstance(method, FrameShapleyMethod) for method in methods)
+    shapley_methods = [method for method in methods if isinstance(method, FrameShapleyMethod)]
+    assert all(
+        isinstance(capture, FrameShapleyQuery)
+        for method in shapley_methods
+        for capture in method.captures
+    )
     coalition_ids = [
-        {c.capture_id for c in method.captures if c.purpose == "coalition"} for method in methods
+        {
+            c.capture_id
+            for c in method.captures
+            if isinstance(c, FrameShapleyQuery) and c.purpose == "coalition"
+        }
+        for method in shapley_methods
     ]
     assert all(coalition_ids) and coalition_ids[0].isdisjoint(coalition_ids[1])
-    captures = {c.capture_id: c for method in methods for c in method.captures}
+    captures = {c.capture_id: c for method in shapley_methods for c in method.captures}
     assert len(trace.native_sql) == sum(c.source_reads for c in captures.values())
     assert sum(trace.returned_rows) == sum(c.returned_rows for c in captures.values())
     saved = report.persist()

@@ -7,6 +7,7 @@ import marivo.semantic as ms
 from marivo._help.render import render_help_text
 from marivo.analysis._capabilities.dataset_registry import prepare
 from marivo.analysis.errors import HelpTargetError
+from marivo.semantic._capabilities.model import SemanticNavigationRoute, SemanticNavigationTopic
 from marivo.semantic._capabilities.registry import REGISTRY
 
 
@@ -30,7 +31,12 @@ def test_source_predicate_topic_and_consumer_boundaries() -> None:
         assert fact in text
     assert len(text) < 6000
     field = REGISTRY.by_canonical_id("field")
-    assert any(route.target.canonical_id == "predicate" for route in field.members)
+    assert isinstance(field, SemanticNavigationTopic)
+    assert any(
+        route.target.canonical_id == "predicate"
+        for route in field.members
+        if isinstance(route, SemanticNavigationRoute)
+    )
     assert "semantic.predicate" in render_help_text("semantic.metric.where")[0]
     assert "Deferred" in render_help_text("analysis.in_population")[0]
     assert "Column" in render_help_text("analysis.column.is_null")[0]

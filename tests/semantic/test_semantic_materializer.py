@@ -7,21 +7,29 @@ Published Metric execution is covered through current public previews in
 from __future__ import annotations
 
 import textwrap
+from collections.abc import Callable, Mapping
+from typing import TYPE_CHECKING
 
 import ibis
+import ibis.expr.types as ibis_ir
 import pytest
 
 import marivo.datasource as md
 import marivo.semantic as ms
+from marivo.datasource.ir import JsonSourceIR, QueryParamScalar, QueryParamScalarList
 from marivo.datasource.json_source import JsonResponseCache
 from marivo.datasource.source import PartitionScope
+from marivo.refs import ref as ref_factory
 from marivo.semantic._deferred_semantics import consume_field, consume_row
 from marivo.semantic.catalog import SemanticCatalog, SemanticKind
 from marivo.semantic.errors import ErrorKind, SemanticRuntimeError
 from marivo.semantic.ir import EntityProvenance
 from marivo.semantic.materializer import EntityRuntimeMetadata, Materializer
 from tests.shared_fixtures import catalog_value, patch_semantic_connections
-from tests.support.refs import make_ref
+
+if TYPE_CHECKING:
+    from marivo.semantic.reader import SemanticProject
+    from tests.conftest import _SemanticProjectFactory
 
 # ---------------------------------------------------------------------------
 # DuckDB backend fixture
@@ -29,7 +37,7 @@ from tests.support.refs import make_ref
 
 
 @pytest.fixture
-def duckdb_backend():
+def duckdb_backend() -> ibis.duckdb.DuckDBBackend:
     """In-memory DuckDB backend with a test orders table."""
     con = ibis.duckdb.connect(":memory:")
     con.con.execute(
@@ -42,10 +50,12 @@ def duckdb_backend():
 
 
 @pytest.fixture
-def backend_factory(duckdb_backend):
+def backend_factory(
+    duckdb_backend: ibis.duckdb.DuckDBBackend,
+) -> Callable[[str], ibis.duckdb.DuckDBBackend]:
     """A backend_factory callable that always returns the shared DuckDB backend."""
 
-    def _factory(datasource_semantic_id: str):
+    def _factory(datasource_semantic_id: str) -> ibis.duckdb.DuckDBBackend:
         return duckdb_backend
 
     return _factory
@@ -56,19 +66,26 @@ def backend_factory(duckdb_backend):
 # ---------------------------------------------------------------------------
 
 
-def _materialize_dataset(project, connections, ref: str, *, source_bindings=None):
+def _materialize_dataset(
+    project: SemanticProject,
+    connections: object,
+    ref: str,
+    *,
+    source_bindings: Mapping[str, Mapping[str, QueryParamScalar | QueryParamScalarList]]
+    | None = None,
+) -> ibis_ir.Table:
     return (
         SemanticCatalog(project)
         ._semantic_resolver(connections=connections, source_bindings=source_bindings)
-        .entity(make_ref(ref, SemanticKind.ENTITY))
+        .entity(ref_factory.entity(ref))
     )
 
 
-def _materialize_field(project, connections, ref: str):
+def _materialize_field(project: SemanticProject, connections: object, ref: str) -> ibis_ir.Value:
     return (
         SemanticCatalog(project)
         ._semantic_resolver(connections=connections)
-        .dimension(make_ref(ref, SemanticKind.DIMENSION))
+        .dimension(ref_factory.dimension(ref))
     )
 
 
@@ -155,7 +172,10 @@ _SQL_VIEW_DATASET_PY = textwrap.dedent("""\
 # ---------------------------------------------------------------------------
 
 
-def test_dataset_materialize(semantic_project_factory, backend_factory) -> None:
+def test_dataset_materialize(
+    semantic_project_factory: _SemanticProjectFactory,
+    backend_factory: Callable[[str], ibis.duckdb.DuckDBBackend],
+) -> None:
     """Materializing a dataset should return an ibis Table."""
     project = semantic_project_factory(
         {
@@ -177,7 +197,8 @@ def test_dataset_materialize(semantic_project_factory, backend_factory) -> None:
 
 
 def test_dataset_materialize_applies_authoring_scope_at_physical_source(
-    semantic_project_factory, backend_factory
+    semantic_project_factory: _SemanticProjectFactory,
+    backend_factory: Callable[[str], ibis.duckdb.DuckDBBackend],
 ) -> None:
     project = semantic_project_factory(
         {
@@ -202,7 +223,9 @@ def test_dataset_materialize_applies_authoring_scope_at_physical_source(
     assert table.to_pandas()["amount"].tolist() == [200.0]
 
 
-def test_dataset_table_source_passes_database(semantic_project_factory) -> None:
+def test_dataset_table_source_passes_database(
+    semantic_project_factory: _SemanticProjectFactory,
+) -> None:
     project = semantic_project_factory(
         {
             "sales/_domain.py": _DOMAIN_PY,
@@ -218,7 +241,7 @@ def test_dataset_table_source_passes_database(semantic_project_factory) -> None:
     )
 
     class _Backend:
-        def table(self, name, /, *, database=None):
+        def table(self, name: str, /, *, database: str | None = None) -> ibis_ir.Table:
             assert name == "orders"
             assert database == "sales_mart"
             return ibis.table({"amount": "float64"}, name=f"{database}.{name}")
@@ -229,8 +252,8 @@ def test_dataset_table_source_passes_database(semantic_project_factory) -> None:
 
 
 def test_dataset_projected_table_materializes_output_aliases(
-    semantic_project_factory,
-    duckdb_backend,
+    semantic_project_factory: _SemanticProjectFactory,
+    duckdb_backend: ibis.duckdb.DuckDBBackend,
 ) -> None:
     project = semantic_project_factory(
         {
@@ -256,8 +279,8 @@ def test_dataset_projected_table_materializes_output_aliases(
 
 
 def test_sql_query_result_remains_sql_view_provenance(
-    semantic_project_factory,
-    duckdb_backend,
+    semantic_project_factory: _SemanticProjectFactory,
+    duckdb_backend: ibis.duckdb.DuckDBBackend,
 ) -> None:
     project = semantic_project_factory(
         {
@@ -280,7 +303,7 @@ def test_sql_query_result_remains_sql_view_provenance(
 
 
 def test_dataset_projected_table_uses_observed_lookup_schema(
-    semantic_project_factory,
+    semantic_project_factory: _SemanticProjectFactory,
 ) -> None:
     project = semantic_project_factory(
         {
@@ -292,7 +315,7 @@ def test_dataset_projected_table_uses_observed_lookup_schema(
     class _LookupOnlyBackend:
         name = "duckdb"
 
-        def table(self, name, /, *, database=None):
+        def table(self, name: str, /, *, database: str | None = None) -> ibis_ir.Table:
             return ibis.table({"order_id": "int64", "amount": "float32"}, name=name)
 
     with patch_semantic_connections(project, lambda _: _LookupOnlyBackend()) as connections:
@@ -302,7 +325,9 @@ def test_dataset_projected_table_uses_observed_lookup_schema(
     assert table.columns == ("order_key", "value")
 
 
-def test_dataset_file_source_reads_parquet(semantic_project_factory) -> None:
+def test_dataset_file_source_reads_parquet(
+    semantic_project_factory: _SemanticProjectFactory,
+) -> None:
     project = semantic_project_factory(
         {
             "sales/_domain.py": _DOMAIN_PY,
@@ -318,7 +343,7 @@ def test_dataset_file_source_reads_parquet(semantic_project_factory) -> None:
     )
 
     class _Backend:
-        def read_parquet(self, path, **options):
+        def read_parquet(self, path: str, **options: object) -> ibis_ir.Table:
             assert path == "/data/orders/*.parquet"
             assert options == {"hive_partitioning": True}
             return ibis.table({"order_id": "string", "amount": "int64"}, name="orders_file")
@@ -329,7 +354,9 @@ def test_dataset_file_source_reads_parquet(semantic_project_factory) -> None:
     assert table.schema() == ibis.schema({"order_id": "string", "amount": "int64"})
 
 
-def test_dataset_csv_source_projects_inferred_columns(semantic_project_factory) -> None:
+def test_dataset_csv_source_projects_inferred_columns(
+    semantic_project_factory: _SemanticProjectFactory,
+) -> None:
     project = semantic_project_factory(
         {
             "sales/_domain.py": _DOMAIN_PY,
@@ -350,7 +377,7 @@ def test_dataset_csv_source_projects_inferred_columns(semantic_project_factory) 
     )
 
     class _Backend:
-        def read_csv(self, path, **options):
+        def read_csv(self, path: str, **options: object) -> ibis_ir.Table:
             assert path == "/data/orders.csv"
             assert options == {"header": False, "delimiter": "|"}
             return ibis.table({"order_id": "string", "amount": "int64"}, name="orders_file")
@@ -361,7 +388,9 @@ def test_dataset_csv_source_projects_inferred_columns(semantic_project_factory) 
     assert table.schema() == ibis.schema({"amount": "int64", "order_id": "string"})
 
 
-def test_dataset_json_source_projects_inferred_columns(semantic_project_factory) -> None:
+def test_dataset_json_source_projects_inferred_columns(
+    semantic_project_factory: _SemanticProjectFactory,
+) -> None:
     project = semantic_project_factory(
         {
             "sales/_domain.py": _DOMAIN_PY,
@@ -381,7 +410,7 @@ def test_dataset_json_source_projects_inferred_columns(semantic_project_factory)
     )
 
     class _Backend:
-        def read_json(self, path, **options):
+        def read_json(self, path: str, **options: object) -> ibis_ir.Table:
             assert path == "/data/orders.json"
             assert options == {"format": "newline_delimited"}
             return ibis.table({"order_id": "string", "amount": "int64"}, name="orders_file")
@@ -393,7 +422,7 @@ def test_dataset_json_source_projects_inferred_columns(semantic_project_factory)
 
 
 def test_dataset_json_source_lowers_runtime_bindings_to_encoded_url(
-    semantic_project_factory,
+    semantic_project_factory: _SemanticProjectFactory,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     project = semantic_project_factory(
@@ -421,7 +450,12 @@ def test_dataset_json_source_lowers_runtime_bindings_to_encoded_url(
 
     requests: list[str] = []
 
-    def request_payload(backend, source, supplied, responses: JsonResponseCache | None = None):
+    def request_payload(
+        backend: object,
+        source: JsonSourceIR,
+        supplied: Mapping[str, QueryParamScalar | QueryParamScalarList],
+        responses: JsonResponseCache | None = None,
+    ) -> object:
         assert responses is None
         requests.append(json_source.json_source_url(source, supplied))
         return [{"value": 1.25}]
@@ -448,7 +482,9 @@ def test_dataset_json_source_lowers_runtime_bindings_to_encoded_url(
     )
 
 
-def test_dataset_file_source_requires_backend_reader(semantic_project_factory) -> None:
+def test_dataset_file_source_requires_backend_reader(
+    semantic_project_factory: _SemanticProjectFactory,
+) -> None:
     project = semantic_project_factory(
         {
             "sales/_domain.py": _DOMAIN_PY,
@@ -473,7 +509,9 @@ def test_dataset_file_source_requires_backend_reader(semantic_project_factory) -
     assert "does not support csv file sources" in exc_info.value.message
 
 
-def test_dataset_json_source_requires_backend_reader(semantic_project_factory) -> None:
+def test_dataset_json_source_requires_backend_reader(
+    semantic_project_factory: _SemanticProjectFactory,
+) -> None:
     project = semantic_project_factory(
         {
             "sales/_domain.py": _DOMAIN_PY,
@@ -503,7 +541,10 @@ def test_dataset_json_source_requires_backend_reader(semantic_project_factory) -
 # ---------------------------------------------------------------------------
 
 
-def test_field_materialize(semantic_project_factory, backend_factory) -> None:
+def test_field_materialize(
+    semantic_project_factory: _SemanticProjectFactory,
+    backend_factory: Callable[[str], ibis.duckdb.DuckDBBackend],
+) -> None:
     """Materializing a physical field returns its source column expression."""
     project = semantic_project_factory(
         {
@@ -523,8 +564,8 @@ def test_field_materialize(semantic_project_factory, backend_factory) -> None:
 
 
 def test_column_helper_catalog_details_and_preview_requires_snapshot(
-    semantic_project_factory,
-    backend_factory,
+    semantic_project_factory: _SemanticProjectFactory,
+    backend_factory: Callable[[str], ibis.duckdb.DuckDBBackend],
 ) -> None:
     project = semantic_project_factory(
         {
@@ -538,7 +579,9 @@ def test_column_helper_catalog_details_and_preview_requires_snapshot(
     assert consume_field(amount).reference.ref.kind == SemanticKind.MEASURE
     assert consume_field(amount).reference.ref.path == "sales.orders.amount"
     assert consume_row(amount).unit == "USD"
-    assert catalog.get("measure:sales.orders.amount").definition.unit == "USD"
+    entry = catalog.get("measure:sales.orders.amount")
+    assert entry.kind == "measure"
+    assert entry.definition.unit == "USD"
 
     with (
         patch_semantic_connections(project, backend_factory),
@@ -548,7 +591,8 @@ def test_column_helper_catalog_details_and_preview_requires_snapshot(
 
 
 def test_materializer_dimension_on_uses_supplied_table(
-    semantic_project_factory, backend_factory
+    semantic_project_factory: _SemanticProjectFactory,
+    backend_factory: Callable[[str], ibis.duckdb.DuckDBBackend],
 ) -> None:
     project = semantic_project_factory(
         {
@@ -566,7 +610,8 @@ def test_materializer_dimension_on_uses_supplied_table(
 
 
 def test_materializer_dimension_on_is_not_ref_cached(
-    semantic_project_factory, backend_factory
+    semantic_project_factory: _SemanticProjectFactory,
+    backend_factory: Callable[[str], ibis.duckdb.DuckDBBackend],
 ) -> None:
     project = semantic_project_factory(
         {
@@ -590,7 +635,7 @@ def test_materializer_dimension_on_is_not_ref_cached(
 # ---------------------------------------------------------------------------
 
 
-def test_dataset_decorator_body_rejected(semantic_project_factory) -> None:
+def test_dataset_decorator_body_rejected(semantic_project_factory: _SemanticProjectFactory) -> None:
     """Dataset bodies are no longer the physical-source entrypoint."""
     project = semantic_project_factory(
         {
@@ -608,6 +653,7 @@ def test_dataset_decorator_body_rejected(semantic_project_factory) -> None:
     assert error.kind == ErrorKind.ENTITY_CONSTRUCTOR_AS_DECORATOR
     assert error.constraint_id == "entity_constructor_assignment"
     assert error.location is not None and error.location.line == 3
+    assert error.expected is not None
     assert "name = ms.entity(...)" in error.expected
     assert "@ms.entity(...) without name=" in error.expected
     assert error.repair is not None
@@ -623,7 +669,7 @@ def test_dataset_decorator_body_rejected(semantic_project_factory) -> None:
     ],
 )
 def test_entity_constructor_decorator_aliases_are_diagnosed(
-    semantic_project_factory, import_line: str, decorator_name: str
+    semantic_project_factory: _SemanticProjectFactory, import_line: str, decorator_name: str
 ) -> None:
     project = semantic_project_factory(
         {
@@ -642,7 +688,9 @@ def test_entity_constructor_decorator_aliases_are_diagnosed(
     assert result.errors[0].kind == ErrorKind.ENTITY_CONSTRUCTOR_AS_DECORATOR
 
 
-def test_unrelated_ref_call_keeps_general_runtime_diagnostic(semantic_project_factory) -> None:
+def test_unrelated_ref_call_keeps_general_runtime_diagnostic(
+    semantic_project_factory: _SemanticProjectFactory,
+) -> None:
     project = semantic_project_factory(
         {
             "sales/_domain.py": _DOMAIN_PY,
@@ -660,7 +708,7 @@ def test_unrelated_ref_call_keeps_general_runtime_diagnostic(semantic_project_fa
 
 
 def test_shadowed_semantic_alias_keeps_general_runtime_diagnostic(
-    semantic_project_factory,
+    semantic_project_factory: _SemanticProjectFactory,
 ) -> None:
     project = semantic_project_factory(
         {
@@ -689,7 +737,10 @@ def test_shadowed_semantic_alias_keeps_general_runtime_diagnostic(
 # ---------------------------------------------------------------------------
 
 
-def test_missing_semantic_refs_raise_not_found(semantic_project_factory, backend_factory) -> None:
+def test_missing_semantic_refs_raise_not_found(
+    semantic_project_factory: _SemanticProjectFactory,
+    backend_factory: Callable[[str], ibis.duckdb.DuckDBBackend],
+) -> None:
     """Missing metric, entity, and dimension refs share the typed not-found outcome."""
     project = semantic_project_factory(
         {
@@ -713,10 +764,12 @@ def test_missing_semantic_refs_raise_not_found(semantic_project_factory, backend
 # ---------------------------------------------------------------------------
 
 
-def test_runtime_metadata_lifecycle(semantic_project_factory, duckdb_backend) -> None:
+def test_runtime_metadata_lifecycle(
+    semantic_project_factory: _SemanticProjectFactory, duckdb_backend: ibis.duckdb.DuckDBBackend
+) -> None:
     """Materialization stores runtime metadata and reload clears the prior result."""
 
-    def factory(ds_id: str):
+    def factory(ds_id: str) -> ibis.duckdb.DuckDBBackend:
         return duckdb_backend
 
     project = semantic_project_factory(
@@ -748,7 +801,9 @@ def test_runtime_metadata_lifecycle(semantic_project_factory, duckdb_backend) ->
 # ---------------------------------------------------------------------------
 
 
-def test_materialize_on_unloaded_project_raises(semantic_project_factory) -> None:
+def test_materialize_on_unloaded_project_raises(
+    semantic_project_factory: _SemanticProjectFactory,
+) -> None:
     """Calling materialize on an unloaded project should raise."""
 
     con = ibis.duckdb.connect(":memory:")
@@ -756,7 +811,7 @@ def test_materialize_on_unloaded_project_raises(semantic_project_factory) -> Non
         "CREATE TABLE orders (order_id INT, amount FLOAT, region TEXT, created_at TIMESTAMP)"
     )
 
-    def factory(ds_id: str):
+    def factory(ds_id: str) -> ibis.duckdb.DuckDBBackend:
         return con
 
     project = semantic_project_factory(
@@ -771,7 +826,9 @@ def test_materialize_on_unloaded_project_raises(semantic_project_factory) -> Non
         _materialize_dataset(project, connections, "sales.orders")
 
 
-def test_materialization_sample_size_bounds_entity_output(semantic_project_factory) -> None:
+def test_materialization_sample_size_bounds_entity_output(
+    semantic_project_factory: _SemanticProjectFactory,
+) -> None:
     """The retained physical materializer bounds Entity output rows."""
     con = ibis.duckdb.connect(":memory:")
     con.con.execute(
@@ -782,7 +839,7 @@ def test_materialization_sample_size_bounds_entity_output(semantic_project_facto
         "FROM range(1, 12) AS rows(i)"
     )
 
-    def factory(ds_id: str):
+    def factory(ds_id: str) -> ibis.duckdb.DuckDBBackend:
         return con
 
     project = semantic_project_factory(

@@ -23,7 +23,7 @@ from marivo.analysis.core.frame_data import MemoryFrameBacking, StoredFrameBacki
 from marivo.datasource.adapters import provider_for
 from marivo.datasource.ir import CsvSourceIR, JsonSourceIR, ParquetSourceIR, TableSourceIR
 from tests.datasource.source_cases import Case, SourceData, datasource, source_case
-from tests.shared_fixtures import datasource_arguments_source
+from tests.shared_fixtures import catalog_get, datasource_arguments_source
 
 START = datetime(2026, 8, 1, tzinfo=timezone.utc)
 GROUPS = 16
@@ -451,16 +451,18 @@ class Workload:
 
     def values(self) -> mv.AnalysisFrame:
         return self.session.observe(
-            {"value": self.session.catalog.get("metric:cost.facts_total")},
+            {"value": catalog_get(self.session.catalog, "metric:cost.facts_total", kind="metric")},
             by=mv.product(
                 self.session.time_scope(start="2026-08-01", end="2026-08-02"),
-                self.session.members(self.session.catalog.get("entity:cost.facts")),
+                self.session.members(
+                    catalog_get(self.session.catalog, "entity:cost.facts", kind="entity")
+                ),
             ),
         )
 
     def total(self) -> mv.AnalysisFrame:
         return self.session.observe(
-            {"value": self.session.catalog.get("metric:cost.facts_total")},
+            {"value": catalog_get(self.session.catalog, "metric:cost.facts_total", kind="metric")},
             by=(self.session.time_scope(start="2026-08-01", end="2026-08-02"),),
         )
 

@@ -11,12 +11,13 @@ import sqlglot
 from sqlglot import expressions as sge
 
 import marivo.analysis as mv
+import marivo.semantic as ms
 from marivo.datasource.ir import TableSourceIR
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.numeric.test_remote_numeric_query import _datasource_model
 from tests.analysis.temporal.test_calendar_native_keys import _maria
 from tests.datasource.source_cases import SourceData, source_case, source_params
-from tests.shared_fixtures import catalog_value
+from tests.shared_fixtures import catalog_get, catalog_value
 from tests.support.source_trace import SourceTrace
 
 
@@ -44,7 +45,7 @@ def test_scalar_relationship_prefixes_keep_exact_matches(
     source_trace: SourceTrace,
 ) -> None:
     _maria(profile, monkeypatch)
-    records = {
+    records: dict[str, tuple[str, list[tuple[object, ...]]]] = {
         "facts": (
             "id BIGINT, tenant BIGINT, buyer BIGINT, seller BIGINT, amount BIGINT",
             [
@@ -137,11 +138,11 @@ other=ms.relationship(name='other',from_entity=customers,to_entity=countries,key
         )
         session = mv.session.get_or_create("prefixes", timezone="UTC")
 
-        def field(name: str):
-            return catalog_value(session.catalog, "sales." + name, kind="field")
+        def field(name: str) -> ms.Dimension:
+            return catalog_value(session.catalog, "sales." + name, kind="dimension")
 
-        buyer = session.catalog.get("relationship:sales.buyer")
-        home = session.catalog.get("relationship:sales.home")
+        buyer = catalog_get(session.catalog, "relationship:sales.buyer", kind="relationship")
+        home = catalog_get(session.catalog, "relationship:sales.home", kind="relationship")
         short = field("customers.region_label").via((buyer,))
         long = field("countries.name").via((buyer, home))
         axes = (short, long)
@@ -156,11 +157,11 @@ other=ms.relationship(name='other',from_entity=customers,to_entity=countries,key
             axes = (long, short)
             expected = [(right, left, total) for left, right, total in expected]
         elif order == "fork":
-            other = session.catalog.get("relationship:sales.other")
+            other = catalog_get(session.catalog, "relationship:sales.other", kind="relationship")
             axes = (long, field("countries.name").via((buyer, other)))
             expected = [("A", "B", 10), ("B", "A", 20), ("C", "A", 30), (None, None, 150)]
         elif order == "other_role":
-            seller = session.catalog.get("relationship:sales.seller")
+            seller = catalog_get(session.catalog, "relationship:sales.seller", kind="relationship")
             axes = (long, field("customers.region").via((seller,)))
             expected = [
                 ("A", "South", 10),
@@ -168,11 +169,12 @@ other=ms.relationship(name='other',from_entity=customers,to_entity=countries,key
                 ("C", "West", 30),
                 (None, "South", 150),
             ]
-        frame = session.observe({"total": field("facts.amount").sum()}, by=axes).compute()
+        amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
+        frame = session.observe({"total": amount.sum()}, by=axes).compute()
         actual = frame.to_pandas(
             axis_names={axis.token: f"axis{i}" for i, axis in enumerate(frame.axes)}
         )
-        actual = actual.astype(object).where(pd.notna(actual), None)
+        actual = actual.astype(object).where(pd.notna(actual), None)  # type: ignore[call-overload]  # pandas stubs reject None for object frames.
         assert sorted(actual.itertuples(index=False, name=None), key=repr) == sorted(
             expected, key=repr
         )

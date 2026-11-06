@@ -70,8 +70,8 @@ def test_native_read_top_retains_order_bounded_transport_and_fixed_boundary(
     with source_case(backend, profile, tmp_path, monkeypatch, _data()) as case:
         _project(backend, case, monkeypatch, semantic_project_factory)
         session = mv.session.get_or_create("native-read-top", timezone="UTC")
-        members = session.members(session.catalog.get("entity:sales.facts"))
-        score = catalog_value(session.catalog, "sales.facts.big", kind="field")
+        members = session.members(catalog_value(session.catalog, "sales.facts", kind="entity"))
+        score = catalog_value(session.catalog, "sales.facts.big", kind="measure")
         pending = session.read(members, {"score": score})
         raw = pending.compute().to_pandas()
         assert raw.iloc[:, 0].tolist() == [("a", 1), ("a", 2), ("b", 1), ("b", 2)]
@@ -156,9 +156,9 @@ def test_filtered_native_read_top_reuses_its_exact_member_scope(
     with source_case(backend, profile, tmp_path, monkeypatch, _data()) as case:
         _project(backend, case, monkeypatch, semantic_project_factory)
         session = mv.session.get_or_create("filtered-native-read-top", timezone="UTC")
-        entity = session.catalog.get("entity:sales.facts")
-        weight = catalog_value(session.catalog, "sales.facts.weight", kind="field")
-        score = catalog_value(session.catalog, "sales.facts.big", kind="field")
+        entity = catalog_value(session.catalog, "sales.facts", kind="entity")
+        weight = catalog_value(session.catalog, "sales.facts.weight", kind="measure")
+        score = catalog_value(session.catalog, "sales.facts.big", kind="measure")
         trace = capture_source(monkeypatch)
         selected = session.read(session.members(entity, where=weight >= 1), {"score": score})
         rows = selected.top(4, by=selected["score"]).compute().to_pandas()
@@ -204,11 +204,11 @@ def test_native_read_top_preserves_full_input_nonnull_identity_errors(
         _project(backend, case, monkeypatch, semantic_project_factory)
         session = mv.session.get_or_create("native-read-top-integrity", timezone="UTC")
         members = session.members(
-            session.catalog.get("entity:sales.facts"),
-            where=catalog_value(session.catalog, "sales.facts.weight", kind="field") >= 0,
+            catalog_value(session.catalog, "sales.facts", kind="entity"),
+            where=catalog_value(session.catalog, "sales.facts.weight", kind="measure") >= 0,
         )
         pending = session.read(
-            members, {"score": catalog_value(session.catalog, "sales.facts.big", kind="field")}
+            members, {"score": catalog_value(session.catalog, "sales.facts.big", kind="measure")}
         )
         trace = capture_source(monkeypatch)
         with pytest.raises(MaterializationError) as failure:
@@ -244,14 +244,14 @@ def test_native_read_top_preserves_nonfinite_values_outside_selection(
         _project(backend, case, monkeypatch, semantic_project_factory)
         session = mv.session.get_or_create("native-read-top-nonfinite", timezone="UTC")
         members = session.members(
-            session.catalog.get("entity:sales.facts"),
-            where=catalog_value(session.catalog, "sales.facts.weight", kind="field") >= 0,
+            catalog_value(session.catalog, "sales.facts", kind="entity"),
+            where=catalog_value(session.catalog, "sales.facts.weight", kind="measure") >= 0,
         )
         pending = session.read(
             members,
             {
-                "score": catalog_value(session.catalog, "sales.facts.weight", kind="field"),
-                "invalid": catalog_value(session.catalog, "sales.facts.big", kind="field"),
+                "score": catalog_value(session.catalog, "sales.facts.weight", kind="measure"),
+                "invalid": catalog_value(session.catalog, "sales.facts.big", kind="measure"),
             },
         )
         trace = capture_source(monkeypatch)
@@ -290,11 +290,11 @@ def test_native_read_top_keeps_byte_identity_on_case_insensitive_columns(
         _project(backend, case, monkeypatch, semantic_project_factory)
         session = mv.session.get_or_create("native-read-top-byte-identity", timezone="UTC")
         members = session.members(
-            session.catalog.get("entity:sales.facts"),
-            where=catalog_value(session.catalog, "sales.facts.weight", kind="field") >= 0,
+            catalog_value(session.catalog, "sales.facts", kind="entity"),
+            where=catalog_value(session.catalog, "sales.facts.weight", kind="measure") >= 0,
         )
         pending = session.read(
-            members, {"score": catalog_value(session.catalog, "sales.facts.big", kind="field")}
+            members, {"score": catalog_value(session.catalog, "sales.facts.big", kind="measure")}
         )
         trace = capture_source(monkeypatch)
         rows = pending.top(2, by=pending["score"]).compute().to_pandas()
@@ -304,21 +304,21 @@ def test_native_read_top_keeps_byte_identity_on_case_insensitive_columns(
         assert top.iloc[0].tolist() == [("A", 1), 2**53 + 1]
         assert trace.returned_rows == [2, 1] and trace.uploaded_key_rows == []
         requested = mv.coordinates(
-            by=(mv.identity(session.catalog.get("entity:sales.facts")),),
+            by=(mv.identity(catalog_value(session.catalog, "sales.facts", kind="entity")),),
             keys=((("a", 1),), (("missing", 99),)),
         )
         selected = (
             session.read(
                 requested,
-                {"score": catalog_value(session.catalog, "sales.facts.big", kind="field")},
+                {"score": catalog_value(session.catalog, "sales.facts.big", kind="measure")},
             )
             .compute()
             .to_pandas()
         )
         assert selected.iloc[:, 0].tolist() == [("a", 1), ("missing", 99)]
         assert selected["score"].tolist() == [2**53 + 1, pd.NA]
-        entity = session.catalog.get("entity:sales.facts")
-        total = session.catalog.get("metric:sales.total")
+        entity = catalog_value(session.catalog, "sales.facts", kind="entity")
+        total = catalog_value(session.catalog, "sales.total", kind="metric")
         for domain, expected in (
             (session.members(entity), 30),
             (mv.coordinates(by=(mv.identity(entity),), keys=((("A", 1),),)), 10),
@@ -326,9 +326,10 @@ def test_native_read_top_keeps_byte_identity_on_case_insensitive_columns(
         ):
             result = session.observe({"total": total}, where=mv.in_population(domain))
             assert result.compute().to_pandas()["total"].tolist() == [expected]
-        category = catalog_value(session.catalog, "sales.facts.category", kind="field")
+        category = catalog_value(session.catalog, "sales.facts.category", kind="dimension")
         all_members = session.members(entity)
         mixed = all_members.classify(by=(all_members.axes[0], category))
+        assert isinstance(mixed, mv.Population)
         for domain, expected in (
             (mixed, 30),
             (mv.coordinates(by=(mv.identity(entity), category), keys=((("A", 1), None),)), 10),

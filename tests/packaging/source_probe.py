@@ -27,7 +27,7 @@ from marivo.semantic.reader import SemanticProject
 from tests.analysis.materialization.domain_recovery_worker import _scalar, forbidden, snapshot
 from tests.analysis.materialization.publication_fixtures import publication_counts
 from tests.packaging.graph_journeys import _frame
-from tests.shared_fixtures import catalog_value, terminal_runs
+from tests.shared_fixtures import catalog_get, catalog_value, terminal_runs
 from tests.support.json import Json, checked, encode, obj, read
 from tests.support.source_trace import capture_source
 
@@ -205,7 +205,7 @@ ORIGINAL_VALUES = {
 
 
 def observed_rows(session: mv.Session, name: str) -> mv.AnalysisFrame:
-    members = session.members(session.catalog.get("entity:sales.customers"))
+    members = session.members(catalog_get(session.catalog, "entity:sales.customers", kind="entity"))
     return session.observe(
         {"value": catalog_value(session.catalog, "sales." + name, kind="metric")}, by=members
     )

@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from pathlib import Path
 from typing import TypeAlias
 
 import ibis
 import pytest
+from ibis.backends import BaseBackend
 
 import marivo.datasource as md
 import marivo.semantic as ms
@@ -16,7 +18,7 @@ from marivo.refs import ref as ref_factory
 from marivo.semantic._deferred_semantics import consume_field, consume_metric
 from marivo.semantic.catalog import SemanticCatalog
 from marivo.semantic.errors import ErrorKind, SemanticRuntimeError
-from marivo.semantic.expressions import entity_exact
+from marivo.semantic.expressions import _Entity, entity_exact
 from marivo.semantic.reader import SemanticProject
 from tests.shared_fixtures import catalog_value
 from tests.shared_fixtures import resolve_test_symbol as resolve
@@ -78,7 +80,7 @@ def _catalog(semantic_project_factory: ProjectFactory) -> SemanticCatalog:
     return SemanticCatalog(project)
 
 
-def _preview_backend(path: str):
+def _preview_backend(path: str) -> BaseBackend:
     backend = ibis.duckdb.connect(path)
     backend.con.execute(
         "CREATE TABLE orders (order_id INT, amount DOUBLE, region TEXT, order_date TIMESTAMP)"
@@ -86,6 +88,7 @@ def _preview_backend(path: str):
     backend.con.execute(
         "INSERT INTO orders VALUES (1, 100.0, 'US', '2025-01-01'), (2, 200.0, 'EU', '2025-01-02')"
     )
+    assert isinstance(backend, BaseBackend)
     return backend
 
 
@@ -95,14 +98,15 @@ def test_catalog_get_measure_returns_the_resolved_measure_value(
     catalog = _catalog(semantic_project_factory)
     amount = catalog_value(catalog, "sales.orders.amount", kind="field")
     orders = resolve(catalog, ms.ref.entity("sales.orders"))
+    assert isinstance(orders, _Entity)
 
     assert isinstance(amount, ms.Measure)
-    amount = consume_field(amount)
-    assert amount.reference.ref == ref_factory.measure("sales.orders.amount")
-    assert amount.reference.version.startswith("sha256:")
-    assert amount.root == entity_exact(orders)
-    assert amount.unit == "USD"
-    assert amount.permission == SumAll()
+    field = consume_field(amount)
+    assert field.reference.ref == ref_factory.measure("sales.orders.amount")
+    assert field.reference.version.startswith("sha256:")
+    assert field.root == entity_exact(orders)
+    assert field.unit == "USD"
+    assert field.permission == SumAll()
     assert "\n" not in repr(catalog.get("measure:sales.orders.amount"))
 
 
@@ -158,14 +162,15 @@ def test_metric_value_carries_roots_unit_and_business_context(
 ) -> None:
     catalog = _catalog(semantic_project_factory)
     orders = resolve(catalog, ms.ref.entity("sales.orders"))
+    assert isinstance(orders, _Entity)
     revenue = catalog.get("metric:sales.revenue")
     contract = catalog.get("metric:sales.revenue")
 
     assert isinstance(revenue, ms.Metric)
-    revenue = consume_metric(revenue)
-    assert isinstance(revenue.node, DeclaredMetricRef)
-    assert revenue.roots == (entity_exact(orders),)
-    assert revenue.unit == "USD"
+    facts = consume_metric(revenue)
+    assert isinstance(facts.node, DeclaredMetricRef)
+    assert facts.roots == (entity_exact(orders),)
+    assert facts.unit == "USD"
     assert contract.kind == "metric"
     assert (
         contract.definition.context.business_definition
@@ -176,8 +181,8 @@ def test_metric_value_carries_roots_unit_and_business_context(
 
 def test_measure_preview_uses_measure_expression_without_context_columns(
     semantic_project_factory: ProjectFactory,
-    tmp_path,
-    monkeypatch,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     database_path = tmp_path / "warehouse.duckdb"
     backend = _preview_backend(str(database_path))
@@ -222,8 +227,8 @@ def test_measure_preview_uses_measure_expression_without_context_columns(
 
 def test_published_metric_and_declared_measure_have_no_physical_preview(
     semantic_project_factory: ProjectFactory,
-    tmp_path,
-    monkeypatch,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     database_path = tmp_path / "warehouse.duckdb"
     backend = _preview_backend(str(database_path))

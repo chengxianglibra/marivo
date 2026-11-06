@@ -7,8 +7,21 @@ import duckdb
 import pytest
 
 import marivo.analysis as mv
+import marivo.semantic as ms
 from marivo.analysis.core.artifact_data import DataSchema
 from marivo.analysis.core.data_types import DecimalDataType, ScalarDataType
+
+
+def _metric(catalog: ms.SemanticCatalog, path: str) -> ms.Metric:
+    result = catalog.get(path)
+    assert result.kind == "metric"
+    return result
+
+
+def _entity(catalog: ms.SemanticCatalog, path: str) -> ms.Entity:
+    result = catalog.get(path)
+    assert result.kind == "entity"
+    return result
 
 
 @pytest.fixture
@@ -64,14 +77,14 @@ def decimal_session(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> mv.Sessi
 def _observed(session: mv.Session, *, overall: bool = False) -> mv.AnalysisFrame:
     return session.observe(
         {
-            "gmv": session.catalog.get("metric:sales.gmv"),
-            "fee": session.catalog.get("metric:sales.fee"),
+            "gmv": _metric(session.catalog, "metric:sales.gmv"),
+            "fee": _metric(session.catalog, "metric:sales.fee"),
         },
         by=(session.time_scope(start="2026-07-01", end="2026-07-02"),)
         if overall
         else mv.product(
             session.time_scope(start="2026-07-01", end="2026-07-02"),
-            session.members(session.catalog.get("entity:sales.orders")),
+            session.members(_entity(session.catalog, "entity:sales.orders")),
         ),
     )
 
@@ -88,9 +101,9 @@ def test_decimal_measure_and_retained_schema_agree(decimal_session: mv.Session) 
 
 def test_ratio_accepts_independent_numeric_components(decimal_session: mv.Session) -> None:
     session = decimal_session
-    gmv = session.catalog.get("metric:sales.gmv")
-    fee = session.catalog.get("metric:sales.fee")
-    normalized_fee = session.catalog.get("metric:sales.normalized_fee")
+    gmv = _metric(session.catalog, "metric:sales.gmv")
+    fee = _metric(session.catalog, "metric:sales.fee")
+    normalized_fee = _metric(session.catalog, "metric:sales.normalized_fee")
     for numerator in (fee, normalized_fee):
         observed = session.observe(
             {"rate": numerator / gmv},

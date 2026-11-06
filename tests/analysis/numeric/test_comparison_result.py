@@ -17,7 +17,9 @@ from tests.shared_fixtures import DslCase, DslCaseFactory, catalog_value
 
 def _monthly(case: DslCase, start: str, end: str, metric: str = "revenue") -> mv.AnalysisFrame:
     session = case.session
-    members = session.members(session.catalog.get("entity:sales.customer"))
+    entity = session.catalog.get("entity:sales.customer")
+    assert entity.kind == "entity"
+    members = session.members(entity)
     return session.observe(
         {"value": catalog_value(session.catalog, "sales." + metric, kind="metric")},
         by=mv.product(session.time_scope(start=start, end=end), members),
@@ -85,7 +87,9 @@ def test_comparison_owns_independent_nullable_columns(
     assert frame["reference.relative.value"].dropna().sum() == pytest.approx(1 / 6)
     before = run_ids(case.session)
     with pytest.raises(AnalysisError):
-        current.compare({"reference": mv.baseline(result, match=mv.ordinal())})  # type: ignore[arg-type]  # Audit views are not Frame operands.
+        current.compare(
+            {"reference": mv.baseline(result, match=mv.ordinal())}
+        )  # Audit views are not Frame operands.
     assert run_ids(case.session) == before
     same = (
         current.compare(

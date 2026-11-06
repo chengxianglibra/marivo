@@ -14,6 +14,7 @@ import pytest
 
 import marivo.analysis as mv
 from marivo.analysis.core.attribute import AttributeInputError
+from marivo.analysis.core.frame_method_facts import FrameShapleyMethod
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.numeric.test_remote_numeric_query import _project
 from tests.datasource.source_cases import SourceData, source_case, source_params
@@ -26,6 +27,11 @@ CASES = [
     ("trino", "iceberg"),
     ("clickhouse", "mergetree"),
 ]
+
+
+def _shapley(method: object) -> FrameShapleyMethod:
+    assert isinstance(method, FrameShapleyMethod)
+    return method
 
 
 def _columns(backend: str, amount_type: str) -> str:
@@ -76,11 +82,11 @@ def test_native_attribute_exact_additive_joint_keys_and_read_audit(
         assert physical.field("id").nullable and physical.field("tenant").nullable
         _project(backend, case, monkeypatch, semantic_project_factory)
         session = mv.session.get_or_create("native-attribute-exact", timezone="UTC")
-        amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
-        big = catalog_value(session.catalog, "sales.facts.big", kind="field")
-        tenant = catalog_value(session.catalog, "sales.facts.tenant", kind="field")
-        category = catalog_value(session.catalog, "sales.facts.category", kind="field")
-        entity = session.catalog.get("entity:sales.facts")
+        amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
+        big = catalog_value(session.catalog, "sales.facts.big", kind="measure")
+        tenant = catalog_value(session.catalog, "sales.facts.tenant", kind="dimension")
+        category = catalog_value(session.catalog, "sales.facts.category", kind="dimension")
+        entity = catalog_value(session.catalog, "sales.facts", kind="entity")
         parent = session.observe(
             {"decimal": amount.sum(), "integer": big.sum(), "count": entity.count()}
         ).compute()
@@ -178,9 +184,9 @@ def test_native_attribute_mean_and_ratio_use_complete_parent_denominators(
     with source_case(backend, profile, tmp_path, monkeypatch, data) as case:
         _project(backend, case, monkeypatch, semantic_project_factory)
         session = mv.session.get_or_create("native-attribute-denominators", timezone="UTC")
-        amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
-        weight = catalog_value(session.catalog, "sales.facts.weight", kind="field")
-        category = catalog_value(session.catalog, "sales.facts.category", kind="field")
+        amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
+        weight = catalog_value(session.catalog, "sales.facts.weight", kind="measure")
+        category = catalog_value(session.catalog, "sales.facts.category", kind="dimension")
         parent = session.observe(
             {"mean": amount.mean(), "ratio": amount.sum() / weight.sum()}
         ).compute()
@@ -234,9 +240,9 @@ def test_native_attribute_distinguishes_known_empty_from_all_null(
     with source_case(backend, profile, tmp_path, monkeypatch, data) as case:
         _project(backend, case, monkeypatch, semantic_project_factory)
         session = mv.session.get_or_create("native-attribute-empty", timezone="UTC")
-        amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
-        weight = catalog_value(session.catalog, "sales.facts.weight", kind="field")
-        category = catalog_value(session.catalog, "sales.facts.category", kind="field")
+        amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
+        weight = catalog_value(session.catalog, "sales.facts.weight", kind="measure")
+        category = catalog_value(session.catalog, "sales.facts.category", kind="dimension")
         empty_parent = session.observe({"q": amount.sum()}, where=weight > 1).compute()
         assert empty_parent.to_pandas()["q"].tolist() == [0]
         empty = empty_parent.attribute(by=(category,)).compute()
@@ -289,9 +295,9 @@ def test_native_fixed_members_preserve_attribute_source_constraints(
     with source_case(backend, profile, tmp_path, monkeypatch, data) as case:
         _project(backend, case, monkeypatch, semantic_project_factory)
         session = mv.session.get_or_create("native-fix", timezone="UTC")
-        amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
-        tenant = catalog_value(session.catalog, "sales.facts.tenant", kind="field")
-        category = catalog_value(session.catalog, "sales.facts.category", kind="field")
+        amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
+        tenant = catalog_value(session.catalog, "sales.facts.tenant", kind="dimension")
+        category = catalog_value(session.catalog, "sales.facts.category", kind="dimension")
         source = session.observe({"q": amount.mean()}, by=(tenant,)).compute()
         current = source.fix(source.axes[0], "west")
         baseline = source.fix(source.axes[0], "east")
@@ -343,10 +349,10 @@ def test_native_paired_rate_mix_matches_symmetric_oracle(
     with source_case(backend, profile, tmp_path, monkeypatch, data) as case:
         _project(backend, case, monkeypatch, semantic_project_factory)
         session = mv.session.get_or_create("native-paired-rate-mix", timezone="UTC")
-        amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
-        weight = catalog_value(session.catalog, "sales.facts.weight", kind="field")
-        phase = catalog_value(session.catalog, "sales.facts.tenant", kind="field")
-        category = catalog_value(session.catalog, "sales.facts.category", kind="field")
+        amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
+        weight = catalog_value(session.catalog, "sales.facts.weight", kind="measure")
+        phase = catalog_value(session.catalog, "sales.facts.tenant", kind="dimension")
+        category = catalog_value(session.catalog, "sales.facts.category", kind="dimension")
         metrics = {
             "ratio": amount.sum() / weight.sum(),
             "weighted": amount.weighted_mean(weight=weight),
@@ -416,10 +422,10 @@ def test_native_shapley_fixed_states_keep_original_finishing_and_capture_cost(
     with source_case(backend, profile, tmp_path, monkeypatch, data) as case:
         _project(backend, case, monkeypatch, semantic_project_factory)
         session = mv.session.get_or_create("native-shapley-state", timezone="UTC")
-        amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
-        weight = catalog_value(session.catalog, "sales.facts.weight", kind="field")
-        phase = catalog_value(session.catalog, "sales.facts.tenant", kind="field")
-        category = catalog_value(session.catalog, "sales.facts.category", kind="field")
+        amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
+        weight = catalog_value(session.catalog, "sales.facts.weight", kind="measure")
+        phase = catalog_value(session.catalog, "sales.facts.tenant", kind="dimension")
+        category = catalog_value(session.catalog, "sales.facts.category", kind="dimension")
         metrics = {
             "product": amount.sum() * weight.sum(),
             "weighted": amount.weighted_mean(weight=weight) * weight.sum(),
@@ -495,11 +501,11 @@ def test_native_shapley_queries_keep_original_reducers_and_actual_read_costs(
     with source_case(backend, profile, tmp_path, monkeypatch, data) as case:
         _project(backend, case, monkeypatch, semantic_project_factory)
         session = mv.session.get_or_create("native-shapley-queries", timezone="UTC")
-        amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
-        big = catalog_value(session.catalog, "sales.facts.big", kind="field")
-        weight = catalog_value(session.catalog, "sales.facts.weight", kind="field")
-        phase = catalog_value(session.catalog, "sales.facts.tenant", kind="field")
-        category = catalog_value(session.catalog, "sales.facts.category", kind="field")
+        amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
+        big = catalog_value(session.catalog, "sales.facts.big", kind="measure")
+        weight = catalog_value(session.catalog, "sales.facts.weight", kind="measure")
+        phase = catalog_value(session.catalog, "sales.facts.tenant", kind="dimension")
+        category = catalog_value(session.catalog, "sales.facts.category", kind="dimension")
         metrics = {
             "mean": big.mean() * weight.sum(),
             "float_condition": (amount.sum() > 4).ifelse(1, 0),
@@ -548,7 +554,7 @@ def test_native_shapley_queries_keep_original_reducers_and_actual_read_costs(
             assert rows["contribution.native_approx_distinct"].tolist() == [4.0, 0.0]
             assert rows["total.native_approx_distinct"].tolist() == [4, 4]
         methods = {
-            item.target: item.method
+            item.target: _shapley(item.method)
             for fact in report.method_facts
             for parent in fact.parents
             for item in parent.metrics
@@ -619,9 +625,9 @@ def test_unavailable_exact_source_quantiles_reject_before_shapley_business_reads
     with source_case(backend, profile, tmp_path, monkeypatch, data) as case:
         _project(backend, case, monkeypatch, semantic_project_factory)
         session = mv.session.get_or_create("unsupported-shapley-exact-quantile", timezone="UTC")
-        amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
-        phase = catalog_value(session.catalog, "sales.facts.tenant", kind="field")
-        category = catalog_value(session.catalog, "sales.facts.category", kind="field")
+        amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
+        phase = catalog_value(session.catalog, "sales.facts.tenant", kind="dimension")
+        category = catalog_value(session.catalog, "sales.facts.category", kind="dimension")
         current = session.observe({"q": amount.quantile(0.5)}, where=phase == "current")
         baseline = session.observe({"q": amount.quantile(0.5)}, where=phase == "base")
         compared = current.compare({"b": mv.baseline(baseline, on=())})

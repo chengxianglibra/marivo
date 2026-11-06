@@ -2,6 +2,7 @@
 
 import math
 from decimal import Decimal
+from typing import Literal
 
 import ibis
 import ibis.expr.datatypes as dt
@@ -155,9 +156,17 @@ def test_local_alignment_consumes_only_facts_for_its_actual_merge_keys(
     merge = pd.DataFrame.merge
     validations: list[object] = []
 
-    def captured_merge(left: pd.DataFrame, right: pd.DataFrame, **kwargs: object) -> pd.DataFrame:
-        validations.append(kwargs.get("validate"))
-        return merge(left, right, **kwargs)
+    def captured_merge(
+        left: pd.DataFrame,
+        right: pd.DataFrame,
+        *,
+        on: list[str],
+        how: Literal["left"],
+        validate: Literal["many_to_one"] | None,
+        sort: bool,
+    ) -> pd.DataFrame:
+        validations.append(validate)
+        return merge(left, right, on=on, how=how, validate=validate, sort=sort)
 
     with monkeypatch.context() as capture:
         capture.setattr(pd.DataFrame, "merge", captured_merge)
@@ -629,7 +638,7 @@ def test_cancelled_sample_weights_complete_as_null(
             "('b','B','web','paid',TIMESTAMPTZ '2026-08-01',-1e308)"
         )
     session = case.session
-    amount = catalog_value(session.catalog, "sales.order.amount", kind="field")
+    amount = catalog_value(session.catalog, "sales.order.amount", kind="measure")
     customer = catalog_value(session.catalog, "sales.order.customer_id", kind="field")
     value = amount.max()
     # Native products may overflow; the zero denominator still completes as NULL.

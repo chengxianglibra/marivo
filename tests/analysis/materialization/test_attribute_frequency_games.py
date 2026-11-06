@@ -7,16 +7,15 @@ import duckdb
 import pytest
 
 import marivo.analysis as mv
-import marivo.semantic as ms
+from marivo.analysis.core.frame_method_facts import FrameShapleyCapture, FrameShapleyMethod
 from marivo.analysis.session.core import Session
 from marivo.semantic.reader import SemanticProject
 from tests.shared_fixtures import catalog_value
 from tests.support.source_trace import capture_source
 
 
-def _field(session: Session, path: str) -> ms.Dimension | ms.TimeDimension | ms.Measure:
-    value = catalog_value(session.catalog, path, kind="field")
-    assert isinstance(value, (ms.Dimension, ms.TimeDimension, ms.Measure))
+def _capture(value: object) -> FrameShapleyCapture:
+    assert isinstance(value, FrameShapleyCapture)
     return value
 
 
@@ -73,11 +72,11 @@ def test_public_frequency_game_keeps_source_capture_fixed_as_permutations_grow(
         database = tmp_path / "frequency.duckdb"
         with duckdb.connect(str(database)) as connection:
             connection.execute("ALTER TABLE facts ALTER COLUMN amount SET DATA TYPE DOUBLE")
-    amount = _field(session, "sales.facts.amount")
-    member = _field(session, "sales.facts.member")
-    batch = _field(session, "sales.facts.batch")
-    tenant = _field(session, "sales.facts.tenant")
-    player = _field(session, "sales.facts.player")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
+    member = catalog_value(session.catalog, "sales.facts.member", kind="measure")
+    batch = catalog_value(session.catalog, "sales.facts.batch", kind="dimension")
+    tenant = catalog_value(session.catalog, "sales.facts.tenant", kind="dimension")
+    player = catalog_value(session.catalog, "sales.facts.player", kind="dimension")
     metric = member.count_distinct() if distinct else amount.quantile(0.0)
     current = session.observe({"q": metric}, by=(tenant,), where=batch == 1)
     baseline = session.observe({"q": metric}, by=(tenant,), where=batch == 0)
@@ -111,8 +110,8 @@ def test_public_frequency_game_keeps_source_capture_fixed_as_permutations_grow(
                 tuple(trace.returned_arrow_bytes[start:]),
                 tuple(
                     (
-                        capture.state_entries,
-                        capture.state_bytes,
+                        _capture(capture).state_entries,
+                        _capture(capture).state_bytes,
                         capture.returned_rows,
                         capture.returned_bytes,
                         capture.source_reads,
@@ -170,9 +169,9 @@ def test_frequency_game_rejects_non_table_sources_before_business_reads(
     from marivo.analysis.errors import AnalysisStageUnavailableError
 
     session = frequency_session
-    amount = _field(session, "sales.facts.amount")
-    batch = _field(session, "sales.facts.batch")
-    player = _field(session, "sales.facts.player")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
+    batch = catalog_value(session.catalog, "sales.facts.batch", kind="dimension")
+    player = catalog_value(session.catalog, "sales.facts.player", kind="dimension")
     current = session.observe({"q": amount.quantile(0.5)}, where=batch == 1)
     baseline = session.observe({"q": amount.quantile(0.5)}, where=batch == 0)
     compared = current.compare({"b": mv.baseline(baseline, on=())})
@@ -187,9 +186,9 @@ def test_native_duckdb_interpolation_uses_original_queries_and_observe_still_wor
     frequency_session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     session = frequency_session
-    member = _field(session, "sales.facts.member")
-    batch = _field(session, "sales.facts.batch")
-    player = _field(session, "sales.facts.player")
+    member = catalog_value(session.catalog, "sales.facts.member", kind="measure")
+    batch = catalog_value(session.catalog, "sales.facts.batch", kind="dimension")
+    player = catalog_value(session.catalog, "sales.facts.player", kind="dimension")
     current = session.observe({"q": member.quantile(0.5)}, where=batch == 1)
     baseline = session.observe({"q": member.quantile(0.5)}, where=batch == 0)
     compared = current.compare({"b": mv.baseline(baseline, on=())})
@@ -200,6 +199,7 @@ def test_native_duckdb_interpolation_uses_original_queries_and_observe_still_wor
     assert rows["total.change"].tolist() == [1, 1]
     assert sum(rows["contribution.change"]) == pytest.approx(1)
     method = report.method_facts[0].parents[0].metrics[0].method
+    assert isinstance(method, FrameShapleyMethod)
     assert method.state_route == "native_queries/v1"
     assert (
         len([sql for sql in trace.native_sql if "UNION ALL" in sql.upper()])
@@ -220,9 +220,9 @@ def test_native_decimal_quantiles_preserve_each_finisher_and_query_receipts(
     from fractions import Fraction
 
     session = frequency_session
-    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
-    batch = catalog_value(session.catalog, "sales.facts.batch", kind="field")
-    player = catalog_value(session.catalog, "sales.facts.player", kind="field")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
+    batch = catalog_value(session.catalog, "sales.facts.batch", kind="dimension")
+    player = catalog_value(session.catalog, "sales.facts.player", kind="dimension")
     quantiles = {
         "low": 0.0,
         "quarter": 0.25,

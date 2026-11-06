@@ -11,14 +11,14 @@ from pathlib import Path
 
 import duckdb
 import pytest
-from ibis.common.deferred import Deferred
 
 import marivo.analysis as mv
+import marivo.semantic as ms
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.session.core import Session
 from marivo.datasource.adapters import SourceSession
+from marivo.semantic._expression_values import FieldExpression
 from marivo.semantic.errors import SemanticExpressionError
-from marivo.semantic.expressions import _Entity as Entity
 from tests.analysis.statistics.pandas_workflows import receipt_paths
 from tests.shared_fixtures import DslCaseFactory, catalog_value, terminal_runs
 from tests.support.paths import PROJECT_ROOT
@@ -107,7 +107,7 @@ def _read(
     at: datetime | None = None,
     via: str | None = None,
 ) -> mv.AnalysisFrame:
-    value = catalog_value(session.catalog, field, kind="field")
+    value: FieldExpression = catalog_value(session.catalog, field, kind="field")
     if via is not None:
         value = value.via((catalog_value(session.catalog, via, kind="relationship"),))
     if at is not None:
@@ -120,7 +120,7 @@ def _values(result: mv.AnalysisFrame) -> list[object]:
 
 
 def _identity_population(
-    session: Session, frame: mv.AnalysisFrame, entity: Entity
+    session: Session, frame: mv.AnalysisFrame, entity: ms.Entity
 ) -> mv.Population:
     axes = tuple(axis for axis in frame.axes if axis.role == "identity")
     assert len(axes) == 1
@@ -224,11 +224,15 @@ def test_computed_measure_and_bound_dependency(members_session: Session) -> None
     prefix = _domain(session)
     members = session.members(catalog_value(session.catalog, f"{prefix}.plain", kind="entity"))
     discounted = session.observe(
-        {"value": catalog_value(session.catalog, f"{prefix}.plain.discounted", kind="field").sum()},
+        {
+            "value": catalog_value(
+                session.catalog, f"{prefix}.plain.discounted", kind="measure"
+            ).sum()
+        },
         by=members,
     )
     uplifted = session.observe(
-        {"value": catalog_value(session.catalog, f"{prefix}.plain.uplifted", kind="field").sum()},
+        {"value": catalog_value(session.catalog, f"{prefix}.plain.uplifted", kind="measure").sum()},
         by=members,
     )
     assert _values(discounted.compute()) == [9.0, 18.0]
@@ -406,8 +410,12 @@ to_subject = ms.relationship(name="to_subject", from_entity=instances, to_entity
 """)
     monkeypatch.chdir(tmp_path)
     session = mv.session.get_or_create("subject-image", timezone="UTC")
-    domain = session.members(session.catalog.get("entity:test.instances"))
-    image = domain.image(via=(session.catalog.get("relationship:test.to_subject"),))
+    entity = session.catalog.get("entity:test.instances")
+    relationship = session.catalog.get("relationship:test.to_subject")
+    assert entity.kind == "entity" and relationship.kind == "relationship"
+    domain = session.members(entity)
+    image = domain.image(via=(relationship,))
+    assert isinstance(image, mv.Population)
     result = session.frame(image).persist()
     assert result.to_pandas().iloc[:, 0].tolist() == [(7, "A"), (7, "B")]
     (tmp_path / "subjects.duckdb").rename(tmp_path / "subjects.offline")
@@ -521,7 +529,7 @@ def test_grid_attribute_point_is_independent_of_member_version(members_session: 
         assert actual == expected
     outputs = []
     for point in ("2026-08-31T23:59:59.999999+00:00", "2026-09-30T23:59:59.999999+00:00"):
-        fields: dict[str, Deferred] = {
+        fields: dict[str, FieldExpression] = {
             name: catalog_value(session.catalog, f"{prefix}.valid.{name}", kind="field").at(
                 session.instant(point)
             )
@@ -568,6 +576,7 @@ def test_grid_classification_uses_grid_point(members_session: Session) -> None:
         anchor
     )
     categories = members.classify(by=(category,))
+    assert isinstance(categories, mv.Population)
     grid = session.time_scope(
         start="2026-08-01T00:00:00+00:00", end="2026-08-01T02:00:00+00:00"
     ).by(mv.grain("hour"))

@@ -62,8 +62,8 @@ def test_postgres_integer_original_rollup_preserves_native_values(
     ],
 ) -> None:
     session, case = postgres_original_session
-    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
-    category = catalog_value(session.catalog, "sales.facts.category", kind="field")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
+    category = catalog_value(session.catalog, "sales.facts.category", kind="dimension")
     metric = amount.quantile(0.9) if method == "quantile" else getattr(amount, method)()
     query = session.observe({"value": metric})
     native = _native_scalar(case, method)
@@ -88,9 +88,9 @@ def test_postgres_drill_preserves_large_integer_values_and_null_categories(
     from tests.datasource.environment import postgres_analysis as pg
 
     session, case = postgres_original_session
-    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
-    category = catalog_value(session.catalog, "sales.facts.category", kind="field")
-    tenant = catalog_value(session.catalog, "sales.facts.tenant", kind="field")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
+    category = catalog_value(session.catalog, "sales.facts.category", kind="dimension")
+    tenant = catalog_value(session.catalog, "sales.facts.tenant", kind="dimension")
     query = session.observe({"value": amount.sum()}, by=(category, tenant))
     assert isinstance(case.source, TableSourceIR)
     assert isinstance(case.source.database, str)
@@ -119,8 +119,8 @@ def test_postgres_empty_original_scalar_returns_zero(
     postgres_original_session: tuple[Session, Case], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     session, case = postgres_original_session
-    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
-    category = catalog_value(session.catalog, "sales.facts.category", kind="field")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
+    category = catalog_value(session.catalog, "sales.facts.category", kind="dimension")
     query = session.observe({"value": amount.sum().where(amount > 2**63 - 1)})
     trace = capture_source(monkeypatch)
     result = query.compute().to_pandas()
@@ -143,8 +143,8 @@ def test_postgres_nullable_integer_distinct_recomputes_before_transport(
     with source_case("postgres", "table", tmp_path, monkeypatch, data) as case:
         _project("postgres", case, monkeypatch, semantic_project_factory)
         session = mv.session.get_or_create("postgres-nullable-original", timezone="UTC")
-        amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
-        category = catalog_value(session.catalog, "sales.facts.category", kind="field")
+        amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
+        category = catalog_value(session.catalog, "sales.facts.category", kind="dimension")
         query = session.observe({"value": amount.count_distinct()})
         trace = capture_source(monkeypatch)
         result = query.compute().to_pandas()
@@ -172,9 +172,9 @@ def test_postgres_integer_means_use_native_compact_states(
     ],
 ) -> None:
     session, case = postgres_original_session
-    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
-    weight = catalog_value(session.catalog, "sales.facts.weight", kind="field")
-    category = catalog_value(session.catalog, "sales.facts.category", kind="field")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
+    weight = catalog_value(session.catalog, "sales.facts.weight", kind="measure")
+    category = catalog_value(session.catalog, "sales.facts.category", kind="dimension")
     metric = amount.mean() if method == "mean" else amount.weighted_mean(weight=weight)
     query = session.observe({"value": metric})
     native = _native_scalar(case, method)
@@ -192,9 +192,9 @@ def test_postgres_original_period_binding_preserves_selected_input(
     postgres_original_session: tuple[Session, Case], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     session, case = postgres_original_session
-    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
-    category = catalog_value(session.catalog, "sales.facts.category", kind="field")
-    day = catalog_value(session.catalog, "sales.facts.day", kind="field")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
+    category = catalog_value(session.catalog, "sales.facts.category", kind="dimension")
+    day = catalog_value(session.catalog, "sales.facts.day", kind="time_dimension")
     period = session.time_scope(start="2026-07-01", end="2026-07-02")
     query = session.observe({"value": amount.sum(time=day)}, by=(period,))
     trace = capture_source(monkeypatch)
@@ -220,8 +220,8 @@ def test_postgres_native_sum_transport_failure_precedes_publication(
     with source_case("postgres", "table", tmp_path, monkeypatch, data) as case:
         _project("postgres", case, monkeypatch, semantic_project_factory)
         session = mv.session.get_or_create("postgres-overflow-original", timezone="UTC")
-        amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
-        category = catalog_value(session.catalog, "sales.facts.category", kind="field")
+        amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
+        category = catalog_value(session.catalog, "sales.facts.category", kind="dimension")
         query = session.observe({"value": amount.sum()}, by=(category,))
         before = publication_counts(session)
         with pytest.raises(MaterializationError, match="tried to convert to int64"):
@@ -249,8 +249,8 @@ def test_postgres_decimal_distinct_recomputes_before_transport(
     with source_case("postgres", "table", tmp_path, monkeypatch, data) as case:
         _project("postgres", case, monkeypatch, semantic_project_factory)
         session = mv.session.get_or_create("postgres-decimal-original", timezone="UTC")
-        amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
-        category = catalog_value(session.catalog, "sales.facts.category", kind="field")
+        amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
+        category = catalog_value(session.catalog, "sales.facts.category", kind="dimension")
         query = session.observe({"value": amount.count_distinct()})
         trace = capture_source(monkeypatch)
         result = query.compute().to_pandas()
@@ -290,9 +290,9 @@ def test_postgres_nondeterministic_coordinate_collation_keeps_parent_labels(
             with source_case("postgres", "table", tmp_path, monkeypatch, data) as case:
                 _project("postgres", case, monkeypatch, semantic_project_factory)
                 session = mv.session.get_or_create("postgres-collated-original", timezone="UTC")
-                amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
-                category = catalog_value(session.catalog, "sales.facts.category", kind="field")
-                tenant = catalog_value(session.catalog, "sales.facts.tenant", kind="field")
+                amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
+                category = catalog_value(session.catalog, "sales.facts.category", kind="dimension")
+                tenant = catalog_value(session.catalog, "sales.facts.tenant", kind="dimension")
                 query = session.observe({"value": amount.sum()}, by=(category, tenant))
                 native_table = case.session.bind(
                     case.source, source_identity="collation-oracle"
@@ -339,10 +339,10 @@ def test_postgres_attribute_default_preserves_exact_values_and_fixed_parents(
     with source_case("postgres", "table", tmp_path, monkeypatch, data) as case:
         _project("postgres", case, monkeypatch, semantic_project_factory)
         session = mv.session.get_or_create("postgres-attribute-default", timezone="UTC")
-        amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
-        tenant = catalog_value(session.catalog, "sales.facts.tenant", kind="field")
-        category = catalog_value(session.catalog, "sales.facts.category", kind="field")
-        day = catalog_value(session.catalog, "sales.facts.day", kind="field")
+        amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
+        tenant = catalog_value(session.catalog, "sales.facts.tenant", kind="dimension")
+        category = catalog_value(session.catalog, "sales.facts.category", kind="dimension")
+        day = catalog_value(session.catalog, "sales.facts.day", kind="time_dimension")
         metric = amount.sum(time=day)
         current = session.time_scope(start="2026-10-08", end="2026-10-09")
         baseline = session.time_scope(start="2026-10-07", end="2026-10-08")

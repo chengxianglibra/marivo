@@ -7,7 +7,7 @@ import pytest
 from marivo.analysis.materialization.errors import StorageAccessError
 from marivo.analysis.materialization.storage import _open_payload
 from marivo.analysis.materialization.store import SessionStore
-from tests.shared_fixtures import DslCaseFactory
+from tests.shared_fixtures import DslCaseFactory, catalog_get
 
 
 def _snapshot(store: SessionStore) -> str:
@@ -20,7 +20,9 @@ def test_missing_backing_discards_native_exception_and_locator(
 ) -> None:
     case = analysis_dsl_case_factory("j1")
     result = case.session.frame(
-        case.session.members(case.session.catalog.get("entity:sales.customer"))
+        case.session.members(
+            catalog_get(case.session.catalog, "entity:sales.customer", kind="entity")
+        )
     ).persist()
     receipt = result._local._manifest(result._require_stored("artifact_id")).data.rows.receipt
     path = case.root / receipt.project_relative_path / receipt.file_manifest[0].relative_path

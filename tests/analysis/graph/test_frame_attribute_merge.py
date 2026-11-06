@@ -83,7 +83,7 @@ def test_merge_uses_existing_frame_schedule_for_fixed_inputs(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     case = analysis_dsl_case_factory("j1")
-    region = catalog_value(case.session.catalog, "sales.customer.region", kind="field")
+    region = catalog_value(case.session.catalog, "sales.customer.region", kind="dimension")
     left = case.session.values(
         by=(region,), columns={"a": "CNY"}, rows=((("east",), {"a": 2}),)
     ).compute()

@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import ast
 import textwrap
+from collections.abc import Callable
 
 import pytest
 
@@ -58,7 +59,7 @@ def test_base_field_ref_bind() -> None:
     """Explicit semantic field binding is allowed in base metrics."""
 
     def revenue(table):  # type: ignore[no-untyped-def]
-        return ms.bind(amount, table).sum()  # noqa: F821
+        return ms.bind(amount, table).sum()  # type: ignore[name-defined]  # noqa: F821
 
     result = validate_metric_body_ast(revenue, "base")
     assert isinstance(result, str)
@@ -332,7 +333,7 @@ def test_base_ms_component_call_rejected() -> None:
     """ms.component() is not supported in base metric bodies."""
 
     def bad_metric(table):  # type: ignore[no-untyped-def]
-        return ms.component("amount")
+        return ms.component("amount")  # type: ignore[attr-defined]  # Retired API under test.
 
     with pytest.raises(SemanticLoadError) as exc_info:
         validate_metric_body_ast(bad_metric, "base")
@@ -425,14 +426,14 @@ def test_different_bodies_different_hash() -> None:
 def test_leading_docstring_excluded_from_body_hash() -> None:
     """Docstring-only changes should not change expression body identity."""
 
-    def first():
+    def first() -> Callable[..., object]:
         def revenue(table):  # type: ignore[no-untyped-def]
             """First wording."""
             return table.amount.sum()
 
         return revenue
 
-    def second():
+    def second() -> Callable[..., object]:
         def revenue(table):  # type: ignore[no-untyped-def]
             """Second wording."""
             return table.amount.sum()
@@ -590,7 +591,7 @@ def test_base_ibis_attr_no_shadow_non_param() -> None:
     """Attribute access on a non-parameter name is not flagged."""
 
     def metric(table):  # type: ignore[no-untyped-def]
-        return other.schema  # noqa: F821
+        return other.schema  # type: ignore[name-defined]  # noqa: F821
 
     result = validate_metric_body_ast(metric, "base")
     assert isinstance(result, str)

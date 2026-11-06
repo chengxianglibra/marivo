@@ -162,9 +162,9 @@ def test_notices_deduplicate_across_calls_but_follow_changed_paths_and_projects(
     with pytest.warns(UserWarning, match="v9"):
         mv.session.recent()
     old.unlink()
-    with pytest.warns(UserWarning) as notices:
+    with pytest.warns(UserWarning) as user_notices:
         mv.session.recent()
-    assert "v8 (" not in str(notices[0].message)
+    assert "v8 (" not in str(user_notices[0].message)
     (old.parent.parent / "v9/session_store.db").unlink()
     with warnings.catch_warnings(record=True) as notices:
         warnings.simplefilter("always")

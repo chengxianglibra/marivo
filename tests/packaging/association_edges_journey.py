@@ -23,6 +23,7 @@ from tests.packaging.graph_journeys import (
 from tests.shared_fixtures import (
     DslCase,
     analysis_dsl_rows,
+    catalog_get,
     catalog_value,
     export_dsl_parquet_models,
     run_ids,
@@ -55,15 +56,23 @@ def run(root: Path, phase: str) -> dict[str, Json]:
             DslCase("j4", NAMES, root, root / "warehouse.duckdb", catalog, session), root
         )
         ms.load(workspace_dir=root)
-        population = session.members(session.catalog.get("entity:operations.device"))
+        population = session.members(
+            catalog_get(session.catalog, "entity:operations.device", kind="entity")
+        )
         window = session.time_scope(start="2026-08-01", end="2026-09-01")
-        amount = catalog_value(session.catalog, "operations.reading.energy", kind="field")
-        time = catalog_value(session.catalog, "operations.reading.recorded_at", kind="field")
+        amount = catalog_value(session.catalog, "operations.reading.energy", kind="measure")
+        time = catalog_value(
+            session.catalog, "operations.reading.recorded_at", kind="time_dimension"
+        )
         left = session.observe(
             {"value": amount.sum(time=time)}, by=mv.product(window, population)
         ).persist()
         right = session.observe(
-            {"value": session.catalog.get("metric:operations.reading_count")},
+            {
+                "value": catalog_get(
+                    session.catalog, "metric:operations.reading_count", kind="metric"
+                )
+            },
             by=mv.product(window, population),
         ).persist()
         before = publication_counts(session)

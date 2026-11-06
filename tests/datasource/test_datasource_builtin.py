@@ -22,6 +22,7 @@ from marivo.datasource.errors import (
     DatasourceRawSqlError,
 )
 from marivo.datasource.loader import load_datasources
+from marivo.datasource.source import TableSource
 from marivo.semantic.loader import load_project
 from tests.shared_fixtures import bootstrap_sales_project_from_template
 
@@ -49,6 +50,7 @@ def test_empty_project_discovery_is_pure(
     assert description.env_refs == {}
     semantic = ms.load(workspace_dir=project_root)
     entry = semantic.get("datasource:default")
+    assert entry.kind == "datasource"
     assert dict(entry.definition.fields) == description.literal_fields
     for result in (
         catalog,
@@ -129,7 +131,10 @@ def test_authored_default_rejected_by_both_loaders(project_root: Path, external:
         project_root / "models" / "semantic",
         models_roots=(project_root / "models", models) if external else (models,),
     )
-    assert any("reserved" in error.message and "Rename" in error.hint for error in result.errors)
+    assert any(
+        "reserved" in error.message and error.hint is not None and "Rename" in error.hint
+        for error in result.errors
+    )
     assert authored.read_text() == "import marivo.datasource as md\nmd.duckdb(name='default')\n"
 
 
@@ -167,6 +172,7 @@ def test_builtin_file_sources_and_semantic_preview(project_root: Path, format: s
     (project_root / "models" / "datasources").rmdir()
     rows = pd.DataFrame({"region": ["US", "CN"], "amount": [10, 20]})
     path = project_root / f"orders.{format}"
+    source: TableSource
     if format == "csv":
         rows.to_csv(path, index=False)
         source = md.csv(str(path))
@@ -194,7 +200,9 @@ def test_builtin_file_sources_and_semantic_preview(project_root: Path, format: s
         persist_values=True,
     )
     assert snapshot.coverage.observed_row_count == 2
-    assert sorted(row["amount"] for row in snapshot.retained_values) == [10, 20]
+    amounts = [row["amount"] for row in snapshot.retained_values]
+    assert all(isinstance(amount, int) for amount in amounts)
+    assert sorted(amount for amount in amounts if isinstance(amount, int)) == [10, 20]
     preview = catalog.preview(
         catalog.get("metric:sales.revenue"), scope=md.unpruned(max_rows=2, timeout_seconds=30)
     )

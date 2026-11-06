@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 
 from marivo.datasource.runtime import DatasourceConnectionService
 
@@ -14,7 +15,7 @@ class FakeBackend:
         self.closed = True
 
 
-def test_datasource_connection_service_uses_explicit_backend_mapping(tmp_path) -> None:
+def test_datasource_connection_service_uses_explicit_backend_mapping(tmp_path: Path) -> None:
     calls: list[str] = []
 
     def build() -> FakeBackend:
@@ -32,12 +33,14 @@ def test_datasource_connection_service_uses_explicit_backend_mapping(tmp_path) -
     assert first.closed
 
 
-def test_datasource_connection_service_uses_backend_factory(tmp_path) -> None:
+def test_datasource_connection_service_uses_backend_factory(tmp_path: Path) -> None:
     calls: list[str] = []
-    service = DatasourceConnectionService(
-        project_root=tmp_path,
-        backend_factory=lambda name: calls.append(name) or FakeBackend(name),
-    )
+
+    def build(name: str) -> FakeBackend:
+        calls.append(name)
+        return FakeBackend(name)
+
+    service = DatasourceConnectionService(project_root=tmp_path, backend_factory=build)
 
     assert service.session_backend("a").name == "a"
     assert service.session_backend("b").name == "b"

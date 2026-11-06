@@ -14,6 +14,7 @@ from marivo.analysis.core.frame_data import (
     CompletedFrameData,
     CompletedFrameResult,
     MemoryFrameBacking,
+    StoredFrameBacking,
 )
 from marivo.analysis.core.frame_metadata import EvaluationRecord, FrameResultMetadata
 from marivo.analysis.core.lineage import empty as empty_lineage
@@ -23,6 +24,7 @@ from marivo.analysis.dsl.frame import AnalysisFrame
 from marivo.analysis.dsl.frame_sources import values
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.materialization.frame_services import LocalFrameServices
+from marivo.analysis.materialization.graph_reading import FramePreview
 from tests.shared_fixtures import terminal_runs
 
 
@@ -51,6 +53,12 @@ def _memory(local: LocalFrameServices) -> AnalysisFrame:
         EvaluationRecord(datetime(2026, 10, 19, tzinfo=timezone.utc), (), ()),
     )
     return AnalysisFrame._from_memory(local, CompletedFrameResult(data, metadata))
+
+
+def _memory_metadata(local: LocalFrameServices) -> FrameResultMetadata:
+    backing = _memory(local)._backing
+    assert isinstance(backing, MemoryFrameBacking)
+    return backing.metadata
 
 
 def test_literal_compute_is_runless_and_memory_compute_returns_self(
@@ -139,7 +147,7 @@ def test_select_rejects_non_mapping_with_structured_repair(
     local: LocalFrameServices, invalid: object
 ) -> None:
     with pytest.raises(CoreRuleError) as caught:
-        _memory(local).select(invalid)
+        _memory(local).select(invalid)  # type: ignore[arg-type]  # Reject non-mapping selection.
     error = caught.value
     assert error.expected == "a named value mapping (possibly empty)"
     assert error.received == type(invalid).__name__
@@ -201,7 +209,7 @@ def test_show_respects_row_and_byte_limits_with_exact_counts(
     frame = AnalysisFrame._from_memory(
         local,
         CompletedFrameResult(
-            data, replace(_memory(local)._backing.metadata, lineage=empty_lineage(data.schema))
+            data, replace(_memory_metadata(local), lineage=empty_lineage(data.schema))
         ),
     )
     frame.show()
@@ -247,7 +255,7 @@ def test_show_respects_row_and_byte_limits_with_exact_counts(
     requests: list[int] = []
     original = LocalFrameServices.preview
 
-    def preview(self: LocalFrameServices, backing: object, n: int) -> object:
+    def preview(self: LocalFrameServices, backing: StoredFrameBacking, n: int) -> FramePreview:
         requests.append(n)
         return original(self, backing, n)
 
@@ -305,7 +313,7 @@ def test_show_unlimited_preserves_wide_rows_and_escaped_cells(
     frame = AnalysisFrame._from_memory(
         local,
         CompletedFrameResult(
-            data, replace(_memory(local)._backing.metadata, lineage=empty_lineage(data.schema))
+            data, replace(_memory_metadata(local), lineage=empty_lineage(data.schema))
         ),
     )
     frame.show(n=1, max_output_bytes=None)
@@ -437,6 +445,7 @@ def test_reduce_automatic_name_rejections_are_structured_and_runless(
     for receiver, statistic in unnamed:
         with pytest.raises(CoreRuleError) as error:
             receiver.reduce(statistic)
+        assert error.value.repair is not None
         assert (
             "explicit name" in error.value.repair.action
             or "output name" in error.value.repair.action
@@ -448,12 +457,15 @@ def test_reduce_automatic_name_rejections_are_structured_and_runless(
         with pytest.raises(CoreRuleError) as error:
             root.reduce((statistic, statistic))
         assert error.value.expected == "distinct statistic output names"
+        assert error.value.received is not None
+        assert error.value.repair is not None
         assert "input positions 1 and 2" in error.value.received
         assert "explicit name" in error.value.repair.action
         assert root.reduce({"first": statistic, "second": statistic}).output_names == (
             "first",
             "second",
         )
+    invalid: object
     for invalid in (
         (),
         {},
@@ -467,7 +479,8 @@ def test_reduce_automatic_name_rejections_are_structured_and_runless(
         (("name", row_count()),),
     ):
         with pytest.raises(CoreRuleError) as error:
-            root.reduce(invalid)
+            root.reduce(invalid)  # type: ignore[arg-type]  # Reject malformed statistic shapes.
+        assert error.value.repair is not None
         assert error.value.repair.help_target.canonical_id == "analysis_frame.reduce"
     assert tuple(terminal_runs(local)) == before
 
@@ -481,6 +494,7 @@ def test_reduce_automatic_names_preserve_exact_frame_and_session_ownership(
         with pytest.raises(CoreRuleError) as error:
             root.reduce(other["value"].sum())
         assert error.value.expected == "a statistic from this exact Frame input"
+        assert error.value.repair is not None
         assert "Reacquire" in error.value.repair.action
 
 
@@ -492,6 +506,7 @@ def test_flat_export_aliases_conflicts_and_preview(
     with pytest.raises(CoreRuleError) as caught:
         frame.to_pandas()
     assert caught.value.expected == "unique flat export column names"
+    assert caught.value.repair is not None
     assert "axis_names" in caught.value.repair.action
     rows = frame.to_pandas(axis_names={frame.axes[0].token: "customer_region"})
     assert rows.columns.tolist() == ["customer_region", "region", "right_present"]
@@ -502,7 +517,7 @@ def test_flat_export_aliases_conflicts_and_preview(
     preview = capsys.readouterr().out
     assert "region [coordinate axis.0]" in preview and "region [value]" in preview
     with pytest.raises(CoreRuleError, match="unambiguous current axis"):
-        frame.to_pandas(axis_names={root.axes[0]: "customer_region"})
+        frame.to_pandas(axis_names={root.axes[0]: "customer_region"})  # type: ignore[dict-item]  # Reject axis objects as aliases.
     for name in ("", " region", "region\n"):
         with pytest.raises(CoreRuleError, match="printable export name"):
             root.to_pandas(axis_names={root.axes[0].token: name})
@@ -521,7 +536,7 @@ def test_export_alias_validation_precedes_stored_payload_reads(
     with pytest.raises(CoreRuleError, match="unique flat export column names"):
         frame.to_pandas()
     with pytest.raises(CoreRuleError, match="unambiguous current axis"):
-        frame.to_pandas(axis_names={root.axes[0]: "name"})
+        frame.to_pandas(axis_names={root.axes[0]: "name"})  # type: ignore[dict-item]  # Reject axis objects as aliases.
 
 
 def test_string_export_alias_survives_compute_and_rejects_invalid_requests(
@@ -540,10 +555,10 @@ def test_string_export_alias_survives_compute_and_rejects_invalid_requests(
     ]
     for bad in ({"unknown.axis": "member"}, {fixed.axes[0]: "member"}):
         with pytest.raises(CoreRuleError, match="unambiguous current axis"):
-            fixed.to_pandas(axis_names=bad)
+            fixed.to_pandas(axis_names=bad)  # type: ignore[arg-type]  # Reject non-string axis keys.
     for member in (fixed.to_pandas, fixed.read_page):
         with pytest.raises(CoreRuleError, match="boolean time_details"):
-            member(time_details="yes")
+            member(time_details="yes")  # type: ignore[arg-type]  # Reject non-boolean options.
 
 
 @pytest.mark.parametrize("member", ["to_pandas", "read_page"])
@@ -554,15 +569,19 @@ def test_axis_alias_errors_distinguish_keys_values_and_foreign_axes(
     export = getattr(frame, member)
     with pytest.raises(CoreRuleError) as current:
         export(axis_names={frame.axes[0]: "bucket"})
+    assert current.value.location is not None
+    assert current.value.repair is not None
     assert current.value.location.endswith(".axis_names.key")
     assert "{'axis.0': 'bucket'}" in current.value.repair.action
     other = _memory(local)
     with pytest.raises(CoreRuleError) as foreign:
         export(axis_names={other.axes[0]: "bucket"})
+    assert foreign.value.repair is not None
     assert "Reacquire" in foreign.value.repair.action
     assert "{'axis.0':" not in foreign.value.repair.action
     with pytest.raises(CoreRuleError) as value:
         export(axis_names={"axis.0": " invalid "})
+    assert value.value.location is not None
     assert value.value.location.endswith(".axis_names['axis.0']")
 
 
@@ -618,8 +637,14 @@ def test_current_row_contexts_are_local_and_restrict_without_recalculation(
     assert summary.compute().to_pandas().iloc[0].tolist() == [110, 55, 2]
     for method in ("pearson", "spearman"):
         result = root.correlate(root["value"], root["value"] * 2, method=method)
-        assert result.schema.value_contexts["coefficient"].statistic == method
-        assert result.schema.value_contexts["n_pairs"].statistic == "pair_count"
+        coefficient = result.schema.value_contexts["coefficient"]
+        pairs = result.schema.value_contexts["n_pairs"]
+        from marivo.analysis.core.frame_interpretation import FramePairStatisticContext
+
+        assert isinstance(coefficient, FramePairStatisticContext)
+        assert isinstance(pairs, FramePairStatisticContext)
+        assert coefficient.statistic == method
+        assert pairs.statistic == "pair_count"
     broadcast = root.select({"value": root["value"], "total": root.over(root["value"].sum())})
     assert broadcast.compute().to_pandas()["total"].tolist() == [110, 110]
     restricted = broadcast.where(broadcast["value"] > 50).compute()
@@ -637,10 +662,14 @@ def test_current_row_contexts_are_local_and_restrict_without_recalculation(
     assert tuple(renamed.schema.value_contexts) == ("copy", "again")
     assert renamed.schema.value_contexts["copy"] is renamed.schema.value_contexts["again"]
     grouped = root.reduce({"total": root["value"].sum()}, by=root.axes)
-    assert grouped.schema.value_contexts["total"].groups == (FrameAxisGroup(root.axes[0].token),)
+    grouped_context = grouped.schema.value_contexts["total"]
+    assert isinstance(grouped_context, FrameStatisticContext)
+    assert grouped_context.groups == (FrameAxisGroup(root.axes[0].token),)
     fixed = grouped.fix(grouped.axes[0], "A")
-    assert isinstance(fixed.schema.value_contexts["total"].groups[0], FrameFixedGroup)
-    assert fixed.schema.value_contexts["total"].row_scope == "complete"
+    fixed_context = fixed.schema.value_contexts["total"]
+    assert isinstance(fixed_context, FrameStatisticContext)
+    assert isinstance(fixed_context.groups[0], FrameFixedGroup)
+    assert fixed_context.row_scope == "complete"
     assert fixed.schema.fixed_axes[0].key == ("A",)
     assert fixed.schema.fixed_axes[0].axis.keys[0].slot_id not in fixed.schema.slots
 

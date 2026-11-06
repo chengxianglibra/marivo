@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import date, datetime, timedelta
+from pathlib import Path
+from typing import TYPE_CHECKING, TypedDict
 
 import ibis
 import pytest
@@ -18,24 +21,47 @@ from marivo._temporal import (
     certify_temporal_set_rows,
 )
 from marivo.analysis.dsl.temporal import exact_scope
-from marivo.refs import ref
+from marivo.refs import PeriodCalendarKind, Ref, TemporalSetKind, ref
 from marivo.refs import ref as ref_factory
-from marivo.semantic.catalog import SemanticCatalog, SemanticKind
+from marivo.semantic.catalog import SemanticCatalog
 from marivo.semantic.errors import ErrorKind, SemanticRuntimeError
-from tests.support.refs import make_ref
+
+if TYPE_CHECKING:
+    from tests.conftest import _SemanticProjectFactory
+
+
+class _PeriodArgs(TypedDict):
+    calendar_ref: Ref[PeriodCalendarKind]
+    boundary_timezone: str
+    coverage: tuple[date, date]
+    levels: dict[str, str]
+
+
+class _TemporalArgs(TypedDict):
+    temporal_set_ref: Ref[TemporalSetKind]
+    boundary_timezone: str
+    coverage: tuple[date, date]
+    occurrence_id: str
+    start: str
+    end: str
+    category: str
+
+
+class _TemporalRowsArgs(_TemporalArgs):
+    columns: tuple[str, ...]
 
 
 class _FakeConnections:
-    def __init__(self, backend):
+    def __init__(self, backend: object) -> None:
         self.backend = backend
         self.names: list[str] = []
 
-    def session_backend(self, name: str):
+    def session_backend(self, name: str) -> object:
         self.names.append(name)
         return self.backend
 
     @contextmanager
-    def use_backend(self, name: str):
+    def use_backend(self, name: str) -> Iterator[object]:
         self.names.append(name)
         yield self.backend
 
@@ -43,7 +69,7 @@ class _FakeConnections:
         pass
 
 
-def _catalog(semantic_project_factory):
+def _catalog(semantic_project_factory: _SemanticProjectFactory) -> SemanticCatalog:
     project = semantic_project_factory(
         {
             "sales/_domain.py": (
@@ -61,7 +87,9 @@ def _catalog(semantic_project_factory):
     return SemanticCatalog(project)
 
 
-def test_resolver_table_uses_connection_service(semantic_project_factory):
+def test_resolver_table_uses_connection_service(
+    semantic_project_factory: _SemanticProjectFactory,
+) -> None:
     backend = ibis.duckdb.connect(":memory:")
     backend.con.execute("CREATE TABLE orders (amount DOUBLE)")
     connections = _FakeConnections(backend)
@@ -73,14 +101,16 @@ def test_resolver_table_uses_connection_service(semantic_project_factory):
     assert connections.names == ["warehouse"]
 
 
-def test_resolver_dimension_on_accepts_semantic_ref(semantic_project_factory):
+def test_resolver_dimension_on_accepts_semantic_ref(
+    semantic_project_factory: _SemanticProjectFactory,
+) -> None:
     resolver = _catalog(semantic_project_factory)._semantic_resolver(
         connections=_FakeConnections(None)
     )
     table = ibis.table({"amount": "float64"}, name="supplied_orders")
 
     value = resolver.dimension_on(
-        make_ref("sales.orders.amount", SemanticKind.DIMENSION),
+        ref_factory.dimension("sales.orders.amount"),
         table,
     )
 
@@ -88,14 +118,16 @@ def test_resolver_dimension_on_accepts_semantic_ref(semantic_project_factory):
     assert value.get_name() == "amount"
 
 
-def test_resolver_measure_on_rejects_wrong_kind(semantic_project_factory):
+def test_resolver_measure_on_rejects_wrong_kind(
+    semantic_project_factory: _SemanticProjectFactory,
+) -> None:
     resolver = _catalog(semantic_project_factory)._semantic_resolver(
         connections=_FakeConnections(None)
     )
     table = ibis.table({"amount": "float64"}, name="supplied_orders")
 
     with pytest.raises(SemanticRuntimeError) as exc_info:
-        resolver.measure_on(make_ref("sales.orders.amount", SemanticKind.DIMENSION), table)
+        resolver.measure_on(ref_factory.dimension("sales.orders.amount"), table)  # type: ignore[arg-type]  # Exercise wrong kind.
 
     assert exc_info.value.kind == ErrorKind.MATERIALIZE_FAILED
     assert "expected measure" in str(exc_info.value)
@@ -111,7 +143,7 @@ def _period_rows() -> list[dict[str, object]]:
 
 
 def test_period_snapshot_is_order_independent_and_resolves_exact_scopes() -> None:
-    kwargs = {
+    kwargs: _PeriodArgs = {
         "calendar_ref": ref.period_calendar("sales.fiscal"),
         "boundary_timezone": "UTC",
         "coverage": (date(2026, 1, 1), date(2026, 1, 5)),
@@ -134,7 +166,7 @@ def test_period_snapshot_is_order_independent_and_resolves_exact_scopes() -> Non
 
 
 def test_period_snapshot_rejects_missing_date_and_discontiguous_period_key() -> None:
-    kwargs = {
+    kwargs: _PeriodArgs = {
         "calendar_ref": ref.period_calendar("sales.fiscal"),
         "boundary_timezone": "UTC",
         "coverage": (date(2026, 1, 1), date(2026, 1, 5)),
@@ -243,7 +275,7 @@ def test_period_snapshot_distinguishes_json_scalar_key_types() -> None:
 
 
 def test_temporal_set_snapshot_is_order_independent_and_preserves_exact_occurrence_scope() -> None:
-    kwargs = {
+    kwargs: _TemporalArgs = {
         "temporal_set_ref": ref.temporal_set("sales.campaigns"),
         "boundary_timezone": "Asia/Shanghai",
         "coverage": (date(2026, 1, 1), date(2027, 1, 1)),
@@ -296,7 +328,7 @@ def test_temporal_set_snapshot_is_order_independent_and_preserves_exact_occurren
 
 
 def test_temporal_set_snapshot_rows_reject_invalid_encoding_bounds_and_category() -> None:
-    common = {
+    common: _TemporalRowsArgs = {
         "temporal_set_ref": ref.temporal_set("sales.campaigns"),
         "boundary_timezone": "UTC",
         "coverage": (date(2026, 1, 1), date(2026, 2, 1)),
@@ -377,6 +409,7 @@ def test_temporal_set_timestamp_rows_normalize_to_one_instant_encoding() -> None
     )
 
     assert snapshot.encoding == "timestamp"
+    assert isinstance(snapshot.occurrences[0].start, datetime)
     assert snapshot.occurrences[0].start.tzinfo is not None
     assert snapshot.occurrences[0].start == datetime(2026, 1, 1, 0, tzinfo=UTC)
     assert snapshot.occurrence_scope("launch").boundary_timezone == "Asia/Shanghai"
@@ -399,7 +432,7 @@ def test_temporal_set_rows_require_backend_parsed_values() -> None:
 
 
 def test_temporal_set_loader_rejects_mixed_start_end_time_encodings(
-    semantic_project_factory,
+    semantic_project_factory: _SemanticProjectFactory,
 ) -> None:
     project = semantic_project_factory(
         {
@@ -436,7 +469,9 @@ ms.temporal_set(
     assert any("same civil-date or timestamp encoding" in str(error) for error in project.errors())
 
 
-def test_temporal_set_loader_rejects_unresolved_category_ref(semantic_project_factory) -> None:
+def test_temporal_set_loader_rejects_unresolved_category_ref(
+    semantic_project_factory: _SemanticProjectFactory,
+) -> None:
     project = semantic_project_factory(
         {
             "sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales', owner='Data', default=True)\n",
@@ -471,7 +506,7 @@ ms.temporal_set(
     )
 
 
-def test_temporal_set_snapshot_store_retains_exact_history(tmp_path) -> None:
+def test_temporal_set_snapshot_store_retains_exact_history(tmp_path: Path) -> None:
     temporal_set_ref = ref.temporal_set("sales.campaigns")
     first = certify_temporal_set(
         temporal_set_ref=temporal_set_ref,

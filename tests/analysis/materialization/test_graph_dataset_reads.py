@@ -20,7 +20,7 @@ from marivo.analysis.core.frame_data import (
 )
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.materialization.graph_reading import OutputRead, ReadLayout
-from tests.shared_fixtures import DslCase, DslCaseFactory, terminal_runs
+from tests.shared_fixtures import DslCase, DslCaseFactory, catalog_get, terminal_runs
 from tests.support.paths import PROJECT_ROOT
 
 _Kind = Literal["numeric", "comparison", "calendar", "top", "empty_top"]
@@ -28,8 +28,8 @@ _Kind = Literal["numeric", "comparison", "calendar", "top", "empty_top"]
 
 def _capture(case: DslCase, kind: _Kind) -> mv.AnalysisFrame:
     session = case.session
-    members = session.members(session.catalog.get("entity:sales.customer"))
-    metric = session.catalog.get("metric:sales.revenue")
+    members = session.members(catalog_get(session.catalog, "entity:sales.customer", kind="entity"))
+    metric = catalog_get(session.catalog, "metric:sales.revenue", kind="metric")
     scope = session.time_scope(start="2026-08-01", end="2026-09-01")
     query = session.observe({"value": metric}, by=mv.product(scope, members))
     if kind == "comparison":

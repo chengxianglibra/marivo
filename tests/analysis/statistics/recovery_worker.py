@@ -32,6 +32,18 @@ from tests.support.json import arr, checked, obj
 from tests.support.paths import PROJECT_ROOT
 
 
+def _entity(catalog: ms.SemanticCatalog, path: str) -> ms.Entity:
+    result = catalog.get(path)
+    assert result.kind == "entity"
+    return result
+
+
+def _period_calendar(catalog: ms.SemanticCatalog, path: str) -> ms.PeriodCalendar:
+    result = catalog.get(path)
+    assert result.kind == "period_calendar"
+    return result
+
+
 def snapshot(result: mv.AnalysisFrame, *, frame: pd.DataFrame | None = None) -> dict[str, object]:
     return dict(frame_snapshot(result, frame=frame))
 
@@ -141,11 +153,11 @@ def run(root: Path, phase: str, mode: str) -> dict[str, object]:
         profile_path = root / "deviation-profile.json"
         profile = json.loads(profile_path.read_text()) if profile_path.exists() else {}
         session = mv.session.get_or_create("pandas-" + mode, timezone=profile.get("zone", "UTC"))
-        members = session.members(session.catalog.get("entity:sales.order"))
+        members = session.members(_entity(session.catalog, "entity:sales.order"))
         field = catalog_value(
             session.catalog,
             f"sales.order.profile_{profile['profiles'][0]}" if profile else "sales.order.amount",
-            kind="field",
+            kind="measure",
         )
         if mode == "scalar":
             query = session.observe({"value": field.max()})
@@ -153,14 +165,14 @@ def run(root: Path, phase: str, mode: str) -> dict[str, object]:
             if profile["calendar"]:
                 publish_calendar(session.catalog, profile["zone"], baseline=profile["followup"])
             grain = (
-                session.catalog.get("period_calendar:sales.unequal").grain("period")
+                _period_calendar(session.catalog, "period_calendar:sales.unequal").grain("period")
                 if profile["calendar"]
                 else mv.grain("day")
             )
             grid = session.time_scope(
                 start="2026-08-01", end="2026-08-07" if profile["calendar"] else "2026-08-04"
             ).by(grain)
-            time = catalog_value(session.catalog, "sales.order.ordered_at", kind="field")
+            time = catalog_value(session.catalog, "sales.order.ordered_at", kind="time_dimension")
             quantities = {
                 "value": field.sum(time=time) if mode == "category_time" else field.max(time=time)
             }
@@ -169,7 +181,7 @@ def run(root: Path, phase: str, mode: str) -> dict[str, object]:
                     (
                         f"profile_{index}",
                         catalog_value(
-                            session.catalog, f"sales.order.profile_{index}", kind="field"
+                            session.catalog, f"sales.order.profile_{index}", kind="measure"
                         ).sum(time=time),
                     )
                     for index in profile["profiles"][1:]
@@ -178,14 +190,14 @@ def run(root: Path, phase: str, mode: str) -> dict[str, object]:
                 quantities,
                 by=mv.product(grid, members)
                 if mode == "entity_time"
-                else (grid, catalog_value(session.catalog, "sales.order.channel", kind="field"))
+                else (grid, catalog_value(session.catalog, "sales.order.channel", kind="dimension"))
                 if mode == "category_time"
                 else (grid,),
             )
         elif mode == "category":
             query = session.observe(
                 {"value": field.max()},
-                by=(catalog_value(session.catalog, "sales.order.channel", kind="field"),),
+                by=(catalog_value(session.catalog, "sales.order.channel", kind="dimension"),),
             )
         else:
             query = session.read(members, {"value": field})
@@ -212,13 +224,15 @@ def run(root: Path, phase: str, mode: str) -> dict[str, object]:
             keys = tuple(fitted.loc[fitted.score > 0, f"key_{member_index}"].drop_duplicates())
             assert keys == (("c", 13),)
             selected = mv.coordinates(
-                by=(mv.identity(session.catalog.get("entity:sales.order")),),
+                by=(mv.identity(_entity(session.catalog, "entity:sales.order")),),
                 keys=tuple((key,) for key in keys),
             )
             following = session.observe(
                 {
                     "value": field.sum(
-                        time=catalog_value(session.catalog, "sales.order.ordered_at", kind="field")
+                        time=catalog_value(
+                            session.catalog, "sales.order.ordered_at", kind="time_dimension"
+                        )
                     )
                 },
                 by=mv.product(session.time_scope(start="2026-08-01", end="2026-08-07"), selected),

@@ -5,6 +5,7 @@ from decimal import Decimal
 from pathlib import Path
 
 import pandas as pd
+import pyarrow as pa
 import pytest
 
 import marivo.analysis as mv
@@ -23,7 +24,7 @@ from marivo.analysis.dsl.frame import AnalysisFrame
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.materialization.frame_services import LocalFrameServices
-from tests.shared_fixtures import DslCaseFactory, catalog_value
+from tests.shared_fixtures import DslCaseFactory, catalog_get, catalog_value
 
 
 @pytest.fixture
@@ -44,7 +45,7 @@ def memory(
         value_paths=(("value",),) if values else (),
     )
     if values:
-        rows = rows.assign(v=pd.array(rows["v"], dtype="Int64"))
+        rows = rows.assign(v=rows["v"].astype("Int64"))
     data = CompletedFrameData(schema, rows)
     metadata = FrameResultMetadata(
         "manual",
@@ -66,8 +67,10 @@ def test_pending_fixed_axes_close_before_and_inside_comparison(
     from marivo.analysis.core.frame_interpretation import UnresolvedDataType
 
     case = analysis_dsl_case_factory("j2")
-    region = catalog_value(case.catalog, "sales.customer.region", kind="field")
-    source = case.session.observe({"q": case.catalog.get("metric:sales.revenue")}, by=(region,))
+    region = catalog_value(case.catalog, "sales.customer.region", kind="dimension")
+    source = case.session.observe(
+        {"q": catalog_get(case.catalog, "metric:sales.revenue", kind="metric")}, by=(region,)
+    )
     current = source.fix(source.axes[0], key)
     baseline = source.fix(source.axes[0], "south")
     captured = current.schema.fixed_axes[0]
@@ -162,6 +165,7 @@ def test_pending_composite_fixed_key_retains_exact_physical_types(
     if isinstance(key, Decimal):
         assert fixed.key[1] == key
     else:
+        assert isinstance(fixed.key[1], (pa.TimestampScalar, pa.DurationScalar))
         assert fixed.key[1].value == key.value
 
 
@@ -245,7 +249,10 @@ def test_fix_null_composite_and_absent_scalar(local: LocalFrameServices) -> None
     ],
 )
 def test_fix_uses_typed_complete_keys(
-    local: LocalFrameServices, dtype: DataType, key: object, bad: object
+    local: LocalFrameServices,
+    dtype: DataType,
+    key: str | int | float | Decimal | bool | date | datetime | timedelta,
+    bad: str | int | float | Decimal | bool | date | datetime | timedelta,
 ) -> None:
     frame = memory(local, (axis("key", dtype),), pd.DataFrame({"key": [key], "v": [7]}))
     assert frame.fix(frame.axes[0], key).compute().to_pandas()["value"].tolist() == [7]
@@ -267,8 +274,11 @@ def test_fix_preserves_nanosecond_keys_and_rejects_lossy_narrowing(
     )
     frame = memory(local, (axis("key", dtype),), pd.DataFrame({"key": keys, "v": [7, 11, 19]}))
     for key, expected in zip(keys, (7, 11, 19), strict=True):
+        assert isinstance(key, (pd.Timestamp, pd.Timedelta))
         fixed = frame.fix(frame.axes[0], key).compute()
-        assert fixed.schema.fixed_axes[0].key[0].value == key.value
+        fixed_key = fixed.schema.fixed_axes[0].key[0]
+        assert isinstance(fixed_key, (pa.TimestampScalar, pa.DurationScalar))
+        assert fixed_key.value == key.value
         rows = fixed.to_pandas()
         assert rows["value"].tolist() == [expected]
 
@@ -281,6 +291,7 @@ def test_fix_preserves_nanosecond_keys_and_rejects_lossy_narrowing(
         local, (axis("key", coarse_dtype),), pd.DataFrame({"key": [keys[1]], "v": [11]})
     )
     for key in (keys[0], keys[2]):
+        assert isinstance(key, (pd.Timestamp, pd.Timedelta))
         with pytest.raises(AnalysisError, match="lossless complete key"):
             coarse.fix(coarse.axes[0], key)
 

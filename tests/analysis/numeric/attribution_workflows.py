@@ -33,8 +33,10 @@ def basis_query(case: DslCase, month: int, *, weight: bool = False) -> mv.Analys
     }
     if weight:
         names["weight"] = "weight"
+    entity = session.catalog.get("entity:sales.order")
+    assert entity.kind == "entity"
     query = session.read(
-        session.members(session.catalog.get("entity:sales.order")),
+        session.members(entity),
         {
             name: catalog_value(session.catalog, "sales.order." + path, kind="field")
             for name, path in names.items()

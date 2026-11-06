@@ -12,12 +12,19 @@ from __future__ import annotations
 
 import textwrap
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 
 import marivo.datasource as md
 from marivo.datasource.authoring import DuckDBSpec
 from tests.support.paths import PROJECT_ROOT
+
+if TYPE_CHECKING:
+    from marivo.semantic.catalog import SemanticCatalog
+    from marivo.semantic.reader import SemanticProject
+    from tests.conftest import _SemanticProjectFactory
+    from tests.shared_fixtures import DslCaseFactory
 
 # ---------------------------------------------------------------------------
 # Minimal project files for tests that need a loaded SemanticProject
@@ -61,7 +68,7 @@ _OBJECTS_PY = textwrap.dedent("""    import marivo.datasource as md
 """)
 
 
-def _make_project(semantic_project_factory):
+def _make_project(semantic_project_factory: _SemanticProjectFactory) -> SemanticProject:
     """Create a minimal loaded project for drift tests."""
     return semantic_project_factory(
         {
@@ -71,7 +78,7 @@ def _make_project(semantic_project_factory):
     )
 
 
-def _make_catalog(semantic_project_factory):
+def _make_catalog(semantic_project_factory: _SemanticProjectFactory) -> SemanticCatalog:
     """Create a minimal loaded catalog for drift tests."""
     from marivo.semantic.catalog import SemanticCatalog
 
@@ -83,19 +90,25 @@ def _make_catalog(semantic_project_factory):
 # ---------------------------------------------------------------------------
 
 
-def test_catalog_metrics_is_silent(semantic_project_factory, capsys) -> None:
+def test_catalog_metrics_is_silent(
+    semantic_project_factory: _SemanticProjectFactory, capsys: pytest.CaptureFixture[str]
+) -> None:
     catalog = _make_catalog(semantic_project_factory)
     _ = catalog.search(kind="metric")
     assert capsys.readouterr().out == ""
 
 
-def test_catalog_datasources_is_silent(semantic_project_factory, capsys) -> None:
+def test_catalog_datasources_is_silent(
+    semantic_project_factory: _SemanticProjectFactory, capsys: pytest.CaptureFixture[str]
+) -> None:
     catalog = _make_catalog(semantic_project_factory)
     _ = catalog.search(kind="datasource")
     assert capsys.readouterr().out == ""
 
 
-def test_readiness_is_silent(semantic_project_factory, capsys) -> None:
+def test_readiness_is_silent(
+    semantic_project_factory: _SemanticProjectFactory, capsys: pytest.CaptureFixture[str]
+) -> None:
     project = _make_project(semantic_project_factory)
     project.readiness()
     assert capsys.readouterr().out == ""
@@ -106,9 +119,13 @@ def test_readiness_is_silent(semantic_project_factory, capsys) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_logical_metric_repr_is_bounded_and_has_identity(analysis_dsl_case_factory) -> None:
+def test_logical_metric_repr_is_bounded_and_has_identity(
+    analysis_dsl_case_factory: DslCaseFactory,
+) -> None:
     case = analysis_dsl_case_factory("j2")
-    result = case.session.observe({"revenue": case.catalog.get("metric:sales.revenue")})
+    revenue = case.catalog.get("metric:sales.revenue")
+    assert revenue.kind == "metric"
+    result = case.session.observe({"revenue": revenue})
     rendered = repr(result)
     assert "\n" not in rendered
     assert len(rendered) <= 200
@@ -116,7 +133,7 @@ def test_logical_metric_repr_is_bounded_and_has_identity(analysis_dsl_case_facto
     assert ".show()" in rendered
 
 
-def test_catalog_page_repr_is_one_line(semantic_project_factory) -> None:
+def test_catalog_page_repr_is_one_line(semantic_project_factory: _SemanticProjectFactory) -> None:
     catalog = _make_catalog(semantic_project_factory)
     result = catalog.search(kind="metric")
     r = repr(result)
@@ -128,7 +145,9 @@ def test_catalog_page_repr_is_one_line(semantic_project_factory) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_catalog_page_render_contains_refs_affordance(semantic_project_factory) -> None:
+def test_catalog_page_render_contains_refs_affordance(
+    semantic_project_factory: _SemanticProjectFactory,
+) -> None:
     catalog = _make_catalog(semantic_project_factory)
     result = catalog.search(kind="metric")
     rendered = result.render()
@@ -157,11 +176,13 @@ def test_datasource_catalog_render_uses_card_listing_shape(
     assert "backend_type: duckdb" not in rendered
     assert repr(catalog).count("\n") == 0
 
-    assert catalog.show() is None
+    assert catalog.show() is None  # type: ignore[func-returns-value]  # Verify the runtime return contract.
     assert capsys.readouterr().out == rendered + "\n"
 
 
-def test_catalog_page_available_never_none(semantic_project_factory) -> None:
+def test_catalog_page_available_never_none(
+    semantic_project_factory: _SemanticProjectFactory,
+) -> None:
     catalog = _make_catalog(semantic_project_factory)
     result = catalog.search(kind="metric")
     # "available: none" should never appear — the available: section lists
@@ -169,7 +190,9 @@ def test_catalog_page_available_never_none(semantic_project_factory) -> None:
     assert "available: none" not in result.render().lower()
 
 
-def test_readiness_render_contains_available(semantic_project_factory) -> None:
+def test_readiness_render_contains_available(
+    semantic_project_factory: _SemanticProjectFactory,
+) -> None:
     project = _make_project(semantic_project_factory)
     report = project.readiness()
     assert "available:" in report.render()

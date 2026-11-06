@@ -9,6 +9,7 @@ import pytest
 
 import marivo.analysis as mv
 import marivo.datasource as md
+import marivo.semantic as ms
 from marivo.analysis.core.frame_data import ExpressionFrameBacking, SourceFrameBinding
 from marivo.analysis.errors import AnalysisError
 from marivo.datasource.adapters import SourceSession, provider_for
@@ -17,6 +18,18 @@ from marivo.semantic.reader import SemanticProject
 from tests.datasource.source_cases import Case, SourceData, datasource, source_case
 from tests.shared_fixtures import catalog_value, datasource_arguments_source, terminal_runs
 from tests.support.source_trace import SourceTrace
+
+
+def _entity(catalog: ms.SemanticCatalog, path: str) -> ms.Entity:
+    result = catalog.get(path)
+    assert result.kind == "entity"
+    return result
+
+
+def _relationship(catalog: ms.SemanticCatalog, path: str) -> ms.Relationship:
+    result = catalog.get(path)
+    assert result.kind == "relationship"
+    return result
 
 
 @pytest.mark.release
@@ -98,7 +111,7 @@ def test_complete_versioned_members(
             }
         )
         session = mv.session.get_or_create("c03-versions", timezone="UTC")
-        entity = session.catalog.get("entity:sales.subjects")
+        entity = _entity(session.catalog, "entity:sales.subjects")
         august = session.instant("2026-08-01")
         before_runs = len(terminal_runs(session))
         calls: list[str] = []
@@ -164,7 +177,7 @@ def test_complete_versioned_members(
         selected_values = values.where(values["enabled"] == enabled)
         selected = session.population_from(
             selected_values,
-            on=((selected_values.axes[0], session.catalog.get("entity:sales.subjects")),),
+            on=((selected_values.axes[0], _entity(session.catalog, "entity:sales.subjects")),),
         )
         assert set(session.frame(selected).compute().to_pandas().iloc[:, 0]) == {
             (9007199254740993, "a"),
@@ -173,7 +186,7 @@ def test_complete_versioned_members(
         selected_values = values.where(values["tenant"] == "b")
         selected = session.population_from(
             selected_values,
-            on=((selected_values.axes[0], session.catalog.get("entity:sales.subjects")),),
+            on=((selected_values.axes[0], _entity(session.catalog, "entity:sales.subjects")),),
         )
         assert session.frame(selected).compute().to_pandas().iloc[:, 0].tolist() == [
             (9007199254740993, "b")
@@ -181,7 +194,7 @@ def test_complete_versioned_members(
         selected_values = values.where(values["beginning"] == date(2026, 8, 1))
         selected = session.population_from(
             selected_values,
-            on=((selected_values.axes[0], session.catalog.get("entity:sales.subjects")),),
+            on=((selected_values.axes[0], _entity(session.catalog, "entity:sales.subjects")),),
         )
         assert set(session.frame(selected).compute().to_pandas().iloc[:, 0]) == expected
         for point, expected_count in (
@@ -284,9 +297,9 @@ def test_scalar_path_scopes_complete_keys_and_trusts_cardinality(
         )
         root.environment["profile"] = profile
         session = mv.session.get_or_create("c03-scalar-path", timezone="UTC")
-        members = session.members(session.catalog.get("entity:sales.subjects"))
+        members = session.members(_entity(session.catalog, "entity:sales.subjects"))
         field = catalog_value(session.catalog, "sales.attributes.amount", kind="field")
-        via = session.catalog.get("relationship:sales.attributes_path")
+        via = _relationship(session.catalog, "relationship:sales.attributes_path")
         inferred = session.read(members, {"value": field})
         explicit = session.read(members, {"value": field.via((via,))})
         inferred_backing, explicit_backing = inferred._backing, explicit._backing
@@ -302,7 +315,7 @@ def test_scalar_path_scopes_complete_keys_and_trusts_cardinality(
         selected_values = category.where(category["tenant"] == "a")
         selected = session.population_from(
             selected_values,
-            on=((selected_values.axes[0], session.catalog.get("entity:sales.subjects")),),
+            on=((selected_values.axes[0], _entity(session.catalog, "entity:sales.subjects")),),
         )
         scoped_result = session.read(selected, {"value": field.via((via,))}).compute()
         scoped = scoped_result.to_pandas()

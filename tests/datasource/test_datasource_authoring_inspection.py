@@ -915,9 +915,13 @@ def test_time_range_mismatches_fail_before_business_read_without_timezone_defaul
     error = caught.value
     assert error.code == "time_range_boundary_mismatch"
     assert error.stage == "preflight"
+    assert error.effect_observed is not None
     assert error.effect_observed.query_executed is False
+    assert error.received is not None
     assert f"column={column!r}, category={category}" in error.received
+    assert error.repair is not None
     assert error.repair.help_target.canonical_id == "time_range"
+    assert error.repair.snippet is not None
     assert f"md.time_range({column!r}" in error.repair.snippet
     assert query_spy.user_data_queries == 0
 

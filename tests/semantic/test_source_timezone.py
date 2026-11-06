@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+from typing import TYPE_CHECKING
+
 import ibis
+import ibis.expr.types as ibis_ir
+import pandas as pd
 import pytest
 
 import marivo.datasource as md
@@ -11,9 +16,20 @@ from marivo.semantic._source_timezone import effective_source_timezone
 from marivo.semantic.catalog import SemanticCatalog
 from marivo.semantic.errors import SemanticLoadFailed, SourceTimezoneMissing
 from marivo.semantic.validator import normalize_target_dimension, normalize_target_entity
+from tests.shared_fixtures import catalog_entry
+
+if TYPE_CHECKING:
+    from tests.conftest import _SemanticProjectFactory
 
 
-def _project(tmp_path, semantic_project_factory, *, default=None, fields="", version=""):
+def _project(
+    tmp_path: Path,
+    semantic_project_factory: _SemanticProjectFactory,
+    *,
+    default: str | None = None,
+    fields: str = "",
+    version: str = "",
+) -> tuple[SemanticCatalog, Path]:
     database = tmp_path / "source-time.duckdb"
     backend = ibis.duckdb.connect(str(database))
     backend.raw_sql(
@@ -35,7 +51,7 @@ def _project(tmp_path, semantic_project_factory, *, default=None, fields="", ver
     return SemanticCatalog(project), database
 
 
-def test_date_and_date_only_parse_normalize_source_timezone():
+def test_date_and_date_only_parse_normalize_source_timezone() -> None:
     assert ms.date(timezone="Etc/UTC").timezone == "UTC"
     assert ms.strptime("%Y%m%d", timezone="+08:00").timezone == "UTC+08:00"
     with pytest.raises(TypeError):
@@ -59,7 +75,9 @@ def test_date_and_date_only_parse_normalize_source_timezone():
         )  # type: ignore[call-arg]
 
 
-def test_hour_prefix_recursively_inherits_declared_origin(tmp_path, semantic_project_factory):
+def test_hour_prefix_recursively_inherits_declared_origin(
+    tmp_path: Path, semantic_project_factory: _SemanticProjectFactory
+) -> None:
     catalog, _ = _project(
         tmp_path,
         semantic_project_factory,
@@ -89,7 +107,9 @@ def test_hour_prefix_recursively_inherits_declared_origin(tmp_path, semantic_pro
     assert "UTC (field)" in catalog.get("time_dimension:sales.events.hour").render()
 
 
-def test_encoded_missing_timezone_is_readiness_blocker(tmp_path, semantic_project_factory):
+def test_encoded_missing_timezone_is_readiness_blocker(
+    tmp_path: Path, semantic_project_factory: _SemanticProjectFactory
+) -> None:
     catalog, _ = _project(
         tmp_path,
         semantic_project_factory,
@@ -102,8 +122,11 @@ def test_encoded_missing_timezone_is_readiness_blocker(tmp_path, semantic_projec
 
 @pytest.mark.parametrize("column", ["clock", "day"])
 def test_native_missing_timezone_rejects_before_business_read(
-    tmp_path, semantic_project_factory, monkeypatch, column
-):
+    tmp_path: Path,
+    semantic_project_factory: _SemanticProjectFactory,
+    monkeypatch: pytest.MonkeyPatch,
+    column: str,
+) -> None:
     catalog, _ = _project(
         tmp_path,
         semantic_project_factory,
@@ -132,8 +155,11 @@ def test_native_missing_timezone_rejects_before_business_read(
 
 @pytest.mark.parametrize("parser", ["None", "ms.timestamp()"])
 def test_aware_preview_uses_physical_authority_and_ignores_host_tz(
-    tmp_path, semantic_project_factory, monkeypatch, parser
-):
+    tmp_path: Path,
+    semantic_project_factory: _SemanticProjectFactory,
+    monkeypatch: pytest.MonkeyPatch,
+    parser: str,
+) -> None:
     catalog, _ = _project(
         tmp_path,
         semantic_project_factory,
@@ -150,7 +176,9 @@ def test_aware_preview_uses_physical_authority_and_ignores_host_tz(
     assert first.timezones == {"axis": {"kind": "instant"}}
 
 
-def test_date_validity_derives_common_normalized_timezone(tmp_path, semantic_project_factory):
+def test_date_validity_derives_common_normalized_timezone(
+    tmp_path: Path, semantic_project_factory: _SemanticProjectFactory
+) -> None:
     catalog, _ = _project(
         tmp_path,
         semantic_project_factory,
@@ -165,7 +193,9 @@ def test_date_validity_derives_common_normalized_timezone(tmp_path, semantic_pro
     assert version is not None and version.timezone == "UTC"
 
 
-def test_date_snapshot_contradiction_is_structured(tmp_path, semantic_project_factory):
+def test_date_snapshot_contradiction_is_structured(
+    tmp_path: Path, semantic_project_factory: _SemanticProjectFactory
+) -> None:
     with pytest.raises(SemanticLoadFailed) as captured:
         catalog, _ = _project(
             tmp_path,
@@ -189,8 +219,13 @@ def test_date_snapshot_contradiction_is_structured(tmp_path, semantic_project_fa
     ],
 )
 def test_native_certification_resolves_dst_in_one_source_read(
-    tmp_path, semantic_project_factory, monkeypatch, clock, encoded, end
-):
+    tmp_path: Path,
+    semantic_project_factory: _SemanticProjectFactory,
+    monkeypatch: pytest.MonkeyPatch,
+    clock: str,
+    encoded: str,
+    end: str,
+) -> None:
     catalog, _ = _project(
         tmp_path,
         semantic_project_factory,
@@ -214,14 +249,21 @@ def test_native_certification_resolves_dst_in_one_source_read(
     from marivo.datasource.runtime import DatasourceConnectionService
 
     collect = DatasourceConnectionService.collect_source
-    reads = []
+    reads: list[str] = []
 
-    def capture(self, *args, **kwargs):
-        reads.append(kwargs.get("purpose"))
-        return collect(self, *args, **kwargs)
+    def capture(
+        self: DatasourceConnectionService,
+        name: str,
+        expression: ibis_ir.Table,
+        *,
+        purpose: str,
+        max_rows: int,
+    ) -> pd.DataFrame:
+        reads.append(purpose)
+        return collect(self, name, expression, purpose=purpose, max_rows=max_rows)
 
     monkeypatch.setattr(DatasourceConnectionService, "collect_source", capture)
-    entry = catalog.get("temporal_set:sales.periods")
+    entry = catalog_entry(catalog, "sales.periods", kind="temporal_set")
     catalog.preview(entry, scope=md.unpruned(max_rows=5, timeout_seconds=10))
     occurrence = entry.occurrence(1)
     assert occurrence.start == expected
@@ -229,13 +271,16 @@ def test_native_certification_resolves_dst_in_one_source_read(
     declaration = tmp_path / "models/datasources/warehouse.py"
     declaration.write_text(declaration.read_text().replace("America/New_York", "UTC"))
     changed = ms.load(workspace_dir=tmp_path)
-    assert changed.get("temporal_set:sales.periods").definition.snapshot_status == "stale"
+    assert (
+        catalog_entry(changed, "sales.periods", kind="temporal_set").definition.snapshot_status
+        == "stale"
+    )
     assert reads == ["semantic.certified_preview"]
 
 
 def test_source_declaration_fingerprints_use_normalized_timezone(
-    tmp_path, semantic_project_factory
-):
+    tmp_path: Path, semantic_project_factory: _SemanticProjectFactory
+) -> None:
     from marivo.semantic._physical_identity import entity_dependency_fingerprint
 
     catalog, _ = _project(
@@ -258,8 +303,8 @@ def test_source_declaration_fingerprints_use_normalized_timezone(
 
 
 def test_certification_preserves_distinct_declarations_on_one_source_column(
-    tmp_path, semantic_project_factory
-):
+    tmp_path: Path, semantic_project_factory: _SemanticProjectFactory
+) -> None:
     catalog, _ = _project(
         tmp_path,
         semantic_project_factory,
@@ -270,7 +315,7 @@ def test_certification_preserves_distinct_declarations_on_one_source_column(
             "periods=ms.temporal_set(name='periods',occurrence_id=identifier,start=start,end=end,boundary_timezone='UTC',coverage=(date(2026,1,1),date(2027,1,1)))\n"
         ),
     )
-    entry = catalog.get("temporal_set:sales.periods")
+    entry = catalog_entry(catalog, "sales.periods", kind="temporal_set")
     catalog.preview(entry, scope=md.unpruned(max_rows=5, timeout_seconds=10))
     occurrence = entry.occurrence(1)
     assert occurrence.start.isoformat() == "2026-03-08T02:30:00+00:00"
@@ -278,8 +323,8 @@ def test_certification_preserves_distinct_declarations_on_one_source_column(
 
 
 def test_hour_prefix_inherits_datasource_from_derived_date_field(
-    tmp_path, semantic_project_factory
-):
+    tmp_path: Path, semantic_project_factory: _SemanticProjectFactory
+) -> None:
     from marivo.semantic._source_timezone import source_timezone_axis
 
     catalog, _ = _project(

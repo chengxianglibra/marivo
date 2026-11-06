@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 import pytest
 
 import marivo.analysis as mv
-from tests.shared_fixtures import DslCaseFactory, analysis_dsl_rows, catalog_value
+from tests.shared_fixtures import DslCaseFactory, analysis_dsl_rows, catalog_get, catalog_value
 from tests.support.source_trace import capture_source
 
 
@@ -14,8 +14,8 @@ def test_raw_read_has_no_captured_period(
 ) -> None:
     case = analysis_dsl_case_factory("j2")
     session = case.session
-    amount = catalog_value(session.catalog, "sales.order.amount", kind="field")
-    orders = session.members(session.catalog.get("entity:sales.order"))
+    amount = catalog_value(session.catalog, "sales.order.amount", kind="measure")
+    orders = session.members(catalog_get(session.catalog, "entity:sales.order", kind="entity"))
     trace = capture_source(monkeypatch)
     saved = session.read(orders, {"value": amount}).persist()
     assert len(saved.to_pandas()) == len(analysis_dsl_rows("j2").orders)
@@ -32,9 +32,8 @@ def test_captured_period_keeps_utc_instants_and_original_timezone(
 ) -> None:
     case = analysis_dsl_case_factory("j2")
     session = case.session
-    metric = session.catalog.get("metric:sales.revenue")
-    if all_history:
-        metric = metric.window(mv.all_history())
+    revenue = catalog_get(session.catalog, "metric:sales.revenue", kind="metric")
+    metric = revenue.window(mv.all_history()) if all_history else revenue
     scope = session.time_scope(start="2026-08-01", end="2026-08-03", timezone="Asia/Shanghai").by(
         mv.grain("day")
     )
@@ -72,7 +71,7 @@ def test_combined_endpoints_do_not_expand_distinct_source_periods(
 ) -> None:
     case = analysis_dsl_case_factory("j2")
     session = case.session
-    metric = session.catalog.get("metric:sales.revenue")
+    metric = catalog_get(session.catalog, "metric:sales.revenue", kind="metric")
     current = session.observe(
         {"value": metric},
         by=(session.time_scope(start="2026-09-01", end="2026-10-01", timezone="UTC"),),

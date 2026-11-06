@@ -124,7 +124,7 @@ def test_fixed_comparison_policies_reject_retired_arguments(local: LocalFrameSer
     on = ((left.axes[0], right.axes[0]),)
     for how in ("exact", "outer"):
         with pytest.raises(TypeError, match="unexpected keyword argument 'how'"):
-            left.align(right, on=on, **{"how": how})
+            left.align(right, on=on, **{"how": how})  # type: ignore[arg-type]  # Reject retired keyword.
         with pytest.raises(TypeError, match="unexpected keyword argument 'how'"):
             left.compare({"reference": mv.baseline(right, on=on)}, **{"how": how})
     for policy in ("null", "error"):
@@ -294,10 +294,16 @@ def test_automatic_axis_mapping_requires_unique_complete_metadata(
             DataSchema((changed,), (value,), value_paths=(("amount",),)),
             {"key": ["A"], "amount": [2]},
         )
-    for operation in (lambda: left.compare(right), lambda: left.align(right)):
+    operations: tuple[Callable[[], AnalysisFrame], ...] = (
+        lambda: left.compare(right),
+        lambda: left.align(right),
+    )
+    for operation in operations:
         with pytest.raises(AnalysisError) as caught:
             operation()
         assert caught.value.expected == "a complete explicit axis bijection"
+        assert caught.value.received is not None
+        assert caught.value.repair is not None
         assert "region" in caught.value.received
         assert "key" in caught.value.repair.action
 
@@ -338,10 +344,12 @@ def test_multiple_time_axes_do_not_infer_correspondence(local: LocalFrameService
     with pytest.raises(AnalysisError) as comparison:
         frame.compare(frame)
     assert comparison.value.expected == "at most one compatible time axis pair"
+    assert comparison.value.repair is not None
     assert "at most one" in comparison.value.repair.action
     with pytest.raises(AnalysisError) as alignment:
         frame.align(frame)
     assert alignment.value.expected == "a complete explicit axis bijection"
+    assert alignment.value.received is not None
     assert "day0" in alignment.value.received and "day1" in alignment.value.received
     pairs = tuple((axis, axis) for axis in frame.axes)
     with pytest.raises(AnalysisError, match="at most one compatible time axis pair"):
@@ -633,7 +641,7 @@ def test_actual_source_plus_fixed_uses_one_binary_plan(
 
     case = analysis_dsl_case_factory("j1")
     session = case.session
-    amount = catalog_value(session.catalog, "sales.order.amount", kind="field")
+    amount = catalog_value(session.catalog, "sales.order.amount", kind="measure")
     source = frame_sources.observe(
         session._runtime.local,
         session.catalog._state,
@@ -651,7 +659,8 @@ def test_actual_source_plus_fixed_uses_one_binary_plan(
         read_fixed: Callable[[FrameInput], CompletedFrameData],
         adapt_source: Callable[[str, StageOutput], StageOutput],
         observe_read: Callable[[SourceRead, LoweredRead, StageOutput], None] | None = None,
-        observe_local: Callable[[LocalCompute | FrameCompute, StageOutput], None] | None = None,
+        observe_local: Callable[[LocalCompute | FrameCompute | SourceRead, StageOutput], None]
+        | None = None,
     ) -> StageOutput:
         schedules.append(tuple(type(s) for s in compiled.lowered.plan.stages))
         return original(
@@ -850,7 +859,7 @@ def test_source_binary_failure_still_closes_and_publishes_nothing(
 
     case = analysis_dsl_case_factory("j1")
     session = case.session
-    amount = catalog_value(session.catalog, "sales.order.amount", kind="field")
+    amount = catalog_value(session.catalog, "sales.order.amount", kind="measure")
     source = frame_sources.observe(
         session._runtime.local,
         session.catalog._state,
@@ -1283,22 +1292,27 @@ def test_compare_rejects_mixed_parameter_shapes_and_unnamed_multiple_inputs(
     current, baseline = _memory(local, ["A"], [4]), _memory(local, ["A"], [2])
     on = ((current.axes[0], baseline.axes[0]),)
     mixed: tuple[Callable[[], AnalysisFrame], ...] = (
-        lambda: current.compare(baseline, on={"reference": on}),
-        lambda: current.compare(baseline, match={"reference": ordinal()}),
-        lambda: current.compare({"actual": mv.baseline(baseline)}, on=on),
-        lambda: current.compare({"actual": mv.baseline(baseline)}, match=ordinal()),
+        lambda: current.compare(baseline, on={"reference": on}),  # type: ignore[call-overload]  # Reject mixed comparison forms.
+        lambda: current.compare(baseline, match={"reference": ordinal()}),  # type: ignore[call-overload]  # Reject mixed comparison forms.
+        lambda: current.compare({"actual": mv.baseline(baseline)}, on=on),  # type: ignore[call-overload]  # Reject mixed comparison forms.
+        lambda: current.compare({"actual": mv.baseline(baseline)}, match=ordinal()),  # type: ignore[call-overload]  # Reject mixed comparison forms.
     )
     for call in mixed:
         with pytest.raises(AnalysisError) as error:
             call()
         assert error.value.expected
         assert error.value.received
+        assert error.value.repair is not None
         assert error.value.repair.help_target.canonical_id in ("baseline", "analysis_frame.compare")
         assert error.value.repair.action
+    invalid: object
     for invalid in ((), [], {}, (baseline,), [baseline], iter((baseline,)), "baseline"):
         with pytest.raises(AnalysisError) as error:
-            current.compare(invalid)
+            current.compare(invalid)  # type: ignore[arg-type]  # Reject malformed comparison inputs.
+        assert error.value.expected is not None
+        assert error.value.repair is not None
         assert "one baseline Frame" in error.value.expected
+        assert error.value.repair is not None
         assert "mv.baseline" in error.value.repair.action
     assert _values(current.compare(baselines=baseline).compute(), "reference.absolute.amount") == [
         2
@@ -1365,15 +1379,18 @@ def test_named_compare_requires_declarations_and_rejects_outer_rules(
     declaration = mv.baseline(prior, on=on)
     for invalid in ({"old": prior}, {"valid": declaration, "old": prior}, declaration):
         with pytest.raises(AnalysisError) as error:
-            current.compare(invalid)
+            current.compare(invalid)  # type: ignore[arg-type]  # Reject malformed comparison inputs.
+        assert error.value.repair is not None
         assert "mv.baseline" in error.value.repair.action
-    for call in (
-        lambda: current.compare({"prior": declaration}, on={"prior": on}),
-        lambda: current.compare({"prior": declaration}, match={"prior": mv.ordinal()}),
-        lambda: current.compare({"prior": declaration}, on=()),
-    ):
+    calls: tuple[Callable[[], object], ...] = (
+        lambda: current.compare({"prior": declaration}, on={"prior": on}),  # type: ignore[call-overload]  # Reject mixed comparison forms.
+        lambda: current.compare({"prior": declaration}, match={"prior": mv.ordinal()}),  # type: ignore[call-overload]  # Reject mixed comparison forms.
+        lambda: current.compare({"prior": declaration}, on=()),  # type: ignore[call-overload]  # Reject mixed comparison forms.
+    )
+    for call in calls:
         with pytest.raises(AnalysisError, match="inside each named baseline") as error:
             call()
+        assert error.value.repair is not None
         assert "mv.baseline" in error.value.repair.action
     with pytest.raises(AnalysisError, match="other than current"):
         current.compare({"current": declaration})
@@ -1386,15 +1403,17 @@ def test_baseline_factory_rejects_invalid_shapes_without_binding_current(
     local: LocalFrameServices,
 ) -> None:
     frame = _memory(local, ["A"], [3])
-    for call in (
-        lambda: mv.baseline("frame"),
-        lambda: mv.baseline(frame, on=[]),
-        lambda: mv.baseline(frame, on=((frame.axes[0],),)),
-        lambda: mv.baseline(frame, on=(("axis", frame.axes[0]),)),
-        lambda: mv.baseline(frame, match={"prior": mv.ordinal()}),
-    ):
+    calls: tuple[Callable[[], object], ...] = (
+        lambda: mv.baseline("frame"),  # type: ignore[arg-type]  # Reject malformed baseline inputs.
+        lambda: mv.baseline(frame, on=[]),  # type: ignore[arg-type]  # Reject malformed baseline inputs.
+        lambda: mv.baseline(frame, on=((frame.axes[0],),)),  # type: ignore[arg-type]  # Reject malformed baseline inputs.
+        lambda: mv.baseline(frame, on=(("axis", frame.axes[0]),)),  # type: ignore[arg-type]  # Reject malformed baseline inputs.
+        lambda: mv.baseline(frame, match={"prior": mv.ordinal()}),  # type: ignore[arg-type]  # Reject malformed baseline inputs.
+    )
+    for call in calls:
         with pytest.raises(AnalysisError) as error:
             call()
+        assert error.value.repair is not None
         assert error.value.repair.help_target.canonical_id == "baseline"
         assert error.value.repair.action
     # Incomplete mappings are valid declarations until bound by compare.

@@ -8,13 +8,13 @@ import sys
 from dataclasses import replace
 from decimal import Decimal
 from fractions import Fraction
+from typing import Literal
 
 import duckdb
 import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
-from ibis.common.deferred import Deferred
 
 import marivo.analysis as mv
 import marivo.semantic as ms
@@ -30,6 +30,24 @@ from tests.shared_fixtures import (
     export_dsl_parquet_models,
 )
 from tests.support.paths import PROJECT_ROOT
+
+
+def _classify(population: mv.Population, region: ms.Dimension) -> mv.Population:
+    result = population.classify(by=(region,))
+    assert isinstance(result, mv.Population)
+    return result
+
+
+def _metric(catalog: ms.SemanticCatalog, path: str) -> ms.Metric:
+    result = catalog.get(path)
+    assert result.kind == "metric"
+    return result
+
+
+def _entity(catalog: ms.SemanticCatalog, path: str) -> ms.Entity:
+    result = catalog.get(path)
+    assert result.kind == "entity"
+    return result
 
 
 def _plain(result: mv.AnalysisFrame) -> pd.DataFrame:
@@ -50,7 +68,7 @@ def _monthly(
         {"value": catalog_value(session.catalog, "sales." + metric, kind="metric")},
         by=(scope,)
         if overall
-        else mv.product(scope, session.members(session.catalog.get("entity:sales.customer"))),
+        else mv.product(scope, session.members(_entity(session.catalog, "entity:sales.customer"))),
     )
 
 
@@ -174,13 +192,13 @@ def test_public_numeric_difference_source_and_fixed(
         assert all(type(value) is Decimal for value in recovered["reference.absolute.value"])
     if physical.startswith("duration"):
         session = case.session
-        amount = catalog_value(session.catalog, "sales.order.amount", kind="field")
-        time = catalog_value(session.catalog, "sales.order.ordered_at", kind="field")
+        amount = catalog_value(session.catalog, "sales.order.amount", kind="measure")
+        time = catalog_value(session.catalog, "sales.order.ordered_at", kind="time_dimension")
         nullable = session.observe(
             {"value": amount.sum(time=time)},
             by=mv.product(
                 session.time_scope(start="2026-09-01", end="2026-10-01"),
-                session.members(session.catalog.get("entity:sales.customer")),
+                session.members(_entity(session.catalog, "entity:sales.customer")),
             ),
         )
         # A missing Duration expression remains NULL, unlike an empty sum.
@@ -367,31 +385,31 @@ def test_cohort_group_metric_empty_preserves_metric_null_policy(
     case = analysis_dsl_case_factory("j2")
     _numeric_source(case, "BIGINT", True)
     session = case.session
-    members = session.members(session.catalog.get("entity:sales.customer"))
-    region = catalog_value(session.catalog, "sales.customer.region", kind="field")
+    members = session.members(_entity(session.catalog, "entity:sales.customer"))
+    region = catalog_value(session.catalog, "sales.customer.region", kind="dimension")
     categories = session.read(members, {"region": region})
     selection_values = categories.where(categories["region"] == "east")
     eastern = session.population_from(
         selection_values,
-        on=((selection_values.axes[0], session.catalog.get("entity:sales.customer")),),
+        on=((selection_values.axes[0], _entity(session.catalog, "entity:sales.customer")),),
     )
-    amount, time = (
-        catalog_value(session.catalog, "sales.order." + name, kind="field")
-        for name in ("amount", "ordered_at")
-    )
+    amount = catalog_value(session.catalog, "sales.order.amount", kind="measure")
+    time = catalog_value(session.catalog, "sales.order.ordered_at", kind="time_dimension")
     metrics = {
         "revenue": amount.sum(time=time),
-        "order_count": session.catalog.get("metric:sales.order_count"),
+        "order_count": _metric(session.catalog, "metric:sales.order_count"),
     }
     metrics["count_ratio"] = metrics["order_count"] / metrics["order_count"]
     for name, metric in metrics.items():
 
-        def observe(population: mv.Population, metric: Deferred = metric) -> mv.AnalysisFrame:
+        def observe(
+            population: mv.Population, metric: ms.MetricExpression[Literal["numeric"]] = metric
+        ) -> mv.AnalysisFrame:
             return session.observe(
                 {"value": metric},
                 by=mv.product(
                     session.time_scope(start="2026-07-01", end="2026-08-01"),
-                    population.classify(by=(region,)),
+                    _classify(population, region),
                 ),
                 where=mv.in_population(population),
             )
@@ -428,8 +446,8 @@ def test_period_change_retains_original_buckets_and_rejects_renumbering(
             start=f"2026-{month:02}-{day:02}", end=f"2026-{month:02}-{day + length:02}"
         ).by(mv.grain("day"))
         return session.observe(
-            {"value": session.catalog.get("metric:sales.order_count")},
-            by=mv.product(axis, session.members(session.catalog.get("entity:sales.customer"))),
+            {"value": _metric(session.catalog, "metric:sales.order_count")},
+            by=mv.product(axis, session.members(_entity(session.catalog, "entity:sales.customer"))),
         )
 
     current, baseline = observe(8, 14, 3), observe(7, 9, 3)
@@ -492,7 +510,7 @@ customer_account = ms.relationship(name='customer_account', from_entity=customer
         else session.time_scope(start="2026-07-01", end="2026-08-01")
     )
     during = scope.by(mv.grain("day")) if calendar else scope
-    metric = session.catalog.get("metric:sales.revenue")
+    metric = _metric(session.catalog, "metric:sales.revenue")
     left = session.observe({"value": metric}, by=mv.product(during, customer))
     right = session.observe({"value": metric}, by=mv.product(during, account))
     # Relationship routing is explicit at the source; current data aligns only
@@ -573,24 +591,24 @@ def test_float_sum_and_native_mean_comparison_values(
         )
     session = case.session
     identities = session.read(
-        session.members(session.catalog.get("entity:sales.customer")),
-        {"id": catalog_value(session.catalog, "sales.customer.customer_id", kind="field")},
+        session.members(_entity(session.catalog, "entity:sales.customer")),
+        {"id": catalog_value(session.catalog, "sales.customer.customer_id", kind="dimension")},
     )
     selection_values = identities.where(identities["id"] == "A")
     members = session.population_from(
         selection_values,
-        on=((selection_values.axes[0], session.catalog.get("entity:sales.customer")),),
+        on=((selection_values.axes[0], _entity(session.catalog, "entity:sales.customer")),),
     )
-    amount, time = (
-        catalog_value(session.catalog, "sales.order." + name, kind="field")
-        for name in ("amount", "ordered_at")
-    )
+    amount = catalog_value(session.catalog, "sales.order.amount", kind="measure")
+    time = catalog_value(session.catalog, "sales.order.ordered_at", kind="time_dimension")
     for metric, denominator in (
         (amount.sum(time=time), 1.0 + (-1.0 + 1e-13)),
         (amount.mean(time=time), (1.0 + (-1.0 + 1e-13)) / 2),
     ):
 
-        def observe(month: int, metric: Deferred = metric) -> mv.AnalysisFrame:
+        def observe(
+            month: int, metric: ms.MetricExpression[Literal["numeric"]] = metric
+        ) -> mv.AnalysisFrame:
             return session.observe(
                 {"value": metric},
                 by=mv.product(
@@ -652,19 +670,17 @@ def test_comparison_of_float_original_expression_operands(
     _numeric_source(case, "DOUBLE", False)
     session = case.session
     identities = session.read(
-        session.members(session.catalog.get("entity:sales.customer")),
-        {"id": catalog_value(session.catalog, "sales.customer.customer_id", kind="field")},
+        session.members(_entity(session.catalog, "entity:sales.customer")),
+        {"id": catalog_value(session.catalog, "sales.customer.customer_id", kind="dimension")},
     )
     selection_values = identities.where(identities["id"] == "A")
     members = session.population_from(
         selection_values,
-        on=((selection_values.axes[0], session.catalog.get("entity:sales.customer")),),
+        on=((selection_values.axes[0], _entity(session.catalog, "entity:sales.customer")),),
     )
-    amount, time = (
-        catalog_value(session.catalog, "sales.order." + name, kind="field")
-        for name in ("amount", "ordered_at")
-    )
-    base = session.catalog.get("metric:sales.revenue")
+    amount = catalog_value(session.catalog, "sales.order.amount", kind="measure")
+    time = catalog_value(session.catalog, "sales.order.ordered_at", kind="time_dimension")
+    base = _metric(session.catalog, "metric:sales.revenue")
     metrics = {
         "ratio": base / base,
         "linear": base + base,
@@ -703,29 +719,29 @@ def test_union_keeps_present_nondefined_cell_separate_from_absence(
 ) -> None:
     case = analysis_dsl_case_factory("j1")
     session = case.session
-    members = session.members(session.catalog.get("entity:sales.customer"))
-    region = catalog_value(session.catalog, "sales.customer.region", kind="field")
+    members = session.members(_entity(session.catalog, "entity:sales.customer"))
+    region = catalog_value(session.catalog, "sales.customer.region", kind="dimension")
     categories = session.read(members, {"region": region})
     selection_values = categories.where(categories["region"] == "east")
     eastern = session.population_from(
         selection_values,
-        on=((selection_values.axes[0], session.catalog.get("entity:sales.customer")),),
+        on=((selection_values.axes[0], _entity(session.catalog, "entity:sales.customer")),),
     )
-    amount, time = (
-        catalog_value(session.catalog, "sales.order." + name, kind="field")
-        for name in ("amount", "ordered_at")
-    )
+    amount = catalog_value(session.catalog, "sales.order.amount", kind="measure")
+    time = catalog_value(session.catalog, "sales.order.ordered_at", kind="time_dimension")
     for metric, empty_value in (
         (amount.sum(time=time), 0),
-        (session.catalog.get("metric:sales.order_count") / amount.sum(time=time), None),
+        (_metric(session.catalog, "metric:sales.order_count") / amount.sum(time=time), None),
     ):
 
-        def observe(population: mv.Population, metric: Deferred = metric) -> mv.AnalysisFrame:
+        def observe(
+            population: mv.Population, metric: ms.MetricExpression[Literal["numeric"]] = metric
+        ) -> mv.AnalysisFrame:
             return session.observe(
                 {"value": metric},
                 by=mv.product(
                     session.time_scope(start="2026-08-01", end="2026-09-01"),
-                    population.classify(by=(region,)),
+                    _classify(population, region),
                 ),
                 where=mv.in_population(population),
             )
@@ -769,14 +785,14 @@ def test_public_decimal_ratio_uses_declared_float_carrier(
     )
     ms.load(workspace_dir=case.root)
     session = case.session
-    members = session.members(session.catalog.get("entity:sales.customer"))
-    time = catalog_value(session.catalog, "sales.order.ordered_at", kind="field")
-    denominator = catalog_value(session.catalog, "sales.order.denominator", kind="field").sum(
+    members = session.members(_entity(session.catalog, "entity:sales.customer"))
+    time = catalog_value(session.catalog, "sales.order.ordered_at", kind="time_dimension")
+    denominator = catalog_value(session.catalog, "sales.order.denominator", kind="measure").sum(
         time=time
     )
     q = session.observe(
         {
-            "numerator": session.catalog.get("metric:sales.revenue"),
+            "numerator": _metric(session.catalog, "metric:sales.revenue"),
             "denominator": denominator,
         },
         by=mv.product(session.time_scope(start="2026-08-01", end="2026-09-01"), members),
@@ -799,8 +815,8 @@ def test_ordinary_ratio_over_untimed_numeric_read(
     case = analysis_dsl_case_factory("j2")
     session = case.session
     values = session.read(
-        session.members(session.catalog.get("entity:sales.order")),
-        {"value": catalog_value(session.catalog, "sales.order.amount", kind="field")},
+        session.members(_entity(session.catalog, "entity:sales.order")),
+        {"value": catalog_value(session.catalog, "sales.order.amount", kind="measure")},
     )
     saved = values.select({"value": values["value"] / values["value"]}).persist()
     result = _plain(saved)
@@ -830,14 +846,16 @@ def test_float_status_fold_comparison_uses_native_values(
     session = case.session
     observed = session.observe(
         {
-            "value": catalog_value(session.catalog, "sales.order.status_amount", kind="field")
-            .sum(time=catalog_value(session.catalog, "sales.order.ordered_at", kind="field"))
-            .per(catalog_value(session.catalog, "sales.order.ordered_at", kind="field"))
+            "value": catalog_value(session.catalog, "sales.order.status_amount", kind="measure")
+            .sum(
+                time=catalog_value(session.catalog, "sales.order.ordered_at", kind="time_dimension")
+            )
+            .per(catalog_value(session.catalog, "sales.order.ordered_at", kind="time_dimension"))
             .mean()
         },
         by=mv.product(
             session.time_scope(start="2026-08-01", end="2026-08-03"),
-            session.members(session.catalog.get("entity:sales.customer")),
+            session.members(_entity(session.catalog, "entity:sales.customer")),
         ),
     )
     comparison = observed.compare(
@@ -918,13 +936,15 @@ def test_period_change_after_bucket_rollup(analysis_dsl_case_factory: DslCaseFac
             start=f"2026-{month:02}-{day:02}", end=f"2026-{month:02}-{day + 3:02}"
         ).by(mv.grain("day"))
         observed = session.observe(
-            {"value": session.catalog.get("metric:sales.order_count")},
-            by=mv.product(axis, session.members(session.catalog.get("entity:sales.customer"))),
+            {"value": _metric(session.catalog, "metric:sales.order_count")},
+            by=mv.product(axis, session.members(_entity(session.catalog, "entity:sales.customer"))),
         )
         return session.observe(
-            {"value": session.catalog.get("metric:sales.order_count")},
+            {"value": _metric(session.catalog, "metric:sales.order_count")},
             by=(axis,),
-            where=mv.in_population(session.members(session.catalog.get("entity:sales.customer"))),
+            where=mv.in_population(
+                session.members(_entity(session.catalog, "entity:sales.customer"))
+            ),
         )
 
     left, right = grouped(8, 14), grouped(7, 9)

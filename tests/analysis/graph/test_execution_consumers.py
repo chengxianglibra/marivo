@@ -15,14 +15,14 @@ from tests.analysis.graph.execution_fixtures import source_graph
 from tests.analysis.graph.reference_fixtures import reference_data
 from tests.analysis.graph.source_fixtures import author_source_project
 from tests.datasource.source_cases import source_case, source_params
-from tests.shared_fixtures import terminal_runs
+from tests.shared_fixtures import catalog_get, terminal_runs
 from tests.support.source_trace import SourceTrace
 
 
 def _values(session: mv.Session) -> mv.AnalysisFrame:
     return session.observe(
-        {"value": session.catalog.get("metric:sales.total")},
-        by=session.members(session.catalog.get("entity:sales.facts")),
+        {"value": catalog_get(session.catalog, "metric:sales.total", kind="metric")},
+        by=session.members(catalog_get(session.catalog, "entity:sales.facts", kind="entity")),
     )
 
 

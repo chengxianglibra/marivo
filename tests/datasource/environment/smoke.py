@@ -8,8 +8,7 @@ from collections.abc import Sequence
 from pathlib import Path
 from uuid import uuid4
 
-# This pinned driver has no py.typed marker; keep untyped values at the smoke boundary.
-import clickhouse_connect  # type: ignore[import-untyped]
+import clickhouse_connect
 import trino.dbapi
 from trino.exceptions import TrinoQueryError
 

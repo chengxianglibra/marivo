@@ -81,11 +81,11 @@ def test_multi_field_aggregate_keeps_nulls_types_and_empty_buckets(
     with source_case(backend, profile, tmp_path, monkeypatch, data) as case:
         _project(backend, case, monkeypatch, semantic_project_factory)
         session = mv.session.get_or_create("observe-fusion", timezone="UTC")
-        amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
-        exact = catalog_value(session.catalog, "sales.facts.big", kind="field")
-        weight = catalog_value(session.catalog, "sales.facts.weight", kind="field")
-        category = catalog_value(session.catalog, "sales.facts.category", kind="field")
-        day = catalog_value(session.catalog, "sales.facts.day", kind="field")
+        amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
+        exact = catalog_value(session.catalog, "sales.facts.big", kind="measure")
+        weight = catalog_value(session.catalog, "sales.facts.weight", kind="measure")
+        category = catalog_value(session.catalog, "sales.facts.category", kind="dimension")
+        day = catalog_value(session.catalog, "sales.facts.day", kind="time_dimension")
         by = (
             session.time_scope(start="2026-07-01", end="2026-07-04").by(mv.grain("day"))
             if calendar
@@ -151,7 +151,9 @@ def test_multi_field_aggregate_keeps_nulls_types_and_empty_buckets(
                 from tests.datasource.environment.clickhouse_analysis import connection
 
                 with connection() as reader:
-                    expected_median = reader.query(sql).first_row[0]
+                    row = reader.query(sql).first_row
+                    assert row is not None
+                    expected_median = row[0]
             else:
                 expected_median = case.session._backend.sql(sql).execute().iloc[0, 0]
             assert result["approx_median"].iloc[0] == pytest.approx(expected_median)
@@ -194,9 +196,9 @@ def test_count_and_quantiles_share_actual_scan(
     with source_case(backend, profile, tmp_path, monkeypatch, DATA) as case:
         _project(backend, case, monkeypatch, semantic_project_factory)
         session = mv.session.get_or_create("quantile-fusion", timezone="UTC")
-        amount = catalog_value(session.catalog, "sales.facts.weight", kind="field")
-        category = catalog_value(session.catalog, "sales.facts.category", kind="field")
-        day = catalog_value(session.catalog, "sales.facts.day", kind="field")
+        amount = catalog_value(session.catalog, "sales.facts.weight", kind="measure")
+        category = catalog_value(session.catalog, "sales.facts.category", kind="dimension")
+        day = catalog_value(session.catalog, "sales.facts.day", kind="time_dimension")
         scope = session.time_scope(start="2026-07-01", end="2026-07-03")
         by = () if domain == "overall" else (scope,) if domain == "interval" else (category,)
         quantile = amount.approx_quantile if approximate else amount.quantile
@@ -285,7 +287,7 @@ def test_joint_aggregate_does_not_admit_unsupported_quantile(
     with source_case(backend, profile, tmp_path, monkeypatch, DATA) as case:
         _project(backend, case, monkeypatch, semantic_project_factory)
         session = mv.session.get_or_create("unsupported-joint", timezone="UTC")
-        value = catalog_value(session.catalog, "sales.facts.weight", kind="field")
+        value = catalog_value(session.catalog, "sales.facts.weight", kind="measure")
         trace = capture_source(monkeypatch)
         with pytest.raises(AnalysisStageUnavailableError, match="quantile"):
             session.observe({"count": value.count(), "q": value.quantile(0.5)}).compute()

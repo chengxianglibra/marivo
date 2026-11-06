@@ -64,6 +64,7 @@ def test_core_errors_do_not_infer_help_identity_from_diagnostic_location(locatio
     error = CoreRuleError(
         expected="valid input", received="invalid", repair="Repair the input.", location=location
     )
+    assert error.repair is not None
     assert error.repair.help_target.display == "analysis"
     assert error.location == location
 
@@ -79,6 +80,7 @@ def test_core_reject_passes_explicit_help_identity_independently_of_location() -
         )
     error = captured.value
     assert error.location == "a private diagnostic location"
+    assert error.repair is not None
     assert error.repair.help_target.display == "analysis.analysis_frame.show"
     assert render_help_text(error.repair.help_target.display)[0].startswith(
         "Target: analysis.analysis_frame.show\n"

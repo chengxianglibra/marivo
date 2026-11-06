@@ -40,9 +40,12 @@ def second():
     )
     published_first = catalog.get("metric:sales.first")
     published_second = catalog.get("metric:sales.second")
-    assert isinstance(consume_metric(published_first).node, DeclaredMetricRef)
-    assert isinstance(consume_metric(published_second).node, DeclaredMetricRef)
-    assert consume_metric(published_first).node.ref.ref == ref_factory.metric("sales.first")
-    assert consume_metric(published_second).node.ref.ref == ref_factory.metric("sales.second")
-    assert consume_metric(published_first).node.ref != consume_metric(published_second).node.ref
+    assert published_first.kind == published_second.kind == "metric"
+    first_node = consume_metric(published_first).node
+    second_node = consume_metric(published_second).node
+    assert isinstance(first_node, DeclaredMetricRef)
+    assert isinstance(second_node, DeclaredMetricRef)
+    assert first_node.ref.ref == ref_factory.metric("sales.first")
+    assert second_node.ref.ref == ref_factory.metric("sales.second")
+    assert first_node.ref != second_node.ref
     assert consume_metric(published_first).unit == consume_metric(published_second).unit == "CNY"

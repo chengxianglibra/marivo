@@ -23,7 +23,7 @@ from marivo.analysis.materialization.graph_reading import (
 )
 from tests.analysis.materialization.domain_recovery_worker import snapshot
 from tests.packaging.graph_journeys import _create, _frame, _offline, _remove_sources
-from tests.shared_fixtures import analysis_dsl_rows, catalog_value, run_ids
+from tests.shared_fixtures import analysis_dsl_rows, catalog_get, catalog_value, run_ids
 from tests.support.json import Json, checked, encode, obj, read
 
 
@@ -89,15 +89,21 @@ def journey(phase: str, project: Path) -> dict[str, object]:
     state_path = project / "display.json"
     if phase == "produce":
         session = _create(project, "j2", "parquet")
-        members = session.members(session.catalog.get("entity:operations.device"))
+        members = session.members(
+            catalog_get(session.catalog, "entity:operations.device", kind="entity")
+        )
         grid = session.time_scope(start="2026-07-01", end="2026-10-01").by(mv.grain("month"))
         values = session.observe(
-            {"value": session.catalog.get("metric:operations.reading_count")},
+            {
+                "value": catalog_get(
+                    session.catalog, "metric:operations.reading_count", kind="metric"
+                )
+            },
             by=mv.product(grid, members),
         ).persist()
         categories = session.read(
             members,
-            {"value": catalog_value(session.catalog, "operations.device.zone", kind="field")},
+            {"value": catalog_value(session.catalog, "operations.device.zone", kind="dimension")},
         ).persist()
         frame = _table(values, categories)
         _verify(frame)
@@ -116,8 +122,10 @@ def journey(phase: str, project: Path) -> dict[str, object]:
         # These explicit field keys come from observed calendar bounds, not a hand-authored calendar.
         table = session.values(
             by=(
-                catalog_value(session.catalog, "operations.reading.device_id", kind="field"),
-                catalog_value(session.catalog, "operations.reading.recorded_at", kind="field"),
+                catalog_value(session.catalog, "operations.reading.device_id", kind="dimension"),
+                catalog_value(
+                    session.catalog, "operations.reading.recorded_at", kind="time_dimension"
+                ),
             ),
             columns={"amount": None, "zone": None, "rank": None},
             rows=tuple(rows),

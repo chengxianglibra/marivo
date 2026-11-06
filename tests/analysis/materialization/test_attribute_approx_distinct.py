@@ -16,11 +16,13 @@ import pyarrow.parquet as pq
 import pytest
 
 import marivo.analysis as mv
+from marivo._definition.expressions import SourceAggregate
 from marivo.analysis.compiler.graph_plan import read_reduction
 from marivo.analysis.compiler.source_aggregates import admit_source_aggregate
 from marivo.analysis.core.frame_method_facts import (
     FrameMethodParent,
     FrameShapleyMethod,
+    FrameShapleyQuery,
     FrameShapleyQueryGame,
     FrameShapleyReduction,
 )
@@ -82,10 +84,12 @@ def test_approximate_distinct_native_coalitions_preserve_where_nulls_cache_and_c
                 for i in range(3)
             )
             predicate = "x >= 2" if filtered else "TRUE"
-            oracle[mask] = connection.execute(
+            row = connection.execute(
                 f"SELECT approx_count_distinct(x) FROM facts WHERE {predicate} AND ({selection})",
                 players,
-            ).fetchone()[0]
+            ).fetchone()
+            assert row is not None
+            oracle[mask] = row[0]
     expected = [Fraction(0)] * 3
     for permutation in itertools.permutations(range(3)):
         before = 0
@@ -117,7 +121,10 @@ def test_approximate_distinct_native_coalitions_preserve_where_nulls_cache_and_c
     assert isinstance(reduction, FrameShapleyReduction)
     assert reduction.reducer == "approx_nunique"
     assert method.unique_coalitions == method.coalition_evaluations == 8
-    coalition_receipts = [c for c in method.captures if c.purpose == "coalition"]
+    assert all(isinstance(c, FrameShapleyQuery) for c in method.captures)
+    coalition_receipts = [
+        c for c in method.captures if isinstance(c, FrameShapleyQuery) and c.purpose == "coalition"
+    ]
     assert len(coalition_receipts) == 8
     assert len(trace.native_sql) == sum(c.source_reads for c in method.captures)
     assert sum(trace.returned_rows) == sum(c.returned_rows for c in method.captures)
@@ -211,6 +218,7 @@ def test_unsupported_approximate_distinct_is_rejected_by_main_source_admission(
     table = ibis.table({"category": "string", "amount": "int64"}, name="facts")
     prepared = read_reduction(_stage(table, backend, distinct=True))
     assert prepared is not None
+    assert isinstance(prepared.node, SourceAggregate)
     prepared = replace(prepared, node=replace(prepared.node, reducer="approx_nunique"))
     with pytest.raises(AnalysisStageUnavailableError, match=backend + ": approx_nunique"):
         admit_source_aggregate(prepared, {"sales.facts.amount": table.amount})

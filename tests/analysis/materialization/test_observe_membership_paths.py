@@ -11,7 +11,7 @@ import marivo.datasource as md
 from marivo.datasource.ir import TableSourceIR
 from marivo.semantic.reader import SemanticProject
 from tests.datasource.source_cases import SourceData, source_case, source_params
-from tests.shared_fixtures import catalog_value, datasource_arguments_source
+from tests.shared_fixtures import catalog_get, catalog_value, datasource_arguments_source
 
 
 @pytest.mark.parametrize(
@@ -91,9 +91,9 @@ seller = ms.relationship(name='seller', from_entity=orders, to_entity=people, ke
         )
         session = mv.session.get_or_create("membership-paths", timezone="UTC")
         region = catalog_value(session.catalog, "sales.people.region", kind="field")
-        amount = catalog_value(session.catalog, "sales.orders.amount", kind="field")
-        buyer = session.catalog.get("relationship:sales.buyer")
-        seller = session.catalog.get("relationship:sales.seller")
+        amount = catalog_value(session.catalog, "sales.orders.amount", kind="measure")
+        buyer = catalog_get(session.catalog, "relationship:sales.buyer", kind="relationship")
+        seller = catalog_get(session.catalog, "relationship:sales.seller", kind="relationship")
         allocation = mv.membership(region, via=((buyer,),), unmatched="exclude")
         seller_region = region.via((seller,))
         grouped = session.observe({"v": amount.sum()}, by=(allocation, seller_region))

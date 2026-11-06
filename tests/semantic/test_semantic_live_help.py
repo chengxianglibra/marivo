@@ -227,7 +227,7 @@ def test_temporal_catalog_lookup_rejects_an_unregistered_operation() -> None:
 def test_help_rejects_private_object() -> None:
     assert callable(marivo.help)
     with pytest.raises(MarivoHelpTargetError):
-        marivo.help(object())
+        marivo.help(object())  # type: ignore[arg-type]  # Reject an unsupported target.
 
 
 def test_help_rejects_private_callable_owner_string() -> None:
@@ -259,7 +259,7 @@ def test_loaded_entry_help_is_reference_briefing_without_runtime_effects(
     # Definition facts remain available through the explicit Catalog operation.
     value = catalog.get("metric:sales.revenue")
     assert value is not None
-    assert marivo.help(type(value)) is None
+    assert marivo.help(type(value)) is None  # type: ignore[func-returns-value]  # Verify runtime return.
 
 
 def test_error_help_preserves_instances_with_and_without_repair() -> None:
@@ -314,7 +314,7 @@ def test_expression_error_help_has_one_owner_and_preserves_repairs(
     public_help("semantic.semantic_expression_error")
     assert capsys.readouterr().out == class_help
     with pytest.raises(MarivoHelpTargetError):
-        public_help(error)
+        public_help(error)  # type: ignore[arg-type]  # Reject exception instances.
     assert error.expected and error.received and error.repair.action
 
 
@@ -327,7 +327,7 @@ def test_live_help_performs_no_runtime_effects(monkeypatch: pytest.MonkeyPatch) 
     monkeypatch.setattr("marivo.semantic.reader.SemanticProject.load", fail)
     monkeypatch.setattr("marivo.datasource.backends.build_backend", fail)
 
-    assert marivo.help() is None
+    assert marivo.help() is None  # type: ignore[func-returns-value]  # Verify runtime return.
     for target in (
         "semantic",
         "semantic.model",
@@ -347,7 +347,7 @@ def test_live_help_performs_no_runtime_effects(monkeypatch: pytest.MonkeyPatch) 
         ms.load,
         ms.SemanticCatalog,
     ):
-        assert marivo.help(target) is None
+        assert marivo.help(target) is None  # type: ignore[func-returns-value]  # Verify runtime return.
 
 
 def test_field_null_predicate_has_one_resolvable_reachable_help_contract(
@@ -559,7 +559,8 @@ def test_closed_definition_display_routes_remain_bounded_and_reachable(
 
 
 def test_advertised_semantic_native_methods_have_exact_public_help_routes() -> None:
-    from marivo._help.route import NativeHelpRoute, route_help_target
+    from marivo._help.model import NativeHelpRoute
+    from marivo._help.route import route_help_target
     from marivo.semantic._capabilities.registry import TYPE_CONTRACTS
 
     for result_type, contract in TYPE_CONTRACTS.items():
@@ -585,16 +586,23 @@ def test_type_method_navigation_uses_the_actual_documentation_owner(
 ) -> None:
     import re
 
-    from marivo._help.route import NativeHelpRoute, route_help_target
+    from marivo._help.model import NativeHelpRoute
+    from marivo._help.route import route_help_target
+    from marivo.datasource._capabilities.model import DatasourceTypeContract
     from marivo.datasource._capabilities.registry import TYPE_CONTRACTS as DATASOURCE_TYPES
     from marivo.ontology._capabilities.registry import TYPE_CONTRACTS as ONTOLOGY_TYPES
+    from marivo.ontology._capabilities.registry import OntologyTypeContract
+    from marivo.semantic._capabilities.model import SemanticTypeContract
     from marivo.semantic._capabilities.registry import TYPE_CONTRACTS as SEMANTIC_TYPES
 
-    for type_obj, contract in (
+    contracts: tuple[
+        tuple[type, SemanticTypeContract | DatasourceTypeContract | OntologyTypeContract], ...
+    ] = (
         *SEMANTIC_TYPES.items(),
         *DATASOURCE_TYPES.items(),
         *ONTOLOGY_TYPES.items(),
-    ):
+    )
+    for type_obj, contract in contracts:
         marivo.help(type_obj)
         page = capsys.readouterr().out
         method_targets = dict(re.findall(r'  (\w+): marivo.help\("([a-z0-9_.]+)"\)', page))
@@ -1011,7 +1019,8 @@ def test_ontology_authoring_remains_the_exact_load_callable() -> None:
 
 @pytest.mark.parametrize("carrier", (ms.RowExpression, ms.MetricExpression))
 def test_typed_carrier_methods_have_one_native_callable_owner(carrier: type) -> None:
-    from marivo._help.route import NativeHelpRoute, native_route_target, route_help_target
+    from marivo._help.model import NativeHelpRoute
+    from marivo._help.route import native_route_target, route_help_target
 
     for name, method in vars(carrier).items():
         if name.startswith("_") or not callable(method):
@@ -1020,4 +1029,6 @@ def test_typed_carrier_methods_have_one_native_callable_owner(carrier: type) -> 
         assert isinstance(route, NativeHelpRoute), (carrier, name)
         assert route.owner == "semantic"
         target = native_route_target(route)
-        assert route_help_target(target).resolved == route.resolved
+        string_route = route_help_target(target)
+        assert isinstance(string_route, NativeHelpRoute)
+        assert string_route.resolved == route.resolved

@@ -74,7 +74,9 @@ def _parse_projection(engine: str, fmt: str, *, timezone: str | None = None) -> 
     ast = sqlglot.parse_one(_sql(engine, fmt, timezone=timezone), read=engine)
     select = ast.find(sge.Select)
     assert select is not None
-    return select.expressions[0].unalias()
+    projection = select.expressions[0].unalias()
+    assert isinstance(projection, sge.Expression)
+    return projection
 
 
 def _parser_arguments(engine: str, fmt: str, *, timezone: str | None = None) -> list[str]:
@@ -186,6 +188,7 @@ def test_clickhouse_refuses_subsecond_formats() -> None:
     parse = StrptimeParse("%Y-%m-%d %H:%M:%S.%f", timezone="UTC")
     with pytest.raises((DatasetCompilationError, TemporalExpressionError)) as failure:
         parse_strptime("clickhouse", table.c.cast("string"), parse)
+    assert isinstance(failure.value, (DatasetCompilationError, TemporalExpressionError))
     assert "sub-second" in (failure.value.received or "")
 
 
@@ -208,6 +211,7 @@ def test_divergent_directives_are_structured_rejections(engine: str) -> None:
     """A directive the engine cannot express is a typed error, not a fallback."""
     with pytest.raises((DatasetCompilationError, TemporalExpressionError)) as failure:
         translated_strptime_format(engine, "%Y-%W-%d")
+    assert isinstance(failure.value, (DatasetCompilationError, TemporalExpressionError))
     assert "untranslatable" in (failure.value.received or "")
 
 
@@ -221,6 +225,7 @@ def test_clickhouse_refuses_week_number_directives_it_cannot_execute() -> None:
     """
     with pytest.raises((DatasetCompilationError, TemporalExpressionError)) as failure:
         translated_strptime_format("clickhouse", "%Y-%U-%d")
+    assert isinstance(failure.value, (DatasetCompilationError, TemporalExpressionError))
     assert "%U" in (failure.value.received or "")
 
 
@@ -240,6 +245,7 @@ def test_clickhouse_refuses_directives_it_silently_mis_parses(directive: str) ->
     fmt = f"%Y-%m-%d {directive}"
     with pytest.raises((DatasetCompilationError, TemporalExpressionError)) as failure:
         translated_strptime_format("clickhouse", fmt)
+    assert isinstance(failure.value, (DatasetCompilationError, TemporalExpressionError))
     assert directive in (failure.value.received or "")
 
 
@@ -260,4 +266,5 @@ def test_escaped_percent_is_not_mistaken_for_a_directive() -> None:
     assert translated_strptime_format("mysql", "%%f") == "%%f"
     with pytest.raises((DatasetCompilationError, TemporalExpressionError)) as failure:
         translated_strptime_format("clickhouse", "%Y%m%d%f")
+    assert isinstance(failure.value, (DatasetCompilationError, TemporalExpressionError))
     assert "sub-second" in (failure.value.received or "")

@@ -21,6 +21,18 @@ from marivo.semantic.reader import SemanticProject
 from tests.shared_fixtures import terminal_runs
 
 
+def _metric(catalog: ms.SemanticCatalog, path: str) -> ms.Metric:
+    result = catalog.get(path)
+    assert result.kind == "metric"
+    return result
+
+
+def _period_calendar(catalog: ms.SemanticCatalog, path: str) -> ms.PeriodCalendar:
+    result = catalog.get(path)
+    assert result.kind == "period_calendar"
+    return result
+
+
 def segments(frame: pd.DataFrame, threshold: float = 0) -> pd.DataFrame:
     """Find consecutive UTC daily positions under this recipe's explicit one-day rule."""
     calendar_column = "calendar:day"
@@ -141,12 +153,12 @@ def run(root: Path, phase: str, calendar: bool = False) -> None:
             end="2026-08-07" if calendar else "2026-08-04",
         )
         grain = (
-            catalog.get("period_calendar:sales.unequal").grain("period")
+            _period_calendar(catalog, "period_calendar:sales.unequal").grain("period")
             if calendar
             else mv.grain("day")
         )
         result = session.observe(
-            {"value": catalog.get("metric:sales.maximum")}, by=(scope.by(grain),)
+            {"value": _metric(catalog, "metric:sales.maximum")}, by=(scope.by(grain),)
         ).persist()
         assert result.to_pandas()["value"].tolist() == ([7] if calendar else [1, 2, 7])
         manifest_path.write_text(

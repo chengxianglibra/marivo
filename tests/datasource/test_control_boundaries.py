@@ -228,6 +228,7 @@ def test_clickhouse_unsettable_timeout_blocks_before_user_sql(
                     timeout_seconds=1,
                     project_root=tmp_path,
                 )
+            assert failure.value.effect_observed is not None
             assert failure.value.effect_observed.query_executed is False
             assert failure.value.repair is not None
         finally:

@@ -164,9 +164,10 @@ def _execute(
         read_fixed: Callable[[FrameInput], CompletedFrameData],
         adapt_source: Callable[[str, StageOutput], StageOutput],
         observe_read: Callable[[SourceRead, LoweredRead, StageOutput], None] | None = None,
-        observe_local: Callable[[LocalCompute | FrameCompute, StageOutput], None] | None = None,
+        observe_local: Callable[[LocalCompute | FrameCompute | SourceRead, StageOutput], None]
+        | None = None,
     ) -> StageOutput:
-        def local(stage: LocalCompute | FrameCompute, output: StageOutput) -> None:
+        def local(stage: LocalCompute | FrameCompute | SourceRead, output: StageOutput) -> None:
             frame_events.append(stage.stage_id)
             frame_actual[stage.stage_id] = tuple(output.table.columns)
             if observe_local is not None:
@@ -214,7 +215,7 @@ def _same(
 
 
 def _wide(session: Session) -> AnalysisFrame:
-    region = catalog_value(session.catalog, "sales.orders.region", kind="field")
+    region = catalog_value(session.catalog, "sales.orders.region", kind="dimension")
     return session.values(
         by=(region,),
         columns={"a": "CNY", "b": "CNY", "unused": "CNY"},
@@ -271,9 +272,9 @@ def test_source_attributes_keep_complete_keys_and_inherited_checks(
     optimization_session: Session,
 ) -> None:
     session = optimization_session
-    entity = session.catalog.get("entity:sales.orders")
-    amount = catalog_value(session.catalog, "sales.orders.amount", kind="field")
-    region = catalog_value(session.catalog, "sales.orders.region", kind="field")
+    entity = catalog_value(session.catalog, "sales.orders", kind="entity")
+    amount = catalog_value(session.catalog, "sales.orders.amount", kind="measure")
+    region = catalog_value(session.catalog, "sales.orders.region", kind="dimension")
     source = session.read(
         mv.coordinates(by=(mv.identity(entity),), keys=(((1,),), ((2,),))),
         {"amount": amount, "region": region},
@@ -301,8 +302,8 @@ def test_source_attributes_keep_complete_keys_and_inherited_checks(
 
 
 def test_current_frame_filters_preserve_real_source_domain(optimization_session: Session) -> None:
-    amount = catalog_value(optimization_session.catalog, "sales.orders.amount", kind="field")
-    region = catalog_value(optimization_session.catalog, "sales.orders.region", kind="field")
+    amount = catalog_value(optimization_session.catalog, "sales.orders.amount", kind="measure")
+    region = catalog_value(optimization_session.catalog, "sales.orders.region", kind="dimension")
     source = optimization_session.observe({"sales": amount.sum()}, by=(region,))
     first = source.where(source["sales"] >= 0)
     second = first.where(first["sales"] < 35)
@@ -335,8 +336,8 @@ def test_top_and_explicit_source_denominator_preserve_values(optimization_sessio
     query = selected.select({"kept": selected["a"]})
     result, _, _, _ = _same(optimization_session, query)
     assert result.table["value.0"].tolist() == [30, 20]
-    amount = catalog_value(optimization_session.catalog, "sales.orders.amount", kind="field")
-    region = catalog_value(optimization_session.catalog, "sales.orders.region", kind="field")
+    amount = catalog_value(optimization_session.catalog, "sales.orders.amount", kind="measure")
+    region = catalog_value(optimization_session.catalog, "sales.orders.region", kind="dimension")
     denominator = (
         optimization_session.observe({"total": amount.sum()}).compute().to_pandas()["total"].iloc[0]
     )
@@ -347,8 +348,8 @@ def test_top_and_explicit_source_denominator_preserve_values(optimization_sessio
 
 
 def test_nullable_integer_filters_preserve_true_only_mask(optimization_session: Session) -> None:
-    amount = catalog_value(optimization_session.catalog, "sales.orders.amount", kind="field")
-    region = catalog_value(optimization_session.catalog, "sales.orders.region", kind="field")
+    amount = catalog_value(optimization_session.catalog, "sales.orders.amount", kind="measure")
+    region = catalog_value(optimization_session.catalog, "sales.orders.region", kind="dimension")
     source = optimization_session.observe({"smallest": amount.min()}, by=(region,))
     first = source.where(source["smallest"] >= 0)
     query = first.where(first["smallest"] < 25)
@@ -368,8 +369,8 @@ def test_unselected_native_branch_keeps_its_dynamic_checks_masked(
     optimization_session: Session,
 ) -> None:
     session = optimization_session
-    amount = catalog_value(session.catalog, "sales.orders.amount", kind="field")
-    region = catalog_value(session.catalog, "sales.orders.region", kind="field")
+    amount = catalog_value(session.catalog, "sales.orders.amount", kind="measure")
+    region = catalog_value(session.catalog, "sales.orders.region", kind="dimension")
     total = amount.sum()
     guarded = (total >= 0).ifelse(total, total / 0)
     query = session.observe({"safe": guarded}, by=(region,))
@@ -379,7 +380,7 @@ def test_unselected_native_branch_keeps_its_dynamic_checks_masked(
 def test_explicit_source_occurrences_and_formula_finish_are_never_collapsed(
     optimization_session: Session,
 ) -> None:
-    amount = catalog_value(optimization_session.catalog, "sales.orders.amount", kind="field")
+    amount = catalog_value(optimization_session.catalog, "sales.orders.amount", kind="measure")
     total = amount.sum()
     query = optimization_session.observe({"twice": total + total, "shifted": total + 10})
     result, plan, _, _ = _same(optimization_session, query)
@@ -400,7 +401,7 @@ def test_actual_plan_memo_hits_and_binding_changes_invalidate(
 ) -> None:
     session = optimization_session
     source = session.observe(
-        {"kept": catalog_value(session.catalog, "sales.orders.amount", kind="field").sum()}
+        {"kept": catalog_value(session.catalog, "sales.orders.amount", kind="measure").sum()}
     )
     graph = _source_graph(source)
     with (
@@ -484,7 +485,7 @@ def test_actual_plan_memo_keeps_consumed_policy_and_relation_scope(
     optimization_session: Session,
 ) -> None:
     session = optimization_session
-    amount = catalog_value(session.catalog, "sales.orders.amount", kind="field")
+    amount = catalog_value(session.catalog, "sales.orders.amount", kind="measure")
     graph = _source_graph(session.observe({"sales": amount.sum()}))
     strict = _source_graph(session.observe({"sales": amount.sum(nulls="error")}))
     with (
@@ -524,7 +525,7 @@ def test_each_public_compute_owns_a_fresh_compilation_memo(
         "marivo.analysis.materialization.frame_source_preparation.InvocationMemo", CapturingMemo
     )
     session = optimization_session
-    amount = catalog_value(session.catalog, "sales.orders.amount", kind="field")
+    amount = catalog_value(session.catalog, "sales.orders.amount", kind="measure")
     query = session.observe({"sales": amount.sum()})
     assert query.compute().to_pandas()["sales"].tolist() == [60]
     with duckdb.connect(str(session.catalog.workspace_dir / "optimization.duckdb")) as connection:
@@ -536,7 +537,7 @@ def test_each_public_compute_owns_a_fresh_compilation_memo(
 def test_explicit_empty_source_sum_and_ratio_keep_one_nullable_cell(
     optimization_session: Session,
 ) -> None:
-    amount = catalog_value(optimization_session.catalog, "sales.orders.amount", kind="field")
+    amount = catalog_value(optimization_session.catalog, "sales.orders.amount", kind="measure")
     total = amount.sum()
     query = optimization_session.observe(
         {"sum": total, "ratio": total / amount.count()}, where=amount > 1000
@@ -553,7 +554,7 @@ def test_exact_source_common_block_preserves_values_and_occurrences(
     optimization_session: Session, field: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     session = optimization_session
-    value = catalog_value(session.catalog, "sales.orders." + field, kind="field")
+    value = catalog_value(session.catalog, "sales.orders." + field, kind="measure")
     query = session.observe({"sum": value.sum(), "count": value.count()})
     calls: list[CompiledRead] = []
     execute = SourceSession.execute
@@ -594,8 +595,8 @@ def test_source_per_group_keeps_middle_overflow_before_cancellation(
             connection.execute(
                 "UPDATE orders SET exact=CASE WHEN id<=2 THEN 500000000000000000000000000000000000.00 ELSE -500000000000000000000000000000000000.00 END"
             )
-    value = catalog_value(session.catalog, "sales.orders." + field, kind="field")
-    region = catalog_value(session.catalog, "sales.orders.region", kind="field")
+    value = catalog_value(session.catalog, "sales.orders." + field, kind="measure")
+    region = catalog_value(session.catalog, "sales.orders.region", kind="dimension")
     query = session.observe({"sum": value.sum().per(region).sum()})
     if field == "amount":
         for optimized in (False, True):
@@ -629,7 +630,7 @@ def test_multiple_current_consumers_preserve_filter_barriers(optimization_sessio
 def test_float_source_reductions_share_aggregate_without_reassociation(
     optimization_session: Session,
 ) -> None:
-    value = catalog_value(optimization_session.catalog, "sales.orders.approximate", kind="field")
+    value = catalog_value(optimization_session.catalog, "sales.orders.approximate", kind="measure")
     query = optimization_session.observe({"a": value.sum(), "b": value.sum()})
     _, plan, _, _ = _same(optimization_session, query)
     assert any(group.law == "source_block" for group in plan.fusion_groups)
@@ -647,10 +648,10 @@ def test_observe_different_fields_share_one_actual_aggregate(
     width: int,
 ) -> None:
     session = optimization_session
-    amount = catalog_value(session.catalog, "sales.orders.amount", kind="field")
-    exact = catalog_value(session.catalog, "sales.orders.exact", kind="field")
-    approximate = catalog_value(session.catalog, "sales.orders.approximate", kind="field")
-    ordered_at = catalog_value(session.catalog, "sales.orders.ordered_at", kind="field")
+    amount = catalog_value(session.catalog, "sales.orders.amount", kind="measure")
+    exact = catalog_value(session.catalog, "sales.orders.exact", kind="measure")
+    approximate = catalog_value(session.catalog, "sales.orders.approximate", kind="measure")
+    ordered_at = catalog_value(session.catalog, "sales.orders.ordered_at", kind="time_dimension")
     scope = session.time_scope(start="2026-01-01", end="2026-01-04")
     metrics = (
         amount.sum(time=ordered_at),
@@ -694,13 +695,13 @@ def test_null_empty_policy_and_different_source_fibers_remain_independent(
     optimization_session: Session,
 ) -> None:
     session = optimization_session
-    amount = catalog_value(session.catalog, "sales.orders.amount", kind="field")
-    region = catalog_value(session.catalog, "sales.orders.region", kind="field")
-    detail = catalog_value(session.catalog, "sales.orders.detail", kind="field")
+    amount = catalog_value(session.catalog, "sales.orders.amount", kind="measure")
+    region = catalog_value(session.catalog, "sales.orders.region", kind="dimension")
+    detail = catalog_value(session.catalog, "sales.orders.detail", kind="dimension")
     query = session.observe({"sum": amount.sum()})
     result, plan, _, _ = _same(session, query)
     assert not any(group.law == "L8" for group in plan.fusion_groups)
-    entity = session.catalog.get("entity:sales.orders")
+    entity = catalog_value(session.catalog, "sales.orders", kind="entity")
     one = session.observe(
         {"sum": amount.sum()},
         where=mv.in_population(mv.coordinates(by=(mv.identity(entity),), keys=(((1,),),))),
@@ -720,8 +721,8 @@ def test_mixed_observation_executes_once_per_contribution_domain(
     optimization_session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     session = optimization_session
-    amount = catalog_value(session.catalog, "sales.orders.amount", kind="field")
-    exact = catalog_value(session.catalog, "sales.orders.exact", kind="field")
+    amount = catalog_value(session.catalog, "sales.orders.amount", kind="measure")
+    exact = catalog_value(session.catalog, "sales.orders.exact", kind="measure")
     query = session.observe(
         {
             "all": amount.sum(),
@@ -750,8 +751,8 @@ def test_joint_aggregate_preserves_each_metric_failure(
     optimization_session: Session, tmp_path: Path, failure: str
 ) -> None:
     session = optimization_session
-    amount = catalog_value(session.catalog, "sales.orders.amount", kind="field")
-    exact = catalog_value(session.catalog, "sales.orders.exact", kind="field")
+    amount = catalog_value(session.catalog, "sales.orders.amount", kind="measure")
+    exact = catalog_value(session.catalog, "sales.orders.exact", kind="measure")
     if failure != "strict_null":
         with duckdb.connect(str(tmp_path / "optimization.duckdb")) as connection:
             connection.execute("UPDATE orders SET exact=500000000000000000000000000000000000.00")
@@ -774,15 +775,15 @@ def test_internal_samples_and_windows_keep_their_physical_boundaries(
     optimization_session: Session, kind: str
 ) -> None:
     session = optimization_session
-    amount = catalog_value(session.catalog, "sales.orders.amount", kind="field")
-    region = catalog_value(session.catalog, "sales.orders.region", kind="field")
-    detail = catalog_value(session.catalog, "sales.orders.detail", kind="field")
+    amount = catalog_value(session.catalog, "sales.orders.amount", kind="measure")
+    region = catalog_value(session.catalog, "sales.orders.region", kind="dimension")
+    detail = catalog_value(session.catalog, "sales.orders.detail", kind="dimension")
     if kind == "per":
         metric = amount.sum().per(detail).sum()
         source = session.observe({"a": metric, "b": metric}, by=(region,))
         query = source
     else:
-        time = catalog_value(session.catalog, "sales.orders.ordered_at", kind="field")
+        time = catalog_value(session.catalog, "sales.orders.ordered_at", kind="time_dimension")
         calendar = session.time_scope(start="2026-01-01", end="2026-01-03").by(mv.grain("day"))
         metric = amount.sum(time=time).window(mv.all_history())
         source = session.observe({"a": metric, "b": metric}, by=(calendar, region, detail))
@@ -795,9 +796,9 @@ def test_common_block_keeps_same_period_filter_and_exact_checks(
     optimization_session: Session,
 ) -> None:
     session = optimization_session
-    amount = catalog_value(session.catalog, "sales.orders.amount", kind="field")
-    time = catalog_value(session.catalog, "sales.orders.ordered_at", kind="field")
-    region = catalog_value(session.catalog, "sales.orders.region", kind="field")
+    amount = catalog_value(session.catalog, "sales.orders.amount", kind="measure")
+    time = catalog_value(session.catalog, "sales.orders.ordered_at", kind="time_dimension")
+    region = catalog_value(session.catalog, "sales.orders.region", kind="dimension")
     scope = session.time_scope(start="2026-01-01", end="2026-01-02")
     query = session.observe(
         {"a": amount.sum(time=time), "b": amount.count(time=time)},
@@ -823,8 +824,8 @@ def test_decimal_column_division_finishes_once_in_declared_float_carrier(
     from fractions import Fraction
 
     session = optimization_session
-    exact = catalog_value(session.catalog, "sales.orders.exact", kind="field")
-    region = catalog_value(session.catalog, "sales.orders.region", kind="field")
+    exact = catalog_value(session.catalog, "sales.orders.exact", kind="measure")
+    region = catalog_value(session.catalog, "sales.orders.region", kind="dimension")
     source = session.observe({"a": exact.sum(), "b": exact.count()}, by=(region,))
     query = source.select({"ratio": source["a"] / source["b"]})
     result, _, _, _ = _same(session, query)
@@ -836,8 +837,8 @@ def test_same_shape_different_datasources_never_share_a_physical_block(
     optimization_session: Session,
 ) -> None:
     session = optimization_session
-    amount = catalog_value(session.catalog, "sales.orders.amount", kind="field")
-    other = catalog_value(session.catalog, "sales.other.amount", kind="field")
+    amount = catalog_value(session.catalog, "sales.orders.amount", kind="measure")
+    other = catalog_value(session.catalog, "sales.other.amount", kind="measure")
     query = session.observe({"primary": amount.sum(), "other": other.sum()})
     result, plan, _, _ = _same(session, query)
     reads = tuple(stage for stage in plan.stages if isinstance(stage, SourceRead))
@@ -851,7 +852,7 @@ def test_physical_binding_ids_do_not_change_logical_fingerprints_or_artifacts(
     optimization_session: Session,
 ) -> None:
     session = optimization_session
-    amount = catalog_value(session.catalog, "sales.orders.amount", kind="field")
+    amount = catalog_value(session.catalog, "sales.orders.amount", kind="measure")
     query = session.observe({"a": amount.sum(), "b": amount.count()})
     fingerprint = _source_graph(query).fingerprint
     bindings: list[str] = []
@@ -908,8 +909,10 @@ def test_shared_session_scope_keeps_frozen_fields_and_neutral_roundtrip(
                 "end": "2026-01-03",
             }
         )
-    amount = catalog_value(optimization_session.catalog, "sales.orders.amount", kind="field")
-    time = catalog_value(optimization_session.catalog, "sales.orders.ordered_at", kind="field")
+    amount = catalog_value(optimization_session.catalog, "sales.orders.amount", kind="measure")
+    time = catalog_value(
+        optimization_session.catalog, "sales.orders.ordered_at", kind="time_dimension"
+    )
     observed = optimization_session.observe({"sum": amount.sum()}, where=time.within(scope))
     if clock != "00:00:00":
         with pytest.raises(AnalysisError, match="complete"):
@@ -933,10 +936,10 @@ def test_explicit_source_weights_preserve_standardized_and_fixed_results(
                 (4, "B", 900, "Hard", 180),
             ],
         )
-    region = catalog_value(session.catalog, "sales.orders.region", kind="field")
-    detail = catalog_value(session.catalog, "sales.orders.detail", kind="field")
-    inspected = catalog_value(session.catalog, "sales.orders.amount", kind="field").sum()
-    failed = catalog_value(session.catalog, "sales.orders.exact", kind="field").sum()
+    region = catalog_value(session.catalog, "sales.orders.region", kind="dimension")
+    detail = catalog_value(session.catalog, "sales.orders.detail", kind="dimension")
+    inspected = catalog_value(session.catalog, "sales.orders.amount", kind="measure").sum()
+    failed = catalog_value(session.catalog, "sales.orders.exact", kind="measure").sum()
     cells = session.observe(
         {"inspected": inspected, "failed": failed, "rate": failed / inspected},
         by=(region, detail),
@@ -996,10 +999,10 @@ def test_decimal_source_quantile_keeps_native_precision_through_windows(
             "INSERT INTO orders VALUES (?, 'A', 0, ?, ?, NULL, '2026-01-01')",
             [(index, "x" if index < 3 else "y", value) for index, value in enumerate(values)],
         )
-    value = catalog_value(session.catalog, "sales.orders.exact", kind="field")
-    region = catalog_value(session.catalog, "sales.orders.region", kind="field")
-    detail = catalog_value(session.catalog, "sales.orders.detail", kind="field")
-    time = catalog_value(session.catalog, "sales.orders.ordered_at", kind="field")
+    value = catalog_value(session.catalog, "sales.orders.exact", kind="measure")
+    region = catalog_value(session.catalog, "sales.orders.region", kind="dimension")
+    detail = catalog_value(session.catalog, "sales.orders.detail", kind="dimension")
+    time = catalog_value(session.catalog, "sales.orders.ordered_at", kind="time_dimension")
     quantile = value.quantile(0.95, time=time)
     direct = session.observe({"p95": quantile}, by=(region,))
     # Ordinary observations and windows retain the same native Decimal arithmetic
@@ -1030,10 +1033,10 @@ def test_native_decimal_median_and_local_mean_keep_their_rounding(
             "INSERT INTO orders VALUES (?, 'A', 0, 'x', ?, NULL, '2026-01-01')",
             [(1, Decimal(first)), (2, Decimal(first) + Decimal("0.01"))],
         )
-    exact = catalog_value(session.catalog, "sales.orders.exact", kind="field")
+    exact = catalog_value(session.catalog, "sales.orders.exact", kind="measure")
     source = session.observe({"value": exact.median()})
     assert source.compute().to_pandas()["value"].tolist() == [Decimal(first)]
-    region = catalog_value(session.catalog, "sales.orders.region", kind="field")
+    region = catalog_value(session.catalog, "sales.orders.region", kind="dimension")
     values = session.values(
         by=(region,),
         columns={"value": "CNY"},
@@ -1072,8 +1075,8 @@ def test_source_nanosecond_quantile_is_rejected_before_business_reads(
         path,
     )
     ms.load(workspace_dir=case.root)
-    value = catalog_value(case.session.catalog, "sales.order.amount", kind="field")
-    time = catalog_value(case.session.catalog, "sales.order.ordered_at", kind="field")
+    value = catalog_value(case.session.catalog, "sales.order.amount", kind="measure")
+    time = catalog_value(case.session.catalog, "sales.order.ordered_at", kind="time_dimension")
     query = case.session.observe({"p95": value.quantile(0.95, time=time)})
     from marivo.analysis.errors import AnalysisStageUnavailableError
 
@@ -1096,8 +1099,8 @@ def test_decimal_quantile_probability_boundaries_samples_and_strict_nulls(
             "UPDATE orders SET exact=CASE WHEN id=4 THEN 100 ELSE 1 END, "
             "ordered_at=DATE '2026-01-01' + CAST(id-1 AS INTEGER)"
         )
-    value = catalog_value(session.catalog, "sales.orders.exact", kind="field")
-    time = catalog_value(session.catalog, "sales.orders.ordered_at", kind="field")
+    value = catalog_value(session.catalog, "sales.orders.exact", kind="measure")
+    time = catalog_value(session.catalog, "sales.orders.ordered_at", kind="time_dimension")
     probabilities = (0.0, 1.0, 1e-30, 5e-324, 0.95)
     direct = session.observe(
         {f"q{index}": value.quantile(q, time=time) for index, q in enumerate(probabilities)}
@@ -1136,7 +1139,7 @@ def test_decimal_repeating_result_mean_finishes_before_comparison(
     optimization_session: Session,
 ) -> None:
     session = optimization_session
-    region = catalog_value(session.catalog, "sales.orders.region", kind="field")
+    region = catalog_value(session.catalog, "sales.orders.region", kind="dimension")
     values = session.values(
         by=(region,),
         columns={"value": "CNY"},
@@ -1166,8 +1169,10 @@ def test_composite_coord_column_refuses_during_preparation_before_read_or_run(
     from marivo.analysis.materialization import terminal_store
 
     session = optimization_session
-    composite = session.catalog.get("entity:sales.composite_orders")
-    members = session.members(session.catalog.get("entity:sales.composite_orders"))
+    composite = catalog_value(session.catalog, "sales.composite_orders", kind="entity")
+    members = session.members(
+        catalog_value(session.catalog, "sales.composite_orders", kind="entity")
+    )
     query = session.frame(members)
     runs_before = terminal_runs(session)
     calls: list[str] = []
@@ -1192,9 +1197,11 @@ def test_composite_coord_column_refuses_during_preparation_before_read_or_run(
     exported = query.compute().to_pandas()
     assert exported.iloc[:, 0].tolist() == [(1, "x"), (2, "y"), (3, "x"), (4, "z")]
     requested = mv.coordinates(by=(mv.identity(composite),), keys=(((1, "x"),), ((2, "x"),)))
-    selected_frame = session.frame(members.where(mv.in_population(requested))).compute().to_pandas()
+    selected = members.where(mv.in_population(requested))
+    assert isinstance(selected, mv.Population)
+    selected_frame = session.frame(selected).compute().to_pandas()
     assert selected_frame.iloc[:, 0].tolist() == [(1, "x")]
-    scalar_members = session.members(session.catalog.get("entity:sales.orders"))
+    scalar_members = session.members(catalog_value(session.catalog, "sales.orders", kind="entity"))
     scalar = session.frame(scalar_members)
     assert scalar.select({"identity": scalar.coord(scalar.axes[0])}).compute().to_pandas()[
         "identity"
@@ -1208,7 +1215,7 @@ def test_literal_identity_coordinates_require_resolved_entity_without_source_loo
     import marivo.semantic as ms
 
     session = optimization_session
-    entity = session.catalog.get("entity:sales.composite_orders")
+    entity = catalog_value(session.catalog, "sales.composite_orders", kind="entity")
     before = terminal_runs(session)
 
     def forbidden(*args: object, **kwargs: object) -> None:
@@ -1243,8 +1250,8 @@ def test_grouped_common_completion_preserves_joint_rows_without_merge(
     from marivo.semantic._numeric_lowering import NumericCheck
 
     session = optimization_session
-    amount = catalog_value(session.catalog, "sales.orders.amount", kind="field")
-    region = catalog_value(session.catalog, "sales.orders.region", kind="field")
+    amount = catalog_value(session.catalog, "sales.orders.amount", kind="measure")
+    region = catalog_value(session.catalog, "sales.orders.region", kind="dimension")
     query = session.observe({"sum": amount.sum(), "count": amount.count()}, by=(region,))
     complete = execution._complete_common_read
     observed: list[int] = []
@@ -1279,9 +1286,9 @@ def test_joint_extended_reducers_preserve_empty_and_null_groups(
     empty: bool,
 ) -> None:
     session = optimization_session
-    value = catalog_value(session.catalog, "sales.orders.amount", kind="field")
-    weight = catalog_value(session.catalog, "sales.orders.approximate", kind="field")
-    exact = catalog_value(session.catalog, "sales.orders.exact", kind="field")
+    value = catalog_value(session.catalog, "sales.orders.amount", kind="measure")
+    weight = catalog_value(session.catalog, "sales.orders.approximate", kind="measure")
+    exact = catalog_value(session.catalog, "sales.orders.exact", kind="measure")
     query = session.observe(
         {
             "count": value.count(),
@@ -1303,8 +1310,8 @@ def test_weighted_null_policy_keeps_checks_and_separate_domains(
     optimization_session: Session,
 ) -> None:
     session = optimization_session
-    value = catalog_value(session.catalog, "sales.orders.amount", kind="field")
-    weight = catalog_value(session.catalog, "sales.orders.approximate", kind="field")
+    value = catalog_value(session.catalog, "sales.orders.amount", kind="measure")
+    weight = catalog_value(session.catalog, "sales.orders.approximate", kind="measure")
     query = session.observe(
         {
             "weighted": value.weighted_mean(weight=weight, nulls="error"),
@@ -1333,7 +1340,7 @@ def test_frequency_payload_survives_ordinary_aggregate_optimization(
     from marivo.analysis.compiler.graph_plan import AttributeFrequencyRead, require_reduction
 
     session = optimization_session
-    amount = catalog_value(session.catalog, "sales.orders.amount", kind="field")
+    amount = catalog_value(session.catalog, "sales.orders.amount", kind="measure")
     graph = _source_graph(
         session.observe(
             {
@@ -1376,8 +1383,8 @@ def test_joint_weighted_components_retain_both_raw_operands(
     from marivo.analysis.materialization.graph_source_execution import read_stage
 
     session = optimization_session
-    amount = catalog_value(session.catalog, "sales.orders.amount", kind="field")
-    weight = catalog_value(session.catalog, "sales.orders.approximate", kind="field")
+    amount = catalog_value(session.catalog, "sales.orders.amount", kind="measure")
+    weight = catalog_value(session.catalog, "sales.orders.approximate", kind="measure")
     with duckdb.connect(str(session.project_root / "optimization.duckdb")) as connection:
         connection.execute("UPDATE orders SET approximate=NULL WHERE id=2")
     graph = _source_graph(
@@ -1404,6 +1411,9 @@ def test_joint_weighted_components_retain_both_raw_operands(
             assert isinstance(component.layout.payload, WeightedPayload)
             table = component.table.sort_values("__original_id.0")
             assert table["__original_value"].iloc[:3].tolist() == [10, 30, 20]
-            assert table["__original_weight"].iloc[[0, 2]].tolist() == [10.0, 20.0]
+            assert [table["__original_weight"].iloc[0], table["__original_weight"].iloc[2]] == [
+                10.0,
+                20.0,
+            ]
             assert pd.isna(table["__original_weight"].iloc[1])
         assert output.table.iloc[0, :2].tolist() == pytest.approx([50 / 3, 50 / 3])

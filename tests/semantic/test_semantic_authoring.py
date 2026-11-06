@@ -27,7 +27,7 @@ from ibis.common.deferred import Deferred
 
 import marivo.datasource as md
 import marivo.semantic as ms
-from marivo._definition.deferred import root_declaration
+from marivo._definition.deferred import DeclarationRecord, root_declaration
 from marivo._definition.expressions import (
     ContributionFilter,
     EntityCount,
@@ -40,7 +40,7 @@ from marivo._definition.expressions import (
     SourceWeightedMean,
 )
 from marivo._definition.graph import computation_fingerprint
-from marivo.refs import MeasureKind, Ref
+from marivo._symbolic import MeasureSymbol
 from marivo.semantic._authoring_context import DefinitionIR, PendingDefinition
 from marivo.semantic._deferred_semantics import (
     consume_field,
@@ -56,6 +56,7 @@ from marivo.semantic.errors import (
     SemanticExpressionError,
     SemanticLoadError,
 )
+from marivo.semantic.expressions import _Entity
 from marivo.semantic.ir import (
     AiContextIR,
     DimensionIR,
@@ -76,6 +77,12 @@ from tests.support.refs import as_ref
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+def _required_ref_path(value: object) -> str:
+    reference = as_ref(value)
+    assert reference is not None
+    return reference.path
 
 
 def _enter_ctx(**kwargs: object) -> LoaderContext:
@@ -113,7 +120,7 @@ def _is_ref(value: object, kind: ms.SemanticKind) -> bool:
     return isinstance(value, Deferred) and reference is not None and reference.kind is kind
 
 
-def _leaf(unit: str | None = None) -> Ref[MeasureKind]:
+def _leaf(unit: str | None = None) -> MeasureSymbol:
     orders = ms.entity(name="orders", datasource=ms.ref.datasource("wh"), source=md.table("orders"))
     return ms.measure_column(
         name="amount", entity=orders, column="amount", additivity=ms.additive_all(), unit=unit
@@ -122,7 +129,15 @@ def _leaf(unit: str | None = None) -> Ref[MeasureKind]:
 
 def _closed_leaf(unit: str | None = None) -> Deferred:
     captured = _leaf(unit)
-    return resolve(captured_catalog(), captured)
+    result = resolve(captured_catalog(), captured)
+    assert isinstance(result, Deferred)
+    return result
+
+
+def _require_declaration(value: Deferred) -> DeclarationRecord:
+    declaration = root_declaration(value)
+    assert declaration is not None
+    return declaration
 
 
 class _FakeTable:
@@ -187,7 +202,7 @@ def test_metric_does_not_require_context() -> None:
 
     @ms.metric()
     def revenue() -> Deferred:
-        return amount.sum()
+        return amount.sum()  # type: ignore[no-any-return]  # Ibis Deferred methods are dynamically typed.
 
     assert isinstance(revenue, ms.MetricExpression)
     assert _LOADER_CTX.get() is None
@@ -223,7 +238,7 @@ def test_model_creates_model_ir() -> None:
         ir, callable_ = _pending_objects(ctx)[0]
         assert isinstance(ir, DomainIR)
         assert _is_ref(ref, ms.SemanticKind.DOMAIN)
-        assert as_ref(ref).path == "sales"
+        assert _required_ref_path(ref) == "sales"
         assert ir.name == "sales"
         assert ir.owner == "Mina Zhang"
         assert ir.default is True
@@ -279,7 +294,7 @@ def test_field_accepts_model_ref() -> None:
         def region(table: ibis_ir.Table) -> ibis_ir.Value:
             return table.region
 
-        assert as_ref(region).path == "sales.orders.region"
+        assert _required_ref_path(region) == "sales.orders.region"
     finally:
         _exit_ctx()
 
@@ -342,7 +357,7 @@ def test_entity_returns_value_and_pushes_ir_without_callable() -> None:
         ir, callable_ = _pending_objects(ctx)[-1]
         assert isinstance(ir, EntityIR)
         assert _is_ref(ref, ms.SemanticKind.ENTITY)
-        assert as_ref(ref).path == "sales.orders_tbl"
+        assert _required_ref_path(ref) == "sales.orders_tbl"
         assert ir.semantic_id == "sales.orders_tbl"
         assert ir.domain == "sales"
         assert ir.name == "orders_tbl"
@@ -455,7 +470,7 @@ def test_field_name_defaults_to_function_name() -> None:
         ir, _ = _pending_objects(ctx)[-1]
         assert isinstance(ir, DimensionIR)
         assert _is_ref(amount, ms.SemanticKind.DIMENSION)
-        assert as_ref(amount).path == "sales.orders.amount"
+        assert _required_ref_path(amount) == "sales.orders.amount"
         assert ir.name == "amount"
         assert ir.is_time_dimension is False
 
@@ -497,6 +512,7 @@ def test_component_decorators_accept_leading_docstrings() -> None:
 
         finalized = captured_catalog()
         amount_value = resolve(finalized, amount)
+        assert isinstance(amount_value, Deferred)
 
         @ms.measure()
         def named_amount() -> Deferred:
@@ -506,14 +522,14 @@ def test_component_decorators_accept_leading_docstrings() -> None:
         before = len(ctx.pending_definitions)
 
         @ms.metric()
-        def revenue() -> Deferred:
+        def revenue() -> ms.MetricExpression[Literal["numeric"]]:
             """Order revenue."""
             return named_amount.sum()
 
         assert _is_ref(region, ms.SemanticKind.DIMENSION)
         assert _is_ref(order_date, ms.SemanticKind.TIME_DIMENSION)
-        assert root_declaration(_as_deferred(named_amount)).name == "named_amount"
-        assert root_declaration(_as_deferred(revenue)).name == "revenue"
+        assert _require_declaration(_as_deferred(named_amount)).name == "named_amount"
+        assert _require_declaration(_as_deferred(revenue)).name == "revenue"
         assert len(ctx.pending_definitions) == before
     finally:
         _exit_ctx()
@@ -569,7 +585,7 @@ def test_dimension_column_pushes_ir_sidecar_and_pending_ref() -> None:
 
         ir, sidecar = _pending_objects(ctx)[-1]
         assert _is_ref(ref, ms.SemanticKind.DIMENSION)
-        assert as_ref(ref).path == "sales.orders.region"
+        assert _required_ref_path(ref) == "sales.orders.region"
         assert isinstance(ir, DimensionIR)
         assert ir.semantic_id == "sales.orders.region"
         assert ir.domain == "sales"
@@ -652,7 +668,7 @@ def test_measure_column_pushes_ir_sidecar_and_pending_ref() -> None:
 
         ir, sidecar = _pending_objects(ctx)[-1]
         assert _is_ref(ref, ms.SemanticKind.MEASURE)
-        assert as_ref(ref).path == "sales.orders.amount"
+        assert _required_ref_path(ref) == "sales.orders.amount"
         assert isinstance(ir, MeasureIR)
         assert ir.semantic_id == "sales.orders.amount"
         assert ir.domain == "sales"
@@ -728,9 +744,9 @@ def test_time_field_ir_has_time_metadata() -> None:
             return None
 
         assert _is_ref(order_date, ms.SemanticKind.TIME_DIMENSION)
-        assert as_ref(order_date).path == "sales.orders.order_date"
+        assert _required_ref_path(order_date) == "sales.orders.order_date"
         assert _is_ref(order_hour, ms.SemanticKind.TIME_DIMENSION)
-        assert as_ref(order_hour).path == "sales.orders.order_hour"
+        assert _required_ref_path(order_hour) == "sales.orders.order_hour"
         ir, _ = _pending_objects(ctx)[-1]
         assert isinstance(ir, DimensionIR)
         assert ir.is_time_dimension is True
@@ -1021,8 +1037,8 @@ def test_time_dimensions_reject_invalid_sample_interval_units() -> None:
 
             @ms.time_dimension(
                 entity=ms.ref.entity("sales.bandwidth_samples"),
-                sample_interval=(1, "day"),
-                parse=ms.timestamp(timezone="UTC"),  # type: ignore[arg-type]
+                sample_interval=(1, "day"),  # type: ignore[arg-type]  # Invalid interval unit.
+                parse=ms.timestamp(timezone="UTC"),
             )
             def sample_ts(table: object) -> object:
                 return None
@@ -1122,8 +1138,8 @@ def test_hour_prefix_rejects_sample_interval_day_unit() -> None:
 
             @ms.time_dimension(
                 entity=ms.ref.entity("sales.bandwidth_samples"),
-                sample_interval=(1, "day"),
-                parse=ms.hour_prefix(dt),  # type: ignore[arg-type]
+                sample_interval=(1, "day"),  # type: ignore[arg-type]  # Invalid interval unit.
+                parse=ms.hour_prefix(dt),
             )
             def hh(table: object) -> object:
                 return None
@@ -1152,7 +1168,7 @@ def test_time_dimension_column_pushes_ir_sidecar_and_pending_ref() -> None:
 
         ir, sidecar = _pending_objects(ctx)[-1]
         assert _is_ref(ref, ms.SemanticKind.TIME_DIMENSION)
-        assert as_ref(ref).path == "sales.orders.log_date"
+        assert _required_ref_path(ref) == "sales.orders.log_date"
         assert isinstance(ir, DimensionIR)
         assert ir.semantic_id == "sales.orders.log_date"
         assert ir.domain == "sales"
@@ -1214,11 +1230,11 @@ def test_metric_returns_local_declaration() -> None:
 
         @ms.metric()
         def revenue() -> Deferred:
-            return amount.sum()
+            return amount.sum()  # type: ignore[no-any-return]  # Ibis Deferred methods are dynamically typed.
 
         assert isinstance(revenue, ms.MetricExpression)
-        assert root_declaration(_as_deferred(revenue)).name == "revenue"
-        assert root_declaration(_as_deferred(revenue)).domain is None
+        assert _require_declaration(_as_deferred(revenue)).name == "revenue"
+        assert _require_declaration(_as_deferred(revenue)).domain is None
     finally:
         _exit_ctx()
 
@@ -1231,10 +1247,11 @@ def test_metric_roots_come_from_source_reductions() -> None:
 
         @ms.metric()
         def revenue() -> Deferred:
-            return amount.sum()
+            return amount.sum()  # type: ignore[no-any-return]  # Ibis Deferred methods are dynamically typed.
 
         assert consume_metric(revenue).roots == (consume_row(amount).root,)
-        assert isinstance(consume_metric(revenue).node, SourceAggregate)
+        node_revenue = consume_metric(revenue).node
+        assert isinstance(node_revenue, SourceAggregate)
         assert len(ctx.pending_definitions) == before
     finally:
         _exit_ctx()
@@ -1251,13 +1268,11 @@ def test_metric_historical_sql_in_ai_context() -> None:
             )
         )
         def revenue() -> Deferred:
-            return amount.sum()
+            return amount.sum()  # type: ignore[no-any-return]  # Ibis Deferred methods are dynamically typed.
 
-        assert root_declaration(_as_deferred(revenue)).ai_context is not None
-        assert (
-            root_declaration(_as_deferred(revenue)).ai_context.business_definition
-            == "Historical ANSI SQL: SELECT SUM(amount) FROM orders"
-        )
+        context = _require_declaration(_as_deferred(revenue)).ai_context
+        assert context is not None
+        assert context.business_definition == "Historical ANSI SQL: SELECT SUM(amount) FROM orders"
     finally:
         _exit_ctx()
 
@@ -1269,7 +1284,7 @@ def test_metric_computation_fingerprint() -> None:
 
         @ms.metric()
         def revenue() -> Deferred:
-            return amount.sum()
+            return amount.sum()  # type: ignore[no-any-return]  # Ibis Deferred methods are dynamically typed.
 
         assert len(computation_fingerprint(consume_metric(revenue).node)) == 64
         assert computation_fingerprint(consume_metric(revenue).node) == computation_fingerprint(
@@ -1286,11 +1301,11 @@ def test_metric_does_not_register_callable() -> None:
         before = len(ctx.pending_definitions)
 
         def revenue_fn() -> Deferred:
-            return amount.sum()
+            return amount.sum()  # type: ignore[no-any-return]  # Ibis Deferred methods are dynamically typed.
 
         value = ms.metric()(revenue_fn)
         assert isinstance(value, ms.MetricExpression)
-        assert root_declaration(_as_deferred(value)).name == "revenue_fn"
+        assert _require_declaration(_as_deferred(value)).name == "revenue_fn"
         assert len(ctx.pending_definitions) == before
         assert all(
             pending.expression_body is None or pending.expression_body.callable is not revenue_fn
@@ -1323,14 +1338,18 @@ def test_metric_accepts_semi_additive() -> None:
 
         finalized = captured_catalog()
         value = resolve(finalized, value_ref)
+        assert isinstance(value, Deferred)
         sample_ts = resolve(finalized, sample_ts_ref)
+        assert isinstance(sample_ts, Deferred)
 
         @ms.metric()
         def upstream_avg() -> Deferred:
-            return value.sum(time=sample_ts).per(sample_ts).mean()
+            return value.sum(time=sample_ts).per(sample_ts).mean()  # type: ignore[no-any-return]  # Ibis Deferred methods are dynamically typed.
 
-        assert isinstance(consume_metric(upstream_avg).node, PerReduce)
-        assert consume_metric(upstream_avg).node.reducer == "mean"
+        node_upstream_avg = consume_metric(upstream_avg).node
+
+        assert isinstance(node_upstream_avg, PerReduce)
+        assert node_upstream_avg.reducer == "mean"
     finally:
         _exit_ctx()
 
@@ -1414,7 +1433,7 @@ def test_status_time_can_be_declared_without_fold() -> None:
         ir, _ = _pending_objects(ctx)[-1]
         assert isinstance(ir, MeasureIR)
         assert ir.status_time_fold is None
-        assert ir.status_time_dimension == as_ref(axis).path
+        assert ir.status_time_dimension == _required_ref_path(axis)
     finally:
         _exit_ctx()
 
@@ -1465,10 +1484,12 @@ def test_entity_count_retains_exact_root() -> None:
         )
         finalized = captured_catalog()
         orders = resolve(finalized, orders_ref)
+        assert isinstance(orders, _Entity)
         before = len(ctx.pending_definitions)
         value = orders.count()
-        assert isinstance(consume_metric(value).node, EntityCount)
-        assert consume_metric(value).node.entity == orders._exact_ref
+        node_value = consume_metric(value).node
+        assert isinstance(node_value, EntityCount)
+        assert node_value.entity == orders._exact_ref
         assert consume_metric(value).unit == "1"
         assert len(ctx.pending_definitions) == before
     finally:
@@ -1503,13 +1524,17 @@ def test_count_predicate_retains_exact_field() -> None:
         state_ref = ms.dimension_column(name="state", entity=orders_ref, column="state")
         finalized = captured_catalog()
         orders = resolve(finalized, orders_ref)
+        assert isinstance(orders, _Entity)
         state = resolve(finalized, state_ref)
+        assert isinstance(state, Deferred)
         value = orders.count().where(state == "FAILED")
-        assert isinstance(consume_metric(value).node, ContributionFilter)
-        assert isinstance(consume_metric(value).node.predicate, PredicateExpression)
-        assert consume_metric(value).node.predicate == consume_predicate(state == "FAILED").node
-        field_condition = consume_metric(value).node.predicate.inputs[0]
+        node_value = consume_metric(value).node
+        assert isinstance(node_value, ContributionFilter)
+        assert isinstance(node_value.predicate, PredicateExpression)
+        assert node_value.predicate == consume_predicate(state == "FAILED").node
+        field_condition = node_value.predicate.inputs[0]
         assert isinstance(field_condition, RowExpression)
+        assert isinstance(field_condition.inputs[0], RowField)
         assert field_condition.inputs[0].ref == consume_field(state).reference
     finally:
         _exit_ctx()
@@ -1526,15 +1551,15 @@ def test_explicit_membership_comparisons_normalize_inputs() -> None:
             kind_ref = ms.dimension_column(name="type", entity=orders_ref, column="type")
             finalized = captured_catalog()
             orders = resolve(finalized, orders_ref)
+            assert isinstance(orders, _Entity)
             kind = resolve(finalized, kind_ref)
+            assert isinstance(kind, Deferred)
             predicate = (kind == membership[0]) | (kind == membership[1])
             value = orders.count().where(predicate)
-            assert isinstance(consume_metric(value).node, ContributionFilter)
-            assert isinstance(consume_metric(value).node.predicate, PredicateExpression)
-            assert (
-                consume_metric(value).node.predicate
-                == consume_predicate((kind == 2) | (kind == 4)).node
-            )
+            node_value = consume_metric(value).node
+            assert isinstance(node_value, ContributionFilter)
+            assert isinstance(node_value.predicate, PredicateExpression)
+            assert node_value.predicate == consume_predicate((kind == 2) | (kind == 4)).node
 
         finally:
             _exit_ctx()
@@ -1566,8 +1591,9 @@ def test_count_rejects_non_where_filter() -> None:
             )
             finalized = captured_catalog()
             orders = resolve(finalized, orders_ref)
+            assert isinstance(orders, _Entity)
             with pytest.raises(SemanticExpressionError) as caught:
-                consume_metric(orders.count().where(bad_filter))  # type: ignore[arg-type]  # intentional rejection input
+                consume_metric(orders.count().where(bad_filter))  # Intentional rejection input.
             assert caught.value.kind == (
                 ErrorKind.INVALID_EXPRESSION_VALUE
                 if isinstance(bad_filter, dict)
@@ -1583,7 +1609,7 @@ def test_aggregate_rejects_non_where_filter() -> None:
     try:
         amount = _closed_leaf()
         with pytest.raises(SemanticExpressionError) as caught:
-            consume_metric(amount.sum().where({"state": "FAILED"}))  # type: ignore[arg-type]  # intentional rejection input
+            consume_metric(amount.sum().where({"state": "FAILED"}))  # Intentional rejection input.
         assert caught.value.kind == ErrorKind.INVALID_EXPRESSION_VALUE
     finally:
         _exit_ctx()
@@ -1602,12 +1628,14 @@ def test_metric_division_keeps_source_nodes_and_local_name() -> None:
 
         @ms.metric()
         def margin() -> Deferred:
-            return amount.sum() / amount.count()
+            return amount.sum() / amount.count()  # type: ignore[no-any-return]  # Ibis Deferred methods are dynamically typed.
 
-        assert isinstance(consume_metric(margin).node, MetricExpression)
-        assert consume_metric(margin).node.operands[0] == consume_metric(amount.sum()).node
-        assert consume_metric(margin).node.operands[1] == consume_metric(amount.count()).node
-        assert root_declaration(_as_deferred(margin)).name == "margin"
+        node_margin = consume_metric(margin).node
+
+        assert isinstance(node_margin, MetricExpression)
+        assert node_margin.operands[0] == consume_metric(amount.sum()).node
+        assert node_margin.operands[1] == consume_metric(amount.count()).node
+        assert _require_declaration(_as_deferred(margin)).name == "margin"
         assert len(ctx.pending_definitions) == before
     finally:
         _exit_ctx()
@@ -1626,13 +1654,16 @@ def test_weighted_mean_keeps_measure_inputs() -> None:
         )
         finalized = captured_catalog()
         amount = resolve(finalized, amount_ref)
+        assert isinstance(amount, Deferred)
         weight = resolve(finalized, weight_ref)
+        assert isinstance(weight, Deferred)
         value = amount.weighted_mean(weight=weight)
-        assert isinstance(consume_metric(value).node, SourceWeightedMean)
-        assert isinstance(consume_metric(value).node.value, RowField)
-        assert isinstance(consume_metric(value).node.weight, RowField)
-        assert consume_metric(value).node.value.ref == consume_field(amount).reference
-        assert consume_metric(value).node.weight.ref == consume_field(weight).reference
+        node_value = consume_metric(value).node
+        assert isinstance(node_value, SourceWeightedMean)
+        assert isinstance(node_value.value, RowField)
+        assert isinstance(node_value.weight, RowField)
+        assert node_value.value.ref == consume_field(amount).reference
+        assert node_value.weight.ref == consume_field(weight).reference
     finally:
         _exit_ctx()
 
@@ -1644,11 +1675,13 @@ def test_metric_subtract_keeps_ordered_source_nodes() -> None:
 
         @ms.metric()
         def net_revenue() -> Deferred:
-            return amount.sum() - amount.mean()
+            return amount.sum() - amount.mean()  # type: ignore[no-any-return]  # Ibis Deferred methods are dynamically typed.
 
-        assert isinstance(consume_metric(net_revenue).node, MetricExpression)
-        assert consume_metric(net_revenue).node.operands[0] == consume_metric(amount.sum()).node
-        assert consume_metric(net_revenue).node.operands[1] == consume_metric(amount.mean()).node
+        node_net_revenue = consume_metric(net_revenue).node
+
+        assert isinstance(node_net_revenue, MetricExpression)
+        assert node_net_revenue.operands[0] == consume_metric(amount.sum()).node
+        assert node_net_revenue.operands[1] == consume_metric(amount.mean()).node
     finally:
         _exit_ctx()
 
@@ -1706,7 +1739,7 @@ def test_relationship_returns_resolved_value() -> None:
             ],
         )
         assert _is_ref(rel, ms.SemanticKind.RELATIONSHIP)
-        assert as_ref(rel).path == "sales.orders_to_items"
+        assert _required_ref_path(rel) == "sales.orders_to_items"
     finally:
         _exit_ctx()
 
@@ -1882,18 +1915,20 @@ def test_authoring_reference_parameters_reject_wrong_ref_kind() -> None:
         ),
         (
             lambda: ms.join_on(
-                ms.ref.entity("sales.orders"),  # type: ignore[arg-type]  # intentional rejection input
+                ms.ref.entity("sales.orders"),  # Intentional rejection input.
                 ms.ref.dimension("sales.items.order_id"),
             ),
             "native dimension symbol",
         ),
         (
-            lambda: ms.snapshot(partition_field=ms.ref.metric("sales.revenue"), timezone="UTC"),  # type: ignore[arg-type]  # intentional rejection input
+            lambda: ms.snapshot(
+                partition_field=ms.ref.metric("sales.revenue"), timezone="UTC"
+            ),  # Intentional rejection input.
             "native time_dimension symbol",
         ),
         (
             lambda: ms.validity(
-                valid_from=ms.ref.metric("sales.valid_from"),  # type: ignore[arg-type]  # intentional rejection input
+                valid_from=ms.ref.metric("sales.valid_from"),  # Intentional rejection input.
                 valid_to=ms.ref.dimension("sales.orders.valid_to"),
                 interval="closed_open",
                 open_end=(None,),
@@ -1951,14 +1986,14 @@ def test_local_names_do_not_publish_registry_collisions() -> None:
         before = len(ctx.pending_definitions)
 
         def revenue() -> Deferred:
-            return amount.sum()
+            return amount.sum()  # type: ignore[no-any-return]  # Ibis Deferred methods are dynamically typed.
 
         first = ms.metric()(revenue)
         second = ms.metric()(revenue)
         assert first is not second
         assert (
-            root_declaration(_as_deferred(first)).name
-            == root_declaration(_as_deferred(second)).name
+            _require_declaration(_as_deferred(first)).name
+            == _require_declaration(_as_deferred(second)).name
             == "revenue"
         )
         assert computation_fingerprint(consume_metric(first).node) == computation_fingerprint(
@@ -1979,12 +2014,14 @@ def test_dataset_and_metric_same_name_no_collision() -> None:
 
         amount = resolve(captured_catalog(), amount_ref)
 
+        assert isinstance(amount, Deferred)
+
         @ms.metric()
         def dau_7d_portrait() -> Deferred:
-            return amount.sum()
+            return amount.sum()  # type: ignore[no-any-return]  # Ibis Deferred methods are dynamically typed.
 
-        assert as_ref(orders).path == "sales.dau_7d_portrait"
-        assert root_declaration(_as_deferred(dau_7d_portrait)).name == "dau_7d_portrait"
+        assert _required_ref_path(orders) == "sales.dau_7d_portrait"
+        assert _require_declaration(_as_deferred(dau_7d_portrait)).name == "dau_7d_portrait"
     finally:
         _exit_ctx()
 
@@ -2163,8 +2200,8 @@ def test_two_datasets_same_column_name_distinct_ids() -> None:
         def portrait_region(table: ibis_ir.Table) -> ibis_ir.Value:
             return table.region
 
-        assert as_ref(orders_region).path == "sales.orders.region"
-        assert as_ref(portrait_region).path == "sales.portrait.region"
+        assert _required_ref_path(orders_region) == "sales.orders.region"
+        assert _required_ref_path(portrait_region) == "sales.portrait.region"
     finally:
         _exit_ctx()
 
@@ -2201,7 +2238,7 @@ def test_metric_inherits_row_unit() -> None:
 
         @ms.metric()
         def revenue() -> Deferred:
-            return amount.sum()
+            return amount.sum()  # type: ignore[no-any-return]  # Ibis Deferred methods are dynamically typed.
 
         assert consume_metric(revenue).unit == "USD"
     finally:
@@ -2215,7 +2252,7 @@ def test_metric_unit_defaults_to_none() -> None:
 
         @ms.metric()
         def revenue() -> Deferred:
-            return amount.sum()
+            return amount.sum()  # type: ignore[no-any-return]  # Ibis Deferred methods are dynamically typed.
 
         assert consume_metric(revenue).unit is None
     finally:

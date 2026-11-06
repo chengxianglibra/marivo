@@ -22,7 +22,12 @@ from tests.analysis.graph.execution_fixtures import source_graph
 from tests.analysis.materialization.domain_recovery_worker import forbidden, snapshot
 from tests.analysis.numeric.pandas_coordinates import ordinary_columns
 from tests.datasource.source_cases import Case, SourceData, datasource, source_case
-from tests.shared_fixtures import catalog_value, datasource_arguments_source, terminal_runs
+from tests.shared_fixtures import (
+    catalog_get,
+    catalog_value,
+    datasource_arguments_source,
+    terminal_runs,
+)
 from tests.support.source_trace import capture_source
 
 
@@ -175,7 +180,9 @@ def test_long_path_sum_and_count(
         )
         trace = capture_source(monkeypatch)
         session = mv.session.get_or_create("long-path", timezone="UTC")
-        population = session.members(session.catalog.get("entity:sales.subjects"))
+        population = session.members(
+            catalog_get(session.catalog, "entity:sales.subjects", kind="entity")
+        )
         expected_keys = ((1, "a"), (1, "b"), (2, "c")) if compound else owner_values
         for metric, expected in (("total", [2**53 + 3, 7, 0]), ("number", [2, 1, 0])):
             expression = catalog_value(session.catalog, "sales." + metric, kind="metric")

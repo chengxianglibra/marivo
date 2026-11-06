@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from numbers import Real
 
 import duckdb
 import pandas as pd
@@ -19,6 +20,12 @@ from tests.shared_fixtures import (
     export_dsl_parquet_models,
     terminal_runs,
 )
+
+
+def _entity(catalog: ms.SemanticCatalog, path: str) -> ms.Entity:
+    result = catalog.get(path)
+    assert result.kind == "entity"
+    return result
 
 
 def _case(factory: DslCaseFactory, *, double: bool = False) -> DslCase:
@@ -52,14 +59,14 @@ def _case(factory: DslCaseFactory, *, double: bool = False) -> DslCase:
 
 def _observe(case: DslCase, start: str, end: str, *, daily: bool = False) -> mv.AnalysisFrame:
     session = case.session
-    amount = catalog_value(session.catalog, "sales.order.amount", kind="field")
-    time = catalog_value(session.catalog, "sales.order.ordered_at", kind="field")
+    amount = catalog_value(session.catalog, "sales.order.amount", kind="measure")
+    time = catalog_value(session.catalog, "sales.order.ordered_at", kind="time_dimension")
     during = session.time_scope(start=start, end=end)
     return session.observe(
         {"value": amount.sum(time=time)},
         by=mv.product(
             during.by(mv.grain("day")) if daily else during,
-            session.members(session.catalog.get("entity:sales.customer")),
+            session.members(_entity(session.catalog, "entity:sales.customer")),
         ),
     )
 
@@ -146,8 +153,8 @@ def test_null_and_zero_denominator_both_remain_nullable_in_both_directions(
 ) -> None:
     case = _case(analysis_dsl_case_factory, double=True)
     session = case.session
-    amount = catalog_value(session.catalog, "sales.order.amount", kind="field")
-    time = catalog_value(session.catalog, "sales.order.ordered_at", kind="field")
+    amount = catalog_value(session.catalog, "sales.order.amount", kind="measure")
+    time = catalog_value(session.catalog, "sales.order.ordered_at", kind="time_dimension")
     q = session.observe(
         {
             "revenue": amount.sum(time=time),
@@ -155,7 +162,7 @@ def test_null_and_zero_denominator_both_remain_nullable_in_both_directions(
         },
         by=mv.product(
             session.time_scope(start="2026-09-01", end="2026-10-01"),
-            session.members(session.catalog.get("entity:sales.customer")),
+            session.members(_entity(session.catalog, "entity:sales.customer")),
         ),
     )
     endpoints = q.select({"revenue": q["revenue"], "count_ratio": q["count"] / q["count"]})
@@ -190,7 +197,8 @@ def test_native_nan_operand_is_retained_until_local_comparison_arithmetic(
     current_result = current.compute()
     rows = current_result.to_pandas()
     rows = rows.set_index(ordinary_columns(current_result)[0])
-    assert math.isnan(rows.loc["A", "value"])
+    current_value = rows.loc["A", "value"]
+    assert isinstance(current_value, Real) and math.isnan(current_value)
     compared = current.compare(
         {
             "reference": mv.baseline(
@@ -201,6 +209,8 @@ def test_native_nan_operand_is_retained_until_local_comparison_arithmetic(
         }
     )
     compared_rows = compared.compute().to_pandas().set_index(ordinary_columns(current_result)[0])
-    assert math.isnan(compared_rows.loc["A", "reference.absolute.value"])
-    assert math.isnan(compared_rows.loc["A", "reference.relative.value"])
+    absolute = compared_rows.loc["A", "reference.absolute.value"]
+    relative = compared_rows.loc["A", "reference.relative.value"]
+    assert isinstance(absolute, Real) and math.isnan(absolute)
+    assert isinstance(relative, Real) and math.isnan(relative)
     assert terminal_runs(case.session) == ()

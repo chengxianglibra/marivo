@@ -5,14 +5,27 @@ from datetime import timedelta
 import pytest
 
 import marivo.analysis as mv
+import marivo.semantic as ms
 from tests.analysis.statistics.runs_worker import segments
 from tests.shared_fixtures import DslCase, DslCaseFactory, terminal_runs
+
+
+def _entity(catalog: ms.SemanticCatalog, path: str) -> ms.Entity:
+    result = catalog.get(path)
+    assert result.kind == "entity"
+    return result
+
+
+def _metric(catalog: ms.SemanticCatalog, path: str) -> ms.Metric:
+    result = catalog.get(path)
+    assert result.kind == "metric"
+    return result
 
 
 def _daily(case: DslCase) -> mv.AnalysisFrame:
     grid = case.session.time_scope(start="2026-08-01", end="2026-08-04").by(mv.grain("day"))
     return case.session.observe(
-        {"value": case.session.catalog.get("metric:sales.revenue")}, by=(grid,)
+        {"value": _metric(case.session.catalog, "metric:sales.revenue")}, by=(grid,)
     )
 
 
@@ -96,12 +109,12 @@ def test_new_grid_after_subject_selection(
     case = analysis_dsl_case_factory("j2")
     session = case.session
     scope = session.time_scope(start="2026-08-01", end="2026-08-04")
-    members = session.members(session.catalog.get("entity:sales.customer"))
-    revenue = session.catalog.get("metric:sales.revenue")
+    members = session.members(_entity(session.catalog, "entity:sales.customer"))
+    revenue = _metric(session.catalog, "metric:sales.revenue")
     values = session.observe({"value": revenue}, by=mv.product(scope, members))
     selection = values.where(values["value"] > 0)
     selected = session.population_from(
-        selection, on=((selection.axes[1], session.catalog.get("entity:sales.customer")),)
+        selection, on=((selection.axes[1], _entity(session.catalog, "entity:sales.customer")),)
     )
     fresh = session.observe(
         {"value": revenue},

@@ -329,7 +329,9 @@ def test_native_metric_preview(
                 catalog.get("metric:sales.approximate"),
                 scope=md.unpruned(max_rows=10, timeout_seconds=30),
             )
-            assert 2 <= approximate.rows[0]["value"] <= 8
+            approximate_value = approximate.rows[0]["value"]
+            assert isinstance(approximate_value, (int, float))
+            assert 2 <= approximate_value <= 8
         for name in () if backend in ("mysql", "trino") else ("middle", "row_middle"):
             empty_middle = catalog.preview(
                 catalog.get(f"metric:sales.{name}"),
@@ -369,6 +371,7 @@ def test_native_metric_preview(
                     partitioned_catalog.preview(
                         total, scope=md.unpruned(max_rows=10, timeout_seconds=30)
                     )
+                assert caught.value.effect_observed is not None
                 assert caught.value.effect_observed.query_executed is False
                 for scope in (
                     md.partition({"day": "2026-07-10"}, max_rows=10, timeout_seconds=30),

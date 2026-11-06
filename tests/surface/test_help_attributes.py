@@ -6,6 +6,7 @@ import pytest
 
 import marivo.analysis as mv
 import marivo.semantic as ms
+from marivo._definition.windows import AllHistory, TrailingDuration
 from marivo._help.render import render_help_text
 from marivo._temporal import TimeScope
 from marivo.analysis.core.frame_method_facts import (
@@ -118,9 +119,12 @@ def test_shared_variant_field_lists_each_applicable_public_condition() -> None:
 
 def test_window_attribute_identifies_its_public_constructor() -> None:
     window = mv.trailing_duration(duration=timedelta(days=1))
+    assert isinstance(window, TrailingDuration)
     assert window.duration == timedelta(days=1)
+    history = mv.all_history()
+    assert isinstance(history, AllHistory)
     with pytest.raises(AttributeError):
-        _ = mv.all_history().duration
+        _ = history.duration  # type: ignore[attr-defined]  # Verify the absent variant attribute.
 
     text, _, _ = render_help_text("analysis.observation_window.duration")
     assert "Python: observation_window.duration" in text
@@ -215,8 +219,9 @@ def test_attribute_record_fields_have_exact_static_public_help(
     owner: type[object],
     target: str,
 ) -> None:
-    from dataclasses import fields
+    from dataclasses import fields, is_dataclass
 
+    assert is_dataclass(owner)
     assert render_help_text(owner)[0] == render_help_text("analysis." + target)[0]
     for field in fields(owner):
         canonical = f"analysis.{target}.{field.name}"

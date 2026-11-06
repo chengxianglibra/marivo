@@ -22,6 +22,18 @@ from tests.support.json import Json, obj, read
 from tests.support.paths import PROJECT_ROOT
 
 
+def _entity(catalog: ms.SemanticCatalog, path: str) -> ms.Entity:
+    result = catalog.get(path)
+    assert result.kind == "entity"
+    return result
+
+
+def _metric(catalog: ms.SemanticCatalog, path: str) -> ms.Metric:
+    result = catalog.get(path)
+    assert result.kind == "metric"
+    return result
+
+
 @pytest.mark.slow
 @pytest.mark.release
 def test_parquet_relation_journey_recover_in_independent_processes(
@@ -86,8 +98,8 @@ def test_required_terminal_receipts_reject_corruption_without_source(
     export_dsl_parquet_models(case, case.root)
     ms.load(workspace_dir=case.root)
     session = case.session
-    members = session.members(session.catalog.get("entity:sales.customer"))
-    metric = session.catalog.get("metric:sales.order_count")
+    members = session.members(_entity(session.catalog, "entity:sales.customer"))
+    metric = _metric(session.catalog, "metric:sales.order_count")
     current = session.observe(
         {"value": metric},
         by=mv.product(session.time_scope(start="2026-08-01", end="2026-09-01"), members),

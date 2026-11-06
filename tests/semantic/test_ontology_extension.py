@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+from pathlib import Path
 from typing import Any, cast
 
 import pytest
@@ -18,12 +20,12 @@ from tests.shared_fixtures import bootstrap_sales_project_from_template as boots
 
 
 @pytest.fixture(autouse=True)
-def _reset(tmp_path, monkeypatch):
+def _reset(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     monkeypatch.chdir(tmp_path)
     yield
 
 
-def _add_order_count_metric(tmp_path) -> None:
+def _add_order_count_metric(tmp_path: Path) -> None:
     datasets = tmp_path / "models" / "semantic" / "sales" / "datasets.py"
     source = datasets.read_text()
     source = source.replace(
@@ -46,7 +48,7 @@ def _add_order_count_metric(tmp_path) -> None:
     )
 
 
-def _write_ontology(tmp_path, body: str) -> None:
+def _write_ontology(tmp_path: Path, body: str) -> None:
     source = tmp_path / "models" / "ontology.py"
     source.write_text(body)
 
@@ -68,7 +70,7 @@ def _valid_ontology_source() -> str:
     )
 
 
-def _ready_project(tmp_path) -> None:
+def _ready_project(tmp_path: Path) -> None:
     bootstrap_sales_project(tmp_path)
     _add_order_count_metric(tmp_path)
     _write_ontology(tmp_path, _valid_ontology_source())
@@ -85,6 +87,7 @@ def test_ontology_edge_error_exposes_structured_repair() -> None:
 
     error = exc_info.value
     assert error.kind == "invalid_semantic_edge"
+    assert error.expected is not None
     assert error.expected.startswith("an authored call executed by mo.load")
     assert error.received == "constructor call outside ontology loading"
     assert error.repair is not None
@@ -94,7 +97,7 @@ def test_ontology_edge_error_exposes_structured_repair() -> None:
 
 def test_ontology_load_type_error_exposes_structured_repair() -> None:
     with pytest.raises(InvalidOntologyRefError) as exc_info:
-        mo.load(semantic=object())
+        mo.load(semantic=object())  # type: ignore[arg-type]  # Invalid public input.
 
     error = exc_info.value
     assert error.kind == "invalid_ontology_ref"
@@ -105,7 +108,7 @@ def test_ontology_load_type_error_exposes_structured_repair() -> None:
     assert error.repair.help_target.canonical_id == "authoring"
 
 
-def test_absent_empty_and_invalid_ontology_states_are_distinct(tmp_path) -> None:
+def test_absent_empty_and_invalid_ontology_states_are_distinct(tmp_path: Path) -> None:
     bootstrap_sales_project(tmp_path)
     _add_order_count_metric(tmp_path)
     semantic = ms.load(workspace_dir=tmp_path)
@@ -144,7 +147,7 @@ def test_absent_empty_and_invalid_ontology_states_are_distinct(tmp_path) -> None
     assert repaired.edge_count == 1
 
 
-def test_ontology_execution_error_issue_has_structured_repair(tmp_path) -> None:
+def test_ontology_execution_error_issue_has_structured_repair(tmp_path: Path) -> None:
     bootstrap_sales_project(tmp_path)
     semantic = ms.load(workspace_dir=tmp_path)
     _write_ontology(tmp_path, "raise RuntimeError('authored failure')\n")
@@ -161,7 +164,7 @@ def test_ontology_execution_error_issue_has_structured_repair(tmp_path) -> None:
     assert issue.repair.help_target.canonical_id == "authoring"
 
 
-def test_relation_constructors_enforce_roles_context_and_symmetric_identity(tmp_path) -> None:
+def test_relation_constructors_enforce_roles_context_and_symmetric_identity(tmp_path: Path) -> None:
     with pytest.raises(mo.errors.InvalidOntologyRefError):
         mo.influences(
             name="invalid_time_dimension_driver",
@@ -214,7 +217,7 @@ def test_ontology_endpoints_reject_composite_and_private_ref_inputs() -> None:
         with pytest.raises(InvalidOntologyRefError, match="native semantic lookup symbol"):
             mo.related_to(
                 name="invalid_selector",
-                left=invalid,
+                left=invalid,  # type: ignore[arg-type]  # Invalid endpoint forms.
                 right=ms.ref.metric("sales.order_count"),
                 ai_context=ms.ai_context(
                     business_definition="Selector validation precedes publication."

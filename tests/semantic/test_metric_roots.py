@@ -2,13 +2,22 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+import pytest
+from ibis.common.deferred import Deferred
+
 import marivo.semantic as ms
 from marivo._definition.expressions import DeclaredMetricRef
 from marivo.refs import ref as ref_factory
 from marivo.semantic._deferred_semantics import consume_metric
 from marivo.semantic.catalog import SemanticCatalog
-from marivo.semantic.expressions import entity_exact
+from marivo.semantic.expressions import _Entity, entity_exact
+from tests.shared_fixtures import catalog_get
 from tests.shared_fixtures import resolve_test_symbol as resolve
+
+if TYPE_CHECKING:
+    from tests.conftest import _SemanticProjectFactory
 
 _DOMAIN_PY = """\
 import marivo.semantic as ms
@@ -76,7 +85,7 @@ def user_revenue_share():
 """
 
 
-def _catalog(semantic_project_factory) -> SemanticCatalog:
+def _catalog(semantic_project_factory: _SemanticProjectFactory) -> SemanticCatalog:
     project = semantic_project_factory(
         {"sales/_domain.py": _DOMAIN_PY, "sales/objects.py": _OBJECTS_PY}
     )
@@ -84,7 +93,7 @@ def _catalog(semantic_project_factory) -> SemanticCatalog:
 
 
 def test_versioned_entity_load_rejects_identity_version_overlap_without_source_access(
-    semantic_project_factory,
+    semantic_project_factory: _SemanticProjectFactory,
 ) -> None:
     project = semantic_project_factory(
         {
@@ -114,7 +123,7 @@ def test_versioned_entity_load_rejects_identity_version_overlap_without_source_a
 
 
 def test_single_entity_metric_roots_follow_its_source_reductions(
-    semantic_project_factory,
+    semantic_project_factory: _SemanticProjectFactory,
 ) -> None:
     catalog = _catalog(semantic_project_factory)
     revenue = catalog.get("metric:sales.revenue")
@@ -122,27 +131,33 @@ def test_single_entity_metric_roots_follow_its_source_reductions(
     orders = resolve(catalog, ms.ref.entity("sales.orders"))
 
     assert isinstance(revenue, ms.Metric)
-    revenue = consume_metric(revenue)
-    order_count = consume_metric(order_count)
-    assert isinstance(revenue.node, DeclaredMetricRef)
-    assert revenue.node.ref.ref == ref_factory.metric("sales.revenue")
-    assert revenue.node.ref.version.startswith("sha256:")
-    assert revenue.roots == (entity_exact(orders),)
-    assert revenue.unit == "CNY"
-    assert consume_metric(resolve(catalog, ref_factory.metric("sales.revenue"))) == revenue
-    assert order_count.roots == (entity_exact(orders),)
-    assert order_count.unit == "1"
+    assert type(order_count) is Deferred
+    assert isinstance(orders, _Entity)
+    revenue_facts = consume_metric(revenue)
+    order_count_facts = consume_metric(order_count)
+    assert isinstance(revenue_facts.node, DeclaredMetricRef)
+    assert revenue_facts.node.ref.ref == ref_factory.metric("sales.revenue")
+    assert revenue_facts.node.ref.version.startswith("sha256:")
+    assert revenue_facts.roots == (entity_exact(orders),)
+    assert revenue_facts.unit == "CNY"
+    resolved = resolve(catalog, ref_factory.metric("sales.revenue"))
+    assert type(resolved) is Deferred
+    assert consume_metric(resolved) == revenue_facts
+    assert order_count_facts.roots == (entity_exact(orders),)
+    assert order_count_facts.unit == "1"
 
 
 def test_multi_root_metric_covers_each_contribution_root_in_expression_order(
-    semantic_project_factory,
+    semantic_project_factory: _SemanticProjectFactory,
 ) -> None:
     catalog = _catalog(semantic_project_factory)
     orders = resolve(catalog, ms.ref.entity("sales.orders"))
     users = resolve(catalog, ms.ref.entity("sales.users"))
 
-    per_user = consume_metric(catalog.get("metric:sales.revenue_per_user"))
-    share = consume_metric(catalog.get("metric:sales.user_revenue_share"))
+    assert isinstance(orders, _Entity)
+    assert isinstance(users, _Entity)
+    per_user = consume_metric(catalog_get(catalog, "metric:sales.revenue_per_user", kind="metric"))
+    share = consume_metric(catalog_get(catalog, "metric:sales.user_revenue_share", kind="metric"))
 
     assert per_user.roots == (entity_exact(orders), entity_exact(users))
     assert share.roots == (entity_exact(users), entity_exact(orders))
@@ -151,7 +166,7 @@ def test_multi_root_metric_covers_each_contribution_root_in_expression_order(
 
 
 def test_metric_reads_are_silent_with_bounded_repr_and_show_prints_contract(
-    semantic_project_factory, capsys
+    semantic_project_factory: _SemanticProjectFactory, capsys: pytest.CaptureFixture[str]
 ) -> None:
     catalog = _catalog(semantic_project_factory)
     revenue = catalog.get("metric:sales.revenue")
@@ -173,7 +188,7 @@ def test_metric_reads_are_silent_with_bounded_repr_and_show_prints_contract(
 
 
 def test_snapshot_versioning_stays_a_valued_representation_on_the_entity(
-    semantic_project_factory,
+    semantic_project_factory: _SemanticProjectFactory,
 ) -> None:
     project = semantic_project_factory(
         {
@@ -199,7 +214,7 @@ def test_snapshot_versioning_stays_a_valued_representation_on_the_entity(
     )
     catalog = SemanticCatalog(project)
 
-    entity = catalog.get("entity:sales.user_profile_daily")
+    entity = catalog_get(catalog, "entity:sales.user_profile_daily", kind="entity")
     stored = catalog._state.registry.entities["sales.user_profile_daily"]
     versioning = stored.versioning
 

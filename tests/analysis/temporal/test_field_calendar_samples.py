@@ -7,6 +7,7 @@ from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from typing import Literal
 
 import pandas as pd
 import pyarrow as pa
@@ -120,6 +121,12 @@ def sample_session(
         yield mv.session.get_or_create("field-samples", timezone="UTC")
 
 
+def _row_values(frame: pd.DataFrame, columns: list[str]) -> list[object]:
+    result = frame[columns].loc[0]
+    assert isinstance(result, pd.Series)
+    return result.tolist()
+
+
 def _fields(
     session: Session,
 ) -> tuple[ms.TimeDimension, ms.TimeDimension, ms.Measure, ms.Dimension]:
@@ -180,7 +187,7 @@ def last_by_sample_day(*, event: ms.TimeParameter, sample: ms.TimeParameter):
             "sample_paid": partial.bind_time(sample=paid),
         }
         rows = session.observe(metrics, by=(), where=where).compute().to_pandas()
-        assert rows.loc[0, list(metrics)].tolist() == [140, 140, 170, 140, 140, 170]
+        assert _row_values(rows, list(metrics)) == [140, 140, 170, 140, 140, 170]
         for open_metric in (follows, fixed, sample, partial):
             with pytest.raises(AnalysisError, match="bind_time"):
                 session.observe({"open": open_metric}, by=(), where=where)
@@ -226,7 +233,7 @@ def test_field_and_contribution_samples_are_independent(sample_session: Session)
         "paid_last_explicit": revenue.per(paid, grain=day).last(),
     }
     rows = sample_session.observe(metrics, by=(november,)).compute().to_pandas()
-    assert rows.loc[0, list(metrics)].tolist() == [90, 140, 85, 170, 170]
+    assert _row_values(rows, list(metrics)) == [90, 140, 85, 170, 170]
     created_grid = sample_session.time_scope(start="2026-11-01", end="2026-11-05").by(day)
     completed = (
         sample_session.observe(
@@ -243,7 +250,7 @@ def test_field_and_contribution_samples_are_independent(sample_session: Session)
         "v"
     ].tolist() == [42.5]
     rows = sample_session.observe(metrics).compute().to_pandas()
-    assert rows.loc[0, ["paid_last", "paid_last_explicit"]].tolist() == [999, 999]
+    assert _row_values(rows, ["paid_last", "paid_last_explicit"]) == [999, 999]
     assert sample_session.observe(
         {"v": amount.sum().per(created, grain=day).mean()}
     ).compute().to_pandas()["v"].tolist() == [(30 + 140 + 999) / 3]
@@ -290,9 +297,11 @@ def test_new_sample_shape_validates_grain_and_windows(
         (created, ms.calendar_grain(calendar=ms.ref.period_calendar("sales.fiscal"), level="day")),
     ):
         with pytest.raises(SemanticExpressionError, match="native TimeField and a builtin Grain"):
-            revenue.per(field, grain=grain)
+            # Invalid field and grain combinations exercise runtime validation.
+            revenue.per(field, grain=grain)  # type: ignore[arg-type]
     with pytest.raises(TypeError):
-        revenue.per(created, day)
+        # A second positional argument is intentionally invalid.
+        revenue.per(created, day)  # type: ignore[call-overload]
     window = mv.all_history()
     for expression in (
         revenue.window(window).per(created, grain=day).last(),
@@ -354,7 +363,7 @@ def test_calendar_sample_completes_exact_status_then_folds_actual_days(
             .compute()
             .to_pandas()
         )
-        assert actual.loc[0, ["daily_mean", "last"]].tolist() == [47.5, 50]
+        assert _row_values(actual, ["daily_mean", "last"]) == [47.5, 50]
         for invalid in (spatial.per(created, grain=day).last(), spatial.per(paid_field).last()):
             with pytest.raises(CoreRuleError, match="exact native status-time"):
                 session.observe({"v": invalid}, by=(period,))
@@ -430,7 +439,7 @@ def test_builtin_samples_freeze_session_timezone_independently_of_scope(
                     in capsys.readouterr().out
                 )
                 actual = pending.compute().to_pandas()
-                assert actual.loc[0, list(metrics)].tolist() == values * 2
+                assert _row_values(actual, list(metrics)) == values * 2
             if session is utc:
                 for metric in metrics.values():
                     with pytest.raises(CoreRuleError, match="matching timezones"):
@@ -448,7 +457,7 @@ def test_calendar_sample_distinguishes_repeated_civil_hour_instants(
     semantic_project_factory: ProjectFactory,
     backend: str,
     profile: str,
-    unit: str,
+    unit: Literal["hour", "minute", "second"],
 ) -> None:
     rows = (
         ("2026-11-01 05:30:00", _PAID, 7, "East", 1),
@@ -472,7 +481,7 @@ def test_calendar_sample_distinguishes_repeated_civil_hour_instants(
             .to_pandas()
         )
         # 05:30 and 06:30 UTC both display as 01:30 locally.
-        assert actual.loc[0, ["first", "last", "mean"]].tolist() == [7, 11, 9]
+        assert _row_values(actual, ["first", "last", "mean"]) == [7, 11, 9]
         assert actual["first"].dtype == actual["last"].dtype == pd.ArrowDtype(pa.int64())
         assert actual["mean"].dtype == pd.ArrowDtype(pa.float64())
 
@@ -554,7 +563,7 @@ def test_fixed_offset_samples_split_at_civil_midnight(
     semantic_project_factory: ProjectFactory,
     backend: str,
     profile: str,
-    unit: str,
+    unit: Literal["hour", "minute", "second"],
     zone: str,
     clock: str,
 ) -> None:
@@ -583,7 +592,7 @@ def test_fixed_offset_samples_split_at_civil_midnight(
             .to_pandas()
         )
         # The first two events are in the final civil second of November 1.
-        assert actual.loc[0, ["minimum", "maximum", "mean", "count"]].tolist() == [18, 23, 20.5, 2]
+        assert _row_values(actual, ["minimum", "maximum", "mean", "count"]) == [18, 23, 20.5, 2]
 
 
 def test_forecast_versions_follow_target_range_and_explicit_release_cutoff(
@@ -618,7 +627,7 @@ def test_forecast_versions_follow_target_range_and_explicit_release_cutoff(
             .compute()
             .to_pandas()
         )
-        assert actual.loc[0, ["latest", "mean", "last"]].tolist() == [1300, 1150, 1300]
+        assert _row_values(actual, ["latest", "mean", "last"]) == [1300, 1150, 1300]
         assert session.observe(
             {"v": latest}, by=(period,), where=issued < "2026-11-05T18:00:00+00:00"
         ).compute().to_pandas()["v"].tolist() == [1200]
@@ -679,7 +688,7 @@ def test_multiroot_field_folds_preserve_each_completed_branch(
             .compute()
             .to_pandas()
         )
-        assert actual.loc[0, ["closing", "total", "last_shared_day"]].tolist() == [45, 125, -5]
+        assert _row_values(actual, ["closing", "total", "last_shared_day"]) == [45, 125, -5]
         with pytest.raises(SemanticExpressionError, match="native to every contribution root"):
             session.observe(
                 {"v": (receipts - refunds).per(created, grain=day).last()}, by=(period,)
@@ -712,7 +721,7 @@ def test_asynchronous_status_last_and_spatial_sum_are_order_sensitive(
             .compute()
             .to_pandas()
         )
-        assert actual.loc[0, ["whole_snapshot", "last_per_region"]].tolist() == [15, 35]
+        assert _row_values(actual, ["whole_snapshot", "last_per_region"]) == [15, 35]
 
 
 def test_saved_field_calendar_fold_reopens_without_sources_or_sample_axes(

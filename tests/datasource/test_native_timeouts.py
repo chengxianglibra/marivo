@@ -13,6 +13,7 @@ from ibis.backends import BaseBackend
 
 import marivo.datasource as md
 from marivo.datasource import adapters, backends, manage, runtime
+from marivo.datasource import secrets as datasource_secrets
 from marivo.datasource._lifetime import BackendLease
 from marivo.datasource.adapters import (
     SourceSession,
@@ -78,7 +79,7 @@ def test_probe_releases_the_owned_backend_and_caches_only_success(
     probe = Mock(side_effect=RuntimeError("probe failed") if failed else None)
     monkeypatch.setattr(adapters, "_probe_backend", probe)
     cache = Mock()
-    monkeypatch.setattr(manage._secrets, "try_persist_backend_env_sourced", cache)
+    monkeypatch.setattr(datasource_secrets, "try_persist_backend_env_sourced", cache)
 
     result = (
         md.load().test("fixture", timeout_seconds=7)
@@ -125,7 +126,7 @@ def test_native_configuration_precedes_reader_use_without_control_connection(
         }
     built = backends._build_backend_from_effective(
         datasource(backend_kind, {}),
-        backends.EffectiveDatasourceKwargs(kwargs=kwargs, injected={}, env_sourced_secrets=()),
+        backends.EffectiveDatasourceKwargs(kwargs=kwargs, injected=(), env_sourced_secrets=()),
         terminal_timeout_seconds=7,
         connection_timeout_seconds=3,
     )

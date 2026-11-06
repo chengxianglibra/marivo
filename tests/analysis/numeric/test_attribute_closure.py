@@ -79,14 +79,11 @@ def _target(kind: Literal["level", "absolute", "relative"] = "level") -> FrameMe
     return FrameMethodTarget(
         ("q",),
         kind,
-        tuple(
-            FrameMethodOutput(role, (path, "q"))
-            for role, path in (
-                ("contribution", "contribution"),
-                ("total", "total"),
-                ("observed_total", "observed_total"),
-                ("share", "contribution_share"),
-            )
+        (
+            FrameMethodOutput("contribution", ("contribution", "q")),
+            FrameMethodOutput("total", ("total", "q")),
+            FrameMethodOutput("observed_total", ("observed_total", "q")),
+            FrameMethodOutput("share", ("contribution_share", "q")),
         ),
     )
 
@@ -437,6 +434,7 @@ def test_nonfinite_linear_rounding_budget_cannot_accept_zero_residual() -> None:
             parent=_PARENT,
             target=_target(),
         )
+    assert error.value.expected is not None
     assert "rounding budget" in error.value.expected
 
 
@@ -563,9 +561,9 @@ amount = ms.measure_column(name='amount', entity=facts, column='amount', unit='U
 def test_relative_report_uses_fresh_negative_baseline_and_preserves_historical_observation(
     numeric_session: Session, tmp_path: Path
 ) -> None:
-    amount = catalog_value(numeric_session.catalog, "sales.facts.amount", kind="field")
-    phase = catalog_value(numeric_session.catalog, "sales.facts.phase", kind="field")
-    channel = catalog_value(numeric_session.catalog, "sales.facts.channel", kind="field")
+    amount = catalog_value(numeric_session.catalog, "sales.facts.amount", kind="measure")
+    phase = catalog_value(numeric_session.catalog, "sales.facts.phase", kind="dimension")
+    channel = catalog_value(numeric_session.catalog, "sales.facts.channel", kind="dimension")
     current = numeric_session.observe({"q": amount.sum()}, where=phase == "current")
     baseline = numeric_session.observe({"q": amount.sum()}, where=phase == "base")
     comparison = current.compare({"base": mv.baseline(baseline)})
@@ -589,9 +587,9 @@ def test_float_report_allows_one_percent_without_rebalancing(
 ) -> None:
     with duckdb.connect(str(tmp_path / "numeric.duckdb")) as connection:
         connection.execute("ALTER TABLE facts ALTER amount TYPE DOUBLE")
-    amount = catalog_value(numeric_session.catalog, "sales.facts.amount", kind="field")
-    phase = catalog_value(numeric_session.catalog, "sales.facts.phase", kind="field")
-    channel = catalog_value(numeric_session.catalog, "sales.facts.channel", kind="field")
+    amount = catalog_value(numeric_session.catalog, "sales.facts.amount", kind="measure")
+    phase = catalog_value(numeric_session.catalog, "sales.facts.phase", kind="dimension")
+    channel = catalog_value(numeric_session.catalog, "sales.facts.channel", kind="dimension")
     selected = numeric_session.observe({"q": amount.sum()}, where=phase == "current").compute()
     execute = SourceSession.execute
 
@@ -600,8 +598,9 @@ def test_float_report_allows_one_percent_without_rebalancing(
         if "__attribute_kind" in rows and "attribute-parent:" not in issued.purpose:
             fine = (rows["__attribute_kind"] == 0) & (rows["key.0"] == "A")
             for name in rows:
+                assert isinstance(name, str)
                 if name.endswith("/value") or name.endswith(".additive_value"):
-                    rows.loc[fine, name] += drift
+                    rows.loc[fine, name] = rows[name][fine] + drift
         return rows
 
     monkeypatch.setattr(SourceSession, "execute", read)
@@ -623,9 +622,9 @@ def test_float_report_allows_one_percent_without_rebalancing(
 def test_relative_zero_fresh_baseline_is_rejected_before_closure(
     numeric_session: Session, tmp_path: Path
 ) -> None:
-    amount = catalog_value(numeric_session.catalog, "sales.facts.amount", kind="field")
-    phase = catalog_value(numeric_session.catalog, "sales.facts.phase", kind="field")
-    channel = catalog_value(numeric_session.catalog, "sales.facts.channel", kind="field")
+    amount = catalog_value(numeric_session.catalog, "sales.facts.amount", kind="measure")
+    phase = catalog_value(numeric_session.catalog, "sales.facts.phase", kind="dimension")
+    channel = catalog_value(numeric_session.catalog, "sales.facts.channel", kind="dimension")
     current = numeric_session.observe({"q": amount.sum()}, where=phase == "current")
     baseline = numeric_session.observe({"q": amount.sum()}, where=phase == "base")
     comparison = current.compare({"base": mv.baseline(baseline)})
@@ -634,6 +633,7 @@ def test_relative_zero_fresh_baseline_is_rejected_before_closure(
         connection.execute("UPDATE facts SET amount=0 WHERE phase='base'")
     with pytest.raises(CoreRuleError) as error:
         selected.attribute(by=(channel,)).compute()
+    assert error.value.expected is not None
     assert "nonzero complete-parent baseline" in error.value.expected
 
 
@@ -642,9 +642,9 @@ def test_report_preserves_historical_values_with_finer_parent_carrier_and_reorde
 ) -> None:
     with duckdb.connect(str(tmp_path / "numeric.duckdb")) as connection:
         connection.execute("ALTER TABLE facts ALTER amount TYPE DECIMAL(18,2)")
-    amount = catalog_value(numeric_session.catalog, "sales.facts.amount", kind="field")
-    phase = catalog_value(numeric_session.catalog, "sales.facts.phase", kind="field")
-    channel = catalog_value(numeric_session.catalog, "sales.facts.channel", kind="field")
+    amount = catalog_value(numeric_session.catalog, "sales.facts.amount", kind="measure")
+    phase = catalog_value(numeric_session.catalog, "sales.facts.phase", kind="dimension")
+    channel = catalog_value(numeric_session.catalog, "sales.facts.channel", kind="dimension")
     selected = numeric_session.observe({"q": amount.sum() * Decimal("0.5")}, by=(phase,)).compute()
     with duckdb.connect(str(tmp_path / "numeric.duckdb")) as connection:
         connection.execute(
@@ -658,6 +658,7 @@ def test_report_preserves_historical_values_with_finer_parent_carrier_and_reorde
             return rows
         scale = 4 if "attribute-parent:" in issued.purpose else 2
         for name in rows:
+            assert isinstance(name, str)
             if (
                 name.endswith("/value")
                 or name.endswith(".additive_value")
@@ -708,8 +709,8 @@ def test_report_rejects_float_carrier_for_exact_large_historical_value(
         connection.execute(
             "UPDATE facts SET amount=CASE id WHEN 1 THEN 9007199254740993 ELSE 0 END"
         )
-    amount = catalog_value(numeric_session.catalog, "sales.facts.amount", kind="field")
-    channel = catalog_value(numeric_session.catalog, "sales.facts.channel", kind="field")
+    amount = catalog_value(numeric_session.catalog, "sales.facts.amount", kind="measure")
+    channel = catalog_value(numeric_session.catalog, "sales.facts.channel", kind="dimension")
     selected = numeric_session.observe({"q": amount.sum()}).compute()
     assert selected.to_pandas()["q"].tolist() == [Decimal("9007199254740993")]
     with duckdb.connect(str(tmp_path / "numeric.duckdb")) as connection:
@@ -721,6 +722,7 @@ def test_report_rejects_float_carrier_for_exact_large_historical_value(
         if "__attribute_kind" not in rows or "attribute-parent:" in issued.purpose:
             return rows
         for name in rows:
+            assert isinstance(name, str)
             if (
                 name.endswith("/value")
                 or name.endswith(".additive_value")
@@ -742,8 +744,8 @@ def test_duration_linear_sum_retains_final_tick_carrier(
         connection.execute(
             "ALTER TABLE facts ALTER amount TYPE INTERVAL USING amount * INTERVAL '1 microsecond'"
         )
-    amount = catalog_value(numeric_session.catalog, "sales.facts.amount", kind="field")
-    channel = catalog_value(numeric_session.catalog, "sales.facts.channel", kind="field")
+    amount = catalog_value(numeric_session.catalog, "sales.facts.amount", kind="measure")
+    channel = catalog_value(numeric_session.catalog, "sales.facts.channel", kind="dimension")
     selected = numeric_session.observe({"q": amount.sum() * 2}).compute()
     rows = selected.attribute(by=(channel,)).compute().to_pandas()
     for name, expected in (

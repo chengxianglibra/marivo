@@ -145,8 +145,8 @@ def main() -> None:
     )
     root, session_id, point = Path(sys.argv[1]), sys.argv[2], sys.argv[3]
 
-    def event(current: str) -> None:
-        if current == point:
+    def event(name: str) -> None:
+        if name == point:
             os._exit(37)
 
     try:

@@ -15,6 +15,7 @@ import sqlglot
 from sqlglot import expressions as sge
 
 import marivo.analysis as mv
+import marivo.semantic as ms
 from marivo.analysis.compiler.source_time import source_time, source_time_predicate
 from marivo.analysis.core.time_authority import SourceTimeAuthority
 from marivo.analysis.materialization.temporal_sql import lower_temporal
@@ -25,6 +26,30 @@ from tests.analysis.temporal.encoded_time_fixtures import axis
 from tests.analysis.temporal.test_calendar_native_keys import _maria
 from tests.datasource.source_cases import SourceData, source_case, source_params
 from tests.support.source_trace import SourceTrace
+
+
+def _dimension(catalog: ms.SemanticCatalog, path: str) -> ms.Dimension:
+    result = catalog.get(path)
+    assert result.kind == "dimension"
+    return result
+
+
+def _entity(catalog: ms.SemanticCatalog, path: str) -> ms.Entity:
+    result = catalog.get(path)
+    assert result.kind == "entity"
+    return result
+
+
+def _metric(catalog: ms.SemanticCatalog, path: str) -> ms.Metric:
+    result = catalog.get(path)
+    assert result.kind == "metric"
+    return result
+
+
+def _time_dimension(catalog: ms.SemanticCatalog, path: str) -> ms.TimeDimension:
+    result = catalog.get(path)
+    assert result.kind == "time_dimension"
+    return result
 
 
 def _inputs(
@@ -271,11 +296,13 @@ def test_public_observe_only_pushes_required_hour_membership(
     hour_session: mv.Session, source_trace: SourceTrace, declared: bool, mode: str, expected: int
 ) -> None:
     session = hour_session
-    events = session.catalog.get("entity:sales.events")
-    hour = session.catalog.get("time_dimension:sales.events.hour")
-    identity = session.catalog.get("dimension:sales.events.id")
+    events = _entity(session.catalog, "entity:sales.events")
+    hour = _time_dimension(session.catalog, "time_dimension:sales.events.hour")
+    identity = _dimension(session.catalog, "dimension:sales.events.id")
     metric = (
-        session.catalog.get("metric:sales.hourly_count") if declared else events.count(time=hour)
+        _metric(session.catalog, "metric:sales.hourly_count")
+        if declared
+        else events.count(time=hour)
     )
     scope = session.time_scope(start="2026-10-28T03:00", end="2026-10-28T04:00")
     if mode == "midnight":

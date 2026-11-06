@@ -23,7 +23,9 @@ PLAYERS: tuple[FrozenKey, ...] = (
         (DecimalDataType(30, 2), Decimal("9007199254740993.01")),
     ],
 )
-def test_cached_typed_unit_marginals_survive_float64_endpoint_rounding(dtype, base) -> None:
+def test_cached_typed_unit_marginals_survive_float64_endpoint_rounding(
+    dtype: ScalarDataType | DecimalDataType, base: int | Decimal
+) -> None:
     calls: list[int] = []
     column = DataColumn("coalition", "coalition", dtype, False)
 

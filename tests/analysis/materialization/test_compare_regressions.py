@@ -13,9 +13,16 @@ import pyarrow.parquet as pq
 import pytest
 
 import marivo.analysis as mv
+import marivo.semantic as ms
 from marivo.analysis.errors import AnalysisError
 from marivo.semantic.reader import SemanticProject
 from tests.shared_fixtures import catalog_value
+
+
+def _entity(catalog: ms.SemanticCatalog, path: str) -> ms.Entity:
+    result = catalog.get(path)
+    assert result.kind == "entity"
+    return result
 
 
 @pytest.mark.parametrize(
@@ -66,7 +73,7 @@ def test_decimal_compare_uses_native_context_and_masks_zero(
                 )
                 expected_change = (
                     None
-                    if expected_delta is None or Decimal(baseline or "0") == 0
+                    if expected_delta is None or baseline is None or Decimal(baseline) == 0
                     else float(expected_delta / abs(Decimal(baseline)))
                 )
         except DecimalException:
@@ -124,13 +131,13 @@ def test_duration_comparison_kinds_allow_filter_projection_and_reduction(
             by=(), columns={"v": "s"}, rows=(((), {"v": timedelta(microseconds=19)}),)
         )
     elif endpoint == "metric":
-        identifier = catalog_value(session.catalog, "sales.observations.id", kind="field")
-        elapsed = catalog_value(session.catalog, "sales.observations.elapsed", kind="field")
+        identifier = catalog_value(session.catalog, "sales.observations.id", kind="dimension")
+        elapsed = catalog_value(session.catalog, "sales.observations.elapsed", kind="measure")
         current = session.observe({"v": elapsed.sum()}, where=identifier == 1)
         baseline = session.observe({"v": elapsed.sum()}, where=identifier == 2)
     else:
-        entity = session.catalog.get("entity:sales.observations")
-        elapsed = catalog_value(
+        entity = _entity(session.catalog, "entity:sales.observations")
+        read_elapsed = catalog_value(
             session.catalog,
             "sales.observations.elapsed_field"
             if endpoint == "read"
@@ -138,7 +145,7 @@ def test_duration_comparison_kinds_allow_filter_projection_and_reduction(
             kind="field",
         )
         current = session.read(
-            mv.coordinates(by=(mv.identity(entity),), keys=(((1,),),)), {"v": elapsed}
+            mv.coordinates(by=(mv.identity(entity),), keys=(((1,),),)), {"v": read_elapsed}
         )
         baseline = current.select({"v": current["v"] / 2})
 
@@ -171,7 +178,9 @@ def test_numeric_literal_comparison_keeps_known_kind(comparison_session: mv.Sess
 def test_duration_comparison_still_rejects_nonzero_mixed_tick_literals(
     comparison_session: mv.Session,
 ) -> None:
-    elapsed = catalog_value(comparison_session.catalog, "sales.observations.elapsed", kind="field")
+    elapsed = catalog_value(
+        comparison_session.catalog, "sales.observations.elapsed", kind="measure"
+    )
     query = comparison_session.observe({"v": elapsed.sum()})
     comparison = query.compare(
         {"base": mv.baseline(query, on=tuple(zip(query.axes, query.axes, strict=True)))}

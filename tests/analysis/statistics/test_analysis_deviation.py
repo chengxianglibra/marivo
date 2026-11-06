@@ -23,6 +23,18 @@ from tests.analysis.statistics.pandas_workflows import (
 from tests.shared_fixtures import DslCaseFactory, run_ids, terminal_runs
 
 
+def _entity(catalog: ms.SemanticCatalog, path: str) -> ms.Entity:
+    result = catalog.get(path)
+    assert result.kind == "entity"
+    return result
+
+
+def _metric(catalog: ms.SemanticCatalog, path: str) -> ms.Metric:
+    result = catalog.get(path)
+    assert result.kind == "metric"
+    return result
+
+
 def test_exported_comparison_supports_pandas_deviation_selection(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
@@ -90,12 +102,12 @@ def test_exported_scores_select_an_explicit_followup_query(
     assert selected == ["B", "D"]
     assert run_ids(case.session) == before
     population = mv.coordinates(
-        by=(mv.identity(case.session.catalog.get("entity:sales.customer")),),
+        by=(mv.identity(_entity(case.session.catalog, "entity:sales.customer")),),
         keys=tuple(((key,),) for key in selected),
     )
     scope = case.session.time_scope(start="2026-08-01", end="2026-09-01")
     following = case.session.observe(
-        {"value": case.session.catalog.get("metric:sales.revenue")},
+        {"value": _metric(case.session.catalog, "metric:sales.revenue")},
         by=mv.product(scope.by(mv.grain("day")), population),
         where=mv.in_population(population),
     )

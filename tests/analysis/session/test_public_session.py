@@ -11,7 +11,7 @@ from marivo.analysis.errors import ArtifactNotFoundError, SessionNotFoundError
 from marivo.analysis.materialization.errors import IntegrityError
 from marivo.analysis.materialization.layout import MaterializationLayout
 from marivo.semantic.reader import SemanticProject
-from tests.shared_fixtures import terminal_runs
+from tests.shared_fixtures import catalog_get, terminal_runs
 
 
 def test_new_public_session_starts_with_empty_v16_store(
@@ -89,9 +89,10 @@ def test_public_calendar_snapshot_is_captured_before_pure_construction(
     monkeypatch.chdir(catalog.workspace_dir)
     session = mv.session.get_or_create("calendar", timezone="UTC")
     calendar = session.catalog.get("period_calendar:sales.fiscal")
+    assert calendar.kind == "period_calendar"
     grain = calendar.grain("fiscal_week")
     scope = calendar.period("fiscal_week", "M1-W1")
-    metric = session.catalog.get("metric:sales.gmv")
+    metric = catalog_get(session.catalog, "metric:sales.gmv", kind="metric")
 
     def forbidden(*args: object, **kwargs: object) -> None:
         raise AssertionError("construction reread the certified calendar")

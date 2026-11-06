@@ -1,6 +1,9 @@
 """Tests for project loading and exact catalog lookup behavior."""
 
+from __future__ import annotations
+
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 
@@ -16,8 +19,14 @@ from marivo.semantic.errors import (
 )
 from tests.shared_fixtures import catalog_value
 
+if TYPE_CHECKING:
+    from marivo.semantic.reader import SemanticProject
+    from tests.conftest import _SemanticProjectFactory
 
-def _duckdb_project_with_entity(tmp_path: Path, semantic_project_factory):
+
+def _duckdb_project_with_entity(
+    tmp_path: Path, semantic_project_factory: _SemanticProjectFactory
+) -> SemanticProject:
     """Create a project with a single entity backed by DuckDB."""
     import ibis
 
@@ -66,7 +75,7 @@ def _duckdb_project_with_entity(tmp_path: Path, semantic_project_factory):
 
 
 def test_require_entity_is_static_without_audit_side_effects(
-    tmp_path: Path, semantic_project_factory
+    tmp_path: Path, semantic_project_factory: _SemanticProjectFactory
 ) -> None:
     project = _duckdb_project_with_entity(tmp_path, semantic_project_factory)
 
@@ -79,7 +88,7 @@ def test_require_entity_is_static_without_audit_side_effects(
 
 
 def test_require_entity_uses_current_loaded_project(
-    tmp_path: Path, semantic_project_factory
+    tmp_path: Path, semantic_project_factory: _SemanticProjectFactory
 ) -> None:
     project = _duckdb_project_with_entity(tmp_path, semantic_project_factory)
 
@@ -107,6 +116,8 @@ def test_require_entity_uses_current_loaded_project(
     )
 
     second = ms.SemanticCatalog(project2).get("entity:sales.orders")
+    assert isinstance(first, ms.Entity)
+    assert isinstance(second, ms.Entity)
     assert second.id == first.id
     assert second.definition.source != first.definition.source
     assert second.provenance.definition_fingerprint != first.provenance.definition_fingerprint
@@ -116,7 +127,9 @@ def test_require_entity_uses_current_loaded_project(
 # -- verify_object with project load failure ----------------------------------
 
 
-def test_catalog_construction_reports_project_load_failed(semantic_project_factory) -> None:
+def test_catalog_construction_reports_project_load_failed(
+    semantic_project_factory: _SemanticProjectFactory,
+) -> None:
     """A catalog is unavailable when its project failed to compile."""
     # Create a project whose metrics file calls a non-existent ms.max()
     project = semantic_project_factory(
@@ -137,7 +150,9 @@ def test_catalog_construction_reports_project_load_failed(semantic_project_facto
     assert "broken.py" in str(exc_info.value)
 
 
-def test_catalog_construction_preserves_project_load_error(semantic_project_factory) -> None:
+def test_catalog_construction_preserves_project_load_error(
+    semantic_project_factory: _SemanticProjectFactory,
+) -> None:
     project = semantic_project_factory(
         {
             "cdn/_domain.py": (
@@ -201,7 +216,7 @@ def test_outside_loader_context_has_project_layout_repair() -> None:
     ],
 )
 def test_layout_load_errors_have_registry_backed_structured_repairs(
-    semantic_project_factory,
+    semantic_project_factory: _SemanticProjectFactory,
     files: dict[str, str],
     kind: str,
     target: str,
@@ -221,7 +236,9 @@ def test_layout_load_errors_have_registry_backed_structured_repairs(
         assert snippet in (error.repair.snippet or "")
 
 
-def test_require_measure_returns_current_entry(semantic_project_factory) -> None:
+def test_require_measure_returns_current_entry(
+    semantic_project_factory: _SemanticProjectFactory,
+) -> None:
     model = (
         "import marivo.datasource as md\nimport marivo.semantic as ms\n"
         "ms.domain(name='sales', owner='Mina Zhang')\n"
@@ -238,7 +255,7 @@ def test_require_measure_returns_current_entry(semantic_project_factory) -> None
 
 
 def test_require_unknown_ref_is_not_found_when_loaded(
-    semantic_project_factory,
+    semantic_project_factory: _SemanticProjectFactory,
 ) -> None:
     """Exact lookup requires membership in the immutable loaded catalog."""
     project = semantic_project_factory(

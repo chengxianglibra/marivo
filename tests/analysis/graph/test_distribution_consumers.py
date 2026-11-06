@@ -20,7 +20,7 @@ from marivo.semantic.reader import SemanticProject
 from tests.analysis.graph.distribution_fixtures import Carrier, distribution_data
 from tests.analysis.numeric.pandas_coordinates import ordinary_columns
 from tests.datasource.source_cases import Case, datasource, source_case, source_params
-from tests.shared_fixtures import catalog_value, datasource_arguments_source, run_ids
+from tests.shared_fixtures import catalog_get, catalog_value, datasource_arguments_source, run_ids
 from tests.support.source_trace import SourceTrace
 
 
@@ -165,22 +165,26 @@ def test_native_distribution(
             monkeypatch.setattr(type(subject.session._backend), "create_table", forbid_staging)
             monkeypatch.setattr(type(subject.session._backend), "drop_table", forbid_staging)
         session = mv.session.get_or_create("r93-distribution", timezone="UTC")
-        members = session.members(session.catalog.get("entity:sales.subjects"))
+        members = session.members(
+            catalog_get(session.catalog, "entity:sales.subjects", kind="entity")
+        )
         field = catalog_value(
             session.catalog,
             "sales.facts.identity" if kind == "identity" else "sales.facts.amount",
             kind="field",
         )
-        time = catalog_value(session.catalog, "sales.facts.time", kind="field")
-        metric = (
-            field.count_distinct(time=time)
-            if kind in ("distinct", "distinct_nonfinite", "identity")
-            else field.approx_nunique(time=time)
-            if kind == "approx_distinct"
-            else field.quantile(0.25, time=time)
-            if kind == "quantile"
-            else field.approx_quantile(0.25, time=time)
-        )
+        time = catalog_value(session.catalog, "sales.facts.time", kind="time_dimension")
+        if kind in ("distinct", "distinct_nonfinite", "identity"):
+            metric = field.count_distinct(time=time)
+        elif kind == "approx_distinct":
+            metric = field.approx_nunique(time=time)
+        else:
+            assert field.kind == "measure"
+            metric = (
+                field.quantile(0.25, time=time)
+                if kind == "quantile"
+                else field.approx_quantile(0.25, time=time)
+            )
         population = mv.product(session.time_scope(start="2026-08-01", end="2026-08-02"), members)
         assert isinstance(population, mv.Population)
         observed = session.observe({"value": metric}, by=population)
@@ -219,7 +223,7 @@ def test_native_distribution(
         frame = exported.set_index(ordinary_columns(fixed)[0])
         values = frame["value"]
         assert frame.index.tolist() == ["a", "b", "c"]
-        expected = (
+        expected: dict[object, object] = (
             {"a": 4, "b": 1, "c": 0}
             if kind == "identity"
             else {"a": 2, "b": 1, "c": 0}
@@ -235,16 +239,16 @@ def test_native_distribution(
 
             assert isinstance(facts.source, TableSourceIR)
             with pg.connection() as native:
-                expected = dict(
-                    native.execute(
-                        sql.SQL(
-                            "SELECT owner, CAST(percentile_cont(0.25) WITHIN GROUP "
-                            "(ORDER BY amount) AS NUMERIC(38,6)) FROM {} "
-                            "WHERE amount IS NOT NULL GROUP BY owner"
-                        ).format(sql.Identifier(facts.source.table))
-                    ).fetchall()
-                )
+                expected_rows = native.execute(
+                    sql.SQL(
+                        "SELECT owner, CAST(percentile_cont(0.25) WITHIN GROUP "
+                        "(ORDER BY amount) AS NUMERIC(38,6)) FROM {} "
+                        "WHERE amount IS NOT NULL GROUP BY owner"
+                    ).format(sql.Identifier(facts.source.table))
+                ).fetchall()
+                expected = {row[0]: row[1] for row in expected_rows}
         for owner, value in expected.items():
+            assert isinstance(owner, str)
             if kind == "approx_quantile" and owner == "a":
                 assert 2 <= values.loc[owner] <= 6
             else:

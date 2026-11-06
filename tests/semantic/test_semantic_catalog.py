@@ -677,7 +677,11 @@ def test_catalog_metric_values_preserve_declared_and_absent_units(
     margin = catalog_value(catalog, "sales.gross_margin", kind="metric")
     assert isinstance(revenue, ms.Metric)
     assert revenue.definition.unit == "CNY"
-    assert catalog.get("metric:sales.revenue").definition.unit == "CNY"
+    current_revenue = catalog.get("metric:sales.revenue")
+    assert current_revenue.kind == "metric"
+    assert current_revenue.definition.unit == "CNY"
     assert isinstance(margin, ms.Metric)
     assert margin.definition.unit is None
-    assert catalog.get("metric:sales.gross_margin").definition.unit is None
+    current_margin = catalog.get("metric:sales.gross_margin")
+    assert current_margin.kind == "metric"
+    assert current_margin.definition.unit is None

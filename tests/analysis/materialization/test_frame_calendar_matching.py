@@ -457,7 +457,8 @@ def test_source_plus_fixed_calendar_match_runs_one_existing_schedule(
         read_fixed: Callable[[FrameInput], CompletedFrameData],
         adapt_source: Callable[[str, StageOutput], StageOutput],
         observe_read: Callable[[SourceRead, LoweredRead, StageOutput], None] | None = None,
-        observe_local: Callable[[LocalCompute | FrameCompute, StageOutput], None] | None = None,
+        observe_local: Callable[[LocalCompute | FrameCompute | SourceRead, StageOutput], None]
+        | None = None,
     ) -> StageOutput:
         schedules.append(compiled)
         return original(
@@ -1193,10 +1194,7 @@ def test_calendar_comparison_continuations_use_full_completed_domain(
     expected_same_rows = expected_same.to_pandas()
     assert expected_same_rows["again.absolute.delta"].tolist() == [0]
     assert len(expected_displaced._schema.comparisons) == 1
-    assert all(
-        isinstance(fact.binding, OrdinaryComparisonBinding) and fact.values == ()
-        for fact in expected_displaced._schema.comparisons[1:]
-    )
+    assert not expected_displaced._schema.comparisons[1:]
     assert len(_memory_backing(expected_displaced).data.copy_attachments()) == 3
     expected_displaced_rows = expected_displaced.to_pandas()
     assert expected_displaced_rows["saved"].tolist() == [6, pd.NA]
@@ -1379,6 +1377,7 @@ def test_retained_comparison_absence_rejects_true_exact_endpoint_presence(
         data = _memory_backing(frame).data
         fact = next(fact for fact in data.schema.comparisons if fact.namespace == namespace)
         assert isinstance(fact.binding, CalendarComparisonBinding)
+        assert fact.baseline_presence is not None
         path = fact.baseline_presence.path
         column = data.schema.presence[data.schema.presence_paths.index(path)]
         invalid = data.copy_rows()

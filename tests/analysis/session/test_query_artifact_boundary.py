@@ -8,6 +8,7 @@ from collections.abc import Callable
 from dataclasses import FrozenInstanceError, fields, replace
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Literal
 
 import pandas as pd
 import pytest
@@ -46,8 +47,14 @@ from marivo.analysis.materialization.layout import MaterializationLayout
 from marivo.analysis.materialization.terminal_store import describe
 from marivo.analysis.session.core import Session
 from marivo.semantic._deferred_semantics import consume_metric
+from marivo.semantic._expression_values import MetricExpression
 from marivo.semantic.reader import SemanticProject
-from tests.shared_fixtures import numeric_literal_node, numeric_program_frame, terminal_runs
+from tests.shared_fixtures import (
+    catalog_get,
+    numeric_literal_node,
+    numeric_program_frame,
+    terminal_runs,
+)
 
 
 def _metric(value: int) -> MetricNode:
@@ -182,15 +189,16 @@ def test_catalog_metrics_capture_the_r1_definition_closure(
     )
     monkeypatch.chdir(tmp_path)
     session = mv.session.get_or_create("catalog-capture")
-    revenue = session.catalog.get("metric:sales.revenue")
-    double = session.catalog.get("metric:sales.double_revenue")
-    outputs = {
+    revenue = catalog_get(session.catalog, "metric:sales.revenue", kind="metric")
+    double = catalog_get(session.catalog, "metric:sales.double_revenue", kind="metric")
+    variants: dict[str, dict[str, MetricExpression[Literal["numeric"]]]] = {
         "direct": {"revenue": revenue, "double": double},
         "scale": {"result": revenue * 2},
         "reverse": {"result": 2 * revenue},
         "ratio": {"result": (double - revenue) / revenue},
         "negate": {"result": -revenue},
-    }[composition]
+    }
+    outputs = variants[composition]
     query = session.observe(outputs)
     assert tuple(
         (q.name, q.definition)
@@ -232,7 +240,7 @@ def test_saved_frame_owns_identity_and_rejects_invalid_inputs(
     assert not hasattr(mv, "Artifact") and not hasattr(saved, "artifact")
     assert not hasattr(mv, "Result")
     with pytest.raises(FrozenInstanceError):
-        saved.artifact_id = "changed"
+        saved.artifact_id = "changed"  # type: ignore[misc]  # Verify runtime immutability.
     with pytest.raises(CoreRuleError, match="Metric expression"):
         session.observe({"bad": saved})  # type: ignore[dict-item]  # A Frame is not a Metric.
     with pytest.raises(CoreRuleError, match="Metric expression"):

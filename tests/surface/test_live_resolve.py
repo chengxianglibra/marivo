@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from typing import Literal, NoReturn, TypedDict
+
 import pytest
+from typing_extensions import NotRequired
 
 from marivo._authoring.model import (
     AuthoringCapability,
@@ -12,6 +16,7 @@ from marivo.introspection.live.model import SURFACE_LIMITS
 from marivo.introspection.live.resolve import (
     LiveSurface,
     ResolvedLiveTarget,
+    ResolveKind,
     build_suggestion_index,
     resolve_live_target,
     suggestions_for,
@@ -28,12 +33,12 @@ class _FakeError(BaseException):
         return "fake"
 
 
-def _raise_fake(target: object, suggestions: tuple[str, ...]) -> None:
+def _raise_fake(target: object, suggestions: tuple[str, ...]) -> NoReturn:
     raise _FakeError(f"unregistered: {suggestions}")
 
 
 class _FakeRegistry:
-    surface = "semantic"
+    surface: Literal["semantic"] = "semantic"
 
     def __init__(self, caps: tuple[AuthoringCapability, ...]) -> None:
         self._caps = caps
@@ -63,36 +68,38 @@ def _cap(canonical_id: str, summary: str) -> AuthoringCapability:
     )
 
 
-def _surface(caps, **overrides) -> LiveSurface:
+def _surface(
+    caps: tuple[AuthoringCapability, ...],
+    *,
+    enrich: Callable[[object], ResolvedLiveTarget[AuthoringCapability] | None] | None = None,
+) -> LiveSurface[AuthoringCapability]:
     registry = _FakeRegistry(caps)
     index = build_suggestion_index(registry)
-    defaults: dict[str, object] = {
-        "registry": registry,
-        "type_index": {},
-        "error_types": {"FakeError": _FakeError},
-        "error_base": _FakeError,
-        "default_suggestions": ("preview",),
-        "suggestion_index": index,
-        "help_target_error": _raise_fake,
-        "enrich": None,
-    }
-    defaults.update(overrides)
-    return LiveSurface(**defaults)
+    return LiveSurface(
+        registry=registry,
+        type_index={},
+        error_types={"FakeError": _FakeError},
+        error_base=_FakeError,
+        default_suggestions=("preview",),
+        suggestion_index=index,
+        help_target_error=_raise_fake,
+        enrich=enrich,
+    )
 
 
 PREVIEW = _cap("preview", "Scoped runtime preview of one loaded semantic object.")
 READINESS = _cap("readiness", "Analysis readiness for one or more refs.")
 
 
-def test_resolve_rejects_surface_alias_and_name_prefix_from_target_string():
+def test_resolve_rejects_surface_alias_and_name_prefix_from_target_string() -> None:
     surface = _surface((PREVIEW, READINESS))
     for target in ("ms.preview", "semantic ms.preview", "semantic preview", "Preview"):
         with pytest.raises(_FakeError):
             resolve_live_target(target, surface)
 
 
-def test_resolve_rejects_instances_before_enrichment():
-    def enrich(target: object):
+def test_resolve_rejects_instances_before_enrichment() -> None:
+    def enrich(target: object) -> NoReturn:
         raise AssertionError("Instances must not reach enrichment")
 
     surface = _surface((PREVIEW,), enrich=enrich)
@@ -100,26 +107,39 @@ def test_resolve_rejects_instances_before_enrichment():
         resolve_live_target(_FakeError(), surface)
 
 
-def test_resolve_unregistered_string_raises_surface_error():
+def test_resolve_unregistered_string_raises_surface_error() -> None:
     surface = _surface((PREVIEW, READINESS))
     with pytest.raises(_FakeError):
         resolve_live_target("not_a_target", surface)
 
 
-def test_suggestions_rank_exact_token_first_and_are_bounded():
+def test_suggestions_rank_exact_token_first_and_are_bounded() -> None:
     surface = _surface((PREVIEW, READINESS))
+    assert surface.suggestion_index is not None
     suggestions = suggestions_for("preview", surface.suggestion_index)
     assert suggestions
     assert suggestions[0] == "preview"
     assert len(suggestions) <= SURFACE_LIMITS.help_suggestion_limit
 
 
-def test_suggestions_empty_for_blank_query():
+def test_suggestions_empty_for_blank_query() -> None:
     surface = _surface((PREVIEW,))
+    assert surface.suggestion_index is not None
     assert suggestions_for("   ", surface.suggestion_index) == ()
 
 
-_VALID_RESOLVED_CASES: tuple[dict[str, object], ...] = (
+class _ResolvedPayload(TypedDict):
+    kind: ResolveKind
+    surface: Literal["semantic"]
+    canonical_id: NotRequired[str]
+    descriptor: NotRequired[AuthoringCapability]
+    type_name: NotRequired[str]
+    error_name: NotRequired[str]
+    attribute_name: NotRequired[str]
+    attribute_owner: NotRequired[type[object]]
+
+
+_VALID_RESOLVED_CASES: tuple[_ResolvedPayload, ...] = (
     {
         "kind": "descriptor",
         "surface": "semantic",
@@ -139,12 +159,12 @@ _VALID_RESOLVED_CASES: tuple[dict[str, object], ...] = (
 
 
 @pytest.mark.parametrize("payload", _VALID_RESOLVED_CASES)
-def test_resolved_target_accepts_only_documented_valid_shapes(payload: dict[str, object]):
+def test_resolved_target_accepts_only_documented_valid_shapes(payload: _ResolvedPayload) -> None:
     assert ResolvedLiveTarget(**payload).kind == payload["kind"]
 
 
 @pytest.mark.parametrize("payload", _VALID_RESOLVED_CASES)
-def test_resolved_target_rejects_missing_required_payload(payload: dict[str, object]):
+def test_resolved_target_rejects_missing_required_payload(payload: _ResolvedPayload) -> None:
     required = {
         "descriptor": ("canonical_id", "descriptor"),
         "type_contract": ("type_name",),
@@ -155,11 +175,11 @@ def test_resolved_target_rejects_missing_required_payload(payload: dict[str, obj
         invalid = dict(payload)
         del invalid[field]
         with pytest.raises(ValueError, match="invalid"):
-            ResolvedLiveTarget(**invalid)
+            ResolvedLiveTarget(**invalid)  # type: ignore[arg-type]  # Exercise malformed payloads.
 
 
 @pytest.mark.parametrize("payload", _VALID_RESOLVED_CASES)
-def test_resolved_target_rejects_every_undocumented_payload(payload: dict[str, object]):
+def test_resolved_target_rejects_every_undocumented_payload(payload: _ResolvedPayload) -> None:
     allowed = {
         "descriptor": {"canonical_id", "descriptor"},
         "type_contract": {"type_name"},
@@ -180,4 +200,4 @@ def test_resolved_target_rejects_every_undocumented_payload(payload: dict[str, o
         invalid = dict(payload)
         invalid[field] = sentinel
         with pytest.raises(ValueError, match="invalid"):
-            ResolvedLiveTarget(**invalid)
+            ResolvedLiveTarget(**invalid)  # type: ignore[arg-type]  # Exercise malformed payloads.

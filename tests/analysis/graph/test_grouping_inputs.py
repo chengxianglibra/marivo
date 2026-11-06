@@ -9,7 +9,12 @@ import pytest
 import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo._definition.expressions import PerReduce
-from marivo._definition.relations import LiteralPopulation, SampleDomain, population_keys
+from marivo._definition.relations import (
+    LiteralPopulation,
+    ObserveQuery,
+    SampleDomain,
+    population_keys,
+)
 from marivo._definition.types import AxisBinding
 from marivo.analysis.errors import AnalysisError
 from marivo.datasource.adapters import SourceSession
@@ -17,7 +22,7 @@ from marivo.semantic._deferred_semantics import consume_metric
 from marivo.semantic.errors import SemanticError
 from tests.analysis.graph.execution_fixtures import source_graph
 from tests.analysis.numeric.pandas_coordinates import ordinary_columns
-from tests.shared_fixtures import DslCaseFactory, catalog_value, terminal_runs
+from tests.shared_fixtures import DslCaseFactory, catalog_get, catalog_value, terminal_runs
 
 
 def test_identity_grouping_and_domain_have_distinct_completion(
@@ -26,11 +31,11 @@ def test_identity_grouping_and_domain_have_distinct_completion(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     session = analysis_dsl_case_factory("j1").session
-    entity = session.catalog.get("entity:sales.customer")
-    metric = session.catalog.get("metric:sales.revenue")
-    region = catalog_value(session.catalog, "sales.customer.region", kind="field")
+    entity = catalog_get(session.catalog, "entity:sales.customer", kind="entity")
+    metric = catalog_get(session.catalog, "metric:sales.revenue", kind="metric")
+    region = catalog_value(session.catalog, "sales.customer.region", kind="dimension")
     period = session.time_scope(start="2026-08-01", end="2026-09-01")
-    members = session.members(session.catalog.get("entity:sales.customer"))
+    members = session.members(catalog_get(session.catalog, "entity:sales.customer", kind="entity"))
     before = terminal_runs(session)
 
     def forbidden(*args: object, **kwargs: object) -> None:
@@ -66,10 +71,10 @@ def test_calendar_grouping_is_the_unique_output_time_scope(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     session = analysis_dsl_case_factory("j1").session
-    metric = session.catalog.get("metric:sales.revenue")
+    metric = catalog_get(session.catalog, "metric:sales.revenue", kind="metric")
     calendar = session.time_scope(start="2026-08-01", end="2026-10-01").by(mv.grain("month"))
     assert isinstance(calendar, mv.Grouping) and calendar.kind == "calendar"
-    members = session.members(session.catalog.get("entity:sales.customer"))
+    members = session.members(catalog_get(session.catalog, "entity:sales.customer", kind="entity"))
     captured_calendar = mv.product(members, calendar).axes[1]
     direct = session.observe({"value": metric}, by=(calendar,))
     reused = session.observe({"value": metric}, by=(captured_calendar,))
@@ -81,9 +86,9 @@ def test_shared_consumers_keep_their_grouping_boundaries(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     session = analysis_dsl_case_factory("j1").session
-    entity = session.catalog.get("entity:sales.customer")
-    region = catalog_value(session.catalog, "sales.customer.region", kind="field")
-    metric = session.catalog.get("metric:sales.revenue")
+    entity = catalog_get(session.catalog, "entity:sales.customer", kind="entity")
+    region = catalog_value(session.catalog, "sales.customer.region", kind="dimension")
+    metric = catalog_get(session.catalog, "metric:sales.revenue", kind="metric")
     identity = mv.identity(entity)
     fields = mv.coordinates(by=(region,), keys=(("East",),))
     field = fields.axes[0]
@@ -92,7 +97,7 @@ def test_shared_consumers_keep_their_grouping_boundaries(
         consume_metric(metric.per(field).mean()).node
         == consume_metric(metric.per(region).mean()).node
     )
-    people = session.members(session.catalog.get("entity:sales.customer"))
+    people = session.members(catalog_get(session.catalog, "entity:sales.customer", kind="entity"))
     assert people.project(by=(identity,)).axes == people.axes
     assert people.classify(by=(identity, region)).axes[0].kind == "identity"
     frame = session.values(
@@ -107,7 +112,7 @@ def test_shared_consumers_keep_their_grouping_boundaries(
     with pytest.raises(AnalysisError):
         mv.identity(())
     with pytest.raises(AnalysisError):
-        session.observe({"value": metric}, by=(mv.identity(ms.ref.entity("sales.customer")),))
+        session.observe({"value": metric}, by=(mv.identity(ms.ref.entity("sales.customer")),))  # type: ignore[arg-type]  # Bare references are not closed inputs.
 
 
 def test_population_predicates_and_classify_have_explicit_boundaries(
@@ -115,8 +120,8 @@ def test_population_predicates_and_classify_have_explicit_boundaries(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     session = analysis_dsl_case_factory("j1").session
-    region = catalog_value(session.catalog, "sales.customer.region", kind="field")
-    entity = session.catalog.get("entity:sales.customer")
+    region = catalog_value(session.catalog, "sales.customer.region", kind="dimension")
+    entity = catalog_get(session.catalog, "entity:sales.customer", kind="entity")
     people = mv.coordinates(by=(mv.identity(entity),), keys=((("missing",),),))
     with pytest.raises(AnalysisError) as caught:
         people.where(region == "east")  # Population selection permits membership leaves only.
@@ -128,6 +133,7 @@ def test_population_predicates_and_classify_have_explicit_boundaries(
     with pytest.raises(AnalysisError):
         people.classify(by=(interval,))
     unchanged = people.classify(by=people.axes)
+    assert isinstance(unchanged, mv.Population)
     assert session.frame(unchanged).compute().to_pandas().iloc[:, 0].tolist() == ["missing"]
     left = mv.in_population(mv.coordinates(by=(region,), keys=(("east",),)))
     right = mv.in_population(mv.coordinates(by=(region,), keys=(("west",),)))
@@ -146,7 +152,7 @@ def test_population_algebra_matches_business_coordinates_across_definition_versi
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     session = analysis_dsl_case_factory("j1").session
-    region = catalog_value(session.catalog, "sales.customer.region", kind="field")
+    region = catalog_value(session.catalog, "sales.customer.region", kind="dimension")
     current = mv.coordinates(by=(region,), keys=(("east",), ("west",)))
     definition = current._definition
     assert isinstance(definition, LiteralPopulation)
@@ -165,9 +171,15 @@ def test_population_algebra_matches_business_coordinates_across_definition_versi
             keys=(("east",),),
         )
     )
-    assert population_keys(older.union(current)._definition) == (("east",), ("west",))
-    assert population_keys(older.project(by=current.axes)._definition) == (("east",),)
-    assert population_keys(current.where(mv.in_population(older))._definition) == (("east",),)
+    combined = older.union(current)
+    projected = older.project(by=current.axes)
+    filtered = current.where(mv.in_population(older))
+    assert isinstance(combined, mv.Population)
+    assert isinstance(projected, mv.Population)
+    assert isinstance(filtered, mv.Population)
+    assert population_keys(combined._definition) == (("east",), ("west",))
+    assert population_keys(projected._definition) == (("east",),)
+    assert population_keys(filtered._definition) == (("east",),)
 
 
 def test_membership_expansion_preserves_interleaved_fields_and_capture_purity(
@@ -175,10 +187,10 @@ def test_membership_expansion_preserves_interleaved_fields_and_capture_purity(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     session = analysis_dsl_case_factory("j1").session
-    revenue = session.catalog.get("metric:sales.revenue")
-    channel = catalog_value(session.catalog, "sales.order.channel", kind="field")
-    status = catalog_value(session.catalog, "sales.order.status", kind="field")
-    region = catalog_value(session.catalog, "sales.customer.region", kind="field")
+    revenue = catalog_get(session.catalog, "metric:sales.revenue", kind="metric")
+    channel = catalog_value(session.catalog, "sales.order.channel", kind="dimension")
+    status = catalog_value(session.catalog, "sales.order.status", kind="dimension")
+    region = catalog_value(session.catalog, "sales.customer.region", kind="dimension")
     period = session.time_scope(start="2026-08-01", end="2026-09-01")
     rule = mv.membership((channel, status), via=(), unmatched="exclude")
     before = terminal_runs(session)
@@ -216,7 +228,7 @@ def test_observe_invalid_grouping_shape_has_structured_repair(
     analysis_dsl_case_factory: DslCaseFactory, invalid_by: object
 ) -> None:
     session = analysis_dsl_case_factory("j1").session
-    revenue = session.catalog.get("metric:sales.revenue")
+    revenue = catalog_get(session.catalog, "metric:sales.revenue", kind="metric")
     with pytest.raises(AnalysisError) as caught:
         # Exercise the runtime boundary with deliberately invalid public inputs.
         session.observe({"value": revenue}, by=invalid_by)  # type: ignore[arg-type]
@@ -227,10 +239,10 @@ def test_unified_memberships_reject_ambiguous_positions_and_domain_shapes(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     session = analysis_dsl_case_factory("j1").session
-    revenue = session.catalog.get("metric:sales.revenue")
-    channel = catalog_value(session.catalog, "sales.order.channel", kind="field")
-    status = catalog_value(session.catalog, "sales.order.status", kind="field")
-    identity = mv.identity(session.catalog.get("entity:sales.order"))
+    revenue = catalog_get(session.catalog, "metric:sales.revenue", kind="metric")
+    channel = catalog_value(session.catalog, "sales.order.channel", kind="dimension")
+    status = catalog_value(session.catalog, "sales.order.status", kind="dimension")
+    identity = mv.identity(catalog_get(session.catalog, "entity:sales.order", kind="entity"))
     rule = mv.membership((channel, status), via=(), unmatched="exclude")
     domain = mv.coordinates(by=(channel, status), keys=(("web", "paid"),))
     other = mv.coordinates(by=(status, channel), keys=(("paid", "web"),))
@@ -260,7 +272,7 @@ def test_unified_memberships_reject_ambiguous_positions_and_domain_shapes(
     with pytest.raises(TypeError):
         session.observe({"value": revenue}, memberships=(rule,))  # type: ignore[call-arg]  # Removed public keyword.
     with pytest.raises(TypeError):
-        consume_metric(revenue.per(channel, memberships=(rule,)).mean())
+        consume_metric(revenue.per(channel, memberships=(rule,)).mean())  # type: ignore[call-overload]  # Removed public keyword.
     for consumer in (
         lambda: mv.coordinates(by=(rule,), keys=()),
         lambda: domain.project(by=(rule,)),
@@ -274,10 +286,10 @@ def test_complete_population_keeps_axis_order_and_rule_scope(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     session = analysis_dsl_case_factory("j1").session
-    revenue = session.catalog.get("metric:sales.revenue")
-    channel = catalog_value(session.catalog, "sales.order.channel", kind="field")
-    status = catalog_value(session.catalog, "sales.order.status", kind="field")
-    region = catalog_value(session.catalog, "sales.customer.region", kind="field")
+    revenue = catalog_get(session.catalog, "metric:sales.revenue", kind="metric")
+    channel = catalog_value(session.catalog, "sales.order.channel", kind="dimension")
+    status = catalog_value(session.catalog, "sales.order.status", kind="dimension")
+    region = catalog_value(session.catalog, "sales.customer.region", kind="dimension")
     rule = mv.membership((channel, status), via=(), unmatched="exclude")
     domain = mv.coordinates(
         by=(channel, region, status),
@@ -285,6 +297,7 @@ def test_complete_population_keeps_axis_order_and_rule_scope(
     )
     observed = session.observe({"value": revenue}, by=(domain, rule))
     graph = source_graph(observed)
+    assert isinstance(graph.root, ObserveQuery)
     assert graph.root.population == domain._definition
     assert graph.signature.axes == domain._definition.axes
     sampled = consume_metric(revenue.per((domain, rule)).mean()).node
@@ -305,12 +318,12 @@ def test_interleaved_rules_and_nested_samples_have_independent_numeric_oracles(
             "INSERT INTO \"order\" VALUES ('extra', 'A', 'mobile', 'paid', "
             "TIMESTAMPTZ '2026-08-15T12:00:00+00:00', 52)"
         )
-    revenue = session.catalog.get("metric:sales.revenue")
-    channel = catalog_value(session.catalog, "sales.order.channel", kind="field")
-    status = catalog_value(session.catalog, "sales.order.status", kind="field")
-    customer = catalog_value(session.catalog, "sales.customer.customer_id", kind="field")
-    region = catalog_value(session.catalog, "sales.customer.region", kind="field")
-    buyer = session.catalog.get("relationship:sales.order_buyer")
+    revenue = catalog_get(session.catalog, "metric:sales.revenue", kind="metric")
+    channel = catalog_value(session.catalog, "sales.order.channel", kind="dimension")
+    status = catalog_value(session.catalog, "sales.order.status", kind="dimension")
+    customer = catalog_value(session.catalog, "sales.customer.customer_id", kind="dimension")
+    region = catalog_value(session.catalog, "sales.customer.region", kind="dimension")
+    buyer = catalog_get(session.catalog, "relationship:sales.order_buyer", kind="relationship")
     scope = session.time_scope(start="2026-08-01", end="2026-09-01")
     channels = mv.membership((channel, status), via=(), unmatched="exclude")
     customers = mv.membership((customer, region), via=((buyer,),), unmatched="exclude")

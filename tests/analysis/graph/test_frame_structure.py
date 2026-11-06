@@ -643,7 +643,7 @@ def test_named_comparison_facts_bind_exact_paths_in_pending_and_complete_schemas
             complete, value_paths=(("renamed",),), values=(replace(base.values[0], name="renamed"),)
         )
     with pytest.raises(FrozenInstanceError):
-        fact.alias = "changed"
+        fact.alias = "changed"  # type: ignore[misc]  # Verify runtime immutability.
 
 
 def test_comparison_attachment_ownership_is_exact_and_current_axis_is_authoritative() -> None:

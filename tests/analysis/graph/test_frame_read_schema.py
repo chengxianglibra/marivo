@@ -29,6 +29,7 @@ from marivo.analysis.core.data_types import (
     TimestampDataType,
 )
 from marivo.analysis.core.frame_data import CompletedFrameData, CompletedFrameResult
+from marivo.analysis.core.frame_interpretation import FramePairedAxisSchema
 from marivo.analysis.core.frame_metadata import EvaluationRecord, FrameResultMetadata
 from marivo.analysis.core.frame_schema import (
     CoordinateExportColumn,
@@ -104,9 +105,9 @@ def test_pending_schema_retains_known_kinds_complete_keys_and_one_slot_directory
         FieldExportColumn("ratio", "ratio"),
     )
     with pytest.raises(TypeError):
-        operator.setitem(schema.values, "wrong", schema.values["ratio"])
+        operator.setitem(schema.values, "wrong", schema.values["ratio"])  # type: ignore[call-overload]  # Mapping must reject mutation.
     with pytest.raises(FrozenInstanceError):
-        schema.axes[0].keys[0].name = "changed"
+        schema.axes[0].keys[0].name = "changed"  # type: ignore[misc]  # Verify runtime immutability.
 
 
 def _time_axis(
@@ -135,6 +136,7 @@ def test_time_and_paired_export_layout_preserves_complete_axis_identity(
     pair = PairedDataAxis("pair", (key,), name="period", left=left, right=right, mapping_name="map")
     schema = capture_schema("paired-input", DataSchema((pair,), ()))
     assert schema.axes[0].role == "paired"
+    assert isinstance(schema.axes[0], FramePairedAxisSchema)
     assert schema.axes[0].left.timezone == "UTC"
     assert schema.axes[0].right.timezone == "UTC"
     assert schema.axes[0].left.kind == kind
@@ -396,4 +398,4 @@ def test_interpretation_records_validate_closed_fields_and_bound_display(
         FrameObservationContext(subject, None, FrameTrailingPeriodsWindow(7))
     assert "mean" in repr(FrameStatisticContext("mean", ()))
     with pytest.raises(FrozenInstanceError):
-        context.subject = None
+        context.subject = None  # type: ignore[misc]  # Verify runtime immutability.

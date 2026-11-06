@@ -12,11 +12,24 @@ from typing import Literal
 import pandas as pd
 
 import marivo.analysis as mv
+import marivo.semantic as ms
 from marivo.analysis.core.frame_data import StoredFrameBacking
 from tests.shared_fixtures import DslCase, catalog_value
 
 DeviationMethod = Literal["zscore", "mad"]
 ForecastModel = Literal["naive", "drift", "seasonal_naive"]
+
+
+def _metric(catalog: ms.SemanticCatalog, path: str) -> ms.Metric:
+    result = catalog.get(path)
+    assert result.kind == "metric"
+    return result
+
+
+def _entity(catalog: ms.SemanticCatalog, path: str) -> ms.Entity:
+    result = catalog.get(path)
+    assert result.kind == "entity"
+    return result
 
 
 def plain(result: mv.AnalysisFrame) -> pd.DataFrame:
@@ -38,7 +51,7 @@ def plain(result: mv.AnalysisFrame) -> pd.DataFrame:
 
 def orders(case: DslCase) -> mv.AnalysisFrame:
     session = case.session
-    members = session.members(session.catalog.get("entity:sales.order"))
+    members = session.members(_entity(session.catalog, "entity:sales.order"))
     return session.read(
         members,
         {
@@ -52,12 +65,12 @@ def monthly(case: DslCase, start: str, end: str) -> mv.AnalysisFrame:
     session = case.session
     return session.observe(
         {
-            "value": session.catalog.get("metric:sales.revenue"),
-            "count": session.catalog.get("metric:sales.order_count"),
+            "value": _metric(session.catalog, "metric:sales.revenue"),
+            "count": _metric(session.catalog, "metric:sales.order_count"),
         },
         by=mv.product(
             session.time_scope(start=start, end=end),
-            session.members(session.catalog.get("entity:sales.customer")),
+            session.members(_entity(session.catalog, "entity:sales.customer")),
         ),
     )
 
@@ -66,7 +79,7 @@ def daily(case: DslCase, *, end: str = "2026-08-04") -> mv.AnalysisFrame:
     session = case.session
     period = session.time_scope(start="2026-08-01", end=end)
     return session.observe(
-        {"value": session.catalog.get("metric:sales.order_count")},
+        {"value": _metric(session.catalog, "metric:sales.order_count")},
         by=(period.by(mv.grain("day")),),
     )
 

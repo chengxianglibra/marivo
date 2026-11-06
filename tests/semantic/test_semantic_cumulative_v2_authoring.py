@@ -5,6 +5,7 @@ from contextlib import contextmanager
 from datetime import timedelta
 
 import ibis.expr.types as ibis_ir
+from ibis.common.deferred import Deferred
 
 import marivo.analysis as mv
 import marivo.datasource as md
@@ -61,7 +62,10 @@ def test_cumulative_accepts_grain_to_date_anchor() -> None:
         event_time = _build_event_time_axis()
         amt = _measure("amt", "sales.events")
         frozen = captured_catalog()
-        gmv = resolve(frozen, amt).sum(time=resolve(frozen, event_time))
+        amount = resolve(frozen, amt)
+        time = resolve(frozen, event_time)
+        assert isinstance(amount, Deferred) and isinstance(time, Deferred)
+        gmv = amount.sum(time=time)
         node = consume_metric(gmv.window(mv.to_date(grain=mv.grain("month")))).node
         assert isinstance(node, MetricWindow)
         assert isinstance(node.rule, ToDate)
@@ -73,7 +77,10 @@ def test_cumulative_accepts_trailing_anchor() -> None:
         event_time = _build_event_time_axis()
         uid = _measure("uid", "sales.events", additivity=ms.non_additive())
         frozen = captured_catalog()
-        active = resolve(frozen, uid).count_distinct(time=resolve(frozen, event_time))
+        user_id = resolve(frozen, uid)
+        time = resolve(frozen, event_time)
+        assert isinstance(user_id, Deferred) and isinstance(time, Deferred)
+        active = user_id.count_distinct(time=time)
         node = consume_metric(active.window(mv.trailing_duration(duration=timedelta(days=7)))).node
         assert isinstance(node, MetricWindow)
         assert isinstance(node.rule, TrailingDuration)
@@ -85,7 +92,10 @@ def test_cumulative_explicit_all_history_anchor() -> None:
         event_time = _build_event_time_axis()
         amt = _measure("amt", "sales.events")
         frozen = captured_catalog()
-        gmv = resolve(frozen, amt).sum(time=resolve(frozen, event_time))
+        amount = resolve(frozen, amt)
+        time = resolve(frozen, event_time)
+        assert isinstance(amount, Deferred) and isinstance(time, Deferred)
+        gmv = amount.sum(time=time)
         node = consume_metric(gmv.window(mv.all_history())).node
         assert isinstance(node, MetricWindow)
         assert isinstance(node.rule, AllHistory)

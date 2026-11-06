@@ -11,6 +11,7 @@ import pytest
 from ibis.common.deferred import Deferred
 
 import marivo.semantic as ms
+from marivo.refs import Ref, SemanticKindTag
 from marivo.refs import ref as ref_factory
 from marivo.semantic._deferred_semantics import consume_field, consume_predicate
 from marivo.semantic._definition_expression import describe_expression
@@ -81,12 +82,20 @@ def catalog(workspace: Path) -> ms.SemanticCatalog:
     return ms.load(workspace_dir=workspace)
 
 
+def _required_ref(value: object) -> Ref[SemanticKindTag]:
+    reference = as_ref(value)
+    assert reference is not None
+    return reference
+
+
 def _description(catalog: ms.SemanticCatalog, ref: Deferred) -> ExpressionDescription:
-    return catalog._state.sidecar.bodies[as_ref(ref)].description
+    return catalog._state.sidecar.bodies[_required_ref(ref)].description
 
 
 def _expression_fact(catalog: ms.SemanticCatalog, ref: Deferred) -> str | None:
-    facts = dict(catalog.get(as_ref(ref).key).definition.facts)
+    entry = catalog.get(_required_ref(ref).key)
+    assert entry.kind in {"dimension", "time_dimension", "measure", "metric"}
+    facts = dict(entry.definition.facts)
     return facts.get("expression")
 
 
@@ -105,7 +114,7 @@ def test_restricted_body_literals_are_disclosed_as_normalized_expression(
     assert text == "(t1['region'] == 'private-token-987').ifelse(73921, 0)"
     assert description.display is not None and description.display.text == text
     assert description.display.bindings == (("t1", ref_factory.entity("sales.rows")),)
-    rendered = catalog.get(as_ref(ref).key).render()
+    rendered = catalog.get(_required_ref(ref).key).render()
     assert "private-token-987" in rendered and "73921" in rendered
 
 
@@ -115,7 +124,7 @@ def test_unsupported_structure_keeps_its_display_fact(catalog: ms.SemanticCatalo
     assert description.status == "unsupported"
     assert description.reason == "unsupported_syntax"
     assert _expression_fact(catalog, ref) == "t1['region'].upper()"
-    contract = catalog.get(as_ref(ref).key)
+    contract = catalog.get(_required_ref(ref).key)
     assert contract.provenance.source_file.endswith("models.py")
     assert contract.provenance.source_line > 0
 
@@ -123,7 +132,9 @@ def test_unsupported_structure_keeps_its_display_fact(catalog: ms.SemanticCatalo
 def test_column_values_disclose_their_column_not_an_expression(
     catalog: ms.SemanticCatalog,
 ) -> None:
-    facts = dict(catalog.get("measure:sales.rows.spend").definition.facts)
+    entry = catalog.get("measure:sales.rows.spend")
+    assert entry.kind == "measure"
+    facts = dict(entry.definition.facts)
     assert facts["column"] == "spend_cny"
     assert "expression" not in facts
 
@@ -181,8 +192,8 @@ def test_description_does_not_change_fingerprint(
     ref = ms.ref.dimension("sales.rows.literal_values")
     assert current.definition_fingerprint == catalog.definition_fingerprint
     assert (
-        consume_field(catalog_value(current, as_ref(ref).path, kind="field")).reference
-        == consume_field(catalog_value(catalog, as_ref(ref).path, kind="field")).reference
+        consume_field(catalog_value(current, _required_ref(ref).path, kind="field")).reference
+        == consume_field(catalog_value(catalog, _required_ref(ref).path, kind="field")).reference
     )
     assert _description(current, ref).status == "unsupported"
     assert _expression_fact(current, ref) is None

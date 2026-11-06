@@ -26,6 +26,8 @@ from marivo.datasource.metadata import TableMetadata
 
 
 class _RecordingBackend:
+    _marivo_configured_query_timeout_seconds: int
+
     def __init__(self, rows: list[tuple[object, ...]] | None = None) -> None:
         self.queries: list[str] = []
         self.rows = rows or []

@@ -14,7 +14,9 @@ from marivo.ontology.errors import OntologyLoadError
 from tests.shared_fixtures import bootstrap_sales_project_from_template
 
 
-def test_ontology_load_help_routes_inspection_and_failure_repair(capsys) -> None:
+def test_ontology_load_help_routes_inspection_and_failure_repair(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
     marivo.help("ontology.authoring")
     output = capsys.readouterr().out
     assert "source module and its imports execute as Python" in output
@@ -33,7 +35,9 @@ def test_ontology_load_help_routes_inspection_and_failure_repair(capsys) -> None
     assert "error.issues" in capsys.readouterr().out
 
 
-def test_ontology_relation_help_describes_declarations_not_discovery(capsys) -> None:
+def test_ontology_relation_help_describes_declarations_not_discovery(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
     marivo.help("ontology.influences")
     output = capsys.readouterr().out
     assert "driver is a hypothesis about the outcome" in output

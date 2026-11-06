@@ -29,9 +29,9 @@ def test_population_preserves_empty_unknown_and_valid_zero_members(
             "('d2','D','web','paid','2026-08-15',-10)"
         )
     session = case.session
-    amount = catalog_value(session.catalog, "sales.order.amount", kind="field")
-    orders = session.catalog.get("entity:sales.order")
-    members = session.members(session.catalog.get("entity:sales.customer"))
+    amount = catalog_value(session.catalog, "sales.order.amount", kind="measure")
+    orders = catalog_value(session.catalog, "sales.order", kind="entity")
+    members = session.members(catalog_value(session.catalog, "sales.customer", kind="entity"))
     query = session.observe(
         {"total": amount.sum(), "valid": amount.count(), "orders": orders.count()},
         by=members,
@@ -39,7 +39,7 @@ def test_population_preserves_empty_unknown_and_valid_zero_members(
     fixed = query.compute()
     rows = fixed.to_pandas()
     assert rows.iloc[:, 0].tolist() == ["A", "B", "C", "D"]
-    assert rows["total"].iloc[[0, 1, 3]].tolist() == [100, 0, 0]
+    assert [rows["total"].iloc[i] for i in (0, 1, 3)] == [100, 0, 0]
     assert pd.isna(rows["total"].iloc[2])
     assert rows["valid"].tolist() == [1, 0, 0, 2]
     assert rows["orders"].tolist() == [2, 0, 1, 2]
@@ -78,6 +78,7 @@ def test_population_preserves_empty_unknown_and_valid_zero_members(
     saved = fixed.persist()
     pd.testing.assert_frame_equal(session.persisted_frame(saved.artifact_id).to_pandas(), rows)
     empty = members.where(~mv.in_population(members))
+    assert isinstance(empty, mv.Population)
     with pytest.raises(AnalysisError, match="missing output coordinates"):
         session.observe({"total": amount.sum()}, by=empty).compute()
     assert (
@@ -100,8 +101,8 @@ def test_native_formula_does_not_zero_fill_a_present_all_null_group(
             "('c','C','web','paid','2026-08-15',NULL)"
         )
     session = case.session
-    amount = catalog_value(session.catalog, "sales.order.amount", kind="field")
-    customer = catalog_value(session.catalog, "sales.order.customer_id", kind="field")
+    amount = catalog_value(session.catalog, "sales.order.amount", kind="measure")
+    customer = catalog_value(session.catalog, "sales.order.customer_id", kind="dimension")
     metric = amount.sum().where(customer == "A") + amount.sum().where(customer == "C")
     rows = session.observe({"total": metric}, by=(customer,)).compute().to_pandas()
     assert rows.iloc[:, 0].tolist() == ["A", "C"]
@@ -121,8 +122,8 @@ def test_native_nonfinite_source_values_remain_distinct_from_null_during_selecti
             'SELECT COUNT(*) FROM "order" WHERE amount IS NULL'
         ).fetchone()
     session = case.session
-    amount = catalog_value(session.catalog, "sales.order.amount", kind="field")
-    members = session.members(session.catalog.get("entity:sales.order"))
+    amount = catalog_value(session.catalog, "sales.order.amount", kind="measure")
+    members = session.members(catalog_value(session.catalog, "sales.order", kind="entity"))
     read = session.read(members, {"amount": amount})
     observed = session.observe({"amount": amount.sum()})
     raw = read.compute().to_pandas()

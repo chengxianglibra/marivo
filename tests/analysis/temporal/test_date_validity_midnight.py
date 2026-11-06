@@ -12,6 +12,30 @@ import marivo.semantic as ms
 from marivo.semantic.reader import SemanticProject
 
 
+def _dimension(catalog: ms.SemanticCatalog, path: str) -> ms.Dimension:
+    result = catalog.get(path)
+    assert result.kind == "dimension"
+    return result
+
+
+def _measure(catalog: ms.SemanticCatalog, path: str) -> ms.Measure:
+    result = catalog.get(path)
+    assert result.kind == "measure"
+    return result
+
+
+def _relationship(catalog: ms.SemanticCatalog, path: str) -> ms.Relationship:
+    result = catalog.get(path)
+    assert result.kind == "relationship"
+    return result
+
+
+def _time_dimension(catalog: ms.SemanticCatalog, path: str) -> ms.TimeDimension:
+    result = catalog.get(path)
+    assert result.kind == "time_dimension"
+    return result
+
+
 @pytest.mark.parametrize("version", ("validity",))
 def test_aware_control_respects_native_date_midnight(
     version: Literal["snapshot", "validity"],
@@ -84,13 +108,13 @@ def test_aware_control_respects_native_date_midnight(
     monkeypatch.chdir(tmp_path)
     ms.load(workspace_dir=tmp_path)
     session = mv.session.get_or_create(f"date-version-{version}", timezone="UTC")
-    fact_day = session.catalog.get("time_dimension:sales.facts.fact_day")
-    category = session.catalog.get("dimension:sales.profiles.category")
-    relationship = session.catalog.get("relationship:sales.profile")
+    fact_day = _time_dimension(session.catalog, "time_dimension:sales.facts.fact_day")
+    category = _dimension(session.catalog, "dimension:sales.profiles.category")
+    relationship = _relationship(session.catalog, "relationship:sales.profile")
     historical_category = category.via((relationship,)).at(fact_day)
     period = session.time_scope(start="2025-11-02", end="2025-11-03")
     result = session.observe(
-        {"value": session.catalog.get("measure:sales.facts.amount").sum(time=fact_day)},
+        {"value": _measure(session.catalog, "measure:sales.facts.amount").sum(time=fact_day)},
         by=(period, historical_category),
     ).compute()
     data = result.to_pandas(axis_names={result.axes[-1].token: "category"})
@@ -98,7 +122,7 @@ def test_aware_control_respects_native_date_midnight(
     # Native Havana Nov 2 midnight selects the later fold at 05:00Z, after the fact.
     fixed_category = category.via((relationship,)).at(session.instant("2025-11-02T04:30:00+00:00"))
     fixed = session.observe(
-        {"value": session.catalog.get("measure:sales.facts.amount").sum(time=fact_day)},
+        {"value": _measure(session.catalog, "measure:sales.facts.amount").sum(time=fact_day)},
         by=(period, fixed_category),
     ).compute()
     fixed_data = fixed.to_pandas(axis_names={fixed.axes[-1].token: "category"})

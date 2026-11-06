@@ -9,6 +9,7 @@ import shutil
 from dataclasses import replace
 from datetime import date, datetime, timedelta
 from pathlib import Path
+from typing import TypedDict
 
 import ibis
 import pytest
@@ -24,6 +25,7 @@ from marivo._temporal import (
 from marivo.cli import init_project
 from marivo.datasource.adapters import CompiledRead, SourceSession
 from marivo.datasource.inspection import SourceInspection
+from marivo.datasource.source import AuthoringScope, TableSource
 from marivo.refs import ref
 from tests.support.paths import PROJECT_ROOT
 
@@ -31,6 +33,18 @@ from tests.support.paths import PROJECT_ROOT
 class _QuerySpy:
     def __init__(self) -> None:
         self.user_data_queries = 0
+
+
+class _SnapshotInputs(TypedDict):
+    datasource_fingerprint: str
+    source: TableSource
+    columns: tuple[str, ...]
+    schema_fingerprint: str
+    persist_values: bool
+
+
+class _ScopedSnapshotInputs(_SnapshotInputs):
+    scope: AuthoringScope
 
 
 @pytest.fixture(autouse=True)
@@ -56,7 +70,7 @@ def test_snapshot_identity_includes_nonsecret_source_parameters() -> None:
         query_params={"start": md.source_param("start")},
     )
     scope = md.unpruned(max_rows=100, timeout_seconds=30)
-    common = {
+    common: _ScopedSnapshotInputs = {
         "datasource_fingerprint": "sha256:datasource",
         "source": source,
         "scope": scope,
@@ -80,7 +94,7 @@ def test_snapshot_identity_list_source_params_deterministic_and_order_sensitive(
         query_params={"specificsource": md.source_param("apps")},
     )
     scope = md.unpruned(max_rows=100, timeout_seconds=30)
-    common = {
+    common: _ScopedSnapshotInputs = {
         "datasource_fingerprint": "sha256:datasource",
         "source": source,
         "scope": scope,
@@ -147,7 +161,7 @@ def test_snapshot_identity_and_payload_include_half_open_time_range() -> None:
         timeout_seconds=30,
     )
 
-    common = {
+    common: _SnapshotInputs = {
         "datasource_fingerprint": "sha256:datasource",
         "source": source,
         "columns": ("value",),
@@ -231,14 +245,14 @@ def test_snapshot_cache_omits_values_and_credentials_by_default(
     inspection: SourceInspection,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from marivo.datasource import snapshot as snapshot_module
+    from marivo.datasource import store
 
-    datasource = snapshot_module._store.load_one("warehouse", project_root=project_root)
+    datasource = store.load_one("warehouse", project_root=project_root)
     assert datasource is not None
     secret = "resolved-credential-must-not-be-written"
     monkeypatch.setenv("WAREHOUSE_PASSWORD", secret)
     monkeypatch.setattr(
-        snapshot_module._store,
+        store,
         "load_one",
         lambda *_args, **_kwargs: replace(
             datasource,
@@ -247,7 +261,7 @@ def test_snapshot_cache_omits_values_and_credentials_by_default(
     )
     monkeypatch.setattr(
         "marivo.datasource.engines.base.EngineProfile.open",
-        lambda profile, datasource, *, terminal_timeout_seconds=None: snapshot_module.SourceSession(
+        lambda profile, datasource, *, terminal_timeout_seconds=None: SourceSession(
             profile,
             datasource,
             ibis.duckdb.connect(str(project_root / "warehouse.duckdb")),
@@ -763,8 +777,6 @@ def test_snapshot_write_is_same_directory_atomic_and_owner_only(
     inspection: SourceInspection,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from marivo.datasource import authoring_store
-
     replacements: list[tuple[Path, Path, int]] = []
     original_replace = os.replace
 
@@ -776,7 +788,7 @@ def test_snapshot_write_is_same_directory_atomic_and_owner_only(
         replacements.append((source_path, destination_path, source_path.stat().st_mode & 0o777))
         original_replace(source, destination)
 
-    monkeypatch.setattr(authoring_store.os, "replace", checked_replace)
+    monkeypatch.setattr(os, "replace", checked_replace)
     snapshot = inspection.sample(
         scope=md.unpruned(max_rows=100, timeout_seconds=30),
         columns=("region",),
@@ -797,8 +809,6 @@ def test_failed_atomic_write_is_not_published_to_memory(
     query_spy: _QuerySpy,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from marivo.datasource import authoring_store
-
     original_replace = os.replace
     replacement_attempts = 0
 
@@ -811,7 +821,7 @@ def test_failed_atomic_write_is_not_published_to_memory(
             raise OSError("injected atomic write failure")
         original_replace(source, destination)
 
-    monkeypatch.setattr(authoring_store.os, "replace", fail_once_replace)
+    monkeypatch.setattr(os, "replace", fail_once_replace)
     scope = md.unpruned(max_rows=100, timeout_seconds=30)
 
     with pytest.raises(OSError, match="injected atomic write failure"):

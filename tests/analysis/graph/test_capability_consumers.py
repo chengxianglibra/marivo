@@ -21,7 +21,7 @@ from marivo.semantic.reader import SemanticProject
 from tests.analysis.graph.source_fixtures import author_source_project
 from tests.analysis.numeric.pandas_coordinates import ordinary_columns
 from tests.datasource.source_cases import SourceData, source_case, source_params
-from tests.shared_fixtures import catalog_value, terminal_runs
+from tests.shared_fixtures import catalog_get, catalog_value, terminal_runs
 from tests.support.source_trace import SourceTrace
 
 
@@ -37,9 +37,12 @@ def _full(
 ) -> mv.AnalysisFrame:
     return session.observe(
         {"value": catalog_value(session.catalog, metric, kind="metric")},
-        by=mv.product(during, session.members(session.catalog.get("entity:sales.facts")))
+        by=mv.product(
+            during,
+            session.members(catalog_get(session.catalog, "entity:sales.facts", kind="entity")),
+        )
         if during is not None
-        else session.members(session.catalog.get("entity:sales.facts")),
+        else session.members(catalog_get(session.catalog, "entity:sales.facts", kind="entity")),
     )
 
 
@@ -117,10 +120,10 @@ def test_declared_string_time_uses_owned_execution_functions(
         )
         session = mv.session.get_or_create("r93-string-time", timezone=str(zone))
         values = session.observe(
-            {"value": session.catalog.get("metric:sales.total")},
+            {"value": catalog_get(session.catalog, "metric:sales.total", kind="metric")},
             by=mv.product(
                 session.time_scope(start=start, end=end),
-                session.members(session.catalog.get("entity:sales.facts")),
+                session.members(catalog_get(session.catalog, "entity:sales.facts", kind="entity")),
             ),
         )
         assert isinstance(values, mv.AnalysisFrame)
@@ -217,16 +220,19 @@ def test_source_coordinates_statistics_and_original_state(
     with source_case(backend, profile, tmp_path, monkeypatch, data) as case:
         remote = author_source_project(backend, case, monkeypatch, semantic_project_factory)
         session = mv.session.get_or_create("r93-c05", timezone="UTC")
-        members = session.members(session.catalog.get("entity:sales.facts"))
-        bucket = catalog_value(session.catalog, "sales.facts.bucket", kind="field")
-        revision = catalog_value(session.catalog, "sales.facts.revision", kind="field")
+        members = session.members(catalog_get(session.catalog, "entity:sales.facts", kind="entity"))
+        bucket = catalog_value(session.catalog, "sales.facts.bucket", kind="dimension")
+        revision = catalog_value(session.catalog, "sales.facts.revision", kind="dimension")
         read = session.read(members, {"value": bucket})
         chosen = read.where(read["value"] == "a")
         selected = session.population_from(
-            chosen, on=((chosen.axes[0], session.catalog.get("entity:sales.facts")),)
+            chosen,
+            on=(
+                (chosen.axes[0], catalog_get(session.catalog, "entity:sales.facts", kind="entity")),
+            ),
         )
         values = session.observe(
-            {"value": session.catalog.get("metric:sales.total")},
+            {"value": catalog_get(session.catalog, "metric:sales.total", kind="metric")},
             by=(selected.axes[0], bucket, revision),
             where=mv.in_population(selected),
         )
@@ -251,14 +257,14 @@ def test_source_coordinates_statistics_and_original_state(
         expected_mean = Decimal("2") if numeric_type == "int64" else 2.0
         assert _value(mean).tolist() == [expected_mean]
         original = session.observe(
-            {"value": session.catalog.get("metric:sales.total")},
+            {"value": catalog_get(session.catalog, "metric:sales.total", kind="metric")},
             by=(bucket,),
             where=mv.in_population(selected),
         ).persist()
         assert _value(original).tolist() == [2]
         assert _value(
             session.observe(
-                {"value": session.catalog.get("metric:sales.total")},
+                {"value": catalog_get(session.catalog, "metric:sales.total", kind="metric")},
                 where=mv.in_population(selected),
             ).persist()
         ).tolist() == [2]
@@ -297,7 +303,9 @@ def test_source_coordinates_statistics_and_original_state(
             }
         full_sum = 6 if numeric_type == "int64" else 6.5
         assert _value(
-            session.observe({"value": session.catalog.get("metric:sales.total")}).persist()
+            session.observe(
+                {"value": catalog_get(session.catalog, "metric:sales.total", kind="metric")}
+            ).persist()
         ).tolist() == [full_sum]
         full_mean = full.reduce({"value": full["value"].mean()}).persist()
         expected_full_mean = Decimal("3") if numeric_type == "int64" else 3.25
@@ -324,10 +332,13 @@ def test_source_coordinates_statistics_and_original_state(
         assert _value(original).tolist() == [2]
         absent = read.where(read["value"] == "missing")
         empty_members = session.population_from(
-            absent, on=((absent.axes[0], session.catalog.get("entity:sales.facts")),)
+            absent,
+            on=(
+                (absent.axes[0], catalog_get(session.catalog, "entity:sales.facts", kind="entity")),
+            ),
         )
         empty = session.observe(
-            {"value": session.catalog.get("metric:sales.total")},
+            {"value": catalog_get(session.catalog, "metric:sales.total", kind="metric")},
             by=empty_members,
             where=mv.in_population(empty_members),
         )
@@ -397,19 +408,21 @@ def test_original_mean_preserves_component_weights(
             backend, case, monkeypatch, semantic_project_factory, identity_type
         )
         session = mv.session.get_or_create("r93-c05-mean", timezone="UTC")
-        bucket = catalog_value(session.catalog, "sales.facts.bucket", kind="field")
-        amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
-        time = catalog_value(session.catalog, "sales.facts.happened", kind="field")
+        bucket = catalog_value(session.catalog, "sales.facts.bucket", kind="dimension")
+        amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
+        time = catalog_value(session.catalog, "sales.facts.happened", kind="time_dimension")
         grouped = session.observe(
             {
-                "value": session.catalog.get("metric:sales.average"),
-                "sum": session.catalog.get("metric:sales.total"),
+                "value": catalog_get(session.catalog, "metric:sales.average", kind="metric"),
+                "sum": catalog_get(session.catalog, "metric:sales.total", kind="metric"),
                 "count": amount.count(time=time),
             },
             by=(bucket,),
         )
         current = grouped.reduce({"value": grouped["value"].mean()}).persist()
-        original = session.observe({"value": session.catalog.get("metric:sales.average")}).persist()
+        original = session.observe(
+            {"value": catalog_get(session.catalog, "metric:sales.average", kind="metric")}
+        ).persist()
         assert _value(current).tolist() == [50.5]
         assert _value(original).tolist() == [34.0]
         fixed = grouped.persist()
@@ -504,13 +517,17 @@ def test_cumulative_keeps_anchor_and_overlap(
         session = mv.session.get_or_create("r93-cumulative", timezone="UTC")
         grid = session.time_scope(start="2026-08-15", end="2026-10-01").by(mv.grain("month"))
         logical = session.observe(
-            {"value": session.catalog.get("metric:sales.running")},
-            by=mv.product(grid, session.members(session.catalog.get("entity:sales.facts"))),
+            {"value": catalog_get(session.catalog, "metric:sales.running", kind="metric")},
+            by=mv.product(
+                grid,
+                session.members(catalog_get(session.catalog, "entity:sales.facts", kind="entity")),
+            ),
         )
         fixed = logical.persist()
         source_trace.record(fixed)
         grouped = session.observe(
-            {"value": session.catalog.get("metric:sales.running")}, by=(grid,)
+            {"value": catalog_get(session.catalog, "metric:sales.running", kind="metric")},
+            by=(grid,),
         ).persist()
         assert _value(grouped).tolist() == expected
         assert not hasattr(fixed, "rollup")
@@ -609,8 +626,11 @@ def test_dst_grid_keeps_instant_edges_and_fixed_coordinate(
         ]
         assert bound.cells[-1].end.strftime("%Y-%m-%d %H:%M:%S") == instants[3]
         logical = session.observe(
-            {"value": session.catalog.get("metric:sales.total")},
-            by=mv.product(grid, session.members(session.catalog.get("entity:sales.facts"))),
+            {"value": catalog_get(session.catalog, "metric:sales.total", kind="metric")},
+            by=mv.product(
+                grid,
+                session.members(catalog_get(session.catalog, "entity:sales.facts", kind="entity")),
+            ),
         )
         fixed = logical.persist()
         frame = fixed.to_pandas()
@@ -618,7 +638,7 @@ def test_dst_grid_keeps_instant_edges_and_fixed_coordinate(
         assert not frame["value"].isna().any()
         source_trace.record(fixed)
         grouped = session.observe(
-            {"value": session.catalog.get("metric:sales.total")}, by=(grid,)
+            {"value": catalog_get(session.catalog, "metric:sales.total", kind="metric")}, by=(grid,)
         ).persist()
         assert _value(grouped).tolist() == [7, 11]
         assert session._runtime.store.resources(session._runtime.session_ref) == ()
@@ -761,6 +781,7 @@ def test_certified_unequal_calendar_owns_native_boundaries(
                 for item in deadline_controls
             )
         entry = catalog.get("period_calendar:sales.fiscal")
+        assert entry.kind == "period_calendar"
         assert entry.definition.snapshot_status == "current"
         grain = entry.grain("period")
         session = mv.session.get_or_create("r93-certified-calendar", timezone="UTC")
@@ -770,7 +791,7 @@ def test_certified_unequal_calendar_owns_native_boundaries(
             timezone="Asia/Shanghai",
         )
         grid = scope.by(grain)
-        members = session.members(session.catalog.get("entity:sales.facts"))
+        members = session.members(catalog_get(session.catalog, "entity:sales.facts", kind="entity"))
         with pytest.raises(ValueError) as conflict:
             session.time_scope(start=scope.start, end=scope.end, timezone="UTC").by(grain)
         assert str(conflict.value) == (
@@ -778,20 +799,22 @@ def test_certified_unequal_calendar_owns_native_boundaries(
             "in the certified calendar boundary timezone."
         )
         logical = session.observe(
-            {"value": session.catalog.get("metric:sales.total")}, by=mv.product(grid, members)
+            {"value": catalog_get(session.catalog, "metric:sales.total", kind="metric")},
+            by=mv.product(grid, members),
         )
         fixed = logical.persist()
         assert len(fixed.to_pandas()) == 5
         source_trace.record(fixed)
         grouped = session.observe(
-            {"value": session.catalog.get("metric:sales.total")}, by=(grid,)
+            {"value": catalog_get(session.catalog, "metric:sales.total", kind="metric")}, by=(grid,)
         ).persist()
         assert _value(grouped).tolist() == [7]
         second = session.time_scope(
             start="2026-08-03", end="2026-08-06", timezone="Asia/Shanghai"
         ).by(grain)
         other = session.observe(
-            {"value": session.catalog.get("metric:sales.total")}, by=(second,)
+            {"value": catalog_get(session.catalog, "metric:sales.total", kind="metric")},
+            by=(second,),
         ).compute()
         assert _value(other).tolist() == [41]
         assert session._runtime.store.resources(session._runtime.session_ref) == ()
@@ -864,8 +887,11 @@ def test_civil_date_grid_keeps_date_keys_on_foreign_zone(
             timezone=str(zone),
         ).by(mv.grain("day"))
         logical = session.observe(
-            {"value": session.catalog.get("metric:sales.total")},
-            by=mv.product(grid, session.members(session.catalog.get("entity:sales.facts"))),
+            {"value": catalog_get(session.catalog, "metric:sales.total", kind="metric")},
+            by=mv.product(
+                grid,
+                session.members(catalog_get(session.catalog, "entity:sales.facts", kind="entity")),
+            ),
         )
         fixed = logical.persist()
         frame = fixed.to_pandas(
@@ -875,7 +901,10 @@ def test_civil_date_grid_keeps_date_keys_on_foreign_zone(
             }
         )
         assert len(frame) == 8 and (not frame["value"].isna().any())
-        assert {(row.day, row.member): row.value for row in frame.itertuples(index=False)} == {
+        actual: dict[tuple[object, object], object] = {
+            (row.day, row.member): row.value for row in frame.itertuples(index=False)
+        }
+        assert actual == {
             (datetime(2026, 8, 1, tzinfo=zone), ("a", 1, 1)): 0,
             (datetime(2026, 8, 1, tzinfo=zone), ("a", 2, 1)): 5,
             (datetime(2026, 8, 1, tzinfo=zone), ("a", 3, 1)): 0,
@@ -887,7 +916,7 @@ def test_civil_date_grid_keeps_date_keys_on_foreign_zone(
         }
         source_trace.record(fixed)
         grouped = session.observe(
-            {"value": session.catalog.get("metric:sales.total")}, by=(grid,)
+            {"value": catalog_get(session.catalog, "metric:sales.total", kind="metric")}, by=(grid,)
         ).persist()
         assert _value(grouped).tolist() == [5, 99]
         assert session._runtime.store.resources(session._runtime.session_ref) == ()
@@ -981,18 +1010,19 @@ def test_native_timestamp_retains_reader_and_grid_authority(
             timezone=str(zone),
         )
         grid = scope.by(mv.grain("day"))
-        members = session.members(session.catalog.get("entity:sales.facts"))
+        members = session.members(catalog_get(session.catalog, "entity:sales.facts", kind="entity"))
 
         reader_zone = "UTC"
         logical = session.observe(
-            {"value": session.catalog.get("metric:sales.total")}, by=mv.product(grid, members)
+            {"value": catalog_get(session.catalog, "metric:sales.total", kind="metric")},
+            by=mv.product(grid, members),
         )
         fixed = logical.persist()
         frame = fixed.to_pandas()
         assert len(frame) == 10 and (not frame["value"].isna().any())
         source_trace.record(fixed)
         grouped = session.observe(
-            {"value": session.catalog.get("metric:sales.total")}, by=(grid,)
+            {"value": catalog_get(session.catalog, "metric:sales.total", kind="metric")}, by=(grid,)
         ).persist()
         assert _value(grouped).tolist() == [7, 11]
         assert session._runtime.store.resources(session._runtime.session_ref) == ()
@@ -1060,8 +1090,11 @@ def test_aware_native_repeated_hour_keeps_distinct_instants(
         )
         grid = scope.by(mv.grain("day"))
         logical = session.observe(
-            {"value": session.catalog.get("metric:sales.total")},
-            by=mv.product(grid, session.members(session.catalog.get("entity:sales.facts"))),
+            {"value": catalog_get(session.catalog, "metric:sales.total", kind="metric")},
+            by=mv.product(
+                grid,
+                session.members(catalog_get(session.catalog, "entity:sales.facts", kind="entity")),
+            ),
         )
         fixed = logical.persist()
         frame = fixed.to_pandas()
@@ -1069,7 +1102,7 @@ def test_aware_native_repeated_hour_keeps_distinct_instants(
         assert sorted(frame["value"].tolist()) == [0, 2, 5, 11]
         source_trace.record(fixed)
         grouped = session.observe(
-            {"value": session.catalog.get("metric:sales.total")}, by=(grid,)
+            {"value": catalog_get(session.catalog, "metric:sales.total", kind="metric")}, by=(grid,)
         ).persist()
         assert _value(grouped).tolist() == [18]
         assert session._runtime.store.resources(session._runtime.session_ref) == ()
@@ -1136,8 +1169,11 @@ def test_native_observation_does_not_audit_wall_times_outside_its_scope(
         )
         grid = scope.by(mv.grain("day"))
         logical = session.observe(
-            {"value": session.catalog.get("metric:sales.total")},
-            by=mv.product(grid, session.members(session.catalog.get("entity:sales.facts"))),
+            {"value": catalog_get(session.catalog, "metric:sales.total", kind="metric")},
+            by=mv.product(
+                grid,
+                session.members(catalog_get(session.catalog, "entity:sales.facts", kind="entity")),
+            ),
         )
         result = logical.persist()
         assert sorted(_value(result).tolist()) == [0, 2]

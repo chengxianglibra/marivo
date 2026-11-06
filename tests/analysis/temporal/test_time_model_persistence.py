@@ -12,6 +12,7 @@ from pydantic import BaseModel, TypeAdapter
 
 from marivo._temporal import (
     Grain,
+    PeriodCalendarSnapshotV2,
     TemporalSnapshotStore,
     _manifest_from_json,
     _snapshot_from_json,
@@ -25,7 +26,7 @@ from marivo.refs import ref
 from tests.support.paths import PROJECT_ROOT
 
 
-def _snapshot():
+def _snapshot() -> PeriodCalendarSnapshotV2:
     return certify_period_calendar(
         calendar_ref=ref.period_calendar("sales.fiscal"),
         boundary_timezone="UTC",
@@ -35,7 +36,7 @@ def _snapshot():
     )
 
 
-def test_grain_transport_retains_lookup_and_captured_identity():
+def test_grain_transport_retains_lookup_and_captured_identity() -> None:
     class Holder(BaseModel):
         grain: Grain
 
@@ -52,7 +53,7 @@ def test_grain_transport_retains_lookup_and_captured_identity():
         Holder.model_validate({"grain": {"schema": "grain/v2", "kind": "builtin", "unit": "day"}})
 
 
-def test_retired_calendar_transport_is_rejected_without_modifying_old_file(tmp_path: Path):
+def test_retired_calendar_transport_is_rejected_without_modifying_old_file(tmp_path: Path) -> None:
     snapshot = _snapshot()
     store = TemporalSnapshotStore(tmp_path)
     store.publish(snapshot, definition_digest="current-definition")
@@ -80,7 +81,7 @@ def test_retired_calendar_transport_is_rejected_without_modifying_old_file(tmp_p
     )
 
 
-def test_cold_grid_recovery_keeps_snapshot_and_actual_bucket_boundaries(tmp_path: Path):
+def test_cold_grid_recovery_keeps_snapshot_and_actual_bucket_boundaries(tmp_path: Path) -> None:
     snapshot = _snapshot()
     grain = semantic_grain(calendar=snapshot.calendar_ref, level="period", snapshot=snapshot)
     grid = exact_scope("2026-10-01", "2026-10-03", "UTC").by(grain).grid
@@ -115,7 +116,7 @@ print(value.identity)
     assert result.stdout.strip() == grid.identity
 
 
-def test_captured_grain_digest_enters_graph_and_deferred_fingerprints():
+def test_captured_grain_digest_enters_graph_and_deferred_fingerprints() -> None:
     from ibis.common.deferred import Just
 
     from marivo._definition.deferred import recipe_fingerprint

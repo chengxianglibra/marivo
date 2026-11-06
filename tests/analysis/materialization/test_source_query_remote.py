@@ -8,6 +8,7 @@ import pandas as pd
 import pytest
 
 import marivo.analysis as mv
+import marivo.semantic as ms
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.numeric.test_remote_numeric_query import _project
 from tests.datasource.source_cases import SourceData, source_case
@@ -16,6 +17,12 @@ from tests.support.source_trace import capture_source
 
 pytestmark = pytest.mark.runtime
 CASES = (("mysql", "innodb-table"), ("trino", "iceberg"), ("clickhouse", "mergetree"))
+
+
+def _entity(catalog: ms.SemanticCatalog, path: str) -> ms.Entity:
+    result = catalog.get(path)
+    assert result.kind == "entity"
+    return result
 
 
 def _data(*, fixed: bool = False, binary: bool = False) -> SourceData:
@@ -63,9 +70,11 @@ def test_remote_terminal_string_relations(
         _project(backend, case, monkeypatch, semantic_project_factory)
         session = mv.session.get_or_create("remote-query", timezone="UTC")
         source = session.read(
-            session.members(session.catalog.get("entity:sales.facts")),
+            session.members(_entity(session.catalog, "entity:sales.facts")),
             {
-                "category": catalog_value(session.catalog, "sales.facts.category", kind="field"),
+                "category": catalog_value(
+                    session.catalog, "sales.facts.category", kind="dimension"
+                ),
             },
         )
         query = (
@@ -111,8 +120,8 @@ def test_remote_aggregate_frame_bridge_uses_typed_key_transport(
     ) as case:
         _project(backend, case, monkeypatch, semantic_project_factory)
         session = mv.session.get_or_create("remote-keys", timezone="UTC")
-        amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
-        category = catalog_value(session.catalog, "sales.facts.category", kind="field")
+        amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
+        category = catalog_value(session.catalog, "sales.facts.category", kind="dimension")
         producer = session.observe({"n": amount.count()}, by=(category,))
         selected = producer.top(1, by=producer["n"])
         fixed = selected.compute()
@@ -140,9 +149,11 @@ def test_remote_fixed_strings_keep_native_padding(
         _project(backend, case, monkeypatch, semantic_project_factory)
         session = mv.session.get_or_create("remote-char", timezone="UTC")
         source = session.read(
-            session.members(session.catalog.get("entity:sales.facts")),
+            session.members(_entity(session.catalog, "entity:sales.facts")),
             {
-                "category": catalog_value(session.catalog, "sales.facts.category", kind="field"),
+                "category": catalog_value(
+                    session.catalog, "sales.facts.category", kind="dimension"
+                ),
             },
         )
         for index, query in enumerate(
@@ -164,8 +175,8 @@ def test_remote_fixed_strings_keep_native_padding(
         if backend == "clickhouse":
             from marivo.analysis.errors import AnalysisError
 
-            entity = session.catalog.get("entity:sales.facts")
-            category = catalog_value(session.catalog, "sales.facts.category", kind="field")
+            entity = _entity(session.catalog, "entity:sales.facts")
+            category = catalog_value(session.catalog, "sales.facts.category", kind="dimension")
             parent = session.observe({"n": entity.count()}).compute()
             with pytest.raises(AnalysisError) as caught:
                 parent.attribute(by=(category,)).compute()
@@ -184,8 +195,8 @@ def test_mysql_native_collated_groups_keep_the_existing_source_membership(
     with source_case("mysql", "innodb-table", tmp_path, monkeypatch, _data()) as case:
         _project("mysql", case, monkeypatch, semantic_project_factory)
         session = mv.session.get_or_create("mysql-native-group", timezone="UTC")
-        amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
-        category = catalog_value(session.catalog, "sales.facts.category", kind="field")
+        amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
+        category = catalog_value(session.catalog, "sales.facts.category", kind="dimension")
         source = session.observe({"n": amount.count()}, by=(category,))
         selected = source.top(1, by=source["n"])
         fixed = selected.compute()

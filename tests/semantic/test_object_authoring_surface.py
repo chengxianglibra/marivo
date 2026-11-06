@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from typing import Literal
+
+import ibis.expr.types as ibis_ir
 import pytest
 from ibis.common.deferred import Deferred
 
@@ -11,11 +14,14 @@ from marivo._definition.deferred import root_declaration
 from marivo.semantic._deferred_semantics import consume_metric
 from marivo.semantic._expression_values import _as_deferred
 from marivo.semantic.errors import SemanticDecoratorError, SemanticExpressionError
+from marivo.semantic.expressions import _Entity
 from marivo.semantic.ir import (
     DateParse,
+    DimensionIR,
     DimensionKind,
     HourPrefixParse,
     JoinKey,
+    RelationshipIR,
     SampleIntervalIR,
     SemanticKind,
     SemanticParse,
@@ -34,8 +40,10 @@ from tests.support.refs import as_ref
 
 def test_measure_ref_and_kind_are_first_class() -> None:
     ref = ms.ref.measure("sales.orders.amount")
-    assert as_ref(ref).path == "sales.orders.amount"
-    assert as_ref(ref).kind == SemanticKind.MEASURE
+    reference = as_ref(ref)
+    assert reference is not None
+    assert reference.path == "sales.orders.amount"
+    assert reference.kind == SemanticKind.MEASURE
     assert SemanticKind.MEASURE.value == "measure"
     assert {item.value for item in DimensionKind} == {"categorical", "time"}
 
@@ -58,7 +66,7 @@ def test_time_parse_value_objects_reject_invalid_payloads() -> None:
     with pytest.raises(ValueError, match=r"TimestampParse\.timezone"):
         TimestampParse(timezone="not/a-zone")
     with pytest.raises(TypeError, match="sample_interval"):
-        TimestampParse(sample_interval=(1, "hour"))  # type: ignore[arg-type]
+        TimestampParse(sample_interval=(1, "hour"))  # type: ignore[call-arg]  # Invalid constructor argument.
     with pytest.raises(ValueError, match=r"StrptimeParse\.format"):
         StrptimeParse(format="yyyymmdd")
     with pytest.raises(TypeError, match=r"HourPrefixParse\.prefix"):
@@ -102,8 +110,8 @@ def test_measure_dimension_metric_and_aggregate_authoring() -> None:
         )
 
         @ms.dimension(entity=orders)
-        def region(orders_table):
-            return orders_table.region
+        def region(orders_table: ibis_ir.Table) -> ibis_ir.Column:
+            return orders_table["region"]
 
         amount = ms.measure_column(
             name="amount", entity=orders, column="amount", additivity=ms.additive_all(), unit="USD"
@@ -112,6 +120,8 @@ def test_measure_dimension_metric_and_aggregate_authoring() -> None:
         finalized = captured_catalog()
         amount_value = resolve(finalized, amount)
         orders_value = resolve(finalized, orders)
+        assert type(amount_value) is Deferred
+        assert isinstance(orders_value, _Entity)
 
         @ms.measure()
         def named_amount() -> Deferred:
@@ -122,7 +132,7 @@ def test_measure_dimension_metric_and_aggregate_authoring() -> None:
                 business_definition="Historical SQL: select sum(amount) from orders"
             )
         )
-        def revenue() -> Deferred:
+        def revenue() -> ms.MetricExpression[Literal["numeric"]]:
             return named_amount.sum()
 
         average_amount = amount_value.mean()
@@ -133,9 +143,11 @@ def test_measure_dimension_metric_and_aggregate_authoring() -> None:
     assert kinds["sales.orders.amount"] == "MeasureIR"
     assert "sales.revenue" not in kinds
     assert isinstance(named_amount, ms.RowExpression)
-    assert root_declaration(_as_deferred(named_amount)).name == "named_amount"
+    amount_declaration = root_declaration(_as_deferred(named_amount))
+    assert amount_declaration is not None and amount_declaration.name == "named_amount"
     assert isinstance(revenue, ms.MetricExpression)
-    assert root_declaration(_as_deferred(revenue)).name == "revenue"
+    revenue_declaration = root_declaration(_as_deferred(revenue))
+    assert revenue_declaration is not None and revenue_declaration.name == "revenue"
     assert consume_metric(average_amount).roots == (orders_value._exact_ref,)
 
 
@@ -154,11 +166,11 @@ def test_dimension_rejects_measure_only_arguments_by_signature() -> None:
             domain=sales,
         )
         with pytest.raises(TypeError):
-            ms.dimension(entity=orders, additivity=ms.additive_all())
+            ms.dimension(entity=orders, additivity=ms.additive_all())  # type: ignore[call-arg]  # Unsupported argument.
         with pytest.raises(TypeError):
-            ms.dimension(entity=orders, unit="USD")
+            ms.dimension(entity=orders, unit="USD")  # type: ignore[call-arg]  # Unsupported argument.
         with pytest.raises(TypeError):
-            ms.dimension(entity=orders, kind="measure")
+            ms.dimension(entity=orders, kind="measure")  # type: ignore[call-arg]  # Unsupported argument.
 
 
 def test_multi_entity_metric_requires_root_entity_at_decorator_time() -> None:
@@ -184,10 +196,13 @@ def test_multi_entity_metric_requires_root_entity_at_decorator_time() -> None:
 
         with pytest.raises(SemanticExpressionError) as exc_info:
 
-            @ms.metric(entities=[orders, refunds], additivity=ms.additive_all())
-            def net_revenue(orders_table, refunds_table):
-                return orders_table.amount.sum() - refunds_table.amount.sum()
+            @ms.metric(entities=[orders, refunds], additivity=ms.additive_all())  # type: ignore[call-arg]  # Invalid legacy arguments.
+            def net_revenue(
+                orders_table: ibis_ir.Table, refunds_table: ibis_ir.Table
+            ) -> ibis_ir.Value:
+                return orders_table["amount"].sum() - refunds_table["amount"].sum()
 
+        assert exc_info.value.repair is not None
         assert "zero-argument" in exc_info.value.repair.action
 
 
@@ -227,7 +242,10 @@ def test_relationship_uses_join_key_pairs() -> None:
         for pending in ctx.pending_definitions
         if pending.ref.path == "sales.orders_to_customers"
     )
-    assert as_ref(ref).path == "sales.orders_to_customers"
+    reference = as_ref(ref)
+    assert reference is not None
+    assert reference.path == "sales.orders_to_customers"
+    assert isinstance(relationship_ir, RelationshipIR)
     assert relationship_ir.keys[0].from_key == "sales.orders.customer_id"
     assert relationship_ir.keys[0].to_key == "sales.customers.id"
 
@@ -253,14 +271,16 @@ def test_time_dimension_uses_parse_value_object() -> None:
         )
 
         @ms.time_dimension(entity=orders, parse=ms.strptime("%Y%m%d"))
-        def dt(orders_table):
-            return orders_table.dt
+        def dt(orders_table: ibis_ir.Table) -> ibis_ir.Column:
+            return orders_table["dt"]
 
     time_ir = next(
         pending.definition
         for pending in ctx.pending_definitions
         if pending.ref.path == "sales.orders.dt"
     )
+    assert isinstance(time_ir, DimensionIR)
+    assert isinstance(time_ir.parse, StrptimeParse)
     assert time_ir.parse.kind == "strptime"
     assert time_ir.parse.format == "%Y%m%d"
 
@@ -288,16 +308,16 @@ def test_hour_prefix_rejects_unrepresentable_minute_sampling() -> None:
         )
 
         @ms.time_dimension(entity=orders)
-        def dt(orders_table):
-            return orders_table.dt
+        def dt(orders_table: ibis_ir.Table) -> ibis_ir.Column:
+            return orders_table["dt"]
 
         with pytest.raises(SemanticDecoratorError) as exc_info:
 
             @ms.time_dimension(
                 entity=orders, parse=ms.hour_prefix(dt), sample_interval=(5, "minute")
             )
-            def hh(orders_table):
-                return orders_table.hh
+            def hh(orders_table: ibis_ir.Table) -> ibis_ir.Column:
+                return orders_table["hh"]
 
     assert "hour_prefix" in str(exc_info.value)
 

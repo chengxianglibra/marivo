@@ -36,6 +36,7 @@ def test_aware_source_rejects_any_parser_timezone_and_repair_runs(declared: str)
     assert "duckdb" in error.received
     assert "timestamp('UTC')" in error.received
     assert f"parser_timezone={declared!r}" in error.received
+    assert error.repair is not None
     assert "sales.events.point" in error.repair.action
     assert "parse=ms.timestamp()" in error.repair.action
     repaired, authority = source_time(
@@ -108,6 +109,7 @@ def test_aware_physical_source_rejects_strptime_timezone() -> None:
         )
 
     assert caught.value.location == "analysis.source_time[time_dimension:sales.events.point]"
+    assert caught.value.repair is not None
     assert "parse=ms.timestamp()" in caught.value.repair.action
 
 

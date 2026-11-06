@@ -8,7 +8,7 @@ from marivo.introspection.live.errors import (
 from marivo.introspection.live.model import SURFACE_LIMITS
 
 
-def test_help_target_error_payload_string_target():
+def test_help_target_error_payload_string_target() -> None:
     payload = build_help_target_error_payload(
         "not_a_target",
         surface="semantic",
@@ -22,7 +22,7 @@ def test_help_target_error_payload_string_target():
     assert payload.message
 
 
-def test_help_target_error_payload_surfaces_did_you_mean_in_message():
+def test_help_target_error_payload_surfaces_did_you_mean_in_message() -> None:
     """Candidates appear in the message itself (first line), not only in the
     repair section. See issue #35.
     """
@@ -38,7 +38,7 @@ def test_help_target_error_payload_surfaces_did_you_mean_in_message():
     assert "Did you mean" not in empty.message
 
 
-def test_help_target_error_payload_object_target_uses_type_name():
+def test_help_target_error_payload_object_target_uses_type_name() -> None:
     class Thing:
         pass
 
@@ -47,7 +47,7 @@ def test_help_target_error_payload_object_target_uses_type_name():
     assert payload.candidates == ()
 
 
-def test_help_target_error_payload_candidates_bounded():
+def test_help_target_error_payload_candidates_bounded() -> None:
     many = tuple(f"cap{i}" for i in range(SURFACE_LIMITS.help_suggestion_limit + 5))
     payload = build_help_target_error_payload("x", surface="semantic", candidates=many)
     assert len(payload.candidates) == SURFACE_LIMITS.help_suggestion_limit

@@ -17,6 +17,24 @@ from tests.shared_fixtures import DslCase, DslCaseFactory, frozen_coordinates, t
 from tests.support.source_trace import SourceTrace
 
 
+def _entity(catalog: ms.SemanticCatalog, path: str) -> ms.Entity:
+    result = catalog.get(path)
+    assert result.kind == "entity"
+    return result
+
+
+def _metric(catalog: ms.SemanticCatalog, path: str) -> ms.Metric:
+    result = catalog.get(path)
+    assert result.kind == "metric"
+    return result
+
+
+def _time_dimension(catalog: ms.SemanticCatalog, path: str) -> ms.TimeDimension:
+    result = catalog.get(path)
+    assert result.kind == "time_dimension"
+    return result
+
+
 def _member_frame(frame: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame({"value": frame["value"], "member": frame["customer"]})
 
@@ -46,12 +64,12 @@ def test_explicit_within_filters_the_original_encoded_column(
 ) -> None:
     case = analysis_dsl_case_factory("j1")
     _encode_orders(case, "%Y%m%d")
-    point = case.session.catalog.get(
-        f"time_dimension:sales.{case.names.order}.{case.names.ordered_at}"
+    point = _time_dimension(
+        case.session.catalog, f"time_dimension:sales.{case.names.order}.{case.names.ordered_at}"
     )
     scope = case.session.time_scope(start="2026-08-01", end="2026-09-01")
     result = case.session.observe(
-        {"value": case.session.catalog.get("metric:sales.revenue")},
+        {"value": _metric(case.session.catalog, "metric:sales.revenue")},
         by=(),
         where=point.within(scope),
     ).compute()
@@ -95,12 +113,12 @@ def test_observation_preserves_population_windows_and_query_count(
         return original(self, read)
 
     monkeypatch.setattr(SourceSession, "execute", traced)
-    population = case.session.members(case.session.catalog.get("entity:sales.customer"))
+    population = case.session.members(_entity(case.session.catalog, "entity:sales.customer"))
 
     def observe(start: str, end: str) -> pd.DataFrame:
         return (
             case.session.observe(
-                {"value": case.session.catalog.get("metric:sales.revenue")},
+                {"value": _metric(case.session.catalog, "metric:sales.revenue")},
                 by=mv.product(case.session.time_scope(start=start, end=end), population),
             )
             .compute()
@@ -133,10 +151,10 @@ def test_observation_preserves_population_windows_and_query_count(
     assert september.value.iloc[1:].eq(0).all()
     # When the member source is the event source, the window still restricts
     # contributions only; identities before/after the window remain present.
-    orders = case.session.members(case.session.catalog.get("entity:sales.order"))
+    orders = case.session.members(_entity(case.session.catalog, "entity:sales.order"))
     direct = (
         case.session.observe(
-            {"value": case.session.catalog.get("metric:sales.revenue")},
+            {"value": _metric(case.session.catalog, "metric:sales.revenue")},
             by=mv.product(case.session.time_scope(start="2026-08-01", end="2026-09-01"), orders),
         )
         .compute()
@@ -163,11 +181,11 @@ def test_grid_window_has_scan_envelope_and_preserves_cells(
 
     monkeypatch.setattr(SourceSession, "execute", traced)
     grid = case.session.time_scope(start="2026-08-01", end="2026-10-01").by(mv.grain("month"))
-    population = case.session.members(case.session.catalog.get("entity:sales.customer"))
+    population = case.session.members(_entity(case.session.catalog, "entity:sales.customer"))
 
     def execute() -> pd.DataFrame:
         frame = case.session.observe(
-            {"value": case.session.catalog.get("metric:sales.revenue")},
+            {"value": _metric(case.session.catalog, "metric:sales.revenue")},
             by=mv.product(grid, population),
         ).compute()
         rows = frame.to_pandas(time_details=True)
@@ -206,7 +224,7 @@ def test_cumulative_grid_and_endpoint_match_original_temporal_filter(
     case = analysis_dsl_case_factory("j1")
     _encode_orders(case, "%Y%m%d%H%M%S", integer=True)
     grid = case.session.time_scope(start="2026-08-15", end="2026-10-01").by(mv.grain("month"))
-    metric = case.session.catalog.get("metric:sales.revenue").window(mv.all_history())
+    metric = _metric(case.session.catalog, "metric:sales.revenue").window(mv.all_history())
 
     def execute() -> pd.DataFrame:
         query = case.session.observe({"value": metric}, by=(grid,))
@@ -229,12 +247,12 @@ def test_event_column_on_relationship_destination_keeps_its_own_range(
 ) -> None:
     case = analysis_dsl_case_factory("j3")
     _encode_orders(case, "%Y%m%d%H%M%S", integer=True)
-    population = case.session.members(case.session.catalog.get("entity:sales.customer"))
+    population = case.session.members(_entity(case.session.catalog, "entity:sales.customer"))
 
     def execute() -> pd.DataFrame:
         return (
             case.session.observe(
-                {"value": case.session.catalog.get("metric:sales.line_revenue")},
+                {"value": _metric(case.session.catalog, "metric:sales.line_revenue")},
                 by=mv.product(
                     case.session.time_scope(start="2026-08-01", end="2026-09-01"), population
                 ),
@@ -257,12 +275,12 @@ def test_outside_window_relationship_mismatch_preserves_observation_scope(
     _encode_orders(case, "%Y%m%d")
     with duckdb.connect(str(case.database_path)) as connection:
         connection.execute("UPDATE \"order\" SET customer_id='missing' WHERE order_id='j1_july'")
-    population = case.session.members(case.session.catalog.get("entity:sales.customer"))
+    population = case.session.members(_entity(case.session.catalog, "entity:sales.customer"))
 
     def execute() -> pd.DataFrame:
         return (
             case.session.observe(
-                {"value": case.session.catalog.get("metric:sales.revenue")},
+                {"value": _metric(case.session.catalog, "metric:sales.revenue")},
                 by=mv.product(
                     case.session.time_scope(start="2026-08-01", end="2026-09-01"), population
                 ),
@@ -297,12 +315,12 @@ def test_encoded_and_parsed_time_wide_sums_preserve_values_and_run_ownership(
             'INSERT INTO "order" VALUES '
             "('overflow','A','web','paid','20260815',9223372036854775807)"
         )
-    population = case.session.members(case.session.catalog.get("entity:sales.customer"))
+    population = case.session.members(_entity(case.session.catalog, "entity:sales.customer"))
 
     def execute() -> pd.DataFrame:
         return (
             case.session.observe(
-                {"value": case.session.catalog.get("metric:sales.revenue")},
+                {"value": _metric(case.session.catalog, "metric:sales.revenue")},
                 by=mv.product(
                     case.session.time_scope(start="2026-08-01", end="2026-09-01"), population
                 ),

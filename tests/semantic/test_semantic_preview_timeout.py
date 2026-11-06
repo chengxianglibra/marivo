@@ -330,15 +330,18 @@ def test_batch_groups_use_their_own_deadlines_and_preserve_order(
             probe.catalog.get("entity:sales.refunds"),
             probe.catalog.get("measure:sales.refunds.amount"),
         ]
+        orders = probe.catalog.get("entity:sales.orders")
+        refunds = probe.catalog.get("entity:sales.refunds")
+        assert orders.kind == "entity" and refunds.kind == "entity"
         batch = probe.catalog.preview_many(
             refs,
             scope=(
                 (
-                    probe.catalog.get("entity:sales.orders"),
+                    orders,
                     md.unpruned(max_rows=10, timeout_seconds=30),
                 ),
                 (
-                    probe.catalog.get("entity:sales.refunds"),
+                    refunds,
                     md.unpruned(max_rows=10, timeout_seconds=11),
                 ),
             ),

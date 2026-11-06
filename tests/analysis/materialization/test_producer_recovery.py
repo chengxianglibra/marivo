@@ -15,6 +15,7 @@ import pandas as pd
 import pytest
 
 import marivo.analysis as mv
+import marivo.semantic as ms
 from marivo.datasource.adapters import SourceSession
 from marivo.datasource.ir import TableSourceIR
 from marivo.semantic.reader import SemanticProject
@@ -26,6 +27,18 @@ from tests.datasource.source_cases import source_case
 from tests.support.json import Json
 from tests.support.paths import PROJECT_ROOT
 from tests.support.source_trace import SourceTrace
+
+
+def _entity(catalog: ms.SemanticCatalog, path: str) -> ms.Entity:
+    result = catalog.get(path)
+    assert result.kind == "entity"
+    return result
+
+
+def _metric(catalog: ms.SemanticCatalog, path: str) -> ms.Metric:
+    result = catalog.get(path)
+    assert result.kind == "metric"
+    return result
 
 
 def producer_recovery(
@@ -69,8 +82,8 @@ def producer_recovery(
             author_source_project(backend, case, monkeypatch, semantic_project_factory)
         session = mv.session.get_or_create("r94-producer", timezone="UTC")
         values = session.observe(
-            {"value": session.catalog.get("metric:sales.total")},
-            by=session.members(session.catalog.get("entity:sales.facts")),
+            {"value": _metric(session.catalog, "metric:sales.total")},
+            by=session.members(_entity(session.catalog, "entity:sales.facts")),
         )
         captures = [values.persist(), values.persist()]
         assert captures[0].artifact_id != captures[1].artifact_id
@@ -198,7 +211,7 @@ def test_http_source_supports_fixed_continuation(
     ) as case:
         author_http_case(case, semantic_project_factory)
         session = mv.session.get_or_create("http-producer", timezone="UTC")
-        fixed = session.observe({"value": session.catalog.get("metric:sales.total")}).compute()
+        fixed = session.observe({"value": _metric(session.catalog, "metric:sales.total")}).compute()
         assert fixed.to_pandas()["value"].tolist() == [6]
         saved = fixed.persist()
 

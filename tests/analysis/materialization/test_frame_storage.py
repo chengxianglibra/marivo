@@ -1897,9 +1897,9 @@ def test_pending_show_keeps_deep_shared_scope_and_stops_at_fixed_inputs(
     from marivo.datasource.adapters import SourceSession
 
     case = analysis_dsl_case_factory("j2")
-    region = catalog_value(case.catalog, "sales.customer.region", kind="field")
+    region = catalog_value(case.catalog, "sales.customer.region", kind="dimension")
     source = case.session.observe(
-        {"sales": case.catalog.get("metric:sales.revenue")},
+        {"sales": catalog_value(case.catalog, "sales.revenue", kind="metric")},
         where=region == "east",
         by=mv.product(
             case.session.time_scope(start="2026-08-01", end="2026-09-01"),
@@ -1974,15 +1974,17 @@ def test_pending_read_label_and_derived_anchor_are_captured_without_execution(
     from marivo.datasource.adapters import SourceSession
 
     case = analysis_dsl_case_factory("j2")
-    region = catalog_value(case.catalog, "sales.customer.region", kind="field")
+    region = catalog_value(case.catalog, "sales.customer.region", kind="dimension")
     members = case.session.members(
-        case.catalog.get("entity:sales.customer"), where=region == "east"
+        catalog_value(case.catalog, "sales.customer", kind="entity"), where=region == "east"
     )
     read = case.session.read(members, {"region": region})
     selected = read.select({"selected_region": read["region"]})
     instant = case.session.instant("2026-08-01T00:00:00Z")
     anchored = case.session.frame(
-        case.session.members(case.catalog.get("entity:sales.customer"), at=instant)
+        case.session.members(
+            catalog_value(case.catalog, "sales.customer", kind="entity"), at=instant
+        )
     ).reduce({"rows": mv.row_count()})
 
     capture = scope_summary
@@ -2041,7 +2043,9 @@ def test_attachment_preview_filters_arrow_before_python_key_materialization(
     decoded: list[int] = []
     original_open = OutputRead._open
     original_keys = frozen_key_rows
-    original_normalize = graph_reading.normalize_complete_frame
+    from marivo.analysis.core.data_validation import normalize_complete_frame
+
+    original_normalize = normalize_complete_frame
 
     class ObservedParquet:
         def __init__(self, parquet: pq.ParquetFile) -> None:
@@ -2423,8 +2427,8 @@ def attribute_request(
 ) -> AnalysisFrame:
     from marivo.analysis.binding.frame_attribute import attribute
 
-    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
-    phase = catalog_value(session.catalog, "sales.facts.phase", kind="field")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
+    phase = catalog_value(session.catalog, "sales.facts.phase", kind="dimension")
     parent_axes = () if parents is None else parents
     current = session.observe({"q": amount.sum()}, by=parent_axes, where=phase == "current")
     baseline = session.observe({"q": amount.sum()}, by=parent_axes, where=phase == "base")
@@ -2433,7 +2437,7 @@ def attribute_request(
     )
     selected = compared.select({"q": compared["base.absolute.q"]})
     return attribute(
-        selected, by=(catalog_value(session.catalog, "sales.facts." + axis, kind="field"),)
+        selected, by=(catalog_value(session.catalog, "sales.facts." + axis, kind="dimension"),)
     )
 
 
@@ -2441,6 +2445,8 @@ def attribute_request(
 def test_real_method_facts_propagate_through_fixed_and_pending_inputs(
     attribute_session: Session,
 ) -> None:
+    from marivo.analysis.core.frame_method_facts import FrameAdditiveMethod
+
     pending = attribute_request(attribute_session)
     with pytest.raises(AnalysisError, match="compute"):
         _ = pending.method_facts
@@ -2451,7 +2457,9 @@ def test_real_method_facts_propagate_through_fixed_and_pending_inputs(
         original[0].origin_result_id
         == terminal_store.describe(_memory_backing(memory).metadata).result_id
     )
-    assert original[0].parents[0].metrics[0].method.change.value == 40
+    method = original[0].parents[0].metrics[0].method
+    assert isinstance(method, FrameAdditiveMethod)
+    assert method.change.value == 40
     saved = memory.persist()
     assert saved.method_facts == original
     assert saved.compute().method_facts == original
@@ -2500,7 +2508,7 @@ def test_expression_history_is_folded_at_each_producer_and_source_parameter(
     attribute_session: Session,
 ) -> None:
     session = attribute_session
-    region = catalog_value(session.catalog, "sales.facts.region", kind="field")
+    region = catalog_value(session.catalog, "sales.facts.region", kind="dimension")
     b = attribute_request(session, axis="region").compute()
     d = attribute_request(session, axis="region").compute()
 
@@ -2525,7 +2533,7 @@ def test_expression_history_is_folded_at_each_producer_and_source_parameter(
     selected = ancestor.where(ancestor["contribution.q"] > 0)
     domain = session.population_from(selected, on=((selected.axes[0], region),))
     observed = session.observe(
-        {"q": catalog_value(session.catalog, "sales.facts.amount", kind="field").sum()}, by=domain
+        {"q": catalog_value(session.catalog, "sales.facts.amount", kind="measure").sum()}, by=domain
     ).compute()
     assert len(observed.method_facts) == 1
     assert observed.method_facts[0].origin_result_id != _memory_backing(observed).metadata.result_id
@@ -2591,13 +2599,18 @@ def test_method_only_reads_and_lazy_data_paths_have_independent_damage_boundarie
 
 
 def test_equal_origin_requires_full_typed_payload_equality(attribute_session: Session) -> None:
-    from marivo.analysis.core.frame_method_facts import FrameLinearMethod, FrameLinearTerm
+    from marivo.analysis.core.frame_method_facts import (
+        FrameAdditiveMethod,
+        FrameLinearMethod,
+        FrameLinearTerm,
+    )
 
     memory = attribute_request(attribute_session).compute()
     facts = memory.method_facts[0]
     parent = facts.parents[0]
     metric = parent.metrics[0]
     method = metric.method
+    assert isinstance(method, FrameAdditiveMethod)
     # This is structurally and numerically valid but conflicts with the same completed origin.
     changed = replace(
         facts,
@@ -2831,8 +2844,8 @@ def test_source_report_and_observed_parent_reopen_without_declarations(
     import sys
 
     session = attribute_session
-    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
-    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="dimension")
     observed = session.observe({"q": amount.sum()}).compute().persist()
     report = observed.attribute(by=(channel,)).compute().persist()
     assert observed._derivation is not None
@@ -2918,6 +2931,8 @@ def test_readable_paired_calendar_keeps_endpoint_mapping_separate_from_row_prese
 
 
 def test_readable_partial_calendar_retains_keys_and_selection(local: LocalFrameServices) -> None:
+    from marivo.analysis.core.frame_page import FrameCalendarPeriod
+
     root = calendar(local, 1)
     backing = _memory_backing(root)
     part = backing.data.copy_attachments()[0]
@@ -2936,7 +2951,9 @@ def test_readable_partial_calendar_retains_keys_and_selection(local: LocalFrameS
     assert rows["day.label"].tolist() == ["2024-01-01"]
     assert rows["day"].tolist() == [900000]
     assert rows.columns.tolist() == ["day", "day.label", "amount"]
-    assert _period_page(frame, limit=1).items[0].selection == "partial"
+    item = _period_page(frame, limit=1).items[0]
+    assert isinstance(item, FrameCalendarPeriod)
+    assert item.selection == "partial"
 
 
 def test_data_pages_preserve_projection_order_coordinates_and_cold_continuation(
@@ -3200,6 +3217,7 @@ def test_data_page_cursor_continues_in_an_independent_process(local: LocalFrameS
 
     saved = ordinary(local, 5).persist()
     first = saved.read_page(columns=("amount",), limit=2)
+    assert first.next_cursor is not None
     script = """
 import json, sys
 from pathlib import Path
@@ -3619,7 +3637,11 @@ def test_period_pages_keep_endpoint_timezones_without_reconstruction(
 def test_interval_period_pages_keep_saved_pairs_and_comparison_endpoints(
     local: LocalFrameServices,
 ) -> None:
-    from marivo.analysis.core.frame_page import FrameComparisonPeriod, FramePairedPeriod
+    from marivo.analysis.core.frame_page import (
+        FrameComparisonPeriod,
+        FrameIntervalPeriod,
+        FramePairedPeriod,
+    )
 
     current, baseline = interval(local, 1, 4), interval(local, 2, 5)
     paired = current.align(baseline, match=CalendarCorrespondence("ordinal")).compute()
@@ -3634,12 +3656,16 @@ def test_interval_period_pages_keep_saved_pairs_and_comparison_endpoints(
             assert item.key == (0,)
             if isinstance(item, FrameComparisonPeriod):
                 assert comparison and item.baseline is not None
+                assert isinstance(item.current, FrameIntervalPeriod)
+                assert isinstance(item.baseline, FrameIntervalPeriod)
                 assert item.current.start == datetime(2024, 1, 1, tzinfo=timezone.utc)
                 assert item.baseline.start == datetime(2024, 1, 2, tzinfo=timezone.utc)
                 assert item.absent_reason is None
             else:
                 assert isinstance(item, FramePairedPeriod) and not comparison
                 assert item.left is not None and item.right is not None
+                assert isinstance(item.left, FrameIntervalPeriod)
+                assert isinstance(item.right, FrameIntervalPeriod)
                 assert item.left.start == datetime(2024, 1, 1, tzinfo=timezone.utc)
                 assert item.right.end == datetime(2024, 1, 5, tzinfo=timezone.utc)
 

@@ -161,11 +161,15 @@ def test_uint64_extrema_keep_decimal_and_nulls_through_aliases(
     from marivo._numeric_types import exact_unsigned, native_unsigned_aggregates
 
     low, high = 2**53 + 1, 2**64 - 1
+    source_rows: list[dict[str, object]] = [
+        {"k": "a", "v": value} for value in (low, high, high, None)
+    ]
+    source_rows.append({"k": "b", "v": None})
     data = SourceData(
         "k VARCHAR, v UBIGINT",
         f"('a',{low}),('a',{high}),('a',{high}),('a',NULL),('b',NULL)",
         "k String, v Nullable(UInt64)",
-        [{"k": "a", "v": value} for value in (low, high, high, None)] + [{"k": "b", "v": None}],
+        source_rows,
     )
     with source_case(backend, profile, tmp_path, monkeypatch, data) as case:
         raw = case.session.bind(case.source, source_identity="unsigned-extrema").relation

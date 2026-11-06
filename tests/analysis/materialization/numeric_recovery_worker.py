@@ -16,6 +16,18 @@ from tests.shared_fixtures import catalog_value, terminal_runs
 from tests.support.json import Json, obj, read
 
 
+def _entity(catalog: ms.SemanticCatalog, path: str) -> ms.Entity:
+    result = catalog.get(path)
+    assert result.kind == "entity"
+    return result
+
+
+def _metric(catalog: ms.SemanticCatalog, path: str) -> ms.Metric:
+    result = catalog.get(path)
+    assert result.kind == "metric"
+    return result
+
+
 def run_process(project: str, session_id: str, phase: str) -> None:
     root = Path(project)
     os.environ["MARIVO_PROJECT_ROOT"] = project
@@ -23,11 +35,11 @@ def run_process(project: str, session_id: str, phase: str) -> None:
     manifest = root / "numeric-source.json"
     session = mv.session.resume(session_id)
     if phase == "produce":
-        members = session.members(session.catalog.get("entity:sales.customer"))
-        region = catalog_value(session.catalog, "sales.customer.region", kind="field")
+        members = session.members(_entity(session.catalog, "entity:sales.customer"))
+        region = catalog_value(session.catalog, "sales.customer.region", kind="dimension")
         scope = session.time_scope(start="2026-08-01", end="2026-09-01")
         observed = session.observe(
-            {"value": session.catalog.get("metric:sales.revenue")},
+            {"value": _metric(session.catalog, "metric:sales.revenue")},
             by=(scope, members.axes[0], region),
             where=mv.in_population(members),
         )
@@ -58,12 +70,12 @@ def run_process(project: str, session_id: str, phase: str) -> None:
         assert results["distinct"].to_pandas()["value"].tolist() == [2, 1, 1]
         assert results["quantile"].to_pandas()["value"].tolist() == [60, 20, 7]
         results["read"] = session.read(
-            session.members(session.catalog.get("entity:sales.order")),
-            {"value": catalog_value(session.catalog, "sales.order.amount", kind="field")},
+            session.members(_entity(session.catalog, "entity:sales.order")),
+            {"value": catalog_value(session.catalog, "sales.order.amount", kind="measure")},
         ).persist()
         results["category"] = session.read(members, {"value": region}).persist()
         results["approx_quantile"] = session.observe(
-            {"value": session.catalog.get("metric:sales.approx_quantile")}, by=(scope,)
+            {"value": _metric(session.catalog, "metric:sales.approx_quantile")}, by=(scope,)
         ).persist()
         approximate = results["approx_quantile"].to_pandas()["value"].iloc[0]
         assert 7 <= approximate <= 120

@@ -2477,7 +2477,7 @@ class MetricExpression(_ExpressionCarrier, Generic[_MetricRoleT]):
     def per(
         self: NumericMetric,
         by: FieldExpression
-        | tuple[FieldExpression | Grouping, ...]
+        | tuple[FieldExpression | Grouping | PopulationParameter, ...]
         | Grouping
         | PopulationParameter
         | TimeParameter
@@ -2487,7 +2487,7 @@ class MetricExpression(_ExpressionCarrier, Generic[_MetricRoleT]):
     def per(
         self: NumericMetric,
         by: FieldExpression
-        | tuple[FieldExpression | Grouping, ...]
+        | tuple[FieldExpression | Grouping | PopulationParameter, ...]
         | Grouping
         | PopulationParameter
         | TimeParameter

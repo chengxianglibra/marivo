@@ -18,6 +18,19 @@ from tests.analysis.materialization.domain_recovery_worker import forbidden, sna
 from tests.shared_fixtures import terminal_runs
 from tests.support.json import Json, obj, read
 
+
+def _metric(catalog: ms.SemanticCatalog, path: str) -> ms.Metric:
+    result = catalog.get(path)
+    assert result.kind == "metric"
+    return result
+
+
+def _entity(catalog: ms.SemanticCatalog, path: str) -> ms.Entity:
+    result = catalog.get(path)
+    assert result.kind == "entity"
+    return result
+
+
 DAY_ROWS = (
     (1, "2026-07-01", "10.05", "2.50", 3),
     (2, "2026-07-01", "20.10", "1.25", 1),
@@ -116,17 +129,17 @@ def run(mode: str, project: Path) -> dict[str, Json]:
             )
             connection.executemany("INSERT INTO orders VALUES (?, ?, ?, ?, ?)", DAY_ROWS)
         session = mv.session.get_or_create("equation", timezone="UTC")
-        gmv = session.catalog.get("metric:sales.gmv")
-        qty_total = session.catalog.get("metric:sales.qty_total")
+        gmv = _metric(session.catalog, "metric:sales.gmv")
+        qty_total = _metric(session.catalog, "metric:sales.qty_total")
         metrics_by_name = {
-            "net_amount": gmv + session.catalog.get("metric:sales.cost_total") - gmv,
-            "net_qty": qty_total + session.catalog.get("metric:sales.qty_count") - qty_total,
-            "amount_mean": session.catalog.get("metric:sales.amount_mean"),
+            "net_amount": gmv + _metric(session.catalog, "metric:sales.cost_total") - gmv,
+            "net_qty": qty_total + _metric(session.catalog, "metric:sales.qty_count") - qty_total,
+            "amount_mean": _metric(session.catalog, "metric:sales.amount_mean"),
         }
         scope = session.time_scope(start="2026-07-01", end="2026-08-01")
         original = session.observe(
             metrics_by_name,
-            by=mv.product(scope, session.members(session.catalog.get("entity:sales.orders"))),
+            by=mv.product(scope, session.members(_entity(session.catalog, "entity:sales.orders"))),
         ).persist()
         monthly = session.observe(metrics_by_name, by=(scope,)).persist()
         artifacts: dict[str, Json] = {

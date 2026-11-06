@@ -11,6 +11,7 @@ import ibis
 import pytest
 
 import marivo.analysis as mv
+import marivo.semantic as ms
 from marivo.analysis.compiler.source_time import source_time, source_time_predicate
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.temporal.encoded_time_fixtures import axis
@@ -19,6 +20,30 @@ from tests.shared_fixtures import declared_test_timezone
 from tests.support.source_trace import SourceTrace
 
 pytestmark = pytest.mark.runtime
+
+
+def _dimension(catalog: ms.SemanticCatalog, path: str) -> ms.Dimension:
+    result = catalog.get(path)
+    assert result.kind == "dimension"
+    return result
+
+
+def _entity(catalog: ms.SemanticCatalog, path: str) -> ms.Entity:
+    result = catalog.get(path)
+    assert result.kind == "entity"
+    return result
+
+
+def _metric(catalog: ms.SemanticCatalog, path: str) -> ms.Metric:
+    result = catalog.get(path)
+    assert result.kind == "metric"
+    return result
+
+
+def _time_dimension(catalog: ms.SemanticCatalog, path: str) -> ms.TimeDimension:
+    result = catalog.get(path)
+    assert result.kind == "time_dimension"
+    return result
 
 
 @pytest.mark.parametrize("connector", ["iceberg", "hive"])
@@ -136,8 +161,10 @@ def test_native_partition_constraints_and_scanned_rows(
                             patch.setenv("MARIVO_PARTITION_READER", "analysis_reader")
                             patch.chdir(tmp_path)
                             session = mv.session.get_or_create("raw-partition", timezone=zone)
-                            events = session.catalog.get("entity:sales.events")
-                            point = session.catalog.get("time_dimension:sales.events.point")
+                            events = _entity(session.catalog, "entity:sales.events")
+                            point = _time_dimension(
+                                session.catalog, "time_dimension:sales.events.point"
+                            )
                             scope = session.time_scope(start="2026-07-03", end="2026-07-05")
                             result = session.observe(
                                 {"value": events.count(time=point)}, by=(scope,)
@@ -243,12 +270,12 @@ def test_hour_prefix_public_filters_prune_both_iceberg_partitions(
             monkeypatch.chdir(tmp_path)
             monkeypatch.setenv("MARIVO_PROJECT_ROOT", str(tmp_path))
             session = mv.session.get_or_create("hour-partition", timezone="Asia/Shanghai")
-            events = session.catalog.get("entity:sales.events")
-            hour = session.catalog.get("time_dimension:sales.events.hour")
-            identity = session.catalog.get("dimension:sales.events.id")
+            events = _entity(session.catalog, "entity:sales.events")
+            hour = _time_dimension(session.catalog, "time_dimension:sales.events.hour")
+            identity = _dimension(session.catalog, "dimension:sales.events.id")
             metrics = {
                 "n": events.count(time=hour),
-                "total": session.catalog.get("metric:sales.total"),
+                "total": _metric(session.catalog, "metric:sales.total"),
             }
             start_text, end_text = (
                 f"2026-10-28 {start_hour:02d}:00:00",

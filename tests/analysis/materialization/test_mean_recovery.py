@@ -11,6 +11,7 @@ from pathlib import Path
 import pytest
 
 import marivo.analysis as mv
+import marivo.semantic as ms
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.graph.source_fixtures import author_source_project
 from tests.analysis.materialization.domain_recovery_worker import snapshot
@@ -19,6 +20,12 @@ from tests.shared_fixtures import catalog_value
 from tests.support.json import Json, checked, encode, obj, read
 from tests.support.paths import PROJECT_ROOT
 from tests.support.source_trace import SourceTrace
+
+
+def _metric(catalog: ms.SemanticCatalog, path: str) -> ms.Metric:
+    result = catalog.get(path)
+    assert result.kind == "metric"
+    return result
 
 
 @pytest.mark.release
@@ -57,19 +64,21 @@ def test_native_original_mean_independent_fixed_and_cold(
     with source_case(backend, profile, tmp_path, monkeypatch, data) as case:
         author_source_project(backend, case, monkeypatch, semantic_project_factory)
         session = mv.session.get_or_create("r94-mean", timezone="UTC")
-        bucket = catalog_value(session.catalog, "sales.facts.bucket", kind="field")
-        amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
-        time = catalog_value(session.catalog, "sales.facts.happened", kind="field")
+        bucket = catalog_value(session.catalog, "sales.facts.bucket", kind="dimension")
+        amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
+        time = catalog_value(session.catalog, "sales.facts.happened", kind="time_dimension")
         grouped = session.observe(
             {
-                "value": session.catalog.get("metric:sales.average"),
-                "sum": session.catalog.get("metric:sales.total"),
+                "value": _metric(session.catalog, "metric:sales.average"),
+                "sum": _metric(session.catalog, "metric:sales.total"),
                 "count": amount.count(time=time),
             },
             by=(bucket,),
         )
         source = grouped.persist()
-        original = session.observe({"value": session.catalog.get("metric:sales.average")}).persist()
+        original = session.observe(
+            {"value": _metric(session.catalog, "metric:sales.average")}
+        ).persist()
         current = grouped.reduce({"value": grouped["value"].mean()}).persist()
         assert source.to_pandas()["value"].tolist() == [1.0, 100.0]
         assert original.to_pandas()["value"].tolist() == [34.0]

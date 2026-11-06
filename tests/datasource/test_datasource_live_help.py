@@ -279,7 +279,7 @@ def test_live_help_performs_no_datasource_effects(
     monkeypatch.setattr("marivo.datasource.authoring_store.AuthoringStore.write_snapshot", fail)
     monkeypatch.setattr("marivo.config.load_project_config", fail)
 
-    assert marivo.help() is None
+    assert marivo.help() is None  # type: ignore[func-returns-value]  # Verify the runtime return.
     for target in (
         "datasource",
         "datasource.connections",
@@ -289,7 +289,8 @@ def test_live_help_performs_no_datasource_effects(
         "datasource.inspect",
         *(type(t) for t in datasource_runtime_targets),
     ):
-        assert marivo.help(target) is None
+        assert isinstance(target, (str, type))
+        assert marivo.help(target) is None  # type: ignore[func-returns-value]  # Verify the runtime return.
 
 
 def test_datasource_task_tree_exposes_direct_sql_and_conditioned_native_routes() -> None:

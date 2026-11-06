@@ -128,11 +128,10 @@ with log.scope(Path(sys.argv[1])):
 def test_runtime_identity_and_schema_cannot_be_overridden(tmp_path: Path, source: str) -> None:
     spoofed: dict[str, log.LogValue] = {"schema_version": 99, "runtime": "caller-supplied"}
     with log.scope(tmp_path, **(spoofed if source == "scope" else {})):
-        log.emit(
-            "owned-identity",
-            fields=spoofed if source == "fields" else {},
-            **(spoofed if source == "facts" else {}),
-        )
+        if source == "facts":
+            log.emit("owned-identity", schema_version=99, runtime="caller-supplied")
+        else:
+            log.emit("owned-identity", fields=spoofed if source == "fields" else {})
     record = execution_records(tmp_path)[0]
     assert record["schema_version"] == 2
     runtime = record["runtime"]
@@ -207,9 +206,9 @@ def test_runtime_capture_failures_preserve_query_results_and_original_errors(
 
 
 def _set_time(monkeypatch: pytest.MonkeyPatch, instant: datetime) -> None:
-    class Clock(datetime):
-        @classmethod
-        def now(cls, tz: object = None) -> datetime:
+    class Clock:
+        @staticmethod
+        def now(tz: object = None) -> datetime:
             del tz
             return instant
 

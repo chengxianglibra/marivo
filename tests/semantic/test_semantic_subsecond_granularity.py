@@ -1,12 +1,21 @@
 """Time encodings and representable field-owned sampling cadence."""
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 import pytest
 
 from marivo.semantic.catalog import SemanticCatalog
 from marivo.semantic.errors import SemanticLoadFailed
 
+if TYPE_CHECKING:
+    from tests.conftest import _SemanticProjectFactory
 
-def test_minute_granularity_timestamp_is_valid(semantic_project_factory):
+
+def test_minute_granularity_timestamp_is_valid(
+    semantic_project_factory: _SemanticProjectFactory,
+) -> None:
     project = semantic_project_factory(
         {
             "ops/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='ops', owner='Mina Zhang')\n",
@@ -22,7 +31,9 @@ def test_minute_granularity_timestamp_is_valid(semantic_project_factory):
     assert project.is_ready(), project.errors()
 
 
-def test_hour_sampling_on_date_parse_is_rejected(semantic_project_factory):
+def test_hour_sampling_on_date_parse_is_rejected(
+    semantic_project_factory: _SemanticProjectFactory,
+) -> None:
     """A DATE encoding cannot represent source samples within a day."""
     project = semantic_project_factory(
         {
@@ -44,7 +55,9 @@ def test_hour_sampling_on_date_parse_is_rejected(semantic_project_factory):
     assert [error.kind for error in exc_info.value.errors] == ["invalid_sample_interval"]
 
 
-def test_second_granularity_datetime_is_valid(semantic_project_factory):
+def test_second_granularity_datetime_is_valid(
+    semantic_project_factory: _SemanticProjectFactory,
+) -> None:
     project = semantic_project_factory(
         {
             "ops/_domain.py": "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='ops', owner='Mina Zhang')\n",
@@ -60,7 +73,9 @@ def test_second_granularity_datetime_is_valid(semantic_project_factory):
     assert project.is_ready(), project.errors()
 
 
-def test_minute_granularity_string_with_time_format_is_valid(semantic_project_factory):
+def test_minute_granularity_string_with_time_format_is_valid(
+    semantic_project_factory: _SemanticProjectFactory,
+) -> None:
     """String with a time-bearing format like yyyymmddhhmm should be accepted."""
     project = semantic_project_factory(
         {
@@ -78,7 +93,9 @@ def test_minute_granularity_string_with_time_format_is_valid(semantic_project_fa
     assert project.is_ready(), project.errors()
 
 
-def test_minute_sampling_requires_time_bearing_encoding(semantic_project_factory):
+def test_minute_sampling_requires_time_bearing_encoding(
+    semantic_project_factory: _SemanticProjectFactory,
+) -> None:
     """Date-only strings cannot promise a minute cadence."""
     project = semantic_project_factory(
         {

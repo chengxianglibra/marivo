@@ -7,11 +7,11 @@ from pathlib import Path
 import duckdb
 import ibis.expr.types as ir
 import pytest
-from ibis.common.deferred import Deferred
 
 import marivo.analysis as mv
 import marivo.datasource as md
 import marivo.semantic as ms
+from marivo._grouping import Grouping
 from marivo._temporal import TimeScope
 from marivo.analysis.compiler.graph_lowering import lower_query
 from marivo.analysis.compiler.graph_plan import plan_query
@@ -29,6 +29,7 @@ from marivo.analysis.materialization.graph_source_execution import (
     open_query_sources,
 )
 from marivo.analysis.session.core import Session
+from marivo.semantic._expression_values import FieldExpression, NumericMetric, RowPredicate
 from marivo.semantic.errors import SemanticExpressionError
 from marivo.semantic.reader import SemanticProject
 from tests.shared_fixtures import catalog_value
@@ -156,11 +157,11 @@ def _source_graph(frame: mv.AnalysisFrame) -> BoundGraph:
 
 def compute(
     session: Session,
-    metrics: dict[str, Deferred],
+    metrics: dict[str, NumericMetric],
     *,
     during: TimeScope | mv.CalendarAxis | None = None,
-    by: tuple[Deferred, ...] = (),
-    where: Deferred | None = None,
+    by: tuple[FieldExpression | Grouping, ...] = (),
+    where: RowPredicate | None = None,
 ) -> StageOutput:
     graph = _source_graph(
         session.observe(metrics, by=by if during is None else (during, *by), where=where)
@@ -176,16 +177,16 @@ def compute(
 
 def test_paths_anchors_and_computed_fields(prepared_session: Session) -> None:
     session = prepared_session
-    amount = catalog_value(session.catalog, "sales.orders.amount", kind="field")
-    region = catalog_value(session.catalog, "sales.customers.region", kind="field")
-    doubled = catalog_value(session.catalog, "sales.orders.doubled", kind="field")
+    amount = catalog_value(session.catalog, "sales.orders.amount", kind="measure")
+    region = catalog_value(session.catalog, "sales.customers.region", kind="dimension")
+    doubled = catalog_value(session.catalog, "sales.orders.doubled", kind="dimension")
     assert (
         isinstance(amount, (ms.RowExpression, ms.MetricExpression))
         and isinstance(region, (ms.RowExpression, ms.MetricExpression))
         and isinstance(doubled, (ms.RowExpression, ms.MetricExpression))
     )
-    buyer = session.catalog.get("relationship:sales.buyer")
-    seller = session.catalog.get("relationship:sales.seller")
+    buyer = catalog_value(session.catalog, "sales.buyer", kind="relationship")
+    seller = catalog_value(session.catalog, "sales.seller", kind="relationship")
     old = region.via((buyer,)).at(session.instant("2026-01-15"))
     new = region.via((buyer,)).at(session.instant("2026-02-15"))
     other = region.via((seller,)).at(session.instant("2026-01-15"))
@@ -201,8 +202,8 @@ def test_paths_anchors_and_computed_fields(prepared_session: Session) -> None:
 @pytest.mark.parametrize("field", ("stamp", "day", "naive"))
 def test_parsed_and_civil_time_periods(prepared_session: Session, field: str) -> None:
     session = prepared_session
-    amount = catalog_value(session.catalog, "sales.orders.amount", kind="field")
-    time = catalog_value(session.catalog, f"sales.orders.{field}", kind="field")
+    amount = catalog_value(session.catalog, "sales.orders.amount", kind="measure")
+    time = catalog_value(session.catalog, f"sales.orders.{field}", kind="time_dimension")
     assert isinstance(amount, (ms.RowExpression, ms.MetricExpression)) and isinstance(
         time, (ms.RowExpression, ms.MetricExpression)
     )
@@ -224,7 +225,7 @@ def test_preview_rejects_anchor_before_opening(
         pytest.fail("unqualified preview opened a datasource")
 
     monkeypatch.setattr(backends, "_build_backend_from_effective", forbidden)
-    metric = prepared_session.catalog.get("metric:sales.anchored")
+    metric = catalog_value(prepared_session.catalog, "sales.anchored", kind="metric")
     assert isinstance(metric, (ms.RowExpression, ms.MetricExpression))
     with pytest.raises(SemanticExpressionError, match="path/attribute anchor"):
         prepared_session.catalog.preview(
@@ -232,7 +233,7 @@ def test_preview_rejects_anchor_before_opening(
         )
     with pytest.raises(SemanticExpressionError, match="path/attribute anchor"):
         prepared_session.catalog.preview_many(
-            [prepared_session.catalog.get("metric:sales.total"), metric],
+            [catalog_value(prepared_session.catalog, "sales.total", kind="metric"), metric],
             scope=md.unpruned(max_rows=100, timeout_seconds=10),
         )
 
@@ -241,8 +242,8 @@ def test_native_and_anchored_occurrences_are_distinct(prepared_session: Session)
     from marivo.semantic.catalog import Entity
 
     session = prepared_session
-    region = catalog_value(session.catalog, "sales.customers.region", kind="field")
-    customers = session.catalog.get("entity:sales.customers")
+    region = catalog_value(session.catalog, "sales.customers.region", kind="dimension")
+    customers = catalog_value(session.catalog, "sales.customers", kind="entity")
     assert isinstance(region, (ms.RowExpression, ms.MetricExpression)) and isinstance(
         customers, Entity
     )
@@ -258,14 +259,14 @@ def test_window_excludes_unrelated_bad_mapping(prepared_session: Session) -> Non
         connection.execute("UPDATE orders SET buyer_id=99 WHERE id=2")
     finally:
         connection.close()
-    amount = catalog_value(session.catalog, "sales.orders.amount", kind="field")
-    region = catalog_value(session.catalog, "sales.customers.region", kind="field")
+    amount = catalog_value(session.catalog, "sales.orders.amount", kind="measure")
+    region = catalog_value(session.catalog, "sales.customers.region", kind="dimension")
     assert isinstance(amount, (ms.RowExpression, ms.MetricExpression)) and isinstance(
         region, (ms.RowExpression, ms.MetricExpression)
     )
-    buyer = session.catalog.get("relationship:sales.buyer")
+    buyer = catalog_value(session.catalog, "sales.buyer", kind="relationship")
     group = region.via((buyer,)).at(session.instant("2026-01-15"))
-    stamp = catalog_value(session.catalog, "sales.orders.stamp", kind="field")
+    stamp = catalog_value(session.catalog, "sales.orders.stamp", kind="time_dimension")
     result = compute(
         session,
         {"sum": amount.sum(time=stamp)},
@@ -306,7 +307,7 @@ elapsed=ms.measure_column(name="elapsed",entity=facts,column="elapsed",additivit
     )
     monkeypatch.chdir(tmp_path)
     session = mv.session.get_or_create("duration", timezone="UTC")
-    elapsed = catalog_value(session.catalog, "sales.facts.elapsed", kind="field")
+    elapsed = catalog_value(session.catalog, "sales.facts.elapsed", kind="measure")
     assert isinstance(elapsed, (ms.RowExpression, ms.MetricExpression))
     metrics = {
         "sum": elapsed.sum(),
@@ -334,7 +335,7 @@ elapsed=ms.measure_column(name="elapsed",entity=facts,column="elapsed",additivit
             with pytest.raises(AnalysisStageUnavailableError, match=r"duration\[ns\]"):
                 compute(session, {"value": metric})
     # Explicitly completed member samples retain their local exact tick kernel.
-    members = session.members(session.catalog.get("entity:sales.facts"))
+    members = session.members(catalog_value(session.catalog, "sales.facts", kind="entity"))
     samples = elapsed.sum().per(members)
     local = compute(session, {"median": samples.median(), "q": samples.quantile(0.25)})
     for name in ("value.0", "value.1"):
@@ -388,8 +389,8 @@ def test_local_duration_sample_mean_uses_observed_samples_without_required_perio
     )
     monkeypatch.chdir(tmp_path)
     session = mv.session.get_or_create("duration-samples", timezone="UTC")
-    elapsed = catalog_value(session.catalog, "sales.facts.elapsed", kind="field")
-    point = catalog_value(session.catalog, "sales.facts.point", kind="field")
+    elapsed = catalog_value(session.catalog, "sales.facts.elapsed", kind="measure")
+    point = catalog_value(session.catalog, "sales.facts.point", kind="time_dimension")
     child = elapsed.mean(time=point)
     metric = (
         child
@@ -429,8 +430,8 @@ def test_independent_roots_across_datasources(
     semantic_project_factory(files, load=False)
     monkeypatch.chdir(tmp_path)
     session = mv.session.get_or_create("cross-source", timezone="UTC")
-    one = catalog_value(session.catalog, "sales.one.amount", kind="field")
-    two = catalog_value(session.catalog, "sales.two.amount", kind="field")
+    one = catalog_value(session.catalog, "sales.one.amount", kind="measure")
+    two = catalog_value(session.catalog, "sales.two.amount", kind="measure")
     assert isinstance(one, (ms.RowExpression, ms.MetricExpression)) and isinstance(
         two, (ms.RowExpression, ms.MetricExpression)
     )
@@ -440,8 +441,8 @@ def test_independent_roots_across_datasources(
 
 def test_civil_date_rejects_partial_business_day_boundary(prepared_session: Session) -> None:
     session = prepared_session
-    amount = catalog_value(session.catalog, "sales.orders.amount", kind="field")
-    day = catalog_value(session.catalog, "sales.orders.day", kind="field")
+    amount = catalog_value(session.catalog, "sales.orders.amount", kind="measure")
+    day = catalog_value(session.catalog, "sales.orders.day", kind="time_dimension")
     assert isinstance(amount, (ms.RowExpression, ms.MetricExpression)) and isinstance(
         day, (ms.RowExpression, ms.MetricExpression)
     )
@@ -460,12 +461,12 @@ def test_civil_date_rejects_partial_business_day_boundary(prepared_session: Sess
 @pytest.mark.parametrize("prepared_session", ["snapshot"], indirect=True)
 def test_snapshot_attribute_uses_exact_date(prepared_session: Session) -> None:
     session = prepared_session
-    amount = catalog_value(session.catalog, "sales.orders.amount", kind="field")
-    region = catalog_value(session.catalog, "sales.customers.region", kind="field")
+    amount = catalog_value(session.catalog, "sales.orders.amount", kind="measure")
+    region = catalog_value(session.catalog, "sales.customers.region", kind="dimension")
     assert isinstance(amount, (ms.RowExpression, ms.MetricExpression)) and isinstance(
         region, (ms.RowExpression, ms.MetricExpression)
     )
-    buyer = session.catalog.get("relationship:sales.buyer")
+    buyer = catalog_value(session.catalog, "sales.buyer", kind="relationship")
     group = region.via((buyer,)).at(session.instant("2025-01-01T00:00:00+00:00"))
     result = compute(session, {"sum": amount.sum()}, by=(group,))
     assert sorted(result.table["value.0"].tolist()) == [10, 20]
@@ -477,7 +478,7 @@ def test_snapshot_attribute_uses_exact_date(prepared_session: Session) -> None:
 
 @pytest.mark.parametrize("prepared_session", ["parsed_validity"], indirect=True)
 def test_parsed_version_boundaries(prepared_session: Session) -> None:
-    metric = prepared_session.catalog.get("metric:sales.anchored")
+    metric = catalog_value(prepared_session.catalog, "sales.anchored", kind="metric")
     assert isinstance(metric, (ms.RowExpression, ms.MetricExpression))
     result = compute(prepared_session, {"sum": metric})
     assert result.table["value.0"].tolist() == [10]
@@ -493,7 +494,7 @@ def test_version_axis_precision_is_checked_before_read(
         pytest.fail("lossy version selection submitted a business read")
 
     monkeypatch.setattr(SourceSession, "execute", forbidden)
-    metric = prepared_session.catalog.get("metric:sales.anchored")
+    metric = catalog_value(prepared_session.catalog, "sales.anchored", kind="metric")
     assert isinstance(metric, (ms.RowExpression, ms.MetricExpression))
     with pytest.raises(MaterializationError, match="loses source precision"):
         compute(prepared_session, {"sum": metric})
@@ -517,8 +518,8 @@ def test_calendar_bucket_keeps_nullable_timestamp_and_unmatched_rows(
     session = prepared_session
     start = date(2026, 1, 1)
     end = start + timedelta(days=bucket_count)
-    amount = catalog_value(session.catalog, "sales.orders.amount", kind="field")
-    day = catalog_value(session.catalog, "sales.orders.day", kind="field")
+    amount = catalog_value(session.catalog, "sales.orders.amount", kind="measure")
+    day = catalog_value(session.catalog, "sales.orders.day", kind="time_dimension")
     assert isinstance(amount, (ms.RowExpression, ms.MetricExpression)) and isinstance(
         day, (ms.RowExpression, ms.MetricExpression)
     )
@@ -602,7 +603,9 @@ def _calendar_sql(expression: ir.Table, dialect: str) -> str:
     from tests.datasource.aggregate_fixtures import compiler_backend
 
     backend = compiler_backend(dialect)
-    return backend.compiler.to_sqlglot(expression.unbind()).sql(dialect=dialect)
+    sql = backend.compiler.to_sqlglot(expression.unbind()).sql(dialect=dialect)
+    assert isinstance(sql, str)
+    return sql
 
 
 def _assert_no_boolean_identity_operands(sql: str, dialect: str) -> None:
@@ -645,8 +648,8 @@ def test_calendar_selection_preserves_membership_without_boolean_seeds(
     from marivo.analysis.materialization.query_preparation import prepare_fields
 
     session = prepared_session
-    amount = catalog_value(session.catalog, "sales.orders.amount", kind="field")
-    day = catalog_value(session.catalog, "sales.orders.day", kind="field")
+    amount = catalog_value(session.catalog, "sales.orders.amount", kind="measure")
+    day = catalog_value(session.catalog, "sales.orders.day", kind="time_dimension")
     assert isinstance(amount, (ms.RowExpression, ms.MetricExpression)) and isinstance(
         day, (ms.RowExpression, ms.MetricExpression)
     )
@@ -723,8 +726,8 @@ def test_open_start_native_period_keeps_only_upper_bound(prepared_session: Sessi
     from marivo.analysis.materialization.query_preparation import prepare_fields
 
     session = prepared_session
-    amount = catalog_value(session.catalog, "sales.orders.amount", kind="field")
-    day = catalog_value(session.catalog, "sales.orders.day", kind="field")
+    amount = catalog_value(session.catalog, "sales.orders.amount", kind="measure")
+    day = catalog_value(session.catalog, "sales.orders.day", kind="time_dimension")
     assert isinstance(amount, (ms.RowExpression, ms.MetricExpression)) and isinstance(
         day, (ms.RowExpression, ms.MetricExpression)
     )

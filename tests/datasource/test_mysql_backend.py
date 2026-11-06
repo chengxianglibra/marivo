@@ -1,9 +1,11 @@
 """Driver migration boundaries without a running MySQL service."""
 
+import getpass
 from unittest.mock import MagicMock, Mock
 
 import ibis
 import pytest
+from pymysql.connections import Connection
 
 import marivo.datasource as md
 from marivo.datasource.engines import _mysql_backend as mysql
@@ -14,7 +16,7 @@ def test_mysql_defaults_and_explicit_options_reach_pymysql(monkeypatch: pytest.M
     connection = MagicMock()
     connect = Mock(return_value=connection)
     monkeypatch.setattr(mysql, "Connection", connect)
-    monkeypatch.setattr(mysql.getpass, "getuser", lambda: "local_reader")
+    monkeypatch.setattr(getpass, "getuser", lambda: "local_reader")
     mysql.MySQLBackend().connect(host="localhost", database="warehouse")
     connect.assert_called_once_with(
         host="127.0.0.1",
@@ -42,7 +44,7 @@ def test_retired_driver_options_fail_before_network(
     options: dict[str, object], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     network = Mock(side_effect=AssertionError("invalid options must not connect"))
-    monkeypatch.setattr(mysql.Connection, "connect", network)
+    monkeypatch.setattr(Connection, "connect", network)
     with pytest.raises(DatasourceConnectionError) as caught:
         mysql.MySQLBackend().connect(host="mysql.example", **options)
     assert caught.value.expected == "JSON-safe PyMySQL connection options"

@@ -37,8 +37,8 @@ def period_produce(root: Path, name: str) -> None:
             "(5,'A',30,'2027-02-01 00:00:00+00')"
         )
     session = mv.session.get_or_create(name, timezone="UTC")
-    amount = catalog_value(session.catalog, "sales.orders.amount", kind="field")
-    stamp = catalog_value(session.catalog, "sales.orders.stamp", kind="field")
+    amount = catalog_value(session.catalog, "sales.orders.amount", kind="measure")
+    stamp = catalog_value(session.catalog, "sales.orders.stamp", kind="time_dimension")
     periods = session.time_scope(start="2027-01-01", end="2027-03-01").by(mv.grain("month"))
     metric = amount.sum(time=stamp)
     current = session.observe({"total": metric}, by=(periods,))
@@ -130,8 +130,8 @@ def main() -> None:
         return
     if mode == "produce":
         session = mv.session.get_or_create(name, timezone="UTC")
-        amount = catalog_value(session.catalog, "sales.orders.amount", kind="field")
-        region = catalog_value(session.catalog, "sales.orders.region", kind="field")
+        amount = catalog_value(session.catalog, "sales.orders.amount", kind="measure")
+        region = catalog_value(session.catalog, "sales.orders.region", kind="dimension")
         artifact = session.observe(
             {"total": amount.sum(), "mean": amount.mean()}, by=(region,)
         ).persist()

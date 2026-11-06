@@ -4,20 +4,26 @@ from collections.abc import Callable
 from types import ModuleType
 
 import pytest
+from ibis.common.deferred import Deferred
 
 import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo._definition.deferred import inspect_capture
 from marivo._definition.expressions import MemberCount
 from marivo._definition.graph import computation_fingerprint
-from marivo._definition.relations import PopulationParameter, population_keys
-from marivo._definition.types import DefinitionGraphError
+from marivo._definition.relations import (
+    PopulationParameter,
+    PopulationPreimage,
+    PopulationProgram,
+    population_keys,
+)
+from marivo._definition.types import AxisBinding, DefinitionGraphError
 from marivo.analysis.core.model import CoreRuleError
 from marivo.semantic._deferred_semantics import consume_metric
 from marivo.semantic.catalog import SemanticCatalog
 from marivo.semantic.errors import SemanticExpressionError
 from marivo.semantic.reader import SemanticProject
-from tests.shared_fixtures import catalog_value
+from tests.shared_fixtures import catalog_get, catalog_value
 
 _MODEL = """import marivo.datasource as md
 import marivo.semantic as ms
@@ -45,7 +51,7 @@ def _catalog(factory: Callable[..., SemanticProject], helper: str) -> SemanticCa
 
 
 def _population(catalog: SemanticCatalog) -> PopulationParameter:
-    metric = consume_metric(catalog.get("metric:sales.selected_count"))
+    metric = consume_metric(catalog_get(catalog, "metric:sales.selected_count", kind="metric"))
     body = next(
         body for reference, body in metric._declared if reference.ref.path == "sales.selected_count"
     )
@@ -89,8 +95,8 @@ def selected_count():
     return captured_count
 """,
     )
-    region = catalog_value(catalog, "sales.orders.region", kind="field")
-    channel = catalog_value(catalog, "sales.orders.channel", kind="field")
+    region = catalog_value(catalog, "sales.orders.region", kind="dimension")
+    channel = catalog_value(catalog, "sales.orders.channel", kind="dimension")
     expected = mv.product(
         mv.coordinates(by=(region,), keys=(("east",), ("west",))),
         mv.coordinates(by=(channel,), keys=(("web",), ("store",))),
@@ -123,9 +129,9 @@ def selected_count():
     return captured_count
 """,
     )
-    orders = catalog.get("entity:sales.orders")
-    customer = catalog.get("relationship:sales.customer")
-    region = catalog_value(catalog, "sales.orders.region", kind="field")
+    orders = catalog_get(catalog, "entity:sales.orders", kind="entity")
+    customer = catalog_get(catalog, "relationship:sales.customer", kind="relationship")
+    region = catalog_value(catalog, "sales.orders.region", kind="dimension")
     domain = mv.coordinates(by=(mv.identity(orders),), keys=((("t1", 1),), (("t2", 1),)))
     assert isinstance(domain, mv.Population)
     expected = domain.preimage(domain.image(via=(customer,)), via=(customer,)).classify(
@@ -176,6 +182,7 @@ def test_symbolic_helper_capture_checks_known_semantic_roles() -> None:
     with pytest.raises(CoreRuleError, match="Dimension, TimeDimension or Measure"):
         mv.membership(ms.ref.metric("sales.revenue"), via=(), unmatched="exclude")
     grouping = mv.identity(ms.ref.entity("sales.orders"))
+    assert isinstance(grouping, Deferred)
     with pytest.raises(DefinitionGraphError, match="Grouping parameters"):
         inspect_capture(grouping.count())
 
@@ -193,11 +200,11 @@ def selected_count():
     return captured_count.abs()
 """,
     )
-    region = catalog_value(catalog, "sales.orders.region", kind="field")
+    region = catalog_value(catalog, "sales.orders.region", kind="dimension")
     population = mv.coordinates(by=(region,), keys=(("east",), ("west",)))
     assert isinstance(population, mv.Population)
     expected = consume_metric(population.count().sqrt().abs()).node
-    actual = consume_metric(catalog.get("metric:sales.selected_count"))
+    actual = consume_metric(catalog_get(catalog, "metric:sales.selected_count", kind="metric"))
     body = next(
         body for reference, body in actual._declared if reference.ref.path == "sales.selected_count"
     )
@@ -223,7 +230,10 @@ def selected_count():
     )
     selected = _population(catalog)
     assert population_keys(selected._definition) == ((1,), (2,))
-    assert selected._definition.axes[0].field.ref.path == "sales.orders.amount"
+    axis = selected._definition.axes[0]
+    assert isinstance(axis, AxisBinding)
+    assert axis.field is not None
+    assert axis.field.ref.path == "sales.orders.amount"
 
 
 @pytest.mark.parametrize("operation", ("image", "preimage"))
@@ -263,7 +273,9 @@ def test_population_path_capture_keeps_closed_relationship_values(
 
     first = _catalog(semantic_project_factory, "")
     captured = ModuleType("_population_closed_path_test")
-    captured.relationship = first.get("relationship:sales.customer")
+    monkeypatch.setattr(
+        captured, "relationship", first.get("relationship:sales.customer"), raising=False
+    )
     monkeypatch.setitem(sys.modules, captured.__name__, captured)
     catalog = _catalog(
         semantic_project_factory,
@@ -278,4 +290,6 @@ def selected_count():
 """,
     )
     definition = _population(catalog)._definition
+    assert isinstance(definition, PopulationProgram)
+    assert isinstance(definition.root, PopulationPreimage)
     assert definition.root.path[0].ref.ref.path == "sales.customer"

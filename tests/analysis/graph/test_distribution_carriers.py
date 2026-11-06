@@ -14,7 +14,7 @@ import marivo.analysis as mv
 import marivo.semantic as ms
 from tests.analysis.graph.distribution_carrier_worker import check_original
 from tests.analysis.materialization.domain_recovery_worker import snapshot
-from tests.shared_fixtures import DslCaseFactory, catalog_value
+from tests.shared_fixtures import DslCaseFactory, catalog_get, catalog_value
 from tests.support.json import Json, checked, encode, obj, read
 from tests.support.paths import PROJECT_ROOT
 from tests.support.source_trace import capture_source
@@ -52,8 +52,8 @@ def test_named_distribution_carriers_recover_independently(
     ms.load(workspace_dir=case.root)
     trace = capture_source(monkeypatch)
     session = case.session
-    amount_field = catalog_value(session.catalog, "sales.order.amount", kind="field")
-    time = catalog_value(session.catalog, "sales.order.ordered_at", kind="field")
+    amount_field = catalog_value(session.catalog, "sales.order.amount", kind="measure")
+    time = catalog_value(session.catalog, "sales.order.ordered_at", kind="time_dimension")
     methods = {"quantile": amount_field.quantile(0.25, time=time)}
     if physical == "float":
         methods.update(
@@ -69,7 +69,9 @@ def test_named_distribution_carriers_recover_independently(
             {"value": metric},
             by=mv.product(
                 session.time_scope(start="2026-08-01", end="2026-09-01"),
-                session.members(session.catalog.get("entity:sales.customer")),
+                session.members(
+                    catalog_get(session.catalog, "entity:sales.customer", kind="entity")
+                ),
             ),
         ).persist()
         exported = value.to_pandas()

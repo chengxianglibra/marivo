@@ -11,6 +11,30 @@ import marivo.semantic as ms
 from marivo.semantic.reader import SemanticProject
 
 
+def _dimension(catalog: ms.SemanticCatalog, path: str) -> ms.Dimension:
+    result = catalog.get(path)
+    assert result.kind == "dimension"
+    return result
+
+
+def _measure(catalog: ms.SemanticCatalog, path: str) -> ms.Measure:
+    result = catalog.get(path)
+    assert result.kind == "measure"
+    return result
+
+
+def _relationship(catalog: ms.SemanticCatalog, path: str) -> ms.Relationship:
+    result = catalog.get(path)
+    assert result.kind == "relationship"
+    return result
+
+
+def _time_dimension(catalog: ms.SemanticCatalog, path: str) -> ms.TimeDimension:
+    result = catalog.get(path)
+    assert result.kind == "time_dimension"
+    return result
+
+
 @pytest.mark.parametrize("zone", ("Asia/Tokyo", "UTC+08:00", "UTC-05:00"))
 def test_date_control_uses_snapshot_boundary_timezone(
     zone: str,
@@ -93,13 +117,13 @@ def test_date_control_uses_snapshot_boundary_timezone(
     monkeypatch.chdir(tmp_path)
     ms.load(workspace_dir=tmp_path)
     session = mv.session.get_or_create(f"date-version-{version}", timezone="UTC")
-    fact_day = session.catalog.get("time_dimension:sales.facts.fact_day")
-    category = session.catalog.get("dimension:sales.profiles.category")
-    relationship = session.catalog.get("relationship:sales.profile")
+    fact_day = _time_dimension(session.catalog, "time_dimension:sales.facts.fact_day")
+    category = _dimension(session.catalog, "dimension:sales.profiles.category")
+    relationship = _relationship(session.catalog, "relationship:sales.profile")
     historical_category = category.via((relationship,)).at(fact_day)
     period = session.time_scope(start="2026-07-01", end="2026-07-03")
     result = session.observe(
-        {"value": session.catalog.get("measure:sales.facts.amount").sum(time=fact_day)},
+        {"value": _measure(session.catalog, "measure:sales.facts.amount").sum(time=fact_day)},
         by=(period, historical_category),
     ).compute()
     data = result.to_pandas(axis_names={result.axes[-1].token: "category"})

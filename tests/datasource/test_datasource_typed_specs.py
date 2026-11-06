@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import inspect
+from collections.abc import Mapping
 from dataclasses import fields, replace
 from pathlib import Path
 from types import SimpleNamespace
@@ -12,6 +13,7 @@ import pytest
 import marivo.datasource as md
 import marivo.datasource.catalog as catalog_module
 import marivo.semantic as ms
+from marivo.datasource import store as datasource_store
 from marivo.datasource.authoring import (
     ClickHouseSpec,
     DatasourceSpec,
@@ -94,7 +96,7 @@ def test_duckdb_http_auth_is_scoped_and_environment_backed() -> None:
 @pytest.mark.parametrize("headers", [{}, {"bad header": md.env("KEY")}, {"X-Key": "literal"}])
 def test_duckdb_headers_reject_invalid_inputs(headers: object) -> None:
     with pytest.raises(DatasourceFieldInvalidError):
-        md.http_headers_secret(scope="https://api.example/", headers=headers)
+        md.http_headers_secret(scope="https://api.example/", headers=headers)  # type: ignore[arg-type]  # Invalid headers exercise validation.
 
 
 @pytest.mark.parametrize(
@@ -171,7 +173,9 @@ def test_trino_user_is_required_by_spec_and_helper() -> None:
             )
 
         assert exc_info.value.expected == "an EnvRef"
+        assert exc_info.value.location is not None
         assert exc_info.value.location.endswith("field 'user'")
+        assert exc_info.value.repair is not None
         assert exc_info.value.repair.help_target.canonical_id == "env"
 
     with pytest.raises(DatasourceFieldInvalidError) as exc_info:
@@ -182,6 +186,7 @@ def test_trino_user_is_required_by_spec_and_helper() -> None:
             user=None,  # type: ignore[arg-type]
         )
 
+    assert exc_info.value.repair is not None
     assert exc_info.value.repair.help_target.canonical_id == "env"
 
 
@@ -259,9 +264,10 @@ def test_extra_rejects_non_json_values() -> None:
             host="trino.example",
             catalog="hive",
             user=md.env("TRINO_USER"),
-            extra={"custom_option": object()},
+            extra={"custom_option": object()},  # type: ignore[dict-item]  # Invalid JSON value.
         )
 
+    assert exc_info.value.location is not None
     assert exc_info.value.location.endswith("field 'custom_option'")
 
 
@@ -269,9 +275,11 @@ def test_datasource_helper_returns_public_spec_and_ref() -> None:
     spec = md.duckdb(name="warehouse", path="warehouse.duckdb")
 
     assert isinstance(spec, md.DuckDBSpec)
-    assert as_ref(spec.ref) == ref_factory.datasource("warehouse")
-    assert as_ref(spec.ref).path == "warehouse"
-    assert as_ref(spec.ref).name == "warehouse"
+    reference = as_ref(spec.ref)
+    assert reference == ref_factory.datasource("warehouse")
+    assert reference is not None
+    assert reference.path == "warehouse"
+    assert reference.name == "warehouse"
 
 
 def test_spec_ai_context_maps_to_ir() -> None:
@@ -382,7 +390,7 @@ def test_catalog_list_returns_displayable_datasource_list(
     assert result.items[1].name == "warehouse"
     assert result[0].backend_type == "duckdb"
     assert [item.name for item in result] == ["default", "warehouse"]
-    assert result.show() is None
+    assert result.show() is None  # type: ignore[func-returns-value]  # Verify the runtime return.
     assert "warehouse" in capsys.readouterr().out
 
 
@@ -420,7 +428,7 @@ def test_catalog_show_renders_full_datasource_model_without_secrets(
     assert ".connect(name)" not in rendered
     assert "super-secret-token" not in rendered
 
-    assert catalog.show() is None
+    assert catalog.show() is None  # type: ignore[func-returns-value]  # Verify the runtime return.
     out = capsys.readouterr().out
     assert "warehouse" in out
     assert "super-secret-token" not in out
@@ -437,17 +445,17 @@ def test_catalog_show_uses_one_current_declaration_snapshot(
         calls.append(project_root)
         return initial if len(calls) == 1 else changed
 
-    monkeypatch.setattr(catalog_module._store, "load_all", load_all)
+    monkeypatch.setattr(datasource_store, "load_all", load_all)
     catalog = catalog_module.DatasourceCatalog(workspace_dir=tmp_path)
 
-    assert catalog.show() is None
+    assert catalog.show() is None  # type: ignore[func-returns-value]  # Verify the runtime return.
     first = capsys.readouterr().out
     assert calls == [tmp_path]
     assert "DatasourceCatalog datasources=2" in first
     assert first.index("alpha:") < first.index("zeta:")
     assert "current:" not in first
 
-    assert catalog.show() is None
+    assert catalog.show() is None  # type: ignore[func-returns-value]  # Verify the runtime return.
     second = capsys.readouterr().out
     assert calls == [tmp_path, tmp_path]
     assert "DatasourceCatalog datasources=1" in second
@@ -598,7 +606,9 @@ def test_wall_clock_timezone_is_normalized_separate_from_connection_fields(
     assert loaded.wall_clock_timezone == "UTC+08:00"
     assert loaded.fields == declaration.fields
     assert loaded.env_refs == declaration.env_refs
-    assert store.load_one("default", project_root=tmp_path).wall_clock_timezone is None
+    default = store.load_one("default", project_root=tmp_path)
+    assert default is not None
+    assert default.wall_clock_timezone is None
     description = md.load(workspace_dir=tmp_path).describe(spec.name)
     assert description.wall_clock_timezone == "UTC+08:00"
     assert "wall-clock timezone: UTC+08:00" in description.render()
@@ -609,7 +619,7 @@ def test_wall_clock_timezone_is_normalized_separate_from_connection_fields(
     profile = require_profile_for_backend_type(spec.backend_type)
     captured: dict[str, object] = {}
 
-    def connect(name: str, kwargs: dict[str, object]) -> SimpleNamespace:
+    def connect(name: str, kwargs: Mapping[str, object]) -> SimpleNamespace:
         assert name == spec.name
         captured.update(kwargs)
         return SimpleNamespace()
@@ -633,7 +643,9 @@ def test_wall_clock_timezone_invalid_values_have_datasource_repair(value: str) -
     with pytest.raises(DatasourceFieldInvalidError) as caught:
         md.duckdb(name="warehouse", wall_clock_timezone=value)
     assert caught.value.received == repr(value)
+    assert caught.value.effect_observed is not None
     assert caught.value.effect_observed.query_executed is False
+    assert caught.value.repair is not None
     assert caught.value.repair.help_target.canonical_id == "duckdb"
 
 
@@ -646,7 +658,7 @@ def test_trino_timezone_is_removed_from_spec_and_constructor() -> None:
                 host="trino.example",
                 catalog="hive",
                 user=md.env("TRINO_USER"),
-                **{"timezone": "UTC"},
+                timezone="UTC",  # type: ignore[call-arg]  # Check the removed keyword.
             )
     with pytest.raises(DatasourceFieldInvalidError, match="extra cannot contain"):
         md.trino(

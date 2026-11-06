@@ -95,14 +95,14 @@ def test_template_catalog_disclosure_and_bind_rejections(
     assert preview_error.value.details["query_executed"] is False
     assert not callable(amount)
     with pytest.raises(TypeError):
-        amount(event=paid)
+        amount(event=paid)  # type: ignore[operator]  # Metrics are not callable.
     with pytest.raises(SemanticError, match="same name") as caught:
         _ = amount + count
     assert caught.value.details["parameters"] == ("event",)
     assert caught.value.repair is not None and "each operand" in caught.value.repair.action
     for invalid in ("paid_at", None, mv.grain("day")):
         with pytest.raises(SemanticError, match="require a resolved time field"):
-            amount.bind_time(event=invalid)
+            amount.bind_time(event=invalid)  # type: ignore[arg-type]  # Exercise invalid bindings.
     with pytest.raises(SemanticError, match="unknown or already bound"):
         amount.bind_time(unknown=paid)
     with pytest.raises(SemanticError, match="No Metric time parameters"):
@@ -194,7 +194,7 @@ def test_repeated_and_renamed_slots_bind_to_independent_observations(
     with pytest.raises(AnalysisError, match="declared business time role"):
         session.observe({"amount": measure.sum()}, by=(scope,))
     with pytest.raises(SemanticError, match="time=None"):
-        session.observe({"amount": measure.sum(time=None)})
+        session.observe({"amount": measure.sum(time=None)})  # type: ignore[arg-type]  # Invalid time.
 
 
 def test_sample_parameter_retains_the_native_status_axis(

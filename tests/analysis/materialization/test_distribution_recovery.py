@@ -119,9 +119,9 @@ def test_native_distributions_independent_fixed_and_cold(
             field = catalog_value(
                 session.catalog,
                 "sales.facts.identity" if kind == "identity" else "sales.facts.amount",
-                kind="field",
+                kind="measure",
             )
-            time = catalog_value(session.catalog, "sales.facts.time", kind="field")
+            time = catalog_value(session.catalog, "sales.facts.time", kind="time_dimension")
             metric = (
                 field.count_distinct(time=time)
                 if kind in ("distinct", "identity")
@@ -135,7 +135,9 @@ def test_native_distributions_independent_fixed_and_cold(
                 {"value": metric},
                 by=mv.product(
                     session.time_scope(start="2026-08-01", end="2026-08-02"),
-                    session.members(session.catalog.get("entity:sales.subjects")),
+                    session.members(
+                        catalog_value(session.catalog, "sales.subjects", kind="entity")
+                    ),
                 ),
             )
             value = query.persist()

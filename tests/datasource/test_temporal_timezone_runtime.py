@@ -6,6 +6,7 @@ import os
 from dataclasses import asdict, replace
 from datetime import date, datetime, timezone
 from pathlib import Path
+from typing import TYPE_CHECKING
 from uuid import uuid4
 
 import ibis
@@ -33,6 +34,9 @@ from marivo.semantic.ir import HourPrefixParse, StrptimeParse, TimestampParse
 from tests.analysis.temporal.encoded_time_fixtures import axis
 from tests.datasource.source_cases import SourceData, receipt, source_case
 from tests.shared_fixtures import declared_test_timezone
+
+if TYPE_CHECKING:
+    from tests.conftest import _SemanticProjectFactory
 
 pytestmark = pytest.mark.runtime
 
@@ -81,7 +85,7 @@ def test_trino_dynamic_seconds_preserve_sign_null_and_integer_precision() -> Non
 def test_clickhouse_catalog_validation_shares_preview_and_analysis_contracts(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
-    semantic_project_factory,
+    semantic_project_factory: _SemanticProjectFactory,
     column: str,
     parser: str,
     valid: bool,
@@ -125,6 +129,7 @@ def test_clickhouse_catalog_validation_shares_preview_and_analysis_contracts(
         assert all(not check.user_data_queried for check in report.checks)
         session = mv.session.get_or_create("native-physical-validation", timezone="UTC")
         metric = session.catalog.get("metric:sales.total")
+        assert metric.kind == "metric"
         period = session.time_scope(start="2026-08-01", end="2026-08-02")
         scope = md.unpruned(max_rows=5, timeout_seconds=10)
         if valid:
@@ -215,6 +220,7 @@ def test_clickhouse_implicit_instants_and_encoding_in_non_utc_session(
                     assert "clickhouse" in error.received
                     assert "timestamp(0)" in error.received
                     assert "parser_timezone='UTC'" in error.received
+                    assert error.repair is not None
                     assert "parse=ms.timestamp()" in error.repair.action
                     point, authority = source_time(
                         table.point,

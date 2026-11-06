@@ -46,7 +46,7 @@ def test_metadata_profiles_degrade_to_schema_when_statement_channel_fails(
     )
     request = MetadataInspectRequest(
         datasource="warehouse",
-        backend=Backend(),  # type: ignore[arg-type]
+        backend=Backend(),
         table="orders",
         database=None,
         table_expr=ibis.table({"id": "int64", "amount": "decimal(18, 2)"}, name="orders"),
@@ -135,7 +135,10 @@ def test_table_metadata_json_and_render_are_bounded() -> None:
     )
     payload = metadata.to_dict()
     assert payload["primary_keys"] == ["id"]
-    assert payload["unique_constraints"][0]["kind"] == "primary"
+    constraints = payload["unique_constraints"]
+    assert isinstance(constraints, list)
+    assert isinstance(constraints[0], dict)
+    assert constraints[0]["kind"] == "primary"
     assert json.loads(json.dumps(payload))["ref"] == "warehouse.analytics.public.orders"
     assert "partitions=1" in metadata.render()
     assert "Order fact table" in metadata.render()

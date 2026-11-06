@@ -8,6 +8,7 @@ import pandas as pd
 import pytest
 
 import marivo.analysis as mv
+import marivo.semantic as ms
 from marivo.analysis.errors import AnalysisError
 from tests.analysis.statistics.deviation_oracle import expected
 from tests.analysis.statistics.pandas_workflows import (
@@ -17,6 +18,18 @@ from tests.analysis.statistics.pandas_workflows import (
     receipt_paths,
 )
 from tests.shared_fixtures import DslCaseFactory, analysis_dsl_rows, run_ids
+
+
+def _entity(catalog: ms.SemanticCatalog, path: str) -> ms.Entity:
+    result = catalog.get(path)
+    assert result.kind == "entity"
+    return result
+
+
+def _metric(catalog: ms.SemanticCatalog, path: str) -> ms.Metric:
+    result = catalog.get(path)
+    assert result.kind == "metric"
+    return result
 
 
 def test_local_display_pairing_rejects_different_current_keys(
@@ -131,8 +144,8 @@ def test_decimal_grid_tables_retain_current_keys_and_full_fit(
     session = case.session
     grid = session.time_scope(start="2026-08-01", end="2026-08-16").by(mv.grain("day"))
     artifact = session.observe(
-        {"value": session.catalog.get("metric:sales.revenue")},
-        by=mv.product(grid, session.members(session.catalog.get("entity:sales.customer"))),
+        {"value": _metric(session.catalog, "metric:sales.revenue")},
+        by=mv.product(grid, session.members(_entity(session.catalog, "entity:sales.customer"))),
     ).persist()
     frame = plain(artifact)
     assert len(frame) == 60 and frame.value.notna().all()

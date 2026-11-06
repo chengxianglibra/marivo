@@ -17,15 +17,18 @@ from __future__ import annotations
 import textwrap
 from collections.abc import Iterator
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 
 from marivo.refs import ref as ref_factory
 from marivo.semantic._deferred_semantics import consume_metric
-from marivo.semantic.catalog import SemanticCatalog, SemanticKind
+from marivo.semantic.catalog import SemanticCatalog
 from marivo.semantic.errors import ErrorKind, SemanticLoadFailed
 from marivo.semantic.reader import SemanticProject
-from tests.support.refs import make_ref
+
+if TYPE_CHECKING:
+    from tests.conftest import _SemanticProjectFactory
 
 # ---------------------------------------------------------------------------
 # Minimal model files
@@ -86,7 +89,9 @@ _SHARED_DATASOURCE_MODEL_B = textwrap.dedent("""    import marivo.datasource as 
 # ---------------------------------------------------------------------------
 
 
-def test_global_datasource_can_be_reused_across_models(semantic_project_factory) -> None:
+def test_global_datasource_can_be_reused_across_models(
+    semantic_project_factory: _SemanticProjectFactory,
+) -> None:
     project = semantic_project_factory(
         {
             "sales/_domain.py": _MINIMAL_DOMAIN_PY,
@@ -98,6 +103,7 @@ def test_global_datasource_can_be_reused_across_models(semantic_project_factory)
 
     assert project.is_ready()
     catalog = SemanticCatalog(project)
+    assert project._registry is not None
     assert sorted(project._registry.datasources) == ["default", "warehouse"]
     datasources = catalog.search(kind="datasource").items
     assert [ds._ref.path for ds in datasources] == ["default", "warehouse"]
@@ -110,7 +116,9 @@ def test_global_datasource_can_be_reused_across_models(semantic_project_factory)
     )
 
 
-def test_duplicate_global_datasource_declaration_must_match(semantic_project_factory) -> None:
+def test_duplicate_global_datasource_declaration_must_match(
+    semantic_project_factory: _SemanticProjectFactory,
+) -> None:
     project = semantic_project_factory(
         {
             "datasources/warehouse_a.py": 'import marivo.datasource as md\nmd.duckdb(name="warehouse", path=":memory:")\n',
@@ -124,7 +132,7 @@ def test_duplicate_global_datasource_declaration_must_match(semantic_project_fac
     assert any(error.kind == ErrorKind.DUPLICATE_NAME for error in project.errors())
 
 
-def test_single_model_load_result_ready(semantic_project_factory) -> None:
+def test_single_model_load_result_ready(semantic_project_factory: _SemanticProjectFactory) -> None:
     project = semantic_project_factory(
         {
             "sales/_domain.py": _MINIMAL_DOMAIN_PY,
@@ -151,7 +159,7 @@ def test_single_model_load_result_ready(semantic_project_factory) -> None:
     assert ref_factory.datasource("warehouse") not in side.bodies
 
 
-def test_model_only_no_sibling_files(semantic_project_factory) -> None:
+def test_model_only_no_sibling_files(semantic_project_factory: _SemanticProjectFactory) -> None:
     project = semantic_project_factory(
         {
             "sales/_domain.py": _MINIMAL_DOMAIN_PY,
@@ -165,7 +173,7 @@ def test_model_only_no_sibling_files(semantic_project_factory) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_missing_domain_py(semantic_project_factory) -> None:
+def test_missing_domain_py(semantic_project_factory: _SemanticProjectFactory) -> None:
     """Directory without _domain.py should produce an error for that model."""
     project = semantic_project_factory(
         {
@@ -180,7 +188,7 @@ def test_missing_domain_py(semantic_project_factory) -> None:
 
 
 def test_reload_ignores_removed_domain_cache(
-    semantic_project_factory, monkeypatch: pytest.MonkeyPatch
+    semantic_project_factory: _SemanticProjectFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     project = semantic_project_factory(
         {
@@ -193,6 +201,7 @@ def test_reload_ignores_removed_domain_cache(
         }
     )
     assert project.is_ready()
+    assert project._registry is not None
     assert set(project._registry.domains) == {"sales", "finance"}
     removed_dir = project.semantic_root / "sales"
     cache_dirs = tuple(removed_dir.rglob("__pycache__"))
@@ -235,7 +244,7 @@ def test_reload_ignores_removed_domain_cache(
     ["datasets.py", "README.md", ".config", "orphan.pyc", "nested/README.md", "__pycache__"],
 )
 def test_missing_domain_with_non_cache_file_is_rejected(
-    semantic_project_factory, remaining_file: str
+    semantic_project_factory: _SemanticProjectFactory, remaining_file: str
 ) -> None:
     project = semantic_project_factory({f"sales/{remaining_file}": "# retained file\n"}, load=False)
     (project.semantic_root / "sales" / "nested_cache" / "__pycache__").mkdir(parents=True)
@@ -248,7 +257,7 @@ def test_missing_domain_with_non_cache_file_is_rejected(
 
 @pytest.mark.parametrize("target_kind", ["file", "directory", "missing"])
 def test_missing_domain_with_symlink_is_rejected(
-    semantic_project_factory, target_kind: str
+    semantic_project_factory: _SemanticProjectFactory, target_kind: str
 ) -> None:
     project = semantic_project_factory({}, load=False)
     domain_dir = project.semantic_root / "sales"
@@ -266,7 +275,9 @@ def test_missing_domain_with_symlink_is_rejected(
     assert any(error.kind == ErrorKind.DOMAIN_FILE_MISSING for error in result.errors)
 
 
-def test_empty_domain_without_cache_is_rejected(semantic_project_factory) -> None:
+def test_empty_domain_without_cache_is_rejected(
+    semantic_project_factory: _SemanticProjectFactory,
+) -> None:
     project = semantic_project_factory({}, load=False)
     (project.semantic_root / "sales").mkdir()
 
@@ -277,7 +288,7 @@ def test_empty_domain_without_cache_is_rejected(semantic_project_factory) -> Non
 
 
 def test_domain_with_entry_does_not_scan_nested_directories(
-    semantic_project_factory, monkeypatch: pytest.MonkeyPatch
+    semantic_project_factory: _SemanticProjectFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     project = semantic_project_factory({"sales/_domain.py": _MINIMAL_DOMAIN_PY}, load=False)
     nested_dir = project.semantic_root / "sales" / "nested"
@@ -295,7 +306,7 @@ def test_domain_with_entry_does_not_scan_nested_directories(
 
 
 def test_cache_discovery_does_not_swallow_directory_read_error(
-    semantic_project_factory, monkeypatch: pytest.MonkeyPatch
+    semantic_project_factory: _SemanticProjectFactory, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     project = semantic_project_factory({}, load=False)
     domain_dir = project.semantic_root / "sales"
@@ -315,7 +326,9 @@ def test_cache_discovery_does_not_swallow_directory_read_error(
         project.load()
 
 
-def test_datasources_loaded_when_model_load_errors(semantic_project_factory) -> None:
+def test_datasources_loaded_when_model_load_errors(
+    semantic_project_factory: _SemanticProjectFactory,
+) -> None:
     """Datasource loading succeeds even if model dirs are broken."""
     project = semantic_project_factory(
         {
@@ -331,10 +344,10 @@ def test_datasources_loaded_when_model_load_errors(semantic_project_factory) -> 
     assert datasources[0].backend_type == "duckdb"
 
     with pytest.raises(SemanticLoadFailed):
-        SemanticCatalog(project).list()
+        SemanticCatalog(project)
 
 
-def test_model_name_mismatch(semantic_project_factory) -> None:
+def test_model_name_mismatch(semantic_project_factory: _SemanticProjectFactory) -> None:
     """_domain.py declares a different name than the directory name."""
     bad_model = textwrap.dedent("""\
         import marivo.datasource as md
@@ -357,7 +370,9 @@ def test_model_name_mismatch(semantic_project_factory) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_missing_domain_file_error_has_typed_repair(semantic_project_factory) -> None:
+def test_missing_domain_file_error_has_typed_repair(
+    semantic_project_factory: _SemanticProjectFactory,
+) -> None:
     project = semantic_project_factory(
         {
             "sales/datasets.py": _MINIMAL_DATASET_PY,
@@ -374,7 +389,9 @@ def test_missing_domain_file_error_has_typed_repair(semantic_project_factory) ->
     assert error.repair.help_target.canonical_id == "domain"
 
 
-def test_empty_domain_file_error_has_typed_repair(semantic_project_factory) -> None:
+def test_empty_domain_file_error_has_typed_repair(
+    semantic_project_factory: _SemanticProjectFactory,
+) -> None:
     project = semantic_project_factory(
         {
             "sales/_domain.py": "# no ms.domain() call here\n",
@@ -391,7 +408,9 @@ def test_empty_domain_file_error_has_typed_repair(semantic_project_factory) -> N
     assert error.repair.help_target.canonical_id == "domain"
 
 
-def test_ai_context_raw_dict_load_error_names_canonical_form(semantic_project_factory) -> None:
+def test_ai_context_raw_dict_load_error_names_canonical_form(
+    semantic_project_factory: _SemanticProjectFactory,
+) -> None:
     """A raw dict load error names the canonical ms.ai_context(...) fields."""
     bad_model = textwrap.dedent("""        import marivo.datasource as md
         import marivo.semantic as ms
@@ -427,7 +446,7 @@ def test_ai_context_raw_dict_load_error_names_canonical_form(semantic_project_fa
 # ---------------------------------------------------------------------------
 
 
-def test_excluded_files_are_not_loaded(semantic_project_factory) -> None:
+def test_excluded_files_are_not_loaded(semantic_project_factory: _SemanticProjectFactory) -> None:
     """Export, dot-prefixed, and test files all stay outside loader discovery."""
     excluded_content = 'raise RuntimeError("excluded file was loaded!")\n'
     project = semantic_project_factory(
@@ -447,7 +466,7 @@ def test_excluded_files_are_not_loaded(semantic_project_factory) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_empty_project_is_valid(semantic_project_factory) -> None:
+def test_empty_project_is_valid(semantic_project_factory: _SemanticProjectFactory) -> None:
     project = semantic_project_factory({})
     assert project.is_ready()
 
@@ -457,7 +476,9 @@ def test_empty_project_is_valid(semantic_project_factory) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_sys_path_injected_during_load(semantic_project_factory, tmp_path) -> None:
+def test_sys_path_injected_during_load(
+    semantic_project_factory: _SemanticProjectFactory, tmp_path: Path
+) -> None:
     """sys.path should be modified during load and cleaned up after."""
     import sys
 
@@ -477,7 +498,7 @@ def test_sys_path_injected_during_load(semantic_project_factory, tmp_path) -> No
 # ---------------------------------------------------------------------------
 
 
-def test_errored_load_result(semantic_project_factory) -> None:
+def test_errored_load_result(semantic_project_factory: _SemanticProjectFactory) -> None:
     bad_model = textwrap.dedent("""\
         raise ValueError("boom")
     """)
@@ -500,7 +521,7 @@ def test_errored_load_result(semantic_project_factory) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_errors_accumulate_across_models(semantic_project_factory) -> None:
+def test_errors_accumulate_across_models(semantic_project_factory: _SemanticProjectFactory) -> None:
     bad_model_a = textwrap.dedent("""\
         raise ValueError("error in model A")
     """)
@@ -520,7 +541,9 @@ def test_errors_accumulate_across_models(semantic_project_factory) -> None:
     assert len(result.errors) >= 2
 
 
-def test_one_bad_model_does_not_block_good_one(semantic_project_factory) -> None:
+def test_one_bad_model_does_not_block_good_one(
+    semantic_project_factory: _SemanticProjectFactory,
+) -> None:
     bad_model = textwrap.dedent("""\
         raise ValueError("boom")
     """)
@@ -542,7 +565,7 @@ def test_one_bad_model_does_not_block_good_one(semantic_project_factory) -> None
 # ---------------------------------------------------------------------------
 
 
-def test_load_on_already_loaded_project(semantic_project_factory) -> None:
+def test_load_on_already_loaded_project(semantic_project_factory: _SemanticProjectFactory) -> None:
     project = semantic_project_factory(
         {
             "sales/_domain.py": _MINIMAL_DOMAIN_PY,
@@ -559,7 +582,7 @@ def test_load_on_already_loaded_project(semantic_project_factory) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_multiple_sibling_files(semantic_project_factory) -> None:
+def test_multiple_sibling_files(semantic_project_factory: _SemanticProjectFactory) -> None:
     datasets_py = textwrap.dedent("""\
         import marivo.datasource as md
         import marivo.semantic as ms
@@ -593,7 +616,7 @@ def test_multiple_sibling_files(semantic_project_factory) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_subdirectories_not_scanned(semantic_project_factory) -> None:
+def test_subdirectories_not_scanned(semantic_project_factory: _SemanticProjectFactory) -> None:
     sub_content = textwrap.dedent("""\
         raise RuntimeError("subdirectory file was loaded!")
     """)
@@ -636,7 +659,9 @@ def test_reader_project_nonexistent_root() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_cross_file_dataset_metric_resolution(semantic_project_factory) -> None:
+def test_cross_file_dataset_metric_resolution(
+    semantic_project_factory: _SemanticProjectFactory,
+) -> None:
     """Dataset defined in one file, metric in another should resolve."""
     datasets_py = textwrap.dedent("""\
         import marivo.datasource as md
@@ -670,7 +695,9 @@ def test_cross_file_dataset_metric_resolution(semantic_project_factory) -> None:
     assert "sales.revenue" in reg.declared_metrics
 
 
-def test_relative_import_between_model_files(semantic_project_factory) -> None:
+def test_relative_import_between_model_files(
+    semantic_project_factory: _SemanticProjectFactory,
+) -> None:
     """Sibling model files can import decorated refs with relative imports."""
     dataset_py = textwrap.dedent("""\
         import marivo.datasource as md
@@ -705,7 +732,7 @@ def test_relative_import_between_model_files(semantic_project_factory) -> None:
 
 
 def test_relative_import_from_later_sibling_is_not_executed_twice(
-    semantic_project_factory,
+    semantic_project_factory: _SemanticProjectFactory,
 ) -> None:
     """A sibling imported before its loader turn should not be registered twice."""
     queries_py = textwrap.dedent("""\
@@ -735,7 +762,7 @@ def test_relative_import_from_later_sibling_is_not_executed_twice(
 
 
 def test_relative_imported_field_ref_from_later_sibling_keeps_resolver(
-    semantic_project_factory,
+    semantic_project_factory: _SemanticProjectFactory,
 ) -> None:
     """Imported field refs from later siblings should be wired after load."""
     fields_py = textwrap.dedent("""\
@@ -773,7 +800,9 @@ def test_relative_imported_field_ref_from_later_sibling_keeps_resolver(
     )
 
 
-def test_relative_import_reload_uses_latest_module(semantic_project_factory) -> None:
+def test_relative_import_reload_uses_latest_module(
+    semantic_project_factory: _SemanticProjectFactory,
+) -> None:
     """Reload should not reuse stale modules imported by sibling relative imports."""
     dataset_v1 = textwrap.dedent("""\
         import marivo.datasource as md
@@ -816,7 +845,7 @@ def test_relative_import_reload_uses_latest_module(semantic_project_factory) -> 
     assert any("query_info" in err.message for err in result.errors)
 
 
-def test_cross_file_missing_entity_ref(semantic_project_factory) -> None:
+def test_cross_file_missing_entity_ref(semantic_project_factory: _SemanticProjectFactory) -> None:
     """A field referencing an entity that doesn't exist should error."""
     metrics_py = textwrap.dedent("""\
         import marivo.semantic as ms
@@ -841,7 +870,7 @@ def test_cross_file_missing_entity_ref(semantic_project_factory) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_warnings_accessible_after_load(semantic_project_factory) -> None:
+def test_warnings_accessible_after_load(semantic_project_factory: _SemanticProjectFactory) -> None:
     """A valid project exposes no structured warnings after load."""
     project = semantic_project_factory(
         {
@@ -857,7 +886,9 @@ def test_warnings_accessible_after_load(semantic_project_factory) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_two_pass_separates_discovery_from_validation(semantic_project_factory) -> None:
+def test_two_pass_separates_discovery_from_validation(
+    semantic_project_factory: _SemanticProjectFactory,
+) -> None:
     """Even if a metric references a dataset defined later in the file
     sequence, the two-pass loader should resolve it correctly."""
     # File order: b_measures.py -> c_datasets.py -> d_metrics.py
@@ -909,7 +940,7 @@ def test_two_pass_separates_discovery_from_validation(semantic_project_factory) 
 # ---------------------------------------------------------------------------
 
 
-def test_loading_with_relationships(semantic_project_factory) -> None:
+def test_loading_with_relationships(semantic_project_factory: _SemanticProjectFactory) -> None:
     """Relationships should be loaded into the registry."""
     datasets_py = textwrap.dedent("""\
         import marivo.datasource as md
@@ -956,7 +987,9 @@ def test_loading_with_relationships(semantic_project_factory) -> None:
     assert rel.keys[0].to_key == "sales.items.item_order_id"
 
 
-def test_relationship_empty_keys_rejected_via_loader(semantic_project_factory) -> None:
+def test_relationship_empty_keys_rejected_via_loader(
+    semantic_project_factory: _SemanticProjectFactory,
+) -> None:
     """Relationship with empty keys should fail at decorator-time."""
     rels_py = textwrap.dedent("""\
         import marivo.datasource as md
@@ -991,7 +1024,9 @@ def test_relationship_empty_keys_rejected_via_loader(semantic_project_factory) -
 # ---------------------------------------------------------------------------
 
 
-def test_field_ref_resolver_wired_after_load(semantic_project_factory) -> None:
+def test_field_ref_resolver_wired_after_load(
+    semantic_project_factory: _SemanticProjectFactory,
+) -> None:
     """A field declaration should have a compiled expression body after loading."""
     datasets_py = textwrap.dedent("""\
         import marivo.datasource as md
@@ -1024,7 +1059,7 @@ def test_field_ref_resolver_wired_after_load(semantic_project_factory) -> None:
     assert ref_factory.dimension("sales.orders.amount") in sidecar.bodies
 
 
-def test_field_ref_resolves_after_load(semantic_project_factory) -> None:
+def test_field_ref_resolves_after_load(semantic_project_factory: _SemanticProjectFactory) -> None:
     """Ref[dimension] returned by a decorator resolves through the materializer."""
     from contextlib import contextmanager
 
@@ -1060,31 +1095,31 @@ def test_field_ref_resolves_after_load(semantic_project_factory) -> None:
     )
     assert project.is_ready()
 
-    def factory(ds_id: str):
+    def factory(ds_id: str) -> object:
         return con
 
     class _FakeConnectionService:
         @property
-        def project_root(self):
+        def project_root(self) -> None:
             return None
 
-        def session_backend(self, name):
+        def session_backend(self, name: str) -> object:
             return factory(name)
 
         @contextmanager
-        def use_backend(self, name):
+        def use_backend(self, name: str) -> Iterator[object]:
             yield factory(name)
 
-        def close_all(self):
+        def close_all(self) -> None:
             pass
 
     fake_service = _FakeConnectionService()
 
     catalog = SemanticCatalog(project)
     resolver = catalog._semantic_resolver(connections=fake_service)
-    table = resolver.entity(make_ref("sales.orders", SemanticKind.ENTITY))
+    table = resolver.entity(ref_factory.entity("sales.orders"))
 
-    field_expr = resolver.dimension(make_ref("sales.orders.region", SemanticKind.DIMENSION))
+    field_expr = resolver.dimension(ref_factory.dimension("sales.orders.region"))
     assert field_expr.get_name() == "region"
 
 
@@ -1093,7 +1128,7 @@ def test_field_ref_resolves_after_load(semantic_project_factory) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_find_project_in_current_dir(tmp_path) -> None:
+def test_find_project_in_current_dir(tmp_path: Path) -> None:
     """find_project should find marivo.toml in the start_dir."""
     from marivo.semantic.loader import find_project
 
@@ -1105,7 +1140,7 @@ def test_find_project_in_current_dir(tmp_path) -> None:
     assert project.semantic_root == sem_dir
 
 
-def test_find_project_in_parent_dir(tmp_path) -> None:
+def test_find_project_in_parent_dir(tmp_path: Path) -> None:
     """find_project should find marivo.toml in a parent directory."""
     from marivo.semantic.loader import find_project
 
@@ -1119,7 +1154,7 @@ def test_find_project_in_parent_dir(tmp_path) -> None:
     assert project.semantic_root == sem_dir
 
 
-def test_find_project_returns_none_when_not_found(tmp_path) -> None:
+def test_find_project_returns_none_when_not_found(tmp_path: Path) -> None:
     """find_project should return None when no marivo.toml exists."""
     from marivo.semantic.loader import find_project
 
@@ -1127,7 +1162,7 @@ def test_find_project_returns_none_when_not_found(tmp_path) -> None:
     assert project is None
 
 
-def test_find_project_finds_marivo_toml_without_semantic(tmp_path) -> None:
+def test_find_project_finds_marivo_toml_without_semantic(tmp_path: Path) -> None:
     """find_project should succeed when marivo.toml exists but models/semantic/ does not."""
     from marivo.semantic.loader import find_project
 
@@ -1138,7 +1173,7 @@ def test_find_project_finds_marivo_toml_without_semantic(tmp_path) -> None:
     assert not project.semantic_root.exists()
 
 
-def test_load_project_rejects_models_root_with_clear_error(tmp_path) -> None:
+def test_load_project_rejects_models_root_with_clear_error(tmp_path: Path) -> None:
     from marivo.semantic.loader import load_project
 
     semantic_dir = tmp_path / "models" / "semantic" / "sales"
@@ -1154,7 +1189,7 @@ def test_load_project_rejects_models_root_with_clear_error(tmp_path) -> None:
     assert "models/semantic" in result.errors[0].message
 
 
-def test_load_project_rejects_workspace_root_with_clear_error(tmp_path) -> None:
+def test_load_project_rejects_workspace_root_with_clear_error(tmp_path: Path) -> None:
     from marivo.semantic.loader import load_project
 
     semantic_dir = tmp_path / "models" / "semantic" / "sales"
@@ -1168,10 +1203,11 @@ def test_load_project_rejects_workspace_root_with_clear_error(tmp_path) -> None:
     assert result.status == "errored"
     assert result.errors[0].kind == ErrorKind.INVALID_PROJECT
     assert "models/semantic" in result.errors[0].message
+    assert result.errors[0].hint is not None
     assert "ms.load(workspace_dir=...)" in result.errors[0].hint
 
 
-def test_load_raises_when_semantic_is_a_file(tmp_path) -> None:
+def test_load_raises_when_semantic_is_a_file(tmp_path: Path) -> None:
     """SemanticProject.load() should raise when marivo/semantic is a file."""
     from marivo.semantic.errors import SemanticLoadError
 
@@ -1191,7 +1227,9 @@ def test_load_raises_when_semantic_is_a_file(tmp_path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_reader_project_default_workspace_dir_is_cwd(monkeypatch, tmp_path) -> None:
+def test_reader_project_default_workspace_dir_is_cwd(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     """SemanticProject() with no args uses cwd as workspace_dir."""
     monkeypatch.chdir(tmp_path)
     monkeypatch.delenv("MARIVO_PROJECT_ROOT", raising=False)
@@ -1200,7 +1238,9 @@ def test_reader_project_default_workspace_dir_is_cwd(monkeypatch, tmp_path) -> N
     assert project.semantic_root == tmp_path.resolve() / "models" / "semantic"
 
 
-def test_reader_project_env_var_overrides_cwd(monkeypatch, tmp_path) -> None:
+def test_reader_project_env_var_overrides_cwd(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     """MARIVO_PROJECT_ROOT takes precedence over cwd."""
     other_dir = tmp_path / "other"
     other_dir.mkdir()
@@ -1210,7 +1250,9 @@ def test_reader_project_env_var_overrides_cwd(monkeypatch, tmp_path) -> None:
     assert project.workspace_dir == other_dir.resolve()
 
 
-def test_reader_project_explicit_workspace_dir_overrides_env(monkeypatch, tmp_path) -> None:
+def test_reader_project_explicit_workspace_dir_overrides_env(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     """Explicit workspace_dir= takes precedence over MARIVO_PROJECT_ROOT."""
     env_dir = tmp_path / "env_dir"
     env_dir.mkdir()
@@ -1221,7 +1263,7 @@ def test_reader_project_explicit_workspace_dir_overrides_env(monkeypatch, tmp_pa
     assert project.workspace_dir == explicit_dir.resolve()
 
 
-def test_reader_project_workspace_dir_does_not_scan_non_marivo_dirs(tmp_path) -> None:
+def test_reader_project_workspace_dir_does_not_scan_non_marivo_dirs(tmp_path: Path) -> None:
     """SemanticProject(workspace_dir='.') in a project root with scripts/ etc.
     does NOT misidentify those dirs as model directories."""
     scripts_dir = tmp_path / "scripts"
@@ -1242,7 +1284,7 @@ def test_reader_project_workspace_dir_does_not_scan_non_marivo_dirs(tmp_path) ->
 
 
 def test_materialize_dataset_passes_short_table_name_through_for_trino(
-    semantic_project_factory,
+    semantic_project_factory: _SemanticProjectFactory,
 ) -> None:
     from contextlib import contextmanager
 
@@ -1271,30 +1313,30 @@ def test_materialize_dataset_passes_short_table_name_through_for_trino(
         def __init__(self) -> None:
             self.calls = []
 
-        def table(self, name, /):
+        def table(self, name: str, /) -> ibis.expr.types.Table:
             self.calls.append(name)
             return ibis.table({"x": "int"}, name=name)
 
     backend = _FakeTrinoBackend()
 
-    def factory(name):
+    def factory(name: str) -> object:
         if name == "warehouse":
             return backend
         return object()
 
     class _FakeConnectionService:
         @property
-        def project_root(self):
+        def project_root(self) -> None:
             return None
 
-        def session_backend(self, name):
+        def session_backend(self, name: str) -> object:
             return factory(name)
 
         @contextmanager
-        def use_backend(self, name):
+        def use_backend(self, name: str) -> Iterator[object]:
             yield factory(name)
 
-        def close_all(self):
+        def close_all(self) -> None:
             pass
 
     fake_service = _FakeConnectionService()
@@ -1302,14 +1344,14 @@ def test_materialize_dataset_passes_short_table_name_through_for_trino(
     result = (
         SemanticCatalog(project)
         ._semantic_resolver(connections=fake_service)
-        .entity(make_ref("sales.orders", SemanticKind.ENTITY))
+        .entity(ref_factory.entity("sales.orders"))
     )
     assert isinstance(result, ibis.expr.types.Table)
     assert backend.calls == ["orders"]
 
 
 def test_materialize_dataset_accepts_explicit_database_for_trino(
-    semantic_project_factory,
+    semantic_project_factory: _SemanticProjectFactory,
 ) -> None:
     from contextlib import contextmanager
 
@@ -1333,29 +1375,29 @@ def test_materialize_dataset_accepts_explicit_database_for_trino(
     )
 
     class _FakeTrinoBackend:
-        def table(self, name, /, *, database=None):
+        def table(self, name: str, /, *, database: str | None = None) -> ibis.expr.types.Table:
             assert name == "orders"
             assert database == "sales"
             return ibis.table({"x": "int"}, name=f"{database}.{name}")
 
-    def factory(name):
+    def factory(name: str) -> object:
         if name == "warehouse":
             return _FakeTrinoBackend()
         return object()
 
     class _FakeConnectionService:
         @property
-        def project_root(self):
+        def project_root(self) -> None:
             return None
 
-        def session_backend(self, name):
+        def session_backend(self, name: str) -> object:
             return factory(name)
 
         @contextmanager
-        def use_backend(self, name):
+        def use_backend(self, name: str) -> Iterator[object]:
             yield factory(name)
 
-        def close_all(self):
+        def close_all(self) -> None:
             pass
 
     fake_service = _FakeConnectionService()
@@ -1363,7 +1405,7 @@ def test_materialize_dataset_accepts_explicit_database_for_trino(
     result = (
         SemanticCatalog(project)
         ._semantic_resolver(connections=fake_service)
-        .entity(make_ref("sales.orders", SemanticKind.ENTITY))
+        .entity(ref_factory.entity("sales.orders"))
     )
     assert isinstance(result, ibis.expr.types.Table)
 
@@ -1389,7 +1431,9 @@ _FINANCE_DATASET_PY = textwrap.dedent("""\
 """)
 
 
-def test_load_models_parameter_loads_only_specified(semantic_project_factory) -> None:
+def test_load_models_parameter_loads_only_specified(
+    semantic_project_factory: _SemanticProjectFactory,
+) -> None:
     project = semantic_project_factory(
         {
             "sales/_domain.py": _MINIMAL_DOMAIN_PY,
@@ -1402,12 +1446,14 @@ def test_load_models_parameter_loads_only_specified(semantic_project_factory) ->
     result = project.load(domains=["sales"])
     assert project.is_ready()
     assert project._registry is not None
+    assert project._registry is not None
     assert "sales" in project._registry.domains
+    assert project._registry is not None
     assert "finance" not in project._registry.domains
     assert result.filtered_models == ("sales",)
 
 
-def test_load_models_none_loads_all(semantic_project_factory) -> None:
+def test_load_models_none_loads_all(semantic_project_factory: _SemanticProjectFactory) -> None:
     project = semantic_project_factory(
         {
             "sales/_domain.py": _MINIMAL_DOMAIN_PY,
@@ -1417,12 +1463,16 @@ def test_load_models_none_loads_all(semantic_project_factory) -> None:
     )
     result = project.load()
     assert project.is_ready()
+    assert project._registry is not None
     assert "sales" in project._registry.domains
+    assert project._registry is not None
     assert "finance" in project._registry.domains
     assert result.filtered_models == ()
 
 
-def test_load_models_with_nonexistent_name(semantic_project_factory) -> None:
+def test_load_models_with_nonexistent_name(
+    semantic_project_factory: _SemanticProjectFactory,
+) -> None:
     project = semantic_project_factory(
         {
             "sales/_domain.py": _MINIMAL_DOMAIN_PY,
@@ -1431,12 +1481,13 @@ def test_load_models_with_nonexistent_name(semantic_project_factory) -> None:
     )
     result = project.load(domains=["sales", "nonexistent"])
     assert project.is_ready()
+    assert project._registry is not None
     assert "sales" in project._registry.domains
     filtered_warnings = [w for w in result.warnings if w.kind == "filtered_domain_ref"]
     assert any("nonexistent" in w.message for w in filtered_warnings)
 
 
-def test_load_models_skips_bad_model(semantic_project_factory) -> None:
+def test_load_models_skips_bad_model(semantic_project_factory: _SemanticProjectFactory) -> None:
     bad_model = textwrap.dedent("""\
         raise ValueError("boom")
     """)
@@ -1451,10 +1502,13 @@ def test_load_models_skips_bad_model(semantic_project_factory) -> None:
     result = project.load(domains=["sales"])
     assert project.is_ready()
     assert project._registry is not None
+    assert project._registry is not None
     assert "sales" in project._registry.domains
 
 
-def test_load_models_intra_model_error_still_blocks(semantic_project_factory) -> None:
+def test_load_models_intra_model_error_still_blocks(
+    semantic_project_factory: _SemanticProjectFactory,
+) -> None:
     bad_model = textwrap.dedent("""\
         raise ValueError("boom")
     """)
@@ -1469,7 +1523,9 @@ def test_load_models_intra_model_error_still_blocks(semantic_project_factory) ->
     assert project._registry is None
 
 
-def test_load_models_cross_model_ref_produces_warning(semantic_project_factory) -> None:
+def test_load_models_cross_model_ref_produces_warning(
+    semantic_project_factory: _SemanticProjectFactory,
+) -> None:
     """Cross-domain relationship ref produces filtered_domain_ref warning, not error."""
     sales_with_relationship = textwrap.dedent("""\
         import marivo.datasource as md
@@ -1503,7 +1559,7 @@ def test_load_models_cross_model_ref_produces_warning(semantic_project_factory) 
     assert any("finance" in w.message for w in filtered_warnings)
 
 
-def test_load_without_models_loads_all(semantic_project_factory) -> None:
+def test_load_without_models_loads_all(semantic_project_factory: _SemanticProjectFactory) -> None:
     project = semantic_project_factory(
         {
             "sales/_domain.py": _MINIMAL_DOMAIN_PY,
@@ -1512,14 +1568,18 @@ def test_load_without_models_loads_all(semantic_project_factory) -> None:
         load=False,
     )
     project.load(domains=["sales"])
+    assert project._registry is not None
     assert "sales" in project._registry.domains
+    assert project._registry is not None
     assert "finance" not in project._registry.domains
     project.load()
+    assert project._registry is not None
     assert "sales" in project._registry.domains
+    assert project._registry is not None
     assert "finance" in project._registry.domains
 
 
-def test_load_can_change_filter(semantic_project_factory) -> None:
+def test_load_can_change_filter(semantic_project_factory: _SemanticProjectFactory) -> None:
     project = semantic_project_factory(
         {
             "sales/_domain.py": _MINIMAL_DOMAIN_PY,
@@ -1528,7 +1588,10 @@ def test_load_can_change_filter(semantic_project_factory) -> None:
         load=False,
     )
     project.load(domains=["sales"])
+    assert project._registry is not None
     assert "finance" not in project._registry.domains
     project.load(domains=["sales", "finance"])
+    assert project._registry is not None
     assert "sales" in project._registry.domains
+    assert project._registry is not None
     assert "finance" in project._registry.domains

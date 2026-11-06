@@ -2,6 +2,7 @@
 
 import operator
 from dataclasses import replace
+from typing import Literal
 
 import pytest
 from ibis.common.deferred import BinaryOperator, Just, Variable
@@ -59,7 +60,9 @@ def test_formula_identity_ignores_definition_versions_and_declared_aliases() -> 
         ),
     ],
 )
-def test_formula_identity_preserves_quantile_null_unit_and_time_roles(changed) -> None:
+def test_formula_identity_preserves_quantile_null_unit_and_time_roles(
+    changed: SourceAggregate,
+) -> None:
     original = build_game(SourceAggregate(FIELD, "quantile", None, q=0.5), {}, metric="q", by=BY)
     other = build_game(changed, {}, metric="q", by=BY)
     with pytest.raises(AttributeGameError) as error:
@@ -70,7 +73,7 @@ def test_formula_identity_preserves_quantile_null_unit_and_time_roles(changed) -
 def test_constant_recipe_changes_are_not_treated_as_data_changes() -> None:
     total = SourceAggregate(FIELD, "sum", None)
 
-    def expression(value):
+    def expression(value: int) -> MetricExpression:
         return MetricExpression(
             BinaryOperator(operator.mul, Variable("slot_0"), Just(value)), (total,)
         )
@@ -95,15 +98,19 @@ def test_same_actual_input_group_deduplicates_states_without_merging_occurrences
 
 
 @pytest.mark.parametrize("reducer", ["first", "last"])
-def test_unqualified_source_algorithms_do_not_get_a_replacement_route(reducer) -> None:
-    node = SourceAggregate(FIELD, reducer, None, q=0.5 if reducer == "approx_quantile" else None)
+def test_unqualified_source_algorithms_do_not_get_a_replacement_route(
+    reducer: Literal["first", "last"],
+) -> None:
+    node = SourceAggregate(FIELD, reducer, None)
     with pytest.raises(AttributeGameError) as error:
         build_game(node, {}, metric="q", by=BY)
     assert error.value.reason == "unsupported_state"
 
 
 @pytest.mark.parametrize("reducer", ["approx_median", "approx_quantile"])
-def test_original_approximate_quantile_is_captured_without_claiming_a_state(reducer) -> None:
+def test_original_approximate_quantile_is_captured_without_claiming_a_state(
+    reducer: Literal["approx_median", "approx_quantile"],
+) -> None:
     node = SourceAggregate(FIELD, reducer, None, q=0.5 if reducer == "approx_quantile" else None)
     game = build_game(node, {}, metric="q", by=BY)
     assert game.node is node

@@ -1,10 +1,13 @@
 """Current Frame calendar correspondence and endpoint recovery."""
 
+from typing import Literal
+
 import duckdb
 import pandas as pd
 import pytest
 
 import marivo.analysis as mv
+import marivo.semantic as ms
 from marivo.analysis.errors import AnalysisError
 from tests.analysis.numeric.test_period_alignment import (
     comparison_tables,
@@ -13,6 +16,18 @@ from tests.analysis.numeric.test_period_alignment import (
     temporal_keys,
 )
 from tests.shared_fixtures import DslCaseFactory
+
+
+def _metric(catalog: ms.SemanticCatalog, path: str) -> ms.Metric:
+    result = catalog.get(path)
+    assert result.kind == "metric"
+    return result
+
+
+def _entity(catalog: ms.SemanticCatalog, path: str) -> ms.Entity:
+    result = catalog.get(path)
+    assert result.kind == "entity"
+    return result
 
 
 @pytest.mark.parametrize("lengths", [(3, 2), (2, 3)])
@@ -82,8 +97,8 @@ def test_public_period_correspondence_preserves_independent_source_oracle(
                 ("c", "A", "web", "paid", "2025-08-01T12:00:00Z", 10),
             ],
         )
-    metric = session.catalog.get("metric:sales.revenue")
-    members = session.members(session.catalog.get("entity:sales.customer"))
+    metric = _metric(session.catalog, "metric:sales.revenue")
+    members = session.members(_entity(session.catalog, "entity:sales.customer"))
     current_axis = session.time_scope(start="2026-08-01", end="2026-08-03").by(mv.grain("day"))
     if kind == "years":
         baseline_axis = session.time_scope(start="2025-08-01", end="2025-08-03").by(mv.grain("day"))
@@ -124,7 +139,7 @@ def test_public_period_correspondence_preserves_independent_source_oracle(
 def test_multi_axis_offset_inference_uses_the_consuming_grain(
     analysis_dsl_case_factory: DslCaseFactory,
     monkeypatch: pytest.MonkeyPatch,
-    grain: str,
+    grain: Literal["day", "week"],
     current_start: str,
     current_end: str,
     baseline_start: str,
@@ -144,8 +159,8 @@ def test_multi_axis_offset_inference_uses_the_consuming_grain(
                 ("baseline", "A", "web", "paid", f"{baseline_start}T12:00:00Z", 20),
             ],
         )
-    metric = session.catalog.get("metric:sales.revenue")
-    members = session.members(session.catalog.get("entity:sales.customer"))
+    metric = _metric(session.catalog, "metric:sales.revenue")
+    members = session.members(_entity(session.catalog, "entity:sales.customer"))
     current_axis = session.time_scope(start=current_start, end=current_end).by(mv.grain(grain))
     baseline_axis = session.time_scope(start=baseline_start, end=baseline_end).by(mv.grain(grain))
     current = session.observe({"value": metric}, by=mv.product(current_axis, members))
@@ -166,6 +181,9 @@ def test_multi_axis_offset_inference_uses_the_consuming_grain(
         with pytest.raises(AnalysisError) as caught:
             current.compare(baseline, match=mv.offset(periods=-7)).compute()
         error = caught.value
+        assert error.expected is not None
+        assert error.received is not None
+        assert error.repair is not None
         assert "actual baseline time row" in error.expected
         for part in (
             "reference",
@@ -186,6 +204,7 @@ def test_multi_axis_offset_inference_uses_the_consuming_grain(
             current.compare(
                 {long_alias: mv.baseline(baseline, match=mv.offset(periods=-7))}
             ).compute()
+        assert long_error.value.received is not None
         assert long_alias in long_error.value.received
         assert "key=" in long_error.value.received and "bounds=" in long_error.value.received
         assert len(long_error.value.received) <= 2048
@@ -203,12 +222,12 @@ def test_multi_axis_offset_inference_uses_the_consuming_grain(
             assert isinstance(frame._backing, MemoryFrameBacking)
             axis = frame._schema.axes[0]
             assert isinstance(axis, CalendarDataAxis) and axis.frozen is not None
-            part = next(
+            attachment = next(
                 item
                 for item in frame._backing.data.copy_attachments()
                 if item.name == axis.frozen.directory_name
             )
-            directories.append(read_calendar_directory(axis, part.schema, part.rows))
+            directories.append(read_calendar_directory(axis, attachment.schema, attachment.rows))
         details = _unmapped_time_details(
             "reference", directories[0], directories[1], None, directories[1].buckets[0].key
         )
@@ -220,7 +239,7 @@ def test_previous_year_leap_day_is_missing_and_current_projection_is_exact(
 ) -> None:
     case = analysis_dsl_case_factory("j2")
     session = case.session
-    metric = session.catalog.get("metric:sales.revenue")
+    metric = _metric(session.catalog, "metric:sales.revenue")
     current_axis = session.time_scope(start="2024-02-28", end="2024-03-01").by(mv.grain("day"))
     baseline_axis = session.time_scope(start="2023-02-28", end="2023-03-01").by(mv.grain("day"))
     current = session.observe({"value": metric}, by=(current_axis,))

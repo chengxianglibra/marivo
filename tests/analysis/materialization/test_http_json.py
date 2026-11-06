@@ -353,11 +353,15 @@ def test_http_failures_are_structured_and_close_sources(
         with pytest.raises(MarivoError) as caught:
             pending.persist()
         error = caught.value
-        assert error.expected and error.received and error.repair
+        expected = getattr(error, "expected", None)
+        received = getattr(error, "received", None)
+        repair = getattr(error, "repair", None)
+        assert isinstance(expected, str) and expected
+        assert isinstance(received, str) and received and repair
         if failure == "http":
-            assert "503" in error.received
+            assert "503" in received
         elif failure == "null":
-            assert "numeric" in error.expected and "null" in error.received
+            assert "numeric" in expected and "null" in received
         assert "no business row was read" not in str(error).lower()
         assert len(api.requests) == 1 and closed
         assert terminal_runs(session) == () and session._runtime.store.resources(session.id) == ()

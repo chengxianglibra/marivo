@@ -17,7 +17,10 @@ from __future__ import annotations
 
 import dataclasses
 import textwrap
+from collections.abc import Callable
+from pathlib import Path
 
+import ibis.expr.types as ir
 import pytest
 
 from marivo.refs import ref as ref_factory
@@ -53,7 +56,7 @@ from marivo.semantic.validator import Registry, assembly_validate
 _LOC = SourceLocation(file="<test>", line=0)
 
 
-def _time_dimension_sidecar(fn):
+def _time_dimension_sidecar(fn: Callable[..., object]) -> CompiledExpressionSidecar:
     field_ref = ref_factory.time_dimension("sales.orders.order_date")
     entity_ref = ref_factory.entity("sales.orders")
     return CompiledExpressionSidecar(
@@ -193,11 +196,13 @@ def test_hour_prefix_must_reference_time_dimension() -> None:
     )
 
 
-def _cast_partition_time_field(table):
+def _cast_partition_time_field(table: ir.Table) -> ir.Value:
+    # Keep the authored attribute syntax inspected by the validator.
     return table.dt.cast("date")
 
 
-def _raw_partition_time_field(table):
+def _raw_partition_time_field(table: ir.Table) -> ir.Value:
+    # Ibis dynamically supplies column attributes.
     return table.dt
 
 
@@ -221,7 +226,7 @@ def test_cast_partition_time_field_emits_pushdown_advisory_warning() -> None:
     )
 
     assert errors == []
-    assert any(w.kind == WarningKind.TIME_DIMENSION_PUSHDOWN_ADVISORY for w in warnings)
+    assert any(w.kind == WarningKind.TIME_DIMENSION_PUSHDOWN_ADVISORY.value for w in warnings)
 
 
 def test_raw_partition_time_field_has_no_pushdown_advisory_warning() -> None:
@@ -244,7 +249,7 @@ def test_raw_partition_time_field_has_no_pushdown_advisory_warning() -> None:
     )
 
     assert errors == []
-    assert not any(w.kind == WarningKind.TIME_DIMENSION_PUSHDOWN_ADVISORY for w in warnings)
+    assert not any(w.kind == WarningKind.TIME_DIMENSION_PUSHDOWN_ADVISORY.value for w in warnings)
 
 
 # ---------------------------------------------------------------------------
@@ -362,7 +367,7 @@ def test_empty_registry_no_errors() -> None:
 
 
 @pytest.fixture
-def semantic_project_factory(tmp_path):
+def semantic_project_factory(tmp_path: Path) -> Callable[..., SemanticProject]:
     """Factory that creates a SemanticProject from a dict of files."""
 
     def _make(files: dict[str, str], load: bool = True) -> SemanticProject:
@@ -403,7 +408,7 @@ def test_time_dimensions_have_no_default_authoring_option() -> None:
         assert "is_default" not in inspect.signature(constructor).parameters
 
 
-def test_warnings_in_load_result(semantic_project_factory) -> None:
+def test_warnings_in_load_result(semantic_project_factory: Callable[..., SemanticProject]) -> None:
     """LoadResult should expose an empty warnings tuple when no warnings exist."""
     metrics_py = textwrap.dedent("""        import marivo.datasource as md
         import marivo.semantic as ms
@@ -430,7 +435,9 @@ def test_warnings_in_load_result(semantic_project_factory) -> None:
     assert result.warnings == ()
 
 
-def test_invalid_relationship_via_loader(semantic_project_factory) -> None:
+def test_invalid_relationship_via_loader(
+    semantic_project_factory: Callable[..., SemanticProject],
+) -> None:
     """Relationship referencing a non-existent dataset should fail via loader."""
     rels_py = textwrap.dedent("""\
         import marivo.datasource as md
@@ -584,4 +591,5 @@ def test_hour_prefix_rejects_known_timestamp_prefix_kind(
     assert len(matching) == 1
     assert matching[0].expected == "civil-date TimeDimension"
     assert matching[0].received == type(parse).__name__
+    assert matching[0].repair is not None
     assert "civil-date" in matching[0].repair.action

@@ -10,7 +10,14 @@ import ibis.expr.types as ir
 import pytest
 
 from marivo._symbolic import symbol_from_ref
-from marivo.refs import Ref, SemanticKindTag
+from marivo.refs import (
+    DimensionKind,
+    EntityKind,
+    MeasureKind,
+    Ref,
+    SemanticKindTag,
+    TimeDimensionKind,
+)
 from marivo.refs import ref as ref_factory
 from marivo.semantic._expression_binding import (
     CompiledExpressionSidecar,
@@ -33,63 +40,68 @@ NET_AMOUNT_SYMBOL = symbol_from_ref(NET_AMOUNT)
 REVENUE_SYMBOL = symbol_from_ref(REVENUE)
 
 
-def _revenue(orders):
+def _revenue(orders: ir.Table) -> ir.Value:
     return bind(AMOUNT_SYMBOL, orders).sum()
 
 
-def _renamed_revenue(rows):
+def _renamed_revenue(rows: ir.Table) -> ir.Value:
     return bind(AMOUNT_ALIAS, rows).sum()
 
 
-def _net_amount(orders):
+def _net_amount(orders: ir.Table) -> ir.Value:
     return bind(AMOUNT_SYMBOL, orders) * 0.9
 
 
-def _net_revenue(orders):
+def _net_revenue(orders: ir.Table) -> ir.Value:
     return bind(NET_AMOUNT_SYMBOL, orders).sum()
 
 
-def _wrong_alias(orders):
+def _wrong_alias(orders: ir.Table) -> ir.Value:
     return bind(AMOUNT_SYMBOL, orders.filter(orders.amount > 0)).sum()
 
 
-def _two_entities(orders, users):
+def _two_entities(orders: ir.Table, users: ir.Table) -> ir.Value:
     return bind(AMOUNT_SYMBOL, orders).sum()
 
 
-def _second_entity(orders, users):
+def _second_entity(orders: ir.Table, users: ir.Table) -> ir.Value:
     return bind(AMOUNT_SYMBOL, users).sum()
 
 
-def _identity_metric(orders):
+def _identity_metric(orders: ir.Table) -> ir.Value:
     return bind(AMOUNT_SYMBOL, orders)
 
 
-def _recursive_amount(orders):
+def _recursive_amount(orders: ir.Table) -> ir.Value:
     return bind(AMOUNT_SYMBOL, orders)
 
 
-def _raw_amount(orders):
+def _raw_amount(orders: ir.Table) -> ir.Value:
     return orders.amount
 
 
-def _raw_country(orders):
+def _raw_country(orders: ir.Table) -> ir.Value:
     return orders["country"]
 
 
-def _metric_ref_call(orders):
-    return bind(REVENUE_SYMBOL, orders)  # type: ignore[arg-type]
+def _metric_ref_call(orders: ir.Table) -> ir.Value:
+    return bind(REVENUE_SYMBOL, orders)
 
 
 def _sidecar(
     *,
     amount_body: ExpressionBody | None = None,
-    extra_bodies: dict | None = None,
+    extra_bodies: dict[Ref[SemanticKindTag], ExpressionBody] | None = None,
 ) -> CompiledExpressionSidecar:
-    bodies = {AMOUNT: amount_body or ExpressionBody.for_column("amount")}
+    bodies: dict[Ref[SemanticKindTag], ExpressionBody] = {
+        AMOUNT: amount_body or ExpressionBody.for_column("amount")
+    }
     if extra_bodies:
         bodies.update(extra_bodies)
-    owners = {AMOUNT: ORDERS, NET_AMOUNT: ORDERS}
+    owners: dict[Ref[DimensionKind | TimeDimensionKind | MeasureKind], Ref[EntityKind]] = {
+        AMOUNT: ORDERS,
+        NET_AMOUNT: ORDERS,
+    }
     return CompiledExpressionSidecar(
         bodies=bodies,
         field_owners=owners,
@@ -228,7 +240,7 @@ def test_context_is_cleaned_after_success_and_body_failure() -> None:
         bind(AMOUNT_SYMBOL, table)
     assert success_cleanup.value.kind == ErrorKind.BINDING_CONTEXT_MISSING
 
-    def fails(_orders):
+    def fails(_orders: ir.Table) -> ir.Value:
         raise RuntimeError("boom")
 
     failing = ExpressionBody(
@@ -398,7 +410,7 @@ def test_cycle_and_invalid_nested_result_reset_every_frame() -> None:
 def test_runtime_rejects_non_field_and_non_exact_receivers_structurally() -> None:
     table = ibis.table({"amount": "float64"}, name="orders")
     with pytest.raises(SemanticRuntimeError) as metric_error:
-        bind(REVENUE_SYMBOL, table)  # type: ignore[arg-type]
+        bind(REVENUE_SYMBOL, table)
     assert metric_error.value.kind == ErrorKind.INVALID_BINDING_REF
     with pytest.raises(SemanticRuntimeError) as exact_error:
         bind(object(), table)  # type: ignore[arg-type]
@@ -425,7 +437,10 @@ def test_equal_refs_resolve_independently_in_concurrent_catalog_contexts() -> No
             entity_refs=(ORDERS,),
             aliases=(table,),
         )
-        return result.get_name()
+        assert isinstance(result, ir.Value)
+        name = result.get_name()
+        assert isinstance(name, str)
+        return name
 
     with ThreadPoolExecutor(max_workers=2) as pool:
         names = set(pool.map(evaluate, ("amount_a", "amount_b")))

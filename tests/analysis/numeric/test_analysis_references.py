@@ -21,6 +21,24 @@ from tests.shared_fixtures import (
 from tests.support.paths import PROJECT_ROOT
 
 
+def _metric(catalog: ms.SemanticCatalog, path: str) -> ms.Metric:
+    result = catalog.get(path)
+    assert result.kind == "metric"
+    return result
+
+
+def _entity(catalog: ms.SemanticCatalog, path: str) -> ms.Entity:
+    result = catalog.get(path)
+    assert result.kind == "entity"
+    return result
+
+
+def _classify(members: mv.Population, region: ms.Dimension) -> mv.Population:
+    result = members.classify(by=(region,))
+    assert isinstance(result, mv.Population)
+    return result
+
+
 def _plain(result: mv.AnalysisFrame) -> pd.DataFrame:
     return plain(result)
 
@@ -47,20 +65,20 @@ def _monthly(case: DslCase, metric: str) -> mv.AnalysisFrame:
         {"value": catalog_value(session.catalog, "sales." + metric, kind="metric")},
         by=mv.product(
             session.time_scope(start="2026-08-01", end="2026-09-01"),
-            session.members(session.catalog.get("entity:sales.customer")),
+            session.members(_entity(session.catalog, "entity:sales.customer")),
         ),
     )
 
 
 def _grouped(case: DslCase, metric: str) -> mv.AnalysisFrame:
     session = case.session
-    members = session.members(session.catalog.get("entity:sales.customer"))
+    members = session.members(_entity(session.catalog, "entity:sales.customer"))
     return session.observe(
         {"value": catalog_value(session.catalog, "sales." + metric, kind="metric")},
         by=mv.product(
             session.time_scope(start="2026-08-01", end="2026-09-01"),
-            members.classify(
-                by=(catalog_value(session.catalog, "sales.customer.region", kind="field"),)
+            _classify(
+                members, catalog_value(session.catalog, "sales.customer.region", kind="dimension")
             ),
         ),
     )
@@ -246,13 +264,13 @@ def test_original_metric_standardization_matrix(
         db.execute(f'ALTER TABLE "order" ALTER amount TYPE {physical}')
     trace = capture_source(monkeypatch)
     session = case.session
-    members = session.members(session.catalog.get("entity:sales.customer"))
-    region = catalog_value(session.catalog, "sales.customer.region", kind="field")
-    base = session.catalog.get("metric:sales.revenue")
+    members = session.members(_entity(session.catalog, "entity:sales.customer"))
+    region = catalog_value(session.catalog, "sales.customer.region", kind="dimension")
+    base = _metric(session.catalog, "metric:sales.revenue")
     groups = session.observe(
         {"sum": base, "ratio": base / base},
         by=mv.product(
-            session.time_scope(start="2026-08-01", end="2026-09-01"), members.classify(by=(region,))
+            session.time_scope(start="2026-08-01", end="2026-09-01"), _classify(members, region)
         ),
     )
     weights = _grouped(case, "revenue")
@@ -318,19 +336,17 @@ def test_public_exact_integer_reference_weights(analysis_dsl_case_factory: DslCa
     with duckdb.connect(str(case.database_path)) as db:
         db.execute('DELETE FROM "order" WHERE order_id != ?', [kept[0]])
     session = case.session
-    members = session.members(session.catalog.get("entity:sales.customer"))
-    region = catalog_value(session.catalog, "sales.customer.region", kind="field")
-    amount, time = (
-        catalog_value(session.catalog, "sales.order." + name, kind="field")
-        for name in ("amount", "ordered_at")
-    )
+    members = session.members(_entity(session.catalog, "entity:sales.customer"))
+    region = catalog_value(session.catalog, "sales.customer.region", kind="dimension")
+    amount = catalog_value(session.catalog, "sales.order.amount", kind="measure")
+    time = catalog_value(session.catalog, "sales.order.ordered_at", kind="time_dimension")
     groups = session.observe(
         {
-            "count": session.catalog.get("metric:sales.order_count"),
+            "count": _metric(session.catalog, "metric:sales.order_count"),
             "mean": amount.mean(time=time),
         },
         by=mv.product(
-            session.time_scope(start="2026-08-01", end="2026-09-01"), members.classify(by=(region,))
+            session.time_scope(start="2026-08-01", end="2026-09-01"), _classify(members, region)
         ),
     )
     saved = groups.persist()
@@ -422,9 +438,10 @@ def test_composite_penetration_overlap_and_empty(analysis_dsl_case_factory: DslC
     )
     ms.load(workspace_dir=case.root)
     session = case.session
-    members = session.members(session.catalog.get("entity:sales.customer"))
+    members = session.members(_entity(session.catalog, "entity:sales.customer"))
     read = session.read(
-        members, {"region": catalog_value(session.catalog, "sales.customer.region", kind="field")}
+        members,
+        {"region": catalog_value(session.catalog, "sales.customer.region", kind="dimension")},
     )
     saved = read.persist()
     table = _plain(saved).set_index("key_0")
@@ -551,15 +568,15 @@ def test_reference_preparation_captures_independent_source_origins(
 
     case = analysis_dsl_case_factory("j3")
     session = case.session
-    members = session.members(session.catalog.get("entity:sales.customer"))
-    region = catalog_value(session.catalog, "sales.customer.region", kind="field")
-    counts = session.catalog.get("metric:sales.order_count")
-    lines = session.catalog.get("metric:sales.line_revenue")
-    revenue = session.catalog.get("metric:sales.revenue")
+    members = session.members(_entity(session.catalog, "entity:sales.customer"))
+    region = catalog_value(session.catalog, "sales.customer.region", kind="dimension")
+    counts = _metric(session.catalog, "metric:sales.order_count")
+    lines = _metric(session.catalog, "metric:sales.line_revenue")
+    revenue = _metric(session.catalog, "metric:sales.revenue")
     q = session.observe(
         {"count": counts, "lines": lines, "average": lines / counts, "linear": revenue + lines},
         by=mv.product(
-            session.time_scope(start="2026-08-01", end="2026-09-01"), members.classify(by=(region,))
+            session.time_scope(start="2026-08-01", end="2026-09-01"), _classify(members, region)
         ),
     )
     trace = capture_source(monkeypatch)

@@ -26,6 +26,18 @@ from tests.support.paths import PROJECT_ROOT
 from tests.support.source_trace import SourceTrace
 
 
+def _entity(catalog: ms.SemanticCatalog, path: str) -> ms.Entity:
+    result = catalog.get(path)
+    assert result.kind == "entity"
+    return result
+
+
+def _metric(catalog: ms.SemanticCatalog, path: str) -> ms.Metric:
+    result = catalog.get(path)
+    assert result.kind == "metric"
+    return result
+
+
 @pytest.mark.release
 @pytest.mark.slow
 def test_native_temporal_mean_int64_identities_and_independent_cold_reads(
@@ -100,10 +112,10 @@ def test_native_temporal_mean_int64_identities_and_independent_cold_reads(
         models.write_text(body.replace(anchor, subject_models + anchor))
         ms.load(workspace_dir=tmp_path)
         session = mv.session.get_or_create("temporal-int64-recovery", timezone="UTC")
-        members = session.members(session.catalog.get("entity:sales.subjects"))
-        total = session.catalog.get("metric:sales.total")
-        time = catalog_value(session.catalog, "sales.facts.happened", kind="field")
-        amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+        members = session.members(_entity(session.catalog, "entity:sales.subjects"))
+        total = _metric(session.catalog, "metric:sales.total")
+        time = catalog_value(session.catalog, "sales.facts.happened", kind="time_dimension")
+        amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
         scope = session.time_scope(start="2026-08-01", end="2026-08-03")
         calendar = scope.by(mv.grain("day"))
         temporal = session.observe({"value": total.per(time).mean()}, by=mv.product(scope, members))

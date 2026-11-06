@@ -93,7 +93,8 @@ def test_capture_is_ordered_immutable_and_survives_scope_exit() -> None:
     assert "TOPIC_VALUES_398712" not in repr(captured.identity_payload())
     assert "TOPIC_VALUES_398712" not in repr(captured.bounded_redacted_projection)
     with pytest.raises(FrozenInstanceError):
-        captured.exact_value_digest = "changed"
+        # Verify the frozen object rejects mutation at runtime.
+        captured.exact_value_digest = "changed"  # type: ignore[misc]
     with pytest.raises(ObservationBindingError):
         pickle.dumps(captured)
     with pytest.raises(ObservationBindingError):
@@ -104,7 +105,8 @@ def test_scalar_type_and_sequence_order_are_exact_identity() -> None:
     entity = _entity()
     scopes = SourceBindingScopes((entity,))
     digests: list[str] = []
-    for value in (True, 1, 1.0, "1", 0.0, -0.0, [1, 2], [2, 1]):
+    samples: tuple[SourceBindingValue, ...] = (True, 1, 1.0, "1", 0.0, -0.0, [1, 2], [2, 1])
+    for value in samples:
         with scopes.scope({ref.entity(entity.ref.path): {"start": value, "end": 10}}):
             digests.append(scopes.capture((entity,))[0].exact_value_digest)
     assert len(set(digests)) == len(digests)
@@ -161,7 +163,8 @@ def test_invalid_values_fail_without_rendering_values(value: object) -> None:
     scopes = SourceBindingScopes((entity,))
     with (
         pytest.raises(ObservationBindingError) as failure,
-        scopes.scope({ref.entity(entity.ref.path): {"start": value, "end": 2}}),
+        # Invalid values deliberately cross the typed input boundary.
+        scopes.scope({ref.entity(entity.ref.path): {"start": value, "end": 2}}),  # type: ignore[dict-item]
     ):
         raise AssertionError("Invalid value was admitted")
     error = failure.value
@@ -185,7 +188,8 @@ def test_missing_or_extra_parameters_fail_locally(values: dict[str, int]) -> Non
 def test_wrong_or_missing_entity_keys_fail(key: object) -> None:
     with (
         pytest.raises(ObservationBindingError),
-        SourceBindingScopes((_entity(),)).scope({key: {"start": 1, "end": 2}}),
+        # Invalid Entity keys deliberately cross the typed input boundary.
+        SourceBindingScopes((_entity(),)).scope({key: {"start": 1, "end": 2}}),  # type: ignore[dict-item]
     ):
         raise AssertionError("Invalid Entity was admitted")
 
@@ -316,7 +320,7 @@ def test_async_contexts_do_not_share_active_values() -> None:
             return scopes.capture((entity,))[0].private_canonical_typed_values
 
     async def run() -> None:
-        assert await asyncio.gather(capture(1), capture(2)) == [(1, 10), (2, 10)]
+        assert tuple(await asyncio.gather(capture(1), capture(2))) == ((1, 10), (2, 10))
 
     asyncio.run(run())
 

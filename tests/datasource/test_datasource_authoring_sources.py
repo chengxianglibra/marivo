@@ -83,7 +83,7 @@ def test_source_param_requires_a_stable_ascii_identifier(name: str) -> None:
 
 def test_json_query_parameters_reject_nested_list_and_nonfinite_values() -> None:
     with pytest.raises(TypeError, match="list values"):
-        md.json("https://api.example/query", query_params={"start": [1, [2]]})  # type: ignore[dict-item]
+        md.json("https://api.example/query", query_params={"start": [1, [2]]})  # type: ignore[list-item]
     with pytest.raises(ValueError, match="finite float"):
         md.json("https://api.example/query", query_params={"start": float("nan")})
 

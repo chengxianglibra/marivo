@@ -118,7 +118,9 @@ def test_constant_join_conditions_preserve_join_keys_without_changing_boolean_va
         else compiler_backend("clickhouse").compile(query, limit=None)
     )
     ast = sg.parse_one(sql, read="clickhouse")
-    condition = ast.find(sge.Join).args["on"]
+    join = ast.find(sge.Join)
+    assert join is not None
+    condition = join.args["on"]
     if predicate:
         assert isinstance(condition, sge.EQ)
         columns = tuple(condition.find_all(sge.Column))

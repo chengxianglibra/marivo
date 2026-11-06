@@ -10,6 +10,7 @@ import pandas as pd
 import pytest
 
 import marivo.analysis as mv
+import marivo.semantic as ms
 from marivo.datasource.adapters import SourceSession
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.graph.reference_fixtures import reference_data
@@ -19,6 +20,12 @@ from tests.analysis.statistics.pandas_workflows import plain
 from tests.datasource.source_cases import source_case
 from tests.shared_fixtures import catalog_value, terminal_runs
 from tests.support.source_trace import SourceTrace
+
+
+def _entity(catalog: ms.SemanticCatalog, path: str) -> ms.Entity:
+    result = catalog.get(path)
+    assert result.kind == "entity"
+    return result
 
 
 @pytest.mark.slow
@@ -75,7 +82,7 @@ def test_source_and_retained(
             )
         )
         session = mv.session.get_or_create("r93-attribution", timezone="UTC")
-        members = session.members(session.catalog.get("entity:sales.facts"))
+        members = session.members(_entity(session.catalog, "entity:sales.facts"))
         fields = {
             name: catalog_value(session.catalog, "sales.facts." + path, kind="field")
             for name, path in (

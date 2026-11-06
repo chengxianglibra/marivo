@@ -77,9 +77,9 @@ def test_source_identity_metadata_preserves_binding_and_compact_aggregates(
             }
         )
         session = mv.session.get_or_create("identity-metadata", timezone="UTC")
-        entity = session.catalog.get("entity:sales.facts")
-        amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
-        category = catalog_value(session.catalog, "sales.facts.category", kind="field")
+        entity = catalog_value(session.catalog, "sales.facts", kind="entity")
+        amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
+        category = catalog_value(session.catalog, "sales.facts.category", kind="dimension")
         shared = session.observe({"total": amount.sum(), "n": entity.count()})
         assert isinstance(shared._backing, ExpressionFrameBacking)
         assert isinstance(shared._backing.root, SourceFrameBinding)

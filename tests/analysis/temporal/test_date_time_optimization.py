@@ -4,6 +4,7 @@ import operator
 import os
 from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
+from typing import Literal
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 
@@ -94,7 +95,7 @@ def test_single_unit_truncation_preserves_missing_infinite_clocks(
     monkeypatch: pytest.MonkeyPatch,
     backend: str,
     profile: str,
-    unit: str,
+    unit: Literal["hour", "minute", "second"],
     expected: datetime,
 ) -> None:
     data = SourceData(

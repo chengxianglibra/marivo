@@ -44,7 +44,7 @@ def _assert_no_true_filters(sql: str, dialect: str) -> None:
 @pytest.mark.parametrize("presence", [False, True])
 def test_sample_folds_compile_native_aggregates_without_clock_completion(
     backend: str,
-    reducer: str,
+    reducer: Literal["mean", "min", "max"],
     presence: bool,
 ) -> None:
     from marivo._definition.expressions import RowField, SourceAggregate
@@ -321,8 +321,8 @@ def test_clickhouse_set_index_sample_mean_omits_true_filters(
         assert case.session._backend.raw_sql(
             "SELECT getSetting('readonly'), getSetting('use_skip_indexes')"
         ).result_rows == [(1, 1)]
-        amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
-        point = catalog_value(session.catalog, "sales.facts.point", kind="field")
+        amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
+        point = catalog_value(session.catalog, "sales.facts.point", kind="time_dimension")
         scope = session.time_scope(start="2026-10-01", end="2026-10-01T02:00:00")
         trace = capture_source(monkeypatch)
         rows = (
@@ -368,9 +368,9 @@ def test_exact_quantiles_with_cadence_finish_before_sample_mean(
         amount_type=amount_type,
         aware=aware,
     ) as (session, _):
-        amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
-        point = catalog_value(session.catalog, "sales.facts.point", kind="field")
-        category = catalog_value(session.catalog, "sales.facts.category", kind="field")
+        amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
+        point = catalog_value(session.catalog, "sales.facts.point", kind="time_dimension")
+        category = catalog_value(session.catalog, "sales.facts.category", kind="dimension")
         scope = session.time_scope(start="2026-10-01", end="2026-10-01T02:00:00")
         quantile = amount.quantile(0.95, time=point)
         median = amount.median(time=point)
@@ -446,9 +446,10 @@ def test_native_mean_preserves_sample_weighting_and_fixed_result(
         _,
     ):
         metric = session.catalog.get("metric:sales.average")
-        amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
-        category = catalog_value(session.catalog, "sales.facts.category", kind="field")
-        point = catalog_value(session.catalog, "sales.facts.point", kind="field")
+        assert metric.kind == "metric"
+        amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
+        category = catalog_value(session.catalog, "sales.facts.category", kind="dimension")
+        point = catalog_value(session.catalog, "sales.facts.point", kind="time_dimension")
         scope = session.time_scope(start="2026-10-01", end="2026-10-01T02:00:00")
         trace = capture_source(monkeypatch)
         result = session.observe({"v": metric}, by=(scope, category)).compute()
@@ -510,7 +511,9 @@ def test_native_mean_keeps_backend_null_and_large_value_results(
         cadence=cadence,
     ) as (session, _):
         scope = session.time_scope(start="2026-10-01", end="2026-10-01T02:00:00")
-        query = session.observe({"v": session.catalog.get("metric:sales.average")}, by=(scope,))
+        metric = session.catalog.get("metric:sales.average")
+        assert metric.kind == "metric"
+        query = session.observe({"v": metric}, by=(scope,))
         trace = capture_source(monkeypatch)
         value = query.compute().to_pandas()["v"].iloc[0]
         assert pd.isna(value) if expected is None else value == pytest.approx(expected)
@@ -578,7 +581,9 @@ def test_native_mean_uses_backend_large_value_arithmetic_without_local_retry(
         values=(1e308, 1e308, None, None, 1e308),
     ) as (session, case):
         scope = session.time_scope(start="2026-10-01", end="2026-10-01T02:00:00")
-        query = session.observe({"v": session.catalog.get("metric:sales.average")}, by=(scope,))
+        metric = session.catalog.get("metric:sales.average")
+        assert metric.kind == "metric"
+        query = session.observe({"v": metric}, by=(scope,))
         trace = capture_source(monkeypatch)
         actual: pd.DataFrame | None = None
         failure: MaterializationError | None = None
@@ -663,19 +668,17 @@ def test_native_mean_finishes_integer_and_decimal_samples_in_one_row(
         expected = means.aggregate(value=outer).execute()["value"].tolist()
         scope = session.time_scope(start="2026-10-01", end="2026-10-01T02:00:00")
         trace = capture_source(monkeypatch)
-        amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
-        point = catalog_value(session.catalog, "sales.facts.point", kind="field")
+        amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
+        point = catalog_value(session.catalog, "sales.facts.point", kind="time_dimension")
         direct = session.observe({"v": amount.mean(time=point)}, by=(scope,)).compute().to_pandas()
         # The standalone AVG shares the declared carrier boundary, including
         # PostgreSQL's native numeric AVG over bigint before the output cast.
         assert direct["v"].tolist() == [
             Decimal("60.00") if amount_type == "DECIMAL(18,2)" else 60.0
         ]
-        rows = (
-            session.observe({"v": session.catalog.get("metric:sales.average")}, by=(scope,))
-            .compute()
-            .to_pandas()
-        )
+        metric = session.catalog.get("metric:sales.average")
+        assert metric.kind == "metric"
+        rows = session.observe({"v": metric}, by=(scope,)).compute().to_pandas()
         if amount_type == "DECIMAL(18,2)":
             assert rows["v"].tolist() == expected
         else:
@@ -719,9 +722,9 @@ def test_native_extrema_reduce_sparse_completed_means_with_null_checks(
         values=(0, 40, 100, 100, 20),
         aware=aware,
     ) as (session, _):
-        amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
-        point = catalog_value(session.catalog, "sales.facts.point", kind="field")
-        category = catalog_value(session.catalog, "sales.facts.category", kind="field")
+        amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
+        point = catalog_value(session.catalog, "sales.facts.point", kind="time_dimension")
+        category = catalog_value(session.catalog, "sales.facts.category", kind="dimension")
         samples = amount.mean(time=point).per(point)
         metric = samples.min() if reducer == "min" else samples.max()
         scope = session.time_scope(start="2026-10-01", end="2026-10-01T02:00:00")
@@ -760,8 +763,8 @@ def test_clickhouse_native_nonnull_sample_clock_preserves_extrema_policies(
         assert not native.point.type().nullable
         assert native.point.type().timezone == "UTC"
         assert native.point.type().scale == 6
-        amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
-        point = catalog_value(session.catalog, "sales.facts.point", kind="field")
+        amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
+        point = catalog_value(session.catalog, "sales.facts.point", kind="time_dimension")
         scope = session.time_scope(start="2026-10-01", end="2026-10-01T02:00:00")
         samples = amount.mean(time=point).per(point)
         metric = samples.min() if reducer == "min" else samples.max()
@@ -808,8 +811,8 @@ def test_native_extrema_preserve_null_policy_and_backend_floats(
         semantic_project_factory,
         values=values,
     ) as (session, _):
-        amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
-        point = catalog_value(session.catalog, "sales.facts.point", kind="field")
+        amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
+        point = catalog_value(session.catalog, "sales.facts.point", kind="time_dimension")
         scope = session.time_scope(start="2026-10-01", end="2026-10-01T02:00:00")
         metric = amount.mean(time=point).per(point).max(nulls="error" if strict else "ignore")
         trace = capture_source(monkeypatch)
@@ -842,9 +845,9 @@ def test_sample_extrema_without_cadence_exclude_filtered_away_samples(
         values=(0, None, 100, 100, 20),
         cadence=False,
     ) as (session, _):
-        amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
-        point = catalog_value(session.catalog, "sales.facts.point", kind="field")
-        category = catalog_value(session.catalog, "sales.facts.category", kind="field")
+        amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
+        point = catalog_value(session.catalog, "sales.facts.point", kind="time_dimension")
+        category = catalog_value(session.catalog, "sales.facts.category", kind="dimension")
         scope = session.time_scope(start="2026-10-01", end="2026-10-01T02:00:00")
         for nulls in ("ignore", "error"):
             selected = amount.mean(time=point).where(amount > 0).per(point)
@@ -886,9 +889,9 @@ def test_sample_extrema_without_cadence_keep_present_null_samples(
         values=(0, None, None, None, 20),
         cadence=False,
     ) as (session, _):
-        amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
-        point = catalog_value(session.catalog, "sales.facts.point", kind="field")
-        category = catalog_value(session.catalog, "sales.facts.category", kind="field")
+        amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
+        point = catalog_value(session.catalog, "sales.facts.point", kind="time_dimension")
+        category = catalog_value(session.catalog, "sales.facts.category", kind="dimension")
         scope = session.time_scope(start="2026-10-01", end="2026-10-01T02:00:00")
         samples = amount.mean(time=point).where(category == "A").per(point)
         metric = samples.min(nulls="error") if reducer == "min" else samples.max(nulls="error")
@@ -924,8 +927,8 @@ def test_native_sample_extrema_strict_filter_uses_selected_sample_presence(
         values=(0, None, 100, 100, 20),
         cadence=False,
     ) as (session, _):
-        amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
-        point = catalog_value(session.catalog, "sales.facts.point", kind="field")
+        amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
+        point = catalog_value(session.catalog, "sales.facts.point", kind="time_dimension")
         scope = session.time_scope(start="2026-10-01", end="2026-10-01T02:00:00")
         metric = amount.mean(time=point).where(amount > 0).per(point).max(nulls="error")
         trace = capture_source(monkeypatch)
@@ -949,8 +952,8 @@ def test_native_sample_extrema_return_final_rows_at_scale(
         semantic_project_factory,
         sample_count=sample_count,
     ) as (session, case):
-        amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
-        point = catalog_value(session.catalog, "sales.facts.point", kind="field")
+        amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
+        point = catalog_value(session.catalog, "sales.facts.point", kind="time_dimension")
         scope = session.time_scope(
             start="2026-10-01",
             end=(datetime(2026, 10, 1) + timedelta(seconds=sample_count)).isoformat(),
@@ -1009,6 +1012,7 @@ def test_trino_four_day_mean_transport_and_cost(
                 cursor.close()
         trace = capture_source(monkeypatch, measure_cost=True)
         metric = session.catalog.get("metric:sales.average")
+        assert metric.kind == "metric"
         scope = session.time_scope(start="2026-10-01", end="2026-10-05")
         measurements: list[dict[str, object]] = []
         # Toggle native folding without changing the captured sample policy.
@@ -1083,9 +1087,9 @@ def test_native_mean_checks_nulls_without_requiring_clock_coverage(
         values=(0, None, None, None, 0),
     ) as (session, _):
         trace = capture_source(monkeypatch)
-        point = catalog_value(session.catalog, "sales.facts.point", kind="field")
-        amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
-        category = catalog_value(session.catalog, "sales.facts.category", kind="field")
+        point = catalog_value(session.catalog, "sales.facts.point", kind="time_dimension")
+        amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
+        category = catalog_value(session.catalog, "sales.facts.category", kind="dimension")
         scope = session.time_scope(start="2026-10-01", end="2026-10-01T02:00:00")
         for metric in (
             amount.mean(time=point).per(point).mean(nulls="error"),
@@ -1143,8 +1147,8 @@ def test_sample_mean_strict_domain_is_independent_of_child_shape(
         semantic_project_factory,
         values=(10, None, None, None, 30),
     ) as (session, _):
-        point = catalog_value(session.catalog, "sales.facts.point", kind="field")
-        amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+        point = catalog_value(session.catalog, "sales.facts.point", kind="time_dimension")
+        amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
         child = amount.mean(time=point)
         child = (
             child + 0 if shape == "add_zero" else child * 1 if shape == "multiply_one" else child
@@ -1192,8 +1196,8 @@ def test_native_mean_strict_empty_domain_returns_null(
         source = case.session.bind(case.source, source_identity="empty-native-mean").relation
         if backend == "clickhouse":
             assert source.amount.type().nullable == nullable
-        point = catalog_value(session.catalog, "sales.facts.point", kind="field")
-        amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+        point = catalog_value(session.catalog, "sales.facts.point", kind="time_dimension")
+        amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
         child = amount.mean(time=point, nulls="error").where(amount < 0)
         trace = capture_source(monkeypatch)
         for metric in (child, child.per(point).mean(nulls="error")):
@@ -1217,8 +1221,8 @@ def test_native_mean_strict_does_not_demand_filtered_away_samples(
         values=(0, None, 100, 100, 20),
         cadence=False,
     ) as (session, _):
-        point = catalog_value(session.catalog, "sales.facts.point", kind="field")
-        amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
+        point = catalog_value(session.catalog, "sales.facts.point", kind="time_dimension")
+        amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
         child = amount.mean(time=point, nulls="error").where(amount > 0)
         rows = session.observe({"v": child.per(point).mean(nulls="error")}).compute().to_pandas()
         assert rows["v"].tolist() == [60.0]
@@ -1243,16 +1247,18 @@ def test_local_sample_mean_uses_observed_samples_for_excluded_native_shapes(
         values=(0, 100, 100, 100),
         alternate_clock=excluded == "wrong_clock",
     ) as (session, _):
-        amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
-        point = catalog_value(session.catalog, "sales.facts.point", kind="field")
+        amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
+        point = catalog_value(session.catalog, "sales.facts.point", kind="time_dimension")
         sample = (
-            catalog_value(session.catalog, "sales.facts.other_point", kind="field")
+            catalog_value(session.catalog, "sales.facts.other_point", kind="time_dimension")
             if excluded == "wrong_clock"
             else point
         )
         scope = session.time_scope(start="2026-10-01", end="2026-10-01T02:00:00")
         by = (
-            mv.product(scope, session.members(session.catalog.get("entity:sales.facts")))
+            mv.product(
+                scope, session.members(catalog_value(session.catalog, "sales.facts", kind="entity"))
+            )
             if excluded == "population"
             else (scope,)
             if bounded
@@ -1293,9 +1299,9 @@ def test_time_means_share_observed_sample_policy_across_formulas(
     with mean_session(
         backend, profile, tmp_path, monkeypatch, semantic_project_factory, values=(10, 20, 20, 20)
     ) as (session, _):
-        amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
-        point = catalog_value(session.catalog, "sales.facts.point", kind="field")
-        category = catalog_value(session.catalog, "sales.facts.category", kind="field")
+        amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
+        point = catalog_value(session.catalog, "sales.facts.point", kind="time_dimension")
+        category = catalog_value(session.catalog, "sales.facts.category", kind="dimension")
         scope = session.time_scope(start="2026-10-01", end="2026-10-01T03:00:00")
         native = amount.mean(time=point).per(point).mean()
         for by in ((scope, category), (category,)):
@@ -1353,9 +1359,9 @@ def test_sparse_time_samples_preserve_nulls_and_native_extrema(
     with mean_session(
         backend, profile, tmp_path, monkeypatch, semantic_project_factory, values=(None, 20, 20, 20)
     ) as (session, _):
-        amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
-        point = catalog_value(session.catalog, "sales.facts.point", kind="field")
-        category = catalog_value(session.catalog, "sales.facts.category", kind="field")
+        amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
+        point = catalog_value(session.catalog, "sales.facts.point", kind="time_dimension")
+        category = catalog_value(session.catalog, "sales.facts.category", kind="dimension")
         scope = session.time_scope(start="2026-10-01", end="2026-10-01T05:00:00")
         samples = amount.mean(time=point).per(point)
         metric = samples.max() if native else samples.quantile(0.95)
@@ -1398,8 +1404,8 @@ def test_sparse_samples_exclude_filtered_clocks(
         values=(10, 20, 20, 20, 30),
         aware=aware,
     ) as (session, _):
-        amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
-        point = catalog_value(session.catalog, "sales.facts.point", kind="field")
+        amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
+        point = catalog_value(session.catalog, "sales.facts.point", kind="time_dimension")
         scope = session.time_scope(start="2026-10-01", end="2026-10-01T03:00:00")
         samples = amount.mean(time=point).where(amount > 10).per(point)
         trace = capture_source(monkeypatch)
@@ -1429,8 +1435,8 @@ def test_time_mean_keeps_explicit_sample_domain_and_existing_null_policy(
         values=(10, 20, 20, 20),
         aware=True,
     ) as (session, _):
-        amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
-        point = catalog_value(session.catalog, "sales.facts.point", kind="field")
+        amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
+        point = catalog_value(session.catalog, "sales.facts.point", kind="time_dimension")
         samples = mv.coordinates(
             by=(point,),
             keys=tuple((datetime(2026, 10, 1, hour, tzinfo=timezone.utc),) for hour in (0, 1)),
@@ -1475,7 +1481,7 @@ def test_calendar_sample_folds_keep_joint_keys_without_cross_bucket_completion(
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
     backend: str,
     profile: str,
-    grain: str,
+    grain: Literal["day", "hour"],
 ) -> None:
     from marivo.analysis.methods import _sample_numeric
 
@@ -1497,9 +1503,9 @@ def test_calendar_sample_folds_keep_joint_keys_without_cross_bucket_completion(
         cadence=False,
         aware=True,
     ) as (session, _):
-        amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
-        point = catalog_value(session.catalog, "sales.facts.point", kind="field")
-        category = catalog_value(session.catalog, "sales.facts.category", kind="field")
+        amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
+        point = catalog_value(session.catalog, "sales.facts.point", kind="time_dimension")
+        category = catalog_value(session.catalog, "sales.facts.category", kind="dimension")
         samples = amount.sum(time=point).per(point)
         mean, p95 = samples.mean(), samples.quantile(0.95)
         reducer = Mock(wraps=_sample_numeric.reduce_samples)
@@ -1556,9 +1562,9 @@ def test_calendar_sample_domains_keep_sparse_samples_explicit_keys_and_windows(
         ),
         aware=True,
     ) as (session, _):
-        amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
-        point = catalog_value(session.catalog, "sales.facts.point", kind="field")
-        category = catalog_value(session.catalog, "sales.facts.category", kind="field")
+        amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
+        point = catalog_value(session.catalog, "sales.facts.point", kind="time_dimension")
+        category = catalog_value(session.catalog, "sales.facts.category", kind="dimension")
         calendar = session.time_scope(start="2026-10-01T23:00:00", end="2026-10-02T01:00:00").by(
             mv.grain("day")
         )
@@ -1619,7 +1625,7 @@ def test_time_samples_keep_empty_calendar_buckets(
     backend: str,
     profile: str,
     aware: bool,
-    grain: str,
+    grain: Literal["day", "hour"],
 ) -> None:
     with mean_session(
         backend,
@@ -1631,9 +1637,9 @@ def test_time_samples_keep_empty_calendar_buckets(
         sample_points=("2026-10-01 23:00:00", "2026-10-01 23:30:00"),
         aware=aware,
     ) as (session, _):
-        amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
-        point = catalog_value(session.catalog, "sales.facts.point", kind="field")
-        category = catalog_value(session.catalog, "sales.facts.category", kind="field")
+        amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
+        point = catalog_value(session.catalog, "sales.facts.point", kind="time_dimension")
+        category = catalog_value(session.catalog, "sales.facts.category", kind="dimension")
         calendar = session.time_scope(start="2026-10-01T23:00:00", end="2026-10-02T01:00:00").by(
             mv.grain(grain)
         )
@@ -1672,8 +1678,8 @@ def test_all_time_sample_reducers_allow_missing_clocks_without_period(
         values=(0, 100, 100, 100, None),
         cadence=cadence,
     ) as (session, _):
-        amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
-        point = catalog_value(session.catalog, "sales.facts.point", kind="field")
+        amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
+        point = catalog_value(session.catalog, "sales.facts.point", kind="time_dimension")
         samples = amount.mean(time=point).per(point)
         trace = capture_source(monkeypatch)
         # Keep native scalar placement witnesses separate from mixed reducers.
@@ -1734,9 +1740,9 @@ def test_sample_summary_shares_one_native_read_and_returns_only_final_groups(
         sample_groups=8,
         aware=True,
     ) as (session, _):
-        amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
-        point = catalog_value(session.catalog, "sales.facts.point", kind="field")
-        category = catalog_value(session.catalog, "sales.facts.category", kind="field")
+        amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
+        point = catalog_value(session.catalog, "sales.facts.point", kind="time_dimension")
+        category = catalog_value(session.catalog, "sales.facts.category", kind="dimension")
         calendar = session.time_scope(start="2026-10-01", end="2026-10-01T02:00:00").by(
             mv.grain("hour")
         )
@@ -1798,8 +1804,8 @@ def test_distributed_sample_sum_finishes_globally_before_exact_fold(
         values=(0, 10, 10, 100),
         aware=True,
     ) as (session, _):
-        amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
-        point = catalog_value(session.catalog, "sales.facts.point", kind="field")
+        amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
+        point = catalog_value(session.catalog, "sales.facts.point", kind="time_dimension")
         samples = amount.sum(time=point).per(point)
         trace = capture_source(monkeypatch)
         reducer = Mock(wraps=_sample_numeric.reduce_samples)
@@ -1840,8 +1846,8 @@ def test_native_time_sample_fold_keeps_overlapping_window_occurrences(
     with mean_session(
         backend, profile, tmp_path, monkeypatch, semantic_project_factory, aware=backend != "mysql"
     ) as (session, _):
-        amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
-        point = catalog_value(session.catalog, "sales.facts.point", kind="field")
+        amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
+        point = catalog_value(session.catalog, "sales.facts.point", kind="time_dimension")
         calendar = session.time_scope(start="2026-10-01", end="2026-10-01T02:00:00").by(
             mv.grain("hour")
         )
@@ -1878,6 +1884,7 @@ def test_postgres_sample_domain_preserves_nonnullable_char_padding(
         case,
     ):
         assert isinstance(case.source, TableSourceIR)
+        assert isinstance(case.source.database, str) or case.source.database is None
         with pg.connection(admin=True) as connection:
             connection.execute(
                 sql.SQL("DROP VIEW {}.{}").format(
@@ -1893,9 +1900,9 @@ def test_postgres_sample_domain_preserves_nonnullable_char_padding(
                     sql.Identifier(case.source.table),
                 )
             )
-        amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
-        point = catalog_value(session.catalog, "sales.facts.point", kind="field")
-        category = catalog_value(session.catalog, "sales.facts.category", kind="field")
+        amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
+        point = catalog_value(session.catalog, "sales.facts.point", kind="time_dimension")
+        category = catalog_value(session.catalog, "sales.facts.category", kind="dimension")
         samples = mv.coordinates(by=(category,), keys=(("A ",),))
         scope = session.time_scope(start="2026-10-01", end="2026-10-01T02:00:00")
         trace = capture_source(monkeypatch)
@@ -1958,9 +1965,9 @@ def test_native_ordered_samples_preserve_null_endpoints_and_duplicate_time_check
         sample_groups=2,
         aware=backend != "mysql",
     ) as (session, _):
-        amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
-        point = catalog_value(session.catalog, "sales.facts.point", kind="field")
-        category = catalog_value(session.catalog, "sales.facts.category", kind="field")
+        amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
+        point = catalog_value(session.catalog, "sales.facts.point", kind="time_dimension")
+        category = catalog_value(session.catalog, "sales.facts.category", kind="dimension")
         scope = session.time_scope(start="2026-10-01", end="2026-10-01T02:00:00")
         samples = amount.mean(time=point).per(point)
         trace = capture_source(monkeypatch)
@@ -2031,9 +2038,9 @@ def test_nested_ordered_samples_keep_explicit_parent_domain(
         values=(10, 20, 20, 20, 100),
         aware=backend != "mysql",
     ) as (session, _):
-        amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
-        point = catalog_value(session.catalog, "sales.facts.point", kind="field")
-        category = catalog_value(session.catalog, "sales.facts.category", kind="field")
+        amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
+        point = catalog_value(session.catalog, "sales.facts.point", kind="time_dimension")
+        category = catalog_value(session.catalog, "sales.facts.category", kind="dimension")
         samples = amount.sum(time=point).per(point)
         endpoints = {
             "first": samples.first(order_by=point),
@@ -2083,8 +2090,8 @@ def test_ordered_single_axis_proofs_reach_native_and_local_consumers(
         aware=True,
         fixed_status=sample_axis == "point",
     ) as (session, _):
-        amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
-        point = catalog_value(session.catalog, "sales.facts.point", kind="field")
+        amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
+        point = catalog_value(session.catalog, "sales.facts.point", kind="time_dimension")
         scope = session.time_scope(start="2026-10-01", end="2026-10-01T02:00:00")
         samples = amount.sum(time=point).per(point if sample_axis == "point" else mv.grain("hour"))
         if not native:

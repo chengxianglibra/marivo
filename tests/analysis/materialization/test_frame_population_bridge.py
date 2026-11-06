@@ -11,6 +11,7 @@ import ibis.expr.types as ir
 import pandas as pd
 import pyarrow as pa
 import pytest
+from ibis.common.deferred import Deferred
 
 import marivo.analysis as mv
 from marivo.analysis.compiler.frame_plan import CompiledFramePlan
@@ -44,7 +45,7 @@ from marivo.analysis.session.core import Session
 from marivo.datasource.adapters import SourceSession
 from marivo.semantic.reader import SemanticProject
 from tests.datasource.source_cases import source_params
-from tests.shared_fixtures import catalog_value
+from tests.shared_fixtures import catalog_get, catalog_value
 
 
 @pytest.fixture
@@ -129,26 +130,34 @@ def _population(
     on = (
         ()
         if scalar
-        else ((frame.axes[0], session.catalog.get("entity:sales.facts")),)
+        else ((frame.axes[0], catalog_get(session.catalog, "entity:sales.facts", kind="entity")),)
         if identity
         else (
-            (frame.axes[0], catalog_value(session.catalog, "sales.facts.region", kind="field")),
-            (frame.axes[1], catalog_value(session.catalog, "sales.facts.channel", kind="field")),
+            (frame.axes[0], catalog_value(session.catalog, "sales.facts.region", kind="dimension")),
+            (
+                frame.axes[1],
+                catalog_value(session.catalog, "sales.facts.channel", kind="dimension"),
+            ),
         )
     )
     return session.population_from(frame, on=on)
 
 
 def _observe(
-    session: Session, population: Population, *, metric_where: bool = False, negate: bool = False
+    session: Session,
+    population: Population | Deferred,
+    *,
+    metric_where: bool = False,
+    negate: bool = False,
 ) -> AnalysisFrame:
-    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field").sum()
+    assert isinstance(population, Population)
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure").sum()
     condition = ~in_population(population) if negate else in_population(population)
     return session.observe(
         {"amount": amount.where(condition) if metric_where else amount},
         by=(
-            catalog_value(session.catalog, "sales.facts.region", kind="field"),
-            catalog_value(session.catalog, "sales.facts.channel", kind="field"),
+            catalog_value(session.catalog, "sales.facts.region", kind="dimension"),
+            catalog_value(session.catalog, "sales.facts.channel", kind="dimension"),
         ),
         where=None if metric_where else condition,
     )
@@ -214,7 +223,7 @@ def test_complete_identity_read_and_members_use_the_retained_keys(session: Sessi
             session.catalog._state,
             session._runtime.connection_config,
             population,
-            {"city": catalog_value(session.catalog, "sales.facts.city", kind="field")},
+            {"city": catalog_value(session.catalog, "sales.facts.city", kind="dimension")},
         )
         .compute()
         .to_pandas()
@@ -237,12 +246,12 @@ def test_complete_identity_read_and_members_use_the_retained_keys(session: Sessi
 
 
 def test_fixed_top_keeps_old_region_while_expression_top_reselects(session: Session) -> None:
-    region = catalog_value(session.catalog, "sales.facts.region", kind="field")
+    region = catalog_value(session.catalog, "sales.facts.region", kind="dimension")
     source = frame_sources.observe(
         session._runtime.local,
         session.catalog._state,
         session._runtime.connection_config,
-        {"amount": catalog_value(session.catalog, "sales.facts.amount", kind="field").sum()},
+        {"amount": catalog_value(session.catalog, "sales.facts.amount", kind="measure").sum()},
         by=(region,),
     )
     selected = source.top(1, by=source["amount"])
@@ -278,7 +287,8 @@ def test_one_final_schedule_resolves_every_compiler_leaf(
         read_fixed: Callable[[FrameInput], CompletedFrameData],
         adapt_source: Callable[[str, StageOutput], StageOutput],
         observe_read: Callable[[SourceRead, LoweredRead, StageOutput], None] | None = None,
-        observe_local: Callable[[LocalCompute | FrameCompute, StageOutput], None] | None = None,
+        observe_local: Callable[[LocalCompute | FrameCompute | SourceRead, StageOutput], None]
+        | None = None,
     ) -> StageOutput:
         plans.append(compiled)
         assert not any(isinstance(stage, FrameKeysInput) for stage in compiled.lowered.plan.stages)
@@ -326,7 +336,7 @@ def test_null_field_empty_domain_and_explicit_output_domain_keep_distinct_meanin
         session._runtime.local,
         session.catalog._state,
         session._runtime.connection_config,
-        {"amount": catalog_value(session.catalog, "sales.facts.amount", kind="field").sum()},
+        {"amount": catalog_value(session.catalog, "sales.facts.amount", kind="measure").sum()},
         by=selected,
     )
     with pytest.raises(MaterializationError, match="missing output coordinates"):
@@ -336,7 +346,7 @@ def test_null_field_empty_domain_and_explicit_output_domain_keep_distinct_meanin
             session._runtime.local,
             session.catalog._state,
             session._runtime.connection_config,
-            {"amount": catalog_value(session.catalog, "sales.facts.amount", kind="field").sum()},
+            {"amount": catalog_value(session.catalog, "sales.facts.amount", kind="measure").sum()},
             by=selected,
             where=in_population(selected),
         )
@@ -366,12 +376,12 @@ def test_producer_checks_survive_top_zero_before_dependent_source_read(
         return original(prepared, stage, lowered, value_keys=value_keys)
 
     monkeypatch.setattr(executor, "read_stage", read)
-    region = catalog_value(session.catalog, "sales.facts.region", kind="field")
+    region = catalog_value(session.catalog, "sales.facts.region", kind="dimension")
     source = frame_sources.observe(
         session._runtime.local,
         session.catalog._state,
         session._runtime.connection_config,
-        {"amount": catalog_value(session.catalog, "sales.facts.amount", kind="field").sum()},
+        {"amount": catalog_value(session.catalog, "sales.facts.amount", kind="measure").sum()},
         by=(region,),
     )
     invalid = source.select({"invalid": source["amount"] * 1e308})
@@ -470,7 +480,7 @@ def test_physical_target_type_conflict_fails_before_business_read(
         on=(
             (
                 selected.axes[0],
-                catalog_value(session.catalog, "sales.facts.denominator", kind="field"),
+                catalog_value(session.catalog, "sales.facts.denominator", kind="measure"),
             ),
         ),
     )
@@ -581,6 +591,7 @@ def test_frame_key_set_logic_and_explicit_product_use_actual_complete_domains(
     region = selected.project(by=(selected.axes[0],))
     channels = null.project(by=(null.axes[1],))
     crossed = product(region, channels)
+    assert isinstance(crossed, Population)
     # An explicit Population product is a Cartesian domain. It is distinct
     # from the joint projection that produced selected above.
     keys = (
@@ -622,12 +633,12 @@ def test_source_relationship_preimage_retains_frame_target_keys(
         session._runtime.local,
         session.catalog._state,
         fixed,
-        on=((fixed.axes[0], session.catalog.get("entity:sales.tags")),),
+        on=((fixed.axes[0], catalog_get(session.catalog, "entity:sales.tags", kind="entity")),),
     )
-    orders = session.members(session.catalog.get("entity:sales.orders"))
+    orders = session.members(catalog_get(session.catalog, "entity:sales.orders", kind="entity"))
     path = (
-        session.catalog.get("relationship:sales.order_links"),
-        session.catalog.get("relationship:sales.link_tags"),
+        catalog_get(session.catalog, "relationship:sales.order_links", kind="relationship"),
+        catalog_get(session.catalog, "relationship:sales.link_tags", kind="relationship"),
     )
     selected = orders.preimage(targets, via=path)
     result = (
@@ -635,7 +646,7 @@ def test_source_relationship_preimage_retains_frame_target_keys(
             session._runtime.local,
             session.catalog._state,
             session._runtime.connection_config,
-            {"amount": catalog_value(session.catalog, "sales.orders.amount", kind="field").sum()},
+            {"amount": catalog_value(session.catalog, "sales.orders.amount", kind="measure").sum()},
             where=mv.in_population(selected),
         )
         .compute()
@@ -726,7 +737,7 @@ def test_remote_frame_keys_feed_checked_tuple_null_empty_and_zero_axis_routes(
                 remote.catalog._state,
                 remote._runtime.connection_config,
                 domain,
-                {"amount": catalog_value(remote.catalog, "sales.facts.amount", kind="field")},
+                {"amount": catalog_value(remote.catalog, "sales.facts.amount", kind="measure")},
             )
             .compute()
             .to_pandas()
@@ -753,7 +764,7 @@ def test_remote_frame_keys_feed_checked_tuple_null_empty_and_zero_axis_routes(
 
 def test_frame_only_nested_metric_where_survives_private_capture_guard(session: Session) -> None:
     domain = _population(session, _memory(session))
-    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field").sum()
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure").sum()
     metric = amount.where(~~in_population(domain)) / 2
     result = (
         frame_sources.observe(
@@ -762,8 +773,8 @@ def test_frame_only_nested_metric_where_survives_private_capture_guard(session: 
             session._runtime.connection_config,
             {"amount": metric},
             by=(
-                catalog_value(session.catalog, "sales.facts.region", kind="field"),
-                catalog_value(session.catalog, "sales.facts.channel", kind="field"),
+                catalog_value(session.catalog, "sales.facts.region", kind="dimension"),
+                catalog_value(session.catalog, "sales.facts.channel", kind="dimension"),
             ),
         )
         .compute()

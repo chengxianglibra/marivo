@@ -8,7 +8,6 @@ from pathlib import Path
 import duckdb
 import pandas as pd
 import pytest
-from ibis.common.deferred import Deferred
 
 import marivo.analysis as mv
 from marivo._grouping import Grouping
@@ -20,6 +19,7 @@ from marivo.analysis.dsl.frame import AnalysisFrame
 from marivo.analysis.dsl.population import Population
 from marivo.analysis.materialization import frame_evaluation
 from marivo.analysis.session.core import Session
+from marivo.semantic._expression_values import FieldExpression
 from marivo.semantic.reader import SemanticProject
 from tests.shared_fixtures import catalog_value
 
@@ -28,7 +28,7 @@ def _contribution(
     current: AnalysisFrame,
     baseline: AnalysisFrame,
     *,
-    by: tuple[Deferred | Grouping, ...] | Population,
+    by: tuple[FieldExpression | Grouping, ...] | Population,
 ) -> AnalysisFrame:
     compared = current.compare({"base": mv.baseline(baseline)})
     selected = compared.select(
@@ -119,11 +119,11 @@ def test_fraction_b_subgroups_use_global_or_fresh_local_population(
     assert totals == [("base", 10, 100), ("current", 10, 200)]
     assert Fraction(totals[0][1], totals[0][2]) == Fraction(1, 10)
     assert Fraction(totals[1][1], totals[1][2]) == Fraction(1, 20)
-    amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
-    weight = catalog_value(session.catalog, "sales.facts.weight", kind="field")
-    phase = catalog_value(session.catalog, "sales.facts.phase", kind="field")
-    region = catalog_value(session.catalog, "sales.facts.region", kind="field")
-    channel = catalog_value(session.catalog, "sales.facts.channel", kind="field")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
+    weight = catalog_value(session.catalog, "sales.facts.weight", kind="measure")
+    phase = catalog_value(session.catalog, "sales.facts.phase", kind="dimension")
+    region = catalog_value(session.catalog, "sales.facts.region", kind="dimension")
+    channel = catalog_value(session.catalog, "sales.facts.channel", kind="dimension")
     metric = amount.sum() / weight.sum()
     global_result = _contribution(
         session.observe({"q": metric}, where=phase == "current"),
@@ -239,10 +239,10 @@ def test_linear_distinct_decimal_children_have_contributions_eight_and_ten(
         ).fetchone()
     assert native == [("G1", Decimal("8.00")), ("G2", Decimal("10.00"))]
     assert root_change == (Decimal("18.00"),)
-    gross = catalog_value(session.catalog, "sales.facts.gross", kind="field")
-    cost = catalog_value(session.catalog, "sales.facts.cost", kind="field")
-    phase = catalog_value(session.catalog, "sales.facts.phase", kind="field")
-    region = catalog_value(session.catalog, "sales.facts.region", kind="field")
+    gross = catalog_value(session.catalog, "sales.facts.gross", kind="measure")
+    cost = catalog_value(session.catalog, "sales.facts.cost", kind="measure")
+    phase = catalog_value(session.catalog, "sales.facts.phase", kind="dimension")
+    region = catalog_value(session.catalog, "sales.facts.region", kind="dimension")
     metric = gross.sum() - 2 * cost.sum()
     result = _contribution(
         session.observe({"q": metric}, where=phase == "current"),
@@ -296,9 +296,9 @@ def test_count_and_unproven_distinct_partition_follow_static_rules(
         ("B", "base", 2, 2),
         ("B", "current", 3, 1),
     ]
-    value = catalog_value(session.catalog, "sales.facts.counted", kind="field")
-    phase = catalog_value(session.catalog, "sales.facts.phase", kind="field")
-    region = catalog_value(session.catalog, "sales.facts.region", kind="field")
+    value = catalog_value(session.catalog, "sales.facts.counted", kind="measure")
+    phase = catalog_value(session.catalog, "sales.facts.phase", kind="dimension")
+    region = catalog_value(session.catalog, "sales.facts.region", kind="dimension")
     metric = value.count_distinct() if distinct else value.count()
     result = _contribution(
         session.observe({"q": metric}, where=phase == "current"),
@@ -341,10 +341,10 @@ def test_native_weighted_mean_uses_one_common_valid_pair_mask(
             "SUM(amount*weight)/SUM(weight) FROM facts GROUP BY phase ORDER BY phase"
         ).fetchall()
     assert native == [("base", 5.0, 5, 1, 0.5), ("current", 10.0, 10, 1, 1.0)]
-    value = catalog_value(session.catalog, "sales.facts.amount", kind="field")
-    weight = catalog_value(session.catalog, "sales.facts.weight", kind="field")
-    phase = catalog_value(session.catalog, "sales.facts.phase", kind="field")
-    region = catalog_value(session.catalog, "sales.facts.region", kind="field")
+    value = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
+    weight = catalog_value(session.catalog, "sales.facts.weight", kind="measure")
+    phase = catalog_value(session.catalog, "sales.facts.phase", kind="dimension")
+    region = catalog_value(session.catalog, "sales.facts.region", kind="dimension")
     metric = value.weighted_mean(weight=weight)
     result = _contribution(
         session.observe({"q": metric}, where=phase == "current"),

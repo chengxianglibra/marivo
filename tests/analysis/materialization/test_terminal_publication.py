@@ -398,8 +398,8 @@ def test_real_source_repeat_execution_and_nullable_local_combination(
     source_session: Session,
 ) -> None:
     session = source_session
-    amount = catalog_value(session.catalog, "sales.orders.amount", kind="field")
-    region = catalog_value(session.catalog, "sales.orders.region", kind="field")
+    amount = catalog_value(session.catalog, "sales.orders.amount", kind="measure")
+    region = catalog_value(session.catalog, "sales.orders.region", kind="dimension")
     assert isinstance(amount, (ms.RowExpression, ms.MetricExpression)) and isinstance(
         region, (ms.RowExpression, ms.MetricExpression)
     )
@@ -431,7 +431,7 @@ def test_real_source_repeat_execution_and_nullable_local_combination(
 
 def test_calendar_positions_are_explicit_output_attachment(source_session: Session) -> None:
     session = source_session
-    metric = session.catalog.get("metric:sales.revenue")
+    metric = catalog_value(session.catalog, "sales.revenue", kind="metric")
     axis = session.time_scope(start="2026-01-01", end="2026-01-05").by(mv.grain("day"))
     artifact = session.observe({"revenue": metric}, by=(axis,)).persist()
     (attachment,) = committed(artifact).data.attachments
@@ -454,7 +454,7 @@ def test_calendar_timezone_survives_private_cold_read(source_session: Session, z
     constant = calendar_constant(session, axis).persist()
     assert session._catalog_value is None
     assert constant.source_reads == ()
-    metric = session.catalog.get("metric:sales.revenue")
+    metric = catalog_value(session.catalog, "sales.revenue", kind="metric")
     sourced = session.observe({"value": metric}, by=(axis,)).persist()
     script = """from pathlib import Path
 import sys
@@ -499,8 +499,8 @@ for artifact_id in sys.argv[3:]:
 
 def test_read_evidence_preserves_nested_predicate_groups(source_session: Session) -> None:
     session = source_session
-    region = catalog_value(session.catalog, "sales.orders.region", kind="field")
-    amount = catalog_value(session.catalog, "sales.orders.amount", kind="field")
+    region = catalog_value(session.catalog, "sales.orders.region", kind="dimension")
+    amount = catalog_value(session.catalog, "sales.orders.amount", kind="measure")
     assert isinstance(region, (ms.RowExpression, ms.MetricExpression)) and isinstance(
         amount, (ms.RowExpression, ms.MetricExpression)
     )
@@ -685,7 +685,7 @@ def test_large_output_uses_bounded_row_groups(tmp_path: Path) -> None:
 
 
 def test_pure_source_publication_has_no_synthetic_local_check(source_session: Session) -> None:
-    metric = source_session.catalog.get("metric:sales.revenue")
+    metric = catalog_value(source_session.catalog, "sales.revenue", kind="metric")
     artifact = source_session.observe({"revenue": metric}).persist()
     assert stored_frame(source_session, artifact)["value.0"].tolist() == [9007199254740998]
     assert len(artifact.source_reads) == 1
@@ -695,7 +695,7 @@ def test_pure_source_publication_has_no_synthetic_local_check(source_session: Se
 def test_explicit_numeric_error_prevents_admission_and_publication(
     source_session: Session,
 ) -> None:
-    amount = catalog_value(source_session.catalog, "sales.orders.amount", kind="field")
+    amount = catalog_value(source_session.catalog, "sales.orders.amount", kind="measure")
     assert isinstance(amount, (ms.RowExpression, ms.MetricExpression))
     total = amount.sum(nulls="error")
     with pytest.raises(MaterializationError) as caught:
@@ -715,8 +715,8 @@ def test_explicit_numeric_error_prevents_admission_and_publication(
 
 
 def test_preparation_failure_creates_no_run(source_session: Session) -> None:
-    region = catalog_value(source_session.catalog, "sales.orders.region", kind="field")
-    metric = source_session.catalog.get("metric:sales.revenue")
+    region = catalog_value(source_session.catalog, "sales.orders.region", kind="dimension")
+    metric = catalog_value(source_session.catalog, "sales.revenue", kind="metric")
     with duckdb.connect(str(source_session.project_root / "warehouse.duckdb")) as conn:
         conn.execute("ALTER TABLE orders ALTER region TYPE BLOB USING 'unsupported'::BLOB")
     with pytest.raises(MaterializationError) as caught:
@@ -738,7 +738,7 @@ def test_source_disconnect_failure_prevents_publication(
         return False
 
     monkeypatch.setattr(BackendLease, "close", unconfirmed)
-    metric = source_session.catalog.get("metric:sales.revenue")
+    metric = catalog_value(source_session.catalog, "sales.revenue", kind="metric")
     with pytest.raises(MaterializationError) as caught:
         source_session.observe({"revenue": metric}).persist()
     assert not hasattr(caught.value, "run_ref")
@@ -753,7 +753,7 @@ def test_lost_ack_with_changed_source_metadata_is_recovery_pending(
 ) -> None:
     session = source_session
     store = session._runtime.store
-    amount = catalog_value(session.catalog, "sales.orders.amount", kind="field")
+    amount = catalog_value(session.catalog, "sales.orders.amount", kind="measure")
     fixed = session.observe({"total": amount.sum()}).compute()
     assert isinstance(fixed._backing, MemoryFrameBacking)
 
@@ -819,7 +819,7 @@ def test_metadata_and_records_need_no_parquet_or_current_model(
     from marivo.datasource.adapters import SourceSession
 
     session = source_session
-    amount = catalog_value(session.catalog, "sales.orders.amount", kind="field")
+    amount = catalog_value(session.catalog, "sales.orders.amount", kind="measure")
     artifact = session.observe({"total": amount.sum()}).persist()
     before = terminal_runs(session)
 
@@ -849,8 +849,8 @@ def test_metadata_and_records_need_no_parquet_or_current_model(
 
 def test_public_read_isolated_copy_and_historical_values(source_session: Session) -> None:
     session = source_session
-    amount = catalog_value(session.catalog, "sales.orders.amount", kind="field")
-    region = catalog_value(session.catalog, "sales.orders.region", kind="field")
+    amount = catalog_value(session.catalog, "sales.orders.amount", kind="measure")
+    region = catalog_value(session.catalog, "sales.orders.region", kind="dimension")
     artifact = session.observe(
         {"total": amount.sum(), "mean": amount.mean()}, by=(region,)
     ).persist()
@@ -1162,8 +1162,8 @@ def test_operator_sequence_survives_real_source_finish_and_storage(source_sessio
     from marivo.analysis.dsl.column import row_count
 
     session = source_session
-    amount = catalog_value(session.catalog, "sales.orders.amount", kind="field")
-    region = catalog_value(session.catalog, "sales.orders.region", kind="field")
+    amount = catalog_value(session.catalog, "sales.orders.amount", kind="measure")
+    region = catalog_value(session.catalog, "sales.orders.region", kind="dimension")
     source = session.observe({"total": amount.sum()}, by=(region,))
     ranked = source.top(2, by=source["total"])
     filtered = ranked.where(ranked["total"] > 0)
@@ -1244,6 +1244,7 @@ def test_method_payload_is_owned_by_same_commit_and_zero_rows_are_checked(
     result = method_result(empty=empty)
     saved = AnalysisFrame._from_memory(session._runtime.local, result).persist()
     value = committed(saved)
+    assert isinstance(saved._backing, StoredFrameBacking)
     assert value.method_facts == saved._backing.method_facts
     assert value.semantics_version == "frame.v17"
     descriptor = value.method_facts[0]
@@ -1322,10 +1323,13 @@ def test_owned_method_codec_rejects_exact_table_damage(session: Session) -> None
 
 
 def test_malformed_method_numeric_facts_fail_before_admission(session: Session) -> None:
+    from marivo.analysis.core.frame_method_facts import FrameAdditiveMethod
+
     result = method_result()
     facts = result.method_facts[0]
     parent = facts.parents[0]
     metric = parent.metrics[0]
+    assert isinstance(metric.method, FrameAdditiveMethod)
     wrong = replace(metric.method, change=replace(metric.method.change, value=59))
     invalid_facts = replace(
         facts, parents=(replace(parent, metrics=(replace(metric, method=wrong),)),)

@@ -78,9 +78,9 @@ def test_remote_original_recompute_uses_qualified_integer_results(
     with source_case(backend, profile, tmp_path, monkeypatch, DATA) as case:
         _project(backend, case, monkeypatch, semantic_project_factory)
         session = mv.session.get_or_create("remote-original", timezone="UTC")
-        amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
-        category = catalog_value(session.catalog, "sales.facts.category", kind="field")
-        weight = catalog_value(session.catalog, "sales.facts.weight", kind="field")
+        amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
+        category = catalog_value(session.catalog, "sales.facts.category", kind="dimension")
+        weight = catalog_value(session.catalog, "sales.facts.weight", kind="measure")
         metric = (
             amount.weighted_mean(weight=weight)
             if method == "weighted_mean"
@@ -126,9 +126,9 @@ def test_remote_original_drill_and_share_preserve_complete_keys(
     with source_case(backend, profile, tmp_path, monkeypatch, DATA) as case:
         _project(backend, case, monkeypatch, semantic_project_factory)
         session = mv.session.get_or_create("remote-original-related", timezone="UTC")
-        amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
-        category = catalog_value(session.catalog, "sales.facts.category", kind="field")
-        tenant = catalog_value(session.catalog, "sales.facts.tenant", kind="field")
+        amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
+        category = catalog_value(session.catalog, "sales.facts.category", kind="dimension")
+        tenant = catalog_value(session.catalog, "sales.facts.tenant", kind="dimension")
         query = session.observe({"value": amount.sum()}, by=(category, tenant))
         trace = capture_source(monkeypatch)
         frame = query.compute().to_pandas()
@@ -181,9 +181,9 @@ def test_remote_integer_states_follow_native_precision_and_host_finish(
     with source_case(backend, profile, tmp_path, monkeypatch, data) as case:
         _project(backend, case, monkeypatch, semantic_project_factory)
         session = mv.session.get_or_create("remote-original-cancellation", timezone="UTC")
-        amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
-        category = catalog_value(session.catalog, "sales.facts.category", kind="field")
-        weight = catalog_value(session.catalog, "sales.facts.weight", kind="field")
+        amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
+        category = catalog_value(session.catalog, "sales.facts.category", kind="dimension")
+        weight = catalog_value(session.catalog, "sales.facts.weight", kind="measure")
         metric = amount.mean() if method == "mean" else amount.weighted_mean(weight=weight)
         query = session.observe({"value": metric})
         native = (
@@ -200,7 +200,7 @@ def test_remote_integer_states_follow_native_precision_and_host_finish(
         )
         assert frame["value"].tolist() == [native]
 
-        tenant = catalog_value(session.catalog, "sales.facts.tenant", kind="field")
+        tenant = catalog_value(session.catalog, "sales.facts.tenant", kind="dimension")
         fixed = session.values(
             by=(tenant,),
             columns={"amount": None},
@@ -236,8 +236,8 @@ def test_remote_nullable_integer_distinct_recomputes_before_native_transport(
     with source_case(backend, profile, tmp_path, monkeypatch, data) as case:
         _project(backend, case, monkeypatch, semantic_project_factory)
         session = mv.session.get_or_create("remote-original-nullable", timezone="UTC")
-        amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
-        category = catalog_value(session.catalog, "sales.facts.category", kind="field")
+        amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
+        category = catalog_value(session.catalog, "sales.facts.category", kind="dimension")
         query = session.observe({"value": amount.count_distinct()})
         trace = capture_source(monkeypatch)
         frame = query.compute().to_pandas()
@@ -301,9 +301,9 @@ def test_remote_nullable_native_values_keep_fractional_parts(
     with source_case(backend, profile, tmp_path, monkeypatch, data) as case:
         _project(backend, case, monkeypatch, semantic_project_factory)
         session = mv.session.get_or_create("remote-native-fractions", timezone="UTC")
-        amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
-        category = catalog_value(session.catalog, "sales.facts.category", kind="field")
-        weight = catalog_value(session.catalog, "sales.facts.weight", kind="field")
+        amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
+        category = catalog_value(session.catalog, "sales.facts.category", kind="dimension")
+        weight = catalog_value(session.catalog, "sales.facts.weight", kind="measure")
         metric = (
             amount.weighted_mean(weight=weight)
             if method == "weighted_mean"
@@ -331,8 +331,8 @@ def test_trino_basic_integer_recompute_does_not_require_iceberg_snapshot(
     with source_case(backend, profile, tmp_path, monkeypatch, DATA) as case:
         _project(backend, case, monkeypatch, semantic_project_factory)
         session = mv.session.get_or_create("trino-connector-original", timezone="UTC")
-        amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
-        category = catalog_value(session.catalog, "sales.facts.category", kind="field")
+        amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
+        category = catalog_value(session.catalog, "sales.facts.category", kind="dimension")
         query = session.observe({"value": amount.sum()})
         native = _native_scalar(case, "sum")
         trace = capture_source(monkeypatch)
@@ -362,9 +362,9 @@ def test_remote_weighted_native_boundary_and_fixed_wide_mean(
     with source_case(backend, profile, tmp_path, monkeypatch, data) as case:
         _project(backend, case, monkeypatch, semantic_project_factory)
         session = mv.session.get_or_create("remote-original-wide-weighted", timezone="UTC")
-        amount = catalog_value(session.catalog, "sales.facts.amount", kind="field")
-        category = catalog_value(session.catalog, "sales.facts.category", kind="field")
-        weight = catalog_value(session.catalog, "sales.facts.weight", kind="field")
+        amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
+        category = catalog_value(session.catalog, "sales.facts.category", kind="dimension")
+        weight = catalog_value(session.catalog, "sales.facts.weight", kind="measure")
         query = session.observe({"value": amount.weighted_mean(weight=weight)})
         table = case.session.bind(case.source, source_identity="native-unwidened").relation
         expression = (table.amount * table.weight).sum() / table.weight.sum()

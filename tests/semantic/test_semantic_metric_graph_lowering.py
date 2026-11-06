@@ -87,7 +87,9 @@ def test_nested_metric_closure_captures_its_dependencies_without_source_io(
         raise AssertionError("definition binding opened a source")
 
     monkeypatch.setattr("marivo.datasource.backends._build_backend_from_effective", forbidden)
-    query = session.observe({"nested": catalog.get("metric:sales.outer")})
+    nested = catalog.get("metric:sales.outer")
+    assert nested.kind == "metric"
+    query = session.observe({"nested": nested})
     graph = _captured_graph(query)
     assert isinstance(graph.root, ObserveQuery)
     closure = walk(

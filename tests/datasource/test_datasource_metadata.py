@@ -12,7 +12,6 @@ import marivo.datasource as md
 from marivo.datasource import backends
 from marivo.datasource.authoring import (
     ClickHouseSpec,
-    DatasourceSpec,
     DuckDBSpec,
     MySQLSpec,
     PostgresSpec,
@@ -79,11 +78,17 @@ def test_table_metadata_to_dict_is_json_safe() -> None:
 
     assert payload["datasource"] == "wh"
     assert payload["database"] == ["analytics", "public"]
-    assert payload["columns"][0]["nullable"] is False
-    assert payload["partitions"][0]["name"] == "order_date"
+    columns = payload["columns"]
+    partitions = payload["partitions"]
+    assert isinstance(columns, list) and isinstance(columns[0], dict)
+    assert isinstance(partitions, list) and isinstance(partitions[0], dict)
+    assert columns[0]["nullable"] is False
+    assert partitions[0]["name"] == "order_date"
     assert payload["partition_state"] == "known"
-    assert payload["physical_profile"]["row_count"] == 1200
-    assert payload["physical_profile"]["source"] == "test.catalog"
+    physical_profile = payload["physical_profile"]
+    assert isinstance(physical_profile, dict)
+    assert physical_profile["row_count"] == 1200
+    assert physical_profile["source"] == "test.catalog"
     assert json.loads(json.dumps(payload))["warnings"][0]["kind"] == "partitions_unavailable"
     assert "row_count" not in payload
 
@@ -197,20 +202,6 @@ def project_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     return tmp_path
 
 
-def _spec(name: str, *, backend_type: str, **fields: object) -> DatasourceSpec:
-    if backend_type == "duckdb":
-        return DuckDBSpec(name=name, **fields)
-    if backend_type == "trino":
-        return TrinoSpec(name=name, **fields)
-    if backend_type == "mysql":
-        return MySQLSpec(name=name, **fields)
-    if backend_type == "postgres":
-        return PostgresSpec(name=name, **fields)
-    if backend_type == "clickhouse":
-        return ClickHouseSpec(name=name, **fields)
-    raise AssertionError(f"unexpected backend_type: {backend_type}")
-
-
 def _create_metadata_duckdb(path: Path) -> None:
     con = ibis.duckdb.connect(str(path))
     con.raw_sql(
@@ -253,7 +244,7 @@ def _create_duckdb_with_default_table_and_same_name_view(path: Path) -> None:
 def test_inspect_table_duckdb_returns_comments_and_nullable(project_root: Path) -> None:
     db_path = project_root / "warehouse.duckdb"
     _create_metadata_duckdb(db_path)
-    md.register(_spec("wh", backend_type="duckdb", path=str(db_path)))
+    md.register(DuckDBSpec(name="wh", path=str(db_path)))
 
     metadata = _inspect_table("wh", table="orders")
 
@@ -274,7 +265,7 @@ def test_inspect_table_duckdb_returns_comments_and_nullable(project_root: Path) 
 def test_inspect_source_duckdb_detects_view(project_root: Path) -> None:
     db_path = project_root / "warehouse.duckdb"
     _create_duckdb_with_view(db_path)
-    md.register(_spec("wh", backend_type="duckdb", path=str(db_path)))
+    md.register(DuckDBSpec(name="wh", path=str(db_path)))
 
     view_md = _inspect_source("wh", source=md.table("v_orders"))
     assert view_md.is_view is True
@@ -291,7 +282,7 @@ def test_inspect_source_duckdb_uses_database_for_view_detection(
 ) -> None:
     db_path = project_root / "warehouse.duckdb"
     _create_duckdb_with_same_name_table_and_view(db_path)
-    md.register(_spec("wh", backend_type="duckdb", path=str(db_path)))
+    md.register(DuckDBSpec(name="wh", path=str(db_path)))
 
     table_md = _inspect_table(
         "wh",
@@ -322,7 +313,7 @@ def test_inspect_table_duckdb_unqualified_uses_default_schema_for_view_detection
 ) -> None:
     db_path = project_root / "warehouse.duckdb"
     _create_duckdb_with_default_table_and_same_name_view(db_path)
-    md.register(_spec("wh", backend_type="duckdb", path=str(db_path)))
+    md.register(DuckDBSpec(name="wh", path=str(db_path)))
 
     table_md = _inspect_table("wh", table="orders")
     assert table_md.is_view is False
@@ -344,16 +335,11 @@ def test_inspect_table_missing_datasource_raises(project_root: Path) -> None:
     assert exc_info.value.received == "missing"
 
 
-class _FakeSchema(dict):
-    def items(self):
-        return super().items()
-
-
 class _FakeTable:
     def __init__(self, schema: dict[str, str]) -> None:
-        self._schema = _FakeSchema(schema)
+        self._schema = dict(schema)
 
-    def schema(self):
+    def schema(self) -> dict[str, str]:
         return self._schema
 
 
@@ -362,7 +348,7 @@ class _FakeCursor:
         self.description = [(column,) for column in columns]
         self._rows = rows
 
-    def fetchall(self):
+    def fetchall(self) -> list[tuple[object, ...]]:
         return self._rows
 
 
@@ -396,11 +382,11 @@ class _FakeBackend:
     def disconnect(self) -> None:
         pass
 
-    def table(self, table: str, database: object = None):
+    def table(self, table: str, database: object = None) -> _FakeTable:
         self.table_calls.append((table, database))
         return _FakeTable(self.schema)
 
-    def raw_sql(self, sql: str):
+    def raw_sql(self, sql: str) -> _FakeCursor | _FakeQueryResult:
         self.queries.append(sql)
         for token in self.raise_on_tokens:
             if token in sql:
@@ -417,7 +403,7 @@ class _FakeFileBackend:
     def __init__(self) -> None:
         self.reads: list[tuple[str, dict[str, object]]] = []
 
-    def read_parquet(self, path: str, **options: object):
+    def read_parquet(self, path: str, **options: object) -> _FakeTable:
         self.reads.append((path, options))
         return _FakeTable({"order_id": "int64", "amount": "float64"})
 
@@ -431,9 +417,8 @@ def test_inspect_table_mysql_adapter_uses_information_schema(
 ) -> None:
     monkeypatch.setenv("MYSQL_USER", "reader")
     md.register(
-        _spec(
-            "mysql_wh",
-            backend_type="mysql",
+        MySQLSpec(
+            name="mysql_wh",
             host="localhost",
             user=md.env("MYSQL_USER"),
             database="mart",
@@ -460,7 +445,7 @@ def test_inspect_table_mysql_adapter_uses_information_schema(
         backends,
         "build_backend_with_secrets",
         lambda _datasource, **kwargs: BuiltDatasourceBackend(
-            backend=backend, env_sourced_secrets={}
+            backend=backend, env_sourced_secrets=()
         ),
     )
 
@@ -481,9 +466,8 @@ def test_inspect_table_mysql_populates_physical_profile(
 ) -> None:
     monkeypatch.setenv("MYSQL_USER", "reader")
     md.register(
-        _spec(
-            "mysql_wh",
-            backend_type="mysql",
+        MySQLSpec(
+            name="mysql_wh",
             host="localhost",
             user=md.env("MYSQL_USER"),
             database="mart",
@@ -510,7 +494,7 @@ def test_inspect_table_mysql_populates_physical_profile(
         backends,
         "build_backend_with_secrets",
         lambda _datasource, **kwargs: BuiltDatasourceBackend(
-            backend=backend, env_sourced_secrets={}
+            backend=backend, env_sourced_secrets=()
         ),
     )
 
@@ -531,9 +515,8 @@ def test_inspect_table_postgres_populates_physical_profile(
 ) -> None:
     monkeypatch.setenv("PG_USER", "reader")
     md.register(
-        _spec(
-            "pg_wh",
-            backend_type="postgres",
+        PostgresSpec(
+            name="pg_wh",
             host="localhost",
             user=md.env("PG_USER"),
             database="mart",
@@ -566,7 +549,7 @@ def test_inspect_table_postgres_populates_physical_profile(
         backends,
         "build_backend_with_secrets",
         lambda _datasource, **kwargs: BuiltDatasourceBackend(
-            backend=backend, env_sourced_secrets={}
+            backend=backend, env_sourced_secrets=()
         ),
     )
 
@@ -593,9 +576,8 @@ def test_inspect_table_mysql_uses_datasource_database_for_view_detection(
 ) -> None:
     monkeypatch.setenv("MYSQL_USER", "reader")
     md.register(
-        _spec(
-            "mysql_wh",
-            backend_type="mysql",
+        MySQLSpec(
+            name="mysql_wh",
             host="localhost",
             user=md.env("MYSQL_USER"),
             database="mart",
@@ -620,7 +602,7 @@ def test_inspect_table_mysql_uses_datasource_database_for_view_detection(
         backends,
         "build_backend_with_secrets",
         lambda _datasource, **kwargs: BuiltDatasourceBackend(
-            backend=backend, env_sourced_secrets={}
+            backend=backend, env_sourced_secrets=()
         ),
     )
 
@@ -646,14 +628,14 @@ def test_inspect_source_file_derives_table_name_from_path(
     project_root: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    md.register(_spec("duck_wh", backend_type="duckdb", path=":memory:"))
+    md.register(DuckDBSpec(name="duck_wh", path=":memory:"))
     backend = _FakeFileBackend()
 
     monkeypatch.setattr(
         backends,
         "build_backend_with_secrets",
         lambda _datasource, **kwargs: BuiltDatasourceBackend(
-            backend=backend, env_sourced_secrets={}
+            backend=backend, env_sourced_secrets=()
         ),
     )
 
@@ -671,9 +653,8 @@ def test_inspect_table_trino_adapter_uses_information_schema(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     md.register(
-        _spec(
-            "trino_wh",
-            backend_type="trino",
+        TrinoSpec(
+            name="trino_wh",
             host="trino.example",
             catalog="hive",
             user=md.env("TRINO_USER"),
@@ -712,7 +693,7 @@ def test_inspect_table_trino_adapter_uses_information_schema(
         backends,
         "build_backend_with_secrets",
         lambda _datasource, **kwargs: BuiltDatasourceBackend(
-            backend=backend, env_sourced_secrets={}
+            backend=backend, env_sourced_secrets=()
         ),
     )
 
@@ -746,9 +727,8 @@ def test_inspect_table_trino_splits_dotted_database_for_metadata_sql(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     md.register(
-        _spec(
-            "trino_wh",
-            backend_type="trino",
+        TrinoSpec(
+            name="trino_wh",
             host="trino.example",
             catalog="hive",
             user=md.env("TRINO_USER"),
@@ -784,7 +764,7 @@ def test_inspect_table_trino_splits_dotted_database_for_metadata_sql(
         backends,
         "build_backend_with_secrets",
         lambda _datasource, **kwargs: BuiltDatasourceBackend(
-            backend=backend, env_sourced_secrets={}
+            backend=backend, env_sourced_secrets=()
         ),
     )
 
@@ -815,9 +795,8 @@ def test_inspect_table_trino_keeps_two_part_database_tuple_for_metadata_sql(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     md.register(
-        _spec(
-            "trino_wh",
-            backend_type="trino",
+        TrinoSpec(
+            name="trino_wh",
             host="trino.example",
             catalog="hive",
             user=md.env("TRINO_USER"),
@@ -853,7 +832,7 @@ def test_inspect_table_trino_keeps_two_part_database_tuple_for_metadata_sql(
         backends,
         "build_backend_with_secrets",
         lambda _datasource, **kwargs: BuiltDatasourceBackend(
-            backend=backend, env_sourced_secrets={}
+            backend=backend, env_sourced_secrets=()
         ),
     )
 
@@ -875,9 +854,8 @@ def test_inspect_table_trino_populates_physical_profile_from_show_stats(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     md.register(
-        _spec(
-            "trino_wh",
-            backend_type="trino",
+        TrinoSpec(
+            name="trino_wh",
             host="trino.example",
             catalog="hive",
             user=md.env("TRINO_USER"),
@@ -913,7 +891,7 @@ def test_inspect_table_trino_populates_physical_profile_from_show_stats(
         backends,
         "build_backend_with_secrets",
         lambda _datasource, **kwargs: BuiltDatasourceBackend(
-            backend=backend, env_sourced_secrets={}
+            backend=backend, env_sourced_secrets=()
         ),
     )
 
@@ -934,9 +912,8 @@ def test_inspect_table_trino_stats_failure_is_warning_only(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     md.register(
-        _spec(
-            "trino_wh",
-            backend_type="trino",
+        TrinoSpec(
+            name="trino_wh",
             host="trino.example",
             catalog="hive",
             user=md.env("TRINO_USER"),
@@ -966,7 +943,7 @@ def test_inspect_table_trino_stats_failure_is_warning_only(
         backends,
         "build_backend_with_secrets",
         lambda _datasource, **kwargs: BuiltDatasourceBackend(
-            backend=backend, env_sourced_secrets={}
+            backend=backend, env_sourced_secrets=()
         ),
     )
 
@@ -984,9 +961,8 @@ def test_inspect_table_trino_keeps_column_comments_when_table_comments_unavailab
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     md.register(
-        _spec(
-            "trino_wh",
-            backend_type="trino",
+        TrinoSpec(
+            name="trino_wh",
             host="trino.example",
             catalog="hive",
             user=md.env("TRINO_USER"),
@@ -1018,7 +994,7 @@ def test_inspect_table_trino_keeps_column_comments_when_table_comments_unavailab
         backends,
         "build_backend_with_secrets",
         lambda _datasource, **kwargs: BuiltDatasourceBackend(
-            backend=backend, env_sourced_secrets={}
+            backend=backend, env_sourced_secrets=()
         ),
     )
 
@@ -1038,9 +1014,8 @@ def test_inspect_table_trino_detects_view_definition(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     md.register(
-        _spec(
-            "trino_wh",
-            backend_type="trino",
+        TrinoSpec(
+            name="trino_wh",
             host="trino.example",
             catalog="hive",
             user=md.env("TRINO_USER"),
@@ -1068,7 +1043,7 @@ def test_inspect_table_trino_detects_view_definition(
         backends,
         "build_backend_with_secrets",
         lambda _datasource, **kwargs: BuiltDatasourceBackend(
-            backend=backend, env_sourced_secrets={}
+            backend=backend, env_sourced_secrets=()
         ),
     )
 
@@ -1094,9 +1069,8 @@ def test_inspect_table_trino_uses_datasource_schema_when_database_omitted(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     md.register(
-        _spec(
-            "trino_wh",
-            backend_type="trino",
+        TrinoSpec(
+            name="trino_wh",
             host="trino.example",
             catalog="hive",
             user=md.env("TRINO_USER"),
@@ -1125,7 +1099,7 @@ def test_inspect_table_trino_uses_datasource_schema_when_database_omitted(
         backends,
         "build_backend_with_secrets",
         lambda _datasource, **kwargs: BuiltDatasourceBackend(
-            backend=backend, env_sourced_secrets={}
+            backend=backend, env_sourced_secrets=()
         ),
     )
 
@@ -1145,9 +1119,8 @@ def test_inspect_table_trino_falls_back_when_comment_columns_are_unavailable(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     md.register(
-        _spec(
-            "trino_wh",
-            backend_type="trino",
+        TrinoSpec(
+            name="trino_wh",
             host="trino.example",
             catalog="hive",
             user=md.env("TRINO_USER"),
@@ -1172,7 +1145,7 @@ def test_inspect_table_trino_falls_back_when_comment_columns_are_unavailable(
         backends,
         "build_backend_with_secrets",
         lambda _datasource, **kwargs: BuiltDatasourceBackend(
-            backend=backend, env_sourced_secrets={}
+            backend=backend, env_sourced_secrets=()
         ),
     )
 
@@ -1198,9 +1171,8 @@ def test_inspect_table_trino_hive_partitioned_by_from_show_create(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     md.register(
-        _spec(
-            "trino_wh",
-            backend_type="trino",
+        TrinoSpec(
+            name="trino_wh",
             host="trino.example",
             catalog="hive",
             user=md.env("TRINO_USER"),
@@ -1239,7 +1211,7 @@ def test_inspect_table_trino_hive_partitioned_by_from_show_create(
         backends,
         "build_backend_with_secrets",
         lambda _datasource, **kwargs: BuiltDatasourceBackend(
-            backend=backend, env_sourced_secrets={}
+            backend=backend, env_sourced_secrets=()
         ),
     )
 
@@ -1257,9 +1229,8 @@ def test_inspect_table_trino_iceberg_partitioning_from_show_create(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     md.register(
-        _spec(
-            "iceberg_wh",
-            backend_type="trino",
+        TrinoSpec(
+            name="iceberg_wh",
             host="trino.example",
             catalog="iceberg",
             user=md.env("TRINO_USER"),
@@ -1298,7 +1269,7 @@ def test_inspect_table_trino_iceberg_partitioning_from_show_create(
         backends,
         "build_backend_with_secrets",
         lambda _datasource, **kwargs: BuiltDatasourceBackend(
-            backend=backend, env_sourced_secrets={}
+            backend=backend, env_sourced_secrets=()
         ),
     )
 
@@ -1316,9 +1287,8 @@ def test_inspect_table_trino_without_schema_returns_schema_only(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     md.register(
-        _spec(
-            "trino_wh",
-            backend_type="trino",
+        TrinoSpec(
+            name="trino_wh",
             host="trino.example",
             catalog="hive",
             user=md.env("TRINO_USER"),
@@ -1330,7 +1300,7 @@ def test_inspect_table_trino_without_schema_returns_schema_only(
         backends,
         "build_backend_with_secrets",
         lambda _datasource, **kwargs: BuiltDatasourceBackend(
-            backend=backend, env_sourced_secrets={}
+            backend=backend, env_sourced_secrets=()
         ),
     )
 
@@ -1348,9 +1318,8 @@ def test_inspect_table_clickhouse_adapter_uses_system_tables(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     md.register(
-        _spec(
-            "ch_wh",
-            backend_type="clickhouse",
+        ClickHouseSpec(
+            name="ch_wh",
             host="clickhouse.example",
             database="analytics",
         )
@@ -1378,7 +1347,7 @@ def test_inspect_table_clickhouse_adapter_uses_system_tables(
         backends,
         "build_backend_with_secrets",
         lambda _datasource, **kwargs: BuiltDatasourceBackend(
-            backend=backend, env_sourced_secrets={}
+            backend=backend, env_sourced_secrets=()
         ),
     )
 
@@ -1406,9 +1375,7 @@ def test_inspect_table_clickhouse_populates_physical_profile_from_system_parts(
     project_root: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    md.register(
-        _spec("ch_profile", backend_type="clickhouse", host="ch.example", database="analytics")
-    )
+    md.register(ClickHouseSpec(name="ch_profile", host="ch.example", database="analytics"))
     backend = _FakeBackend(
         {"event_id": "string", "value": "float64"},
         {
@@ -1431,7 +1398,7 @@ def test_inspect_table_clickhouse_populates_physical_profile_from_system_parts(
         backends,
         "build_backend_with_secrets",
         lambda _datasource, **kwargs: BuiltDatasourceBackend(
-            backend=backend, env_sourced_secrets={}
+            backend=backend, env_sourced_secrets=()
         ),
     )
 
@@ -1451,9 +1418,7 @@ def test_clickhouse_discovers_adapter_only_projectable_columns_from_active_parts
     project_root: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    md.register(
-        _spec("ch_mapv2", backend_type="clickhouse", host="ch.example", database="analytics")
-    )
+    md.register(ClickHouseSpec(name="ch_mapv2", host="ch.example", database="analytics"))
     physical_rows = [(f"string_map%2Ekey_{index}*ICDS*", "Nullable(String)") for index in range(59)]
     physical_rows.append(("zz.event.time*ICDS*", "Nullable(DateTime64(3, 'UTC'))"))
     backend = _FakeBackend(
@@ -1482,7 +1447,7 @@ def test_clickhouse_discovers_adapter_only_projectable_columns_from_active_parts
         backends,
         "build_backend_with_secrets",
         lambda _datasource, **kwargs: BuiltDatasourceBackend(
-            backend=backend, env_sourced_secrets={}
+            backend=backend, env_sourced_secrets=()
         ),
     )
 
@@ -1514,9 +1479,7 @@ def test_clickhouse_projectable_column_discovery_accepts_empty_active_parts(
     project_root: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    md.register(
-        _spec("ch_empty_parts", backend_type="clickhouse", host="ch.example", database="analytics")
-    )
+    md.register(ClickHouseSpec(name="ch_empty_parts", host="ch.example", database="analytics"))
     backend = _FakeBackend(
         {"timestamp": "timestamp"},
         {
@@ -1536,7 +1499,7 @@ def test_clickhouse_projectable_column_discovery_accepts_empty_active_parts(
         backends,
         "build_backend_with_secrets",
         lambda _datasource, **kwargs: BuiltDatasourceBackend(
-            backend=backend, env_sourced_secrets={}
+            backend=backend, env_sourced_secrets=()
         ),
     )
     metadata = _inspect_table("ch_empty_parts", table="analytics.events")
@@ -1549,9 +1512,7 @@ def test_clickhouse_projectable_columns_omit_type_conflicts_and_unparsed_types(
     project_root: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    md.register(
-        _spec("ch_drift", backend_type="clickhouse", host="ch.example", database="analytics")
-    )
+    md.register(ClickHouseSpec(name="ch_drift", host="ch.example", database="analytics"))
     backend = _FakeBackend(
         {"timestamp": "timestamp"},
         {
@@ -1578,7 +1539,7 @@ def test_clickhouse_projectable_columns_omit_type_conflicts_and_unparsed_types(
         backends,
         "build_backend_with_secrets",
         lambda _datasource, **kwargs: BuiltDatasourceBackend(
-            backend=backend, env_sourced_secrets={}
+            backend=backend, env_sourced_secrets=()
         ),
     )
     metadata = _inspect_table("ch_drift", table="analytics.events")
@@ -1594,9 +1555,7 @@ def test_clickhouse_projectable_column_discovery_uses_distributed_local_table(
     project_root: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    md.register(
-        _spec("ch_dist_keys", backend_type="clickhouse", host="ch.example", database="analytics")
-    )
+    md.register(ClickHouseSpec(name="ch_dist_keys", host="ch.example", database="analytics"))
     backend = _FakeBackend(
         {"timestamp": "timestamp"},
         {
@@ -1625,7 +1584,7 @@ def test_clickhouse_projectable_column_discovery_uses_distributed_local_table(
         backends,
         "build_backend_with_secrets",
         lambda _datasource, **kwargs: BuiltDatasourceBackend(
-            backend=backend, env_sourced_secrets={}
+            backend=backend, env_sourced_secrets=()
         ),
     )
     metadata = _inspect_table("ch_dist_keys", table="analytics.events_dist")
@@ -1640,9 +1599,7 @@ def test_clickhouse_projectable_column_discovery_permission_failure_is_warning(
     project_root: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    md.register(
-        _spec("ch_locked", backend_type="clickhouse", host="ch.example", database="analytics")
-    )
+    md.register(ClickHouseSpec(name="ch_locked", host="ch.example", database="analytics"))
     backend = _FakeBackend(
         {"timestamp": "timestamp"},
         {
@@ -1662,7 +1619,7 @@ def test_clickhouse_projectable_column_discovery_permission_failure_is_warning(
         backends,
         "build_backend_with_secrets",
         lambda _datasource, **kwargs: BuiltDatasourceBackend(
-            backend=backend, env_sourced_secrets={}
+            backend=backend, env_sourced_secrets=()
         ),
     )
     metadata = _inspect_table("ch_locked", table="analytics.events")
@@ -1675,11 +1632,7 @@ def test_clickhouse_projectable_columns_exclude_schema_columns_when_catalog_is_u
     project_root: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    md.register(
-        _spec(
-            "ch_partial_catalog", backend_type="clickhouse", host="ch.example", database="analytics"
-        )
-    )
+    md.register(ClickHouseSpec(name="ch_partial_catalog", host="ch.example", database="analytics"))
     backend = _FakeBackend(
         {"timestamp": "timestamp(3)"},
         {
@@ -1702,7 +1655,7 @@ def test_clickhouse_projectable_columns_exclude_schema_columns_when_catalog_is_u
         backends,
         "build_backend_with_secrets",
         lambda _datasource, **kwargs: BuiltDatasourceBackend(
-            backend=backend, env_sourced_secrets={}
+            backend=backend, env_sourced_secrets=()
         ),
     )
     metadata = _inspect_table("ch_partial_catalog", table="analytics.events")
@@ -1717,9 +1670,7 @@ def test_inspect_table_clickhouse_detects_view_definition(
     monkeypatch: pytest.MonkeyPatch,
     engine: str,
 ) -> None:
-    md.register(
-        _spec("ch_view", backend_type="clickhouse", host="clickhouse.example", database="analytics")
-    )
+    md.register(ClickHouseSpec(name="ch_view", host="clickhouse.example", database="analytics"))
     backend = _FakeBackend(
         {"order_id": "int64"},
         {},
@@ -1743,7 +1694,7 @@ def test_inspect_table_clickhouse_detects_view_definition(
         backends,
         "build_backend_with_secrets",
         lambda _datasource, **kwargs: BuiltDatasourceBackend(
-            backend=backend, env_sourced_secrets={}
+            backend=backend, env_sourced_secrets=()
         ),
     )
 
@@ -1762,9 +1713,8 @@ def test_inspect_table_clickhouse_infers_nullable_from_type(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     md.register(
-        _spec(
-            "ch_old",
-            backend_type="clickhouse",
+        ClickHouseSpec(
+            name="ch_old",
             host="clickhouse-old.example",
             database="default",
         )
@@ -1790,7 +1740,7 @@ def test_inspect_table_clickhouse_infers_nullable_from_type(
         backends,
         "build_backend_with_secrets",
         lambda _datasource, **kwargs: BuiltDatasourceBackend(
-            backend=backend, env_sourced_secrets={}
+            backend=backend, env_sourced_secrets=()
         ),
     )
 
@@ -1808,9 +1758,8 @@ def test_inspect_table_clickhouse_query_result(
 ) -> None:
     """ClickHouse raw_sql returns QueryResult (not DB-API cursor) — _cursor_rows must handle it."""
     md.register(
-        _spec(
-            "ch_qr",
-            backend_type="clickhouse",
+        ClickHouseSpec(
+            name="ch_qr",
             host="clickhouse.example",
             database="analytics",
         )
@@ -1837,7 +1786,7 @@ def test_inspect_table_clickhouse_query_result(
         backends,
         "build_backend_with_secrets",
         lambda _datasource, **kwargs: BuiltDatasourceBackend(
-            backend=backend, env_sourced_secrets={}
+            backend=backend, env_sourced_secrets=()
         ),
     )
 
@@ -1859,9 +1808,8 @@ def test_inspect_table_clickhouse_no_is_nullable_empty_comments(
 ) -> None:
     """ClickHouse ≤22.5: is_nullable missing, comment column exists but values are empty strings."""
     md.register(
-        _spec(
-            "ch_22_3",
-            backend_type="clickhouse",
+        ClickHouseSpec(
+            name="ch_22_3",
             host="clickhouse-old.example",
             database="sample_web_monitor",
         )
@@ -1887,7 +1835,7 @@ def test_inspect_table_clickhouse_no_is_nullable_empty_comments(
         backends,
         "build_backend_with_secrets",
         lambda _datasource, **kwargs: BuiltDatasourceBackend(
-            backend=backend, env_sourced_secrets={}
+            backend=backend, env_sourced_secrets=()
         ),
     )
 
@@ -1910,7 +1858,7 @@ def test_inspect_table_clickhouse_partition_key_parsed(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """MergeTree with toYYYYMMDD(time_iso) partition — transform extracted."""
-    md.register(_spec("ch_pk", backend_type="clickhouse", host="ch.example", database="analytics"))
+    md.register(ClickHouseSpec(name="ch_pk", host="ch.example", database="analytics"))
     backend = _FakeBackend(
         {"event_id": "string", "time_iso": "datetime", "lag_count": "float64"},
         {
@@ -1933,7 +1881,7 @@ def test_inspect_table_clickhouse_partition_key_parsed(
         backends,
         "build_backend_with_secrets",
         lambda _datasource, **kwargs: BuiltDatasourceBackend(
-            backend=backend, env_sourced_secrets={}
+            backend=backend, env_sourced_secrets=()
         ),
     )
 
@@ -1950,9 +1898,7 @@ def test_inspect_table_clickhouse_partition_key_bare_column(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Bare column partition key — no transform."""
-    md.register(
-        _spec("ch_bare", backend_type="clickhouse", host="ch.example", database="analytics")
-    )
+    md.register(ClickHouseSpec(name="ch_bare", host="ch.example", database="analytics"))
     backend = _FakeBackend(
         {"timestamp": "datetime", "value": "float64"},
         {
@@ -1971,7 +1917,7 @@ def test_inspect_table_clickhouse_partition_key_bare_column(
         backends,
         "build_backend_with_secrets",
         lambda _datasource, **kwargs: BuiltDatasourceBackend(
-            backend=backend, env_sourced_secrets={}
+            backend=backend, env_sourced_secrets=()
         ),
     )
 
@@ -1987,9 +1933,7 @@ def test_inspect_table_clickhouse_partition_key_composite(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Composite partition key — platform + toYYYYMM(timestamp)."""
-    md.register(
-        _spec("ch_comp", backend_type="clickhouse", host="ch.example", database="analytics")
-    )
+    md.register(ClickHouseSpec(name="ch_comp", host="ch.example", database="analytics"))
     backend = _FakeBackend(
         {"platform": "int64", "timestamp": "datetime", "value": "float64"},
         {
@@ -2012,7 +1956,7 @@ def test_inspect_table_clickhouse_partition_key_composite(
         backends,
         "build_backend_with_secrets",
         lambda _datasource, **kwargs: BuiltDatasourceBackend(
-            backend=backend, env_sourced_secrets={}
+            backend=backend, env_sourced_secrets=()
         ),
     )
 
@@ -2033,9 +1977,7 @@ def test_inspect_table_clickhouse_partition_key_empty_and_tuple(
 ) -> None:
     """Empty partition_key and tuple() both produce empty partitions."""
     for pk, label in [("tuple()", "tuple"), ("", "empty")]:
-        md.register(
-            _spec(f"ch_{label}", backend_type="clickhouse", host="ch.example", database="analytics")
-        )
+        md.register(ClickHouseSpec(name=f"ch_{label}", host="ch.example", database="analytics"))
         backend = _FakeBackend(
             {"event_id": "string"},
             {
@@ -2054,7 +1996,7 @@ def test_inspect_table_clickhouse_partition_key_empty_and_tuple(
             backends,
             "build_backend_with_secrets",
             lambda _datasource, b=backend, **kwargs: BuiltDatasourceBackend(
-                backend=b, env_sourced_secrets={}
+                backend=b, env_sourced_secrets=()
             ),
         )
 
@@ -2067,7 +2009,7 @@ def test_inspect_table_clickhouse_partition_key_unparseable(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Unparseable expression intDiv(uid, 100) — stored as raw transform string."""
-    md.register(_spec("ch_unp", backend_type="clickhouse", host="ch.example", database="analytics"))
+    md.register(ClickHouseSpec(name="ch_unp", host="ch.example", database="analytics"))
     backend = _FakeBackend(
         {"uid": "int64", "value": "float64"},
         {
@@ -2086,7 +2028,7 @@ def test_inspect_table_clickhouse_partition_key_unparseable(
         backends,
         "build_backend_with_secrets",
         lambda _datasource, **kwargs: BuiltDatasourceBackend(
-            backend=backend, env_sourced_secrets={}
+            backend=backend, env_sourced_secrets=()
         ),
     )
 
@@ -2103,9 +2045,7 @@ def test_inspect_table_clickhouse_distributed_dereferences_local_table(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Distributed table dereferences to local table for partition metadata."""
-    md.register(
-        _spec("ch_dist", backend_type="clickhouse", host="ch.example", database="analytics")
-    )
+    md.register(ClickHouseSpec(name="ch_dist", host="ch.example", database="analytics"))
     backend = _FakeBackend(
         {"event_id": "string", "time_iso": "datetime", "lag_count": "float64"},
         {},
@@ -2143,7 +2083,7 @@ def test_inspect_table_clickhouse_distributed_dereferences_local_table(
         backends,
         "build_backend_with_secrets",
         lambda _datasource, **kwargs: BuiltDatasourceBackend(
-            backend=backend, env_sourced_secrets={}
+            backend=backend, env_sourced_secrets=()
         ),
     )
 
@@ -2159,9 +2099,7 @@ def test_inspect_table_clickhouse_distributed_profile_notes_local_metadata(
     project_root: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    md.register(
-        _spec("ch_dist_profile", backend_type="clickhouse", host="ch.example", database="analytics")
-    )
+    md.register(ClickHouseSpec(name="ch_dist_profile", host="ch.example", database="analytics"))
     backend = _FakeBackend(
         {"event_id": "string", "dt": "string"},
         {},
@@ -2190,7 +2128,7 @@ def test_inspect_table_clickhouse_distributed_profile_notes_local_metadata(
         backends,
         "build_backend_with_secrets",
         lambda _datasource, **kwargs: BuiltDatasourceBackend(
-            backend=backend, env_sourced_secrets={}
+            backend=backend, env_sourced_secrets=()
         ),
     )
 
@@ -2210,6 +2148,7 @@ def test_inspect_table_clickhouse_distributed_profile_notes_local_metadata(
         ),
     )
     profile_payload = metadata.to_dict()["physical_profile"]
+    assert isinstance(profile_payload, dict)
     assert profile_payload["row_count"] is None
     assert profile_payload["row_count_kind"] == "unknown"
     assert profile_payload["notes"] == [
@@ -2225,9 +2164,7 @@ def test_inspect_table_clickhouse_distributed_dereference_failure(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Distributed table with unparseable engine_full has no local physical profile."""
-    md.register(
-        _spec("ch_dist_fail", backend_type="clickhouse", host="ch.example", database="analytics")
-    )
+    md.register(ClickHouseSpec(name="ch_dist_fail", host="ch.example", database="analytics"))
     backend = _FakeBackend(
         {"event_id": "string"},
         {
@@ -2250,7 +2187,7 @@ def test_inspect_table_clickhouse_distributed_dereference_failure(
         backends,
         "build_backend_with_secrets",
         lambda _datasource, **kwargs: BuiltDatasourceBackend(
-            backend=backend, env_sourced_secrets={}
+            backend=backend, env_sourced_secrets=()
         ),
     )
 
@@ -2270,9 +2207,7 @@ def test_inspect_table_clickhouse_system_tables_fallback(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Expanded system.tables query fails → fallback to comment-only query."""
-    md.register(
-        _spec("ch_fallback", backend_type="clickhouse", host="ch.example", database="analytics")
-    )
+    md.register(ClickHouseSpec(name="ch_fallback", host="ch.example", database="analytics"))
     backend = _FakeBackend(
         {"event_id": "string"},
         {
@@ -2291,7 +2226,7 @@ def test_inspect_table_clickhouse_system_tables_fallback(
         backends,
         "build_backend_with_secrets",
         lambda _datasource, **kwargs: BuiltDatasourceBackend(
-            backend=backend, env_sourced_secrets={}
+            backend=backend, env_sourced_secrets=()
         ),
     )
 
@@ -2306,9 +2241,8 @@ def test_inspect_table_trino_short_name_is_not_rejected(
     project_root: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     md.register(
-        _spec(
-            "wh",
-            backend_type="trino",
+        TrinoSpec(
+            name="wh",
             host="h",
             catalog="c",
             user=md.env("TRINO_USER"),
@@ -2320,7 +2254,7 @@ def test_inspect_table_trino_short_name_is_not_rejected(
         backends,
         "build_backend_with_secrets",
         lambda _datasource, **kwargs: BuiltDatasourceBackend(
-            backend=backend, env_sourced_secrets={}
+            backend=backend, env_sourced_secrets=()
         ),
     )
 
@@ -2335,14 +2269,17 @@ def test_inspect_table_trino_short_name_is_not_rejected(
 # ---------------------------------------------------------------------------
 
 
-def _make_table_metadata(**overrides: object) -> TableMetadata:
-    defaults: dict[str, object] = {
-        "datasource": "wh",
-        "table": "orders",
-        "database": None,
-        "backend_type": "duckdb",
-        "comment": None,
-        "columns": (
+def _make_table_metadata(
+    *,
+    comment: str | None = None,
+    columns: tuple[ColumnMetadata, ...] | None = None,
+    partitions: tuple[PartitionMetadata, ...] = (),
+    warnings: tuple[MetadataWarning, ...] = (),
+    is_view: bool | None = None,
+    view_definition: str | None = None,
+) -> TableMetadata:
+    if columns is None:
+        columns = (
             ColumnMetadata(
                 name="order_id", type="int64", nullable=False, comment=None, ordinal_position=1
             ),
@@ -2352,12 +2289,19 @@ def _make_table_metadata(**overrides: object) -> TableMetadata:
             ColumnMetadata(
                 name="region", type="varchar", nullable=True, comment=None, ordinal_position=3
             ),
-        ),
-        "partitions": (),
-        "warnings": (),
-    }
-    defaults.update(overrides)
-    return TableMetadata(**defaults)
+        )
+    return TableMetadata(
+        datasource="wh",
+        table="orders",
+        database=None,
+        backend_type="duckdb",
+        comment=comment,
+        columns=columns,
+        partitions=partitions,
+        warnings=warnings,
+        is_view=is_view,
+        view_definition=view_definition,
+    )
 
 
 def test_table_metadata_default_inspection_contract() -> None:
@@ -2475,7 +2419,7 @@ def test_inspect_table_duckdb_populates_primary_keys_and_unique(
 ) -> None:
     db_path = project_root / "warehouse.duckdb"
     _create_duckdb_with_constraints(db_path)
-    md.register(_spec("wh", backend_type="duckdb", path=str(db_path)))
+    md.register(DuckDBSpec(name="wh", path=str(db_path)))
 
     metadata = _inspect_table("wh", table="orders")
 
@@ -2494,7 +2438,7 @@ def test_inspect_table_duckdb_populates_physical_profile_from_estimated_size(
     con = ibis.duckdb.connect(str(db_path))
     con.raw_sql("CREATE TABLE orders AS SELECT range AS order_id FROM range(12)")
     con.disconnect()
-    md.register(_spec("wh", backend_type="duckdb", path=str(db_path)))
+    md.register(DuckDBSpec(name="wh", path=str(db_path)))
 
     metadata = _inspect_table("wh", table="orders")
 
@@ -2526,7 +2470,9 @@ def test_table_metadata_to_dict_includes_key_constraints() -> None:
     )
     payload = metadata.to_dict()
     assert payload["primary_keys"] == ["order_id"]
-    assert payload["unique_constraints"][0]["columns"] == ["customer_id"]
+    constraints = payload["unique_constraints"]
+    assert isinstance(constraints, list) and isinstance(constraints[0], dict)
+    assert constraints[0]["columns"] == ["customer_id"]
     assert payload["physical_profile"] is None
     assert "row_count" not in payload
     assert json.loads(json.dumps(payload))["primary_keys"] == ["order_id"]
@@ -2569,7 +2515,7 @@ def test_duckdb_constraint_query_failure_is_warning(project_root: Path) -> None:
     con = ibis.duckdb.connect(str(db_path))
     con.raw_sql("CREATE TABLE plain (a INTEGER, b VARCHAR)")
     con.disconnect()
-    md.register(_spec("wh", backend_type="duckdb", path=str(db_path)))
+    md.register(DuckDBSpec(name="wh", path=str(db_path)))
 
     metadata = _inspect_table("wh", table="plain")
     assert metadata.primary_keys == ()

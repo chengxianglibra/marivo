@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import subprocess
 import sys
+import time as time_module
 from collections.abc import Iterator
 from contextlib import nullcontext
 from dataclasses import replace
@@ -120,6 +121,7 @@ def test_selected_provider_does_not_import_unselected_modules() -> None:
     code = """
 import builtins
 import sys
+import time as time_module
 original_import = builtins.__import__
 drivers = ('psycopg', 'pymysql', 'trino', 'clickhouse_connect')
 def reject_optional_drivers(name, *args, **kwargs):
@@ -244,18 +246,16 @@ def _flaky_fetch(
     session: SourceSession, monkeypatch: pytest.MonkeyPatch, failures: list[Exception]
 ) -> list[float]:
     """Fail the next native fetches, classify "busy" as transient and record backoff waits."""
-    from marivo.datasource import adapters
-
     fetch = session._backend.to_pyarrow
 
     def flaky(*args: object, **kwargs: object) -> pa.Table:
         if failures:
             raise failures.pop(0)
-        return fetch(*args, **kwargs)  # type: ignore[arg-type]
+        return fetch(*args, **kwargs)
 
     delays: list[float] = []
     monkeypatch.setattr(session._backend, "to_pyarrow", flaky)
-    monkeypatch.setattr(adapters.time, "sleep", delays.append)
+    monkeypatch.setattr(time_module, "sleep", delays.append)
     monkeypatch.setattr(
         session,
         "provider",
@@ -787,6 +787,7 @@ def test_private_key_relation_rejects_non_duckdb_provider() -> None:
         with pytest.raises(DatasourceSourceCapabilityError) as caught:
             source._bind_key_relation(pa.table({"key": [10]}))
         assert caught.value.received == "postgres"
+        assert caught.value.expected is not None
         assert "DuckDB" in caught.value.expected
     backend.execute.assert_not_called()
     backend.drop_view.assert_not_called()
@@ -947,7 +948,7 @@ def test_clickhouse_issued_blocks_preserve_exact_nullable_native_carriers(
     monkeypatch.setattr(session._backend, "to_pyarrow", ordinary)
     rows = session.execute(read)
     assert rows.id.dtype == pd.ArrowDtype(pa.int64())
-    assert rows.instant.dtype == pd.DatetimeTZDtype(unit="us", tz="UTC")
+    assert rows.instant.dtype == pd.DatetimeTZDtype.construct_from_string("datetime64[us, UTC]")
     if empty:
         assert rows.empty
     else:

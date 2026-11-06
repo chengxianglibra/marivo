@@ -17,7 +17,7 @@ from marivo.analysis.materialization.errors import MaterializationError
 from marivo.refs import ref as private_ref
 from tests.analysis.graph.execution_fixtures import source_graph
 from tests.analysis.numeric.pandas_coordinates import ordinary_columns
-from tests.shared_fixtures import DslCase, DslCaseFactory, catalog_value, terminal_runs
+from tests.shared_fixtures import DslCase, DslCaseFactory, catalog_get, catalog_value, terminal_runs
 from tests.support.paths import PROJECT_ROOT
 
 CUSTOMER = private_ref.entity("sales.customer")
@@ -112,7 +112,7 @@ def test_inference_and_root_identity(analysis_dsl_case_factory: DslCaseFactory) 
         source_graph(session.read(customers, {"region": region})).signature.owner
         == source_graph(automatic).signature.owner
     )
-    ratio = session.catalog.get("metric:sales.aov_from_lines")
+    ratio = catalog_get(session.catalog, "metric:sales.aov_from_lines", kind="metric")
     observed = session.observe({"value": ratio}, by=mv.product(_window(session), customers))
     binding = source_graph(observed).signature.observation
     assert binding is not None
@@ -271,10 +271,9 @@ def test_classification_read_preserves_missing_owner_as_null(
     session = _extend(case)
     with duckdb.connect(str(case.database_path)) as connection:
         connection.execute("UPDATE order_line SET product_id='missing' WHERE line_id='outside'")
-    category = catalog_value(session.catalog, CATEGORY.path, kind="field")
+    category_field = catalog_value(session.catalog, CATEGORY.path, kind="dimension")
     route = catalog_value(session.catalog, LINE_PRODUCT.path, kind="relationship")
-    if explicit:
-        category = category.via((route,))
+    category = category_field.via((route,)) if explicit else category_field
     attributes = (
         session.read(
             session.members(catalog_value(session.catalog, LINE.path, kind="entity")),
@@ -388,7 +387,11 @@ def test_multiroot_branch_arithmetic(analysis_dsl_case_factory: DslCaseFactory) 
         category,
         via=(
             (catalog_value(session.catalog, LINE_PRODUCT.path, kind="relationship"),),
-            (session.catalog.get("relationship:sales.order_product"),),
+            (
+                catalog_get(
+                    session.catalog, "relationship:sales.order_product", kind="relationship"
+                ),
+            ),
         ),
         unmatched="exclude",
     )

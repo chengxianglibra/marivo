@@ -11,11 +11,7 @@ import pytest
 import marivo.datasource as md
 from marivo.datasource import secrets as datasource_secrets
 from marivo.datasource.authoring import (
-    ClickHouseSpec,
-    DatasourceSpec,
     DuckDBSpec,
-    MySQLSpec,
-    PostgresSpec,
     TrinoSpec,
 )
 from marivo.datasource.backends import BuiltDatasourceBackend
@@ -71,22 +67,8 @@ def project_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     return tmp_path
 
 
-def _spec(name: str, *, backend_type: str, **fields: object) -> DatasourceSpec:
-    if backend_type == "duckdb":
-        return DuckDBSpec(name=name, **fields)
-    if backend_type == "trino":
-        return TrinoSpec(name=name, **fields)
-    if backend_type == "mysql":
-        return MySQLSpec(name=name, **fields)
-    if backend_type == "postgres":
-        return PostgresSpec(name=name, **fields)
-    if backend_type == "clickhouse":
-        return ClickHouseSpec(name=name, **fields)
-    raise AssertionError(f"unexpected backend_type: {backend_type}")
-
-
 def test_set_returns_summary(project_root: Path) -> None:
-    summary = md.register(_spec("wh", backend_type="duckdb", path=":memory:"))
+    summary = md.register(DuckDBSpec(name="wh", path=":memory:"))
     assert summary.name == "wh"
     assert summary.backend_type == "duckdb"
     assert (project_root / "models" / "datasources" / "wh.py").is_file()
@@ -94,24 +76,24 @@ def test_set_returns_summary(project_root: Path) -> None:
 
 def test_set_rejects_model_qualified_name(project_root: Path) -> None:
     with pytest.raises(DatasourceFieldInvalidError) as exc_info:
-        md.register(_spec("sales.warehouse", backend_type="duckdb", path=":memory:"))
+        md.register(DuckDBSpec(name="sales.warehouse", path=":memory:"))
     assert exc_info.value.expected == "[a-z][a-z0-9_]*"
+    assert exc_info.value.repair is not None
     assert "sales_warehouse" in str(exc_info.value.repair.action)
     assert "Update references to use the new identity" in str(exc_info.value.repair.action)
 
 
 def test_list_returns_sorted_summaries(project_root: Path) -> None:
-    md.register(_spec("b", backend_type="duckdb", path=":memory:"))
-    md.register(_spec("a", backend_type="duckdb", path=":memory:"))
+    md.register(DuckDBSpec(name="b", path=":memory:"))
+    md.register(DuckDBSpec(name="a", path=":memory:"))
     names = [p.name for p in md.load().list()]
     assert names == ["a", "b", "default"]
 
 
 def test_describe_redacts_secrets(project_root: Path) -> None:
     md.register(
-        _spec(
-            "wh",
-            backend_type="trino",
+        TrinoSpec(
+            name="wh",
             host="trino.example",
             port=8080,
             catalog="hive",
@@ -129,9 +111,8 @@ def test_datasource_test_uses_scalar_probe_instead_of_list_tables(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     md.register(
-        _spec(
-            "wh",
-            backend_type="trino",
+        TrinoSpec(
+            name="wh",
             host="trino.example",
             catalog="hive",
             user=md.env("TRINO_USER"),
@@ -147,7 +128,7 @@ def test_datasource_test_uses_scalar_probe_instead_of_list_tables(
         def compile(self, _expression: object, *, limit: None) -> str:
             return "SELECT 1"
 
-        def list_tables(self):
+        def list_tables(self) -> list[str]:
             raise AssertionError("list_tables requires a default schema for Trino")
 
         def disconnect(self) -> None:
@@ -176,9 +157,8 @@ def test_datasource_test_success_persists_env_sourced_secret(
 
     provider_for("trino")
     md.register(
-        _spec(
-            "wh",
-            backend_type="trino",
+        TrinoSpec(
+            name="wh",
             host="trino.example",
             catalog="hive",
             user=md.env("TRINO_USER"),
@@ -232,9 +212,8 @@ def test_datasource_test_failure_does_not_persist_env_sourced_secret(
 
     provider_for("trino")
     md.register(
-        _spec(
-            "wh",
-            backend_type="trino",
+        TrinoSpec(
+            name="wh",
             host="trino.example",
             catalog="hive",
             user=md.env("TRINO_USER"),
@@ -329,7 +308,7 @@ def test_datasource_test_classifies_open_failure_and_ignores_cache_failure(
         lambda _datasource, **kwargs: BuiltDatasourceBackend(_FakeBackend(), ()),
     )
     monkeypatch.setattr(
-        manage_mod._secrets,
+        datasource_secrets,
         "persist_backend_env_sourced",
         lambda _backend: (_ for _ in ()).throw(
             PermissionError(
@@ -366,6 +345,6 @@ def test_describe_missing_raises_with_hint(project_root: Path) -> None:
 
 
 def test_remove_returns_bool(project_root: Path) -> None:
-    md.register(_spec("wh", backend_type="duckdb", path=":memory:"))
+    md.register(DuckDBSpec(name="wh", path=":memory:"))
     assert md.remove("wh") is True
     assert md.remove("wh") is False

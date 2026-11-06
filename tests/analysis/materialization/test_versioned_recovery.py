@@ -126,7 +126,7 @@ def test_native_versioned_members_independent_fixed_and_cold(
                     # A manually copied anchor without a timezone is not an exact instant.
                     session.members(
                         entity,
-                        at=mv.InstantAnchor(2026, 9, 1),  # type: ignore[arg-type]
+                        at=mv.InstantAnchor(2026, 9, 1),
                     )
             assert terminal_runs(session) == before
             with monkeypatch.context() as preparation:

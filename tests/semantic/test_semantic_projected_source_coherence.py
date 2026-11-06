@@ -133,6 +133,7 @@ def test_projected_source_rejects_physical_names_at_semantic_column_boundaries(
     assert error.details["available_output_aliases"] == ["event_id", "event_time", "score"]
     assert error.details["omitted_missing_reference_count"] == 0
     assert error.details["missing_references"][0]["received_column"] == received
+    assert error.hint is not None
     assert "change each semantic column=" in error.hint
     assert "columns= projection" in error.hint
 
