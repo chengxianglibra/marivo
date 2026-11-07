@@ -289,8 +289,7 @@ def test_period_outer_distinguishes_absent_groups_from_zero_activity(
         )
         return session.observe(
             {"value": _metric(session.catalog, "metric:sales.order_count")},
-            by=(mv.grain("day"), channel),
-            where=axis_scope,
+            by=(axis_scope.by(mv.grain("day")), channel),
         )
 
     current, baseline = observe(8, 1), observe(7, 9)

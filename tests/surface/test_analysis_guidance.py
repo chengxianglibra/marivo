@@ -132,8 +132,8 @@ def test_grouping_is_the_public_observation_family() -> None:
             "session.observe",
             (
                 "Dimensions, non-time Groupings",
-                "one report Grain",
-                "by=P keeps complete keys",
+                "one CalendarAxis",
+                "by=P retains complete keys",
             ),
         ),
     ),
@@ -164,10 +164,8 @@ def test_time_binding_has_one_public_entry_per_operation() -> None:
     assert tuple(parameters) == ("self", "metrics", "by", "where")
     by = str(parameters["by"].annotation)
     where = str(parameters["where"].annotation)
-    assert all(
-        family in by for family in ("DimensionExpression", "Grouping", "Grain", "Population")
-    )
-    assert "TimeScope" not in by and "CalendarAxis" not in by
+    assert all(family in by for family in ("DimensionExpression", "Grouping", "Population"))
+    assert "TimeScope" not in by and "Grain" not in by
     assert all(family in where for family in ("RowPredicate", "TimeScope", "tuple", "None"))
     assert tuple(inspect.signature(mv.Session.read).parameters) == ("self", "population", "fields")
 

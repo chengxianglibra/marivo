@@ -40,8 +40,8 @@ july = session.time_scope(start="2026-07-01", end="2026-08-01")
 august = session.time_scope(start="2026-08-01", end="2026-09-01")
 
 month = mv.grain("month")
-current = session.observe(revenue, where=august, by=(month, region)).compute()
-baseline = session.observe(revenue, where=july, by=(month, region)).compute()
+current = session.observe(revenue, by=(august.by(month), region)).compute()
+baseline = session.observe(revenue, by=(july.by(month), region)).compute()
 change = current.compare(
     baseline,
     on=tuple(zip(current.axes, baseline.axes)),
@@ -52,7 +52,7 @@ change.show(n=0)
 assert change.to_pandas()["reference.absolute.revenue"].tolist() == [-100, -100]
 ```
 
-The TimeScopes select the contribution ranges and the Grain gives one month
+Each CalendarAxis selects a contribution range and one month
 coordinate per side. Full on binds month and region. Ordinal explicitly pairs
 the two month directories. Compare keeps
 current values plus named baseline/absolute/relative values. Correspondence is
@@ -223,13 +223,12 @@ from datetime import timedelta
 day = mv.grain("day")
 rolling = session.observe(
     {"revenue": revenue.window(mv.trailing_duration(duration=timedelta(days=7)))},
-    where=august,
-    by=(day,),
+    by=(august.by(day),),
 ).compute()
 rolling.show(n=5)
 ```
 
 The source equation completes at each exact endpoint. Summing these overlapping
 cells is a current-value statistic rather than the union-window revenue.
-For month grain, submit a new source request with `by=(mv.grain("month"),)`. [Temporal semantics](../temporal-semantics.md)
+For month grain, submit a new source request with `by=(scope.by(mv.grain("month")),)`. [Temporal semantics](../temporal-semantics.md)
 and [operators](operators-and-frames.md) own the precise window/numeric boundaries.

@@ -378,12 +378,9 @@ def test_period_buckets_and_retained_coarsened_partition(
         scope = session.time_scope(start=f"2026-{month:02d}-01", end=f"2026-{month + 1:02d}-01")
         values = session.observe(
             {"value": _metric(session.catalog, "metric:sales.order_count")},
-            by=(mv.grain("month"), customer, channel),
-            where=(
-                scope,
-                mv.in_population(
-                    session.members(_entity(session.catalog, "entity:sales.customer"))
-                ),
+            by=(scope.by(mv.grain("month")), customer, channel),
+            where=mv.in_population(
+                session.members(_entity(session.catalog, "entity:sales.customer"))
             ),
         )
         return values

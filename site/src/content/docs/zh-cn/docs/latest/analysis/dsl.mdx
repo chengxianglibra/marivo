@@ -111,8 +111,8 @@ month = mv.grain("month")
 unit = mv.coordinates(by=(), keys=((),))
 july_interval = mv.product(july, unit)
 august_interval = mv.product(august, unit)
-baseline = session.observe(revenue, where=july, by=(month, region)).compute()
-current = session.observe(revenue, where=august, by=(month, region)).compute()
+baseline = session.observe(revenue, by=(july.by(month), region)).compute()
+current = session.observe(revenue, by=(august.by(month), region)).compute()
 change = current.compare(
     baseline,
     on=tuple(zip(current.axes, baseline.axes)),
@@ -144,7 +144,7 @@ saved_artifact_id = saved.artifact_id
 | 参数 | 必填 | 默认值 | 语义 |
 | --- | --- | --- | --- |
 | `metrics` | 是 | — | 单个命名 Metric 对象、非空 list 或 tuple，或非空的输出名 → 闭合 Metric 表达式 Mapping。 |
-| `by` | 否 | `()` | 普通 Dimension、Grouping 和最多一个报告 Grain 的元组，或完整 Population。`()` 请求一个单元。`by=P` 保留 P 的完整输出键。 |
+| `by` | 否 | `()` | 普通 Dimension、Grouping 和最多一个 CalendarAxis 的元组，或完整 Population。`()` 请求一个单元。`by=P` 保留 P 的完整输出键。 |
 | `where` | 否 | `None` | RowPredicate、报告 TimeScope 或两者的合取元组。最多包含一个报告范围。 |
 
 `session.observe(revenue)` 继承声明 Metric 的本地名 `revenue`；
@@ -156,14 +156,10 @@ Entity/Population count 和未命名表达式同样需要显式名称，不读�
 不能含点号或使用保留的 presence 名 `left_present`/`right_present`；非法名称不自动清洗或编号。
 名称在捕获时确定，可立即读取 `output_names`，空结果、compute、persist 和恢复都不重新命名。
 
-每个 Metric 分支使用定义时固定的贡献时间。`where=scope` 选择报告范围；
-在 `by` 中加入一个 Grain 即可分桶。`where=(scope, predicate)` 将范围与行谓词
-取交集。`created_at.within(scope)` 等来源字段谓词可独立于贡献时间筛选记录。
-
-内置 Grain 未搭配范围时只返回实际观察到的桶；搭配范围时补齐报告桶。
-自定义日历 Grain 必须搭配范围，且范围须恰好是一个完整的已认证期间。
-`by=P` 固定输出键但不筛选贡献；如需限制贡献，使用 `where=mv.in_population(P)`。
-若 P 已含报告时间坐标，则不能在 `where` 中另传 TimeScope。
+每个 Metric 分支使用定义时固定的贡献时间。范围合计使用 `where=scope`，
+时间分组使用 `by=(scope.by(grain),)`；CalendarAxis 同时携带范围、粒度和时区。
+已有时间轴时，where 中不能再传报告 TimeScope，但仍可传固定字段谓词。
+裸 Grain 输入会被拒绝。自定义日历轴要求恰好一个完整认证期间和已捕获快照的 Grain。
 
 ### 读取 8 月收入
 
@@ -213,8 +209,7 @@ regional.show()
 
 接下来[比较时期](/zh-cn/docs/latest/analysis/dsl/#比较与对齐)，或[保存结果](/zh-cn/docs/latest/analysis/results/)。
 
-按日生成报告桶时，使用 `where=scope, by=(mv.grain("day"),)`。仅指定 Grain
-时只输出实际观察到的桶。若需要精确的有限日历或区间输出域，可用 `mv.product`
+按日生成报告桶时，使用 `by=(scope.by(mv.grain("day")),)`。裸 Grain 输入会被拒绝。若需要精确的有限日历或区间输出域，可用 `mv.product`
 构造完整 Population，然后传入 `by=P`。
 
 TimeScope 包含起点、不包含终点。显式选定的 Population 可以保留没有事实记录的成员；无事实求和为零，非空但全空值求和为 NA。`Population.count()` 统计选中的完整元组，`Entity.count()` 统计来源贡献，`mv.row_count()` 统计当前 Frame 行。Help：`analysis.session.observe`。
@@ -272,7 +267,7 @@ assert comparison["reference.relative.revenue"].tolist() == [-1 / 3, -1 / 7]
 {/* example: fixed-member-comparison */}
 
 ```python
-regional = session.observe({"revenue": revenue}, where=august, by=(month, region)).compute()
+regional = session.observe({"revenue": revenue}, by=(august.by(month), region)).compute()
 east = regional.fix(regional.axes[1], "east")
 west = regional.fix(regional.axes[1], "west")
 member_change = west.compare({"east": mv.baseline(east)}).compute()
@@ -295,7 +290,11 @@ Help：`analysis.analysis_frame.fix`。
 
 ```python
 target = session.observe({"revenue": revenue}, by=august_interval).compare(
-    {"baseline": mv.baseline(session.observe({"revenue": revenue}, by=july_interval), match=mv.ordinal())}
+    {
+        "baseline": mv.baseline(
+            session.observe({"revenue": revenue}, by=july_interval), match=mv.ordinal()
+        )
+    }
 )
 absolute = target.select({"change": target["baseline.absolute.revenue"]})
 report = absolute.attribute(by=(region,)).compute()
@@ -370,9 +369,7 @@ average_baseline = session.observe({"average": average}, by=july_interval)
 average_change = average_current.compare(
     {"reference": mv.baseline(average_baseline, match=mv.ordinal())}
 ).compute()
-average_target = average_change.select(
-    {"average": average_change["reference.absolute.average"]}
-)
+average_target = average_change.select({"average": average_change["reference.absolute.average"]})
 average_explained = average_target.attribute(by=(region,)).compute()
 effect_columns = [f"effect.{role}.average" for role in ("within", "mix", "entry_exit")]
 average_rows = average_explained.to_pandas()
@@ -390,12 +387,8 @@ squared_baseline = session.observe({"squared": squared}, by=july_interval)
 squared_change = squared_current.compare(
     {"reference": mv.baseline(squared_baseline, match=mv.ordinal())}
 ).compute()
-squared_target = squared_change.select(
-    {"squared": squared_change["reference.absolute.squared"]}
-)
-squared_explained = squared_target.attribute(
-    by=(region,), permutations=256, seed=42
-).compute()
+squared_target = squared_change.select({"squared": squared_change["reference.absolute.squared"]})
+squared_explained = squared_target.attribute(by=(region,), permutations=256, seed=42).compute()
 squared_rows = squared_explained.to_pandas()
 assert "contribution_std_error.squared" in squared_rows.columns
 squared_method = squared_explained.method_facts[0].parents[0].metrics[0].method
@@ -471,8 +464,8 @@ assert any(leaf.reduction.reducer == "approx_nunique" for leaf in reach_method.l
 {/* example: attribute-default-investigation */}
 
 ```python
-fresh_current = session.observe({"revenue": revenue}, where=august, by=(month, region))
-fresh_baseline = session.observe({"revenue": revenue}, where=july, by=(month, region))
+fresh_current = session.observe({"revenue": revenue}, by=(august.by(month), region))
+fresh_baseline = session.observe({"revenue": revenue}, by=(july.by(month), region))
 investigation = fresh_current.compare(
     {
         "reference": mv.baseline(
@@ -508,8 +501,8 @@ original_explanation = reopened_declines.method_facts
 
 ```python
 nonlinear = revenue * revenue
-fine_current = session.observe({"squared": nonlinear}, where=august, by=(month, region))
-fine_baseline = session.observe({"squared": nonlinear}, where=july, by=(month, region))
+fine_current = session.observe({"squared": nonlinear}, by=(august.by(month), region))
+fine_baseline = session.observe({"squared": nonlinear}, by=(july.by(month), region))
 nonlinear_investigation = fine_current.compare(
     {
         "reference": mv.baseline(
@@ -597,15 +590,12 @@ budget = session.values(
     columns={"budget": "CNY"},
     rows=((("east",), {"budget": 250}), (("west",), {"budget": 750})),
 ).compute()
-regional = current.reduce(
-    {"revenue": current["revenue"].sum()}, by=(current.axes[1],)
-).compute()
+regional = current.reduce({"revenue": current["revenue"].sum()}, by=(current.axes[1],)).compute()
 aligned_budget = regional.align(budget, on=((regional.axes[0], budget.axes[0]),))
 vs_budget = aligned_budget.select(
     {
         "revenue": aligned_budget["left.revenue"],
-        "budget_variance": aligned_budget["left.revenue"]
-        - aligned_budget["right.budget"],
+        "budget_variance": aligned_budget["left.revenue"] - aligned_budget["right.budget"],
     }
 ).compute()
 vs_budget.show()
@@ -709,7 +699,7 @@ session.frame(east).compute().show()
 chosen = current.top(1, by=current["revenue"]).compute()
 parents = session.population_from(chosen, on=((chosen.axes[1], region),))
 prior_selected = session.observe(
-    {"revenue": revenue}, by=(month, region), where=(july, mv.in_population(parents))
+    {"revenue": revenue}, by=(july.by(month), region), where=mv.in_population(parents)
 ).compute()
 followup = chosen.compare(
     {

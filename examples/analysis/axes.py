@@ -19,15 +19,15 @@ assert group.kind == "dimension"
 left_scope = session.time_scope(start=start, end=split)
 right_scope = session.time_scope(start=split, end=end)
 day = mv.grain("day")
-left = session.observe({"value": metric}, by=(day, group), where=left_scope).compute()
+left = session.observe({"value": metric}, by=(left_scope.by(day), group)).compute()
 left.show(n=10)
-right = session.observe({"value": metric}, by=(day, group), where=right_scope).compute()
+right = session.observe({"value": metric}, by=(right_scope.by(day), group)).compute()
 
 selected_value = "gamma"
 conditioned = session.observe(
     {"combined": metric + metric},
-    by=(day, group),
-    where=(left_scope, group == selected_value),
+    by=(left_scope.by(day), group),
+    where=group == selected_value,
 ).compute()
 conditioned.show()
 
@@ -56,8 +56,8 @@ association.show()
 
 # Pair repeated coordinates on one explicit grid, then correlate within groups.
 scope = session.time_scope(start=start, end=end)
-series = session.observe({"value": metric}, by=(day, group), where=scope).compute()
-composed = session.observe({"value": metric + metric}, by=(day, group), where=scope).compute()
+series = session.observe({"value": metric}, by=(scope.by(day), group)).compute()
+composed = session.observe({"value": metric + metric}, by=(scope.by(day), group)).compute()
 paired = series.align(
     composed,
     on=((series.axes[0], composed.axes[0]), (series.axes[1], composed.axes[1])),

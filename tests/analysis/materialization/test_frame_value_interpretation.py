@@ -307,8 +307,7 @@ def test_time_mapping_retains_representable_nested_relation_and_shift_drops_only
     time_scope = case.session.time_scope(start="2026-08-15", end="2026-08-17")
     source = case.session.observe(
         {"q": catalog_value(case.catalog, "sales.revenue", kind="metric")},
-        by=(mv.grain("day"),),
-        where=time_scope,
+        by=(time_scope.by(mv.grain("day")),),
     )
     equality = source.align(source)
     paired = equality.align(source, match=mv.ordinal())
@@ -332,8 +331,7 @@ def test_time_mapping_retains_representable_nested_relation_and_shift_drops_only
     earlier_time_scope = case.session.time_scope(start="2026-08-14", end="2026-08-16")
     earlier_source = case.session.observe(
         {"q": catalog_value(case.catalog, "sales.revenue", kind="metric")},
-        by=(mv.grain("day"),),
-        where=earlier_time_scope,
+        by=(earlier_time_scope.by(mv.grain("day")),),
     )
     earlier = earlier_source.align(earlier_source)
     shifted = equality.compare(earlier, match=mv.offset(periods=-1))
@@ -457,8 +455,7 @@ def test_pending_statistic_fixed_groups_rebind_without_replacing_operand_snapsho
     days_scope = case.session.time_scope(start="2026-08-01", end="2026-08-04")
     source = case.session.observe(
         {"q": catalog_value(case.catalog, "sales.revenue", kind="metric")},
-        by=(region, mv.grain("day")),
-        where=days_scope,
+        by=(region, days_scope.by(mv.grain("day"))),
     )
     if kind == "pair":
         statistic = source.correlate(

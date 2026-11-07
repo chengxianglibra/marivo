@@ -233,8 +233,7 @@ def test_calendar_capacity_and_sum_before_p95(
             axis_scope = session.time_scope(start=start, end=start + timedelta(days=days))
             result = session.observe(
                 {"total": amount.sum(time=point)},
-                by=(mv.grain("minute", count=5),),
-                where=axis_scope,
+                by=(axis_scope.by(mv.grain("minute", count=5)),),
             ).compute()
             assert result.to_pandas().total.tolist() == [2] * (days * 288)
             sqls = trace.native_sql[before:]
@@ -293,9 +292,7 @@ def test_calendar_capacity_and_sum_before_p95(
                 p95 = amount.sum(time=point).per(point).quantile(0.95)
                 before = len(trace.native_sql)
                 values = (
-                    session.observe(
-                        {"p95": p95}, by=(mv.grain("minute", count=5),), where=axis_scope
-                    )
+                    session.observe({"p95": p95}, by=(axis_scope.by(mv.grain("minute", count=5)),))
                     .compute()
                     .to_pandas()
                     .p95.tolist()
@@ -418,8 +415,7 @@ def test_public_encoded_clocks_retain_wall_bucket_membership(
                 axis_scope = session.time_scope(start=start, end=end)
                 pending = session.observe(
                     {"total": amount.sum(time=point)},
-                    by=(mv.grain("minute", count=5),),
-                    where=axis_scope,
+                    by=(axis_scope.by(mv.grain("minute", count=5)),),
                 )
                 actual = pending.compute().to_pandas()
                 assert actual.total.tolist() == expected
@@ -506,7 +502,7 @@ def test_public_calendar_keeps_facts_when_midnight_fold_returns_to_previous_date
                 )
                 before = len(trace.native_sql)
                 result = session.observe(
-                    {"total": amount.sum(time=point)}, by=(mv.grain(unit),), where=axis_scope
+                    {"total": amount.sum(time=point)}, by=(axis_scope.by(mv.grain(unit)),)
                 ).compute()
                 rows = result.to_pandas(time_details=True)
                 namespace = case.source.database
@@ -740,8 +736,7 @@ def test_public_hour_index_follows_native_gap_and_fold_interpretation(
             rows = (
                 session.observe(
                     {"total": total, "history": total.window(mv.all_history())},
-                    by=(mv.grain("hour"),),
-                    where=axis_scope,
+                    by=(axis_scope.by(mv.grain("hour")),),
                 )
                 .compute()
                 .to_pandas()

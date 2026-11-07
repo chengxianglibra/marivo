@@ -1525,13 +1525,12 @@ def test_calendar_sample_folds_keep_joint_keys_without_cross_bucket_completion(
         monkeypatch.setattr(_sample_numeric, "reduce_samples", reducer)
         for days in (1, 3):
             scope = session.time_scope(start="2026-10-01", end=f"2026-10-0{days + 1}")
-            report_grain = mv.grain(grain)
+            report_grain = scope.by(mv.grain(grain))
             reducer.reset_mock()
             rows = (
                 session.observe(
                     {"mean": mean, "p95": p95, "ratio": p95 / mean, "count": samples.count()},
                     by=(report_grain, category) if grain == "day" else (category, report_grain),
-                    where=scope,
                 )
                 .compute()
                 .to_pandas()
@@ -1583,8 +1582,7 @@ def test_calendar_sample_domains_keep_sparse_samples_explicit_keys_and_windows(
         rows = (
             session.observe(
                 {"p95": total.per(point).quantile(0.95)},
-                by=(mv.grain("day"), category),
-                where=calendar_scope,
+                by=(calendar_scope.by(mv.grain("day")), category),
             )
             .compute()
             .to_pandas()
@@ -1593,8 +1591,7 @@ def test_calendar_sample_domains_keep_sparse_samples_explicit_keys_and_windows(
         filtered = (
             session.observe(
                 {"p95": total.where(amount > 0).per(point).quantile(0.95)},
-                by=(mv.grain("day"), category),
-                where=calendar_scope,
+                by=(calendar_scope.by(mv.grain("day")), category),
             )
             .compute()
             .to_pandas()
@@ -1610,8 +1607,7 @@ def test_calendar_sample_domains_keep_sparse_samples_explicit_keys_and_windows(
         rows = (
             session.observe(
                 {"mean": total.per(explicit).mean()},
-                by=(mv.grain("day"), category),
-                where=calendar_scope,
+                by=(calendar_scope.by(mv.grain("day")), category),
             )
             .compute()
             .to_pandas()
@@ -1624,8 +1620,7 @@ def test_calendar_sample_domains_keep_sparse_samples_explicit_keys_and_windows(
                     "nested": total.per(point).mean().per(category).mean(),
                     "history": total.per(point).mean().window(mv.all_history()),
                 },
-                by=(mv.grain("day"),),
-                where=calendar_scope,
+                by=(calendar_scope.by(mv.grain("day")),),
             )
             .compute()
             .to_pandas()
@@ -1666,8 +1661,7 @@ def test_time_samples_keep_empty_calendar_buckets(
         rows = (
             session.observe(
                 {"mean": total.per(point).mean(), "p95": total.per(point).quantile(0.95)},
-                by=(category, mv.grain(grain)),
-                where=calendar_scope,
+                by=(category, calendar_scope.by(mv.grain(grain))),
             )
             .compute()
             .to_pandas()
@@ -1678,7 +1672,7 @@ def test_time_samples_keep_empty_calendar_buckets(
         assert pd.isna(rows["p95"].iloc[1])
         nested = total.per(point).quantile(0.95).per(category).mean()
         rows = (
-            session.observe({"p95": nested}, by=(mv.grain(grain),), where=calendar_scope)
+            session.observe({"p95": nested}, by=(calendar_scope.by(mv.grain(grain)),))
             .compute()
             .to_pandas()
         )
@@ -1771,8 +1765,8 @@ def test_sample_summary_shares_one_native_read_and_returns_only_final_groups(
         samples = amount.sum(time=point).per(point)
         for by, where, expected_means, count, size in (
             (
-                (mv.grain("hour"), category),
-                scope,
+                (scope.by(mv.grain("hour")), category),
+                None,
                 [17988 / 3600] * 8 + [17997 / 3600] * 8,
                 3600,
                 16,
@@ -1801,7 +1795,9 @@ def test_sample_summary_shares_one_native_read_and_returns_only_final_groups(
                 assert rows["p95"].tolist() == [10.0] * size
                 assert rows["p99"].tolist() == [10.0] * size
                 assert rows["count"].tolist() == [count] * size
-                assert trace.returned_rows == ([2, size] if where is not None else [size])
+                assert trace.returned_rows == (
+                    [2, size] if any(isinstance(axis, mv.CalendarAxis) for axis in by) else [size]
+                )
                 assert not reducer.call_args_list
                 sql = trace.native_sql[-1].lower()
                 assert sql.count("sum(") == 1
@@ -1888,7 +1884,7 @@ def test_native_time_sample_fold_keeps_overlapping_window_occurrences(
         reducer = Mock(wraps=_sample_numeric.reduce_samples)
         monkeypatch.setattr(_sample_numeric, "reduce_samples", reducer)
         rows = (
-            session.observe({"average": metric}, by=(mv.grain("hour"),), where=calendar_scope)
+            session.observe({"average": metric}, by=(calendar_scope.by(mv.grain("hour")),))
             .compute()
             .to_pandas()
         )

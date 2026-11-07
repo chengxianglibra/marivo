@@ -528,8 +528,7 @@ def test_cumulative_keeps_anchor_and_overlap(
         source_trace.record(fixed)
         grouped = session.observe(
             {"value": catalog_get(session.catalog, "metric:sales.running", kind="metric")},
-            by=(mv.grain("month"),),
-            where=grid_scope,
+            by=(grid_scope.by(mv.grain("month")),),
         ).persist()
         assert _value(grouped).tolist() == expected
         assert not hasattr(fixed, "rollup")
@@ -641,8 +640,7 @@ def test_dst_grid_keeps_instant_edges_and_fixed_coordinate(
         source_trace.record(fixed)
         grouped = session.observe(
             {"value": catalog_get(session.catalog, "metric:sales.total", kind="metric")},
-            by=(grain,),
-            where=scope,
+            by=(scope.by(grain),),
         ).persist()
         assert _value(grouped).tolist() == [7, 11]
         assert session._runtime.store.resources(session._runtime.session_ref) == ()
@@ -811,8 +809,7 @@ def test_certified_unequal_calendar_owns_native_boundaries(
         source_trace.record(fixed)
         grouped = session.observe(
             {"value": catalog_get(session.catalog, "metric:sales.total", kind="metric")},
-            by=(grain,),
-            where=scope,
+            by=(scope.by(grain),),
         ).persist()
         assert _value(grouped).tolist() == [7]
         second_scope = session.time_scope(
@@ -820,8 +817,7 @@ def test_certified_unequal_calendar_owns_native_boundaries(
         )
         other = session.observe(
             {"value": catalog_get(session.catalog, "metric:sales.total", kind="metric")},
-            by=(grain,),
-            where=second_scope,
+            by=(second_scope.by(grain),),
         ).compute()
         assert _value(other).tolist() == [41]
         assert session._runtime.store.resources(session._runtime.session_ref) == ()
@@ -925,8 +921,7 @@ def test_civil_date_grid_keeps_date_keys_on_foreign_zone(
         source_trace.record(fixed)
         grouped = session.observe(
             {"value": catalog_get(session.catalog, "metric:sales.total", kind="metric")},
-            by=(mv.grain("day"),),
-            where=grid_scope,
+            by=(grid_scope.by(mv.grain("day")),),
         ).persist()
         assert _value(grouped).tolist() == [5, 99]
         assert session._runtime.store.resources(session._runtime.session_ref) == ()
@@ -1033,8 +1028,7 @@ def test_native_timestamp_retains_reader_and_grid_authority(
         source_trace.record(fixed)
         grouped = session.observe(
             {"value": catalog_get(session.catalog, "metric:sales.total", kind="metric")},
-            by=(mv.grain("day"),),
-            where=scope,
+            by=(scope.by(mv.grain("day")),),
         ).persist()
         assert _value(grouped).tolist() == [7, 11]
         assert session._runtime.store.resources(session._runtime.session_ref) == ()
@@ -1115,8 +1109,7 @@ def test_aware_native_repeated_hour_keeps_distinct_instants(
         source_trace.record(fixed)
         grouped = session.observe(
             {"value": catalog_get(session.catalog, "metric:sales.total", kind="metric")},
-            by=(mv.grain("day"),),
-            where=scope,
+            by=(scope.by(mv.grain("day")),),
         ).persist()
         assert _value(grouped).tolist() == [18]
         assert session._runtime.store.resources(session._runtime.session_ref) == ()

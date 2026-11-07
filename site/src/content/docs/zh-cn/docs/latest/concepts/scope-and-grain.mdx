@@ -13,7 +13,7 @@ head:
 
 ## 三种不同选择
 
-传入完整 Population 以保留联合输出键，或在分组元组中放入一个报告 Grain。报告范围通过 `where` 传入。
+传入完整 Population 以保留联合输出键，或在分组元组中放入一个 `scope.by(grain)` 构造的 CalendarAxis。范围合计使用 `where=scope`。
 
 [了解对象集合、时间和粒度如何影响结果](/zh-cn/docs/latest/analysis/dsl/#三种不同选择)。
 

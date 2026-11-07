@@ -443,8 +443,7 @@ def test_source_plus_fixed_calendar_match_runs_one_existing_schedule(
         session.catalog._state,
         session._runtime.connection_config,
         {"amount": catalog_value(session.catalog, "sales.revenue", kind="metric")},
-        by=(mv.grain("day"),),
-        scope=calendar_scope,
+        by=(calendar_scope.by(mv.grain("day")),),
     )
     source = source.where(source["amount"] > 0)
     fixed = source.compute()
@@ -686,8 +685,7 @@ def test_source_completion_rejects_unused_corrupt_directory_before_top_zero(
         session.catalog._state,
         session._runtime.connection_config,
         {"amount": catalog_value(session.catalog, "sales.revenue", kind="metric")},
-        by=(mv.grain("day"),),
-        scope=session.time_scope(start="2026-08-01", end="2026-09-01"),
+        by=(session.time_scope(start="2026-08-01", end="2026-09-01").by(mv.grain("day")),),
     )
     assert isinstance(source._backing, ExpressionFrameBacking)
     binding = source._backing.root
@@ -762,11 +760,12 @@ def test_captured_source_calendar_errors_precede_values_for_every_carrier(
             session.catalog._state,
             session._runtime.connection_config,
             {"amount": metric},
-            by=(mv.grain(grain),),
-            scope=session.time_scope(
-                start="2026-08-01",
-                end="2026-08-01T02:00:00+00:00" if fault == "hour_rule" else "2026-09-01",
-                timezone=zone,
+            by=(
+                session.time_scope(
+                    start="2026-08-01",
+                    end="2026-08-01T02:00:00+00:00" if fault == "hour_rule" else "2026-09-01",
+                    timezone=zone,
+                ).by(mv.grain(grain)),
             ),
         )
 
@@ -817,8 +816,7 @@ def test_pending_unary_shared_and_paired_axes_retain_exact_frozen_facts(
         session.catalog._state,
         session._runtime.connection_config,
         {"amount": catalog_value(session.catalog, "sales.revenue", kind="metric")},
-        by=(mv.grain("day"),),
-        scope=session.time_scope(start="2026-08-01", end="2026-09-01"),
+        by=(session.time_scope(start="2026-08-01", end="2026-09-01").by(mv.grain("day")),),
     )
     assert isinstance(source._schema, PendingDataSchema)
     captured = source._schema.axes[0]
@@ -886,22 +884,19 @@ def test_named_source_pending_interpretation_is_checked_before_value_names(
     second = first if fault == "level" else snapshot("Q")
 
     def source(level: str, captured: PeriodCalendarSnapshotV2) -> AnalysisFrame:
+        scope = session.time_scope(
+            start=start, end=start + timedelta(days=2 if level == "short" else 4)
+        )
+        grain = semantic_grain(
+            calendar=ref_factory.period_calendar("sales.fiscal"), level=level, snapshot=captured
+        )
         return frame_sources.observe(
             session._runtime.local,
             session.catalog._state,
             session._runtime.connection_config,
             {"amount": metric},
             calendar_snapshots=(captured,),
-            by=(
-                semantic_grain(
-                    calendar=ref_factory.period_calendar("sales.fiscal"),
-                    level=level,
-                    snapshot=captured,
-                ),
-            ),
-            scope=session.time_scope(
-                start=start, end=start + timedelta(days=2 if level == "short" else 4)
-            ),
+            by=(scope.by(grain),),
         )
 
     left = source("short" if fault == "level" else "long", first)
@@ -1230,8 +1225,7 @@ def test_pending_source_comparison_continuations_match_completed_authority(
         session.catalog._state,
         session._runtime.connection_config,
         {"amount": catalog_value(session.catalog, "sales.revenue", kind="metric")},
-        by=(mv.grain("day"),),
-        scope=session.time_scope(start="2026-08-01", end="2026-08-02"),
+        by=(session.time_scope(start="2026-08-01", end="2026-08-02").by(mv.grain("day")),),
     )
     compared = source.compare({"reference": mv.baseline(source)})
     selected = compared.select({"delta": compared["reference.absolute.amount"]})
@@ -1277,8 +1271,7 @@ def test_completed_align_prunes_comparison_contexts_after_calendar_domain_expand
         session.catalog._state,
         session._runtime.connection_config,
         {"amount": catalog_value(session.catalog, "sales.revenue", kind="metric")},
-        by=(mv.grain("day"),),
-        scope=session.time_scope(start="2026-08-01", end="2026-08-02"),
+        by=(session.time_scope(start="2026-08-01", end="2026-08-02").by(mv.grain("day")),),
     )
     compared = source.compare({"prior": mv.baseline(source)})
     extra = _captured_calendar_frame(

@@ -291,8 +291,7 @@ def test_over_keeps_interval_and_paired_current_axis_facts(
     assert grouped.compute().to_pandas()["rows"].tolist() == [1]
     daily = case.session.observe(
         {"x": catalog_get(case.catalog, "metric:sales.revenue", kind="metric")},
-        by=(mv.grain("day"),),
-        where=scope,
+        by=(scope.by(mv.grain("day")),),
     )
     paired = daily.align(daily, match=CalendarCorrespondence("ordinal"))
     assert isinstance(paired._schema.axes[0], PairedDataAxis)
@@ -377,10 +376,9 @@ def test_public_month_region_share_journey_stays_fixed_after_source_offline(
     observed = session.observe(
         {"revenue": catalog_get(case.catalog, "metric:sales.revenue", kind="metric")},
         by=(
-            mv.grain("month"),
+            session.time_scope(start="2026-07-01", end="2026-10-01").by(mv.grain("month")),
             catalog_value(case.catalog, "sales.customer.region", kind="dimension"),
         ),
-        where=session.time_scope(start="2026-07-01", end="2026-10-01"),
     ).compute()
     month = next(axis for axis in observed.axes if axis.role == "calendar")
     region = next(axis for axis in observed.axes if axis.name == "sales.customer.region")

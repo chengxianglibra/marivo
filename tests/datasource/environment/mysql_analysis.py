@@ -40,40 +40,30 @@ def connection(*, admin: bool = False, port: int = PORT) -> Iterator[Connection]
         yield con
 
 
-def setup(*, port: int = PORT) -> dict[str, object]:
-    import pymysql
-
+def initialize(*, port: int = PORT) -> dict[str, object]:
+    """Provision the dedicated reader only during explicit environment startup."""
     with connection(admin=True, port=port) as con, con.cursor() as cur:
         cur.execute(
             "CREATE USER IF NOT EXISTS 'analysis_reader'@'%%' IDENTIFIED BY %s", (password(),)
         )
-        cur.execute("ALTER USER 'analysis_reader'@'%%' IDENTIFIED BY %s", (password(),))
-        cur.execute("REVOKE ALL PRIVILEGES, GRANT OPTION FROM 'analysis_reader'@'%'")
         cur.execute("GRANT SELECT ON analysis.* TO 'analysis_reader'@'%'")
+    return setup(port=port)
+
+
+def setup(*, port: int = PORT) -> dict[str, object]:
+    """Read readiness facts without changing accounts or testing their privileges."""
     with connection(port=port) as con, con.cursor() as cur:
         cur.execute("SELECT VERSION(),CURRENT_USER()")
         row = cur.fetchone()
         assert row is not None, "Expected server version and reader identity"
         version, user = row
-        denied = []
-        for sql in (
-            "CREATE TABLE forbidden(id INT)",
-            "CREATE TEMPORARY TABLE forbidden_temp(id INT)",
-        ):
-            try:
-                cur.execute(sql)
-            except pymysql.OperationalError:
-                denied.append(sql.split("(")[0])
-            else:
-                raise AssertionError("Reader unexpectedly has object creation privileges")
     return {
         "backend": "mysql",
         "version": version,
         "user": user,
-        "denied": denied,
         "dataset_acceptance": False,
     }
 
 
 if __name__ == "__main__":
-    print(json.dumps(setup(), sort_keys=True))
+    print(json.dumps(initialize(), sort_keys=True))

@@ -209,7 +209,7 @@ def test_date_contributions_reject_subday_and_non_midnight_windows(
     revenue = amount.sum(time=at)
     scope = session.time_scope(start="2026-10-07", end="2026-10-08")
     assert session.observe(
-        {"revenue": revenue}, by=(mv.grain("day"),), where=scope
+        {"revenue": revenue}, by=(scope.by(mv.grain("day")),)
     ).compute().to_pandas()["revenue"].tolist() == [20]
     assert session.observe({"revenue": revenue}, where=at.within(scope)).compute().to_pandas()[
         "revenue"
@@ -233,9 +233,7 @@ def test_date_contributions_reject_subday_and_non_midnight_windows(
     ):
         with pytest.raises(AnalysisError, match=r"DATE|midnight"):
             if isinstance(axis, mv.CalendarAxis):
-                session.observe(
-                    {"revenue": metric}, by=(axis.grid.grain_spec,), where=axis.scope
-                ).compute()
+                session.observe({"revenue": metric}, by=(axis,)).compute()
             else:
                 session.observe({"revenue": metric}, where=axis).compute()
     for start, end in (("2026-03-08", "2026-03-09"), ("2026-11-01", "2026-11-02")):
@@ -279,9 +277,11 @@ def test_naive_source_sampling_uses_representable_wall_clocks(
         "mean"
     ].tolist() == [20.0]
     first_fold = session.time_scope(start="2026-11-01T05:00Z", end="2026-11-01T06:00Z")
-    for by in ((), (mv.grain("hour"),)):
+    for by in ((), (first_fold.by(mv.grain("hour")),)):
         result = (
-            session.observe({"mean": amount.mean(time=sample)}, by=by, where=first_fold)
+            session.observe(
+                {"mean": amount.mean(time=sample)}, by=by, where=None if by else first_fold
+            )
             .compute()
             .to_pandas()
         )
@@ -369,8 +369,7 @@ def test_wall_membership_calendar_windows_and_population_agree(
     scope = session.time_scope(start=start, end=end)
     frame = session.observe(
         {"ordinary": metric, "history": metric.window(mv.all_history())},
-        by=(mv.grain("hour"),),
-        where=scope,
+        by=(scope.by(mv.grain("hour")),),
     ).compute()
     values = frame.to_pandas()
     assert frozen_coordinates(frame)[0].rows["ordinal"].tolist() == list(range(len(expected)))
@@ -421,7 +420,7 @@ def test_sparse_shift_observes_raw_contributions_and_nominal_windows(
             for name, metric in metrics.items()
         },
     }
-    ordinary = session.observe(observed, by=time_population(calendar)).compute()
+    ordinary = session.observe(observed, by=(calendar,)).compute()
     values = ordinary.to_pandas(time_details=True)
     assert values["calendar:week.label"].tolist() == ["2020-12-21", "2021-01-04"]
     assert values["revenue"].tolist() == [40, 150]
@@ -463,7 +462,7 @@ def test_empty_shift_is_typed_zero_endpoint_observation(
     sampled = catalog_value(session.catalog, "sales.orders.sample_at", kind="time_dimension")
     result = session.observe(
         {"aov": metric, "sampled": amount.sum(time=sampled).per(sampled).mean()},
-        by=time_population(calendar),
+        by=(calendar,),
     ).compute()
     frame = result.to_pandas()
     assert frame.empty
@@ -513,7 +512,7 @@ def test_sparse_calendar_joint_groups_and_fixed_populations(
     assert len(rows) == 6
     gap_scope = session.time_scope(start="2020-12-28", end="2021-01-04")
     assert (
-        session.observe({"strict": strict}, by=(mv.grain("week"),), where=gap_scope)
+        session.observe({"strict": strict}, by=(gap_scope.by(mv.grain("week")),))
         .compute()
         .to_pandas(time_details=True)["strict"]
         .isna()
@@ -585,8 +584,7 @@ def test_window_recomputes_history_ratio_and_distinct(
                 "median": amount.quantile(q=0.5, time=at).window(mv.all_history()),
                 "filtered": revenue.where(amount >= 20).window(mv.all_history()),
             },
-            by=(mv.grain("day"),),
-            where=scope,
+            by=(scope.by(mv.grain("day")),),
         )
         .compute()
         .to_pandas()
@@ -599,7 +597,7 @@ def test_window_recomputes_history_ratio_and_distinct(
     assert values["customers"].tolist() == [1, 1]
     daily = (
         session.observe(
-            {"daily": customer.count_distinct(time=at)}, by=(mv.grain("day"),), where=scope
+            {"daily": customer.count_distinct(time=at)}, by=(scope.by(mv.grain("day")),)
         )
         .compute()
         .to_pandas()
@@ -641,8 +639,7 @@ def test_partial_month_windows_stop_at_actual_endpoint(
                 "elapsed": revenue.window(mv.trailing_duration(duration=timedelta(hours=24))),
                 "since": revenue.window(mv.since(start=session.instant("2026-10-14T11:00Z"))),
             },
-            by=(mv.grain("month"),),
-            where=scope,
+            by=(scope.by(mv.grain("month")),),
         )
         .compute()
         .to_pandas()
@@ -654,8 +651,7 @@ def test_partial_month_windows_stop_at_actual_endpoint(
         with pytest.raises(AnalysisError, match="complete calendar buckets"):
             session.observe(
                 {"bad": revenue.window(mv.trailing_periods(count=1))},
-                by=(mv.grain("month"),),
-                where=partial,
+                by=(partial.by(mv.grain("month")),),
             )
 
 
@@ -693,8 +689,7 @@ def test_hour_reset_uses_native_fold_endpoints(window_session: Session, tmp_path
     values = (
         window_session.observe(
             {"hourly": revenue.window(mv.to_date(grain=mv.grain("hour")))},
-            by=(mv.grain("hour"),),
-            where=hours_scope,
+            by=(hours_scope.by(mv.grain("hour")),),
         )
         .compute()
         .to_pandas()
@@ -730,8 +725,7 @@ def test_hour_index_and_windows_use_native_gap_keys(
     values = (
         window_session.observe(
             {"hourly": revenue, "cumulative": revenue.window(mv.all_history())},
-            by=(mv.grain("hour"),),
-            where=hours_scope,
+            by=(hours_scope.by(mv.grain("hour")),),
         )
         .compute()
         .to_pandas()
@@ -772,15 +766,14 @@ def test_repeated_hour_selection_keeps_its_exact_scope_and_endpoint(
     )
     # Keep ordinary completion independently observable from the window domain.
     ordinary = (
-        window_session.observe({"hourly": revenue}, by=(mv.grain("hour"),), where=hours_scope)
+        window_session.observe({"hourly": revenue}, by=(hours_scope.by(mv.grain("hour")),))
         .compute()
         .to_pandas()
     )
     history = (
         window_session.observe(
             {"cumulative": revenue.window(mv.all_history())},
-            by=(mv.grain("hour"),),
-            where=hours_scope,
+            by=(hours_scope.by(mv.grain("hour")),),
         )
         .compute()
         .to_pandas()
@@ -924,7 +917,7 @@ def test_fixed_member_count_rejects_report_time_and_windows(window_session: Sess
         3
     ]
     with pytest.raises(AnalysisError, match=r"fixed Population.count"):
-        session.observe({"people": people.count()}, by=(mv.grain("day"),), where=scope)
+        session.observe({"people": people.count()}, by=(scope.by(mv.grain("day")),))
     with pytest.raises(SemanticExpressionError, match=r"fixed Population.count"):
         people.count().window(mv.all_history())
 
@@ -1087,3 +1080,163 @@ def test_nested_sparse_sample_layers_keep_conditional_demand(
         )
         assert rows["average"].tolist() == [20.0]
         assert rows["filtered"].tolist() == [30.0]
+
+
+def test_mixed_windows_discover_historical_categories_and_keep_formula_domain(
+    window_session: Session, tmp_path: Path
+) -> None:
+    session = window_session
+    with duckdb.connect(str(tmp_path / "windows.duckdb")) as connection:
+        connection.execute("DELETE FROM orders")
+        connection.execute(
+            "INSERT INTO orders(id,ordered_at,amount,region) VALUES "
+            "(1,'2026-07-31 12:00:00+00',10,'east'),"
+            "(2,'2026-08-02 12:00:00+00',20,'west')"
+        )
+    revenue = catalog_value(session.catalog, "sales.revenue", kind="metric")
+    region = catalog_value(session.catalog, "sales.orders.region", kind="dimension")
+    at = catalog_value(session.catalog, "sales.orders.ordered_at", kind="time_dimension")
+    scope = session.time_scope(start="2026-08-01", end="2026-08-03")
+    days = scope.by(mv.grain("day"))
+    rolling = revenue.window(mv.trailing_duration(duration=timedelta(days=7)))
+    metrics = {"ordinary": revenue, "rolling": rolling, "difference": rolling - revenue}
+    expected = [(0, 10, 10), (0, 0, 0), (0, 10, 10), (20, 20, 0)]
+    for outputs in (metrics, dict(reversed(tuple(metrics.items())))):
+        rows = session.observe(outputs, by=(days, region)).compute().to_pandas()
+        rows = rows.sort_values(["calendar:day", "region"])
+        assert rows["region"].tolist() == ["east", "west", "east", "west"]
+        assert (
+            list(rows[["ordinary", "rolling", "difference"]].itertuples(index=False, name=None))
+            == expected
+        )
+    restricted = session.observe(metrics, by=(days, region), where=at.within(scope)).compute()
+    assert restricted.to_pandas()["region"].tolist() == ["west", "west"]
+    assert restricted.to_pandas()["rolling"].tolist() == [0, 20]
+    domain = mv.product(days, mv.coordinates(by=(region,), keys=(("east",), ("west",))))
+    complete = session.observe(metrics, by=domain, where=at.within(scope)).compute().to_pandas()
+    east = complete.loc[complete["region"] == "east"]
+    assert east["rolling"].tolist() == east["ordinary"].tolist() == [0, 0]
+
+
+def test_missing_native_window_endpoint_rejects_mixed_values(
+    window_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from marivo.datasource.adapters import CompiledRead, SourceSession
+
+    execute = SourceSession.execute
+
+    def omit_endpoint(owner: SourceSession, issued: CompiledRead) -> pd.DataFrame:
+        rows = execute(owner, issued)
+        if issued.purpose == "analysis.calendar_index":
+            return rows.iloc[:1].copy()
+        return rows
+
+    monkeypatch.setattr(SourceSession, "execute", omit_endpoint)
+    revenue = catalog_value(window_session.catalog, "sales.revenue", kind="metric")
+    days = window_session.time_scope(start="2026-10-06", end="2026-10-08").by(mv.grain("day"))
+    with pytest.raises(AnalysisError, match="defined endpoint"):
+        window_session.observe(
+            {"ordinary": revenue, "history": revenue.window(mv.all_history())}, by=(days,)
+        ).compute()
+
+
+@pytest.mark.parametrize("shifted", [False, True])
+def test_extra_native_key_requires_complete_shift_mapping_before_completion(
+    window_session: Session, monkeypatch: pytest.MonkeyPatch, shifted: bool
+) -> None:
+    from marivo.datasource.adapters import CompiledRead, SourceSession
+
+    execute = SourceSession.execute
+    injected: list[str] = []
+
+    def extra_key(owner: SourceSession, issued: CompiledRead) -> pd.DataFrame:
+        rows = execute(owner, issued)
+        if issued.purpose.startswith("query.") and issued.purpose != "query.prepare":
+            keys = [name for name in rows.columns if name.startswith("key.")]
+            if keys and not rows.empty:
+                extra = rows.iloc[:1].copy()
+                extra[keys[0]] = extra[keys[0]] + timedelta(days=1)
+                injected.append(issued.purpose)
+                return pd.concat([rows, extra], ignore_index=True)
+        return rows
+
+    monkeypatch.setattr(SourceSession, "execute", extra_key)
+    revenue = catalog_value(window_session.catalog, "sales.revenue", kind="metric")
+    months = window_session.time_scope(start="2026-10-01", end="2026-11-01").by(mv.grain("month"))
+    if shifted:
+        months = months.shift(mv.offset(years=0))
+    pending = window_session.observe(revenue, by=(months,))
+    if shifted:
+        with pytest.raises(AnalysisError, match="direct targets covering exactly"):
+            pending.persist()
+    else:
+        assert len(pending.compute().to_pandas()) == 2
+    assert injected
+
+
+def test_native_shift_endpoint_collisions_reject_before_completion(
+    window_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from marivo.datasource.adapters import CompiledRead, SourceSession
+
+    execute = SourceSession.execute
+
+    def collapse_keys(owner: SourceSession, issued: CompiledRead) -> pd.DataFrame:
+        rows = execute(owner, issued)
+        if issued.purpose == "analysis.calendar_index" and len(rows) > 1:
+            rows = rows.copy()
+            for column in rows.columns:
+                if column != "selection_position":
+                    rows.loc[rows.index[1:], column] = rows[column].iloc[0]
+        return rows
+
+    monkeypatch.setattr(SourceSession, "execute", collapse_keys)
+    revenue = catalog_value(window_session.catalog, "sales.revenue", kind="metric")
+    months = window_session.time_scope(start="2026-09-01", end="2026-11-01").by(mv.grain("month"))
+    with pytest.raises(AnalysisError, match="one-to-one native keys"):
+        window_session.observe(revenue, by=(months.shift(mv.offset(years=0)),)).compute()
+
+
+def test_direct_shift_comparison_reopens_in_fresh_process_without_source(
+    window_session: Session, tmp_path: Path
+) -> None:
+    import os
+    import subprocess
+    import sys
+
+    from tests.support.paths import PROJECT_ROOT
+
+    session = window_session
+    revenue = catalog_value(session.catalog, "sales.revenue", kind="metric")
+    months = session.time_scope(start="2026-10-01", end="2026-11-01").by(mv.grain("month"))
+    current = session.observe(revenue, by=(months,)).persist()
+    previous = session.observe(revenue, by=(months.shift(mv.offset(periods=-1)),)).persist()
+    assert current.artifact_id is not None and previous.artifact_id is not None
+    expected = current.compare(previous).compute().to_pandas()
+    assert expected["reference.absolute.revenue"].tolist() == [-80]
+    (tmp_path / "models").rename(tmp_path / "models.offline")
+    (tmp_path / "windows.duckdb").rename(tmp_path / "windows.offline")
+    worker = """
+import sys
+import marivo.analysis as mv
+from marivo.datasource.adapters import SourceSession
+
+def forbidden(*args, **kwargs):
+    raise AssertionError('fixed comparison attempted a source read')
+SourceSession.execute = forbidden
+session = mv.session.resume(sys.argv[1])
+current = session.persisted_frame(sys.argv[2])
+previous = session.persisted_frame(sys.argv[3])
+rows = current.compare(previous).compute().to_pandas()
+assert rows['reference.baseline.revenue'].tolist() == [100]
+assert rows['reference.absolute.revenue'].tolist() == [-80]
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", worker, session.id, current.artifact_id, previous.artifact_id],
+        cwd=tmp_path,
+        env={**os.environ, "PYTHONPATH": str(PROJECT_ROOT)},
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr

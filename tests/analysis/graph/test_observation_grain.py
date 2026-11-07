@@ -55,8 +55,8 @@ def _query(
     if isinstance(by, mv.Population):
         domain = mv.product(during, by) if during is not None else by
         return case.session.observe(outputs, by=domain, where=condition)
-    scope = during.scope if isinstance(during, mv.CalendarAxis) else during
-    axes = (during.grid.grain_spec, *by) if isinstance(during, mv.CalendarAxis) else by
+    scope = None if isinstance(during, mv.CalendarAxis) else during
+    axes = (during, *by) if isinstance(during, mv.CalendarAxis) else by
     return case.session.observe(
         outputs,
         by=axes,
@@ -280,12 +280,12 @@ def test_calendar_rejects_raw_observation_time_before_source_reads(
         with pytest.raises(AnalysisError) as failure:
             session.observe(
                 {"value": metric},
-                by=(raw_time, mv.grain("month")),  # type: ignore[arg-type]  # Reject a raw time axis.
-                where=scope,
+                by=(raw_time, scope.by(mv.grain("month"))),  # type: ignore[arg-type]  # Reject a raw time axis.
             )
     error = failure.value
     assert error.expected and error.received and error.repair
-    assert "Grain" in error.repair.action
+    assert "scope.by(grain)" in error.repair.action
+    assert error.repair.help_target.canonical_id == "session.observe"
     assert terminal_runs(session) == before
 
 
@@ -297,7 +297,7 @@ def test_raw_time_population_cannot_bypass_observation_admission(
     raw_time = catalog_value(session.catalog, "sales.order.ordered_at", kind="time_dimension")
     scope = session.time_scope(start="2026-08-01", end="2026-10-01")
     month = mv.grain("month")
-    buckets = session.observe({"value": metric}, by=(month,), where=scope).compute().to_pandas()
+    buckets = session.observe({"value": metric}, by=(scope.by(month),)).compute().to_pandas()
     assert buckets["value"].tolist() == [1000, 99]
     times = mv.coordinates(
         by=(raw_time,), keys=((datetime.fromisoformat("2026-08-01T00:00:00+00:00"),),)
@@ -333,12 +333,12 @@ def test_calendar_keeps_distinct_time_fields_and_relationship_roles(
     with monkeypatch.context() as guard:
         guard.setattr(SourceSession, "__enter__", forbidden)
         distinct_field = session.observe(
-            {"value": revenue}, by=(month,), where=(scope, received_at.within(scope))
+            {"value": revenue}, by=(scope.by(month),), where=received_at.within(scope)
         )
         distinct_path = session.observe(
             {"value": line_revenue},
-            by=(month,),
-            where=(scope, raw_time.via((alternate,)).within(scope)),
+            by=(scope.by(month),),
+            where=raw_time.via((alternate,)).within(scope),
         )
     for frame in (distinct_field, distinct_path):
         binding = source_graph(frame).signature.observation
@@ -389,8 +389,8 @@ history_link = ms.relationship(name='order_history', from_entity=orders, to_enti
         guard.setattr(SourceSession, "__enter__", forbidden)
         frame = session.observe(
             {"value": metric},
-            by=(mv.grain("month"),),
-            where=(scope, raw_time.via((path,)).at(second).within(scope)),
+            by=(scope.by(mv.grain("month")),),
+            where=raw_time.via((path,)).at(second).within(scope),
         )
     binding = source_graph(frame).signature.observation
     assert binding is not None

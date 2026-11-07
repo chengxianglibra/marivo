@@ -26,7 +26,7 @@ from marivo.analysis.core.attribute import (
     AttributeSourceParentBinding,
 )
 from marivo.analysis.core.attribute_game import AttributeGameProgram
-from marivo.analysis.core.calendar_keys import time_key_type
+from marivo.analysis.core.calendar_keys import time_key_type, window_endpoint_keys
 from marivo.analysis.core.data_schema import DataSchema
 from marivo.analysis.core.data_types import DataColumn, DataType, DurationDataType, ScalarDataType
 from marivo.analysis.core.frame_attribute_merge import AttributeMergeProgram
@@ -1007,6 +1007,7 @@ def _plan_query(
         if observation is not None
         else True,
         calendar_samples=observation.calendar_samples if observation is not None else (),
+        window_endpoints=window_endpoint_keys(contributions),
     )
     count_inputs = []
     for definition, member_population in (

@@ -280,8 +280,7 @@ def test_shared_population_does_not_merge_distinct_window_occurrences(
                 "history": total.window(mv.all_history()),
                 "recent": total.window(mv.trailing_duration(duration=timedelta(days=2))),
             },
-            by=(mv.grain("day"),),
-            where=calendar_scope,
+            by=(calendar_scope.by(mv.grain("day")),),
         )
         trace = capture_source(monkeypatch)
         rows = query.compute().to_pandas()

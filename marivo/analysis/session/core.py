@@ -11,7 +11,7 @@ from ibis.common.deferred import Deferred
 
 from marivo._definition.types import Owner
 from marivo._grouping import Grouping
-from marivo._temporal import Grain, InstantAnchor, TimeScope, _SessionTimeScope
+from marivo._temporal import InstantAnchor, TimeScope, _SessionTimeScope
 from marivo.analysis.materialization.contracts import SessionRecord
 from marivo.analysis.observation.contracts import ObservationOwner
 from marivo.semantic._expression_values import (
@@ -332,7 +332,7 @@ class Session:
         | tuple[NumericMetric, ...]
         | Mapping[str, NumericMetric],
         *,
-        by: tuple[DimensionExpression | Grouping | Grain, ...] | Population = (),
+        by: tuple[DimensionExpression | Grouping, ...] | Population = (),
         where: RowPredicate | TimeScope | tuple[RowPredicate | TimeScope, ...] | None = None,
     ) -> AnalysisFrame:
         """Capture Metric expressions as a lazy AnalysisFrame with fixed output names.
@@ -342,7 +342,7 @@ class Session:
                 local declaration names. Derived expressions and source/Population
                 counts require a nonempty mapping with explicit output names.
             by: Ordered classification fields and grouping rules with at most
-                one report Grain, or a complete Population defining output keys,
+                one CalendarAxis, or a complete Population defining output keys,
                 including keys without facts. Population does not filter contributions
                 and must cover their necessary output keys before sampling.
             where: A row predicate, a report TimeScope, or a tuple combining
@@ -354,13 +354,13 @@ class Session:
             An immutable pending AnalysisFrame owned by this Session.
         Example:
             ``period = session.time_scope(start='2026-08-01', end='2026-09-01')``;
-            ``session.observe(revenue, where=period, by=(mv.grain('day'),)).compute().show()``.
+            ``session.observe(revenue, by=(period.by(mv.grain('day')),)).compute().show()``.
         Constraints:
-            Capture reads no source data. Report scope or Grain requires
-            contribution time on every Metric branch. A scope alone adds no output axis.
-            A built-in Grain alone keeps actual buckets; with scope it fills report gaps.
-            A custom calendar Grain needs one complete certified period as scope.
-            Windows need report endpoints.
+            Capture reads no source data. Report time requires contribution time on
+            every Metric branch. A scope alone adds no output axis.
+            CalendarAxis supplies finite buckets; omit a report scope in where.
+            Bare Grain inputs reject. Custom axes need one complete certified period.
+            Windows need report endpoints on every output time key.
         """
         from marivo.analysis.core.model import reject
         from marivo.analysis.dsl import frame_sources
@@ -373,21 +373,21 @@ class Session:
         selected_metrics = _metric_inputs(metrics)
         if not isinstance(by, (tuple, Population)):
             reject(
-                "a tuple of classifications and optional Grain, or a complete Population",
+                "a tuple of classifications and optional CalendarAxis, or a complete Population",
                 type(by).__name__,
-                "Pass by=(dimension, mv.grain('day')) or pass the entire Population directly.",
+                "Pass by=(scope.by(mv.grain('day')), dimension) or by=population.",
                 "Session.observe.by",
                 canonical_id="session.observe",
             )
         if isinstance(by, tuple):
             for index, item in enumerate(by):
-                if isinstance(item, (RowExpression, Grouping, Grain)):
+                if isinstance(item, (RowExpression, Grouping)):
                     continue
                 reject(
-                    "a closed Dimension, Grouping or Grain",
+                    "a closed Dimension, non-time Grouping or CalendarAxis",
                     type(item).__name__,
                     "Acquire a closed Dimension from the Session Catalog, put the report "
-                    "TimeScope in where, or pass an entire Population directly in by.",
+                    "TimeScope in where for totals, or use scope.by(grain) for time grouping.",
                     f"Session.observe.by[{index}]",
                     canonical_id="session.observe",
                 )

@@ -2504,7 +2504,7 @@ def _expression_capabilities() -> tuple[AuthoringCapability, ...]:
                         'scope = session.time_scope(start="2026-10-05", end="2026-10-12")\n'
                         'daily_average = revenue.per(mv.grain("day")).mean()\n'
                         "folded = session.observe(\n"
-                        '    {"daily_average": daily_average}, where=scope, by=(mv.grain("week"),)\n'
+                        '    {"daily_average": daily_average}, by=(scope.by(mv.grain("week")),)\n'
                         ").compute()",
                     ),
                     "window": ("window", "WindowRule", "revenue.window(mv.all_history())"),
@@ -2671,7 +2671,7 @@ def _expression_capabilities() -> tuple[AuthoringCapability, ...]:
                 summary += (
                     " time= fixes this source reduction's contribution clock. Omit it to inherit the "
                     "single contribution Entity's default_time when declared; otherwise the reduction has no clock. "
-                    "A report TimeScope or Grain requires a clock on every contributing branch. A field predicate "
+                    "A report TimeScope or CalendarAxis requires a clock on every contributing branch. A field predicate "
                     "can still filter source rows independently."
                 )
             if prefix in {"row", "MetricSamples"} and method not in {"count", "count_distinct"}:
@@ -3229,7 +3229,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
             "Operator policies stay on their operators. Declaration is source-free and does not publish a Catalog Metric. "
             "Fix contribution time on a source reduction with time=field, or omit time= to inherit its "
             "Entity's default_time when available. Without either the reduction has no contribution clock. "
-            "Composed Metrics retain their branch clocks. Reporting with where=scope or by=(grain,) requires "
+            "Composed Metrics retain their branch clocks. Reporting with where=scope or by=(scope.by(grain),) requires "
             "a clock on every branch. Use where=field.within(scope) for a fixed source predicate.",
             output="NumericMetric",
             inputs=(

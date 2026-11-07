@@ -60,8 +60,11 @@ if TYPE_CHECKING:
         assert_type(day, mv.Grain)
         query = session.observe(
             {"value": metric},
-            by=(region, day),
-            where=(scope, created.within(scope), region == "APAC"),
+            by=(region, scope.by(day)),
+            where=(
+                created.within(scope),
+                region == "APAC",
+            ),
         )
         assert_type(query, mv.AnalysisFrame)
         return query

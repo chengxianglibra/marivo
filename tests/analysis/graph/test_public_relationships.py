@@ -74,7 +74,7 @@ def test_membership_ref_and_members_entity_have_typed_repairs(relationship_proje
             by=(membership,),  # type: ignore[arg-type]  # Bare references are not closed inputs.
         )
     error = invalid_path.value
-    assert error.expected == "a closed Dimension, Grouping or Grain"
+    assert error.expected == "a closed Dimension, non-time Grouping or CalendarAxis"
     assert error.received == "Deferred"
     assert error.repair is not None
     assert "Catalog" in error.repair.action

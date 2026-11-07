@@ -30,12 +30,13 @@ capture. Use distinct legal single-segment Mapping keys to repair them.
 Names do not establish Metric identity or business comparability.
 
 Source grouping accepts an ordered tuple of Dimensions, non-time ``Grouping``
-rules and at most one report ``Grain``, or a complete ``Population`` domain.
+rules and at most one ``CalendarAxis``, or a complete ``Population`` domain.
 ``where`` accepts a row predicate, one report ``TimeScope``, or a tuple
 conjoining these inputs. A scope limits the report without adding an output
-axis. A Grain adds report buckets. With only a Grain, actual observed keys
-define the time buckets. With a scope, ordinary output completes its report
-bucket domain. Every Metric branch needs a contribution clock for report time.
+axis. ``by=(scope.by(grain),)`` selects finite report buckets; bare Grain inputs
+reject. A time axis cannot accompany a report scope in where. Ordinary tuple
+output completes selected native buckets for represented classification tuples.
+Every Metric branch needs a contribution clock for report time.
 A fixed ``field.within(scope)`` predicate constrains its own source field.
 
 ``identity(entity)`` declares one complete identity rule.
@@ -57,7 +58,7 @@ count 0; the zero-axis unit domain counts 1. Ordinary grouping coordinates must
 already exist in the Population. Classify a new attribute while retaining identity
 before counting members by it. Projecting to the attribute alone counts categories.
 Row predicates leave the count's captured domain fixed. A Population count is
-not a timed Metric and cannot consume a report TimeScope or Grain.
+not a timed Metric and cannot consume a report TimeScope or CalendarAxis.
 
 Use the returned ``compute()`` Frame for complete fixed memory data and the
 returned ``persist()`` Frame for committed data. Derived operations remain lazy.

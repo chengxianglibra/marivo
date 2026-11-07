@@ -517,13 +517,13 @@ def provider() -> DisclosureProvider:
                 ),
             ),
             "CalendarAxis",
-            "Construct a frozen calendar domain for explicit Population coordinates or a shifted endpoint relation.",
+            "Construct a frozen calendar axis for observe.by, explicit Population coordinates or a shifted endpoint relation.",
             'result = scope.by(mv.grain("day"))',
             ("scope",),
             "inputs.time",
             (
                 "Frozen scope and compatible Grain are required; semantic Grain must already capture a certified snapshot through calendar.grain(level).",
-                "For ordinary observation, pass where=scope and by=(grain,) directly to session.observe.",
+                "Pass by=(scope.by(grain),) to session.observe; range-only totals use where=scope.",
             ),
         ),
         (
@@ -699,7 +699,7 @@ def provider() -> DisclosureProvider:
                 producers=(producer, "calendar_axis.shift")
                 if value is CalendarAxis
                 else (producer, "time_scope.start", "time_scope.end"),
-                consumers=(consumer, "calendar_axis.shift", "product")
+                consumers=(consumer, "session.observe", "calendar_axis.shift", "product")
                 if value is CalendarAxis
                 else (consumer,),
                 constraints=("Frozen metadata only; no source or schema reads.",),
@@ -742,6 +742,8 @@ def provider() -> DisclosureProvider:
                 failures=(
                     "ValueError: use a supported exact calendar domain and an offset rule; target civil clocks must be unique."
                     if owner is CalendarAxis and name == "shift"
+                    else "ValueError: choose compatible frozen scope, Grain and calendar bounds."
+                    if owner is TimeScope and name == "by"
                     else "AnalysisError: repair an invalid n. ValueError: use a positive byte budget or None; a too-small budget reports the minimum."
                     if owner is AnalysisFrame and name == "show"
                     else "AnalysisError: follow its repair."

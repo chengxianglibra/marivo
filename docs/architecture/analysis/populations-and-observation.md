@@ -103,21 +103,21 @@ Paths must be explicit, contiguous and legal for the consumer.
 
 ## Observation domain, contributions and counts
 
-Put at most one fieldless report TimeScope in `where` and one report Grain in
-the `by` tuple. Each contributing branch uses its own fixed contribution clock,
+Use one fieldless report TimeScope in `where` for range-only totals, or put one
+CalendarAxis from `scope.by(grain)` in the `by` tuple for time grouping. Each contributing branch uses its own fixed contribution clock,
 which may come from its Entity default. Every branch needs a clock for a report
-TimeScope or Grain, including branches of a composite formula. Multiple branches
+TimeScope or CalendarAxis, including branches of a composite formula. Multiple branches
 can use different fields in the same report.
 
-| TimeScope | Grain | Observation |
+| Report TimeScope in where | CalendarAxis in by | Observation |
 | --- | --- | --- |
 | Omitted | Omitted | Overall or ordinary classification, with no additional time constraint |
 | Present | Omitted | Range-selected overall or classification, with no extra output axis |
-| Omitted | Built-in | Actual observed time buckets, without completing gaps |
-| Present | Present | Finite report bucket domain with ordinary output completion |
+| Omitted | Present | Finite selected time domain with ordinary output completion |
+| Present | Present | Rejected, including identical selections |
 
-Custom calendar Grains require a TimeScope selecting exactly one complete
-certified period; they cannot produce an unscoped observed-bucket domain.
+Bare Grain inputs reject. Custom calendar axes require a TimeScope selecting
+exactly one complete certified period and a Grain with a captured snapshot.
 
 Use `where=(scope, condition)` to conjoin a TimeScope and source conditions.
 `field.within(scope)` is a RowPredicate on a fixed source field. It can constrain
@@ -132,8 +132,9 @@ invalid names reject at capture; list/tuple/Mapping order fixes output order. Na
 do not establish Metric identity or business comparability. The
 [Frame naming contract](analysis-frame.md#名称与-presence) owns these rules.
 `by=()` requests a zero-axis cell. A tuple accepts Dimensions, non-time
-Grouping rules and one optional report Grain. Direct TimeScopes, CalendarAxes
-and raw TimeExpressions are invalid in that tuple. `by=P` selects exactly the
+Grouping rules and one optional CalendarAxis, in output axis order. Direct
+TimeScopes, bare Grains and raw TimeExpressions are invalid in that tuple.
+A single axis uses `by=(axis,)`, not `by=axis`. `by=P` selects exactly the
 complete keys of a Population, including those without facts. A Population may
 carry a single fieldless report time coordinate constructed with `mv.product`.
 That coordinate supplies its own report bounds and cannot be combined with
@@ -143,6 +144,31 @@ entries are frozen at capture.
 
 Conflicting report time selectors reject at capture with bounded input facts and
 the exact observe Help target, without expanding Population calendar cells.
+
+For ordinary tuple grouping, let S be the selected native calendar keys and O
+the actual contribution joint keys. Output completes `(S × K) ∪ O`, where K is
+the projection of O onto the complete ordinary classification tuple. It never
+crosses independent category value sets. Without ordinary axes K is the
+zero-axis unit; without represented classifications K is empty. Complete
+Population domains retain their own exact keys and coverage checks.
+
+Window and ordinary branches discover K jointly. Historical contributions are
+assigned to selected window endpoints, not their original fact-time buckets.
+Window endpoints do not expand with ordinary observed keys: every final output
+time key must have a defined endpoint on every window branch. Missing endpoints
+reject before completion rather than receiving zero or NULL. At a defined
+endpoint, no contributions follow the reducer's ordinary empty-result rule.
+This applies equally to separate outputs and mixed formulas. An empty selected
+time axis produces no rows; it never becomes a zero-axis total.
+
+Native calendar merging requires consistent bucket boundaries, progress and
+direct shift relations. A saved shift map must cover every origin bucket with
+one unique target or a legal absence, and its targets must cover the entire
+final baseline directory. Extra observed target keys without mappings reject
+before completion/publication. A current result with extra keys can complete
+independently, but automatic compare requires its directory to equal the saved
+immediate origin. No facts, a legal absent target, and an unknown mapping retain
+their distinct zero/absence/error contracts.
 
 Within one observation, compatible ordinary native reductions share a grouped
 SQL aggregate, including counts, exact/approximate quantiles and distinct counts,
@@ -182,7 +208,7 @@ attribute, classify while retaining identity first. Projecting identity away
 counts distinct resulting categories. Fact conditions/windows do not reselect a
 captured count denominator; ineffective count-only conditions/windows reject.
 A fixed Population count cannot be consumed by an observation with a report
-TimeScope or Grain. Its complete domain remains fixed under row predicates.
+TimeScope or CalendarAxis. Its complete domain remains fixed under row predicates.
 
 Qualified same-source counts on DuckDB, PostgreSQL, MySQL, Trino and ClickHouse
 count distinct complete Population tuples in the source, carrying required

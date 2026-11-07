@@ -38,11 +38,11 @@ case "$1" in
         elif [[ "$2" == mysql-analysis ]]; then
             "$repo_root/.venv/bin/python" "$repo_root/tests/datasource/environment/mysql_analysis.py"
         elif [[ "$2" == mysql-no-timezones ]]; then
-            (cd "$repo_root" && "$repo_root/.venv/bin/python" -c 'from tests.datasource.environment.mysql_analysis import setup; setup(port=23308)')
+            (cd "$repo_root" && "$repo_root/.venv/bin/python" -c 'from tests.datasource.environment.mysql_analysis import initialize; initialize(port=23308)')
         elif [[ "$2" == mariadb-analysis ]]; then
-            (cd "$repo_root" && "$repo_root/.venv/bin/python" -c 'from tests.datasource.environment.mysql_analysis import setup; setup(port=23307)')
+            (cd "$repo_root" && "$repo_root/.venv/bin/python" -c 'from tests.datasource.environment.mysql_analysis import initialize; initialize(port=23307)')
         elif [[ "$2" == mariadb-103-analysis ]]; then
-            (cd "$repo_root" && "$repo_root/.venv/bin/python" -c 'from tests.datasource.environment.mysql_analysis import setup; setup(port=23309)')
+            (cd "$repo_root" && "$repo_root/.venv/bin/python" -c 'from tests.datasource.environment.mysql_analysis import initialize; initialize(port=23309)')
         fi
         ;;
     stop)

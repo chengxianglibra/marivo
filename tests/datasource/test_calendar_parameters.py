@@ -264,7 +264,7 @@ def test_native_calendar_and_actual_samples_without_multipart(
             assert internal["mean"].tolist() == [2] and internal["count"].tolist() == [4032]
             assert internal["nested_p95"].tolist() == [2]
             fixed = session.observe(
-                {"v": total}, by=(mv.grain("minute", count=5),), where=scope
+                {"v": total}, by=(scope.by(mv.grain("minute", count=5)),)
             ).compute()
             rows = fixed.to_pandas()
             assert len(rows) == 4320 and rows.v.tolist() == [2] * 4032 + [0] * 288
@@ -272,15 +272,14 @@ def test_native_calendar_and_actual_samples_without_multipart(
             empty_rows = (
                 session.observe(
                     {"sum": total + 1, "mean": amount.mean(time=point) + 1},
-                    by=(mv.grain("day"),),
-                    where=empty_scope,
+                    by=(empty_scope.by(mv.grain("day")),),
                 )
                 .compute()
                 .to_pandas()
             )
             assert empty_rows["sum"].tolist() == [1] and empty_rows["mean"].isna().all()
             assert (
-                session.observe({"v": total}, by=(mv.grain("day"), category), where=empty_scope)
+                session.observe({"v": total}, by=(empty_scope.by(mv.grain("day")), category))
                 .compute()
                 .to_pandas()
                 .empty
@@ -291,7 +290,7 @@ def test_native_calendar_and_actual_samples_without_multipart(
                         start="2026-01-01", end="2026-01-16", timezone=zone
                     )
                     observed = (
-                        session.observe({"v": total}, by=(mv.grain(unit),), where=axis_scope)
+                        session.observe({"v": total}, by=(axis_scope.by(mv.grain(unit)),))
                         .compute()
                         .to_pandas()
                     )

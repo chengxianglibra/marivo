@@ -70,7 +70,7 @@ def require_finite_attribution_scope(graph: BoundGraph) -> None:
         reject(
             "finite report endpoints for source-side attribution",
             "actual Grain-only report keys",
-            "Supply a TimeScope with the report Grain before constructing the attribution.",
+            "Supply a CalendarAxis with explicit report endpoints before constructing the attribution.",
             "analysis_frame.attribute",
             canonical_id="analysis_frame.attribute",
         )
@@ -308,7 +308,7 @@ def bind_windows(
                 reject(
                     "window endpoints supported by the source contribution binder",
                     "a Metric window inside a calendar sample layer",
-                    "Observe the windowed Metric with a report Grain, then explicitly reduce the captured Frame values; inner calendar-sample windows are not supported.",
+                    "Observe the windowed Metric with a CalendarAxis, then explicitly reduce the captured Frame values; inner calendar-sample windows are not supported.",
                     "Metric.window",
                 )
             if any(
@@ -320,7 +320,7 @@ def bind_windows(
                     "a window applied before calendar sample folding",
                     "a Metric window wrapping a calendar fold",
                     "Calendar folds cannot be windowed, and windows inside calendar samples are unsupported. "
-                    "Observe the windowed Metric with a report Grain, then explicitly reduce the captured Frame values.",
+                    "Observe the windowed Metric with a CalendarAxis, then explicitly reduce the captured Frame values.",
                     "Metric.window",
                 )
             if not has_fact(node.operand):
@@ -413,7 +413,7 @@ def bind_windows(
         reject(
             "an explicit window endpoint",
             "no report endpoint",
-            "Pass a report TimeScope in where or a Grain in by to session.observe(...).",
+            "Pass a report TimeScope in where or a CalendarAxis in by to session.observe(...).",
             "Metric.window",
         )
     result: list[ContributionBinding] = []
@@ -460,7 +460,7 @@ def bind_windows(
                     reject(
                         "complete calendar buckets for trailing_periods",
                         "missing or partial report buckets",
-                        "Observe a report Grain with complete periods.",
+                        "Observe a CalendarAxis with complete periods.",
                         "Metric.window",
                     )
                 if native_start is not None:

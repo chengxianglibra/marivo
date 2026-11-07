@@ -227,7 +227,7 @@ def test_cumulative_grid_and_endpoint_match_original_temporal_filter(
     metric = _metric(case.session.catalog, "metric:sales.revenue").window(mv.all_history())
 
     def execute() -> pd.DataFrame:
-        query = case.session.observe({"value": metric}, by=(mv.grain("month"),), where=scope)
+        query = case.session.observe({"value": metric}, by=(scope.by(mv.grain("month")),))
         return query.compute().to_pandas(time_details=True)
 
     optimized = execute()

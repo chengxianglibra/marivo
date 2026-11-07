@@ -278,8 +278,7 @@ def test_aliases_keep_repeated_occurrences_and_independent_clocks(
     monthly = (
         session.observe(
             {"difference": difference, "cashflow": cashflow},
-            by=(mv.grain("month"),),
-            where=months,
+            by=(months.by(mv.grain("month")),),
         )
         .compute()
         .to_pandas()
@@ -338,7 +337,7 @@ def test_missing_time_stays_complete_for_totals_readiness_preview_and_ordinary_s
         with pytest.raises(AnalysisError, match="contribution time"):
             session.observe({"untimed": expression}, where=report)
         with pytest.raises(AnalysisError, match="contribution time"):
-            session.observe({"untimed": expression}, by=(mv.grain("day"),))
+            session.observe({"untimed": expression}, by=(report.by(mv.grain("day")),))
     with pytest.raises(SemanticError, match="Catalog preview does not support"):
         catalog.preview(raw, scope=source_scope)
 

@@ -413,8 +413,7 @@ def _produce(
                         session.catalog, "metric:operations.running_energy", kind="metric"
                     )
                 },
-                by=(mv.grain("month"),),
-                where=temporal_scope,
+                by=(temporal_scope.by(mv.grain("month")),),
             ),
             "folded": folded,
             "folded_total": session.observe(

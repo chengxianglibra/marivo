@@ -101,10 +101,10 @@ def test_reused_temporal_baseline_keeps_each_alias_projection(
     metric = amount.sum(time=day)
     if calendar:
         left = session.observe(
-            {"q": metric}, by=(mv.grain("day"),), where=(current, phase == "current")
+            {"q": metric}, by=(current.by(mv.grain("day")),), where=phase == "current"
         )
         right = session.observe(
-            {"q": metric}, by=(mv.grain("day"),), where=(baseline, phase == "base")
+            {"q": metric}, by=(baseline.by(mv.grain("day")),), where=phase == "base"
         )
     else:
         left = session.observe({"q": metric}, by=time_population(current), where=phase == "current")
@@ -191,10 +191,10 @@ def test_cross_period_paired_calendar_parent(
     baseline_scope = session.time_scope(start="2026-07-01", end="2026-07-03")
     metric = amount.sum(time=day)
     left = session.observe(
-        {"q": metric}, by=(mv.grain("day"), region), where=(current_scope, phase == "current")
+        {"q": metric}, by=(current_scope.by(mv.grain("day")), region), where=phase == "current"
     )
     right = session.observe(
-        {"q": metric}, by=(mv.grain("day"), region), where=(baseline_scope, phase == "base")
+        {"q": metric}, by=(baseline_scope.by(mv.grain("day")), region), where=phase == "base"
     )
     paired = left.align(
         right,
@@ -239,10 +239,10 @@ def test_fixed_window_lookback_and_repeated_identity_independent_reads(
     metric = amount.sum(time=day).window(mv.all_history())
     selected = _change(
         session.observe(
-            {"q": metric}, by=(mv.grain("day"),), where=(calendar_scope, phase == "current")
+            {"q": metric}, by=(calendar_scope.by(mv.grain("day")),), where=phase == "current"
         ),
         session.observe(
-            {"q": metric}, by=(mv.grain("day"),), where=(calendar_scope, phase == "base")
+            {"q": metric}, by=(calendar_scope.by(mv.grain("day")),), where=phase == "base"
         ),
     )
     expected: list[tuple[int, int, int, float]] = []
@@ -351,8 +351,8 @@ def test_window_partition_context_is_scoped_before_classification(
     metric = amount.sum(time=day).window(mv.all_history())
     endpoint = session.observe(
         {"q": metric},
-        by=(mv.grain("day"),),
-        where=(calendar_scope, identifier == (2 if missing else 1)),
+        by=(calendar_scope.by(mv.grain("day")),),
+        where=identifier == (2 if missing else 1),
     ).compute()
     pending = _change(endpoint, endpoint).attribute(by=(membership,))
     with pytest.raises(AttributeInputError) as actual:
@@ -395,7 +395,7 @@ def test_temporal_native_numeric_check_keeps_actual_scope(
     calendar_scope = session.time_scope(start="2026-08-01", end="2026-08-02")
     metric = amount.sum(time=day, nulls="error")
     observed = session.observe(
-        {"q": metric}, by=(mv.grain("day"),), where=(calendar_scope, phase == "current")
+        {"q": metric}, by=(calendar_scope.by(mv.grain("day")),), where=phase == "current"
     ).compute()
     selected = _change(observed, observed)
     with duckdb.connect(str(tmp_path / "temporal.duckdb")) as connection:
@@ -403,8 +403,8 @@ def test_temporal_native_numeric_check_keeps_actual_scope(
     with pytest.raises(MaterializationError) as ordinary:
         session.observe(
             {"q": metric},
-            where=(calendar_scope, phase == "current"),
-            by=(mv.grain("day"), *(() if scope == "parent" else (channel,))),
+            where=phase == "current",
+            by=(calendar_scope.by(mv.grain("day")), *(() if scope == "parent" else (channel,))),
         ).compute()
     with duckdb.connect(str(tmp_path / "temporal.duckdb")) as connection:
         connection.execute("UPDATE facts SET amount=0 WHERE id=1")
@@ -463,9 +463,9 @@ def test_structural_outer_missing_is_not_known_empty(session: Session) -> None:
     current_scope = session.time_scope(start="2026-08-01", end="2026-08-03")
     baseline_scope = session.time_scope(start="2026-07-01", end="2026-07-02")
     parent = (
-        session.observe({"q": metric}, by=(mv.grain("day"),), where=current_scope)
+        session.observe({"q": metric}, by=(current_scope.by(mv.grain("day")),))
         .align(
-            session.observe({"q": metric}, by=(mv.grain("day"),), where=baseline_scope),
+            session.observe({"q": metric}, by=(baseline_scope.by(mv.grain("day")),)),
             match=CalendarCorrespondence("ordinal"),
         )
         .compute()
@@ -498,10 +498,10 @@ def test_calendar_native_ratio_keeps_common_valid_mask(
     metric = amount.weighted_mean(weight=weight, time=day) if weighted else amount.mean(time=day)
     selected = _change(
         session.observe(
-            {"q": metric}, by=(mv.grain("day"),), where=(calendar_scope, phase == "current")
+            {"q": metric}, by=(calendar_scope.by(mv.grain("day")),), where=phase == "current"
         ),
         session.observe(
-            {"q": metric}, by=(mv.grain("day"),), where=(calendar_scope, phase == "base")
+            {"q": metric}, by=(calendar_scope.by(mv.grain("day")),), where=phase == "base"
         ),
     )
     rows = selected.attribute(by=(channel,)).compute().to_pandas()
@@ -532,9 +532,9 @@ def test_paired_complete_frozen_authority_survives_parent_selection(
     current_scope = session.time_scope(start="2026-08-01", end="2026-08-03")
     baseline_scope = session.time_scope(start="2026-07-01", end="2026-07-03")
     paired = (
-        session.observe({"q": metric}, by=(mv.grain("day"),), where=current_scope)
+        session.observe({"q": metric}, by=(current_scope.by(mv.grain("day")),))
         .align(
-            session.observe({"q": metric}, by=(mv.grain("day"),), where=baseline_scope),
+            session.observe({"q": metric}, by=(baseline_scope.by(mv.grain("day")),)),
             match=CalendarCorrespondence("ordinal"),
         )
         .compute()
@@ -585,13 +585,13 @@ def test_calendar_predicate_trusts_declared_matches(session: Session, tmp_path: 
     calendar_scope = session.time_scope(start="2026-08-01", end="2026-08-02")
     metric = amount.sum(time=day)
     parent = session.observe(
-        {"q": metric}, by=(mv.grain("day"),), where=(calendar_scope, channel == "A")
+        {"q": metric}, by=(calendar_scope.by(mv.grain("day")),), where=channel == "A"
     ).compute()
     with duckdb.connect(str(tmp_path / "temporal.duckdb")) as connection:
         connection.execute("DELETE FROM facts WHERE id=2")
     ordinary = (
         session.observe(
-            {"q": metric}, where=(calendar_scope, channel == "A"), by=(mv.grain("day"), channel)
+            {"q": metric}, where=channel == "A", by=(calendar_scope.by(mv.grain("day")), channel)
         )
         .compute()
         .to_pandas()
@@ -607,7 +607,7 @@ def test_calendar_attribute_trusts_declared_root_identity(session: Session, tmp_
     channel = catalog_value(session.catalog, "sales.facts.channel", kind="dimension")
     calendar_scope = session.time_scope(start="2026-08-01", end="2026-08-02")
     metric = amount.sum(time=day)
-    parent = session.observe({"q": metric}, by=(mv.grain("day"),), where=calendar_scope).compute()
+    parent = session.observe({"q": metric}, by=(calendar_scope.by(mv.grain("day")),)).compute()
     with duckdb.connect(str(tmp_path / "temporal.duckdb")) as connection:
         connection.execute("INSERT INTO facts SELECT * FROM facts WHERE id=1")
     rows = parent.attribute(by=(channel,)).compute().to_pandas()
@@ -674,10 +674,12 @@ def test_paired_source_failure_retains_original_full_parent(
     by: tuple[FieldExpression | Grouping, ...]
     if failure == "native":
         left = session.observe(
-            {"q": original}, by=(mv.grain("day"), region), where=(current_scope, phase == "current")
+            {"q": original},
+            by=(current_scope.by(mv.grain("day")), region),
+            where=phase == "current",
         )
         right = session.observe(
-            {"q": original}, by=(mv.grain("day"), region), where=(baseline_scope, phase == "base")
+            {"q": original}, by=(baseline_scope.by(mv.grain("day")), region), where=phase == "base"
         )
         by = (channel,)
     else:
@@ -688,10 +690,10 @@ def test_paired_source_failure_retains_original_full_parent(
         )
         membership = mv.membership(label, via=(path,), unmatched="exclude")
         left = session.observe(
-            {"q": original}, by=(mv.grain("day"), region), where=(current_scope, identifier == 1)
+            {"q": original}, by=(current_scope.by(mv.grain("day")), region), where=identifier == 1
         )
         right = session.observe(
-            {"q": original}, by=(mv.grain("day"), region), where=(baseline_scope, identifier == 1)
+            {"q": original}, by=(baseline_scope.by(mv.grain("day")), region), where=identifier == 1
         )
         by = (membership,)
     aligned = left.align(
@@ -1066,13 +1068,13 @@ def test_captured_selected_calendar_parent_keeps_exact_integers_and_saved_map(
     baseline_calendar_scope = session.time_scope(start="2026-07-01", end="2026-07-03")
     current = session.observe(
         {"q": amount.sum(time=day)},
-        by=(mv.grain("day"),),
-        where=(current_calendar_scope, phase == "current"),
+        by=(current_calendar_scope.by(mv.grain("day")),),
+        where=phase == "current",
     )
     baseline = session.observe(
         {"q": amount.sum(time=day)},
-        by=(mv.grain("day"),),
-        where=(baseline_calendar_scope, phase == "base"),
+        by=(baseline_calendar_scope.by(mv.grain("day")),),
+        where=phase == "base",
     )
     comparison = current.compare(
         {

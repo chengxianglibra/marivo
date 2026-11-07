@@ -200,9 +200,7 @@ def test_public_historical_calendar_preserves_wide_source_carriers(
         amount = _measure(session.catalog, "measure:sales.facts.amount")
         grid_scope = session.time_scope(start="1960-02-29", end="1960-03-01")
         rows = (
-            session.observe(
-                {"value": amount.sum(time=point)}, by=(mv.grain("day"),), where=grid_scope
-            )
+            session.observe({"value": amount.sum(time=point)}, by=(grid_scope.by(mv.grain("day")),))
             .compute()
             .to_pandas(time_details=True)
         )

@@ -39,17 +39,15 @@ from analysis import mv, session, revenue, amount, region, august
 
 ```python
 day = mv.grain("day")
-daily = session.observe({"revenue": revenue}, where=august, by=(day,)).compute()
+daily = session.observe({"revenue": revenue}, by=(august.by(day),)).compute()
 sum_of_days = daily.reduce({"sum_of_days": daily["revenue"].sum()}).compute()
 sum_of_days.show()
-monthly_source = session.observe(
-    {"revenue": revenue}, where=august, by=(mv.grain("month"),)
-).compute()
+monthly_source = session.observe({"revenue": revenue}, by=(august.by(mv.grain("month")),)).compute()
 monthly_source.show()
 ```
 
 日历桶使用实际执行方的原生键。有报告范围时，普通输出保留生成位置和实际键的并集，
-并补齐缺失位置。仅指定内置 Grain 时，只输出实际观察到的位置。键与民用标签不承诺成员构成连续 UTC 区间；`read_periods()` 提供保存的顺序
+并补齐缺失位置。by 直接接收 CalendarAxis，裸 Grain 输入会被拒绝。键与民用标签不承诺成员构成连续 UTC 区间；`read_periods()` 提供保存的顺序
 和选择进度。内置日／周／月使用原生民用截断，子日宽度按当地午夜对齐。自定义日历输出
 必须显式指定恰好一个完整的已认证期间范围，多期间或局部选择在业务读取前拒绝，不上传日期到期间执行目录。
 
@@ -60,13 +58,11 @@ from datetime import timedelta
 
 rolling = session.observe(
     {"revenue": revenue.window(mv.trailing_duration(duration=timedelta(days=7)))},
-    where=august,
-    by=(day,),
+    by=(august.by(day),),
 ).compute()
 month_to_date = session.observe(
     {"revenue": revenue.window(mv.to_date(grain=mv.grain("month")))},
-    where=august,
-    by=(day,),
+    by=(august.by(day),),
 ).compute()
 rolling.show()
 month_to_date.show()
@@ -77,8 +73,10 @@ month_to_date.show()
 ```python
 current_scope = session.time_scope(start="2026-08-01", end="2026-08-04")
 prior_scope = session.time_scope(start="2026-07-01", end="2026-07-04")
-current_daily = session.observe({"revenue": revenue}, where=current_scope, by=(mv.grain("day"),)).compute()
-prior_daily = session.observe({"revenue": revenue}, where=prior_scope, by=(mv.grain("day"),)).compute()
+current_daily = session.observe(
+    {"revenue": revenue}, by=(current_scope.by(mv.grain("day")),)
+).compute()
+prior_daily = session.observe({"revenue": revenue}, by=(prior_scope.by(mv.grain("day")),)).compute()
 comparison = current_daily.compare(
     {"reference": mv.baseline(prior_daily, match=mv.ordinal())}
 ).compute()
@@ -89,11 +87,10 @@ comparison.show()
 
 ```python
 months = session.time_scope(start="2026-08-01", end="2026-08-20").by(mv.grain("month"))
-unit = mv.coordinates(by=(), keys=((),))
-current_progress = session.observe({"revenue": revenue}, by=mv.product(months, unit))
+current_progress = session.observe({"revenue": revenue}, by=(months,))
 previous_progress = session.observe(
     {"revenue": revenue},
-    by=mv.product(months.shift(mv.offset(periods=-1)), unit),
+    by=(months.shift(mv.offset(periods=-1)),),
 )
 progress = current_progress.compare({"mom": mv.baseline(previous_progress)}).compute()
 progress.show()
@@ -176,7 +173,7 @@ adjusted.show()
 ```python
 week = mv.grain("week")
 daily_average = revenue.per(mv.grain("day")).mean()
-folded = session.observe({"daily_average": daily_average}, where=august, by=(week, region)).compute()
+folded = session.observe({"daily_average": daily_average}, by=(august.by(week), region)).compute()
 folded.show()
 ```
 
@@ -186,7 +183,7 @@ NULL 策略。TimeField 和 Grain 样本均使用实际键，最终输出补空�
 内置嵌套采用静态规则：日可嵌入周／月，周不可嵌入月；子日宽度须整除父宽度，月可嵌入
 季度／年，季度可嵌入年。每层保留完整外部键、父键和子键。未定义的自定义层级拒绝；
 兼容的报告 TimeScope 内可采样一个完整认证自定义期间。`per` 中的 Grain
-选择内部样本桶；`observe(by=...)` 中的 Grain 选择报告桶。帮助入口：`semantic.metric.per`。
+选择内部样本桶；`observe(by=...)` 中的 CalendarAxis 选择报告桶。帮助入口：`semantic.metric.per`。
 
 `ms.calendar_grain(...)` 创建的语义粒度绑定到 Session 当前的认证日历快照。
 声明的日历折叠指标要求日历已认证。日历样本内部的窗口，以及包裹日历折叠的窗口，
@@ -208,11 +205,12 @@ amount = session.catalog.get("measure:sales.facts.amount")
 historical = label.via((route,)).at(control)
 scope = session.time_scope(start="2026-08-25", end="2026-09-08")
 day = mv.grain("day")
-daily = session.observe({"value": amount.sum(time=control)}, where=scope, by=(day, historical)).compute()
+daily = session.observe(
+    {"value": amount.sum(time=control)}, by=(scope.by(day), historical)
+).compute()
 restated = session.observe(
     {"value": amount.sum(time=control)},
-    where=scope,
-    by=(day, label.via((route,)).at(session.instant("2026-09-03T00:00:00+00:00"))),
+    by=(scope.by(day), label.via((route,)).at(session.instant("2026-09-03T00:00:00+00:00"))),
 ).compute()
 ```
 
@@ -236,3 +234,16 @@ facts = daily.schema.source_times
 for fact in facts:
     print(fact.axis, fact.kind, fact.consumption_timezone)
 ```
+
+## 混合窗口与偏移输出域
+
+普通 Metric 和窗口 Metric 共同发现分类，包括仅在回溯历史中出现的分类，
+但不会扩大所选端点。最终每个时间键都必须在每个窗口分支上有明确端点；
+普通分支产生的额外时间键若没有窗口端点，则报错。有端点但无事实时仍遵循
+归约的空结果规则。混合算术公式也遵循相同规则。
+
+偏移观察保留精确的稀疏选择和直接对应关系。额外原生键没有对应映射、
+原生桶含义冲突或映射覆盖不完整时，在完成或发布前拒绝。合法缺失的目标期间
+保持缺失，不生成零值桶。自动 compare 要求本期目录匹配基准保存的直接 origin；
+分别成立的结果仍可能需要显式指定受支持的对应关系。已完成和冷恢复的比较
+使用保存的数据，不重新读取来源。

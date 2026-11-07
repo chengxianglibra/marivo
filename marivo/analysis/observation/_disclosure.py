@@ -83,7 +83,7 @@ def provider() -> DisclosureProvider:
                 if type_value is TimeScope
                 else ("grain.define", "catalog.period_calendars.grain"),
                 constraints=(
-                    "Use one Grain in observe.by to choose report buckets. Equality/hash include captured snapshot identity. "
+                    "Use scope.by(grain) in observe.by to choose finite report buckets; bare Grain rejects. Equality/hash include captured snapshot identity. "
                     "scope.by requires a captured calendar Grain; a Session consumer can resolve an unbound lookup in its certified scope.",
                 )
                 if type_value is Grain

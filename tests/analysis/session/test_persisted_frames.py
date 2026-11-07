@@ -185,7 +185,7 @@ import marivo.analysis as mv
 session = mv.session.get_or_create('lost-id', timezone='UTC')
 metric = session.catalog.get('metric:sales.order_count')
 period = session.time_scope(start='2026-08-01', end='2026-09-01')
-session.observe({'orders': metric}, by=(mv.grain('month'),), where=period).persist(description='Four orders for recovery')
+session.observe({'orders': metric}, by=(period.by(mv.grain('month')),)).persist(description='Four orders for recovery')
 raise RuntimeError('after commit')
 """,
         ],

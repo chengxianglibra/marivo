@@ -310,7 +310,7 @@ def test_column_operator_reference_remains_discoverable_without_flattening_task_
             "by",
             (
                 "analysis.inputs.catalog",
-                "analysis.grain.define",
+                "analysis.time_scope.by",
             ),
         ),
         ("session.observe", "where", ("semantic.predicate", "analysis.session.time_scope")),

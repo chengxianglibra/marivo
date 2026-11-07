@@ -86,8 +86,8 @@ def test_multi_field_aggregate_keeps_nulls_types_and_empty_buckets(
         weight = catalog_value(session.catalog, "sales.facts.weight", kind="measure")
         category = catalog_value(session.catalog, "sales.facts.category", kind="dimension")
         day = catalog_value(session.catalog, "sales.facts.day", kind="time_dimension")
-        scope = session.time_scope(start="2026-07-01", end="2026-07-04") if calendar else None
-        by = (mv.grain("day"),) if calendar else (category,)
+        scope = session.time_scope(start="2026-07-01", end="2026-07-04")
+        by = (scope.by(mv.grain("day")),) if calendar else (category,)
         query = session.observe(
             {
                 "total": amount.sum(time=day),
@@ -113,7 +113,6 @@ def test_multi_field_aggregate_keeps_nulls_types_and_empty_buckets(
                 ),
             },
             by=by,
-            where=scope,
         )
         with monkeypatch.context() as control:
             control.setattr(frame_source_preparation, "optimize_query", lambda plan: plan)

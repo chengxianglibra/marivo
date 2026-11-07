@@ -192,7 +192,9 @@ resolved Compose configuration, passwords, or container environment variables.
 ## Start, verify and stop
 
 The manager waits for container health and performs PostgreSQL, MySQL and
-MariaDB reader setup. Trino and ClickHouse reader setup use explicit module
+MariaDB reader setup. MySQL/MariaDB reader creation and the SELECT grant happen
+only during explicit startup; Runtime readiness checks neither reset accounts
+nor execute privilege-denial probes. Trino and ClickHouse reader setup use explicit module
 commands. Choose only the profiles needed, with one Trino/ClickHouse group:
 
 ```bash

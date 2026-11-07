@@ -74,7 +74,7 @@ _PAGES = (
         "Choose time anchors, observation intervals, output buckets or Metric history.",
         (),
         guidance=(
-            "Use TimeScope in observe.where for a report range and one Grain in observe.by for output buckets. An InstantAnchor selects an exact anchor. Endpoint correspondence is a separate choice.",
+            "Use TimeScope in observe.where for range-only totals, or scope.by(grain) in observe.by for finite output buckets. An InstantAnchor selects an exact anchor. Endpoint correspondence is a separate choice.",
         ),
         related=("inputs.comparison",),
         discovery_group="inputs",
@@ -375,7 +375,7 @@ def navigation(providers: tuple[DisclosureProvider, ...]) -> tuple[NavigationInp
                 "Catalog: definitions. Session: context. Frame: data.",
                 "In an authored project, reuse your Session; adapt query, ID, dates and timezone.",
                 "Choose by meaning, or use a known ID. All Metric branches need contribution time.",
-                "where selects [start, end); by chooses grain.",
+                "where=scope selects a range; by=(scope.by(grain),) selects report buckets.",
             ),
             example=ExampleInput(
                 "import marivo.analysis as mv\n"
@@ -389,7 +389,7 @@ def navigation(providers: tuple[DisclosureProvider, ...]) -> tuple[NavigationInp
                 "assert revenue.kind == 'metric'\n"
                 "period = session.time_scope(start='2026-08-01', end='2026-09-01')\n"
                 "result = session.observe(\n"
-                "    revenue, where=period, by=(mv.grain('day'),),\n"
+                "    revenue, by=(period.by(mv.grain('day')),),\n"
                 ").compute()\n"
                 "result.show(n=31)",
                 (),

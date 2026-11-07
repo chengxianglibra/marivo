@@ -942,12 +942,9 @@ def test_period_change_after_bucket_rollup(analysis_dsl_case_factory: DslCaseFac
         )
         return session.observe(
             {"value": _metric(session.catalog, "metric:sales.order_count")},
-            by=(mv.grain("day"),),
-            where=(
-                axis_scope,
-                mv.in_population(
-                    session.members(_entity(session.catalog, "entity:sales.customer"))
-                ),
+            by=(axis_scope.by(mv.grain("day")),),
+            where=mv.in_population(
+                session.members(_entity(session.catalog, "entity:sales.customer"))
             ),
         )
 

@@ -159,15 +159,10 @@ def test_report_domains_align_distinct_clocks_and_keep_window_history(
         scope_rows = scope_only.to_pandas()
         assert scope_rows["booked"].tolist() == scope_rows["settled"].tolist() == [100]
 
-        sparse = session.observe(outputs, by=(month,), where=split).compute()
-        rows = sparse.to_pandas().sort_values("calendar:month")
-        assert rows["calendar:month"].dt.month.tolist() == [9, 10, 11]
-        assert rows["booked"].fillna(-1).tolist() == [100, 0, -1]
-        assert rows["settled"].tolist() == [0, 100, 0]
-        assert rows["net"].fillna(-1).tolist() == [-100, 100, -1]
-        assert frozen_coordinates(sparse)[0].rows["selection"].tolist() == ["full"] * 3
+        with pytest.raises(AnalysisError, match="CalendarAxis"):
+            session.observe(outputs, by=(month,), where=split)  # type: ignore[arg-type]
 
-        finite = session.observe(outputs, by=(month,), where=(split, scope)).compute()
+        finite = session.observe(outputs, by=(scope.by(month),), where=split).compute()
         rows = finite.to_pandas().sort_values("calendar:month")
         assert rows["calendar:month"].dt.month.tolist() == [9, 10, 11, 12]
         assert rows["booked"].fillna(-1).tolist() == [100, 0, -1, 0]
@@ -178,7 +173,12 @@ def test_report_domains_align_distinct_clocks_and_keep_window_history(
         september = session.time_scope(start="2026-09-01", end="2026-10-01")
         cohort = (
             session.observe(
-                {"settled": settled}, by=(day,), where=(october, created.within(september), split)
+                {"settled": settled},
+                by=(october.by(day),),
+                where=(
+                    created.within(september),
+                    split,
+                ),
             )
             .compute()
             .to_pandas()
@@ -189,14 +189,19 @@ def test_report_domains_align_distinct_clocks_and_keep_window_history(
         window = settled.window(mv.trailing_duration(duration=timedelta(days=7)))
         formula = {"ordinary": settled, "rolling": window, "prior": window - settled}
         history = (
-            session.observe(formula, by=(day,), where=(october, region == "window"))
+            session.observe(formula, by=(october.by(day),), where=region == "window")
             .compute()
             .to_pandas()
             .sort_values("calendar:day")
         )
         restricted = (
             session.observe(
-                formula, by=(day,), where=(region == "window", paid.within(october), october)
+                formula,
+                by=(october.by(day),),
+                where=(
+                    region == "window",
+                    paid.within(october),
+                ),
             )
             .compute()
             .to_pandas()
@@ -213,20 +218,6 @@ def test_report_domains_align_distinct_clocks_and_keep_window_history(
         assert history["prior"].tolist() == [10, 30]
         assert restricted["prior"].tolist() == [0, 20]
 
-        sparse_window = (
-            session.observe(
-                {"v": window},
-                by=(region, day),
-                where=(region == "window") | split,
-            )
-            .compute()
-            .to_pandas()
-            .sort_values(["region", "calendar:day"])
-        )
-        assert sparse_window["region"].tolist() == ["split", "window", "window"]
-        assert sparse_window["calendar:day"].dt.month.tolist() == [10, 9, 10]
-        assert sparse_window["v"].tolist() == [100, 10, 30]
-
         unbucketed = session.observe(
             {"rolling": window}, where=(october, region == "window")
         ).compute()
@@ -234,14 +225,14 @@ def test_report_domains_align_distinct_clocks_and_keep_window_history(
         assert unbucketed.to_pandas()["rolling"].tolist() == [30]
 
 
-def test_grain_only_windows_use_completed_frame_keys_and_keep_empty_values(
+def test_finite_calendar_windows_keep_empty_values(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
 ) -> None:
     with _observation_project(tmp_path, monkeypatch, semantic_project_factory) as session:
         _, paid, region, amount = _fields(session)
-        day = mv.grain("day")
+        day = session.time_scope(start="2026-09-30", end="2026-10-02").by(mv.grain("day"))
         settled = amount.sum(time=paid)
         groups = session.observe({"v": settled}, by=(region,), where=region == "window")
         selected = session.population_from(groups, on=((groups.axes[0], region),))
@@ -270,15 +261,8 @@ def test_grain_only_windows_use_completed_frame_keys_and_keep_empty_values(
         empty = session.observe(
             {"v": settled.window(mv.all_history())}, by=(day,), where=region == "absent"
         ).compute()
-        assert empty.to_pandas().empty
-        assert frozen_coordinates(empty)[0].rows.empty
-
-        for metric in (settled, settled.window(mv.all_history())):
-            parent = session.observe({"v": metric}, by=(day,), where=region == "window")
-            with pytest.raises(AnalysisError) as rejected:
-                parent.attribute(by=(region,))
-            assert rejected.value.repair is not None
-            assert "Supply a TimeScope with the report Grain" in rejected.value.repair.action
+        assert empty.to_pandas()["v"].tolist() == [0, 0]
+        assert len(frozen_coordinates(empty)[0].rows) == 2
 
 
 def test_time_context_validation_precedes_business_reads(
@@ -301,7 +285,7 @@ def test_time_context_validation_precedes_business_reads(
             session.observe({"v": timed.window(mv.trailing_periods(count=2))}, where=scope)
 
         assert not hasattr(mv, "time_group")
-        for by in ((created,), (scope,), (scope.by(day),), (day, day)):
+        for by in ((created,), (scope,), (day,), (scope.by(day), scope.by(day))):
             with pytest.raises(AnalysisError):
                 session.observe({"v": timed}, by=by)  # type: ignore[arg-type]
         with pytest.raises(AnalysisError, match="at most one report TimeScope"):
@@ -330,14 +314,14 @@ def test_time_context_validation_precedes_business_reads(
             )
             assert error.repair is not None
             assert error.repair.help_target.canonical_id == "session.observe"
-            assert "Use the complete Population time coordinates" in error.repair.action
+            assert "Use the time coordinates in by" in error.repair.action
 
         for expr in (untimed, timed + untimed, timed + regions.count(), untimed * 0):
             with pytest.raises(AnalysisError, match="contribution time"):
                 session.observe({"v": expr}, where=scope)
             with pytest.raises(AnalysisError, match="contribution time"):
-                session.observe({"v": expr}, by=(day,))
-        session.observe({"v": timed * 2}, where=scope, by=(day,))
+                session.observe({"v": expr}, by=(scope.by(day),))
+        session.observe({"v": timed * 2}, by=(scope.by(day),))
         session.observe({"v": untimed})
         assert source_trace.native_sql == []
 
@@ -354,7 +338,7 @@ def test_time_context_freezes_bounds_and_reopens_without_sources(
         partial_scope = session.time_scope(
             start="2026-11-01T16:30:00", end="2026-11-02T18:00:00", timezone="Asia/Shanghai"
         )
-        frame = session.observe({"v": amount.sum()}, where=(partial_scope, ordinary), by=(day,))
+        frame = session.observe({"v": amount.sum()}, where=ordinary, by=(partial_scope.by(day),))
         saved = frame.persist()
         assert saved.artifact_id is not None
         assert saved.to_pandas().sort_values("calendar:day")["v"].tolist() == [200, 40]
@@ -368,7 +352,7 @@ def test_time_context_freezes_bounds_and_reopens_without_sources(
         )
         split = (
             session.observe(
-                {"v": amount.sum()}, by=(day,), where=(offset_scope, created.within(two_instants))
+                {"v": amount.sum()}, by=(offset_scope.by(day),), where=created.within(two_instants)
             )
             .compute()
             .to_pandas()
@@ -377,16 +361,13 @@ def test_time_context_freezes_bounds_and_reopens_without_sources(
 
         empty = session.time_scope(start="2026-11-05", end="2026-11-07")
         outputs = {"sum": amount.sum(), "count": amount.count(), "mean": amount.mean()}
-        empty_cells = session.observe(outputs, by=(day,), where=empty).compute().to_pandas()
+        empty_cells = session.observe(outputs, by=(empty.by(day),)).compute().to_pandas()
         assert empty_cells["sum"].tolist() == empty_cells["count"].tolist() == [0, 0]
         assert empty_cells["mean"].isna().all()
-        assert session.observe(outputs, by=(day, region), where=empty).compute().to_pandas().empty
-        assert (
-            session.observe(outputs, by=(day,), where=created.within(empty))
-            .compute()
-            .to_pandas()
-            .empty
-        )
+        assert session.observe(outputs, by=(empty.by(day), region)).compute().to_pandas().empty
+        assert session.observe(
+            outputs, by=(empty.by(day),), where=created.within(empty)
+        ).compute().to_pandas()["sum"].tolist() == [0, 0]
 
         (tmp_path / "models").rename(tmp_path / "models.offline")
         (tmp_path / "source.duckdb").rename(tmp_path / "source.offline")
@@ -446,18 +427,18 @@ def test_custom_report_grain_preserves_certification_and_date_membership(
     gmv = session.catalog.get("metric:sales.gmv")
     assert isinstance(events, ms.TimeDimension) and isinstance(gmv, ms.Metric)
     one_period = calendar.period("fiscal_week", "M1-W1")
-    with pytest.raises(AnalysisError, match="one complete certified period") as missing_scope:
-        session.observe(gmv, by=(week,))
+    with pytest.raises(AnalysisError, match="CalendarAxis") as missing_scope:
+        session.observe(gmv, by=(week,))  # type: ignore[arg-type]
     assert missing_scope.value.repair is not None
     assert missing_scope.value.repair.help_target.canonical_id == "session.observe"
-    assert "where=scope" in missing_scope.value.repair.action
-    frame = session.observe(gmv, where=one_period, by=(week,)).compute()
+    assert "scope.by(grain)" in missing_scope.value.repair.action
+    frame = session.observe(gmv, by=(one_period.by(week),)).compute()
     assert frame.to_pandas()["gmv"].tolist() == [10]
     assert frozen_coordinates(frame)[0].rows["selection"].tolist() == ["full"]
     for end_text in ("2026-01-05", "2026-01-15"):
-        with pytest.raises(AnalysisError, match="one complete custom calendar period"):
+        with pytest.raises(ValueError, match="one complete custom calendar period"):
             session.observe(
-                gmv, where=session.time_scope(start="2026-01-01", end=end_text), by=(week,)
+                gmv, by=(session.time_scope(start="2026-01-01", end=end_text).by(week),)
             )
 
     from marivo._temporal import certify_period_calendar_rows, semantic_grain
@@ -478,5 +459,5 @@ def test_custom_report_grain_preserves_certification_and_date_membership(
         ),
     )
     bad_grain = semantic_grain(calendar=calendar_ref, level="fiscal_week", snapshot=conflicting)
-    with pytest.raises(AnalysisError, match="same certified snapshot"):
-        session.observe(gmv, where=one_period, by=(bad_grain,))
+    with pytest.raises(ValueError, match="different calendar snapshot"):
+        session.observe(gmv, by=(one_period.by(bad_grain),))

@@ -59,7 +59,8 @@ checklist requiring additional queries:
   changes; distinguish percent change from percentage points, and qualify
   comparisons with small or near-zero baselines.
 - Keep population selection, contribution time, report time and internal sample
-  time distinct. Choose the report scope and Grain for the requested result.
+  time distinct. Use a report TimeScope for range-only totals or an explicit
+  CalendarAxis for time grouping.
   Treat explicit field predicates as fixed source constraints. A window can
   read earlier contributions while preserving those constraints and the chosen
   output coordinates. Incomplete or unknown source coverage cannot establish absence.

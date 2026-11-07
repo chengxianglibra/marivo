@@ -20,7 +20,7 @@ class Grouping(ABC):
 
     Obtain values from ``mv.identity``, ``mv.membership``, ``scope.by`` or
     ``population.axes``. Pass ordinary grouping rules in ``observe(..., by=(grouping,))``
-    or ``Metric.per(grouping)`` where supported. Use calendar coordinates in
+    or ``Metric.per(grouping)`` where supported. Pass CalendarAxis directly in observe.by or use calendar coordinates in
     a complete Population.
     Membership expands its full ordered field tuple;
     explicit non-first fields can locate interleaved coordinates.

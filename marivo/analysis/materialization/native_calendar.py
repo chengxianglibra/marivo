@@ -33,6 +33,7 @@ from marivo.analysis.core.artifact_data import (
     NamedCalendarData,
     OutputAttachment,
 )
+from marivo.analysis.core.calendar_keys import require_window_endpoints, window_endpoint_keys
 from marivo.analysis.core.graph import BoundGraph
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.temporal_sql import lower_temporal
@@ -295,6 +296,19 @@ def _source_output_calendar(
             )
             for entry in origin.entries
         )
+        matched_targets = tuple(
+            entry.target_identity for entry in entries if isinstance(entry, TimeShiftMatch)
+        )
+        if len({entry.origin_identity for entry in entries}) != len(entries) or len(
+            set(matched_targets)
+        ) != len(matched_targets):
+            raise MaterializationError(
+                expected="one-to-one native keys for the complete direct shift relation",
+                received="native calendar rebinding collapsed distinct shift endpoints",
+                repair="Use a reporting calendar whose selected endpoints retain distinct "
+                "native identities, or observe the domains separately.",
+                stage="calendar_execution",
+            )
         origin = CalendarOrigin(native_origin, origin.kind, origin.by, entries)
     return (
         replace(
@@ -567,6 +581,27 @@ def bind_native_calendars(
             )
     if not by_owner:
         return graph
+    coordinates = tuple(by_owner.values())
+    if any(coordinate.origin != coordinates[0].origin for coordinate in coordinates[1:]):
+        raise MaterializationError(
+            expected="one consistent native direct shift relation across contributing executors",
+            received="native calendar origins or target mappings disagree",
+            repair="Observe the executor-specific domains separately and compare their fixed "
+            "Frames only with a supported explicit correspondence.",
+            stage="calendar_execution",
+        )
+    interpretations: dict[datetime, tuple[tuple[datetime, ...], tuple[str, ...]]] = {}
+    for coordinate in coordinates:
+        for cell, civil in zip(coordinate.cells, coordinate.civil_bounds, strict=True):
+            interpretation = (cell, civil)
+            if cell[0] in interpretations and interpretations[cell[0]] != interpretation:
+                raise MaterializationError(
+                    expected="one complete native bucket interpretation for each output key",
+                    received=f"conflicting calendar boundaries or progress at {cell[0]}",
+                    repair="Observe the conflicting native calendar domains separately.",
+                    stage="calendar_execution",
+                )
+            interpretations[cell[0]] = interpretation
     positions = {
         cell[0]: (cell, civil)
         for coordinate in by_owner.values()
@@ -580,7 +615,7 @@ def bind_native_calendars(
         ranges=_merge_time_ranges(
             tuple(bound for value in by_owner.values() for bound in value.ranges)
         ),
-        origin=next(iter(by_owner.values())).origin,
+        origin=coordinates[0].origin,
     )
     rebound = _replace_calendar(graph, original, calendar)
     assert isinstance(rebound, BoundGraph)
@@ -653,6 +688,12 @@ def freeze_output_calendars(
     attachments: list[OutputAttachment] = []
     for coordinate, axis in zip(graph.signature.axes, schema.axes, strict=True):
         if isinstance(coordinate, CalendarCoordinate):
+            observation = graph.signature.observation
+            if observation is not None:
+                require_window_endpoints(
+                    rows[axis.columns[0].slot_id],
+                    window_endpoint_keys(observation.contributions),
+                )
             assert isinstance(axis, CalendarDataAxis) and axis.frozen is not None
             captured = {cell[0] for cell in coordinate.cells}
             extra = sorted({_point(value) for value in rows[axis.columns[0].slot_id]} - captured)
@@ -733,6 +774,24 @@ def freeze_output_calendars(
                 if isinstance(axis.frozen.definition, NamedCalendarData)
                 else None,
             )
+            if frozen.axis.frozen is not None and frozen.axis.frozen.direct is not None:
+                from marivo.analysis.core.frozen_calendar import (
+                    read_calendar_directory,
+                    read_direct_mapping,
+                )
+
+                direct = frozen.axis.frozen.direct
+                assert direct.axis.frozen is not None
+                tables = {part.name: part for part in frozen.additional}
+                origin_table = tables[direct.axis.frozen.directory_name]
+                origin = read_calendar_directory(
+                    direct.axis, origin_table.schema, origin_table.rows
+                )
+                target = read_calendar_directory(
+                    frozen.axis, frozen.directory.schema, frozen.directory.rows
+                )
+                mapping = tables[direct.mapping_name]
+                read_direct_mapping(frozen.axis, mapping.schema, mapping.rows, origin, target)
             axes.append(frozen.axis)
             attachments.extend(frozen.attachments)
         elif isinstance(coordinate, IntervalCoordinate):

@@ -26,8 +26,8 @@ scope = session.time_scope(start=start, end=end)
 day = mv.grain("day")
 conditioned = session.observe(
     {"combined": metric + metric},
-    by=(day, group),
-    where=(scope, group == selected_value),
+    by=(scope.by(day), group),
+    where=group == selected_value,
 ).compute()
 conditioned.show()
 ```
@@ -110,8 +110,8 @@ over time needs intentionally repeated time coordinates. The final block in
 ```python
 scope = session.time_scope(start=start, end=end)
 day = mv.grain("day")
-series = session.observe({"value": metric}, by=(day, group), where=scope).compute()
-composed = session.observe({"value": metric + metric}, by=(day, group), where=scope).compute()
+series = session.observe({"value": metric}, by=(scope.by(day), group)).compute()
+composed = session.observe({"value": metric + metric}, by=(scope.by(day), group)).compute()
 paired = series.align(
     composed,
     on=((series.axes[0], composed.axes[0]), (series.axes[1], composed.axes[1])),

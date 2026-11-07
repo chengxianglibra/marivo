@@ -117,7 +117,7 @@ def test_weekly_calendar_samples_use_actual_days_and_finish_daily_p95(
         "nested": revenue.per(mv.grain("hour")).max().per(mv.grain("day")).mean(),
     }
     rows = (
-        session.observe({name: metrics[name]}, by=(mv.grain("week"), region), where=weeks_scope)
+        session.observe({name: metrics[name]}, by=(weeks_scope.by(mv.grain("week")), region))
         .compute()
         .to_pandas()
     )
@@ -126,8 +126,7 @@ def test_weekly_calendar_samples_use_actual_days_and_finish_daily_p95(
     if name == "ratio_mean":
         assert session.observe(
             {"v": (revenue / facts.count(time=point)).per(mv.grain("day")).mean(nulls="error")},
-            by=(mv.grain("week"),),
-            where=weeks_scope,
+            by=(weeks_scope.by(mv.grain("week")),),
         ).compute().to_pandas()["v"].tolist() == [70]
 
 
@@ -140,14 +139,14 @@ def test_calendar_samples_clip_partial_month_edges_and_plain_scope(
     metric = amount.sum(time=point).per(mv.grain("day")).mean()
     scope = session.time_scope(start="2026-10-05T06:00:00", end="2026-11-02T06:00:00")
     monthly = (
-        session.observe({"v": metric}, by=(mv.grain("month"),), where=scope).compute().to_pandas()
+        session.observe({"v": metric}, by=(scope.by(mv.grain("month")),)).compute().to_pandas()
     )
     assert monthly["v"].tolist() == pytest.approx([550 / 4, 125])
     whole = session.observe({"v": metric}, where=scope).compute().to_pandas()
     assert whole["v"].tolist() == pytest.approx([800 / 6])
     empty_scope = session.time_scope(start="2026-10-12", end="2026-10-19")
     assert (
-        session.observe({"v": metric}, by=(mv.grain("week"),), where=empty_scope)
+        session.observe({"v": metric}, by=(empty_scope.by(mv.grain("week")),))
         .compute()
         .to_pandas()["v"]
         .isna()
@@ -163,7 +162,7 @@ def test_calendar_samples_bucket_each_component_by_its_own_clock(calendar_sessio
     metric = (amount.sum(time=point) + amount.sum(time=other)).per(mv.grain("day")).max()
     scope_scope = session.time_scope(start="2026-10-05", end="2026-10-12")
     assert session.observe(
-        {"v": metric}, by=(mv.grain("week"),), where=scope_scope
+        {"v": metric}, by=(scope_scope.by(mv.grain("week")),)
     ).compute().to_pandas()["v"].tolist() == [300]
 
 
@@ -183,8 +182,7 @@ def test_final_completion_keeps_empty_policies_and_historical_window_values(
                 "sample_mean": total.per(mv.grain("hour")).mean(),
                 "history": total.window(mv.trailing_duration(duration=timedelta(days=2))),
             },
-            by=(mv.grain("day"),),
-            where=days_scope,
+            by=(days_scope.by(mv.grain("day")),),
         )
         .compute()
         .to_pandas()
@@ -208,7 +206,7 @@ def test_actual_null_sample_is_retained_while_missing_samples_are_absent(
     metric = amount.sum(time=point)
     days_scope = session.time_scope(start="2027-01-01", end="2027-01-03")
     rows = (
-        session.observe({"v": metric + 1}, by=(mv.grain("day"),), where=days_scope)
+        session.observe({"v": metric + 1}, by=(days_scope.by(mv.grain("day")),))
         .compute()
         .to_pandas()
     )
@@ -237,7 +235,7 @@ def test_calendar_sample_binding_errors_are_structured(calendar_session: Session
     month = scope.by(mv.grain("month"))
     with pytest.raises(CoreRuleError) as captured:
         session.observe(
-            {"v": metric.per(mv.grain("week")).mean()}, by=(mv.grain("month"),), where=scope
+            {"v": metric.per(mv.grain("week")).mean()}, by=(scope.by(mv.grain("month")),)
         )
     assert "static" in (captured.value.expected or "")
     assert "week" in (captured.value.received or "")
@@ -318,8 +316,7 @@ def test_calendar_sample_mean_uses_present_hours_during_dst(calendar_session: Se
     rows = (
         session.observe(
             {"v": amount.sum(time=point).per(mv.grain("hour")).mean()},
-            by=(mv.grain("day"),),
-            where=day_scope,
+            by=(day_scope.by(mv.grain("day")),),
         )
         .compute()
         .to_pandas()
@@ -350,12 +347,12 @@ def test_calendar_sample_windows_reject_instead_of_silently_ignoring_rules(
     # Inner all-history values would be [40, 100, 100, 260, 260, 260, 560]
     # or seven copies of 560 in the empty week. Returning 560 or 0 ignores the rule.
     with pytest.raises(CoreRuleError) as captured:
-        session.observe({"v": metric}, by=(mv.grain("week"),), where=scope_scope)
+        session.observe({"v": metric}, by=(scope_scope.by(mv.grain("week")),))
     error = captured.value
     assert "window" in (error.expected or "").lower()
     assert "calendar" in (error.received or "").lower()
     assert error.repair
-    assert "report Grain" in error.repair.action
+    assert "CalendarAxis" in error.repair.action
     if placement == "wrapping":
         assert "cannot be windowed" in error.repair.action
 
@@ -395,8 +392,7 @@ def test_calendar_folds_and_windows_on_independent_branches_keep_their_values(
                 "v": revenue.per(mv.grain("day")).sum()
                 + revenue.window(mv.all_history()).per(point).sum()
             },
-            by=(mv.grain("week"),),
-            where=weeks_scope,
+            by=(weeks_scope.by(mv.grain("week")),),
         )
         .compute()
         .to_pandas()

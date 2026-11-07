@@ -133,8 +133,8 @@ The public entry points are `marivo.help`, `marivo.datasource`,
   contracts. Measure and Metric declarations take zero arguments and return
   typed row and Metric expressions. A source reduction fixes its contribution
   time through an explicit field or the sole contribution Entity's default.
-  Composed Metrics keep each branch's contribution time. A report scope or
-  Grain requires contribution time on every branch.
+  Composed Metrics keep each branch's contribution time. A report TimeScope or
+  CalendarAxis requires contribution time on every branch.
   Measure and Metric declarations cannot execute arbitrary Python, accept Ibis
   tables, or use `ms.bind`. Decorator bodies remain restricted by
   `marivo/semantic/validator.py`.

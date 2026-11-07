@@ -306,8 +306,8 @@ def test_hour_prefix_public_filters_prune_both_iceberg_partitions(
                         if mode in ("scope", "calendar"):
                             frame = session.observe(
                                 metrics,
-                                by=(mv.grain("hour"),) if mode == "calendar" else (),
-                                where=scope,
+                                by=(scope.by(mv.grain("hour")),) if mode == "calendar" else (),
+                                where=None if mode == "calendar" else scope,
                             )
                         else:
                             predicate = hour.within(scope)
@@ -369,8 +369,8 @@ def test_hour_prefix_public_filters_prune_both_iceberg_partitions(
                             if mode in ("scope", "calendar"):
                                 frame = session.observe(
                                     metrics,
-                                    by=(mv.grain("day"),) if mode == "calendar" else (),
-                                    where=scope,
+                                    by=(scope.by(mv.grain("day")),) if mode == "calendar" else (),
+                                    where=None if mode == "calendar" else scope,
                                 )
                             else:
                                 predicate = hour.within(scope)

@@ -42,7 +42,7 @@ def period_produce(root: Path, name: str) -> None:
     periods_scope = session.time_scope(start="2027-01-01", end="2027-03-01")
     periods = periods_scope.by(mv.grain("month"))
     metric = amount.sum(time=stamp)
-    current = session.observe({"total": metric}, by=(mv.grain("month"),), where=periods_scope)
+    current = session.observe({"total": metric}, by=(periods_scope.by(mv.grain("month")),))
     baseline = session.observe(
         {"total": metric}, by=time_population(periods.shift(mv.offset(years=-1)))
     )

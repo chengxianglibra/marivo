@@ -125,8 +125,7 @@ def _observe(
 ) -> mv.AnalysisFrame:
     return session.observe(
         {"value": catalog_value(session.catalog, metric, kind="metric")},
-        by=(mv.grain("day"),),
-        where=session.time_scope(start=start, end=end),
+        by=(session.time_scope(start=start, end=end).by(mv.grain("day")),),
     ).compute()
 
 

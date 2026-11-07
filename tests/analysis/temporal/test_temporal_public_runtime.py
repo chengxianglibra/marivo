@@ -67,7 +67,7 @@ def test_report_day_buckets_preserve_declared_read_time_authority(
     grid_scope = session.time_scope(start="2026-07-01", end="2026-07-03")
     metric = session.catalog.get("metric:sales.revenue")
     assert metric.kind == "metric"
-    logical = session.observe({"value": metric}, by=(mv.grain("day"),), where=grid_scope)
+    logical = session.observe({"value": metric}, by=(grid_scope.by(mv.grain("day")),))
     assert terminal_runs(session) == ()
     frame = logical.compute()
     result = frame.to_pandas(time_details=True)

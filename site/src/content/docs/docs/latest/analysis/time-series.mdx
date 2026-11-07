@@ -44,18 +44,16 @@ from analysis import mv, session, revenue, amount, region, august
 
 ```python
 day = mv.grain("day")
-daily = session.observe({"revenue": revenue}, where=august, by=(day,)).compute()
+daily = session.observe({"revenue": revenue}, by=(august.by(day),)).compute()
 sum_of_days = daily.reduce({"sum_of_days": daily["revenue"].sum()}).compute()
 sum_of_days.show()
-monthly_source = session.observe(
-    {"revenue": revenue}, where=august, by=(mv.grain("month"),)
-).compute()
+monthly_source = session.observe({"revenue": revenue}, by=(august.by(mv.grain("month")),)).compute()
 monthly_source.show()
 ```
 
 Calendar buckets use the actual executor's native keys. With a report scope,
 ordinary output retains both generated and observed positions and fills missing
-positions. With a built-in Grain alone, it returns only observed positions. The key and civil label do not promise a contiguous UTC member range.
+positions. Pass a CalendarAxis in by; bare Grain inputs reject. The key and civil label do not promise a contiguous UTC member range.
 `read_periods()` exposes saved order and selection progress. Builtin day/week/month
 use native civil truncation; subday widths align to local midnight. Custom calendar
 output requires an explicit scope selecting exactly one complete certified period; multiple or partial periods
@@ -68,13 +66,11 @@ from datetime import timedelta
 
 rolling = session.observe(
     {"revenue": revenue.window(mv.trailing_duration(duration=timedelta(days=7)))},
-    where=august,
-    by=(day,),
+    by=(august.by(day),),
 ).compute()
 month_to_date = session.observe(
     {"revenue": revenue.window(mv.to_date(grain=mv.grain("month")))},
-    where=august,
-    by=(day,),
+    by=(august.by(day),),
 ).compute()
 rolling.show()
 month_to_date.show()
@@ -85,8 +81,10 @@ month_to_date.show()
 ```python
 current_scope = session.time_scope(start="2026-08-01", end="2026-08-04")
 prior_scope = session.time_scope(start="2026-07-01", end="2026-07-04")
-current_daily = session.observe({"revenue": revenue}, where=current_scope, by=(mv.grain("day"),)).compute()
-prior_daily = session.observe({"revenue": revenue}, where=prior_scope, by=(mv.grain("day"),)).compute()
+current_daily = session.observe(
+    {"revenue": revenue}, by=(current_scope.by(mv.grain("day")),)
+).compute()
+prior_daily = session.observe({"revenue": revenue}, by=(prior_scope.by(mv.grain("day")),)).compute()
 comparison = current_daily.compare(
     {"reference": mv.baseline(prior_daily, match=mv.ordinal())}
 ).compute()
@@ -97,11 +95,10 @@ comparison.show()
 
 ```python
 months = session.time_scope(start="2026-08-01", end="2026-08-20").by(mv.grain("month"))
-unit = mv.coordinates(by=(), keys=((),))
-current_progress = session.observe({"revenue": revenue}, by=mv.product(months, unit))
+current_progress = session.observe({"revenue": revenue}, by=(months,))
 previous_progress = session.observe(
     {"revenue": revenue},
-    by=mv.product(months.shift(mv.offset(periods=-1)), unit),
+    by=(months.shift(mv.offset(periods=-1)),),
 )
 progress = current_progress.compare({"mom": mv.baseline(previous_progress)}).compute()
 progress.show()
@@ -202,7 +199,7 @@ contributions is still a sample. A missing day adds no sample.
 ```python
 week = mv.grain("week")
 daily_average = revenue.per(mv.grain("day")).mean()
-folded = session.observe({"daily_average": daily_average}, where=august, by=(week, region)).compute()
+folded = session.observe({"daily_average": daily_average}, by=(august.by(week), region)).compute()
 folded.show()
 ```
 
@@ -214,7 +211,7 @@ is static: day in week/month is valid; week in month rejects. Divisible subday
 widths, month in quarter/year and quarter in year are supported at every layer.
 Undefined custom hierarchies reject; one complete certified custom period may be
 sampled under a compatible report TimeScope. The Grain in `per` selects internal
-sample buckets; the Grain in `observe(by=...)` selects report buckets. Help: `semantic.metric.per`.
+sample buckets; the CalendarAxis in `observe(by=...)` selects report buckets. Help: `semantic.metric.per`.
 
 Semantic grains from `ms.calendar_grain(...)` bind to the Session's current
 certified calendar snapshot. Declared calendar folds require calendar
@@ -237,11 +234,12 @@ amount = session.catalog.get("measure:sales.facts.amount")
 historical = label.via((route,)).at(control)
 scope = session.time_scope(start="2026-08-25", end="2026-09-08")
 day = mv.grain("day")
-daily = session.observe({"value": amount.sum(time=control)}, where=scope, by=(day, historical)).compute()
+daily = session.observe(
+    {"value": amount.sum(time=control)}, by=(scope.by(day), historical)
+).compute()
 restated = session.observe(
     {"value": amount.sum(time=control)},
-    where=scope,
-    by=(day, label.via((route,)).at(session.instant("2026-09-03T00:00:00+00:00"))),
+    by=(scope.by(day), label.via((route,)).at(session.instant("2026-09-03T00:00:00+00:00"))),
 ).compute()
 ```
 
@@ -270,3 +268,19 @@ facts = daily.schema.source_times
 for fact in facts:
     print(fact.axis, fact.kind, fact.consumption_timezone)
 ```
+
+## Mixed windows and shifted output domains
+
+Ordinary and windowed Metrics discover categories jointly, including categories
+represented only in lookback history. Selected endpoints stay fixed. Every final
+time key needs an endpoint on each window branch; an extra ordinary key without
+one causes an error. A defined endpoint without facts still uses the reducer's
+empty-result rule. This also applies to mixed formulas.
+
+Shifted observations retain their exact sparse selection and direct relation.
+An extra native key without a shift mapping, conflicting native bucket meanings,
+or incomplete mapping coverage rejects before completion or publication. A legal
+missing target period remains absent, rather than becoming a zero-valued bucket.
+Automatic compare requires the current directory to match the baseline's saved
+immediate origin; independently valid results can still need an explicit supported
+correspondence. Completed and reopened comparisons use saved data without rereading sources.

@@ -298,8 +298,7 @@ def test_coarser_calendar_requires_explicit_source_observation(
     month_scope = case.session.time_scope(start="2026-08-01", end="2026-09-01")
     coarse = case.session.observe(
         {"value": _metric(case.session.catalog, "metric:sales.revenue")},
-        by=(mv.grain("month"),),
-        where=month_scope,
+        by=(month_scope.by(mv.grain("month")),),
     )
     assert coarse.compute().to_pandas()["value"].tolist() == [1000]
     assert daily.reduce({"value": daily["value"].sum()}).compute().to_pandas()[
@@ -425,7 +424,7 @@ def test_cumulative_anchors_ignore_display_start(analysis_dsl_case_factory: DslC
     for rule, expected in rules:
         metric = _metric(session.catalog, "metric:sales.revenue").window(rule)
         result = session.observe(
-            {"value": metric}, by=(mv.grain("month"),), where=calendar_scope
+            {"value": metric}, by=(calendar_scope.by(mv.grain("month")),)
         ).persist()
         assert result.to_pandas()["value"].tolist() == expected
         # This current-row sum consumes both completed endpoints; it never reopens history.
@@ -592,7 +591,7 @@ def test_cumulative_ratio_binds_every_component_to_the_endpoint(
         by=population,
     )
     result = session.observe(
-        {"value": ratio.window(mv.all_history())}, by=(mv.grain("month"),), where=calendar_scope
+        {"value": ratio.window(mv.all_history())}, by=(calendar_scope.by(mv.grain("month")),)
     ).persist()
     assert result.to_pandas()["value"].tolist() == [269.25, 235.2]
     pd.testing.assert_frame_equal(
@@ -708,8 +707,7 @@ def test_fixed_date_windows_keep_authority_on_a_foreign_zone_grid(
     )
     frame = session.observe(
         {"value": _metric(session.catalog, "metric:sales.revenue")},
-        by=(mv.grain("day"),),
-        where=grid_scope,
+        by=(grid_scope.by(mv.grain("day")),),
     ).compute()
     # UTC Aug 2 starts on New York Aug 1; UTC Aug 1 precedes the selected range.
     assert frame.to_pandas()["value"].tolist() == [20, 0]
@@ -812,8 +810,8 @@ def test_observe_help_example_preserves_totals_and_ratio_grain(
     exec(code, namespace)
     result = namespace["result"]
     assert isinstance(result, mv.AnalysisFrame)
-    overall = session.observe(metrics, by=(mv.grain("month"),), where=calendar_scope)
-    detail = session.observe(metrics, by=(mv.grain("month"), field), where=calendar_scope)
+    overall = session.observe(metrics, by=(calendar_scope.by(mv.grain("month")),))
+    detail = session.observe(metrics, by=(calendar_scope.by(mv.grain("month")), field))
     direct = overall.compute().to_pandas()
     observed = result
     assert observed.output_names == ("revenue",)
@@ -861,13 +859,11 @@ def test_non_key_outer_and_top_order_survive_cold_filter_reduce_republish(
     region = catalog_value(session.catalog, "sales.customer.region", kind="dimension")
     current = session.observe(
         {"value": metric},
-        by=(mv.grain("month"), region),
-        where=session.time_scope(start="2026-08-01", end="2026-09-01"),
+        by=(session.time_scope(start="2026-08-01", end="2026-09-01").by(mv.grain("month")), region),
     )
     baseline = session.observe(
         {"value": metric},
-        by=(mv.grain("month"), region),
-        where=session.time_scope(start="2026-07-01", end="2026-08-01"),
+        by=(session.time_scope(start="2026-07-01", end="2026-08-01").by(mv.grain("month")), region),
     )
     left = current.top(2, by=current["value"]).compute()
     right = baseline.top(2, by=baseline["value"]).compute()
@@ -1056,8 +1052,8 @@ def test_calendar_rules_keep_captured_facts_across_carriers(
         end="2025-09-01" if year else "2026-08-01",
     )
     rule = mv.offset(years=-1) if year else mv.offset(periods=-1)
-    left = session.observe({"value": metric}, by=(mv.grain("month"),), where=current_scope)
-    right = session.observe({"value": metric}, by=(mv.grain("month"),), where=previous_scope)
+    left = session.observe({"value": metric}, by=(current_scope.by(mv.grain("month")),))
+    right = session.observe({"value": metric}, by=(previous_scope.by(mv.grain("month")),))
     expected_right = 50 if year else 77
     left_memory, right_memory = left.compute(), right.compute()
     left_saved, right_saved = left_memory.persist(), right_memory.persist()
@@ -1093,8 +1089,7 @@ def test_calendar_rules_keep_captured_facts_across_carriers(
         scalar.compare({"reference": mv.baseline(scalar, match=rule)})
     partial = session.observe(
         {"value": metric},
-        by=(mv.grain("month"),),
-        where=session.time_scope(start="2026-08-15", end="2026-09-01"),
+        by=(session.time_scope(start="2026-08-15", end="2026-09-01").by(mv.grain("month")),),
     ).compute()
     empty_partial = partial.where(partial["value"] > 10000).compute()
     for how in ("exact", "outer"):

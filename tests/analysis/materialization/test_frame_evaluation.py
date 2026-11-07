@@ -729,8 +729,7 @@ def test_source_top_keeps_entire_frozen_calendar_directory(
         session.catalog._state,
         session._runtime.connection_config,
         {"sales": catalog_value(session.catalog, "sales.revenue", kind="metric")},
-        by=(mv.grain("day"),),
-        scope=calendar_scope,
+        by=(calendar_scope.by(mv.grain("day")),),
     )
 
     from marivo.analysis.core import frame_calendar

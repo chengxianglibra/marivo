@@ -101,9 +101,7 @@ def test_day_grain_single_day_scope_is_one_civil_day_bucket(
     ):
         axis_scope = session.time_scope(start="2026-10-28", end="2026-10-29")
         frame = (
-            session.observe(
-                {"total": amount.sum(time=point)}, by=(mv.grain("day"),), where=axis_scope
-            )
+            session.observe({"total": amount.sum(time=point)}, by=(axis_scope.by(mv.grain("day")),))
             .compute()
             .to_pandas()
         )
@@ -127,8 +125,7 @@ def test_five_minute_grid_single_day_scope_has_no_rows_before_the_day(
         totals = (
             session.observe(
                 {"total": amount.sum(time=point)},
-                by=(mv.grain("minute", count=5),),
-                where=axis_scope,
+                by=(axis_scope.by(mv.grain("minute", count=5)),),
             )
             .compute()
             .to_pandas()
@@ -203,8 +200,7 @@ def test_calendar_buckets_follow_civil_boundaries_on_shanghai_server(
         totals = (
             session.observe(
                 {"total": amount.sum(time=point)},
-                by=(mv.grain(unit, count=count),),
-                where=axis_scope,
+                by=(axis_scope.by(mv.grain(unit, count=count)),),
             )
             .compute()
             .to_pandas()
@@ -245,7 +241,7 @@ def test_date_calendar_day_keeps_dates_and_completes_only_missing_days(
         first_submission = len(source_trace.native_sql)
         rows = (
             session.observe(
-                {"total": amount.sum(time=point)}, by=(mv.grain("day"),), where=single_scope
+                {"total": amount.sum(time=point)}, by=(single_scope.by(mv.grain("day")),)
             )
             .compute()
             .to_pandas()
@@ -296,7 +292,7 @@ def test_date_calendar_day_keeps_dates_and_completes_only_missing_days(
 
         axis_scope = session.time_scope(start="2026-10-28", end="2026-10-31")
         frame = session.observe(
-            {"total": amount.sum(time=point)}, by=(mv.grain("day"),), where=axis_scope
+            {"total": amount.sum(time=point)}, by=(axis_scope.by(mv.grain("day")),)
         ).compute()
         rows = frame.to_pandas(time_details=True)
         expected = [pd.Timestamp(f"2026-10-{day}", tz=report_timezone) for day in (28, 29, 30)]
@@ -317,12 +313,12 @@ def test_date_calendar_day_keeps_dates_and_completes_only_missing_days(
             subday_scope = session.time_scope(start="2026-10-28", end=end)
             with pytest.raises(AnalysisError, match="subday calendar"):
                 session.observe(
-                    {"total": amount.sum(time=point)}, by=(mv.grain(unit),), where=subday_scope
+                    {"total": amount.sum(time=point)}, by=(subday_scope.by(mv.grain(unit)),)
                 ).compute()
         partial_scope = session.time_scope(start="2026-10-28T01:00:00", end="2026-10-29")
         with pytest.raises(AnalysisError, match="is not local midnight"):
             session.observe(
-                {"total": amount.sum(time=point)}, by=(mv.grain("day"),), where=partial_scope
+                {"total": amount.sum(time=point)}, by=(partial_scope.by(mv.grain("day")),)
             ).compute()
 
 
@@ -360,7 +356,7 @@ def test_date_calendar_larger_grains_keep_civil_boundaries(
             axis_scope = session.time_scope(start=start, end=end)
             rows = (
                 session.observe(
-                    {"total": amount.sum(time=point)}, by=(mv.grain(unit),), where=axis_scope
+                    {"total": amount.sum(time=point)}, by=(axis_scope.by(mv.grain(unit)),)
                 )
                 .compute()
                 .to_pandas(time_details=True)

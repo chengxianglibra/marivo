@@ -548,8 +548,8 @@ def test_interval_and_calendar_games_reuse_frozen_endpoint_correspondence(
         "sum": x.sum(time=day) * y.sum(time=day),
     }
     if calendar:
-        current = game_session.observe(metrics, by=(mv.grain("day"),), where=current_scope)
-        baseline = game_session.observe(metrics, by=(mv.grain("day"),), where=baseline_scope)
+        current = game_session.observe(metrics, by=(current_scope.by(mv.grain("day")),))
+        baseline = game_session.observe(metrics, by=(baseline_scope.by(mv.grain("day")),))
     else:
         current = game_session.observe(metrics, by=time_population(current_scope))
         baseline = game_session.observe(metrics, by=time_population(baseline_scope))

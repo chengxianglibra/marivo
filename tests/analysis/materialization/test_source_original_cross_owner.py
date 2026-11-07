@@ -103,7 +103,7 @@ def test_calendar_parent_formula_retains_native_integer_boundaries(
     two_day = catalog_value(session.catalog, "sales.two.day", kind="time_dimension")
     days_scope = session.time_scope(start="2026-10-01", end="2026-10-03")
     metric = one.sum(time=one_day) + two.sum(time=two_day)
-    query = session.observe({"net": metric}, by=(mv.grain("day"),), where=days_scope)
+    query = session.observe({"net": metric}, by=(days_scope.by(mv.grain("day")),))
     trace = capture_source(monkeypatch)
     from marivo.analysis.errors import AnalysisError
 
@@ -126,9 +126,7 @@ def test_cross_owner_calendar_missing_days_use_additive_zero(
     metric = one.sum(time=one_day).where(one > 0) - two.sum(time=two_day).where(two > 0)
     query = session.observe({"net": metric}, where=days_scope)
     daily = (
-        session.observe({"net": metric}, by=(mv.grain("day"),), where=days_scope)
-        .compute()
-        .to_pandas()
+        session.observe({"net": metric}, by=(days_scope.by(mv.grain("day")),)).compute().to_pandas()
     )
     assert len(daily) == 2
     assert daily["net"].tolist() == [60, -120]
@@ -154,7 +152,7 @@ def test_plain_calendar_coarsening_recomputes_with_original_clipped_period(
         start="2026-10-01T12:00:00" if partial else "2026-10-01",
         end="2026-10-02T12:00:00" if partial else "2026-11-01",
     )
-    query = session.observe({"total": amount.sum(time=day)}, by=(mv.grain("month"),), where=scope)
+    query = session.observe({"total": amount.sum(time=day)}, by=(scope.by(mv.grain("month")),))
     trace = capture_source(monkeypatch)
     result = query.compute().to_pandas()
     assert result["total"].tolist() == [60 if partial else 120]
@@ -172,7 +170,7 @@ def test_daily_formula_retains_native_integer_boundaries(
     amount = catalog_value(session.catalog, "sales.one.amount", kind="measure")
     day = catalog_value(session.catalog, "sales.one.day", kind="time_dimension")
     scope = session.time_scope(start="2026-10-01", end="2026-11-01")
-    query = session.observe({"value": amount.sum(time=day) + 1}, by=(mv.grain("day"),), where=scope)
+    query = session.observe({"value": amount.sum(time=day) + 1}, by=(scope.by(mv.grain("day")),))
     trace = capture_source(monkeypatch)
     from marivo.analysis.errors import AnalysisError
 
@@ -268,12 +266,12 @@ def test_remote_cross_owner_calendar_compacts_before_global_host_formula(
         metric = one_total + two_total if boundary == "overflow" else one_total - two_total
         query = session.observe(
             {"net": metric},
-            by=(mv.grain("day"),)
+            by=(scope.by(mv.grain("day")),)
             if boundary == "overflow"
-            else (mv.grain("month"),)
+            else (scope.by(mv.grain("month")),)
             if boundary in ("coarsen", "partial")
             else (),
-            where=scope,
+            where=None if boundary in ("overflow", "coarsen", "partial") else scope,
         )
         trace = capture_source(monkeypatch)
         if boundary == "overflow":
@@ -287,3 +285,50 @@ def test_remote_cross_owner_calendar_compacts_before_global_host_formula(
             assert result["net"].tolist() == [-60 if boundary == "partial" else -120]
         assert trace.returned_rows
         assert trace.uploaded_key_rows == []
+
+
+@pytest.mark.parametrize("shifted", [False, True])
+def test_native_calendar_merge_rejects_conflicting_executor_interpretations(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
+    shifted: bool,
+) -> None:
+    from datetime import timedelta
+
+    import pandas as pd
+
+    from marivo.datasource.adapters import CompiledRead, SourceSession
+
+    session = _session(tmp_path, monkeypatch, semantic_project_factory)
+    one = catalog_value(session.catalog, "sales.one.amount", kind="measure")
+    two = catalog_value(session.catalog, "sales.two.amount", kind="measure")
+    one_day = catalog_value(session.catalog, "sales.one.day", kind="time_dimension")
+    two_day = catalog_value(session.catalog, "sales.two.day", kind="time_dimension")
+    axis = session.time_scope(start="2026-10-01", end="2026-11-01").by(mv.grain("month"))
+    if shifted:
+        axis = axis.shift(mv.offset(years=0))
+    execute = SourceSession.execute
+    owners: list[SourceSession] = []
+
+    def change_second_executor(owner: SourceSession, issued: CompiledRead) -> pd.DataFrame:
+        rows = execute(owner, issued)
+        if issued.purpose == "analysis.calendar_index":
+            if owner not in owners:
+                owners.append(owner)
+            if owners.index(owner) == 1:
+                rows = rows.copy()
+                rows["finish"] = rows["finish"] + timedelta(hours=1)
+        return rows
+
+    monkeypatch.setattr(SourceSession, "execute", change_second_executor)
+    expected = (
+        "consistent native direct shift relation"
+        if shifted
+        else "complete native bucket interpretation"
+    )
+    with pytest.raises(AnalysisError, match=expected):
+        session.observe(
+            {"net": one.sum(time=one_day) - two.sum(time=two_day)}, by=(axis,)
+        ).compute()
+    assert len(owners) == 2

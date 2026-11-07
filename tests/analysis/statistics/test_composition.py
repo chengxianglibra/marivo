@@ -49,7 +49,7 @@ def test_direct_score_runs_and_next_business_round(
     time = catalog_value(session.catalog, "sales.order.ordered_at", kind="time_dimension")
     grid_scope = session.time_scope(start="2026-08-01", end="2026-08-04")
     artifact = session.observe(
-        {"value": field.sum(time=time)}, by=(mv.grain("day"),), where=grid_scope
+        {"value": field.sum(time=time)}, by=(grid_scope.by(mv.grain("day")),)
     ).compute()
     exported = artifact.to_pandas()
     assert exported["value"].tolist() == [-2, 2, -2]
@@ -146,13 +146,11 @@ def test_two_separate_axes_and_joint_keep_the_original_target(
     )
     current = session.observe(
         {"value": _metric(session.catalog, "metric:sales.order_count")},
-        by=(mv.grain("month"), *axes),
-        where=session.time_scope(start="2026-08-01", end="2026-09-01"),
+        by=(session.time_scope(start="2026-08-01", end="2026-09-01").by(mv.grain("month")), *axes),
     )
     baseline = session.observe(
         {"value": _metric(session.catalog, "metric:sales.order_count")},
-        by=(mv.grain("month"), *axes),
-        where=session.time_scope(start="2026-07-01", end="2026-08-01"),
+        by=(session.time_scope(start="2026-07-01", end="2026-08-01").by(mv.grain("month")), *axes),
     )
     frame = plain(
         current.compare(

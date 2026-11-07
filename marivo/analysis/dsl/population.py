@@ -832,7 +832,7 @@ def product(
 def product(*factors: Population | Deferred | CalendarAxis | TimeScope) -> Population | Deferred:
     """Form a lazy Cartesian product of disjoint coordinate domains.
 
-    Args: factors: At least two Populations with distinct axes and one owner.
+    Args: factors: At least two Population, CalendarAxis, TimeScope or Deferred factors with distinct axes and compatible owners.
     Returns: A Population for closed factors, or a Deferred parameter for symbols, with complete factor-key combinations.
     Example: ``mv.product(regions, channels)``.
     Constraints: An empty factor makes the complete product empty.

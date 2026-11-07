@@ -89,7 +89,7 @@ def test_source_spatial_rollup_preserves_lookback_and_endpoint_occurrences(
     metric = (total / amount.count(time=ordered_at) if ratio else total).window(mv.all_history())
     trace = capture_source(monkeypatch)
     frame = (
-        session.observe({"value": metric}, by=(mv.grain("day"),), where=calendar_scope)
+        session.observe({"value": metric}, by=(calendar_scope.by(mv.grain("day")),))
         .compute()
         .to_pandas()
     )

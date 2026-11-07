@@ -165,8 +165,8 @@ def _query(
 ) -> BoundGraph:
     metric = catalog_value(session.catalog, f"sales.{name}", kind="metric")
     assert isinstance(metric, (ms.RowExpression, ms.MetricExpression))
-    scope = during.scope if isinstance(during, CalendarAxis) else during
-    axes = (during.grid.grain_spec, *by) if isinstance(during, CalendarAxis) else by
+    scope = None if isinstance(during, CalendarAxis) else during
+    axes = (during, *by) if isinstance(during, CalendarAxis) else by
     condition = where if scope is None else scope if where is None else (scope, where)
     return _source_graph(session.observe({name: metric}, by=axes, where=condition))
 
@@ -558,8 +558,8 @@ def _compute(
     by: tuple[DimensionExpression | Grouping, ...] = (),
     where: RowPredicate | None = None,
 ) -> StageOutput:
-    scope = during.scope if isinstance(during, mv.CalendarAxis) else during
-    axes = (during.grid.grain_spec, *by) if isinstance(during, mv.CalendarAxis) else by
+    scope = None if isinstance(during, mv.CalendarAxis) else during
+    axes = (during, *by) if isinstance(during, mv.CalendarAxis) else by
     condition = where if scope is None else scope if where is None else (scope, where)
     graph = _source_graph(session.observe(metrics, by=axes, where=condition))
     with (

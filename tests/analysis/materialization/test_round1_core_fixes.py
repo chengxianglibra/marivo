@@ -279,7 +279,7 @@ def test_explicit_source_monthly_values(core_session: Session) -> None:
     day = catalog_value(core_session.catalog, "sales.orders.day", kind="time_dimension")
     months_scope = core_session.time_scope(start="2026-01-01", end="2026-03-01")
     current = core_session.observe(
-        {"sales": amount.sum(time=day)}, by=(mv.grain("month"),), where=months_scope
+        {"sales": amount.sum(time=day)}, by=(months_scope.by(mv.grain("month")),)
     ).compute()
     assert current.to_pandas()["sales"].tolist() == [60, 100]
     with duckdb.connect(str(core_session.project_root / "core.duckdb")) as connection:
@@ -288,7 +288,7 @@ def test_explicit_source_monthly_values(core_session: Session) -> None:
         )
     previous_scope = core_session.time_scope(start="2025-01-01", end="2025-03-01")
     baseline = core_session.observe(
-        {"sales": amount.sum(time=day)}, by=(mv.grain("month"),), where=previous_scope
+        {"sales": amount.sum(time=day)}, by=(previous_scope.by(mv.grain("month")),)
     ).compute()
     assert baseline.to_pandas()["sales"].tolist() == [120, 200]
 

@@ -139,13 +139,14 @@ Column comparisons retain their existing types. No DATE subday totals are inferr
 import marivo.analysis as mv
 
 scope = session.time_scope(start="2026-07-01", end="2026-08-01")
-observed = session.observe({"revenue": revenue}, where=scope, by=(mv.grain("day"),)).compute()
+observed = session.observe({"revenue": revenue}, by=(scope.by(mv.grain("day")),)).compute()
 observed.show(n=10)
 ```
 
-A TimeScope selects contributions using each branch's fixed clock. A Grain
-adds a report calendar coordinate. Without a Grain, a range-only total has zero
-axes. Without a TimeScope, the Grain uses the actual observed bucket keys.
+A TimeScope in where selects contributions using each branch's fixed clock,
+without adding a report coordinate. A CalendarAxis in by captures both the
+finite report selection and its grain; it cannot accompany a TimeScope in where.
+Bare Grain inputs in observe.by reject.
 An explicit Population can carry an exact interval or a finite calendar
 coordinate with its own frozen bounds.
 
@@ -221,13 +222,20 @@ progress (`full`, `prefix`, `partial`, or `unavailable`, with a civil cutoff for
 prefix). Labels and nominal ordinals may repeat for distinct actual keys. Genuine
 TimeScope, source-read and window ranges have independent owners.
 
-With a TimeScope and a report Grain, ordinary output completes the union of
-generated positions S and observed keys O. Grain-only output has only O.
+With a CalendarAxis, ordinary output completes the union of generated positions
+S and observed keys O.
 Only missing S keys receive empty-result rows; additional O keys remain present.
 Window output instead uses its explicit endpoint domain. Calendar output never
 creates new category keys. Certified custom output supports exactly one complete
 period; partial, sparse and multiple-period selections reject before business
 reads. Certification remains necessary but does not create an execution map.
+
+When ordinary and windowed Metrics share an observation, their contributions
+jointly discover ordinary classification tuples, including members represented
+only in window history. Final time keys require endpoints on every window
+branch; an extra ordinary key without such an endpoint rejects rather than
+creating a window or filling an undefined position. Empty selected axes remain
+empty. See [observation domains](analysis/populations-and-observation.md#observation-domain-contributions-and-counts).
 
 Builtin `Metric.per(grain)` follows each source branch's contribution time.
 `Metric.per(field, grain=grain)` fixes an explicit native sample field.
@@ -318,6 +326,15 @@ buckets alone neither create rows nor cause failure. Compare outer requires
 actual baseline time rows to map into the current declared domain; general
 two-ended time unions belong to align. The complete correspondence and presence
 rules are owned by [AnalysisFrame](analysis/analysis-frame.md#correspondence-and-comparison).
+
+Native execution must preserve complete direct-map coverage through calendar
+merging and output completion. A baseline target directory containing an extra
+unmapped key, a target collision or conflicting executor relations rejects
+before the Frame completes or publishes. A legal missing period/cutoff remains
+an explicit absence, including an empty target directory with complete origin
+records. Automatic compare additionally requires the actual current directory
+to equal that saved origin; independently valid current results need not qualify
+for inferred matching. Explicit match cannot repair an invalid saved map.
 
 Frozen calendar directories retain actual keys, civil labels, order and selection
 progress, plus explicit finite shift correspondences. Equality compares actual

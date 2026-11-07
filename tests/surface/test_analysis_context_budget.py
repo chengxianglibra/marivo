@@ -191,8 +191,7 @@ def test_task_context_budget(analysis_dsl_case_factory: DslCaseFactory) -> None:
     forecast_session = mv.session.get_or_create("context-budget-forecast", timezone="UTC")
     daily = forecast_session.observe(
         {"value": catalog_value(forecast_session.catalog, "sales.total_0", kind="metric")},
-        where=forecast_session.time_scope(start="2026-08-01", end="2026-08-04"),
-        by=(mv.grain("day"),),
+        by=(forecast_session.time_scope(start="2026-08-01", end="2026-08-04").by(mv.grain("day")),),
     )
     trace = traces["drift"] = Trace(case.root)
     trace.help("analysis.session.observe")

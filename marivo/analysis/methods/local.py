@@ -11,7 +11,7 @@ import pyarrow as pa
 
 from marivo.analysis.compiler.graph_plan import LocalCompute
 from marivo.analysis.compiler.observation import FormulaProgram
-from marivo.analysis.core.calendar_keys import time_key_series
+from marivo.analysis.core.calendar_keys import require_window_endpoints, time_key_series
 from marivo.analysis.core.data_types import DataColumn, DecimalDataType, ScalarDataType
 from marivo.analysis.core.unique_keys import UniqueKeys
 
@@ -365,6 +365,9 @@ def _combine_program(
                     help_target="session.observe",
                 )
         domain = complete_domain.drop_duplicates().reset_index(drop=True)
+
+    if program.window_endpoints and program.calendar_key in domain:
+        require_window_endpoints(domain[program.calendar_key], program.window_endpoints)
     declarations = dict(program.declared)
     type_values = {
         binding.occurrence: NumericValue(ibis.literal(None).cast(ibis_type(binding.column.dtype)))

@@ -37,8 +37,7 @@ def test_three_quantity_search_and_forecast_views(
             str(i): catalog_value(session.catalog, f"sales.total_{i}", kind="metric")
             for i in (0, 1, 5)
         },
-        by=(mv.grain("day"),),
-        where=grid_scope,
+        by=(grid_scope.by(mv.grain("day")),),
     ).persist()
     frame = plain(artifact)
     assert frame["0"].tolist() == [1, 2, 7]

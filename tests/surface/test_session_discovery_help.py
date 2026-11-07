@@ -94,12 +94,12 @@ def test_observe_help_distinguishes_field_axes_from_session_identity(
 ) -> None:
     show_help("analysis.session.observe")
     text = capsys.readouterr().out
-    assert "() gives one zero-axis cell" in text
+    assert "() gives one cell" in text
     assert "contribution time on every Metric branch" in text
-    assert "by=P keeps complete keys" in text
+    assert "by=P retains complete keys" in text
     assert "A scope alone adds no output axis" in text
     assert "Windows need report endpoints" in text
-    assert "custom calendar Grain needs one complete certified period" in text
+    assert "Custom axes need one complete certified period" in text
     assert "Input during:" not in text and "Input members:" not in text
     show_help("analysis.population.count")
     assert "declared identities without facts still count" in capsys.readouterr().out

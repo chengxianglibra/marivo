@@ -42,16 +42,16 @@ august_revenue = session.observe(
 
 ## 将窗口附着到 Metric
 
-先将窗口规则附加到 `Metric`，再通过 `where` 指定范围，并在 `by` 中指定 Grain。下面示例使用共享设置中的 `august`：
+先将窗口规则附加到 `Metric`，再在 `by` 中传入显式 CalendarAxis；范围合计则使用 `where=scope`。下面示例使用共享设置中的 `august`：
 
 ```python
 from datetime import timedelta
 
 day = mv.grain("day")
 rolling = revenue.window(mv.trailing_duration(duration=timedelta(days=7)))
-rolling_daily = session.observe({"revenue": rolling}, where=august, by=(day,)).compute()
+rolling_daily = session.observe({"revenue": rolling}, by=(august.by(day),)).compute()
 month_to_date = revenue.window(mv.to_date(grain=mv.grain("month")))
-mtd_daily = session.observe({"revenue": month_to_date}, where=august, by=(day,)).compute()
+mtd_daily = session.observe({"revenue": month_to_date}, by=(august.by(day),)).compute()
 ```
 
 `trailing_duration` 按实际经过时长计算，七天即 168 小时。`to_date` 从每个所选自然月的起点重新累计。来源数据须包含窗口所需的回溯历史，因为滚动窗口可能早于展示期间。对每日结果行求和，不能代替在月粒度重新观察比率或去重数 Metric。

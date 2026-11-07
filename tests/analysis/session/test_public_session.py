@@ -103,6 +103,6 @@ def test_public_calendar_snapshot_is_captured_before_pure_construction(
     snapshots = session._sources().period_calendar_snapshots
     assert len(snapshots) == 1
     assert snapshots[0].period_scope("fiscal_week", "M1-W1") == scope
-    frame = session.observe({"gmv": metric}, by=(grain,), where=scope)
+    frame = session.observe({"gmv": metric}, by=(scope.by(grain),))
     assert isinstance(frame, mv.AnalysisFrame)
     assert terminal_runs(session) == ()

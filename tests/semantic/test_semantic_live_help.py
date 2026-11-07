@@ -692,7 +692,7 @@ def test_metric_definition_help_explains_time_choices(capsys: pytest.CaptureFixt
     assert "zero-parameter" in page
     assert "time=field" in page and "default_time" in page
     assert "Composed Metrics retain their branch clocks" in page
-    assert "where=scope or by=(grain,)" in page
+    assert "where=scope or by=(scope.by(grain),)" in page
     assert "where=field.within(scope)" in page
     assert "TimeParameter" not in page
     assert "bind_time" not in page

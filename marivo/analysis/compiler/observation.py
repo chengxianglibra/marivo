@@ -127,6 +127,7 @@ class FormulaProgram:
     parent_slots: tuple[str, ...] = ()
     population_checked: bool = False
     calendar_samples: tuple[tuple[tuple[int, ...], CalendarSample], ...] = ()
+    window_endpoints: tuple[tuple[tuple[int, ...], tuple[datetime, ...]], ...] = ()
 
 
 def calendar_field(slot: str) -> str:

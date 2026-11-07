@@ -460,13 +460,13 @@ def test_mixed_component_attribution_source_and_fixed(
     outputs = {name: metrics[name] for name in methods}
     current = session.observe(
         outputs,
-        by=(mv.grain("month"), axis),
-        where=(session.time_scope(start="2026-08-01", end="2026-09-01"), mv.in_population(members)),
+        by=(session.time_scope(start="2026-08-01", end="2026-09-01").by(mv.grain("month")), axis),
+        where=mv.in_population(members),
     )
     baseline = session.observe(
         outputs,
-        by=(mv.grain("month"), axis),
-        where=(session.time_scope(start="2026-07-01", end="2026-08-01"), mv.in_population(members)),
+        by=(session.time_scope(start="2026-07-01", end="2026-08-01").by(mv.grain("month")), axis),
+        where=mv.in_population(members),
     )
     changed = current.compare(
         {
@@ -566,13 +566,13 @@ def test_narrow_decimal_mean_difference_preserves_fixed_attribution_carrier(
     metric = _metric(session.catalog, "metric:sales.mean")
     current = session.observe(
         {"value": metric},
-        by=(mv.grain("month"), axis),
-        where=(session.time_scope(start="2026-08-01", end="2026-09-01"), mv.in_population(members)),
+        by=(session.time_scope(start="2026-08-01", end="2026-09-01").by(mv.grain("month")), axis),
+        where=mv.in_population(members),
     )
     baseline = session.observe(
         {"value": metric},
-        by=(mv.grain("month"), axis),
-        where=(session.time_scope(start="2026-07-01", end="2026-08-01"), mv.in_population(members)),
+        by=(session.time_scope(start="2026-07-01", end="2026-08-01").by(mv.grain("month")), axis),
+        where=mv.in_population(members),
     )
     fixed = current.compare(
         {

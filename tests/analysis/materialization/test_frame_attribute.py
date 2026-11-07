@@ -292,8 +292,8 @@ def test_calendar_tuple_actual_domain_and_complete_fine_population(session: Sess
     channel = catalog_value(session.catalog, "sales.facts.channel", kind="dimension")
     calendar_scope = session.time_scope(start="2026-08-01", end="2026-08-03")
     metric = amount.sum(time=day)
-    fine = session.observe({"q": metric}, by=(mv.grain("day"), channel), where=calendar_scope)
-    parent = session.observe({"q": metric}, by=(mv.grain("day"),), where=calendar_scope).compute()
+    fine = session.observe({"q": metric}, by=(calendar_scope.by(mv.grain("day")), channel))
+    parent = session.observe({"q": metric}, by=(calendar_scope.by(mv.grain("day")),)).compute()
     first_day, second_day = parent.to_pandas(time_details=True).iloc[:, 0]
     actual = parent.attribute(by=(channel,))
     actual = actual.select({"q": actual["contribution.q"]})
@@ -438,12 +438,12 @@ def test_window_parent_calendar_keeps_original_history_scope(session: Session) -
     calendar_scope = session.time_scope(start="2026-08-01", end="2026-08-03")
     metric = amount.sum(time=day).window(mv.all_history())
     unknown_parent = session.observe(
-        {"q": metric}, by=(mv.grain("day"),), where=calendar_scope
+        {"q": metric}, by=(calendar_scope.by(mv.grain("day")),)
     ).compute()
     with pytest.raises(AnalysisError, match="undefined_input"):
         unknown_parent.attribute(by=(channel,)).compute()
     parent = session.observe(
-        {"q": metric}, by=(mv.grain("day"),), where=(calendar_scope, channel != "N")
+        {"q": metric}, by=(calendar_scope.by(mv.grain("day")),), where=channel != "N"
     ).compute()
     rows = parent.attribute(by=(channel,)).compute().to_pandas()
     assert rows["detail.value.q"].dropna().tolist() == [2, 100, 2, 2, 100]
@@ -454,9 +454,7 @@ def test_completed_calendar_top_retains_full_original_directory(session: Session
     day = catalog_value(session.catalog, "sales.facts.day", kind="time_dimension")
     channel = catalog_value(session.catalog, "sales.facts.channel", kind="dimension")
     calendar_scope = session.time_scope(start="2026-08-01", end="2026-08-03")
-    parent = session.observe(
-        {"q": amount.sum(time=day)}, by=(mv.grain("day"),), where=calendar_scope
-    )
+    parent = session.observe({"q": amount.sum(time=day)}, by=(calendar_scope.by(mv.grain("day")),))
     parent = parent.top(1, by=parent["q"]).compute()
     assert parent._derivation is not None
     assert len(parent.read_periods(parent.axes[0]).items) == 2
@@ -477,9 +475,9 @@ def test_paired_missing_endpoint_rejects_contribution_and_remains_visible_in_inv
     august_scope = session.time_scope(start="2026-08-01", end="2026-08-03")
     july_scope = session.time_scope(start="2026-07-01", end="2026-07-02")
     paired = (
-        session.observe({"q": metric}, by=(mv.grain("day"),), where=august_scope)
+        session.observe({"q": metric}, by=(august_scope.by(mv.grain("day")),))
         .align(
-            session.observe({"q": metric}, by=(mv.grain("day"),), where=july_scope),
+            session.observe({"q": metric}, by=(july_scope.by(mv.grain("day")),)),
             match=mv.ordinal(),
         )
         .compute()
@@ -488,8 +486,8 @@ def test_paired_missing_endpoint_rejects_contribution_and_remains_visible_in_inv
     difference = paired.select({"change": paired["left.q"] - paired["right.q"]})
     with pytest.raises(AnalysisError):
         difference.attribute(by=(channel,)).compute()
-    fine_left = session.observe({"q": metric}, by=(mv.grain("day"), channel), where=august_scope)
-    fine_right = session.observe({"q": metric}, by=(mv.grain("day"), channel), where=july_scope)
+    fine_left = session.observe({"q": metric}, by=(august_scope.by(mv.grain("day")), channel))
+    fine_right = session.observe({"q": metric}, by=(july_scope.by(mv.grain("day")), channel))
     fine = fine_left.align(
         fine_right, on=tuple(zip(fine_left.axes, fine_right.axes, strict=True)), match=mv.ordinal()
     ).compute()
@@ -752,7 +750,7 @@ def test_fix_keeps_time_identity_for_attribute(session: Session) -> None:
     channel = catalog_value(session.catalog, "sales.facts.channel", kind="dimension")
     calendar_scope = session.time_scope(start="2026-08-01", end="2026-08-03")
     frame = session.observe(
-        {"q": amount.sum(time=day)}, by=(region, mv.grain("day")), where=calendar_scope
+        {"q": amount.sum(time=day)}, by=(region, calendar_scope.by(mv.grain("day")))
     )
     fixed = frame.fix(frame.axes[0], "east")
     report = fixed.attribute(by=(channel,)).compute().to_pandas()

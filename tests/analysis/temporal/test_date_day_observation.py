@@ -123,7 +123,7 @@ def test_date_day_grouping_keeps_empty_null_and_category_domains(
         }
         if backend in ("duckdb", "postgres", "clickhouse"):
             metrics["quantile"] = amount.quantile(0, time=point)
-        frame = session.observe(metrics, by=(mv.grain("day"), category), where=days_scope).compute()
+        frame = session.observe(metrics, by=(days_scope.by(mv.grain("day")), category)).compute()
         result = frame.to_pandas().sort_values(["calendar:day", "category"]).reset_index(drop=True)
         assert result["calendar:day"].tolist() == [
             pd.Timestamp(day, tz="Asia/Shanghai")
@@ -163,8 +163,7 @@ def test_date_day_grouping_keeps_empty_null_and_category_domains(
         if backend in ("duckdb", "postgres", "clickhouse"):
             strict = session.observe(
                 {"strict": amount.quantile(0, time=point, nulls="error")},
-                by=(mv.grain("day"), category),
-                where=days_scope,
+                by=(days_scope.by(mv.grain("day")), category),
             )
             with pytest.raises(AnalysisError) as error:
                 strict.compute()

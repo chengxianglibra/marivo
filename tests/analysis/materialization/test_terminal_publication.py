@@ -433,9 +433,7 @@ def test_calendar_positions_are_explicit_output_attachment(source_session: Sessi
     session = source_session
     metric = catalog_value(session.catalog, "sales.revenue", kind="metric")
     axis_scope = session.time_scope(start="2026-01-01", end="2026-01-05")
-    artifact = session.observe(
-        {"revenue": metric}, by=(mv.grain("day"),), where=axis_scope
-    ).persist()
+    artifact = session.observe({"revenue": metric}, by=(axis_scope.by(mv.grain("day")),)).persist()
     (attachment,) = committed(artifact).data.attachments
     calendar_axis = artifact._schema.axes[0]
     assert isinstance(calendar_axis, CalendarDataAxis)
@@ -456,7 +454,7 @@ def test_calendar_timezone_survives_private_cold_read(source_session: Session, z
     assert session._catalog_value is None
     assert constant.source_reads == ()
     metric = catalog_value(session.catalog, "sales.revenue", kind="metric")
-    sourced = session.observe({"value": metric}, by=(mv.grain("day"),), where=axis_scope).persist()
+    sourced = session.observe({"value": metric}, by=(axis_scope.by(mv.grain("day")),)).persist()
     script = """from pathlib import Path
 import sys
 import pandas as pd

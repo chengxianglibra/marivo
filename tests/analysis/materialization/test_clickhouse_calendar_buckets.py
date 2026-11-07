@@ -116,7 +116,7 @@ def test_observe_calendar_preserves_bucket_types_boundaries_and_windows(
         metric = amount.sum(time=event_time)
         scope = session.time_scope(start="2026-01-01", end="2026-01-04")
         trace = capture_source(monkeypatch)
-        frame = session.observe({"total": metric}, by=(mv.grain("day"),), where=scope).compute()
+        frame = session.observe({"total": metric}, by=(scope.by(mv.grain("day")),)).compute()
         result = frame.to_pandas(time_details=True)
         assert result["calendar:day.label"].tolist() == ["2026-01-01", "2026-01-02", "2026-01-03"]
         assert result["total"].tolist() == [15, 0, 30]
@@ -150,8 +150,7 @@ def test_observe_calendar_preserves_bucket_types_boundaries_and_windows(
         window = (
             session.observe(
                 {"total": metric.window(mv.trailing_duration(duration=timedelta(days=2)))},
-                by=(mv.grain("day"),),
-                where=scope,
+                by=(scope.by(mv.grain("day")),),
             )
             .compute()
             .to_pandas(time_details=True)

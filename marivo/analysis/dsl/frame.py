@@ -744,7 +744,7 @@ class AnalysisFrame:
 
         Constraints: Requires retained process-local source declarations for every
         direct Metric or admitted comparison target. Select and rename direct outputs.
-        Supply a report TimeScope with a Grain to retain endpoints for attribution.
+        Supply a CalendarAxis to retain endpoints for attribution.
         Define ratio/linear Metrics before observation. Rules bind per target before
         business reads. Admitted paired nonlinear formulas use whole-Metric Shapley
         permutation sampling. Qualified state routes prove the complete domain;

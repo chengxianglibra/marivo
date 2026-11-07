@@ -258,7 +258,7 @@ def provider() -> DisclosureProvider:
                         if name == "get_or_create" and n == "domains"
                         else "Choose an integer from 1 through 100, excluding bool; default 20. Keep the same limit when continuing a cursor."
                         if name == "persisted_frames" and n == "limit"
-                        else "Tuple of Dimensions, non-time Groupings and at most one report Grain; () gives one zero-axis cell. by=P keeps complete keys, even without facts; it does not filter contributions. P must cover necessary output keys before sampling. If P carries time, omit TimeScope in where."
+                        else "Dimensions, non-time Groupings and at most one CalendarAxis in a tuple; () gives one cell. by=P retains complete keys without filtering contributions and must cover necessary output keys before sampling. If by carries time, omit TimeScope in where."
                         if name == "observe" and n == "by"
                         else "Pass resolved fields or field or identity Grouping values; calendar and membership groupings are rejected. Use () for scalar literal rows."
                         if name == "values" and n == "by"
@@ -270,7 +270,7 @@ def provider() -> DisclosureProvider:
                         (
                             "inputs.catalog",
                             "inputs.population",
-                            "grain.define",
+                            "time_scope.by",
                         )
                         if name == "observe" and n == "by"
                         else ("semantic.predicate", "session.time_scope")

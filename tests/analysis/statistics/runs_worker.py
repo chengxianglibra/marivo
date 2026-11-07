@@ -158,7 +158,7 @@ def run(root: Path, phase: str, calendar: bool = False) -> None:
             else mv.grain("day")
         )
         result = session.observe(
-            {"value": _metric(catalog, "metric:sales.maximum")}, by=(grain,), where=scope
+            {"value": _metric(catalog, "metric:sales.maximum")}, by=(scope.by(grain),)
         ).persist()
         assert result.to_pandas()["value"].tolist() == ([7] if calendar else [1, 2, 7])
         manifest_path.write_text(

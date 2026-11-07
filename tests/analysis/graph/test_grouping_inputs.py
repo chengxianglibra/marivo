@@ -77,8 +77,8 @@ def test_calendar_grouping_is_the_unique_output_time_scope(
     assert isinstance(calendar, mv.Grouping) and calendar.kind == "calendar"
     members = session.members(catalog_get(session.catalog, "entity:sales.customer", kind="entity"))
     captured_calendar = mv.product(members, calendar).axes[1]
-    direct = session.observe({"value": metric}, by=(mv.grain("month"),), where=calendar_scope)
-    with pytest.raises(AnalysisError, match="Grain"):
+    direct = session.observe({"value": metric}, by=(calendar_scope.by(mv.grain("month")),))
+    with pytest.raises(AnalysisError, match="CalendarAxis"):
         session.observe({"value": metric}, by=(captured_calendar,))
     assert direct.compute().to_pandas()["value"].tolist() == [1000, 99]
 

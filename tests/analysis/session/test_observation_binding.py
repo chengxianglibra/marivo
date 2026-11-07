@@ -193,8 +193,8 @@ def test_each_fact_occurrence_keeps_its_condition_and_complete_classification(
     scope = session.time_scope(start="2026-01-01", end="2026-02-01")
     query = session.observe(
         {"net": revenue - refunds, "branches": branches},
-        by=(mv.grain("day"), region),
-        where=(scope, region == "APAC"),
+        by=(scope.by(mv.grain("day")), region),
+        where=region == "APAC",
     )
     binding = _captured_observation(query)
     assert binding is not None
@@ -574,7 +574,7 @@ def test_explicit_count_capture_keeps_each_domain_without_reading(
     assert len(_captured_observation(frame).count_populations) == 2
     assert frame.axes == ()
     assert terminal_runs(session) == ()
-    for by, where in (((mv.grain("day"),), None), ((), scope)):
+    for by, where in (((scope.by(mv.grain("day")),), None), ((), scope)):
         with pytest.raises(AnalysisError, match=r"fixed Population.count"):
             session.observe({"ratio": amount.sum(time=ordered_at) / p.count()}, by=by, where=where)
 
@@ -597,8 +597,7 @@ def test_observation_context_captures_direct_subject_and_only_explicit_window(
             "weekly": revenue.window(mv.trailing_periods(count=7)),
             "anonymous": revenue + 0,
         },
-        by=(mv.grain("day"),),
-        where=scope,
+        by=(scope.by(mv.grain("day")),),
     )
     daily, weekly, anonymous = (
         frame.schema.value_contexts[name] for name in ("daily", "weekly", "anonymous")
@@ -641,7 +640,7 @@ def test_explicit_window_fact_variants_are_closed(
     }
     axis_scope = session.time_scope(start="2026-01-10", end="2026-01-12")
     frame = session.observe(
-        {"value": metric.window(rules[variant])}, by=(mv.grain("day"),), where=axis_scope
+        {"value": metric.window(rules[variant])}, by=(axis_scope.by(mv.grain("day")),)
     )
     from marivo.analysis.core.frame_interpretation import FrameObservationContext
 
@@ -664,12 +663,11 @@ def test_comparison_contexts_keep_distinct_endpoint_windows_and_fixed_choices(
     revenue = catalog_get(session.catalog, "metric:sales.revenue", kind="metric")
     region = catalog_value(session.catalog, "sales.customers.region", kind="dimension")
     axis_scope = session.time_scope(start="2026-01-10", end="2026-01-12")
-    current = session.observe({"q": revenue}, by=(mv.grain("day"), region), where=axis_scope)
+    current = session.observe({"q": revenue}, by=(axis_scope.by(mv.grain("day")), region))
     current = current.fix(current.axes[1], "east")
     baseline = session.observe(
         {"q": revenue.window(mv.trailing_periods(count=7))},
-        by=(mv.grain("day"), region),
-        where=axis_scope,
+        by=(axis_scope.by(mv.grain("day")), region),
     )
     baseline = baseline.fix(baseline.axes[1], "west")
     compared = current.compare({"prior": mv.baseline(baseline)})
@@ -713,9 +711,9 @@ def test_ordinal_align_drops_context_references_to_unpublished_comparisons(
     session = bound_catalog()
     revenue = catalog_get(session.catalog, "metric:sales.revenue", kind="metric")
     axis_scope = session.time_scope(start="2026-01-10", end="2026-01-12")
-    current = session.observe({"q": revenue}, by=(mv.grain("day"),), where=axis_scope)
+    current = session.observe({"q": revenue}, by=(axis_scope.by(mv.grain("day")),))
     baseline = session.observe(
-        {"q": revenue.window(mv.trailing_periods(count=7))}, by=(mv.grain("day"),), where=axis_scope
+        {"q": revenue.window(mv.trailing_periods(count=7))}, by=(axis_scope.by(mv.grain("day")),)
     )
     compared = current.compare({"prior": mv.baseline(baseline)})
 
@@ -745,9 +743,9 @@ def test_nested_comparison_rebinds_existing_endpoint_contexts_without_changing_t
     session = bound_catalog()
     revenue = catalog_get(session.catalog, "metric:sales.revenue", kind="metric")
     axis_scope = session.time_scope(start="2026-01-10", end="2026-01-12")
-    current = session.observe({"q": revenue}, by=(mv.grain("day"),), where=axis_scope)
+    current = session.observe({"q": revenue}, by=(axis_scope.by(mv.grain("day")),))
     baseline = session.observe(
-        {"q": revenue.window(mv.trailing_periods(count=7))}, by=(mv.grain("day"),), where=axis_scope
+        {"q": revenue.window(mv.trailing_periods(count=7))}, by=(axis_scope.by(mv.grain("day")),)
     )
     first = current.compare({"prior": mv.baseline(baseline)})
     second = first.compare({"next": mv.baseline(first)})

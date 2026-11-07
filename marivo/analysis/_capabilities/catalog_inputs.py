@@ -106,7 +106,7 @@ def _catalog_inputs() -> tuple[ReadCapability, ...]:
     }
     prefix = "catalog = session.catalog\n"
     requirements = {
-        "catalog.period_calendars.grain": "Use an exact declared level. A current certified snapshot is captured when available; otherwise the result is an unbound lookup. Use the Grain in observe.by or with scope.by for a frozen calendar domain. This lookup does not certify the calendar.",
+        "catalog.period_calendars.grain": "Use an exact declared level. A current certified snapshot is captured when available; otherwise the result is an unbound lookup. Use a captured Grain with scope.by for a frozen CalendarAxis in observe.by. This lookup does not certify the calendar.",
         "catalog.period_calendars.period": "Use an exact declared level and certified key from the current snapshot; missing keys or unavailable certification reject.",
         "catalog.period_calendars.period_on": "Use an exact declared level and a civil date covered by the current certified snapshot; missing coverage rejects.",
         "catalog.period_calendars.periods": "Use a certified level and limit=1..100, excluding bool. Pass page.next_cursor for the same snapshot and level; omit cursor for the first page. Continue until next_cursor is None.",

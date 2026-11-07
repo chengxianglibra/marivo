@@ -234,7 +234,7 @@ def test_window_space_rollup_preserves_both_original_endpoints(
     calendar_scope = session.time_scope(start="2026-01-01", end="2026-01-03")
     metric = amount.sum(time=day).window(mv.all_history())
     result = (
-        session.observe({"window": metric}, by=(mv.grain("day"),), where=calendar_scope)
+        session.observe({"window": metric}, by=(calendar_scope.by(mv.grain("day")),))
         .compute()
         .to_pandas()
     )

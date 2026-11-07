@@ -52,8 +52,7 @@ def test_calendar_products_keep_single_time_axis_descriptors_and_cold_metadata(
         ).persist(),
         "source_calendar": session.observe(
             {"value": catalog_get(session.catalog, "metric:sales.revenue", kind="metric")},
-            by=(mv.grain("day"),),
-            where=march_scope,
+            by=(march_scope.by(mv.grain("day")),),
         ).persist(),
     }
     march_starts = [

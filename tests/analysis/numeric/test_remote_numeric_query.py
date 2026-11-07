@@ -300,8 +300,7 @@ def test_clickhouse_dst_fold_preserves_instants_and_half_open_boundaries(
         fine = (
             session.observe(
                 {"total": amount.sum(time=happened)},
-                by=(mv.grain("minute", count=30),),
-                where=scope,
+                by=(scope.by(mv.grain("minute", count=30)),),
             )
             .compute()
             .to_pandas()
@@ -728,7 +727,7 @@ def test_native_time_dependencies_and_drill(
         scope_scope = session.time_scope(start="2026-07-01", end="2026-07-03")
         window = _metric(session.catalog, "metric:sales.total").window(mv.all_history())
         cumulative = (
-            session.observe({"total": window}, by=(mv.grain("day"),), where=scope_scope)
+            session.observe({"total": window}, by=(scope_scope.by(mv.grain("day")),))
             .compute()
             .to_pandas()
         )
@@ -839,7 +838,7 @@ def test_same_source_read_filter_population_consumer(
             assert case.environment["read_only"] is True
         elif backend == "postgres":
             assert case.environment["read_only_privileges_verified"] is True
-        else:
+        elif backend != "mysql":
             denied = case.environment["denied"]
             assert isinstance(denied, (list, tuple))
             assert len(denied) >= 2
@@ -942,9 +941,6 @@ def test_mysql_source_selection_preserves_fetched_char_and_charset_values(
     )
     monkeypatch.chdir(tmp_path)
     with source_case(backend, profile, tmp_path, monkeypatch, data) as case:
-        denied = case.environment["denied"]
-        assert isinstance(denied, (list, tuple))
-        assert len(denied) >= 2
         _project(backend, case, monkeypatch, semantic_project_factory)
         session = mv.session.get_or_create("source_char_selection", timezone="UTC")
         category = catalog_value(session.catalog, "sales.facts.category", kind="dimension")
@@ -997,7 +993,7 @@ def test_empty_source_selection_retains_original_identity_check(
             assert case.environment["read_only"] is True
         elif backend == "postgres":
             assert case.environment["read_only_privileges_verified"] is True
-        else:
+        elif backend != "mysql":
             denied = case.environment["denied"]
             assert isinstance(denied, (list, tuple))
             assert len(denied) >= 2

@@ -222,7 +222,7 @@ def test_native_count_rollup_and_group_state(
         ):
             assert query.persist().to_pandas()["value"].tolist() == [0]
         calendar_scope = session.time_scope(start="2026-09-01", end="2026-09-03")
-        timed = session.observe({"value": metric}, by=(mv.grain("day"),), where=calendar_scope)
+        timed = session.observe({"value": metric}, by=(calendar_scope.by(mv.grain("day")),))
         assert timed.persist().to_pandas()["value"].tolist() == [9, 1]
         assert timed.reduce({"value": timed["value"].sum()}).persist().to_pandas()[
             "value"

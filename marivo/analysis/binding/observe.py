@@ -120,7 +120,7 @@ def bind_observation(
         reject(
             "a tuple of resolved fields and time domains",
             repr(by),
-            "Use by=(field, mv.grain('day')) and put a report scope in where.",
+            "Use by=(field, scope.by(mv.grain('day'))) or where=scope for range-only totals.",
             "Session.observe",
         )
     time_axes = tuple(

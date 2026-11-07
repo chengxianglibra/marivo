@@ -27,7 +27,7 @@ order_date = ms.time_dimension_column(
 )
 ```
 
-物理列使用 `ms.time_dimension_column`，派生字段使用 `@ms.time_dimension`。原生日期和带时区时间戳无需解析器；编码字符串或整数使用 `ms.strptime(...)`，只有小时的字段使用 `ms.hour_prefix(...)`。DATE、无时区时间戳和编码时间必须在解析器或 Datasource `wall_clock_timezone` 上声明源时区；两者都缺失时在读取业务数据前拒绝。原生带时区时间戳忽略 Datasource 默认值。源规约通过 `time=field` 或继承 Entity 的可选 `default_time` 固定贡献时间。在 `observe.where` 中传入报告 TimeScope 以选择范围，在 `observe.by` 中传入 Grain 以分桶。财务期间参见[业务日历](#业务日历)。
+物理列使用 `ms.time_dimension_column`，派生字段使用 `@ms.time_dimension`。原生日期和带时区时间戳无需解析器；编码字符串或整数使用 `ms.strptime(...)`，只有小时的字段使用 `ms.hour_prefix(...)`。DATE、无时区时间戳和编码时间必须在解析器或 Datasource `wall_clock_timezone` 上声明源时区；两者都缺失时在读取业务数据前拒绝。原生带时区时间戳忽略 Datasource 默认值。源规约通过 `time=field` 或继承 Entity 的可选 `default_time` 固定贡献时间。范围合计使用 `where=scope`，时间分组使用 `by=(scope.by(grain),)`。财务期间参见[业务日历](#业务日历)。
 
 `sample_interval` 描述来源采样节拍，不会将时间戳截断或分桶。所有 TimeField 样本规约均允许缺点；已表示样本上的 NULL 遵循规约自身策略，声明节拍不代表来源完整。
 
@@ -232,7 +232,7 @@ period.show()
 
 ## 声明期日历粒度：`ms.calendar_grain`
 
-`ms.calendar_grain(calendar=calendar_ref, level="week")` 在建模时创建不读取来源的粒度查找。认证后，`calendar.grain("week")` 返回绑定到该快照的粒度；可在 `observe.by` 中结合完整认证期间使用该 Grain，也可调用 `scope.by(grain)` 构造显式域，或用于 Metric 窗口。
+`ms.calendar_grain(calendar=calendar_ref, level="week")` 在建模时创建不读取来源的粒度查找。认证后，`calendar.grain("week")` 返回绑定到该快照的粒度；可用一个完整认证期间调用 `scope.by(grain)`，将所得 CalendarAxis 传入 `observe.by`；Grain 也可用于受支持的 Metric 窗口。
 
 自定义日历输出只接受一个完整的已认证期间。多期间、稀疏或局部选择在业务读取前拒绝；自定义样本层级没有隐式嵌套规则。
 

@@ -218,9 +218,11 @@ def test_window_help_discloses_consuming_restrictions(
     )
     scope = session.time_scope(start=start, end=end)
     # These deliberately select incompatible output grids, including an hourly one.
-    by = () if grain is None else (mv.grain(grain),)
+    by = () if grain is None else (scope.by(mv.grain(grain)),)
     with pytest.raises(AnalysisError, match=rejection):
-        session.observe({"value": metric.window(rule)}, by=by, where=scope)
+        session.observe(
+            {"value": metric.window(rule)}, by=by, where=scope if grain is None else None
+        )
     text = render_help_text("analysis." + rule_name)[0]
     assert disclosure in text
     assert "marivo.help('analysis.observation_window')" in text

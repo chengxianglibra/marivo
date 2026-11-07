@@ -34,7 +34,7 @@ from marivo._definition.types import (
     fixed_attribute_time,
 )
 from marivo._grouping import Grouping
-from marivo._temporal import Grain, PeriodCalendarSnapshotV2, TimeScope
+from marivo._temporal import CalendarAxis, PeriodCalendarSnapshotV2, TimeScope
 from marivo.analysis.binding.observe import ObservationPeriod, bind_observation
 from marivo.analysis.core.frame_structure import value_name
 from marivo.analysis.core.graph import BoundGraph
@@ -340,7 +340,7 @@ def capture_metrics(
     metrics: _MetricInputs,
     owner: Owner,
     *,
-    by: tuple[Deferred | Grouping | Grain, ...] | Population = (),
+    by: tuple[Deferred | Grouping, ...] | Population = (),
     where: Deferred | None = None,
     timezone: str = "UTC",
     state: CompiledSemanticState | None = None,
@@ -407,54 +407,10 @@ def capture_metrics(
         else None
     )
     captured: list[ComparisonAxis | MembershipBinding] = []
-    report_grain = None
     for item in () if isinstance(by, Population) else by:
-        if isinstance(item, Grain):
-            from marivo.analysis.binding.windows import resolve_calendar_grain
-
-            if report_grain is not None:
-                reject(
-                    "at most one report Grain",
-                    "multiple report Grains in by",
-                    "Pass one Grain in the ordered by tuple.",
-                    "Session.observe.by",
-                    canonical_id="session.observe",
-                )
-            report_grain = resolve_calendar_grain(
-                item, calendar_snapshots, location="Session.observe.by"
-            )
-            if scope is None:
-                if report_grain.kind == "semantic":
-                    reject(
-                        "a report TimeScope selecting one complete certified period",
-                        repr(report_grain),
-                        "Pass the period as where=scope with the named Grain.",
-                        "Session.observe.by",
-                        canonical_id="session.observe",
-                    )
-                captured.append(
-                    CalendarCoordinate(
-                        f"actual:{timezone}:{report_grain._to_token()}",
-                        report_grain,
-                        timezone,
-                        None,
-                        (),
-                        civil_bounds=(),
-                        actual_only=True,
-                    )
-                )
-            else:
-                try:
-                    captured.append(scope.by(report_grain)._binding)
-                except ValueError as error:
-                    reject(
-                        "a supported report scope and Grain",
-                        str(error),
-                        "Use compatible timezones and a complete period for a certified Grain.",
-                        "Session.observe.by",
-                        canonical_id="session.observe",
-                    )
-        elif isinstance(item, Grouping) and isinstance(item._binding, MembershipBinding):
+        if isinstance(item, CalendarAxis) or (
+            isinstance(item, Grouping) and isinstance(item._binding, MembershipBinding)
+        ):
             captured.append(item._binding)
         elif isinstance(item, Deferred) or (
             isinstance(item, Grouping) and isinstance(item._binding, AxisBinding)
@@ -462,9 +418,9 @@ def capture_metrics(
             captured.extend(_axes((item,)))
         else:
             reject(
-                "classification fields or grouping rules and at most one report Grain",
+                "classification fields, non-time grouping rules and at most one CalendarAxis",
                 type(item).__name__,
-                "Put the report TimeScope in where and a Grain in the by tuple.",
+                "Use by=(scope.by(grain),) for time grouping, or where=scope for totals.",
                 "Session.observe.by",
                 canonical_id="session.observe",
             )
@@ -496,16 +452,16 @@ def capture_metrics(
             reject(
                 "classification axes and fieldless report time coordinates",
                 repr(axis),
-                "Use a bare Grain or a complete Population with fieldless time coordinates.",
+                "Use a CalendarAxis or a complete Population with fieldless time coordinates.",
                 "Session.observe.by",
                 canonical_id="session.observe",
             )
-    if time_axes > 1 or (time_axes and population is not None and scope is not None):
+    if time_axes > 1 or (time_axes and scope is not None):
         reject(
             "one report time selection",
             f"report time coordinates in by: {time_axes}; "
             f"where TimeScope is {'present' if scope is not None else 'absent'}",
-            "Use the complete Population time coordinates, or select a report scope and Grain.",
+            "Use the time coordinates in by without a separate report TimeScope in where.",
             "Session.observe.by",
             canonical_id="session.observe",
         )

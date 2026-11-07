@@ -227,7 +227,7 @@ def test_calendar_fold_completes_multiclock_formula_per_actual_day(
         result = session.observe({"mean": gap}, where=scope).compute().to_pandas()
         assert result["mean"].tolist() == [100]
         monthly = (
-            session.observe({"mean": gap}, where=scope, by=(mv.grain("month"),))
+            session.observe({"mean": gap}, by=(scope.by(mv.grain("month")),))
             .compute()
             .to_pandas()
             .sort_values("calendar:month")
@@ -266,8 +266,7 @@ def test_field_and_contribution_samples_are_independent(sample_session: Session)
     categorized = (
         sample_session.observe(
             {"v": metrics["created_last"], "same_paid_day": metrics["paid_last"]},
-            by=(region, mv.grain("month")),
-            where=november,
+            by=(region, november.by(mv.grain("month"))),
         )
         .compute()
         .to_pandas()
@@ -280,11 +279,11 @@ def test_field_and_contribution_samples_are_independent(sample_session: Session)
     month = mv.grain("month")
     different_field = revenue.per(created, grain=mv.grain("week")).last()
     assert sample_session.observe(
-        {"v": different_field}, by=(month,), where=november
+        {"v": different_field}, by=(november.by(month),)
     ).compute().to_pandas()["v"].tolist() == [140]
     with pytest.raises(CoreRuleError, match="static child-to-parent"):
         sample_session.observe(
-            {"v": revenue.per(paid, grain=mv.grain("week")).last()}, by=(month,), where=november
+            {"v": revenue.per(paid, grain=mv.grain("week")).last()}, by=(november.by(month),)
         )
 
 
@@ -452,7 +451,7 @@ def test_builtin_samples_freeze_session_timezone_independently_of_scope(
             if session is utc:
                 for metric in metrics.values():
                     with pytest.raises(CoreRuleError, match="matching timezones"):
-                        session.observe({"v": metric}, by=(day,), where=scope)
+                        session.observe({"v": metric}, by=(scope.by(day),))
 
 
 @pytest.mark.parametrize(
@@ -642,8 +641,8 @@ def test_forecast_versions_follow_target_range_and_explicit_release_cutoff(
         joint = (
             session.observe(
                 {"v": latest.per(issued, grain=mv.grain("month")).last()},
-                by=(day,),
-                where=(period, cutoff),
+                by=(period.by(day),),
+                where=cutoff,
             )
             .compute()
             .to_pandas()

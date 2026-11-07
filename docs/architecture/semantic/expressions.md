@@ -142,7 +142,7 @@ def timing_gap():
 ```
 
 Here `amount` is a declared Measure on orders. The two reductions retain their
-individual clocks when combined. One report TimeScope or Grain applies to each
+individual clocks when combined. One report TimeScope or CalendarAxis applies to each
 branch through its own clock and requires all branches to have one. A total
 without a time consumer has no implicit time filter. A fixed row predicate such
 as `paid_at.within(scope)` can filter source rows independently of these clocks.
@@ -345,7 +345,7 @@ Windows inside calendar sample layers and windows wrapping calendar folds are
 currently unsupported and raise `CoreRuleError` before execution. The source
 window binder supplies output endpoints only; it cannot supply an independent
 window at each inner cell's actual end. Observe a windowed Metric with a
-report Grain and explicitly reduce the captured Frame values. Windows
+CalendarAxis and explicitly reduce the captured Frame values. Windows
 on independent formula branches and existing field-sample windows retain their
 own semantics.
 

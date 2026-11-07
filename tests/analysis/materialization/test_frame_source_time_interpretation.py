@@ -73,8 +73,7 @@ def test_source_time_facts_are_resolved_only_on_compute_and_preserved_on_fixed_o
             name: catalog_get(session.catalog, f"metric:sales.{name}_total", kind="metric")
             for name in ("naive", "aware", "day")
         },
-        by=(mv.grain("day"),),
-        where=scope_scope,
+        by=(scope_scope.by(mv.grain("day")),),
     )
     with monkeypatch.context() as no_source:
 

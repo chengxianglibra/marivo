@@ -13,7 +13,7 @@ The current scope-and-grain guidance is in the [Analysis DSL guide](/docs/latest
 
 ## Three different choices
 
-Pass a complete Population to preserve joint output keys, or use a grouping tuple with one report Grain. Supply a report range in `where`.
+Pass a complete Population to preserve joint output keys, or use a grouping tuple with one CalendarAxis from `scope.by(grain)`. Range-only totals use `where=scope`.
 
 [See how population, time, and grain shape a result](/docs/latest/analysis/dsl/#three-different-choices).
 

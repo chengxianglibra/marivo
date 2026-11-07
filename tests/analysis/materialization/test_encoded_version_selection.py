@@ -552,7 +552,7 @@ def test_trino_row_version_join_and_daily_statement_count(
                 timezone="Asia/Shanghai" if time_kind in ("date", "mixed") else "UTC",
             )
             frame = session.observe(
-                {"value": metric}, by=(mv.grain("day"), label), where=days_scope
+                {"value": metric}, by=(days_scope.by(mv.grain("day")), label)
             ).compute()
             assert frame.to_pandas()["value"].sum() == expected
             sql = trace.native_sql[before:]
@@ -607,7 +607,7 @@ def test_trino_snapshot_fact_row_time_uses_one_business_query(
             before = len(trace.native_sql)
             days_scope = session.time_scope(start="2026-08-25", end=end, timezone="Asia/Shanghai")
             result = session.observe(
-                {"value": metric}, by=(mv.grain("day"), historical), where=days_scope
+                {"value": metric}, by=(days_scope.by(mv.grain("day")), historical)
             ).compute()
             assert result.to_pandas()["value"].sum() == expected
             sql = trace.native_sql[before:]

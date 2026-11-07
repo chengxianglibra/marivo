@@ -122,7 +122,7 @@ def test_observe_help_separates_report_time_from_fixed_source_predicates() -> No
     for target in ("analysis.session.observe", Session.observe):
         text = render_help_text(target)[0]
         assert "contribution time on every Metric branch" in text
-        assert "one report Grain" in text
+        assert "one CalendarAxis" in text
         assert "at most one TimeScope" in text
         assert "where=field.within(scope)" in text
         assert "without a report endpoint" in text
@@ -659,14 +659,14 @@ def test_attribute_help_distinguishes_actual_qualification_and_inert_facts() -> 
 
 def test_observe_help_discloses_report_domains_and_definition_repair() -> None:
     text = render_help_text("analysis.session.observe")[0]
-    assert "A built-in Grain alone keeps actual buckets" in text
-    assert "with scope it fills report gaps" in text
-    assert "A custom calendar Grain needs one complete certified period as scope" in text
+    assert "Bare Grain inputs reject" in text
+    assert "CalendarAxis supplies finite buckets" in text
+    assert "Custom axes need one complete certified period" in text
     assert "A scope alone adds no output axis" in text
-    assert "by=P keeps complete keys, even without facts" in text
-    assert "does not filter contributions" in text
+    assert "by=P retains complete keys without filtering contributions" in text
+    assert "without filtering contributions" in text
     assert "where=mv.in_population(P) restricts contributions" in text
-    assert "If P carries time, omit TimeScope in where" in text
+    assert "If by carries time, omit TimeScope in where" in text
     assert "Fix branch clocks in semantic definitions or omit report time" in text
     assert "time_group" not in text
     assert "bind_time" not in text

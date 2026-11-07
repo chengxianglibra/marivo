@@ -339,7 +339,7 @@ def provider() -> DisclosureProvider:
                 ),
                 output=output,
                 constraints=(
-                    "Count complete tuples, including field Null and absent identities; empty is zero and the zero-axis singleton is one. Grouping uses existing domain axes; classify explicitly to read attributes. Fact predicates leave the captured domain fixed; count-only conditions reject. Report TimeScope, Grain and windows require a contribution clock, which Population.count has no way to supply."
+                    "Count complete tuples, including field Null and absent identities; empty is zero and the zero-axis singleton is one. Grouping uses existing domain axes; classify explicitly to read attributes. Fact predicates leave the captured domain fixed; count-only conditions reject. Report TimeScope, CalendarAxis and windows require a contribution clock, which Population.count has no way to supply."
                     if owner is Population and name == "count"
                     else "One Session owner; complete typed keys and explicit version/path bindings remain authoritative."
                     if owner is Population and name != "show"
@@ -388,7 +388,7 @@ def provider() -> DisclosureProvider:
                     else "Closed immutable coordinate membership predicate."
                 ),
                 acquisition=(
-                    "Use identity(entity), membership(...) or population.axes. For observe.by, use non-time groupings, a report Grain, or the complete Population. This abstract type has no public constructor or extension point."
+                    "Use identity(entity), membership(...) or population.axes. For observe.by, use non-time groupings, a CalendarAxis, or the complete Population. This abstract type has no public constructor or extension point."
                     if value is Grouping
                     else "Use mv.coordinates for literal keys, session.members for source identities, session.population_from for a fixed Frame bridge, mv.product for composition, or Population.project/classify/where/union/intersection/difference/image/preimage for derivation. Direct construction is unsupported."
                 ),

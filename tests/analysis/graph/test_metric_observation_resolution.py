@@ -46,7 +46,7 @@ def test_business_completeness_uses_the_complete_calendar_domain(
     case = analysis_dsl_case_factory("j1")
     revenue = catalog_get(case.session.catalog, "metric:sales.revenue", kind="metric")
     scope = case.session.time_scope(start="2026-08-01", end="2026-09-01")
-    observed = case.session.observe({"revenue": revenue}, by=(mv.grain("day"),), where=scope)
+    observed = case.session.observe({"revenue": revenue}, by=(scope.by(mv.grain("day")),))
     assert terminal_runs(case.session) == ()
     frame = observed.persist().to_pandas()
     assert len(frame) == 31

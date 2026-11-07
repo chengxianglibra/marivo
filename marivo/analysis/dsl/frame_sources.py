@@ -17,7 +17,7 @@ from marivo._definition.types import (
     RowAttributeTime,
 )
 from marivo._grouping import Grouping
-from marivo._temporal import Grain, PeriodCalendarSnapshotV2, TimeScope
+from marivo._temporal import PeriodCalendarSnapshotV2, TimeScope
 from marivo.analysis.binding.lineage import observation_contexts
 from marivo.analysis.core.artifact_data import DataColumn
 from marivo.analysis.core.calendar_keys import time_key_type
@@ -204,30 +204,32 @@ def _capture(
 
 
 def _source_by(
-    by: tuple[Deferred | DimensionExpression | Grouping | Grain, ...] | Population,
+    by: tuple[Deferred | DimensionExpression | Grouping, ...] | Population,
     state: CompiledSemanticState,
     *,
     project_root: Path,
     owner: Owner,
-) -> tuple[Deferred | Grouping | Grain, ...] | Population:
+) -> tuple[Deferred | Grouping, ...] | Population:
     """Adapt typed public values only inside a source boundary with explicit scope."""
     if not isinstance(by, (tuple, Population)):
         reject(
-            "an ordered tuple of classifications and optional Grain, or a complete Population",
+            "an ordered tuple of classifications and optional CalendarAxis, or a complete Population",
             type(by).__name__,
-            "Pass by=(field, mv.grain('day')) or by=population.",
+            "Pass by=(scope.by(mv.grain('day')), field) or by=population.",
             "Session.observe.by",
+            canonical_id="session.observe",
         )
     values = (by,) if isinstance(by, Population) else by
-    result: list[Deferred | Grouping | Grain] = []
+    result: list[Deferred | Grouping] = []
     for value in values:
         if isinstance(value, RowExpression):
             if value._role != "dimension":
                 reject(
                     "ordinary classification dimensions",
                     repr(value),
-                    "Use a Dimension for classification or a bare Grain for report time.",
+                    "Use a Dimension for classification or scope.by(grain) for report time.",
                     "Session.observe.by",
+                    canonical_id="session.observe",
                 )
             result.append(bind_field_in_state(value, state, project_root=project_root, owner=owner))
         elif isinstance(value, Grouping) or (isinstance(value, Population) and value is by):
@@ -240,17 +242,19 @@ def _source_by(
                         identity,
                         "Rebuild the coordinate domain with the receiving scope's complete identity.",
                         "source capture",
+                        canonical_id="session.observe",
                     )
             if isinstance(value, Grouping):
                 result.append(value)
-        elif isinstance(value, (Deferred, Grain)):
+        elif isinstance(value, Deferred):
             result.append(value)
         else:
             reject(
-                "classification fields or grouping rules and at most one report Grain",
+                "classification fields or grouping rules and at most one CalendarAxis",
                 type(value).__name__,
                 "Put a report TimeScope in where and pass an entire Population directly in by.",
                 "Session.observe.by",
+                canonical_id="session.observe",
             )
     return by if isinstance(by, Population) else tuple(result)
 
@@ -261,7 +265,7 @@ def observe(
     connection: DatasourceConnectionConfig,
     metrics: Mapping[str, Deferred | NumericMetric] | _MetricInputs,
     *,
-    by: tuple[Deferred | DimensionExpression | Grouping | Grain, ...] | Population = (),
+    by: tuple[Deferred | DimensionExpression | Grouping, ...] | Population = (),
     where: Deferred | RowPredicate | None = None,
     scope: TimeScope | None = None,
     timezone: str = "UTC",

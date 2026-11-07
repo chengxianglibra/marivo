@@ -163,8 +163,8 @@ def compute(
     by: tuple[DimensionExpression | Grouping, ...] = (),
     where: RowPredicate | None = None,
 ) -> StageOutput:
-    scope = during.scope if isinstance(during, mv.CalendarAxis) else during
-    axes = (during.grid.grain_spec, *by) if isinstance(during, mv.CalendarAxis) else by
+    scope = None if isinstance(during, mv.CalendarAxis) else during
+    axes = (during, *by) if isinstance(during, mv.CalendarAxis) else by
     condition = where if scope is None else scope if where is None else (scope, where)
     graph = _source_graph(session.observe(metrics, by=axes, where=condition))
     with (
@@ -529,7 +529,7 @@ def test_calendar_bucket_keeps_nullable_timestamp_and_unmatched_rows(
         start=start.isoformat(), end=(start + timedelta(days=max(1, bucket_count))).isoformat()
     )
     graph = _source_graph(
-        session.observe({"total": amount.sum(time=day)}, by=(mv.grain("day"),), where=grid_scope)
+        session.observe({"total": amount.sum(time=day)}, by=(grid_scope.by(mv.grain("day")),))
     )
     observation = graph.signature.observation
     assert observation is not None
@@ -659,7 +659,7 @@ def test_calendar_selection_preserves_membership_without_boolean_seeds(
     )
     grid_scope = session.time_scope(start="2026-01-01", end="2026-01-04")
     graph = _source_graph(
-        session.observe({"total": amount.sum(time=day)}, by=(mv.grain("day"),), where=grid_scope)
+        session.observe({"total": amount.sum(time=day)}, by=(grid_scope.by(mv.grain("day")),))
     )
     observation = graph.signature.observation
     assert observation is not None

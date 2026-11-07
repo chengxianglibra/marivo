@@ -198,7 +198,7 @@ def test_temporal_branches_preserve_conditions_and_normalize_only_time_values(
             assert output.to_pandas().value.tolist() == [expected]
         observed = session.observe(
             {"value": amount.sum(time=point)},
-            by=(mv.grain("day"),),
+            by=(session.time_scope(start="2026-10-28", end="2026-10-30").by(mv.grain("day")),),
             where=(point >= "2026-10-28") & (point < "2026-10-30"),
         ).compute()
         rows = observed.to_pandas()

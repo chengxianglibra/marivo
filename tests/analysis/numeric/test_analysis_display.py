@@ -608,8 +608,8 @@ def test_group_and_entity_time_display_domains(analysis_dsl_case_factory: DslCas
     members = session.members(_entity(session.catalog, "entity:sales.customer"))
     values = session.observe(
         {"value": _metric(session.catalog, "metric:sales.order_count")},
-        by=(mv.grain("month"), members.axes[0], region),
-        where=(period_scope, mv.in_population(members)),
+        by=(period_scope.by(mv.grain("month")), members.axes[0], region),
+        where=mv.in_population(members),
     )
     frame = plain(values.compute())
     frame = frame.rename(columns={"key_0": "member"})

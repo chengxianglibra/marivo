@@ -662,8 +662,8 @@ def test_observe_different_fields_share_one_actual_aggregate(
     )
     query = session.observe(
         {f"v{index}": metrics[index % 5] for index in range(width)},
-        by=(mv.grain("day"),) if domain == "calendar" else (),
-        where=scope if domain != "overall" else None,
+        by=(scope.by(mv.grain("day")),) if domain == "calendar" else (),
+        where=scope if domain == "interval" else None,
     )
     _, plan, _, _ = _same(session, query)
     assert len([stage for stage in plan.stages if isinstance(stage, SourceRead)]) == 1
@@ -786,7 +786,7 @@ def test_internal_samples_and_windows_keep_their_physical_boundaries(
         calendar_scope = session.time_scope(start="2026-01-01", end="2026-01-03")
         metric = amount.sum(time=time).window(mv.all_history())
         source = session.observe(
-            {"a": metric, "b": metric}, by=(mv.grain("day"), region, detail), where=calendar_scope
+            {"a": metric, "b": metric}, by=(calendar_scope.by(mv.grain("day")), region, detail)
         )
         query = source
     _, plan, _, _ = _same(session, query)
@@ -1017,8 +1017,7 @@ def test_decimal_source_quantile_keeps_native_precision_through_windows(
     days_scope = session.time_scope(start="2026-01-01", end="2026-01-03")
     windowed = session.observe(
         {"p95": quantile.window(mv.trailing_periods(count=2))},
-        by=(mv.grain("day"), region),
-        where=days_scope,
+        by=(days_scope.by(mv.grain("day")), region),
     )
     assert windowed.compute().to_pandas()["p95"].tolist() == [native, native]
 
