@@ -3,12 +3,13 @@ name: Release
 on:
   release:
     types: [published]
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: release-${{ github.event.release.tag_name }}
+  group: release-${{ github.event_name }}-${{ github.event.release.tag_name || github.run_id }}
   cancel-in-progress: false
 
 jobs:
@@ -18,7 +19,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.release.tag_name }}
+          ref: ${{ github.event_name == 'release' && format('refs/tags/{0}', github.event.release.tag_name) || github.sha }}
           persist-credentials: false
 
       - name: Set up Python
@@ -33,7 +34,9 @@ jobs:
           .venv/bin/python -m pip install --upgrade pip
           .venv/bin/pip install -e ".[dev,docs]"
 
-      - name: Run functional Runtime release gates
+      - name: Run release checks
+        env:
+          PYTEST_ADDOPTS: "-rs"
         run: make release-check
 
       - name: Build distributions
@@ -51,6 +54,7 @@ jobs:
 
   publish:
     name: Publish to PyPI
+    if: github.event_name == 'release'
     needs: build
     runs-on: ubuntu-latest
     environment:

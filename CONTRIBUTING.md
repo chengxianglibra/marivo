@@ -72,7 +72,8 @@ scripts/         # 开发与检查脚本
 
 提交 hooks 执行 Ruff、通用文件检查，以及针对 Python 文件的 import-linter 和 mypy。
 修改 `marivo/` 或 `tests/` 中的 Python 文件时，mypy hook 通过 `make typecheck` 默认检查
-整个库和测试目录；`TYPECHECK_TARGETS` 可缩小本地检查范围，也适用于 hook。当前配置不包含
+整个库和测试目录；`TYPECHECK_TARGETS` 可缩小本地检查范围，也适用于 hook。普通提交
+依据暂存文件决定 hook 是否运行，`--all-files` 则依据全部受跟踪文件。当前配置不包含
 测试 hook。默认回归测试通过 `make test` 单独运行，`make check` 也包含
 该目标。提交 hooks 不执行完整 Runtime 验收，也不为提交启动 MinIO。已有检查通过且
 文件未变时，提交准备不再重复运行同一批检查，提交 hooks 仍照常执行。

@@ -279,6 +279,18 @@ Installed tests require the current wheel, supported driver dependencies, and
 already-ready services. Select backends explicitly and keep Trino separate from
 ClickHouse:
 
+On macOS, Homebrew's keg-only `libpq` may not be discoverable by the isolated
+PostgreSQL installation even when it is installed. If the adapter reports that
+`libpq` cannot be found, pass its library directory as a Make variable so the
+isolated processes receive it:
+
+```bash
+make release-test DYLD_LIBRARY_PATH="$(brew --prefix libpq)/lib"
+```
+
+The same Make variable can be passed to `make release-check`. An environment
+assignment before `make` may be stripped by macOS before the test processes start.
+
 ```bash
 MARIVO_INSTALLED_MULTISOURCE_TEST=1 MARIVO_INSTALLED_BACKENDS=postgres,mysql,clickhouse make installed-multisource-test
 MARIVO_INSTALLED_MULTISOURCE_TEST=1 MARIVO_INSTALLED_BACKENDS=trino make installed-multisource-test
