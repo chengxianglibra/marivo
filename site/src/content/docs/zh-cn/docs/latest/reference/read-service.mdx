@@ -113,15 +113,17 @@ AnalysisFrame 必须属于该 Session 且尚未持久化。脚本负责时间范
 导入代码按受信任的项目代码执行。
 
 ```bash
-curl --fail-with-body -H "Authorization: Bearer ${MARIVO_API_TOKEN}" \
-  'http://127.0.0.1:8765/v1/data/sales/revenue?refresh=true'
+curl --fail-with-body -X POST -H "Authorization: Bearer ${MARIVO_API_TOKEN}" \
+  'http://127.0.0.1:8765/v1/data/sales/revenue/refresh'
 curl --fail-with-body -H "Authorization: Bearer ${MARIVO_API_TOKEN}" \
   'http://127.0.0.1:8765/v1/data/sales/revenue'
 ```
 
-只有 `refresh=true` 执行脚本、发布新结果并原子切换当前引用。没有 `refresh` 或
-`refresh=false` 只读已保存数据，即使脚本或模型已经删除也可读取。首次发布前返回
-`result_not_found`，不会隐式执行。非法值及重复参数报错。刷新同步返回完整报告及固定引用。
+只有空请求体的 `POST /v1/data/{endpoint}/refresh` 执行脚本、发布新结果并原子切换
+当前引用。`GET /v1/data/{endpoint}` 只读已保存数据，即使脚本或模型已经删除也可读取。
+首次发布前返回 `result_not_found`，不会隐式执行。两个路由都拒绝所有查询参数，
+包括 `refresh`。刷新同步返回完整报告及固定引用。不要自动重试 POST 刷新：超时或响应
+丢失不代表发布失败，应先读取当前状态，再决定是否需要再次刷新。
 
 ## DataFrame 结果与报告固定版本
 
@@ -184,6 +186,12 @@ UI 报告保存服务身份、`kind` 和 `ref`；AnalysisFrame 还应保留连�
 目录默认每页 20 条，允许 1 到 100 条。使用 `next_cursor` 续读并保留相同过滤条件
 和页大小。Catalog 刷新成功后旧语义游标失效，失败时保留上次成功加载的目录。
 已保存报告独立于当前模型加载。
+reload 会启动新加载；如果已有加载正在进行，则返回 `409 catalog_load_in_progress`，
+应等该加载结束后再请求 reload。普通读取共享首次加载，或在 reload 期间读取上次成功
+加载的快照。Catalog 加载由服务管理，客户端断线或请求超时不会取消它；加载自身的读取
+期限和服务关闭仍会停止它。未预期的请求异常及 Catalog 工作进程 traceback 写入服务
+stderr，不放入 HTTP 响应。遇到 `catalog_load_failed`，应查看日志并在绑定项目中运行
+`marivo doctor --semantic`。
 
 ## 部署和处理错误
 

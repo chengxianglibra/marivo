@@ -89,12 +89,6 @@ def _query(route: Route, raw: bytes) -> dict[str, str]:
         raise bad_request(
             "kind", "Unknown semantic kind.", "Choose a kind from the object directory."
         )
-    if "refresh" in values and values["refresh"] not in ("true", "false"):
-        raise bad_request(
-            "refresh",
-            "Refresh must be true or false.",
-            "Omit refresh for a saved read, or use refresh=true to execute the script.",
-        )
     if "relation" in route.query and values.get("relation") not in ("dependencies", "dependents"):
         raise bad_request("relation", "A relation is required.", "Use dependencies or dependents.")
     if "cursor" in values and (
@@ -149,7 +143,7 @@ def _route(path: str, method: str) -> tuple[Route, dict[str, str]]:
     )
 
 
-def _map_error(error: Exception) -> ServiceError:
+def _map_error(error: Exception, operation: str) -> ServiceError:
     if isinstance(error, ServiceError):
         return error
     if isinstance(error, ArtifactNotFoundError):
@@ -176,7 +170,9 @@ def _map_error(error: Exception) -> ServiceError:
             "Restore the original committed files and metadata before retrying.",
             "analysis.session.persisted_frame",
         )
-    logging.getLogger("uvicorn.error").error("Read service failure (%s)", type(error).__name__)
+    logging.getLogger("uvicorn.error").error(
+        "Read service failure during %s", operation, exc_info=error
+    )
     return ServiceError(
         "internal_error",
         "The service could not complete the request.",
@@ -248,6 +244,7 @@ class ReadApplication:
                 b"vary",
                 b"Origin, Access-Control-Request-Method, Access-Control-Request-Headers",
             )
+        operation = "request validation"
         try:
             if origins and not allowed:
                 raise self._origin_error()
@@ -282,6 +279,7 @@ class ReadApplication:
                     HELP,
                 )
             route, params = _route(scope["path"], scope["method"])
+            operation = route.name
             query = _query(route, scope["query_string"])
             if self.active >= _MAX_REQUESTS:
                 raise unavailable()
@@ -293,7 +291,7 @@ class ReadApplication:
             finally:
                 self.active -= 1
         except Exception as error:
-            failure = _map_error(error)
+            failure = _map_error(error, operation)
             await self._respond(send, failure.status, json.dumps(failure.payload()).encode(), cors)
 
     @staticmethod
@@ -331,7 +329,7 @@ class ReadApplication:
         query: dict[str, str],
         receive: ASGIReceiveCallable,
     ) -> bytes | None:
-        refreshing = route.name == "data" and query.get("refresh") == "true"
+        refreshing = route.name == "refresh"
         location = (
             "refresh"
             if refreshing
@@ -409,9 +407,9 @@ class ReadApplication:
         limit = int(query.get("limit", "20"))
         cursor = query.get("cursor")
         session_id = params.get("session_id", "")
+        if name == "refresh":
+            return await self.refreshes.run(params["endpoint"], budget)
         if name == "data":
-            if query.get("refresh") == "true":
-                return await self.refreshes.run(params["endpoint"], budget)
             return await self._worker(
                 budget,
                 lambda: read_result(

@@ -42,8 +42,8 @@ as trusted project code. Choose their inputs and time scope deliberately, and
 use the project's governed definitions for business meaning.
 
 Read saved data when that answers the task. Refresh only when the task calls for
-new production or an initial result. A refresh has effects even though its HTTP
-method is GET: avoid prefetch or automatic retry. If the outcome is uncertain,
+new production or an initial result. A refresh executes trusted project code and
+publishes a new result: do not automatically retry it. If the outcome is uncertain,
 read the current endpoint before deciding whether another refresh is needed.
 Honor the service's complete-result and error contracts; identify any preview
 as partial rather than presenting it as the complete saved result.

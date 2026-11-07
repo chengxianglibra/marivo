@@ -46,7 +46,7 @@ class Route:
 
     def match(self, path: str) -> dict[str, str] | None:
         pattern = re.sub(r"\{(\w+)\}", r"(?P<\1>[^/]+)", self.path)
-        if self.name == "data":
+        if self.name in ("data", "refresh"):
             pattern = pattern.replace("(?P<endpoint>[^/]+)", "(?P<endpoint>.+)")
         match = re.fullmatch(pattern, path)
         return None if match is None else match.groupdict()
@@ -82,7 +82,11 @@ ROUTES = (
         "Reload",
         "Reload the semantic Catalog",
         method="POST",
-        description="Send an empty body. Reload does not refresh saved data endpoints.",
+        description=(
+            "Send an empty body. Start a new Catalog load; an active load returns "
+            "409 catalog_load_in_progress. The service owns the load, which continues "
+            "after a client disconnect until its deadline. Reload does not refresh saved data endpoints."
+        ),
     ),
     Route("sessions", "/v1/sessions", "SessionDirectory", "List saved Sessions", _PAGE),
     Route(
@@ -98,14 +102,23 @@ ROUTES = (
         "data",
         "/v1/data/{endpoint}",
         "DataReport",
-        "Read or explicitly refresh a named endpoint",
-        ("refresh",),
+        "Read a named endpoint's current saved result",
         description=(
-            "Omit refresh or use false to read the current saved result. "
-            "Explicit refresh=true executes trusted project code and publishes a new result, "
-            "so this GET has write effects and must not be prefetched or automatically retried. "
-            "A lost response does not prove publication failed; read current state before retrying. "
+            "Read the current saved result without executing the script. No query parameters are accepted. "
             "The endpoint name comes from the bound project or host; this API does not list names."
+        ),
+    ),
+    Route(
+        "refresh",
+        "/v1/data/{endpoint}/refresh",
+        "DataReport",
+        "Execute a named endpoint and publish a new result",
+        method="POST",
+        description=(
+            "Send an empty body. Execute trusted project code and synchronously publish and return "
+            "a complete report. Do not automatically retry this operation. "
+            "A timeout or lost response does not prove publication failed; read current state "
+            "before deciding whether another refresh is needed."
         ),
     ),
     Route(
@@ -477,11 +490,6 @@ def _schemas() -> dict[str, JsonObject]:
 
 
 QUERY_SCHEMAS: dict[str, JsonObject] = {
-    "refresh": {
-        "type": "boolean",
-        "default": False,
-        "description": "Explicit true executes the endpoint script and publishes a new immutable result. Omit or use false for saved reads.",
-    },
     "limit": {"type": "integer", "minimum": 1, "maximum": 100, "default": 20},
     "cursor": {"type": "string", "minLength": 1, "maxLength": 16384},
     "kind": {"enum": list(KINDS)},

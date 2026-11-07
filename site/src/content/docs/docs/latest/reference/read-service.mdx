@@ -121,17 +121,21 @@ configure another project environment. Return an unpersisted AnalysisFrame from 
 owns time scopes and business logic; imports execute as trusted project code.
 
 ```bash
-curl --fail-with-body -H "Authorization: Bearer ${MARIVO_API_TOKEN}" \
-  'http://127.0.0.1:8765/v1/data/sales/revenue?refresh=true'
+curl --fail-with-body -X POST -H "Authorization: Bearer ${MARIVO_API_TOKEN}" \
+  'http://127.0.0.1:8765/v1/data/sales/revenue/refresh'
 curl --fail-with-body -H "Authorization: Bearer ${MARIVO_API_TOKEN}" \
   'http://127.0.0.1:8765/v1/data/sales/revenue'
 ```
 
-Only `refresh=true` runs the script, publishes a new result and atomically changes
-the current reference. Absent `refresh` or `refresh=false` reads saved data, even
+Only `POST /v1/data/{endpoint}/refresh` with an empty body runs the script,
+publishes a new result and atomically changes the current reference.
+`GET /v1/data/{endpoint}` reads saved data, even
 if the script or model has been removed. Before the first publication it returns
-`result_not_found`; it never executes implicitly. Invalid or repeated parameters
-fail. Refresh is synchronous and returns the complete report with its fixed ref.
+`result_not_found`; it never executes implicitly. Both routes reject all query
+parameters, including `refresh`. Refresh is synchronous and returns the complete
+report with its fixed ref. Do not automatically retry POST refresh: a timeout or
+lost response does not prove publication failed. Read current state before
+deciding whether another refresh is needed.
 
 ## DataFrame results and saved report versions
 
@@ -200,6 +204,14 @@ Store and current Catalog load state. Semantic object IDs use canonical
 Directory limits default to 20 and accept 1 through 100. Continue with
 `next_cursor` and the same filters and limit. A successful Catalog reload
 invalidates semantic cursors. A failed reload retains the last loaded Catalog.
+Reload starts a new load, or returns `409 catalog_load_in_progress` if a load is
+already active; wait for it to finish before requesting reload again. Ordinary
+reads share the initial load or use the last successful snapshot during reload.
+Catalog loads belong to the service and continue after client disconnect or
+request timeout, bounded by their own read deadline and service shutdown.
+Unexpected request failures and Catalog worker tracebacks go to service stderr,
+not HTTP responses. For `catalog_load_failed`, inspect the logs and run
+`marivo doctor --semantic` in the bound project.
 The saved report is independent of current model loading.
 
 ## Deploy and handle failures

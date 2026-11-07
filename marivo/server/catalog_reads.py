@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
+import logging
 import os
 import sys
 from dataclasses import dataclass
@@ -113,6 +114,14 @@ class CatalogReads:
     async def get(self, *, reload: bool = False) -> Snapshot:
         if self.current is not None and not reload:
             return self.current
+        if reload and self._task is not None and not self._task.done():
+            raise ServiceError(
+                "catalog_load_in_progress",
+                "A Catalog load is already in progress; no new reload was started.",
+                "catalog",
+                "Wait for the active load to finish, then request reload again.",
+                HELP,
+            )
         if self._task is None or self._task.done():
             self._task = asyncio.create_task(self._load())
             self._task.add_done_callback(_observe_failure)
@@ -133,6 +142,7 @@ class CatalogReads:
         except asyncio.TimeoutError:
             raise self.limits.timed_out("catalog") from None
         except (OSError, ValueError, KeyError):
+            logging.getLogger("uvicorn.error").exception("Catalog load failed")
             raise _load_error() from None
         if "diagnostics" in payload:
             raise _load_error(payload["diagnostics"])
@@ -162,7 +172,7 @@ class CatalogReads:
             str(self.limits.size),
             stdin=asyncio.subprocess.DEVNULL,
             stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.DEVNULL,
+            stderr=None,
             env=env,
         )
         try:
@@ -176,9 +186,15 @@ class CatalogReads:
             if status == 3:
                 raise self.limits.too_large("catalog")
             if status != 0:
+                logging.getLogger("uvicorn.error").error(
+                    "Catalog worker exited with status %s; inspect its stderr above", status
+                )
                 raise _load_error()
             payload: object = json.loads(data)
             if not isinstance(payload, dict) or not ({"entries", "diagnostics"} & payload.keys()):
+                logging.getLogger("uvicorn.error").error(
+                    "Catalog worker returned an invalid payload"
+                )
                 raise _load_error()
             return cast("JsonObject", payload)
         finally:
@@ -201,6 +217,6 @@ def _load_error(diagnostics: JsonValue = None) -> ServiceError:
         "catalog_load_failed",
         "Could not load the current Catalog." + suffix,
         "catalog",
-        "Run marivo doctor --semantic in the bound project, fix the model and retry reload.",
+        "Inspect the service logs and run marivo doctor --semantic in the bound project; fix the model and retry reload.",
         HELP,
     )

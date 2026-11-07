@@ -27,9 +27,10 @@ Directory routes use cursor pagination. Python callers can continue to use
 Place a script at ``endpoints/sales/revenue.py`` with one synchronous
 ``main(session: mv.Session) -> mv.AnalysisFrame`` or
 ``main(session: mv.Session) -> pd.DataFrame``. Both receive a new project Session.
-``GET /v1/data/sales/revenue?refresh=true`` executes it, saves the result and
-atomically updates the endpoint's current reference. Without ``refresh=true``,
-the endpoint only reads saved data; an absent result returns 404.
+``POST /v1/data/sales/revenue/refresh`` with an empty body executes it, saves
+the result and atomically updates the endpoint's current reference.
+``GET /v1/data/sales/revenue`` only reads saved data; an absent result returns 404.
+Neither route accepts query parameters, including ``refresh``.
 Restart the service to discover new script paths.
 
 AnalysisFrames use the existing Store and fixed Frame route. DataFrames use
@@ -43,8 +44,21 @@ DataFrame reads need no Session or Analysis Store.
 Refreshes use ``--refresh-timeout-seconds`` (default 300) and
 ``--max-refreshes`` (default 1). Same-endpoint refreshes are mutually exclusive
 across service processes. Failures before reference publication preserve the
-previous result. A lost response after publication can still mean success;
-read the endpoint's current reference before retrying.
+previous result. Do not automatically retry refresh: a timeout or lost response
+can still mean publication succeeded. Read the endpoint's current reference
+before deciding whether another refresh is needed.
+
+``POST /v1/semantic/reload`` with an empty body starts a new Catalog load.
+An active load returns ``409 catalog_load_in_progress``; wait for it to finish
+before requesting reload again. Ordinary reads share the initial load or use
+the last successful snapshot during reload. Failed loads retain that snapshot.
+Catalog loads continue after a client disconnect or request timeout, bounded
+by their own read deadline and service shutdown.
+
+Unexpected request failures log the operation and traceback to service stderr,
+which also receives Catalog worker stderr. HTTP errors do not expose tracebacks.
+For ``catalog_load_failed``, inspect the logs and run ``marivo doctor --semantic``
+in the bound project.
 
 For startup options, use ``marivo serve --help``. See the
 `project read service guide <https://marivo.io/docs/latest/reference/read-service/>`_.

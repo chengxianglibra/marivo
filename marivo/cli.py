@@ -252,7 +252,10 @@ def main(argv: list[str] | None = None) -> None:
         help=f"Time budget per read, in seconds (default {DEFAULT_SECONDS})",
     )
     serve_parser.epilog = (
-        "Set MARIVO_API_TOKEN in the environment. See marivo help analysis.results.service."
+        "Set MARIVO_API_TOKEN in the environment; it grants reads, Catalog reload and script execution. "
+        "GET reads saved results; POST /v1/data/{endpoint}/refresh executes trusted project code. "
+        "Do not automatically retry refresh: a timeout or lost response does not prove publication failed. "
+        "Read current state before deciding to refresh again. See marivo help analysis.results.service."
     )
     serve_parser.add_argument(
         "--refresh-timeout-seconds",

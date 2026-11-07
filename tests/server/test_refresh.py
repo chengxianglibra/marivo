@@ -98,10 +98,8 @@ def test_disconnect_cancels_real_worker_before_releasing_capacity(tmp_path: Path
         app = ReadApplication(tmp_path, b"token", frozenset(), Limits())
         messages: asyncio.Queue[ASGIReceiveEvent] = asyncio.Queue()
         await messages.put({"type": "http.request", "body": b"", "more_body": False})
-        route = next(route for route in ROUTES if route.name == "data")
-        task = asyncio.create_task(
-            app._request(route, {"endpoint": "total"}, {"refresh": "true"}, messages.get)
-        )
+        route = next(route for route in ROUTES if route.name == "refresh")
+        task = asyncio.create_task(app._request(route, {"endpoint": "total"}, {}, messages.get))
         try:
             await wait_for_file(tmp_path / "ready")
             await messages.put({"type": "http.disconnect"})

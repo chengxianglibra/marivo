@@ -190,7 +190,7 @@ def test_complete_reports_restart_and_budget(tmp_path: Path) -> None:
         assert report["periods"] == []
         assert _ok(request("/v1/info"))["catalog"] == {"loaded": False, "loaded_at": None}
         spec = _ok(request("/v1/openapi.json"))
-        assert len(spec["paths"]) == 11
+        assert len(spec["paths"]) == 12
         assert spec["paths"]["/v1/sessions/{session_id}/frames/{artifact_id}"]["get"][
             "parameters"
         ] == [
@@ -396,6 +396,40 @@ def test_current_catalog_reload_isolated_from_saved_report(tmp_path: Path) -> No
         assert _ok(request("/v1/info"))["catalog"]["loaded_at"] == reload["loaded_at"]
         assert _ok(request(endpoint))["business_definition"] == "after"
         assert _ok(request(_path(ids))) == report
+
+
+@pytest.mark.parametrize("initial_method", ["GET", "POST"])
+def test_reload_rejects_active_load_then_reads_new_model(
+    tmp_path: Path, initial_method: str
+) -> None:
+    _models(tmp_path, "before")
+    events = tmp_path / "models/semantic/sales/events.py"
+    ready, release = tmp_path / "ready", tmp_path / "release"
+    with events.open("a") as model:
+        model.write(
+            "\nfrom pathlib import Path\nimport time\n"
+            f"Path({str(ready)!r}).touch()\n"
+            f"while not Path({str(release)!r}).exists():\n    time.sleep(0.01)\n"
+        )
+    with server(tmp_path) as request, ThreadPoolExecutor(max_workers=1) as pool:
+        initial_path = "/v1/semantic/objects" if initial_method == "GET" else "/v1/semantic/reload"
+        pending = pool.submit(request, initial_path, method=initial_method)
+        try:
+            deadline = monotonic() + 20
+            while not ready.exists():
+                assert monotonic() < deadline, "Catalog worker did not reach the model barrier"
+                sleep(0.01)
+            _models(tmp_path, "after")
+            reply = request("/v1/semantic/reload", method="POST")
+            _error(reply, 409, "catalog_load_in_progress")
+            _schema(_ok(request("/v1/openapi.json")), "Error409", reply[2])
+        finally:
+            release.touch()
+        _ok(pending.result(timeout=30))
+        endpoint = "/v1/semantic/objects/measure%3Asales.events.amount"
+        assert _ok(request(endpoint))["business_definition"] == "before"
+        _ok(request("/v1/semantic/reload", method="POST"))
+        assert _ok(request(endpoint))["business_definition"] == "after"
 
 
 def test_missing_store_wrong_identity_and_corruption(tmp_path: Path) -> None:
@@ -680,7 +714,7 @@ def test_script_example_from_live_help_runs_through_service(tmp_path: Path) -> N
     with server(tmp_path) as request:
         url = "/v1/data/sales/from_help"
         _error(request(url), 404, "result_not_found")
-        report = _ok(request(url + "?refresh=true"))
+        report = _ok(request(url + "/refresh", method="POST"))
         assert report["kind"] == "analysis_frame"
         assert report["data"]["rows"] == [["10"]]
         assert _ok(request(url)) == report
@@ -692,18 +726,34 @@ def test_refresh_source_updates_and_report_saved_refs(tmp_path: Path) -> None:
     frame_url, table_url = "/v1/data/sales/total", "/v1/data/sales/table"
     with server(tmp_path) as request:
         _error(request(frame_url), 404, "result_not_found")
-        _error(request(table_url + "?refresh=false"), 404, "result_not_found")
-        _error(request(frame_url + "?refresh=true", bearer=None), 401, "unauthorized")
-        for query in ("refresh=", "refresh=1", "refresh=TRUE", "refresh=true&refresh=true", "x=1"):
+        _error(request(table_url), 404, "result_not_found")
+        _error(request(frame_url + "/refresh", method="POST", bearer=None), 401, "unauthorized")
+        for query in (
+            "refresh=true",
+            "refresh=false",
+            "refresh=",
+            "refresh=1",
+            "refresh=TRUE",
+            "refresh=true&refresh=true",
+            "x=1",
+        ):
             _error(request(frame_url + "?" + query), 400, "invalid_parameter")
+        _error(request(frame_url + "/refresh"), 404, "result_not_found")
+        _error(request(frame_url, method="POST"), 404, "not_found")
+        _error(
+            request(frame_url + "/refresh?refresh=true", method="POST"), 400, "invalid_parameter"
+        )
+        _error(request(frame_url + "/refresh", method="POST", body=b"{}"), 400, "invalid_parameter")
         assert not (tmp_path / "invocations").exists()
         assert not (tmp_path / ".marivo").exists()
         spec = _ok(request("/v1/openapi.json"))
         data_operation = spec["paths"]["/v1/data/{endpoint}"]["get"]
-        assert "write effects" in data_operation["description"]
-        assert "read current state before retrying" in data_operation["description"]
-        first_frame = _ok(request(frame_url + "?refresh=true"))
-        first_table = _ok(request(table_url + "?refresh=true"))
+        assert [parameter["in"] for parameter in data_operation["parameters"]] == ["path"]
+        refresh_operation = spec["paths"]["/v1/data/{endpoint}/refresh"]["post"]
+        assert "Do not automatically retry" in refresh_operation["description"]
+        assert "read current state" in refresh_operation["description"]
+        first_frame = _ok(request(frame_url + "/refresh", method="POST"))
+        first_table = _ok(request(table_url + "/refresh", method="POST"))
         assert first_frame["kind"] == "analysis_frame"
         assert first_frame["data"]["rows"] == [["10"]]
         assert first_table["data"] == {
@@ -718,10 +768,10 @@ def test_refresh_source_updates_and_report_saved_refs(tmp_path: Path) -> None:
         saved.write_text(json.dumps({"frame": first_frame["ref"], "table": first_table["ref"]}))
         facts.write_text('[{"amount": 20}]')
         assert _ok(request(frame_url)) == first_frame
-        assert _ok(request(table_url + "?refresh=false")) == first_table
+        assert _ok(request(table_url)) == first_table
         assert (tmp_path / "invocations").read_text().splitlines() == ["import", "import"]
-        newer_frame = _ok(request(frame_url + "?refresh=true"))
-        newer_table = _ok(request(table_url + "?refresh=true"))
+        newer_frame = _ok(request(frame_url + "/refresh", method="POST"))
+        newer_table = _ok(request(table_url + "/refresh", method="POST"))
         assert newer_frame["data"]["rows"] == [["20"]]
         assert newer_table["data"]["rows"] == [["20", "40"]]
         assert newer_frame["ref"] != first_frame["ref"]
@@ -742,7 +792,7 @@ def test_refresh_source_updates_and_report_saved_refs(tmp_path: Path) -> None:
         assert _ok(request(fixed_frame)) == first_frame
         assert _ok(request(frame_url)) == newer_frame
         assert _ok(request(fixed_table)) == first_table
-        _error(request(frame_url + "?refresh=true"), 404, "not_found")
+        _error(request(frame_url + "/refresh", method="POST"), 404, "not_found")
     (tmp_path / ".marivo/analysis").rename(tmp_path / "removed_store")
     with server(tmp_path) as request:
         assert _ok(request(fixed_table)) == first_table
@@ -755,7 +805,7 @@ def test_refresh_timeout_cross_process_lock_and_read_availability(tmp_path: Path
     path = tmp_path / "endpoints/sales/table.py"
     original = path.read_text()
     with server(tmp_path, "--refresh-timeout-seconds", "10") as first:
-        saved = _ok(first(url + "?refresh=true"))
+        saved = _ok(first(url + "/refresh", method="POST"))
         path.write_text(
             original.replace(
                 "    metric =",
@@ -763,15 +813,15 @@ def test_refresh_timeout_cross_process_lock_and_read_availability(tmp_path: Path
             )
         )
         with server(tmp_path) as second, ThreadPoolExecutor(max_workers=1) as pool:
-            pending = pool.submit(first, url + "?refresh=true")
+            pending = pool.submit(first, url + "/refresh", method="POST")
             deadline = monotonic() + 8
             while not (tmp_path / "ready").exists():
                 assert monotonic() < deadline, "Worker did not enter the script"
                 sleep(0.01)
             assert _ok(second(url)) == saved
-            _error(second(url + "?refresh=true"), 409, "refresh_in_progress")
-            _error(first("/v1/data/sales/total?refresh=true"), 503, "service_unavailable")
+            _error(second(url + "/refresh", method="POST"), 409, "refresh_in_progress")
+            _error(first("/v1/data/sales/total/refresh", method="POST"), 503, "service_unavailable")
             _error(pending.result(timeout=15), 503, "refresh_timeout")
             assert _ok(first(url)) == saved
             path.write_text(original)
-            assert _ok(second(url + "?refresh=true"))["ref"] != saved["ref"]
+            assert _ok(second(url + "/refresh", method="POST"))["ref"] != saved["ref"]

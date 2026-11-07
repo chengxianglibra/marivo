@@ -73,7 +73,8 @@ project. Obtain a concrete endpoint name from the project or its host.
 | `GET /v1/sessions` | Existing Sessions, newest updated first |
 | `GET /v1/sessions/{session_id}/frames` | Committed Frame summaries, newest committed first |
 | `GET /v1/sessions/{session_id}/frames/{artifact_id}` | Complete saved report for the exact reference |
-| `GET /v1/data/{endpoint}` | Current saved report; only `refresh=true` executes its script |
+| `GET /v1/data/{endpoint}` | Current saved report without executing its script |
+| `POST /v1/data/{endpoint}/refresh` | Execute the script, publish and return a complete report. Send an empty body |
 | `GET /v1/dataframes/{result_id}` | Complete saved DataFrame report for the exact reference |
 
 Directories accept `limit` from 1 to 100 (default 20) and `cursor`. Continue
@@ -84,6 +85,14 @@ cursors. Failed reloads keep the last successful snapshot. Semantic detail
 includes direct references in the definition. Source locations are
 project-relative when available. The projection excludes connection options,
 source URLs and paths, and raw entity declaration source.
+
+An explicit reload starts a new load. If any Catalog load is already active,
+reload returns `409 catalog_load_in_progress` without queuing or accepting the
+older load as its result. Wait for that load to finish before requesting reload
+again. Ordinary reads share an initial load or read the last successful snapshot
+while reloading. The service owns Catalog loads: a client disconnect or request
+timeout does not cancel a shared load. Its own read deadline and service shutdown
+still stop it.
 
 ## Complete Frame reports
 
@@ -204,18 +213,20 @@ time scope selection; the service does not advance dates or reconstruct a produc
 from lineage. Scripts and imports are trusted project code, not sandboxed code.
 
 ```sh
-curl --fail-with-body -H "Authorization: Bearer ${MARIVO_API_TOKEN}" \
-  'http://127.0.0.1:8765/v1/data/sales/revenue?refresh=true'
+curl --fail-with-body -X POST -H "Authorization: Bearer ${MARIVO_API_TOKEN}" \
+  'http://127.0.0.1:8765/v1/data/sales/revenue/refresh'
 curl --fail-with-body -H "Authorization: Bearer ${MARIVO_API_TOKEN}" \
   'http://127.0.0.1:8765/v1/data/sales/revenue'
 ```
 
 The first call executes, saves and returns a complete report synchronously. The
-second reads the saved current reference. Absent `refresh` and `refresh=false`
+second reads the saved current reference. These saved GET reads
 never import scripts, recover Sessions or query sources, including on the first
-read: no saved result returns `result_not_found`. Only lowercase `true` and
-`false` are accepted; empty, repeated and unknown parameters fail. Removed or
+read: no saved result returns `result_not_found`. Both routes reject all query
+parameters, including the former `refresh` parameter. Removed or
 broken scripts cannot invalidate a saved result. Catalog reload remains separate.
+Do not automatically retry POST refresh. A timeout or lost response does not
+prove publication failed; read current state before deciding to refresh again.
 
 ## DataFrame reports and fixed report versions
 
@@ -322,6 +333,7 @@ A failure returns `{"error":{...}}` with `code`, `message`, `location`,
 | 404 | `result_not_found` | Check the fixed ref or explicitly create the endpoint's first result |
 | 409 | `invalid_cursor` | Start the directory listing again |
 | 409 | `refresh_in_progress` | Wait for the same endpoint's refresh or read the saved result |
+| 409 | `catalog_load_in_progress` | Wait for the active load to finish, then request reload again |
 | 413 | `response_too_large` | Increase the response budget and retry |
 | 422 | `catalog_load_failed` | Repair the model and reload |
 | 422 | `unsupported_store_format` | Use a Runtime compatible with the saved Store |
@@ -339,3 +351,8 @@ A failure returns `{"error":{...}}` with `code`, `message`, `location`,
 
 A report either returns complete data or fails. If deployment capacity cannot
 accommodate a larger budget, explicitly persist a smaller result.
+
+Unexpected request failures log their operation and traceback to service stderr.
+Catalog worker stderr is retained there as well; failed worker exits include the
+exit status. HTTP errors do not expose tracebacks. For `catalog_load_failed`,
+inspect these logs and run `marivo doctor --semantic` in the bound project.
