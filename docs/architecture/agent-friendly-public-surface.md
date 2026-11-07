@@ -50,8 +50,12 @@ receiver. No executable compatibility alias supplies a second canonical entry.
 ## Task navigation and exact reference
 
 Task topics answer the current information gap; they are not a required call
-sequence. The analysis root offers inputs, operators, sessions, execution and
-results, with a direct get_or_create startup link. Inputs selects Catalog
+sequence. The analysis root starts with one minimal executable example from
+Session and Catalog discovery through an explicit time range and output Grain
+to compute/show. It assumes an authored project, requires selecting a Metric by
+business meaning and uses an illustrative exact identity. It then offers inputs,
+operators, sessions, execution and results, with a direct get_or_create startup
+link. Inputs selects Catalog
 objects, question-scoped expressions, member domains, time, exact Frame handles
 or comparison inputs. Operators gives a compact intent/input/output map and
 links directly to exact operations. Sessions owns context and recovery;
@@ -68,7 +72,9 @@ Exact callable pages use one short example with declared inputs. Examples may
 compose operations to show exact-input handles, lazy derivation from fixed data,
 statistic consumption or export access. They remain static text: rendering Help
 does not execute examples, create Sessions or read project/source data. Task
-pages link to the owning callable instead of maintaining another example set.
+pages link to the owning callable instead of maintaining another example set,
+apart from the single analysis-root quick start. The root's example counts toward
+its explicit render budget; other task pages retain their navigation-only budgets.
 
 Authoring offers direct project loading, Catalog reuse, connection setup,
 physical inspection, modeling, expressions and validation, with optional ontology

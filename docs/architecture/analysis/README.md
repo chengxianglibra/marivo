@@ -25,7 +25,15 @@ captured state and structured repair disclosure.
 
 ## Task discovery
 
-`marivo.help("analysis")` routes by the information needed next:
+`marivo.help("analysis")` starts with one complete minimal example: acquire a
+Session and its Catalog, search Metric candidates, retrieve the selected exact
+identity, observe with an explicit TimeScope and daily Grain, then compute and
+show the returned Frame. The example assumes an authored project and contribution
+time on every Metric branch. Selection follows business meaning, not search rank;
+known identities can skip discovery. The example query, identity, dates and
+timezone must match the question. It requires no persistence.
+
+The root then routes by the information needed next:
 
 | Need | Task target |
 | --- | --- |

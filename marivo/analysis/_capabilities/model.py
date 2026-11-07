@@ -60,7 +60,7 @@ ANALYSIS_HELP_RENDER_BUDGETS: Mapping[
     AnalysisHelpRenderBudget,
 ] = MappingProxyType(
     {
-        "root": AnalysisHelpRenderBudget(32, 3_000, 8, 0),
+        "root": AnalysisHelpRenderBudget(32, 3_000, 8, 1),
         "decision_hub": AnalysisHelpRenderBudget(44, 4_500, 10, 0),
         "navigation": AnalysisHelpRenderBudget(64, 6_500, 18, 0),
         "exact_callable": AnalysisHelpRenderBudget(104, 9_000, 10, 1),

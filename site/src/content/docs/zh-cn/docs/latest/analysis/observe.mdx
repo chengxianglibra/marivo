@@ -12,6 +12,35 @@ head:
 调用 `session.observe(...)`，即可按所选输出域构造 Metric 计算，并返回待执行的
 `AnalysisFrame`。调用 `compute()` 执行计算；调用 `persist()` 则完成计算并发布结果。
 
+完整的最小示例可直接查看 `marivo.help("analysis")`。在已有指标定义的项目中，
+先按业务含义搜索：
+
+```python
+import marivo.analysis as mv
+
+session = mv.session.get_or_create("revenue-trend", timezone="UTC")
+catalog = session.catalog
+catalog.search("revenue", kind="metric", limit=5).show()
+```
+
+查看候选，选择符合问题口径的指标，而非自动使用第一条结果。
+以下假设确认的 ID 是 `metric:sales.revenue`；实际应使用搜索返回的真实 ID。
+已知确切身份时可跳过搜索。日期和时区应按问题调整；继续同一分析时复用已有 Session。
+
+```python
+revenue = catalog.get("metric:sales.revenue")
+assert revenue.kind == "metric"
+period = session.time_scope(start="2026-08-01", end="2026-09-01")
+result = session.observe(
+    revenue, where=period, by=(mv.grain("day"),),
+).compute()
+result.show(n=31)
+```
+
+时间范围按 Session 时区包含 8 月 1 日、不包含 9 月 1 日。
+指标的每个分支都需要贡献时间。该示例直接计算并展示每日数值，无需持久化；
+指定时间范围不代表已确认来源数据完整。
+
 用 `where=scope` 选择报告范围，用 `by=(grain,)` 选择输出粒度。仅指定范围时，
 筛选来源贡献，输出不增加时间轴。仅指定内置 Grain 时，只返回实际有贡献的时间桶。
 两者合用时补齐有限报告范围内的时间桶。自定义日历 Grain 必须同时指定范围，

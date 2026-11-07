@@ -263,6 +263,9 @@ def test_analysis_pages_are_static_deterministic_and_keep_primary_ownership(
         # The coordinator adds three header facts and a separating blank line.
         assert len(text.splitlines()) <= budget.max_lines + 4
         assert len(text) <= budget.max_codepoints + 100
+        assert text.count("\nExample:\n") <= budget.max_examples_or_snippets
+        if descriptor.canonical_id == "":
+            assert text.count("\nExample:\n") == 1
         for linked in _links(target):
             route_help_target(linked)
         primary.update(descriptor.members)

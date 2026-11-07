@@ -318,6 +318,37 @@ class DatasetDisclosureRegistry:
                             "one canonical callable family in the same discovery group",
                             descriptor.canonical_id,
                         )
+            elif isinstance(descriptor, TypeInput):
+                for type_binding in descriptor.bindings:
+                    if type_binding.fields != public_fields(
+                        type_binding.implementation
+                    ) or type_binding.methods != public_methods(type_binding.implementation):
+                        raise invalid(
+                            "complete current fields and methods", descriptor.canonical_id
+                        )
+                for variant_input in descriptor.variants:
+                    if variant_input.fields != variant_fields(variant_input.implementation):
+                        raise invalid(
+                            "complete current sealed value fields", descriptor.canonical_id
+                        )
+                targets = descriptor.producers + descriptor.consumers
+            elif isinstance(descriptor, NavigationInput):
+                targets = descriptor.members + descriptor.related
+                memberships.update(descriptor.members)
+                summaries = dict(descriptor.route_summaries)
+                if len(summaries) != len(descriptor.route_summaries) or any(
+                    target not in targets or not summary.strip()
+                    for target, summary in descriptor.route_summaries
+                ):
+                    raise invalid(
+                        "unique decision summaries for advertised routes", descriptor.canonical_id
+                    )
+            elif isinstance(descriptor, ReadCapability):
+                targets = descriptor.related
+            if (
+                isinstance(descriptor, (CallableInput, NavigationInput))
+                and descriptor.example is not None
+            ):
                 try:
                     tree = ast.parse(descriptor.example.code)
                 except SyntaxError as error:
@@ -347,33 +378,6 @@ class DatasetDisclosureRegistry:
                 )
                 if external != set(descriptor.example.requires):
                     raise invalid("exact external example inputs", descriptor.canonical_id)
-            elif isinstance(descriptor, TypeInput):
-                for type_binding in descriptor.bindings:
-                    if type_binding.fields != public_fields(
-                        type_binding.implementation
-                    ) or type_binding.methods != public_methods(type_binding.implementation):
-                        raise invalid(
-                            "complete current fields and methods", descriptor.canonical_id
-                        )
-                for variant_input in descriptor.variants:
-                    if variant_input.fields != variant_fields(variant_input.implementation):
-                        raise invalid(
-                            "complete current sealed value fields", descriptor.canonical_id
-                        )
-                targets = descriptor.producers + descriptor.consumers
-            elif isinstance(descriptor, NavigationInput):
-                targets = descriptor.members + descriptor.related
-                memberships.update(descriptor.members)
-                summaries = dict(descriptor.route_summaries)
-                if len(summaries) != len(descriptor.route_summaries) or any(
-                    target not in targets or not summary.strip()
-                    for target, summary in descriptor.route_summaries
-                ):
-                    raise invalid(
-                        "unique decision summaries for advertised routes", descriptor.canonical_id
-                    )
-            elif isinstance(descriptor, ReadCapability):
-                targets = descriptor.related
             for target in targets:
                 if target not in ids and not self.is_type_attribute(target):
                     if target == "authoring" or target.startswith(

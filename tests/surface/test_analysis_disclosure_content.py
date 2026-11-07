@@ -51,6 +51,36 @@ from marivo.datasource.adapters import SourceSession
 from tests.shared_fixtures import DslCaseFactory, catalog_value
 
 
+def test_analysis_root_example_discovers_and_reads_complete_daily_revenue(
+    analysis_dsl_case_factory: DslCaseFactory,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    analysis_dsl_case_factory("j1")
+    text = render_help_text("analysis")[0]
+    capsys.readouterr()
+    main(["help", "analysis"])
+    cli = capsys.readouterr()
+    assert cli.err == ""
+    assert text.index("\nExample:\n") < text.index("marivo.help('analysis.inputs')")
+    code = text.split("\nExample:\n", 1)[1].split("\nExpected:", 1)[0]
+    assert cli.out.split("\nExample:\n", 1)[1].split("\nExpected:", 1)[0] == code
+    namespace: dict[str, object] = {}
+    exec(compile(code, "<analysis-root-help-example>", "exec"), namespace)
+    output = capsys.readouterr().out
+    assert "metric:sales.revenue" in output
+    assert "2026-08-01" in output and "2026-08-31" in output
+    result = namespace["result"]
+    assert isinstance(result, mv.AnalysisFrame)
+    assert result.output_names == ("revenue",)
+    rows = result.to_pandas().sort_values("calendar:day")
+    assert rows["calendar:day"].dt.strftime("%Y-%m-%d").tolist() == [
+        f"2026-08-{day:02d}" for day in range(1, 32)
+    ]
+    # Include the exact start and final second; exclude July and the exact end.
+    # The empty days remain in the report, with the sum Metric's zero identity.
+    assert rows["revenue"].tolist() == [450] + [0] * 13 + [150] + [0] * 15 + [400]
+
+
 def test_empty_select_help_discloses_retained_domain() -> None:
     text = render_help_text("analysis.analysis_frame.select")[0]
     assert "{} removes all values" in text

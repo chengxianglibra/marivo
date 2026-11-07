@@ -63,6 +63,15 @@ def render(registry: DatasetDisclosureRegistry, target: object = "") -> str:
         render_class = descriptor.render_class
         routes = descriptor.members + descriptor.related
         lines.extend(descriptor.guidance)
+        if descriptor.example is not None:
+            lines.extend(
+                (
+                    "Example:",
+                    descriptor.example.code,
+                    "Expected: " + descriptor.example.outcome,
+                )
+            )
+            examples = 1
         summaries = dict(descriptor.route_summaries)
         rendered_families: set[str] = set()
         for t in routes:

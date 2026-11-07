@@ -13,6 +13,37 @@ head:
 domain and returns a pending `AnalysisFrame`. Call `compute()` to evaluate it,
 or `persist()` to complete and publish it.
 
+For a complete minimal example, start with `marivo.help("analysis")`. In a project
+with authored Metrics, search by business meaning:
+
+```python
+import marivo.analysis as mv
+
+session = mv.session.get_or_create("revenue-trend", timezone="UTC")
+catalog = session.catalog
+catalog.search("revenue", kind="metric", limit=5).show()
+```
+
+Inspect the candidates and choose the Metric matching the question, rather than
+automatically taking the first hit. The following assumes the confirmed ID is
+`metric:sales.revenue`; use an actual returned ID. An already known exact identity
+can skip search. Adjust the dates and timezone to the question, and reuse an
+available Session when continuing the same analysis.
+
+```python
+revenue = catalog.get("metric:sales.revenue")
+assert revenue.kind == "metric"
+period = session.time_scope(start="2026-08-01", end="2026-09-01")
+result = session.observe(
+    revenue, where=period, by=(mv.grain("day"),),
+).compute()
+result.show(n=31)
+```
+
+The range includes August 1 and excludes September 1 in the Session timezone.
+Every Metric branch needs contribution time. This computes and displays daily
+values without requiring persistence; the range does not certify source completeness.
+
 Choose a report range with `where=scope` and an output grain with
 `by=(grain,)`. A range alone selects contributions without adding an output
 axis. A built-in Grain alone produces only the time buckets that actually occur.

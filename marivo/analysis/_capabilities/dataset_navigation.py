@@ -7,12 +7,14 @@ from dataclasses import replace
 from marivo.analysis._capabilities.dataset_model import (
     CallableInput,
     DisclosureProvider,
+    ExampleInput,
     NavigationInput,
     invalid,
 )
 
 # Each provider owns primary capability membership. These pages own task choices,
-# short decision summaries and secondary links; they do not duplicate API facts.
+# short decision summaries and secondary links. The root owns one quick-start example;
+# exact callable pages retain parameter contracts.
 _PAGES = (
     NavigationInput(
         "inputs",
@@ -324,20 +326,42 @@ def navigation(providers: tuple[DisclosureProvider, ...]) -> tuple[NavigationInp
     result.append(
         NavigationInput(
             "",
-            "Read governed Metrics or answer an analytical question.",
+            "Answer questions with governed Metrics.",
             ("inputs", "operators", "sessions", "execution", "results"),
             "root",
             guidance=(
-                "Imports: import marivo.analysis as mv",
-                "Catalog: definitions. Session: context and ownership. Frame: pending/fixed data, saved identity and captured metadata.",
-                "Use session.get_or_create for missing context and session.catalog for inputs. Related Frames share one explicit Session.",
-                "Enter known targets directly; otherwise choose the missing information.",
-                "Construction captures dependencies; compute fixes data; persist saves it. Continue with the returned Frame.",
-                "Read object facts or type Help; follow error repairs. The agent owns interpretation.",
+                "Catalog: definitions. Session: context. Frame: data.",
+                "In an authored project, reuse your Session; adapt query, ID, dates and timezone.",
+                "Choose by meaning, or use a known ID. All Metric branches need contribution time.",
+                "where selects [start, end); by chooses grain.",
+            ),
+            example=ExampleInput(
+                "import marivo.analysis as mv\n"
+                "\n"
+                "session = mv.session.get_or_create('revenue-trend', timezone='UTC')\n"
+                "catalog = session.catalog\n"
+                "catalog.search('revenue', kind='metric', limit=5).show()\n"
+                "\n"
+                "# Replace with the selected ID.\n"
+                "revenue = catalog.get('metric:sales.revenue')\n"
+                "assert revenue.kind == 'metric'\n"
+                "period = session.time_scope(start='2026-08-01', end='2026-09-01')\n"
+                "result = session.observe(\n"
+                "    revenue, where=period, by=(mv.grain('day'),),\n"
+                ").compute()\n"
+                "result.show(n=31)",
+                (),
+                "result",
+                "Daily revenue.",
             ),
             related=("session.get_or_create",),
             route_summaries=(
-                ("session.get_or_create", "Start or continue a named analysis context."),
+                ("inputs", "Find or compose inputs."),
+                ("operators", "Choose an operation."),
+                ("sessions", "Create or recover context."),
+                ("execution", "Compute or persist."),
+                ("results", "Inspect data and metadata."),
+                ("session.get_or_create", "Create or reuse a Session."),
             ),
         )
     )

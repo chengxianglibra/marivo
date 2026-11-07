@@ -224,6 +224,7 @@ class NavigationInput:
     related: tuple[str, ...] = ()
     discovery_group: str | None = None
     route_summaries: tuple[tuple[str, str], ...] = ()
+    example: ExampleInput | None = None
     kind: Literal["navigation"] = field(default="navigation", init=False)
     public_entrypoint: None = field(default=None, init=False)
     callable_path: None = field(default=None, init=False)
