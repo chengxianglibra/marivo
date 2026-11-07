@@ -137,7 +137,7 @@ Python naive `datetime` objects and ambiguous or nonexistent local boundary time
 | `unit` | Yes | — | Calendar unit: second, minute, hour, day, week, month, quarter or year. |
 | `count` | No | `1` | Canonical positive width for subday units that divides a nominal day and is shorter than one day. Day-or-coarser units use `count=1`. |
 
-Use `where=august, by=(day,)` to observe daily buckets. For an explicit Population or a shifted domain, `scope.by(grain)` returns a `CalendarAxis`. At subday grains, its grid skips nonexistent local times and retains both instants for a repeated local time. Civil days and months are calendar periods, so their elapsed durations vary around daylight-saving transitions. A DATE time role requires day-or-coarser contributions whose boundaries fall at business midnight. See [time series and windows](/docs/latest/analysis/time-series/) for observation and comparison examples.
+Use `by=(august.by(day),)` to observe daily buckets. `scope.by(grain)` returns a `CalendarAxis`, also usable in an explicit Population or a shifted domain. At subday grains, its grid skips nonexistent local times and retains both instants for a repeated local time. Civil days and months are calendar periods, so their elapsed durations vary around daylight-saving transitions. A DATE time role requires day-or-coarser contributions whose boundaries fall at business midnight. See [time series and windows](/docs/latest/analysis/time-series/) for observation and comparison examples.
 
 ## Business calendar: `ms.period_calendar`
 

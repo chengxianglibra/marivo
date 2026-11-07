@@ -31,6 +31,7 @@ from marivo.analysis.core.frame_source_reads import (
     FrameSourceReadPeriod,
     FrameSourceReadScope,
 )
+from marivo.analysis.errors import MetricContributionTimeError, MissingMetricContributionTime
 from marivo.analysis.session import _lazy_read_model as r
 from marivo.analysis.session._method_disclosure import section as _doc_section
 from marivo.analysis.session.core import Session
@@ -39,6 +40,45 @@ from marivo.analysis.session.core import Session
 def provider() -> DisclosureProvider:
     descriptors: list[Descriptor] = []
     exports: list[ExportInput] = []
+    descriptors.extend(
+        (
+            value_type(
+                "MetricContributionTimeError",
+                MetricContributionTimeError,
+                summary="A report-time observation has Metric branches without contribution time.",
+                acquisition="Catch this AnalysisError from session.observe and inspect output and missing.",
+                producers=("session.observe",),
+                constraints=(
+                    "missing contains every missing occurrence in expression order; "
+                    "the text is bounded to six occurrences.",
+                ),
+            ),
+            value_type(
+                "MissingMetricContributionTime",
+                MissingMetricContributionTime,
+                summary="A captured Metric occurrence without a contribution time.",
+                acquisition="Read an entry from MetricContributionTimeError.missing.",
+                constraints=(
+                    "path identifies the expression occurrence; metric and root are captured "
+                    "identities when available. reason is no_entity_default or fixed_member_count.",
+                ),
+            ),
+        )
+    )
+    exports.extend(
+        (
+            ExportInput(
+                "MetricContributionTimeError",
+                MetricContributionTimeError,
+                "MetricContributionTimeError",
+            ),
+            ExportInput(
+                "MissingMetricContributionTime",
+                MissingMetricContributionTime,
+                "MissingMetricContributionTime",
+            ),
+        )
+    )
     descriptors.append(
         value_type(
             "Session",
@@ -182,7 +222,7 @@ def provider() -> DisclosureProvider:
     )
     acquisition = {
         "frame": "Same-Session AnalysisFrame; IDs, refs and raw tables reject.",
-        "on": "Required immutable tuple of (FrameAxis, closed Field/Entity) pairs; () selects zero axes. Complete ordinary axes only; names/types never infer targets.",
+        "on": "Required immutable tuple of (FrameAxis, closed Field/Entity) pairs; () selects zero axes. Names/types never infer targets.",
         "value": "Pass an ISO string, date, aware datetime or existing InstantAnchor.",
         "timezone": "None uses the frozen Session timezone unless explicitly overridden.",
         "start": "Choose the inclusive exact boundary.",
@@ -198,7 +238,7 @@ def provider() -> DisclosureProvider:
         "cursor": "Use the preceding page's opaque next_cursor with the identical selection.",
         "session_id": "Use the exact existing Session id.",
         "artifact_id": "Use the exact saved Frame's artifact_id string from this Session; objects and Refs are not IDs.",
-        "metrics": "One published root Metric or nonempty list/tuple of them uses local names in order. Derived expressions and source/Population counts require a nonempty Mapping {'total': expr}. Names are distinct nonempty labels, not business identity; no dots, backslashes, controls or left_present/right_present.",
+        "metrics": "A published root Metric or nonempty list/tuple of them: local names in order. Derived expressions and source/Population counts require a nonempty Mapping {'total': expr}. Names: distinct, nonempty, not business identity; no dots, backslashes, controls or left_present/right_present.",
         "entity": "Pass a resolved governed Entity, not a Ref or path.",
     }
     parameter_targets: dict[str, tuple[str, ...]] = {
@@ -258,7 +298,7 @@ def provider() -> DisclosureProvider:
                         if name == "get_or_create" and n == "domains"
                         else "Choose an integer from 1 through 100, excluding bool; default 20. Keep the same limit when continuing a cursor."
                         if name == "persisted_frames" and n == "limit"
-                        else "Dimensions, non-time Groupings and at most one CalendarAxis in a tuple; () gives one cell. by=P retains complete keys without filtering contributions and must cover necessary output keys before sampling. If by carries time, omit TimeScope in where."
+                        else "Tuple of Dimensions, non-time Groupings and at most one CalendarAxis; () gives one cell. by=P retains complete keys without filtering contributions; cover necessary output keys before sampling. If by carries time, omit TimeScope in where."
                         if name == "observe" and n == "by"
                         else "Pass resolved fields or field or identity Grouping values; calendar and membership groupings are rejected. Use () for scalar literal rows."
                         if name == "values" and n == "by"
@@ -304,7 +344,7 @@ def provider() -> DisclosureProvider:
                     if name == "get_or_create"
                     else "AnalysisError: read its fields and repair."
                     if name == "members"
-                    else "AnalysisError: Fix branch clocks in semantic definitions or omit report time. Duplicate/invalid names reject; no name cleaning/numbering."
+                    else "MetricContributionTimeError: Fix branch clocks in semantic definitions or omit report time; inspect error.missing; marivo.help('analysis.metric_contribution_time_error'). Duplicate/invalid names reject; no name cleaning/numbering."
                     if name == "observe"
                     else "AnalysisError: follow the structured identity, bound or recovery repair.",
                 ),

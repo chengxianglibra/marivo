@@ -288,6 +288,18 @@ def test_aliases_keep_repeated_occurrences_and_independent_clocks(
     segment = catalog_get(catalog, "dimension:sales.customers.segment", kind="dimension")
     buyer = catalog_get(catalog, "relationship:sales.buyer", kind="relationship")
     amount = catalog_get(catalog, "measure:sales.orders.amount", kind="measure")
+    paid_at = catalog_get(catalog, paid, kind="time_dimension")
+    created_at = catalog_get(catalog, created, kind="time_dimension")
+    anonymous = amount.sum(time=paid_at) - amount.sum(time=created_at)
+    anonymous.show()
+    total = session.observe({"difference": anonymous}, where=november).compute().to_pandas()
+    assert total["difference"].tolist() == [100]
+    grouped = (
+        session.observe({"difference": anonymous}, by=(months.by(mv.grain("month")),))
+        .compute()
+        .to_pandas()
+    )
+    assert grouped["difference"].tolist() == [-100, 100]
     classified = (
         session.observe({"amount": amount.sum()}, by=(segment.via((buyer,)),), where=november)
         .compute()

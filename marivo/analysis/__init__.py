@@ -184,6 +184,10 @@ if TYPE_CHECKING:
     from marivo.analysis.dsl.population import membership as membership
     from marivo.analysis.dsl.population import product as product
     from marivo.analysis.dsl.temporal import CalendarAxis as CalendarAxis
+    from marivo.analysis.errors import MetricContributionTimeError as MetricContributionTimeError
+    from marivo.analysis.errors import (
+        MissingMetricContributionTime as MissingMetricContributionTime,
+    )
     from marivo.analysis.session.core import Session as Session
 
 

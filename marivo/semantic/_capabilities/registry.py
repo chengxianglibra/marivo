@@ -898,9 +898,10 @@ def _object_contracts() -> tuple[SemanticObjectContract, ...]:
                 ),
                 _business_decision(
                     "temporal_behavior",
-                    "Which field fixes contribution time for each source reduction, explicitly or through its Entity default?",
+                    "Which field fixes contribution time for each source reduction? Inspect metric.definition.time_bindings; see marivo.help('semantic.metric_definition.time_bindings').",
                     "metric",
-                    "Metric.per",
+                    "row.sum",
+                    "entity",
                 ),
                 _business_decision(
                     "guardrails",
@@ -928,6 +929,7 @@ def _object_contracts() -> tuple[SemanticObjectContract, ...]:
             supporting=(
                 "ai_context",
                 "row.sum",
+                "entity",
                 "Metric.where",
                 "Metric.per",
                 "Field.via",

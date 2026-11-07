@@ -70,17 +70,42 @@ import marivo.analysis as mv
 scope = session.time_scope(start="2026-11-01", end="2026-12-01")
 booked = amount.sum(time=booked_at)
 paid = amount.sum(time=paid_at)
+difference = booked - paid
+difference.show()
+total = session.observe({"difference": difference}, where=scope).compute()
 frame = session.observe(
-    {"booked": booked, "paid": paid, "difference": booked - paid},
+    {"booked": booked, "paid": paid, "difference": difference},
     by=(scope.by(mv.grain("day")),),
 ).compute()
 ```
+
+`difference.show()` reports captured branch clocks when they can be determined
+without a receiving scope. For a published Catalog Metric, inspect
+`metric.definition.time_bindings` or call `metric.show(section="definition", max_output_bytes=None)`
+to read all captured bindings. Clock availability does not certify a particular
+grain or the source's physical types.
 
 Use `where=(scope, status == "paid")` to conjoin one report range with a row
 predicate. `where=paid_at.within(scope)` is a fixed source-field predicate and
 can filter a Metric that has no contribution clock. Window endpoints come
 from the report time context. If a branch lacks a clock, repair that branch's
 definition or omit report time from the observation.
+
+For an existing `metric` whose time capability is not known, inspect a rejected
+observation's complete structured details before deciding how to repair it:
+
+```python
+try:
+    pending = session.observe({"value": metric}, where=scope)
+except mv.MetricContributionTimeError as error:
+    print(error.output)
+    for missing in error.missing:
+        print(missing.path, missing.metric, missing.root, missing.reason)
+```
+
+`reason` distinguishes a source reduction without an Entity default from a
+fixed Population count. Do not assign a clock to a fixed Population count;
+keep it outside report time operations.
 
 See `marivo.help("semantic.metric.define")` and
 `marivo.help("analysis.session.observe")` for the exact contracts.

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from dataclasses import dataclass
 from typing import Literal, TypedDict
 
 from pydantic import BaseModel, ConfigDict
@@ -139,6 +140,61 @@ class AnalysisError(MarivoError):
             lines.append(f"Help: marivo.help({qualified!r})")
 
         return "\n".join(lines)
+
+
+@dataclass(frozen=True, slots=True)
+class MissingMetricContributionTime:
+    """One Metric occurrence without a contribution clock.
+
+    ``path`` identifies its position, ``metric`` and ``root`` are captured
+    semantic identities when present, and ``reason`` distinguishes a missing
+    Entity default from a fixed Population count.
+    """
+
+    path: tuple[str, ...]
+    metric: str | None
+    root: str | None
+    reason: Literal["no_entity_default", "fixed_member_count"]
+
+
+class MetricContributionTimeError(AnalysisError):
+    """An observation requires a clock absent from one or more Metric branches."""
+
+    message: str
+    expected: str | None
+    received: str | None
+    location: str | None
+    repair: AnalysisRepair | None
+    output: str
+    missing: tuple[MissingMetricContributionTime, ...]
+
+    def __init__(self, *, output: str, missing: tuple[MissingMetricContributionTime, ...]) -> None:
+        self.output = output
+        self.missing = missing
+        received = ", ".join(
+            f"{' / '.join(item.path) or 'root'}: "
+            f"{item.root if item.root is not None else 'fixed Population.count'}"
+            for item in missing[:6]
+        )
+        if len(missing) > 6:
+            received += f"; {len(missing) - 6} more (see error.missing)"
+        repairs = []
+        if any(item.reason == "no_entity_default" for item in missing):
+            repairs.append("Fix source reductions with time= or an Entity default_time.")
+        if any(item.reason == "fixed_member_count" for item in missing):
+            repairs.append("Keep fixed Population.count outside time operations.")
+        repairs.append("Alternatively remove the report time selection.")
+        super().__init__(
+            message="Report time requires contribution time for every Metric branch.",
+            expected="a concrete contribution time (TimeDimension) on every Metric branch",
+            received=received,
+            location=f"Session.observe.metrics[{output!r}]",
+            repair=AnalysisRepair(
+                kind="retry",
+                action=" ".join(repairs),
+                help_target=LiveHelpTarget(surface="semantic", canonical_id="metric.define"),
+            ),
+        )
 
 
 class TimezoneInvalidError(AnalysisError):

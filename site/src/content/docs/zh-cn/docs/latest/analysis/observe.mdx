@@ -63,16 +63,38 @@ import marivo.analysis as mv
 scope = session.time_scope(start="2026-11-01", end="2026-12-01")
 booked = amount.sum(time=booked_at)
 paid = amount.sum(time=paid_at)
+difference = booked - paid
+difference.show()
+total = session.observe({"difference": difference}, where=scope).compute()
 frame = session.observe(
-    {"booked": booked, "paid": paid, "difference": booked - paid},
+    {"booked": booked, "paid": paid, "difference": difference},
     by=(scope.by(mv.grain("day")),),
 ).compute()
 ```
+
+`difference.show()` 在无需接收作用域即可确定时展示捕获的各分支归期。对于已发布的
+Catalog Metric，可查看 `metric.definition.time_bindings`，或调用
+`metric.show(section="definition", max_output_bytes=None)` 读取全部绑定。归期可用不代表
+特定粒度或来源物理类型已经通过验证。
 
 用 `where=(scope, status == "paid")` 将一个报告范围与行谓词取交集。
 `where=paid_at.within(scope)` 是绑定到固定来源字段的谓词，可筛选没有贡献时间的
 Metric。窗口端点由报告时间上下文提供。若某个分支缺少贡献时间，请修订该分支的定义，
 或在此次观察中省略报告时间。
+
+对于时间能力尚不确定的现有 `metric`，可先读取观察错误的完整结构化详情，再决定如何修复：
+
+```python
+try:
+    pending = session.observe({"value": metric}, where=scope)
+except mv.MetricContributionTimeError as error:
+    print(error.output)
+    for missing in error.missing:
+        print(missing.path, missing.metric, missing.root, missing.reason)
+```
+
+`reason` 区分缺少 Entity 默认时间的源规约与固定 Population 计数。不要给固定
+Population 计数指定归期；应将它放在报告时间运算之外。
 
 精确契约见 `marivo.help("semantic.metric.define")` 和
 `marivo.help("analysis.session.observe")`。

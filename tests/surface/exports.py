@@ -76,6 +76,8 @@ SEMANTIC_PUBLIC = {
 }
 
 ANALYSIS_PUBLIC = (
+    "MetricContributionTimeError",
+    "MissingMetricContributionTime",
     "AnalysisFrame",
     "FrameAxis",
     "ComparisonBaseline",

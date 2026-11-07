@@ -28,8 +28,8 @@ and the [shared input example](/docs/latest/analysis/dsl/#complete-example-and-s
 
 Use a Population to select complete members. `session.observe(...)` captures a
 Metric calculation; `by` selects output coordinates, while `where` filters
-source contributions. Put a report `TimeScope` in `where` to select a range.
-Add a `Grain` to `by` for time buckets. Use `session.read(...)`
+source contributions. Put a report `TimeScope` in `where` to select a range,
+or pass `scope.by(grain)` in `by` for time buckets. Use `session.read(...)`
 to retrieve named attributes for selected Entity identities.
 
 Continue with [population selection](/docs/latest/analysis/dsl/#select-and-filter),

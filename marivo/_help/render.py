@@ -159,7 +159,7 @@ def render_help_text(target: PublicHelpTarget = None) -> tuple[str, str, str | N
             )
             if type_binding is not None:
                 type_obj, type_name = type_binding
-                kind = "object"
+                kind = "error" if issubclass(type_obj, Exception) else "object"
                 text += _method_routes(route.owner, type_obj, type_name)
                 attributes = {
                     member: facts

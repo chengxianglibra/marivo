@@ -318,7 +318,7 @@ class _ExpressionCarrier(RenderableResult):
 
     def _card(self) -> Card:
         inspection = inspect_capture(Deferred(self._recipe))
-        return (
+        card = (
             Card(identity=self._repr_identity(), available=(".show()",))
             .field("role", self._role)
             .field("formula", _formula(self._recipe)[:400])
@@ -340,6 +340,43 @@ class _ExpressionCarrier(RenderableResult):
             )
             .field("boundary", "captured expression; no source read or execution")
         )
+        if isinstance(self, MetricExpression) and self._role == "numeric":
+            if inspection.symbols:
+                card.field("report_time", "unknown: resolve the authoring symbols in a Catalog")
+            else:
+                from marivo.semantic._catalog_definition import metric_time_bindings
+                from marivo.semantic._deferred_semantics import consume_metric
+                from marivo.semantic._metric_time_disclosure import add_metric_time
+
+                try:
+                    facts = consume_metric(self)
+                except SemanticExpressionError as error:
+                    if error.details.get("defer_to_scope") or error.kind in {
+                        ErrorKind.CROSS_ROOT_ROW_EXPRESSION,
+                        ErrorKind.INCOMMENSURABLE_LINEAR_UNITS,
+                        ErrorKind.MISSING_SUM_PERMISSION,
+                        ErrorKind.INVALID_WHERE_SCOPE,
+                        ErrorKind.INVALID_TIME_PATH,
+                    }:
+                        card.field(
+                            "report_time",
+                            f"unknown: receiving scope needed ({error.kind})",
+                        )
+                    else:
+                        card.field(
+                            "report_time",
+                            f"unknown: captured expression inspection failed ({error.kind}): "
+                            f"{error.message}",
+                        )
+                    if error.repair is not None:
+                        card.field("time_inspection_repair", error.repair.action)
+                else:
+                    add_metric_time(
+                        card,
+                        metric_time_bindings(facts),
+                        recovery="pass max_output_bytes=None to show all time bindings",
+                    )
+        return card
 
     def __repr__(self) -> str:
         return f"{self._repr_identity()} (use .show())"

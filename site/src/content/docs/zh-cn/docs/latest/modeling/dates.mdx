@@ -131,7 +131,7 @@ Python 无时区 `datetime` 对象以及含糊或不存在的本地边界时间�
 | `unit` | 是 | — | 日历单位：second、minute、hour、day、week、month、quarter、year。 |
 | `count` | 否 | `1` | 日内单位的规范正数宽度，时长小于一天且能整除一个标准日；日及更粗单位使用 `count=1`。 |
 
-用 `where=august, by=(day,)` 观察按日分桶的结果。构造显式 Population 或偏移域时，`scope.by(grain)` 返回 `CalendarAxis`。在日内粒度下，日历网格会跳过不存在的本地时间，并为重复的本地时间保留两个时刻。自然日和自然月是日历期间，因此夏令时切换前后的经过时长可能不同。DATE 时间角色要求贡献使用日或更粗粒度，并以业务午夜为起止边界。观察和比较示例见[时间序列与窗口](/zh-cn/docs/latest/analysis/time-series/)。
+用 `by=(august.by(day),)` 观察按日分桶的结果。`scope.by(grain)` 返回 `CalendarAxis`，也可用于显式 Population 或偏移域。在日内粒度下，日历网格会跳过不存在的本地时间，并为重复的本地时间保留两个时刻。自然日和自然月是日历期间，因此夏令时切换前后的经过时长可能不同。DATE 时间角色要求贡献使用日或更粗粒度，并以业务午夜为起止边界。观察和比较示例见[时间序列与窗口](/zh-cn/docs/latest/analysis/time-series/)。
 
 ## 业务日历：`ms.period_calendar`
 

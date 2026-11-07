@@ -27,8 +27,8 @@ Use `attribute(by=...)` when you need contributions for a selected direct Metric
 
 Exact additive/rate-mix rules remain exact. Qualified paired nonlinear and quantile targets use whole-Metric group-replacement Shapley with `permutations=1024, seed=0` by default. State routes capture inputs once and sample locally; Float SUM/AVG use summary reconstruction with disclosed bias without an error bound that permutation SE does not measure. Other admitted targets query the original backend for each uncached coalition; query cost can grow with permutations. No consistent snapshot or temporary materialization is required. `contribution_std_error.<name>` describes permutation variation for states and observed marginal variation for independent queries, which cannot isolate source changes. State routes prove all coalition domains; query routes validate visited coalitions. Read the [DSL's route and backend limits](/docs/latest/analysis/dsl/#attribute--explain-source-contributions).
 
-When building report buckets with a `Grain`, supply the report
-`TimeScope` so attribution can bind the endpoints.
+Build report buckets with `scope.by(grain)` so attribution can bind their
+report endpoints.
 
 Use `session`, `mv`, `revenue`, `region`, `july_interval` and `august_interval`
 from the [DSL setup](/docs/latest/analysis/dsl/). The two explicit interval

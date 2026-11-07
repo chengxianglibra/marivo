@@ -179,9 +179,13 @@ from marivo.analysis.dsl.windows import since as since
 from marivo.analysis.dsl.windows import to_date as to_date
 from marivo.analysis.dsl.windows import trailing_duration as trailing_duration
 from marivo.analysis.dsl.windows import trailing_periods as trailing_periods
+from marivo.analysis.errors import MetricContributionTimeError as MetricContributionTimeError
+from marivo.analysis.errors import MissingMetricContributionTime as MissingMetricContributionTime
 from marivo.analysis.session.core import Session as Session
 
 __all__ = [  # noqa: RUF022 - public order is contractual
+    "MetricContributionTimeError",
+    "MissingMetricContributionTime",
     "AnalysisFrame",
     "FrameAxis",
     "ComparisonBaseline",

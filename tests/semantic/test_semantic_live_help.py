@@ -868,6 +868,24 @@ def test_semantic_concept_outputs_follow_each_actual_construction_mode() -> None
     assert 'marivo.help("semantic.measure.define"); returns NumericRow' in measure
 
 
+def test_metric_help_routes_contribution_time_to_definition_and_captured_bindings() -> None:
+    from marivo._help.render import render_help_text
+
+    metric = render_help_text("semantic.metric")[0]
+    decision = next(line for line in metric.splitlines() if "fixes contribution time" in line)
+    assert "metric.definition.time_bindings" in decision
+    assert "semantic.metric_definition.time_bindings" in decision
+    assert "semantic.entity.define" in decision
+    assert "semantic.metric.per" not in decision
+    assert 'marivo.help("semantic.row.sum")' in metric
+    for target in (
+        "semantic.row.sum",
+        "semantic.entity.define",
+        "semantic.metric_definition.time_bindings",
+    ):
+        assert render_help_text(target)[0]
+
+
 def test_authoring_help_discloses_shared_numeric_columns_builtin_udfs_and_lists() -> None:
     from marivo._help.render import render_help_text
 

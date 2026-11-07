@@ -34,7 +34,7 @@ from marivo._temporal import Grain
 from marivo.datasource.ir import AiContextIR
 from marivo.refs import Ref, SemanticKind, SemanticKindTag
 from marivo.semantic._compiled_state import PublishedDeclaration
-from marivo.semantic._deferred_semantics import consume_metric, consume_row
+from marivo.semantic._deferred_semantics import MetricFacts, consume_metric, consume_row
 from marivo.semantic._metric_time import metric_time_occurrences
 from marivo.semantic.catalog_entries import (
     DatasourceDefinition,
@@ -204,6 +204,38 @@ def formula(node: RowNode | MetricNode | PredicateExpression) -> str:
     if isinstance(node, MetricWindow):
         return f"{formula(node.operand)}.window({_inert_text(node.rule)})"
     return f"member_count({_inert_text(node.population)})"
+
+
+def metric_time_bindings(
+    metric: MetricFacts,
+) -> tuple[MetricTimeFieldBinding | MetricNoTimeBinding, ...]:
+    """Project each captured contribution occurrence without consulting a Catalog."""
+    bindings: list[MetricTimeFieldBinding | MetricNoTimeBinding] = []
+    for occurrence in metric_time_occurrences(metric.node, dict(metric._declared)):
+        branch = formula(occurrence.node)
+        if occurrence.path:
+            branch = f"{' / '.join(occurrence.path)}: {branch}"
+        time = occurrence.binding
+        if time is None:
+            assert occurrence.reason is not None
+            bindings.append(
+                MetricNoTimeBinding(
+                    branch,
+                    occurrence.root.ref.key if occurrence.root is not None else None,
+                    occurrence.reason,
+                )
+            )
+        else:
+            bindings.append(
+                MetricTimeFieldBinding(
+                    branch,
+                    time.field.ref.key,
+                    tuple(item.ref.key for item in time.path),
+                    source=time.source,
+                    anchor=time.at,
+                )
+            )
+    return tuple(bindings)
 
 
 def _sample_text(value: object) -> str:
@@ -419,34 +451,10 @@ def definition_for(catalog: SemanticCatalog, ref: Ref[SemanticKindTag]) -> Entry
         metric = consume_metric(registry.declared_metrics[ref.path])
         reductions: list[str] = []
         conditions: list[str] = []
-        bindings: list[MetricTimeFieldBinding | MetricNoTimeBinding] = []
+        bindings = metric_time_bindings(metric)
         nulls: list[str] = []
         seen: set[int] = set()
         declared = dict(metric._declared)
-        for occurrence in metric_time_occurrences(metric.node, declared):
-            branch = formula(occurrence.node)
-            if occurrence.path:
-                branch = f"{' / '.join(occurrence.path)}: {branch}"
-            time = occurrence.binding
-            if time is None:
-                assert occurrence.reason is not None
-                bindings.append(
-                    MetricNoTimeBinding(
-                        branch,
-                        occurrence.root.ref.key if occurrence.root is not None else None,
-                        occurrence.reason,
-                    )
-                )
-            else:
-                bindings.append(
-                    MetricTimeFieldBinding(
-                        branch,
-                        time.field.ref.key,
-                        tuple(item.ref.key for item in time.path),
-                        source=time.source,
-                        anchor=time.at,
-                    )
-                )
 
         def visit(node: MetricNode | RowNode | PredicateExpression) -> None:
             if id(node) in seen:

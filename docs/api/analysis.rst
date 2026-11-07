@@ -38,6 +38,13 @@ reject. A time axis cannot accompany a report scope in where. Ordinary tuple
 output completes selected native buckets for represented classification tuples.
 Every Metric branch needs a contribution clock for report time.
 A fixed ``field.within(scope)`` predicate constrains its own source field.
+If a branch has no contribution clock, ``observe`` raises
+``MetricContributionTimeError`` before source reads. Its ``output`` names the
+rejected output and ``missing`` contains every immutable
+``MissingMetricContributionTime`` occurrence. Each occurrence exposes its
+expression ``path``, declared ``metric`` and contribution ``root`` when
+available, and a ``reason`` of ``no_entity_default`` or ``fixed_member_count``.
+The error text lists at most six occurrences and reports any omitted count.
 
 ``identity(entity)`` declares one complete identity rule.
 ``coordinates(by=(identity(entity),), keys=((("C1",),),))`` declares a finite

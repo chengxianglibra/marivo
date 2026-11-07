@@ -27,7 +27,7 @@ head:
 
 精确的 additive/rate-mix 规则继续使用精确分解。合格的配对非线性与分位数目标使用完整 Metric 的分组替换 Shapley，默认 `permutations=1024, seed=0`。state 路线捕获一次输入并在本地采样，Float SUM/AVG 使用摘要重建并披露未提供误差上界的偏差，排列标准误不衡量该偏差；其他已准入目标为每个未缓存联盟查询原后端，查询成本可能随排列数增长。不要求一致快照或临时物化。`contribution_std_error.<name>` 在 state 路线描述排列波动，在独立查询路线描述观测边际值波动，无法分离来源变化。state 证明所有联盟的定义域，查询路线验证实际访问的联盟。参阅 [DSL 的路线与后端限制](/zh-cn/docs/latest/analysis/dsl/#attribute解释来源贡献)。
 
-使用 `Grain` 构造报告桶时，请同时提供报告 `TimeScope`，以便归因能绑定端点。
+使用 `scope.by(grain)` 构造报告桶，以便归因能绑定其报告端点。
 
 使用 [DSL 共享设置](/zh-cn/docs/latest/analysis/dsl/)中的
 `session`、`mv`、`revenue`、`region`、`july_interval` 和

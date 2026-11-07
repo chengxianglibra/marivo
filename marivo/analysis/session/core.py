@@ -358,7 +358,7 @@ class Session:
         Constraints:
             Capture reads no source data. Report time requires contribution time on
             every Metric branch. A scope alone adds no output axis.
-            CalendarAxis supplies finite buckets; omit a report scope in where.
+            CalendarAxis supplies finite buckets.
             Bare Grain inputs reject. Custom axes need one complete certified period.
             Windows need report endpoints on every output time key.
         """
@@ -688,7 +688,7 @@ class Session:
             complete identity axes. Fixed choices stay fixed; pending choices
             evaluate anew. Caller targets establish new semantic bindings after
             joint key projection; validate Catalog, role, complete key types,
-            units and time constraints, not original Entity/Field equality.
+            units and time, not original Entity/Field equality.
             Compatible Customer keys may bind Product; shipping-city keys may bind
             billing-city; neither proves semantic identity. Ordinary fields cannot
             become identities.

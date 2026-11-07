@@ -109,7 +109,7 @@ _PAGES = (
         (),
         guidance=(
             "Choose what to count: complete Population tuples -> population.count; Entity source contributions -> semantic.entity.count; current Frame rows including value NA -> row_count with reduce/over.",
-            "Population and Entity counts are Metrics for observe. Population counts have no contribution clock.",
+            "Entity/Population counts are Metrics; Population counts have no contribution clock.",
             "Capture is lazy. Pending dependencies may read sources at evaluation; fixed-data operations use captured values.",
             "attribute needs retained source declarations, absent on independent reopen; parent and new source reads are independent.",
         ),
@@ -373,8 +373,8 @@ def navigation(providers: tuple[DisclosureProvider, ...]) -> tuple[NavigationInp
             "root",
             guidance=(
                 "Catalog: definitions. Session: context. Frame: data.",
-                "In an authored project, reuse your Session; adapt query, ID, dates and timezone.",
-                "Choose by meaning, or use a known ID. All Metric branches need contribution time.",
+                "In an authored project, reuse a Session; adapt ID, dates and timezone.",
+                "Choose by meaning. Report time requires clocks on all Metric branches.",
                 "where=scope selects a range; by=(scope.by(grain),) selects report buckets.",
             ),
             example=ExampleInput(

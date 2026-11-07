@@ -130,9 +130,7 @@ from marivo.semantic.catalog_entries import (
     FieldDefinition,
     JsonValue,
     MetricDefinition,
-    MetricNoTimeBinding,
     MetricTimeBinding,
-    MetricTimeFieldBinding,
     PeriodCalendarDefinition,
     RelationshipDefinition,
     TemporalSetDefinition,
@@ -244,18 +242,6 @@ AiContextView = AiContextIR
 SnapshotVersioning = SnapshotVersioningIR
 ValidityVersioning = ValidityVersioningIR
 EntityVersioning = EntityVersioningIR
-
-
-def _metric_time_binding_text(binding: MetricTimeBinding) -> str:
-    if isinstance(binding, MetricTimeFieldBinding):
-        return f"{binding.field} ({binding.source})"
-    if isinstance(binding, MetricNoTimeBinding):
-        return (
-            f"{binding.root} (no Entity default time)"
-            if binding.root is not None
-            else "fixed Population.count (no contribution time)"
-        )
-    return "(none)"
 
 
 def _metric_preview_warning() -> PreviewWarning:
@@ -960,18 +946,13 @@ class _SemanticObject(RenderableResult, Generic[CatalogEntryKindT]):
         if definition.context.guardrails:
             card.listing("guardrails", definition.context.guardrails)
         if isinstance(definition, MetricDefinition):
+            from marivo.semantic._metric_time_disclosure import add_metric_time
+
             card.field("formula", definition.formula)
             card.field("unit", definition.unit or "(none)")
-            card.field(
-                "report_time",
-                "available"
-                if all(
-                    isinstance(item, MetricTimeFieldBinding) for item in definition.time_bindings
-                )
-                else "unavailable: some Metric branches have no contribution time",
+            add_metric_time(
+                card, definition.time_bindings, recovery="read .definition.time_bindings"
             )
-            for binding in definition.time_bindings[:6]:
-                card.field("time_binding", _metric_time_binding_text(binding))
             for dependency in definition.dependency_context:
                 if dependency.guardrails:
                     card.listing(f"guardrails from {dependency.id}", dependency.guardrails)
@@ -3465,6 +3446,7 @@ class SemanticCatalog(RenderableResult):
 
     def _search_documents(self) -> tuple[SearchDocument, ...]:
         from marivo.semantic._catalog_definition import context_for
+        from marivo.semantic._metric_time_disclosure import metric_time_binding_text
 
         documents: list[SearchDocument] = []
         for ref in self._index._refs:
@@ -3489,7 +3471,7 @@ class SemanticCatalog(RenderableResult):
                 fields.extend((("formula", definition.formula), ("unit", definition.unit or "")))
                 fields.extend(("condition", item) for item in definition.conditions)
                 fields.extend(
-                    ("time_binding", _metric_time_binding_text(item))
+                    ("time_binding", metric_time_binding_text(item))
                     for item in definition.time_bindings
                 )
             elif isinstance(definition, EntityDefinition):

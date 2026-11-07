@@ -261,8 +261,9 @@ population_from 的目标由调用方声明；系统仍检查结构、单位、�
 用户在 observe/read/values/select/reduce 中声明的量名是单个非空名称段，不含点号、
 反斜线或控制字符，也不得使用 left_present/right_present。
 非法名在构造时给出重命名修复，不自动转义或静默改名。
-observe/reduce 接受单个对象、非空 tuple 或显式命名 Mapping；不接受 list、任意
-Iterable 或混合命名项。tuple 和 Mapping 的声明顺序决定输出顺序，先校验全部候选名
+observe 接受单个对象、非空 list/tuple 或显式命名 Mapping；reduce 接受单个对象、
+非空 tuple 或显式命名 Mapping。两者均不接受任意 Iterable 或混合命名项。
+list、tuple 和 Mapping 的声明顺序决定输出顺序，先校验全部候选名
 再构造命名输入。重复名（包括重复对象）和非法名在构造时拒绝，不去重、不覆盖、不编号。
 名称在求值前确定，可立即从 output_names 读取；空数据、compute、persist 和独立恢复均不重新命名。
 

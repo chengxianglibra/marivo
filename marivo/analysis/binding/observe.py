@@ -161,21 +161,28 @@ def bind_observation(
     if len(set(axes)) != len(axes):
         reject("distinct output axes", repr(by), "Remove repeated axes.", "Session.observe")
     if period is not None or time_axis is not None:
-        from marivo.semantic._metric_time import require_metric_time
-        from marivo.semantic.errors import SemanticExpressionError
+        from marivo.analysis.errors import (
+            MetricContributionTimeError,
+            MissingMetricContributionTime,
+        )
+        from marivo.semantic._metric_time import metric_time_occurrences
 
         for name, node in metrics:
-            try:
-                require_metric_time(node, declared, operation="Session.observe", output=name)
-            except SemanticExpressionError as error:
-                assert error.expected and error.received and error.repair is not None
-                reject(
-                    error.expected,
-                    error.received,
-                    error.repair.action,
-                    f"Session.observe.metrics[{name!r}]",
-                    canonical_id="session.observe",
+            missing = []
+            for item in metric_time_occurrences(node, declared):
+                if item.binding is not None:
+                    continue
+                assert item.reason is not None
+                missing.append(
+                    MissingMetricContributionTime(
+                        path=item.path,
+                        metric=item.metric.ref.key if item.metric is not None else None,
+                        root=item.root.ref.key if item.root is not None else None,
+                        reason=item.reason,
+                    )
                 )
+            if missing:
+                raise MetricContributionTimeError(output=name, missing=tuple(missing))
     from marivo.analysis.binding.temporal_predicates import normalize_temporal_predicate
 
     condition = (

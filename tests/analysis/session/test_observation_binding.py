@@ -311,7 +311,7 @@ def test_time_role_is_optional_but_explicit_cross_entity_time_keeps_its_path(
     query = session.observe({"count": customers.count()})
     assert _captured_observation(query).contributions[0].time is None
     scope = session.time_scope(start="2026-01-01", end="2026-02-01")
-    with pytest.raises(CoreRuleError, match="concrete contribution time"):
+    with pytest.raises(mv.MetricContributionTimeError, match="concrete contribution time"):
         session.observe({"count": customers.count()}, where=scope)
     time = catalog_value(catalog, "sales.customers.created_at", kind="time_dimension")
     buyer = catalog_get(catalog, "relationship:sales.buyer", kind="relationship")
