@@ -1,4 +1,4 @@
-"""Tests for marivo.cli — the marivo init command."""
+"""Contracts for Marivo CLI commands and live Help."""
 
 from __future__ import annotations
 
@@ -193,20 +193,32 @@ def test_top_level_help_advertised_live_help_commands_resolve(
     commands = re.findall(r"^  marivo (help(?: [^\n]*)?)$", captured.out, re.MULTILINE)
     assert "help" in commands
     assert "help analysis.analysis_frame.select" in commands
+    assert "help analysis.analysis_frame.select analysis.analysis_frame.where" in commands
     for command in commands:
         main(command.split())
         output = capsys.readouterr()
-        target = command.removeprefix("help ") if command != "help" else "root"
-        assert output.out.startswith(f"Target: {target}\n")
+        targets = command.split()[1:] or ["root"]
+        assert re.findall(r"^Target: (.+)$", output.out, re.MULTILINE) == targets
         assert output.err == ""
 
 
 @pytest.mark.parametrize(
-    "arguments",
-    (("observe",), ("analysis", "observe"), ("semantic", "load"), ("datasource", "inspect")),
+    ("arguments", "expected_targets", "unknown_targets"),
+    (
+        (("observe",), (), ("observe",)),
+        (("analysis", "observe"), ("analysis",), ("observe",)),
+        (("semantic", "load"), ("semantic",), ("load",)),
+        (("datasource", "inspect"), ("datasource",), ("inspect",)),
+        (("observe", "authoring", "analysis"), ("authoring", "analysis"), ("observe",)),
+        (("authoring", "observe", "analysis"), ("authoring", "analysis"), ("observe",)),
+        (("authoring", "analysis", "observe"), ("authoring", "analysis"), ("observe",)),
+        (("observe", "inspect"), (), ("observe", "inspect")),
+    ),
 )
-def test_cli_help_rejects_unknown_or_multi_part_targets(
+def test_cli_help_resolves_arguments_independently_and_continues_after_target_errors(
     arguments: tuple[str, ...],
+    expected_targets: tuple[str, ...],
+    unknown_targets: tuple[str, ...],
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     with pytest.raises(SystemExit) as exc_info:
@@ -214,8 +226,51 @@ def test_cli_help_rejects_unknown_or_multi_part_targets(
 
     assert exc_info.value.code == 2
     captured = capsys.readouterr()
-    assert captured.out == ""
+    assert re.findall(r"^Target: (.+)$", captured.out, re.MULTILINE) == list(expected_targets)
+    assert re.findall(r"not registered: received '([^']+)'", captured.err) == list(unknown_targets)
+    assert "  marivo help " in captured.err
     assert "Traceback" not in captured.err
+
+
+@pytest.mark.parametrize(
+    "targets",
+    (
+        ("semantic.load", "analysis.analysis_frame.output_names", "datasource.duckdb"),
+        (
+            "analysis.analysis_frame.where",
+            "analysis.analysis_frame.select",
+            "analysis.analysis_frame.where",
+        ),
+    ),
+)
+def test_cli_help_batch_preserves_complete_single_pages_and_input_order(
+    targets: tuple[str, ...], capsys: pytest.CaptureFixture[str]
+) -> None:
+    pages: list[str] = []
+    for target in targets:
+        main(["help", target])
+        page = capsys.readouterr()
+        assert page.out.startswith(f"Target: {target}\nKind: ")
+        assert page.err == ""
+        pages.append(page.out)
+
+    main(["help", *targets])
+    captured = capsys.readouterr()
+    assert re.findall(r"^Target: (.+)$", captured.out, re.MULTILINE) == list(targets)
+    assert captured.out == "".join(pages)
+    assert captured.err == ""
+
+
+def test_cli_help_usage_discloses_multiple_complete_targets(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    with pytest.raises(SystemExit) as error:
+        main(["help", "--help"])
+    assert error.value.code == 0
+    captured = capsys.readouterr()
+    assert "[target ...]" in captured.out
+    assert "All targets are attempted." in " ".join(captured.out.split())
+    assert captured.err == ""
 
 
 def test_version_flag_prints_package_version(capsys: pytest.CaptureFixture[str]) -> None:
@@ -491,21 +546,41 @@ def test_cli_and_python_help_have_identical_facts_and_targets(
     assert captured.err == ""
 
 
-def test_cli_help_render_failure_is_diagnostic_exit_one(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+@pytest.mark.parametrize(
+    ("targets", "expected_targets"),
+    (
+        (("analysis",), ()),
+        (("analysis", "authoring"), ("authoring",)),
+        (("authoring", "analysis", "datasource"), ("authoring", "datasource")),
+        (("observe", "analysis", "authoring"), ("authoring",)),
+        (("analysis", "observe", "authoring"), ("authoring",)),
+    ),
+)
+def test_cli_help_render_failure_continues_and_takes_exit_code_precedence(
+    targets: tuple[str, ...],
+    expected_targets: tuple[str, ...],
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     from marivo._help import render
 
-    def fail(_target: str | None = None) -> tuple[str, str, str | None]:
-        raise RuntimeError("broken renderer")
+    original = render.render_help_text
+
+    def fail(target: render.PublicHelpTarget = None) -> tuple[str, str, str | None]:
+        if target == "analysis":
+            raise RuntimeError("broken renderer")
+        return original(target)
 
     monkeypatch.setattr(render, "render_help_text", fail)
     with pytest.raises(SystemExit) as error:
-        main(["help", "analysis"])
+        main(["help", *targets])
     assert error.value.code == 1
     captured = capsys.readouterr()
-    assert captured.out == ""
+    assert re.findall(r"^Target: (.+)$", captured.out, re.MULTILINE) == list(expected_targets)
+    assert captured.err.count("Marivo live help is unavailable for 'analysis'") == 1
     assert "cause='RuntimeError'" in captured.err
+    if "observe" in targets:
+        assert captured.err.count("not registered: received 'observe'") == 1
     assert "Traceback" not in captured.err
 
 

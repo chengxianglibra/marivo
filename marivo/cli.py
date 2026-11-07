@@ -183,7 +183,8 @@ def main(argv: list[str] | None = None) -> None:
         epilog=(
             "Live Help:\n"
             "  marivo help\n"
-            "  marivo help analysis.analysis_frame.select\n\n"
+            "  marivo help analysis.analysis_frame.select\n"
+            "  marivo help analysis.analysis_frame.select analysis.analysis_frame.where\n\n"
             "Common diagnostics:\n"
             "  marivo doctor\n"
             "  marivo doctor --semantic\n"
@@ -254,11 +255,20 @@ def main(argv: list[str] | None = None) -> None:
         "Set MARIVO_API_TOKEN in the environment. See marivo help analysis.results.service."
     )
 
-    help_parser = subparsers.add_parser("help", help="Read live Help for one canonical target")
+    help_parser = subparsers.add_parser(
+        "help",
+        help="Read live Help for canonical targets",
+        description="Read each complete canonical target in order, or root Help with no targets.",
+        epilog=(
+            "Pages go to stdout; errors and repairs go to stderr. All targets are attempted. "
+            "Exit codes: 0 for success, 2 for target errors, 1 for any rendering failure."
+        ),
+    )
     help_parser.add_argument(
-        "target",
-        nargs="?",
-        help="Complete canonical Help target",
+        "targets",
+        nargs="*",
+        metavar="target",
+        help="Complete canonical Help targets, separated by spaces",
     )
 
     args = parser.parse_args(parsed_argv)
@@ -327,13 +337,24 @@ def main(argv: list[str] | None = None) -> None:
 
         try:
             with track_operation(surface="cli", capability_kind="command", capability_id="help"):
-                _print_help(args.target, cli=True)
+                failure: MarivoHelpTargetError | MarivoHelpSurfaceError | None = None
+                for target in args.targets or [None]:
+                    try:
+                        _print_help(target, cli=True)
+                    except MarivoHelpTargetError as error:
+                        print(str(error), file=sys.stderr)
+                        for candidate in error.candidates or ("authoring", "analysis"):
+                            print(f"  marivo help {candidate}", file=sys.stderr)
+                        if failure is None:
+                            failure = error
+                    except MarivoHelpSurfaceError as error:
+                        print(str(error), file=sys.stderr)
+                        if not isinstance(failure, MarivoHelpSurfaceError):
+                            failure = error
+                if failure is not None:
+                    # Keep the command's telemetry outcome aligned with its exit status.
+                    raise failure
         except MarivoHelpTargetError as error:
-            print(str(error), file=sys.stderr)
-            targets = error.candidates or ("authoring", "analysis")
-            for target in targets:
-                print(f"  marivo help {target}", file=sys.stderr)
             raise SystemExit(2) from error
         except MarivoHelpSurfaceError as error:
-            print(str(error), file=sys.stderr)
             raise SystemExit(1) from error

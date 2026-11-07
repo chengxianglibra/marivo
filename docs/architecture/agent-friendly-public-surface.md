@@ -6,13 +6,28 @@ owns the business question, evidence interpretation and conclusions.
 
 ## One public Help coordinator
 
-Python marivo.help(target) and CLI marivo help <target> use the same native
+Python marivo.help(target) and CLI marivo help [target ...] use the same native
 registry. Root Help introduces concepts and routes only to authoring or analysis.
 Targets are exact lowercase snake_case semantic paths, independent of Python
 symbols. Named pages disclose Target and Kind: topic, object, callable,
 attribute, expression or error.
 
-Qualified strings, public callables and public types are accepted. Type pages
+The CLI accepts zero or more complete canonical string targets. With no targets
+it renders root Help. Otherwise it prints each existing page to stdout in input
+order, including repeated targets, preserving its Target and Kind headers and
+per-page budget. The batch output is the concatenation of the individual CLI
+pages. Each argument is resolved independently; separate arguments are never
+joined into a target. Python Help continues to accept one target per call.
+
+Every CLI target is attempted. Target errors and rendering failures print their
+existing diagnostics and repairs to stderr without suppressing other pages.
+The command exits 0 if all targets succeed, 2 if any target is rejected, or 1 if
+any page fails to render; rendering failure takes precedence over target errors.
+One CLI telemetry operation encloses the individual Help operations and retains
+a failed outcome when any target fails. Help does not execute examples, create
+Sessions or read sources; enabled telemetry may record Help failures locally.
+
+Python Help also accepts public callables and public types. Type pages
 own acquisition and member discovery; exporting a type permits annotation,
 inspection and Help, without authorizing direct construction or extension.
 Object pages explain meaning and link exact operations: semantic.metric is the

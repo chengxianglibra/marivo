@@ -53,6 +53,9 @@ def test_default_root_advertises_a_resolvable_canonical_target() -> None:
     target = text.splitlines()[0].removeprefix("Target: ")
     assert target == "root"
     assert help_render.render_help_text(target)[0] == text
+    assert "marivo help <target> [<target> ...]" in text
+    assert "errors do not stop later targets" in text
+    assert "Help failures may write local telemetry when enabled." in text
 
 
 def test_analysis_root_displays_one_version_and_the_environment() -> None:

@@ -924,10 +924,53 @@ def test_successful_cli_help_and_read_only_doctor_do_not_write_events(
     monkeypatch.setattr("marivo.doctor.run_doctor", lambda _options: report)
 
     main(["help"])
+    main(["help", "authoring", "analysis"])
     main(["doctor", "--project-root", str(telemetry_project), "--format", "json"])
     capsys.readouterr()
 
     assert not (telemetry_project / ".marivo" / "telemetry").exists()
+
+
+@pytest.mark.parametrize("render_failure", (False, True))
+def test_cli_help_batch_records_each_failure_and_one_failed_command(
+    telemetry_project: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    render_failure: bool,
+) -> None:
+    from marivo._help import render
+    from marivo.cli import main
+
+    original = render.render_help_text
+
+    def fail(target: render.PublicHelpTarget = None) -> tuple[str, str, str | None]:
+        if target == "analysis" and render_failure:
+            raise RuntimeError("broken renderer")
+        return original(target)
+
+    monkeypatch.setattr(render, "render_help_text", fail)
+    with pytest.raises(SystemExit) as error:
+        main(["help", "missing_help_target", "analysis", "authoring"])
+    assert error.value.code == (1 if render_failure else 2)
+    assert "Target: authoring\n" in capsys.readouterr().out
+
+    calls = [
+        _attrs(record) for record in _capability_records(_event_path(telemetry_project), "help")
+    ]
+    commands = [call for call in calls if call["marivo.surface"] == "cli"]
+    pages = [call for call in calls if call["marivo.surface"] == "help"]
+    assert len(commands) == 1
+    command = commands[0]
+    assert command["marivo.operation.status"] == "error"
+    assert command["marivo.error.class"] == (
+        "MarivoHelpSurfaceError" if render_failure else "MarivoHelpTargetError"
+    )
+    assert [page["marivo.help.outcome"] for page in pages] == (
+        ["unknown", "surface_error"] if render_failure else ["unknown"]
+    )
+    assert len({call["marivo.operation.id"] for call in calls}) == len(calls)
+    for page in pages:
+        assert page["marivo.operation.status"] == "error"
 
 
 def test_concurrent_appends_remain_valid_jsonl(telemetry_project: Path) -> None:
