@@ -25,6 +25,14 @@ ErrorCode: TypeAlias = Literal[
     "read_timeout",
     "service_unavailable",
     "internal_error",
+    "result_not_found",
+    "refresh_in_progress",
+    "script_contract_error",
+    "refresh_failed",
+    "invalid_result_reference",
+    "corrupt_dataframe",
+    "refresh_timeout",
+    "result_publication_failed",
 ]
 API_VERSION = 1
 DEFAULT_MIB = 128
@@ -45,10 +53,18 @@ STATUS: dict[ErrorCode, int] = {
     "read_timeout": 503,
     "service_unavailable": 503,
     "internal_error": 500,
+    "result_not_found": 404,
+    "refresh_in_progress": 409,
+    "script_contract_error": 422,
+    "refresh_failed": 422,
+    "invalid_result_reference": 422,
+    "corrupt_dataframe": 422,
+    "refresh_timeout": 503,
+    "result_publication_failed": 500,
 }
 
 
-@dataclass(frozen=True)
+@dataclass
 class ServiceError(Exception):
     code: ErrorCode
     message: str
@@ -119,6 +135,14 @@ class Limits:
         )
 
     def timed_out(self, location: str) -> ServiceError:
+        if location == "refresh":
+            return ServiceError(
+                "refresh_timeout",
+                f"The refresh exceeded {self.seconds} seconds.",
+                location,
+                "Read the current result before retrying; adjust --refresh-timeout-seconds if needed.",
+                HELP,
+            )
         repair = "Ask the administrator to increase --read-timeout-seconds and retry."
         if location == "frame":
             repair = (

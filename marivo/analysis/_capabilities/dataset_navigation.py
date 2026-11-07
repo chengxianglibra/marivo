@@ -255,12 +255,13 @@ _PAGES = (
     ),
     NavigationInput(
         "results.service",
-        "Read saved Frame reports and current semantic definitions over HTTP.",
+        "Read saved reports or explicitly refresh project script endpoints over HTTP.",
         (),
         guidance=(
-            "Install marivo[api], set MARIVO_API_TOKEN in the service environment, and run marivo serve --project-root PATH. Use marivo serve --help for TLS, CORS and read budgets.",
+            "Install marivo[api], set MARIVO_API_TOKEN, and run marivo serve --project-root PATH. Use marivo serve --help for TLS, CORS and read/refresh budgets.",
             "Persist the Frame and retain session_id and artifact_id. With Authorization: Bearer TOKEN, GET /v1/sessions/{session_id}/frames/{artifact_id} for the complete report. GET /v1/openapi.json describes the protocol.",
-            "Report reads use the committed Store without loading the model, recovering the Session or querying sources.",
+            "endpoints/sales/revenue.py defines main(session: mv.Session) with one AnalysisFrame or pandas.DataFrame return annotation. GET /v1/data/sales/revenue?refresh=true runs it with a fresh Session and saves a new result. Omit refresh to read only saved data.",
+            "Responses carry kind and a fixed ref. DataFrames use independent Parquet snapshots and GET /v1/dataframes/{result_id}, with the producing session_id in the response. Save service identity and ref for fixed report versions. Saved reads never recover Sessions, load models or query sources.",
         ),
         discovery_group="results",
     ),

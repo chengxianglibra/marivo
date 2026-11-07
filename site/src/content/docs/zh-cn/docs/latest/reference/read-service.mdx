@@ -1,6 +1,6 @@
 ---
 title: 项目读取服务
-description: 让客户端读取当前 Catalog 和完整的已保存 Frame 报告。
+description: 读取已保存报告，并显式刷新返回 AnalysisFrame 或 DataFrame 的脚本端点。
 ---
 
 在项目所用的 Marivo Runtime 中安装可选 API 依赖。用
@@ -37,7 +37,7 @@ curl --fail-with-body -H "Authorization: Bearer ${MARIVO_API_TOKEN}" \
   "http://127.0.0.1:8765/v1/sessions/${session_id}/frames/${artifact_id}"
 ```
 
-一次成功请求返回 `ref`、`description`、`committed_at`、`schema`、
+一次成功请求返回 `kind: "analysis_frame"`、`ref`、`description`、`committed_at`、`schema`、
 `lineage`、`source_reads`、`data` 和 `periods`。每行的单元格顺序由
 `data.layout` 决定。通过字段 slot 或坐标身份在 `schema` 中取得原始显示名和
 类型。坐标默认名称冲突时，导出名会加上确定的后缀。`data.coordinates` 按 key slot
@@ -53,6 +53,7 @@ curl --fail-with-body -H "Authorization: Bearer ${MARIVO_API_TOKEN}" \
 
 ```json
 {
+  "kind": "analysis_frame",
   "ref": {"schema":"marivo.frame_ref/v1","session_id":"session_example","artifact_id":"artifact_example"},
   "description": "Recorded revenue",
   "committed_at": "2026-11-06T00:00:00+00:00",
@@ -85,6 +86,81 @@ curl --fail-with-body -H "Authorization: Bearer ${MARIVO_API_TOKEN}" \
   "periods": []
 }
 ```
+
+## 刷新脚本端点
+
+在项目中创建 `endpoints/sales/revenue.py`：
+
+```python
+import marivo.analysis as mv
+
+
+def main(session: mv.Session) -> mv.AnalysisFrame:
+    revenue = session.catalog.get("metric:sales.revenue")
+    assert revenue.kind == "metric"
+    return session.observe({"revenue": revenue})
+```
+
+服务启动时发现小写 snake_case 路径，不导入脚本。以 `_` 开头的文件和目录为私有代码。
+新增路径后重启服务；已有端点每次刷新加载最新源代码。声明一个同步 `main(session)`，
+参数使用示例中的 Session 注解，返回值声明一种具体类型。服务提供新的项目 Session 并
+保存输出；即使导入代码配置了其他项目环境，该 Session 仍属于服务启动时绑定的项目。
+AnalysisFrame 必须属于该 Session 且尚未持久化。脚本负责时间范围和业务逻辑，
+导入代码按受信任的项目代码执行。
+
+```bash
+curl --fail-with-body -H "Authorization: Bearer ${MARIVO_API_TOKEN}" \
+  'http://127.0.0.1:8765/v1/data/sales/revenue?refresh=true'
+curl --fail-with-body -H "Authorization: Bearer ${MARIVO_API_TOKEN}" \
+  'http://127.0.0.1:8765/v1/data/sales/revenue'
+```
+
+只有 `refresh=true` 执行脚本、发布新结果并原子切换当前引用。没有 `refresh` 或
+`refresh=false` 只读已保存数据，即使脚本或模型已经删除也可读取。首次发布前返回
+`result_not_found`，不会隐式执行。非法值及重复参数报错。刷新同步返回完整报告及固定引用。
+
+## DataFrame 结果与报告固定版本
+
+DataFrame 端点同样接收 Session，可以继续进行 Marivo 分析：
+
+```python
+# endpoints/sales/revenue_table.py
+import pandas as pd
+import marivo.analysis as mv
+
+
+def main(session: mv.Session) -> pd.DataFrame:
+    revenue = session.catalog.get("metric:sales.revenue")
+    assert revenue.kind == "metric"
+    table = session.observe({"revenue": revenue}).compute().to_pandas()
+    return table.assign(double_revenue=table["revenue"] * 2)
+```
+
+列名必须是唯一的非空字符串，索引必须是默认无名 RangeIndex；业务索引先转为列。
+支持 null、布尔、字符串、整数、float32/64、Decimal、日期、时间戳和 duration 标量列。
+无法表示的对象和嵌套值明确报错，`attrs` 不作为语义元数据。保留行列顺序、空表列类型
+和零列表格的逻辑行数。
+
+```json
+{
+  "kind": "dataframe",
+  "ref": {"schema":"marivo.dataframe_ref/v1","result_id":"df_0123456789abcdef0123456789abcdef"},
+  "session_id": "session_example",
+  "committed_at": "2026-11-07T00:00:00+00:00",
+  "schema": {"columns":[{"name":"count","dtype":{"kind":"int64"}}]},
+  "data": {"layout":["count"],"rows":[["9007199254740993"]],"row_count":1}
+}
+```
+
+DataFrame 独立保存在 `.marivo/server/dataframes/{result_id}.parquet`。
+`GET /v1/dataframes/{result_id}` 读取固定版本，不加载 Session、Analysis Store、模型或脚本。
+`session_id` 记录生产上下文，`schema.columns` 声明物理类型，`data.layout` 给出列顺序。
+标量编码沿用上面的 Frame 规则，不从 pandas 数据推断语义轴、血缘、单位或期间。
+
+UI 报告保存服务身份、`kind` 和 `ref`；AnalysisFrame 还应保留连接的 `/v1/info`
+所返回的 `store_id`。重开报告使用精确 Frame 或 DataFrame 路由，这些路由不接受
+`refresh`。刷新命名端点不会改变报告保存的版本；只有显式更新报告时才替换其 ref。
+当前指针位于 `.marivo/server/endpoints/`。`committed_at` 是保存时间，不代表源数据新鲜度。
 
 ## 浏览当前定义
 
@@ -127,4 +203,17 @@ marivo serve --project-root /path/to/project --host 0.0.0.0 --port 8765 \
 
 失败时查看 `error.code`、`location`、`repair` 和可空的 Help `target`。
 `invalid_cursor` 应从目录首屏重新读取，`not_found` 应核对项目和身份，
-`corrupt_artifact` 应恢复已提交文件。DataFrameView 的数据随宿主报告或消息保留。
+`corrupt_artifact` 应恢复已提交文件。
+
+`--refresh-timeout-seconds` 默认 300，`--max-refreshes` 默认每个服务进程 1 个。
+两者都接受正整数。刷新使用独立期限和相同的响应大小预算。同端点刷新跨服务进程互斥，
+冲突返回 `refresh_in_progress`；刷新容量已满返回 `service_unavailable`，不排队。
+普通已保存读取继续可用。
+
+超时或断线会先停止工作进程，再释放槽位和锁。继承刷新进程组的子进程与本次刷新共享
+生命周期，在完成、取消或父进程退出时一同停止。指针切换前的脚本、持久化或编码失败保留
+旧结果；已保存但未发布的快照可能留存，已有固定版本不会被删除。如果发布后响应丢失，
+重试前先读取当前端点确认状态。`refresh_timeout`、`script_contract_error`、
+`refresh_failed`、`result_publication_failed`、`invalid_result_reference` 和
+`corrupt_dataframe` 区分失败环节，按其 repair 字段处理。管理员配置的令牌可触发已安装
+脚本的刷新；宿主负责报告保存和用户授权。

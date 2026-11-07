@@ -383,6 +383,15 @@ Internal batches reuse the local readers and share the HTTP deadline and
 byte budget. The report uses saved interpretation and source-read metadata
 and skips method payloads and the current Catalog.
 
+Project scripts under `endpoints/` provide explicit producers for named HTTP
+data endpoints. Only `refresh=true` creates a new process and Session, runs
+`main(session)`, saves its AnalysisFrame or pandas DataFrame and replaces the
+current reference after complete report encoding. Ordinary reads do not execute
+the script. AnalysisFrames use the existing explicit persistence contract;
+DataFrames use independent Parquet snapshots under `.marivo/server/dataframes/`.
+Both response kinds carry fixed refs for saved reports. DataFrame responses also
+retain the producing Session ID, without requiring that Session or Store to read.
+
 ## Execution diagnostics and usage telemetry
 
 Execution diagnostics are always-on project-local JSONL in

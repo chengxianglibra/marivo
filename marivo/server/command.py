@@ -70,7 +70,11 @@ def serve(
     certfile: str | None,
     keyfile: str | None,
     limits: Limits,
+    refresh_seconds: int = 300,
+    max_refreshes: int = 1,
 ) -> None:
+    if refresh_seconds <= 0 or max_refreshes <= 0:
+        raise ValueError("--refresh-timeout-seconds and --max-refreshes must be positive integers.")
     token = os.environ.get("MARIVO_API_TOKEN", "")
     if re.fullmatch(r"[A-Za-z0-9._~+/=-]+", token) is None:
         raise ValueError("Set MARIVO_API_TOKEN to a valid administrator-configured Bearer token.")
@@ -81,7 +85,14 @@ def serve(
     root = resolve_project_root() if project_root is None else project_root.resolve()
     if not root.is_dir():
         raise ValueError("--project-root must be an existing directory.")
-    app = ReadApplication(root, token.encode("ascii"), frozenset(map(_origin, origins)), limits)
+    app = ReadApplication(
+        root,
+        token.encode("ascii"),
+        frozenset(map(_origin, origins)),
+        limits,
+        refresh_seconds=refresh_seconds,
+        max_refreshes=max_refreshes,
+    )
     config = uvicorn.Config(
         app,
         host=host,

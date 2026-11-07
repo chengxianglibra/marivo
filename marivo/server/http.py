@@ -23,9 +23,13 @@ from marivo.analysis.errors import AnalysisError, ArtifactNotFoundError
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.refs import SemanticKind
 from marivo.semantic.catalog import _make_ref
+from marivo.server import dataframes
 from marivo.server.catalog_reads import CatalogReads
+from marivo.server.endpoints import current as current_reference
+from marivo.server.endpoints import dataframe_id, endpoint_name, read_result
 from marivo.server.frames import FrameReads
 from marivo.server.protocol import KINDS, ROUTES, Route, openapi
+from marivo.server.refresh import Refreshes
 from marivo.server.wire import (
     API_VERSION,
     HELP,
@@ -85,6 +89,12 @@ def _query(route: Route, raw: bytes) -> dict[str, str]:
         raise bad_request(
             "kind", "Unknown semantic kind.", "Choose a kind from the object directory."
         )
+    if "refresh" in values and values["refresh"] not in ("true", "false"):
+        raise bad_request(
+            "refresh",
+            "Refresh must be true or false.",
+            "Omit refresh for a saved read, or use refresh=true to execute the script.",
+        )
     if "relation" in route.query and values.get("relation") not in ("dependencies", "dependents"):
         raise bad_request("relation", "A relation is required.", "Use dependencies or dependents.")
     if "cursor" in values and (
@@ -108,6 +118,10 @@ def _route(path: str, method: str) -> tuple[Route, dict[str, str]]:
         if parameters is None or route.method != method:
             continue
         for name, value in parameters.items():
+            if name == "endpoint":
+                endpoint_name(value)
+            elif name == "result_id":
+                dataframe_id(value)
             if (
                 len(value.encode()) > 4096
                 or not value.isprintable()
@@ -178,8 +192,20 @@ async def _disconnect(receive: ASGIReceiveCallable) -> None:
 
 
 class ReadApplication:
-    def __init__(self, root: Path, token: bytes, origins: frozenset[bytes], limits: Limits) -> None:
+    def __init__(
+        self,
+        root: Path,
+        token: bytes,
+        origins: frozenset[bytes],
+        limits: Limits,
+        *,
+        refresh_seconds: int = 300,
+        max_refreshes: int = 1,
+    ) -> None:
+        self.root = root
         self.frames = FrameReads(root)
+        self.refreshes = Refreshes(root, max_refreshes)
+        self.refresh_limits = Limits(limits.mib, refresh_seconds)
         self.catalog = CatalogReads(root, limits)
         self.token = token
         self.origins = origins
@@ -201,6 +227,7 @@ class ReadApplication:
             await receive()
             for event in self.active_workers:
                 event.set()
+            await self.refreshes.close()
             self.pool.shutdown(wait=False, cancel_futures=True)
             await self.catalog.close()
             await send({"type": "lifespan.shutdown.complete"})
@@ -304,15 +331,21 @@ class ReadApplication:
         query: dict[str, str],
         receive: ASGIReceiveCallable,
     ) -> bytes | None:
+        refreshing = route.name == "data" and query.get("refresh") == "true"
         location = (
-            "frame"
-            if route.name == "frame"
-            else "directory"
-            if "limit" in route.query
-            else route.name
+            "refresh"
+            if refreshing
+            else (
+                "frame"
+                if route.name == "frame"
+                else "directory"
+                if "limit" in route.query
+                else route.name
+            )
         )
-        deadline = self.limits.deadline()
-        budget = Budget(self.limits, location, deadline, Event())
+        limits = self.refresh_limits if refreshing else self.limits
+        deadline = limits.deadline()
+        budget = Budget(limits, location, deadline, Event())
         work: asyncio.Task[bytes] | None = None
         disconnected: asyncio.Task[None] | None = None
         try:
@@ -342,7 +375,7 @@ class ReadApplication:
                 return None
             raise asyncio.TimeoutError
         except asyncio.TimeoutError:
-            raise self.limits.timed_out(location) from None
+            raise limits.timed_out(location) from None
         finally:
             budget.cancelled.set()
             tasks = [task for task in (work, disconnected) if task is not None]
@@ -376,6 +409,19 @@ class ReadApplication:
         limit = int(query.get("limit", "20"))
         cursor = query.get("cursor")
         session_id = params.get("session_id", "")
+        if name == "data":
+            if query.get("refresh") == "true":
+                return await self.refreshes.run(params["endpoint"], budget)
+            return await self._worker(
+                budget,
+                lambda: read_result(
+                    self.root, current_reference(self.root, params["endpoint"]), budget
+                ),
+            )
+        if name == "dataframe":
+            return await self._worker(
+                budget, lambda: dataframes.report(self.root, params["result_id"], budget)
+            )
         if name == "frame":
             return await self._worker(
                 budget, lambda: self.frames.report(session_id, params["artifact_id"], budget)

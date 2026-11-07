@@ -1,15 +1,17 @@
 # Project read service
 
-Install `marivo[api]` to expose the current semantic Catalog and committed
-AnalysisFrame reports for one fixed project. The service reads the current Store
-generation and keeps one current semantic snapshot in memory.
+Install `marivo[api]` to expose the current semantic Catalog, saved reports and
+explicitly refreshed script endpoints for one fixed project. AnalysisFrames use
+the current Store generation; DataFrame snapshots use independent Parquet files.
+The service keeps one current semantic snapshot in memory.
 
 ## Start and connect
 
 Generate a token once with a secure random source such as
 `secrets.token_urlsafe(32)`. Save it in deployment credential configuration
-and pass it to the service as `MARIVO_API_TOKEN`. The token grants all reads
-and Catalog reload. Restarting with the same configuration preserves access.
+and pass it to the service as `MARIVO_API_TOKEN`. The token grants reads,
+Catalog reload and execution of administrator-installed endpoint scripts.
+Restarting with the same configuration preserves access.
 To rotate it, change the deployment configuration and restart. Frame references
 stay the same.
 
@@ -63,6 +65,8 @@ All business requests require `Authorization: Bearer <token>`.
 | `GET /v1/sessions` | Existing Sessions, newest updated first |
 | `GET /v1/sessions/{session_id}/frames` | Committed Frame summaries, newest committed first |
 | `GET /v1/sessions/{session_id}/frames/{artifact_id}` | Complete saved report for the exact reference |
+| `GET /v1/data/{endpoint}` | Current saved report; only `refresh=true` executes its script |
+| `GET /v1/dataframes/{result_id}` | Complete saved DataFrame report for the exact reference |
 
 Directories accept `limit` from 1 to 100 (default 20) and `cursor`. Continue
 with the same selection and limit using `next_cursor`. The first semantic
@@ -115,6 +119,7 @@ A complete scalar report:
 
 ```json
 {
+  "kind": "analysis_frame",
   "ref": {"schema":"marivo.frame_ref/v1","session_id":"session_example","artifact_id":"artifact_example"},
   "description": "Recorded revenue",
   "committed_at": "2026-11-06T00:00:00+00:00",
@@ -153,8 +158,134 @@ operate independently of the producer and the current Catalog, and skip source
 execution, Session recovery and complete method payloads. Internal batches can
 hash or scan complete consumed files. Batch size does not bound physical I/O.
 
-DataFrameView remains a host resource whose data travels with its report or
-message. The host owns report components, offline export and user authorization.
+Named AnalysisFrame endpoints use this same report projection, including
+`kind: "analysis_frame"`. The exact Frame route remains the canonical fixed
+version read; it does not accept `refresh`.
+
+## Script endpoints
+
+Place one script per endpoint under the project's `endpoints/` directory.
+`endpoints/sales/revenue.py` maps to `/v1/data/sales/revenue`. Path segments use
+lowercase snake_case. Private files and directories beginning with `_` are
+ignored. Startup discovers paths and validates syntax and the entry signature
+without importing scripts. Restart to discover a new path. Refresh of an existing
+path loads its latest script and helper source in a fresh Python process.
+The `endpoints` package resolves inside the bound project, including when an
+installed distribution provides the same package name.
+
+```python
+# endpoints/sales/revenue.py
+import marivo.analysis as mv
+
+
+def main(session: mv.Session) -> mv.AnalysisFrame:
+    revenue = session.catalog.get("metric:sales.revenue")
+    assert revenue.kind == "metric"
+    return session.observe({"revenue": revenue})
+```
+
+Each script declares one synchronous `main(session)` with a Session annotation
+and exactly one concrete return annotation: `mv.AnalysisFrame` or `pd.DataFrame`.
+Defaults, extra arguments, generators, async functions and union return types
+are rejected. The service supplies a fresh Session bound to the project, checks
+the actual output, and persists it. The injected Session keeps the service's
+project binding even if script imports configure a different environment.
+An AnalysisFrame must belong to that Session
+and be unpersisted. A computed memory Frame is allowed. The script owns explicit
+time scope selection; the service does not advance dates or reconstruct a producer
+from lineage. Scripts and imports are trusted project code, not sandboxed code.
+
+```sh
+curl --fail-with-body -H "Authorization: Bearer ${MARIVO_API_TOKEN}" \
+  'http://127.0.0.1:8765/v1/data/sales/revenue?refresh=true'
+curl --fail-with-body -H "Authorization: Bearer ${MARIVO_API_TOKEN}" \
+  'http://127.0.0.1:8765/v1/data/sales/revenue'
+```
+
+The first call executes, saves and returns a complete report synchronously. The
+second reads the saved current reference. Absent `refresh` and `refresh=false`
+never import scripts, recover Sessions or query sources, including on the first
+read: no saved result returns `result_not_found`. Only lowercase `true` and
+`false` are accepted; empty, repeated and unknown parameters fail. Removed or
+broken scripts cannot invalidate a saved result. Catalog reload remains separate.
+
+## DataFrame reports and fixed report versions
+
+DataFrame scripts receive the same Session and can continue a Marivo computation:
+
+```python
+# endpoints/sales/revenue_table.py
+import pandas as pd
+import marivo.analysis as mv
+
+
+def main(session: mv.Session) -> pd.DataFrame:
+    revenue = session.catalog.get("metric:sales.revenue")
+    assert revenue.kind == "metric"
+    table = session.observe({"revenue": revenue}).compute().to_pandas()
+    return table.assign(double_revenue=table["revenue"] * 2)
+```
+
+Return a default unnamed RangeIndex and unique nonempty string column names.
+Move business indexes into explicit columns. Supported Arrow scalar columns are
+null, boolean, string, integer, float32/64, decimal, date, timestamp and duration.
+Nested objects and unsupported types fail with a field location. `attrs` is not
+persisted or interpreted as semantic metadata. Rows and columns retain their
+order, typed empty tables retain schema, and zero-column tables retain their
+logical row count. Exact scalar encoding follows the Frame rules above.
+
+```json
+{
+  "kind": "dataframe",
+  "ref": {"schema":"marivo.dataframe_ref/v1","result_id":"df_0123456789abcdef0123456789abcdef"},
+  "session_id": "session_example",
+  "committed_at": "2026-11-07T00:00:00+00:00",
+  "schema": {"columns":[{"name":"count","dtype":{"kind":"int64"}}]},
+  "data": {"layout":["count"],"rows":[["9007199254740993"]],"row_count":1}
+}
+```
+
+`schema.columns` declares ordered physical types; `data.layout` gives each row's
+column order. The captured `session_id` describes the production context. Reading
+`GET /v1/dataframes/{result_id}` needs neither that Session nor the Analysis Store,
+model or script. DataFrames carry no inferred units, lineage, axes or periods.
+
+Save the service connection identity together with the returned `kind` and `ref`
+in a UI report. For AnalysisFrames, retain the connection's Store identity from
+`/v1/info` as well. Reopen via the exact Frame or DataFrame route, not the named
+endpoint. Refresh changes the endpoint's current result, never an existing fixed
+reference. Replace the report's saved ref explicitly to adopt a newer version.
+`committed_at` is publication time, not source coverage or freshness. The host owns
+report components, saving, offline export and user authorization.
+
+## Persistence and refresh lifecycle
+
+Current references live in `.marivo/server/endpoints/{endpoint}.json`. An
+AnalysisFrame pointer contains `kind`, `store_id` and its `marivo.frame_ref/v1`
+ref. A DataFrame pointer contains `kind` and its `marivo.dataframe_ref/v1` ref.
+Every successful refresh publishes a new fixed identity. DataFrames are stored as
+`.marivo/server/dataframes/{result_id}.parquet`, outside the Analysis Store. Their
+service-owned Parquet metadata records format, result and Session identity, UTC
+commit time and logical row count; nonzero-column reads verify the physical count.
+
+The worker validates and saves the result, then encodes the complete report. Only
+after successful worker exit does the parent atomically replace the current JSON
+reference. Readers see the previous or the complete new result. Pre-publication
+failures preserve the previous pointer; a saved but unpublished snapshot may remain
+orphaned. Fixed snapshots are retained; there is no automatic deletion or replay.
+
+A filesystem lock excludes simultaneous refreshes of the same endpoint across
+service processes. Conflicts return `refresh_in_progress`. Each service also has
+a refresh capacity limit; excess requests return `service_unavailable` without
+queuing. Ordinary saved reads remain independent. Cancellation and timeout kill
+and reap the worker before releasing its slot and lock. Subprocesses inheriting
+the refresh's process group share its lifetime and are stopped on completion,
+cancellation or parent loss. Script stdout and stderr go directly to service
+stderr, so inherited logging descriptors cannot block worker cleanup. The worker watches a
+dedicated parent channel and stops its process group on parent loss; the inherited lock excludes a
+new refresh until it exits. Result IPC is separate from script stdout and stderr.
+If the response is lost after the pointer switch, read the current result before
+retrying: a failed connection does not prove publication failed.
 
 ## Limits and errors
 
@@ -166,6 +297,11 @@ Reads stop cooperatively at batch and receipt-check boundaries after a
 disconnect or deadline. An in-progress native file or database call may need
 to return before its worker slot becomes available.
 
+`--refresh-timeout-seconds` defaults to 300 and covers script loading, execution,
+publication and report encoding. `--max-refreshes` defaults to 1 per service
+process. Both accept positive integers. Refresh uses the same response-size
+budget, with its own deadline, and returns `refresh_timeout` on expiry.
+
 A failure returns `{"error":{...}}` with `code`, `message`, `location`,
 `repair` and nullable `target`. Use the stable code to handle the error.
 
@@ -175,14 +311,22 @@ A failure returns `{"error":{...}}` with `code`, `message`, `location`,
 | 401 | `unauthorized` | Supply the administrator-configured token |
 | 403 | `origin_not_allowed` | Check the configured Origin and preflight |
 | 404 | `not_found` | Verify the project and exact identity |
+| 404 | `result_not_found` | Check the fixed ref or explicitly create the endpoint's first result |
 | 409 | `invalid_cursor` | Start the directory listing again |
+| 409 | `refresh_in_progress` | Wait for the same endpoint's refresh or read the saved result |
 | 413 | `response_too_large` | Increase the response budget and retry |
 | 422 | `catalog_load_failed` | Repair the model and reload |
 | 422 | `unsupported_store_format` | Use a Runtime compatible with the saved Store |
 | 422 | `corrupt_artifact` | Restore the exact committed metadata or files |
 | 422 | `unencodable_value` | Inspect the named field and its carrier |
+| 422 | `script_contract_error` | Correct the script signature, output type or Frame ownership |
+| 422 | `refresh_failed` | Inspect the script's error in service logs and repair its inputs |
+| 422 | `invalid_result_reference` | Restore the saved pointer or explicitly refresh |
+| 422 | `corrupt_dataframe` | Restore the original Parquet result |
 | 503 | `read_timeout` | Increase the configured deadline and retry |
-| 503 | `service_unavailable` | Retry when a read slot is available |
+| 503 | `refresh_timeout` | Check current state and the refresh deadline before retrying |
+| 503 | `service_unavailable` | Retry when a read or refresh slot is available |
+| 500 | `result_publication_failed` | Check storage capacity and permissions, then read current state |
 | 500 | `internal_error` | Keep the reference and check service logs |
 
 A report either returns complete data or fails. If deployment capacity cannot

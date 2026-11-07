@@ -11,9 +11,11 @@ import ssl
 import subprocess
 import sys
 from collections.abc import Iterator, Mapping, Sequence
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from datetime import date, timedelta
 from pathlib import Path
+from time import monotonic, sleep
 from typing import Any, Protocol, TypeAlias
 from urllib.parse import urlencode
 
@@ -187,7 +189,7 @@ def test_complete_reports_restart_and_budget(tmp_path: Path) -> None:
         assert report["periods"] == []
         assert _ok(request("/v1/info"))["catalog"] == {"loaded": False, "loaded_at": None}
         spec = _ok(request("/v1/openapi.json"))
-        assert len(spec["paths"]) == 9
+        assert len(spec["paths"]) == 11
         assert spec["paths"]["/v1/sessions/{session_id}/frames/{artifact_id}"]["get"][
             "parameters"
         ] == [
@@ -510,6 +512,8 @@ def test_tls_cors_and_cli_validation(tmp_path: Path) -> None:
         ),
         (["--max-response-mib", "0"], no_token, "positive integers"),
         (["--read-timeout-seconds", "-1"], no_token, "positive integers"),
+        (["--refresh-timeout-seconds", "0"], no_token, "positive integers"),
+        (["--max-refreshes", "-1"], no_token, "positive integers"),
         (
             ["--allow-origin", "https://example.test/path"],
             {**os.environ, "MARIVO_API_TOKEN": _TOKEN},
@@ -627,3 +631,127 @@ def test_read_report_with_missing_method_payload(tmp_path: Path) -> None:
         assert report["data"]["rows"][0][fields.index("contribution.q")] == "40"
         assert "method_facts" not in report
         assert not file.exists()
+
+
+def _refresh_project(root: Path) -> Path:
+    _models(root, "Endpoint input")
+    facts = root / "facts.json"
+    facts.write_text('[{"amount": 10}]')
+    (root / "models/datasources/warehouse.py").write_text(
+        "import marivo.datasource as md\nmd.duckdb(name='warehouse', extra={'threads': 1})\n"
+    )
+    (root / "models/semantic/sales/events.py").write_text(
+        "import marivo.datasource as md\nimport marivo.semantic as ms\n"
+        "events = ms.entity(name='events', datasource=ms.ref.datasource('warehouse'), "
+        f"source=md.json({str(facts)!r}, columns={{'amount': 'amount'}}))\n"
+        "amount = ms.measure_column(name='amount', entity=events, column='amount', "
+        "additivity=ms.additive_all(), unit='USD')\n"
+        "@ms.metric()\ndef total():\n    return amount.sum()\n"
+    )
+    endpoints = root / "endpoints/sales"
+    endpoints.mkdir(parents=True)
+    for name, returned, output in (
+        ("total", "mv.AnalysisFrame", "return frame"),
+        (
+            "table",
+            "pd.DataFrame",
+            "table = frame.compute().to_pandas()\n    return table.assign(double=table['total'] * 2)",
+        ),
+    ):
+        (endpoints / f"{name}.py").write_text(
+            "from pathlib import Path\nimport pandas as pd\nimport marivo.analysis as mv\n"
+            "with Path('invocations').open('a') as log:\n    log.write('import\\n')\n"
+            f"def main(session: mv.Session) -> {returned}:\n"
+            "    metric = session.catalog.get('metric:sales.total')\n"
+            "    assert metric.kind == 'metric'\n"
+            "    frame = session.observe({'total': metric})\n"
+            f"    {output}\n"
+        )
+    return facts
+
+
+def test_refresh_source_updates_and_report_saved_refs(tmp_path: Path) -> None:
+    facts = _refresh_project(tmp_path)
+    frame_url, table_url = "/v1/data/sales/total", "/v1/data/sales/table"
+    with server(tmp_path) as request:
+        _error(request(frame_url), 404, "result_not_found")
+        _error(request(table_url + "?refresh=false"), 404, "result_not_found")
+        _error(request(frame_url + "?refresh=true", bearer=None), 401, "unauthorized")
+        for query in ("refresh=", "refresh=1", "refresh=TRUE", "refresh=true&refresh=true", "x=1"):
+            _error(request(frame_url + "?" + query), 400, "invalid_parameter")
+        assert not (tmp_path / "invocations").exists()
+        assert not (tmp_path / ".marivo").exists()
+        spec = _ok(request("/v1/openapi.json"))
+        first_frame = _ok(request(frame_url + "?refresh=true"))
+        first_table = _ok(request(table_url + "?refresh=true"))
+        assert first_frame["kind"] == "analysis_frame"
+        assert first_frame["data"]["rows"] == [["10"]]
+        assert first_table["data"] == {
+            "layout": ["total", "double"],
+            "rows": [["10", "20"]],
+            "row_count": 1,
+        }
+        for report in (first_frame, first_table):
+            _schema(spec, "DataReport", report)
+        assert first_table["session_id"] != first_frame["ref"]["session_id"]
+        saved = tmp_path / "report.json"
+        saved.write_text(json.dumps({"frame": first_frame["ref"], "table": first_table["ref"]}))
+        facts.write_text('[{"amount": 20}]')
+        assert _ok(request(frame_url)) == first_frame
+        assert _ok(request(table_url + "?refresh=false")) == first_table
+        assert (tmp_path / "invocations").read_text().splitlines() == ["import", "import"]
+        newer_frame = _ok(request(frame_url + "?refresh=true"))
+        newer_table = _ok(request(table_url + "?refresh=true"))
+        assert newer_frame["data"]["rows"] == [["20"]]
+        assert newer_table["data"]["rows"] == [["20", "40"]]
+        assert newer_frame["ref"] != first_frame["ref"]
+        assert newer_table["ref"] != first_table["ref"]
+        restored = json.loads(saved.read_text())
+        fixed_frame = _path(restored["frame"])
+        fixed_table = "/v1/dataframes/" + restored["table"]["result_id"]
+        assert _ok(request(fixed_frame)) == first_frame
+        assert _ok(request(fixed_table)) == first_table
+        _error(request(fixed_table + "?refresh=true"), 400, "invalid_parameter")
+        assert len(list((tmp_path / ".marivo/server/dataframes").glob("*.parquet"))) == 2
+        (tmp_path / "endpoints").rename(tmp_path / "removed_endpoints")
+        (tmp_path / "models").rename(tmp_path / "removed_models")
+        facts.unlink()
+        assert _ok(request(frame_url)) == newer_frame
+        assert _ok(request(table_url)) == newer_table
+    with server(tmp_path) as request:
+        assert _ok(request(fixed_frame)) == first_frame
+        assert _ok(request(frame_url)) == newer_frame
+        assert _ok(request(fixed_table)) == first_table
+        _error(request(frame_url + "?refresh=true"), 404, "not_found")
+    (tmp_path / ".marivo/analysis").rename(tmp_path / "removed_store")
+    with server(tmp_path) as request:
+        assert _ok(request(fixed_table)) == first_table
+        assert _ok(request(table_url)) == newer_table
+
+
+def test_refresh_timeout_cross_process_lock_and_read_availability(tmp_path: Path) -> None:
+    _refresh_project(tmp_path)
+    url = "/v1/data/sales/table"
+    path = tmp_path / "endpoints/sales/table.py"
+    original = path.read_text()
+    with server(tmp_path, "--refresh-timeout-seconds", "10") as first:
+        saved = _ok(first(url + "?refresh=true"))
+        path.write_text(
+            original.replace(
+                "    metric =",
+                "    Path('ready').touch()\n    import time\n    time.sleep(120)\n    metric =",
+            )
+        )
+        with server(tmp_path) as second, ThreadPoolExecutor(max_workers=1) as pool:
+            pending = pool.submit(first, url + "?refresh=true")
+            deadline = monotonic() + 8
+            while not (tmp_path / "ready").exists():
+                assert monotonic() < deadline, "Worker did not enter the script"
+                sleep(0.01)
+            assert _ok(second(url)) == saved
+            _error(second(url + "?refresh=true"), 409, "refresh_in_progress")
+            _error(first("/v1/data/sales/total?refresh=true"), 503, "service_unavailable")
+            _error(pending.result(timeout=15), 503, "refresh_timeout")
+            assert _ok(first(url)) == saved
+            path.write_text(original)
+            assert _ok(second(url + "?refresh=true"))["ref"] != saved["ref"]

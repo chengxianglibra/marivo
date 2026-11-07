@@ -44,6 +44,8 @@ class Route:
 
     def match(self, path: str) -> dict[str, str] | None:
         pattern = re.sub(r"\{(\w+)\}", r"(?P<\1>[^/]+)", self.path)
+        if self.name == "data":
+            pattern = pattern.replace("(?P<endpoint>[^/]+)", "(?P<endpoint>.+)")
         match = re.fullmatch(pattern, path)
         return None if match is None else match.groupdict()
 
@@ -59,6 +61,8 @@ ROUTES = (
     Route("sessions", "/v1/sessions", "SessionDirectory", _PAGE),
     Route("frames", "/v1/sessions/{session_id}/frames", "FrameDirectory", _PAGE),
     Route("frame", "/v1/sessions/{session_id}/frames/{artifact_id}", "FrameReport"),
+    Route("data", "/v1/data/{endpoint}", "DataReport", ("refresh",)),
+    Route("dataframe", "/v1/dataframes/{result_id}", "DataFrameReport"),
 )
 
 STRING: JsonObject = {"type": "string"}
@@ -290,6 +294,7 @@ def _schemas() -> dict[str, JsonObject]:
         ),
         "FrameSummary": record(**frame_summary),
         "FrameReport": record(
+            kind=literal("analysis_frame"),
             **frame_summary,
             lineage=ref(FrameLineage.__name__),
             source_reads=arr(ref(FrameSourceRead.__name__)),
@@ -316,6 +321,44 @@ def _schemas() -> dict[str, JsonObject]:
                 )
             ),
         ),
+        "DataFrameRef": record(schema=literal("marivo.dataframe_ref/v1"), result_id=STRING),
+        "DataFrameType": either(
+            record(
+                kind={
+                    "enum": [
+                        "null",
+                        "boolean",
+                        "string",
+                        "date",
+                        "int8",
+                        "int16",
+                        "int32",
+                        "int64",
+                        "uint8",
+                        "uint16",
+                        "uint32",
+                        "uint64",
+                        "float32",
+                        "float64",
+                    ]
+                }
+            ),
+            record(kind=literal("decimal"), precision=INT, scale=INT),
+            record(kind=literal("timestamp"), unit=UNITS, timezone=nullable(STRING)),
+            record(kind=literal("duration"), unit=UNITS),
+        ),
+        "DataFrameReport": record(
+            kind=literal("dataframe"),
+            ref=ref("DataFrameRef"),
+            session_id=STRING,
+            committed_at=DATETIME,
+            schema=record(columns=arr(record(name=STRING, dtype=ref("DataFrameType")))),
+            data=record(layout=arr(STRING), rows=arr(arr(ref("ScalarValue"))), row_count=INT),
+        ),
+        "DataReport": {
+            "oneOf": [ref("FrameReport"), ref("DataFrameReport")],
+            "discriminator": {"propertyName": "kind"},
+        },
         "NonFiniteFloat": record(float={"enum": ["nan", "inf", "-inf"]}),
         "ScalarValue": either(STRING, BOOL, NUMBER, NULL, ref("NonFiniteFloat")),
         "TypedScalar": typed_scalar,
@@ -383,6 +426,11 @@ def _schemas() -> dict[str, JsonObject]:
 
 
 QUERY_SCHEMAS: dict[str, JsonObject] = {
+    "refresh": {
+        "type": "boolean",
+        "default": False,
+        "description": "Explicit true executes the endpoint script and publishes a new immutable result. Omit or use false for saved reads.",
+    },
     "limit": {"type": "integer", "minimum": 1, "maximum": 100, "default": 20},
     "cursor": {"type": "string", "minLength": 1, "maxLength": 16384},
     "kind": {"enum": list(KINDS)},
@@ -432,7 +480,7 @@ def openapi() -> JsonObject:
         }
     return {
         "openapi": "3.1.0",
-        "info": {"title": "Marivo project read service", "version": __version__},
+        "info": {"title": "Marivo project data service", "version": __version__},
         "security": [{"Bearer": []}],
         "components": {
             "securitySchemes": {"Bearer": {"type": "http", "scheme": "bearer"}},

@@ -132,6 +132,7 @@ class FrameReads:
         schema = backing.data.schema
         public = frame.schema
         metadata: JsonObject = {
+            "kind": "analysis_frame",
             "ref": frame_ref(session_id, artifact_id),
             "description": frame.description,
             "committed_at": local.committed_at(backing).isoformat(),

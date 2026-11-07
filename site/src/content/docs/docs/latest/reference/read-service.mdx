@@ -1,6 +1,6 @@
 ---
 title: Project read service
-description: Connect a client to the current Catalog and complete saved Frame reports.
+description: Read saved reports and explicitly refresh AnalysisFrame or DataFrame script endpoints.
 ---
 
 Install the optional API dependencies in the project's Marivo Runtime. Generate
@@ -39,7 +39,7 @@ curl --fail-with-body -H "Authorization: Bearer ${MARIVO_API_TOKEN}" \
   "http://127.0.0.1:8765/v1/sessions/${session_id}/frames/${artifact_id}"
 ```
 
-One successful request returns `ref`, `description`, `committed_at`,
+One successful request returns `kind: "analysis_frame"`, `ref`, `description`, `committed_at`,
 `schema`, `lineage`, `source_reads`, `data` and `periods`.
 `data.layout` orders the cells in each row. Join by field slot or coordinate
 identity to find the original display names and types in `schema`.
@@ -58,6 +58,7 @@ the saved endpoint or its absence reason.
 
 ```json
 {
+  "kind": "analysis_frame",
   "ref": {"schema":"marivo.frame_ref/v1","session_id":"session_example","artifact_id":"artifact_example"},
   "description": "Recorded revenue",
   "committed_at": "2026-11-06T00:00:00+00:00",
@@ -90,6 +91,90 @@ the saved endpoint or its absence reason.
   "periods": []
 }
 ```
+
+## Refresh a script endpoint
+
+Create `endpoints/sales/revenue.py` in the project:
+
+```python
+import marivo.analysis as mv
+
+
+def main(session: mv.Session) -> mv.AnalysisFrame:
+    revenue = session.catalog.get("metric:sales.revenue")
+    assert revenue.kind == "metric"
+    return session.observe({"revenue": revenue})
+```
+
+The service discovers lowercase snake_case paths on startup, without importing
+scripts. Files and directories beginning with `_` are private. Restart after
+adding a path. Existing endpoints load their latest source on each refresh.
+Declare one synchronous `main(session)` with the shown Session annotation and
+one concrete return type. The service supplies a new project Session and saves
+the output. That Session belongs to the service's bound project even if imports
+configure another project environment. Return an unpersisted AnalysisFrame from that Session. The script
+owns time scopes and business logic; imports execute as trusted project code.
+
+```bash
+curl --fail-with-body -H "Authorization: Bearer ${MARIVO_API_TOKEN}" \
+  'http://127.0.0.1:8765/v1/data/sales/revenue?refresh=true'
+curl --fail-with-body -H "Authorization: Bearer ${MARIVO_API_TOKEN}" \
+  'http://127.0.0.1:8765/v1/data/sales/revenue'
+```
+
+Only `refresh=true` runs the script, publishes a new result and atomically changes
+the current reference. Absent `refresh` or `refresh=false` reads saved data, even
+if the script or model has been removed. Before the first publication it returns
+`result_not_found`; it never executes implicitly. Invalid or repeated parameters
+fail. Refresh is synchronous and returns the complete report with its fixed ref.
+
+## DataFrame results and saved report versions
+
+DataFrame endpoints also receive a Session for continuing Marivo analysis:
+
+```python
+# endpoints/sales/revenue_table.py
+import pandas as pd
+import marivo.analysis as mv
+
+
+def main(session: mv.Session) -> pd.DataFrame:
+    revenue = session.catalog.get("metric:sales.revenue")
+    assert revenue.kind == "metric"
+    table = session.observe({"revenue": revenue}).compute().to_pandas()
+    return table.assign(double_revenue=table["revenue"] * 2)
+```
+
+Use unique nonempty string columns and a default unnamed RangeIndex. Move business
+indexes into columns. Supported scalar columns include null, boolean, string,
+integer, float32/64, Decimal, date, timestamp and duration. Unsupported objects
+and nested values fail explicitly; `attrs` is not semantic metadata. Row and
+column order, typed empty columns and zero-column row counts are preserved.
+
+```json
+{
+  "kind": "dataframe",
+  "ref": {"schema":"marivo.dataframe_ref/v1","result_id":"df_0123456789abcdef0123456789abcdef"},
+  "session_id": "session_example",
+  "committed_at": "2026-11-07T00:00:00+00:00",
+  "schema": {"columns":[{"name":"count","dtype":{"kind":"int64"}}]},
+  "data": {"layout":["count"],"rows":[["9007199254740993"]],"row_count":1}
+}
+```
+
+DataFrames use independent `.marivo/server/dataframes/{result_id}.parquet` files.
+`GET /v1/dataframes/{result_id}` reads a fixed version without loading its Session,
+Analysis Store, model or script. `session_id` records the production context.
+Physical types live in `schema.columns`; `data.layout` gives the column order.
+Scalar encoding follows the Frame rules above. No axes, lineage, units or periods
+are inferred from pandas data.
+
+Save the service identity, `kind` and `ref` in the UI report. For AnalysisFrames,
+also retain the connection's `store_id` from `/v1/info`. Reopen via the exact
+Frame or DataFrame route; these routes do not accept `refresh`. Refreshing the
+named endpoint never changes the report's saved version. Adopt a new ref only
+when explicitly updating that report. Current pointers are stored under
+`.marivo/server/endpoints/`. `committed_at` is save time, not source freshness.
 
 ## Browse current definitions
 
@@ -139,4 +224,19 @@ complete on success. Table display pagination stays on the client.
 Inspect `error.code`, `location`, `repair` and optional Help `target` when
 a request fails. Restart a listing on `invalid_cursor`, check project and IDs
 on `not_found`, and restore the saved files on `corrupt_artifact`.
-DataFrameView data travels with its host report or message.
+`--refresh-timeout-seconds` defaults to 300 and `--max-refreshes` to 1 per service
+process. Both accept positive integers. A refresh has its own deadline and uses
+the same response-size limit. Same-endpoint refreshes are excluded across service
+processes (`refresh_in_progress`); a full refresh capacity returns
+`service_unavailable` without queuing. Saved reads remain available.
+
+Timeout or disconnect stops the worker before releasing its slot and lock.
+Subprocesses inheriting the refresh's process group share its lifetime and are
+stopped on completion, cancellation or parent loss.
+Script, persistence or encoding failures before the pointer switch retain the old
+result. A completed snapshot may remain unpublished; existing fixed versions are
+not deleted. If a response is lost after publication, read the current endpoint
+before retrying. `refresh_timeout`, `script_contract_error`, `refresh_failed`,
+`result_publication_failed`, `invalid_result_reference` and `corrupt_dataframe`
+identify the owning failure; use their repair fields. The configured token grants
+refresh access to installed scripts. The host owns report saving and user authorization.

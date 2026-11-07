@@ -224,7 +224,9 @@ def main(argv: list[str] | None = None) -> None:
     )
     from marivo.server.wire import DEFAULT_MIB, DEFAULT_SECONDS
 
-    serve_parser = subparsers.add_parser("serve", help="Serve current definitions and saved Frames")
+    serve_parser = subparsers.add_parser(
+        "serve", help="Serve definitions, fixed data and explicitly refreshed endpoints"
+    )
     serve_parser.add_argument(
         "--project-root", type=Path, help="Bind an existing project directory"
     )
@@ -253,6 +255,18 @@ def main(argv: list[str] | None = None) -> None:
     )
     serve_parser.epilog = (
         "Set MARIVO_API_TOKEN in the environment. See marivo help analysis.results.service."
+    )
+    serve_parser.add_argument(
+        "--refresh-timeout-seconds",
+        type=int,
+        default=300,
+        help="Time budget per explicit script refresh (default 300 seconds)",
+    )
+    serve_parser.add_argument(
+        "--max-refreshes",
+        type=int,
+        default=1,
+        help="Concurrent script refreshes per service process (default 1)",
     )
 
     help_parser = subparsers.add_parser(
@@ -328,6 +342,8 @@ def main(argv: list[str] | None = None) -> None:
                 certfile=args.ssl_certfile,
                 keyfile=args.ssl_keyfile,
                 limits=Limits(args.max_response_mib, args.read_timeout_seconds),
+                refresh_seconds=args.refresh_timeout_seconds,
+                max_refreshes=args.max_refreshes,
             )
         except ValueError as error:
             serve_parser.error(str(error))
