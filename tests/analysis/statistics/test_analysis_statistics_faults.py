@@ -31,13 +31,14 @@ def test_three_quantity_search_and_forecast_views(
     )
     ms.load(workspace_dir=case.root)
     session = mv.session.get_or_create("statistics", timezone="UTC")
-    grid = session.time_scope(start="2026-08-01", end="2026-08-04").by(mv.grain("day"))
+    grid_scope = session.time_scope(start="2026-08-01", end="2026-08-04")
     artifact = session.observe(
         {
             str(i): catalog_value(session.catalog, f"sales.total_{i}", kind="metric")
             for i in (0, 1, 5)
         },
-        by=(grid,),
+        by=(mv.grain("day"),),
+        where=grid_scope,
     ).persist()
     frame = plain(artifact)
     assert frame["0"].tolist() == [1, 2, 7]

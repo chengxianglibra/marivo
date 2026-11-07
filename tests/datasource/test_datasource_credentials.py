@@ -365,7 +365,7 @@ def test_observe_source_materialization_failure_redacts_credentials(
         with pytest.raises(DatasourceConnectionError) as captured:
             session.observe(
                 {"revenue": revenue},
-                by=(session.time_scope(start="2026-07-01", end="2026-08-01"),),
+                where=session.time_scope(start="2026-07-01", end="2026-08-01"),
             ).compute()
         assert "<redacted>" in str(captured.value)
         assert terminal_runs(session) == before_runs and publication_counts(session) == before

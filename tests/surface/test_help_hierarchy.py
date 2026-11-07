@@ -75,6 +75,12 @@ def test_retired_task_topics_fail_without_aliases() -> None:
         "semantic.builders.temporal_parsing",
         "semantic.checks",
         "semantic.objects",
+        "semantic.time_parameter",
+        "semantic.metric_time_parameter",
+        "semantic.metric_time_parameter_binding",
+        "semantic.metric_time_constraint",
+        "semantic.metric.bind_time",
+        "analysis.time_group",
         "analysis.artifacts",
         "analysis.artifacts.reads",
         "analysis.catalog",
@@ -289,12 +295,10 @@ def test_column_operator_reference_remains_discoverable_without_flattening_task_
             "by",
             (
                 "analysis.inputs.catalog",
-                "analysis.session.time_scope",
-                "analysis.time_scope.by",
-                "analysis.time_group",
+                "analysis.grain.define",
             ),
         ),
-        ("session.observe", "where", ("semantic.predicate",)),
+        ("session.observe", "where", ("semantic.predicate", "analysis.session.time_scope")),
         ("time_scope.by", "grain", ("analysis.grain.define",)),
         ("analysis_frame.reduce", "values", ("analysis.value_statistic", "analysis.column.sum")),
         ("analysis_frame.reduce", "by", ("analysis.analysis_frame.axis",)),
@@ -346,7 +350,7 @@ def test_discovery_and_parameter_links_support_a_fresh_question(
     entry = session.catalog.get(candidate.id)
     assert entry.kind == "metric"
     august = session.time_scope(start="2026-08-01", end="2026-09-01")
-    fixed = session.observe({"value": entry}, by=(august,)).compute()
+    fixed = session.observe({"value": entry}, where=august).compute()
     assert fixed.to_pandas()["value"].tolist() == [180]
 
     summary = fixed.reduce({"total": fixed["value"].sum()}).compute()
@@ -399,6 +403,7 @@ def test_authoring_parameters_keep_complete_native_acquisition_and_real_links() 
             "datasource": "semantic.ref.datasource",
             "source": "datasource.sources",
             "versioning": "semantic.snapshot",
+            "default_time": "semantic.ref.time_dimension",
         },
         "measure.from_column": {
             "entity": "semantic.ref.entity",

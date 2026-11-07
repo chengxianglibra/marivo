@@ -108,7 +108,7 @@ def provider() -> DisclosureProvider:
             "observe",
             "AnalysisFrame",
             "period = session.time_scope(start='2026-08-01', end='2026-09-01')\n"
-            "result = session.observe(revenue, by=(period,)).compute()\n"
+            "result = session.observe(revenue, where=period).compute()\n"
             "result.show()",
             "Observe named Metrics overall, by time/classification, or both.",
         ),
@@ -198,7 +198,7 @@ def provider() -> DisclosureProvider:
         "cursor": "Use the preceding page's opaque next_cursor with the identical selection.",
         "session_id": "Use the exact existing Session id.",
         "artifact_id": "Use the exact saved Frame's artifact_id string from this Session; objects and Refs are not IDs.",
-        "metrics": "Use a published root Metric or nonempty list/tuple/Mapping. Name expressions in a Mapping. Names exclude dots, backslashes, controls and left_present/right_present.",
+        "metrics": "Use a published root Metric or nonempty list/tuple/Mapping. Map expressions to distinct names without dots, backslashes, controls or left_present/right_present.",
         "entity": "Pass a resolved governed Entity, not a Ref or path.",
     }
     parameter_targets: dict[str, tuple[str, ...]] = {
@@ -243,7 +243,7 @@ def provider() -> DisclosureProvider:
                 )
                 if name == "observe"
                 else ("session.observe", "TimeScope.by")
-                if name in ("instant", "time_scope")
+                if name == "time_scope"
                 else (),
                 parameters=tuple(
                     P(
@@ -258,11 +258,11 @@ def provider() -> DisclosureProvider:
                         if name == "get_or_create" and n == "domains"
                         else "Choose an integer from 1 through 100, excluding bool; default 20. Keep the same limit when continuing a cursor."
                         if name == "persisted_frames" and n == "limit"
-                        else "fields/Grouping/TimeScope/memberships or Population P. P fixes joint keys, population.axes does not. Cover necessary output keys before sampling. () gives one zero-axis cell. One direct time axis at most."
+                        else "Tuple of Dimensions, non-time Groupings, one report Grain at most. () gives one zero-axis cell. P fixes joint keys; cover necessary output keys before sampling."
                         if name == "observe" and n == "by"
                         else "Pass resolved fields or field or identity Grouping values; calendar and membership groupings are rejected. Use () for scalar literal rows."
                         if name == "values" and n == "by"
-                        else "Contribution condition. Population.count domains stay fixed."
+                        else "Conjoin terms in a tuple with at most one TimeScope. where=field.within(scope) filters one field without supplying a report endpoint. Population.count domains stay fixed."
                         if name == "observe" and n == "where"
                         else "Population with exactly one complete Entity identity axis, unowned or from this Session. Project that identity axis before reading a classified or multi-axis domain."
                         if name == "read" and n == "population"
@@ -270,11 +270,11 @@ def provider() -> DisclosureProvider:
                         (
                             "inputs.catalog",
                             "inputs.population",
-                            "session.time_scope",
-                            "time_scope.by",
-                            "time_group",
+                            "grain.define",
                         )
                         if name == "observe" and n == "by"
+                        else ("semantic.predicate", "session.time_scope")
+                        if name == "observe" and n == "where"
                         else ("inputs.catalog", "identity")
                         if name == "values" and n == "by"
                         else parameter_targets.get(n, ()),
@@ -283,12 +283,17 @@ def provider() -> DisclosureProvider:
                     if n != "self"
                 ),
                 output=output,
-                constraints=(_doc_section(value, "Constraints"),)
+                constraints=(
+                    _doc_section(value, "Constraints"),
+                    "TimeField samples allow missing clocks. Windows need report endpoints; custom samples need complete periods.",
+                    "Names label outputs without asserting business identity. Trust semantic primary_key with nullable physical metadata; no full-source NULL/uniqueness precheck. Existing identity-output and operation checks remain.",
+                )
+                if name == "observe"
+                else (_doc_section(value, "Constraints"),)
                 if name
                 in (
                     "get_or_create",
                     "members",
-                    "observe",
                     "frame",
                     "read",
                     "values",
@@ -304,7 +309,7 @@ def provider() -> DisclosureProvider:
                     if name == "get_or_create"
                     else "AnalysisError: read its fields and repair."
                     if name == "members"
-                    else "AnalysisError: follow its typed repair; no name cleaning/numbering."
+                    else "AnalysisError: Fix a missing branch clock in the semantic definition or remove report time. Duplicate or invalid names reject with no name cleaning/numbering."
                     if name == "observe"
                     else "AnalysisError: follow the structured identity, bound or recovery repair.",
                 ),

@@ -83,12 +83,16 @@ def test_source_spatial_rollup_preserves_lookback_and_endpoint_occurrences(
     session = case.session
     amount = catalog_value(session.catalog, "sales.order.amount", kind="measure")
     customer = catalog_value(session.catalog, "sales.order.customer_id", kind="dimension")
-    calendar = session.time_scope(start="2026-10-07", end="2026-10-09").by(mv.grain("day"))
+    calendar_scope = session.time_scope(start="2026-10-07", end="2026-10-09")
     ordered_at = catalog_value(session.catalog, "sales.order.ordered_at", kind="time_dimension")
     total = amount.sum(time=ordered_at)
     metric = (total / amount.count(time=ordered_at) if ratio else total).window(mv.all_history())
     trace = capture_source(monkeypatch)
-    frame = session.observe({"value": metric}, by=(calendar,)).compute().to_pandas()
+    frame = (
+        session.observe({"value": metric}, by=(mv.grain("day"),), where=calendar_scope)
+        .compute()
+        .to_pandas()
+    )
     assert frame["value"].tolist() == ([1.0, 1.0] if ratio else [1000, 1000])
 
 

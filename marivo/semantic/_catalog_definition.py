@@ -35,6 +35,7 @@ from marivo.datasource.ir import AiContextIR
 from marivo.refs import Ref, SemanticKind, SemanticKindTag
 from marivo.semantic._compiled_state import PublishedDeclaration
 from marivo.semantic._deferred_semantics import consume_metric, consume_row
+from marivo.semantic._metric_time import metric_time_occurrences
 from marivo.semantic.catalog_entries import (
     DatasourceDefinition,
     DependencyContext,
@@ -44,10 +45,7 @@ from marivo.semantic.catalog_entries import (
     FieldDefinition,
     MetricDefinition,
     MetricNoTimeBinding,
-    MetricTimeConstraint,
     MetricTimeFieldBinding,
-    MetricTimeParameter,
-    MetricTimeParameterBinding,
     PeriodCalendarDefinition,
     RelationshipDefinition,
     TemporalSetDefinition,
@@ -217,11 +215,8 @@ def _sample_text(value: object) -> str:
 def _inert_text(value: object) -> str:
     """Only captured dataclass facts; never resolver or executable reprs."""
     from marivo._definition.types import ExactRef
-    from marivo.semantic._time_parameters import time_parameter_ref
 
     if isinstance(value, ExactRef):
-        if time_parameter_ref(value):
-            return f"TimeParameter({value.version.rsplit(':', 1)[-1]})"
         return value.ref.key
     if isinstance(value, Grain):
         return repr(value)
@@ -266,7 +261,7 @@ def _inert_text(value: object) -> str:
             + ", ".join(
                 f"{item.name}={_inert_text(getattr(value, item.name))}"
                 for item in fields(value)
-                if item.name not in {"recipe", "owner", "version"}
+                if item.name not in {"recipe", "owner", "version", "_from_default_time"}
             )
             + ")"
         )
@@ -408,6 +403,9 @@ def definition_for(catalog: SemanticCatalog, ref: Ref[SemanticKindTag]) -> Entry
             entity_expression,
             captured.primary_key,
             captured.versioning,
+            f"time_dimension:{captured.default_time}"
+            if captured.default_time is not None
+            else None,
             tuple(
                 item.key
                 for item in catalog._index._refs
@@ -418,17 +416,37 @@ def definition_for(catalog: SemanticCatalog, ref: Ref[SemanticKindTag]) -> Entry
             dependencies,
         )
     if ref.kind is SemanticKind.METRIC:
-        from marivo.semantic._time_parameters import time_parameter_ref
-
-        metric = consume_metric(registry.declared_metrics[ref.path], allow_open=True)
+        metric = consume_metric(registry.declared_metrics[ref.path])
         reductions: list[str] = []
         conditions: list[str] = []
-        bindings: list[
-            MetricTimeFieldBinding | MetricTimeParameterBinding | MetricNoTimeBinding
-        ] = []
+        bindings: list[MetricTimeFieldBinding | MetricNoTimeBinding] = []
         nulls: list[str] = []
         seen: set[int] = set()
         declared = dict(metric._declared)
+        for occurrence in metric_time_occurrences(metric.node, declared):
+            branch = formula(occurrence.node)
+            if occurrence.path:
+                branch = f"{' / '.join(occurrence.path)}: {branch}"
+            time = occurrence.binding
+            if time is None:
+                assert occurrence.reason is not None
+                bindings.append(
+                    MetricNoTimeBinding(
+                        branch,
+                        occurrence.root.ref.key if occurrence.root is not None else None,
+                        occurrence.reason,
+                    )
+                )
+            else:
+                bindings.append(
+                    MetricTimeFieldBinding(
+                        branch,
+                        time.field.ref.key,
+                        tuple(item.ref.key for item in time.path),
+                        source=time.source,
+                        anchor=time.at,
+                    )
+                )
 
         def visit(node: MetricNode | RowNode | PredicateExpression) -> None:
             if id(node) in seen:
@@ -440,19 +458,6 @@ def definition_for(catalog: SemanticCatalog, ref: Ref[SemanticKindTag]) -> Entry
                 branch = formula(node)
                 reductions.append(branch)
                 nulls.append(f"{branch}: {_source_null_rule(node)}")
-                time = node.time
-                if time is None:
-                    bindings.append(MetricNoTimeBinding(branch))
-                elif time_parameter_ref(time.field):
-                    bindings.append(
-                        MetricTimeParameterBinding(branch, time.field.version.rsplit(":", 1)[-1])
-                    )
-                else:
-                    bindings.append(
-                        MetricTimeFieldBinding(
-                            branch, time.field.ref.key, tuple(item.ref.key for item in time.path)
-                        )
-                    )
             if isinstance(node, ContributionFilter):
                 conditions.append(formula(node.predicate))
             for edge in children(node):
@@ -485,21 +490,6 @@ def definition_for(catalog: SemanticCatalog, ref: Ref[SemanticKindTag]) -> Entry
             tuple(reductions),
             tuple(conditions),
             tuple(bindings),
-            tuple(
-                MetricTimeParameter(
-                    slot.name,
-                    tuple(dict.fromkeys(use.root.ref.key for use in uses)),
-                    tuple(
-                        MetricTimeConstraint(
-                            use.kind,
-                            use.root.ref.key,
-                            use.required_field.ref.key if use.required_field is not None else None,
-                        )
-                        for use in uses
-                    ),
-                )
-                for slot, uses in metric.time_parameters
-            ),
             metric.unit,
             tuple(nulls),
             dependencies,

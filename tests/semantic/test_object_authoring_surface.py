@@ -197,10 +197,8 @@ def test_multi_entity_metric_requires_root_entity_at_decorator_time() -> None:
         with pytest.raises(SemanticExpressionError) as exc_info:
 
             @ms.metric(entities=[orders, refunds], additivity=ms.additive_all())  # type: ignore[call-arg]  # Invalid legacy arguments.
-            def net_revenue(
-                orders_table: ibis_ir.Table, refunds_table: ibis_ir.Table
-            ) -> ibis_ir.Value:
-                return orders_table["amount"].sum() - refunds_table["amount"].sum()
+            def net_revenue() -> Deferred:
+                return ms.ref.metric("sales.revenue")
 
         assert exc_info.value.repair is not None
         assert "zero-argument" in exc_info.value.repair.action

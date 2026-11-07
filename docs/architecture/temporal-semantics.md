@@ -138,27 +138,25 @@ Column comparisons retain their existing types. No DATE subday totals are inferr
 ```python
 import marivo.analysis as mv
 
-days = session.time_scope(start="2026-07-01", end="2026-08-01").by(mv.grain("day"))
-observed = session.observe({"revenue": revenue}, by=(days,)).compute()
+scope = session.time_scope(start="2026-07-01", end="2026-08-01")
+observed = session.observe({"revenue": revenue}, where=scope, by=(mv.grain("day"),)).compute()
 observed.show(n=10)
 ```
 
-The fragment requires a Session and resolved Metric with an admitted time role.
-A TimeScope in by contributes an interval axis, even for one interval; by=()
-produces a zero-axis observation. CalendarAxis contributes its selected buckets.
-Ordinary reductions may omit a time axis and then receive no additional time
-constraint. A time role alone does not require a period.
+A TimeScope selects contributions using each branch's fixed clock. A Grain
+adds a report calendar coordinate. Without a Grain, a range-only total has zero
+axes. Without a TimeScope, the Grain uses the actual observed bucket keys.
+An explicit Population can carry an exact interval or a finite calendar
+coordinate with its own frozen bounds.
 
-Windows require an explicit observation endpoint in by. All native TimeField
-sample reducers can use represented samples without a time axis, regardless of
-sample_interval. Builtin calendar samples use the Session report timezone and
-actual sample keys, including in an unbounded observation. A field calendar
-grouping filters that field before aggregation and retains its own calendar
-timezone and candidate buckets. Field groupings do not supply window endpoints.
-TimeField.within(scope) is a source predicate
-and field.at(anchor) selects an attribute representation; neither supplies an
-observation endpoint. Membership time, attribute time, Metric observation time
-and output coordinates stay independent.
+Windows require available report endpoints. Native TimeField sample reducers
+can use represented samples without an observation period, regardless of
+`sample_interval`. The two Grain sample forms require clocks on all
+contributing branches. Builtin calendar samples use the Session report
+timezone and actual sample keys. A fixed source predicate such as
+`field.within(scope)` remains in force throughout a window and supplies no
+report endpoint. Membership time, attribute time, Metric observation time and
+output coordinates remain independently specified.
 
 Versioned membership requires an exact instant anchor. `field.at(anchor)` uses
 one fixed attribute version for the entire question, including changes exactly at
@@ -201,8 +199,9 @@ and hashing include captured snapshot identity; a lookup Grain differs from a
 captured Grain. Scope.by requires a captured calendar Grain because it has no
 Session resolution authority.
 
-TimeScope.by(grain) constructs a CalendarAxis without business reads. It captures
-selection intent, timezone, grain and required snapshot identity. During result
+TimeScope.by(grain) constructs a CalendarAxis for an explicit domain without
+business reads. It captures selection intent, timezone, grain and required
+snapshot identity. During result
 evaluation, the source backend generates its required output positions; original
 local time data uses pandas. Builtin day/week/month/quarter/year use native civil
 truncation. Subday widths align to local midnight and must divide a nominal day.
@@ -222,7 +221,8 @@ progress (`full`, `prefix`, `partial`, or `unavailable`, with a civil cutoff for
 prefix). Labels and nominal ordinals may repeat for distinct actual keys. Genuine
 TimeScope, source-read and window ranges have independent owners.
 
-Ordinary output completes the union of generated positions S and observed keys O.
+With a TimeScope and a report Grain, ordinary output completes the union of
+generated positions S and observed keys O. Grain-only output has only O.
 Only missing S keys receive empty-result rows; additional O keys remain present.
 Window output instead uses its explicit endpoint domain. Calendar output never
 creates new category keys. Certified custom output supports exactly one complete
@@ -231,15 +231,16 @@ reads. Certification remains necessary but does not create an execution map.
 
 Builtin `Metric.per(grain)` follows each source branch's contribution time.
 `Metric.per(field, grain=grain)` fixes an explicit native sample field.
-Both reduce actual internal samples in the Session's report timezone.
+Both require contribution clocks on every branch and reduce actual internal
+samples in the Session's report timezone.
 Presence includes all-NULL samples. Every sample retains complete external,
 parent and child keys. Static nesting rules apply to layers on the same time
 field and require a common timezone. Subday widths
 divide the parent width, day nests in week/month/quarter/year, month in
 quarter/year, and quarter in year. Equal builtin grains are valid; week does not
 nest in month/quarter/year. Custom hierarchies have no implicit containment rule;
-one complete custom period may be sampled under an interval axis. Final output
-completion never changes an internal sample mean or count. See
+one complete custom period may be sampled under a compatible report interval.
+Final output completion never changes an internal sample mean or count. See
 [internal samples](semantic/expressions.md#internal-samples-and-windows).
 
 Semantic sample Grains resolve against the Session's frozen current certified

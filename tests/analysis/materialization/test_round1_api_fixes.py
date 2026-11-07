@@ -38,9 +38,8 @@ def test_calendar_products_keep_single_time_axis_descriptors_and_cold_metadata(
     session = case.session
     region = catalog_value(session.catalog, "sales.customer.region", kind="field")
     regions = mv.coordinates(by=(region,), keys=(("A",), ("B",)))
-    march = session.time_scope(start="2026-03-28", end="2026-03-31", timezone="Europe/Paris").by(
-        mv.grain("day")
-    )
+    march_scope = session.time_scope(start="2026-03-28", end="2026-03-31", timezone="Europe/Paris")
+    march = march_scope.by(mv.grain("day"))
     february = session.time_scope(start="2026-02-01", end="2026-02-03", timezone="Asia/Tokyo").by(
         mv.grain("day")
     )
@@ -53,7 +52,8 @@ def test_calendar_products_keep_single_time_axis_descriptors_and_cold_metadata(
         ).persist(),
         "source_calendar": session.observe(
             {"value": catalog_get(session.catalog, "metric:sales.revenue", kind="metric")},
-            by=(march,),
+            by=(mv.grain("day"),),
+            where=march_scope,
         ).persist(),
     }
     march_starts = [

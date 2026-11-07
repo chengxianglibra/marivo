@@ -47,15 +47,11 @@ def _distribution(case: DslCase, agg: AggKind, *, overall: bool = False) -> mv.A
         metric = amount.approx_quantile(agg[1], time=time)
     else:
         raise AssertionError(f"Unexpected distribution fixture: {agg!r}")
-    return session.observe(
-        {"value": metric},
-        by=(session.time_scope(start="2026-08-01", end="2026-09-01"),)
-        if overall
-        else mv.product(
-            session.time_scope(start="2026-08-01", end="2026-09-01"),
-            session.members(_entity(session.catalog, "entity:sales.customer")),
-        ),
-    )
+    scope = session.time_scope(start="2026-08-01", end="2026-09-01")
+    if overall:
+        return session.observe({"value": metric}, where=scope)
+    members = session.members(_entity(session.catalog, "entity:sales.customer"))
+    return session.observe({"value": metric}, by=mv.product(scope, members))
 
 
 @pytest.mark.parametrize(
@@ -217,8 +213,7 @@ def test_float_mean_and_decimal_original_state(analysis_dsl_case_factory: DslCas
     decimal_overall = (
         session.observe(
             decimal_metrics,
-            by=(scope,),
-            where=mv.in_population(members),
+            where=(scope, mv.in_population(members)),
         )
         .compute()
         .to_pandas()
@@ -609,9 +604,7 @@ def test_typed_temporal_matrix(
     scope = session.time_scope(start="2026-08-01", end="2026-08-03")
     fine = session.observe(metrics, by=mv.product(scope, members)).compute().to_pandas()
     assert len(fine) == 2
-    frame = (
-        session.observe(metrics, by=(scope,), where=mv.in_population(members)).compute().to_pandas()
-    )
+    frame = session.observe(metrics, where=(scope, mv.in_population(members))).compute().to_pandas()
     for kind in kinds:
         expected: int | float | Decimal = {
             "first": 2,
@@ -815,7 +808,7 @@ def test_definition_quantile_checks_q_and_accepts_endpoints(
     for q, expected in ((0, 150), (1, 450)):
         result = session.observe(
             {"value": value.quantile(q, time=time)},
-            by=(session.time_scope(start="2026-08-01", end="2026-09-01"),),
+            where=session.time_scope(start="2026-08-01", end="2026-09-01"),
         ).compute()
         assert result.to_pandas()["value"].tolist() == [expected]
 

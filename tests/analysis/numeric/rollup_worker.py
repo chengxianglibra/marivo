@@ -141,7 +141,7 @@ def run(mode: str, project: Path) -> dict[str, Json]:
             metrics_by_name,
             by=mv.product(scope, session.members(_entity(session.catalog, "entity:sales.orders"))),
         ).persist()
-        monthly = session.observe(metrics_by_name, by=(scope,)).persist()
+        monthly = session.observe(metrics_by_name, where=scope).persist()
         artifacts: dict[str, Json] = {
             name: {"artifact": result.artifact_id, "snapshot": snapshot(result)}
             for name, result in (("original", original), ("monthly", monthly))

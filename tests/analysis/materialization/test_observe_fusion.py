@@ -86,11 +86,8 @@ def test_multi_field_aggregate_keeps_nulls_types_and_empty_buckets(
         weight = catalog_value(session.catalog, "sales.facts.weight", kind="measure")
         category = catalog_value(session.catalog, "sales.facts.category", kind="dimension")
         day = catalog_value(session.catalog, "sales.facts.day", kind="time_dimension")
-        by = (
-            session.time_scope(start="2026-07-01", end="2026-07-04").by(mv.grain("day"))
-            if calendar
-            else category,
-        )
+        scope = session.time_scope(start="2026-07-01", end="2026-07-04") if calendar else None
+        by = (mv.grain("day"),) if calendar else (category,)
         query = session.observe(
             {
                 "total": amount.sum(time=day),
@@ -116,6 +113,7 @@ def test_multi_field_aggregate_keeps_nulls_types_and_empty_buckets(
                 ),
             },
             by=by,
+            where=scope,
         )
         with monkeypatch.context() as control:
             control.setattr(frame_source_preparation, "optimize_query", lambda plan: plan)
@@ -200,7 +198,8 @@ def test_count_and_quantiles_share_actual_scan(
         category = catalog_value(session.catalog, "sales.facts.category", kind="dimension")
         day = catalog_value(session.catalog, "sales.facts.day", kind="time_dimension")
         scope = session.time_scope(start="2026-07-01", end="2026-07-03")
-        by = () if domain == "overall" else (scope,) if domain == "interval" else (category,)
+        by = (category,) if domain == "grouped" else ()
+        where = scope if domain == "interval" else None
         quantile = amount.approx_quantile if approximate else amount.quantile
         metrics = {
             "count": amount.count(time=day),
@@ -208,7 +207,7 @@ def test_count_and_quantiles_share_actual_scan(
             "p90": quantile(0.9, time=day),
             "p99": quantile(0.99, time=day),
         }
-        query = session.observe(metrics, by=by)
+        query = session.observe(metrics, by=by, where=where)
         with monkeypatch.context() as control:
             control.setattr(frame_source_preparation, "optimize_query", lambda plan: plan)
             control.setattr(
@@ -218,7 +217,7 @@ def test_count_and_quantiles_share_actual_scan(
             baseline = query.compute().to_pandas()
         with monkeypatch.context() as control:
             single_trace = capture_source(control)
-            session.observe({"count": amount.count(time=day)}, by=by).compute()
+            session.observe({"count": amount.count(time=day)}, by=by, where=where).compute()
         trace = capture_source(monkeypatch)
         result = query.compute().to_pandas()
         pd.testing.assert_frame_equal(result, baseline, check_exact=not approximate, rtol=1e-5)

@@ -240,10 +240,10 @@ def test_previous_year_leap_day_is_missing_and_current_projection_is_exact(
     case = analysis_dsl_case_factory("j2")
     session = case.session
     metric = _metric(session.catalog, "metric:sales.revenue")
-    current_axis = session.time_scope(start="2024-02-28", end="2024-03-01").by(mv.grain("day"))
-    baseline_axis = session.time_scope(start="2023-02-28", end="2023-03-01").by(mv.grain("day"))
-    current = session.observe({"value": metric}, by=(current_axis,))
-    baseline = session.observe({"value": metric}, by=(baseline_axis,))
+    current_axis_scope = session.time_scope(start="2024-02-28", end="2024-03-01")
+    baseline_axis_scope = session.time_scope(start="2023-02-28", end="2023-03-01")
+    current = session.observe({"value": metric}, by=(mv.grain("day"),), where=current_axis_scope)
+    baseline = session.observe({"value": metric}, by=(mv.grain("day"),), where=baseline_axis_scope)
     result = current.compare(
         {
             "reference": mv.baseline(

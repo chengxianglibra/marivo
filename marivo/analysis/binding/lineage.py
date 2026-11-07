@@ -16,7 +16,6 @@ from marivo._definition.relations import (
 )
 from marivo._definition.types import (
     AxisBinding,
-    CalendarCoordinate,
     ExactRef,
     FieldRead,
     RowAttributeTime,
@@ -169,10 +168,6 @@ def source_lineage(
     collect, expression = _capture(root)
     graph = root.graph
     observation = graph.signature.observation
-    field_calendars = {
-        item.calendar: item.field
-        for item in (() if observation is None else observation.coordinates.field_calendars)
-    }
 
     def row_context(axis: AxisBinding) -> Origins:
         field = axis.field
@@ -191,8 +186,6 @@ def source_lineage(
     axes = tuple(
         ColumnLineage(collect(axis.field), row_context(axis))
         if isinstance(axis, AxisBinding) and isinstance(axis.at, RowAttributeTime)
-        else ColumnLineage(collect((axis, field_calendars.get(axis))))
-        if isinstance(axis, CalendarCoordinate)
         else ColumnLineage(collect(axis))
         for axis in graph.signature.axes
     )
@@ -254,7 +247,6 @@ def source_lineage(
                                     contribution.sample_axes,
                                     contribution.memberships,
                                     contribution.calendars,
-                                    contribution.field_calendar_reads,
                                     contribution.sample_calendar_reads,
                                     contribution.population_reads,
                                     contribution.window_rule,
@@ -306,14 +298,8 @@ def observation_contexts(
     if not isinstance(graph.root, ObserveQuery):
         return ()
     observation = graph.signature.observation
-    field_axes = {
-        item.calendar
-        for item in (() if observation is None else observation.coordinates.field_calendars)
-    }
     time_axes = tuple(
-        axis
-        for axis, coordinate in zip(axes, graph.signature.axes, strict=True)
-        if isinstance(axis, (CalendarDataAxis, IntervalDataAxis)) and coordinate not in field_axes
+        axis for axis in axes if isinstance(axis, (CalendarDataAxis, IntervalDataAxis))
     )
     time: FrameAxisTime | FrameFixedTime | None = None
     if len(time_axes) == 1:

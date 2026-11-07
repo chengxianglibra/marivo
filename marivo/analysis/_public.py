@@ -174,7 +174,6 @@ from marivo.analysis.dsl.population import in_population as in_population
 from marivo.analysis.dsl.population import membership as membership
 from marivo.analysis.dsl.population import product as product
 from marivo.analysis.dsl.temporal import CalendarAxis as CalendarAxis
-from marivo.analysis.dsl.time_group import time_group as time_group
 from marivo.analysis.dsl.windows import all_history as all_history
 from marivo.analysis.dsl.windows import since as since
 from marivo.analysis.dsl.windows import to_date as to_date
@@ -208,7 +207,6 @@ __all__ = [  # noqa: RUF022 - public order is contractual
     "TimeScope",
     "InstantAnchor",
     "CalendarAxis",
-    "time_group",
     "all_history",
     "since",
     "to_date",

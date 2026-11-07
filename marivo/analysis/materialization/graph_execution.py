@@ -26,6 +26,7 @@ def run_query_plan(
     dependent_read: Callable[[SourceRead, tuple[StageValue, ...]], StageValue] | None = None,
     *,
     fixed: Callable[[FrameInput], StageValue] | None = None,
+    frame_keys: Callable[[FrameKeysInput], StageValue] | None = None,
     frame: Callable[[FrameCompute, tuple[StageValue, ...]], StageValue] | None = None,
     finish: Callable[[QueryStage, StageValue], StageValue] | None = None,
 ) -> StageValue:
@@ -54,12 +55,14 @@ def run_query_plan(
             else:
                 output = read(stage)
         elif isinstance(stage, FrameKeysInput):
-            reject(
-                "a fully composed Frame schedule",
-                stage.stage_id,
-                "Resolve Frame key inputs in the outer Frame plan before execution.",
-                "frame.population",
-            )
+            if frame_keys is None:
+                reject(
+                    "a fully composed Frame schedule",
+                    stage.stage_id,
+                    "Resolve Frame key inputs in the outer Frame plan before execution.",
+                    "frame.population",
+                )
+            output = frame_keys(stage)
         elif isinstance(stage, FrameInput):
             if fixed is None:
                 reject(

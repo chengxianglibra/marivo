@@ -142,12 +142,13 @@ def test_declared_and_adhoc_semantic_calendar_samples_bind_session_snapshot(
             "adhoc": gmv.per(week).mean(),
             "bound": gmv.per(calendar.grain("fiscal_week")).mean(),
         },
-        by=(scope,),
+        where=scope,
     )
     with pytest.raises(CoreRuleError) as captured:
         session.observe(
             {"v": gmv.per(calendar.grain("fiscal_month")).mean()},
-            by=(scope.by(calendar.grain("fiscal_week")),),
+            by=(calendar.grain("fiscal_week"),),
+            where=scope,
         )
     assert "static child-to-parent" in (captured.value.expected or "")
     event_date = catalog_value(session.catalog, "sales.events.event_date", kind="field")
@@ -207,7 +208,7 @@ def test_calendar_samples_validate_session_authority_before_business_reads(
 
     monkeypatch.setattr(duckdb, "connect", forbidden)
     with pytest.raises(CoreRuleError) as captured:
-        session.observe({"v": gmv.per(grain).mean()}, by=(scope,))
+        session.observe({"v": gmv.per(grain).mean()}, where=scope)
     error = captured.value
     assert error.expected and error.received and error.repair
     assert not terminal_runs(session)
@@ -243,7 +244,7 @@ def test_named_and_anonymous_scalar_windows_preserve_reset_and_null_semantics(
                 "named": _metric(session.catalog, "sales.fiscal_total"),
                 "anonymous": anonymous,
             },
-            by=(session.time_scope(start="2026-01-20", end=end),),
+            where=session.time_scope(start="2026-01-20", end=end),
         )
         .compute()
         .to_pandas()
@@ -262,7 +263,8 @@ def test_named_calendar_window_freezes_snapshot_before_execution(
     metric = _metric(session.catalog, "sales.fiscal_total")
     query = session.observe(
         {"total": metric},
-        by=(session.time_scope(start="2026-01-31", end="2026-02-04").by(mv.grain("day")),),
+        by=(mv.grain("day"),),
+        where=session.time_scope(start="2026-01-31", end="2026-02-04"),
     )
     binding = _source_graph(query).signature.observation
     assert binding is not None
@@ -312,7 +314,8 @@ def test_explicit_grain_rejects_a_different_certified_snapshot(
             "named": _metric(session_a.catalog, "sales.fiscal_total"),
             "explicit": _metric(session_a.catalog, "sales.gmv").window(mv.to_date(grain=grain_a)),
         },
-        by=(scope_a.by(mv.grain("day")) if bucketed else scope_a,),
+        by=(mv.grain("day"),) if bucketed else (),
+        where=scope_a,
     )
     original_fingerprint = _source_graph(query_a).fingerprint
     with duckdb.connect(str(database)) as connection:
@@ -330,7 +333,8 @@ def test_explicit_grain_rejects_a_different_certified_snapshot(
             "named": _metric(session_b.catalog, "sales.fiscal_total"),
             "explicit": _metric(session_b.catalog, "sales.gmv").window(mv.to_date(grain=grain_b)),
         },
-        by=(scope_b.by(mv.grain("day")) if bucketed else scope_b,),
+        by=(mv.grain("day"),) if bucketed else (),
+        where=scope_b,
     )
 
     def forbidden(*args: object, **kwargs: object) -> None:
@@ -345,7 +349,7 @@ def test_explicit_grain_rejects_a_different_certified_snapshot(
             metric = _metric(session.catalog, "sales.gmv").window(mv.to_date(grain=foreign))
             with pytest.raises(AnalysisError, match="same certified snapshot"):
                 session.observe(
-                    {"total": metric}, by=(scope.by(mv.grain("day")) if bucketed else scope,)
+                    {"total": metric}, by=(mv.grain("day"),) if bucketed else (), where=scope
                 )
             assert not terminal_runs(session)
     assert _source_graph(query_a).fingerprint == original_fingerprint
@@ -377,7 +381,7 @@ def test_unusable_calendar_rejects_before_business_reads(
     monkeypatch.setattr(duckdb, "connect", forbidden)
     with pytest.raises(AnalysisError, match="current certified calendar"):
         session.observe(
-            {"total": metric}, by=(session.time_scope(start="2026-01-20", end="2026-02-01"),)
+            {"total": metric}, where=session.time_scope(start="2026-01-20", end="2026-02-01")
         )
     assert not terminal_runs(session)
 
@@ -401,7 +405,7 @@ def test_calendar_window_validates_consumed_authority(
     )
     with pytest.raises(AnalysisError):
         session.observe(
-            {"total": metric}, by=(scope.by(mv.grain("week")) if case == "containment" else scope,)
+            {"total": metric}, by=(mv.grain("week"),) if case == "containment" else (), where=scope
         )
     assert not terminal_runs(session)
 
@@ -424,7 +428,8 @@ def test_current_named_axis_and_window_preserve_consumed_calendar_identity(
     scope = session.time_scope(start="2026-01-05", end="2026-01-06")
     frame = session.observe(
         {"daily": metric, "reset": metric.window(mv.to_date(grain=calendar.grain("fiscal_month")))},
-        by=(scope.by(calendar.grain("day")),),
+        by=(calendar.grain("day"),),
+        where=scope,
     )
     axis = frame.schema.axes[0]
     assert isinstance(axis, FrameCalendarAxisSchema) and isinstance(axis.grain, FrameNamedGrain)

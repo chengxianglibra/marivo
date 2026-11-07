@@ -3,21 +3,19 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import replace
 from typing import TypeAlias
 
 from ibis.common.deferred import Deferred
 
 from marivo._definition.correspondence import ComparisonAxis
 from marivo._definition.expressions import DeclaredMetricRef, MetricNode
-from marivo._definition.grouping import FieldCalendarBinding, normalize_groupings
+from marivo._definition.grouping import normalize_groupings
 from marivo._definition.query import (
     ResultQuery,
 )
 from marivo._definition.relations import (
     MembershipBinding,
     ObserveQuery,
-    PopulationContains,
     PopulationProgram,
     ReadQuery,
     condition_populations,
@@ -36,8 +34,8 @@ from marivo._definition.types import (
     fixed_attribute_time,
 )
 from marivo._grouping import Grouping
-from marivo._temporal import PeriodCalendarSnapshotV2, TimeScope
-from marivo.analysis.binding.observe import bind_observation
+from marivo._temporal import Grain, PeriodCalendarSnapshotV2, TimeScope
+from marivo.analysis.binding.observe import ObservationPeriod, bind_observation
 from marivo.analysis.core.frame_structure import value_name
 from marivo.analysis.core.graph import BoundGraph
 from marivo.analysis.core.model import (
@@ -51,6 +49,7 @@ from marivo.analysis.core.value_types import literal_kind
 from marivo.analysis.dsl.population import (
     Population,
     _axes,
+    _interval_coordinate,
     _owner,
 )
 from marivo.semantic._compiled_state import CompiledSemanticState
@@ -106,17 +105,6 @@ def _metric_inputs(
                 "a numeric Metric expression",
                 type(metric).__name__,
                 "Obtain a Metric from session.catalog; use {'output': expression} for anonymous expressions.",
-                location,
-                canonical_id="session.observe",
-            )
-        remaining = metric._time_parameter_names()
-        if remaining:
-            reject(
-                "a Metric with every time parameter bound",
-                f"unbound time parameters: {', '.join(remaining)}",
-                "Bind the remaining parameters with .bind_time("
-                + ", ".join(f"{name}=..." for name in remaining[:6])
-                + ") before observing the Metric.",
                 location,
                 canonical_id="session.observe",
             )
@@ -352,14 +340,12 @@ def capture_metrics(
     metrics: _MetricInputs,
     owner: Owner,
     *,
-    by: tuple[Deferred | Grouping | TimeScope | Population, ...] | Population = (),
+    by: tuple[Deferred | Grouping | Grain, ...] | Population = (),
     where: Deferred | None = None,
     timezone: str = "UTC",
     state: CompiledSemanticState | None = None,
     calendar_snapshots: tuple[PeriodCalendarSnapshotV2, ...] = (),
-    _parent_filter: Deferred | None = None,
-    _complete_calendar: bool = True,
-    _endpoint_scope: TimeScope | None = None,
+    scope: TimeScope | None = None,
 ) -> BoundGraph:
     quantities: list[BoundQuantity] = []
     definitions: dict[ExactRef, MetricNode] = {}
@@ -405,77 +391,115 @@ def capture_metrics(
         names[name] = (position, reference)
         quantities.append(BoundQuantity(name, facts.node, facts.unit))
         definitions.update(facts._declared)
-    if not isinstance(by, (tuple, Population)):
+    population = by._definition if isinstance(by, Population) else None
+    if population is not None and _owner(population) not in (None, owner):
         reject(
-            "an ordered tuple of semantic fields",
-            type(by).__name__,
-            "Pass by=(field,) using resolved semantic fields.",
+            "a Population from this Session",
+            "different Session owner",
+            "Rebuild the domain in this Session.",
             "session.observe",
         )
-    domain = (
-        by
-        if isinstance(by, Population)
-        else by[0]
-        if by and isinstance(by[0], Population)
+    interval = _interval_coordinate(scope) if scope is not None else None
+    period = (
+        ObservationPeriod(interval.start, interval.end, interval.timezone)
+        if interval is not None
         else None
     )
-    if domain is not None:
-        if _owner(domain._definition) not in (None, owner):
-            reject(
-                "a Population from this Session",
-                "different Session owner",
-                "Rebuild the domain in this Session.",
-                "session.observe",
-            )
-        axes = domain._definition.axes
-        population = domain._definition
-    else:
-        population = None
-    items = () if isinstance(by, Population) else by[1:] if domain is not None else by
     captured: list[ComparisonAxis | MembershipBinding] = []
-    field_calendars: list[FieldCalendarBinding] = []
-    for item in items:
-        if isinstance(item, Grouping) and isinstance(item._binding, MembershipBinding):
+    report_grain = None
+    for item in () if isinstance(by, Population) else by:
+        if isinstance(item, Grain):
+            from marivo.analysis.binding.windows import resolve_calendar_grain
+
+            if report_grain is not None:
+                reject(
+                    "at most one report Grain",
+                    repr(by),
+                    "Pass one Grain in the ordered by tuple.",
+                    "Session.observe.by",
+                )
+            report_grain = resolve_calendar_grain(
+                item, calendar_snapshots, location="Session.observe.by"
+            )
+            if scope is None:
+                if report_grain.kind == "semantic":
+                    reject(
+                        "a report TimeScope selecting one complete certified period",
+                        repr(report_grain),
+                        "Pass the period as where=scope with the named Grain.",
+                        "Session.observe.by",
+                    )
+                captured.append(
+                    CalendarCoordinate(
+                        f"actual:{timezone}:{report_grain._to_token()}",
+                        report_grain,
+                        timezone,
+                        None,
+                        (),
+                        civil_bounds=(),
+                        actual_only=True,
+                    )
+                )
+            else:
+                try:
+                    captured.append(scope.by(report_grain)._binding)
+                except ValueError as error:
+                    reject(
+                        "a supported report scope and Grain",
+                        str(error),
+                        "Use compatible timezones and a complete period for a certified Grain.",
+                        "Session.observe.by",
+                    )
+        elif isinstance(item, Grouping) and isinstance(item._binding, MembershipBinding):
             captured.append(item._binding)
-        elif (
-            domain is None
-            and isinstance(item, Grouping)
-            and isinstance(item._binding, FieldCalendarBinding)
+        elif isinstance(item, Deferred) or (
+            isinstance(item, Grouping) and isinstance(item._binding, AxisBinding)
         ):
-            field_calendars.append(item._binding)
-            captured.append(item._binding.calendar)
-        elif domain is None and isinstance(item, (Deferred, Grouping, TimeScope)):
             captured.extend(_axes((item,)))
         else:
             reject(
-                "ordinary coordinates or a first Population followed only by membership rules",
+                "classification fields or grouping rules and at most one report Grain",
                 type(item).__name__,
-                "Use by=(field, rule, ...) or by=(population, rule, ...).",
+                "Put the report TimeScope in where and a Grain in the by tuple.",
                 "Session.observe.by",
             )
-    bindings: tuple[MembershipBinding, ...]
     try:
-        if isinstance(by, Population):
-            bindings = ()
-        else:
-            axes, bindings = normalize_groupings(
-                tuple(captured),
-                population_axes=domain._definition.axes if domain is not None else None,
-                field_calendars=tuple(item.calendar for item in field_calendars),
-            )
+        axes, bindings = (
+            (population.axes, ())
+            if population is not None
+            else normalize_groupings(tuple(captured))
+        )
     except DefinitionGraphError as error:
         reject(
             "distinct coordinates with membership fields in captured order",
             str(error),
-            "Put each rule at its first field position; position its later fields explicitly when needed.",
+            "Put each rule at its first field position and locate later fields explicitly if needed.",
             "Session.observe.by",
         )
-
-    source_axes = tuple(
-        axis
-        for axis in axes
-        if isinstance(axis, (AxisBinding, CalendarCoordinate, IntervalCoordinate))
-    )
+    source_axes: list[AxisBinding | CalendarCoordinate | IntervalCoordinate] = []
+    time_axes = 0
+    for axis in axes:
+        if isinstance(axis, (CalendarCoordinate, IntervalCoordinate)):
+            time_axes += 1
+            source_axes.append(axis)
+        elif isinstance(axis, AxisBinding) and (
+            axis.field is None or axis.field.ref.kind.value != "time_dimension"
+        ):
+            source_axes.append(axis)
+        else:
+            reject(
+                "classification axes and fieldless report time coordinates",
+                repr(axis),
+                "Use a bare Grain or a complete Population with fieldless time coordinates.",
+                "Session.observe.by",
+            )
+    if time_axes > 1 or (time_axes and population is not None and scope is not None):
+        reject(
+            "one report time selection",
+            repr(axes),
+            "Use the complete Population time coordinates, or select a report scope and Grain.",
+            "Session.observe.by",
+        )
     reads = tuple(
         axis
         if isinstance(axis, (CalendarCoordinate, IntervalCoordinate))
@@ -484,18 +508,6 @@ def capture_metrics(
         else IdentityRead(axis.entity, axis.path, fixed_attribute_time(axis.at))
         for axis in source_axes
     )
-    if _parent_filter is not None:
-        from marivo._definition.expressions import EntityCount, SourceAggregate, SourceWeightedMean
-        from marivo._definition.graph import walk
-
-        has_facts = any(
-            isinstance(node, (EntityCount, SourceAggregate, SourceWeightedMean))
-            for node in walk(
-                tuple(quantity.definition for quantity in quantities), resolve=definitions.get
-            ).order
-        )
-        if has_facts:
-            where = _parent_filter if where is None else where & _parent_filter
     condition = consume_predicate(where).node if where is not None else None
     if condition is not None:
         for dependency in condition_populations(condition):
@@ -511,49 +523,17 @@ def capture_metrics(
     )
     root = ObserveQuery(tuple((q.name, q.definition) for q in quantities), (), owner)
     BoundGraph(root, signature)
-    parent_scope = None
-    if _parent_filter is not None:
-        parent_condition = consume_predicate(_parent_filter).node
-        assert len(parent_condition.inputs) == 1
-        parent_leaf = parent_condition.inputs[0]
-        assert isinstance(parent_leaf, PopulationContains)
-        parent_scope = parent_leaf.population
-    private_interval = None
-    if _endpoint_scope is not None:
-        private_interval = _axes((_endpoint_scope,))[0]
     binding = bind_observation(
         root.metrics,
         definitions,
-        by=(*reads, *((private_interval,) if private_interval is not None else ())),
+        by=reads,
         where=condition,
         timezone=timezone,
         state=state,
         calendar_snapshots=calendar_snapshots,
         memberships=bindings,
         population=population,
-        field_calendars=tuple(field_calendars),
-    )
-    if private_interval is not None:
-        binding = replace(
-            binding,
-            coordinates=replace(binding.coordinates, axes=axes),
-            contributions=tuple(
-                replace(
-                    contribution,
-                    calendars=tuple(
-                        (slot, axis)
-                        for slot, axis in contribution.calendars
-                        if axis != private_interval
-                    ),
-                )
-                for contribution in binding.contributions
-            ),
-        )
-    binding = replace(
-        binding,
-        coordinates=replace(
-            binding.coordinates, complete_calendar=_complete_calendar, parent_scope=parent_scope
-        ),
+        report_period=period,
     )
     signature = BoundSignature(
         owner,

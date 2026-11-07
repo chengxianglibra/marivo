@@ -1943,7 +1943,7 @@ def test_pending_show_keeps_deep_shared_scope_and_stops_at_fixed_inputs(
         assert len(calls) == 1
         assert "scope:" in card and "PopulationProduct factors=2; joint tuples preserved" in card
         assert all(value in card for value in ("sales.customer.region", "east", "south", "west"))
-        assert "period=[" in card and "2026-08-01" in card and "2026-09-01" in card
+        assert "report_scope=[" in card and "2026-08-01" in card and "2026-09-01" in card
         assert "pending; no input rows read" in card
         assert len(card.encode()) <= 8193
         pending.show(n=20)

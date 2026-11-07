@@ -253,15 +253,15 @@ def _produce(session: mv.Session, scenario: DslScenario) -> dict[str, mv.Analysi
             )
             scope = session.time_scope(start="2026-08-01", end="2026-09-01")
             ratio = session.observe(
-                {"value": metric}, by=(scope, device, sensor), where=mv.in_population(members)
+                {"value": metric}, by=(device, sensor), where=(scope, mv.in_population(members))
             ).compute()
             queries = {
                 "value": ratio,
                 "rollup": session.observe(
-                    {"value": metric}, by=(scope,), where=mv.in_population(members)
+                    {"value": metric}, where=(scope, mv.in_population(members))
                 ),
                 "group_by": session.observe(
-                    {"value": metric}, by=(scope, sensor), where=mv.in_population(members)
+                    {"value": metric}, by=(sensor,), where=(scope, mv.in_population(members))
                 ),
                 "mean": ratio.reduce({"value": ratio["value"].mean()}),
             }

@@ -358,9 +358,8 @@ def test_membership_parent_overlap_is_independent_and_correlated(session: Sessio
         catalog_value(session.catalog, "sales.link_tags", kind="relationship"),
     )
     membership = mv.membership((label, kind), via=(path,), unmatched="exclude")
-    parents = mv.coordinates(by=(label, kind), keys=(("x", "online"), ("y", "store")))
     prepared = evaluate_attribute_inputs(
-        _level_inputs(session.observe({"q": value.sum()}, by=(parents, membership)), by=(channel,))
+        _level_inputs(session.observe({"q": value.sum()}, by=(membership,)), by=(channel,))
     )
     assert len(prepared.table) == 3
     for root in prepared.attribute_inputs:
@@ -959,29 +958,8 @@ def test_native_mean_originals_follow_correlated_null_membership_parent_keys(
         catalog_value(session.catalog, "sales.link_tags", kind="relationship"),
     )
     membership = mv.membership((label, kind), via=(route,), unmatched="null")
-    output = evaluate_attribute_inputs(
-        _comparison_inputs(
-            session.observe(
-                {"q": value.mean()},
-                by=(
-                    mv.coordinates(
-                        by=(label, kind), keys=((None, None), ("x", "online"), ("y", "store"))
-                    ),
-                    membership,
-                ),
-            ),
-            session.observe(
-                {"q": value.mean()},
-                by=(
-                    mv.coordinates(
-                        by=(label, kind), keys=((None, None), ("x", "online"), ("y", "store"))
-                    ),
-                    membership,
-                ),
-            ),
-            by=(channel,),
-        )
-    )
+    endpoint = session.observe({"q": value.mean()}, by=(membership,))
+    output = evaluate_attribute_inputs(_comparison_inputs(endpoint, endpoint, by=(channel,)))
     for root in output.attribute_inputs:
         if root.layout.scope != "parent":
             continue

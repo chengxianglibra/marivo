@@ -56,10 +56,13 @@ if TYPE_CHECKING:
         assert_type(session.instant(scope.end), mv.InstantAnchor)
         assert_type(scope.by(mv.grain("day")), mv.CalendarAxis)
         assert_type(scope.by(mv.grain("month")).shift(mv.offset(years=-1)), mv.CalendarAxis)
-        created_days = mv.time_group(created, axis=scope.by(mv.grain("day")))
-        assert_type(created_days, mv.Grouping)
-        assert_type(session.observe({"value": metric}, by=(created_days,)), mv.AnalysisFrame)
-        query = session.observe({"value": metric}, by=(scope, region), where=region == "APAC")
+        day = mv.grain("day")
+        assert_type(day, mv.Grain)
+        query = session.observe(
+            {"value": metric},
+            by=(region, day),
+            where=(scope, created.within(scope), region == "APAC"),
+        )
         assert_type(query, mv.AnalysisFrame)
         return query
 
@@ -73,7 +76,7 @@ if TYPE_CHECKING:
         assert_type(members.axes, tuple[mv.Grouping, ...])
         assert_type(
             members.axes[0].kind,
-            Literal["field", "identity", "calendar", "field_calendar", "interval", "membership"],
+            Literal["field", "identity", "calendar", "interval", "membership"],
         )
         assert_type(session.frame(members), mv.AnalysisFrame)
         fixed = mv.coordinates(by=(mv.identity(entity),), keys=((("C1",),), (("C2",),)))

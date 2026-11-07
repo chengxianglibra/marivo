@@ -218,9 +218,9 @@ def test_window_help_discloses_consuming_restrictions(
     )
     scope = session.time_scope(start=start, end=end)
     # These deliberately select incompatible output grids, including an hourly one.
-    domain = scope if grain is None else scope.by(mv.grain(grain))
+    by = () if grain is None else (mv.grain(grain),)
     with pytest.raises(AnalysisError, match=rejection):
-        session.observe({"value": metric.window(rule)}, by=(domain,))
+        session.observe({"value": metric.window(rule)}, by=by, where=scope)
     text = render_help_text("analysis." + rule_name)[0]
     assert disclosure in text
     assert "marivo.help('analysis.observation_window')" in text
@@ -302,7 +302,11 @@ def test_time_scope_by_help_example_executes(analysis_dsl_case_factory: DslCaseF
     revenue = case.session.catalog.get("metric:sales.revenue")
     assert revenue.kind == "metric"
     rows = (
-        case.session.observe({"value": revenue}, by=(axis,)).compute().to_pandas(time_details=True)
+        case.session.observe(
+            {"value": revenue}, by=mv.product(axis, mv.coordinates(by=(), keys=((),)))
+        )
+        .compute()
+        .to_pandas(time_details=True)
     )
     assert rows["calendar:day.label"].tolist() == ["2026-08-01", "2026-08-02"]
     assert rows["value"].tolist() == [450, 0]

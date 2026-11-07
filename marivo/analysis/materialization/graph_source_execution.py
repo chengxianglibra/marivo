@@ -21,6 +21,7 @@ from marivo._definition.expressions import BuiltinSampleCoordinate
 from marivo._definition.types import IntervalCoordinate
 from marivo._errors import MarivoError
 from marivo.analysis.compiler.graph_plan import (
+    ActualWindowRead,
     AttributeCoalitionRead,
     AttributeFrequencyRead,
     AttributeRead,
@@ -2239,6 +2240,8 @@ def execute_numeric_query(
     source_outputs: Mapping[str, str] | None = None,
     observe_frame: Callable[[FrameCompute | SourceRead, StageOutput], None] | None = None,
     native_prepared: Mapping[str, PreparedNativeGame] | None = None,
+    frame_key_inputs: Mapping[str, StageOutput] | None = None,
+    report_domain: pd.DataFrame | None = None,
 ) -> StageOutput:
     """Execute the fixed numeric schedule and return invocation-local pandas data."""
     from marivo.analysis.core.model import reject
@@ -2293,7 +2296,11 @@ def execute_numeric_query(
         from marivo.analysis.materialization.query_runtime_types import effective_local
 
         stage = effective_local(stage, inputs) if not local_steps(stage) else stage
-        output = run_local(stage, inputs)
+        output = (
+            run_local(stage, inputs, report_domain=report_domain)
+            if report_domain is not None and stage.stage_id == lowered.plan.publish
+            else run_local(stage, inputs)
+        )
         if observe_local is not None:
             observe_local(stage, output)
         return output
@@ -2316,6 +2323,12 @@ def execute_numeric_query(
             prepared_by_stage.get(stage.stage_id) if prepared_by_stage is not None else prepared
         )
         assert selected is not None
+        if isinstance(stage.program, ActualWindowRead):
+            from marivo.analysis.materialization.actual_windows import run_actual_windows
+
+            return run_actual_windows(
+                selected, stage, stage.program, inputs, observe_read=observe_read
+            )
         request = lowered.read(stage.stage_id)
         expression = request.expression
         owner = selected.sources.get(stage.source_id, selected.source)
@@ -2427,7 +2440,16 @@ def execute_numeric_query(
         return transport(stage.stage_id, output)
 
     result = run_query_plan(
-        lowered.plan, read, local, dependent, fixed=fixed, frame=frame, finish=finish
+        lowered.plan,
+        read,
+        local,
+        dependent,
+        fixed=fixed,
+        frame=frame,
+        finish=finish,
+        frame_keys=(lambda stage: frame_key_inputs[stage.stage_id])
+        if frame_key_inputs is not None
+        else None,
     )
     from marivo.analysis.materialization.graph_exchange import source_columns
 

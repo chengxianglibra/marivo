@@ -879,14 +879,17 @@ def test_public_frame_bridge_evidence_keeps_producer_and_consumer_scopes(
     ordered = catalog_value(session.catalog, "sales.order.ordered_at", kind="time_dimension")
     producer = session.observe(
         {"count": amount.count(time=ordered).where(status == "paid")},
-        by=(session.time_scope(start="2026-09-01", end="2026-10-01"), customer),
+        by=(customer,),
+        where=session.time_scope(start="2026-09-01", end="2026-10-01"),
     )
     chosen = producer.where(producer["count"] > 0)
-    selected = session.population_from(chosen, on=((chosen.axes[1], customer),))
+    selected = session.population_from(chosen, on=((chosen.axes[0], customer),))
     query = session.observe(
         {"count": amount.count(time=ordered)},
-        by=(session.time_scope(start="2026-10-01", end="2026-11-01"),),
-        where=mv.in_population(selected),
+        where=(
+            session.time_scope(start="2026-10-01", end="2026-11-01"),
+            mv.in_population(selected),
+        ),
     )
     trace = capture_source(monkeypatch)
     saved = query.persist()

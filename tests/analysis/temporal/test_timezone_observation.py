@@ -465,8 +465,7 @@ def test_population_time_predicate_uses_source_authority_and_owns_its_period(
         for condition in ("members", "predicate"):
             query = session.observe(
                 {"value": metric},
-                by=(period,),
-                where=mv.in_population(members),
+                where=(period, mv.in_population(members)),
             )
             assert query.compute().to_pandas()["value"].tolist() == [expected_total]
     # Image and set selection consume the same already governed identity selection.
@@ -480,6 +479,6 @@ def test_population_time_predicate_uses_source_authority_and_owns_its_period(
     assert case_members(session, image) == ["A", "B"]
     assert case_members(session, intersection) == expected_ids
     assert case_members(session, difference) == []
-    assert session.observe({"value": metric}, by=(scope,)).compute().to_pandas()[
+    assert session.observe({"value": metric}, where=scope).compute().to_pandas()[
         "value"
     ].tolist() == [expected_total]

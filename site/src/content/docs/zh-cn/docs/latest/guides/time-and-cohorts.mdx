@@ -13,7 +13,7 @@ head:
 
 ## 声明来源时间与采样
 
-`TimeDimension` 为 `Entity` 声明观察、日历和窗口使用的业务时间角色。将普通 `Dimension` 命名为 `date` 并不能代替时间维度。按来源编码选择解析器；只有来源确实按固定节奏采样时才声明 `sample_interval`。它描述预期的时钟时刻，不会把事件时间戳分桶。解析器的来源时区与 `Session` 的报告时区职责不同：前者解释来源值，后者确定日历边界。详见[日期与时间定义](/zh-cn/docs/latest/modeling/dates/)。
+`TimeDimension` 声明业务时间字段。源规约通过 `time=field` 或所属 Entity 的 `default_time` 固定贡献时间。按来源编码选择解析器；只有来源确实按固定节奏采样时才声明 `sample_interval`。它描述预期的时钟时刻，不会把事件时间戳分桶。解析器的来源时区与 `Session` 的报告时区职责不同：前者解释来源值，后者确定日历边界。详见[日期与时间定义](/zh-cn/docs/latest/modeling/dates/)。
 
 ## 显式选择完整身份
 
@@ -42,16 +42,16 @@ august_revenue = session.observe(
 
 ## 将窗口附着到 Metric
 
-先将窗口规则附加到 `Metric`，再观察结果；用 `by` 指定输出期间。下面示例使用共享设置中的 `august`：
+先将窗口规则附加到 `Metric`，再通过 `where` 指定范围，并在 `by` 中指定 Grain。下面示例使用共享设置中的 `august`：
 
 ```python
 from datetime import timedelta
 
-days = august.by(mv.grain("day"))
+day = mv.grain("day")
 rolling = revenue.window(mv.trailing_duration(duration=timedelta(days=7)))
-rolling_daily = session.observe({"revenue": rolling}, by=(days,)).compute()
+rolling_daily = session.observe({"revenue": rolling}, where=august, by=(day,)).compute()
 month_to_date = revenue.window(mv.to_date(grain=mv.grain("month")))
-mtd_daily = session.observe({"revenue": month_to_date}, by=(days,)).compute()
+mtd_daily = session.observe({"revenue": month_to_date}, where=august, by=(day,)).compute()
 ```
 
 `trailing_duration` 按实际经过时长计算，七天即 168 小时。`to_date` 从每个所选自然月的起点重新累计。来源数据须包含窗口所需的回溯历史，因为滚动窗口可能早于展示期间。对每日结果行求和，不能代替在月粒度重新观察比率或去重数 Metric。

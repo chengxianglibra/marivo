@@ -20,15 +20,18 @@ def test_fixed_multibaseline_targets_keep_their_own_source_bindings(
     channel = catalog_value(case.catalog, "sales.order.channel", kind="dimension")
     july = session.observe(
         {"revenue": revenue},
-        by=(session.time_scope(start="2026-07-01", end="2026-08-01"), region),
+        by=(region,),
+        where=session.time_scope(start="2026-07-01", end="2026-08-01"),
     )
     august = session.observe(
         {"revenue": revenue},
-        by=(session.time_scope(start="2026-08-01", end="2026-09-01"), region),
+        by=(region,),
+        where=session.time_scope(start="2026-08-01", end="2026-09-01"),
     )
     september = session.observe(
         {"revenue": revenue},
-        by=(session.time_scope(start="2026-09-01", end="2026-10-01"), region),
+        by=(region,),
+        where=session.time_scope(start="2026-09-01", end="2026-10-01"),
     )
     compared = september.compare(
         {

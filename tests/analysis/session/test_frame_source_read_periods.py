@@ -34,11 +34,10 @@ def test_captured_period_keeps_utc_instants_and_original_timezone(
     session = case.session
     revenue = catalog_get(session.catalog, "metric:sales.revenue", kind="metric")
     metric = revenue.window(mv.all_history()) if all_history else revenue
-    scope = session.time_scope(start="2026-08-01", end="2026-08-03", timezone="Asia/Shanghai").by(
-        mv.grain("day")
-    )
+    scope_scope = session.time_scope(start="2026-08-01", end="2026-08-03", timezone="Asia/Shanghai")
+    scope = scope_scope.by(mv.grain("day"))
     trace = capture_source(monkeypatch)
-    saved = session.observe({"value": metric}, by=(scope,)).persist()
+    saved = session.observe({"value": metric}, by=(mv.grain("day"),), where=scope_scope).persist()
     assert len(saved.to_pandas()) == 2
     expected_count = 2 if all_history else 1
     assert len(saved.source_reads) == expected_count
@@ -74,11 +73,11 @@ def test_combined_endpoints_do_not_expand_distinct_source_periods(
     metric = catalog_get(session.catalog, "metric:sales.revenue", kind="metric")
     current = session.observe(
         {"value": metric},
-        by=(session.time_scope(start="2026-09-01", end="2026-10-01", timezone="UTC"),),
+        where=session.time_scope(start="2026-09-01", end="2026-10-01", timezone="UTC"),
     )
     prior = session.observe(
         {"value": metric},
-        by=(session.time_scope(start="2026-08-01", end="2026-09-01", timezone="Asia/Shanghai"),),
+        where=session.time_scope(start="2026-08-01", end="2026-09-01", timezone="Asia/Shanghai"),
     )
     trace = capture_source(monkeypatch)
     saved = current.align(prior).persist()

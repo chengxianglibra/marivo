@@ -28,12 +28,19 @@ def rejected(session: mv.Session, metric: ms.Metric, amount: ms.Measure, dimensi
     ms.CatalogEntry  # invalid: removed public family
     ms.MetricEntry  # invalid: removed public variant
 
-def rejected_binding(amount: ms.Measure, paid_at: ms.TimeDimension) -> None:
-    @ms.metric()
-    def revenue_at(*, event: ms.TimeParameter) -> ms.MetricExpression[Literal["numeric"]]:
+def rejected_binding(amount: ms.Measure, metric: ms.Metric, paid_at: ms.TimeDimension) -> None:
+    @ms.metric()  # invalid: Metric declarations take zero arguments
+    def revenue_at(event: ms.TimeDimension) -> ms.MetricExpression[Literal["numeric"]]:
         return amount.sum(time=event)
-    revenue_at(event=paid_at)  # invalid: decorator returns a Metric expression
-    revenue_at.bind_time(event="paid_at")  # invalid: use a TimeDimension
+    metric.bind_time(event=paid_at)  # invalid: retired time binding method
+    ms.TimeParameter  # invalid: retired type
+    mv.time_group  # invalid: retired field-bound grouping
+
+def rejected_time_output(session: mv.Session, metric: ms.Metric, paid_at: ms.TimeDimension) -> None:
+    scope = session.time_scope(start="2026-01-01", end="2026-02-01")
+    session.observe(metric, by=(scope,))  # invalid: TimeScope belongs in where
+    session.observe(metric, by=(paid_at,))  # invalid: direct time field
+    session.observe(metric, where=mv.grain("day"))  # invalid: Grain belongs in by
 
 def rejected_sample(metric: ms.Metric, paid_at: ms.TimeDimension, region: ms.Dimension) -> None:
     metric.per(region, grain=mv.grain("day"))  # invalid: requires a TimeDimension

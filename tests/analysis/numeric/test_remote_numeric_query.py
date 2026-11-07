@@ -20,7 +20,7 @@ import marivo.semantic as ms
 from marivo.datasource.ir import TableSourceIR
 from marivo.semantic.reader import SemanticProject
 from tests.datasource.source_cases import Case, SourceData, source_case, source_params
-from tests.shared_fixtures import catalog_value, datasource_arguments_source
+from tests.shared_fixtures import catalog_value, datasource_arguments_source, time_population
 
 
 def _metric(catalog: ms.SemanticCatalog, path: str) -> ms.Metric:
@@ -155,8 +155,9 @@ def test_postgres_sparse_calendar_keeps_window_contributions(
             .by(mv.grain("week"))
             .shift(mv.offset(years=1))
         )
+        categories = mv.coordinates(by=(category,), keys=(("selected",),))
         ordinary = (
-            session.observe({"total": amount.sum(time=day)}, by=(calendar, category))
+            session.observe({"total": amount.sum(time=day)}, by=mv.product(calendar, categories))
             .compute()
             .to_pandas()
         )
@@ -168,7 +169,8 @@ def test_postgres_sparse_calendar_keeps_window_contributions(
         assert ordinary["total"].tolist() == [Decimal(10), Decimal(20)]
         windows = (
             session.observe(
-                {"total": amount.sum(time=day).window(mv.trailing_periods(count=2))}, by=(calendar,)
+                {"total": amount.sum(time=day).window(mv.trailing_periods(count=2))},
+                by=time_population(calendar),
             )
             .compute()
             .to_pandas()
@@ -290,18 +292,23 @@ def test_clickhouse_dst_fold_preserves_instants_and_half_open_boundaries(
             timezone="America/New_York",
         )
         artifact = session.observe(
-            {"total": amount.sum(time=happened), "count": amount.count(time=happened)}, by=(scope,)
+            {"total": amount.sum(time=happened), "count": amount.count(time=happened)}, where=scope
         ).persist()
         scalar = artifact.to_pandas()
         assert scalar["total"].tolist() == native.total.tolist()
         assert scalar["count"].tolist() == native["count"].tolist()
         fine = (
-            session.observe({"total": amount.sum(time=happened)}, by=(scope, happened))
+            session.observe(
+                {"total": amount.sum(time=happened)},
+                by=(mv.grain("minute", count=30),),
+                where=scope,
+            )
             .compute()
             .to_pandas()
         )
-        assert fine["happened"].tolist() == [point[1] for point in points[:-1]]
-        assert fine["total"].tolist() == [1, 10, 20]
+        present = fine.loc[fine["total"] > 0]
+        assert present["calendar:30minute"].tolist() == [point[1] for point in points[:-1]]
+        assert fine["total"].tolist() == [1, 10, 0, 20]
         assert artifact.to_pandas().equals(
             session.persisted_frame(artifact.artifact_id).to_pandas()
         )
@@ -718,9 +725,13 @@ def test_native_time_dependencies_and_drill(
             .to_pandas()
         )
         assert [float(value) for value in drilled["total"]] == [1.25, 2.75]
-        scope = session.time_scope(start="2026-07-01", end="2026-07-03").by(mv.grain("day"))
+        scope_scope = session.time_scope(start="2026-07-01", end="2026-07-03")
         window = _metric(session.catalog, "metric:sales.total").window(mv.all_history())
-        cumulative = session.observe({"total": window}, by=(scope,)).compute().to_pandas()
+        cumulative = (
+            session.observe({"total": window}, by=(mv.grain("day"),), where=scope_scope)
+            .compute()
+            .to_pandas()
+        )
         assert [float(value) for value in cumulative["total"]] == [4.0, 4.0]
         empty = session.observe({"empty": _metric(session.catalog, "metric:sales.empty")}).compute()
         assert empty.to_pandas()["empty"].tolist() == [Decimal("0.00")]

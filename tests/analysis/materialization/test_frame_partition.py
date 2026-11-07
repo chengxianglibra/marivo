@@ -219,7 +219,7 @@ def test_public_pending_values_partition_and_reopened_source_free_share(
 ) -> None:
     case = analysis_dsl_case_factory("j1")
     pending = case.session.values(
-        by=(catalog_value(case.catalog, "sales.customer.customer_id", kind="field"),),
+        by=(catalog_value(case.catalog, "sales.customer.customer_id", kind="dimension"),),
         columns={"x": None},
         rows=((("A",), {"x": Decimal("1.25")}), (("B",), {"x": Decimal("3.75")})),
     )
@@ -277,11 +277,13 @@ def test_over_keeps_interval_and_paired_current_axis_facts(
 ) -> None:
     from marivo._definition.correspondence import CalendarCorrespondence
     from marivo.analysis.core.data_schema import IntervalDataAxis, PairedDataAxis
+    from tests.shared_fixtures import time_population
 
     case = analysis_dsl_case_factory("j2")
     scope = case.session.time_scope(start="2026-08-01", end="2026-08-03")
     interval = case.session.observe(
-        {"x": catalog_get(case.catalog, "metric:sales.revenue", kind="metric")}, by=(scope,)
+        {"x": catalog_get(case.catalog, "metric:sales.revenue", kind="metric")},
+        by=time_population(scope),
     )
     assert isinstance(interval._schema.axes[0], IntervalDataAxis)
     grouped = interval.select({"rows": interval.over(mv.row_count(), by=interval.axes)})
@@ -289,7 +291,8 @@ def test_over_keeps_interval_and_paired_current_axis_facts(
     assert grouped.compute().to_pandas()["rows"].tolist() == [1]
     daily = case.session.observe(
         {"x": catalog_get(case.catalog, "metric:sales.revenue", kind="metric")},
-        by=(scope.by(mv.grain("day")),),
+        by=(mv.grain("day"),),
+        where=scope,
     )
     paired = daily.align(daily, match=CalendarCorrespondence("ordinal"))
     assert isinstance(paired._schema.axes[0], PairedDataAxis)
@@ -374,9 +377,10 @@ def test_public_month_region_share_journey_stays_fixed_after_source_offline(
     observed = session.observe(
         {"revenue": catalog_get(case.catalog, "metric:sales.revenue", kind="metric")},
         by=(
-            session.time_scope(start="2026-07-01", end="2026-10-01").by(mv.grain("month")),
-            catalog_value(case.catalog, "sales.customer.region", kind="field"),
+            mv.grain("month"),
+            catalog_value(case.catalog, "sales.customer.region", kind="dimension"),
         ),
+        where=session.time_scope(start="2026-07-01", end="2026-10-01"),
     ).compute()
     month = next(axis for axis in observed.axes if axis.role == "calendar")
     region = next(axis for axis in observed.axes if axis.name == "sales.customer.region")

@@ -12,23 +12,22 @@ end = split + timedelta(days=1)
 
 session = mv.session.get_or_create(f"axes-{uuid4().hex[:8]}", timezone="UTC", domains=None)
 catalog = session.catalog
-metric_entry = catalog.get("metric:sample.measurement")
-assert metric_entry.kind == "metric"
-metric = metric_entry.value
-group_entry = catalog.get("dimension:sample.readings.group")
-assert group_entry.kind == "dimension"
-group = group_entry.value
+metric = catalog.get("metric:sample.measurement")
+assert metric.kind == "metric"
+group = catalog.get("dimension:sample.readings.group")
+assert group.kind == "dimension"
 left_scope = session.time_scope(start=start, end=split)
 right_scope = session.time_scope(start=split, end=end)
-left = session.observe({"value": metric}, by=(left_scope, group)).compute()
+day = mv.grain("day")
+left = session.observe({"value": metric}, by=(day, group), where=left_scope).compute()
 left.show(n=10)
-right = session.observe({"value": metric}, by=(right_scope, group)).compute()
+right = session.observe({"value": metric}, by=(day, group), where=right_scope).compute()
 
 selected_value = "gamma"
 conditioned = session.observe(
     {"combined": metric + metric},
-    by=(left_scope, group),
-    where=(group == selected_value),
+    by=(day, group),
+    where=(left_scope, group == selected_value),
 ).compute()
 conditioned.show()
 
@@ -57,9 +56,8 @@ association.show()
 
 # Pair repeated coordinates on one explicit grid, then correlate within groups.
 scope = session.time_scope(start=start, end=end)
-grid = scope.by(mv.grain("day"))
-series = session.observe({"value": metric}, by=(grid, group)).compute()
-composed = session.observe({"value": metric + metric}, by=(grid, group)).compute()
+series = session.observe({"value": metric}, by=(day, group), where=scope).compute()
+composed = session.observe({"value": metric + metric}, by=(day, group), where=scope).compute()
 paired = series.align(
     composed,
     on=((series.axes[0], composed.axes[0]), (series.axes[1], composed.axes[1])),

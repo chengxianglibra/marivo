@@ -1156,11 +1156,15 @@ amount = ms.measure_column(name='amount',entity=orders,column='amount',additivit
     amount = catalog_value(session.catalog, "sales.orders.amount", kind="measure")
     day = catalog_value(session.catalog, "sales.orders.day", kind="time_dimension")
     region = catalog_value(session.catalog, "sales.orders.region", kind="dimension")
-    grid = session.time_scope(start="2026-01-30", end="2026-02-03").by(mv.grain("day"))
-    daily = session.observe({"sales": amount.sum(time=day)}, by=(grid, region))
+    grid_scope = session.time_scope(start="2026-01-30", end="2026-02-03")
+    daily = session.observe(
+        {"sales": amount.sum(time=day)}, by=(mv.grain("day"), region), where=grid_scope
+    )
     assert daily.compute().to_pandas()["sales"].tolist() == [10, 30, 60, 0, 20, 0, 40, 0]
-    monthly = session.time_scope(start="2026-01-30", end="2026-02-03").by(mv.grain("month"))
-    coarse = session.observe({"sales": amount.sum(time=day)}, by=(monthly,))
+    monthly_scope = session.time_scope(start="2026-01-30", end="2026-02-03")
+    coarse = session.observe(
+        {"sales": amount.sum(time=day)}, by=(mv.grain("month"),), where=monthly_scope
+    )
     assert coarse.compute().to_pandas()["sales"].tolist() == [60, 100]
 
 

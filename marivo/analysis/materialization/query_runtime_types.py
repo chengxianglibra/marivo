@@ -373,6 +373,35 @@ def effective_local(stage: LocalCompute, inputs: tuple[StageOutput, ...]) -> Loc
     if isinstance(stage.program, FormulaProgram):
         formula = _formula(stage.program, actual)
         assert formula is not None
+        # One logical reduction can be transported as multiple endpoint reads.
+        # Their Decimal metadata may describe each native batch separately.
+        batches: dict[tuple[int, ...], list[DataType]] = {}
+        for value, source in zip(formula.values, inputs[: len(formula.values)], strict=True):
+            if len(source.table):
+                batches.setdefault(value.occurrence, []).append(value.column.dtype)
+        common_decimals: dict[tuple[int, ...], DecimalDataType] = {}
+        for occurrence, dtypes in batches.items():
+            decimals = tuple(dtype for dtype in dtypes if isinstance(dtype, DecimalDataType))
+            if len(decimals) != len(dtypes) or len(set(decimals)) < 2:
+                continue
+            scale = max(dtype.scale for dtype in decimals)
+            common_decimals[occurrence] = DecimalDataType(
+                max(dtype.precision - dtype.scale for dtype in decimals) + scale, scale
+            )
+        if common_decimals:
+            formula = replace(
+                formula,
+                values=tuple(
+                    replace(
+                        value,
+                        column=replace(
+                            value.column,
+                            dtype=common_decimals.get(value.occurrence, value.column.dtype),
+                        ),
+                    )
+                    for value in formula.values
+                ),
+            )
         types = {column.slot_id: column.dtype for column in formula_columns(formula)}
         if formula.output_population is not None:
             for index, population in enumerate(formula.populations):

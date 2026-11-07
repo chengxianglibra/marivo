@@ -21,7 +21,6 @@ import ibis
 import ibis.expr.types as ir
 from ibis.common.deferred import Deferred
 
-from marivo._definition.deferred import TimeSlotResolver
 from marivo._definition.types import InputContext
 from marivo.refs import (
     EntityKind,
@@ -442,10 +441,7 @@ class _DeclarationExpressionBuilder:
             self.input_contexts.append(value._context)
             return value
         if isinstance(value, Deferred):
-            from marivo._definition.deferred import resolver_of
-
-            if not isinstance(resolver_of(value), TimeSlotResolver):
-                self.capture(value)
+            self.capture(value)
             return value
         if isinstance(value, Ref):
             self.fail(
@@ -665,6 +661,7 @@ class _DeclarationExpressionBuilder:
             if any(keyword.arg is None for keyword in node.keywords):
                 self.fail(node, "explicit keyword arguments", "keyword unpacking")
             method = self._function(node.func)
+            deferred_receiver: tuple[Deferred, str] | None = None
             if method is None and isinstance(node.func, ast.Attribute):
                 receiver = self.value(node.func.value)
                 name = node.func.attr
@@ -680,6 +677,7 @@ class _DeclarationExpressionBuilder:
                         )
                     # Deferred attributes construct a recipe; they do not invoke author code.
                     method = cast("Callable[..., object]", getattr(receiver, name))
+                    deferred_receiver = (receiver, name)
                 elif isinstance(receiver, (Entity, CatalogEntity)) and name == "count":
                     method = receiver.count
             if method is None:
@@ -698,6 +696,19 @@ class _DeclarationExpressionBuilder:
                 for keyword in node.keywords
                 if keyword.arg is not None
             }
+            if deferred_receiver is not None:
+                from marivo._definition.deferred import resolver_of
+                from marivo.semantic._deferred_semantics import capture_source_time
+                from marivo.semantic._expression_values import _parameter
+
+                target, operation = deferred_receiver
+                default = capture_source_time(
+                    resolver_of(target),
+                    _parameter(kwargs["time"]) if "time" in kwargs else None,
+                    operation=operation,
+                )
+                if default is not None:
+                    kwargs["time"] = Deferred(default)
             from marivo._definition.deferred import admitted_function, capture_function_call
             from marivo._definition.types import DefinitionGraphError
 
@@ -725,95 +736,27 @@ class _DeclarationExpressionBuilder:
         self.fail(node, "closed semantic expression syntax", ast.unparse(node))
 
 
-def _declaration_time_slots(
-    fn: Callable[..., object], function: ast.FunctionDef, symbols: Mapping[str, object]
-) -> tuple[TimeSlotResolver, ...]:
-    from marivo.semantic._time_parameters import TimeParameter, binding_error
-
-    args = function.args
-    if (
-        args.posonlyargs
-        or args.args
-        or args.vararg
-        or args.kwarg
-        or any(default is not None for default in args.kw_defaults)
-    ):
-        binding_error(
-            "Invalid Metric declaration signature.",
-            expected="only keyword-only TimeParameter annotations, without defaults",
-            received=ast.unparse(args),
-            parameters=tuple(arg.arg for arg in args.kwonlyargs),
-            action="Declare def name(*, event: ms.TimeParameter) or a zero-parameter Metric.",
-        )
-    identity = f"{fn.__module__}:{fn.__qualname__}:{fn.__code__.co_firstlineno}"
-    slots: list[TimeSlotResolver] = []
-    for parameter in args.kwonlyargs:
-        annotation = parameter.annotation
-        if isinstance(annotation, ast.Constant) and isinstance(annotation.value, str):
-            try:
-                annotation = ast.parse(annotation.value, mode="eval").body
-            except SyntaxError:
-                annotation = None
-        resolved: object = None
-        if isinstance(annotation, ast.Name):
-            resolved = symbols.get(annotation.id)
-        elif isinstance(annotation, ast.Attribute) and isinstance(annotation.value, ast.Name):
-            module = symbols.get(annotation.value.id)
-            if isinstance(module, ModuleType) and module.__name__ == "marivo.semantic":
-                resolved = vars(module).get(annotation.attr)
-        if resolved is not TimeParameter:
-            binding_error(
-                "Invalid Metric parameter annotation.",
-                expected="a safely resolved ms.TimeParameter annotation",
-                received=ast.unparse(parameter),
-                parameters=(parameter.arg,),
-                action="Import marivo.semantic or TimeParameter and use that annotation directly.",
-            )
-        slots.append(TimeSlotResolver(identity, parameter.arg, fn.__name__))
-    return tuple(slots)
-
-
-def _check_time_positions(value: object) -> None:
-    from marivo._definition.deferred import resolver_of
-    from marivo.semantic._time_parameters import validate_time_positions
-
-    if isinstance(value, Deferred):
-        recipe = resolver_of(value)
-        if not isinstance(recipe, TimeSlotResolver):
-            validate_time_positions(recipe)
-
-
 def _construct_declaration_expression(
     fn: Callable[..., object], *, stage: Literal["measure", "metric"]
-) -> tuple[object, InputContext, tuple[TimeSlotResolver, ...]]:
+) -> tuple[object, InputContext]:
     try:
         _, function = _load_function_ast(fn)
     except SemanticLoadError as error:
         raise SemanticExpressionError(
             kind=ErrorKind.INVALID_COMPONENT_BODY,
             message=f"{stage.title()} declaration {fn.__name__!r} requires inspectable source.",
-            expected=(
-                "a Python function with inspectable source and only keyword-only TimeParameter slots"
-                if stage == "metric"
-                else "a zero-argument Python function with inspectable source"
-            ),
+            expected="a zero-argument Python function with inspectable source",
             received=str(error.received),
             action="Define the declaration in a Python source file and decorate it again.",
         ) from error
     symbols = _resolved_symbols(fn)
-    slots = _declaration_time_slots(fn, function, symbols) if stage == "metric" else ()
-    validate_declaration_body_ast(
-        function, symbols=frozenset(symbols), time_parameters=frozenset(slot.name for slot in slots)
-    )
-    symbols.update((slot.name, Deferred(slot)) for slot in slots)
+    validate_declaration_body_ast(function, symbols=frozenset(symbols))
     builder = _DeclarationExpressionBuilder(symbols, fn.__name__, stage)
     for stmt in function.body:
         if isinstance(stmt, ast.Assign):
             target = stmt.targets[0]
             assert isinstance(target, ast.Name)
             value = builder.value(stmt.value)
-            if stage == "metric":
-                _check_time_positions(value)
             builder.symbols[target.id] = value
         elif isinstance(stmt, ast.Return):
             assert stmt.value is not None
@@ -834,7 +777,7 @@ def _construct_declaration_expression(
                     )
             from marivo.semantic._expression_values import _merge
 
-            return value, _merge(*builder.input_contexts), slots
+            return value, _merge(*builder.input_contexts)
     raise AssertionError("validated declaration has no final return")
 
 
@@ -842,7 +785,7 @@ def construct_measure_expression(fn: Callable[[], Deferred | NumericRow]) -> Num
     """Capture a pure declaration and validate its row-stage semantic facts."""
     from marivo.semantic._deferred_semantics import consume_row
 
-    result, context, _ = _construct_declaration_expression(fn, stage="measure")
+    result, context = _construct_declaration_expression(fn, stage="measure")
     if isinstance(result, Deferred):
         from marivo._definition.deferred import inspect_deferred
 
@@ -878,24 +821,19 @@ def construct_measure_expression(fn: Callable[[], Deferred | NumericRow]) -> Num
 
 
 def construct_metric_expression(
-    fn: Callable[..., Deferred | NumericMetric],
-) -> tuple[NumericMetric, tuple[TimeSlotResolver, ...]]:
+    fn: Callable[[], Deferred | NumericMetric],
+) -> NumericMetric:
     """Capture a pure declaration and validate its completed Metric stage."""
     from marivo.semantic._deferred_semantics import consume_metric
 
-    result, context, slots = _construct_declaration_expression(fn, stage="metric")
+    result, context = _construct_declaration_expression(fn, stage="metric")
     if isinstance(result, Deferred):
         from marivo._definition.deferred import inspect_deferred, resolver_of
-        from marivo.semantic._time_parameters import validate_declaration_slots
 
         inspection = inspect_deferred(result)
-        if slots or inspection.has_time_parameters:
-            validate_declaration_slots(
-                resolver_of(result), slots, unresolved=bool(inspection.symbols)
-            )
         if not inspection.symbols:
             try:
-                consume_metric(result, allow_open=True)
+                consume_metric(result)
             except SemanticExpressionError as error:
                 # Named inputs are rebound by the receiving scope. Captured business
                 # facts cannot reject a formula whose current definitions may differ.
@@ -913,7 +851,7 @@ def construct_metric_expression(
                     raise
         from marivo.semantic._expression_values import MetricExpression
 
-        return MetricExpression(resolver_of(result), context, "numeric"), slots
+        return MetricExpression(resolver_of(result), context, "numeric")
     raise SemanticExpressionError(
         kind=ErrorKind.INVALID_EXPRESSION_STAGE,
         message="Metric declaration returned the wrong expression stage.",

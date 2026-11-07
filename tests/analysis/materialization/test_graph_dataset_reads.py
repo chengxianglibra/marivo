@@ -49,7 +49,8 @@ def _capture(case: DslCase, kind: _Kind) -> mv.AnalysisFrame:
     elif kind == "calendar":
         query = session.observe(
             {"value": metric},
-            by=(session.time_scope(start="2026-08-01", end="2026-08-04").by(mv.grain("day")),),
+            by=(mv.grain("day"),),
+            where=session.time_scope(start="2026-08-01", end="2026-08-04"),
         )
     elif kind in ("top", "empty_top"):
         query = query.top(0 if kind == "empty_top" else 2, by=query["value"])

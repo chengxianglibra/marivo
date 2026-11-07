@@ -146,6 +146,7 @@ class TimeBinding:
     field: ExactRef
     path: tuple[ExactRef, ...] = ()
     at: InstantAnchor | None = None
+    source: Literal["explicit", "entity_default"] = "explicit"
 
     def __post_init__(self) -> None:
         if self.field.ref.kind is not SemanticKind.TIME_DIMENSION:
@@ -185,6 +186,7 @@ class SourceAggregate:
     q: float | None = None
     nulls: NullPolicy = "ignore"
     rule_version: int = RULE_VERSION
+    contribution_root: ExactRef | None = None
 
     def __post_init__(self) -> None:
         _check_quantile(self.reducer, self.q)
@@ -205,6 +207,7 @@ class SourceWeightedMean:
     time: TimeBinding | None
     nulls: NullPolicy = "ignore"
     rule_version: int = NUMERIC_RULE_VERSION
+    contribution_root: ExactRef | None = None
 
 
 @dataclass(frozen=True, slots=True)

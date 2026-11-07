@@ -15,7 +15,7 @@ from marivo.analysis.session.core import Session
 from marivo.datasource.adapters import CompiledRead
 from marivo.semantic._expression_values import FieldExpression
 from marivo.semantic.reader import SemanticProject
-from tests.shared_fixtures import catalog_value
+from tests.shared_fixtures import catalog_value, time_population
 
 
 @pytest.fixture
@@ -98,16 +98,17 @@ def test_reused_temporal_baseline_keeps_each_alias_projection(
     channel = catalog_value(session.catalog, "sales.facts.channel", kind="dimension")
     current = session.time_scope(start="2026-08-01", end="2026-08-03")
     baseline = session.time_scope(start="2026-07-01", end="2026-07-03")
-    left = session.observe(
-        {"q": amount.sum(time=day)},
-        by=(current.by(mv.grain("day")) if calendar else current,),
-        where=phase == "current",
-    )
-    right = session.observe(
-        {"q": amount.sum(time=day)},
-        by=(baseline.by(mv.grain("day")) if calendar else baseline,),
-        where=phase == "base",
-    )
+    metric = amount.sum(time=day)
+    if calendar:
+        left = session.observe(
+            {"q": metric}, by=(mv.grain("day"),), where=(current, phase == "current")
+        )
+        right = session.observe(
+            {"q": metric}, by=(mv.grain("day"),), where=(baseline, phase == "base")
+        )
+    else:
+        left = session.observe({"q": metric}, by=time_population(current), where=phase == "current")
+        right = session.observe({"q": metric}, by=time_population(baseline), where=phase == "base")
     compared = left.compare(
         {
             name: mv.baseline(
@@ -186,11 +187,15 @@ def test_cross_period_paired_calendar_parent(
     phase = catalog_value(session.catalog, "sales.facts.phase", kind="dimension")
     region = catalog_value(session.catalog, "sales.facts.region", kind="dimension")
     channel = catalog_value(session.catalog, "sales.facts.channel", kind="dimension")
-    current = session.time_scope(start="2026-08-01", end="2026-08-03").by(mv.grain("day"))
-    baseline = session.time_scope(start="2026-07-01", end="2026-07-03").by(mv.grain("day"))
+    current_scope = session.time_scope(start="2026-08-01", end="2026-08-03")
+    baseline_scope = session.time_scope(start="2026-07-01", end="2026-07-03")
     metric = amount.sum(time=day)
-    left = session.observe({"q": metric}, by=(current, region), where=phase == "current")
-    right = session.observe({"q": metric}, by=(baseline, region), where=phase == "base")
+    left = session.observe(
+        {"q": metric}, by=(mv.grain("day"), region), where=(current_scope, phase == "current")
+    )
+    right = session.observe(
+        {"q": metric}, by=(mv.grain("day"), region), where=(baseline_scope, phase == "base")
+    )
     paired = left.align(
         right,
         on=tuple(zip(left.axes, right.axes, strict=True)),
@@ -230,11 +235,15 @@ def test_fixed_window_lookback_and_repeated_identity_independent_reads(
     day = catalog_value(session.catalog, "sales.facts.day", kind="time_dimension")
     phase = catalog_value(session.catalog, "sales.facts.phase", kind="dimension")
     channel = catalog_value(session.catalog, "sales.facts.channel", kind="dimension")
-    calendar = session.time_scope(start="2026-08-01", end="2026-08-03").by(mv.grain("day"))
+    calendar_scope = session.time_scope(start="2026-08-01", end="2026-08-03")
     metric = amount.sum(time=day).window(mv.all_history())
     selected = _change(
-        session.observe({"q": metric}, by=(calendar,), where=phase == "current"),
-        session.observe({"q": metric}, by=(calendar,), where=phase == "base"),
+        session.observe(
+            {"q": metric}, by=(mv.grain("day"),), where=(calendar_scope, phase == "current")
+        ),
+        session.observe(
+            {"q": metric}, by=(mv.grain("day"),), where=(calendar_scope, phase == "base")
+        ),
     )
     expected: list[tuple[int, int, int, float]] = []
     with duckdb.connect(str(tmp_path / "temporal.duckdb")) as connection:
@@ -338,12 +347,12 @@ def test_window_partition_context_is_scoped_before_classification(
         catalog_value(session.catalog, "sales.link_tags", kind="relationship"),
     )
     membership = mv.membership(label, via=(path,), unmatched="exclude")
-    calendar = session.time_scope(start="2026-08-01", end="2026-08-03").by(mv.grain("day"))
+    calendar_scope = session.time_scope(start="2026-08-01", end="2026-08-03")
     metric = amount.sum(time=day).window(mv.all_history())
     endpoint = session.observe(
         {"q": metric},
-        by=(calendar,),
-        where=identifier == (2 if missing else 1),
+        by=(mv.grain("day"),),
+        where=(calendar_scope, identifier == (2 if missing else 1)),
     ).compute()
     pending = _change(endpoint, endpoint).attribute(by=(membership,))
     with pytest.raises(AttributeInputError) as actual:
@@ -383,17 +392,19 @@ def test_temporal_native_numeric_check_keeps_actual_scope(
     day = catalog_value(session.catalog, "sales.facts.day", kind="time_dimension")
     phase = catalog_value(session.catalog, "sales.facts.phase", kind="dimension")
     channel = catalog_value(session.catalog, "sales.facts.channel", kind="dimension")
-    calendar = session.time_scope(start="2026-08-01", end="2026-08-02").by(mv.grain("day"))
+    calendar_scope = session.time_scope(start="2026-08-01", end="2026-08-02")
     metric = amount.sum(time=day, nulls="error")
-    observed = session.observe({"q": metric}, by=(calendar,), where=phase == "current").compute()
+    observed = session.observe(
+        {"q": metric}, by=(mv.grain("day"),), where=(calendar_scope, phase == "current")
+    ).compute()
     selected = _change(observed, observed)
     with duckdb.connect(str(tmp_path / "temporal.duckdb")) as connection:
         connection.execute("UPDATE facts SET amount=NULL WHERE id=1")
     with pytest.raises(MaterializationError) as ordinary:
         session.observe(
             {"q": metric},
-            where=phase == "current",
-            by=(calendar, *(() if scope == "parent" else (channel,))),
+            where=(calendar_scope, phase == "current"),
+            by=(mv.grain("day"), *(() if scope == "parent" else (channel,))),
         ).compute()
     with duckdb.connect(str(tmp_path / "temporal.duckdb")) as connection:
         connection.execute("UPDATE facts SET amount=0 WHERE id=1")
@@ -449,12 +460,13 @@ def test_structural_outer_missing_is_not_known_empty(session: Session) -> None:
     day = catalog_value(session.catalog, "sales.facts.day", kind="time_dimension")
     channel = catalog_value(session.catalog, "sales.facts.channel", kind="dimension")
     metric = amount.sum(time=day)
-    current = session.time_scope(start="2026-08-01", end="2026-08-03").by(mv.grain("day"))
-    baseline = session.time_scope(start="2026-07-01", end="2026-07-02").by(mv.grain("day"))
+    current_scope = session.time_scope(start="2026-08-01", end="2026-08-03")
+    baseline_scope = session.time_scope(start="2026-07-01", end="2026-07-02")
     parent = (
-        session.observe({"q": metric}, by=(current,))
+        session.observe({"q": metric}, by=(mv.grain("day"),), where=current_scope)
         .align(
-            session.observe({"q": metric}, by=(baseline,)), match=CalendarCorrespondence("ordinal")
+            session.observe({"q": metric}, by=(mv.grain("day"),), where=baseline_scope),
+            match=CalendarCorrespondence("ordinal"),
         )
         .compute()
     )
@@ -482,11 +494,15 @@ def test_calendar_native_ratio_keeps_common_valid_mask(
     day = catalog_value(session.catalog, "sales.facts.day", kind="time_dimension")
     phase = catalog_value(session.catalog, "sales.facts.phase", kind="dimension")
     channel = catalog_value(session.catalog, "sales.facts.channel", kind="dimension")
-    calendar = session.time_scope(start="2026-08-01", end="2026-08-02").by(mv.grain("day"))
+    calendar_scope = session.time_scope(start="2026-08-01", end="2026-08-02")
     metric = amount.weighted_mean(weight=weight, time=day) if weighted else amount.mean(time=day)
     selected = _change(
-        session.observe({"q": metric}, by=(calendar,), where=phase == "current"),
-        session.observe({"q": metric}, by=(calendar,), where=phase == "base"),
+        session.observe(
+            {"q": metric}, by=(mv.grain("day"),), where=(calendar_scope, phase == "current")
+        ),
+        session.observe(
+            {"q": metric}, by=(mv.grain("day"),), where=(calendar_scope, phase == "base")
+        ),
     )
     rows = selected.attribute(by=(channel,)).compute().to_pandas()
     assert rows["contribution.q"].tolist() == [110, -50]
@@ -513,12 +529,13 @@ def test_paired_complete_frozen_authority_survives_parent_selection(
     day = catalog_value(session.catalog, "sales.facts.day", kind="time_dimension")
     channel = catalog_value(session.catalog, "sales.facts.channel", kind="dimension")
     metric = amount.sum(time=day)
-    current = session.time_scope(start="2026-08-01", end="2026-08-03").by(mv.grain("day"))
-    baseline = session.time_scope(start="2026-07-01", end="2026-07-03").by(mv.grain("day"))
+    current_scope = session.time_scope(start="2026-08-01", end="2026-08-03")
+    baseline_scope = session.time_scope(start="2026-07-01", end="2026-07-03")
     paired = (
-        session.observe({"q": metric}, by=(current,))
+        session.observe({"q": metric}, by=(mv.grain("day"),), where=current_scope)
         .align(
-            session.observe({"q": metric}, by=(baseline,)), match=CalendarCorrespondence("ordinal")
+            session.observe({"q": metric}, by=(mv.grain("day"),), where=baseline_scope),
+            match=CalendarCorrespondence("ordinal"),
         )
         .compute()
     )
@@ -565,13 +582,17 @@ def test_calendar_predicate_trusts_declared_matches(session: Session, tmp_path: 
     amount = catalog_value(session.catalog, "sales.otherfacts.amount", kind="measure")
     day = catalog_value(session.catalog, "sales.otherfacts.day", kind="time_dimension")
     channel = catalog_value(session.catalog, "sales.facts.channel", kind="dimension")
-    calendar = session.time_scope(start="2026-08-01", end="2026-08-02").by(mv.grain("day"))
+    calendar_scope = session.time_scope(start="2026-08-01", end="2026-08-02")
     metric = amount.sum(time=day)
-    parent = session.observe({"q": metric}, by=(calendar,), where=channel == "A").compute()
+    parent = session.observe(
+        {"q": metric}, by=(mv.grain("day"),), where=(calendar_scope, channel == "A")
+    ).compute()
     with duckdb.connect(str(tmp_path / "temporal.duckdb")) as connection:
         connection.execute("DELETE FROM facts WHERE id=2")
     ordinary = (
-        session.observe({"q": metric}, where=channel == "A", by=(calendar, channel))
+        session.observe(
+            {"q": metric}, where=(calendar_scope, channel == "A"), by=(mv.grain("day"), channel)
+        )
         .compute()
         .to_pandas()
     )
@@ -584,9 +605,9 @@ def test_calendar_attribute_trusts_declared_root_identity(session: Session, tmp_
     amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
     day = catalog_value(session.catalog, "sales.facts.day", kind="time_dimension")
     channel = catalog_value(session.catalog, "sales.facts.channel", kind="dimension")
-    calendar = session.time_scope(start="2026-08-01", end="2026-08-02").by(mv.grain("day"))
+    calendar_scope = session.time_scope(start="2026-08-01", end="2026-08-02")
     metric = amount.sum(time=day)
-    parent = session.observe({"q": metric}, by=(calendar,)).compute()
+    parent = session.observe({"q": metric}, by=(mv.grain("day"),), where=calendar_scope).compute()
     with duckdb.connect(str(tmp_path / "temporal.duckdb")) as connection:
         connection.execute("INSERT INTO facts SELECT * FROM facts WHERE id=1")
     rows = parent.attribute(by=(channel,)).compute().to_pandas()
@@ -643,8 +664,8 @@ def test_paired_source_failure_retains_original_full_parent(
     region = catalog_value(session.catalog, "sales.facts.region", kind="dimension")
     channel = catalog_value(session.catalog, "sales.facts.channel", kind="dimension")
     identifier = catalog_value(session.catalog, "sales.facts.id", kind="dimension")
-    current = session.time_scope(start="2026-08-01", end="2026-08-03").by(mv.grain("day"))
-    baseline = session.time_scope(start="2026-07-01", end="2026-07-03").by(mv.grain("day"))
+    current_scope = session.time_scope(start="2026-08-01", end="2026-08-03")
+    baseline_scope = session.time_scope(start="2026-07-01", end="2026-07-03")
     original = (
         amount.sum(time=day, nulls="error")
         if failure == "native"
@@ -652,8 +673,12 @@ def test_paired_source_failure_retains_original_full_parent(
     )
     by: tuple[FieldExpression | Grouping, ...]
     if failure == "native":
-        left = session.observe({"q": original}, by=(current, region), where=phase == "current")
-        right = session.observe({"q": original}, by=(baseline, region), where=phase == "base")
+        left = session.observe(
+            {"q": original}, by=(mv.grain("day"), region), where=(current_scope, phase == "current")
+        )
+        right = session.observe(
+            {"q": original}, by=(mv.grain("day"), region), where=(baseline_scope, phase == "base")
+        )
         by = (channel,)
     else:
         label = catalog_value(session.catalog, "sales.tags.label", kind="dimension")
@@ -662,8 +687,12 @@ def test_paired_source_failure_retains_original_full_parent(
             catalog_value(session.catalog, "sales.link_tags", kind="relationship"),
         )
         membership = mv.membership(label, via=(path,), unmatched="exclude")
-        left = session.observe({"q": original}, by=(current, region), where=identifier == 1)
-        right = session.observe({"q": original}, by=(baseline, region), where=identifier == 1)
+        left = session.observe(
+            {"q": original}, by=(mv.grain("day"), region), where=(current_scope, identifier == 1)
+        )
+        right = session.observe(
+            {"q": original}, by=(mv.grain("day"), region), where=(baseline_scope, identifier == 1)
+        )
         by = (membership,)
     aligned = left.align(
         right,
@@ -917,13 +946,18 @@ def test_independent_endpoint_time_scopes_keep_source_periods(
     baseline = session.time_scope(start="2026-07-01", end="2026-07-03")
     if contribution:
         selected = _change(
-            session.observe({"q": metric}, by=(current,), where=phase == "current"),
-            session.observe({"q": metric}, by=(baseline,), where=phase == "base"),
+            session.observe({"q": metric}, by=time_population(current), where=phase == "current"),
+            session.observe({"q": metric}, by=time_population(baseline), where=phase == "base"),
         )
         result = selected.attribute(by=(channel,)).compute()
     else:
-        left = session.observe({"q": metric}, by=(current, channel), where=phase == "current")
-        right = session.observe({"q": metric}, by=(baseline, channel), where=phase == "base")
+        channels = mv.coordinates(by=(channel,), keys=(("A",), ("B",)))
+        left = session.observe(
+            {"q": metric}, by=mv.product(current, channels), where=phase == "current"
+        )
+        right = session.observe(
+            {"q": metric}, by=mv.product(baseline, channels), where=phase == "base"
+        )
         result = left.compare(
             {
                 "base": mv.baseline(
@@ -957,7 +991,7 @@ def test_interval_parent_builds_without_source_read(
     channel = catalog_value(session.catalog, "sales.facts.channel", kind="dimension")
     metric = amount.sum(time=day)
     scope = session.time_scope(start="2026-08-01", end="2026-08-03")
-    parent = session.observe({"q": metric}, by=(scope,))
+    parent = session.observe({"q": metric}, by=time_population(scope))
     if paired:
         parent = parent.align(parent)
 
@@ -980,14 +1014,17 @@ def test_captured_interval_parent_keeps_original_endpoint_scopes(
     phase = catalog_value(session.catalog, "sales.facts.phase", kind="dimension")
     region = catalog_value(session.catalog, "sales.facts.region", kind="dimension")
     channel = catalog_value(session.catalog, "sales.facts.channel", kind="dimension")
+    regions = mv.coordinates(by=(region,), keys=(("east",),))
+    current_scope = session.time_scope(start="2026-08-01", end="2026-08-03")
+    baseline_scope = session.time_scope(start="2026-07-01", end="2026-07-03")
     current = session.observe(
         {"q": amount.sum(time=day)},
-        by=(session.time_scope(start="2026-08-01", end="2026-08-03"), region),
+        by=mv.product(current_scope, regions),
         where=phase == "current",
     )
     baseline = session.observe(
         {"q": amount.sum(time=day)},
-        by=(session.time_scope(start="2026-07-01", end="2026-07-03"), region),
+        by=mv.product(baseline_scope, regions),
         where=phase == "base",
     )
     pairs = tuple(zip(current.axes, baseline.axes, strict=True))
@@ -1025,13 +1062,17 @@ def test_captured_selected_calendar_parent_keeps_exact_integers_and_saved_map(
     day = catalog_value(session.catalog, "sales.facts.day", kind="time_dimension")
     phase = catalog_value(session.catalog, "sales.facts.phase", kind="dimension")
     channel = catalog_value(session.catalog, "sales.facts.channel", kind="dimension")
-    current_calendar = session.time_scope(start="2026-08-01", end="2026-08-03").by(mv.grain("day"))
-    baseline_calendar = session.time_scope(start="2026-07-01", end="2026-07-03").by(mv.grain("day"))
+    current_calendar_scope = session.time_scope(start="2026-08-01", end="2026-08-03")
+    baseline_calendar_scope = session.time_scope(start="2026-07-01", end="2026-07-03")
     current = session.observe(
-        {"q": amount.sum(time=day)}, by=(current_calendar,), where=phase == "current"
+        {"q": amount.sum(time=day)},
+        by=(mv.grain("day"),),
+        where=(current_calendar_scope, phase == "current"),
     )
     baseline = session.observe(
-        {"q": amount.sum(time=day)}, by=(baseline_calendar,), where=phase == "base"
+        {"q": amount.sum(time=day)},
+        by=(mv.grain("day"),),
+        where=(baseline_calendar_scope, phase == "base"),
     )
     comparison = current.compare(
         {

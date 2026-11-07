@@ -52,32 +52,29 @@ if TYPE_CHECKING:
 
 
 def validate_preview_metric(value: Deferred) -> None:
-    """Reject open Metrics and unsupported routes before opening a datasource."""
-    metric = consume_metric(value, allow_open=True)
-    if metric.time_parameters:
-        names = tuple(slot.name for slot, _ in metric.time_parameters)
-        raise SemanticExpressionError(
-            kind=ErrorKind.INVALID_EXPRESSION_VALUE,
-            message="Catalog preview cannot run a Metric with unbound time parameters.",
-            expected="a named Metric with all time parameters fixed",
-            received=", ".join(names),
-            action=(
-                "Publish a zero-parameter Metric that returns the template's .bind_time(...) "
-                "result for preview, or observe the bound expression through session.observe(...)."
-            ),
-            help_target="metric.bind_time",
-            details={"parameters": names, "query_executed": False},
-        )
+    """Reject unsupported Metric routes before opening a datasource."""
+    metric = consume_metric(value)
     closure = walk((metric.node,), resolve=dict(metric._declared).get)
-    if any(
-        isinstance(
-            node, (PerReduce, PerWeightedMean, MemberCount, MetricWindow, PopulationContains)
+    unsupported = tuple(
+        dict.fromkeys(
+            type(node).__name__
+            for node in closure.order
+            if isinstance(
+                node, (PerReduce, PerWeightedMean, MemberCount, MetricWindow, PopulationContains)
+            )
         )
-        for node in closure.order
-    ):
-        numeric_failure(
-            "an ordinary source Metric preview",
-            "Population/sample/window preview preparation is unavailable; use physical field previews",
+    )
+    if unsupported:
+        raise SemanticExpressionError(
+            kind=ErrorKind.INVALID_EXPRESSION_STAGE,
+            message="Catalog preview does not support Population, sample, or window Metrics.",
+            expected="an ordinary source Metric preview",
+            received="Population/sample/window preview preparation: " + ", ".join(unsupported),
+            action=(
+                "Preview an ordinary source reduction or a physical field. "
+                "Use Session.observe to execute a supported sample or window Metric."
+            ),
+            help_target="catalog.preview",
         )
 
     for node in closure.order:

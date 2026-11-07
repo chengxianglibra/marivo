@@ -54,10 +54,10 @@ def _values(
         if members is None
         else members
     )
-    field = catalog_value(session.catalog, "sales.customer.region", kind="field")
+    field = catalog_value(session.catalog, "sales.customer.region", kind="dimension")
     scope = session.time_scope(start="2026-08-01", end="2026-09-01")
     domain = (
-        (scope,)
+        ()
         if overall
         else mv.product(scope, members.classify(by=(field,)))
         if grouped
@@ -66,11 +66,11 @@ def _values(
         else mv.product(scope, members)
     )
     assert not isinstance(domain, Deferred)
-    return session.observe(
-        {"value": catalog_value(session.catalog, "sales." + metric, kind="metric")},
-        by=domain,
-        where=mv.in_population(members) if region or grouped or overall else None,
-    )
+    outputs = {"value": catalog_value(session.catalog, "sales." + metric, kind="metric")}
+    condition = mv.in_population(members)
+    if overall:
+        return session.observe(outputs, where=(scope, condition))
+    return session.observe(outputs, by=domain, where=condition if region or grouped else None)
 
 
 def _rank(
@@ -598,18 +598,18 @@ def test_empty_singleton_display_views(analysis_dsl_case_factory: DslCaseFactory
 def test_group_and_entity_time_display_domains(analysis_dsl_case_factory: DslCaseFactory) -> None:
     case = analysis_dsl_case_factory("j2")
     session = case.session
-    region = catalog_value(session.catalog, "sales.customer.region", kind="field")
+    region = catalog_value(session.catalog, "sales.customer.region", kind="dimension")
     groups = _values(case, grouped=True)
     group_values = plain(groups.compute())
     ranking = _rank(group_values, ties="dense")
     assert ranking["rank"].tolist() == [1, 2, 2]
     assert group_values["value"].tolist() == [2, 1, 1]
-    period = session.time_scope(start="2026-07-01", end="2026-10-01").by(mv.grain("month"))
+    period_scope = session.time_scope(start="2026-07-01", end="2026-10-01")
     members = session.members(_entity(session.catalog, "entity:sales.customer"))
     values = session.observe(
         {"value": _metric(session.catalog, "metric:sales.order_count")},
-        by=(period, members.axes[0], region),
-        where=mv.in_population(members),
+        by=(mv.grain("month"), members.axes[0], region),
+        where=(period_scope, mv.in_population(members)),
     )
     frame = plain(values.compute())
     frame = frame.rename(columns={"key_0": "member"})

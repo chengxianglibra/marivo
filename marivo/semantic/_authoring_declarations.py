@@ -110,7 +110,7 @@ def metric(
     *,
     domain: DomainSymbol | None = None,
     ai_context: AiContextValue | None = None,
-) -> Callable[[Callable[..., Deferred | NumericMetric]], NumericMetric]:
+) -> Callable[[Callable[[], Deferred | NumericMetric]], NumericMetric]:
     """Name a Metric without changing its computation or policies.
 
     Args:
@@ -120,24 +120,16 @@ def metric(
         A decorator binding the function name to an immutable Metric declaration.
     Example:
         >>> @ms.metric()
-        ... def revenue(*, event: ms.TimeParameter):
-        ...     return amount.sum(time=event)
-        >>> @ms.metric()
-        ... def paid_revenue():
-        ...     return revenue.bind_time(event=paid_at)
+        ... def revenue():
+        ...     return amount.sum(time=paid_at)
     Constraints:
-        Use a pure body over constructed dependencies. Only keyword-only
-        TimeParameter annotations without defaults are accepted. No loader or
+        Use a zero-argument pure body over constructed dependencies. No loader or
         Session is required. Source roots and operator policies belong to the expression.
         Declaration does not publish a Catalog Metric or execute a query.
         To publish, save at model module top level and load; retrieve
         ``metric:<domain>.<function_name>`` with ``catalog.get(...)``.
-        Outside a declaration body, bind a loaded Metric to a loaded time field.
-        Declare time=field on each source reduction for a fixed contribution clock,
-        or time=slot with a TimeParameter for caller selection. Omit time= for no
-        contribution clock; observe can use explicit time_group or field.within filters.
-        A direct TimeScope/CalendarAxis in observe.by requires a contribution clock
-        on every source reduction. time_group does not supply Metric window endpoints.
+        Specify time=field on a source reduction to select its contribution time.
+        Omit time= to inherit the contribution Entity's declared default, if any.
     """
     from marivo._definition.deferred import DeclarationRecord, declare
     from marivo._definition.types import SourceLocation
@@ -156,7 +148,7 @@ def metric(
         )
     _build_ai_context(ai_context)
 
-    def decorator(fn: Callable[..., Deferred | NumericMetric]) -> NumericMetric:
+    def decorator(fn: Callable[[], Deferred | NumericMetric]) -> NumericMetric:
         location = _caller_location()
         try:
             _validate_segment(fn.__name__, role="Metric declaration name")
@@ -170,7 +162,7 @@ def metric(
                 location_label=f"{location.file}:{location.line}",
             ) from error
         try:
-            value, slots = construct_metric_expression(fn)
+            value = construct_metric_expression(fn)
             declared = declare(
                 _as_deferred(value),
                 DeclarationRecord(
@@ -179,7 +171,6 @@ def metric(
                     domain=ref_factory.domain(domain_key.path) if domain_key is not None else None,
                     ai_context=ai_context,
                     location=SourceLocation(location.file, location.line),
-                    time_slots=slots,
                 ),
             )
             from marivo._definition.deferred import resolver_of

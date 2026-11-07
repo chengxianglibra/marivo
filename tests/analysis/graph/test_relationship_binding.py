@@ -103,7 +103,7 @@ def test_inference_and_root_identity(analysis_dsl_case_factory: DslCaseFactory) 
         LINE_ORDER.path,
         BUYER.path,
     )
-    region = catalog_value(session.catalog, REGION.path, kind="field")
+    region = catalog_value(session.catalog, REGION.path, kind="dimension")
     buyer = catalog_value(session.catalog, BUYER.path, kind="relationship")
     inferred = session.read(orders, {"region": region})
     explicit = session.read(orders, {"region": region.via((buyer,))})
@@ -174,8 +174,8 @@ def test_roles_and_independent_read_paths(analysis_dsl_case_factory: DslCaseFact
         session.members(catalog_value(session.catalog, ORDER.path, kind="entity")),
     )
     revenue = catalog_value(session.catalog, REVENUE.path, kind="metric")
-    customer_id = catalog_value(session.catalog, "sales.customer.customer_id", kind="field")
-    region = catalog_value(session.catalog, REGION.path, kind="field")
+    customer_id = catalog_value(session.catalog, "sales.customer.customer_id", kind="dimension")
+    region = catalog_value(session.catalog, REGION.path, kind="dimension")
     buyer = catalog_value(session.catalog, BUYER.path, kind="relationship")
     recipient = catalog_value(session.catalog, RECIPIENT.path, kind="relationship")
     with pytest.raises(AnalysisError) as ambiguous:
@@ -197,26 +197,23 @@ def test_roles_and_independent_read_paths(analysis_dsl_case_factory: DslCaseFact
         session.read(orders, {"region": region})
     buyer_region, recipient_region = region.via((buyer,)), region.via((recipient,))
     current_frame = session.observe(
-        {"value": revenue}, by=(_window(session), buyer_region, recipient_region)
+        {"value": revenue}, by=(buyer_region, recipient_region), where=_window(session)
     ).persist()
     baseline_frame = session.observe(
         {"value": revenue},
-        by=(
-            session.time_scope(start="2026-07-01", end="2026-08-01"),
-            buyer_region,
-            recipient_region,
-        ),
+        by=(buyer_region, recipient_region),
+        where=session.time_scope(start="2026-07-01", end="2026-08-01"),
     ).persist()
     current = current_frame.to_pandas(
         axis_names={
-            current_frame.axes[1].token: "buyer_region",
-            current_frame.axes[2].token: "recipient_region",
+            current_frame.axes[0].token: "buyer_region",
+            current_frame.axes[1].token: "recipient_region",
         }
     )
     baseline = baseline_frame.to_pandas(
         axis_names={
-            baseline_frame.axes[1].token: "buyer_region",
-            baseline_frame.axes[2].token: "recipient_region",
+            baseline_frame.axes[0].token: "buyer_region",
+            baseline_frame.axes[1].token: "recipient_region",
         }
     )
     current_values = current.set_index(["buyer_region", "recipient_region"])["value"]
@@ -240,14 +237,14 @@ def test_classification_scope_and_complete_components(
 ) -> None:
     session = _extend(analysis_dsl_case_factory("j1"))
     revenue = catalog_value(session.catalog, LINE_REVENUE.path, kind="metric")
-    category = catalog_value(session.catalog, CATEGORY.path, kind="field")
+    category = catalog_value(session.catalog, CATEGORY.path, kind="dimension")
     with pytest.raises((AnalysisError, ms.errors.SemanticExpressionError)):
-        session.observe({"value": revenue}, by=(_window(session), category, category))
+        session.observe({"value": revenue}, by=(category, category), where=_window(session))
     lines = session.members(catalog_value(session.catalog, LINE.path, kind="entity"))
     read = session.read(lines, {"category": category})
     with pytest.raises((AnalysisError, ms.errors.SemanticExpressionError)):
         # Intentional runtime negative: a Query cannot be used as an observation axis.
-        session.observe({"value": revenue}, by=(_window(session), read))  # type: ignore[arg-type]  # Runtime probe: a Frame is not a grouping.
+        session.observe({"value": revenue}, by=(read,), where=_window(session))  # type: ignore[arg-type]  # Runtime probe: a Frame is not a grouping.
     other = mv.session.get_or_create("another-session", timezone="UTC")
     with pytest.raises(AnalysisError):
         session.frame(other.members(catalog_value(other.catalog, LINE.path, kind="entity")))
@@ -255,10 +252,12 @@ def test_classification_scope_and_complete_components(
         session.catalog, REVENUE.path, kind="metric"
     )
     with pytest.raises((AnalysisError, ms.errors.SemanticExpressionError)):
-        session.observe({"value": ratio}, by=(_window(session), category))
+        session.observe({"value": ratio}, by=(category,), where=_window(session))
     with pytest.raises((AnalysisError, ms.errors.SemanticExpressionError)):
         session.observe(
-            {"value": revenue}, by=(_window(session), category.at(session.instant("2026-08-01")))
+            {"value": revenue},
+            by=(category.at(session.instant("2026-08-01")),),
+            where=_window(session),
         )
 
 
@@ -296,7 +295,8 @@ def test_classification_read_preserves_missing_owner_as_null(
     # relationship is outside this read scope.
     observed = session.observe(
         {"value": catalog_value(session.catalog, LINE_REVENUE.path, kind="metric")},
-        by=(_window(session), category),
+        by=(category,),
+        where=_window(session),
     ).persist()
     frame = observed.to_pandas()
     assert frame.set_index(ordinary_columns(observed)[0])["value"].to_dict() == {
@@ -311,11 +311,13 @@ def test_classification_read_preserves_missing_owner_as_null(
 def test_branch_and_consumed_coverage(analysis_dsl_case_factory: DslCaseFactory) -> None:
     case = analysis_dsl_case_factory("j1")
     session = _extend(case)
-    category = catalog_value(session.catalog, CATEGORY.path, kind="field")
+    category = catalog_value(session.catalog, CATEGORY.path, kind="dimension")
     route = catalog_value(session.catalog, LINE_PRODUCT.path, kind="relationship")
     metric = catalog_value(session.catalog, LINE_REVENUE.path, kind="metric")
-    automatic = session.observe({"value": metric}, by=(_window(session), category))
-    explicit = session.observe({"value": metric}, by=(_window(session), category.via((route,))))
+    automatic = session.observe({"value": metric}, by=(category,), where=_window(session))
+    explicit = session.observe(
+        {"value": metric}, by=(category.via((route,)),), where=_window(session)
+    )
     automatic_axis = next(
         axis
         for axis in source_graph(automatic).signature.axes
@@ -380,7 +382,7 @@ def test_multiroot_branch_arithmetic(analysis_dsl_case_factory: DslCaseFactory) 
     with duckdb.connect(str(case.database_path)) as connection:
         connection.execute("INSERT INTO product VALUES ('R', 'spare')")
         connection.execute("UPDATE order_line SET product_id='R' WHERE line_id='outside'")
-    category = catalog_value(session.catalog, CATEGORY.path, kind="field")
+    category = catalog_value(session.catalog, CATEGORY.path, kind="dimension")
     line_revenue = catalog_value(session.catalog, LINE_REVENUE.path, kind="metric")
     revenue = catalog_value(session.catalog, REVENUE.path, kind="metric")
     buckets = mv.membership(
@@ -397,7 +399,7 @@ def test_multiroot_branch_arithmetic(analysis_dsl_case_factory: DslCaseFactory) 
     )
     ratio, linear = line_revenue / revenue, line_revenue - revenue
     grouped = session.observe(
-        {"ratio": ratio, "linear": linear}, by=(_window(session), buckets)
+        {"ratio": ratio, "linear": linear}, by=(buckets,), where=_window(session)
     ).persist()
     exported = grouped.to_pandas()
     frame = exported.set_index(ordinary_columns(grouped)[0])
@@ -406,7 +408,7 @@ def test_multiroot_branch_arithmetic(analysis_dsl_case_factory: DslCaseFactory) 
     assert frame["linear"].to_dict() == pytest.approx({"book": -150, "game": 150})
 
     overall = (
-        session.observe({"ratio": ratio, "linear": linear}, by=(_window(session),))
+        session.observe({"ratio": ratio, "linear": linear}, where=_window(session))
         .persist()
         .to_pandas()
     )
@@ -443,7 +445,7 @@ def test_timed_classification_cannot_remove_consumed_contributions(
     model.write_text(contents.replace("# Named expressions", fields + "# Named expressions", 1))
     session = mv.session.get_or_create("timed-coverage", timezone="UTC")
     metric = catalog_value(session.catalog, LINE_REVENUE.path, kind="metric")
-    field = catalog_value(session.catalog, CATEGORY.path, kind="field")
+    field = catalog_value(session.catalog, CATEGORY.path, kind="dimension")
     observed = []
     for start, end, instant, key, expected in (
         ("2026-08-01", "2026-09-01", "2026-08-31T23:59:59.999999+00:00", "book", 1000),
@@ -451,7 +453,7 @@ def test_timed_classification_cannot_remove_consumed_contributions(
     ):
         category = field.at(session.instant(instant))
         scope = session.time_scope(start=start, end=end)
-        complete = session.observe({"value": metric}, by=(scope, category))
+        complete = session.observe({"value": metric}, by=(category,), where=scope)
         saved = complete.persist()
         frame = saved.to_pandas()
         assert frame[ordinary_columns(saved)[0]].tolist() == [key]

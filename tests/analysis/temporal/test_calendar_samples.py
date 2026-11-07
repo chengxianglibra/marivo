@@ -103,7 +103,7 @@ def test_weekly_calendar_samples_use_actual_days_and_finish_daily_p95(
     facts = facts_entry
     revenue = amount.sum(time=point)
     daily_p95 = revenue.per(point).quantile(0.95)
-    weeks = session.time_scope(start="2026-10-05", end="2026-10-12").by(mv.grain("week"))
+    weeks_scope = session.time_scope(start="2026-10-05", end="2026-10-12")
     # Each reducer has its own independent oracle. Compiling all seven into
     # one graph multiplies unrelated compiler work; mixed outputs are covered
     # by test_observe_different_fields_share_one_actual_aggregate.
@@ -116,13 +116,18 @@ def test_weekly_calendar_samples_use_actual_days_and_finish_daily_p95(
         "last": revenue.per(mv.grain("day")).last(),
         "nested": revenue.per(mv.grain("hour")).max().per(mv.grain("day")).mean(),
     }
-    rows = session.observe({name: metrics[name]}, by=(weeks, region)).compute().to_pandas()
+    rows = (
+        session.observe({name: metrics[name]}, by=(mv.grain("week"), region), where=weeks_scope)
+        .compute()
+        .to_pandas()
+    )
     # Actual daily sums [40, 60, 160, 300]; daily P95 [29, 39, 89, 159].
     assert rows[name].tolist() == (pytest.approx([expected]) if name == "nested" else [expected])
     if name == "ratio_mean":
         assert session.observe(
             {"v": (revenue / facts.count(time=point)).per(mv.grain("day")).mean(nulls="error")},
-            by=(weeks,),
+            by=(mv.grain("week"),),
+            where=weeks_scope,
         ).compute().to_pandas()["v"].tolist() == [70]
 
 
@@ -135,13 +140,19 @@ def test_calendar_samples_clip_partial_month_edges_and_plain_scope(
     metric = amount.sum(time=point).per(mv.grain("day")).mean()
     scope = session.time_scope(start="2026-10-05T06:00:00", end="2026-11-02T06:00:00")
     monthly = (
-        session.observe({"v": metric}, by=(scope.by(mv.grain("month")),)).compute().to_pandas()
+        session.observe({"v": metric}, by=(mv.grain("month"),), where=scope).compute().to_pandas()
     )
     assert monthly["v"].tolist() == pytest.approx([550 / 4, 125])
-    whole = session.observe({"v": metric}, by=(scope,)).compute().to_pandas()
+    whole = session.observe({"v": metric}, where=scope).compute().to_pandas()
     assert whole["v"].tolist() == pytest.approx([800 / 6])
-    empty = session.time_scope(start="2026-10-12", end="2026-10-19").by(mv.grain("week"))
-    assert session.observe({"v": metric}, by=(empty,)).compute().to_pandas()["v"].isna().all()
+    empty_scope = session.time_scope(start="2026-10-12", end="2026-10-19")
+    assert (
+        session.observe({"v": metric}, by=(mv.grain("week"),), where=empty_scope)
+        .compute()
+        .to_pandas()["v"]
+        .isna()
+        .all()
+    )
 
 
 def test_calendar_samples_bucket_each_component_by_its_own_clock(calendar_session: Session) -> None:
@@ -150,8 +161,10 @@ def test_calendar_samples_bucket_each_component_by_its_own_clock(calendar_sessio
     point = catalog_value(session.catalog, "sales.facts.point", kind="time_dimension")
     other = catalog_value(session.catalog, "sales.facts.other", kind="time_dimension")
     metric = (amount.sum(time=point) + amount.sum(time=other)).per(mv.grain("day")).max()
-    scope = session.time_scope(start="2026-10-05", end="2026-10-12").by(mv.grain("week"))
-    assert session.observe({"v": metric}, by=(scope,)).compute().to_pandas()["v"].tolist() == [300]
+    scope_scope = session.time_scope(start="2026-10-05", end="2026-10-12")
+    assert session.observe(
+        {"v": metric}, by=(mv.grain("week"),), where=scope_scope
+    ).compute().to_pandas()["v"].tolist() == [300]
 
 
 def test_final_completion_keeps_empty_policies_and_historical_window_values(
@@ -161,7 +174,7 @@ def test_final_completion_keeps_empty_policies_and_historical_window_values(
     amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
     point = catalog_value(session.catalog, "sales.facts.point", kind="time_dimension")
     total = amount.sum(time=point)
-    days = session.time_scope(start="2026-10-12", end="2026-10-14").by(mv.grain("day"))
+    days_scope = session.time_scope(start="2026-10-12", end="2026-10-14")
     rows = (
         session.observe(
             {
@@ -170,7 +183,8 @@ def test_final_completion_keeps_empty_policies_and_historical_window_values(
                 "sample_mean": total.per(mv.grain("hour")).mean(),
                 "history": total.window(mv.trailing_duration(duration=timedelta(days=2))),
             },
-            by=(days,),
+            by=(mv.grain("day"),),
+            where=days_scope,
         )
         .compute()
         .to_pandas()
@@ -192,17 +206,21 @@ def test_actual_null_sample_is_retained_while_missing_samples_are_absent(
     amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
     point = catalog_value(session.catalog, "sales.facts.point", kind="time_dimension")
     metric = amount.sum(time=point)
-    days = session.time_scope(start="2027-01-01", end="2027-01-03").by(mv.grain("day"))
-    rows = session.observe({"v": metric + 1}, by=(days,)).compute().to_pandas()
+    days_scope = session.time_scope(start="2027-01-01", end="2027-01-03")
+    rows = (
+        session.observe({"v": metric + 1}, by=(mv.grain("day"),), where=days_scope)
+        .compute()
+        .to_pandas()
+    )
     assert pd.isna(rows.v.iloc[0]) and rows.v.iloc[1] == 1
     strict = metric.per(mv.grain("hour")).mean(nulls="error")
     with pytest.raises(MaterializationError, match="non-NA internal samples"):
         session.observe(
-            {"v": strict}, by=(session.time_scope(start="2027-01-01", end="2027-01-02"),)
+            {"v": strict}, where=session.time_scope(start="2027-01-01", end="2027-01-02")
         ).compute()
     missing = (
         session.observe(
-            {"v": strict}, by=(session.time_scope(start="2027-01-02", end="2027-01-03"),)
+            {"v": strict}, where=session.time_scope(start="2027-01-02", end="2027-01-03")
         )
         .compute()
         .to_pandas()
@@ -215,18 +233,17 @@ def test_calendar_sample_binding_errors_are_structured(calendar_session: Session
     amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
     point = catalog_value(session.catalog, "sales.facts.point", kind="time_dimension")
     metric = amount.sum(time=point)
-    month = session.time_scope(start="2026-10-05", end="2026-11-02").by(mv.grain("month"))
-    for value, by, expected, received in (
-        (metric.per(mv.grain("week")).mean(), (month,), "static", "week"),
-        (amount.sum().per(mv.grain("day")).mean(), (month,), "time role", "SourceAggregate"),
-    ):
-        with pytest.raises(CoreRuleError) as captured:
-            session.observe({"v": value}, by=by)
-        error = captured.value
-        assert error.kind == "CoreRule"
-        assert expected in (error.expected or "")
-        assert received in (error.received or "")
-        assert error.repair is not None and error.repair.action
+    scope = session.time_scope(start="2026-10-05", end="2026-11-02")
+    month = scope.by(mv.grain("month"))
+    with pytest.raises(CoreRuleError) as captured:
+        session.observe(
+            {"v": metric.per(mv.grain("week")).mean()}, by=(mv.grain("month"),), where=scope
+        )
+    assert "static" in (captured.value.expected or "")
+    assert "week" in (captured.value.received or "")
+    assert captured.value.repair is not None and captured.value.repair.action
+    with pytest.raises(SemanticExpressionError, match="contribution time"):
+        amount.sum().per(mv.grain("day")).mean()
     with pytest.raises(AttributeError):
         absent = metric.sum  # type: ignore[attr-defined]  # Verify the missing Metric method.
         assert absent is None
@@ -246,9 +263,9 @@ def test_calendar_folding_keeps_sparse_native_samples_and_empty_cells(
     sampled = catalog_value(session.catalog, "sales.facts.sampled", kind="time_dimension")
     p95 = amount.sum(time=sampled).per(sampled).quantile(0.95).per(mv.grain("day")).mean()
     scope = session.time_scope(start="2026-10-05", end="2026-10-07")
-    assert session.observe({"v": p95}, by=(scope,)).compute().to_pandas()["v"].tolist() == [34]
+    assert session.observe({"v": p95}, where=scope).compute().to_pandas()["v"].tolist() == [34]
     missing = session.time_scope(start="2026-10-05", end="2026-10-08")
-    assert session.observe({"v": p95}, by=(missing,)).compute().to_pandas()["v"].tolist() == [34]
+    assert session.observe({"v": p95}, where=missing).compute().to_pandas()["v"].tolist() == [34]
 
 
 def test_published_calendar_metric_can_be_nested_under_another_calendar_layer(
@@ -260,7 +277,7 @@ def test_published_calendar_metric_can_be_nested_under_another_calendar_layer(
     daily = daily_entry
     scope = session.time_scope(start="2026-10-05", end="2026-11-02")
     rows = (
-        session.observe({"v": daily.per(mv.grain("week")).max()}, by=(scope,)).compute().to_pandas()
+        session.observe({"v": daily.per(mv.grain("week")).max()}, where=scope).compute().to_pandas()
     )
     assert rows["v"].tolist() == [200]
 
@@ -297,9 +314,13 @@ def test_calendar_sample_mean_uses_present_hours_during_dst(calendar_session: Se
     session = mv.session.get_or_create("calendar-new-york", timezone="America/New_York")
     amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
     point = catalog_value(session.catalog, "sales.facts.point", kind="time_dimension")
-    day = session.time_scope(start="2026-11-01", end="2026-11-02").by(mv.grain("day"))
+    day_scope = session.time_scope(start="2026-11-01", end="2026-11-02")
     rows = (
-        session.observe({"v": amount.sum(time=point).per(mv.grain("hour")).mean()}, by=(day,))
+        session.observe(
+            {"v": amount.sum(time=point).per(mv.grain("hour")).mean()},
+            by=(mv.grain("day"),),
+            where=day_scope,
+        )
         .compute()
         .to_pandas()
     )
@@ -316,10 +337,10 @@ def test_calendar_sample_windows_reject_instead_of_silently_ignoring_rules(
     revenue = catalog_value(session.catalog, "sales.facts.amount", kind="measure").sum(
         time=catalog_value(session.catalog, "sales.facts.point", kind="time_dimension")
     )
-    scope = session.time_scope(
+    scope_scope = session.time_scope(
         start="2026-10-12" if empty else "2026-10-05",
         end="2026-10-19" if empty else "2026-10-12",
-    ).by(mv.grain("week"))
+    )
     rule = mv.to_date(grain=mv.grain("week")) if reset else mv.all_history()
     metric = (
         revenue.window(rule).per(mv.grain("day")).sum()
@@ -329,12 +350,12 @@ def test_calendar_sample_windows_reject_instead_of_silently_ignoring_rules(
     # Inner all-history values would be [40, 100, 100, 260, 260, 260, 560]
     # or seven copies of 560 in the empty week. Returning 560 or 0 ignores the rule.
     with pytest.raises(CoreRuleError) as captured:
-        session.observe({"v": metric}, by=(scope,))
+        session.observe({"v": metric}, by=(mv.grain("week"),), where=scope_scope)
     error = captured.value
     assert "window" in (error.expected or "").lower()
     assert "calendar" in (error.received or "").lower()
     assert error.repair
-    assert "CalendarAxis" in error.repair.action
+    assert "report Grain" in error.repair.action
     if placement == "wrapping":
         assert "cannot be windowed" in error.repair.action
 
@@ -356,7 +377,7 @@ def test_calendar_window_rejection_reaches_weighted_nested_and_declared_formulas
     scope = session.time_scope(start="2026-10-05", end="2026-10-12")
     for metric in metrics:
         with pytest.raises(CoreRuleError) as captured:
-            session.observe({"v": metric}, by=(scope,))
+            session.observe({"v": metric}, where=scope)
         assert "window" in (captured.value.expected or "").lower()
         assert captured.value.repair
 
@@ -367,14 +388,15 @@ def test_calendar_folds_and_windows_on_independent_branches_keep_their_values(
     session = calendar_session
     point = catalog_value(session.catalog, "sales.facts.point", kind="time_dimension")
     revenue = catalog_value(session.catalog, "sales.facts.amount", kind="measure").sum(time=point)
-    weeks = session.time_scope(start="2026-10-12", end="2026-10-19").by(mv.grain("week"))
+    weeks_scope = session.time_scope(start="2026-10-12", end="2026-10-19")
     data = (
         session.observe(
             {
                 "v": revenue.per(mv.grain("day")).sum()
                 + revenue.window(mv.all_history()).per(point).sum()
             },
-            by=(weeks,),
+            by=(mv.grain("week"),),
+            where=weeks_scope,
         )
         .compute()
         .to_pandas()

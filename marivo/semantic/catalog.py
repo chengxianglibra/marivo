@@ -118,7 +118,6 @@ from marivo.semantic._expression_values import (
     TimeExpression,
     _OmittedTime,
 )
-from marivo.semantic._time_parameters import TimeParameter
 from marivo.semantic.catalog_entries import (
     CatalogFilters,
     CatalogPage,
@@ -131,9 +130,9 @@ from marivo.semantic.catalog_entries import (
     FieldDefinition,
     JsonValue,
     MetricDefinition,
+    MetricNoTimeBinding,
     MetricTimeBinding,
     MetricTimeFieldBinding,
-    MetricTimeParameterBinding,
     PeriodCalendarDefinition,
     RelationshipDefinition,
     TemporalSetDefinition,
@@ -250,8 +249,12 @@ EntityVersioning = EntityVersioningIR
 def _metric_time_binding_text(binding: MetricTimeBinding) -> str:
     if isinstance(binding, MetricTimeFieldBinding):
         return f"{binding.field} ({binding.source})"
-    if isinstance(binding, MetricTimeParameterBinding):
-        return f"{binding.parameter} ({binding.source})"
+    if isinstance(binding, MetricNoTimeBinding):
+        return (
+            f"{binding.root} (no Entity default time)"
+            if binding.root is not None
+            else "fixed Population.count (no contribution time)"
+        )
     return "(none)"
 
 
@@ -931,13 +934,7 @@ class _SemanticObject(RenderableResult, Generic[CatalogEntryKindT]):
             '.related("dependencies")',
             '.show(section="definition", max_output_bytes=None)',
         ]
-        if isinstance(definition, MetricDefinition) and definition.time_parameters:
-            available.append(
-                ".bind_time("
-                + ", ".join(f"{slot.name}=..." for slot in definition.time_parameters[:6])
-                + ") -> bind remaining time parameters"
-            )
-        elif isinstance(definition, (MetricDefinition, FieldDefinition, EntityDefinition)):
+        if isinstance(definition, (MetricDefinition, FieldDefinition, EntityDefinition)):
             available.append("direct typed expression and Analysis input")
         elif isinstance(definition, RelationshipDefinition):
             available.append(
@@ -965,8 +962,14 @@ class _SemanticObject(RenderableResult, Generic[CatalogEntryKindT]):
         if isinstance(definition, MetricDefinition):
             card.field("formula", definition.formula)
             card.field("unit", definition.unit or "(none)")
-            for slot in definition.time_parameters[:6]:
-                card.field("time_parameter", f"{slot.name}: {', '.join(slot.roots)}")
+            card.field(
+                "report_time",
+                "available"
+                if all(
+                    isinstance(item, MetricTimeFieldBinding) for item in definition.time_bindings
+                )
+                else "unavailable: some Metric branches have no contribution time",
+            )
             for binding in definition.time_bindings[:6]:
                 card.field("time_binding", _metric_time_binding_text(binding))
             for dependency in definition.dependency_context:
@@ -1003,6 +1006,7 @@ class _SemanticObject(RenderableResult, Generic[CatalogEntryKindT]):
             card.field("expression", definition.expression)
             card.field("primary_key", ", ".join(definition.primary_key))
             card.field("datasource", definition.datasource)
+            card.field("default_time", definition.default_time or "(none)")
         elif isinstance(definition, (PeriodCalendarDefinition, TemporalSetDefinition)):
             card.field("boundary_timezone", definition.boundary_timezone)
             card.field("coverage", str(definition.coverage))
@@ -1524,26 +1528,24 @@ class Entity(_SemanticObject[EntityKind]):
         """
         return self.definition.primary_key
 
-    def count(
-        self, *, time: TimeExpression | TimeParameter | _OmittedTime = _OMITTED_TIME
-    ) -> NumericMetric:
+    def count(self, *, time: TimeExpression | _OmittedTime = _OMITTED_TIME) -> NumericMetric:
         """Capture an anonymous Metric counting this Entity's contributing rows.
 
         Args:
-            time: Contribution time field or declared Metric time parameter. Omit for a count without a time role.
+            time: Contribution TimeDimension. Omit to use this Entity's default if declared.
 
         Returns:
             A numeric MetricExpression retaining the Entity identity and input context.
 
         Example:
-            ``session.observe({"orders": orders.count(time=paid_at)}, by=(period,))``.
+            ``session.observe({"orders": orders.count(time=paid_at)}, where=period)``.
 
         Constraints:
             Construction reads no source. The receiver binds the named Entity in its
             completed scope; use a Mapping to give this anonymous output a name.
         """
         from marivo._definition.deferred import NamedResolver
-        from marivo.semantic._expression_values import _merge, _parameter
+        from marivo.semantic._expression_values import _merge, _parameter, _source_arguments
 
         value = self._catalog._index.values.get(self._ref)
         assert isinstance(value, _Entity)
@@ -1555,11 +1557,19 @@ class Entity(_SemanticObject[EntityKind]):
 
         leaf = NamedResolver(
             value._exact_ref,
-            SemanticResolver(SemanticInput(value._exact_ref, value._exact_ref, "1", SumNone())),
+            SemanticResolver(
+                SemanticInput(
+                    value._exact_ref,
+                    value._exact_ref,
+                    "1",
+                    SumNone(),
+                    default_time=value._default_time,
+                )
+            ),
         )
         recipe = Call(
             Attr(leaf, "count"),
-            **({"time": _parameter(time)} if not isinstance(time, _OmittedTime) else {}),
+            **{key: _parameter(item) for key, item in _source_arguments(leaf, time).items()},
         )
         return MetricExpression(recipe, _merge(self._context, time), "numeric")
 
@@ -3482,7 +3492,6 @@ class SemanticCatalog(RenderableResult):
                     ("time_binding", _metric_time_binding_text(item))
                     for item in definition.time_bindings
                 )
-                fields.extend(("time_parameter", slot.name) for slot in definition.time_parameters)
             elif isinstance(definition, EntityDefinition):
                 fields.append(("expression", definition.expression))
             elif isinstance(definition, FieldDefinition):
@@ -3920,7 +3929,7 @@ class SemanticCatalog(RenderableResult):
                 node = row.node
             else:
                 original = self._reg.declared_metrics[target.path]
-                metric = consume_metric(original, allow_open=True)
+                metric = consume_metric(original)
                 roots, unit, permission = metric.roots, metric.unit, None
                 node = metric.node
             context = declaration.ai_context
@@ -3940,7 +3949,7 @@ class SemanticCatalog(RenderableResult):
                 facts=_rescale_disclosure(value),
                 operations=(
                     "native Ibis numerical composition",
-                    "sum/mean" if declaration.kind == "measure" else "bind_time/where/per/window",
+                    "sum/mean" if declaration.kind == "measure" else "where/per/window",
                 ),
             )
         _raise(

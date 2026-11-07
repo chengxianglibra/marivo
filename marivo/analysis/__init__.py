@@ -184,7 +184,6 @@ if TYPE_CHECKING:
     from marivo.analysis.dsl.population import membership as membership
     from marivo.analysis.dsl.population import product as product
     from marivo.analysis.dsl.temporal import CalendarAxis as CalendarAxis
-    from marivo.analysis.dsl.time_group import time_group as time_group
     from marivo.analysis.session.core import Session as Session
 
 

@@ -49,10 +49,11 @@ def test_authored_relationship_keys_execute_metric(relationship_project: Path) -
         )
     session = mv.session.get_or_create("relationship", timezone="UTC")
     route = catalog_get(session.catalog, "relationship:sales.event_order", kind="relationship")
-    region = catalog_value(session.catalog, "sales.orders.region", kind="field").via((route,))
+    region = catalog_value(session.catalog, "sales.orders.region", kind="dimension").via((route,))
     observed = session.observe(
         {"value": catalog_get(session.catalog, "metric:sales.event_count", kind="metric")},
-        by=(session.time_scope(start="2026-01-01", end="2026-02-01"), region),
+        by=(region,),
+        where=session.time_scope(start="2026-01-01", end="2026-02-01"),
     ).persist()
     metric = observed.to_pandas()
     assert dict(zip(metric[ordinary_columns(observed)[0]], metric["value"], strict=True)) == {
@@ -63,7 +64,7 @@ def test_authored_relationship_keys_execute_metric(relationship_project: Path) -
 
 def test_membership_ref_and_members_entity_have_typed_repairs(relationship_project: Path) -> None:
     session = mv.session.get_or_create("relationship-inputs", timezone="UTC")
-    region = catalog_value(session.catalog, "sales.orders.region", kind="field")
+    region = catalog_value(session.catalog, "sales.orders.region", kind="dimension")
     relationship_ref = ms.ref.relationship("sales.event_order")
     membership = mv.membership(region, via=((relationship_ref,),), unmatched="exclude")
     assert isinstance(membership, Deferred)
@@ -73,7 +74,7 @@ def test_membership_ref_and_members_entity_have_typed_repairs(relationship_proje
             by=(membership,),  # type: ignore[arg-type]  # Bare references are not closed inputs.
         )
     error = invalid_path.value
-    assert error.expected == "a semantic field, Grouping, TimeScope or Population"
+    assert error.expected == "a closed Dimension, Grouping or Grain"
     assert error.received == "Deferred"
     assert error.repair is not None
     assert "Catalog" in error.repair.action

@@ -27,7 +27,7 @@ order_date = ms.time_dimension_column(
 )
 ```
 
-物理列使用 `ms.time_dimension_column`，派生字段使用 `@ms.time_dimension`。原生日期和带时区时间戳无需解析器；编码字符串或整数使用 `ms.strptime(...)`，只有小时的字段使用 `ms.hour_prefix(...)`。DATE、无时区时间戳和编码时间必须在解析器或 Datasource `wall_clock_timezone` 上声明源时区；两者都缺失时在读取业务数据前拒绝。原生带时区时间戳忽略 Datasource 默认值。在源规约中用 `time=field` 指定贡献时间。省略 `time` 即无时间角色。需要观察范围时，在 `observe.by` 中提供 `TimeScope`。财务期间参见[业务日历](#业务日历)。
+物理列使用 `ms.time_dimension_column`，派生字段使用 `@ms.time_dimension`。原生日期和带时区时间戳无需解析器；编码字符串或整数使用 `ms.strptime(...)`，只有小时的字段使用 `ms.hour_prefix(...)`。DATE、无时区时间戳和编码时间必须在解析器或 Datasource `wall_clock_timezone` 上声明源时区；两者都缺失时在读取业务数据前拒绝。原生带时区时间戳忽略 Datasource 默认值。源规约通过 `time=field` 或继承 Entity 的可选 `default_time` 固定贡献时间。在 `observe.where` 中传入报告 TimeScope 以选择范围，在 `observe.by` 中传入 Grain 以分桶。财务期间参见[业务日历](#业务日历)。
 
 `sample_interval` 描述来源采样节拍，不会将时间戳截断或分桶。所有 TimeField 样本规约均允许缺点；已表示样本上的 NULL 遵循规约自身策略，声明节拍不代表来源完整。
 
@@ -119,7 +119,7 @@ AND 中的必需 `event_hour.within(scope)` 条件，包括午夜起点。整日
 ```python
 # Continue in the quick-start analysis Session.
 august = session.time_scope(start="2026-08-01", end="2026-09-01", timezone="UTC")
-days = august.by(mv.grain("day"))
+day = mv.grain("day")
 ```
 
 Python 无时区 `datetime` 对象以及含糊或不存在的本地边界时间会被拒绝。民用边界使用 `date`，精确的日内时刻使用带明确偏移量的 ISO 时间戳。
@@ -131,7 +131,7 @@ Python 无时区 `datetime` 对象以及含糊或不存在的本地边界时间�
 | `unit` | 是 | — | 日历单位：second、minute、hour、day、week、month、quarter、year。 |
 | `count` | 否 | `1` | 日内单位的规范正数宽度，时长小于一天且能整除一个标准日；日及更粗单位使用 `count=1`。 |
 
-`scope.by(grain)` 返回 `CalendarAxis`。在日内粒度下，日历网格会跳过不存在的本地时间，并为重复的本地时间保留两个时刻。自然日和自然月是日历期间，因此夏令时切换前后的经过时长可能不同。DATE 时间角色要求贡献使用日或更粗粒度，并以业务午夜为起止边界。观察和比较示例见[时间序列与窗口](/zh-cn/docs/latest/analysis/time-series/)。
+用 `where=august, by=(day,)` 观察按日分桶的结果。构造显式 Population 或偏移域时，`scope.by(grain)` 返回 `CalendarAxis`。在日内粒度下，日历网格会跳过不存在的本地时间，并为重复的本地时间保留两个时刻。自然日和自然月是日历期间，因此夏令时切换前后的经过时长可能不同。DATE 时间角色要求贡献使用日或更粗粒度，并以业务午夜为起止边界。观察和比较示例见[时间序列与窗口](/zh-cn/docs/latest/analysis/time-series/)。
 
 ## 业务日历：`ms.period_calendar`
 
@@ -232,7 +232,7 @@ period.show()
 
 ## 声明期日历粒度：`ms.calendar_grain`
 
-`ms.calendar_grain(calendar=calendar_ref, level="week")` 在建模时创建不读取来源的粒度查找。认证后，`calendar.grain("week")` 返回绑定到该快照的粒度；用此粒度调用 `scope.by(grain)` 或 Metric 窗口。
+`ms.calendar_grain(calendar=calendar_ref, level="week")` 在建模时创建不读取来源的粒度查找。认证后，`calendar.grain("week")` 返回绑定到该快照的粒度；可在 `observe.by` 中结合完整认证期间使用该 Grain，也可调用 `scope.by(grain)` 构造显式域，或用于 Metric 窗口。
 
 自定义日历输出只接受一个完整的已认证期间。多期间、稀疏或局部选择在业务读取前拒绝；自定义样本层级没有隐式嵌套规则。
 

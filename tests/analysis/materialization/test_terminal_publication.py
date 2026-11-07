@@ -432,8 +432,10 @@ def test_real_source_repeat_execution_and_nullable_local_combination(
 def test_calendar_positions_are_explicit_output_attachment(source_session: Session) -> None:
     session = source_session
     metric = catalog_value(session.catalog, "sales.revenue", kind="metric")
-    axis = session.time_scope(start="2026-01-01", end="2026-01-05").by(mv.grain("day"))
-    artifact = session.observe({"revenue": metric}, by=(axis,)).persist()
+    axis_scope = session.time_scope(start="2026-01-01", end="2026-01-05")
+    artifact = session.observe(
+        {"revenue": metric}, by=(mv.grain("day"),), where=axis_scope
+    ).persist()
     (attachment,) = committed(artifact).data.attachments
     calendar_axis = artifact._schema.axes[0]
     assert isinstance(calendar_axis, CalendarDataAxis)
@@ -447,15 +449,14 @@ def test_calendar_positions_are_explicit_output_attachment(source_session: Sessi
 @pytest.mark.parametrize("zone", ("Europe/Paris", "UTC+05:30"))
 def test_calendar_timezone_survives_private_cold_read(source_session: Session, zone: str) -> None:
     session = source_session
-    axis = session.time_scope(start="2026-03-28", end="2026-03-31", timezone=zone).by(
-        mv.grain("day")
-    )
+    axis_scope = session.time_scope(start="2026-03-28", end="2026-03-31", timezone=zone)
+    axis = axis_scope.by(mv.grain("day"))
     # Both producers enter the same fresh reader process for this timezone.
     constant = calendar_constant(session, axis).persist()
     assert session._catalog_value is None
     assert constant.source_reads == ()
     metric = catalog_value(session.catalog, "sales.revenue", kind="metric")
-    sourced = session.observe({"value": metric}, by=(axis,)).persist()
+    sourced = session.observe({"value": metric}, by=(mv.grain("day"),), where=axis_scope).persist()
     script = """from pathlib import Path
 import sys
 import pandas as pd

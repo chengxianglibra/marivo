@@ -140,9 +140,11 @@ def test_decimal_fold_retains_widened_sample_type(
         fixed,
         session.observe(
             {"value": folded},
-            by=(session.time_scope(start="2026-08-01", end="2026-08-03"),),
-            where=mv.in_population(
-                session.members(_entity(session.catalog, "entity:sales.customer"))
+            where=(
+                session.time_scope(start="2026-08-01", end="2026-08-03"),
+                mv.in_population(
+                    session.members(_entity(session.catalog, "entity:sales.customer"))
+                ),
             ),
         ).compute(),
     ):

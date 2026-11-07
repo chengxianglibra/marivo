@@ -193,8 +193,8 @@ def test_each_fact_occurrence_keeps_its_condition_and_complete_classification(
     scope = session.time_scope(start="2026-01-01", end="2026-02-01")
     query = session.observe(
         {"net": revenue - refunds, "branches": branches},
-        by=(scope.by(mv.grain("day")), region),
-        where=region == "APAC",
+        by=(mv.grain("day"), region),
+        where=(scope, region == "APAC"),
     )
     binding = _captured_observation(query)
     assert binding is not None
@@ -297,7 +297,7 @@ def test_time_samples_without_period_keep_formula_and_declared_closure(
     query = session.observe({"zero": nested}, where=field.within(scope))
     assert _captured_observation(query).period is None
     assert (
-        _captured_graph(session.observe({"sample": nested}, by=(scope,))).signature.observation
+        _captured_graph(session.observe({"sample": nested}, where=scope)).signature.observation
         is not None
     )
 
@@ -311,12 +311,12 @@ def test_time_role_is_optional_but_explicit_cross_entity_time_keeps_its_path(
     query = session.observe({"count": customers.count()})
     assert _captured_observation(query).contributions[0].time is None
     scope = session.time_scope(start="2026-01-01", end="2026-02-01")
-    with pytest.raises(CoreRuleError, match="business time role"):
-        session.observe({"count": customers.count()}, by=(scope,))
+    with pytest.raises(CoreRuleError, match="concrete contribution time"):
+        session.observe({"count": customers.count()}, where=scope)
     time = catalog_value(catalog, "sales.customers.created_at", kind="time_dimension")
     buyer = catalog_get(catalog, "relationship:sales.buyer", kind="relationship")
     amount = catalog_value(catalog, "sales.orders.amount", kind="measure")
-    query = session.observe({"revenue": amount.sum(time=time.via((buyer,)))}, by=(scope,))
+    query = session.observe({"revenue": amount.sum(time=time.via((buyer,)))}, where=scope)
     contribution = _captured_observation(query).contributions[0]
     assert contribution.time is not None
     assert contribution.time.field == consume_field(time).reference
@@ -563,7 +563,6 @@ def test_explicit_count_capture_keeps_each_domain_without_reading(
     scope = session.time_scope(start="2026-01-01", end="2026-02-01")
     frame = session.observe(
         {"p": p.count(), "q": q.count(), "ratio": amount.sum(time=ordered_at) / p.count()},
-        by=(scope,),
     )
     graph = _captured_graph(frame)
     counts = tuple(
@@ -573,10 +572,11 @@ def test_explicit_count_capture_keeps_each_domain_without_reading(
     )
     assert {node.population for node in counts} == {p._definition, q._definition}
     assert len(_captured_observation(frame).count_populations) == 2
-    assert frame.axes[0].role == "interval"
+    assert frame.axes == ()
     assert terminal_runs(session) == ()
-    with pytest.raises(AnalysisError, match="at most one direct observation time axis"):
-        session.observe({"p": p.count()}, by=(scope, scope.by(mv.grain("day"))))
+    for by, where in (((mv.grain("day"),), None), ((), scope)):
+        with pytest.raises(AnalysisError, match=r"fixed Population.count"):
+            session.observe({"ratio": amount.sum(time=ordered_at) / p.count()}, by=by, where=where)
 
 
 def test_observation_context_captures_direct_subject_and_only_explicit_window(
@@ -597,7 +597,8 @@ def test_observation_context_captures_direct_subject_and_only_explicit_window(
             "weekly": revenue.window(mv.trailing_periods(count=7)),
             "anonymous": revenue + 0,
         },
-        by=(scope.by(mv.grain("day")),),
+        by=(mv.grain("day"),),
+        where=scope,
     )
     daily, weekly, anonymous = (
         frame.schema.value_contexts[name] for name in ("daily", "weekly", "anonymous")
@@ -638,8 +639,10 @@ def test_explicit_window_fact_variants_are_closed(
         "trailing_duration": mv.trailing_duration(duration=timedelta(days=7)),
         "trailing_periods": mv.trailing_periods(count=7),
     }
-    axis = session.time_scope(start="2026-01-10", end="2026-01-12").by(mv.grain("day"))
-    frame = session.observe({"value": metric.window(rules[variant])}, by=(axis,))
+    axis_scope = session.time_scope(start="2026-01-10", end="2026-01-12")
+    frame = session.observe(
+        {"value": metric.window(rules[variant])}, by=(mv.grain("day"),), where=axis_scope
+    )
     from marivo.analysis.core.frame_interpretation import FrameObservationContext
 
     context = frame.schema.value_contexts["value"]
@@ -660,11 +663,13 @@ def test_comparison_contexts_keep_distinct_endpoint_windows_and_fixed_choices(
     session = bound_catalog()
     revenue = catalog_get(session.catalog, "metric:sales.revenue", kind="metric")
     region = catalog_value(session.catalog, "sales.customers.region", kind="dimension")
-    axis = session.time_scope(start="2026-01-10", end="2026-01-12").by(mv.grain("day"))
-    current = session.observe({"q": revenue}, by=(axis, region))
+    axis_scope = session.time_scope(start="2026-01-10", end="2026-01-12")
+    current = session.observe({"q": revenue}, by=(mv.grain("day"), region), where=axis_scope)
     current = current.fix(current.axes[1], "east")
     baseline = session.observe(
-        {"q": revenue.window(mv.trailing_periods(count=7))}, by=(axis, region)
+        {"q": revenue.window(mv.trailing_periods(count=7))},
+        by=(mv.grain("day"), region),
+        where=axis_scope,
     )
     baseline = baseline.fix(baseline.axes[1], "west")
     compared = current.compare({"prior": mv.baseline(baseline)})
@@ -707,9 +712,11 @@ def test_ordinal_align_drops_context_references_to_unpublished_comparisons(
 
     session = bound_catalog()
     revenue = catalog_get(session.catalog, "metric:sales.revenue", kind="metric")
-    axis = session.time_scope(start="2026-01-10", end="2026-01-12").by(mv.grain("day"))
-    current = session.observe({"q": revenue}, by=(axis,))
-    baseline = session.observe({"q": revenue.window(mv.trailing_periods(count=7))}, by=(axis,))
+    axis_scope = session.time_scope(start="2026-01-10", end="2026-01-12")
+    current = session.observe({"q": revenue}, by=(mv.grain("day"),), where=axis_scope)
+    baseline = session.observe(
+        {"q": revenue.window(mv.trailing_periods(count=7))}, by=(mv.grain("day"),), where=axis_scope
+    )
     compared = current.compare({"prior": mv.baseline(baseline)})
 
     aligned = compared.align(
@@ -737,9 +744,11 @@ def test_nested_comparison_rebinds_existing_endpoint_contexts_without_changing_t
 
     session = bound_catalog()
     revenue = catalog_get(session.catalog, "metric:sales.revenue", kind="metric")
-    axis = session.time_scope(start="2026-01-10", end="2026-01-12").by(mv.grain("day"))
-    current = session.observe({"q": revenue}, by=(axis,))
-    baseline = session.observe({"q": revenue.window(mv.trailing_periods(count=7))}, by=(axis,))
+    axis_scope = session.time_scope(start="2026-01-10", end="2026-01-12")
+    current = session.observe({"q": revenue}, by=(mv.grain("day"),), where=axis_scope)
+    baseline = session.observe(
+        {"q": revenue.window(mv.trailing_periods(count=7))}, by=(mv.grain("day"),), where=axis_scope
+    )
     first = current.compare({"prior": mv.baseline(baseline)})
     second = first.compare({"next": mv.baseline(first)})
     context = second.schema.value_contexts["prior.baseline.q"]

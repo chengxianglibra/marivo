@@ -150,6 +150,8 @@ def bind_calendar(
             time < temporal_bound(time, calendar.end, calendar.timezone)
         )
         return table.mutate(**{slot: condition.ifelse(ibis.literal(0).cast("!int64"), ibis.null())})
+    if calendar.actual_only:
+        return table.mutate(**{slot: builtin_key(time, calendar, engine=engine)})
     selected: ir.BooleanValue | None = None
     for start, end in calendar.ranges:
         condition = (time >= temporal_bound(time, start, calendar.timezone)) & (

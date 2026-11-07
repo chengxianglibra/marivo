@@ -10,7 +10,6 @@ from marivo._definition.relations import MembershipBinding, validate_memberships
 from marivo._definition.types import (
     AxisBinding,
     CalendarCoordinate,
-    FieldRead,
     InputContext,
     IntervalCoordinate,
     invalid,
@@ -18,33 +17,10 @@ from marivo._definition.types import (
 from marivo._grouping import Grouping
 
 
-@dataclass(frozen=True, slots=True)
-class FieldCalendarBinding:
-    """One finite output calendar applied to an explicit classification field."""
-
-    field: FieldRead
-    calendar: CalendarCoordinate
-
-
-@dataclass(frozen=True, slots=True, repr=False)
-class _FieldCalendarGrouping(Grouping):
-    _value: FieldCalendarBinding
-    _context: InputContext = field(default_factory=InputContext, compare=False)
-
-    @property
-    def kind(self) -> Literal["field_calendar"]:
-        return "field_calendar"
-
-    @property
-    def _binding(self) -> FieldCalendarBinding:
-        return self._value
-
-
 def normalize_groupings(
     items: tuple[ComparisonAxis | MembershipBinding, ...],
     *,
     population_axes: tuple[ComparisonAxis, ...] | None = None,
-    field_calendars: tuple[CalendarCoordinate, ...] = (),
 ) -> tuple[tuple[ComparisonAxis, ...], tuple[MembershipBinding, ...]]:
     """Expand rules after collecting every explicit field position in this layer."""
     bindings = tuple(item for item in items if isinstance(item, MembershipBinding))
@@ -72,14 +48,7 @@ def normalize_groupings(
         for right in axes[index + 1 :]
     ):
         invalid("consuming coordinates must be unique; remove repeated fields or rules")
-    if (
-        sum(
-            isinstance(axis, (CalendarCoordinate, IntervalCoordinate))
-            and axis not in field_calendars
-            for axis in axes
-        )
-        > 1
-    ):
+    if sum(isinstance(axis, (CalendarCoordinate, IntervalCoordinate)) for axis in axes) > 1:
         invalid("consuming coordinates allow at most one direct observation time axis")
     validate_memberships(tuple(axes), bindings)
     return tuple(axes), bindings

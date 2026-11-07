@@ -10,6 +10,7 @@ import ibis.expr.types as ir
 from marivo._definition.expressions import PredicateExpression
 from marivo.analysis.compiler.errors import compilation_error
 from marivo.analysis.compiler.graph_plan import (
+    ActualWindowRead,
     AttributeCoalitionRead,
     AttributeFrequencyRead,
     AttributeRead,
@@ -95,7 +96,7 @@ def lower_query(plan: QueryPlan, relations: dict[str, ir.Table]) -> LoweredQuery
     for stage in plan.stages:
         if not isinstance(stage, SourceRead):
             continue
-        if isinstance(stage.program, AttributeCoalitionRead):
+        if isinstance(stage.program, (ActualWindowRead, AttributeCoalitionRead)):
             continue
         if isinstance(stage.program, NativeRead):
             raise compilation_error(

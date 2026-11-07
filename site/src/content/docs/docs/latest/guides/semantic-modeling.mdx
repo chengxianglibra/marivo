@@ -33,8 +33,9 @@ not grant new sum permission by itself. See the [complete model](/docs/latest/mo
 ## Ibis fields and pure declarations
 
 Entity and Dimension/TimeDimension bodies use restricted Ibis expressions.
-Measure and Metric declarations take no table argument and return a semantic
-expression. See [field and Metric definitions](/docs/latest/modeling/semantic-layer/#define-fields-and-metrics).
+Measure and Metric declarations take zero arguments and return a semantic
+expression. Each source reduction fixes contribution time through an explicit
+field or its Entity's declared default. See [field and Metric definitions](/docs/latest/modeling/semantic-layer/#define-fields-and-metrics).
 
 ## Reauthor retired declarations
 

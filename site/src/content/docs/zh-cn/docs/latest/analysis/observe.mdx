@@ -12,40 +12,36 @@ head:
 调用 `session.observe(...)`，即可按所选输出域构造 Metric 计算，并返回待执行的
 `AnalysisFrame`。调用 `compute()` 执行计算；调用 `persist()` 则完成计算并发布结果。
 
-`by` 选择输出坐标，`where` 筛选来源贡献。默认的 `by=()` 请求一个整体单元，不设定时间范围。
-直接放进 `by` 的 `TimeScope` 或 `CalendarAxis` 按 Metric 的贡献时间筛选，并提供窗口端点。
-`mv.time_group(field, axis=axis)` 按指定字段的范围筛选、分桶并补齐输出轴。
-内置日历样本无需有限观察期间。
+用 `where=scope` 选择报告范围，用 `by=(grain,)` 选择输出粒度。仅指定范围时，
+筛选来源贡献，输出不增加时间轴。仅指定 Grain 时，返回实际有贡献的时间桶。
+两者合用时形成有限的报告桶域。`by` 的元组中可同时放入普通 Dimension、Grouping
+和一个 Grain；也可直接传入完整 Population。
 
-定义和观察 Metric 时，按用途选择时间契约：
+每个源规约在定义时固定贡献时间，可显式传入 `time=field`，或继承所属 Entity 的
+`default_time`。使用报告范围或 Grain 时，每个 Metric 的每个分支都须具备贡献时间。
+组合 Metric 可以保留各分支不同的时间字段。
 
-| 期望的含义 | 定义与观察方式 |
-| --- | --- |
-| 固定业务时间，例如支付时间 | 声明 `amount.sum(time=paid_at)`；在 `by` 中直接传入 `scope` 或 `scope.by(mv.grain("day"))`。 |
-| 由调用方选择贡献时间 | 声明仅限关键字的 `TimeParameter`，用于各源归约的 `time=`，并在观察前调用 `.bind_time(...)`。 |
-| 没有贡献时间，由本次问题选择字段 | 省略 `time=`，使用 `mv.time_group(field, axis=scope.by(grain))`；若只筛选范围，使用 `where=field.within(scope)`。 |
-| 不限制时间的整体值 | 从 `by` 中省略时间坐标，无需贡献时间。 |
-
-例如，使用已加载的 Measure `amount` 和 TimeDimension `created_at`：
+例如，`amount` 是已加载的 Measure，`booked_at` 和 `paid_at` 是已加载的 TimeDimension：
 
 ```python
 import marivo.analysis as mv
 
 scope = session.time_scope(start="2026-11-01", end="2026-12-01")
+booked = amount.sum(time=booked_at)
+paid = amount.sum(time=paid_at)
 frame = session.observe(
-    {"revenue": amount.sum()},
-    by=(mv.time_group(created_at, axis=scope.by(mv.grain("day"))),),
+    {"booked": booked, "paid": paid, "difference": booked - paid},
+    where=scope,
+    by=(mv.grain("day"),),
 ).compute()
 ```
 
-直接传入 `TimeScope` 或 `CalendarAxis`，要求**每个源归约**都声明 `time=`，
-包括组合 Metric 内部的依赖；不会继承 Entity 默认时间。若报错包含
-“a declared business time role for this period”，可以声明贡献时间，
-或按上例将直接时间坐标替换为显式字段分组或筛选。所选字段必须是 TimeDimension，
-且每个贡献源都能通过单值路径访问它。`time_group` 不会绑定尚未绑定的时间参数，
-也不提供 Metric `.window(...)` 所需的端点。
+用 `where=(scope, status == "paid")` 将一个报告范围与行谓词取交集。
+`where=paid_at.within(scope)` 是绑定到固定来源字段的谓词，可筛选没有贡献时间的
+Metric。窗口端点由报告时间上下文提供。若某个分支缺少贡献时间，请修订该分支的定义，
+或在此次观察中省略报告时间。
 
-定义时的选择见 `marivo.help("semantic.metric.define")`；字段分组见
-`marivo.help("analysis.time_group")`。
+精确契约见 `marivo.help("semantic.metric.define")` 和
+`marivo.help("analysis.session.observe")`。
 
 完整说明和示例见[分析 DSL 的 observe 部分](/zh-cn/docs/latest/analysis/dsl/#观察指标)。

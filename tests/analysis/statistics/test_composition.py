@@ -47,8 +47,10 @@ def test_direct_score_runs_and_next_business_round(
     ms.load(workspace_dir=case.root)
     field = catalog_value(session.catalog, "sales.order.profile_0", kind="measure")
     time = catalog_value(session.catalog, "sales.order.ordered_at", kind="time_dimension")
-    grid = session.time_scope(start="2026-08-01", end="2026-08-04").by(mv.grain("day"))
-    artifact = session.observe({"value": field.sum(time=time)}, by=(grid,)).compute()
+    grid_scope = session.time_scope(start="2026-08-01", end="2026-08-04")
+    artifact = session.observe(
+        {"value": field.sum(time=time)}, by=(mv.grain("day"),), where=grid_scope
+    ).compute()
     exported = artifact.to_pandas()
     assert exported["value"].tolist() == [-2, 2, -2]
     absolute = exported.copy(deep=True)
@@ -144,11 +146,13 @@ def test_two_separate_axes_and_joint_keep_the_original_target(
     )
     current = session.observe(
         {"value": _metric(session.catalog, "metric:sales.order_count")},
-        by=(session.time_scope(start="2026-08-01", end="2026-09-01"), *axes),
+        by=(mv.grain("month"), *axes),
+        where=session.time_scope(start="2026-08-01", end="2026-09-01"),
     )
     baseline = session.observe(
         {"value": _metric(session.catalog, "metric:sales.order_count")},
-        by=(session.time_scope(start="2026-07-01", end="2026-08-01"), *axes),
+        by=(mv.grain("month"), *axes),
+        where=session.time_scope(start="2026-07-01", end="2026-08-01"),
     )
     frame = plain(
         current.compare(

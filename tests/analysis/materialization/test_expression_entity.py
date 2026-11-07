@@ -65,7 +65,7 @@ def test_transformed_grain_and_cold_terminal_reads(
     session = mv.session.get_or_create("expression-entity")
     logical = session.observe(
         {"value": catalog_value(session.catalog, "sales.revenue", kind="metric")},
-        by=(catalog_value(session.catalog, "sales.regional.region", kind="field"),),
+        by=(catalog_value(session.catalog, "sales.regional.region", kind="dimension"),),
     )
     result = logical.persist()
     frame = result.to_pandas()
@@ -82,7 +82,7 @@ def test_transformed_grain_and_cold_terminal_reads(
     other = mv.session.get_or_create("changed-expression")
     changed = other.observe(
         {"value": catalog_value(other.catalog, "sales.revenue", kind="metric")},
-        by=(catalog_value(other.catalog, "sales.regional.region", kind="field"),),
+        by=(catalog_value(other.catalog, "sales.regional.region", kind="dimension"),),
     )
     assert isinstance(changed._backing, ExpressionFrameBacking)
     assert isinstance(changed._backing.root, SourceFrameBinding)

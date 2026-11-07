@@ -79,11 +79,10 @@ def test_calendar_rollup_reduces_each_root_before_host_formula(
     two = catalog_value(session.catalog, "sales.two.amount", kind="measure")
     one_day = catalog_value(session.catalog, "sales.one.day", kind="time_dimension")
     two_day = catalog_value(session.catalog, "sales.two.day", kind="time_dimension")
-    days = session.time_scope(start="2026-10-01", end="2026-10-03").by(mv.grain("day"))
+    days_scope = session.time_scope(start="2026-10-01", end="2026-10-03")
     metric = one.sum(time=one_day) - two.sum(time=two_day)
     trace = capture_source(monkeypatch)
-    assert days.scope is not None
-    result = session.observe({"net": metric}, by=(days.scope,)).compute().to_pandas()
+    result = session.observe({"net": metric}, where=days_scope).compute().to_pandas()
     assert result["net"].tolist() == [-120]
     assert trace.uploaded_key_rows == []
 
@@ -102,9 +101,9 @@ def test_calendar_parent_formula_retains_native_integer_boundaries(
     two = catalog_value(session.catalog, "sales.two.amount", kind="measure")
     one_day = catalog_value(session.catalog, "sales.one.day", kind="time_dimension")
     two_day = catalog_value(session.catalog, "sales.two.day", kind="time_dimension")
-    days = session.time_scope(start="2026-10-01", end="2026-10-03").by(mv.grain("day"))
+    days_scope = session.time_scope(start="2026-10-01", end="2026-10-03")
     metric = one.sum(time=one_day) + two.sum(time=two_day)
-    query = session.observe({"net": metric}, by=(days,))
+    query = session.observe({"net": metric}, by=(mv.grain("day"),), where=days_scope)
     trace = capture_source(monkeypatch)
     from marivo.analysis.errors import AnalysisError
 
@@ -123,11 +122,14 @@ def test_cross_owner_calendar_missing_days_use_additive_zero(
     two = catalog_value(session.catalog, "sales.two.amount", kind="measure")
     one_day = catalog_value(session.catalog, "sales.one.day", kind="time_dimension")
     two_day = catalog_value(session.catalog, "sales.two.day", kind="time_dimension")
-    days = session.time_scope(start="2026-10-01", end="2026-10-03").by(mv.grain("day"))
+    days_scope = session.time_scope(start="2026-10-01", end="2026-10-03")
     metric = one.sum(time=one_day).where(one > 0) - two.sum(time=two_day).where(two > 0)
-    assert days.scope is not None
-    query = session.observe({"net": metric}, by=(days.scope,))
-    daily = session.observe({"net": metric}, by=(days,)).compute().to_pandas()
+    query = session.observe({"net": metric}, where=days_scope)
+    daily = (
+        session.observe({"net": metric}, by=(mv.grain("day"),), where=days_scope)
+        .compute()
+        .to_pandas()
+    )
     assert len(daily) == 2
     assert daily["net"].tolist() == [60, -120]
     trace = capture_source(monkeypatch)
@@ -152,8 +154,7 @@ def test_plain_calendar_coarsening_recomputes_with_original_clipped_period(
         start="2026-10-01T12:00:00" if partial else "2026-10-01",
         end="2026-10-02T12:00:00" if partial else "2026-11-01",
     )
-    days, month = (scope.by(mv.grain("day")), scope.by(mv.grain("month")))
-    query = session.observe({"total": amount.sum(time=day)}, by=(month,))
+    query = session.observe({"total": amount.sum(time=day)}, by=(mv.grain("month"),), where=scope)
     trace = capture_source(monkeypatch)
     result = query.compute().to_pandas()
     assert result["total"].tolist() == [60 if partial else 120]
@@ -171,8 +172,7 @@ def test_daily_formula_retains_native_integer_boundaries(
     amount = catalog_value(session.catalog, "sales.one.amount", kind="measure")
     day = catalog_value(session.catalog, "sales.one.day", kind="time_dimension")
     scope = session.time_scope(start="2026-10-01", end="2026-11-01")
-    days, month = (scope.by(mv.grain("day")), scope.by(mv.grain("month")))
-    query = session.observe({"value": amount.sum(time=day) + 1}, by=(days,))
+    query = session.observe({"value": amount.sum(time=day) + 1}, by=(mv.grain("day"),), where=scope)
     trace = capture_source(monkeypatch)
     from marivo.analysis.errors import AnalysisError
 
@@ -264,18 +264,16 @@ def test_remote_cross_owner_calendar_compacts_before_global_host_formula(
             if boundary == "coarsen"
             else "2026-10-03",
         )
-        days = scope.by(mv.grain("day"))
         one_total, two_total = (one.sum(time=one_day), two.sum(time=two_day) * 2)
         metric = one_total + two_total if boundary == "overflow" else one_total - two_total
         query = session.observe(
             {"net": metric},
-            by=(
-                days
-                if boundary == "overflow"
-                else scope.by(mv.grain("month"))
-                if boundary in ("coarsen", "partial")
-                else scope,
-            ),
+            by=(mv.grain("day"),)
+            if boundary == "overflow"
+            else (mv.grain("month"),)
+            if boundary in ("coarsen", "partial")
+            else (),
+            where=scope,
         )
         trace = capture_source(monkeypatch)
         if boundary == "overflow":

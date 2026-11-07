@@ -681,23 +681,21 @@ def test_source_reduction_help_explains_optional_contribution_time(
 ) -> None:
     marivo.help(target)
     page = capsys.readouterr().out
-    assert "no Entity default is inherited" in page
-    assert "time= on every source reduction" in page
-    assert "explicit field filtering/grouping does not" in page
-    assert 'marivo.help("semantic.metric.define")' in page
+    assert "inherit the single contribution Entity's default_time" in page
+    assert "clock on every contributing branch" in page
+    assert "field predicate can still filter source rows independently" in page
 
 
 def test_metric_definition_help_explains_time_choices(capsys: pytest.CaptureFixture[str]) -> None:
     marivo.help("semantic.metric.define")
     page = capsys.readouterr().out
-    assert "amount.sum(time=paid_at)" in page
-    assert "time=event with a TimeParameter" in page
-    assert "bind_time(event=paid_at)" in page
-    assert "Omit time=" in page
-    assert "mv.time_group(field, axis=scope.by(grain))" in page
+    assert "zero-parameter" in page
+    assert "time=field" in page and "default_time" in page
+    assert "Composed Metrics retain their branch clocks" in page
+    assert "where=scope or by=(grain,)" in page
     assert "where=field.within(scope)" in page
-    assert "including composed Metrics" in page
-    assert "window endpoints" in page
+    assert "TimeParameter" not in page
+    assert "bind_time" not in page
 
 
 @pytest.mark.parametrize("target", ("semantic.row.mean", "semantic.metric_samples.mean"))
@@ -828,6 +826,7 @@ def test_per_help_covers_observed_and_complete_sample_domains(
     assert "per(field) uses exact TimeField values" in text
     assert "per(grain) buckets each contribution's declared time role" in text
     assert "per(field, grain=grain) buckets one explicit native TimeField" in text
+    assert "Every contributing branch must have a contribution clock for either Grain form" in text
     assert "Both builtin forms use the Session report timezone" in text
     assert "Week in month rejects" in text
     assert "Session's current certified snapshot" in text

@@ -621,7 +621,7 @@ def test_online_validation_rejects_timezone_conflict_before_data_reads(
     )
     period = session.time_scope(start="2020-01-01", end="2020-02-01")
     with pytest.raises(SemanticRuntimeError) as analysis:
-        session.observe({"amount": amount.sum(time=event)}, by=(period,)).compute()
+        session.observe({"amount": amount.sum(time=event)}, where=period).compute()
     assert preview.value.expected == analysis.value.expected == failures[0]["expected"]
     assert preview.value.received == analysis.value.received == failures[0]["received"]
     assert preview.value.semantic_refs == analysis.value.semantic_refs == tuple(failures[0]["refs"])

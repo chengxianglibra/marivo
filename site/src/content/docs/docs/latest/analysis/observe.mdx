@@ -13,44 +13,40 @@ head:
 domain and returns a pending `AnalysisFrame`. Call `compute()` to evaluate it,
 or `persist()` to complete and publish it.
 
-`by` selects output coordinates; `where` filters source contributions. The
-default `by=()` requests one overall cell without an observation range.
-A direct `TimeScope` or `CalendarAxis` in `by` selects by the Metric's contribution
-time and supplies window endpoints. `mv.time_group(field, axis=axis)` filters by
-the field's range, buckets the field and completes its output axis.
-Builtin calendar samples work without a finite observation period.
+Choose a report range with `where=scope` and an output grain with
+`by=(grain,)`. A range alone selects contributions without adding an output
+axis. A Grain alone produces the time buckets that actually occur. Together
+they define a finite report bucket domain. Ordinary Dimensions and Groupings
+can share the `by` tuple with one Grain, or use a complete Population as `by`.
 
-Choose the time contract when defining and observing a Metric:
+Each source reduction fixes its contribution time when it is defined, either
+explicitly with `time=field` or by inheriting its Entity's `default_time`.
+A report range or Grain requires every branch of every Metric to have a
+contribution clock. Composed Metrics can use different fields across branches.
 
-| Intended meaning | Definition and observation |
-| --- | --- |
-| Fixed business clock, such as payment time | Declare `amount.sum(time=paid_at)`; pass `scope` or `scope.by(mv.grain("day"))` directly in `by`. |
-| Caller chooses the contribution clock | Declare a keyword-only `TimeParameter`, use it in each source reduction's `time=`, and call `.bind_time(...)` before observation. |
-| No contribution clock; choose a field for this question | Omit `time=` and use `mv.time_group(field, axis=scope.by(grain))`, or `where=field.within(scope)` for filtering only. |
-| Overall value without a time restriction | Omit the time coordinate from `by`; no contribution clock is required. |
-
-For example, with a loaded Measure `amount` and TimeDimension `created_at`:
+For example, `amount` is a loaded Measure and `booked_at` and `paid_at` are
+loaded TimeDimensions:
 
 ```python
 import marivo.analysis as mv
 
 scope = session.time_scope(start="2026-11-01", end="2026-12-01")
+booked = amount.sum(time=booked_at)
+paid = amount.sum(time=paid_at)
 frame = session.observe(
-    {"revenue": amount.sum()},
-    by=(mv.time_group(created_at, axis=scope.by(mv.grain("day"))),),
+    {"booked": booked, "paid": paid, "difference": booked - paid},
+    where=scope,
+    by=(mv.grain("day"),),
 ).compute()
 ```
 
-A direct `TimeScope` or `CalendarAxis` requires `time=` on **every source
-reduction**, including dependencies inside a composed Metric. No Entity default
-time is inherited. If the error reports “a declared business time role for this
-period”, either declare the contribution clock or replace the direct time
-coordinate with explicit field grouping/filtering as above. The chosen field
-must be a TimeDimension reachable from every contribution root through a
-single-valued path. `time_group` neither binds open time parameters nor supplies
-Metric `.window(...)` endpoints.
+Use `where=(scope, status == "paid")` to conjoin one report range with a row
+predicate. `where=paid_at.within(scope)` is a fixed source-field predicate and
+can filter a Metric that has no contribution clock. Window endpoints come
+from the report time context. If a branch lacks a clock, repair that branch's
+definition or omit report time from the observation.
 
-Inspect `marivo.help("semantic.metric.define")` for authoring choices and
-`marivo.help("analysis.time_group")` for field grouping.
+See `marivo.help("semantic.metric.define")` and
+`marivo.help("analysis.session.observe")` for the exact contracts.
 
 See the [observe section of Analysis DSL](/docs/latest/analysis/dsl/#observe-metrics) for the full guide and example.

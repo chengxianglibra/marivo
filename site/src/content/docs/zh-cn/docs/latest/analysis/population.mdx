@@ -117,7 +117,7 @@ assert counts.to_pandas()["orders"].tolist() == [6]
 assert counts.to_pandas()["regions"].tolist() == [2]
 ```
 
-`P.count()` 返回延迟的 `Metric`，用于统计不同的完整元组，其中包括 `NULL` 字段类别和来源中没有记录的显式请求身份。保留身份时统计六笔订单，先投影到地区再统计则得到两个地区。`Entity.count()` 统计来源贡献，`mv.row_count()` 统计 Frame 中的行。`P.axes` 列出坐标规则；要保留选定成员集合，请传入 `P` 本身。
+`P.count()` 返回延迟的 `Metric`，用于统计不同的完整元组，其中包括 `NULL` 字段类别和来源中没有记录的显式请求身份。保留身份时统计六笔订单，先投影到地区再统计则得到两个地区。`Entity.count()` 统计来源贡献，`mv.row_count()` 统计 Frame 中的行。`P.axes` 列出坐标规则；要保留选定成员集合，请传入 `P` 本身。 Population 计数没有贡献时间，可用于不带报告 TimeScope 或 Grain 的观察。
 
 ## 集合选择与关系映射
 

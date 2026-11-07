@@ -13,7 +13,7 @@ def test_multi_root_original_ratio_recomputes_before_host_finish(
 ) -> None:
     case = analysis_dsl_case_factory("j3_weighting")
     session = case.session
-    customer = catalog_value(session.catalog, "sales.order.customer_id", kind="field")
+    customer = catalog_value(session.catalog, "sales.order.customer_id", kind="dimension")
     metric = catalog_value(session.catalog, "sales." + case.names.aov, kind="metric")
     trace = capture_source(monkeypatch)
     result = session.observe({"aov": metric}).compute().to_pandas()
@@ -28,7 +28,7 @@ def test_multi_root_selection_restricts_each_actual_fiber(
 ) -> None:
     case = analysis_dsl_case_factory("j3_weighting")
     session = case.session
-    customer = catalog_value(session.catalog, "sales.order.customer_id", kind="field")
+    customer = catalog_value(session.catalog, "sales.order.customer_id", kind="dimension")
     revenue = catalog_value(session.catalog, "sales." + case.names.line_revenue, kind="metric")
     count = catalog_value(session.catalog, "sales." + case.names.order_count, kind="metric")
     fine = session.observe({"revenue": revenue, "orders": count}, by=(customer,))
@@ -51,7 +51,7 @@ def test_multi_root_missing_group_keeps_empty_zero_alignment(
     with duckdb.connect(str(case.database_path)) as connection:
         connection.execute("DELETE FROM order_line WHERE order_id='j3_b'")
     session = case.session
-    customer = catalog_value(session.catalog, "sales.order.customer_id", kind="field")
+    customer = catalog_value(session.catalog, "sales.order.customer_id", kind="dimension")
     revenue = catalog_value(session.catalog, "sales." + case.names.line_revenue, kind="metric")
     count = catalog_value(session.catalog, "sales." + case.names.order_count, kind="metric")
     fine = session.observe({"revenue": revenue, "orders": count}, by=(customer,))
@@ -72,8 +72,8 @@ def test_multi_root_drill_recomputes_each_selected_contribution_root(
 ) -> None:
     case = analysis_dsl_case_factory("j3_weighting")
     session = case.session
-    customer = catalog_value(session.catalog, "sales.order.customer_id", kind="field")
-    channel = catalog_value(session.catalog, "sales.order.channel", kind="field")
+    customer = catalog_value(session.catalog, "sales.order.customer_id", kind="dimension")
+    channel = catalog_value(session.catalog, "sales.order.channel", kind="dimension")
     revenue = catalog_value(session.catalog, "sales." + case.names.line_revenue, kind="metric")
     count = catalog_value(session.catalog, "sales." + case.names.order_count, kind="metric")
     fine = session.observe({"revenue": revenue, "orders": count}, by=(customer,))

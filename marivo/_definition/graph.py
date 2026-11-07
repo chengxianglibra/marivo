@@ -129,7 +129,11 @@ def canonical_value(value: object) -> object:
             invalid("canonical payload rejects non-finite floats")
         return value
     if is_dataclass(value) and not isinstance(value, type):
-        return {field.name: canonical_value(getattr(value, field.name)) for field in fields(value)}
+        return {
+            field.name: canonical_value(getattr(value, field.name))
+            for field in fields(value)
+            if field.name != "_from_default_time"
+        }
     if isinstance(value, (tuple, list)):
         return [canonical_value(item) for item in value]
     if isinstance(value, dict):
@@ -316,6 +320,7 @@ def _encode(
             **{
                 field.name: _encode(getattr(value, field.name), memo, payloads)
                 for field in fields(value)
+                if field.name != "_from_default_time"
             },
         }
         # Captured dataclasses are immutable. Keep the input alive against ID
@@ -407,7 +412,8 @@ def _collect_refs(value: object, into: set[ExactRef]) -> None:
             _collect_refs(item, into)
     elif is_dataclass(value) and not isinstance(value, type) and not _is_node(value):
         for field in fields(value):
-            _collect_refs(getattr(value, field.name), into)
+            if field.name != "_from_default_time":
+                _collect_refs(getattr(value, field.name), into)
 
 
 def direct_refs(root: DefinitionNode) -> frozenset[ExactRef]:

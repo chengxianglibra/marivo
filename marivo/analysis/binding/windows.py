@@ -42,6 +42,38 @@ from marivo.analysis.core.model import reject
 
 if TYPE_CHECKING:
     from marivo.analysis.binding.observe import ContributionBinding, ObservationPeriod
+    from marivo.analysis.core.graph import BoundGraph
+
+
+def actual_window_axis(graph: BoundGraph) -> CalendarCoordinate | None:
+    """Find a report calendar whose window endpoints depend on actual source keys."""
+    observation = graph.signature.observation
+    if observation is None or not any(
+        item.window_rule is not None for item in observation.contributions
+    ):
+        return None
+    return next(
+        (
+            axis
+            for axis in graph.signature.axes
+            if isinstance(axis, CalendarCoordinate) and axis.actual_only
+        ),
+        None,
+    )
+
+
+def require_finite_attribution_scope(graph: BoundGraph) -> None:
+    """Require captured finite report endpoints for source-side attribution."""
+    if any(
+        isinstance(axis, CalendarCoordinate) and axis.actual_only for axis in graph.signature.axes
+    ):
+        reject(
+            "finite report endpoints for source-side attribution",
+            "actual Grain-only report keys",
+            "Supply a TimeScope with the report Grain before constructing the attribution.",
+            "analysis_frame.attribute",
+            canonical_id="analysis_frame.attribute",
+        )
 
 
 def resolve_calendar_grain(
@@ -173,18 +205,16 @@ def validate_date_contribution(contribution: ContributionBinding, path: str) -> 
     }
     if not is_role and not is_sample and not sample_slots:
         return
-    field_slots = dict(contribution.field_calendar_reads)
     calendars = tuple(
         axis
         for slot, axis in contribution.calendars
         if slot in sample_slots
-        or (
-            (is_role or is_sample)
-            and slot not in field_slots
-            and not isinstance(axis, BuiltinSampleCoordinate)
-        )
+        or ((is_role or is_sample) and not isinstance(axis, BuiltinSampleCoordinate))
     )
-    if any(isinstance(axis, CalendarCoordinate) and not axis.cells for axis in calendars):
+    if any(
+        isinstance(axis, CalendarCoordinate) and not axis.cells and not axis.actual_only
+        for axis in calendars
+    ):
         return
 
     def fail(received: str) -> None:
@@ -229,11 +259,17 @@ def validate_date_contribution(contribution: ContributionBinding, path: str) -> 
     period = contribution.period
     if period is not None and (is_role or is_sample):
         zone = normalize_timezone(period.timezone).tz
-        if any(
-            bound is not None and bound.astimezone(zone).time() != datetime.min.time()
-            for bound in (period.start, period.end)
-        ):
-            fail(f"{path}: non-midnight contribution boundary")
+        offending = next(
+            (
+                bound
+                for bound in (period.start, period.end)
+                if bound is not None and bound.astimezone(zone).time() != datetime.min.time()
+            ),
+            None,
+        )
+        if offending is not None:
+            local = offending.astimezone(zone).isoformat()
+            fail(f"{path}: calendar boundary {local} is not local midnight in {period.timezone}")
 
 
 def bind_windows(
@@ -272,7 +308,7 @@ def bind_windows(
                 reject(
                     "window endpoints supported by the source contribution binder",
                     "a Metric window inside a calendar sample layer",
-                    "Observe the windowed Metric directly on a CalendarAxis, then explicitly reduce the captured Frame values; inner calendar-sample windows are not supported.",
+                    "Observe the windowed Metric with a report Grain, then explicitly reduce the captured Frame values; inner calendar-sample windows are not supported.",
                     "Metric.window",
                 )
             if any(
@@ -284,7 +320,7 @@ def bind_windows(
                     "a window applied before calendar sample folding",
                     "a Metric window wrapping a calendar fold",
                     "Calendar folds cannot be windowed, and windows inside calendar samples are unsupported. "
-                    "Observe the windowed Metric directly on a CalendarAxis, then explicitly reduce the captured Frame values.",
+                    "Observe the windowed Metric with a report Grain, then explicitly reduce the captured Frame values.",
                     "Metric.window",
                 )
             if not has_fact(node.operand):
@@ -339,6 +375,26 @@ def bind_windows(
         visit(node, (index,), None)
     if not rules:
         return contributions
+    if calendar is not None and calendar.actual_only and not calendar.cells:
+        grain = calendar.grain_spec
+        for deferred_rule in rules.values():
+            if isinstance(deferred_rule, TrailingPeriods) and grain.unit not in (
+                "day",
+                "week",
+                "month",
+                "quarter",
+                "year",
+            ):
+                reject(
+                    "day/week/month/quarter/year periods",
+                    calendar.grain,
+                    "Use trailing_duration for elapsed subday windows.",
+                    "Metric.window",
+                )
+        # Keep W as a rule until execution has obtained the complete O key image.
+        return tuple(
+            replace(item, window_rule=rules.get(item.occurrence)) for item in contributions
+        )
     if calendar is not None and not calendar.cells:
         # Retain schema-bearing reads without creating window endpoints from O.
         return tuple(
@@ -356,8 +412,8 @@ def bind_windows(
     if period is None:
         reject(
             "an explicit window endpoint",
-            "no output time axis",
-            "Pass by=(scope,) or by=(calendar_axis,) to session.observe(...).",
+            "no report endpoint",
+            "Pass a report TimeScope in where or a Grain in by to session.observe(...).",
             "Metric.window",
         )
     result: list[ContributionBinding] = []
@@ -385,7 +441,7 @@ def bind_windows(
             elif isinstance(rule, TrailingDuration):
                 start = end.astimezone(timezone.utc) - rule.duration
             elif isinstance(rule, ToDate):
-                if native_start is not None:
+                if native_start is not None and calendar is not None and not calendar.actual_only:
                     start = native_start
                 else:
                     start, right = _reset(end, rule.grain, period.timezone)
@@ -396,13 +452,15 @@ def bind_windows(
                             "Choose an output Grain contained by the reset Grain.",
                             "Metric.window",
                         )
+                    if native_start is not None:
+                        start = native_start
             else:
                 assert isinstance(rule, TrailingPeriods)
                 if calendar is None or any(cell[:2] != cell[2:] for cell in cells):
                     reject(
                         "complete calendar buckets for trailing_periods",
-                        "missing or partial CalendarAxis",
-                        "Observe a complete CalendarAxis.",
+                        "missing or partial report buckets",
+                        "Observe a report Grain with complete periods.",
                         "Metric.window",
                     )
                 if native_start is not None:

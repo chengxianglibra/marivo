@@ -55,8 +55,8 @@ def test_fingerprint_computes_once_without_affecting_value_semantics(
     memo = InvocationMemo()
     first = memo.fingerprint(graph)
     assert first == (
-        # CoordinateBinding now records field-calendar authority in its canonical shape.
-        "4e551896932cdc29d9573ea6983ba6680838daa46a5166e2850bf373d31b283c"
+        # The canonical shape includes the sparse calendar selection flag.
+        "c2035a1bd02c4855140d266509c8b0e987bfd118e1da74dc9876ff0bc6177c9f"
         if calendar
         else "7dea064422d12e293c2ceb73ed8fc4464994adb3219e3d15730e046e3b5c2ba4"
     )
@@ -140,7 +140,7 @@ def test_encoding_shares_calendar_traversal_only_inside_one_call(
     assert shared == [once, once, once]
     assert (
         graph.fingerprint(shared)
-        == "87d6d464442527dc6f6c2a6eb7cab6a62a891670c6dfddb865d0f28e2ca006db"
+        == "ae51eeea4389dc4e495b78b0cc4e276a54f4067df4b9c30abca64e40a8f814f7"
     )
     assert calls == 2 * once_calls
     calls = 0

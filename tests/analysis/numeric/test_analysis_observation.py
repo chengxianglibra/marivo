@@ -51,20 +51,13 @@ def _observe(
     session = case.session
     members = session.members(_entity(session.catalog, "entity:sales.customer"))
     scope = session.time_scope(start="2026-08-01", end="2026-09-01") if windowed else None
-    domain = (
-        (scope,)
-        if overall and scope is not None
-        else ()
-        if overall
-        else mv.product(scope, members)
-        if scope is not None
-        else members
-    )
-    return session.observe(
-        {"value": expression},
-        by=domain,
-        where=mv.in_population(members) if overall else None,
-    )
+    if overall:
+        condition = mv.in_population(members)
+        return session.observe(
+            {"value": expression}, where=condition if scope is None else (scope, condition)
+        )
+    domain = members if scope is None else mv.product(scope, members)
+    return session.observe({"value": expression}, by=domain)
 
 
 def _source_binding(frame: mv.AnalysisFrame) -> SourceFrameBinding:
@@ -492,8 +485,10 @@ def test_common_condition_reaches_each_leaf_before_reduction(
             "value": revenue.where(channel == "web")
             / _metric(session.catalog, "metric:sales.order_count").where(channel == "web")
         },
-        by=(session.time_scope(start="2026-08-01", end="2026-09-01"),),
-        where=mv.in_population(session.members(_entity(session.catalog, "entity:sales.customer"))),
+        where=(
+            session.time_scope(start="2026-08-01", end="2026-09-01"),
+            mv.in_population(session.members(_entity(session.catalog, "entity:sales.customer"))),
+        ),
     ).compute().to_pandas()["value"].tolist() == [425]
 
 
@@ -511,6 +506,6 @@ def test_literal_membership_predicate_executes_in_typed_flow(
     channel = catalog_value(session.catalog, "sales.order.channel", kind="dimension")
     revenue = _metric(session.catalog, "metric:sales.revenue")
     period = session.time_scope(start="2026-08-01", end="2026-09-01")
-    query = session.observe({"amount": revenue}, by=(period,), where=channel.isin(choices))
+    query = session.observe({"amount": revenue}, where=(period, channel.isin(choices)))
     saved = query.compute()
     assert saved.to_pandas()["amount"].tolist() == [expected]

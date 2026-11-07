@@ -21,7 +21,7 @@ from marivo._definition.types import (
 )
 from marivo._definition.windows import ObservationWindow, ToDate, TrailingPeriods
 from marivo._errors import MarivoError
-from marivo._temporal import anchor_from_datetime
+from marivo._temporal import Grain, anchor_from_datetime
 from marivo._temporal_grid import TimeShiftAbsent, TimeShiftMatch
 from marivo._timezones import normalize_timezone
 from marivo.analysis.binding.windows import bind_windows
@@ -59,6 +59,84 @@ def _civil(value: object, point: datetime) -> str:
     return local.replace(tzinfo=timezone(offset)).isoformat(timespec="microseconds")
 
 
+def _bucket_step(grain: Grain) -> ir.IntervalScalar:
+    unit, count = grain.unit, grain.count
+    assert unit is not None and count is not None
+    seconds = {"second": 1, "minute": 60, "hour": 3600, "day": 86400, "week": 604800}
+    if unit in seconds:
+        return ibis.interval(seconds=seconds[unit] * count)
+    return ibis.interval(months={"month": 1, "quarter": 3, "year": 12}[unit] * count)
+
+
+def _actual_positions(
+    coordinate: CalendarCoordinate,
+    source: SourceSession,
+    points: tuple[datetime, ...],
+    windows: tuple[ObservationWindow, ...] = (),
+) -> tuple[CalendarCoordinate, dict[tuple[ObservationWindow, datetime], datetime]]:
+    """Resolve boundaries only for keys actually returned by source contributions."""
+    keys = calendar_data(
+        ibis.schema({"key": "!timestamp('UTC', 6)"}),
+        tuple((point,) for point in points),
+    )
+    zone = coordinate.timezone
+    wall = render(zone, timestamp(keys.key))
+    step = _bucket_step(coordinate.grain_spec)
+    finish = localize(zone, timestamp(wall + step))
+    native_windows = {
+        f"window_{index}": rule
+        for index, rule in enumerate(windows)
+        if isinstance(rule, TrailingPeriods)
+        or (isinstance(rule, ToDate) and rule.grain.kind == "builtin")
+    }
+    starts = {
+        slot: localize(
+            zone,
+            timestamp(
+                wall - (rule.count - 1) * step
+                if isinstance(rule, TrailingPeriods)
+                else builtin_wall_key(wall, rule.grain, engine=source.provider.name)
+            ),
+        )
+        for slot, rule in native_windows.items()
+        if isinstance(rule, (TrailingPeriods, ToDate))
+    }
+    expression = lower_temporal(
+        keys.select(
+            key=keys.key,
+            finish=finish,
+            label=wall,
+            finish_label=render(zone, finish),
+            **starts,
+        ),
+        source.provider.name,
+    )
+    rows = source.collect_bounded(
+        expression, purpose="analysis.actual_calendar_bounds", max_rows=len(points)
+    )
+    positions = {}
+    native_starts: dict[tuple[ObservationWindow, datetime], datetime] = {}
+    for row in rows.itertuples(index=False, name=None):
+        key, end = _point(row[0]), _point(row[1])
+        start_anchor, end_anchor = anchor_from_datetime(key), anchor_from_datetime(end)
+        start_label, end_label = _civil(row[2], key), _civil(row[3], end)
+        positions[key] = (
+            (start_anchor, end_anchor, start_anchor, end_anchor),
+            (start_label, end_label, start_label, end_label),
+        )
+        for offset, rule in enumerate(native_windows.values(), start=4):
+            native_starts[(rule, key)] = _point(row[offset])
+    ordered = tuple(positions[key] for key in sorted(positions))
+    return (
+        replace(
+            coordinate,
+            cells=tuple(item[0] for item in ordered),
+            civil_bounds=tuple(item[1] for item in ordered),
+        ),
+        native_starts,
+    )
+
+
 def _source_output_calendar(
     coordinate: CalendarCoordinate,
     source: SourceSession,
@@ -85,10 +163,10 @@ def _source_output_calendar(
         seconds = {"second": 1, "minute": 60, "hour": 3600, "day": 86400, "week": 604800}
         if grain.unit in seconds:
             width = seconds[grain.unit] * grain.count
-            interval = ibis.interval(seconds=width)
+            interval = _bucket_step(grain)
         else:
             width = {"month": 1, "quarter": 3, "year": 12}[grain.unit]
-            interval = ibis.interval(months=width)
+            interval = _bucket_step(grain)
         selected_positions = {}
         for cell, civil_bounds in zip(coordinate.cells, coordinate.civil_bounds, strict=True):
             local = datetime.fromisoformat(civil_bounds[0]).replace(tzinfo=None)
@@ -456,44 +534,14 @@ def bind_native_calendars(
     observation = graph.signature.observation
     if observation is None:
         return graph
-    field_axes = tuple(item.calendar for item in observation.coordinates.field_calendars)
-    for axis in field_axes:
-        owners = tuple(
-            dict.fromkeys(
-                sources[state.registry.entities[item.root.ref.path].datasource]
-                for item in observation.contributions
-            )
-        )
-        if not owners:
-            continue
-        native = {owner: output_calendar(axis, owner)[0] for owner in owners}
-        positions = {
-            cell[0]: (cell, bounds)
-            for candidate in native.values()
-            for cell, bounds in zip(candidate.cells, candidate.civil_bounds, strict=True)
-        }
-        ordered = sorted(positions)
-        calendar = replace(
-            axis,
-            cells=tuple(positions[key][0] for key in ordered),
-            civil_bounds=tuple(positions[key][1] for key in ordered),
-        )
-        rebound = _replace_calendar(graph, axis, calendar)
-        assert isinstance(rebound, BoundGraph)
-        graph = rebound
-        observation = graph.signature.observation
-        assert observation is not None
-    field_ids = {axis.identity for axis in field_axes}
     original = next(
-        (
-            axis
-            for axis in graph.signature.axes
-            if isinstance(axis, CalendarCoordinate) and axis.identity not in field_ids
-        ),
+        (axis for axis in graph.signature.axes if isinstance(axis, CalendarCoordinate)),
         None,
     )
     if original is None:
         return _interval_windows(graph, state, sources)
+    if original.actual_only:
+        return graph
     by_owner: dict[SourceSession, CalendarCoordinate] = {}
     native_starts_by_owner: dict[
         SourceSession, dict[tuple[ObservationWindow, datetime], datetime]
@@ -603,24 +651,35 @@ def freeze_output_calendars(
 
     axes: list[DataAxis] = []
     attachments: list[OutputAttachment] = []
-    observation = graph.signature.observation
-    field_ids = {
-        item.calendar.identity
-        for item in (() if observation is None else observation.coordinates.field_calendars)
-    }
     for coordinate, axis in zip(graph.signature.axes, schema.axes, strict=True):
         if isinstance(coordinate, CalendarCoordinate):
             assert isinstance(axis, CalendarDataAxis) and axis.frozen is not None
             captured = {cell[0] for cell in coordinate.cells}
             extra = sorted({_point(value) for value in rows[axis.columns[0].slot_id]} - captured)
-            if extra and coordinate.identity in field_ids:
-                raise MaterializationError(
-                    expected="field calendar keys from the finite output grid",
-                    received=extra[0].isoformat(),
-                    repair="Choose a range and grain supported by the native calendar.",
-                    stage="calendar_execution",
+            if extra and coordinate.actual_only:
+                assert source is not None
+                by_owner: dict[SourceSession, list[datetime]] = {}
+                for point in extra:
+                    owner = key_owners.get(axis.token, {}).get(point, source)
+                    by_owner.setdefault(owner, []).append(point)
+                positions = [
+                    _actual_positions(coordinate, owner, tuple(points))[0]
+                    for owner, points in by_owner.items()
+                ]
+                captured_positions = sorted(
+                    (cell, bounds)
+                    for item in positions
+                    for cell, bounds in zip(item.cells, item.civil_bounds, strict=True)
                 )
-            if extra:
+                coordinate = replace(
+                    coordinate,
+                    cells=(*coordinate.cells, *(cell for cell, _ in captured_positions)),
+                    civil_bounds=(
+                        *coordinate.civil_bounds,
+                        *(bounds for _, bounds in captured_positions),
+                    ),
+                )
+            elif extra:
                 if source is None:
                     labels = [
                         point.astimezone(normalize_timezone(coordinate.timezone).tz).isoformat(
@@ -629,12 +688,12 @@ def freeze_output_calendars(
                         for point in extra
                     ]
                 else:
-                    by_owner: dict[SourceSession, list[datetime]] = {}
+                    label_owners: dict[SourceSession, list[datetime]] = {}
                     for point in extra:
                         owner = key_owners.get(axis.token, {}).get(point, source)
-                        by_owner.setdefault(owner, []).append(point)
+                        label_owners.setdefault(owner, []).append(point)
                     by_key: dict[datetime, str] = {}
-                    for owner, points in by_owner.items():
+                    for owner, points in label_owners.items():
                         # These are observed mixed-time keys, never a generated S index.
                         keys = calendar_data(
                             ibis.schema({"key": "!timestamp('UTC', 6)"}),

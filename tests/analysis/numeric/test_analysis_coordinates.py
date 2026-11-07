@@ -55,7 +55,7 @@ def _observe(
     region = catalog_value(case.session.catalog, "sales.customer.region", kind="dimension")
     scope = case.session.time_scope(start="2026-08-01", end="2026-09-01")
     domain = (
-        (scope,)
+        ()
         if overall
         else mv.product(scope, population.classify(by=(region,)))
         if grouped
@@ -67,7 +67,7 @@ def _observe(
     return case.session.observe(
         {"value": _metric(case.session.catalog, "metric:sales.revenue")},
         by=domain,
-        where=mv.in_population(population),
+        where=(scope, mv.in_population(population)) if overall else mv.in_population(population),
     )
 
 
@@ -78,10 +78,11 @@ def _source(
     by: tuple[ms.Dimension, ...] = (),
     members: mv.Population | None = None,
 ) -> mv.AnalysisFrame:
+    scope = case.session.time_scope(start="2026-08-01", end="2026-09-01")
     return case.session.observe(
         {"value": metric},
-        by=(case.session.time_scope(start="2026-08-01", end="2026-09-01"), *by),
-        where=mv.in_population(members) if members is not None else None,
+        by=by,
+        where=scope if members is None else (scope, mv.in_population(members)),
     )
 
 
@@ -139,7 +140,8 @@ def test_complete_coordinate_tuple_rollup(analysis_dsl_case_factory: DslCaseFact
     status = catalog_value(session.catalog, "sales.order.status", kind="dimension")
     observed = session.observe(
         {"value": _metric(session.catalog, "metric:sales.revenue")},
-        by=(session.time_scope(start="2026-08-01", end="2026-09-01"), customer, channel, status),
+        by=(customer, channel, status),
+        where=session.time_scope(start="2026-08-01", end="2026-09-01"),
     )
     result = _source(
         case, _metric(session.catalog, "metric:sales.revenue"), by=(channel, status)
@@ -236,7 +238,8 @@ def test_partial_reduction_matches_components_and_preserves_keys(
     status = catalog_value(session.catalog, "sales.order.status", kind="dimension")
     observed = session.observe(
         {"value": _metric(session.catalog, "metric:sales.revenue")},
-        by=(session.time_scope(start="2026-08-01", end="2026-09-01"), customer, channel, status),
+        by=(customer, channel, status),
+        where=session.time_scope(start="2026-08-01", end="2026-09-01"),
     )
     partial = _source(
         case, _metric(session.catalog, "metric:sales.revenue"), by=(customer, channel)
@@ -244,8 +247,7 @@ def test_partial_reduction_matches_components_and_preserves_keys(
     assert partial.compute().to_pandas()["value"].tolist() == [450, 150, 400]
     direct = _source(case, _metric(session.catalog, "metric:sales.revenue")).compute()
     assert direct.to_pandas()["value"].tolist() == [1000]
-    assert len(frozen_coordinates(direct)) == 1
-    assert direct.axes[0].role == "interval"
+    assert frozen_coordinates(direct) == () and direct.axes == ()
 
 
 def test_row_statistics_grouped_merge_preserves_mean_state_and_identity(
@@ -337,9 +339,9 @@ def test_full_tuple_union_retains_denominator_only_and_cancelled_coordinates(
     web = count.where(channel == "web")
     expressions = {"ratio": web / count, "linear": count - count}
     scope = session.time_scope(start="2026-08-01", end="2026-09-01")
-    saved = session.observe(expressions, by=(scope, channel, status)).persist()
+    saved = session.observe(expressions, by=(channel, status), where=scope).persist()
     rows = saved.to_pandas()
-    overall = session.observe(expressions, by=(scope,)).compute().to_pandas()
+    overall = session.observe(expressions, where=scope).compute().to_pandas()
     for kind in expressions:
         assert rows.set_index(["channel", "status"])[kind].to_dict() == {
             ("mobile", "paid"): 0,
@@ -391,7 +393,8 @@ def test_weighted_coordinates_merge_paired_components(
     channel = catalog_value(session.catalog, "sales.order.channel", kind="dimension")
     observed = session.observe(
         {"value": _metric(session.catalog, "metric:sales.weighted")},
-        by=(session.time_scope(start="2026-08-01", end="2026-09-01"), customer, channel),
+        by=(customer, channel),
+        where=session.time_scope(start="2026-08-01", end="2026-09-01"),
     )
     partial = _source(case, _metric(session.catalog, "metric:sales.weighted"), by=(channel,))
     assert partial.compute().to_pandas()["value"].tolist() == [150, 425]

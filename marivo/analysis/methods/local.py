@@ -68,6 +68,7 @@ def query_combine(
     *,
     attribute: AttributeFormulaContext | None = None,
     unique_keys: tuple[UniqueKeys, ...] = (),
+    report_domain: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
     """Combine completed Metric samples and check only demanded numeric values."""
     from marivo.semantic._numeric_lowering import numeric_failure
@@ -79,6 +80,7 @@ def query_combine(
         inputs,
         stage.keys,
         stage.columns[len(stage.keys) :],
+        forced_domain=report_domain,
         attribute=attribute,
         unique_keys=unique_keys,
     )
@@ -196,8 +198,7 @@ def _combine_program(
             else pd.DataFrame(columns=keys)
         )
         calendars = (
-            *(((program.calendar_key, program.calendar),) if program.calendar is not None else ()),
-            *program.field_calendars,
+            ((program.calendar_key, program.calendar),) if program.calendar is not None else ()
         )
         if calendars and program.output_population is None and program.complete_calendar:
             calendar_slots = {slot for slot, _ in calendars}

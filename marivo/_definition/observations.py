@@ -13,7 +13,6 @@ from marivo._definition.expressions import (
     PredicateExpression,
     TimeBinding,
 )
-from marivo._definition.grouping import FieldCalendarBinding
 from marivo._definition.relations import (
     MembershipBinding,
     PopulationDependency,
@@ -52,7 +51,6 @@ class CoordinateBinding:
     memberships: tuple[MembershipBinding, ...] = ()
     complete_calendar: bool = True
     parent_scope: PopulationDependency | None = None
-    field_calendars: tuple[FieldCalendarBinding, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -87,7 +85,6 @@ class ContributionBinding:
     population_reads: tuple[tuple[AxisBinding, FieldRead | IdentityRead], ...] = ()
     window_rule: ObservationWindow | None = None
     metric: str = ""
-    field_calendar_reads: tuple[tuple[str, FieldRead], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

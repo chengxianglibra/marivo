@@ -29,27 +29,35 @@ Duplicate local names, including repeated inputs, and invalid names reject durin
 capture. Use distinct legal single-segment Mapping keys to repair them.
 Names do not establish Metric identity or business comparability.
 
-Source grouping accepts ordered fields or ``Grouping`` rules, or a complete
-``Population`` domain. ``identity(entity)`` declares one complete identity rule;
+Source grouping accepts an ordered tuple of Dimensions, non-time ``Grouping``
+rules and at most one report ``Grain``, or a complete ``Population`` domain.
+``where`` accepts a row predicate, one report ``TimeScope``, or a tuple
+conjoining these inputs. A scope limits the report without adding an output
+axis. A Grain adds report buckets. With only a Grain, actual observed keys
+define the time buckets. With a scope, ordinary output completes its report
+bucket domain. Every Metric branch needs a contribution clock for report time.
+A fixed ``field.within(scope)`` predicate constrains its own source field.
+
+``identity(entity)`` declares one complete identity rule.
 ``coordinates(by=(identity(entity),), keys=((("C1",),),))`` declares a finite
 requested identity domain. Every identity value is a complete primary-key tuple.
 Coordinates also accepts field coordinates and correlated field/identity tuples.
 ``population.axes`` reuses grouping definitions without selected keys.
-``by=population`` selects complete output keys, including keys without facts.
-A CalendarAxis directly in ``observe.by`` supplies Metric time and window
-endpoints. ``time_group(field, axis=axis)`` instead selects contributions by
-that field's range and adds its calendar buckets to the output grid.
-Multiple field calendar groupings can coexist with one direct observation
-axis. Each axis retains its own captured calendar interpretation. Membership rules preserve correlated tuples
-directly in observe.by or Metric.per, including interleaved field positions;
-Population stores no allocation rules. External output domains must cover necessary
-complete keys before internal sampling; internal sample domains may select subsets.
+``by=population`` retains exactly its complete output keys, including keys
+without facts. A Population may carry one fieldless time coordinate; construct
+it with ``product`` over an explicit interval or calendar domain.
+Membership rules preserve correlated tuples in a grouping tuple or Metric.per,
+including interleaved field positions. Population stores no allocation rules.
+External output domains must cover necessary complete keys before internal
+sampling. Internal sample domains may select subsets.
 
 ``population.count()`` counts complete distinct tuples as a lazy integer Metric,
 including Null categories and references without source facts. Empty domains
 count 0; the zero-axis unit domain counts 1. Ordinary grouping coordinates must
 already exist in the Population. Classify a new attribute while retaining identity
-before counting members by it; projecting to the attribute alone counts categories.
+before counting members by it. Projecting to the attribute alone counts categories.
+Row predicates leave the count's captured domain fixed. A Population count is
+not a timed Metric and cannot consume a report TimeScope or Grain.
 
 Use the returned ``compute()`` Frame for complete fixed memory data and the
 returned ``persist()`` Frame for committed data. Derived operations remain lazy.
@@ -615,7 +623,6 @@ Canonical public exports
    :caption: Functions
 
    coordinates
-   time_group
    membership
    product
    in_population

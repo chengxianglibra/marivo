@@ -29,7 +29,7 @@ from marivo.analysis.materialization.graph_source_execution import (
     open_query_sources,
 )
 from marivo.analysis.session.core import Session
-from marivo.semantic._expression_values import FieldExpression, NumericMetric, RowPredicate
+from marivo.semantic._expression_values import DimensionExpression, NumericMetric, RowPredicate
 from marivo.semantic.errors import SemanticExpressionError
 from marivo.semantic.reader import SemanticProject
 from tests.shared_fixtures import catalog_value
@@ -160,12 +160,13 @@ def compute(
     metrics: dict[str, NumericMetric],
     *,
     during: TimeScope | mv.CalendarAxis | None = None,
-    by: tuple[FieldExpression | Grouping, ...] = (),
+    by: tuple[DimensionExpression | Grouping, ...] = (),
     where: RowPredicate | None = None,
 ) -> StageOutput:
-    graph = _source_graph(
-        session.observe(metrics, by=by if during is None else (during, *by), where=where)
-    )
+    scope = during.scope if isinstance(during, mv.CalendarAxis) else during
+    axes = (during.grid.grain_spec, *by) if isinstance(during, mv.CalendarAxis) else by
+    condition = where if scope is None else scope if where is None else (scope, where)
+    graph = _source_graph(session.observe(metrics, by=axes, where=condition))
     with (
         session._runtime.connection_service().operation() as connections,
         open_query_sources(connections, graph, session.catalog._state) as prepared,
@@ -399,7 +400,7 @@ def test_local_duration_sample_mean_uses_observed_samples_without_required_perio
     )
     scope = session.time_scope(start="2026-10-01", end="2026-10-01T03:00:00")
     trace = capture_source(monkeypatch)
-    frame = session.observe({"v": metric}, by=(scope,) if bounded else ()).compute().to_pandas()
+    frame = session.observe({"v": metric}, where=scope if bounded else None).compute().to_pandas()
     assert pa.array(frame["v"]).cast(pa.int64()).to_pylist() == [40 if shape == "formula" else 20]
     assert trace.returned_rows
     assert all("__mean_folded" not in columns for columns in trace.returned_columns)
@@ -454,7 +455,8 @@ def test_civil_date_rejects_partial_business_day_boundary(prepared_session: Sess
                 start="2026-01-01T02:00:00+08:00", end="2026-01-02T00:00:00+08:00"
             ),
         )
-    assert "sales.orders.day: calendar boundary 2026-01-01T02:00:00+08:00" in str(caught.value)
+    assert "sales.orders.day" in str(caught.value)
+    assert "2026-01-01T02:00:00+08:00" in str(caught.value)
     assert "is not local midnight in Asia/Shanghai" in str(caught.value)
 
 
@@ -523,10 +525,12 @@ def test_calendar_bucket_keeps_nullable_timestamp_and_unmatched_rows(
     assert isinstance(amount, (ms.RowExpression, ms.MetricExpression)) and isinstance(
         day, (ms.RowExpression, ms.MetricExpression)
     )
-    grid = session.time_scope(
+    grid_scope = session.time_scope(
         start=start.isoformat(), end=(start + timedelta(days=max(1, bucket_count))).isoformat()
-    ).by(mv.grain("day"))
-    graph = _source_graph(session.observe({"total": amount.sum(time=day)}, by=(grid,)))
+    )
+    graph = _source_graph(
+        session.observe({"total": amount.sum(time=day)}, by=(mv.grain("day"),), where=grid_scope)
+    )
     observation = graph.signature.observation
     assert observation is not None
     contribution = observation.contributions[0]
@@ -653,8 +657,10 @@ def test_calendar_selection_preserves_membership_without_boolean_seeds(
     assert isinstance(amount, (ms.RowExpression, ms.MetricExpression)) and isinstance(
         day, (ms.RowExpression, ms.MetricExpression)
     )
-    grid = session.time_scope(start="2026-01-01", end="2026-01-04").by(mv.grain("day"))
-    graph = _source_graph(session.observe({"total": amount.sum(time=day)}, by=(grid,)))
+    grid_scope = session.time_scope(start="2026-01-01", end="2026-01-04")
+    graph = _source_graph(
+        session.observe({"total": amount.sum(time=day)}, by=(mv.grain("day"),), where=grid_scope)
+    )
     observation = graph.signature.observation
     assert observation is not None
     contribution = observation.contributions[0]

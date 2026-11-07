@@ -65,16 +65,15 @@ def _inputs(case: DslCase, *, weight: bool = False) -> tuple[mv.AnalysisFrame, m
 
 def _count(case: DslCase, month: int) -> mv.AnalysisFrame:
     session = case.session
-    customer = catalog_value(session.catalog, "sales.order.customer_id", kind="field")
-    channel = catalog_value(session.catalog, "sales.order.channel", kind="field")
+    customer = catalog_value(session.catalog, "sales.order.customer_id", kind="dimension")
+    channel = catalog_value(session.catalog, "sales.order.channel", kind="dimension")
     values = session.observe(
         {"value": _metric(session.catalog, "metric:sales.order_count")},
-        by=(
+        by=(customer, channel),
+        where=(
             session.time_scope(start=f"2026-{month:02d}-01", end=f"2026-{month + 1:02d}-01"),
-            customer,
-            channel,
+            mv.in_population(session.members(_entity(session.catalog, "entity:sales.customer"))),
         ),
-        where=mv.in_population(session.members(_entity(session.catalog, "entity:sales.customer"))),
     )
     return values
 
@@ -161,7 +160,7 @@ def test_additive_source_and_fixed(analysis_dsl_case_factory: DslCaseFactory) ->
         allocation(*(basis(value) for value in restored), method="count"), frame
     )
     assert len(terminal_runs(case.session)) == before
-    region = catalog_value(case.catalog, "sales.customer.region", kind="field")
+    region = catalog_value(case.catalog, "sales.customer.region", kind="dimension")
     for value in restored:
         with pytest.raises(AnalysisError) as caught:
             value.attribute(by=(region,))
@@ -372,17 +371,19 @@ def test_period_buckets_and_retained_coarsened_partition(
 ) -> None:
     case = analysis_dsl_case_factory("j2")
     session = case.session
-    customer = catalog_value(session.catalog, "sales.order.customer_id", kind="field")
-    channel = catalog_value(session.catalog, "sales.order.channel", kind="field")
+    customer = catalog_value(session.catalog, "sales.order.customer_id", kind="dimension")
+    channel = catalog_value(session.catalog, "sales.order.channel", kind="dimension")
 
     def endpoint(month: int) -> mv.AnalysisFrame:
         scope = session.time_scope(start=f"2026-{month:02d}-01", end=f"2026-{month + 1:02d}-01")
-        calendar = scope.by(mv.grain("month"))
         values = session.observe(
             {"value": _metric(session.catalog, "metric:sales.order_count")},
-            by=(calendar, customer, channel),
-            where=mv.in_population(
-                session.members(_entity(session.catalog, "entity:sales.customer"))
+            by=(mv.grain("month"), customer, channel),
+            where=(
+                scope,
+                mv.in_population(
+                    session.members(_entity(session.catalog, "entity:sales.customer"))
+                ),
             ),
         )
         return values

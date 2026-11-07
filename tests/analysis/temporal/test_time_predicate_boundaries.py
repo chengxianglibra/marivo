@@ -196,17 +196,15 @@ def test_temporal_branches_preserve_conditions_and_normalize_only_time_values(
             condition = (expression >= "2026-10-28") & (expression < "2026-10-30")
             output = session.observe({"value": amount.sum()}, where=condition).compute()
             assert output.to_pandas().value.tolist() == [expected]
-        raw = session.observe(
-            {"value": amount.sum()},
-            by=(point,),
+        observed = session.observe(
+            {"value": amount.sum(time=point)},
+            by=(mv.grain("day"),),
             where=(point >= "2026-10-28") & (point < "2026-10-30"),
         ).compute()
-        assert raw.to_pandas(axis_names={raw.axes[0].token: "point"}).point.tolist() == [
-            date(2026, 10, 28),
-            date(2026, 10, 29),
-        ]
+        rows = observed.to_pandas()
+        assert rows["calendar:day"].dt.date.tolist() == [date(2026, 10, 28), date(2026, 10, 29)]
         with pytest.raises(AnalysisError, match="matching value kinds"):
-            _ = raw.coord(raw.axes[0]) >= "2026-10-28"
+            _ = observed.coord(observed.axes[0]) >= "2026-10-28"
 
 
 def test_session_timezone_is_frozen_independently_of_output_scope(
@@ -225,7 +223,7 @@ def test_session_timezone_is_frozen_independently_of_output_scope(
         before = repr(condition)
         scope = session.time_scope(start="2026-10-27", end="2026-10-31", timezone="UTC")
         result = session.observe(
-            {"value": amount.sum(time=point)}, by=(scope,), where=condition
+            {"value": amount.sum(time=point)}, where=(scope, condition)
         ).compute()
         assert result.to_pandas().value.tolist() == [57]
         explicit = session.time_scope(start="2026-10-28", end="2026-10-30", timezone="UTC")

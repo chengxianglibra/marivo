@@ -105,6 +105,8 @@ def contribution_root(
     """Resolve the physical contribution root without a Catalog or source read."""
     if isinstance(node, EntityCount):
         return node.entity
+    if node.contribution_root is not None:
+        return node.contribution_root
 
     def row_root(row: RowNode) -> ExactRef:
         if isinstance(row, RowField):

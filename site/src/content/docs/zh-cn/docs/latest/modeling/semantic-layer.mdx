@@ -30,6 +30,7 @@ Entity 为物理来源定义业务身份和行粒度。对于订单，一笔订�
 | `datasource` | 是 | — | 由 `ms.ref.datasource(...)` 获得的数据源符号。 |
 | `source` | 是 | — | 物理来源描述，如 `md.table(...)`；选出的列形成实体来源结构。 |
 | `primary_key` | 否 | `None` | 有序完整稳定身份列；`None` 不声明实体身份，不代表只有一个成员。 |
+| `default_time` | 否 | 省略 | 本 Entity 的原生 TimeDimension，允许类型化前向引用。源规约省略 `time=` 时继承该字段。 |
 | `versioning` | 否 | `None` | `ms.snapshot(...)` 或 `ms.validity(...)`；`None` 不声明历史版本模型。 |
 | `domain` | 否 | `None` | 显式业务域；`None` 使用适用的已声明默认域。 |
 | `ai_context` | 否 | `None` | 可选 `ms.ai_context(...)` 业务含义与使用约束；省略时不附加上下文。 |
@@ -207,36 +208,43 @@ Metric 是完成来源聚合后的表达式，或已有 Metric 的组合。收�
 | `domain` | 否 | `None` | 显式业务域；`None` 使用适用的已声明默认域。 |
 | `ai_context` | 否 | `None` | 可选 `ms.ai_context(...)` 业务含义与使用约束；省略时不附加上下文。 |
 
-函数名提供发布名称。受限函数体组合类型化 Metric 或来源聚合，时间、空值和样本策略在这些算子上指定。若同一公式需复用不同时间角色，声明仅限关键字的 `ms.TimeParameter`，并在观察前绑定。
+零参数函数的名称就是发布名称。受限函数体组合类型化 Metric 或源规约，
+时间、空值和样本策略由各算子声明。每个规约可通过 `time=field` 固定贡献时间；
+省略时继承所属 Entity 声明的 `default_time`。没有可继承的默认字段时，
+规约仍可用于无报告时间的总量或分类观察。
+
+Entity 默认时间可以使用指向自身 TimeDimension 的类型化前向引用：
+
+```python
+orders = ms.entity(
+    name="orders",
+    datasource=ms.ref.datasource("warehouse"),
+    source=md.table("orders"),
+    primary_key=["order_id"],
+    default_time=ms.ref.time_dimension("sales.orders.order_date"),
+)
+order_date = ms.time_dimension_column(
+    name="order_date", entity=orders, column="order_date"
+)
+```
+
+当 `amount` 声明在 orders 上时，下面两个规约都会继承该字段：
 
 ```python
 @ms.metric()
 def revenue():
-    return amount.sum(time=order_date)
+    return amount.sum()
 
 
 @ms.metric()
 def average_order_value():
-    return revenue / orders.count(time=order_date)
+    return revenue / orders.count()
 ```
 
-同一求和公式可以合法使用不同事件时间时，在 Metric 中声明时参，并用 `bind_time` 绑定本次问题选定的字段。
-固定业务口径此前若依赖 Entity 默认时间，请在每个相关源规约中显式传入原字段。省略 `time` 的规约现在没有贡献时间。
-
-```python
-@ms.metric()
-def revenue_at(*, event: ms.TimeParameter):
-    return amount.sum(time=event)
-```
-
-加载模型后，从 Catalog 选择这两个对象。
-
-```python
-template = catalog.get("metric:sales.revenue_at")
-date_field = catalog.get("time_dimension:sales.orders.order_date")
-assert template.kind == "metric" and date_field.kind == "time_dimension"
-by_order_date = template.bind_time(event=date_field)
-```
+若同一公式有多个有效的业务时间，为每个口径分别声明 Metric。例如，
+用 `return amount.sum(time=paid_at)` 定义按支付归期的收入。组合 Metric
+保留各分支的贡献时间。通过 `metric.definition.time_bindings` 查看实际字段
+及其来源（`explicit` 或 `entity_default`）。
 
 函数体可以包含新的局部表达式绑定和最终 return，但不能包含表参数、`ms.bind`、查询或任意 Python 调用。空样本求和为零，非空但全部为空的样本求和为未知；除以零产生 NA。`revenue.where(region == "east")` 限定贡献条件，`revenue.per(region).mean()` 计算地区收入的均值；它们与筛选或平均已完成 Frame 不同。已有闭合 Metric 可以直接组合用于本次问题，无需发布新定义。Help：`semantic.metric.define`、`semantic.expressions`。
 
@@ -384,6 +392,7 @@ orders = ms.entity(
     datasource=ms.ref.datasource("warehouse"),
     source=md.table("orders"),
     primary_key=["order_id"],
+    default_time=ms.ref.time_dimension("sales.orders.order_date"),
 )
 region = ms.dimension_column(name="region", entity=orders, column="region")
 order_date = ms.time_dimension_column(
@@ -413,12 +422,12 @@ def margin():
 
 @ms.metric()
 def revenue():
-    return amount.sum(time=order_date)
+    return amount.sum()
 
 
 @ms.metric()
 def average_order_value():
-    return revenue / orders.count(time=order_date)
+    return revenue / orders.count()
 ```
 
 ### 保持业务规则

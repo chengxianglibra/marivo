@@ -3,10 +3,13 @@
 from typing import Literal
 
 from ibis.common.deferred import Deferred
+from ibis.expr.types import Table
 from typing_extensions import assert_type
 
 import marivo.analysis as mv
+import marivo.datasource as md
 import marivo.semantic as ms
+from marivo._symbolic import EntitySymbol
 
 
 def object_types(catalog: ms.SemanticCatalog) -> None:
@@ -63,12 +66,11 @@ def expression_roles(
         revenue.per(by=paid_at, grain=mv.grain("day")).last(),
         ms.MetricExpression[Literal["numeric"]],
     )
-    assert_type(revenue.bind_time(event=paid_at), ms.MetricExpression[Literal["numeric"]])
-    assert_type((revenue > 0).bind_time(event=paid_at), ms.MetricExpression[Literal["boolean"]])
+    assert_type(orders.count(), ms.MetricExpression[Literal["numeric"]])
 
     @ms.metric()
-    def revenue_at(*, event: ms.TimeParameter) -> ms.MetricExpression[Literal["numeric"]]:
-        return amount.sum(time=event)
+    def revenue_at() -> ms.MetricExpression[Literal["numeric"]]:
+        return amount.sum(time=paid_at)
 
     assert_type(revenue_at, ms.MetricExpression[Literal["numeric"]])
     row_condition = status == "paid"
@@ -120,3 +122,24 @@ def declaration_stage(amount: ms.Measure, authoring: Deferred) -> None:
     assert_type(forward_rows, ms.RowExpression[Literal["numeric"]])
     assert_type(closed_metric, ms.MetricExpression[Literal["numeric"]])
     assert_type(forward_metric, ms.MetricExpression[Literal["numeric"]])
+
+
+def default_time_authoring() -> None:
+    default = ms.ref.time_dimension("sales.orders.paid_at")
+    direct = ms.entity(
+        name="orders",
+        datasource=ms.ref.datasource("warehouse"),
+        source=md.table("orders"),
+        default_time=default,
+    )
+
+    @ms.entity(
+        datasource=ms.ref.datasource("warehouse"),
+        source=md.table("orders"),
+        default_time=default,
+    )
+    def derived(raw: Table) -> Table:
+        return raw
+
+    assert_type(direct, EntitySymbol)
+    assert_type(derived, EntitySymbol)

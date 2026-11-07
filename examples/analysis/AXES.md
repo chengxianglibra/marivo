@@ -20,23 +20,25 @@ when only that child should be filtered. Choose `start`, `end` and
 `selected_value` from the task, then capture a scoped result directly:
 
 ```python
-group = catalog.fields.get("sample.readings.group")
+group = catalog.get("dimension:sample.readings.group")
+assert group.kind == "dimension"
 scope = session.time_scope(start=start, end=end)
+day = mv.grain("day")
 conditioned = session.observe(
     {"combined": metric + metric},
-    by=(scope, group),
-    where=(group == selected_value),
+    by=(day, group),
+    where=(scope, group == selected_value),
 ).compute()
 conditioned.show()
 ```
 
-The interval and group are explicit output axes; the source condition limits
-contributions to the composed observation. `axes.py` supplies runnable synthetic
+The day and group are explicit output axes. The row predicate limits
+contributions throughout the composed observation. `axes.py` supplies runnable synthetic
 inputs for this pattern. In an existing project, select its governed field path.
 
 ## Bind every axis before comparing independent Frames
 
-For Frames with an interval axis followed by a group axis, declare both complete
+For Frames with a calendar day axis followed by a group axis, declare both complete
 axis pairs. `on` states coordinate correspondence; `match` separately states the
 time rule. Axis display names, similar values and row positions do not establish
 correspondence. Inputs must belong to the same Session. A composite identity is
@@ -86,11 +88,11 @@ numeric value. Neither null nor absence becomes zero. Alignment uses
 `reference.relative.value`. Relative change divides the difference by the
 absolute baseline; a zero baseline yields null.
 
-Construct time scopes with `session.time_scope(start=start, end=end)`, then put
-the scope in `observe(..., by=(scope, group))`. Start is inclusive, end exclusive,
-and the Session above freezes UTC. `mv.ordinal()` explicitly pairs two declared
-single intervals with equal boundary timezones; calendar ordinal requires
-compatible complete nominal and actual buckets. Use `align` for a general time
+Construct time scopes with `session.time_scope(start=start, end=end)`. Pass
+each scope in `where` and select the report Grain and Dimension in
+`by=(day, group)`. The scope includes its start and excludes its end.
+`mv.ordinal()` explicitly pairs compatible complete calendar buckets in the
+two declared domains. Use `align` for a general time
 union: `compare` rejects baseline time rows outside its declared current time
 domain. Select time boundaries and the matching policy for the task.
 
@@ -100,16 +102,16 @@ Read `analysis.analysis_frame.align`, `analysis.analysis_frame.compare`,
 
 ## Pair repeated observations on a shared time grid
 
-The two single-interval observations above provide one point per spatial group;
-their overall correlation describes variation across those groups. Association
+Each one-day observation above provides one point per spatial group.
+Their overall correlation describes variation across those groups. Association
 over time needs intentionally repeated time coordinates. The final block in
 `axes.py` uses the fixture's two daily buckets and correlates within each group:
 
 ```python
 scope = session.time_scope(start=start, end=end)
-grid = scope.by(mv.grain("day"))
-series = session.observe({"value": metric}, by=(grid, group)).compute()
-composed = session.observe({"value": metric + metric}, by=(grid, group)).compute()
+day = mv.grain("day")
+series = session.observe({"value": metric}, by=(day, group), where=scope).compute()
+composed = session.observe({"value": metric + metric}, by=(day, group), where=scope).compute()
 paired = series.align(
     composed,
     on=((series.axes[0], composed.axes[0]), (series.axes[1], composed.axes[1])),

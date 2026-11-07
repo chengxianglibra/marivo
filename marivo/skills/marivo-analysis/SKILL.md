@@ -39,10 +39,11 @@ name is not itself an authoring gap. A new business assertion, such
 as authorizing a row quantity to be summed, belongs to the semantic workflow
 when that authority is unresolved.
 
-When a governed Metric exposes an open time parameter, choose its field from
-the question's business meaning and bind it before observation. Ask for that
-meaning when plausible roles would change the answer and the question does not
-select one.
+For a time-scoped or time-grouped question, inspect the contribution clocks
+already defined by the governed Metric. A composed Metric may use different
+clocks for different branches. Use an established Metric for the intended
+time role, or route unresolved reusable meaning to semantic authoring.
+Clarify the business time role when plausible choices would change the answer.
 
 ## Analytical judgment
 
@@ -57,10 +58,11 @@ checklist requiring additional queries:
   Interpret rates and growth with their numerators, denominators and absolute
   changes; distinguish percent change from percentage points, and qualify
   comparisons with small or near-zero baselines.
-- Keep population selection, contribution time, output time classification and
-  internal sample time distinct. A field's output calendar can restrict the
-  selected contributions. Choose the window endpoint through the Metric
-  observation time. Incomplete or unknown source coverage cannot establish absence.
+- Keep population selection, contribution time, report time and internal sample
+  time distinct. Choose the report scope and Grain for the requested result.
+  Treat explicit field predicates as fixed source constraints. A window can
+  read earlier contributions while preserving those constraints and the chosen
+  output coordinates. Incomplete or unknown source coverage cannot establish absence.
 - Distinguish statistics over current result rows from aggregation of an
   original Metric. They may describe different quantities; preserve grain,
   units, weighting, and additivity when choosing the intended calculation.

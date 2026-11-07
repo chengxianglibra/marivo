@@ -24,6 +24,7 @@ from tests.shared_fixtures import (
     export_dsl_parquet_models,
     frozen_coordinates,
     terminal_runs,
+    time_population,
 )
 
 
@@ -248,10 +249,12 @@ def test_period_comparison_preserves_independent_spatial_endpoint_oracles(
     current_axis, current = period(case.session, 8, 3, grouped=True)
     baseline_axis, baseline = period(case.session, 7, 3, grouped=True)
     current_totals = case.session.observe(
-        {"value": _metric(case.session.catalog, "metric:sales.order_count")}, by=(current_axis,)
+        {"value": _metric(case.session.catalog, "metric:sales.order_count")},
+        by=time_population(current_axis),
     )
     baseline_totals = case.session.observe(
-        {"value": _metric(case.session.catalog, "metric:sales.order_count")}, by=(baseline_axis,)
+        {"value": _metric(case.session.catalog, "metric:sales.order_count")},
+        by=time_population(baseline_axis),
     )
     comparison = current_totals.compare(
         {
@@ -281,11 +284,13 @@ def test_period_outer_distinguishes_absent_groups_from_zero_activity(
     channel = catalog_value(session.catalog, "sales.order.channel", kind="dimension")
 
     def observe(month: int, start: int) -> mv.AnalysisFrame:
-        axis = session.time_scope(
+        axis_scope = session.time_scope(
             start=f"2026-{month:02}-{start:02}", end=f"2026-{month:02}-{start + 3:02}"
-        ).by(mv.grain("day"))
+        )
         return session.observe(
-            {"value": _metric(session.catalog, "metric:sales.order_count")}, by=(axis, channel)
+            {"value": _metric(session.catalog, "metric:sales.order_count")},
+            by=(mv.grain("day"), channel),
+            where=axis_scope,
         )
 
     current, baseline = observe(8, 1), observe(7, 9)

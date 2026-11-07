@@ -517,12 +517,13 @@ def provider() -> DisclosureProvider:
                 ),
             ),
             "CalendarAxis",
-            "Construct nominal and actual buckets from the frozen scope.",
+            "Construct a frozen calendar domain for explicit Population coordinates or a shifted endpoint relation.",
             'result = scope.by(mv.grain("day"))',
             ("scope",),
             "inputs.time",
             (
                 "Frozen scope and compatible Grain are required; semantic Grain must already capture a certified snapshot through calendar.grain(level).",
+                "For ordinary observation, pass where=scope and by=(grain,) directly to session.observe.",
             ),
         ),
         (
@@ -698,7 +699,7 @@ def provider() -> DisclosureProvider:
                 producers=(producer, "calendar_axis.shift")
                 if value is CalendarAxis
                 else (producer, "time_scope.start", "time_scope.end"),
-                consumers=(consumer, "calendar_axis.shift", "session.observe", "product")
+                consumers=(consumer, "calendar_axis.shift", "product")
                 if value is CalendarAxis
                 else (consumer,),
                 constraints=("Frozen metadata only; no source or schema reads.",),

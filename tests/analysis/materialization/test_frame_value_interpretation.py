@@ -304,9 +304,11 @@ def test_time_mapping_retains_representable_nested_relation_and_shift_drops_only
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     case = analysis_dsl_case_factory("j2")
-    time = case.session.time_scope(start="2026-08-15", end="2026-08-17").by(mv.grain("day"))
+    time_scope = case.session.time_scope(start="2026-08-15", end="2026-08-17")
     source = case.session.observe(
-        {"q": catalog_value(case.catalog, "sales.revenue", kind="metric")}, by=(time,)
+        {"q": catalog_value(case.catalog, "sales.revenue", kind="metric")},
+        by=(mv.grain("day"),),
+        where=time_scope,
     )
     equality = source.align(source)
     paired = equality.align(source, match=mv.ordinal())
@@ -327,9 +329,11 @@ def test_time_mapping_retains_representable_nested_relation_and_shift_drops_only
         "current.alignment",
         "reference.alignment",
     )
-    earlier_time = case.session.time_scope(start="2026-08-14", end="2026-08-16").by(mv.grain("day"))
+    earlier_time_scope = case.session.time_scope(start="2026-08-14", end="2026-08-16")
     earlier_source = case.session.observe(
-        {"q": catalog_value(case.catalog, "sales.revenue", kind="metric")}, by=(earlier_time,)
+        {"q": catalog_value(case.catalog, "sales.revenue", kind="metric")},
+        by=(mv.grain("day"),),
+        where=earlier_time_scope,
     )
     earlier = earlier_source.align(earlier_source)
     shifted = equality.compare(earlier, match=mv.offset(periods=-1))
@@ -450,9 +454,11 @@ def test_pending_statistic_fixed_groups_rebind_without_replacing_operand_snapsho
 ) -> None:
     case = analysis_dsl_case_factory("j2")
     region = catalog_value(case.catalog, "sales.customer.region", kind="dimension")
-    days = case.session.time_scope(start="2026-08-01", end="2026-08-04").by(mv.grain("day"))
+    days_scope = case.session.time_scope(start="2026-08-01", end="2026-08-04")
     source = case.session.observe(
-        {"q": catalog_value(case.catalog, "sales.revenue", kind="metric")}, by=(region, days)
+        {"q": catalog_value(case.catalog, "sales.revenue", kind="metric")},
+        by=(region, mv.grain("day")),
+        where=days_scope,
     )
     if kind == "pair":
         statistic = source.correlate(

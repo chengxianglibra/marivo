@@ -660,12 +660,11 @@ def test_observe_different_fields_share_one_actual_aggregate(
         amount.min(time=ordered_at),
         approximate.max(time=ordered_at),
     )
-    by = (
-        ()
-        if domain == "overall"
-        else (scope if domain == "interval" else scope.by(mv.grain("day")),)
+    query = session.observe(
+        {f"v{index}": metrics[index % 5] for index in range(width)},
+        by=(mv.grain("day"),) if domain == "calendar" else (),
+        where=scope if domain != "overall" else None,
     )
-    query = session.observe({f"v{index}": metrics[index % 5] for index in range(width)}, by=by)
     _, plan, _, _ = _same(session, query)
     assert len([stage for stage in plan.stages if isinstance(stage, SourceRead)]) == 1
     trace = capture_source(monkeypatch)
@@ -784,9 +783,11 @@ def test_internal_samples_and_windows_keep_their_physical_boundaries(
         query = source
     else:
         time = catalog_value(session.catalog, "sales.orders.ordered_at", kind="time_dimension")
-        calendar = session.time_scope(start="2026-01-01", end="2026-01-03").by(mv.grain("day"))
+        calendar_scope = session.time_scope(start="2026-01-01", end="2026-01-03")
         metric = amount.sum(time=time).window(mv.all_history())
-        source = session.observe({"a": metric, "b": metric}, by=(calendar, region, detail))
+        source = session.observe(
+            {"a": metric, "b": metric}, by=(mv.grain("day"), region, detail), where=calendar_scope
+        )
         query = source
     _, plan, _, _ = _same(session, query)
     assert not any(group.law in ("L8", "source_block") for group in plan.fusion_groups)
@@ -1013,9 +1014,11 @@ def test_decimal_source_quantile_keeps_native_precision_through_windows(
         rows = result.table
         assert rows["value.0"].tolist() == [target]
         assert str(rows["value.0"].dtype) == f"decimal128({precision}, 2)[pyarrow]"
-    days = session.time_scope(start="2026-01-01", end="2026-01-03").by(mv.grain("day"))
+    days_scope = session.time_scope(start="2026-01-01", end="2026-01-03")
     windowed = session.observe(
-        {"p95": quantile.window(mv.trailing_periods(count=2))}, by=(days, region)
+        {"p95": quantile.window(mv.trailing_periods(count=2))},
+        by=(mv.grain("day"), region),
+        where=days_scope,
     )
     assert windowed.compute().to_pandas()["p95"].tolist() == [native, native]
 
@@ -1115,7 +1118,7 @@ def test_decimal_quantile_probability_boundaries_samples_and_strict_nulls(
     ]
     sampled = session.observe(
         {"p95": value.sum(time=time).per(time).quantile(0.95)},
-        by=(session.time_scope(start="2026-01-01", end="2026-01-05"),),
+        where=session.time_scope(start="2026-01-01", end="2026-01-05"),
     )
     # The completed Decimal samples use the native interpolation and cast, including
     # backend rounding loss; the optimizer must not replace it with a local finisher.

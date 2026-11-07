@@ -124,18 +124,21 @@ def test_dynamic_sample_producer_retains_its_own_period(
     ordered = catalog_value(session.catalog, "sales.order.ordered_at", kind="time_dimension")
     producer = session.observe(
         {"n": amount.count(time=ordered)},
-        by=(session.time_scope(start="2026-09-01", end="2026-10-01"), customer),
+        by=(customer,),
+        where=session.time_scope(start="2026-09-01", end="2026-10-01"),
     )
     fixed = producer.where(producer["n"] > 0).compute()
-    samples = session.population_from(fixed, on=((fixed.axes[1], customer),))
+    samples = session.population_from(fixed, on=((fixed.axes[0], customer),))
     metric = amount.sum(time=ordered).per(samples).mean()
     fine = session.observe(
-        {"value": metric}, by=(session.time_scope(start="2026-10-01", end="2026-11-01"), channel)
+        {"value": metric},
+        by=(channel,),
+        where=session.time_scope(start="2026-10-01", end="2026-11-01"),
     )
     trace = capture_source(monkeypatch)
     result = (
         session.observe(
-            {"value": metric}, by=(session.time_scope(start="2026-10-01", end="2026-11-01"),)
+            {"value": metric}, where=session.time_scope(start="2026-10-01", end="2026-11-01")
         )
         .compute()
         .to_pandas()["value"]

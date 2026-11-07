@@ -10,6 +10,7 @@ from types import UnionType
 from typing import Literal, Union, get_args, get_origin, get_type_hints
 
 from marivo import __version__
+from marivo._temporal import InstantAnchor
 from marivo.analysis.core import frame_interpretation as frame
 from marivo.analysis.core.data_types import (
     DataType,
@@ -110,11 +111,8 @@ _NESTED: dict[type[object], str] = {
     frame.FrameFixedAxis: "axis key origins",
     AiContextIR: "business_definition guardrails aliases",
     entries.DependencyContext: "id business_definition guardrails",
-    entries.MetricTimeConstraint: "use root required_field",
-    entries.MetricTimeParameter: "name roots constraints",
-    entries.MetricTimeFieldBinding: "branch source field path",
-    entries.MetricTimeParameterBinding: "branch source parameter",
-    entries.MetricNoTimeBinding: "branch source",
+    entries.MetricTimeFieldBinding: "branch source field path anchor",
+    entries.MetricNoTimeBinding: "branch source root reason",
     semantic.SampleIntervalIR: "count unit",
     semantic.DateParse: "kind timezone",
     semantic.TimestampParse: "kind timezone",
@@ -150,7 +148,7 @@ def _type(annotation: object) -> JsonObject:
         )
     if annotation in (ScalarDataType, DecimalDataType, TimestampDataType, DurationDataType):
         return ref(annotation.__name__)
-    if annotation is datetime:
+    if annotation in (datetime, InstantAnchor):
         return DATETIME
     if annotation is date:
         return {"type": "string", "format": "date"}

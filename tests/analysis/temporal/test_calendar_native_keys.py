@@ -24,7 +24,7 @@ from marivo.refs import ref
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.numeric.test_remote_numeric_query import _datasource_model
 from tests.datasource.source_cases import SourceData, receipt, source_case, source_params
-from tests.shared_fixtures import catalog_value, frozen_coordinates
+from tests.shared_fixtures import catalog_value, frozen_coordinates, time_population
 from tests.support.source_trace import capture_source
 
 CASES = source_params(
@@ -230,10 +230,12 @@ def test_calendar_capacity_and_sum_before_p95(
         evidence = []
         for days in (1, 14):
             before = len(trace.native_sql)
-            axis = session.time_scope(start=start, end=start + timedelta(days=days)).by(
-                mv.grain("minute", count=5)
-            )
-            result = session.observe({"total": amount.sum(time=point)}, by=(axis,)).compute()
+            axis_scope = session.time_scope(start=start, end=start + timedelta(days=days))
+            result = session.observe(
+                {"total": amount.sum(time=point)},
+                by=(mv.grain("minute", count=5),),
+                where=axis_scope,
+            ).compute()
             assert result.to_pandas().total.tolist() == [2] * (days * 288)
             sqls = trace.native_sql[before:]
             assert len(sqls) == 2
@@ -250,7 +252,7 @@ def test_calendar_capacity_and_sum_before_p95(
         custom = _custom()
         before = len(trace.native_sql)
         totals = (
-            session.observe({"total": amount.sum(time=point)}, by=(custom,))
+            session.observe({"total": amount.sum(time=point)}, by=time_population(custom))
             .compute()
             .to_pandas()
             .total.tolist()
@@ -269,7 +271,7 @@ def test_calendar_capacity_and_sum_before_p95(
         before = len(trace.native_sql)
         scope = session.time_scope(start=start, end=start + timedelta(days=15))
         mean = amount.sum(time=point).per(mv.grain("minute", count=5)).mean()
-        assert session.observe({"mean": mean}, by=(scope,)).compute().to_pandas()[
+        assert session.observe({"mean": mean}, where=scope).compute().to_pandas()[
             "mean"
         ].tolist() == pytest.approx([2])
         submitted = trace.native_sql[before:]
@@ -287,13 +289,16 @@ def test_calendar_capacity_and_sum_before_p95(
         )
         if backend in ("duckdb", "postgres", "clickhouse"):
             for days in (1, 14):
-                axis = session.time_scope(start=start, end=start + timedelta(days=days)).by(
-                    mv.grain("minute", count=5)
-                )
+                axis_scope = session.time_scope(start=start, end=start + timedelta(days=days))
                 p95 = amount.sum(time=point).per(point).quantile(0.95)
                 before = len(trace.native_sql)
                 values = (
-                    session.observe({"p95": p95}, by=(axis,)).compute().to_pandas().p95.tolist()
+                    session.observe(
+                        {"p95": p95}, by=(mv.grain("minute", count=5),), where=axis_scope
+                    )
+                    .compute()
+                    .to_pandas()
+                    .p95.tolist()
                 )
                 assert values == [2] * (days * 288)
                 submitted = trace.native_sql[before:]
@@ -312,7 +317,7 @@ def test_calendar_capacity_and_sum_before_p95(
             scope = session.time_scope(start=start, end=start + timedelta(days=14))
             p95 = amount.sum(time=point).per(point).quantile(0.95)
             assert session.observe(
-                {"p95": p95}, by=(scope,)
+                {"p95": p95}, where=scope
             ).compute().to_pandas().p95.tolist() == [2]
         if backend == "clickhouse":
             assert case.session._backend.con.query(
@@ -410,8 +415,12 @@ def test_public_encoded_clocks_retain_wall_bucket_membership(
                     sum(left <= instant < left + pd.Timedelta(minutes=5) for instant in instants)
                     for left in pd.date_range(start, end, freq="5min", inclusive="left")
                 ]
-                axis = session.time_scope(start=start, end=end).by(mv.grain("minute", count=5))
-                pending = session.observe({"total": amount.sum(time=point)}, by=(axis,))
+                axis_scope = session.time_scope(start=start, end=end)
+                pending = session.observe(
+                    {"total": amount.sum(time=point)},
+                    by=(mv.grain("minute", count=5),),
+                    where=axis_scope,
+                )
                 actual = pending.compute().to_pandas()
                 assert actual.total.tolist() == expected
 
@@ -490,13 +499,15 @@ def test_public_calendar_keeps_facts_when_midnight_fold_returns_to_previous_date
         trace = capture_source(monkeypatch)
         for unit in ("day", "month"):
             for start, end, expected in ranges:
-                axis = session.time_scope(
+                axis_scope = session.time_scope(
                     start=day + "T" + start + "Z",
                     end=day + "T" + end + "Z",
                     timezone=zone,
-                ).by(mv.grain(unit))
+                )
                 before = len(trace.native_sql)
-                result = session.observe({"total": amount.sum(time=point)}, by=(axis,)).compute()
+                result = session.observe(
+                    {"total": amount.sum(time=point)}, by=(mv.grain(unit),), where=axis_scope
+                ).compute()
                 rows = result.to_pandas(time_details=True)
                 namespace = case.source.database
                 parts = (
@@ -722,13 +733,15 @@ def test_public_hour_index_follows_native_gap_and_fold_interpretation(
                     for value in oracle.bucket
                 }
             )
-            axis = session.time_scope(
+            axis_scope = session.time_scope(
                 start=f"{day}T{start}Z", end=f"{day}T{end}Z", timezone="America/New_York"
-            ).by(mv.grain("hour"))
+            )
             total = amount.sum(time=point)
             rows = (
                 session.observe(
-                    {"total": total, "history": total.window(mv.all_history())}, by=(axis,)
+                    {"total": total, "history": total.window(mv.all_history())},
+                    by=(mv.grain("hour"),),
+                    where=axis_scope,
                 )
                 .compute()
                 .to_pandas()

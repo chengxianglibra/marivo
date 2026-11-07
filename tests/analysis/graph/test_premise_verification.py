@@ -51,8 +51,7 @@ def test_observation_completeness_depends_on_exact_matching_assumptions(
     }
     assert session.observe(
         {"value": catalog_get(session.catalog, "metric:sales.line_revenue", kind="metric")},
-        by=(session.time_scope(start="2026-08-01", end="2026-09-01"),),
-        where=mv.in_population(members),
+        where=(session.time_scope(start="2026-08-01", end="2026-09-01"), mv.in_population(members)),
     ).persist().to_pandas()["value"].tolist() == [1000]
     route = catalog_get(session.catalog, "relationship:sales.order_buyer", kind="relationship")
     region = catalog_value(session.catalog, "sales.customer.region", kind="dimension")

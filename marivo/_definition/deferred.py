@@ -117,7 +117,6 @@ SEMANTIC_METHODS: Final = frozenset(
         "where",
         "per",
         "window",
-        "bind_time",
     }
 )
 _TOP_FUNCTIONS: Final = (
@@ -159,6 +158,7 @@ class SemanticInput:
     coordinates: tuple[ExactRef, ...] = ()
     field_read: FieldRead | None = None
     versioned: bool = False
+    default_time: ExactRef | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -169,6 +169,8 @@ class RelationshipParameter:
     from_entity: ExactRef
     to_entity: ExactRef
     cardinality: Literal["one_to_one", "many_to_one", "one_to_many", "many_to_many"]
+    # Capture context for a new via-based reduction. Relationship use alone does not read it.
+    _from_default_time: ExactRef | None = field(default=None, compare=False, repr=False)
 
 
 class _RelationshipValue:
@@ -214,7 +216,6 @@ class DeclarationRecord:
     reference: ExactRef | None = None
     pending_additivity: tuple[Literal["over", "all", "none"], tuple[str, ...]] | None = None
     pending_assertion: bool = False
-    time_slots: tuple[TimeSlotResolver, ...] = ()
 
 
 # Ibis does not ship py.typed. Keep its untyped inheritance at this one
@@ -229,19 +230,17 @@ else:
         __slots__ = ()
 
 
-class TimeSlotResolver(_FrozenResolver):
-    """One lexical slot, independent of the spelling used at a binding site."""
+class CapturedDefaultTimeResolver(_FrozenResolver):
+    """An already selected Entity default, including the absence of one."""
 
-    __slots__ = ("binder", "name", "owner")
-    binder: str
-    name: str
-    owner: str
+    __slots__ = ("field",)
+    field: ExactRef | None
 
-    def __init__(self, binder: str, name: str, owner: str) -> None:
-        super().__init__(binder=binder, name=name, owner=owner)
+    def __init__(self, field: ExactRef | None) -> None:
+        super().__init__(field=field)
 
     def resolve(self, context: dict[str, object]) -> NoReturn:
-        invalid("Metric time slots require bind_time().")
+        invalid("A captured default is a semantic contribution-time fact.")
 
 
 class SemanticResolver(_FrozenResolver):
@@ -357,7 +356,6 @@ class DeferredInspection:
     symbols: tuple[Ref[SemanticKindTag], ...] = ()
     context: InputContext = field(default_factory=InputContext)
     identity_keys: tuple[tuple[str, tuple[str, ...]], ...] = ()
-    has_time_parameters: bool = False
 
     @property
     def semantic_calls(self) -> tuple[RecipeUse, ...]:
@@ -422,8 +420,6 @@ def _permission(value: SumPermission | None) -> tuple[str, ...]:
 
 def _captured_field_kind(recipe: Resolver) -> SemanticKind | None:
     """Read a field role only from native leaves and admitted field modifiers."""
-    if isinstance(recipe, TimeSlotResolver):
-        return SemanticKind.TIME_DIMENSION
     if isinstance(recipe, NamedResolver):
         return _captured_field_kind(recipe.recipe)
     if isinstance(recipe, SymbolResolver):
@@ -587,7 +583,6 @@ class _Inspector:
         self.identity_keys: dict[str, tuple[str, ...]] = {}
         self.has_population_count = False
         self.has_population_contains = False
-        self.has_time_parameters = False
 
     def capture_identity_keys(self, values: tuple[tuple[str, tuple[str, ...]], ...]) -> None:
         for identity, keys in values:
@@ -656,9 +651,13 @@ class _Inspector:
             from marivo._definition.graph import computation_fingerprint
 
             self.token("population_count", computation_fingerprint(recipe.population._definition))
-        elif type(recipe) is TimeSlotResolver:
-            self.has_time_parameters = True
-            self.token("time_parameter", recipe.binder, recipe.name)
+        elif type(recipe) is CapturedDefaultTimeResolver:
+            if not path or path[-1] != "parameter:time":
+                self.reject(recipe, path)
+            self.token("entity_default_time")
+            if recipe.field is not None:
+                self.dependency(recipe.field)
+                self.token(*_reference(recipe.field))
         elif type(recipe) is SemanticResolver:
             value = recipe.input
             self.uses.append(SemanticUse(path, value))
@@ -1013,8 +1012,6 @@ class _Inspector:
         self, symbol: str, recipe: Call, path: tuple[str, ...], *, population: bool = False
     ) -> None:
         """Reject known method arity and keyword mistakes at capture time."""
-        if symbol == "bind_time" and recipe.args:
-            invalid("bind_time accepts only named time parameters.", path=path)
         reducers = {
             "sum",
             "mean",
@@ -1159,7 +1156,11 @@ class _Inspector:
                 if (
                     value is not None
                     and not (
-                        parameter == "time" and isinstance(value, Just) and value.value is None
+                        parameter == "time"
+                        and (
+                            isinstance(value, CapturedDefaultTimeResolver)
+                            or (isinstance(value, Just) and value.value is None)
+                        )
                     )
                     and _captured_field_kind(value) is not SemanticKind.TIME_DIMENSION
                 ):
@@ -1265,7 +1266,6 @@ class _Inspector:
         path: tuple[str, ...],
     ) -> None:
         self.operations.append(RecipeUse(path, symbol, recipe))
-        self.has_time_parameters |= symbol == "bind_time"
         self.token("call", symbol, str(len(args)))
         roles = (
             ("condition", "true", "false")
@@ -1341,7 +1341,6 @@ def inspect_deferred(value: Deferred, *, capture: bool = False) -> DeferredInspe
         tuple(value for _, value in sorted(inspector.symbols.items())),
         merge_input_contexts(*inspector.contexts),
         tuple(sorted(inspector.identity_keys.items())),
-        inspector.has_time_parameters,
     )
 
 

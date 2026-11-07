@@ -37,6 +37,8 @@ def run_local(
     stage: LocalCompute | FrameCompute,
     inputs: tuple[StageOutput, ...],
     kernel: LocalKernel | None = None,
+    *,
+    report_domain: pd.DataFrame | None = None,
 ) -> StageOutput:
     """Run one checked Query kernel without mutating its shared inputs."""
     attribute_inputs: tuple[AttributeRootInputs, ...] = ()
@@ -336,7 +338,9 @@ def run_local(
                 unique_keys=tuple(view_keys),
             )
         elif isinstance(stage.program, FormulaProgram) and kernel is query_combine:
-            frame = query_combine(stage, views, unique_keys=tuple(view_keys))
+            frame = query_combine(
+                stage, views, unique_keys=tuple(view_keys), report_domain=report_domain
+            )
         else:
             frame = kernel(stage, views)
     if not isinstance(frame, pd.DataFrame) or any(

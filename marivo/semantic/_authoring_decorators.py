@@ -23,6 +23,7 @@ from marivo._symbolic import (
     MeasureSymbol,
     RelationshipSymbol,
     TimeDimensionSymbol,
+    native_symbol_ref,
     symbol_factory,
 )
 from marivo.refs import (
@@ -61,7 +62,13 @@ from marivo.semantic._dsl_authoring import (
     NonAdditiveV1,
 )
 from marivo.semantic._expression_binding import ExpressionBody, compile_expression_body
-from marivo.semantic._expression_values import NumericRow, RowExpression, _as_deferred
+from marivo.semantic._expression_values import (
+    _OMITTED_TIME,
+    NumericRow,
+    RowExpression,
+    _as_deferred,
+    _OmittedTime,
+)
 from marivo.semantic.constraints import ConstraintId
 from marivo.semantic.errors import ErrorKind, SemanticDecoratorError, _raise
 from marivo.semantic.expressions import (
@@ -147,6 +154,7 @@ def _register_entity_ir(
     source: EntitySourceIR,
     primary_key: tuple[str, ...],
     versioning: SnapshotVersioningIR | ValidityVersioningIR | None,
+    default_time: str | None,
     ai_context: AiContextValue | None,
     expression_body: ExpressionBody | None = None,
 ) -> EntitySymbol:
@@ -177,6 +185,7 @@ def _register_entity_ir(
         python_symbol=python_symbol,
         location=location,
         versioning=versioning,
+        default_time=default_time,
     )
     ref = ref_factory.entity(semantic_id)
     _push_ir(ctx, ref, ir, expression_body)
@@ -192,6 +201,7 @@ def entity(
     source: EntitySourceIR,
     primary_key: list[str] | None = ...,
     versioning: SnapshotVersioningIR | ValidityVersioningIR | None = ...,
+    default_time: TimeDimensionSymbol | _OmittedTime = ...,
     domain: DomainSymbol | None = ...,
     ai_context: AiContextValue | None = ...,
 ) -> EntitySymbol: ...
@@ -205,6 +215,7 @@ def entity(
     source: EntitySourceIR,
     primary_key: list[str] | None = ...,
     versioning: SnapshotVersioningIR | ValidityVersioningIR | None = ...,
+    default_time: TimeDimensionSymbol | _OmittedTime = ...,
     domain: DomainSymbol | None = ...,
     ai_context: AiContextValue | None = ...,
 ) -> Callable[[Callable[[ibis_ir.Table], ibis_ir.Table]], EntitySymbol]: ...
@@ -217,6 +228,7 @@ def entity(
     source: EntitySourceIR,
     primary_key: list[str] | None = None,
     versioning: SnapshotVersioningIR | ValidityVersioningIR | None = None,
+    default_time: TimeDimensionSymbol | _OmittedTime = _OMITTED_TIME,
     domain: DomainSymbol | None = None,
     ai_context: AiContextValue | None = None,
 ) -> EntitySymbol | Callable[[Callable[[ibis_ir.Table], ibis_ir.Table]], EntitySymbol]:
@@ -244,6 +256,9 @@ def entity(
             belong only in versioning. Naive timestamps retain wall-clock values and
             precision without a timezone. TimeDimension parsers do not rewrite identity.
         versioning: Explicit snapshot or validity representation; never inferred from source partitions.
+        default_time: A native TimeDimension symbol on this Entity. A forward reference
+            from ``ms.ref.time_dimension(...)`` is allowed. Source reductions inherit this
+            field when time is omitted; this setting is independent of versioning.
         domain: Override the active domain namespace with a ``DomainSymbol`` returned
             by ``ms.domain(...)``. Defaults to the file's default domain.
         ai_context: Optional ``AiContextValue`` from ``ms.ai_context(...)`` with extra agent-facing hints.
@@ -304,6 +319,19 @@ def entity(
             hint="List the complete stable Entity identity in primary_key; declare version columns separately.",
         )
     resolved_domain = _resolve_domain(domain, ctx)
+    time_path: str | None = None
+    if not isinstance(default_time, _OmittedTime):
+        time_ref = native_symbol_ref(default_time)
+        if time_ref is None or time_ref.kind is not SemanticKind.TIME_DIMENSION:
+            _raise(
+                ErrorKind.INVALID_REF,
+                "Entity default_time must identify one native TimeDimension.",
+                cls=SemanticDecoratorError,
+                expected="a native TimeDimension symbol on this Entity",
+                received=repr(default_time),
+                hint="Pass ms.ref.time_dimension(...) for a field on this Entity, or omit default_time.",
+            )
+        time_path = time_ref.path
     if name is not None:
         _reject_named_entity_decorator()
         semantic_id = f"{resolved_domain}.{name}"
@@ -316,6 +344,7 @@ def entity(
             source=source,
             primary_key=tuple(primary_key) if primary_key else (),
             versioning=versioning,
+            default_time=time_path,
             ai_context=ai_context,
         )
 
@@ -331,6 +360,7 @@ def entity(
             source=source,
             primary_key=tuple(primary_key) if primary_key else (),
             versioning=versioning,
+            default_time=time_path,
             ai_context=ai_context,
             expression_body=compile_expression_body(
                 fn,

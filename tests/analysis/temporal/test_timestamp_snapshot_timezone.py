@@ -124,7 +124,8 @@ def test_date_control_uses_snapshot_boundary_timezone(
     period = session.time_scope(start="2026-07-01", end="2026-07-03")
     result = session.observe(
         {"value": _measure(session.catalog, "measure:sales.facts.amount").sum(time=fact_day)},
-        by=(period, historical_category),
+        by=(historical_category,),
+        where=period,
     ).compute()
     data = result.to_pandas(axis_names={result.axes[-1].token: "category"})
 

@@ -66,8 +66,9 @@ Physical constructors and `ms.ref.*` return native typed Deferred symbols.
 Compose symbols directly; the loader binds the complete dependency graph and
 publishes immutable named semantic objects. Measure and Metric declarations
 capture restricted recipes without executing authored functions and return
-numeric RowExpression and MetricExpression carriers. A Metric can declare
-keyword-only time parameters that must be bound before source observation.
+numeric RowExpression and MetricExpression carriers. Both declarations take
+zero parameters. Each source reduction fixes its contribution time through an
+explicit field or its Entity's declared default, when available.
 Entity and categorical/time-field bodies retain their restricted Ibis contract.
 SQL is available only through the terminal datasource escape hatch.
 
@@ -97,7 +98,7 @@ None of these stages certifies another stage merely by succeeding.
 If an analysis needs new reusable meaning, author it in Semantic first. If it
 needs a new observation of existing meaning, construct explicit Analysis inputs.
 Existing closed inputs can also form question-scoped equations, conditions,
-internal samples and windows. Analysis inputs and Metric parameter acquisition link directly
+internal samples and windows. Analysis inputs and Metric input acquisition link directly
 to `semantic.expressions` for that shared grammar; a missing same-name published
 Metric does not require a new declaration when meaning and aggregation authority
 are already established.

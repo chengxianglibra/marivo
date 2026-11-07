@@ -24,7 +24,7 @@ from marivo.analysis.errors import AnalysisError
 from marivo.analysis.session.core import Session
 from marivo.semantic._expression_values import NumericMetric
 from marivo.semantic.reader import SemanticProject
-from tests.shared_fixtures import catalog_value
+from tests.shared_fixtures import catalog_value, time_population
 from tests.support.source_trace import capture_source
 
 
@@ -547,12 +547,12 @@ def test_interval_and_calendar_games_reuse_frozen_endpoint_correspondence(
         "mean": x.mean(time=day) * y.sum(time=day),
         "sum": x.sum(time=day) * y.sum(time=day),
     }
-    current = game_session.observe(
-        metrics, by=(current_scope.by(mv.grain("day")) if calendar else current_scope,)
-    )
-    baseline = game_session.observe(
-        metrics, by=(baseline_scope.by(mv.grain("day")) if calendar else baseline_scope,)
-    )
+    if calendar:
+        current = game_session.observe(metrics, by=(mv.grain("day"),), where=current_scope)
+        baseline = game_session.observe(metrics, by=(mv.grain("day"),), where=baseline_scope)
+    else:
+        current = game_session.observe(metrics, by=time_population(current_scope))
+        baseline = game_session.observe(metrics, by=time_population(baseline_scope))
     compared = current.compare(
         {
             "b": mv.baseline(
@@ -1008,11 +1008,13 @@ def test_native_reads_can_change_between_queries_while_players_and_endpoints_sta
         stage: LocalCompute | FrameCompute,
         inputs: tuple[StageOutput, ...],
         kernel: LocalKernel | None = None,
+        *,
+        report_domain: pd.DataFrame | None = None,
     ) -> StageOutput:
         nonlocal local_active
         local_active = True
         try:
-            return run_local(stage, inputs, kernel)
+            return run_local(stage, inputs, kernel, report_domain=report_domain)
         finally:
             local_active = False
 

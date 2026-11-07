@@ -28,8 +28,8 @@ def test_public_observation_retains_components_values_and_laziness(
         ("linear2", revenue + revenue, 2, 2000.0),
     ):
         runs_before = len(terminal_runs(case.session))
-        observed = case.session.observe({"value": metric}, by=(window,))
-        again = case.session.observe({"value": metric}, by=(window,))
+        observed = case.session.observe({"value": metric}, where=window)
+        again = case.session.observe({"value": metric}, where=window)
         assert len(terminal_runs(case.session)) == runs_before
         assert source_graph(again).fingerprint == source_graph(observed).fingerprint
         binding = source_graph(observed).signature.observation
@@ -46,8 +46,7 @@ def test_business_completeness_uses_the_complete_calendar_domain(
     case = analysis_dsl_case_factory("j1")
     revenue = catalog_get(case.session.catalog, "metric:sales.revenue", kind="metric")
     scope = case.session.time_scope(start="2026-08-01", end="2026-09-01")
-    grid = scope.by(mv.grain("day"))
-    observed = case.session.observe({"revenue": revenue}, by=(grid,))
+    observed = case.session.observe({"revenue": revenue}, by=(mv.grain("day"),), where=scope)
     assert terminal_runs(case.session) == ()
     frame = observed.persist().to_pandas()
     assert len(frame) == 31

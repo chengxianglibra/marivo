@@ -68,7 +68,7 @@ def test_duckdb_decimal_mean_retains_captured_scale(
     session = mv.session.get_or_create("equation-mean", timezone="UTC")
     query = session.observe(
         {"value": catalog_get(session.catalog, "metric:sales.amount_mean", kind="metric")},
-        by=(session.time_scope(start="2026-07-01", end="2026-08-01"),),
+        where=session.time_scope(start="2026-07-01", end="2026-08-01"),
     )
     result = query.persist()
     # Merge the original 54.14 sum and count 3, then finish at Decimal(12,2).

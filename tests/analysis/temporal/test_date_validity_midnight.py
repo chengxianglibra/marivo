@@ -115,7 +115,8 @@ def test_aware_control_respects_native_date_midnight(
     period = session.time_scope(start="2025-11-02", end="2025-11-03")
     result = session.observe(
         {"value": _measure(session.catalog, "measure:sales.facts.amount").sum(time=fact_day)},
-        by=(period, historical_category),
+        by=(historical_category,),
+        where=period,
     ).compute()
     data = result.to_pandas(axis_names={result.axes[-1].token: "category"})
 
@@ -123,7 +124,8 @@ def test_aware_control_respects_native_date_midnight(
     fixed_category = category.via((relationship,)).at(session.instant("2025-11-02T04:30:00+00:00"))
     fixed = session.observe(
         {"value": _measure(session.catalog, "measure:sales.facts.amount").sum(time=fact_day)},
-        by=(period, fixed_category),
+        by=(fixed_category,),
+        where=period,
     ).compute()
     fixed_data = fixed.to_pandas(axis_names={fixed.axes[-1].token: "category"})
     print("FIXED_ANCHOR", fixed_data.to_dict(orient="records"))

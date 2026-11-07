@@ -84,10 +84,11 @@ def test_source_mean_strict_checks_survive_output_clipping(
     day = catalog_value(session.catalog, "sales.facts.day", kind="time_dimension")
     category = catalog_value(session.catalog, "sales.facts.category", kind="dimension")
     scope = session.time_scope(start="2026-07-01", end="2026-07-02")
-    assert _value(session.observe({"value": value.mean(time=day)}, by=(scope,)).compute())[0] == 20
+    assert _value(session.observe({"value": value.mean(time=day)}, where=scope).compute())[0] == 20
     strict = session.observe(
         {"value": value.mean(time=day, nulls="error"), "safe": value.mean(time=day)},
-        by=(scope, category),
+        by=(category,),
+        where=scope,
     )
     for query in (
         strict,
@@ -101,7 +102,7 @@ def test_source_mean_strict_checks_survive_output_clipping(
         assert captured.value.expected == "non-NA source values"
         assert "mean(nulls='error')" in (captured.value.received or "")
     empty = session.observe(
-        {"value": value.mean(time=day, nulls="error").where(value < 0)}, by=(scope,)
+        {"value": value.mean(time=day, nulls="error").where(value < 0)}, where=scope
     )
     assert pd.isna(_value(empty.compute())[0])
 
@@ -154,8 +155,7 @@ def test_native_weighted_and_mean(
             "weighted": _metric(session.catalog, "metric:sales.weighted"),
             "mean": _metric(session.catalog, "metric:sales.mean"),
         },
-        by=(scope,),
-        where=mv.in_population(members),
+        where=(scope, mv.in_population(members)),
     ).compute()
     total_values = total.to_pandas()
     assert total_values["weighted"].tolist() == pytest.approx([expected])
@@ -180,8 +180,8 @@ def test_native_weighted_and_mean(
     coordinate = catalog_value(session.catalog, "sales.facts.category", kind="dimension")
     with_coordinates = session.observe(
         {"value": _metric(session.catalog, "metric:sales.weighted")},
-        by=(scope, members.axes[0], coordinate),
-        where=mv.in_population(members),
+        by=(members.axes[0], coordinate),
+        where=(scope, mv.in_population(members)),
     )
     grouped = (
         session.observe(
@@ -189,8 +189,8 @@ def test_native_weighted_and_mean(
                 "weighted": _metric(session.catalog, "metric:sales.weighted"),
                 "mean": _metric(session.catalog, "metric:sales.mean"),
             },
-            by=(scope, coordinate),
-            where=mv.in_population(members),
+            by=(coordinate,),
+            where=(scope, mv.in_population(members)),
         )
         .compute()
         .to_pandas()
@@ -207,11 +207,11 @@ def test_native_weighted_and_mean(
         # mean reconstruction: each admitted fact is one represented row here.
         represented = session.observe(
             {"value": _metric(session.catalog, "metric:sales.mean")},
-            by=(scope, members.axes[0], coordinate),
-            where=mv.in_population(members),
+            by=(members.axes[0], coordinate),
+            where=(scope, mv.in_population(members)),
         ).compute()
         row_means = represented.reduce(
-            {"value": represented["value"].mean()}, by=(represented.axes[2],)
+            {"value": represented["value"].mean()}, by=(represented.axes[1],)
         ).compute()
         assert _value(row_means).tolist() == [expected_a, Decimal("5.00")]
     mean = session.observe(
@@ -323,8 +323,7 @@ def _clickhouse_weight_sum_retains_native_int64_arithmetic(
             assert weights.to_pandas()["weight"].tolist() == [2**63 - 1] * 2
         result = session.observe(
             {"value": _metric(session.catalog, "metric:sales.weighted")},
-            by=(scope,),
-            where=mv.in_population(members),
+            where=(scope, mv.in_population(members)),
         ).persist()
         # Native Int64 sum wraps MAX + MAX to -2. The floating numerator
         # follows the metric's ordinary Float64 multiplication boundary.
@@ -375,7 +374,9 @@ def test_mixed_linear_coordinates(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
         session.catalog, "metric:sales.weights"
     )
     observed = session.observe(
-        {"value": metric}, by=(session.time_scope(start="2026-07-01", end="2026-07-02"), coordinate)
+        {"value": metric},
+        by=(coordinate,),
+        where=session.time_scope(start="2026-07-01", end="2026-07-02"),
     )
     result = observed.persist()
     assert _value(result).tolist() == [2.0]
@@ -459,13 +460,13 @@ def test_mixed_component_attribution_source_and_fixed(
     outputs = {name: metrics[name] for name in methods}
     current = session.observe(
         outputs,
-        by=(session.time_scope(start="2026-08-01", end="2026-09-01"), axis),
-        where=mv.in_population(members),
+        by=(mv.grain("month"), axis),
+        where=(session.time_scope(start="2026-08-01", end="2026-09-01"), mv.in_population(members)),
     )
     baseline = session.observe(
         outputs,
-        by=(session.time_scope(start="2026-07-01", end="2026-08-01"), axis),
-        where=mv.in_population(members),
+        by=(mv.grain("month"), axis),
+        where=(session.time_scope(start="2026-07-01", end="2026-08-01"), mv.in_population(members)),
     )
     changed = current.compare(
         {
@@ -529,7 +530,7 @@ def test_linear_respects_native_intermediate_boundaries(
     fixed = logical.persist()
     for result in (
         fixed,
-        session.observe({"value": metric}, by=(scope,), where=mv.in_population(members)).compute(),
+        session.observe({"value": metric}, where=(scope, mv.in_population(members))).compute(),
         session.persisted_frame(fixed.artifact_id),
     ):
         result_values = _value(result)
@@ -565,13 +566,13 @@ def test_narrow_decimal_mean_difference_preserves_fixed_attribution_carrier(
     metric = _metric(session.catalog, "metric:sales.mean")
     current = session.observe(
         {"value": metric},
-        by=(session.time_scope(start="2026-08-01", end="2026-09-01"), axis),
-        where=mv.in_population(members),
+        by=(mv.grain("month"), axis),
+        where=(session.time_scope(start="2026-08-01", end="2026-09-01"), mv.in_population(members)),
     )
     baseline = session.observe(
         {"value": metric},
-        by=(session.time_scope(start="2026-07-01", end="2026-08-01"), axis),
-        where=mv.in_population(members),
+        by=(mv.grain("month"), axis),
+        where=(session.time_scope(start="2026-07-01", end="2026-08-01"), mv.in_population(members)),
     )
     fixed = current.compare(
         {
@@ -628,8 +629,10 @@ def test_linear_preserves_native_sum_and_duration_boundaries(
     previous = fixed.to_pandas()
     overall = session.observe(
         {"value": metric},
-        by=(session.time_scope(start="2026-08-01", end="2026-09-01"),),
-        where=mv.in_population(session.members(_entity(session.catalog, "entity:sales.facts"))),
+        where=(
+            session.time_scope(start="2026-08-01", end="2026-09-01"),
+            mv.in_population(session.members(_entity(session.catalog, "entity:sales.facts"))),
+        ),
     )
     with pytest.raises(AnalysisError, match=r"overflow|int64|Duration"):
         overall.compute()

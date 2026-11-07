@@ -673,22 +673,21 @@ def test_remote_relationship_domains_and_explicit_frame_targets(
                 "rows": trace.returned_rows,
                 "sql": trace.native_sql,
             }
-        category = catalog_value(session.catalog, "sales.tags.label", kind="dimension")
-        allocation = mv.membership(category, via=(path,), unmatched="exclude")
-        incomplete = mv.coordinates(by=(category,), keys=(("A",),))
+        identifier = catalog_value(session.catalog, "sales.orders.id", kind="dimension")
+        incomplete = mv.coordinates(by=(identifier,), keys=())
         empty = mv.coordinates(
             by=(catalog_value(session.catalog, "sales.orders.id", kind="dimension"),), keys=()
         )
         required = session.observe(
             {"v": catalog_value(session.catalog, "sales.revenue", kind="metric").per(empty).mean()},
-            by=(incomplete, allocation),
+            by=incomplete,
             where=mv.in_population(_population(source.preimage(image, via=path))),
         )
         with pytest.raises(MaterializationError, match="missing output coordinates") as error:
             required.top(0, by=required["v"]).compute()
         assert error.value.stage == "population_coverage"
         assert error.value.received is not None
-        assert "B" in error.value.received
+        assert "key.0" in error.value.received
         if backend != "postgres":
             assert trace.uploaded_key_rows == [1, 0], {
                 "rows": trace.returned_rows,
@@ -710,15 +709,14 @@ def test_output_coverage_survives_source_population_fusion_and_empty_top(
     )
     # The independent relationship image is source-fused into the fact predicate.
     selected = _population(orders.image(via=path))
-    label = catalog_value(session.catalog, "sales.tags.label", kind="dimension")
-    allocation = mv.membership(label, via=(path,), unmatched="exclude")
-    incomplete = mv.coordinates(by=(label,), keys=(("A",),))
+    identifier = catalog_value(session.catalog, "sales.orders.id", kind="dimension")
+    incomplete = mv.coordinates(by=(identifier,), keys=())
     empty = mv.coordinates(
         by=(catalog_value(session.catalog, "sales.orders.id", kind="dimension"),), keys=()
     )
     query = session.observe(
         {"v": revenue.per(empty).mean()},
-        by=(incomplete, allocation),
+        by=incomplete,
         where=mv.in_population(_population(orders.preimage(selected, via=path))),
     )
     trace = capture_source(monkeypatch)
@@ -726,7 +724,7 @@ def test_output_coverage_survives_source_population_fusion_and_empty_top(
         query.top(0, by=query["v"]).compute()
     assert error.value.stage == "population_coverage"
     assert error.value.received is not None
-    assert "B" in error.value.received
+    assert "key.0" in error.value.received
     assert trace.uploaded_key_rows == []
 
 

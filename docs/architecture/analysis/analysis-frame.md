@@ -397,7 +397,8 @@ compare 始终保留本期普通时间轴、当前值及命名说明；current.p
 
 ### Interval
 
-TimeScope 在 by 中产生 interval 轴，保存精确 start/end 与边界时区，不自动变成零轴。
+在显式 Population 中保留 TimeScope 坐标时，interval 轴保存精确 start/end 与边界时区。
+在 `observe(where=scope)` 中单独传入 TimeScope 只限制报告范围，输出为零轴。
 等值对应识别精确边界和时区。ordinal 要求每端完整声明目录恰有一条记录且边界时区相同，
 不同期间可明确配对；过滤成一行不会把多区间目录改成单区间目录。
 interval/calendar/零轴不互转或广播；time×普通分类可使用上述完整默认配对，或显式给出完整 on。
@@ -424,8 +425,9 @@ shift 另保存直接来源的完整端点目录和明确匹配/无对应映射�
 ```python
 periods = session.time_scope(start="2026-01-01", end="2026-10-20T12:00:00Z").by(mv.grain("month"))
 metrics = {"revenue": revenue}
-current_series = session.observe(metrics, by=(periods,))
-previous_series = session.observe(metrics, by=(periods.shift(mv.offset(years=-1)),))
+unit = mv.coordinates(by=(), keys=((),))
+current_series = session.observe(metrics, by=mv.product(periods, unit))
+previous_series = session.observe(metrics, by=mv.product(periods.shift(mv.offset(years=-1)), unit))
 yearly = current_series.compare({"yoy": mv.baseline(previous_series)}).compute()
 ```
 

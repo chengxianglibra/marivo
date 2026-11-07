@@ -16,7 +16,7 @@ from marivo.analysis.core.frame_data import MemoryFrameBacking, StoredFrameBacki
 from marivo.analysis.materialization.terminal_store import describe
 from marivo.analysis.session.core import Session
 from marivo.datasource.adapters import SourceSession
-from tests.shared_fixtures import catalog_value, frozen_coordinates, terminal_runs
+from tests.shared_fixtures import catalog_value, frozen_coordinates, terminal_runs, time_population
 
 
 def forbidden(*args: object, **kwargs: object) -> None:
@@ -39,10 +39,13 @@ def period_produce(root: Path, name: str) -> None:
     session = mv.session.get_or_create(name, timezone="UTC")
     amount = catalog_value(session.catalog, "sales.orders.amount", kind="measure")
     stamp = catalog_value(session.catalog, "sales.orders.stamp", kind="time_dimension")
-    periods = session.time_scope(start="2027-01-01", end="2027-03-01").by(mv.grain("month"))
+    periods_scope = session.time_scope(start="2027-01-01", end="2027-03-01")
+    periods = periods_scope.by(mv.grain("month"))
     metric = amount.sum(time=stamp)
-    current = session.observe({"total": metric}, by=(periods,))
-    baseline = session.observe({"total": metric}, by=(periods.shift(mv.offset(years=-1)),))
+    current = session.observe({"total": metric}, by=(mv.grain("month"),), where=periods_scope)
+    baseline = session.observe(
+        {"total": metric}, by=time_population(periods.shift(mv.offset(years=-1)))
+    )
     pending_report = current.compare({"base": mv.baseline(baseline)}).compute()
     memory_current, memory_baseline = current.compute(), baseline.compute()
     memory_report = memory_current.compare({"base": mv.baseline(memory_baseline)}).compute()

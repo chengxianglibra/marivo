@@ -347,6 +347,7 @@ class EntityIR:
     python_symbol: str
     location: SourceLocation
     versioning: EntityVersioningIR | None = None
+    default_time: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

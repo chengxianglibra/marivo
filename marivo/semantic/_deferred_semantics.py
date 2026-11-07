@@ -8,10 +8,8 @@ from __future__ import annotations
 
 import operator
 from collections.abc import Callable
-from contextvars import ContextVar
 from dataclasses import dataclass, replace
 from decimal import Decimal
-from hashlib import sha256
 from itertools import pairwise
 from typing import TYPE_CHECKING, Literal, NoReturn, TypeAlias, cast
 
@@ -29,6 +27,7 @@ from ibis.common.deferred import (
 
 from marivo._definition.correspondence import ComparisonAxis
 from marivo._definition.deferred import (
+    CapturedDefaultTimeResolver,
     DeclarationResolver,
     DeferredInspection,
     NamedResolver,
@@ -38,7 +37,6 @@ from marivo._definition.deferred import (
     RescaleResolver,
     SemanticInput,
     SemanticResolver,
-    TimeSlotResolver,
     attribute_name,
     inspect_deferred,
     relationship_carrier,
@@ -83,7 +81,6 @@ from marivo._definition.types import (
     FieldRead,
     IntervalCoordinate,
     RowAttributeTime,
-    SumAllExcept,
     SumNone,
     SumPermission,
     TimeScopeFieldRead,
@@ -94,11 +91,10 @@ from marivo._temporal import Grain, TimeScope
 from marivo.refs import SemanticKind
 from marivo.refs import ref as ref_factory
 from marivo.semantic._expression_values import _as_deferred, _ExpressionCarrier
-from marivo.semantic._time_parameters import (
-    _TimeUse,
-    binding_error,
-    prepare_time_recipe,
-    time_parameter_ref,
+from marivo.semantic._metric_time import (
+    calendar_sample_domain,
+    require_metric_time,
+    validate_metric_time_consumers,
 )
 from marivo.semantic.errors import ErrorKind, SemanticExpressionError
 
@@ -116,6 +112,7 @@ class RowFacts:
     numeric: bool = True
     boolean: bool = False
     field: SemanticInput | None = None
+    default_time: ExactRef | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -125,89 +122,6 @@ class MetricFacts:
     unit: str | None
     _declared: tuple[tuple[ExactRef, MetricNode], ...] = ()
     boolean: bool = False
-    time_parameters: tuple[tuple[TimeSlotResolver, tuple[_TimeUse, ...]], ...] = ()
-
-
-_TIME_USES: ContextVar[dict[TimeSlotResolver, list[_TimeUse]] | None] = ContextVar(
-    "_TIME_USES", default=None
-)
-
-
-def _time_slot(
-    slot: TimeSlotResolver,
-    root: ExactRef,
-    kind: Literal["contribution", "native_sample", "calendar_sample", "sample_order"],
-    *,
-    required_field: ExactRef | None = None,
-) -> RowFacts:
-    uses = _TIME_USES.get()
-    if uses is None:
-        binding_error(
-            "Metric has an unbound time parameter.",
-            expected="a concrete TimeDimension for each slot",
-            received=slot.name,
-            parameters=(slot.name,),
-            action=f"Pass .bind_time({slot.name}=...) before consuming the Metric.",
-        )
-    slot_uses = uses.setdefault(slot, [])
-    if slot_uses and slot_uses[0].root.ref != root.ref:
-        binding_error(
-            "Metric time parameter has incompatible contribution roots.",
-            expected=slot_uses[0].root.ref.key,
-            received=f"{root.ref.key} at {kind}",
-            parameters=(slot.name,),
-            action="Declare and bind a separate time parameter for each contribution root.",
-            refs=(slot.owner,),
-        )
-    if required_field is not None:
-        for existing in slot_uses:
-            if (
-                existing.required_field is not None
-                and existing.required_field.ref != required_field.ref
-            ):
-                binding_error(
-                    "Metric time parameter requires incompatible native fields.",
-                    expected=existing.required_field.ref.key,
-                    received=f"{required_field.ref.key} at {kind}",
-                    parameters=(slot.name,),
-                    action="Use distinct slots for these independent fixed sample axes.",
-                )
-    use = _TimeUse(kind, root, required_field)
-    if use not in slot_uses:
-        weaker = _TimeUse(kind, root)
-        if required_field is not None and weaker in slot_uses:
-            slot_uses[slot_uses.index(weaker)] = use
-        else:
-            slot_uses.append(use)
-    # This identity is used only to validate and describe a declaration. It is
-    # excluded from physical dependencies and cannot reach source preparation.
-    segment = sha256(f"{slot.binder}:{slot.name}".encode()).hexdigest()
-    field = ExactRef(
-        ref_factory.time_dimension(f"{root.ref.path}.parameter_{segment}"),
-        f"lexical-time-slot:{slot.binder}:{slot.name}",
-    )
-    return RowFacts(
-        RowField(field, root, None, SumNone()),
-        root,
-        None,
-        SumNone(),
-        numeric=False,
-        field=SemanticInput(field, root, None, SumNone()),
-    )
-
-
-def _sample_time_slot(
-    recipe: TimeSlotResolver, roots: tuple[ExactRef, ...], *, calendar: bool
-) -> RowFacts:
-    if len(roots) != 1:
-        binding_error(
-            "A time sample parameter needs one native contribution root.",
-            expected="a native TimeDimension from a single contribution root",
-            received=", ".join(root.ref.key for root in roots) or "no contribution root",
-            parameters=(recipe.name,),
-            action="Complete each root's sample reduction before combining Metrics.",
-        )
-    return _time_slot(recipe, roots[0], "calendar_sample" if calendar else "native_sample")
 
 
 @dataclass(frozen=True, slots=True)
@@ -587,6 +501,7 @@ def _compose(
                 )
             ),
             boolean=boolean,
+            default_time=rows[0].default_time,
         )
     operands: list[MetricNode] = []
     captured_list: list[Resolver] = []
@@ -644,7 +559,6 @@ def _native_sample_axis(axis: ComparisonAxis) -> AxisBinding:
 
 def _sample_domain(
     recipe: Resolver,
-    metric: MetricFacts,
 ) -> tuple[AxisBinding, ...] | LiteralPopulation | PopulationProgram | SampleDomain | Grain:
     domain = _constant(recipe)
     if isinstance(domain, Grain):
@@ -654,7 +568,7 @@ def _sample_domain(
             "Internal calendar samples take a Grain, not a time scope.",
             expected="a Grain inheriting the observation time coordinate",
             received=type(domain).__name__,
-            action='Use m.per(mv.grain("day")).<reducer>() and pass the finite scope in observe(by=...).',
+            action='Use m.per(mv.grain("day")).<reducer>() and pass the finite scope in observe(where=...).',
         )
     if isinstance(domain, PopulationParameter):
         return domain._definition
@@ -687,23 +601,10 @@ def _sample_domain(
             )
         if isinstance(value, Grouping):
             coordinate = value._binding
-            from marivo._definition.grouping import FieldCalendarBinding
-
-            if isinstance(coordinate, FieldCalendarBinding):
-                _fail(
-                    "Field calendar output groupings are only accepted by Session.observe.",
-                    expected="a native field, Grain or explicit sample Population",
-                    received="field_calendar",
-                    action="Use Metric.per with a sample input.",
-                )
             assert not isinstance(coordinate, MembershipBinding)
             items.append(_native_sample_axis(coordinate))
             continue
-        axis = (
-            _sample_time_slot(member, metric.roots, calendar=False)
-            if isinstance(member, TimeSlotResolver)
-            else _consume(member)
-        )
+        axis = _consume(member)
         if (
             not isinstance(axis, RowFacts)
             or axis.field is None
@@ -754,68 +655,23 @@ def _sample_domain(
             kind=ErrorKind.INVALID_EXPRESSION_VALUE,
         )
     native_axes = tuple(_native_sample_axis(axis) for axis in axes)
-    time_slots = tuple(
-        dict.fromkeys(item for item in members if isinstance(item, TimeSlotResolver))
-    )
-    if len(time_slots) == 1:
-        represented = {
-            axis.field.ref
-            for axis in native_axes
-            if axis.field is not None and not time_parameter_ref(axis.field) and axis.at is None
-        }
-        required = tuple(
-            field for field in _fixed_sample_times(metric) if field.ref not in represented
-        )
-        if len(required) > 1:
-            binding_error(
-                "A single sample time parameter cannot retain several fixed fields.",
-                expected=", ".join(field.ref.key for field in required),
-                received=time_slots[0].name,
-                parameters=(time_slots[0].name,),
-                action="Keep each required native time field in the sample tuple.",
-            )
-        if required:
-            _time_slot(time_slots[0], metric.roots[0], "native_sample", required_field=required[0])
     return SampleDomain(native_axes, memberships) if memberships else native_axes
 
 
-def _fixed_sample_times(metric: MetricFacts) -> tuple[ExactRef, ...]:
-    """Find fixed native time axes of sum leaves not yet assigned a sample domain."""
-    from marivo._definition.graph import DefinitionNode, children
-
-    declared = dict(metric._declared)
-    found: dict[ExactRef, None] = {}
-    seen: set[int] = set()
-
-    def visit(node: DefinitionNode, *, summing: bool = False) -> None:
-        if id(node) in seen or isinstance(node, (PerReduce, PerWeightedMean)):
-            return
-        seen.add(id(node))
-        if isinstance(node, DeclaredMetricRef):
-            visit(declared[node.ref])
-            return
-        if isinstance(node, SourceAggregate):
-            summing = node.reducer == "sum"
-        if summing and isinstance(node, RowField) and isinstance(node.permission, SumAllExcept):
-            for field in node.permission.axes:
-                if field.ref.kind is SemanticKind.TIME_DIMENSION:
-                    found.setdefault(field, None)
-        for edge in children(node):
-            visit(edge.child, summing=summing)
-
-    visit(metric.node)
-    return tuple(found)
+def _calendar_sample_recipe(sample: Resolver) -> bool:
+    if isinstance(sample, Sequence) and sample.values:
+        sample = sample.values[0]
+    value = _constant(sample)
+    return isinstance(value, Grain) or (
+        isinstance(value, PopulationParameter) and calendar_sample_domain(value._definition)
+    )
 
 
 def _field_calendar_sample(
     recipe: Resolver, grain_recipe: Resolver, roots: tuple[ExactRef, ...]
 ) -> FieldCalendarSample:
     grain = _constant(grain_recipe)
-    field = (
-        _sample_time_slot(recipe, roots, calendar=True)
-        if isinstance(recipe, TimeSlotResolver)
-        else _consume(recipe)
-    )
+    field = _consume(recipe)
     if (
         not isinstance(grain, Grain)
         or grain.kind != "builtin"
@@ -844,21 +700,65 @@ def _field_calendar_sample(
     return FieldCalendarSample(FieldRead(field.field.reference, field.root), grain)
 
 
-def _time(recipe: Resolver | None, row: RowFacts) -> TimeBinding | None:
-    if recipe is None:
+def capture_source_time(
+    recipe: Resolver, time: Resolver | None, *, operation: str | None = None
+) -> CapturedDefaultTimeResolver | None:
+    """Check explicit time or freeze a closed receiver's default selection."""
+    from marivo._definition.deferred import _captured_field_kind, inspect_capture
+
+    if operation is not None and operation not in _REDUCERS | {"weighted_mean"}:
         return None
+    if inspect_capture(Deferred(recipe)).symbols:
+        return None
+    if time is not None and not (isinstance(time, Just) and time.value is None):
+        if _captured_field_kind(time) is not SemanticKind.TIME_DIMENSION:
+            # The complete reduction inspector owns errors on unsupported time argument shapes.
+            return None
+        if inspect_capture(Deferred(time)).symbols:
+            return None
+    try:
+        row = _consume(recipe)
+    except SemanticExpressionError as error:
+        # Named inputs can be rebound for non-time checks in a receiving scope.
+        if error.details.get("defer_to_scope") or error.kind in {
+            ErrorKind.CROSS_ROOT_ROW_EXPRESSION,
+            ErrorKind.INCOMMENSURABLE_LINEAR_UNITS,
+            ErrorKind.MISSING_SUM_PERMISSION,
+            ErrorKind.INVALID_WHERE_SCOPE,
+            ErrorKind.INVALID_TIME_PATH,
+        }:
+            return None
+        raise
+    if not isinstance(row, RowFacts):
+        return None
+    if time is not None:
+        _time(time, row)
+        return None
+    return CapturedDefaultTimeResolver(row.default_time)
+
+
+def _time(recipe: Resolver | None, row: RowFacts) -> TimeBinding | None:
+    if recipe is None or isinstance(recipe, CapturedDefaultTimeResolver):
+        default = row.default_time if recipe is None else recipe.field
+        if default is None:
+            return None
+        if default.ref.path.rsplit(".", 1)[0] != row.root.ref.path:
+            _fail(
+                "Captured default time belongs to another contribution root.",
+                kind=ErrorKind.INVALID_TIME_PATH,
+                expected=row.root.ref.key,
+                received=default.ref.key,
+                action="Construct the reduction again from its current contribution fields.",
+            )
+        return TimeBinding(default, source="entity_default")
     if isinstance(recipe, Just) and recipe.value is None:
         _fail(
             "Explicit None is not a contribution time.",
             expected="a TimeField or an omitted time argument",
             received="time=None",
-            action="Omit time for a reduction with no time role, or pass time=field.",
+            action="Omit time to use the Entity default if declared, or pass time=field.",
         )
-    value = (
-        _time_slot(recipe, row.root, "contribution")
-        if isinstance(recipe, TimeSlotResolver)
-        else _consume(recipe)
-    )
+    value = _consume(recipe)
     if (
         not isinstance(value, RowFacts)
         or value.field is None
@@ -967,12 +867,7 @@ def _reduce(
                     action="Omit order_by to use the calendar cell order.",
                 )
             if "order_by" in kwargs:
-                order_recipe = kwargs["order_by"]
-                ordering = (
-                    _time_slot(order_recipe, metric.roots[0], "sample_order")
-                    if isinstance(order_recipe, TimeSlotResolver) and len(metric.roots) == 1
-                    else _consume(order_recipe)
-                )
+                ordering = _consume(kwargs["order_by"])
                 if not isinstance(ordering, RowFacts) or ordering.field is None:
                     _fail(
                         "order_by must name an internal time axis.",
@@ -981,27 +876,6 @@ def _reduce(
                     )
                 assert isinstance(ordering, RowFacts) and ordering.field is not None
                 order_by = ordering.field.reference
-                time_axes = tuple(
-                    axis.field
-                    for axis in sample_axes
-                    if isinstance(axis, AxisBinding)
-                    and axis.field is not None
-                    and axis.field.ref.kind is SemanticKind.TIME_DIMENSION
-                )
-                if (
-                    isinstance(order_recipe, TimeSlotResolver)
-                    and len(time_axes) == 1
-                    and not time_parameter_ref(time_axes[0])
-                ):
-                    _time_slot(
-                        order_recipe, metric.roots[0], "sample_order", required_field=time_axes[0]
-                    )
-                if (
-                    order_by not in time_axes
-                    and time_axes
-                    and (time_parameter_ref(order_by) or any(map(time_parameter_ref, time_axes)))
-                ):
-                    order_by = time_axes[0]
             else:
                 times = tuple(
                     axis.field
@@ -1095,9 +969,12 @@ def _reduce(
             weight.node,
             time,
             nulls=policy,
+            contribution_root=row.root,
         )
     else:
-        node = SourceAggregate(row.node, reducer, time, q=q, nulls=policy)
+        node = SourceAggregate(
+            row.node, reducer, time, q=q, nulls=policy, contribution_root=row.root
+        )
     if "where" in kwargs:
         predicate = _consume_predicate_recipe(kwargs["where"])
         if any(isinstance(item, PopulationContains) for item in predicate.node.inputs):
@@ -1174,6 +1051,7 @@ def _consume(recipe: Resolver) -> _Facts:
                 item.coordinates,
                 False,
                 field=item,
+                default_time=item.default_time,
             )
         return RowFacts(
             RowField(item.reference, item.root, item.unit, item.permission, read=item.field_read),
@@ -1183,6 +1061,7 @@ def _consume(recipe: Resolver) -> _Facts:
             item.coordinates,
             item.reference.ref.kind is SemanticKind.MEASURE,
             field=item,
+            default_time=item.default_time,
         )
     if isinstance(recipe, DeclarationResolver):
         value = _consume(recipe.recipe)
@@ -1505,6 +1384,7 @@ def _consume(recipe: Resolver) -> _Facts:
                     receiver,
                     root=relationships[0].from_entity,
                     field=field,
+                    default_time=relationships[0]._from_default_time,
                     node=RowField(
                         field.reference,
                         field.root,
@@ -1542,9 +1422,16 @@ def _consume(recipe: Resolver) -> _Facts:
                 assert isinstance(receiver, MetricFacts)
                 sample = recipe.args[0] if recipe.args else by
                 assert sample is not None
+                if grain is not None or _calendar_sample_recipe(sample):
+                    require_metric_time(
+                        receiver.node,
+                        dict(receiver._declared),
+                        operation="Metric.per with Grain samples",
+                        help_target="metric.per",
+                    )
                 return _Samples(
                     receiver,
-                    _sample_domain(sample, receiver)
+                    _sample_domain(sample)
                     if grain is None
                     else _field_calendar_sample(sample, grain, receiver.roots),
                 )
@@ -1641,6 +1528,30 @@ def _inspect(value: Deferred | _ExpressionCarrier) -> DeferredInspection:
         ) from error
 
 
+def validate_closed_time_operation(recipe: Resolver) -> None:
+    """Check a time operation as it is constructed from completed inputs."""
+    if not isinstance(recipe, Call) or not isinstance(recipe.func, Attr):
+        return
+
+    def calendar_per(recipe: Resolver) -> bool:
+        if (
+            not isinstance(recipe, Call)
+            or not isinstance(recipe.func, Attr)
+            or attribute_name(recipe.func) != "per"
+        ):
+            return False
+        sample = recipe.args[0] if recipe.args else recipe.kwargs.get("by", Just(None))
+        return "grain" in recipe.kwargs or _calendar_sample_recipe(sample)
+
+    name = attribute_name(recipe.func)
+    if name == "per" and calendar_per(recipe):
+        _consume(recipe)
+    elif name == "window" or calendar_per(recipe.func.obj):
+        metric = _consume(recipe)
+        assert isinstance(metric, MetricFacts)
+        validate_metric_time_consumers(metric.node, dict(metric._declared))
+
+
 def consume_row(value: Deferred | _ExpressionCarrier) -> RowFacts:
     inspection = _inspect(value)
     result = _consume(inspection.recipe)
@@ -1655,35 +1566,9 @@ def consume_row(value: Deferred | _ExpressionCarrier) -> RowFacts:
 
 
 def consume_metric(
-    value: Deferred | _ExpressionCarrier, *, allow_open: bool = False, allow_boolean: bool = False
+    value: Deferred | _ExpressionCarrier, *, allow_boolean: bool = False
 ) -> MetricFacts:
-    inspection = _inspect(value)
-    recipe, slots = (
-        prepare_time_recipe(inspection.recipe)
-        if inspection.has_time_parameters
-        else (inspection.recipe, ())
-    )
-    if slots and not allow_open:
-        names = tuple(slot.name for slot in slots)
-        binding_error(
-            "Metric has unbound time parameters.",
-            expected="a concrete TimeDimension for every time parameter",
-            received=", ".join(names),
-            parameters=names,
-            unbound=True,
-            action="Bind the remaining parameters with .bind_time("
-            + ", ".join(f"{name}=..." for name in names[:6])
-            + ") before consuming the Metric.",
-        )
-    uses: dict[TimeSlotResolver, list[_TimeUse]] = {}
-    if slots:
-        token = _TIME_USES.set(uses)
-        try:
-            result = _consume(recipe)
-        finally:
-            _TIME_USES.reset(token)
-    else:
-        result = _consume(recipe)
+    result = _consume(_inspect(value).recipe)
     if not isinstance(result, MetricFacts) or (result.boolean and not allow_boolean):
         _fail(
             "Expected a completed Metric.",
@@ -1691,37 +1576,24 @@ def consume_metric(
             received=type(result).__name__,
         )
     assert isinstance(result, MetricFacts)
-    return (
-        replace(result, time_parameters=tuple((slot, tuple(uses.get(slot, ()))) for slot in slots))
-        if slots
-        else result
-    )
+    validate_metric_time_consumers(result.node, dict(result._declared))
+    return result
 
 
 def _rescale_disclosure(value: Deferred) -> tuple[tuple[str, str], ...]:
     """Derive input/output units from each already-bound rescale occurrence."""
     facts: list[tuple[str, str]] = []
-    inspection = _inspect(value)
-    recipe, slots = (
-        prepare_time_recipe(inspection.recipe)
-        if inspection.has_time_parameters
-        else (inspection.recipe, ())
-    )
-    token = _TIME_USES.set({} if slots else None)
-    try:
-        for use in _inspect(Deferred(recipe)).operations:
-            if isinstance(use.recipe, RescaleResolver):
-                source = _consume(use.recipe.recipe)
-                assert isinstance(source, (RowFacts, MetricFacts))
-                facts.append(
-                    (
-                        "rescale",
-                        f"input_unit={source.unit!r}, divisor={use.recipe.divisor!r}, "
-                        f"unit={use.recipe.unit!r}",
-                    )
+    for use in _inspect(value).operations:
+        if isinstance(use.recipe, RescaleResolver):
+            source = _consume(use.recipe.recipe)
+            assert isinstance(source, (RowFacts, MetricFacts))
+            facts.append(
+                (
+                    "rescale",
+                    f"input_unit={source.unit!r}, divisor={use.recipe.divisor!r}, "
+                    f"unit={use.recipe.unit!r}",
                 )
-    finally:
-        _TIME_USES.reset(token)
+            )
     return tuple(facts)
 
 
@@ -1854,6 +1726,17 @@ def consume_metric_in_state(value: Deferred, state: CompiledSemanticState) -> Me
     resolver = _Resolver(state)
 
     def bind(recipe: Resolver, active: frozenset[str]) -> Resolver:
+        if isinstance(recipe, CapturedDefaultTimeResolver) and recipe.field is not None:
+            target = recipe.field.ref
+            if target not in state.definitions:
+                _fail(
+                    "Captured contribution time is absent from the receiving scope.",
+                    kind=ErrorKind.INVALID_TIME_PATH,
+                    expected=target.key,
+                    received="no TimeDimension at that identity",
+                    action="Recreate the reduction from the receiving Catalog.",
+                )
+            return CapturedDefaultTimeResolver(resolver.exact(target))
         if isinstance(recipe, NamedResolver):
             from marivo.semantic.expressions import _Entity, _Relationship, author_value
 
@@ -1867,6 +1750,7 @@ def consume_metric_in_state(value: Deferred, state: CompiledSemanticState) -> Me
                         named_value._exact_ref,
                         "1",
                         SumNone(),
+                        default_time=named_value._default_time,
                     )
                 )
             if isinstance(named_value, _Relationship):

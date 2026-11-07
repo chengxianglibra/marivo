@@ -47,13 +47,11 @@ def _observe(
         f"{names.domain}.{(names.revenue if metric is None else metric)}",
         kind="metric",
     )
-    return session.observe(
-        {"value": value},
-        by=(session.time_scope(start=start, end=end),)
-        if scalar
-        else mv.product(session.time_scope(start=start, end=end), population),
-        where=mv.in_population(population),
-    )
+    scope = session.time_scope(start=start, end=end)
+    predicate = mv.in_population(population)
+    if scalar:
+        return session.observe({"value": value}, where=(scope, predicate))
+    return session.observe({"value": value}, by=mv.product(scope, population), where=predicate)
 
 
 def test_public_j1_scope_uses_persisted_report_timezone(
@@ -144,13 +142,13 @@ def test_public_singleton_same_entity_observation_allows_omitted_route(
     metric = catalog_get(session.catalog, "metric:sales.revenue", kind="metric")
     channel = catalog_value(session.catalog, "sales.order.channel", kind="dimension")
     window = session.time_scope(start="2026-08-01", end="2026-09-01")
-    grouped = session.observe({"value": metric}, by=(window, channel))
+    grouped = session.observe({"value": metric}, by=(channel,), where=window)
     frame = grouped.persist().to_pandas()
     assert dict(zip(frame["channel"], frame["value"], strict=True)) == {
         "web": 850,
         "mobile": 150,
     }
-    assert session.observe({"value": metric}, by=(window,)).persist().to_pandas()[
+    assert session.observe({"value": metric}, where=window).persist().to_pandas()[
         "value"
     ].tolist() == [1000]
 
@@ -188,17 +186,17 @@ def test_public_coordinate_rollup_is_composed_before_terminal_publication(
     customer = catalog_value(session.catalog, "sales.order.customer_id", kind="dimension")
     query = session.observe(
         {"value": catalog_get(session.catalog, "metric:sales.revenue", kind="metric")},
-        by=(session.time_scope(start="2026-08-01", end="2026-09-01"), customer, channel),
+        by=(customer, channel),
+        where=session.time_scope(start="2026-08-01", end="2026-09-01"),
     )
-    grouped = query.reduce(
-        {"value": query["value"].sum()}, by=(query.axes[0], query.axes[2])
-    ).persist()
+    grouped = query.reduce({"value": query["value"].sum()}, by=(query.axes[1],)).persist()
     direct = session.observe(
         {"value": catalog_get(session.catalog, "metric:sales.revenue", kind="metric")},
-        by=(session.time_scope(start="2026-08-01", end="2026-09-01"), channel),
+        by=(channel,),
+        where=session.time_scope(start="2026-08-01", end="2026-09-01"),
     ).persist()
     grouped_rows, direct_rows = grouped.to_pandas(), direct.to_pandas()
-    assert grouped.axes[1].name == direct.axes[1].name
+    assert grouped.axes[0].name == direct.axes[0].name
     assert grouped_rows.to_numpy().tolist() == direct_rows.to_numpy().tolist()
     assert grouped_rows.dtypes.tolist() == direct_rows.dtypes.tolist()
     assert session.persisted_frame(grouped.artifact_id).to_pandas().equals(grouped.to_pandas())

@@ -129,7 +129,7 @@ def test_mysql_public_native_membership_and_projection_require_selected_zone_bef
         parsed = catalog_value(session.catalog, "sales.events.parsed", kind="field")
         assert isinstance(parsed, ms.TimeDimension)
         operations = {
-            "native_membership": session.observe({"value": amount.sum(time=clock)}, by=(scope,)),
+            "native_membership": session.observe({"value": amount.sum(time=clock)}, where=scope),
             "parsed_membership": session.observe(
                 {"value": amount.sum(time=clock)}, where=parsed.within(scope)
             ),
@@ -243,7 +243,7 @@ def test_clickhouse_hour_sampling_uses_non_utc_server_timezone(
                     "total": total,
                     "samples": total.per(hour).count(),
                 },
-                by=(scope,),
+                where=scope,
             )
             .compute()
             .to_pandas()

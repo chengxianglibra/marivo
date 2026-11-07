@@ -21,7 +21,7 @@ The example declares `warehouse` with `md.duckdb(name="warehouse", path="warehou
 
 ## Author the semantic model
 
-The model defines the `sales` Domain, an `orders` Entity keyed by `order_id`, the `order_date` TimeDimension and `region` Dimension, an `amount` Measure in CNY, and a `revenue` Metric. Follow [the model example](/docs/latest/start/python/#define-revenue) for the declarations.
+The model defines the `sales` Domain, an `orders` Entity keyed by `order_id`, the `order_date` TimeDimension and `region` Dimension, an `amount` Measure in CNY, and a `revenue` Metric. Follow [the model example](/docs/latest/start/python/#define-revenue) for the declarations. The Entity's `default_time` is `order_date`, so the revenue reduction inherits that clock.
 
 ## Compute, persist and reopen
 

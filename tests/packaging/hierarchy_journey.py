@@ -94,7 +94,7 @@ def run(root: Path, phase: str) -> dict[str, Json]:
         base = session.observe({"value": metric}, by=mv.product(scope, members))
         category_query = session.read(members, {"value": category})
         coordinates = session.observe(
-            {"value": metric}, by=(scope, device, sensor), where=mv.in_population(members)
+            {"value": metric}, by=(device, sensor), where=(scope, mv.in_population(members))
         )
         category_domain = mv.product(scope, members.classify(by=(category,)))
         classified_domain = mv.product(scope, members.classify(by=(members.axes[0], category)))

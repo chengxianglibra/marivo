@@ -114,7 +114,7 @@ def test_date_day_grouping_keeps_empty_null_and_category_domains(
         point = catalog_value(session.catalog, "sales.facts.point", kind="field")
         assert isinstance(amount, ms.Measure) and isinstance(category, ms.Dimension)
         assert isinstance(point, ms.TimeDimension)
-        days = session.time_scope(start="2026-10-28", end="2026-10-31").by(mv.grain("day"))
+        days_scope = session.time_scope(start="2026-10-28", end="2026-10-31")
         metrics = {
             "sum": amount.sum(time=point),
             "mean": amount.mean(time=point),
@@ -123,7 +123,7 @@ def test_date_day_grouping_keeps_empty_null_and_category_domains(
         }
         if backend in ("duckdb", "postgres", "clickhouse"):
             metrics["quantile"] = amount.quantile(0, time=point)
-        frame = session.observe(metrics, by=(days, category)).compute()
+        frame = session.observe(metrics, by=(mv.grain("day"), category), where=days_scope).compute()
         result = frame.to_pandas().sort_values(["calendar:day", "category"]).reset_index(drop=True)
         assert result["calendar:day"].tolist() == [
             pd.Timestamp(day, tz="Asia/Shanghai")
@@ -162,7 +162,9 @@ def test_date_day_grouping_keeps_empty_null_and_category_domains(
         pd.testing.assert_frame_equal(saved.to_pandas(), frame.to_pandas())
         if backend in ("duckdb", "postgres", "clickhouse"):
             strict = session.observe(
-                {"strict": amount.quantile(0, time=point, nulls="error")}, by=(days, category)
+                {"strict": amount.quantile(0, time=point, nulls="error")},
+                by=(mv.grain("day"), category),
+                where=days_scope,
             )
             with pytest.raises(AnalysisError) as error:
                 strict.compute()

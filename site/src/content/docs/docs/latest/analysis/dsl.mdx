@@ -66,16 +66,12 @@ The first call creates the Session; later calls recover the same name. No curren
 
 Non-None `question`, `timezone` and `domains` must match the saved values. Timezone offsets are normalized, and domain names are sorted and deduplicated before comparison. A conflict raises `SessionStateError` before recovery; inspect `error.expected`, `error.received` and `error.repair.candidates` (the existing Session ID). Omit the conflicting configuration, pass matching values or choose a new name. Recovery uses the same writer guard as `mv.session.resume(session_id)` and can reject an active writer. With no pending recovery work, repeated acquisition preserves `updated_at`. Help: `analysis.session.get_or_create`.
 
-`session.observe(metrics, by=())` requests one overall, zero-axis cell; it does
-not supply an observation time range. A time-related Metric does not universally
-require a scope. All native TimeField sample reducers use represented samples
-without a TimeScope or CalendarAxis in `by`; `sample_interval` describes cadence
-and does not require complete clock coverage. Builtin calendar samples also
-work without an observation period. Windows require an observation endpoint,
-and custom samples require a complete certified period. Some checks run
-only during `compute()` or `persist()`, so successful capture alone does not prove
-that an unbounded observation is supported. When a period is required, pass
-`by=(session.time_scope(start=..., end=...),)`.
+`session.observe(metrics, by=())` requests one overall, zero-axis cell. Add
+`where=scope` to select a report range without adding a time axis. Native
+TimeField samples use represented values regardless of cadence. Builtin
+Grain samples also work without a finite report range if all branches have
+contribution clocks. Windows need report endpoints and custom calendar samples
+need a complete certified period. Some checks run during compute or persist.
 
 ## Choose retention before execution
 
@@ -119,8 +115,12 @@ assert region_entry.kind == "dimension"
 region = region_entry
 july = session.time_scope(start="2026-07-01", end="2026-08-01")
 august = session.time_scope(start="2026-08-01", end="2026-09-01")
-baseline = session.observe(revenue, by=(july, region)).compute()
-current = session.observe(revenue, by=(august, region)).compute()
+month = mv.grain("month")
+unit = mv.coordinates(by=(), keys=((),))
+july_interval = mv.product(july, unit)
+august_interval = mv.product(august, unit)
+baseline = session.observe(revenue, where=july, by=(month, region)).compute()
+current = session.observe(revenue, where=august, by=(month, region)).compute()
 change = current.compare(
     baseline,
     on=tuple(zip(current.axes, baseline.axes)),
@@ -131,7 +131,7 @@ saved = change.persist()
 table = saved.to_pandas()
 assert table.columns.nlevels == 1
 assert table["region"].tolist() == ["east", "west"]
-assert table["interval.start"].dtype.pyarrow_dtype.tz == "UTC"
+assert table["calendar:month"].dtype.pyarrow_dtype.tz == "UTC"
 assert table["reference.absolute.revenue"].tolist() == [-100, -100]
 assert table["current.present"].all()
 assert table["reference.present"].all()
@@ -152,8 +152,8 @@ saved_artifact_id = saved.artifact_id
 | Parameter | Required | Default | Meaning |
 | --- | --- | --- | --- |
 | `metrics` | Yes | — | One named Metric object, a nonempty list or tuple, or a nonempty output-name → closed Metric expression Mapping. |
-| `by` | No | `()` | Ordered semantic fields, TimeScopes, groupings, or one complete Population. `()` requests one cell. `by=P` retains exactly P’s complete output keys. |
-| `where` | No | `None` | Predicate on source contributions; `None` adds no contribution filter. Output selection in by is independent. |
+| `by` | No | `()` | Tuple of Dimensions, non-time Groupings and at most one report Grain, or a complete Population. `()` requests one cell. `by=P` retains P's complete output keys. |
+| `where` | No | `None` | RowPredicate, report TimeScope or their tuple conjunction. At most one report scope is allowed. |
 
 `session.observe(revenue)` uses the declared Metric’s local name, `revenue`;
 `session.observe([revenue, other_metric])` preserves list order; tuples work the same way. Only a consumed
@@ -168,16 +168,16 @@ reserved presence names `left_present`/`right_present`. Invalid names are not
 cleaned or numbered automatically. Names are fixed at capture, available through
 `output_names`, and unchanged by empty results, compute, persist or recovery.
 
-Use a direct `TimeScope` or `CalendarAxis` to observe by each Metric's contribution
-time. Use `mv.time_group(created_at, axis=august.by(mv.grain("day")))` in `by`
-to filter and group by creation day while preserving each Metric's contribution
-time. Its range intersects other filters before aggregation and its buckets
-are retained in the output. A field grouping supplies no window endpoints.
+Each Metric branch uses the contribution time fixed in its definition. Use
+`where=scope` for a report range and one `Grain` in `by` for buckets.
+`where=(scope, predicate)` conjoins the range with a fixed row predicate.
+A source-field predicate such as `created_at.within(scope)` can filter a
+reduction independently of its contribution clock.
 
 ### Read August revenue
 
 ```python
-overall = session.observe(revenue, by=(august,)).compute()
+overall = session.observe(revenue, where=august).compute()
 overall.show()
 assert overall.to_pandas()["revenue"].tolist() == [800]
 ```
@@ -190,7 +190,7 @@ the observation window; it does not prove that the source data has fully arrived
 If a regional breakdown is requested, observe that grouping explicitly:
 
 ```python
-regional = session.observe(revenue, by=(august, region)).compute()
+regional = session.observe(revenue, where=august, by=(region,)).compute()
 regional.show()
 ```
 
@@ -223,12 +223,10 @@ Large `int64[pyarrow]` values mixed with floats can raise `ArrowInvalid`. When a
 
 Next, [compare two periods](/docs/latest/analysis/dsl/#compare-and-align) or [save the result](/docs/latest/analysis/results/).
 
-An implicit output grid rejects a CalendarAxis together with the raw field of
-the same contribution time role, including its relationship path and instant
-anchor. Use only `scope.by(mv.grain("day"))` for daily buckets, or `(scope, time_field)`
-for raw timestamp groups within that TimeScope. An explicit Population can retain
-both coordinates as joint keys. Different time roles and calendar-by-category
-grids remain supported.
+For daily report buckets, pass `where=scope, by=(mv.grain("day"),)`.
+With a Grain and no scope, only actual observed buckets appear. For an exact
+finite calendar or interval output domain, build a complete Population using
+`mv.product` and pass it as `by=P`.
 
 TimeScopes use inclusive start and exclusive end. An explicitly selected Population can retain members without facts; no-fact sums are zero, while nonempty all-null sums are NA. `Population.count()` counts selected complete tuples, `Entity.count()` counts source contributions, and `mv.row_count()` counts current Frame rows. Help: `analysis.session.observe`.
 
@@ -284,12 +282,12 @@ July and August are paired deliberately by ordinal; region keys match exactly. E
 
 ### Compare two members of one Frame
 
-Fix the region coordinate to obtain two Frames with only the interval axis:
+Fix the region coordinate to obtain two Frames with only the calendar axis:
 
 {/* example: fixed-member-comparison */}
 
 ```python
-regional = session.observe({"revenue": revenue}, by=(august, region)).compute()
+regional = session.observe({"revenue": revenue}, where=august, by=(month, region)).compute()
 east = regional.fix(regional.axes[1], "east")
 west = regional.fix(regional.axes[1], "west")
 member_change = west.compare({"east": mv.baseline(east)}).compute()
@@ -312,8 +310,8 @@ Remote attribution supports direct integer, string and Date primary keys. ClickH
 A zero baseline makes relative attribution undefined. The error identifies the target, baseline value and parent coordinate. Check the baseline window and source retention/filter conditions, or select the absolute comparison output:
 
 ```python
-target = session.observe({"revenue": revenue}, by=(august,)).compare(
-    {"baseline": mv.baseline(session.observe({"revenue": revenue}, by=(july,)), match=mv.ordinal())}
+target = session.observe({"revenue": revenue}, by=august_interval).compare(
+    {"baseline": mv.baseline(session.observe({"revenue": revenue}, by=july_interval), match=mv.ordinal())}
 )
 absolute = target.select({"change": target["baseline.absolute.revenue"]})
 report = absolute.attribute(by=(region,)).compute()
@@ -388,8 +386,8 @@ Start with the total decline, then ask which regions account for it.
 order_time_entry = session.catalog.get("time_dimension:sales.orders.order_date")
 assert order_time_entry.kind == "time_dimension"
 average = amount.mean(time=order_time_entry)
-average_current = session.observe({"average": average}, by=(august,))
-average_baseline = session.observe({"average": average}, by=(july,))
+average_current = session.observe({"average": average}, by=august_interval)
+average_baseline = session.observe({"average": average}, by=july_interval)
 average_change = average_current.compare(
     {"reference": mv.baseline(average_baseline, match=mv.ordinal())}
 ).compute()
@@ -408,8 +406,8 @@ Within effects explain changes in regional means, mix effects changes in valid-s
 
 ```python
 squared = revenue * revenue
-squared_current = session.observe({"squared": squared}, by=(august,))
-squared_baseline = session.observe({"squared": squared}, by=(july,))
+squared_current = session.observe({"squared": squared}, by=august_interval)
+squared_baseline = session.observe({"squared": squared}, by=july_interval)
 squared_change = squared_current.compare(
     {"reference": mv.baseline(squared_baseline, match=mv.ordinal())}
 ).compute()
@@ -433,8 +431,8 @@ The squared AVG target reconstructs each coalition from captured SUM/count. Its 
 
 ```python
 squared_average = average * average
-summary_current = session.observe({"squared_average": squared_average}, by=(august,))
-summary_baseline = session.observe({"squared_average": squared_average}, by=(july,))
+summary_current = session.observe({"squared_average": squared_average}, by=august_interval)
+summary_baseline = session.observe({"squared_average": squared_average}, by=july_interval)
 summary_change = summary_current.compare(
     {"reference": mv.baseline(summary_baseline, match=mv.ordinal())}
 ).compute()
@@ -454,8 +452,8 @@ Native approximate quantiles retain their original backend reducer through indep
 
 ```python
 approximate = amount.approx_quantile(0.5, time=order_time_entry)
-quantile_current = session.observe({"approximate": approximate}, by=(august,))
-quantile_baseline = session.observe({"approximate": approximate}, by=(july,))
+quantile_current = session.observe({"approximate": approximate}, by=august_interval)
+quantile_baseline = session.observe({"approximate": approximate}, by=july_interval)
 quantile_change = quantile_current.compare(
     {"reference": mv.baseline(quantile_baseline, match=mv.ordinal())}
 ).compute()
@@ -475,8 +473,8 @@ Approximate distinct also preserves its original native reducer.
 
 ```python
 approximate_reach = region.approx_nunique(time=order_time_entry) * revenue
-reach_current = session.observe({"reach": approximate_reach}, by=(august,))
-reach_baseline = session.observe({"reach": approximate_reach}, by=(july,))
+reach_current = session.observe({"reach": approximate_reach}, by=august_interval)
+reach_baseline = session.observe({"reach": approximate_reach}, by=july_interval)
 reach_change = reach_current.compare(
     {"reference": mv.baseline(reach_baseline, match=mv.ordinal())}
 ).compute()
@@ -494,8 +492,8 @@ assert any(leaf.reduction.reducer == "approx_nunique" for leaf in reach_method.l
 {/* example: attribute-default-investigation */}
 
 ```python
-fresh_current = session.observe({"revenue": revenue}, by=(august, region))
-fresh_baseline = session.observe({"revenue": revenue}, by=(july, region))
+fresh_current = session.observe({"revenue": revenue}, where=august, by=(month, region))
+fresh_baseline = session.observe({"revenue": revenue}, where=july, by=(month, region))
 investigation = fresh_current.compare(
     {
         "reference": mv.baseline(
@@ -510,8 +508,8 @@ investigation = fresh_current.compare(
 {/* example: attribute-contribution-facts */}
 
 ```python
-overall_current = session.observe({"revenue": revenue}, by=(august,))
-overall_baseline = session.observe({"revenue": revenue}, by=(july,))
+overall_current = session.observe({"revenue": revenue}, by=august_interval)
+overall_baseline = session.observe({"revenue": revenue}, by=july_interval)
 overall_change = overall_current.compare(
     {"reference": mv.baseline(overall_baseline, match=mv.ordinal())}
 ).compute()
@@ -531,8 +529,8 @@ original_explanation = reopened_declines.method_facts
 
 ```python
 nonlinear = revenue * revenue
-fine_current = session.observe({"squared": nonlinear}, by=(august, region))
-fine_baseline = session.observe({"squared": nonlinear}, by=(july, region))
+fine_current = session.observe({"squared": nonlinear}, where=august, by=(month, region))
+fine_baseline = session.observe({"squared": nonlinear}, where=july, by=(month, region))
 nonlinear_investigation = fine_current.compare(
     {
         "reference": mv.baseline(
@@ -580,7 +578,7 @@ assert abs(pairs["coefficient"].iloc[0] - 1.0) < 1e-12
 association.show()
 ```
 
-The pairs are (200, 300) and (600, 700), so the example returns 1 with only two observations; this is an API demonstration, not evidence of a general relationship or causality. Both expressions share one non-NA pair mask. Fewer than two pairs or a constant endpoint yields NA while retaining the count; zero-pair groups remain. `by=(paired.axes[0],)` would calculate within each interval. Group coefficients cannot be averaged into a pooled coefficient. Help: `analysis.analysis_frame.correlate`.
+The pairs are (200, 300) and (600, 700), so the example returns 1 with only two observations; this is an API demonstration, not evidence of a general relationship or causality. Both expressions share one non-NA pair mask. Fewer than two pairs or a constant endpoint yields NA while retaining the count; zero-pair groups remain. `by=(paired.axes[0],)` would calculate within each month. Group coefficients cannot be averaged into a pooled coefficient. Help: `analysis.analysis_frame.correlate`.
 
 ## align — pair complete coordinates
 
@@ -634,7 +632,7 @@ vs_budget = aligned_budget.select(
 vs_budget.show()
 ```
 
-The budget is east 250 and west 750; August variances are -50 and -150. The reduction explicitly removes the one interval axis so both inputs have one region axis. That is valid for this additive revenue example, not a way to recover arbitrary ratios or distinct counts. Help: `analysis.analysis_frame.align`.
+The budget is east 250 and west 750; August variances are -50 and -150. The reduction explicitly removes the one calendar axis so both inputs have one region axis. That is valid for this additive revenue example, not a way to recover arbitrary ratios or distinct counts. Help: `analysis.analysis_frame.align`.
 
 ## reduce — summarize represented rows
 
@@ -696,7 +694,7 @@ normalized = current.select(
 assert normalized.to_pandas()["share"].tolist() == [0.25, 0.75]
 ```
 
-Here share sums regions within each interval. `over(..., by=())` uses all current rows. Filtering before share changes the denominator; filtering the completed share afterwards preserves it. A zero partition total yields NA; signed shares may lie outside [0, 1]. Share needs at least one axis and does not establish original Metric additivity. Help: `analysis.analysis_frame.over` and `analysis.column.share`.
+Here share sums regions within each month. `over(..., by=())` uses all current rows. Filtering before share changes the denominator; filtering the completed share afterwards preserves it. A zero partition total yields NA; signed shares may lie outside [0, 1]. Share needs at least one axis and does not establish original Metric additivity. Help: `analysis.analysis_frame.over` and `analysis.column.share`.
 
 ## Select and filter
 
@@ -734,7 +732,7 @@ The selected identities are orders 4, 5 and 6. Filtering their attributes to eas
 chosen = current.top(1, by=current["revenue"]).compute()
 parents = session.population_from(chosen, on=((chosen.axes[1], region),))
 prior_selected = session.observe(
-    {"revenue": revenue}, by=(july, region), where=mv.in_population(parents)
+    {"revenue": revenue}, by=(month, region), where=(july, mv.in_population(parents))
 ).compute()
 followup = chosen.compare(
     {

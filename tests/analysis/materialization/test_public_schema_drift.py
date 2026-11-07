@@ -33,7 +33,7 @@ def test_public_schema_drift_rejects_before_business_read_and_retries(
     n = case.names
     logical = session.observe(
         {"value": catalog_value(session.catalog, f"{n.domain}.{n.revenue}", kind="metric")},
-        by=(session.time_scope(start="2026-08-01", end="2026-09-01"),),
+        where=session.time_scope(start="2026-08-01", end="2026-09-01"),
     )
     previous = logical.persist()
     frame = previous.to_pandas()

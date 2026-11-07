@@ -81,15 +81,16 @@ def test_observe_help_discloses_semantic_primary_key_trust() -> None:
         assert "identity-output and operation checks remain" in text
 
 
-def test_observe_help_explains_time_selection_without_a_metric_clock() -> None:
+def test_observe_help_separates_report_time_from_fixed_source_predicates() -> None:
     from marivo.analysis.session.core import Session
 
     for target in ("analysis.session.observe", Session.observe):
         text = render_help_text(target)[0]
-        assert "requires time= on every source reduction" in text
-        assert "mv.time_group(field, axis=scope.by(grain))" in text
+        assert "contribution time on every Metric branch" in text
+        assert "one report Grain" in text
+        assert "at most one TimeScope" in text
         assert "where=field.within(scope)" in text
-        assert "supplies no TimeParameter bindings or window endpoints" in text
+        assert "without supplying a report endpoint" in text
 
 
 def test_simplified_policies_have_one_public_route() -> None:
@@ -616,11 +617,14 @@ def test_attribute_help_distinguishes_actual_qualification_and_inert_facts() -> 
         assert target not in prepare().discovery_ids()
 
 
-def test_observe_help_discloses_implicit_duplicate_time_axis_repair() -> None:
+def test_observe_help_discloses_report_domains_and_definition_repair() -> None:
     text = render_help_text("analysis.session.observe")[0]
-    assert "Duplicate calendar/raw time" in text
-    assert "TimeScope+field" in text and "explicit Population" in text
-    assert "use calendar alone" in text and "P fixes joint keys" in text
+    assert "A Grain alone uses actual contribution buckets" in text
+    assert "A scope alone adds no output axis" in text
+    assert "P fixes joint keys" in text
+    assert "Fix a missing branch clock in the semantic definition or remove report time" in text
+    assert "time_group" not in text
+    assert "bind_time" not in text
 
 
 def test_construction_type_families_and_retired_surface() -> None:

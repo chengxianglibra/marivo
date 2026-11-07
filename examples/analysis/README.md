@@ -15,12 +15,12 @@ Metric path. Point an interpreter with Marivo installed at the script:
 
 The selectors here use the neutral synthetic fixture below. Substitute the
 task's governed Metric path in an existing project. No field is needed for an
-overall result. Add one `--field` per requested grouping axis, and supply both
-`--start` and `--end` for an interval:
+overall result. Add one `--field` per requested grouping Dimension. Supply both
+`--start` and `--end` to select a report range.
 
 ```sh
 /path/to/marivo/.venv/bin/python /path/to/marivo/examples/analysis/entry.py sample.measurement \
-  --field sample.readings.group --start 2026-01-01 --end 2026-01-03 --timezone UTC
+  --field dimension:sample.readings.group --start 2026-01-01 --end 2026-01-03 --timezone UTC
 ```
 
 If the Metric path is unknown, list Metrics, choose an exact displayed path,
@@ -34,7 +34,7 @@ field with an unknown path, list fields in that same Session and choose its path
 /path/to/marivo/.venv/bin/python /path/to/marivo/examples/analysis/entry.py --list-fields \
   --session-id "session_<saved-id>"
 /path/to/marivo/.venv/bin/python /path/to/marivo/examples/analysis/entry.py sample.measurement \
-  --session-id "session_<saved-id>" --field sample.readings.group
+  --session-id "session_<saved-id>" --field dimension:sample.readings.group
 ```
 
 List modes show one public Catalog collection without computing a Metric. The
@@ -47,8 +47,9 @@ collection, repeat the same list command with `--full-output`, for example:
 ```
 
 The script resolves only supplied observation selectors. Omitted fields and
-time produce `by=()`; with an interval, its TimeScope precedes the supplied fields
-in `by`. The interval is half-open: start inclusive, end exclusive. An incomplete
+time produce an overall observation. The optional TimeScope belongs in
+`where` and limits contributions through the Metric's fixed clock. The
+interval includes the start and excludes the end. An incomplete
 boundary pair fails before Session creation.
 
 Each invocation without `--session-id` creates a fresh Session, defaulting to
@@ -66,7 +67,8 @@ import marivo.analysis as mv
 
 session = mv.session.get_or_create(f"analysis-{uuid4().hex[:8]}", timezone="UTC", domains=None)
 catalog = session.catalog
-metric = catalog.metrics.get("sample.measurement")
+metric = catalog.get("metric:sample.measurement")
+assert metric.kind == "metric"
 pending = session.observe({"value": metric})
 fixed = pending.compute()
 fixed.show()
@@ -127,7 +129,7 @@ cp -R examples/analysis/. "$example_project/"
 cd "$example_project"
 "$example_python" seed.py
 "$example_python" entry.py sample.measurement
-"$example_python" entry.py sample.measurement --field sample.readings.group
+"$example_python" entry.py sample.measurement --field dimension:sample.readings.group
 ```
 
 `seed.py` replaces only the copied project's `readings` table. Its default

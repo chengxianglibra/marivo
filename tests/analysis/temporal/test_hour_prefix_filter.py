@@ -501,7 +501,7 @@ def test_public_observe_only_pushes_required_hour_membership(
         scope = session.time_scope(start="2026-10-28T00:00", end="2026-10-28T01:00")
     if mode in ("scope", "calendar", "midnight"):
         frame = session.observe(
-            {"n": metric}, by=(scope.by(mv.grain("hour")) if mode != "scope" else scope,)
+            {"n": metric}, by=(mv.grain("hour"),) if mode != "scope" else (), where=scope
         )
     else:
         predicate = hour.within(scope)

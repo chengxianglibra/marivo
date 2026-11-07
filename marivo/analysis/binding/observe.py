@@ -23,10 +23,8 @@ from marivo._definition.expressions import (
     RowNode,
     SourceAggregate,
     SourceWeightedMean,
-    TimeBinding,
 )
 from marivo._definition.graph import DefinitionNode, children, walk
-from marivo._definition.grouping import FieldCalendarBinding
 from marivo._definition.observations import (
     CalendarGrouping,
     CalendarSample,
@@ -113,7 +111,7 @@ def bind_observation(
     calendar_snapshots: tuple[PeriodCalendarSnapshotV2, ...] = (),
     memberships: tuple[MembershipBinding, ...] = (),
     population: PopulationDependency | None = None,
-    field_calendars: tuple[FieldCalendarBinding, ...] = (),
+    report_period: ObservationPeriod | None = None,
 ) -> ObservationBinding:
     if not isinstance(by, tuple) or any(
         not isinstance(field, (FieldRead, IdentityRead, CalendarCoordinate, IntervalCoordinate))
@@ -122,15 +120,11 @@ def bind_observation(
         reject(
             "a tuple of resolved fields and time domains",
             repr(by),
-            "Use by=(field, scope).",
+            "Use by=(field, mv.grain('day')) and put a report scope in where.",
             "Session.observe",
         )
-    field_calendar_fields = {item.calendar: item.field for item in field_calendars}
     time_axes = tuple(
-        axis
-        for axis in by
-        if isinstance(axis, (CalendarCoordinate, IntervalCoordinate))
-        and axis not in field_calendar_fields
+        axis for axis in by if isinstance(axis, (CalendarCoordinate, IntervalCoordinate))
     )
     if len(time_axes) > 1:
         reject(
@@ -141,7 +135,7 @@ def bind_observation(
         )
     time_axis = time_axes[0] if time_axes else None
     calendar = time_axis if isinstance(time_axis, CalendarCoordinate) else None
-    period = (
+    period = report_period or (
         ObservationPeriod(time_axis.start, time_axis.end, time_axis.timezone)
         if isinstance(time_axis, IntervalCoordinate)
         else ObservationPeriod(
@@ -166,33 +160,22 @@ def bind_observation(
     )
     if len(set(axes)) != len(axes):
         reject("distinct output axes", repr(by), "Remove repeated axes.", "Session.observe")
-    snapshots = (
-        *calendar_snapshots,
-        *(
-            axis.snapshot
-            for axis in axes
-            if isinstance(axis, CalendarCoordinate) and axis.snapshot is not None
-        ),
-    )
-    for item in field_calendars:
-        snapshot = item.calendar.snapshot
-        if snapshot is not None and any(
-            other.calendar_ref == snapshot.calendar_ref
-            and other.snapshot_digest != snapshot.snapshot_digest
-            for other in snapshots
-        ):
-            reject(
-                "one certified snapshot per custom calendar",
-                snapshot.calendar_ref.path,
-                "Rebuild the field calendar from the receiving Session's certified calendar.",
-                "Session.observe.by",
-            )
-        if snapshot is not None:
-            from marivo.analysis.binding.windows import resolve_calendar_grain
+    if period is not None or time_axis is not None:
+        from marivo.semantic._metric_time import require_metric_time
+        from marivo.semantic.errors import SemanticExpressionError
 
-            resolve_calendar_grain(
-                item.calendar.grain_spec, calendar_snapshots, location="Session.observe.by"
-            )
+        for name, node in metrics:
+            try:
+                require_metric_time(node, declared, operation="Session.observe", output=name)
+            except SemanticExpressionError as error:
+                assert error.expected and error.received and error.repair is not None
+                reject(
+                    error.expected,
+                    error.received,
+                    error.repair.action,
+                    f"Session.observe.metrics[{name!r}]",
+                    canonical_id="session.observe",
+                )
     from marivo.analysis.binding.temporal_predicates import normalize_temporal_predicate
 
     condition = (
@@ -229,13 +212,6 @@ def bind_observation(
             )
             return
         if isinstance(node, MemberCount):
-            if field_calendars:
-                reject(
-                    "a source contribution for each field calendar",
-                    "a Population member count",
-                    "Classify and count the Population separately.",
-                    "Session.observe.by",
-                )
             domain = node.population
             requested = tuple(dict.fromkeys((*axes, *sample_axes)))
             for axis in requested:
@@ -260,22 +236,13 @@ def bind_observation(
             sample_domain = node.samples
             inner_domain_axes: tuple[SampleAxis, ...]
             if isinstance(sample_domain, (Grain, FieldCalendarSample)):
-                if isinstance(sample_domain, Grain) and not any(
-                    isinstance(child, (SourceAggregate, SourceWeightedMean, EntityCount))
-                    and child.time is not None
-                    for child in walk((node,), resolve=declared.get).order
-                ):
-                    reject(
-                        "a child Metric with a declared time role",
-                        type(node.operand).__name__
-                        if isinstance(node, PerReduce)
-                        else type(node.value).__name__,
-                        "Construct the child source reduction with time=field, or pass a native TimeField and grain=.",
-                        "Metric.per",
-                        canonical_id="session.observe",
-                    )
+                sample_scope = (
+                    IntervalCoordinate("observation", period.start, period.end, period.timezone)
+                    if time_axis is None and period is not None and period.start is not None
+                    else time_axis
+                )
                 inner = bind_calendar_samples(
-                    sample_domain, timezone, time_axis, sample_axes, calendar_snapshots
+                    sample_domain, timezone, sample_scope, sample_axes, calendar_snapshots
                 )
                 calendar_samples.append((occurrence, inner))
                 inner_domain_axes = (inner,)
@@ -337,9 +304,13 @@ def bind_observation(
                     "session.observe",
                 )
             fields = _row_fields(node)
-            roots = {field.root.ref for field in fields}
-            if isinstance(node, EntityCount):
-                roots.add(node.entity.ref)
+            roots = (
+                {node.entity.ref}
+                if isinstance(node, EntityCount)
+                else {node.contribution_root.ref}
+                if node.contribution_root is not None
+                else {field.root.ref for field in fields}
+            )
             if len(roots) != 1:
                 reject(
                     "one contribution root per source reduction",
@@ -361,7 +332,6 @@ def bind_observation(
                 axis
                 for axis in (*axes, *sample_axes)
                 if isinstance(axis, (CalendarCoordinate, IntervalCoordinate))
-                and axis not in field_calendar_fields
             )
             if contribution_period is None and coordinate_calendar_axes:
                 cells = tuple(
@@ -438,8 +408,11 @@ def bind_observation(
             bound = tuple(bind_read(read, root, state.registry, resolver, paths) for read in reads)
             if node.time is not None:
                 bound_time = bound[len(fields)]
-                time = TimeBinding(
-                    bound_time.field, bound_time.path, fixed_attribute_time(bound_time.at)
+                time = replace(
+                    node.time,
+                    field=bound_time.field,
+                    path=bound_time.path,
+                    at=fixed_attribute_time(bound_time.at),
                 )
             all_memberships = tuple(
                 dict.fromkeys(
@@ -501,25 +474,7 @@ def bind_observation(
             output_axis_count = sum(
                 not isinstance(axis, (CalendarCoordinate, IntervalCoordinate)) for axis in by
             )
-            if calendar is not None and population is None and time is not None:
-                for coordinate in coordinates[:output_axis_count]:
-                    if isinstance(coordinate, FieldRead) and (
-                        coordinate.field == time.field
-                        and coordinate.path == time.path
-                        and coordinate.at == time.at
-                    ):
-                        reject(
-                            "one implicit output representation of each observation time role",
-                            f"CalendarAxis {calendar.grain!r} and raw time field "
-                            f"{field_read_key(coordinate)!r} for Metric {metrics[occurrence[0]][0]!r}",
-                            "For bucketed observation, keep only the CalendarAxis in by. "
-                            "For raw time points, pass a TimeScope and the time field in by. "
-                            "Use an explicit Population when the joint output keys are intentional.",
-                            "session.observe",
-                            canonical_id="session.observe",
-                        )
             coordinate_calendars: list[tuple[str, CalendarGrouping]] = []
-            field_calendar_reads: list[tuple[str, FieldRead]] = []
             sample_calendar_reads: list[tuple[str, FieldRead]] = []
             parent_calendars: list[
                 tuple[FieldRead, CalendarCoordinate | BuiltinSampleCoordinate]
@@ -561,59 +516,22 @@ def bind_observation(
                 elif isinstance(axis, (CalendarCoordinate, IntervalCoordinate)):
                     slot = f"key.{physical_slot}"
                     coordinate_calendars.append((slot, axis))
-                    grouping_read = (
-                        field_calendar_fields.get(axis)
-                        if isinstance(axis, CalendarCoordinate)
-                        else None
-                    )
-                    if isinstance(axis, CalendarCoordinate) and grouping_read is not None:
-                        bound_field = bind_read(
-                            grouping_read, root, state.registry, resolver, paths
-                        )
-                        same_role = (
-                            calendar is not None
-                            and time is not None
-                            and (
-                                bound_field.field == time.field
-                                and bound_field.path == time.path
-                                and bound_field.at == time.at
-                            )
-                        )
-                        if (
-                            same_role
-                            or bound_field in coordinates[:output_axis_count]
-                            or any(read == bound_field for _, read in field_calendar_reads)
-                        ):
-                            reject(
-                                "one output representation per time field",
-                                field_read_key(bound_field),
-                                "Keep one raw field or field calendar per field; a direct TimeScope can still select a Metric period.",
-                                "Session.observe.by",
-                            )
-                        field_calendar_reads.append((slot, bound_field))
-                        parent_calendars.append((bound_field, axis))
-                    elif (
-                        isinstance(axis, CalendarCoordinate) and contribution_time_read is not None
-                    ):
+                    if isinstance(axis, CalendarCoordinate) and contribution_time_read is not None:
                         parent_calendars.append((contribution_time_read, axis))
                     physical_slot += 1
                 else:
                     physical_slot += len(coordinate_read_keys(next(physical_reads)))
-            if (
+            if node.time is None and (
                 contribution_period is not None
-                or len(coordinate_calendars)
-                > len(field_calendar_reads) + len(sample_calendar_reads)
-            ) and node.time is None:
+                or any(
+                    isinstance(axis, (CalendarCoordinate, IntervalCoordinate))
+                    for axis in sample_axes
+                )
+            ):
                 reject(
-                    "a declared business time role for this period",
-                    f"Metric {metrics[occurrence[0]][0]!r}, source {root.ref.path!r}: reduction without time=",
-                    "To use a direct TimeScope/CalendarAxis, declare time=field on every source reduction "
-                    "(or bind an existing TimeParameter with bind_time). To select a field only for this "
-                    "observation, replace the direct time coordinate with "
-                    "mv.time_group(field, axis=scope.by(grain)); for range filtering only, remove that "
-                    "coordinate and use where=field.within(scope). Choose a resolved TimeDimension "
-                    "reachable from every contribution root. time_group does not supply Metric window "
-                    "endpoints. Omit the time coordinate if no time restriction is intended.",
+                    "a contribution time for this report or calendar sample",
+                    f"Metric {metrics[occurrence[0]][0]!r}, source {root.ref.path!r}",
+                    "Define time=field on the source reduction or default_time on its Entity.",
                     "session.observe",
                 )
 
@@ -676,7 +594,6 @@ def bind_observation(
                     bind_predicate(condition) if condition is not None else None,
                     (
                         *bound,
-                        *(read for _, read in field_calendar_reads),
                         *(read for _, read in sample_calendar_reads),
                     ),
                     coordinates,
@@ -689,7 +606,6 @@ def bind_observation(
                     calendars=tuple(coordinate_calendars),
                     sample_calendar_reads=tuple(sample_calendar_reads),
                     population_reads=tuple(population_reads.items()),
-                    field_calendar_reads=tuple(field_calendar_reads),
                 )
             )
             return
@@ -727,11 +643,7 @@ def bind_observation(
     if (
         not contributions
         and not count_populations
-        and (
-            any(isinstance(axis, AxisBinding) for axis in axes)
-            or where is not None
-            or field_calendars
-        )
+        and (any(isinstance(axis, AxisBinding) for axis in axes) or where is not None)
     ):
         reject(
             "a contribution source for field classification or conditions",
@@ -772,7 +684,11 @@ def bind_observation(
         period,
         condition,
         CoordinateBinding(
-            tuple(axes), mode, population, memberships, field_calendars=field_calendars
+            tuple(axes),
+            mode,
+            population,
+            memberships,
+            complete_calendar=not (calendar is not None and calendar.actual_only),
         ),
         bound_contributions,
         tuple(count_populations.items()),

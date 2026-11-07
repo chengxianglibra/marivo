@@ -17,7 +17,7 @@ from marivo.analysis.core.frozen_calendar import read_calendar_directory
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.session.core import Session
 from marivo.semantic.reader import SemanticProject
-from tests.shared_fixtures import catalog_value, frozen_coordinates
+from tests.shared_fixtures import catalog_value, frozen_coordinates, time_population
 
 
 @pytest.fixture
@@ -111,7 +111,7 @@ def test_sampling_uses_source_clock_across_report_zones(
         scope = session.time_scope(
             start="2026-01-15T00:00Z", end="2026-01-15T03:00Z", timezone=zone
         )
-        assert session.observe({"mean": metric}, by=(scope,)).compute().to_pandas()[
+        assert session.observe({"mean": metric}, where=scope).compute().to_pandas()[
             "mean"
         ].tolist() == [20.0]
     with duckdb.connect(str(tmp_path / "windows.duckdb")) as connection:
@@ -120,7 +120,7 @@ def test_sampling_uses_source_clock_across_report_zones(
         scope = session.time_scope(
             start="2026-01-15T00:00Z", end="2026-01-15T03:00Z", timezone=zone
         )
-        assert session.observe({"mean": metric}, by=(scope,)).compute().to_pandas()[
+        assert session.observe({"mean": metric}, where=scope).compute().to_pandas()[
             "mean"
         ].tolist() == [20.0]
 
@@ -146,7 +146,7 @@ def test_aware_two_hour_sampling_keeps_utc_phase(
         scope = session.time_scope(
             start=f"2026-{month:02d}-15T00:00Z", end=f"2026-{month:02d}-15T06:00Z", timezone=zone
         )
-        assert session.observe({"mean": metric}, by=(scope,)).compute().to_pandas()[
+        assert session.observe({"mean": metric}, where=scope).compute().to_pandas()[
             "mean"
         ].tolist() == [20.0]
     with duckdb.connect(str(tmp_path / "windows.duckdb")) as connection:
@@ -155,7 +155,7 @@ def test_aware_two_hour_sampling_keeps_utc_phase(
         scope = session.time_scope(
             start=f"2026-{month:02d}-15T00:00Z", end=f"2026-{month:02d}-15T06:00Z", timezone=zone
         )
-        assert session.observe({"mean": metric}, by=(scope,)).compute().to_pandas()[
+        assert session.observe({"mean": metric}, where=scope).compute().to_pandas()[
             "mean"
         ].tolist() == [20.0]
 
@@ -179,7 +179,7 @@ def test_sampling_encoding_null_and_duplicate_fact_contract(
     )
     for field in fields:
         values = (
-            session.observe({"mean": amount.sum(time=field).per(field).median()}, by=(scope,))
+            session.observe({"mean": amount.sum(time=field).per(field).median()}, where=scope)
             .compute()
             .to_pandas()
         )
@@ -188,14 +188,14 @@ def test_sampling_encoding_null_and_duplicate_fact_contract(
         connection.execute("DELETE FROM orders WHERE id=3")
     for field in fields:
         rows = (
-            session.observe({"median": amount.sum(time=field).per(field).median()}, by=(scope,))
+            session.observe({"median": amount.sum(time=field).per(field).median()}, where=scope)
             .compute()
             .to_pandas()
         )
         assert rows["median"].tolist() == [20.0]
     unsampled = catalog_value(session.catalog, "sales.orders.ordered_at", kind="time_dimension")
     assert session.observe(
-        {"mean": amount.sum(time=unsampled).per(unsampled).mean()}, by=(scope,)
+        {"mean": amount.sum(time=unsampled).per(unsampled).mean()}, where=scope
     ).compute().to_pandas()["mean"].tolist() == [20.0]
 
 
@@ -209,7 +209,7 @@ def test_date_contributions_reject_subday_and_non_midnight_windows(
     revenue = amount.sum(time=at)
     scope = session.time_scope(start="2026-10-07", end="2026-10-08")
     assert session.observe(
-        {"revenue": revenue}, by=(scope.by(mv.grain("day")),)
+        {"revenue": revenue}, by=(mv.grain("day"),), where=scope
     ).compute().to_pandas()["revenue"].tolist() == [20]
     assert session.observe({"revenue": revenue}, where=at.within(scope)).compute().to_pandas()[
         "revenue"
@@ -232,13 +232,18 @@ def test_date_contributions_reject_subday_and_non_midnight_windows(
         (revenue, session.time_scope(start="2026-10-07", end="2026-10-07T12:00Z")),
     ):
         with pytest.raises(AnalysisError, match=r"DATE|midnight"):
-            session.observe({"revenue": metric}, by=(axis,)).compute()
+            if isinstance(axis, mv.CalendarAxis):
+                session.observe(
+                    {"revenue": metric}, by=(axis.grid.grain_spec,), where=axis.scope
+                ).compute()
+            else:
+                session.observe({"revenue": metric}, where=axis).compute()
     for start, end in (("2026-03-08", "2026-03-09"), ("2026-11-01", "2026-11-02")):
         dst_scope = session.time_scope(start=start, end=end, timezone="America/New_York")
         with pytest.raises(AnalysisError, match=r"DATE|midnight"):
             session.observe(
                 {"bad": revenue.window(mv.trailing_duration(duration=timedelta(hours=24)))},
-                by=(dst_scope,),
+                where=dst_scope,
             ).compute()
 
 
@@ -258,7 +263,7 @@ def test_naive_source_sampling_uses_representable_wall_clocks(
             "INSERT INTO orders (id, ordered_at, amount) VALUES (1,'2026-03-08 00:00:00',10), (2,'2026-03-08 01:00:00',20), (3,'2026-03-08 03:00:00',30)"
         )
     scope = session.time_scope(start="2026-03-08T05:00Z", end="2026-03-08T08:00Z")
-    assert session.observe({"mean": metric}, by=(scope,)).compute().to_pandas()[
+    assert session.observe({"mean": metric}, where=scope).compute().to_pandas()[
         "mean"
     ].tolist() == [20.0]
     with duckdb.connect(str(tmp_path / "windows.duckdb")) as connection:
@@ -267,16 +272,16 @@ def test_naive_source_sampling_uses_representable_wall_clocks(
             "INSERT INTO orders (id, ordered_at, amount) VALUES (1,'2026-11-01 00:00:00',10), (2,'2026-11-01 01:00:00',20), (3,'2026-11-01 02:00:00',30)"
         )
     scope = session.time_scope(start="2026-11-01T04:00Z", end="2026-11-01T08:00Z")
-    assert session.observe({"mean": metric}, by=(scope,)).compute().to_pandas()[
+    assert session.observe({"mean": metric}, where=scope).compute().to_pandas()[
         "mean"
     ].tolist() == [20.0]
-    assert session.observe({"mean": amount.mean(time=sample)}, by=(scope,)).compute().to_pandas()[
+    assert session.observe({"mean": amount.mean(time=sample)}, where=scope).compute().to_pandas()[
         "mean"
     ].tolist() == [20.0]
     first_fold = session.time_scope(start="2026-11-01T05:00Z", end="2026-11-01T06:00Z")
-    for selected in (first_fold, first_fold.by(mv.grain("hour"))):
+    for by in ((), (mv.grain("hour"),)):
         result = (
-            session.observe({"mean": amount.mean(time=sample)}, by=(selected,))
+            session.observe({"mean": amount.mean(time=sample)}, by=by, where=first_fold)
             .compute()
             .to_pandas()
         )
@@ -287,7 +292,7 @@ def test_naive_source_sampling_uses_representable_wall_clocks(
             "INSERT INTO orders (id, ordered_at, amount) VALUES (1,'2026-03-08 02:30:00',10)"
         )
     scope = session.time_scope(start="2026-03-08T05:00Z", end="2026-03-08T08:00Z")
-    assert session.observe({"mean": amount.mean(time=sample)}, by=(scope,)).compute().to_pandas()[
+    assert session.observe({"mean": amount.mean(time=sample)}, where=scope).compute().to_pandas()[
         "mean"
     ].tolist() == [10.0]
 
@@ -300,7 +305,7 @@ def test_naive_source_sampling_uses_representable_wall_clocks(
             "(1,'2026-03-08 00:00:00',10), (2,'2026-03-08 01:00:00',20), "
             "(3,'2026-03-08 02:00:00',30)"
         )
-    rows = session.observe({"median": metric}, by=(scope,)).compute().to_pandas()
+    rows = session.observe({"median": metric}, where=scope).compute().to_pandas()
     assert rows["median"].tolist() == [20.0]
 
 
@@ -362,9 +367,10 @@ def test_wall_membership_calendar_windows_and_population_agree(
     at = catalog_value(session.catalog, "sales.orders.sample_at", kind="time_dimension")
     metric = amount.sum(time=at)
     scope = session.time_scope(start=start, end=end)
-    calendar = scope.by(mv.grain("hour"))
     frame = session.observe(
-        {"ordinary": metric, "history": metric.window(mv.all_history())}, by=(calendar,)
+        {"ordinary": metric, "history": metric.window(mv.all_history())},
+        by=(mv.grain("hour"),),
+        where=scope,
     ).compute()
     values = frame.to_pandas()
     assert frozen_coordinates(frame)[0].rows["ordinal"].tolist() == list(range(len(expected)))
@@ -379,12 +385,12 @@ def test_wall_membership_calendar_windows_and_population_agree(
     )
     assert session.frame(members).compute().to_pandas().iloc[:, 0].tolist() == selected_ids
     total = sum(2 ** (index - 1) for index in selected_ids)
-    assert session.observe({"value": metric}, by=(selected_scope,)).compute().to_pandas()[
+    assert session.observe({"value": metric}, where=selected_scope).compute().to_pandas()[
         "value"
     ].tolist() == [total]
     # Membership owns its clipped selection even when contribution time expands.
     assert session.observe(
-        {"value": metric}, by=(scope,), where=mv.in_population(members)
+        {"value": metric}, where=(scope, mv.in_population(members))
     ).compute().to_pandas()["value"].tolist() == [total]
 
 
@@ -415,7 +421,7 @@ def test_sparse_shift_observes_raw_contributions_and_nominal_windows(
             for name, metric in metrics.items()
         },
     }
-    ordinary = session.observe(observed, by=(calendar,)).compute()
+    ordinary = session.observe(observed, by=time_population(calendar)).compute()
     values = ordinary.to_pandas(time_details=True)
     assert values["calendar:week.label"].tolist() == ["2020-12-21", "2021-01-04"]
     assert values["revenue"].tolist() == [40, 150]
@@ -456,7 +462,8 @@ def test_empty_shift_is_typed_zero_endpoint_observation(
         metric = metric.window(mv.trailing_periods(count=2))
     sampled = catalog_value(session.catalog, "sales.orders.sample_at", kind="time_dimension")
     result = session.observe(
-        {"aov": metric, "sampled": amount.sum(time=sampled).per(sampled).mean()}, by=(calendar,)
+        {"aov": metric, "sampled": amount.sum(time=sampled).per(sampled).mean()},
+        by=time_population(calendar),
     ).compute()
     frame = result.to_pandas()
     assert frame.empty
@@ -487,11 +494,14 @@ def test_sparse_calendar_joint_groups_and_fixed_populations(
         .shift(mv.offset(years=1))
     )
     strict = total / (amount.count(time=at) - 1)
-    assert session.observe({"strict": strict}, by=(calendar,)).compute().to_pandas(
+    assert session.observe({"strict": strict}, by=time_population(calendar)).compute().to_pandas(
         time_details=True
     )["strict"].tolist() == [40.0, 75.0]
+    groups = mv.coordinates(
+        by=(region, channel), keys=(("north", "web"), ("south", "shop"), ("new", "shop"))
+    )
     rows = (
-        session.observe({"total": total}, by=(calendar, region, channel))
+        session.observe({"total": total}, by=mv.product(calendar, groups))
         .compute()
         .to_pandas(time_details=True)
     )
@@ -501,9 +511,9 @@ def test_sparse_calendar_joint_groups_and_fixed_populations(
         ("new", "shop"),
     }
     assert len(rows) == 6
-    gap = session.time_scope(start="2020-12-28", end="2021-01-04").by(mv.grain("week"))
+    gap_scope = session.time_scope(start="2020-12-28", end="2021-01-04")
     assert (
-        session.observe({"strict": strict}, by=(gap,))
+        session.observe({"strict": strict}, by=(mv.grain("week"),), where=gap_scope)
         .compute()
         .to_pandas(time_details=True)["strict"]
         .isna()
@@ -531,7 +541,7 @@ def test_sparse_calendar_joint_groups_and_fixed_populations(
     filtered = (
         session.observe(
             {"total": total, "history": total.window(mv.trailing_periods(count=2))},
-            by=(calendar,),
+            by=time_population(calendar),
             where=mv.in_population(selected),
         )
         .compute()
@@ -542,7 +552,7 @@ def test_sparse_calendar_joint_groups_and_fixed_populations(
     hard = (
         session.observe(
             {"history": total.window(mv.trailing_periods(count=2))},
-            by=(calendar,),
+            by=time_population(calendar),
             where=at >= datetime(2021, 1, 1, tzinfo=timezone.utc),
         )
         .compute()
@@ -575,7 +585,8 @@ def test_window_recomputes_history_ratio_and_distinct(
                 "median": amount.quantile(q=0.5, time=at).window(mv.all_history()),
                 "filtered": revenue.where(amount >= 20).window(mv.all_history()),
             },
-            by=(scope.by(mv.grain("day")),),
+            by=(mv.grain("day"),),
+            where=scope,
         )
         .compute()
         .to_pandas()
@@ -588,7 +599,7 @@ def test_window_recomputes_history_ratio_and_distinct(
     assert values["customers"].tolist() == [1, 1]
     daily = (
         session.observe(
-            {"daily": customer.count_distinct(time=at)}, by=(scope.by(mv.grain("day")),)
+            {"daily": customer.count_distinct(time=at)}, by=(mv.grain("day"),), where=scope
         )
         .compute()
         .to_pandas()
@@ -604,7 +615,7 @@ def test_scalar_to_date_uses_endpoint_not_display_start(window_session: Session)
     for start in ("2026-09-01", "2026-10-01"):
         result = (
             session.observe(
-                {"mtd": metric}, by=(session.time_scope(start=start, end="2026-10-08"),)
+                {"mtd": metric}, where=session.time_scope(start=start, end="2026-10-08")
             )
             .compute()
             .to_pandas()
@@ -630,7 +641,8 @@ def test_partial_month_windows_stop_at_actual_endpoint(
                 "elapsed": revenue.window(mv.trailing_duration(duration=timedelta(hours=24))),
                 "since": revenue.window(mv.since(start=session.instant("2026-10-14T11:00Z"))),
             },
-            by=(scope.by(mv.grain("month")),),
+            by=(mv.grain("month"),),
+            where=scope,
         )
         .compute()
         .to_pandas()
@@ -642,7 +654,8 @@ def test_partial_month_windows_stop_at_actual_endpoint(
         with pytest.raises(AnalysisError, match="complete calendar buckets"):
             session.observe(
                 {"bad": revenue.window(mv.trailing_periods(count=1))},
-                by=(partial.by(mv.grain("month")),),
+                by=(mv.grain("month"),),
+                where=partial,
             )
 
 
@@ -674,12 +687,14 @@ def test_hour_reset_uses_native_fold_endpoints(window_session: Session, tmp_path
             "INSERT INTO orders (id, ordered_at, amount) VALUES (1,'2026-11-01 05:30:00+00',10), (2,'2026-11-01 06:30:00+00',30)"
         )
     revenue = catalog_value(window_session.catalog, "sales.revenue", kind="metric")
-    hours = window_session.time_scope(
+    hours_scope = window_session.time_scope(
         start="2026-11-01T04:00Z", end="2026-11-01T07:00Z", timezone="America/New_York"
-    ).by(mv.grain("hour"))
+    )
     values = (
         window_session.observe(
-            {"hourly": revenue.window(mv.to_date(grain=mv.grain("hour")))}, by=(hours,)
+            {"hourly": revenue.window(mv.to_date(grain=mv.grain("hour")))},
+            by=(mv.grain("hour"),),
+            where=hours_scope,
         )
         .compute()
         .to_pandas()
@@ -709,12 +724,14 @@ def test_hour_index_and_windows_use_native_gap_keys(
             "AS cumulative FROM positions ORDER BY key"
         ).fetchall()
     revenue = catalog_value(window_session.catalog, "sales.revenue", kind="metric")
-    hours = window_session.time_scope(
+    hours_scope = window_session.time_scope(
         start="2026-03-08T05:00Z", end="2026-03-08T09:00Z", timezone="America/New_York"
-    ).by(mv.grain("hour"))
+    )
     values = (
         window_session.observe(
-            {"hourly": revenue, "cumulative": revenue.window(mv.all_history())}, by=(hours,)
+            {"hourly": revenue, "cumulative": revenue.window(mv.all_history())},
+            by=(mv.grain("hour"),),
+            where=hours_scope,
         )
         .compute()
         .to_pandas()
@@ -750,13 +767,21 @@ def test_repeated_hour_selection_keeps_its_exact_scope_and_endpoint(
     assert result is not None
     key, cumulative = result
     revenue = catalog_value(window_session.catalog, "sales.revenue", kind="metric")
-    hours = window_session.time_scope(
+    hours_scope = window_session.time_scope(
         start=f"2026-11-01T{start}Z", end=f"2026-11-01T{end}Z", timezone="America/New_York"
-    ).by(mv.grain("hour"))
+    )
     # Keep ordinary completion independently observable from the window domain.
-    ordinary = window_session.observe({"hourly": revenue}, by=(hours,)).compute().to_pandas()
+    ordinary = (
+        window_session.observe({"hourly": revenue}, by=(mv.grain("hour"),), where=hours_scope)
+        .compute()
+        .to_pandas()
+    )
     history = (
-        window_session.observe({"cumulative": revenue.window(mv.all_history())}, by=(hours,))
+        window_session.observe(
+            {"cumulative": revenue.window(mv.all_history())},
+            by=(mv.grain("hour"),),
+            where=hours_scope,
+        )
         .compute()
         .to_pandas()
     )
@@ -879,8 +904,7 @@ def test_interval_selection_keeps_window_history_and_hard_fact_filter(
     restricted = (
         session.observe(
             {"history": revenue.window(mv.all_history())},
-            by=(scope,),
-            where=at >= session.instant("2026-10-01"),
+            where=(scope, at >= session.instant("2026-10-01")),
         )
         .compute()
         .to_pandas()
@@ -888,19 +912,21 @@ def test_interval_selection_keeps_window_history_and_hard_fact_filter(
     assert restricted["history"].tolist() == [20]
 
 
-def test_explicit_count_repeats_time_and_rejects_ineffective_window(
-    window_session: Session,
-) -> None:
+def test_fixed_member_count_rejects_report_time_and_windows(window_session: Session) -> None:
     from marivo.analysis.errors import AnalysisError
+    from marivo.semantic.errors import SemanticExpressionError
 
     session = window_session
     entity = catalog_value(session.catalog, "sales.orders", kind="entity")
     people = mv.coordinates(by=(mv.identity(entity),), keys=(((1,),), ((2,),), ((999,),)))
-    calendar = session.time_scope(start="2026-10-07", end="2026-10-09").by(mv.grain("day"))
-    rows = session.observe({"people": people.count()}, by=(calendar,)).compute().to_pandas()
-    assert rows["people"].tolist() == [3, 3]
-    with pytest.raises(AnalysisError, match="fact contributions for a window"):
-        session.observe({"people": people.count().window(mv.all_history())}, by=(calendar,))
+    scope = session.time_scope(start="2026-10-07", end="2026-10-09")
+    assert session.observe({"people": people.count()}).compute().to_pandas()["people"].tolist() == [
+        3
+    ]
+    with pytest.raises(AnalysisError, match=r"fixed Population.count"):
+        session.observe({"people": people.count()}, by=(mv.grain("day"),), where=scope)
+    with pytest.raises(SemanticExpressionError, match=r"fixed Population.count"):
+        people.count().window(mv.all_history())
 
 
 def test_interval_internal_sample_domain_keeps_its_own_time(window_session: Session) -> None:
@@ -920,7 +946,7 @@ def test_interval_internal_sample_domain_keeps_its_own_time(window_session: Sess
 
 
 @pytest.mark.parametrize("predicate", [False, True])
-def test_time_product_reuses_checked_domain_with_direct_count(
+def test_time_product_reuses_checked_domain(
     window_session: Session,
     monkeypatch: pytest.MonkeyPatch,
     predicate: bool,
@@ -936,7 +962,7 @@ def test_time_product_reuses_checked_domain_with_direct_count(
     at = catalog_value(session.catalog, "sales.orders.ordered_at", kind="time_dimension")
     scope = session.time_scope(start="2026-10-07", end="2026-10-09")
     frame = session.observe(
-        {"value": amount.sum(time=at), "people": people.count()},
+        {"value": amount.sum(time=at)},
         by=mv.product(scope, people),
         where=mv.in_population(people) if predicate else None,
     )
@@ -950,7 +976,6 @@ def test_time_product_reuses_checked_domain_with_direct_count(
     monkeypatch.setattr(SourceSession, "execute", record)
     rows = frame.compute().to_pandas()
     assert rows["value"].to_dict() == {0: 0, 1: 20}
-    assert rows["people"].tolist() == [1, 1]
     assert len([purpose for purpose in reads if purpose.startswith("query.")]) == 2
     with duckdb.connect(str(session.project_root / "windows.duckdb")) as connection:
         connection.execute(
@@ -985,14 +1010,14 @@ def test_sparse_sample_reductions_keep_groups_and_offgrid_clocks(
     sample = amount.cast("float64").mean(time=point).per(point)
     trace = capture_source(monkeypatch)
     assert (
-        session.observe({"average": sample.mean()}, by=(scope, region))
+        session.observe({"average": sample.mean()}, by=(region,), where=scope)
         .compute()
         .to_pandas()["average"]
         .tolist()
         == [10.0] * 8
     )
     for metric in (sample.max(), sample.quantile(0.95)):
-        rows = session.observe({"peak": metric}, by=(scope, region)).compute().to_pandas()
+        rows = session.observe({"peak": metric}, by=(region,), where=scope).compute().to_pandas()
         assert rows["peak"].tolist() == [10.0] * 8
     assert len(trace.returned_rows) == 3
     assert trace.returned_rows[:2] == [8, 8]
@@ -1015,15 +1040,15 @@ def test_nested_sparse_sample_layers_keep_conditional_demand(
     scope = session.time_scope(start="2026-01-15T00:00Z", end="2026-01-15T03:00Z")
     strict = amount.sum(time=point).per(point).quantile(0.95)
     nested = strict.per(region).mean()
-    assert session.observe({"nested": nested}, by=(scope,)).compute().to_pandas()[
+    assert session.observe({"nested": nested}, where=scope).compute().to_pandas()[
         "nested"
     ].tolist() == [29.0]
     guarded = (amount.sum(time=point) < 0).ifelse(nested, 0)
-    assert session.observe({"guarded": guarded}, by=(scope,)).compute().to_pandas()[
+    assert session.observe({"guarded": guarded}, where=scope).compute().to_pandas()[
         "guarded"
     ].tolist() == [0.0]
     rows = (
-        session.observe({"guarded": (amount.sum(time=point) > 0).ifelse(nested, 0)}, by=(scope,))
+        session.observe({"guarded": (amount.sum(time=point) > 0).ifelse(nested, 0)}, where=scope)
         .compute()
         .to_pandas()
     )
@@ -1035,7 +1060,7 @@ def test_nested_sparse_sample_layers_keep_conditional_demand(
         .mean()
         .window(mv.trailing_duration(duration=timedelta(hours=3)))
     )
-    assert session.observe({"mean": mean}, by=(scope,)).compute().to_pandas()["mean"].tolist() == [
+    assert session.observe({"mean": mean}, where=scope).compute().to_pandas()["mean"].tolist() == [
         20.0
     ]
     source = amount.cast("float64").mean(time=point)
@@ -1046,7 +1071,7 @@ def test_nested_sparse_sample_layers_keep_conditional_demand(
                 "arithmetic": plain * 2 + plain,
                 "conditional": (amount.sum(time=point) > 0).ifelse(plain, 0),
             },
-            by=(scope,),
+            where=scope,
         )
         .compute()
         .to_pandas()
@@ -1056,7 +1081,7 @@ def test_nested_sparse_sample_layers_keep_conditional_demand(
     filtered = source.where(amount > 10).per(point)
     for metric in (filtered.max(), filtered.quantile(0.95)):
         rows = (
-            session.observe({"average": plain, "filtered": metric}, by=(scope,))
+            session.observe({"average": plain, "filtered": metric}, where=scope)
             .compute()
             .to_pandas()
         )

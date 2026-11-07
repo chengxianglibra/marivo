@@ -18,7 +18,7 @@ def test_analysis_error_renders_stable_fields_and_repair() -> None:
         kind="retry",
         action="Pass a parseable time_scope.",
         help_target=LiveHelpTarget(surface="analysis", canonical_id="session.time_scope"),
-        snippet='session.observe({"value": metric}, during=session.time_scope(start="2026-07-01", end="2026-10-01"))',
+        snippet='session.observe({"value": metric}, where=session.time_scope(start="2026-07-01", end="2026-10-01"))',
     )
     err = AnalysisError(
         message="something happened",
@@ -39,7 +39,7 @@ def test_analysis_error_renders_stable_fields_and_repair() -> None:
     assert "Repair:" in rendered
     assert "  Pass a parseable time_scope." in rendered
     assert (
-        '  session.observe({"value": metric}, during=session.time_scope(start="2026-07-01", end="2026-10-01"))'
+        '  session.observe({"value": metric}, where=session.time_scope(start="2026-07-01", end="2026-10-01"))'
         in rendered
     )
 

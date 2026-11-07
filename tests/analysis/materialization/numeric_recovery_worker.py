@@ -40,8 +40,8 @@ def run_process(project: str, session_id: str, phase: str) -> None:
         scope = session.time_scope(start="2026-08-01", end="2026-09-01")
         observed = session.observe(
             {"value": _metric(session.catalog, "metric:sales.revenue")},
-            by=(scope, members.axes[0], region),
-            where=mv.in_population(members),
+            by=(members.axes[0], region),
+            where=(scope, mv.in_population(members)),
         )
         results = {
             "sum": observed.reduce(
@@ -75,7 +75,7 @@ def run_process(project: str, session_id: str, phase: str) -> None:
         ).persist()
         results["category"] = session.read(members, {"value": region}).persist()
         results["approx_quantile"] = session.observe(
-            {"value": _metric(session.catalog, "metric:sales.approx_quantile")}, by=(scope,)
+            {"value": _metric(session.catalog, "metric:sales.approx_quantile")}, where=scope
         ).persist()
         approximate = results["approx_quantile"].to_pandas()["value"].iloc[0]
         assert 7 <= approximate <= 120

@@ -26,7 +26,7 @@ from marivo.datasource.ir import TableSourceIR
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.numeric.test_remote_numeric_query import _datasource_model
 from tests.datasource.source_cases import Case, SourceData, source_case, source_params
-from tests.shared_fixtures import catalog_value
+from tests.shared_fixtures import catalog_value, time_population
 from tests.support.source_trace import capture_source
 
 
@@ -326,7 +326,7 @@ def test_clickhouse_set_index_sample_mean_omits_true_filters(
         scope = session.time_scope(start="2026-10-01", end="2026-10-01T02:00:00")
         trace = capture_source(monkeypatch)
         rows = (
-            session.observe({"v": amount.mean(time=point).per(point).mean()}, by=(scope,))
+            session.observe({"v": amount.mean(time=point).per(point).mean()}, where=scope)
             .compute()
             .to_pandas()
         )
@@ -379,13 +379,16 @@ def test_exact_quantiles_with_cadence_finish_before_sample_mean(
             from marivo.analysis.errors import AnalysisStageUnavailableError
 
             with pytest.raises(AnalysisStageUnavailableError, match="trino: quantile"):
-                session.observe({"q": quantile.per(point).mean()}, by=(scope, category)).compute()
+                session.observe(
+                    {"q": quantile.per(point).mean()}, by=(category,), where=scope
+                ).compute()
             assert trace.returned_rows == []
             return
         rows = (
             session.observe(
                 {"q": quantile.per(point).mean(), "median": median.per(point).mean()},
-                by=(scope, category),
+                by=(category,),
+                where=scope,
             )
             .compute()
             .to_pandas()
@@ -398,20 +401,20 @@ def test_exact_quantiles_with_cadence_finish_before_sample_mean(
             if amount_type != "DOUBLE":
                 assert isinstance(actual[0], Decimal) and actual[0].as_tuple().exponent == -2
         assert all("__quantile_count" not in columns for columns in trace.returned_columns)
-        assert trace.returned_rows == [1, 1]
+        assert trace.returned_rows in ([1], [1, 1])
         for metric in (
             amount.quantile(0.95, time=point, nulls="error").per(point).mean(),
             median.per(point).mean(nulls="error"),
         ):
             with pytest.raises(MaterializationError, match="non-NA"):
-                session.observe({"v": metric}, by=(scope,)).compute()
+                session.observe({"v": metric}, where=scope).compute()
         missing = session.time_scope(start="2026-10-01", end="2026-10-01T03:00:00")
         rows = (
-            session.observe({"v": quantile.per(point).mean()}, by=(missing,)).compute().to_pandas()
+            session.observe({"v": quantile.per(point).mean()}, where=missing).compute().to_pandas()
         )
         assert rows["v"].tolist() == [Decimal("4.75") if amount_type != "DOUBLE" else 4.75]
         empty = (
-            session.observe({"v": quantile.where(amount < 0).per(point).mean()}, by=(scope,))
+            session.observe({"v": quantile.where(amount < 0).per(point).mean()}, where=scope)
             .compute()
             .to_pandas()
         )
@@ -452,7 +455,7 @@ def test_native_mean_preserves_sample_weighting_and_fixed_result(
         point = catalog_value(session.catalog, "sales.facts.point", kind="time_dimension")
         scope = session.time_scope(start="2026-10-01", end="2026-10-01T02:00:00")
         trace = capture_source(monkeypatch)
-        result = session.observe({"v": metric}, by=(scope, category)).compute()
+        result = session.observe({"v": metric}, by=(category,), where=scope).compute()
         assert result.to_pandas()["v"].tolist() == pytest.approx([100 / 3])
         assert trace.returned_rows == [1]
         mixed = session.observe(
@@ -460,7 +463,7 @@ def test_native_mean_preserves_sample_weighting_and_fixed_result(
                 "v": amount.mean(time=point).where(amount >= 0).per(point).mean(),
                 "max": amount.max(time=point),
             },
-            by=(scope,),
+            where=scope,
         ).compute()
         assert mixed.to_pandas()["v"].tolist() == pytest.approx([100 / 3])
         assert trace.returned_rows[-2:] == [1, 1]
@@ -468,7 +471,7 @@ def test_native_mean_preserves_sample_weighting_and_fixed_result(
             legacy.setattr(
                 sample_fusion, "fuse_sample_reductions", lambda prepared, lowered: lowered
             )
-            old = session.observe({"v": metric}, by=(scope, category)).compute().to_pandas()
+            old = session.observe({"v": metric}, by=(category,), where=scope).compute().to_pandas()
         assert old["v"].tolist() == pytest.approx([100 / 3])
         assert trace.returned_rows[-1] == 3
         assert not trace.uploaded_key_rows
@@ -513,7 +516,7 @@ def test_native_mean_keeps_backend_null_and_large_value_results(
         scope = session.time_scope(start="2026-10-01", end="2026-10-01T02:00:00")
         metric = session.catalog.get("metric:sales.average")
         assert metric.kind == "metric"
-        query = session.observe({"v": metric}, by=(scope,))
+        query = session.observe({"v": metric}, where=scope)
         trace = capture_source(monkeypatch)
         value = query.compute().to_pandas()["v"].iloc[0]
         assert pd.isna(value) if expected is None else value == pytest.approx(expected)
@@ -583,7 +586,7 @@ def test_native_mean_uses_backend_large_value_arithmetic_without_local_retry(
         scope = session.time_scope(start="2026-10-01", end="2026-10-01T02:00:00")
         metric = session.catalog.get("metric:sales.average")
         assert metric.kind == "metric"
-        query = session.observe({"v": metric}, by=(scope,))
+        query = session.observe({"v": metric}, by=time_population(scope))
         trace = capture_source(monkeypatch)
         actual: pd.DataFrame | None = None
         failure: MaterializationError | None = None
@@ -670,7 +673,7 @@ def test_native_mean_finishes_integer_and_decimal_samples_in_one_row(
         trace = capture_source(monkeypatch)
         amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
         point = catalog_value(session.catalog, "sales.facts.point", kind="time_dimension")
-        direct = session.observe({"v": amount.mean(time=point)}, by=(scope,)).compute().to_pandas()
+        direct = session.observe({"v": amount.mean(time=point)}, where=scope).compute().to_pandas()
         # The standalone AVG shares the declared carrier boundary, including
         # PostgreSQL's native numeric AVG over bigint before the output cast.
         assert direct["v"].tolist() == [
@@ -678,7 +681,7 @@ def test_native_mean_finishes_integer_and_decimal_samples_in_one_row(
         ]
         metric = session.catalog.get("metric:sales.average")
         assert metric.kind == "metric"
-        rows = session.observe({"v": metric}, by=(scope,)).compute().to_pandas()
+        rows = session.observe({"v": metric}, where=scope).compute().to_pandas()
         if amount_type == "DECIMAL(18,2)":
             assert rows["v"].tolist() == expected
         else:
@@ -729,13 +732,13 @@ def test_native_extrema_reduce_sparse_completed_means_with_null_checks(
         metric = samples.min() if reducer == "min" else samples.max()
         scope = session.time_scope(start="2026-10-01", end="2026-10-01T02:00:00")
         trace = capture_source(monkeypatch)
-        rows = session.observe({"v": metric}, by=(scope, category)).compute().to_pandas()
+        rows = session.observe({"v": metric}, by=(category,), where=scope).compute().to_pandas()
         # Three completed timestamp means are [0, 80, 20], despite a raw maximum of 100.
         assert rows["v"].tolist() == [expected]
         assert trace.returned_rows == [1]
         assert "sample_check.null" not in trace.returned_columns[0]
         missing = session.time_scope(start="2026-10-01", end="2026-10-01T03:00:00")
-        rows = session.observe({"v": metric}, by=(missing, category)).compute().to_pandas()
+        rows = session.observe({"v": metric}, by=(category,), where=missing).compute().to_pandas()
         assert rows["v"].tolist() == [expected]
         assert trace.returned_rows == [1, 1]
 
@@ -769,15 +772,15 @@ def test_clickhouse_native_nonnull_sample_clock_preserves_extrema_policies(
         samples = amount.mean(time=point).per(point)
         metric = samples.min() if reducer == "min" else samples.max()
         trace = capture_source(monkeypatch)
-        rows = session.observe({"v": metric}, by=(scope,)).compute().to_pandas()
+        rows = session.observe({"v": metric}, where=scope).compute().to_pandas()
         # The native timestamp means are [0, NULL, 20].
         assert rows["v"].tolist() == [expected]
         strict = samples.min(nulls="error") if reducer == "min" else samples.max(nulls="error")
         with pytest.raises(MaterializationError, match="non-NA internal samples"):
-            session.observe({"v": strict}, by=(scope,)).compute()
+            session.observe({"v": strict}, where=scope).compute()
         empty = amount.mean(time=point).where(amount < 0).per(point)
         metric = empty.min() if reducer == "min" else empty.max()
-        rows = session.observe({"v": metric}, by=(scope,)).compute().to_pandas()
+        rows = session.observe({"v": metric}, where=scope).compute().to_pandas()
         assert rows["v"].isna().all() and len(rows) == 1
         # Empty grouped input returns no source row; the fixed scope supplies
         # the one NA output cell.
@@ -816,7 +819,7 @@ def test_native_extrema_preserve_null_policy_and_backend_floats(
         scope = session.time_scope(start="2026-10-01", end="2026-10-01T02:00:00")
         metric = amount.mean(time=point).per(point).max(nulls="error" if strict else "ignore")
         trace = capture_source(monkeypatch)
-        query = session.observe({"v": metric}, by=(scope,))
+        query = session.observe({"v": metric}, by=time_population(scope))
         if error:
             with pytest.raises(MaterializationError, match=error):
                 query.compute()
@@ -853,7 +856,7 @@ def test_sample_extrema_without_cadence_exclude_filtered_away_samples(
             selected = amount.mean(time=point).where(amount > 0).per(point)
             metric = selected.min(nulls=nulls) if reducer == "min" else selected.max(nulls=nulls)
             rows = (
-                session.observe({"v": metric}, by=(scope, category) if grouped else (scope,))
+                session.observe({"v": metric}, by=(category,) if grouped else (), where=scope)
                 .compute()
                 .to_pandas()
             )
@@ -864,12 +867,12 @@ def test_sample_extrema_without_cadence_exclude_filtered_away_samples(
             if not grouped:
                 empty = amount.mean(time=point).where(amount < 0).per(point)
                 metric = empty.min(nulls=nulls) if reducer == "min" else empty.max(nulls=nulls)
-                rows = session.observe({"v": metric}, by=(scope,)).compute().to_pandas()
+                rows = session.observe({"v": metric}, where=scope).compute().to_pandas()
                 assert rows["v"].isna().all() and len(rows) == 1
         if not grouped:
             invalid = amount.mean(time=point).where(amount * 1e308 < 0).per(point)
             metric = invalid.min() if reducer == "min" else invalid.max()
-            rows = session.observe({"v": metric}, by=(scope,)).compute().to_pandas()
+            rows = session.observe({"v": metric}, where=scope).compute().to_pandas()
             assert rows["v"].isna().all() and len(rows) == 1
 
 
@@ -896,7 +899,7 @@ def test_sample_extrema_without_cadence_keep_present_null_samples(
         samples = amount.mean(time=point).where(category == "A").per(point)
         metric = samples.min(nulls="error") if reducer == "min" else samples.max(nulls="error")
         with pytest.raises(MaterializationError, match="non-NA internal samples"):
-            session.observe({"v": metric}, by=(scope,)).compute()
+            session.observe({"v": metric}, where=scope).compute()
 
 
 @pytest.mark.parametrize(
@@ -932,7 +935,7 @@ def test_native_sample_extrema_strict_filter_uses_selected_sample_presence(
         scope = session.time_scope(start="2026-10-01", end="2026-10-01T02:00:00")
         metric = amount.mean(time=point).where(amount > 0).per(point).max(nulls="error")
         trace = capture_source(monkeypatch)
-        rows = session.observe({"v": metric}, by=(scope,)).compute().to_pandas()
+        rows = session.observe({"v": metric}, where=scope).compute().to_pandas()
         assert rows["v"].tolist() == [100.0]
         assert trace.returned_rows == [1]
 
@@ -961,7 +964,7 @@ def test_native_sample_extrema_return_final_rows_at_scale(
         samples = amount.mean(time=point).per(point)
         trace = capture_source(monkeypatch, measure_cost=True)
         result = session.observe(
-            {"min": samples.min(), "max": samples.max()}, by=(scope,)
+            {"min": samples.min(), "max": samples.max()}, where=scope
         ).compute()
         rows = result.to_pandas()
         assert rows["min"].tolist() == [0.0]
@@ -1025,7 +1028,7 @@ def test_trino_four_day_mean_transport_and_cost(
                         sample_fusion, "fuse_sample_reductions", lambda prepared, lowered: lowered
                     )
                 started = perf_counter()
-                frame = session.observe({"v": metric}, by=(scope,)).compute()
+                frame = session.observe({"v": metric}, where=scope).compute()
                 rows = frame.to_pandas()
                 elapsed = perf_counter() - started
             # 86400 is divisible by 100, so each day averages 0..99 equally.
@@ -1095,13 +1098,13 @@ def test_native_mean_checks_nulls_without_requiring_clock_coverage(
             amount.mean(time=point).per(point).mean(nulls="error"),
             amount.mean(time=point, nulls="error").per(point).mean(),
         ):
-            query = session.observe({"v": metric}, by=(scope,))
+            query = session.observe({"v": metric}, by=time_population(scope))
             for selected in (query, query.top(0, by=query["v"])):
                 with pytest.raises(MaterializationError, match="non-NA"):
                     selected.compute()
         empty = (
             session.observe(
-                {"v": amount.mean(time=point).where(amount < 0).per(point).mean()}, by=(scope,)
+                {"v": amount.mean(time=point).where(amount < 0).per(point).mean()}, where=scope
             )
             .compute()
             .to_pandas()
@@ -1109,14 +1112,14 @@ def test_native_mean_checks_nulls_without_requiring_clock_coverage(
         assert pd.isna(empty["v"].iloc[0])
         clipped = session.time_scope(start="2026-10-01T00:15:00", end="2026-10-01T01:15:00")
         rows = (
-            session.observe({"v": amount.mean(time=point).per(point).mean()}, by=(clipped,))
+            session.observe({"v": amount.mean(time=point).per(point).mean()}, where=clipped)
             .compute()
             .to_pandas()
         )
         assert rows["v"].tolist() == [0.0]
         missing = session.time_scope(start="2026-10-01", end="2026-10-01T03:00:00")
         rows = (
-            session.observe({"v": amount.mean(time=point).per(point).mean()}, by=(missing,))
+            session.observe({"v": amount.mean(time=point).per(point).mean()}, where=missing)
             .compute()
             .to_pandas()
         )
@@ -1127,7 +1130,7 @@ def test_native_mean_checks_nulls_without_requiring_clock_coverage(
             .to_pandas()
         )
         assert unbounded["v"].tolist() == [0.0]
-        assert trace.returned_rows == [1, 1, 1, 1, 0, 1, 1, 1]
+        assert trace.returned_rows == [1] * 8
         assert not trace.uploaded_key_rows
         assert all("__coverage_" not in sql and "ROW_NUMBER" not in sql for sql in trace.native_sql)
 
@@ -1156,11 +1159,11 @@ def test_sample_mean_strict_domain_is_independent_of_child_shape(
         scope = session.time_scope(start="2026-10-01", end="2026-10-01T02:00:00")
         samples = child.per(point)
         trace = capture_source(monkeypatch)
-        ignored = session.observe({"v": samples.mean()}, by=(scope,)).compute().to_pandas()
+        ignored = session.observe({"v": samples.mean()}, where=scope).compute().to_pandas()
         assert ignored["v"].tolist() == [20.0]
         assert all("sample_check.null" not in names for names in trace.returned_columns)
         with pytest.raises(MaterializationError, match="non-NA") as captured:
-            session.observe({"v": samples.mean(nulls="error")}, by=(scope,)).compute()
+            session.observe({"v": samples.mean(nulls="error")}, where=scope).compute()
         assert captured.value.expected == "non-NA internal samples"
         assert "mean(nulls='error')" in (captured.value.received or "")
         assert not trace.uploaded_key_rows
@@ -1260,14 +1263,16 @@ def test_local_sample_mean_uses_observed_samples_for_excluded_native_shapes(
                 scope, session.members(catalog_value(session.catalog, "sales.facts", kind="entity"))
             )
             if excluded == "population"
-            else (scope,)
-            if bounded
             else ()
         )
         assert isinstance(by, (mv.Population, tuple))
         trace = capture_source(monkeypatch)
         result = (
-            session.observe({"v": amount.mean(time=point).per(sample).mean()}, by=by)
+            session.observe(
+                {"v": amount.mean(time=point).per(sample).mean()},
+                by=by,
+                where=scope if bounded and excluded != "population" else None,
+            )
             .compute()
             .to_pandas()
         )
@@ -1304,7 +1309,8 @@ def test_time_means_share_observed_sample_policy_across_formulas(
         category = catalog_value(session.catalog, "sales.facts.category", kind="dimension")
         scope = session.time_scope(start="2026-10-01", end="2026-10-01T03:00:00")
         native = amount.mean(time=point).per(point).mean()
-        for by in ((scope, category), (category,)):
+        for where in (scope, None):
+            by = (category,)
             frame = (
                 session.observe(
                     {
@@ -1316,6 +1322,7 @@ def test_time_means_share_observed_sample_policy_across_formulas(
                         .weighted_mean(weight=amount.sum(time=point)),
                     },
                     by=by,
+                    where=where,
                 )
                 .compute()
                 .to_pandas()
@@ -1329,9 +1336,13 @@ def test_time_means_share_observed_sample_policy_across_formulas(
                 from marivo.analysis.errors import AnalysisStageUnavailableError
 
                 with pytest.raises(AnalysisStageUnavailableError, match=backend + ": quantile"):
-                    session.observe({"quantile_mean": quantile}, by=by).compute()
+                    session.observe({"quantile_mean": quantile}, by=by, where=where).compute()
             else:
-                rows = session.observe({"quantile_mean": quantile}, by=by).compute().to_pandas()
+                rows = (
+                    session.observe({"quantile_mean": quantile}, by=by, where=where)
+                    .compute()
+                    .to_pandas()
+                )
                 assert rows["quantile_mean"].tolist() == [15.0]
 
 
@@ -1366,7 +1377,9 @@ def test_sparse_time_samples_preserve_nulls_and_native_extrema(
         samples = amount.mean(time=point).per(point)
         metric = samples.max() if native else samples.quantile(0.95)
         trace = capture_source(monkeypatch)
-        rows = session.observe({"latency": metric}, by=(scope, category)).compute().to_pandas()
+        rows = (
+            session.observe({"latency": metric}, by=(category,), where=scope).compute().to_pandas()
+        )
         assert rows["latency"].tolist() == [20.0]
         assert trace.returned_rows == ([2] if not native and backend in {"mysql", "trino"} else [1])
         assert not trace.uploaded_key_rows
@@ -1411,7 +1424,7 @@ def test_sparse_samples_exclude_filtered_clocks(
         trace = capture_source(monkeypatch)
         rows = (
             session.observe(
-                {"filtered": samples.max() if native else samples.quantile(0.95)}, by=(scope,)
+                {"filtered": samples.max() if native else samples.quantile(0.95)}, where=scope
             )
             .compute()
             .to_pandas()
@@ -1511,14 +1524,14 @@ def test_calendar_sample_folds_keep_joint_keys_without_cross_bucket_completion(
         reducer = Mock(wraps=_sample_numeric.reduce_samples)
         monkeypatch.setattr(_sample_numeric, "reduce_samples", reducer)
         for days in (1, 3):
-            calendar = session.time_scope(start="2026-10-01", end=f"2026-10-0{days + 1}").by(
-                mv.grain(grain)
-            )
+            scope = session.time_scope(start="2026-10-01", end=f"2026-10-0{days + 1}")
+            report_grain = mv.grain(grain)
             reducer.reset_mock()
             rows = (
                 session.observe(
                     {"mean": mean, "p95": p95, "ratio": p95 / mean, "count": samples.count()},
-                    by=(calendar, category) if grain == "day" else (category, calendar),
+                    by=(report_grain, category) if grain == "day" else (category, report_grain),
+                    where=scope,
                 )
                 .compute()
                 .to_pandas()
@@ -1565,12 +1578,14 @@ def test_calendar_sample_domains_keep_sparse_samples_explicit_keys_and_windows(
         amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
         point = catalog_value(session.catalog, "sales.facts.point", kind="time_dimension")
         category = catalog_value(session.catalog, "sales.facts.category", kind="dimension")
-        calendar = session.time_scope(start="2026-10-01T23:00:00", end="2026-10-02T01:00:00").by(
-            mv.grain("day")
-        )
+        calendar_scope = session.time_scope(start="2026-10-01T23:00:00", end="2026-10-02T01:00:00")
         total = amount.sum(time=point)
         rows = (
-            session.observe({"p95": total.per(point).quantile(0.95)}, by=(calendar, category))
+            session.observe(
+                {"p95": total.per(point).quantile(0.95)},
+                by=(mv.grain("day"), category),
+                where=calendar_scope,
+            )
             .compute()
             .to_pandas()
         )
@@ -1578,7 +1593,8 @@ def test_calendar_sample_domains_keep_sparse_samples_explicit_keys_and_windows(
         filtered = (
             session.observe(
                 {"p95": total.where(amount > 0).per(point).quantile(0.95)},
-                by=(calendar, category),
+                by=(mv.grain("day"), category),
+                where=calendar_scope,
             )
             .compute()
             .to_pandas()
@@ -1592,7 +1608,11 @@ def test_calendar_sample_domains_keep_sparse_samples_explicit_keys_and_windows(
             ),
         )
         rows = (
-            session.observe({"mean": total.per(explicit).mean()}, by=(calendar, category))
+            session.observe(
+                {"mean": total.per(explicit).mean()},
+                by=(mv.grain("day"), category),
+                where=calendar_scope,
+            )
             .compute()
             .to_pandas()
         )
@@ -1604,7 +1624,8 @@ def test_calendar_sample_domains_keep_sparse_samples_explicit_keys_and_windows(
                     "nested": total.per(point).mean().per(category).mean(),
                     "history": total.per(point).mean().window(mv.all_history()),
                 },
-                by=(calendar,),
+                by=(mv.grain("day"),),
+                where=calendar_scope,
             )
             .compute()
             .to_pandas()
@@ -1640,14 +1661,13 @@ def test_time_samples_keep_empty_calendar_buckets(
         amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
         point = catalog_value(session.catalog, "sales.facts.point", kind="time_dimension")
         category = catalog_value(session.catalog, "sales.facts.category", kind="dimension")
-        calendar = session.time_scope(start="2026-10-01T23:00:00", end="2026-10-02T01:00:00").by(
-            mv.grain(grain)
-        )
+        calendar_scope = session.time_scope(start="2026-10-01T23:00:00", end="2026-10-02T01:00:00")
         total = amount.sum(time=point)
         rows = (
             session.observe(
                 {"mean": total.per(point).mean(), "p95": total.per(point).quantile(0.95)},
-                by=(category, calendar),
+                by=(category, mv.grain(grain)),
+                where=calendar_scope,
             )
             .compute()
             .to_pandas()
@@ -1657,7 +1677,11 @@ def test_time_samples_keep_empty_calendar_buckets(
         assert rows["p95"].iloc[0] == pytest.approx(19.0)
         assert pd.isna(rows["p95"].iloc[1])
         nested = total.per(point).quantile(0.95).per(category).mean()
-        rows = session.observe({"p95": nested}, by=(calendar,)).compute().to_pandas()
+        rows = (
+            session.observe({"p95": nested}, by=(mv.grain(grain),), where=calendar_scope)
+            .compute()
+            .to_pandas()
+        )
         assert rows["p95"].iloc[0] == pytest.approx(19.0)
         assert pd.isna(rows["p95"].iloc[1])
 
@@ -1743,13 +1767,17 @@ def test_sample_summary_shares_one_native_read_and_returns_only_final_groups(
         amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
         point = catalog_value(session.catalog, "sales.facts.point", kind="time_dimension")
         category = catalog_value(session.catalog, "sales.facts.category", kind="dimension")
-        calendar = session.time_scope(start="2026-10-01", end="2026-10-01T02:00:00").by(
-            mv.grain("hour")
-        )
+        scope = session.time_scope(start="2026-10-01", end="2026-10-01T02:00:00")
         samples = amount.sum(time=point).per(point)
-        for by, expected_means, count, size in (
-            ((calendar, category), [17988 / 3600] * 8 + [17997 / 3600] * 8, 3600, 16),
-            ((category,), [35985 / 7200] * 8, 7200, 8),
+        for by, where, expected_means, count, size in (
+            (
+                (mv.grain("hour"), category),
+                scope,
+                [17988 / 3600] * 8 + [17997 / 3600] * 8,
+                3600,
+                16,
+            ),
+            ((category,), None, [35985 / 7200] * 8, 7200, 8),
         ):
             with monkeypatch.context() as probe:
                 trace = capture_source(probe, measure_cost=True)
@@ -1764,6 +1792,7 @@ def test_sample_summary_shares_one_native_read_and_returns_only_final_groups(
                         "count": samples.count(),
                     },
                     by=by,
+                    where=where,
                 ).compute()
                 rows = result.to_pandas()
                 assert len(rows) == size
@@ -1772,7 +1801,7 @@ def test_sample_summary_shares_one_native_read_and_returns_only_final_groups(
                 assert rows["p95"].tolist() == [10.0] * size
                 assert rows["p99"].tolist() == [10.0] * size
                 assert rows["count"].tolist() == [count] * size
-                assert trace.returned_rows == ([2, size] if by[0] is calendar else [size])
+                assert trace.returned_rows == ([2, size] if where is not None else [size])
                 assert not reducer.call_args_list
                 sql = trace.native_sql[-1].lower()
                 assert sql.count("sum(") == 1
@@ -1848,9 +1877,7 @@ def test_native_time_sample_fold_keeps_overlapping_window_occurrences(
     ) as (session, _):
         amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
         point = catalog_value(session.catalog, "sales.facts.point", kind="time_dimension")
-        calendar = session.time_scope(start="2026-10-01", end="2026-10-01T02:00:00").by(
-            mv.grain("hour")
-        )
+        calendar_scope = session.time_scope(start="2026-10-01", end="2026-10-01T02:00:00")
         metric = (
             amount.sum(time=point)
             .per(point)
@@ -1860,7 +1887,11 @@ def test_native_time_sample_fold_keeps_overlapping_window_occurrences(
         trace = capture_source(monkeypatch)
         reducer = Mock(wraps=_sample_numeric.reduce_samples)
         monkeypatch.setattr(_sample_numeric, "reduce_samples", reducer)
-        rows = session.observe({"average": metric}, by=(calendar,)).compute().to_pandas()
+        rows = (
+            session.observe({"average": metric}, by=(mv.grain("hour"),), where=calendar_scope)
+            .compute()
+            .to_pandas()
+        )
         # Each window independently completes the SUM samples: [0, 300] and [0, 300, 0].
         assert rows["average"].tolist() == [150.0, 100.0]
         assert trace.returned_rows == [2, 2]
@@ -1907,7 +1938,7 @@ def test_postgres_sample_domain_preserves_nonnullable_char_padding(
         scope = session.time_scope(start="2026-10-01", end="2026-10-01T02:00:00")
         trace = capture_source(monkeypatch)
         rows = (
-            session.observe({"average": amount.sum(time=point).per(samples).mean()}, by=(scope,))
+            session.observe({"average": amount.sum(time=point).per(samples).mean()}, where=scope)
             .compute()
             .to_pandas()
         )
@@ -1981,7 +2012,7 @@ def test_native_ordered_samples_preserve_null_endpoints_and_duplicate_time_check
                     "last": samples.last(),
                     "last_null": samples.last(include_null=True),
                 },
-                by=(scope,),
+                by=time_population(scope),
             )
             .compute()
             .to_pandas()
@@ -2000,7 +2031,7 @@ def test_native_ordered_samples_preserve_null_endpoints_and_duplicate_time_check
         ordered_checks.clear()
         duplicate = amount.mean(time=point).per((point, category)).first(order_by=point)
         with pytest.raises(MaterializationError, match="one internal sample per time key"):
-            session.observe({"first": duplicate}, by=(scope,)).compute()
+            session.observe({"first": duplicate}, where=scope).compute()
         assert any(
             expected == "one internal sample per time key"
             for checks in ordered_checks
@@ -2101,7 +2132,7 @@ def test_ordered_single_axis_proofs_reach_native_and_local_consumers(
         reducer = Mock(wraps=_sample_numeric.reduce_samples)
         monkeypatch.setattr(_sample_numeric, "reduce_samples", reducer)
         rows = (
-            session.observe({"first": samples.first(), "last": samples.last()}, by=(scope,))
+            session.observe({"first": samples.first(), "last": samples.last()}, where=scope)
             .compute()
             .to_pandas()
         )

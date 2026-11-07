@@ -67,13 +67,14 @@ def test_source_time_facts_are_resolved_only_on_compute_and_preserved_on_fixed_o
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     session = temporal_session
-    scope = session.time_scope(start="2026-08-01", end="2026-08-03").by(mv.grain("day"))
+    scope_scope = session.time_scope(start="2026-08-01", end="2026-08-03")
     pending = session.observe(
         {
             name: catalog_get(session.catalog, f"metric:sales.{name}_total", kind="metric")
             for name in ("naive", "aware", "day")
         },
-        by=(scope,),
+        by=(mv.grain("day"),),
+        where=scope_scope,
     )
     with monkeypatch.context() as no_source:
 
@@ -134,7 +135,7 @@ def test_hour_prefix_records_the_effective_declaration_origin(temporal_session: 
     session = temporal_session
     result = session.observe(
         {"total": catalog_get(session.catalog, "metric:sales.hourly_total", kind="metric")},
-        by=(session.time_scope(start="2026-08-01", end="2026-08-03"),),
+        where=session.time_scope(start="2026-08-01", end="2026-08-03"),
     ).compute()
     assert tuple(fact.axis for fact in result.schema.source_times) == (
         "sales.events.hour",

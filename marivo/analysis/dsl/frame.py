@@ -743,8 +743,9 @@ class AnalysisFrame:
             ``report = selected.attribute(by=(channel,)).compute()``.
 
         Constraints: Requires retained process-local source declarations for every
-        direct Metric or admitted comparison target. Select and rename direct outputs;
-        define ratio/linear Metrics before observation. Rules bind per target before
+        direct Metric or admitted comparison target. Select and rename direct outputs.
+        Supply a report TimeScope with a Grain to retain endpoints for attribution.
+        Define ratio/linear Metrics before observation. Rules bind per target before
         business reads. Admitted paired nonlinear formulas use whole-Metric Shapley
         permutation sampling. Qualified state routes prove the complete domain;
         native-query routes validate visited values using the original reducers,

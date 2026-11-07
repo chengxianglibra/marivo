@@ -320,9 +320,12 @@ def _models(root: Path, text: str, *, bad: bool = False, slow: bool = False) -> 
             + "warehouse = ms.ref.datasource('warehouse')\n"
             + "events = ms.entity(name='events', datasource=warehouse, "
             + "source=md.json('https://data.example.test/events?secret=private-source-token', "
-            + "columns={'amount': 'amount'}))\n"
+            + "columns={'amount': 'amount', 'created': 'created'}), "
+            + "default_time=ms.ref.time_dimension('sales.events.created'))\n"
+            + "created = ms.time_dimension_column(name='created', entity=events, column='created')\n"
             + "amount = ms.measure_column(name='amount', entity=events, column='amount', "
             + f"additivity=ms.additive_all(), unit='USD', ai_context=ms.ai_context(business_definition={text!r}))\n"
+            + "@ms.metric()\ndef total():\n    return amount.sum()\n"
         )
     )
 
@@ -365,7 +368,15 @@ def test_current_catalog_reload_isolated_from_saved_report(tmp_path: Path) -> No
         entity = _ok(request("/v1/semantic/objects/entity%3Asales.events"))
         _schema(spec, "SemanticObject", entity)
         assert entity["definition"]["source"] == {"kind": "json"}
+        assert entity["definition"]["default_time"] == "time_dimension:sales.events.created"
         assert "private-source-token" not in json.dumps(entity)
+        metric = _ok(request("/v1/semantic/objects/metric%3Asales.total"))
+        _schema(spec, "SemanticObject", metric)
+        (binding,) = metric["definition"]["time_bindings"]
+        assert binding["source"] == "entity_default"
+        assert binding["field"] == "time_dimension:sales.events.created"
+        assert binding["anchor"] is None
+        assert "time_parameters" not in metric["definition"]
         datasource = _ok(request("/v1/semantic/objects/datasource%3Awarehouse"))
         _schema(spec, "SemanticObject", datasource)
         assert datasource["definition"]["backend_type"] == "duckdb"

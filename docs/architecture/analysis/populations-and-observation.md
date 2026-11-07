@@ -30,16 +30,13 @@ retain their project constraints, including literal coordinates and pure axes.
 Cross-project inputs fail before source access. Captured Frames retain their
 bound graphs after a later load.
 
-`session.observe(metrics, by=())` requests one overall, zero-axis cell; it does
-not supply an observation time range. A time-related Metric does not universally
-require a scope. All native TimeField sample reducers use represented samples
-without a TimeScope or CalendarAxis in `by`; `sample_interval` describes cadence
-and does not require complete clock coverage. Builtin calendar samples also
-work without an observation period. Windows require an observation endpoint,
-and custom samples require a complete certified period. Some checks run
-only during `compute()` or `persist()`, so successful capture alone does not prove
-that an unbounded observation is supported. When a period is required, pass
-`by=(session.time_scope(start=..., end=...),)`.
+`session.observe(metrics, by=())` requests one overall, zero-axis cell. Pass
+`where=session.time_scope(start=..., end=...)` to select a report interval
+without adding a coordinate. Native TimeField samples use represented values
+regardless of cadence and need no report interval. Builtin Grain samples
+likewise work without a finite period when every branch has a contribution
+clock. Windows need report endpoints and custom calendar samples need a complete
+certified period. Some checks run only during `compute()` or `persist()`.
 
 ## Population identity and set semantics
 
@@ -106,21 +103,23 @@ Paths must be explicit, contiguous and legal for the consumer.
 
 ## Observation domain, contributions and counts
 
-Place a TimeScope or CalendarAxis directly in `by` to observe each source
-reduction by its declared contribution time. At most one direct time coordinate
-provides the observation period and window endpoints. To group by a different
-time field, pass `mv.time_group(field, axis=axis)` to `observe.by`. The field
-must be reachable through a valid single-valued path on every contribution root.
-Its half-open range intersects other filters before aggregation, while the axis
-provides bucket keys and output completion. It can coexist with a direct time
-coordinate or with other distinct field calendar groupings. A field grouping's
-range stays fixed during window evaluation. Use a plain field for original-value
-categories or `field.within(scope)` for a range filter alone.
+Put at most one fieldless report TimeScope in `where` and one report Grain in
+the `by` tuple. Each contributing branch uses its own fixed contribution clock,
+which may come from its Entity default. Every branch needs a clock for a report
+TimeScope or Grain, including branches of a composite formula. Multiple branches
+can use different fields in the same report.
 
-With multiple calendar axes, output completion crosses the finite bucket sets
-with complete observed ordinary category tuples. In the absence of ordinary
-categories the calendar grid survives an empty fact domain. This grid never
-creates internal Metric samples.
+| TimeScope | Grain | Observation |
+| --- | --- | --- |
+| Omitted | Omitted | Overall or ordinary classification, with no additional time constraint |
+| Present | Omitted | Range-selected overall or classification, with no extra output axis |
+| Omitted | Present | Actual observed time buckets, without completing gaps |
+| Present | Present | Finite report bucket domain with ordinary output completion |
+
+Use `where=(scope, condition)` to conjoin a TimeScope and source conditions.
+`field.within(scope)` is a RowPredicate on a fixed source field. It can constrain
+a reduction without a clock and remains fixed throughout window evaluation.
+Window endpoints come from the report interval or selected report buckets.
 
 observe accepts one named Metric object, a nonempty list or tuple of them, or a
 nonempty ordered Mapping of explicit names to closed Metric expressions. Only
@@ -129,21 +128,15 @@ expressions and direct source reducers/counts require Mapping. Duplicate or
 invalid names reject at capture; list/tuple/Mapping order fixes output order. Names
 do not establish Metric identity or business comparability. The
 [Frame naming contract](analysis-frame.md#名称与-presence) owns these rules.
-by=() requests a zero-axis cell. An ordered tuple may contain fields, ordinary
-Grouping rules, TimeScope intervals and CalendarAxis buckets. A Population in by
-selects exactly its complete output keys, including those without facts.
-Population.axes carries coordinate rules and their project interpretation, without
-the selected keys, allocation or a new Session owner. Lists and Mapping entries
-are frozen at observation capture; later container mutation cannot change a Frame.
-
-An implicit output grid cannot combine CalendarAxis buckets with the raw field
-of the same bound contribution time role (including its relationship path and
-instant anchor). Capture rejects this combination before source access, rather
-than completing every distinct timestamp against every bucket. Use only the
-CalendarAxis for bucketed output, or a TimeScope plus the raw time field for
-timestamp-level output. Different time roles and ordinary calendar-by-category
-grids remain valid. An explicit Population fixes joint output keys and can
-intentionally retain both coordinates without implicit grid completion.
+`by=()` requests a zero-axis cell. A tuple accepts Dimensions, non-time
+Grouping rules and one optional report Grain. Direct TimeScopes, CalendarAxes
+and raw TimeExpressions are invalid in that tuple. `by=P` selects exactly the
+complete keys of a Population, including those without facts. A Population may
+carry a single fieldless report time coordinate constructed with `mv.product`.
+That coordinate supplies its own report bounds and cannot be combined with
+another report time selector. `Population.axes` carries coordinate rules
+without the selected keys, allocation or a new Session owner. Lists and Mapping
+entries are frozen at capture.
 
 Within one observation, compatible ordinary native reductions share a grouped
 SQL aggregate, including counts, exact/approximate quantiles and distinct counts,
@@ -182,7 +175,8 @@ Grouping matches only coordinates already in P: to count identities by a new
 attribute, classify while retaining identity first. Projecting identity away
 counts distinct resulting categories. Fact conditions/windows do not reselect a
 captured count denominator; ineffective count-only conditions/windows reject.
-Time coordinates broadcast a timeless count or match its existing frozen axis.
+A fixed Population count cannot be consumed by an observation with a report
+TimeScope or Grain. Its complete domain remains fixed under row predicates.
 
 Qualified same-source counts on DuckDB, PostgreSQL, MySQL, Trino and ClickHouse
 count distinct complete Population tuples in the source, carrying required
@@ -194,10 +188,8 @@ checks complete-tuple coverage before cropping and returns bounded failure
 coordinates. Fixed and cross-source domains retain local coverage checks and
 are not implicitly uploaded.
 
-A TimeScope in by is an interval coordinate, not a separate during keyword on
-observe. Ordinary source reductions can omit time constraints. Internal temporal
-sampling and window Metrics require a bound endpoint. [Temporal semantics](../temporal-semantics.md)
-owns exact intervals, nominal buckets and contribution windows.
+See [temporal semantics](../temporal-semantics.md) for exact intervals, nominal
+buckets and contribution windows.
 
 ## Contribution occurrences and internal samples
 
@@ -215,10 +207,10 @@ The first field cannot appear separately. Two rules R=(a,b), S=(c,d) in
 member fields in the wrong relative order reject; matching uses full coordinate
 identity, including paths and time roles.
 
-Use `by=P` without allocation or `by=(P, rule, ...)` with allocation. P must be
-first and its complete axes, order and joint keys remain authoritative. Extra
-ordinary fields, multiple P values and `(P,)` reject. Population stores no
-allocation rules; `population.axes` reuses only coordinate definitions.
+Pass membership rules directly in a grouping tuple. Pass `by=P` to observe
+the complete Population as a single input. Population stores no allocation rules;
+`population.axes` reuses only coordinate definitions. Internal samples retain
+their own allocation shape.
 Outer and inner rules are independent. Separate descriptors form independent
 factors. Repeated `(contribution identity, bucket)` pairs are set occurrences;
 equal-valued distinct contributions remain separate. unmatched is explicit
@@ -273,13 +265,13 @@ can rerun when evaluated. Empty input remains an empty constraint. Multiple
 selected axes remain correlated, rather than becoming a product of projections.
 
 ```python
-regional = session.observe({"revenue": revenue}, by=(period, region))
+regional = session.observe({"revenue": revenue}, where=period, by=(region,))
 chosen = regional.top(5, by=regional["revenue"]).compute()
-parents = session.population_from(chosen, on=((chosen.axes[1], region),))
+parents = session.population_from(chosen, on=((chosen.axes[0], region),))
 cities = session.observe(
     {"revenue": revenue},
-    by=(period, region, city),
-    where=mv.in_population(parents),
+    by=(region, city),
+    where=(period, mv.in_population(parents)),
 ).compute()
 ```
 

@@ -72,7 +72,7 @@ _PAGES = (
         "Choose time anchors, observation intervals, output buckets or Metric history.",
         (),
         guidance=(
-            "An instant selects an exact anchor; TimeScope selects an observation interval; scope.by(grain) supplies output buckets. Endpoint correspondence is a separate choice.",
+            "Use TimeScope in observe.where for a report range and one Grain in observe.by for output buckets. An InstantAnchor selects an exact anchor. Endpoint correspondence is a separate choice.",
         ),
         related=("inputs.comparison",),
         discovery_group="inputs",
@@ -81,7 +81,7 @@ _PAGES = (
             ("session.instant", "Freeze an exact time anchor."),
             ("session.time_scope", "Choose a half-open observation interval."),
             ("grain.define", "Choose a built-in bucket unit and count."),
-            ("time_scope.by", "Turn an interval into output calendar buckets."),
+            ("time_scope.by", "Freeze a calendar domain for a Population or a shifted baseline."),
             ("calendar_axis.shift", "Construct a frozen shifted endpoint relation."),
         ),
     ),
@@ -107,7 +107,7 @@ _PAGES = (
         (),
         guidance=(
             "Choose what to count: complete Population tuples -> population.count; Entity source contributions -> semantic.entity.count; current Frame rows including value NA -> row_count with reduce/over.",
-            "Population and Entity counts return Metrics for observe; members without facts remain in the domain.",
+            "Population and Entity counts are Metrics for observe. Population counts have no contribution clock.",
             "Capture is lazy. Pending dependencies may read sources at evaluation; fixed-data operations use captured values.",
             "attribute needs retained source declarations, absent on independent reopen; parent and new source reads are independent.",
         ),

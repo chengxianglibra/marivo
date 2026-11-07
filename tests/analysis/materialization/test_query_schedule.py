@@ -45,7 +45,7 @@ from marivo.analysis.methods.physical import QUERY_COMBINE_KERNEL
 from marivo.analysis.session.core import Session
 from marivo.datasource.adapters import CompiledRead, SourceSession
 from marivo.semantic._deferred_semantics import consume_metric
-from marivo.semantic._expression_values import FieldExpression, NumericMetric, RowPredicate
+from marivo.semantic._expression_values import DimensionExpression, NumericMetric, RowPredicate
 from marivo.semantic.errors import SemanticExpressionError, SemanticRuntimeError
 from tests.shared_fixtures import (
     catalog_value,
@@ -160,14 +160,15 @@ def _query(
     name: str,
     *,
     during: TimeScope | CalendarAxis | None = None,
-    by: tuple[FieldExpression | Grouping, ...] = (),
+    by: tuple[DimensionExpression | Grouping, ...] = (),
     where: RowPredicate | None = None,
 ) -> BoundGraph:
     metric = catalog_value(session.catalog, f"sales.{name}", kind="metric")
     assert isinstance(metric, (ms.RowExpression, ms.MetricExpression))
-    return _source_graph(
-        session.observe({name: metric}, by=by if during is None else (during, *by), where=where)
-    )
+    scope = during.scope if isinstance(during, CalendarAxis) else during
+    axes = (during.grid.grain_spec, *by) if isinstance(during, CalendarAxis) else by
+    condition = where if scope is None else scope if where is None else (scope, where)
+    return _source_graph(session.observe({name: metric}, by=axes, where=condition))
 
 
 def _dimension(session: Session, path: str) -> ms.Dimension:
@@ -554,12 +555,13 @@ def _compute(
     metrics: dict[str, NumericMetric],
     *,
     during: TimeScope | mv.CalendarAxis | None = None,
-    by: tuple[FieldExpression | Grouping, ...] = (),
+    by: tuple[DimensionExpression | Grouping, ...] = (),
     where: RowPredicate | None = None,
 ) -> StageOutput:
-    graph = _source_graph(
-        session.observe(metrics, by=by if during is None else (during, *by), where=where)
-    )
+    scope = during.scope if isinstance(during, mv.CalendarAxis) else during
+    axes = (during.grid.grain_spec, *by) if isinstance(during, mv.CalendarAxis) else by
+    condition = where if scope is None else scope if where is None else (scope, where)
+    graph = _source_graph(session.observe(metrics, by=axes, where=condition))
     with (
         session._runtime.connection_service().operation() as connections,
         open_query_sources(connections, graph, session.catalog._state) as prepared,

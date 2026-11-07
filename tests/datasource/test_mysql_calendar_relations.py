@@ -178,9 +178,13 @@ def test_mysql_public_daily_output_completes_missing_days(
     session = mv.session.get_or_create("mysql-calendar", timezone="Asia/Shanghai")
     point = catalog_value(session.catalog, "sales.facts.point", kind="time_dimension")
     amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
-    axis = session.time_scope(start="2026-01-01", end="2026-01-15").by(mv.grain("day"))
+    axis_scope = session.time_scope(start="2026-01-01", end="2026-01-15")
     trace = capture_source(monkeypatch)
-    rows = session.observe({"total": amount.sum(time=point)}, by=(axis,)).compute().to_pandas()
+    rows = (
+        session.observe({"total": amount.sum(time=point)}, by=(mv.grain("day"),), where=axis_scope)
+        .compute()
+        .to_pandas()
+    )
     first = datetime(2025, 12, 31, 16, tzinfo=timezone.utc)
     assert rows["calendar:day"].dt.tz_convert("UTC").tolist() == [
         first + timedelta(days=i) for i in range(14)

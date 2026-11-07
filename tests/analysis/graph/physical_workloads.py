@@ -463,7 +463,7 @@ class Workload:
     def total(self) -> mv.AnalysisFrame:
         return self.session.observe(
             {"value": catalog_get(self.session.catalog, "metric:cost.facts_total", kind="metric")},
-            by=(self.session.time_scope(start="2026-08-01", end="2026-08-02"),),
+            where=self.session.time_scope(start="2026-08-01", end="2026-08-02"),
         )
 
     def validate(self, result: mv.AnalysisFrame) -> dict[str, bool]:

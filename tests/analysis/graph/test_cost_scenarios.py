@@ -54,10 +54,11 @@ def test_duckdb_local_original_sum_consumes_group_input(
                 independent_totals[str(row["kind"])] += amount
         assert independent_totals == {"started": 262, "finished": 267}
         session = work.session
-        axis = catalog_value(session.catalog, "cost.facts.kind", kind="field")
+        axis = catalog_value(session.catalog, "cost.facts.kind", kind="dimension")
         grouped = session.observe(
             {"value": catalog_get(session.catalog, "metric:cost.facts_total", kind="metric")},
-            by=(session.time_scope(start="2026-08-01", end="2026-08-02"), axis),
+            by=(axis,),
+            where=session.time_scope(start="2026-08-01", end="2026-08-02"),
         )
         saved = grouped.persist()
         frame = saved.to_pandas()

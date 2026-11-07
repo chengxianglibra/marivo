@@ -132,11 +132,13 @@ while the original object and captured analysis inputs do not refresh.
 
 Reuse constructed fields and Metrics for reusable declarations and local
 analysis expressions. A local declaration adds a business name and context.
-Publication and source validation have separate evidence. Fix the contribution
-field when it defines the business rule. Use a Metric time parameter when the
-same rule legitimately supports a choice of time roles. A published template
-can be handed off with its remaining choices explicit. Physical readiness
-does not establish which field should fill a time parameter.
+Publication and source validation have separate evidence. Use an Entity
+default time only when business authority establishes a shared contribution
+clock. Fix an explicit field on a source reduction when it defines that
+Metric's meaning. Define each legitimate time role separately and preserve
+the clocks of composed branches. A missing contribution clock can support
+ordinary totals and classifications. Physical readiness does not establish
+which clock the business rule requires.
 New Measure permission is explicit business authority;
 naming, filtering or arithmetic cannot grant it. Keep known units, contribution
 roots, status-time constraints and sampling contracts with their owners.

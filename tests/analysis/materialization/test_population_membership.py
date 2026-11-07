@@ -82,15 +82,16 @@ def test_named_metric_population_dependency_owns_its_window_scope(
     channel = catalog_value(session.catalog, "sales.order.channel", kind="dimension")
     producer = session.observe(
         {"total": revenue.window(mv.all_history())},
-        by=(session.time_scope(start="2026-08-01", end="2026-09-01"), channel),
+        by=(channel,),
+        where=session.time_scope(start="2026-08-01", end="2026-09-01"),
     )
     chosen = producer.where(producer["total"] > 900)
-    selected = session.population_from(chosen, on=((chosen.axes[1], channel),))
+    selected = session.population_from(chosen, on=((chosen.axes[0], channel),))
     condition = mv.in_population(selected)
+    consumer_scope = session.time_scope(start="2026-07-31", end="2026-08-01")
     observed = session.observe(
         {"rows": count.where(condition).window(mv.all_history()) if consumer_window else count},
-        by=(session.time_scope(start="2026-07-31", end="2026-08-01"),),
-        where=None if consumer_window else condition,
+        where=consumer_scope if consumer_window else (consumer_scope, condition),
     )
     # The upstream all-history endpoint selects web (927). The consumer's
     # July endpoint includes only the earlier web fact under either rule.
@@ -115,8 +116,10 @@ def test_members_scalar_predicate_retains_its_relationship_sources(
     result = (
         session.observe(
             {"revenue": revenue},
-            by=(session.time_scope(start="2026-08-01", end="2026-09-01"),),
-            where=mv.in_population(orders),
+            where=(
+                session.time_scope(start="2026-08-01", end="2026-09-01"),
+                mv.in_population(orders),
+            ),
         )
         .compute()
         .to_pandas()
@@ -226,8 +229,8 @@ def test_membership_deduplicates_root_bucket_and_complete_domain(
     )
     buckets = mv.membership(label, via=(path,), unmatched="exclude")
     full = mv.coordinates(by=(label,), keys=(("A",), ("B",), ("C",)))
-    result = session.observe({"revenue": revenue}, by=(full, buckets)).compute().to_pandas()
-    assert result["revenue"].tolist() == [20, 10, 0]
+    result = session.observe({"revenue": revenue}, by=(buckets,)).compute().to_pandas()
+    assert result["revenue"].tolist() == [20, 10]
     unmatched = mv.membership(label, via=(path,), unmatched="null")
     with_null = session.observe({"revenue": revenue}, by=(unmatched,)).compute().to_pandas()
     assert sorted(with_null["revenue"].tolist()) == [10, 20, 100]
@@ -237,8 +240,8 @@ def test_membership_deduplicates_root_bucket_and_complete_domain(
         catalog_value(session.catalog, "sales.tags", kind="entity")
     ).classify(by=(label,))
     assert isinstance(classified, mv.Population)
-    result = session.observe({"revenue": revenue}, by=(classified, buckets)).compute().to_pandas()
-    assert result["revenue"].tolist() == [20, 10, 0]
+    observed = session.observe({"mean": revenue.per((classified, buckets)).mean()})
+    assert observed.compute().to_pandas()["mean"].tolist() == [10]
 
 
 def test_membership_correlated_tuple_differs_from_independent_product(
@@ -444,7 +447,7 @@ def test_medium_complete_identity_domain_materializes_and_filters_preimage(
     assert result["value"].tolist() == [40]
 
 
-def test_output_coverage_and_internal_subset_have_distinct_policies(
+def test_observed_allocations_and_internal_subset_have_distinct_domains(
     semantic_project_factory: Callable[..., SemanticProject],
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -459,29 +462,16 @@ def test_output_coverage_and_internal_subset_have_distinct_policies(
     )
     allocation = mv.membership((label, channel), via=(path,), unmatched="exclude")
     selected = mv.coordinates(by=(label, channel), keys=(("A", "web"),))
-    with pytest.raises(MaterializationError, match="missing output coordinates") as error:
-        session.observe({"v": revenue}, by=(selected, allocation)).compute()
-    assert error.value.stage == "population_coverage"
-    assert error.value.received is not None
-    assert "B" in error.value.received and "store" in error.value.received
     # Selecting a fact through A still retains that fact's B allocation.
-    with pytest.raises(MaterializationError, match="missing output coordinates"):
-        session.observe(
-            {"v": revenue}, by=(selected, allocation), where=mv.in_population(selected)
-        ).compute()
-    complete = mv.coordinates(
-        by=(label, channel), keys=(("A", "web"), ("B", "store"), ("C", "other"))
+    observed = (
+        session.observe({"v": revenue}, by=(allocation,), where=mv.in_population(selected))
+        .compute()
+        .to_pandas()
     )
-    result = session.observe({"v": revenue}, by=(complete, allocation)).compute().to_pandas()
-    assert list(result.itertuples(index=False, name=None)) == [
+    assert list(observed.itertuples(index=False, name=None)) == [
         ("A", "web", 40),
         ("B", "store", 10),
-        ("C", "other", 0),
     ]
-    # Every required component exists in these projections, but the tuples differ.
-    crossed = mv.coordinates(by=(label, channel), keys=(("A", "store"), ("B", "web")))
-    with pytest.raises(MaterializationError, match="missing output coordinates"):
-        session.observe({"v": revenue}, by=(crossed, allocation)).compute()
     with_empty = mv.coordinates(by=(label, channel), keys=(("A", "web"), ("C", "other")))
     result = (
         session.observe(
@@ -557,7 +547,7 @@ def test_empty_output_population_checks_fact_keys_including_zero_axis(
     assert result["v"].tolist() == [140]
 
 
-def test_output_coverage_keeps_null_allocation_and_independent_fact_roots(
+def test_membership_keeps_null_allocation_and_independent_fact_roots(
     semantic_project_factory: Callable[..., SemanticProject],
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -585,11 +575,7 @@ def test_output_coverage_keeps_null_allocation_and_independent_fact_roots(
         catalog_value(session.catalog, "sales.link_tags", kind="relationship"),
     )
     allocation = mv.membership(label, via=(path,), unmatched="null")
-    nonnull = mv.coordinates(by=(label,), keys=(("A",), ("B",)))
-    with pytest.raises(MaterializationError, match="missing output coordinates"):
-        session.observe({"v": revenue}, by=(nonnull, allocation)).compute()
-    full = mv.coordinates(by=(label,), keys=(("A",), ("B",), (None,)))
-    result = session.observe({"v": revenue}, by=(full, allocation)).compute().to_pandas()
+    result = session.observe({"v": revenue}, by=(allocation,)).compute().to_pandas()
     assert dict(zip(result.iloc[:, 0].fillna("<null>"), result["v"], strict=True)) == {
         "A": 40,
         "B": 10,
@@ -600,14 +586,7 @@ def test_output_coverage_keeps_null_allocation_and_independent_fact_roots(
         via=(path, (catalog_value(session.catalog, "sales.refund_tags", kind="relationship"),)),
         unmatched="exclude",
     )
-    with pytest.raises(MaterializationError, match="missing output coordinates") as error:
-        session.observe({"v": revenue + refunded}, by=(nonnull, independent)).compute()
-    assert error.value.received is not None
-    assert "C" in error.value.received
-    complete = mv.coordinates(by=(label,), keys=(("A",), ("B",), ("C",)))
-    result = (
-        session.observe({"v": revenue + refunded}, by=(complete, independent)).compute().to_pandas()
-    )
+    result = session.observe({"v": revenue + refunded}, by=(independent,)).compute().to_pandas()
     assert result["v"].tolist() == [40, 10, 7]
 
 

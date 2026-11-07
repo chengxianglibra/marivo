@@ -290,10 +290,10 @@ def test_calendar_tuple_actual_domain_and_complete_fine_population(session: Sess
     amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
     day = catalog_value(session.catalog, "sales.facts.day", kind="time_dimension")
     channel = catalog_value(session.catalog, "sales.facts.channel", kind="dimension")
-    calendar = session.time_scope(start="2026-08-01", end="2026-08-03").by(mv.grain("day"))
+    calendar_scope = session.time_scope(start="2026-08-01", end="2026-08-03")
     metric = amount.sum(time=day)
-    fine = session.observe({"q": metric}, by=(calendar, channel))
-    parent = session.observe({"q": metric}, by=(calendar,)).compute()
+    fine = session.observe({"q": metric}, by=(mv.grain("day"), channel), where=calendar_scope)
+    parent = session.observe({"q": metric}, by=(mv.grain("day"),), where=calendar_scope).compute()
     first_day, second_day = parent.to_pandas(time_details=True).iloc[:, 0]
     actual = parent.attribute(by=(channel,))
     actual = actual.select({"q": actual["contribution.q"]})
@@ -435,12 +435,16 @@ def test_window_parent_calendar_keeps_original_history_scope(session: Session) -
     amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
     day = catalog_value(session.catalog, "sales.facts.day", kind="time_dimension")
     channel = catalog_value(session.catalog, "sales.facts.channel", kind="dimension")
-    calendar = session.time_scope(start="2026-08-01", end="2026-08-03").by(mv.grain("day"))
+    calendar_scope = session.time_scope(start="2026-08-01", end="2026-08-03")
     metric = amount.sum(time=day).window(mv.all_history())
-    unknown_parent = session.observe({"q": metric}, by=(calendar,)).compute()
+    unknown_parent = session.observe(
+        {"q": metric}, by=(mv.grain("day"),), where=calendar_scope
+    ).compute()
     with pytest.raises(AnalysisError, match="undefined_input"):
         unknown_parent.attribute(by=(channel,)).compute()
-    parent = session.observe({"q": metric}, by=(calendar,), where=channel != "N").compute()
+    parent = session.observe(
+        {"q": metric}, by=(mv.grain("day"),), where=(calendar_scope, channel != "N")
+    ).compute()
     rows = parent.attribute(by=(channel,)).compute().to_pandas()
     assert rows["detail.value.q"].dropna().tolist() == [2, 100, 2, 2, 100]
 
@@ -449,8 +453,10 @@ def test_completed_calendar_top_retains_full_original_directory(session: Session
     amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
     day = catalog_value(session.catalog, "sales.facts.day", kind="time_dimension")
     channel = catalog_value(session.catalog, "sales.facts.channel", kind="dimension")
-    calendar = session.time_scope(start="2026-08-01", end="2026-08-03").by(mv.grain("day"))
-    parent = session.observe({"q": amount.sum(time=day)}, by=(calendar,))
+    calendar_scope = session.time_scope(start="2026-08-01", end="2026-08-03")
+    parent = session.observe(
+        {"q": amount.sum(time=day)}, by=(mv.grain("day"),), where=calendar_scope
+    )
     parent = parent.top(1, by=parent["q"]).compute()
     assert parent._derivation is not None
     assert len(parent.read_periods(parent.axes[0]).items) == 2
@@ -468,19 +474,22 @@ def test_paired_missing_endpoint_rejects_contribution_and_remains_visible_in_inv
     day = catalog_value(session.catalog, "sales.facts.day", kind="time_dimension")
     channel = catalog_value(session.catalog, "sales.facts.channel", kind="dimension")
     metric = amount.sum(time=day)
-    august = session.time_scope(start="2026-08-01", end="2026-08-03").by(mv.grain("day"))
-    july = session.time_scope(start="2026-07-01", end="2026-07-02").by(mv.grain("day"))
+    august_scope = session.time_scope(start="2026-08-01", end="2026-08-03")
+    july_scope = session.time_scope(start="2026-07-01", end="2026-07-02")
     paired = (
-        session.observe({"q": metric}, by=(august,))
-        .align(session.observe({"q": metric}, by=(july,)), match=mv.ordinal())
+        session.observe({"q": metric}, by=(mv.grain("day"),), where=august_scope)
+        .align(
+            session.observe({"q": metric}, by=(mv.grain("day"),), where=july_scope),
+            match=mv.ordinal(),
+        )
         .compute()
     )
     assert not paired.to_pandas()["right_present"].all()
     difference = paired.select({"change": paired["left.q"] - paired["right.q"]})
     with pytest.raises(AnalysisError):
         difference.attribute(by=(channel,)).compute()
-    fine_left = session.observe({"q": metric}, by=(august, channel))
-    fine_right = session.observe({"q": metric}, by=(july, channel))
+    fine_left = session.observe({"q": metric}, by=(mv.grain("day"), channel), where=august_scope)
+    fine_right = session.observe({"q": metric}, by=(mv.grain("day"), channel), where=july_scope)
     fine = fine_left.align(
         fine_right, on=tuple(zip(fine_left.axes, fine_right.axes, strict=True)), match=mv.ordinal()
     ).compute()
@@ -674,7 +683,7 @@ def test_fixed_report_method_facts_survive_named_multi_baseline_compare(session:
     assert len(compared._backing.metadata.evaluation.inputs) == 1
 
 
-def test_member_count_compound_identity_and_nonleading_calendar_order(session: Session) -> None:
+def test_fixed_member_count_and_nonleading_calendar_order(session: Session) -> None:
     entity = catalog_value(session.catalog, "sales.facts", kind="entity")
     region = catalog_value(session.catalog, "sales.facts.region", kind="dimension")
     channel = catalog_value(session.catalog, "sales.facts.channel", kind="dimension")
@@ -695,10 +704,12 @@ def test_member_count_compound_identity_and_nonleading_calendar_order(session: S
     calendar = session.time_scope(start="2026-08-01", end="2026-08-03").by(mv.grain("day"))
     parents = mv.product(regions, calendar)
     fine = mv.coordinates(by=(channel,), keys=(("A",), ("C",)))
+    domain = mv.product(parents, fine)
+    with pytest.raises(AnalysisError, match=r"fixed Population.count"):
+        session.observe({"q": members.where(mv.in_population(regions)).count()}, by=domain)
+    day = catalog_value(session.catalog, "sales.facts.day", kind="time_dimension")
     rows = (
-        session.observe(
-            {"q": members.where(mv.in_population(regions)).count()}, by=mv.product(parents, fine)
-        )
+        session.observe({"q": entity.count(time=day)}, by=domain, where=region == "east")
         .compute()
         .to_pandas(time_details=True)
     )
@@ -709,7 +720,7 @@ def test_member_count_compound_identity_and_nonleading_calendar_order(session: S
         "2026-08-02",
         "2026-08-02",
     ]
-    assert rows["q"].tolist() == [1, 1, 1, 1]
+    assert rows["q"].tolist() == [0, 1, 1, 0]
 
 
 @pytest.mark.parametrize("fix_remaining", [False, True])
@@ -739,8 +750,10 @@ def test_fix_keeps_time_identity_for_attribute(session: Session) -> None:
     day = catalog_value(session.catalog, "sales.facts.day", kind="time_dimension")
     region = catalog_value(session.catalog, "sales.facts.region", kind="dimension")
     channel = catalog_value(session.catalog, "sales.facts.channel", kind="dimension")
-    calendar = session.time_scope(start="2026-08-01", end="2026-08-03").by(mv.grain("day"))
-    frame = session.observe({"q": amount.sum(time=day)}, by=(region, calendar))
+    calendar_scope = session.time_scope(start="2026-08-01", end="2026-08-03")
+    frame = session.observe(
+        {"q": amount.sum(time=day)}, by=(region, mv.grain("day")), where=calendar_scope
+    )
     fixed = frame.fix(frame.axes[0], "east")
     report = fixed.attribute(by=(channel,)).compute().to_pandas()
     assert report["contribution.q"].tolist() == [100, 2]

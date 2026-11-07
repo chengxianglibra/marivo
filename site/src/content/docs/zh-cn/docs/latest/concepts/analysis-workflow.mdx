@@ -24,9 +24,8 @@ Marivo 分析从业务问题出发，生成可检查并可继续使用的结果�
 
 ## 选择成员、贡献与时间
 
-使用 Population 选择完整成员。`session.observe(...)` 捕获 Metric 计算；`by`
-选择输出坐标，`where` 筛选来源贡献。若 Metric 使用的时间样本规约要求有限时段，
-在 `by` 中加入 `TimeScope` 或 `CalendarAxis`。需要读取选定 Entity 身份的命名属性时，
+使用 Population 选择完整成员。`session.observe(...)` 捕获 Metric 计算。`by` 选择输出坐标，
+`where` 筛选来源贡献。在 `where` 中传入报告 TimeScope 以选择范围，在 `by` 中传入 Grain 以输出时间桶。需要读取选定 Entity 身份的命名属性时，
 使用 `session.read(...)`。
 
 接着了解[对象选择](/zh-cn/docs/latest/analysis/dsl/#选择与筛选)、

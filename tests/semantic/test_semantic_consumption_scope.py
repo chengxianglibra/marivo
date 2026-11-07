@@ -301,8 +301,8 @@ def test_local_entity_count_without_time_cannot_observe_period(
     current = mv.session.get_or_create(name="local_count_new_scope", timezone="UTC")
     period = current.time_scope(start="2026-10-01", end="2026-11-01")
     for expression in (orders.count(), local_count):
-        with pytest.raises(AnalysisError, match="business time role"):
-            current.observe({"count": expression}, by=(period,)).compute()
+        with pytest.raises(AnalysisError, match="contribution time"):
+            current.observe({"count": expression}, where=period).compute()
 
 
 def test_local_relationship_dependency_matches_direct_routed_formula(

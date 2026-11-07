@@ -7,6 +7,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from marivo.analysis.binding.windows import actual_window_axis, require_finite_attribution_scope
 from marivo.analysis.compiler.frame_plan import (
     CompiledSourceFrame,
     frame_expression_schema,
@@ -228,7 +229,25 @@ def prepare_frame_sources(captured: CapturedFrameInputs, stack: ExitStack) -> Pr
         active_graph = (
             prepared.graph if prepared is not None and prepared.graph is not None else active_graph
         )
-        if input_id in requested:
+        from marivo.analysis.materialization.actual_windows import prepare_actual_window_plan
+
+        sparse_window = actual_window_axis(active_graph)
+        if sparse_window is not None and (input_id in requested or input_id in captured.games):
+            require_finite_attribution_scope(active_graph)
+        native_reads: tuple[SourceRead, ...] = ()
+        native_value_slots: list[str] = []
+        if sparse_window is not None:
+            assert prepared is not None and isinstance(binding, SourceFrameBinding)
+            lowered, prepared = prepare_actual_window_plan(
+                active_graph,
+                prepared,
+                binding.state,
+                sparse_window,
+                current._local.record().report_timezone_name,
+                key_schemas,
+            )
+            prepared_by_input[input_id] = prepared
+        elif input_id in requested:
             assert prepared is not None and isinstance(binding, SourceFrameBinding)
             side, rules, mapping = requested[input_id]
             prepared, plan = prepare_attribute_endpoint(
@@ -242,7 +261,6 @@ def prepare_frame_sources(captured: CapturedFrameInputs, stack: ExitStack) -> Pr
                 for stage in plan.stages
                 if isinstance(stage, SourceRead)
             )
-            native_value_slots: list[str] = []
             if input_id in captured.games:
                 from marivo._definition.expressions import SourceAggregate
                 from marivo.analysis.compiler.attribute_frequencies import (
@@ -295,8 +313,14 @@ def prepare_frame_sources(captured: CapturedFrameInputs, stack: ExitStack) -> Pr
                     qualified_stages.append(candidate)
                 plan = share_frequency_reads(replace(plan, stages=tuple(qualified_stages)))
             plan = optimize_query(plan)
-        lowered = lower_query(plan, {} if prepared is None else prepared.relations)
-        if prepared is not None and input_id not in requested and input_id not in captured.games:
+        if sparse_window is None:
+            lowered = lower_query(plan, {} if prepared is None else prepared.relations)
+        if (
+            prepared is not None
+            and input_id not in requested
+            and input_id not in captured.games
+            and sparse_window is None
+        ):
             from marivo.analysis.materialization.query_key_fusion import (
                 fuse_query_keys,
                 fuse_query_terminal,

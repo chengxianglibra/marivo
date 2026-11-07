@@ -97,10 +97,10 @@ def test_clickhouse_attribute_input_carriers(
             assert isinstance(tenant, ms.Dimension) and isinstance(event, ms.Dimension)
             metric = entity.count(time=day).where(event.isin(("z_finish", "a_exception")))
             current = session.observe(
-                {"n": metric}, by=(session.time_scope(start="2026-10-25", end="2026-10-29"),)
+                {"n": metric}, where=session.time_scope(start="2026-10-25", end="2026-10-29")
             ).compute()
             baseline = session.observe(
-                {"n": metric}, by=(session.time_scope(start="2026-10-22", end="2026-10-25"),)
+                {"n": metric}, where=session.time_scope(start="2026-10-22", end="2026-10-25")
             ).compute()
             trace = capture_source(monkeypatch)
             level = current.attribute(by=(tenant,)).compute().to_pandas()
@@ -126,10 +126,10 @@ def test_clickhouse_attribute_input_carriers(
                 assert isinstance(amount, ms.Measure)
                 nonlinear = amount.median(time=day).where(event.isin(("z_finish", "a_exception")))
                 left = session.observe(
-                    {"m": nonlinear}, by=(session.time_scope(start="2026-10-25", end="2026-10-29"),)
+                    {"m": nonlinear}, where=session.time_scope(start="2026-10-25", end="2026-10-29")
                 )
                 right = session.observe(
-                    {"m": nonlinear}, by=(session.time_scope(start="2026-10-22", end="2026-10-25"),)
+                    {"m": nonlinear}, where=session.time_scope(start="2026-10-22", end="2026-10-25")
                 )
                 game = left.compare({"base": mv.baseline(right, match=mv.ordinal())})
                 game = game.select({"change": game["base.absolute.m"]})
@@ -141,7 +141,7 @@ def test_clickhouse_attribute_input_carriers(
                 assert all(proxy in sql for sql in trace.native_sql)
                 assert not any("distributed_product_mode" in sql for sql in trace.native_sql)
                 empty = session.observe(
-                    {"n": metric}, by=(session.time_scope(start="2026-10-19", end="2026-10-20"),)
+                    {"n": metric}, where=session.time_scope(start="2026-10-19", end="2026-10-20")
                 ).compute()
                 zero = current.compare(
                     {"baseline": mv.baseline(empty, match=mv.ordinal())}

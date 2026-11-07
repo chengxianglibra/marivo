@@ -17,7 +17,7 @@ from marivo._definition.types import (
     RowAttributeTime,
 )
 from marivo._grouping import Grouping
-from marivo._temporal import PeriodCalendarSnapshotV2, TimeScope
+from marivo._temporal import Grain, PeriodCalendarSnapshotV2, TimeScope
 from marivo.analysis.binding.lineage import observation_contexts
 from marivo.analysis.core.artifact_data import DataColumn
 from marivo.analysis.core.calendar_keys import time_key_type
@@ -65,6 +65,7 @@ from marivo.semantic._consumption import (
     validate_context,
 )
 from marivo.semantic._expression_values import (
+    DimensionExpression,
     FieldExpression,
     MetricExpression,
     NumericMetric,
@@ -88,11 +89,6 @@ def pending_schema(graph: BoundGraph, state: CompiledSemanticState | None) -> Pe
     offset = 0
     role: Literal["field", "identity"]
     components: tuple[str, ...]
-    observation = graph.signature.observation
-    field_calendars = {
-        item.calendar.identity: item.field.field.ref.path
-        for item in (() if observation is None else observation.coordinates.field_calendars)
-    }
     for index, axis in enumerate(graph.signature.axes):
         if isinstance(axis, IntervalCoordinate):
             name = "interval"
@@ -106,7 +102,7 @@ def pending_schema(graph: BoundGraph, state: CompiledSemanticState | None) -> Pe
             offset += len(interval.axis.columns)
             continue
         if isinstance(axis, CalendarCoordinate):
-            name = field_calendars.get(axis.identity, f"calendar:{axis.grain}")
+            name = f"calendar:{axis.grain}"
             frozen_axis = calendar_descriptor(
                 axis,
                 token=f"axis.{index}",
@@ -208,31 +204,54 @@ def _capture(
 
 
 def _source_by(
-    by: tuple[Deferred | FieldExpression | Grouping | TimeScope | Population, ...] | Population,
+    by: tuple[Deferred | DimensionExpression | Grouping | Grain, ...] | Population,
     state: CompiledSemanticState,
     *,
     project_root: Path,
     owner: Owner,
-) -> tuple[Deferred | Grouping | TimeScope | Population, ...] | Population:
+) -> tuple[Deferred | Grouping | Grain, ...] | Population:
     """Adapt typed public values only inside a source boundary with explicit scope."""
+    if not isinstance(by, (tuple, Population)):
+        reject(
+            "an ordered tuple of classifications and optional Grain, or a complete Population",
+            type(by).__name__,
+            "Pass by=(field, mv.grain('day')) or by=population.",
+            "Session.observe.by",
+        )
     values = (by,) if isinstance(by, Population) else by
-    result: list[Deferred | Grouping | TimeScope | Population] = []
+    result: list[Deferred | Grouping | Grain] = []
     for value in values:
         if isinstance(value, RowExpression):
+            if value._role != "dimension":
+                reject(
+                    "ordinary classification dimensions",
+                    repr(value),
+                    "Use a Dimension for classification or a bare Grain for report time.",
+                    "Session.observe.by",
+                )
             result.append(bind_field_in_state(value, state, project_root=project_root, owner=owner))
-        else:
-            if isinstance(value, (Grouping, Population)):
-                validate_context(value._context, project_root=project_root, owner=owner)
-                for identity, keys in value._identity_keys:
-                    entity = state.registry.entities.get(identity.removeprefix("entity:"))
-                    if entity is None or tuple(entity.primary_key) != keys:
-                        reject(
-                            "the captured complete primary-key interpretation",
-                            identity,
-                            "Rebuild the coordinate domain with the receiving scope's complete identity.",
-                            "source capture",
-                        )
+        elif isinstance(value, Grouping) or (isinstance(value, Population) and value is by):
+            validate_context(value._context, project_root=project_root, owner=owner)
+            for identity, keys in value._identity_keys:
+                entity = state.registry.entities.get(identity.removeprefix("entity:"))
+                if entity is None or tuple(entity.primary_key) != keys:
+                    reject(
+                        "the captured complete primary-key interpretation",
+                        identity,
+                        "Rebuild the coordinate domain with the receiving scope's complete identity.",
+                        "source capture",
+                    )
+            if isinstance(value, Grouping):
+                result.append(value)
+        elif isinstance(value, (Deferred, Grain)):
             result.append(value)
+        else:
+            reject(
+                "classification fields or grouping rules and at most one report Grain",
+                type(value).__name__,
+                "Put a report TimeScope in where and pass an entire Population directly in by.",
+                "Session.observe.by",
+            )
     return by if isinstance(by, Population) else tuple(result)
 
 
@@ -242,14 +261,11 @@ def observe(
     connection: DatasourceConnectionConfig,
     metrics: Mapping[str, Deferred | NumericMetric] | _MetricInputs,
     *,
-    by: tuple[Deferred | FieldExpression | Grouping | TimeScope | Population, ...]
-    | Population = (),
+    by: tuple[Deferred | DimensionExpression | Grouping | Grain, ...] | Population = (),
     where: Deferred | RowPredicate | None = None,
+    scope: TimeScope | None = None,
     timezone: str = "UTC",
     calendar_snapshots: tuple[PeriodCalendarSnapshotV2, ...] = (),
-    _parent_filter: Deferred | None = None,
-    _complete_calendar: bool = True,
-    _endpoint_scope: TimeScope | None = None,
     _captured_frame_inputs: tuple[FrameKeyInput, ...] = (),
 ) -> AnalysisFrame:
     selected = tuple(metrics.items()) if isinstance(metrics, Mapping) else metrics
@@ -277,15 +293,8 @@ def observe(
     )
     frame_inputs = collect_frame_key_inputs(
         *(metric for _, metric in inputs),
-        _parent_filter,
         bound_where,
-        *(
-            (by,)
-            if isinstance(by, Population)
-            else tuple(item for item in by if isinstance(item, Population))
-            if isinstance(by, tuple)
-            else ()
-        ),
+        by if isinstance(by, Population) else None,
         owner=local.owner,
     )
     graph = capture_metrics(
@@ -296,9 +305,7 @@ def observe(
         timezone=timezone,
         state=state,
         calendar_snapshots=calendar_snapshots,
-        _parent_filter=_parent_filter,
-        _complete_calendar=_complete_calendar,
-        _endpoint_scope=_endpoint_scope,
+        scope=scope,
     )
     return _capture(
         local,

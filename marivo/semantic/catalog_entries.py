@@ -12,6 +12,7 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Generic, Literal, Protocol, TypeAlias, TypeVar
 
+from marivo._temporal import InstantAnchor
 from marivo.datasource.ir import AiContextIR, EntitySourceIR
 from marivo.render import Card, RenderableResult
 from marivo.semantic.catalog_search import Retrieval, SearchHit
@@ -137,6 +138,7 @@ class EntityDefinition:
     expression: str
     primary_key: tuple[str, ...]
     versioning: EntityVersioningIR | None
+    default_time: str | None
     fields: tuple[str, ...]
     dependencies: tuple[str, ...]
 
@@ -170,40 +172,17 @@ class MetricTimeFieldBinding(MetricTimeBinding):
 
     field: str
     path: tuple[str, ...]
-    source: Literal["explicit"] = dataclass_field(default="explicit", init=False)
-
-
-@dataclass(frozen=True)
-class MetricTimeParameterBinding(MetricTimeBinding):
-    """A source reduction whose time role names a Metric parameter."""
-
-    parameter: str
-    source: Literal["parameter"] = dataclass_field(default="parameter", init=False)
+    source: Literal["explicit", "entity_default"] = "explicit"
+    anchor: InstantAnchor | None = None
 
 
 @dataclass(frozen=True)
 class MetricNoTimeBinding(MetricTimeBinding):
-    """A source reduction with no contribution time role."""
+    """A source reduction without an Entity default, or a fixed member count."""
 
+    root: str | None
+    reason: Literal["no_entity_default", "fixed_member_count"]
     source: Literal["none"] = dataclass_field(default="none", init=False)
-
-
-@dataclass(frozen=True)
-class MetricTimeConstraint:
-    """Required role and contribution root of a single time parameter use."""
-
-    use: Literal["contribution", "native_sample", "calendar_sample", "sample_order"]
-    root: str
-    required_field: str | None
-
-
-@dataclass(frozen=True)
-class MetricTimeParameter:
-    """An exposed lexical slot and its inferred constraints, in occurrence order."""
-
-    name: str
-    roots: tuple[str, ...]
-    constraints: tuple[MetricTimeConstraint, ...]
 
 
 @dataclass(frozen=True)
@@ -215,10 +194,7 @@ class MetricDefinition:
     formula: str
     reductions: tuple[str, ...]
     conditions: tuple[str, ...]
-    time_bindings: tuple[
-        MetricTimeFieldBinding | MetricTimeParameterBinding | MetricNoTimeBinding, ...
-    ]
-    time_parameters: tuple[MetricTimeParameter, ...]
+    time_bindings: tuple[MetricTimeFieldBinding | MetricNoTimeBinding, ...]
     unit: str | None
     null_rules: tuple[str, ...]
     dependencies: tuple[str, ...]

@@ -172,8 +172,8 @@ def dependency_entities(
         from marivo.semantic._numeric_preview import validate_preview_metric
 
         metric = registry.declared_metrics[ref]
-        facts = consume_metric(metric, allow_open=True)
-        if for_preview or not facts.time_parameters:
+        facts = consume_metric(metric)
+        if for_preview:
             validate_preview_metric(metric)
         return tuple(root.ref.path for root in facts.roots)
 

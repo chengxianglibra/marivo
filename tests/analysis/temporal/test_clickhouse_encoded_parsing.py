@@ -198,9 +198,11 @@ def test_public_historical_calendar_preserves_wide_source_carriers(
         session = mv.session.get_or_create("historical-encoded", timezone="Asia/Shanghai")
         point = _time_dimension(session.catalog, "time_dimension:sales.facts.point")
         amount = _measure(session.catalog, "measure:sales.facts.amount")
-        grid = session.time_scope(start="1960-02-29", end="1960-03-01").by(mv.grain("day"))
+        grid_scope = session.time_scope(start="1960-02-29", end="1960-03-01")
         rows = (
-            session.observe({"value": amount.sum(time=point)}, by=(grid,))
+            session.observe(
+                {"value": amount.sum(time=point)}, by=(mv.grain("day"),), where=grid_scope
+            )
             .compute()
             .to_pandas(time_details=True)
         )

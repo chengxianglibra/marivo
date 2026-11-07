@@ -13,7 +13,6 @@ import ibis.expr.types as ir
 
 from marivo._definition.correspondence import ComparisonAxis
 from marivo._definition.expressions import (
-    BuiltinSampleCoordinate,
     ContributionFilter,
     DeclaredMetricRef,
     EntityCount,
@@ -77,7 +76,6 @@ class ReductionInput:
     calendars: tuple[tuple[str, CalendarGrouping], ...] = ()
     sampled: bool = False
     provider: str = "duckdb"
-    field_calendar_reads: tuple[tuple[str, FieldRead], ...] = ()
     sample_calendar_reads: tuple[tuple[str, FieldRead], ...] = ()
 
 
@@ -129,7 +127,6 @@ class FormulaProgram:
     parent_slots: tuple[str, ...] = ()
     population_checked: bool = False
     calendar_samples: tuple[tuple[tuple[int, ...], CalendarSample], ...] = ()
-    field_calendars: tuple[tuple[str, CalendarCoordinate], ...] = ()
 
 
 def calendar_field(slot: str) -> str:
@@ -174,7 +171,6 @@ def reduction_input(
         window_key=contribution.window_key,
         calendars=calendars,
         sampled=bool(contribution.sample_axes),
-        field_calendar_reads=contribution.field_calendar_reads,
         sample_calendar_reads=contribution.sample_calendar_reads,
     )
 
@@ -188,22 +184,17 @@ def bind_reduction_calendars(
     calendars = prepared.calendars or (
         (("key.0", prepared.calendar),) if prepared.calendar is not None else ()
     )
-    field_calendars = dict(prepared.field_calendar_reads)
     sample_calendars = dict(prepared.sample_calendar_reads)
     for slot, calendar in calendars:
         field = calendar_field(slot)
         if field in bound or (prepared.window_key is not None and calendar == prepared.calendar):
             continue
-        read = (
-            sample_calendars.get(slot)
-            if isinstance(calendar, BuiltinSampleCoordinate)
-            else field_calendars.get(slot)
-        )
+        read = sample_calendars.get(slot)
         clock = field_read_key(read) if read is not None else prepared.time_column
         assert clock is not None
         name = "__bound_calendar_" + slot.replace(".", "_")
         table = bind_calendar(table, table[bound[clock]], calendar, name)
-        if slot in field_calendars:
+        if isinstance(calendar, CalendarCoordinate) and calendar.actual_only:
             table = table.filter(table[name].notnull())
         bound[field] = name
     return table, bound

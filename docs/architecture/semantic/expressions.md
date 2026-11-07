@@ -80,8 +80,7 @@ signature participate in definition identity; execution still requires backend
 support. Arbitrary Python helpers and Python/Pandas/Arrow UDFs are not Entity
 body symbols.
 
-Measure decorators take zero-argument functions. Metric decorators also admit
-keyword-only parameters annotated with `ms.TimeParameter`, without defaults.
+Measure and Metric decorators take zero-argument functions.
 The validator captures a leading docstring, fresh local expressions and one final
 return without invoking the authored function. Imports, arbitrary helpers, control flow, reassignment,
 Ibis tables and ms.bind in these bodies are rejected.
@@ -105,36 +104,53 @@ Deferred itself has no Marivo show, contract or
 public manual schema-resolution step. Do not call the decorated value as a
 function after capture.
 
-## Contribution time and Metric parameters
+## Contribution time
 
-`time=field` sets the contribution time of one source reduction. Omitting
-`time` yields a reduction without a time role. Explicit `time=None` is invalid.
-To preserve a former Entity-default business definition, pass the original
-field to every source reduction that used it.
+A source reduction fixes its contribution clock when the definition is resolved.
+`time=field` takes priority and requires a legal concrete TimeDimension
+binding for the reduction. If omitted, a reduction with one contribution Entity
+inherits its `default_time` when declared. Otherwise it has no contribution
+clock. Explicit `time=None` is invalid.
+
+An Entity default is a native TimeDimension owned by that Entity. Declare it
+with the field's typed forward reference when the field is defined later.
 
 ```python
+orders = ms.entity(
+    name="orders",
+    datasource=ms.ref.datasource("warehouse"),
+    source=md.table("orders"),
+    default_time=ms.ref.time_dimension("sales.orders.booked_at"),
+)
+booked_at = ms.time_dimension_column(name="booked_at", entity=orders, column="booked_at")
+paid_at = ms.time_dimension_column(name="paid_at", entity=orders, column="paid_at")
+
+
 @ms.metric()
-def order_amount(*, event: ms.TimeParameter):
-    return amount.sum(time=event)
+def booked_amount():
+    return amount.sum()
+
+
+@ms.metric()
+def paid_amount():
+    return amount.sum(time=paid_at)
+
+
+@ms.metric()
+def timing_gap():
+    return booked_amount - paid_amount
 ```
 
-After loading the model, select the published Metric and time field from
-the Catalog.
+Here `amount` is a declared Measure on orders. The two reductions retain their
+individual clocks when combined. One report TimeScope or Grain applies to each
+branch through its own clock and requires all branches to have one. A total
+without a time consumer has no implicit time filter. A fixed row predicate such
+as `paid_at.within(scope)` can filter source rows independently of these clocks.
 
-```python
-template = catalog.get("metric:sales.order_amount")
-paid = catalog.get("time_dimension:sales.orders.paid_at")
-assert template.kind == "metric" and paid.kind == "time_dimension"
-paid_amount = template.bind_time(event=paid)
-```
-
-The same declared parameter can also select a native internal time sample
-or its ordering. A parameter belongs to its declaration and its uses impose
-root, path and state constraints. Compose distinct templates after binding
-them separately, or connect their parameters to a common outer parameter
-with `bind_time`. Binding returns a new expression and accepts a subset of the
-remaining parameters. Each remaining parameter must be bound before
-observation or preview, including a zero-axis observation.
+Catalog `EntityDefinition.default_time` captures the declared field.
+`MetricDefinition.time_bindings` captures each branch's actual field and
+`explicit` or `entity_default` provenance, or its missing clock and the
+contribution root. These facts participate in definition identity.
 
 ## Row quantities and Metric equations
 
@@ -302,8 +318,9 @@ empty samples under the child's empty policy, and may select a subset.
 `revenue.per(mv.grain("day")).mean()` folds actual daily completed revenues
 using each source child's declared contribution time.
 `revenue.per(created_at, grain=mv.grain("day")).mean()` uses one explicit native
-sample field while preserving each child's contribution time. Use
-`per(created_at)` to retain exact native timestamps. Both builtin calendar
+sample field while preserving each child's contribution time. Both Grain forms
+require contribution time on every branch, as does an explicit sample Population
+with a report time coordinate. Use `per(created_at)` to retain exact native timestamps. Both builtin calendar
 forms use the receiving Session's report timezone and need no finite
 observation period. An existing observation period still selects contributions
 by each source reduction's time role. Presence, including an all-NULL
@@ -315,7 +332,7 @@ week/month/quarter/year, month in quarter/year, and quarter in year. Week does n
 nest in month/quarter/year. Each layer keeps complete external, parent and child
 keys; a child label need not determine one global parent at a timezone anomaly.
 Custom hierarchies reject; one complete certified custom period can be sampled
-under an interval axis. There are no internal calendar grids or date-to-parent
+under a compatible complete report interval. There are no internal calendar grids or date-to-parent
 maps. Final output completion does not affect sample counts or means.
 
 Semantic sample Grains authored with `ms.calendar_grain(...)` are calendar
@@ -327,13 +344,13 @@ reject before business reads.
 Windows inside calendar sample layers and windows wrapping calendar folds are
 currently unsupported and raise `CoreRuleError` before execution. The source
 window binder supplies output endpoints only; it cannot supply an independent
-window at each inner cell's actual end. Observe a windowed Metric directly on a
-CalendarAxis and explicitly reduce the captured Frame values instead. Windows
+window at each inner cell's actual end. Observe a windowed Metric with a
+report Grain and explicitly reduce the captured Frame values. Windows
 on independent formula branches and existing field-sample windows retain their
 own semantics.
 
 Pass a Grain directly to `per` or use a native time field with a keyword-only
-builtin `grain`. A bare Grain needs contribution time on each source branch.
+builtin `grain`. Both Grain forms need contribution time on each source branch.
 Calendar nesting checks apply to layers on the same field, which must agree
 on their timezone. Ordered calendar reducers use chronological bucket order.
 A completed Metric requires `per` before another reduction.

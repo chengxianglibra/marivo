@@ -196,7 +196,7 @@ def test_postgres_original_period_binding_preserves_selected_input(
     category = catalog_value(session.catalog, "sales.facts.category", kind="dimension")
     day = catalog_value(session.catalog, "sales.facts.day", kind="time_dimension")
     period = session.time_scope(start="2026-07-01", end="2026-07-02")
-    query = session.observe({"value": amount.sum(time=day)}, by=(period,))
+    query = session.observe({"value": amount.sum(time=day)}, where=period)
     trace = capture_source(monkeypatch)
     result = query.compute().to_pandas()
     assert result["value"].tolist() == [2**53 + 4]
@@ -346,7 +346,7 @@ def test_postgres_attribute_default_preserves_exact_values_and_fixed_parents(
         metric = amount.sum(time=day)
         current = session.time_scope(start="2026-10-08", end="2026-10-09")
         baseline = session.time_scope(start="2026-10-07", end="2026-10-08")
-        selection = session.observe({"q": metric}, by=(current, tenant))
+        selection = session.observe({"q": metric}, by=(tenant,), where=current)
         selection = selection.reduce({"q": selection["q"].sum()}, by=(selection.axes[1],))
         parents = selection.top(1, by=selection["q"]).compute()
         parent_rows = parents.to_pandas()
@@ -403,10 +403,10 @@ def test_postgres_attribute_default_preserves_exact_values_and_fixed_parents(
         assert terminal_runs(session) == ()
         keys = session.population_from(parents, on=((parents.axes[0], tenant),))
         left = session.observe(
-            {"q": metric}, by=(current, tenant, category), where=mv.in_population(keys)
+            {"q": metric}, by=(tenant, category), where=(current, mv.in_population(keys))
         )
         right = session.observe(
-            {"q": metric}, by=(baseline, tenant, category), where=mv.in_population(keys)
+            {"q": metric}, by=(tenant, category), where=(baseline, mv.in_population(keys))
         )
         compared = left.compare(
             {
@@ -479,13 +479,13 @@ def test_postgres_attribute_default_preserves_exact_values_and_fixed_parents(
 
         current_parent = session.observe(
             {"q": metric},
-            by=(current, tenant),
-            where=mv.in_population(keys) & ~amount.isnull(),
+            by=(tenant,),
+            where=(current, mv.in_population(keys) & ~amount.isnull()),
         )
         baseline_parent = session.observe(
             {"q": metric},
-            by=(baseline, tenant),
-            where=mv.in_population(keys) & ~amount.isnull(),
+            by=(tenant,),
+            where=(baseline, mv.in_population(keys) & ~amount.isnull()),
         )
         parent_comparison = current_parent.compare(
             {

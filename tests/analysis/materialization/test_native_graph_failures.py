@@ -125,7 +125,7 @@ def test_fresh_worker_contender_only_rejects_publication(
     case = analysis_dsl_case_factory("j1")
     saved = case.session.observe(
         {"value": catalog_value(case.session.catalog, "sales.revenue", kind="metric")},
-        by=(case.session.time_scope(start="2026-08-01", end="2026-09-01"),),
+        where=case.session.time_scope(start="2026-08-01", end="2026-09-01"),
     ).persist()
     store = case.session._runtime.store
     with session_writer_guard(store.layout.lock_path(case.session.id), session_ref=case.session.id):

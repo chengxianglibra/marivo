@@ -75,18 +75,15 @@ def decimal_session(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> mv.Sessi
 
 
 def _observed(session: mv.Session, *, overall: bool = False) -> mv.AnalysisFrame:
-    return session.observe(
-        {
-            "gmv": _metric(session.catalog, "metric:sales.gmv"),
-            "fee": _metric(session.catalog, "metric:sales.fee"),
-        },
-        by=(session.time_scope(start="2026-07-01", end="2026-07-02"),)
-        if overall
-        else mv.product(
-            session.time_scope(start="2026-07-01", end="2026-07-02"),
-            session.members(_entity(session.catalog, "entity:sales.orders")),
-        ),
-    )
+    outputs = {
+        "gmv": _metric(session.catalog, "metric:sales.gmv"),
+        "fee": _metric(session.catalog, "metric:sales.fee"),
+    }
+    scope = session.time_scope(start="2026-07-01", end="2026-07-02")
+    if overall:
+        return session.observe(outputs, where=scope)
+    members = session.members(_entity(session.catalog, "entity:sales.orders"))
+    return session.observe(outputs, by=mv.product(scope, members))
 
 
 def test_decimal_measure_and_retained_schema_agree(decimal_session: mv.Session) -> None:
@@ -107,7 +104,7 @@ def test_ratio_accepts_independent_numeric_components(decimal_session: mv.Sessio
     for numerator in (fee, normalized_fee):
         observed = session.observe(
             {"rate": numerator / gmv},
-            by=(session.time_scope(start="2026-07-01", end="2026-07-02"),),
+            where=session.time_scope(start="2026-07-01", end="2026-07-02"),
         )
         result = observed.compute()
         assert isinstance(result._schema, DataSchema)

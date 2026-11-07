@@ -30,6 +30,7 @@ An Entity gives a physical source a business identity and row grain. For orders,
 | `datasource` | Yes | — | Datasource symbol from `ms.ref.datasource(...)`. |
 | `source` | Yes | — | Physical descriptor such as `md.table(...)`; selected columns become the Entity source schema. |
 | `primary_key` | No | `None` | Ordered complete stable identity columns. `None` declares no Entity identity; it does not mean one singleton member. |
+| `default_time` | No | Omitted | Native TimeDimension on this Entity. A typed forward reference is allowed. Source reductions inherit the field when they omit `time=`. |
 | `versioning` | No | `None` | `ms.snapshot(...)` or `ms.validity(...)`; `None` declares no historical version model. |
 | `domain` | No | `None` | Explicit domain; `None` uses the applicable declared default domain. |
 | `ai_context` | No | `None` | Optional `ms.ai_context(...)` with business meaning and guardrails; no context is attached when omitted. |
@@ -214,39 +215,46 @@ A Metric is a completed source reduction or a composition of Metrics. Revenue su
 | `domain` | No | `None` | Explicit domain; `None` uses the applicable declared default domain. |
 | `ai_context` | No | `None` | Optional `ms.ai_context(...)` with business meaning and guardrails; no context is attached when omitted. |
 
-The function name supplies the published name. Its restricted body composes typed Metrics or source reductions. Set time, null and sample policies on those operators. To reuse a formula across time roles, declare a keyword-only `ms.TimeParameter` and bind it before observation.
+A zero-parameter function supplies the published name and a restricted body.
+Compose typed Metrics or source reductions and set time, NULL and sample
+policies on the operators. For each reduction, `time=field` fixes a contribution
+clock explicitly. Omitting it uses the Entity's `default_time` if declared.
+Otherwise the reduction has no clock and can still be used in a timeless total
+or classification.
+
+An Entity default can use a typed forward reference to its own TimeDimension:
+
+```python
+orders = ms.entity(
+    name="orders",
+    datasource=ms.ref.datasource("warehouse"),
+    source=md.table("orders"),
+    primary_key=["order_id"],
+    default_time=ms.ref.time_dimension("sales.orders.order_date"),
+)
+order_date = ms.time_dimension_column(
+    name="order_date", entity=orders, column="order_date"
+)
+```
+
+With `amount` declared on orders, both reductions below inherit that field:
 
 ```python
 @ms.metric()
 def revenue():
-    return amount.sum(time=order_date)
+    return amount.sum()
 
 
 @ms.metric()
 def average_order_value():
-    return revenue / orders.count(time=order_date)
+    return revenue / orders.count()
 ```
 
-If the same sum can legitimately follow different event times, declare the
-slot in the Metric. Use `bind_time` with the field chosen for the question.
-For a fixed business rule that previously relied on an Entity's default time,
-pass that same field explicitly to each source reduction. Omitting `time`
-now leaves the reduction without a contribution time.
-
-```python
-@ms.metric()
-def revenue_at(*, event: ms.TimeParameter):
-    return amount.sum(time=event)
-```
-
-After loading the model, select both objects from the Catalog.
-
-```python
-template = catalog.get("metric:sales.revenue_at")
-date_field = catalog.get("time_dimension:sales.orders.order_date")
-assert template.kind == "metric" and date_field.kind == "time_dimension"
-by_order_date = template.bind_time(event=date_field)
-```
+If one formula has several valid business clocks, define a Metric for each
+clock, such as `return amount.sum(time=paid_at)` for payment-based revenue.
+A composite Metric retains each branch's clock. Inspect
+`metric.definition.time_bindings` for the actual fields and their provenance
+(`explicit` or `entity_default`).
 
 Bodies may contain fresh local expression bindings and a final return, but no table parameters, `ms.bind`, queries or arbitrary Python calls. Empty sum is zero; a nonempty all-null sum is unknown. Division by zero yields NA. Use `revenue.where(region == "east")` for a contribution condition, or `revenue.per(region).mean()` for the mean of regional revenues. These are different from filtering or averaging a completed Frame. Existing closed Metrics can be composed for one question without publishing a new definition. Help: `semantic.metric.define` and `semantic.expressions`.
 
@@ -397,6 +405,7 @@ orders = ms.entity(
     datasource=ms.ref.datasource("warehouse"),
     source=md.table("orders"),
     primary_key=["order_id"],
+    default_time=ms.ref.time_dimension("sales.orders.order_date"),
 )
 region = ms.dimension_column(name="region", entity=orders, column="region")
 order_date = ms.time_dimension_column(
@@ -426,12 +435,12 @@ def margin():
 
 @ms.metric()
 def revenue():
-    return amount.sum(time=order_date)
+    return amount.sum()
 
 
 @ms.metric()
 def average_order_value():
-    return revenue / orders.count(time=order_date)
+    return revenue / orders.count()
 ```
 
 ### Preserve the business rule

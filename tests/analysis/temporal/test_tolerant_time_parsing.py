@@ -411,12 +411,11 @@ def test_public_parsed_time_predicate_and_calendar_keep_native_interpretation(
         ).compute()
         assert selected.to_pandas()["value"].tolist() == [sum(expected)]
         daily = session.observe(
-            {"value": amount.sum(time=point)}, by=(scope.by(mv.grain("minute")),)
+            {"value": amount.sum(time=point)}, by=(mv.grain("minute"),), where=scope
         ).compute()
         assert daily.to_pandas()["value"].tolist() == expected
-        grouped = session.observe({"value": amount.sum()}, by=(point,)).compute()
-        rows = grouped.to_pandas(axis_names={grouped.axes[0].token: "parsed"})
-        assert rows.loc[rows.parsed.isna(), "value"].tolist() == [19]
+        unparsed = session.observe({"value": amount.sum()}, where=point.isnull()).compute()
+        assert unparsed.to_pandas()["value"].tolist() == [19]
 
 
 @pytest.mark.parametrize("backend,profile", CASES)

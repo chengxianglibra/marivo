@@ -38,18 +38,18 @@ from analysis import mv, session, revenue, amount, region, august
 {/* example: calendar-query */}
 
 ```python
-days = august.by(mv.grain("day"))
-daily = session.observe({"revenue": revenue}, by=(days,)).compute()
+day = mv.grain("day")
+daily = session.observe({"revenue": revenue}, where=august, by=(day,)).compute()
 sum_of_days = daily.reduce({"sum_of_days": daily["revenue"].sum()}).compute()
 sum_of_days.show()
 monthly_source = session.observe(
-    {"revenue": revenue}, by=(august.by(mv.grain("month")),)
+    {"revenue": revenue}, where=august, by=(mv.grain("month"),)
 ).compute()
 monthly_source.show()
 ```
 
-日历桶使用实际执行方的原生键。普通输出保留生成位置 S 和实际键 O 的并集，只为缺失的
-S 位置补空。键与民用标签不承诺成员构成连续 UTC 区间；`read_periods()` 提供保存的顺序
+日历桶使用实际执行方的原生键。有报告范围时，普通输出保留生成位置和实际键的并集，
+并补齐缺失位置。仅指定 Grain 时，只输出实际观察到的位置。键与民用标签不承诺成员构成连续 UTC 区间；`read_periods()` 提供保存的顺序
 和选择进度。内置日／周／月使用原生民用截断，子日宽度按当地午夜对齐。自定义日历输出
 只支持一个完整的已认证期间，多期间或局部选择在业务读取前拒绝，不上传日期到期间执行目录。
 
@@ -60,10 +60,13 @@ from datetime import timedelta
 
 rolling = session.observe(
     {"revenue": revenue.window(mv.trailing_duration(duration=timedelta(days=7)))},
-    by=(days,),
+    where=august,
+    by=(day,),
 ).compute()
 month_to_date = session.observe(
-    {"revenue": revenue.window(mv.to_date(grain=mv.grain("month")))}, by=(days,)
+    {"revenue": revenue.window(mv.to_date(grain=mv.grain("month")))},
+    where=august,
+    by=(day,),
 ).compute()
 rolling.show()
 month_to_date.show()
@@ -72,10 +75,10 @@ month_to_date.show()
 {/* example: period-comparison-query */}
 
 ```python
-current_days = session.time_scope(start="2026-08-01", end="2026-08-04").by(mv.grain("day"))
-prior_days = session.time_scope(start="2026-07-01", end="2026-07-04").by(mv.grain("day"))
-current_daily = session.observe({"revenue": revenue}, by=(current_days,)).compute()
-prior_daily = session.observe({"revenue": revenue}, by=(prior_days,)).compute()
+current_scope = session.time_scope(start="2026-08-01", end="2026-08-04")
+prior_scope = session.time_scope(start="2026-07-01", end="2026-07-04")
+current_daily = session.observe({"revenue": revenue}, where=current_scope, by=(mv.grain("day"),)).compute()
+prior_daily = session.observe({"revenue": revenue}, where=prior_scope, by=(mv.grain("day"),)).compute()
 comparison = current_daily.compare(
     {"reference": mv.baseline(prior_daily, match=mv.ordinal())}
 ).compute()
@@ -86,10 +89,11 @@ comparison.show()
 
 ```python
 months = session.time_scope(start="2026-08-01", end="2026-08-20").by(mv.grain("month"))
-current_progress = session.observe({"revenue": revenue}, by=(months,))
+unit = mv.coordinates(by=(), keys=((),))
+current_progress = session.observe({"revenue": revenue}, by=mv.product(months, unit))
 previous_progress = session.observe(
     {"revenue": revenue},
-    by=(months.shift(mv.offset(periods=-1)),),
+    by=mv.product(months.shift(mv.offset(periods=-1)), unit),
 )
 progress = current_progress.compare({"mom": mv.baseline(previous_progress)}).compute()
 progress.show()
@@ -141,9 +145,9 @@ order_date_entry = session.catalog.get("time_dimension:sales.orders.order_date")
 assert order_date_entry.kind == "time_dimension"
 order_date = order_date_entry
 samples = amount.mean(time=order_date).per(order_date)
-sample_mean = session.observe({"average": samples.mean()}, by=(august, region)).compute()
+sample_mean = session.observe({"average": samples.mean()}, where=august, by=(region,)).compute()
 # Arithmetic does not add a clock-coverage requirement.
-adjusted = session.observe({"average": samples.mean() + 0}, by=(august, region)).compute()
+adjusted = session.observe({"average": samples.mean() + 0}, where=august, by=(region,)).compute()
 sample_mean.show()
 adjusted.show()
 ```
@@ -163,16 +167,16 @@ adjusted.show()
 ## 按日历单元折叠 Metric
 
 `Metric.per(grain)` 按各源分量的贡献时间分桶并规约完成的值。
-用 `Metric.per(created_at, grain=mv.grain("day"))` 固定样本字段，原 Metric 保留其贡献时间。
+用 `Metric.per(created_at, grain=mv.grain("day"))` 固定样本字段，原 Metric 保留其贡献时间。两种 Grain 形式都要求所有分支具有贡献时间。
 两种内置日历用法都使用 Session 报告时区，无需有限观察期间。此前若通过观察轴选择样本时区，
 现在应显式设置 Session 时区。有贡献但值全为 NULL 的日期仍是样本，缺失日期不产生样本。
 
 {/* example: calendar-sample-fold */}
 
 ```python
-weekly = august.by(mv.grain("week"))
+week = mv.grain("week")
 daily_average = revenue.per(mv.grain("day")).mean()
-folded = session.observe({"daily_average": daily_average}, by=(weekly, region)).compute()
+folded = session.observe({"daily_average": daily_average}, where=august, by=(week, region)).compute()
 folded.show()
 ```
 
@@ -181,12 +185,12 @@ folded.show()
 NULL 策略。TimeField 和 Grain 样本均使用实际键，最终输出补空不影响样本均值或数量。
 内置嵌套采用静态规则：日可嵌入周／月，周不可嵌入月；子日宽度须整除父宽度，月可嵌入
 季度／年，季度可嵌入年。每层保留完整外部键、父键和子键。未定义的自定义层级拒绝；
-区间轴下可采样一个完整认证自定义期间。将 Grain 传给 `per`，将 CalendarAxis 或
-TimeScope 传给 `observe(by=...)`。帮助入口：`semantic.metric.per`。
+兼容的报告 TimeScope 内可采样一个完整认证自定义期间。`per` 中的 Grain
+选择内部样本桶；`observe(by=...)` 中的 Grain 选择报告桶。帮助入口：`semantic.metric.per`。
 
 `ms.calendar_grain(...)` 创建的语义粒度绑定到 Session 当前的认证日历快照。
 声明的日历折叠指标要求日历已认证。日历样本内部的窗口，以及包裹日历折叠的窗口，
-目前都会抛出类型化错误。此类问题可先在 CalendarAxis 上直接观测窗口指标，再对已捕获的
+目前都会抛出类型化错误。此类问题可先按报告粒度观察窗口指标，再对已捕获的
 Frame 值显式规约。
 
 
@@ -202,11 +206,13 @@ label = session.catalog.get("dimension:sales.profiles.label")
 route = session.catalog.get("relationship:sales.profile")
 amount = session.catalog.get("measure:sales.facts.amount")
 historical = label.via((route,)).at(control)
-days = session.time_scope(start="2026-08-25", end="2026-09-08").by(mv.grain("day"))
-daily = session.observe({"value": amount.sum(time=control)}, by=(days, historical)).compute()
+scope = session.time_scope(start="2026-08-25", end="2026-09-08")
+day = mv.grain("day")
+daily = session.observe({"value": amount.sum(time=control)}, where=scope, by=(day, historical)).compute()
 restated = session.observe(
     {"value": amount.sum(time=control)},
-    by=(days, label.via((route,)).at(session.instant("2026-09-03T00:00:00+00:00"))),
+    where=scope,
+    by=(day, label.via((route,)).at(session.instant("2026-09-03T00:00:00+00:00"))),
 ).compute()
 ```
 

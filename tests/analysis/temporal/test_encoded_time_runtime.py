@@ -223,18 +223,18 @@ def test_cumulative_grid_and_endpoint_match_original_temporal_filter(
 ) -> None:
     case = analysis_dsl_case_factory("j1")
     _encode_orders(case, "%Y%m%d%H%M%S", integer=True)
-    grid = case.session.time_scope(start="2026-08-15", end="2026-10-01").by(mv.grain("month"))
+    scope = case.session.time_scope(start="2026-08-15", end="2026-10-01")
     metric = _metric(case.session.catalog, "metric:sales.revenue").window(mv.all_history())
 
     def execute() -> pd.DataFrame:
-        query = case.session.observe({"value": metric}, by=(grid,))
+        query = case.session.observe({"value": metric}, by=(mv.grain("month"),), where=scope)
         return query.compute().to_pandas(time_details=True)
 
     optimized = execute()
     assert optimized["value"].tolist() == [1077, 1176]
     scalar = (
         case.session.observe(
-            {"value": metric}, by=(case.session.time_scope(start="2026-09-30", end="2026-10-01"),)
+            {"value": metric}, where=case.session.time_scope(start="2026-09-30", end="2026-10-01")
         )
         .compute()
         .to_pandas(time_details=True)

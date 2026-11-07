@@ -29,9 +29,9 @@ from marivo.server.wire import JsonObject, JsonValue
 DEFINITION_FIELDS: dict[type[object], str] = {
     DatasourceDefinition: "context backend_type wall_clock_timezone entities",
     DomainDefinition: "context owner default members",
-    EntityDefinition: "context datasource primary_key versioning fields dependencies",
+    EntityDefinition: "context datasource primary_key versioning default_time fields dependencies",
     FieldDefinition: "context entity expression unit additivity parse sample_interval dependencies dependency_context facts",
-    MetricDefinition: "context roots formula reductions conditions time_bindings time_parameters unit null_rules dependencies dependency_context facts",
+    MetricDefinition: "context roots formula reductions conditions time_bindings unit null_rules dependencies dependency_context facts",
     PeriodCalendarDefinition: "context source_date boundary_timezone coverage levels snapshot_status dependencies",
     RelationshipDefinition: "context from_entity to_entity keys cardinality dependencies",
     TemporalSetDefinition: "context occurrence_id start end category boundary_timezone coverage snapshot_status occurrence_count dependencies",

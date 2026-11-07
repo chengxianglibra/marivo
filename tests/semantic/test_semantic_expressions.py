@@ -1342,9 +1342,9 @@ def test_public_boolean_conditionals_preserve_predicate_results(
             session.observe({"total": metric_predicate.ifelse(revenue, 0)}).compute().to_pandas()
         )
         assert result["total"].tolist() == [60.0]
-        with pytest.raises(AnalysisError, match="a row Predicate"):
+        with pytest.raises(AnalysisError, match="row Predicate"):
             session.observe(revenue, where=metric_predicate)  # type: ignore[arg-type]  # Metric predicate is invalid here.
-    with pytest.raises(AnalysisError, match="a row Predicate"):
+    with pytest.raises(AnalysisError, match="row Predicate"):
         session.observe(revenue, where=paid.ifelse(1, 0))  # type: ignore[arg-type]  # Numeric predicate.
     with pytest.raises(SemanticExpressionError, match="source boolean condition"):
         session.observe(revenue, where=paid.ifelse(paid, 1))  # type: ignore[arg-type]  # Incompatible branches.
@@ -1557,7 +1557,11 @@ def test_quantile_and_policy_inputs_are_validated(catalog: SemanticCatalog) -> N
     amount_facts = _row_facts(amount)
     assert isinstance(amount_facts, RowFacts)
     assert _node_facts(amount.quantile(0.95, time=paid_at)).node == SourceAggregate(
-        amount_facts.node, "quantile", TimeBinding(_reference(paid_at)), q=0.95
+        amount_facts.node,
+        "quantile",
+        TimeBinding(_reference(paid_at)),
+        q=0.95,
+        contribution_root=amount_facts.root,
     )
     for bad in (1.5, -0.1, float("nan")):
         with pytest.raises(SemanticExpressionError) as out_of_range:

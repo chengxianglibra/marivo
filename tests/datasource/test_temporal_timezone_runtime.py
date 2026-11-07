@@ -137,7 +137,7 @@ def test_clickhouse_catalog_validation_shares_preview_and_analysis_contracts(
             assert catalog.preview(
                 catalog.get("time_dimension:sales.events.point"), scope=scope
             ).rows
-            assert session.observe({"total": metric}, by=(period,)).compute().to_pandas()[
+            assert session.observe({"total": metric}, where=period).compute().to_pandas()[
                 "total"
             ].tolist() == [2]
         else:
@@ -151,7 +151,7 @@ def test_clickhouse_catalog_validation_shares_preview_and_analysis_contracts(
             with pytest.raises(
                 SemanticRuntimeError, match="an aware source without parser timezone"
             ):
-                session.observe({"total": metric}, by=(period,)).compute()
+                session.observe({"total": metric}, where=period).compute()
 
 
 @pytest.mark.skipif(

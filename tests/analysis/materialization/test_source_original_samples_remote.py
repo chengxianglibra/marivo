@@ -119,7 +119,7 @@ def test_remote_window_spatial_rollup_retains_lookback_and_each_endpoint(
         amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
         customer = catalog_value(session.catalog, "sales.facts.customer", kind="dimension")
         day = catalog_value(session.catalog, "sales.facts.day", kind="time_dimension")
-        calendar = session.time_scope(start="2026-10-07", end="2026-10-09").by(mv.grain("day"))
+        calendar_scope = session.time_scope(start="2026-10-07", end="2026-10-09")
         total = amount.sum(time=day)
         metric = (
             total / amount.count(time=day)
@@ -128,7 +128,7 @@ def test_remote_window_spatial_rollup_retains_lookback_and_each_endpoint(
             if method == "mean"
             else total
         ).window(mv.all_history())
-        query = session.observe({"value": metric}, by=(calendar,))
+        query = session.observe({"value": metric}, by=(mv.grain("day"),), where=calendar_scope)
         trace = capture_source(monkeypatch)
         frame = query.compute().to_pandas()
         assert frame["value"].tolist() == ([1000, 1000] if method == "sum" else [1.0, 1.0])
@@ -208,9 +208,11 @@ def test_remote_selected_window_rollup_keeps_correlated_endpoint_and_parent_keys
         amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
         customer = catalog_value(session.catalog, "sales.facts.customer", kind="dimension")
         day = catalog_value(session.catalog, "sales.facts.day", kind="time_dimension")
-        calendar = session.time_scope(start="2026-10-07", end="2026-10-09").by(mv.grain("day"))
+        calendar_scope = session.time_scope(start="2026-10-07", end="2026-10-09")
         metric = amount.sum(time=day).window(mv.all_history())
-        fine = session.observe({"value": metric}, by=(calendar, customer))
+        fine = session.observe(
+            {"value": metric}, by=(mv.grain("day"), customer), where=calendar_scope
+        )
         fixed = fine.top(3, by=fine["value"]).compute()
         frame = fixed.to_pandas()
         assert frame["value"].tolist() == [500, 500, 500]

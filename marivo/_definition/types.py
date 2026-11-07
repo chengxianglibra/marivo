@@ -392,6 +392,7 @@ class CalendarCoordinate:
     origin: CalendarOrigin | None = None
     civil_bounds: tuple[CivilBounds, ...] = field(kw_only=True)
     ranges: tuple[tuple[InstantAnchor, InstantAnchor], ...] = field(default=(), kw_only=True)
+    actual_only: bool = field(default=False, kw_only=True)
 
     def __post_init__(self) -> None:
         if len(self.civil_bounds) != len(self.cells):

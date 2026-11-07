@@ -62,6 +62,26 @@ def test_preview_help_distinguishes_retained_rows_from_acquisition() -> None:
     assert ".show(n=...)" in text
 
 
+@pytest.mark.parametrize(
+    ("target", "facts"),
+    (
+        ("entity_definition.default_time", ("str | None",)),
+        ("metric_definition.time_bindings", ("MetricTimeFieldBinding", "MetricNoTimeBinding")),
+        ("metric_time_field_binding.source", ("explicit", "entity_default")),
+        ("metric_time_field_binding.anchor", ("InstantAnchor | None",)),
+        ("metric_no_time_binding.reason", ("no_entity_default", "fixed_member_count")),
+    ),
+)
+def test_contribution_time_definition_help_exposes_captured_fields(
+    target: str, facts: tuple[str, ...]
+) -> None:
+    page, _, _ = render_help_text("semantic." + target)
+    assert f"Target: semantic.{target}\nKind: attribute" in page
+    assert f"Python: {target}" in page
+    assert "Access: read-only" in page
+    assert all(fact in page for fact in facts)
+
+
 def test_grain_field_help_matches_runtime_variant_availability() -> None:
     builtin = mv.grain("day")
     calendar = ms.ref.period_calendar("sales.fiscal")

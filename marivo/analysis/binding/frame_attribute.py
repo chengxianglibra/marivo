@@ -41,6 +41,7 @@ from marivo.analysis.binding.frame_attribute_sources import (
     source_group_key,
 )
 from marivo.analysis.binding.observe import bind_observation
+from marivo.analysis.binding.windows import require_finite_attribution_scope
 from marivo.analysis.core.data_schema import (
     CalendarDataAxis,
     DataComparison,
@@ -248,6 +249,7 @@ def source_inputs(
                 canonical_id="analysis_frame.attribute",
             )
         original = source.graph
+        require_finite_attribution_scope(original)
         observation = original.signature.observation
         assert observation is not None and isinstance(original.root, ObserveQuery)
         original_axes = original.signature.axes
@@ -472,6 +474,7 @@ def source_inputs(
             memberships=(*observation.coordinates.memberships, *fine_memberships),
             calendar_snapshots=tuple(snapshots.values()),
             population=fine_by._definition if fine_by is not None else None,
+            report_period=observation.period,
         )
         bound = replace(
             bound,

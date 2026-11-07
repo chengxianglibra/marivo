@@ -21,11 +21,13 @@ from ibis.common.deferred import (
 )
 
 from marivo._definition.deferred import (
+    CapturedDefaultTimeResolver,
     DeclarationResolver,
     NamedResolver,
     RescaleResolver,
     SemanticInput,
     SemanticResolver,
+    attribute_name,
     inspect_capture,
     relationship_carrier,
     resolver_of,
@@ -39,6 +41,7 @@ from marivo.refs import Ref, SemanticKind, SemanticKindTag
 from marivo.refs import ref as ref_factory
 from marivo.semantic._compiled_state import CompilationGraph
 from marivo.semantic._deferred_semantics import (
+    capture_source_time,
     consume_field,
     consume_metric,
     consume_predicate,
@@ -148,6 +151,17 @@ def bind_recipe(
             recipe, bind_value, lookup, field=field, predicate=predicate
         )
         return parameter_value if isinstance(parameter_value, Resolver) else Just(parameter_value)
+    if isinstance(recipe, CapturedDefaultTimeResolver) and recipe.field is not None:
+        current = lookup(recipe.field.ref)
+        if not isinstance(current, Deferred):
+            raise SemanticExpressionError(
+                kind=ErrorKind.INVALID_TIME_PATH,
+                message="Captured default time is not a field in the receiving scope.",
+                expected="the captured TimeDimension at its declared identity",
+                received=recipe.field.ref.key,
+                action="Recreate the reduction from the receiving Catalog if its time field changed.",
+            )
+        return CapturedDefaultTimeResolver(consume_field(current).reference)
     if isinstance(recipe, (Call, Attr, Item)):
         parameter = bind_parameter_call(
             recipe, bind_value, lookup, field=field, predicate=predicate
@@ -162,7 +176,9 @@ def bind_recipe(
             return resolver_of(value)
         if isinstance(value, Entity):
             exact = value._exact_ref
-            return SemanticResolver(SemanticInput(exact, exact, "1", SumNone()))
+            return SemanticResolver(
+                SemanticInput(exact, exact, "1", SumNone(), default_time=value._default_time)
+            )
         if isinstance(value, Relationship):
             return Just(value._parameter)
         raise SemanticExpressionError(
@@ -240,14 +256,15 @@ def bind_recipe(
     if isinstance(recipe, UnaryOperator):
         return UnaryOperator(recipe.func, bind(recipe.arg))
     if isinstance(recipe, Call):
-        return Call(
-            bind(recipe.func),
-            *(bind(arg) for arg in recipe.args),
-            **{key: bind(value) for key, value in recipe.kwargs.items()},
-        )
+        function = bind(recipe.func)
+        args = tuple(bind(arg) for arg in recipe.args)
+        kwargs = {key: bind(value) for key, value in recipe.kwargs.items()}
+        if isinstance(function, Attr) and "time" not in kwargs:
+            default = capture_source_time(function.obj, None, operation=attribute_name(function))
+            if default is not None:
+                kwargs["time"] = default
+        return Call(function, *args, **kwargs)
     if isinstance(recipe, Attr):
-        from marivo._definition.deferred import attribute_name
-
         return Attr(bind(recipe.obj), attribute_name(recipe))
     if isinstance(recipe, RecipeSequence):
         values = tuple(bind(value) for value in recipe.values)
@@ -490,21 +507,7 @@ def publish_declarations(
                 bind_recipe(resolver_of(original), lookup=lookup, declarations=closed, root=True)
             )
             row = consume_row(value) if target.kind is SemanticKind.MEASURE else None
-            from marivo.semantic._time_parameters import (
-                qualify_declaration_slots,
-                time_parameter_ref,
-                validate_declaration_slots,
-            )
-
-            if row is None:
-                declaration_recipe = resolver_of(value)
-                assert isinstance(declaration_recipe, DeclarationResolver)
-                declaration_recipe = qualify_declaration_slots(declaration_recipe, target.key)
-                validate_declaration_slots(
-                    declaration_recipe.recipe, declaration_recipe.declaration.time_slots
-                )
-                value = Deferred(declaration_recipe)
-            facts = row if row is not None else consume_metric(value, allow_open=True)
+            facts = row if row is not None else consume_metric(value)
             if row is not None and row.root.ref.path != target.path.rsplit(".", 1)[0]:
                 raise SemanticExpressionError(
                     kind=ErrorKind.INVALID_EXPRESSION_VALUE,
@@ -528,7 +531,7 @@ def publish_declarations(
                     action="Keep Session-owned values in the analysis script.",
                 )
             consumed = frozenset(
-                {exact.ref for exact in closure.refs if not time_parameter_ref(exact)}
+                {exact.ref for exact in closure.refs}
                 | {ref for node in closure.order for ref in direct_calendar_refs(node)}
             )
             scope_error = _closure_scope_error(target.path, value, consumed, available)

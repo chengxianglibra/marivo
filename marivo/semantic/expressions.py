@@ -265,6 +265,7 @@ class _Entity(_ExpressionDisplay):
         }
     )
     _facts: DefinitionFacts | None = field(default=None, compare=False, repr=False, kw_only=True)
+    _default_time: ExactRef | None = field(default=None, repr=False, kw_only=True)
 
     @property
     def ref(self) -> EntitySymbol:
@@ -275,7 +276,11 @@ class _Entity(_ExpressionDisplay):
         """Capture a count of complete contribution rows without reading a source."""
         from marivo._definition.deferred import SemanticInput, semantic_input
 
-        value = semantic_input(SemanticInput(self._exact_ref, self._exact_ref, "1", SumNone()))
+        value = semantic_input(
+            SemanticInput(
+                self._exact_ref, self._exact_ref, "1", SumNone(), default_time=self._default_time
+            )
+        )
         return cast(
             "Deferred", value.count() if isinstance(time, _OmittedTime) else value.count(time=time)
         )
@@ -331,6 +336,7 @@ class _FieldMetadata(_ExpressionDisplay):
 
     path: tuple[_Relationship, ...]
     anchor: InstantAnchor | None
+    _default_time: ExactRef | None
 
     def _require_native(self, *, operation: str) -> None:
         if self.path or self.anchor is not None:
@@ -351,6 +357,7 @@ class Dimension(_FieldMetadata):
     _versioned: bool = field(default=False, compare=False, repr=False, kw_only=True)
     path: tuple[_Relationship, ...] = field(default=(), kw_only=True)
     _facts: DefinitionFacts | None = field(default=None, compare=False, repr=False, kw_only=True)
+    _default_time: ExactRef | None = field(default=None, repr=False, kw_only=True)
 
 
 @dataclass(frozen=True, slots=True, eq=False)
@@ -361,6 +368,7 @@ class TimeField(_FieldMetadata):
     anchor: InstantAnchor | None = field(default=None, kw_only=True)
     _versioned: bool = field(default=False, compare=False, repr=False, kw_only=True)
     _facts: DefinitionFacts | None = field(default=None, compare=False, repr=False, kw_only=True)
+    _default_time: ExactRef | None = field(default=None, repr=False, kw_only=True)
 
 
 @dataclass(frozen=True, slots=True, eq=False)
@@ -374,6 +382,7 @@ class Measure(_FieldMetadata):
     _versioned: bool = field(default=False, compare=False, repr=False, kw_only=True)
     path: tuple[_Relationship, ...] = field(default=(), kw_only=True)
     _facts: DefinitionFacts | None = field(default=None, compare=False, repr=False, kw_only=True)
+    _default_time: ExactRef | None = field(default=None, repr=False, kw_only=True)
 
 
 Field: TypeAlias = Dimension | TimeField | Measure
@@ -659,6 +668,10 @@ class _Resolver:
     def entity_ref(self, path: str) -> ExactRef:
         return self.exact(ref_factory.entity(path))
 
+    def default_time(self, entity_path: str) -> ExactRef | None:
+        path = self._registry.entities[entity_path].default_time
+        return self.exact(ref_factory.time_dimension(path)) if path is not None else None
+
     def coordinate(self, path: str) -> ExactRef:
         field = self._registry.dimensions.get(path)
         if field is None:
@@ -688,6 +701,8 @@ class _Resolver:
             details.append(("source", str(definition.source.to_dict())[:160]))
             if definition.versioning is not None:
                 details.append(("versioning", repr(definition.versioning)))
+            if definition.default_time is not None:
+                details.append(("default_time", f"time_dimension:{definition.default_time}"))
         elif isinstance(definition, DimensionIR):
             if definition.sample_interval is not None:
                 details.append(("sample_interval", definition.sample_interval.to_token()))
@@ -712,6 +727,7 @@ class _Resolver:
             _exact_ref=self.entity_ref(path),
             primary_key=self._registry.entities[path].primary_key,
             _facts=self.facts(target),
+            _default_time=self.default_time(path),
         )
 
     def permission(self, path: str) -> SumPermission:
@@ -758,6 +774,7 @@ class _Resolver:
             ),
             _facts=self.facts(ref_factory.measure(path)),
             _versioned=self._registry.entities[measure.entity].versioning is not None,
+            _default_time=self.default_time(measure.entity),
         )
 
     def field(self, path: str) -> Dimension | TimeField:
@@ -766,9 +783,14 @@ class _Resolver:
         ref = self.coordinate(path)
         facts = self.facts(ref.ref)
         versioned = self._registry.entities[field.entity].versioning is not None
+        default = self.default_time(field.entity)
         if field.is_time_dimension:
-            return TimeField(ref=ref, root=root, _facts=facts, _versioned=versioned)
-        return Dimension(ref=ref, root=root, _facts=facts, _versioned=versioned)
+            return TimeField(
+                ref=ref, root=root, _facts=facts, _versioned=versioned, _default_time=default
+            )
+        return Dimension(
+            ref=ref, root=root, _facts=facts, _versioned=versioned, _default_time=default
+        )
 
     def metric(self, path: str) -> Deferred:
         """Return a qualified declaration view without changing its captured source."""
@@ -809,6 +831,7 @@ class _Resolver:
                 from_entity=self.entity_ref(contract.from_entity_ref.path),
                 to_entity=self.entity_ref(contract.to_entity_ref.path),
                 cardinality=contract.cardinality,
+                _from_default_time=self.default_time(contract.from_entity_ref.path),
             ),
             _facts=self.facts(ref_factory.relationship(path)),
         )
@@ -902,6 +925,7 @@ def author_value(value: ResolvedValue) -> ResolvedValue:
                 permission=value.permission if isinstance(value, Measure) else SumNone(),
                 coordinates=value.coordinates if isinstance(value, Measure) else (),
                 versioned=value._versioned,
+                default_time=value._default_time,
                 field_read=FieldRead(
                     value.ref,
                     value.root,

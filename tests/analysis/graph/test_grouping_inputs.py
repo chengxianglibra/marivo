@@ -53,14 +53,14 @@ def test_identity_grouping_and_domain_have_distinct_completion(
             grouping.kind = "field"  # type: ignore[misc]  # Runtime immutability probe.
         for by in ((grouping, region), (region, grouping)):
             reuse = tuple(members.axes[0] if item is grouping else item for item in by)
-            left = session.observe({"value": metric}, by=(period, *by))
-            right = session.observe({"value": metric}, by=(period, *reuse))
+            left = session.observe({"value": metric}, by=(*by,), where=period)
+            right = session.observe({"value": metric}, by=(*reuse,), where=period)
             assert source_graph(left).signature == source_graph(right).signature
     assert terminal_runs(session) == before
-    observed = session.observe({"value": metric}, by=(period, grouping))
+    observed = session.observe({"value": metric}, by=(grouping,), where=period)
     complete = session.observe({"value": metric}, by=mv.product(period, members))
     inferred = session.observe(
-        {"value": metric}, by=(period, grouping), where=mv.in_population(members)
+        {"value": metric}, by=(grouping,), where=(period, mv.in_population(members))
     )
     assert observed.compute().to_pandas()["value"].tolist() == [450, 150, 400]
     assert complete.compute().to_pandas()["value"].tolist() == [450, 150, 400, 0]
@@ -72,13 +72,14 @@ def test_calendar_grouping_is_the_unique_output_time_scope(
 ) -> None:
     session = analysis_dsl_case_factory("j1").session
     metric = catalog_get(session.catalog, "metric:sales.revenue", kind="metric")
-    calendar = session.time_scope(start="2026-08-01", end="2026-10-01").by(mv.grain("month"))
+    calendar_scope = session.time_scope(start="2026-08-01", end="2026-10-01")
+    calendar = calendar_scope.by(mv.grain("month"))
     assert isinstance(calendar, mv.Grouping) and calendar.kind == "calendar"
     members = session.members(catalog_get(session.catalog, "entity:sales.customer", kind="entity"))
     captured_calendar = mv.product(members, calendar).axes[1]
-    direct = session.observe({"value": metric}, by=(calendar,))
-    reused = session.observe({"value": metric}, by=(captured_calendar,))
-    assert source_graph(direct).signature == source_graph(reused).signature
+    direct = session.observe({"value": metric}, by=(mv.grain("month"),), where=calendar_scope)
+    with pytest.raises(AnalysisError, match="Grain"):
+        session.observe({"value": metric}, by=(captured_calendar,))
     assert direct.compute().to_pandas()["value"].tolist() == [1000, 99]
 
 
@@ -200,13 +201,13 @@ def test_membership_expansion_preserves_interleaved_fields_and_capture_purity(
 
     with monkeypatch.context() as guard:
         guard.setattr(SourceSession, "__enter__", forbidden)
-        compact = session.observe({"value": revenue}, by=(period, rule))
-        positioned = session.observe({"value": revenue}, by=(period, rule, status))
+        compact = session.observe({"value": revenue}, by=(rule,), where=period)
+        positioned = session.observe({"value": revenue}, by=(rule, status), where=period)
         assert source_graph(compact).fingerprint == source_graph(positioned).fingerprint
-        interleaved = session.observe({"value": revenue}, by=(period, rule, region, status))
+        interleaved = session.observe({"value": revenue}, by=(rule, region, status), where=period)
         axes = source_graph(interleaved).signature.axes
         assert tuple(
-            axis.field.ref.path for axis in axes[1:] if isinstance(axis, AxisBinding) and axis.field
+            axis.field.ref.path for axis in axes if isinstance(axis, AxisBinding) and axis.field
         ) == ("sales.order.channel", "sales.customer.region", "sales.order.status")
         observation = source_graph(interleaved).signature.observation
         assert observation is not None
@@ -260,7 +261,7 @@ def test_unified_memberships_reject_ambiguous_positions_and_domain_shapes(
     )
     for by in malformed:
         with pytest.raises(AnalysisError) as caught:
-            session.observe({"value": revenue}, by=by)
+            session.observe({"value": revenue}, by=by)  # type: ignore[arg-type]  # A Population cannot be mixed into the axis tuple.
         assert caught.value.expected and caught.value.received and caught.value.repair
         with pytest.raises(SemanticError):
             consume_metric(revenue.per(by).mean())
@@ -295,8 +296,9 @@ def test_complete_population_keeps_axis_order_and_rule_scope(
         by=(channel, region, status),
         keys=(("web", "east", "paid"), ("mobile", "east", "paid"), ("web", "south", "paid")),
     )
-    observed = session.observe({"value": revenue}, by=(domain, rule))
-    graph = source_graph(observed)
+    with pytest.raises(AnalysisError):
+        session.observe({"value": revenue}, by=(domain, rule))  # type: ignore[arg-type]  # A complete domain is the whole by input.
+    graph = source_graph(session.observe({"value": revenue}, by=domain))
     assert isinstance(graph.root, ObserveQuery)
     assert graph.root.population == domain._definition
     assert graph.signature.axes == domain._definition.axes
@@ -330,11 +332,11 @@ def test_interleaved_rules_and_nested_samples_have_independent_numeric_oracles(
     # R=(channel,status), S=(customer,region); (R,S,status,region) gives a,c,b,d.
     ordinary_status = mv.coordinates(by=(status,), keys=()).axes[0]
     pending = session.observe(
-        {"value": revenue}, by=(scope, channels, customers, ordinary_status, region)
+        {"value": revenue}, by=(channels, customers, ordinary_status, region), where=scope
     )
     axes = source_graph(pending).signature.axes
     assert tuple(
-        axis.field.ref.path for axis in axes[1:] if isinstance(axis, AxisBinding) and axis.field
+        axis.field.ref.path for axis in axes if isinstance(axis, AxisBinding) and axis.field
     ) == (
         "sales.order.channel",
         "sales.customer.customer_id",
@@ -369,7 +371,7 @@ def test_interleaved_rules_and_nested_samples_have_independent_numeric_oracles(
                 "by_customer": nested,
                 "by_channel": reversed_layers,
             },
-            by=(scope,),
+            where=scope,
         )
         .compute()
         .to_pandas()

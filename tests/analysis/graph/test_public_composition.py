@@ -81,7 +81,8 @@ def test_ratio_complete_coordinate_tuple_and_original_components(
     channel = catalog_value(case.session.catalog, "sales.order.channel", kind="dimension")
     rolled_frame = case.session.observe(
         {"value": catalog_get(case.session.catalog, "metric:sales.aov_from_lines", kind="metric")},
-        by=(case.session.time_scope(start="2026-08-01", end="2026-09-01"), channel),
+        by=(channel,),
+        where=case.session.time_scope(start="2026-08-01", end="2026-09-01"),
     ).persist()
     rolled = rolled_frame.to_pandas()
     assert rolled.set_index(ordinary_columns(rolled_frame)[0])["value"].to_dict() == {

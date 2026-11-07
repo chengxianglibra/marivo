@@ -240,15 +240,6 @@ def _axes(
             axes.append(_interval_coordinate(item))
         elif isinstance(item, Grouping):
             binding = item._binding
-            from marivo._definition.grouping import FieldCalendarBinding
-
-            if isinstance(binding, FieldCalendarBinding):
-                reject(
-                    "a Population coordinate",
-                    "field calendar grouping",
-                    "Use the field calendar in Session.observe.by, or select Population keys explicitly.",
-                    "population",
-                )
             if isinstance(binding, MembershipBinding):
                 reject(
                     "ordinary coordinate groupings",

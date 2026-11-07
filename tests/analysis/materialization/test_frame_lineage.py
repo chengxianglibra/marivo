@@ -300,9 +300,11 @@ def test_cold_lineage_has_no_model_or_source_dependency(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     case = analysis_dsl_case_factory("j2")
-    calendar = case.session.time_scope(start="2026-08-15", end="2026-08-16").by(mv.grain("day"))
+    calendar_scope = case.session.time_scope(start="2026-08-15", end="2026-08-16")
     observed = case.session.observe(
-        {"revenue": catalog_value(case.catalog, "sales.revenue", kind="metric")}, by=(calendar,)
+        {"revenue": catalog_value(case.catalog, "sales.revenue", kind="metric")},
+        by=(mv.grain("day"),),
+        where=calendar_scope,
     )
     saved = observed.persist()
     (case.root / "models").rename(case.root / "hidden_models")

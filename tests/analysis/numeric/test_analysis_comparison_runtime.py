@@ -28,6 +28,7 @@ from tests.shared_fixtures import (
     analysis_dsl_rows,
     catalog_value,
     export_dsl_parquet_models,
+    time_population,
 )
 from tests.support.paths import PROJECT_ROOT
 
@@ -64,12 +65,11 @@ def _monthly(
 ) -> mv.AnalysisFrame:
     session = case.session
     scope = session.time_scope(start=f"2026-{month:02}-01", end=f"2026-{month + 1:02}-01")
-    return session.observe(
-        {"value": catalog_value(session.catalog, "sales." + metric, kind="metric")},
-        by=(scope,)
-        if overall
-        else mv.product(scope, session.members(_entity(session.catalog, "entity:sales.customer"))),
-    )
+    outputs = {"value": catalog_value(session.catalog, "sales." + metric, kind="metric")}
+    if overall:
+        return session.observe(outputs, by=time_population(scope))
+    members = session.members(_entity(session.catalog, "entity:sales.customer"))
+    return session.observe(outputs, by=mv.product(scope, members))
 
 
 def _numeric_source(case: DslCase, physical: str, parquet: bool) -> None:
@@ -932,18 +932,22 @@ def test_period_change_after_bucket_rollup(analysis_dsl_case_factory: DslCaseFac
     session = case.session
 
     def grouped(month: int, day: int) -> mv.AnalysisFrame:
-        axis = session.time_scope(
+        axis_scope = session.time_scope(
             start=f"2026-{month:02}-{day:02}", end=f"2026-{month:02}-{day + 3:02}"
-        ).by(mv.grain("day"))
+        )
+        axis = axis_scope.by(mv.grain("day"))
         observed = session.observe(
             {"value": _metric(session.catalog, "metric:sales.order_count")},
             by=mv.product(axis, session.members(_entity(session.catalog, "entity:sales.customer"))),
         )
         return session.observe(
             {"value": _metric(session.catalog, "metric:sales.order_count")},
-            by=(axis,),
-            where=mv.in_population(
-                session.members(_entity(session.catalog, "entity:sales.customer"))
+            by=(mv.grain("day"),),
+            where=(
+                axis_scope,
+                mv.in_population(
+                    session.members(_entity(session.catalog, "entity:sales.customer"))
+                ),
             ),
         )
 

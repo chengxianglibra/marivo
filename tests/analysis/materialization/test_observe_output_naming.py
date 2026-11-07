@@ -92,27 +92,27 @@ def test_observe_unnamed_recipes_require_mapping_even_with_one_metric_dependency
     members = session.members(catalog_value(session.catalog, "sales.order", kind="entity"))
     scope = session.time_scope(start="2026-08-01", end="2026-09-01")
     recipes = (
-        (revenue * 2, ()),
-        (revenue.where(channel == "web"), ()),
-        (revenue.window(mv.all_history()), (scope,)),
-        (revenue.per(channel).sum(), ()),
-        (ms.rescale(revenue, divisor=100, unit="CNY"), ()),
-        (amount.sum(), ()),
-        (members.count(), ()),
+        (revenue * 2, None),
+        (revenue.where(channel == "web"), None),
+        (revenue.window(mv.all_history()), scope),
+        (revenue.per(channel).sum(), None),
+        (ms.rescale(revenue, divisor=100, unit="CNY"), None),
+        (amount.sum(), None),
+        (members.count(), None),
     )
 
     def forbidden(*args: object, **kwargs: object) -> None:
         raise AssertionError("Naming rejection must precede business reads")
 
     monkeypatch.setattr(SourceSession, "execute", forbidden)
-    for recipe, by in recipes:
+    for recipe, where in recipes:
         with pytest.raises(AnalysisError) as caught:
             session.observe(recipe)
         error = caught.value
         assert error.expected == "a directly named Metric for automatic output naming"
         assert error.received == "an anonymous Metric expression"
         assert error.repair and "user-chosen output name" in error.repair.action
-        assert session.observe({"chosen": recipe}, by=by).output_names == ("chosen",)
+        assert session.observe({"chosen": recipe}, where=where).output_names == ("chosen",)
     assert terminal_runs(session) == ()
 
 

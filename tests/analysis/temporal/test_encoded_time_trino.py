@@ -167,7 +167,7 @@ def test_native_partition_constraints_and_scanned_rows(
                             )
                             scope = session.time_scope(start="2026-07-03", end="2026-07-05")
                             result = session.observe(
-                                {"value": events.count(time=point)}, by=(scope,)
+                                {"value": events.count(time=point)}, where=scope
                             ).compute()
                             assert result.to_pandas()["value"].tolist() == [200]
                         public_sql = next(
@@ -306,7 +306,8 @@ def test_hour_prefix_public_filters_prune_both_iceberg_partitions(
                         if mode in ("scope", "calendar"):
                             frame = session.observe(
                                 metrics,
-                                by=(scope.by(mv.grain("hour")) if mode == "calendar" else scope,),
+                                by=(mv.grain("hour"),) if mode == "calendar" else (),
+                                where=scope,
                             )
                         else:
                             predicate = hour.within(scope)
@@ -366,8 +367,11 @@ def test_hour_prefix_public_filters_prune_both_iceberg_partitions(
                         for mode in ("scope", "calendar", "within", "and"):
                             source_trace.native_sql.clear()
                             if mode in ("scope", "calendar"):
-                                axis = scope.by(mv.grain("day")) if mode == "calendar" else scope
-                                frame = session.observe(metrics, by=(axis,))
+                                frame = session.observe(
+                                    metrics,
+                                    by=(mv.grain("day"),) if mode == "calendar" else (),
+                                    where=scope,
+                                )
                             else:
                                 predicate = hour.within(scope)
                                 if mode == "and":

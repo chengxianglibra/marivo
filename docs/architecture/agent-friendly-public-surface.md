@@ -128,7 +128,7 @@ revenue_entry = session.catalog.get("metric:sales.revenue")
 assert revenue_entry.kind == "metric"
 revenue = revenue_entry
 period = session.time_scope(start="2026-06-01", end="2026-06-08")
-saved = session.observe({"revenue": revenue}, by=(period,)).persist()
+saved = session.observe({"revenue": revenue}, where=period).persist()
 saved.show(n=10)
 saved.show(n=0)
 ```

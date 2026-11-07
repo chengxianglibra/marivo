@@ -132,7 +132,7 @@ def test_member_axis_retains_ordered_composite_identity(members_session: Session
     prefix = _domain(session)
     members = session.members(catalog_value(session.catalog, f"{prefix}.plain", kind="entity"))
     metric = catalog_value(session.catalog, f"{prefix}.observed_total", kind="metric")
-    category = catalog_value(session.catalog, f"{prefix}.plain.category", kind="field")
+    category = catalog_value(session.catalog, f"{prefix}.plain.category", kind="dimension")
     for axes, expected in (
         ((members.axes[0], category), {((1, "A"), "west"): 10, ((1, "B"), "east"): 20}),
         ((category, members.axes[0]), {("west", (1, "A")): 10, ("east", (1, "B")): 20}),
@@ -151,8 +151,8 @@ def test_member_axis_retains_ordered_composite_identity(members_session: Session
         assert set(actual_sequence) == {(1, "A"), (1, "B")}
     # Separate scalar primary-key fields retain their Field roles.
     fields = (
-        catalog_value(session.catalog, f"{prefix}.plain.tenant", kind="field"),
-        catalog_value(session.catalog, f"{prefix}.plain.id", kind="field"),
+        catalog_value(session.catalog, f"{prefix}.plain.tenant", kind="dimension"),
+        catalog_value(session.catalog, f"{prefix}.plain.id", kind="dimension"),
     )
     grouped = session.observe({"value": metric}, by=fields)
     assert all(
@@ -173,7 +173,7 @@ def test_observation_classification_reads_explicit_version(members_session: Sess
     members = session.members(catalog_value(session.catalog, f"{prefix}.plain", kind="entity"))
     metric = catalog_value(session.catalog, f"{prefix}.observed_total", kind="metric")
     route = catalog_value(session.catalog, f"{prefix}.to_snapshot", kind="relationship")
-    field = catalog_value(session.catalog, f"{prefix}.snapshot.category", kind="field")
+    field = catalog_value(session.catalog, f"{prefix}.snapshot.category", kind="dimension")
     category = field.via((route,)).at(session.instant("2026-08-01"))
     observed = session.observe({"value": metric}, by=(category,)).compute().to_pandas()
     assert observed.set_index(observed.columns[0])["value"].to_dict() == {
@@ -202,11 +202,11 @@ def test_mixed_predicate_uses_nullable_missing_scalar_matches(
     session = members_session
     prefix = _domain(session)
     entity = catalog_value(session.catalog, f"{prefix}.plain", kind="entity")
-    category = catalog_value(session.catalog, f"{prefix}.plain.category", kind="field")
+    category = catalog_value(session.catalog, f"{prefix}.plain.category", kind="dimension")
     selected = session.members(entity, where=category == "west")
     route = catalog_value(session.catalog, f"{prefix}.to_snapshot", kind="relationship")
     later = (
-        catalog_value(session.catalog, f"{prefix}.snapshot.category", kind="field")
+        catalog_value(session.catalog, f"{prefix}.snapshot.category", kind="dimension")
         .via((route,))
         .at(session.instant("2026-09-01"))
     )
@@ -557,7 +557,7 @@ def test_grid_attribute_point_is_independent_of_member_version(members_session: 
         datetime(2026, 8, 2, 1, 2, 3, tzinfo=timezone.utc),
         datetime(2026, 8, 2, 1, 2, 3, tzinfo=timezone.utc),
     ]
-    stable = catalog_value(session.catalog, f"{prefix}.plain.category", kind="field")
+    stable = catalog_value(session.catalog, f"{prefix}.plain.category", kind="dimension")
     with pytest.raises(SemanticExpressionError):
         session.read(
             session.members(catalog_value(session.catalog, f"{prefix}.plain", kind="entity")),
@@ -572,7 +572,7 @@ def test_grid_classification_uses_grid_point(members_session: Session) -> None:
     members = session.members(
         catalog_value(session.catalog, f"{prefix}.snapshot", kind="entity"), at=anchor
     )
-    category = catalog_value(session.catalog, f"{prefix}.snapshot.category", kind="field").at(
+    category = catalog_value(session.catalog, f"{prefix}.snapshot.category", kind="dimension").at(
         anchor
     )
     categories = members.classify(by=(category,))

@@ -43,19 +43,19 @@ from analysis import mv, session, revenue, amount, region, august
 {/* example: calendar-query */}
 
 ```python
-days = august.by(mv.grain("day"))
-daily = session.observe({"revenue": revenue}, by=(days,)).compute()
+day = mv.grain("day")
+daily = session.observe({"revenue": revenue}, where=august, by=(day,)).compute()
 sum_of_days = daily.reduce({"sum_of_days": daily["revenue"].sum()}).compute()
 sum_of_days.show()
 monthly_source = session.observe(
-    {"revenue": revenue}, by=(august.by(mv.grain("month")),)
+    {"revenue": revenue}, where=august, by=(mv.grain("month"),)
 ).compute()
 monthly_source.show()
 ```
 
-Calendar buckets use the actual executor's native keys. Ordinary output retains
-both generated output positions and additional observed keys, filling only missing
-positions. The key and civil label do not promise a contiguous UTC member range.
+Calendar buckets use the actual executor's native keys. With a report scope,
+ordinary output retains both generated and observed positions and fills missing
+positions. With a Grain alone, it returns only observed positions. The key and civil label do not promise a contiguous UTC member range.
 `read_periods()` exposes saved order and selection progress. Builtin day/week/month
 use native civil truncation; subday widths align to local midnight. Custom calendar
 output requires exactly one complete certified period; multiple or partial periods
@@ -68,10 +68,13 @@ from datetime import timedelta
 
 rolling = session.observe(
     {"revenue": revenue.window(mv.trailing_duration(duration=timedelta(days=7)))},
-    by=(days,),
+    where=august,
+    by=(day,),
 ).compute()
 month_to_date = session.observe(
-    {"revenue": revenue.window(mv.to_date(grain=mv.grain("month")))}, by=(days,)
+    {"revenue": revenue.window(mv.to_date(grain=mv.grain("month")))},
+    where=august,
+    by=(day,),
 ).compute()
 rolling.show()
 month_to_date.show()
@@ -80,10 +83,10 @@ month_to_date.show()
 {/* example: period-comparison-query */}
 
 ```python
-current_days = session.time_scope(start="2026-08-01", end="2026-08-04").by(mv.grain("day"))
-prior_days = session.time_scope(start="2026-07-01", end="2026-07-04").by(mv.grain("day"))
-current_daily = session.observe({"revenue": revenue}, by=(current_days,)).compute()
-prior_daily = session.observe({"revenue": revenue}, by=(prior_days,)).compute()
+current_scope = session.time_scope(start="2026-08-01", end="2026-08-04")
+prior_scope = session.time_scope(start="2026-07-01", end="2026-07-04")
+current_daily = session.observe({"revenue": revenue}, where=current_scope, by=(mv.grain("day"),)).compute()
+prior_daily = session.observe({"revenue": revenue}, where=prior_scope, by=(mv.grain("day"),)).compute()
 comparison = current_daily.compare(
     {"reference": mv.baseline(prior_daily, match=mv.ordinal())}
 ).compute()
@@ -94,10 +97,11 @@ comparison.show()
 
 ```python
 months = session.time_scope(start="2026-08-01", end="2026-08-20").by(mv.grain("month"))
-current_progress = session.observe({"revenue": revenue}, by=(months,))
+unit = mv.coordinates(by=(), keys=((),))
+current_progress = session.observe({"revenue": revenue}, by=mv.product(months, unit))
 previous_progress = session.observe(
     {"revenue": revenue},
-    by=(months.shift(mv.offset(periods=-1)),),
+    by=mv.product(months.shift(mv.offset(periods=-1)), unit),
 )
 progress = current_progress.compare({"mom": mv.baseline(previous_progress)}).compute()
 progress.show()
@@ -161,9 +165,9 @@ order_date_entry = session.catalog.get("time_dimension:sales.orders.order_date")
 assert order_date_entry.kind == "time_dimension"
 order_date = order_date_entry
 samples = amount.mean(time=order_date).per(order_date)
-sample_mean = session.observe({"average": samples.mean()}, by=(august, region)).compute()
+sample_mean = session.observe({"average": samples.mean()}, where=august, by=(region,)).compute()
 # Arithmetic does not add a clock-coverage requirement.
-adjusted = session.observe({"average": samples.mean() + 0}, by=(august, region)).compute()
+adjusted = session.observe({"average": samples.mean() + 0}, where=august, by=(region,)).compute()
 sample_mean.show()
 adjusted.show()
 ```
@@ -187,8 +191,8 @@ not trigger local recomputation. Completed Frames continue to use captured data.
 
 Use `Metric.per(grain)` to fold completed buckets by each source component's
 declared contribution time. Use `Metric.per(created_at, grain=mv.grain("day"))`
-to fix the sample field while the original Metric keeps its contribution time.
-Both builtin forms use the Session report timezone and need no finite
+to fix the sample field while the original Metric keeps its contribution time. Both forms require all
+source branches to have a contribution clock. Both builtin forms use the Session report timezone and need no finite
 observation period. If you previously chose the sample timezone through an
 observation axis, set the Session timezone explicitly. An all-NULL day with
 contributions is still a sample. A missing day adds no sample.
@@ -196,9 +200,9 @@ contributions is still a sample. A missing day adds no sample.
 {/* example: calendar-sample-fold */}
 
 ```python
-weekly = august.by(mv.grain("week"))
+week = mv.grain("week")
 daily_average = revenue.per(mv.grain("day")).mean()
-folded = session.observe({"daily_average": daily_average}, by=(weekly, region)).compute()
+folded = session.observe({"daily_average": daily_average}, where=august, by=(week, region)).compute()
 folded.show()
 ```
 
@@ -209,14 +213,13 @@ keys; final output completion does not affect their mean or count. Builtin nesti
 is static: day in week/month is valid; week in month rejects. Divisible subday
 widths, month in quarter/year and quarter in year are supported at every layer.
 Undefined custom hierarchies reject; one complete certified custom period may be
-sampled under an interval axis. Pass the Grain to `per`, and the CalendarAxis or
-TimeScope to `observe(by=...)`. Help: `semantic.metric.per`.
+sampled under a compatible report TimeScope. The Grain in `per` selects internal
+sample buckets; the Grain in `observe(by=...)` selects report buckets. Help: `semantic.metric.per`.
 
 Semantic grains from `ms.calendar_grain(...)` bind to the Session's current
 certified calendar snapshot. Declared calendar folds require calendar
 certification. Windows inside calendar samples and windows wrapping calendar
-folds currently raise a typed error. Observe the windowed Metric directly on a
-CalendarAxis and explicitly reduce the captured Frame values instead.
+folds currently raise a typed error. Observe the windowed Metric at report grain and explicitly reduce the captured Frame values instead.
 
 
 ## Historical classification for each fact
@@ -232,11 +235,13 @@ label = session.catalog.get("dimension:sales.profiles.label")
 route = session.catalog.get("relationship:sales.profile")
 amount = session.catalog.get("measure:sales.facts.amount")
 historical = label.via((route,)).at(control)
-days = session.time_scope(start="2026-08-25", end="2026-09-08").by(mv.grain("day"))
-daily = session.observe({"value": amount.sum(time=control)}, by=(days, historical)).compute()
+scope = session.time_scope(start="2026-08-25", end="2026-09-08")
+day = mv.grain("day")
+daily = session.observe({"value": amount.sum(time=control)}, where=scope, by=(day, historical)).compute()
 restated = session.observe(
     {"value": amount.sum(time=control)},
-    by=(days, label.via((route,)).at(session.instant("2026-09-03T00:00:00+00:00"))),
+    where=scope,
+    by=(day, label.via((route,)).at(session.instant("2026-09-03T00:00:00+00:00"))),
 ).compute()
 ```
 

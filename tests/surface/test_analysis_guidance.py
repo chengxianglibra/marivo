@@ -131,8 +131,8 @@ def test_grouping_is_the_public_observation_family() -> None:
         (
             "session.observe",
             (
-                "fields/Grouping/TimeScope/memberships",
-                "population.axes",
+                "Dimensions, non-time Groupings",
+                "one report Grain",
                 "P fixes joint keys",
             ),
         ),
@@ -160,9 +160,15 @@ def test_time_binding_has_one_public_entry_per_operation() -> None:
         "MaterializedTimeAnalysisDomain",
     ):
         assert not hasattr(mv, name) and name not in REGISTRY.canonical_ids()
-    annotation = str(inspect.signature(mv.Session.observe).parameters["by"].annotation)
-    assert "TimeScope" in annotation and "Grouping" in annotation
-    assert "during" not in inspect.signature(mv.Session.observe).parameters
+    parameters = inspect.signature(mv.Session.observe).parameters
+    assert tuple(parameters) == ("self", "metrics", "by", "where")
+    by = str(parameters["by"].annotation)
+    where = str(parameters["where"].annotation)
+    assert all(
+        family in by for family in ("DimensionExpression", "Grouping", "Grain", "Population")
+    )
+    assert "TimeScope" not in by and "CalendarAxis" not in by
+    assert all(family in where for family in ("RowPredicate", "TimeScope", "tuple", "None"))
     assert tuple(inspect.signature(mv.Session.read).parameters) == ("self", "population", "fields")
 
 

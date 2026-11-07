@@ -58,13 +58,13 @@ Choose the counted domain before selecting a statistic:
 
 | Question | Exact contract | Meaning |
 | --- | --- | --- |
-| How many selected members or coordinate tuples? | `analysis.population.count` | Complete distinct tuples, including selected members without facts; returns a Metric for observe |
+| How many selected members or coordinate tuples? | `analysis.population.count` | Complete distinct tuples, including selected members without facts; returns a Metric for observe without report time |
 | How many source contributions? | `semantic.entity.count` | Contributions under explicit time and conditions; returns a Metric for observe |
 | How many represented rows? | `analysis.row_count` | Current Frame rows, consumed by reduce or over |
 
 `semantic.expressions` owns question-scoped Metric arithmetic, conditions,
 internal samples and windows over established closed inputs. It is directly
-reachable from inputs and Metric parameter acquisition. Use authoring to establish missing reusable
+reachable from inputs and Metric input acquisition. Use authoring to establish missing reusable
 business meaning or aggregation authority. Question-scoped composition does not
 require publication. Current row statistics do not reconstruct an original
 Metric aggregation.

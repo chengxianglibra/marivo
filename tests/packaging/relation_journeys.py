@@ -372,7 +372,8 @@ def _produce(
                 )
             }
         )
-        temporal = session.time_scope(start="2026-07-01", end="2026-10-01").by(mv.grain("month"))
+        temporal_scope = session.time_scope(start="2026-07-01", end="2026-10-01")
+        temporal = temporal_scope.by(mv.grain("month"))
         running = session.observe(
             {
                 "value": catalog_get(
@@ -402,7 +403,7 @@ def _produce(
                 by=mv.product(session.time_scope(start="2026-08-01", end="2026-09-01"), targets),
             ),
             "branch_total": session.observe(
-                {"value": branch}, by=(session.time_scope(start="2026-08-01", end="2026-09-01"),)
+                {"value": branch}, where=session.time_scope(start="2026-08-01", end="2026-09-01")
             ),
             "period": period,
             "running": running,
@@ -412,7 +413,8 @@ def _produce(
                         session.catalog, "metric:operations.running_energy", kind="metric"
                     )
                 },
-                by=(temporal,),
+                by=(mv.grain("month"),),
+                where=temporal_scope,
             ),
             "folded": folded,
             "folded_total": session.observe(
@@ -443,7 +445,7 @@ def _produce(
             ),
         )
         totals = [
-            session.observe({"value": metric}, by=(session.time_scope(start=start, end=end),))
+            session.observe({"value": metric}, where=session.time_scope(start=start, end=end))
             for start, end in (("2026-08-01", "2026-09-01"), ("2026-07-01", "2026-08-01"))
         ]
         difference = totals[0].compare({"reference": mv.baseline(totals[1], match=mv.ordinal())})

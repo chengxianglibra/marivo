@@ -832,13 +832,11 @@ class _BaseMetricASTValidator(ast.NodeVisitor):
         body_label: str = "Metric body",
         symbols: frozenset[str] | None = None,
         pure_declaration: bool = False,
-        time_parameters: frozenset[str] = frozenset(),
     ) -> None:
         self.fn_name = fn_name
         self.body_label = body_label
         self._symbols = symbols
         self._pure_declaration = pure_declaration
-        self._time_parameters = time_parameters
         self.errors: list[SemanticError] = []
         self._param_names: set[str] = set()
         self._parent_map: dict[ast.AST, ast.AST] = {}
@@ -875,7 +873,7 @@ class _BaseMetricASTValidator(ast.NodeVisitor):
         if self._pure_declaration and (
             node.args.posonlyargs
             or node.args.args
-            or any(arg.arg not in self._time_parameters for arg in node.args.kwonlyargs)
+            or node.args.kwonlyargs
             or node.args.vararg is not None
             or node.args.kwarg is not None
         ):
@@ -885,9 +883,7 @@ class _BaseMetricASTValidator(ast.NodeVisitor):
                 ast.unparse(node.args),
             )
         # Extract parameter names and build parent map for context-sensitive checks.
-        self._param_names = {
-            arg.arg for arg in (*node.args.posonlyargs, *node.args.args)
-        } | self._time_parameters
+        self._param_names = {arg.arg for arg in (*node.args.posonlyargs, *node.args.args)}
         self._parent_map = {
             child: parent for parent in ast.walk(node) for child in ast.iter_child_nodes(parent)
         }
@@ -1128,7 +1124,6 @@ def validate_declaration_body_ast(
     function: ast.FunctionDef,
     *,
     symbols: frozenset[str],
-    time_parameters: frozenset[str] = frozenset(),
 ) -> None:
     """Apply shared statement/local-binding rules to a pure expression declaration."""
     validator = _BaseMetricASTValidator(
@@ -1136,7 +1131,6 @@ def validate_declaration_body_ast(
         body_label="Expression declaration",
         symbols=symbols,
         pure_declaration=True,
-        time_parameters=time_parameters,
     )
     validator.visit(function)
     if validator.errors:
@@ -1803,6 +1797,25 @@ def assembly_validate(
 
     # -- Validate datasource refs on entities --------------------------------
     for ds_id, ds_ir in registry.entities.items():
+        default = ds_ir.default_time
+        if default is not None:
+            field = registry.dimensions.get(default)
+            if field is None or not field.is_time_dimension or field.entity != ds_id:
+                errors.append(
+                    SemanticLoadError(
+                        kind=ErrorKind.INVALID_TIME_PATH,
+                        message=f"Entity {ds_id!r} has an invalid default contribution time.",
+                        refs=(ds_id, default),
+                        expected=f"a native TimeDimension declared on {ds_id}",
+                        received=(
+                            f"{default} on {field.entity}"
+                            if field is not None and field.is_time_dimension
+                            else f"{default}, which is not a declared TimeDimension"
+                        ),
+                        hint="Choose a native TimeDimension on this Entity or omit default_time.",
+                        location=ds_ir.location,
+                    )
+                )
         if ds_ir.datasource not in registry.datasources:
             errors.append(
                 SemanticLoadError(

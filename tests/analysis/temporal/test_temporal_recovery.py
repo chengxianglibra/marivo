@@ -120,7 +120,7 @@ def test_native_temporal_mean_int64_identities_and_independent_cold_reads(
         calendar = scope.by(mv.grain("day"))
         temporal = session.observe({"value": total.per(time).mean()}, by=mv.product(scope, members))
         source = temporal.persist()
-        spatial = session.observe({"value": total.per(time).mean()}, by=(scope,)).persist()
+        spatial = session.observe({"value": total.per(time).mean()}, where=scope).persist()
         represented = temporal.reduce({"value": temporal["value"].mean()}).persist()
         samples = session.observe(
             {"sum": total, "rows": amount.count(time=time)}, by=mv.product(calendar, members)

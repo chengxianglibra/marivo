@@ -122,6 +122,9 @@ orders = ms.entity(
   that one Source as an Ibis Table and returns one relation derived from it.
   Filtering, projection, deduplication and aggregation can establish reusable
   business grain. Question-specific Metric calculations remain in Metrics.
+- An optional `default_time` identifies a native TimeDimension owned by this
+  Entity. A typed forward reference resolves against the completed Catalog.
+  Reductions on this Entity inherit it when they omit `time=`.
 - Primary keys, version columns and downstream fields belong to the Entity's
   output schema. Source aliases govern only the expression's input. Physical
   schema checks are deferred until metadata is bound; static loading does not
@@ -352,8 +355,9 @@ hh = ms.time_dimension_column(name="hh", entity=orders, column="hh", parse=ms.ho
   are allowed. [Sampled expressions](expressions.md#internal-samples-and-windows)
   own the reduction behavior.
 
-Source reductions select the contribution time explicitly with `time=field`.
-Omit the argument for a reduction with no contribution time. Status-time
+Source reductions fix the contribution time with `time=field` or inherit the
+single contributing Entity's declared `default_time` when omitted. If neither
+is available, the reduction has no contribution clock. Status-time
 coordinates on Measures retain their independent additivity contract.
 
 DATE contribution roles require day-or-coarser output/reset and finite boundaries

@@ -256,7 +256,7 @@ def test_native_calendar_and_actual_samples_without_multipart(
                         "count": sampled.count(),
                         "nested_p95": sampled.quantile(0.95).per(mv.grain("day")).mean(),
                     },
-                    by=(scope,),
+                    where=scope,
                 )
                 .compute()
                 .to_pandas()
@@ -264,26 +264,37 @@ def test_native_calendar_and_actual_samples_without_multipart(
             assert internal["mean"].tolist() == [2] and internal["count"].tolist() == [4032]
             assert internal["nested_p95"].tolist() == [2]
             fixed = session.observe(
-                {"v": total}, by=(scope.by(mv.grain("minute", count=5)),)
+                {"v": total}, by=(mv.grain("minute", count=5),), where=scope
             ).compute()
             rows = fixed.to_pandas()
             assert len(rows) == 4320 and rows.v.tolist() == [2] * 4032 + [0] * 288
-            empty = session.time_scope(start="2026-01-17", end="2026-01-18").by(mv.grain("day"))
+            empty_scope = session.time_scope(start="2026-01-17", end="2026-01-18")
             empty_rows = (
                 session.observe(
-                    {"sum": total + 1, "mean": amount.mean(time=point) + 1}, by=(empty,)
+                    {"sum": total + 1, "mean": amount.mean(time=point) + 1},
+                    by=(mv.grain("day"),),
+                    where=empty_scope,
                 )
                 .compute()
                 .to_pandas()
             )
             assert empty_rows["sum"].tolist() == [1] and empty_rows["mean"].isna().all()
-            assert session.observe({"v": total}, by=(empty, category)).compute().to_pandas().empty
+            assert (
+                session.observe({"v": total}, by=(mv.grain("day"), category), where=empty_scope)
+                .compute()
+                .to_pandas()
+                .empty
+            )
             for zone in ("UTC", "Asia/Shanghai"):
                 for unit in ("day", "week", "month"):
-                    axis = session.time_scope(
+                    axis_scope = session.time_scope(
                         start="2026-01-01", end="2026-01-16", timezone=zone
-                    ).by(mv.grain(unit))
-                    observed = session.observe({"v": total}, by=(axis,)).compute().to_pandas()
+                    )
+                    observed = (
+                        session.observe({"v": total}, by=(mv.grain(unit),), where=axis_scope)
+                        .compute()
+                        .to_pandas()
+                    )
                     assert observed.v.sum() == 8064
             saved = fixed.persist()
             before = len(trace.native_sql)

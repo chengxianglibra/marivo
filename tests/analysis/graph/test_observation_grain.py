@@ -15,7 +15,6 @@ from ibis.common.deferred import Deferred
 
 import marivo.analysis as mv
 import marivo.semantic as ms
-from marivo._definition.types import FieldRead
 from marivo.analysis.errors import AnalysisError
 from marivo.datasource.adapters import SourceSession
 from marivo.semantic._expression_values import MetricExpression, RowExpression
@@ -46,45 +45,27 @@ def _query(
     case: DslCase,
     *,
     metric: MetricExpression[Literal["numeric"]] | None = None,
-    by: tuple[
-        (
-            RowExpression[Literal["dimension"]]
-            | RowExpression[Literal["time"]]
-            | RowExpression[Literal["numeric"]]
-        )
-        | mv.Grouping,
-        ...,
-    ]
-    | mv.Population
-    | Deferred = (),
+    by: tuple[ms.Dimension | mv.Grouping, ...] | mv.Population | Deferred = (),
     members: mv.Population | None = None,
     during: mv.TimeScope | mv.CalendarAxis | None = None,
 ) -> mv.AnalysisFrame:
     assert not isinstance(by, Deferred)
-    domain: (
-        tuple[
-            (
-                RowExpression[Literal["dimension"]]
-                | RowExpression[Literal["time"]]
-                | RowExpression[Literal["numeric"]]
-            )
-            | mv.Grouping
-            | mv.TimeScope,
-            ...,
-        ]
-        | mv.Population
-    ) = by
-    if during is not None:
-        domain = mv.product(during, by) if isinstance(by, mv.Population) else (during, *by)
+    outputs = {"value": _revenue(case) if metric is None else metric}
+    condition = mv.in_population(members) if members is not None else None
+    if isinstance(by, mv.Population):
+        domain = mv.product(during, by) if during is not None else by
+        return case.session.observe(outputs, by=domain, where=condition)
+    scope = during.scope if isinstance(during, mv.CalendarAxis) else during
+    axes = (during.grid.grain_spec, *by) if isinstance(during, mv.CalendarAxis) else by
     return case.session.observe(
-        {
-            "value": catalog_get(case.session.catalog, "metric:sales.revenue", kind="metric")
-            if metric is None
-            else metric
-        },
-        by=domain,
-        where=mv.in_population(members) if members is not None else None,
+        outputs,
+        by=axes,
+        where=condition if scope is None else scope if condition is None else (scope, condition),
     )
+
+
+def _revenue(case: DslCase) -> ms.Metric:
+    return catalog_get(case.session.catalog, "metric:sales.revenue", kind="metric")
 
 
 def _keyed(result: mv.AnalysisFrame, name: str = "value") -> dict[tuple[object, ...], object]:
@@ -270,17 +251,15 @@ def test_grid_observation_keeps_time_without_member_axis(
     assert sorted(rows["value"]) == [0, 99, 150, 850]
 
 
-@pytest.mark.parametrize("raw_first", [False, True])
 @pytest.mark.parametrize(
     ("metric_path", "explicit_path"),
     [("sales.revenue", False), ("sales.line_revenue", False), ("sales.line_revenue", True)],
 )
-def test_calendar_rejects_repeated_raw_observation_time_before_source_reads(
+def test_calendar_rejects_raw_observation_time_before_source_reads(
     analysis_dsl_case_factory: DslCaseFactory,
     monkeypatch: pytest.MonkeyPatch,
     metric_path: str,
     explicit_path: bool,
-    raw_first: bool,
 ) -> None:
     session = analysis_dsl_case_factory("j1").session
     metric = catalog_value(session.catalog, metric_path, kind="metric")
@@ -290,8 +269,7 @@ def test_calendar_rejects_repeated_raw_observation_time_before_source_reads(
     if explicit_path:
         path = catalog_value(session.catalog, "sales.line_order", kind="relationship")
         raw_time = raw_time.via((path,))
-    calendar = session.time_scope(start="2026-08-01", end="2026-10-01").by(mv.grain("month"))
-    axes = (raw_time, calendar) if raw_first else (calendar, raw_time)
+    scope = session.time_scope(start="2026-08-01", end="2026-10-01")
     before = terminal_runs(session)
 
     def forbidden(*args: object, **kwargs: object) -> None:
@@ -300,48 +278,32 @@ def test_calendar_rejects_repeated_raw_observation_time_before_source_reads(
     with monkeypatch.context() as guard:
         guard.setattr(SourceSession, "__enter__", forbidden)
         with pytest.raises(AnalysisError) as failure:
-            session.observe({"value": metric}, by=axes)
+            session.observe(
+                {"value": metric},
+                by=(raw_time, mv.grain("month")),  # type: ignore[arg-type]  # Reject a raw time axis.
+                where=scope,
+            )
     error = failure.value
-    assert error.expected == "one implicit output representation of each observation time role"
-    assert error.received is not None and "sales.order.ordered_at" in error.received
-    assert "CalendarAxis 'month'" in error.received and "Metric 'value'" in error.received
-    assert error.location == "session.observe"
-    assert error.repair is not None
-    assert "keep only the CalendarAxis" in error.repair.action
-    assert "a TimeScope and the time field" in error.repair.action
-    assert error.repair.help_target is not None
-    assert error.repair.help_target.canonical_id == "session.observe"
+    assert error.expected and error.received and error.repair
+    assert "Grain" in error.repair.action
     assert terminal_runs(session) == before
 
 
-def test_raw_time_interval_and_explicit_calendar_product_remain_available(
+def test_raw_time_population_cannot_bypass_observation_admission(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     session = analysis_dsl_case_factory("j1").session
     metric = catalog_value(session.catalog, "sales.revenue", kind="metric")
     raw_time = catalog_value(session.catalog, "sales.order.ordered_at", kind="time_dimension")
     scope = session.time_scope(start="2026-08-01", end="2026-10-01")
-    raw = session.observe({"value": metric}, by=(scope, raw_time)).compute().to_pandas()
-    assert len(raw) == 4 and sorted(raw["value"]) == [99, 150, 400, 450]
-    calendar = scope.by(mv.grain("month"))
-    buckets = session.observe({"value": metric}, by=(calendar,)).compute().to_pandas()
+    month = mv.grain("month")
+    buckets = session.observe({"value": metric}, by=(month,), where=scope).compute().to_pandas()
     assert buckets["value"].tolist() == [1000, 99]
     times = mv.coordinates(
-        by=(raw_time,),
-        keys=tuple(
-            (datetime.fromisoformat(value),)
-            for value in (
-                "2026-08-01T00:00:00+00:00",
-                "2026-08-15T12:00:00+00:00",
-                "2026-08-31T23:59:59+00:00",
-                "2026-09-01T00:00:00+00:00",
-            )
-        ),
+        by=(raw_time,), keys=((datetime.fromisoformat("2026-08-01T00:00:00+00:00"),),)
     )
-    selected = session.observe({"value": metric}, by=mv.product(calendar, times))
-    selected_rows = selected.compute().to_pandas()
-    assert len(selected_rows) == 8
-    assert sorted(selected_rows["value"]) == [0, 0, 0, 0, 99, 150, 400, 450]
+    with pytest.raises(AnalysisError, match="fieldless"):
+        session.observe({"value": metric}, by=mv.product(scope.by(month), times))
 
 
 def test_calendar_keeps_distinct_time_fields_and_relationship_roles(
@@ -357,7 +319,8 @@ def test_calendar_keeps_distinct_time_fields_and_relationship_roles(
     )
     ms.load(workspace_dir=case.root)
     session = mv.session.get_or_create("distinct-time-roles", timezone="UTC")
-    calendar = session.time_scope(start="2026-08-01", end="2026-10-01").by(mv.grain("month"))
+    scope = session.time_scope(start="2026-08-01", end="2026-10-01")
+    month = mv.grain("month")
     received_at = catalog_value(session.catalog, "sales.order.received_at", kind="time_dimension")
     raw_time = catalog_value(session.catalog, "sales.order.ordered_at", kind="time_dimension")
     alternate = catalog_value(session.catalog, "sales.alternate_line_order", kind="relationship")
@@ -369,19 +332,25 @@ def test_calendar_keeps_distinct_time_fields_and_relationship_roles(
 
     with monkeypatch.context() as guard:
         guard.setattr(SourceSession, "__enter__", forbidden)
-        distinct_field = session.observe({"value": revenue}, by=(calendar, received_at))
+        distinct_field = session.observe(
+            {"value": revenue}, by=(month,), where=(scope, received_at.within(scope))
+        )
         distinct_path = session.observe(
-            {"value": line_revenue}, by=(calendar, raw_time.via((alternate,)))
+            {"value": line_revenue},
+            by=(month,),
+            where=(scope, raw_time.via((alternate,)).within(scope)),
         )
     for frame in (distinct_field, distinct_path):
         binding = source_graph(frame).signature.observation
-        assert binding is not None and len(binding.coordinates.axes) == 2
-        contribution = binding.contributions[0]
-        assert contribution.time is not None
-        coordinate = contribution.coordinates[0]
-        assert isinstance(coordinate, FieldRead)
-        assert (
-            coordinate.field != contribution.time.field or coordinate.path != contribution.time.path
+        assert binding is not None and len(binding.coordinates.axes) == 1
+        (contribution,) = binding.contributions
+        assert contribution.time is not None and contribution.common_condition is not None
+        condition_reads = [
+            read for read in contribution.reads if read.field.ref.kind.value == "time_dimension"
+        ]
+        assert any(
+            read.field != contribution.time.field or read.path != contribution.time.path
+            for read in condition_reads
         )
 
 
@@ -405,7 +374,7 @@ history_link = ms.relationship(name='order_history', from_entity=orders, to_enti
     )
     ms.load(workspace_dir=case.root)
     session = mv.session.get_or_create("anchored-time-role", timezone="UTC")
-    calendar = session.time_scope(start="2026-08-01", end="2026-10-01").by(mv.grain("month"))
+    scope = session.time_scope(start="2026-08-01", end="2026-10-01")
     raw_time = catalog_value(session.catalog, "sales.history.recorded_at", kind="time_dimension")
     path = catalog_value(session.catalog, "sales.order_history", kind="relationship")
     amount = catalog_value(session.catalog, "sales.order.amount", kind="measure")
@@ -418,17 +387,21 @@ history_link = ms.relationship(name='order_history', from_entity=orders, to_enti
 
     with monkeypatch.context() as guard:
         guard.setattr(SourceSession, "__enter__", forbidden)
-        with pytest.raises(AnalysisError, match="one implicit output representation"):
-            session.observe({"value": metric}, by=(calendar, source_time))
-        frame = session.observe({"value": metric}, by=(calendar, raw_time.via((path,)).at(second)))
+        frame = session.observe(
+            {"value": metric},
+            by=(mv.grain("month"),),
+            where=(scope, raw_time.via((path,)).at(second).within(scope)),
+        )
     binding = source_graph(frame).signature.observation
     assert binding is not None
-    contribution = binding.contributions[0]
-    coordinate = contribution.coordinates[0]
-    assert isinstance(coordinate, FieldRead) and contribution.time is not None
-    assert coordinate.field == contribution.time.field
-    assert coordinate.path == contribution.time.path
-    assert coordinate.at != contribution.time.at
+    (contribution,) = binding.contributions
+    assert contribution.time is not None and contribution.time.at == first
+    assert any(
+        read.field == contribution.time.field
+        and read.path == contribution.time.path
+        and read.at == second
+        for read in contribution.reads
+    )
 
 
 def test_empty_members_keep_overall_buckets(analysis_dsl_case_factory: DslCaseFactory) -> None:

@@ -451,7 +451,7 @@ def test_pending_scope_summary_keeps_interval_count_domains_and_joint_keys_witho
     second = mv.coordinates(by=(mv.identity(entity),), keys=((("t2", 2),),))
     scope = session.time_scope(start="2026-08-01", end="2026-09-01", timezone="Asia/Shanghai")
     domain = mv.product(scope, first)
-    counted = session.observe({"first": first.count(), "second": second.count()}, by=domain)
+    counted = session.observe({"first": first.count(), "second": second.count()}, by=first)
     keys = session.frame(domain)
     before = _inventory(session)
 
@@ -468,14 +468,15 @@ def test_pending_scope_summary_keeps_interval_count_domains_and_joint_keys_witho
     for value in (counted, keys):
         value.show(n=0)
         text = capsys.readouterr().out
-        assert "PopulationProduct factors=2; joint tuples preserved" in text
         assert "('missing', 999)" in text and "('t1', 1)" in text
-        assert "2026-07-31T16:00:00+00:00" in text and "2026-08-31T16:00:00+00:00" in text
-        assert "Asia/Shanghai" in text and "interval" in text and "identity" in text
-        assert "owner_id" not in text and "sha256:" not in text
+        assert "identity" in text and "owner_id" not in text and "sha256:" not in text
         if value is counted:
             assert "count[0].domain" in text and "count[1].domain" in text
             assert "('t2', 2)" in text
+        else:
+            assert "PopulationProduct factors=2; joint tuples preserved" in text
+            assert "2026-07-31T16:00:00+00:00" in text and "2026-08-31T16:00:00+00:00" in text
+            assert "Asia/Shanghai" in text and "interval" in text
     assert _inventory(session) == before and terminal_runs(session) == ()
 
 
@@ -722,13 +723,14 @@ def test_source_top_keeps_entire_frozen_calendar_directory(
 ) -> None:
     case = analysis_dsl_case_factory("j2")
     session = case.session
-    calendar = session.time_scope(start="2026-08-01", end="2026-09-01").by(mv.grain("day"))
+    calendar_scope = session.time_scope(start="2026-08-01", end="2026-09-01")
     source = frame_sources.observe(
         session._runtime.local,
         session.catalog._state,
         session._runtime.connection_config,
         {"sales": catalog_value(session.catalog, "sales.revenue", kind="metric")},
-        by=(calendar,),
+        by=(mv.grain("day"),),
+        scope=calendar_scope,
     )
 
     from marivo.analysis.core import frame_calendar
@@ -930,8 +932,7 @@ def test_membership_source_audit_survives_fixed_and_persisted_results_without_re
         catalog_value(session.catalog, "sales.link_tags", kind="relationship"),
     )
     buckets = mv.membership(label, via=(path,), unmatched="exclude")
-    domain = mv.coordinates(by=(label,), keys=(("A",), ("B",), ("C",)))
-    pending = session.observe({"revenue": revenue}, by=(domain, buckets))
+    pending = session.observe({"revenue": revenue}, by=(buckets,))
     before = _inventory(session)
 
     def forbidden(*args: object, **kwargs: object) -> None:
@@ -949,7 +950,7 @@ def test_membership_source_audit_survives_fixed_and_persisted_results_without_re
     assert "sales.order_links" in card and "sales.link_tags" in card
     assert _inventory(session) == before and terminal_runs(session) == ()
     fixed = pending.compute()
-    assert fixed.to_pandas()["revenue"].tolist() == [20, 10, 0]
+    assert fixed.to_pandas()["revenue"].tolist() == [20, 10]
     assert _inventory(session) == before and terminal_runs(session) == ()
     metadata = _memory(fixed).metadata
     facts = metadata.source_reads
@@ -990,5 +991,5 @@ def test_membership_source_audit_survives_fixed_and_persisted_results_without_re
     assert _memory(loaded).metadata.evaluation == metadata.evaluation
     assert _memory(loaded).metadata.source_reads == metadata.source_reads
     assert loaded.lineage.input_id == loaded.schema.input_id == loaded._input_id
-    assert loaded.to_pandas()["revenue"].tolist() == [20, 10, 0]
+    assert loaded.to_pandas()["revenue"].tolist() == [20, 10]
     assert len(terminal_runs(session)) == 1

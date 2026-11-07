@@ -131,6 +131,11 @@ _PARAMETERS: dict[str, tuple[str, str, tuple[LiveHelpTarget, ...]]] = {
         "Omit for an unversioned Entity; choose snapshot or validity history explicitly.",
         _links("snapshot", "validity"),
     ),
+    "default_time": (
+        "TimeDimensionSymbol",
+        "Omit for no Entity default. Pass a native TimeDimension or typed forward lookup from this Entity. Source reductions inherit it when time= is omitted.",
+        _links("ref.time_dimension"),
+    ),
     "default": (
         "bool",
         "True makes this Domain the file's default; False requires explicit domain selection for its declarations.",
@@ -203,7 +208,7 @@ _EXTRAS: dict[str, tuple[str, ...]] = {
     "snapshot": ("timezone",),
     "validity": ("interval", "open_end"),
     "domain": ("default", "ai_context"),
-    "entity": ("primary_key", "versioning", "domain", "ai_context"),
+    "entity": ("primary_key", "versioning", "default_time", "domain", "ai_context"),
     "dimension": ("domain", "ai_context"),
     "dimension_column": ("domain", "ai_context"),
     "time_dimension": ("domain", "ai_context"),

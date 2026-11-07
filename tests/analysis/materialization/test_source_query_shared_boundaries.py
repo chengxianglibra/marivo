@@ -274,13 +274,14 @@ def test_shared_population_does_not_merge_distinct_window_occurrences(
         chosen = producer.where(producer["n"] > 0)
         selected = session.population_from(chosen, on=((chosen.axes[0], customer),))
         total = amount.sum(time=day).where(mv.in_population(selected))
-        calendar = session.time_scope(start="2026-10-07", end="2026-10-09").by(mv.grain("day"))
+        calendar_scope = session.time_scope(start="2026-10-07", end="2026-10-09")
         query = session.observe(
             {
                 "history": total.window(mv.all_history()),
                 "recent": total.window(mv.trailing_duration(duration=timedelta(days=2))),
             },
-            by=(calendar,),
+            by=(mv.grain("day"),),
+            where=calendar_scope,
         )
         trace = capture_source(monkeypatch)
         rows = query.compute().to_pandas()

@@ -11,10 +11,11 @@ from ibis.common.deferred import Deferred
 
 from marivo._definition.types import Owner
 from marivo._grouping import Grouping
-from marivo._temporal import InstantAnchor, TimeScope, _SessionTimeScope
+from marivo._temporal import Grain, InstantAnchor, TimeScope, _SessionTimeScope
 from marivo.analysis.materialization.contracts import SessionRecord
 from marivo.analysis.observation.contracts import ObservationOwner
 from marivo.semantic._expression_values import (
+    DimensionExpression,
     FieldExpression,
     NumericMetric,
     RowExpression,
@@ -331,93 +332,109 @@ class Session:
         | tuple[NumericMetric, ...]
         | Mapping[str, NumericMetric],
         *,
-        by: tuple[FieldExpression | Grouping | TimeScope | Population, ...] | Population = (),
-        where: RowPredicate | None = None,
+        by: tuple[DimensionExpression | Grouping | Grain, ...] | Population = (),
+        where: RowPredicate | TimeScope | tuple[RowPredicate | TimeScope, ...] | None = None,
     ) -> AnalysisFrame:
         """Capture Metric expressions as a lazy AnalysisFrame with fixed output names.
 
         Args:
-            metrics: One directly named Metric, a nonempty list or tuple of named Metrics,
-                or a nonempty ordered mapping with explicit output names for expressions.
-            by: Ordered fields, grouping rules and at most one direct TimeScope or CalendarAxis,
-                or a complete Population optionally followed by membership rules.
-                Use time_group to filter and bucket a specific time field independently.
-            where: Extra row Predicate combining field and Population membership conditions.
-                Time comparison boundaries use this Session's report timezone for civil inputs;
-                aware inputs retain their instant, independently of the output scope's timezone.
-
+            metrics: A named Metric, a nonempty sequence of named Metrics, or
+                an ordered mapping with explicit output names.
+            by: Ordered classification fields and grouping rules with at most
+                one report Grain, or one complete Population.
+            where: A row predicate, a report TimeScope, or a tuple combining
+                them with AND. At most one TimeScope selects the report.
         Returns:
             An immutable pending AnalysisFrame owned by this Session.
-
         Example:
             ``period = session.time_scope(start='2026-08-01', end='2026-09-01')``;
-            ``frame = session.observe(revenue, by=(period,)).compute()``;
-            ``frame.show()``.
-
-        Constraints: No source reads; by=() has no time range.
-        Direct TimeScope/CalendarAxis requires time= on every source reduction.
-        Use mv.time_group(field, axis=scope.by(grain)) or where=field.within(scope) without time=.
-        time_group supplies no TimeParameter bindings or window endpoints.
-        Duplicate calendar/raw time: use calendar alone, TimeScope+field, or explicit Population.
-        TimeField samples allow missing clocks. Windows need endpoints; custom samples need complete periods.
-        Builtin samples use Session timezone; no period required.
-        Names label outputs without asserting business identity. Trust semantic primary_key with
-        nullable physical metadata; no full-source NULL/uniqueness precheck. Existing
-        identity-output and operation checks remain.
+            ``session.observe(revenue, where=period, by=(mv.grain('day'),)).show()``.
+        Constraints:
+            Capture reads no source data. A report scope or Grain requires
+            contribution time on every Metric branch. A Grain alone uses actual
+            contribution buckets. A scope alone adds no output axis. A predicate
+            such as ``field.within(period)`` remains a fixed source constraint.
         """
+        from marivo.analysis.core.model import reject
         from marivo.analysis.dsl import frame_sources
         from marivo.analysis.dsl._frame_inputs import collect_frame_key_inputs
-        from marivo.analysis.dsl.population import _bind_by
+        from marivo.analysis.dsl.population import Population
         from marivo.analysis.dsl.source_capture import _metric_inputs
         from marivo.semantic._consumption import bind_metric
-        from marivo.semantic.errors import SemanticExpressionError
 
+        owner = self._runtime.local.owner
         selected_metrics = _metric_inputs(metrics)
+        if not isinstance(by, (tuple, Population)):
+            reject(
+                "a tuple of classifications and optional Grain, or a complete Population",
+                type(by).__name__,
+                "Pass by=(dimension, mv.grain('day')) or pass the entire Population directly.",
+                "Session.observe.by",
+            )
+        if isinstance(by, tuple):
+            for index, item in enumerate(by):
+                if isinstance(item, (RowExpression, Grouping, Grain)):
+                    continue
+                reject(
+                    "a closed Dimension, Grouping or Grain",
+                    type(item).__name__,
+                    "Acquire a closed Dimension from the Session Catalog, put the report "
+                    "TimeScope in where, or pass an entire Population directly in by.",
+                    f"Session.observe.by[{index}]",
+                    canonical_id="session.observe",
+                )
         for name, metric in selected_metrics:
-            if metric._context.owner not in (None, self._runtime.local.owner):
-                from marivo.analysis.core.model import reject
-
+            if metric._context.owner not in (None, owner):
                 reject(
                     "a Metric expression owned by this Session",
                     "another Store or Session",
                     "Rebuild the Metric in its owning Session.",
                     f"Session.observe.metrics[{name!r}]",
                 )
-        captured_frame_inputs = collect_frame_key_inputs(
-            *(metric for _, metric in selected_metrics), where, owner=self._runtime.local.owner
-        )
-        inputs = []
-        for name, metric in selected_metrics:
-            try:
-                inputs.append(
-                    (name, bind_metric(metric, self.catalog, owner=self._runtime.local.owner))
-                )
-            except SemanticExpressionError as error:
-                if error.details.get("unbound_time_parameters") is True:
-                    from marivo.analysis.core.model import reject
-
-                    assert error.expected and error.received and error.repair is not None
+        predicates: list[RowPredicate] = []
+        scope = None
+        terms = where if isinstance(where, tuple) else () if where is None else (where,)
+        for term in terms:
+            if isinstance(term, TimeScope):
+                if scope is not None:
                     reject(
-                        error.expected,
-                        f"unbound time parameters: {error.received}",
-                        error.repair.action,
-                        f"Session.observe.metrics[{name!r}]",
-                        canonical_id="session.observe",
+                        "at most one report TimeScope",
+                        repr(terms),
+                        "Pass one TimeScope and combine fixed source predicates in where.",
+                        "Session.observe.where",
                     )
-                raise
-        bound_by = _bind_by(
-            by, self.catalog, self._runtime.local.owner, location="Session.observe.by"
+                scope = term
+            elif isinstance(term, RowExpression) and term._role == "boolean":
+                predicates.append(term)
+            else:
+                reject(
+                    "a TimeScope or row Predicate in the where conjunction",
+                    type(term).__name__,
+                    "Use where=scope, where=field.within(scope), or where=(scope, predicate).",
+                    "Session.observe.where",
+                )
+        captured_frame_inputs = collect_frame_key_inputs(
+            *(metric for _, metric in selected_metrics), *predicates, owner=owner
         )
-        bound_where = _predicate_input(
-            where, self.catalog, self._runtime.local.owner, location="Session.observe.where"
+        inputs = tuple(
+            (name, bind_metric(metric, self.catalog, owner=owner))
+            for name, metric in selected_metrics
         )
+        bound_where = None
+        for predicate in predicates:
+            bound = _predicate_input(
+                predicate, self.catalog, owner, location="Session.observe.where"
+            )
+            assert bound is not None
+            bound_where = bound if bound_where is None else bound_where & bound
         return frame_sources.observe(
             self._runtime.local,
             self.catalog._state,
             self._runtime.connection_config,
-            tuple(inputs),
-            by=bound_by,
+            inputs,
+            by=by,
             where=bound_where,
+            scope=scope,
             timezone=self.timezone,
             calendar_snapshots=self._sources().period_calendar_snapshots,
             _captured_frame_inputs=captured_frame_inputs,

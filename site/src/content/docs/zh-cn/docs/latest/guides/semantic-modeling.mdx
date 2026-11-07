@@ -25,7 +25,7 @@ Measure 和 Metric 声明的函数名就是语义名称；给 Python 变量另�
 
 ## Ibis 字段体与纯声明体
 
-Entity 与 Dimension/TimeDimension 声明体使用受约束的 Ibis 表达式。Measure 和 Metric 声明不接收表参数，而是返回语义表达式。参阅[字段与 Metric 定义](/zh-cn/docs/latest/modeling/semantic-layer/#定义字段与指标)。
+Entity 与 Dimension/TimeDimension 声明体使用受约束的 Ibis 表达式。Measure 和 Metric 声明接收零个参数，返回语义表达式。每个源规约使用显式字段或 Entity 默认字段固定贡献时间。参阅[字段与 Metric 定义](/zh-cn/docs/latest/modeling/semantic-layer/#定义字段与指标)。
 
 ## 旧声明的人工改写
 

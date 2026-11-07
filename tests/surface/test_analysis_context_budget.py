@@ -107,7 +107,7 @@ def test_task_context_budget(analysis_dsl_case_factory: DslCaseFactory) -> None:
     # An overall observation needs no member selection or member metadata.
     trace.help(session.observe)
     trace.read("observation metadata", values.show)
-    overall = session.observe({"value": metric}, by=(august,))
+    overall = session.observe({"value": metric}, where=august)
     trace.help(overall.compute)
     total = overall.compute()
     trace.read("total result", total.show)
@@ -191,7 +191,8 @@ def test_task_context_budget(analysis_dsl_case_factory: DslCaseFactory) -> None:
     forecast_session = mv.session.get_or_create("context-budget-forecast", timezone="UTC")
     daily = forecast_session.observe(
         {"value": catalog_value(forecast_session.catalog, "sales.total_0", kind="metric")},
-        by=(forecast_session.time_scope(start="2026-08-01", end="2026-08-04").by(mv.grain("day")),),
+        where=forecast_session.time_scope(start="2026-08-01", end="2026-08-04"),
+        by=(mv.grain("day"),),
     )
     trace = traces["drift"] = Trace(case.root)
     trace.help("analysis.session.observe")
@@ -253,8 +254,9 @@ def test_attribute_context_budget(analysis_dsl_case_factory: DslCaseFactory) -> 
         "analysis.analysis_frame.attribute",
     ):
         trace.help(target)
-    current = session.observe({"revenue": revenue}, by=(august,))
-    baseline = session.observe({"revenue": revenue}, by=(july,))
+    unit = mv.coordinates(by=(), keys=((),))
+    current = session.observe({"revenue": revenue}, by=mv.product(august, unit))
+    baseline = session.observe({"revenue": revenue}, by=mv.product(july, unit))
     comparison = current.compare({"reference": mv.baseline(baseline, match=mv.ordinal())}).compute()
     targets = comparison.select({"revenue": comparison["reference.absolute.revenue"]})
     request = targets.attribute(by=(region,))

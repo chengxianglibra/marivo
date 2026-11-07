@@ -26,6 +26,7 @@ if TYPE_CHECKING:
     from marivo.analysis.core.artifact_data import OutputAttachment
     from marivo.analysis.core.time_authority import TemporalExecution
     from marivo.analysis.dsl.frame import AnalysisFrame
+    from marivo.analysis.dsl.population import Population
     from marivo.analysis.materialization.admission import DatasetRuntime
     from marivo.analysis.materialization.frame_services import LocalFrameServices
     from marivo.analysis.materialization.store import SessionStore
@@ -1205,6 +1206,13 @@ def terminal_run(owner: Session | DatasetRuntime | LocalFrameServices, run_id: s
 
 def run_ids(session: Session) -> set[str]:
     return {item.run_ref for item in terminal_runs(session)}
+
+
+def time_population(axis: CalendarAxis | TimeScope) -> Population:
+    """Keep one explicit finite time axis without adding classification keys."""
+    import marivo.analysis as mv
+
+    return mv.product(axis, mv.coordinates(by=(), keys=((),)))
 
 
 def frozen_coordinates(frame: AnalysisFrame) -> tuple[OutputAttachment, ...]:

@@ -139,7 +139,7 @@ def _fields(
     return created, paid, amount, region
 
 
-def test_binding_contribution_time_keeps_explicit_sample_field(
+def test_definition_contribution_time_keeps_explicit_sample_field(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     semantic_project_factory: ProjectFactory,
@@ -149,51 +149,39 @@ def test_binding_contribution_time_keeps_explicit_sample_field(
         model.write_text(
             """import marivo.analysis as mv
 import marivo.semantic as ms
-from .facts import amount, created
+from .facts import amount, created, paid
 
 day = mv.grain("day")
 
 @ms.metric()
-def last_by_event_day(*, event: ms.TimeParameter):
-    return amount.sum(time=event).per(day).last()
+def last_by_paid_day():
+    return amount.sum(time=paid).per(day).last()
 
 @ms.metric()
-def last_by_created_day(*, event: ms.TimeParameter):
-    return amount.sum(time=event).per(created, grain=day).last()
+def last_by_created_day():
+    return amount.sum(time=paid).per(created, grain=day).last()
 
 @ms.metric()
-def last_by_sample_day(*, event: ms.TimeParameter, sample: ms.TimeParameter):
-    return amount.sum(time=event).per(sample, grain=day).last()
+def last_by_booked_day():
+    return amount.sum(time=created).per(day).last()
 """
         )
-        session = mv.session.get_or_create("bind-fold", timezone="UTC")
-        created, paid, _, _ = _fields(session)
+        session = mv.session.get_or_create("defined-fold", timezone="UTC")
+        _, paid, _, _ = _fields(session)
         november = session.time_scope(start="2026-11-01", end="2026-12-01")
-        where = paid.within(november)
-        follows = session.catalog.get("metric:sales.last_by_event_day")
+        follows = session.catalog.get("metric:sales.last_by_paid_day")
         fixed = session.catalog.get("metric:sales.last_by_created_day")
-        sample = session.catalog.get("metric:sales.last_by_sample_day")
+        booked = session.catalog.get("metric:sales.last_by_booked_day")
         assert isinstance(follows, ms.Metric) and isinstance(fixed, ms.Metric)
-        assert isinstance(sample, ms.Metric)
+        assert isinstance(booked, ms.Metric)
+        metrics = {"paid_sample": follows, "created_sample": fixed, "booked_sample": booked}
+        rows = (
+            session.observe(metrics, where=(november, paid.within(november))).compute().to_pandas()
+        )
+        assert _row_values(rows, list(metrics)) == [170, 140, 140]
 
-        first = follows.bind_time(event=created)
-        partial = sample.bind_time(event=paid)
-        metrics = {
-            "follow_created": first,
-            "fixed_created": fixed.bind_time(event=created),
-            "follow_paid": follows.bind_time(event=paid),
-            "fixed_paid": fixed.bind_time(event=paid),
-            "sample_created": partial.bind_time(sample=created),
-            "sample_paid": partial.bind_time(sample=paid),
-        }
-        rows = session.observe(metrics, by=(), where=where).compute().to_pandas()
-        assert _row_values(rows, list(metrics)) == [140, 140, 170, 140, 140, 170]
-        for open_metric in (follows, fixed, sample, partial):
-            with pytest.raises(AnalysisError, match="bind_time"):
-                session.observe({"open": open_metric}, by=(), where=where)
-        assert session.observe({"v": first}, where=where).compute().to_pandas()["v"].tolist() == [
-            140
-        ]
+        rows = session.observe(metrics, where=november).compute().to_pandas()
+        assert _row_values(rows, list(metrics)) == [170, 140, 999]
 
 
 def test_window_recomputes_event_mean_and_daily_fold_weights_days_equally(
@@ -213,11 +201,38 @@ def test_window_recomputes_event_mean_and_daily_fold_weights_days_equally(
         mean = amount.mean(time=paid)
         window = mean.window(mv.trailing_duration(duration=timedelta(hours=48)))
         endpoint = session.time_scope(start="2026-11-02", end="2026-11-03")
-        actual = session.observe({"mean": window}, by=(endpoint,)).compute().to_pandas()
+        actual = session.observe({"mean": window}, where=endpoint).compute().to_pandas()
         assert actual["mean"].tolist() == [250]
         daily = mean.per(mv.grain("day")).mean()
         folded = session.observe({"mean": daily}).compute().to_pandas()
         assert folded["mean"].tolist() == [200]
+
+
+def test_calendar_fold_completes_multiclock_formula_per_actual_day(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    semantic_project_factory: ProjectFactory,
+) -> None:
+    rows = (
+        ("2026-11-01 09:00:00", "2026-11-02 10:00:00", 100, "Booked", 1),
+        ("2026-10-30 09:00:00", "2026-11-02 10:00:00", 300, "Settled", 1),
+    )
+    with _sample_project(tmp_path, monkeypatch, semantic_project_factory, rows):
+        session = mv.session.get_or_create("daily-gap", timezone="UTC")
+        created, paid, amount, region = _fields(session)
+        booked = amount.sum(time=created).where(region == "Booked")
+        settled = amount.sum(time=paid).where(region == "Settled")
+        gap = (settled - booked).per(mv.grain("day")).mean()
+        scope = session.time_scope(start="2026-11-01", end="2027-01-01")
+        result = session.observe({"mean": gap}, where=scope).compute().to_pandas()
+        assert result["mean"].tolist() == [100]
+        monthly = (
+            session.observe({"mean": gap}, where=scope, by=(mv.grain("month"),))
+            .compute()
+            .to_pandas()
+            .sort_values("calendar:month")
+        )
+        assert monthly["mean"].fillna(-1).tolist() == [100, -1]
 
 
 def test_field_and_contribution_samples_are_independent(sample_session: Session) -> None:
@@ -232,33 +247,27 @@ def test_field_and_contribution_samples_are_independent(sample_session: Session)
         "paid_last": revenue.per(day).last(),
         "paid_last_explicit": revenue.per(paid, grain=day).last(),
     }
-    rows = sample_session.observe(metrics, by=(november,)).compute().to_pandas()
+    rows = sample_session.observe(metrics, where=november).compute().to_pandas()
     assert _row_values(rows, list(metrics)) == [90, 140, 85, 170, 170]
-    created_grid = sample_session.time_scope(start="2026-11-01", end="2026-11-05").by(day)
-    completed = (
-        sample_session.observe(
-            {"v": revenue}, by=(november, mv.time_group(created, axis=created_grid))
-        )
-        .compute()
-        .to_pandas()
-        .sort_values("created")
-    )
-    assert completed["v"].tolist() == [30, 0, 140, 0]
     members = mv.coordinates(by=(region,), keys=(("East",), ("West",)))
-    per_member = (revenue / members.count()).per(created, grain=day).mean()
-    assert sample_session.observe({"v": per_member}, by=(november,)).compute().to_pandas()[
-        "v"
-    ].tolist() == [42.5]
+    with pytest.raises(SemanticExpressionError, match="contribution time"):
+        (revenue / members.count()).per(created, grain=day).mean()
     rows = sample_session.observe(metrics).compute().to_pandas()
     assert _row_values(rows, ["paid_last", "paid_last_explicit"]) == [999, 999]
-    assert sample_session.observe(
-        {"v": amount.sum().per(created, grain=day).mean()}
-    ).compute().to_pandas()["v"].tolist() == [(30 + 140 + 999) / 3]
+    with pytest.raises(SemanticExpressionError, match="contribution time"):
+        amount.sum().per(created, grain=day).mean()
+    with pytest.raises(SemanticExpressionError, match="contribution time"):
+        amount.sum().per(day).mean()
+    raw_untimed = amount.sum().per(created).last()
+    assert sample_session.observe({"v": raw_untimed}).compute().to_pandas()["v"].tolist() == [999]
+    with pytest.raises(AnalysisError, match="contribution time"):
+        sample_session.observe({"v": raw_untimed}, where=november)
 
     categorized = (
         sample_session.observe(
             {"v": metrics["created_last"], "same_paid_day": metrics["paid_last"]},
-            by=(region, november.by(mv.grain("month"))),
+            by=(region, mv.grain("month")),
+            where=november,
         )
         .compute()
         .to_pandas()
@@ -268,14 +277,14 @@ def test_field_and_contribution_samples_are_independent(sample_session: Session)
     assert categorized["v"].tolist() == [30, 140]
     assert categorized["same_paid_day"].tolist() == [30, 140]
 
-    monthly = november.by(mv.grain("month"))
+    month = mv.grain("month")
     different_field = revenue.per(created, grain=mv.grain("week")).last()
-    assert sample_session.observe({"v": different_field}, by=(monthly,)).compute().to_pandas()[
-        "v"
-    ].tolist() == [140]
+    assert sample_session.observe(
+        {"v": different_field}, by=(month,), where=november
+    ).compute().to_pandas()["v"].tolist() == [140]
     with pytest.raises(CoreRuleError, match="static child-to-parent"):
         sample_session.observe(
-            {"v": revenue.per(paid, grain=mv.grain("week")).last()}, by=(monthly,)
+            {"v": revenue.per(paid, grain=mv.grain("week")).last()}, by=(month,), where=november
         )
 
 
@@ -292,7 +301,7 @@ def test_new_sample_shape_validates_grain_and_windows(
         (region, day),
         ((created,), day),
         (day, day),
-        (mv.time_group(created, axis=scope.by(day)), day),
+        (scope.by(day), day),
         (mv.coordinates(by=(region,), keys=(("East",),)), day),
         (created, ms.calendar_grain(calendar=ms.ref.period_calendar("sales.fiscal"), level="day")),
     ):
@@ -308,13 +317,13 @@ def test_new_sample_shape_validates_grain_and_windows(
         revenue.per(created, grain=day).last().window(window),
     ):
         with pytest.raises(CoreRuleError, match=r"calendar sampl|calendar fold"):
-            sample_session.observe({"v": expression}, by=(scope,))
+            sample_session.observe({"v": expression}, where=scope)
     with pytest.raises(SemanticExpressionError, match="calendar order"):
         sample_session.observe({"v": revenue.per(created, grain=day).last(order_by=created)})
     sample_session.observe({"v": revenue.per(created, grain=day).last()})
     assert source_trace.native_sql == []
     assert sample_session.observe(
-        {"v": revenue.per(created).last().window(window)}, by=(scope,)
+        {"v": revenue.per(created).last().window(window)}, where=scope
     ).compute().to_pandas()["v"].tolist() == [90]
 
 
@@ -359,14 +368,14 @@ def test_calendar_sample_completes_exact_status_then_folds_actual_days(
         spatial = status.sum(time=paid_field)
         closing = spatial.per(created).last(include_null=True).per(created, grain=day)
         actual = (
-            session.observe({"daily_mean": closing.mean(), "last": closing.last()}, by=(period,))
+            session.observe({"daily_mean": closing.mean(), "last": closing.last()}, where=period)
             .compute()
             .to_pandas()
         )
         assert _row_values(actual, ["daily_mean", "last"]) == [47.5, 50]
         for invalid in (spatial.per(created, grain=day).last(), spatial.per(paid_field).last()):
             with pytest.raises(CoreRuleError, match="exact native status-time"):
-                session.observe({"v": invalid}, by=(period,))
+                session.observe({"v": invalid}, where=period)
 
 
 def test_calendar_sample_keeps_null_quantities_and_checks_only_selected_clocks(
@@ -431,8 +440,8 @@ def test_builtin_samples_freeze_session_timezone_independently_of_scope(
             scope = session.time_scope(
                 start="2026-11-01", end="2026-11-03", timezone="Asia/Shanghai"
             )
-            for by in ((), (scope,)):
-                pending = session.observe(metrics, by=by)
+            for where in (None, scope):
+                pending = session.observe(metrics, where=where)
                 pending.show(n=0, max_output_bytes=None)
                 assert (
                     f"grain=day, timezone={session.timezone}, order=instant"
@@ -443,7 +452,7 @@ def test_builtin_samples_freeze_session_timezone_independently_of_scope(
             if session is utc:
                 for metric in metrics.values():
                     with pytest.raises(CoreRuleError, match="matching timezones"):
-                        session.observe({"v": metric}, by=(scope.by(day),))
+                        session.observe({"v": metric}, by=(day,), where=scope)
 
 
 @pytest.mark.parametrize(
@@ -468,7 +477,7 @@ def test_calendar_sample_distinguishes_repeated_civil_hour_instants(
     ):
         session = mv.session.get_or_create("repeated-hour", timezone="America/New_York")
         created, _, amount, _ = _fields(session)
-        repeated_hours = amount.sum().per(created, grain=mv.grain(unit))
+        repeated_hours = amount.sum(time=created).per(created, grain=mv.grain(unit))
         actual = (
             session.observe(
                 {
@@ -511,8 +520,8 @@ def test_ordered_calendar_samples_preserve_parent_nulls_and_empty_types(
     ):
         session = mv.session.get_or_create("ordered-null-samples", timezone="UTC")
         created, _, amount, region = _fields(session)
-        samples = amount.sum().per(created, grain=mv.grain("hour"))
-        floating = (amount.sum() / 2).per(created, grain=mv.grain("hour"))
+        samples = amount.sum(time=created).per(created, grain=mv.grain("hour"))
+        floating = (amount.sum(time=created) / 2).per(created, grain=mv.grain("hour"))
         metrics = {
             "first": samples.first(),
             "last": samples.last(),
@@ -578,7 +587,7 @@ def test_fixed_offset_samples_split_at_civil_midnight(
     ):
         session = mv.session.get_or_create("fixed-offset-midnight", timezone=zone)
         created, _, amount, _ = _fields(session)
-        samples = amount.sum().per(created, grain=mv.grain(unit))
+        samples = amount.sum(time=created).per(created, grain=mv.grain(unit))
         actual = (
             session.observe(
                 {
@@ -621,21 +630,20 @@ def test_forecast_versions_follow_target_range_and_explicit_release_cutoff(
         actual = (
             session.observe(
                 {"latest": latest, "mean": daily.mean(), "last": daily.last()},
-                by=(period,),
-                where=cutoff,
+                where=(period, cutoff),
             )
             .compute()
             .to_pandas()
         )
         assert _row_values(actual, ["latest", "mean", "last"]) == [1300, 1150, 1300]
         assert session.observe(
-            {"v": latest}, by=(period,), where=issued < "2026-11-05T18:00:00+00:00"
+            {"v": latest}, where=(period, issued < "2026-11-05T18:00:00+00:00")
         ).compute().to_pandas()["v"].tolist() == [1200]
         joint = (
             session.observe(
                 {"v": latest.per(issued, grain=mv.grain("month")).last()},
-                by=(period.by(day),),
-                where=cutoff,
+                by=(day,),
+                where=(period, cutoff),
             )
             .compute()
             .to_pandas()
@@ -643,10 +651,10 @@ def test_forecast_versions_follow_target_range_and_explicit_release_cutoff(
         assert joint["v"].tolist() == [1300]
 
         history = latest.window(mv.all_history())
-        assert session.observe({"v": history}, by=(period,), where=cutoff).compute().to_pandas()[
+        assert session.observe({"v": history}, where=(period, cutoff)).compute().to_pandas()[
             "v"
         ].tolist() == [1300]
-        assert session.observe({"v": history}, by=(period,)).compute().to_pandas()[
+        assert session.observe({"v": history}, where=period).compute().to_pandas()[
             "v"
         ].tolist() == [900]
 
@@ -683,7 +691,7 @@ def test_multiroot_field_folds_preserve_each_completed_branch(
                     "total": receipts - refunds,
                     "last_shared_day": (receipts - refunds).per(day).last(),
                 },
-                by=(period,),
+                where=period,
             )
             .compute()
             .to_pandas()
@@ -691,7 +699,7 @@ def test_multiroot_field_folds_preserve_each_completed_branch(
         assert _row_values(actual, ["closing", "total", "last_shared_day"]) == [45, 125, -5]
         with pytest.raises(SemanticExpressionError, match="native to every contribution root"):
             session.observe(
-                {"v": (receipts - refunds).per(created, grain=day).last()}, by=(period,)
+                {"v": (receipts - refunds).per(created, grain=day).last()}, where=period
             )
 
 
@@ -748,7 +756,7 @@ def test_saved_field_calendar_fold_reopens_without_sources_or_sample_axes(
         assert "time_dimension:sales.facts.paid" in definition
         assert ".per(time_dimension:sales.facts.created, grain=Grain('day'))" in definition
         november = session.time_scope(start="2026-11-01", end="2026-12-01")
-        saved = session.observe({"v": metric}, by=(november,)).persist()
+        saved = session.observe({"v": metric}, where=november).persist()
         assert saved.artifact_id is not None
     (tmp_path / "models").rename(tmp_path / "models.offline")
     (tmp_path / "source.duckdb").rename(tmp_path / "source.offline")
@@ -761,7 +769,7 @@ import sys
 import marivo.analysis as mv
 
 frame = mv.session.resume(sys.argv[1]).persisted_frame(sys.argv[2])
-assert len(frame.axes) == 1 and frame.axes[0].role == 'interval'
+assert not frame.axes
 assert frame.to_pandas()["v"].tolist() == [140]
 assert not hasattr(frame, "per")
 """,

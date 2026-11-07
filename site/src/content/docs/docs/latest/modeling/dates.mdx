@@ -27,7 +27,7 @@ order_date = ms.time_dimension_column(
 )
 ```
 
-Use `ms.time_dimension_column` for a physical column and `@ms.time_dimension` for a derived field. Native dates and aware timestamps need no parser; encoded strings or integers use `ms.strptime(...)`, while hour-only fields use `ms.hour_prefix(...)`. DATE, naive timestamps and encoded times require a source timezone: set it on the parser or declare Datasource `wall_clock_timezone`. Missing declarations reject before business-data reads. Aware physical timestamps ignore the Datasource default. Pass a field as `time=field` on a source reduction to select its contribution time. Omit `time` for a reduction without a time role. Supply a `TimeScope` in `observe.by` when you need an observation range. See [business calendars](#business-calendars) for governed fiscal periods.
+Use `ms.time_dimension_column` for a physical column and `@ms.time_dimension` for a derived field. Native dates and aware timestamps need no parser; encoded strings or integers use `ms.strptime(...)`, while hour-only fields use `ms.hour_prefix(...)`. DATE, naive timestamps and encoded times require a source timezone: set it on the parser or declare Datasource `wall_clock_timezone`. Missing declarations reject before business-data reads. Aware physical timestamps ignore the Datasource default. A source reduction fixes its contribution clock through `time=field` or by inheriting the Entity's optional `default_time`. Supply a report `TimeScope` in `observe.where` to select a range and a Grain in `observe.by` for buckets. See [business calendars](#business-calendars) for governed fiscal periods.
 
 `sample_interval` describes source sampling cadence without bucketing or truncating timestamps. All TimeField sample reducers allow missing clocks. Represented NULLs retain their reducer policy; cadence does not assert source completeness.
 
@@ -125,7 +125,7 @@ pruning; SQL shape alone is insufficient.
 ```python
 # Continue in the quick-start analysis Session.
 august = session.time_scope(start="2026-08-01", end="2026-09-01", timezone="UTC")
-days = august.by(mv.grain("day"))
+day = mv.grain("day")
 ```
 
 Python naive `datetime` objects and ambiguous or nonexistent local boundary times are rejected. Use a `date` for a civil boundary and an ISO timestamp with an explicit offset for an exact subday instant.
@@ -137,7 +137,7 @@ Python naive `datetime` objects and ambiguous or nonexistent local boundary time
 | `unit` | Yes | — | Calendar unit: second, minute, hour, day, week, month, quarter or year. |
 | `count` | No | `1` | Canonical positive width for subday units that divides a nominal day and is shorter than one day. Day-or-coarser units use `count=1`. |
 
-`scope.by(grain)` returns a `CalendarAxis`. At subday grains, its grid skips nonexistent local times and retains both instants for a repeated local time. Civil days and months are calendar periods, so their elapsed durations vary around daylight-saving transitions. A DATE time role requires day-or-coarser contributions whose boundaries fall at business midnight. See [time series and windows](/docs/latest/analysis/time-series/) for observation and comparison examples.
+Use `where=august, by=(day,)` to observe daily buckets. For an explicit Population or a shifted domain, `scope.by(grain)` returns a `CalendarAxis`. At subday grains, its grid skips nonexistent local times and retains both instants for a repeated local time. Civil days and months are calendar periods, so their elapsed durations vary around daylight-saving transitions. A DATE time role requires day-or-coarser contributions whose boundaries fall at business midnight. See [time series and windows](/docs/latest/analysis/time-series/) for observation and comparison examples.
 
 ## Business calendar: `ms.period_calendar`
 
@@ -238,7 +238,7 @@ For a working-day schedule, provide a status for every date in the counting rang
 
 ## Declaration-time grain: `ms.calendar_grain`
 
-`ms.calendar_grain(calendar=calendar_ref, level="week")` creates a source-free grain lookup during modeling. After certification, `calendar.grain("week")` returns a grain bound to that snapshot; use the bound grain with `scope.by(grain)` or a Metric window.
+`ms.calendar_grain(calendar=calendar_ref, level="week")` creates a source-free grain lookup during modeling. After certification, `calendar.grain("week")` returns a grain bound to that snapshot; use the Grain in `observe.by` with a complete certified report period, with `scope.by(grain)` for an explicit domain, or in a Metric window.
 
 Custom calendar output accepts exactly one complete certified period. Multiple, sparse or partial periods reject before business reads; custom sample hierarchies have no implicit nesting rule.
 

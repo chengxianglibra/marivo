@@ -130,12 +130,14 @@ The public entry points are `marivo.help`, `marivo.datasource`,
 ### Semantic Expressions and Resolution
 
 - Entity/Source and Dimension/TimeDimension bodies retain restricted Ibis
-  contracts. Measure declarations take zero arguments and return typed row
-  expressions. Metric declarations return typed Metric expressions and can
-  declare keyword-only `TimeParameter` slots without defaults. Bind each slot
-  before observation or preview. Neither declaration executes arbitrary Python,
-  accepts Ibis tables, or uses `ms.bind`.
-  Decorator bodies remain restricted by `marivo/semantic/validator.py`.
+  contracts. Measure and Metric declarations take zero arguments and return
+  typed row and Metric expressions. A source reduction fixes its contribution
+  time through an explicit field or the sole contribution Entity's default.
+  Composed Metrics keep each branch's contribution time. A report scope or
+  Grain requires contribution time on every branch.
+  Measure and Metric declarations cannot execute arbitrary Python, accept Ibis
+  tables, or use `ms.bind`. Decorator bodies remain restricted by
+  `marivo/semantic/validator.py`.
 - Physical constructors and `ms.ref.*` capture native typed Deferred symbols.
   Compose them directly; the loader binds the complete dependency scope and
   publishes closed Catalog values. Bare lookup symbols are not closed analysis

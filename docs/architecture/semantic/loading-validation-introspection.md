@@ -32,7 +32,11 @@ The loader inspects restricted source, captures declarations, resolves complete
 references and validates organization, kind, dependency cycles and expression
 contracts. It does not connect, inspect source schemas, prove key uniqueness or
 run business queries. Entity/Source and field Ibis bodies remain restricted;
-Measure/Metric declaration functions are captured without invocation.
+Measure/Metric declaration functions are captured without invocation. The
+loader resolves an Entity's typed forward `default_time` and validates its
+kind and ownership. Resolved source reductions capture their explicit or
+inherited contribution field or the absence of one. This definition binding
+requires no business-data reads.
 
 Compilation owns an incremental definition graph and resolution caches for one
 load. Physical definitions are assembled once; validated declarations append

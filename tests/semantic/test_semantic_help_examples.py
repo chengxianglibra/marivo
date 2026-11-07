@@ -354,6 +354,9 @@ def test_entity_help_projection_gets_types_and_values_from_the_physical_source(
     source += "amount = ms.measure_column(name='amount', entity=orders, column='amount', additivity=ms.additive_all())\n"
     project = _project(semantic_project_factory, source)
     assert project.is_ready(), project.errors()
+    entry = SemanticCatalog(project).get("entity:sales.orders")
+    assert isinstance(entry, Entity)
+    assert entry.definition.default_time == "time_dimension:sales.orders.paid_at"
     materializer = Materializer(project, lambda _datasource: orders_backend)
     expression = materializer.measure("sales.orders.amount")
     assert str(expression.type()) == "float64"
@@ -601,6 +604,10 @@ def test_authoring_help_examples_publish_a_cross_file_metric_from_empty_project(
     catalog = ms.load(workspace_dir=tmp_path)
     entry = catalog.get("metric:sales.revenue")
     assert entry.kind == "metric"
+    (binding,) = entry.definition.time_bindings
+    assert isinstance(binding, ms.MetricTimeFieldBinding)
+    assert binding.field == "time_dimension:sales.orders.paid_at"
+    assert binding.source == "entity_default"
     assert catalog.search("sales.revenue", kind="metric").items[0].id == entry.id
     assert catalog.readiness(
         refs=[catalog.get("measure:sales.orders.amount")]

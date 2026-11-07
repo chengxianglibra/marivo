@@ -277,15 +277,19 @@ def test_grouped_duration_mean_keeps_large_ticks_beside_na(core_session: Session
 def test_explicit_source_monthly_values(core_session: Session) -> None:
     amount = catalog_value(core_session.catalog, "sales.orders.amount", kind="measure")
     day = catalog_value(core_session.catalog, "sales.orders.day", kind="time_dimension")
-    months = core_session.time_scope(start="2026-01-01", end="2026-03-01").by(mv.grain("month"))
-    current = core_session.observe({"sales": amount.sum(time=day)}, by=(months,)).compute()
+    months_scope = core_session.time_scope(start="2026-01-01", end="2026-03-01")
+    current = core_session.observe(
+        {"sales": amount.sum(time=day)}, by=(mv.grain("month"),), where=months_scope
+    ).compute()
     assert current.to_pandas()["sales"].tolist() == [60, 100]
     with duckdb.connect(str(core_session.project_root / "core.duckdb")) as connection:
         connection.execute(
             "INSERT INTO orders SELECT id+10, region, day-INTERVAL '1 year', amount*2 FROM orders"
         )
-    previous = core_session.time_scope(start="2025-01-01", end="2025-03-01").by(mv.grain("month"))
-    baseline = core_session.observe({"sales": amount.sum(time=day)}, by=(previous,)).compute()
+    previous_scope = core_session.time_scope(start="2025-01-01", end="2025-03-01")
+    baseline = core_session.observe(
+        {"sales": amount.sum(time=day)}, by=(mv.grain("month"),), where=previous_scope
+    ).compute()
     assert baseline.to_pandas()["sales"].tolist() == [120, 200]
 
 

@@ -70,7 +70,7 @@ def test_naive_parquet_identity_keeps_ticks_independent_of_time_parser(
     if unit == "us":
         time = catalog_value(session.catalog, "sales.events.ts", kind="time_dimension")
         scope = session.time_scope(start="2025-10-25T23:00:00Z", end="2025-10-26T23:00:00Z")
-        assert session.observe({"total": amount.sum(time=time)}, by=(scope,)).compute().to_pandas()[
+        assert session.observe({"total": amount.sum(time=time)}, where=scope).compute().to_pandas()[
             "total"
         ].tolist() == [18]
     saved = fixed.persist()
@@ -158,7 +158,7 @@ def test_uint64_identity_quantity_and_arithmetic_are_exact(
         )
         day = catalog_value(session.catalog, "sales.events.day", kind="time_dimension")
         scope = session.time_scope(start="2026-01-01", end="2026-01-02")
-        assert session.observe({"total": amount.sum(time=day)}, by=(scope,)).compute().to_pandas()[
+        assert session.observe({"total": amount.sum(time=day)}, where=scope).compute().to_pandas()[
             "total"
         ].tolist() == [expected]
         assert totals["negative"].tolist() == [Decimal(-4)]

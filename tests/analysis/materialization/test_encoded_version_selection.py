@@ -407,7 +407,8 @@ def _assert_row_result(tmp_path: Path, *, extended: bool = True) -> None:
                 .sum(time=control)
                 .window(mv.all_history())
             },
-            by=(scope, historical),
+            by=(historical,),
+            where=scope,
         )
     # Catalog values are project-scoped; receiving kind/path binding, not the
     # Session which acquired a Catalog, owns their closed interpretation.
@@ -545,12 +546,14 @@ def test_trino_row_version_join_and_daily_statement_count(
         trace = capture_source(monkeypatch, measure_cost=True)
         for end, expected in (("2026-08-27", 26), ("2026-09-08", 50)):
             before = len(trace.native_sql)
-            days = session.time_scope(
+            days_scope = session.time_scope(
                 start="2026-08-25",
                 end=end,
                 timezone="Asia/Shanghai" if time_kind in ("date", "mixed") else "UTC",
-            ).by(mv.grain("day"))
-            frame = session.observe({"value": metric}, by=(days, label)).compute()
+            )
+            frame = session.observe(
+                {"value": metric}, by=(mv.grain("day"), label), where=days_scope
+            ).compute()
             assert frame.to_pandas()["value"].sum() == expected
             sql = trace.native_sql[before:]
             assert len(sql) == 2  # One native output index and one business query.
@@ -602,10 +605,10 @@ def test_trino_snapshot_fact_row_time_uses_one_business_query(
         trace = capture_source(monkeypatch, measure_cost=True)
         for end, expected in (("2026-08-27", 7), ("2026-09-08", 31)):
             before = len(trace.native_sql)
-            days = session.time_scope(start="2026-08-25", end=end, timezone="Asia/Shanghai").by(
-                mv.grain("day")
-            )
-            result = session.observe({"value": metric}, by=(days, historical)).compute()
+            days_scope = session.time_scope(start="2026-08-25", end=end, timezone="Asia/Shanghai")
+            result = session.observe(
+                {"value": metric}, by=(mv.grain("day"), historical), where=days_scope
+            ).compute()
             assert result.to_pandas()["value"].sum() == expected
             sql = trace.native_sql[before:]
             assert len(sql) == 2  # One source-free output index and one business query.

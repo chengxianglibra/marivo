@@ -39,8 +39,9 @@ revenue = revenue_entry
 july = session.time_scope(start="2026-07-01", end="2026-08-01")
 august = session.time_scope(start="2026-08-01", end="2026-09-01")
 
-current = session.observe(revenue, by=(august, region)).compute()
-baseline = session.observe(revenue, by=(july, region)).compute()
+month = mv.grain("month")
+current = session.observe(revenue, where=august, by=(month, region)).compute()
+baseline = session.observe(revenue, where=july, by=(month, region)).compute()
 change = current.compare(
     baseline,
     on=tuple(zip(current.axes, baseline.axes)),
@@ -51,8 +52,9 @@ change.show(n=0)
 assert change.to_pandas()["reference.absolute.revenue"].tolist() == [-100, -100]
 ```
 
-The TimeScope is an actual interval axis in by. Full on binds interval and region;
-ordinal explicitly pairs the two single-interval directories. Compare keeps
+The TimeScopes select the contribution ranges and the Grain gives one month
+coordinate per side. Full on binds month and region. Ordinal explicitly pairs
+the two month directories. Compare keeps
 current values plus named baseline/absolute/relative values. Correspondence is
 outer, preserving missing-side rows and NA; a zero baseline gives relative NA. Independent presence
 states row existence rather than whether revenue is NA. Compute fixes each source
@@ -145,7 +147,7 @@ paired_statistics.show()
 assert paired_statistics.to_pandas()["n_pairs"].tolist() == [2]
 ```
 
-Reducing the existing interval axis yields region-only current data. This example
+Reducing away the calendar axis yields region-only current data. This example
 binds the ordinary axis explicitly; align does not broadcast a scalar budget.
 Correlation uses group-local common non-NA pairs and retains zero/duplicate values.
 Presence does not implicitly filter those pairs. Constant endpoints or fewer
@@ -155,8 +157,9 @@ coefficients/counts cannot reconstruct pooled correlation.
 ## Explain retained source targets and preserve original facts
 
 ```python
-source_current = session.observe({"revenue": revenue}, by=(august,))
-source_baseline = session.observe({"revenue": revenue}, by=(july,))
+unit = mv.coordinates(by=(), keys=((),))
+source_current = session.observe({"revenue": revenue}, by=mv.product(august, unit))
+source_baseline = session.observe({"revenue": revenue}, by=mv.product(july, unit))
 comparison = source_current.compare(
     {"reference": mv.baseline(source_baseline, match=mv.ordinal())}
 ).compute()
@@ -217,16 +220,16 @@ separate; a new commit does not refresh the old source observation.
 ```python
 from datetime import timedelta
 
-days = august.by(mv.grain("day"))
+day = mv.grain("day")
 rolling = session.observe(
     {"revenue": revenue.window(mv.trailing_duration(duration=timedelta(days=7)))},
-    by=(days,),
+    where=august,
+    by=(day,),
 ).compute()
 rolling.show(n=5)
 ```
 
 The source equation completes at each exact endpoint. Summing these overlapping
 cells is a current-value statistic rather than the union-window revenue.
-New month grain uses TimeScope.by(mv.grain("month")) in a new source request,
-without coarsening completed daily aggregates. [Temporal semantics](../temporal-semantics.md)
+For month grain, submit a new source request with `by=(mv.grain("month"),)`. [Temporal semantics](../temporal-semantics.md)
 and [operators](operators-and-frames.md) own the precise window/numeric boundaries.

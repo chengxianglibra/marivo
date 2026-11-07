@@ -166,7 +166,7 @@ def provider() -> DisclosureProvider:
     constructor_constraints = {
         "identity": "Pass by=(grouping,) to observe. Identity grouping does not select keys; use coordinates for a finite domain. Observation binds complete primary keys through single-valued routes and validates version anchors.",
         "coordinates": "Duplicate complete tuples collapse. Literal domains select only their captured complete keys; use product to combine calendar domains.",
-        "membership": "Place membership in observe.by or Metric.per; it expands its full ordered fields without splitting its correlated rule. For rule=(tag, channel), (rule, customer, channel) locates channel explicitly; the first field cannot be repeated. For R=(a,b), S=(c,d), (R,S,b,d) yields (a,c,b,d). Reject overlapping rules or reordered fields. (P, rule) retains P axes and joint keys; observe requires output coverage, per allows a subset. Each nested layer retains independent rules.",
+        "membership": "Place membership in observe.by or Metric.per; it expands its full ordered fields without splitting its correlated rule. For rule=(tag, channel), (rule, customer, channel) locates channel explicitly; the first field cannot be repeated. For R=(a,b), S=(c,d), (R,S,b,d) yields (a,c,b,d). Reject overlapping rules or reordered fields. For Metric.per, (P, rule) retains P axes and joint keys and may select a subset. For observation, pass a complete P separately or use a grouping tuple. Each nested layer retains independent rules.",
         "product": "Preserve factor order and complete joint keys; overlapping axes or conflicting Session owners reject.",
         "in_population": "Match complete null-safe tuples on existing axes; membership does not introduce new output coordinates.",
         "all_history": "Source retention still limits available history; the endpoint is exclusive.",
@@ -339,7 +339,7 @@ def provider() -> DisclosureProvider:
                 ),
                 output=output,
                 constraints=(
-                    "Count complete tuples, including field Null and absent identities; empty is zero and the zero-axis singleton is one. Grouping uses existing domain axes; classify explicitly to read attributes. Fact conditions/windows do not reselect the domain; count-only conditions/windows reject."
+                    "Count complete tuples, including field Null and absent identities; empty is zero and the zero-axis singleton is one. Grouping uses existing domain axes; classify explicitly to read attributes. Fact predicates leave the captured domain fixed; count-only conditions reject. Report TimeScope, Grain and windows require a contribution clock, which Population.count has no way to supply."
                     if owner is Population and name == "count"
                     else "One Session owner; complete typed keys and explicit version/path bindings remain authoritative."
                     if owner is Population and name != "show"
@@ -372,7 +372,7 @@ def provider() -> DisclosureProvider:
         ),
         (
             Grouping,
-            ("identity", "membership", "population.axes", "time_scope.by", "time_group"),
+            ("identity", "membership", "population.axes"),
             ("session.observe", "Grouping.show"),
         ),
     ):
@@ -381,14 +381,14 @@ def provider() -> DisclosureProvider:
                 value.__name__,
                 value,
                 summary=(
-                    "A field, complete identity, interval, calendar, field calendar or correlated membership grouping rule."
+                    "A field, complete identity or correlated membership grouping rule, or a captured axis from a Population."
                     if value is Grouping
                     else "Finite immutable complete coordinate domain with explicit dependencies."
                     if value is Population
                     else "Closed immutable coordinate membership predicate."
                 ),
                 acquisition=(
-                    "Use identity(entity), membership(...), scope.by(grain), time_group(field, axis=axis), or population.axes. Field calendar groupings only enter observe.by. This abstract type has no public constructor or extension point."
+                    "Use identity(entity), membership(...) or population.axes. For observe.by, use non-time groupings, a report Grain, or the complete Population. This abstract type has no public constructor or extension point."
                     if value is Grouping
                     else "Use mv.coordinates for literal keys, session.members for source identities, session.population_from for a fixed Frame bridge, mv.product for composition, or Population.project/classify/where/union/intersection/difference/image/preimage for derivation. Direct construction is unsupported."
                 ),
@@ -407,7 +407,7 @@ def provider() -> DisclosureProvider:
             producers=("all_history", "trailing_duration", "trailing_periods", "since", "to_date"),
             consumers=("semantic.metric.window", "ObservationWindow.show"),
             constraints=(
-                "Attach with metric.window(rule); supply an explicit TimeScope or CalendarAxis in observe.by. Nested windows reject.",
+                "Attach with metric.window(rule); supply endpoints through a TimeScope in observe.where or report buckets. Nested windows reject.",
             ),
         )
     )

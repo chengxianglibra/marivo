@@ -201,7 +201,11 @@ def test_published_window_requires_calendar_in_completed_scope(
     semantic_project_factory: ProjectFactory, calendar: str
 ) -> None:
     source = (
-        _MODEL
+        _MODEL.replace(
+            "status_ref =",
+            'event_at = ms.time_dimension_column(name="event_at", entity=orders, '
+            'column="event_at", parse=ms.timestamp(timezone="UTC"))\nstatus_ref =',
+        ).replace("return amount.sum()", "return amount.sum(time=event_at)")
         + f"""
 import marivo.analysis as mv
 import marivo.semantic as ms
