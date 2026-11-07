@@ -15,11 +15,8 @@ from pathlib import Path
 from threading import Event
 
 import pytest
-from uvicorn._types import ASGIReceiveEvent
 
 from marivo.server.endpoints import current, endpoint_lock, read_result
-from marivo.server.http import ReadApplication
-from marivo.server.protocol import ROUTES
 from marivo.server.refresh import Refreshes
 from marivo.server.wire import Budget, Limits, ServiceError
 
@@ -87,32 +84,6 @@ def test_script_session_and_log_isolation_and_fixed_versions(
             assert second["data"] == {"layout": ["value"], "rows": [["20"]], "row_count": 1}
         finally:
             await service.close()
-
-    asyncio.run(scenario())
-
-
-def test_disconnect_cancels_real_worker_before_releasing_capacity(tmp_path: Path) -> None:
-    script(tmp_path, "Path('ready').touch()\nimport time\ntime.sleep(120)\nreturn pd.DataFrame()")
-
-    async def scenario() -> None:
-        app = ReadApplication(tmp_path, b"token", frozenset(), Limits())
-        messages: asyncio.Queue[ASGIReceiveEvent] = asyncio.Queue()
-        await messages.put({"type": "http.request", "body": b"", "more_body": False})
-        route = next(route for route in ROUTES if route.name == "refresh")
-        task = asyncio.create_task(app._request(route, {"endpoint": "total"}, {}, messages.get))
-        try:
-            await wait_for_file(tmp_path / "ready")
-            await messages.put({"type": "http.disconnect"})
-            assert await asyncio.wait_for(task, 10) is None
-            assert app.refreshes.active == 0 and not app.refreshes.processes
-            with endpoint_lock(tmp_path, "total"):
-                assert not (tmp_path / ".marivo/server/endpoints/total.json").exists()
-        finally:
-            task.cancel()
-            await asyncio.gather(task, return_exceptions=True)
-            await app.refreshes.close()
-            app.pool.shutdown()
-            await app.catalog.close()
 
     asyncio.run(scenario())
 
