@@ -160,6 +160,11 @@ Entity/Population count 和未命名表达式同样需要显式名称，不读�
 在 `by` 中加入一个 Grain 即可分桶。`where=(scope, predicate)` 将范围与行谓词
 取交集。`created_at.within(scope)` 等来源字段谓词可独立于贡献时间筛选记录。
 
+内置 Grain 未搭配范围时只返回实际观察到的桶；搭配范围时补齐报告桶。
+自定义日历 Grain 必须搭配范围，且范围须恰好是一个完整的已认证期间。
+`by=P` 固定输出键但不筛选贡献；如需限制贡献，使用 `where=mv.in_population(P)`。
+若 P 已含报告时间坐标，则不能在 `where` 中另传 TimeScope。
+
 ### 读取 8 月收入
 
 ```python

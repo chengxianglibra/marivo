@@ -198,7 +198,7 @@ def provider() -> DisclosureProvider:
         "cursor": "Use the preceding page's opaque next_cursor with the identical selection.",
         "session_id": "Use the exact existing Session id.",
         "artifact_id": "Use the exact saved Frame's artifact_id string from this Session; objects and Refs are not IDs.",
-        "metrics": "Use a published root Metric or nonempty list/tuple/Mapping. Map expressions to distinct names without dots, backslashes, controls or left_present/right_present.",
+        "metrics": "One published root Metric or nonempty list/tuple of them uses local names in order. Derived expressions and source/Population counts require a nonempty Mapping {'total': expr}. Names are distinct nonempty labels, not business identity; no dots, backslashes, controls or left_present/right_present.",
         "entity": "Pass a resolved governed Entity, not a Ref or path.",
     }
     parameter_targets: dict[str, tuple[str, ...]] = {
@@ -258,11 +258,11 @@ def provider() -> DisclosureProvider:
                         if name == "get_or_create" and n == "domains"
                         else "Choose an integer from 1 through 100, excluding bool; default 20. Keep the same limit when continuing a cursor."
                         if name == "persisted_frames" and n == "limit"
-                        else "Tuple of Dimensions, non-time Groupings, one report Grain at most. () gives one zero-axis cell. P fixes joint keys; cover necessary output keys before sampling."
+                        else "Tuple of Dimensions, non-time Groupings and at most one report Grain; () gives one zero-axis cell. by=P keeps complete keys, even without facts; it does not filter contributions. P must cover necessary output keys before sampling. If P carries time, omit TimeScope in where."
                         if name == "observe" and n == "by"
                         else "Pass resolved fields or field or identity Grouping values; calendar and membership groupings are rejected. Use () for scalar literal rows."
                         if name == "values" and n == "by"
-                        else "Conjoin terms in a tuple with at most one TimeScope. where=field.within(scope) filters one field without supplying a report endpoint. Population.count domains stay fixed."
+                        else "None adds no filter. RowPredicate, TimeScope or AND tuple; at most one TimeScope. where=mv.in_population(P) restricts contributions. where=field.within(scope) filters one field without a report endpoint. Population.count domains stay fixed."
                         if name == "observe" and n == "where"
                         else "Population with exactly one complete Entity identity axis, unowned or from this Session. Project that identity axis before reading a classified or multi-axis domain."
                         if name == "read" and n == "population"
@@ -283,15 +283,10 @@ def provider() -> DisclosureProvider:
                     if n != "self"
                 ),
                 output=output,
-                constraints=(
-                    _doc_section(value, "Constraints"),
-                    "TimeField samples allow missing clocks. Windows need report endpoints; custom samples need complete periods.",
-                    "Names label outputs without asserting business identity. Trust semantic primary_key with nullable physical metadata; no full-source NULL/uniqueness precheck. Existing identity-output and operation checks remain.",
-                )
-                if name == "observe"
-                else (_doc_section(value, "Constraints"),)
+                constraints=(_doc_section(value, "Constraints"),)
                 if name
                 in (
+                    "observe",
                     "get_or_create",
                     "members",
                     "frame",
@@ -309,7 +304,7 @@ def provider() -> DisclosureProvider:
                     if name == "get_or_create"
                     else "AnalysisError: read its fields and repair."
                     if name == "members"
-                    else "AnalysisError: Fix a missing branch clock in the semantic definition or remove report time. Duplicate or invalid names reject with no name cleaning/numbering."
+                    else "AnalysisError: Fix branch clocks in semantic definitions or omit report time. Duplicate/invalid names reject; no name cleaning/numbering."
                     if name == "observe"
                     else "AnalysisError: follow the structured identity, bound or recovery repair.",
                 ),

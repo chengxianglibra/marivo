@@ -113,8 +113,11 @@ can use different fields in the same report.
 | --- | --- | --- |
 | Omitted | Omitted | Overall or ordinary classification, with no additional time constraint |
 | Present | Omitted | Range-selected overall or classification, with no extra output axis |
-| Omitted | Present | Actual observed time buckets, without completing gaps |
+| Omitted | Built-in | Actual observed time buckets, without completing gaps |
 | Present | Present | Finite report bucket domain with ordinary output completion |
+
+Custom calendar Grains require a TimeScope selecting exactly one complete
+certified period; they cannot produce an unscoped observed-bucket domain.
 
 Use `where=(scope, condition)` to conjoin a TimeScope and source conditions.
 `field.within(scope)` is a RowPredicate on a fixed source field. It can constrain
@@ -137,6 +140,9 @@ That coordinate supplies its own report bounds and cannot be combined with
 another report time selector. `Population.axes` carries coordinate rules
 without the selected keys, allocation or a new Session owner. Lists and Mapping
 entries are frozen at capture.
+
+Conflicting report time selectors reject at capture with bounded input facts and
+the exact observe Help target, without expanding Population calendar cells.
 
 Within one observation, compatible ordinary native reductions share a grouped
 SQL aggregate, including counts, exact/approximate quantiles and distinct counts,

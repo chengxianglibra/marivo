@@ -318,6 +318,20 @@ def test_time_context_validation_precedes_business_reads(
         with pytest.raises(AnalysisError):
             mv.product(regions, scope.by(day), scope)
 
+        for end in ("2026-01-03", "2027-01-01"):
+            report = session.time_scope(start="2026-01-01", end=end)
+            domain = mv.product(regions, report.by(day))
+            with pytest.raises(AnalysisError, match="one report time selection") as conflict:
+                session.observe({"v": timed}, by=domain, where=report)
+            error = conflict.value
+            assert len(str(error)) < 800
+            assert error.received == (
+                "report time coordinates in by: 1; where TimeScope is present"
+            )
+            assert error.repair is not None
+            assert error.repair.help_target.canonical_id == "session.observe"
+            assert "Use the complete Population time coordinates" in error.repair.action
+
         for expr in (untimed, timed + untimed, timed + regions.count(), untimed * 0):
             with pytest.raises(AnalysisError, match="contribution time"):
                 session.observe({"v": expr}, where=scope)
@@ -432,6 +446,11 @@ def test_custom_report_grain_preserves_certification_and_date_membership(
     gmv = session.catalog.get("metric:sales.gmv")
     assert isinstance(events, ms.TimeDimension) and isinstance(gmv, ms.Metric)
     one_period = calendar.period("fiscal_week", "M1-W1")
+    with pytest.raises(AnalysisError, match="one complete certified period") as missing_scope:
+        session.observe(gmv, by=(week,))
+    assert missing_scope.value.repair is not None
+    assert missing_scope.value.repair.help_target.canonical_id == "session.observe"
+    assert "where=scope" in missing_scope.value.repair.action
     frame = session.observe(gmv, where=one_period, by=(week,)).compute()
     assert frame.to_pandas()["gmv"].tolist() == [10]
     assert frozen_coordinates(frame)[0].rows["selection"].tolist() == ["full"]

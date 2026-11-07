@@ -133,7 +133,7 @@ def test_grouping_is_the_public_observation_family() -> None:
             (
                 "Dimensions, non-time Groupings",
                 "one report Grain",
-                "P fixes joint keys",
+                "by=P keeps complete keys",
             ),
         ),
     ),

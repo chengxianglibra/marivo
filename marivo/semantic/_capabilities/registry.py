@@ -4267,6 +4267,11 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
         SourceCheckNamespace,
         "SourceCheckNamespace",
         ("source_check",),
+        guidance=(
+            "Ordinary analysis trusts semantic primary_key with nullable physical metadata; "
+            "no full-source NULL/uniqueness precheck. Existing identity-output and operation "
+            "checks remain. Use explicit source checks when those declarations need an audit.",
+        ),
         methods=factory_methods("source_check"),
         consumers=("validate",),
     )

@@ -13,9 +13,14 @@ head:
 `AnalysisFrame`。调用 `compute()` 执行计算；调用 `persist()` 则完成计算并发布结果。
 
 用 `where=scope` 选择报告范围，用 `by=(grain,)` 选择输出粒度。仅指定范围时，
-筛选来源贡献，输出不增加时间轴。仅指定 Grain 时，返回实际有贡献的时间桶。
-两者合用时形成有限的报告桶域。`by` 的元组中可同时放入普通 Dimension、Grouping
+筛选来源贡献，输出不增加时间轴。仅指定内置 Grain 时，只返回实际有贡献的时间桶。
+两者合用时补齐有限报告范围内的时间桶。自定义日历 Grain 必须同时指定范围，
+且范围须恰好是一个完整的已认证期间。`by` 的元组中可同时放入普通 Dimension、Grouping
 和一个 Grain；也可直接传入完整 Population。
+
+`by=P` 保留 P 的完整输出键，包括没有事实的键，但不会自动筛选贡献。
+P 必须覆盖所有必要输出键；如需限制贡献，显式使用 `where=mv.in_population(P)`。
+若 P 已含报告时间坐标，则不能在 `where` 中另传 TimeScope。
 
 每个源规约在定义时固定贡献时间，可显式传入 `time=field`，或继承所属 Entity 的
 `default_time`。使用报告范围或 Grain 时，每个 Metric 的每个分支都须具备贡献时间。

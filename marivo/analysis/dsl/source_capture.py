@@ -398,6 +398,7 @@ def capture_metrics(
             "different Session owner",
             "Rebuild the domain in this Session.",
             "session.observe",
+            canonical_id="session.observe",
         )
     interval = _interval_coordinate(scope) if scope is not None else None
     period = (
@@ -414,9 +415,10 @@ def capture_metrics(
             if report_grain is not None:
                 reject(
                     "at most one report Grain",
-                    repr(by),
+                    "multiple report Grains in by",
                     "Pass one Grain in the ordered by tuple.",
                     "Session.observe.by",
+                    canonical_id="session.observe",
                 )
             report_grain = resolve_calendar_grain(
                 item, calendar_snapshots, location="Session.observe.by"
@@ -428,6 +430,7 @@ def capture_metrics(
                         repr(report_grain),
                         "Pass the period as where=scope with the named Grain.",
                         "Session.observe.by",
+                        canonical_id="session.observe",
                     )
                 captured.append(
                     CalendarCoordinate(
@@ -449,6 +452,7 @@ def capture_metrics(
                         str(error),
                         "Use compatible timezones and a complete period for a certified Grain.",
                         "Session.observe.by",
+                        canonical_id="session.observe",
                     )
         elif isinstance(item, Grouping) and isinstance(item._binding, MembershipBinding):
             captured.append(item._binding)
@@ -462,6 +466,7 @@ def capture_metrics(
                 type(item).__name__,
                 "Put the report TimeScope in where and a Grain in the by tuple.",
                 "Session.observe.by",
+                canonical_id="session.observe",
             )
     try:
         axes, bindings = (
@@ -475,6 +480,7 @@ def capture_metrics(
             str(error),
             "Put each rule at its first field position and locate later fields explicitly if needed.",
             "Session.observe.by",
+            canonical_id="session.observe",
         )
     source_axes: list[AxisBinding | CalendarCoordinate | IntervalCoordinate] = []
     time_axes = 0
@@ -492,13 +498,16 @@ def capture_metrics(
                 repr(axis),
                 "Use a bare Grain or a complete Population with fieldless time coordinates.",
                 "Session.observe.by",
+                canonical_id="session.observe",
             )
     if time_axes > 1 or (time_axes and population is not None and scope is not None):
         reject(
             "one report time selection",
-            repr(axes),
+            f"report time coordinates in by: {time_axes}; "
+            f"where TimeScope is {'present' if scope is not None else 'absent'}",
             "Use the complete Population time coordinates, or select a report scope and Grain.",
             "Session.observe.by",
+            canonical_id="session.observe",
         )
     reads = tuple(
         axis
@@ -517,6 +526,7 @@ def capture_metrics(
                     "a Population from another Store or Session",
                     "Construct the condition and observation in the Population's owning Session.",
                     "session.observe",
+                    canonical_id="session.observe",
                 )
     signature = BoundSignature(
         owner, tuple(quantities), declared_metrics=tuple(definitions.items())

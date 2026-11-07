@@ -70,15 +70,20 @@ def test_read_help_preserves_native_nonfinite_values() -> None:
     )
 
 
-def test_observe_help_discloses_semantic_primary_key_trust() -> None:
+def test_observe_routes_identity_audit_details_to_source_checks() -> None:
     from marivo.analysis.session.core import Session
 
     for target in ("analysis.session.observe", Session.observe):
         text = render_help_text(target)[0]
-        assert "Trust semantic primary_key" in text
-        assert "nullable physical metadata" in text
-        assert "no full-source NULL/uniqueness precheck" in text
-        assert "identity-output and operation checks remain" in text
+        assert "semantic.source_check" in text
+        assert "nullable physical metadata" not in text
+        assert "full-source NULL/uniqueness precheck" not in text
+        assert "TimeField samples" not in text
+    checks = render_help_text("semantic.source_check")[0]
+    assert "trusts semantic primary_key" in checks
+    assert "nullable physical metadata" in checks
+    assert "no full-source NULL/uniqueness precheck" in checks
+    assert "identity-output and operation checks remain" in checks
 
 
 def test_observe_help_separates_report_time_from_fixed_source_predicates() -> None:
@@ -90,7 +95,7 @@ def test_observe_help_separates_report_time_from_fixed_source_predicates() -> No
         assert "one report Grain" in text
         assert "at most one TimeScope" in text
         assert "where=field.within(scope)" in text
-        assert "without supplying a report endpoint" in text
+        assert "without a report endpoint" in text
 
 
 def test_simplified_policies_have_one_public_route() -> None:
@@ -158,7 +163,12 @@ def test_output_naming_help_discloses_and_runs_both_entry_shapes(
             comparison_rows = result.compute().to_pandas()
             assert comparison_rows["reference.relative.value"].tolist() == [2]
     observation = render_help_text("analysis.session.observe")[0]
-    for fact in ("nonempty list/tuple/Mapping", "published root Metric", "business identity"):
+    for fact in (
+        "published root Metric or nonempty list/tuple of them",
+        "local names in order",
+        "Derived expressions and source/Population counts require a nonempty Mapping",
+        "business identity",
+    ):
         assert fact in observation
     assert "conflicts" in observation or "duplicate" in observation.lower()
     for fact in (
@@ -619,10 +629,15 @@ def test_attribute_help_distinguishes_actual_qualification_and_inert_facts() -> 
 
 def test_observe_help_discloses_report_domains_and_definition_repair() -> None:
     text = render_help_text("analysis.session.observe")[0]
-    assert "A Grain alone uses actual contribution buckets" in text
+    assert "A built-in Grain alone keeps actual buckets" in text
+    assert "with scope it fills report gaps" in text
+    assert "A custom calendar Grain needs one complete certified period as scope" in text
     assert "A scope alone adds no output axis" in text
-    assert "P fixes joint keys" in text
-    assert "Fix a missing branch clock in the semantic definition or remove report time" in text
+    assert "by=P keeps complete keys, even without facts" in text
+    assert "does not filter contributions" in text
+    assert "where=mv.in_population(P) restricts contributions" in text
+    assert "If P carries time, omit TimeScope in where" in text
+    assert "Fix branch clocks in semantic definitions or omit report time" in text
     assert "time_group" not in text
     assert "bind_time" not in text
 

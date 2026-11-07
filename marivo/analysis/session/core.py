@@ -338,22 +338,29 @@ class Session:
         """Capture Metric expressions as a lazy AnalysisFrame with fixed output names.
 
         Args:
-            metrics: A named Metric, a nonempty sequence of named Metrics, or
-                an ordered mapping with explicit output names.
+            metrics: A published root Metric or nonempty list/tuple of them uses
+                local declaration names. Derived expressions and source/Population
+                counts require a nonempty mapping with explicit output names.
             by: Ordered classification fields and grouping rules with at most
-                one report Grain, or one complete Population.
+                one report Grain, or a complete Population defining output keys,
+                including keys without facts. Population does not filter contributions
+                and must cover their necessary output keys before sampling.
             where: A row predicate, a report TimeScope, or a tuple combining
                 them with AND. At most one TimeScope selects the report.
+                None adds no filter. Use mv.in_population(P) to restrict contributions.
+                If by's Population carries time, omit a separate report TimeScope.
+                A field.within(scope) predicate stays fixed and supplies no report endpoint.
         Returns:
             An immutable pending AnalysisFrame owned by this Session.
         Example:
             ``period = session.time_scope(start='2026-08-01', end='2026-09-01')``;
-            ``session.observe(revenue, where=period, by=(mv.grain('day'),)).show()``.
+            ``session.observe(revenue, where=period, by=(mv.grain('day'),)).compute().show()``.
         Constraints:
-            Capture reads no source data. A report scope or Grain requires
-            contribution time on every Metric branch. A Grain alone uses actual
-            contribution buckets. A scope alone adds no output axis. A predicate
-            such as ``field.within(period)`` remains a fixed source constraint.
+            Capture reads no source data. Report scope or Grain requires
+            contribution time on every Metric branch. A scope alone adds no output axis.
+            A built-in Grain alone keeps actual buckets; with scope it fills report gaps.
+            A custom calendar Grain needs one complete certified period as scope.
+            Windows need report endpoints.
         """
         from marivo.analysis.core.model import reject
         from marivo.analysis.dsl import frame_sources
@@ -370,6 +377,7 @@ class Session:
                 type(by).__name__,
                 "Pass by=(dimension, mv.grain('day')) or pass the entire Population directly.",
                 "Session.observe.by",
+                canonical_id="session.observe",
             )
         if isinstance(by, tuple):
             for index, item in enumerate(by):
@@ -390,6 +398,7 @@ class Session:
                     "another Store or Session",
                     "Rebuild the Metric in its owning Session.",
                     f"Session.observe.metrics[{name!r}]",
+                    canonical_id="session.observe",
                 )
         predicates: list[RowPredicate] = []
         scope = None
@@ -399,9 +408,10 @@ class Session:
                 if scope is not None:
                     reject(
                         "at most one report TimeScope",
-                        repr(terms),
+                        "multiple report TimeScopes in where",
                         "Pass one TimeScope and combine fixed source predicates in where.",
                         "Session.observe.where",
+                        canonical_id="session.observe",
                     )
                 scope = term
             elif isinstance(term, RowExpression) and term._role == "boolean":
@@ -412,6 +422,7 @@ class Session:
                     type(term).__name__,
                     "Use where=scope, where=field.within(scope), or where=(scope, predicate).",
                     "Session.observe.where",
+                    canonical_id="session.observe",
                 )
         captured_frame_inputs = collect_frame_key_inputs(
             *(metric for _, metric in selected_metrics), *predicates, owner=owner

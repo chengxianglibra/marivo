@@ -208,6 +208,10 @@ def test_per_completes_ratio_per_sample_and_retains_empty_samples(
     with pytest.raises(MaterializationError, match="missing output coordinates") as error:
         observed.compute()
     assert error.value.stage == "population_coverage"
+    restricted = session.observe(
+        {"revenue": revenue}, by=omitted, where=mv.in_population(omitted)
+    ).compute()
+    assert restricted.to_pandas()["revenue"].tolist() == [40]
     assert session.observe({"v": revenue.per(omitted).mean()}).compute().to_pandas()[
         "v"
     ].tolist() == [40]

@@ -106,12 +106,13 @@ def test_observe_unnamed_recipes_require_mapping_even_with_one_metric_dependency
 
     monkeypatch.setattr(SourceSession, "execute", forbidden)
     for recipe, where in recipes:
-        with pytest.raises(AnalysisError) as caught:
-            session.observe(recipe)
-        error = caught.value
-        assert error.expected == "a directly named Metric for automatic output naming"
-        assert error.received == "an anonymous Metric expression"
-        assert error.repair and "user-chosen output name" in error.repair.action
+        for shorthand in (recipe, [recipe], (recipe,)):
+            with pytest.raises(AnalysisError) as caught:
+                session.observe(shorthand)
+            error = caught.value
+            assert error.expected == "a directly named Metric for automatic output naming"
+            assert error.received == "an anonymous Metric expression"
+            assert error.repair and "user-chosen output name" in error.repair.action
         assert session.observe({"chosen": recipe}, where=where).output_names == ("chosen",)
     assert terminal_runs(session) == ()
 

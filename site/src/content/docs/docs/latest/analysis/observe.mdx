@@ -15,9 +15,16 @@ or `persist()` to complete and publish it.
 
 Choose a report range with `where=scope` and an output grain with
 `by=(grain,)`. A range alone selects contributions without adding an output
-axis. A Grain alone produces the time buckets that actually occur. Together
-they define a finite report bucket domain. Ordinary Dimensions and Groupings
+axis. A built-in Grain alone produces only the time buckets that actually occur.
+Together they complete a finite report bucket domain. A custom calendar Grain
+requires a scope selecting exactly one complete certified period.
+Ordinary Dimensions and Groupings
 can share the `by` tuple with one Grain, or use a complete Population as `by`.
+
+`by=P` retains P's complete output keys, including keys without facts; it does
+not filter contributions. P must cover all necessary output keys. Use
+`where=mv.in_population(P)` to restrict contributions explicitly. If P already
+carries report time, omit a separate TimeScope in `where`.
 
 Each source reduction fixes its contribution time when it is defined, either
 explicitly with `time=field` or by inheriting its Entity's `default_time`.
