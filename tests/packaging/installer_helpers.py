@@ -68,6 +68,10 @@ if [ "${1:-}" = "-c" ]; then
         [ "$actual" = "$expected" ]
         exit
     fi
+    if [[ "$code" == *"marivo-service"* ]]; then
+        [ "${FAKE_SERVICE_SKILL:-0}" = "1" ]
+        exit
+    fi
     if [[ "$code" == *"import marivo"* ]]; then
         marivo="$(dirname "$0")/marivo"
         if [ "${FAKE_WINDOWS:-0}" = "1" ]; then

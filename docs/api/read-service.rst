@@ -3,6 +3,9 @@ Marivo read service
 
 Install the optional ``marivo[api]`` extra and supply an
 administrator-configured ``MARIVO_API_TOKEN`` in the service environment.
+Agents can use the packaged ``marivo-service`` workflow and resolve
+``marivo help analysis.results.service`` for the installed script and HTTP
+contracts.
 
 .. code-block:: sh
 

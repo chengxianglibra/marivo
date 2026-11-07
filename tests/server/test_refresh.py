@@ -282,6 +282,7 @@ def test_script_output_contract_preserves_current(tmp_path: Path, body: str, ret
             with pytest.raises(ServiceError) as failure:
                 await service.run("total", budget())
             assert failure.value.code == "script_contract_error"
+            assert failure.value.target == "analysis.results.service.scripts"
             assert current(tmp_path, "total") == old
             assert service.active == 0 and not service.processes
         finally:

@@ -91,8 +91,8 @@ readiness as approval of their business meaning.
 ## How you use Marivo
 
 1. **Install and initialize a project.** Marivo creates the project structure and
-   makes the bundled `marivo-semantic` and `marivo-analysis` skills available to
-   compatible agents.
+   makes the bundled `marivo-semantic`, `marivo-analysis`, and `marivo-service`
+   skills available to compatible agents.
 2. **Prepare the semantic layer.** Reuse the definitions in an existing project, or
    let an agent use `marivo-semantic` to draft what a new project needs.
 3. **State the business question.** The agent uses `marivo-analysis` to check
@@ -167,7 +167,7 @@ Once a metric is ready, ask a business question naturally:
 > differences, then give me the conclusion, key evidence, and limitations.
 
 The bundled skills handle catalog inspection, readiness, operator selection, session
-management, and evidence collection.
+management, evidence collection, and project service delivery.
 
 ## Documentation
 

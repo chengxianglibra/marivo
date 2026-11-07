@@ -166,6 +166,18 @@ def test_first_discovery_reaches_a_meaningful_exact_choice_within_four_reads() -
             "analysis.results.inspect",
             "analysis.analysis_frame.source_reads",
         ),
+        (
+            "analysis",
+            "analysis.results",
+            "analysis.results.service",
+            "analysis.results.service.scripts",
+        ),
+        (
+            "analysis",
+            "analysis.results",
+            "analysis.results.service",
+            "analysis.results.service.http",
+        ),
     ):
         assert len(path) <= 4
         for current, following in pairwise(path):

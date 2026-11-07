@@ -29,6 +29,7 @@ def main() -> int:
     skill_prefixes = (
         "marivo/skills/marivo-analysis/",
         "marivo/skills/marivo-semantic/",
+        "marivo/skills/marivo-service/",
     )
     for prefix in skill_prefixes:
         packaged_files = tuple(name for name in names if name.startswith(prefix))

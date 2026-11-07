@@ -38,6 +38,7 @@ API_VERSION = 1
 DEFAULT_MIB = 128
 DEFAULT_SECONDS = 300
 HELP = "analysis.results.service"
+SCRIPTS_HELP = "analysis.results.service.scripts"
 
 STATUS: dict[ErrorCode, int] = {
     "invalid_parameter": 400,

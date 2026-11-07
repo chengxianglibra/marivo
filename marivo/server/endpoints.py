@@ -16,7 +16,7 @@ from pathlib import Path
 from threading import Lock
 from typing import TypeAlias
 
-from marivo.server.wire import HELP, Budget, JsonObject, ServiceError, bad_request
+from marivo.server.wire import HELP, SCRIPTS_HELP, Budget, JsonObject, ServiceError, bad_request
 
 _SEGMENT = r"[a-z][a-z0-9]*(?:_[a-z0-9]+)*"
 _ACTIVE: set[Path] = set()
@@ -53,7 +53,7 @@ def contract(location: str, received: str) -> ServiceError:
         f"Invalid endpoint script: {received}.",
         location,
         "Define main(session: mv.Session) with one concrete AnalysisFrame or pandas.DataFrame return type.",
-        HELP,
+        SCRIPTS_HELP,
     )
 
 

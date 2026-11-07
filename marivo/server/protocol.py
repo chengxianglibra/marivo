@@ -39,8 +39,10 @@ class Route:
     name: str
     path: str
     response: str
+    summary: str
     query: tuple[str, ...] = ()
     method: Literal["GET", "POST"] = "GET"
+    description: str = ""
 
     def match(self, path: str) -> dict[str, str] | None:
         pattern = re.sub(r"\{(\w+)\}", r"(?P<\1>[^/]+)", self.path)
@@ -52,17 +54,66 @@ class Route:
 
 _PAGE = ("limit", "cursor")
 ROUTES = (
-    Route("info", "/v1/info", "Info"),
-    Route("openapi", "/v1/openapi.json", "OpenAPI"),
-    Route("objects", "/v1/semantic/objects", "ObjectDirectory", ("kind", "domain", *_PAGE)),
-    Route("object", "/v1/semantic/objects/{id}", "SemanticObject"),
-    Route("related", "/v1/semantic/objects/{id}/related", "RelatedDirectory", ("relation", *_PAGE)),
-    Route("reload", "/v1/semantic/reload", "Reload", method="POST"),
-    Route("sessions", "/v1/sessions", "SessionDirectory", _PAGE),
-    Route("frames", "/v1/sessions/{session_id}/frames", "FrameDirectory", _PAGE),
-    Route("frame", "/v1/sessions/{session_id}/frames/{artifact_id}", "FrameReport"),
-    Route("data", "/v1/data/{endpoint}", "DataReport", ("refresh",)),
-    Route("dataframe", "/v1/dataframes/{result_id}", "DataFrameReport"),
+    Route("info", "/v1/info", "Info", "Read service, Store and Catalog status"),
+    Route("openapi", "/v1/openapi.json", "OpenAPI", "Read the HTTP protocol schema"),
+    Route(
+        "objects",
+        "/v1/semantic/objects",
+        "ObjectDirectory",
+        "List current semantic objects",
+        ("kind", "domain", *_PAGE),
+    ),
+    Route(
+        "object",
+        "/v1/semantic/objects/{id}",
+        "SemanticObject",
+        "Read a current semantic definition",
+    ),
+    Route(
+        "related",
+        "/v1/semantic/objects/{id}/related",
+        "RelatedDirectory",
+        "List semantic dependencies or dependents",
+        ("relation", *_PAGE),
+    ),
+    Route(
+        "reload",
+        "/v1/semantic/reload",
+        "Reload",
+        "Reload the semantic Catalog",
+        method="POST",
+        description="Send an empty body. Reload does not refresh saved data endpoints.",
+    ),
+    Route("sessions", "/v1/sessions", "SessionDirectory", "List saved Sessions", _PAGE),
+    Route(
+        "frames", "/v1/sessions/{session_id}/frames", "FrameDirectory", "List saved Frames", _PAGE
+    ),
+    Route(
+        "frame",
+        "/v1/sessions/{session_id}/frames/{artifact_id}",
+        "FrameReport",
+        "Read one exact saved AnalysisFrame report",
+    ),
+    Route(
+        "data",
+        "/v1/data/{endpoint}",
+        "DataReport",
+        "Read or explicitly refresh a named endpoint",
+        ("refresh",),
+        description=(
+            "Omit refresh or use false to read the current saved result. "
+            "Explicit refresh=true executes trusted project code and publishes a new result, "
+            "so this GET has write effects and must not be prefetched or automatically retried. "
+            "A lost response does not prove publication failed; read current state before retrying. "
+            "The endpoint name comes from the bound project or host; this API does not list names."
+        ),
+    ),
+    Route(
+        "dataframe",
+        "/v1/dataframes/{result_id}",
+        "DataFrameReport",
+        "Read one exact saved DataFrame report",
+    ),
 )
 
 STRING: JsonObject = {"type": "string"}
@@ -474,6 +525,8 @@ def openapi() -> JsonObject:
         paths[route.path] = {
             route.method.lower(): {
                 "operationId": route.name,
+                "summary": route.summary,
+                **({"description": route.description} if route.description else {}),
                 "parameters": params,
                 "responses": responses,
             }

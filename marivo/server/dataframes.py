@@ -19,7 +19,7 @@ from marivo.server.endpoints import (
     state_path,
 )
 from marivo.server.frame_projection import scalar
-from marivo.server.wire import HELP, Budget, JsonObject, JsonValue, ServiceError
+from marivo.server.wire import HELP, SCRIPTS_HELP, Budget, JsonObject, JsonValue, ServiceError
 
 _METADATA = b"marivo.dataframe"
 _FORMAT = "marivo.dataframe_snapshot/v1"
@@ -31,7 +31,7 @@ def _unencodable(location: str, received: str) -> ServiceError:
         f"DataFrame cannot be saved: {received}.",
         location,
         "Use unique nonempty string columns, reset business indexes into columns, and return supported scalar values.",
-        HELP,
+        SCRIPTS_HELP,
     )
 
 

@@ -8,6 +8,10 @@ description: 读取已保存报告，并显式刷新返回 AnalysisFrame 或 Dat
 服务环境中设置 `MARIVO_API_TOKEN`。普通重启沿用该值。需要轮换时更新
 配置并重启服务。
 
+通过 Agent 管理服务时，可使用内置的 `marivo-service` 工作流。
+`marivo help analysis.results.service` 可导航到当前 Runtime 的脚本和 HTTP 契约。
+Host 负责选择项目并管理连接、凭据和用户权限。
+
 ```bash
 pip install 'marivo[api]'
 marivo serve --project-root /path/to/project --port 0
@@ -165,7 +169,8 @@ UI 报告保存服务身份、`kind` 和 `ref`；AnalysisFrame 还应保留连�
 ## 浏览当前定义
 
 所有 API 请求使用相同的 Bearer 请求头。通过 `GET /v1/openapi.json` 获取类型化
-的路由和载荷合同。`GET /v1/info` 返回版本、Store 和当前 Catalog 加载状态。
+的路由和载荷合同。OpenAPI 描述通用命名端点路由；具体端点名称由项目或 Host 提供。
+`GET /v1/info` 返回版本、Store 和当前 Catalog 加载状态。
 语义对象使用规范 `kind:path` 身份，作为路径参数时使用 URL 编码。
 
 | 操作 | 路由 |

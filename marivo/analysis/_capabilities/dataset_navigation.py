@@ -14,7 +14,7 @@ from marivo.analysis._capabilities.dataset_model import (
 
 # Each provider owns primary capability membership. These pages own task choices,
 # short decision summaries and secondary links. The root owns one quick-start example;
-# exact callable pages retain parameter contracts.
+# exact callable and service reference pages retain their own examples.
 _PAGES = (
     NavigationInput(
         "inputs",
@@ -218,7 +218,7 @@ _PAGES = (
     ),
     NavigationInput(
         "results",
-        "Inspect captured facts, source reads, original method facts or fixed data.",
+        "Inspect captured results or serve definitions and saved data over HTTP.",
         (),
         "decision_hub",
     ),
@@ -255,15 +255,56 @@ _PAGES = (
     ),
     NavigationInput(
         "results.service",
-        "Read saved reports or explicitly refresh project script endpoints over HTTP.",
+        "Serve current definitions, saved reports and explicitly refreshed script endpoints.",
         (),
         guidance=(
-            "Install marivo[api], set MARIVO_API_TOKEN, and run marivo serve --project-root PATH. Use marivo serve --help for TLS, CORS and read/refresh budgets.",
-            "Persist the Frame and retain session_id and artifact_id. With Authorization: Bearer TOKEN, GET /v1/sessions/{session_id}/frames/{artifact_id} for the complete report. GET /v1/openapi.json describes the protocol.",
-            "endpoints/sales/revenue.py defines main(session: mv.Session) with one AnalysisFrame or pandas.DataFrame return annotation. GET /v1/data/sales/revenue?refresh=true runs it with a fresh Session and saves a new result. Omit refresh to read only saved data.",
-            "Responses carry kind and a fixed ref. DataFrames use independent Parquet snapshots and GET /v1/dataframes/{result_id}, with the producing session_id in the response. Save service identity and ref for fixed report versions. Saved reads never recover Sessions, load models or query sources.",
+            "A fixed reference reads the same saved result. A named endpoint reads its current saved result; an explicit refresh executes trusted project code and publishes a new fixed reference.",
+            "Use the host-selected project, environment and credential handling. The host owns its connection and user authorization.",
         ),
         discovery_group="results",
+        route_summaries=(
+            ("results.service.scripts", "Write and discover a refreshable endpoint script."),
+            ("results.service.http", "Start the service and read or refresh over HTTP."),
+        ),
+    ),
+    NavigationInput(
+        "results.service.scripts",
+        "Define a trusted project script for an explicitly refreshed data endpoint.",
+        (),
+        "service_reference",
+        guidance=(
+            "Place endpoints/sales/total.py in the bound project for /v1/data/sales/total. Path segments are lowercase snake_case; private names beginning with _ are not endpoints. Restart after adding a path; an existing path loads its latest source on refresh.",
+            "Define exactly one top-level synchronous main(session: mv.Session) with no defaults or extra arguments. Its concrete return annotation and value must both be mv.AnalysisFrame or both pandas.DataFrame; async functions, generators and union returns are rejected.",
+            "The service supplies a fresh project Session. An AnalysisFrame must belong to that Session and be unpersisted; a pending or computed Frame is accepted. The service computes and persists it. Set the intended time scope in the script; publication does not imply fresh or complete source data.",
+            "A DataFrame needs an unnamed default RangeIndex, unique nonempty string column names and supported scalar columns: null, boolean, string, integer, float32/64, decimal, date, timestamp or duration. Move business indexes into columns. Nested or unsupported values fail; attrs is not saved as semantic metadata.",
+            "Scripts and imports are trusted project code. Named endpoint requests do not accept a script, arbitrary path or business parameters. Replace the example Metric identity with one established in the project.",
+        ),
+        example=ExampleInput(
+            "import marivo.analysis as mv\n"
+            "\n"
+            "def main(session: mv.Session) -> mv.AnalysisFrame:\n"
+            "    total = session.catalog.get('metric:sales.total')\n"
+            "    assert total.kind == 'metric'\n"
+            "    return session.observe({'total': total})",
+            ("session",),
+            "main",
+            "An unpersisted AnalysisFrame owned by the supplied Session.",
+        ),
+        discovery_group="results.service",
+    ),
+    NavigationInput(
+        "results.service.http",
+        "Start the project service and consume saved or explicitly refreshed results.",
+        (),
+        guidance=(
+            "Install marivo[api], configure MARIVO_API_TOKEN as a deployment credential, and run marivo serve --project-root PATH. The default listener is 127.0.0.1:8765; --port 0 selects a free port and stdout reports the bound address. Use marivo serve --help for TLS, CORS and budgets.",
+            "All business requests, including GET /v1/openapi.json and GET /v1/info, require Authorization: Bearer TOKEN. The token grants reads, Catalog reload and execution of installed endpoint scripts; the host owns user authorization and project selection.",
+            "GET /v1/data/{endpoint} reads its current saved result. Only ?refresh=true executes the script and publishes a new result. The GET refresh has write effects; do not prefetch or automatically retry it. Before first publication a saved read returns result_not_found. If a refresh outcome is uncertain, read current state before retrying.",
+            "Responses carry kind and a fixed ref. Save the service connection and ref; for AnalysisFrames also retain store_id from /v1/info. Read a fixed Frame with /v1/sessions/{session_id}/frames/{artifact_id}, or a fixed DataFrame with /v1/dataframes/{result_id}. These reads never refresh, load models or query sources.",
+            "The service returns a complete report or an error, not a paged data preview. Schema and data layout preserve exact string-encoded integers and decimals, nulls and typed values. Directories use limit and cursor. The API has no named endpoint directory; obtain names from the project or host.",
+            "Errors return code, message, location, repair and nullable target. Inspect the repair. Catalog reload is separate from endpoint refresh. Saved results remain fixed when a named endpoint is refreshed.",
+        ),
+        discovery_group="results.service",
     ),
     NavigationInput(
         "sessions",
@@ -361,7 +402,7 @@ def navigation(providers: tuple[DisclosureProvider, ...]) -> tuple[NavigationInp
                 ("operators", "Choose an operation."),
                 ("sessions", "Create or recover context."),
                 ("execution", "Compute or persist."),
-                ("results", "Inspect data and metadata."),
+                ("results", "Inspect or serve data."),
                 ("session.get_or_create", "Create or reuse a Session."),
             ),
         )

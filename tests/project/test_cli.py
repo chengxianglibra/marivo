@@ -53,7 +53,7 @@ def test_installs_skills_for_supported_agent_skill_dirs(tmp_path: Path) -> None:
     skills_src = Path(marivo.skills.__file__).parent.resolve()
 
     for agent_dir in (".agents/skills", ".claude/skills", ".codex/skills"):
-        for skill_name in ("marivo-semantic", "marivo-analysis"):
+        for skill_name in ("marivo-semantic", "marivo-analysis", "marivo-service"):
             link_path = tmp_path / agent_dir / skill_name
             assert link_path.is_symlink()
             assert link_path.resolve() == (skills_src / skill_name).resolve()

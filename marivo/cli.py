@@ -17,9 +17,8 @@ from marivo.config import (
     AUTHORED_DIR,
     CLAUDE_SKILLS_DIR,
     CODEX_SKILLS_DIR,
+    PACKAGED_SKILLS,
     PROJECT_MANIFEST,
-    SKILL_ANALYSIS,
-    SKILL_SEMANTIC,
     STATE_DIR,
 )
 from marivo.telemetry import track_operation, tracked_capability
@@ -38,12 +37,11 @@ def _artifact_paths(project_dir: Path) -> dict[str, Path]:
         "marivo.toml": project_dir / PROJECT_MANIFEST,
         "models/": project_dir / AUTHORED_DIR,
         ".marivo/": project_dir / STATE_DIR,
-        ".agents/skills/marivo-semantic": (project_dir / AGENTS_SKILLS_DIR / SKILL_SEMANTIC),
-        ".agents/skills/marivo-analysis": project_dir / AGENTS_SKILLS_DIR / SKILL_ANALYSIS,
-        ".claude/skills/marivo-semantic": project_dir / CLAUDE_SKILLS_DIR / SKILL_SEMANTIC,
-        ".claude/skills/marivo-analysis": project_dir / CLAUDE_SKILLS_DIR / SKILL_ANALYSIS,
-        ".codex/skills/marivo-semantic": project_dir / CODEX_SKILLS_DIR / SKILL_SEMANTIC,
-        ".codex/skills/marivo-analysis": project_dir / CODEX_SKILLS_DIR / SKILL_ANALYSIS,
+        **{
+            f"{directory}/{skill}": project_dir / directory / skill
+            for directory in (AGENTS_SKILLS_DIR, CLAUDE_SKILLS_DIR, CODEX_SKILLS_DIR)
+            for skill in PACKAGED_SKILLS
+        },
     }
 
 
@@ -134,7 +132,7 @@ def _init_project_impl(force: bool = False, project_dir: Path | None = None) -> 
     ]:
         agent_skill_dir = project_dir / agent_dir_name
         agent_skill_dir.mkdir(parents=True, exist_ok=True)
-        for skill_name in (SKILL_SEMANTIC, SKILL_ANALYSIS):
+        for skill_name in PACKAGED_SKILLS:
             link_path = agent_skill_dir / skill_name
             source_path = skills_src / skill_name
             if link_path.exists() or link_path.is_symlink():

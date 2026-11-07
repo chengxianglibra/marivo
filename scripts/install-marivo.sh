@@ -272,18 +272,19 @@ validate_marivo() {
 }
 
 warn_missing_skill_links() {
-    local skill_path
-    for skill_path in \
-        .agents/skills/marivo-semantic \
-        .agents/skills/marivo-analysis \
-        .claude/skills/marivo-semantic \
-        .claude/skills/marivo-analysis \
-        .codex/skills/marivo-semantic \
-        .codex/skills/marivo-analysis; do
-        if [ ! -e "$TARGET_DIR/$skill_path" ] && [ ! -L "$TARGET_DIR/$skill_path" ]; then
-            printf 'warning: optional init artifact is missing: %s\n' \
-                "$TARGET_DIR/$skill_path" >&2
-        fi
+    local agent_dir skill_name skill_path
+    local skill_names=(marivo-semantic marivo-analysis)
+    if "$VENV_PYTHON" -c 'import marivo.skills; from pathlib import Path; import sys; sys.exit(not (Path(marivo.skills.__file__).parent / "marivo-service" / "SKILL.md").is_file())' >/dev/null 2>&1; then
+        skill_names+=(marivo-service)
+    fi
+    for agent_dir in .agents .claude .codex; do
+        for skill_name in "${skill_names[@]}"; do
+            skill_path="$agent_dir/skills/$skill_name"
+            if [ ! -e "$TARGET_DIR/$skill_path" ] && [ ! -L "$TARGET_DIR/$skill_path" ]; then
+                printf 'warning: optional init artifact is missing: %s\n' \
+                    "$TARGET_DIR/$skill_path" >&2
+            fi
+        done
     done
 }
 

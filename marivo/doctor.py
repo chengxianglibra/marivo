@@ -20,10 +20,9 @@ from marivo.config import (
     CLAUDE_SKILLS_DIR,
     CODEX_SKILLS_DIR,
     DATASOURCES_DIR,
+    PACKAGED_SKILLS,
     PROJECT_MANIFEST,
     SEMANTIC_DIR,
-    SKILL_ANALYSIS,
-    SKILL_SEMANTIC,
     load_project_config,
 )
 from marivo.datasource._builtin import (
@@ -522,7 +521,7 @@ def _skills_section(root: Path) -> DoctorSection:
         ("Claude", CLAUDE_SKILLS_DIR),
         ("Codex", CODEX_SKILLS_DIR),
     ):
-        for skill_name in (SKILL_SEMANTIC, SKILL_ANALYSIS):
+        for skill_name in PACKAGED_SKILLS:
             path = root / agent_dir / skill_name
             check_id = f"skills.{agent_label.lower()}.{skill_name}"
             details = {"path": str(path)}

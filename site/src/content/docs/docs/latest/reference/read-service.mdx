@@ -9,6 +9,11 @@ credentials, and set `MARIVO_API_TOKEN` in the service environment. Restart
 with the same value to keep access. To rotate the token, change the configuration
 and restart the service.
 
+For agent-directed service work, use the packaged `marivo-service` workflow.
+`marivo help analysis.results.service` routes to the installed Runtime's script
+and HTTP contracts. The host selects the project and manages its connection,
+credentials and user authorization.
+
 ```bash
 pip install 'marivo[api]'
 marivo serve --project-root /path/to/project --port 0
@@ -179,7 +184,8 @@ when explicitly updating that report. Current pointers are stored under
 ## Browse current definitions
 
 Use the same Bearer header on all API calls. Fetch `GET /v1/openapi.json`
-for typed routes and payloads. `GET /v1/info` identifies the versions,
+for typed routes and payloads. It describes the generic named endpoint route;
+get concrete endpoint names from the project or host. `GET /v1/info` identifies the versions,
 Store and current Catalog load state. Semantic object IDs use canonical
 `kind:path`, with URL encoding in path parameters.
 

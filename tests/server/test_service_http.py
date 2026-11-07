@@ -22,6 +22,7 @@ from urllib.parse import urlencode
 import pytest
 from jsonschema import Draft202012Validator
 
+from marivo._help.render import render_help_text
 from marivo.analysis.dsl.frame import AnalysisFrame
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.materialization.layout import MaterializationLayout
@@ -670,6 +671,22 @@ def _refresh_project(root: Path) -> Path:
     return facts
 
 
+def test_script_example_from_live_help_runs_through_service(tmp_path: Path) -> None:
+    _refresh_project(tmp_path)
+    help_text = render_help_text("analysis.results.service.scripts")[0]
+    example = help_text.split("\nExample:\n", 1)[1].split("\nExpected:", 1)[0]
+    (tmp_path / "endpoints/sales/from_help.py").write_text(example + "\n")
+
+    with server(tmp_path) as request:
+        url = "/v1/data/sales/from_help"
+        _error(request(url), 404, "result_not_found")
+        report = _ok(request(url + "?refresh=true"))
+        assert report["kind"] == "analysis_frame"
+        assert report["data"]["rows"] == [["10"]]
+        assert _ok(request(url)) == report
+        assert _ok(request(_path(report["ref"]))) == report
+
+
 def test_refresh_source_updates_and_report_saved_refs(tmp_path: Path) -> None:
     facts = _refresh_project(tmp_path)
     frame_url, table_url = "/v1/data/sales/total", "/v1/data/sales/table"
@@ -682,6 +699,9 @@ def test_refresh_source_updates_and_report_saved_refs(tmp_path: Path) -> None:
         assert not (tmp_path / "invocations").exists()
         assert not (tmp_path / ".marivo").exists()
         spec = _ok(request("/v1/openapi.json"))
+        data_operation = spec["paths"]["/v1/data/{endpoint}"]["get"]
+        assert "write effects" in data_operation["description"]
+        assert "read current state before retrying" in data_operation["description"]
         first_frame = _ok(request(frame_url + "?refresh=true"))
         first_table = _ok(request(table_url + "?refresh=true"))
         assert first_frame["kind"] == "analysis_frame"

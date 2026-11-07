@@ -145,7 +145,7 @@ def test_installed_origin_surface_and_console(installed_wheel: InstalledWheel) -
     assert (project / "marivo.toml").is_file() and (project / "models").is_dir()
     assert (project / ".marivo").is_dir()
     for agent in (".agents", ".claude", ".codex"):
-        for skill in ("marivo-semantic", "marivo-analysis"):
+        for skill in ("marivo-semantic", "marivo-analysis", "marivo-service"):
             link = project / agent / "skills" / skill
             assert link.is_symlink() and link.resolve().is_relative_to(candidate.work / ".venv")
             assert (link / "SKILL.md").read_bytes() == (

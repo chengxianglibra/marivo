@@ -71,7 +71,7 @@ Marivo 不调用 LLM，也不生成跨 artifact 判断：综合与下一步选�
 
 ## 如何使用 Marivo
 
-1. **安装并初始化项目。** Marivo 创建项目结构，并让兼容的智能体可以使用内置的 `marivo-semantic` 和 `marivo-analysis` skills。
+1. **安装并初始化项目。** Marivo 创建项目结构，并让兼容的智能体可以使用内置的 `marivo-semantic`、`marivo-analysis` 和 `marivo-service` skills。
 2. **准备语义层。** 已有项目直接复用现有定义；新项目可以让智能体通过 `marivo-semantic` 起草所需定义。
 3. **说明业务问题。** 智能体通过 `marivo-analysis` 检查就绪状态、选择类型化分析步骤、保存证据，并返回结论和限制。
 
@@ -127,7 +127,7 @@ public type、error 和 member target 仍可直接查询 focused help。
 
 > 使用 Marivo 分析已经确认的 `sales.revenue` 指标为什么在上季度相比去年同期下降。先关注地区差异，最后给出结论、关键证据和限制。
 
-内置 skills 会处理语义目录浏览、就绪检查、算子选择、分析会话管理和证据收集。
+内置 skills 会处理语义目录浏览、就绪检查、算子选择、分析会话管理、证据收集和项目服务交付。
 
 ## 文档
 

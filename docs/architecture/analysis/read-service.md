@@ -5,6 +5,12 @@ explicitly refreshed script endpoints for one fixed project. AnalysisFrames use
 the current Store generation; DataFrame snapshots use independent Parquet files.
 The service keeps one current semantic snapshot in memory.
 
+For agent-directed service work, `marivo-service` routes publication and
+consumption decisions. Start with `marivo help analysis.results.service`, then
+follow its script and HTTP references for the installed Runtime's contracts.
+`marivo init` installs the skill alongside the analysis and authoring skills;
+the host owns skill selection and the bound service connection.
+
 ## Start and connect
 
 Generate a token once with a secure random source such as
@@ -53,6 +59,8 @@ owns user authentication and project selection.
 
 All business requests require `Authorization: Bearer <token>`.
 `GET /v1/openapi.json` returns the OpenAPI 3.1 contract.
+It describes the generic named endpoint route, not the names of scripts in a
+project. Obtain a concrete endpoint name from the project or its host.
 
 | Method and path | Result |
 | --- | --- |

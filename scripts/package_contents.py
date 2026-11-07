@@ -7,12 +7,16 @@ import tarfile
 from pathlib import Path
 from zipfile import ZipFile
 
-SKILLS = ("marivo/skills/marivo-analysis/SKILL.md", "marivo/skills/marivo-semantic/SKILL.md")
+SKILLS = (
+    "marivo/skills/marivo-analysis/SKILL.md",
+    "marivo/skills/marivo-semantic/SKILL.md",
+    "marivo/skills/marivo-service/SKILL.md",
+)
 REQUIRED_PATHS = frozenset(SKILLS)
 
 
 def source_contents(root: Path) -> dict[str, str]:
-    """Hash current product code and the two unchanged packaged workflow resources."""
+    """Hash current product code and packaged workflow resources."""
     return {
         path.relative_to(root).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
         for path in (root / "marivo").rglob("*")

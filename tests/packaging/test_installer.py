@@ -231,6 +231,24 @@ def test_installs_default_marivo_backends_and_initializes_target(
     assert "warning: optional init artifact is missing" in completed.stderr
 
 
+@pytest.mark.parametrize("installer", (INSTALLER, CN_INSTALLER), ids=("default", "china"))
+@pytest.mark.parametrize("has_service", (False, True), ids=("older", "with-service"))
+def test_service_skill_warning_follows_installed_package(
+    tmp_path: Path, installer_env: InstallerEnv, installer: Path, has_service: bool
+) -> None:
+    toolchain, env = installer_env
+    toolchain.activate(env, toolchain.uv)
+    env["FAKE_MANAGED_PYTHON"] = str(toolchain.managed_python)
+    env["FAKE_SERVICE_SKILL"] = "1" if has_service else "0"
+
+    completed = _run_installer(tmp_path, env, "--yes", installer=installer)
+
+    assert completed.returncode == 0, completed.stderr
+    for agent in (".agents", ".claude", ".codex"):
+        warning = str(tmp_path / agent / "skills" / "marivo-service")
+        assert (warning in completed.stderr) is has_service
+
+
 def test_stops_before_init_when_marivo_installation_fails(
     tmp_path: Path, installer_env: InstallerEnv
 ) -> None:
