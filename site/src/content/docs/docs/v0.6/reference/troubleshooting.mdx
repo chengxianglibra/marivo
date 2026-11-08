@@ -59,7 +59,20 @@ marivo.help("analysis")
 marivo.help("analysis.analysis_frame")
 ```
 
-The CLI accepts the same targets: `.venv/bin/python -m marivo help analysis`. With a returned object, `marivo.help(type(result))` shows its type contract; query an attribute using its string Help target.
+The CLI accepts the same string targets and can read several in one invocation:
+
+```bash
+.venv/bin/python -m marivo help \
+  analysis.session.observe \
+  analysis.analysis_frame.select \
+  analysis.analysis_frame.where
+```
+
+Pass each complete target as a separate argument. Pages are printed to stdout in input order, including repeated targets. With no targets, the CLI prints root Help. Each page retains its own output budget; the batch contains all requested pages that rendered successfully.
+
+If a target fails, its diagnostic and repair go to stderr and the remaining targets are still attempted. The exit code is `0` when all succeed, `2` for target errors, or `1` if any page fails to render. Help does not execute examples, create Sessions or read sources; failures may write local telemetry when enabled.
+
+Python `marivo.help(target)` accepts one target per call. With a returned object, `marivo.help(type(result))` shows its type contract; query an attribute using its string Help target.
 
 Choose the topic that answers your current question; these are independent entry points.
 

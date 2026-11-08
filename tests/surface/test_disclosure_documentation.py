@@ -456,9 +456,16 @@ def test_documentation_scripts_run_without_fixture_model_loading(tmp_path: Path)
         source = "\n".join(snippets(page))
         if page == "analysis/time-series.mdx":
             source += (
-                "\nassert len(daily.to_pandas()) == 31\n"
-                'assert rolling.to_pandas()["revenue"].iloc[4] == 100\n'
-                'assert month_to_date.to_pandas()["revenue"].iloc[14] == 200\n'
+                "\ndaily_rows = daily.to_pandas()\n"
+                'assert daily_rows["calendar:day"].dt.strftime("%Y-%m-%d").tolist() == '
+                '["2026-08-05", "2026-08-15", "2026-08-20"]\n'
+                'assert daily_rows["revenue"].tolist() == [100, 100, 600]\n'
+                "rolling_rows = rolling.to_pandas()\n"
+                'assert rolling_rows.loc[rolling_rows["calendar:day"].dt.strftime("%Y-%m-%d") '
+                '== "2026-08-05", "revenue"].tolist() == [100]\n'
+                "month_rows = month_to_date.to_pandas()\n"
+                'assert month_rows.loc[month_rows["calendar:day"].dt.strftime("%Y-%m-%d") '
+                '== "2026-08-15", "revenue"].tolist() == [200]\n'
                 'assert sample_mean.to_pandas()["region"].tolist() == ["east", "west"]\n'
                 'assert sample_mean.to_pandas()["average"].tolist() == [100, 600]\n'
                 'assert adjusted.to_pandas()["region"].tolist() == ["east", "west"]\n'
@@ -516,23 +523,3 @@ def test_documentation_scripts_run_without_fixture_model_loading(tmp_path: Path)
     (tmp_path / "models/semantic/sales/_domain.py").unlink()
     (tmp_path / "warehouse.duckdb").unlink()
     run(tmp_path, "reopen.py", session_id, frame_id)
-
-    calendar = tmp_path / "calendar-demo"
-    write(calendar, "models/datasources/warehouse.py", named("demo-datasource"))
-    for filename, source in zip(
-        ("seed_calendar.py", "models/semantic/sales/_domain.py", "check_calendar.py"),
-        [
-            next(
-                match.group(1)
-                for match in re.finditer(
-                    r"\{/\* example: " + marker + r" \*/\}\s*```python\n(.*?)```",
-                    (pages / "modeling/dates.mdx").read_text(),
-                    re.DOTALL,
-                )
-            )
-            for marker in ("calendar-seed", "calendar-model", "calendar-read")
-        ],
-        strict=True,
-    ):
-        write(calendar, filename, source)
-    run_group(calendar, ("seed_calendar.py", "check_calendar.py"))

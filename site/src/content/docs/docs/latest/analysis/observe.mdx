@@ -69,7 +69,7 @@ not filter contributions. P must cover all necessary output keys. Use
 `where=mv.in_population(P)` to restrict contributions explicitly. If P already
 carries report time, omit a separate TimeScope in `where`.
 
-Each source reduction fixes its contribution time when it is defined, either
+Each source reduction can fix its contribution time when it is defined, either
 explicitly with `time=field` or by inheriting its Entity's `default_time`.
 A report range or CalendarAxis filters only clocked branches. Omission without an
 Entity default and explicit `time=None` both make a branch report independent.
@@ -105,24 +105,8 @@ Use `where=(scope, status == "paid")` to conjoin one report range with a row
 predicate. An explicit field comparison such as `where=paid_at >= start` filters
 a fixed source field and can filter a Metric with no contribution clock. It stays
 in force throughout window evaluation, including history before the report range.
-Window endpoints come from the report time context. If a branch lacks a clock, repair that branch's
-definition or omit report time from the observation.
-
-For an existing `metric` whose time capability is not known, inspect a rejected
-observation's complete structured details before deciding how to repair it:
-
-```python
-try:
-    pending = session.observe({"value": metric}, where=scope)
-except mv.MetricContributionTimeError as error:
-    print(error.output)
-    for missing in error.missing:
-        print(missing.path, missing.metric, missing.root, missing.reason)
-```
-
-`reason` distinguishes a source reduction without an Entity default from a
-fixed Population count. Do not assign a clock to a fixed Population count;
-keep it outside report time operations.
+Window endpoints come from the report time context or an enclosing calendar
+sample. Independent branches retain their scope at each valid endpoint.
 
 See `marivo.help("semantic.metric.define")` and
 `marivo.help("analysis.session.observe")` for the exact contracts.

@@ -1,0 +1,63 @@
+---
+slug: docs/latest/release-notes/0.6.3
+title: Marivo 0.6.3
+description: Release notes for Marivo 0.6.3.
+---
+
+Released on November 9, 2026. Marivo 0.6.3 introduces fixed Metric contribution
+clocks, composable calendar samples and windows, and a service for reading saved
+results. It includes breaking changes to time modeling and business calendars;
+update existing models and analysis code before upgrading.
+
+## Highlights
+
+- Source reductions can bind a contribution clock with `time=field` or the
+  Entity's `default_time`; reductions without a clock are report independent.
+  Composed Metrics retain each branch's time role. Report ranges and calendar
+  axes filter clocked branches while independent branches retain their scope.
+- Combine Metric windows and calendar sampling in either order, with captured
+  endpoint semantics. Calendar samples use represented keys; ordinary time
+  observations stay sparse unless an explicit Population supplies a complete
+  output domain.
+- Persist an AnalysisFrame or a pandas DataFrame and serve its exact saved
+  identity with authenticated `marivo serve` HTTP v2. Fixed reads do not rerun
+  producers or query sources. Install `marivo[api]` to run the service.
+
+## Changed
+
+- **Metric migration:** `ms.TimeParameter` and `bind_time(...)` were removed.
+  Define a Metric for each business clock instead. Omitting `time=` now inherits
+  the contribution Entity's `default_time` when present; use `time=None` to
+  keep a reduction report independent even when a default exists. Inspect
+  `MetricDefinition.time_bindings` for captured time roles.
+- **Report time migration:** when replacing `mv.time_group(field, ...)`, bind
+  that field to each relevant source reduction with `time=field` or the Entity's
+  `default_time`, then use `scope.by(mv.grain(...))` in `observe(by=...)`. Use
+  `where=scope` for a range without grouping. `session.time_scope(...)` uses the
+  Session timezone and no longer accepts a timezone override. Replace `field.within(scope)` with
+  explicit field boundary comparisons.
+- **Business calendar migration:** `PeriodCalendar` and `TemporalSet` authoring
+  and certification were removed, with no compatibility reader for their named
+  results. Model fiscal and working-day data with ordinary fields and dimensions;
+  let the calling application supply authoritative ranges and mappings.
+- A finite calendar axis does not by itself fill empty buckets. Use an explicit
+  Population when a complete output domain is required. Missing calendar samples
+  do not contribute zeros to sample reductions.
+
+## Fixed
+
+- Preserve sparse observation and sample keys through temporal calculations;
+  window endpoints and explicit Population completion retain their own rules.
+- Improve qualified `ms.hour_prefix(...)` date bounds for whole-day, cross-day
+  and one-sided ranges, enabling backend partition pruning where supported.
+
+## Documentation
+
+- Updated the English and Chinese time modeling, analysis and calendar guides,
+  added the persisted result service reference, and expanded native Help examples
+  and multi-target CLI Help.
+
+## Internal
+
+- Fuse compatible same-source sample aggregates and add a manual, non-publishing
+  release preflight to the publishing workflow.

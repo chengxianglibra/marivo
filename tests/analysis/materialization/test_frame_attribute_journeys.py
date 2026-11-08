@@ -35,12 +35,8 @@ def test_fixed_multibaseline_targets_keep_their_own_source_bindings(
     )
     compared = september.compare(
         {
-            "july": mv.baseline(
-                july, on=tuple(zip(september.axes, july.axes, strict=True)), match=mv.ordinal()
-            ),
-            "august": mv.baseline(
-                august, on=tuple(zip(september.axes, august.axes, strict=True)), match=mv.ordinal()
-            ),
+            "july": mv.baseline(july, on=tuple(zip(september.axes, july.axes, strict=True))),
+            "august": mv.baseline(august, on=tuple(zip(september.axes, august.axes, strict=True))),
         }
     ).compute()
     selected = compared.where(
@@ -59,7 +55,7 @@ def test_fixed_multibaseline_targets_keep_their_own_source_bindings(
         assert rows[f"total.{name}"].tolist() == [expected]
         assert rows[f"observed_total.{name}"].tolist() == [expected]
         assert rows[f"contribution_share.{name}"].tolist() == [1]
-    assert len(report.axes) == 3
+    assert len(report.axes) == 2
 
 
 def test_unsupported_quantile_continues_through_explicit_parent_key_bridge(

@@ -305,7 +305,7 @@ their instant. This applies equally to observe, members, Metric.where and source
 reduction conditions; an output scope's timezone does not reinterpret them.
 Naive Python datetimes and invalid or ambiguous civil boundaries reject at capture.
 DATE compares its declared business-day start; equality means one exact instant,
-not the complete day. Explicit within scopes retain their captured boundaries.
+not the complete day.
 Exact grammar lives at semantic.predicate and semantic.field Help targets.
 
 ## Internal samples and windows

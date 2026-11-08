@@ -174,14 +174,16 @@ def run(root: Path, phase: str, mode: str) -> dict[str, object]:
                     )
                     for index in profile["profiles"][1:]
                 )
-            query = session.observe(
-                quantities,
-                by=mv.product(grid, members)
-                if mode == "entity_time"
-                else (grid, catalog_value(session.catalog, "sales.order.channel", kind="dimension"))
-                if mode == "category_time"
-                else (grid,),
-            )
+            if mode == "category_time":
+                categories = members.classify(
+                    by=(catalog_value(session.catalog, "sales.order.channel", kind="dimension"),)
+                )
+                assert isinstance(categories, mv.Population)
+                query = session.observe(quantities, by=mv.product(grid, categories))
+            else:
+                query = session.observe(
+                    quantities, by=mv.product(grid, members) if mode == "entity_time" else (grid,)
+                )
         elif mode == "category":
             query = session.observe(
                 {"value": field.max()},

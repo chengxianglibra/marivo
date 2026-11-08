@@ -26,7 +26,7 @@ from marivo.semantic.reader import SemanticProject
 from tests.analysis.numeric.test_remote_numeric_query import _datasource_model
 from tests.datasource.environment import mysql_analysis as mysql
 from tests.datasource.source_cases import Case, SourceData, source_case
-from tests.shared_fixtures import catalog_value
+from tests.shared_fixtures import catalog_value, time_population
 from tests.support.source_trace import capture_source
 
 SERVERS = [
@@ -154,7 +154,7 @@ def test_mysql_calendar_parameters_retain_types_and_nulls(mysql_case: Case) -> N
 
 
 @pytest.mark.parametrize("port,flag", SERVERS)
-def test_mysql_public_daily_output_completes_missing_days(
+def test_mysql_public_daily_output_is_sparse_unless_domain_is_explicit(
     mysql_case: Case,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -177,13 +177,20 @@ def test_mysql_public_daily_output_completes_missing_days(
     point = catalog_value(session.catalog, "sales.facts.point", kind="time_dimension")
     amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
     axis_scope = session.time_scope(start="2026-01-01", end="2026-01-15")
+    axis = axis_scope.by(mv.grain("day"))
     trace = capture_source(monkeypatch)
+    rows = session.observe({"total": amount.sum(time=point)}, by=(axis,)).compute().to_pandas()
+    first = datetime(2025, 12, 31, 16, tzinfo=timezone.utc)
+    assert rows["calendar:day"].dt.tz_convert("UTC").tolist() == [
+        first + timedelta(days=i) for i in (0, 1, 13)
+    ]
+    assert rows.total.tolist() == [5, 7, 11]
+
     rows = (
-        session.observe({"total": amount.sum(time=point)}, by=(axis_scope.by(mv.grain("day")),))
+        session.observe({"total": amount.sum(time=point)}, by=time_population(axis))
         .compute()
         .to_pandas()
     )
-    first = datetime(2025, 12, 31, 16, tzinfo=timezone.utc)
     assert rows["calendar:day"].dt.tz_convert("UTC").tolist() == [
         first + timedelta(days=i) for i in range(14)
     ]

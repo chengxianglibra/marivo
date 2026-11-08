@@ -59,7 +59,20 @@ marivo.help("analysis")
 marivo.help("analysis.analysis_frame")
 ```
 
-CLI 使用相同的目标：`.venv/bin/python -m marivo help analysis`。对于已返回的对象，`marivo.help(type(result))` 会显示其类型契约；查询属性时，使用字符串 Help 目标。
+CLI 使用相同的字符串目标，并支持在一次调用中查询多个目标：
+
+```bash
+.venv/bin/python -m marivo help \
+  analysis.session.observe \
+  analysis.analysis_frame.select \
+  analysis.analysis_frame.where
+```
+
+将每个完整目标作为独立参数传入。页面按输入顺序输出到 stdout，重复目标也会重复输出。没有目标时，CLI 显示根 Help。每页沿用各自的输出预算，批量输出包含所有成功渲染的请求页面。
+
+某个目标失败时，其诊断和修复建议输出到 stderr，其余目标仍会继续处理。全部成功时退出码为 `0`，目标错误为 `2`，任意页面渲染失败时为 `1`。Help 不执行示例、创建 Session 或读取数据源；启用遥测时，失败可能写入本地遥测记录。
+
+Python `marivo.help(target)` 每次接受一个目标。对于已返回的对象，`marivo.help(type(result))` 会显示其类型契约；查询属性时，使用字符串 Help 目标。
 
 按当前问题选择入口；这些主题可以独立查询。
 

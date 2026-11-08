@@ -333,7 +333,7 @@ def test_postgres_attribute_default_preserves_exact_values_and_fixed_parents(
         metric = amount.sum(time=day)
         current = session.time_scope(start="2026-10-08", end="2026-10-09")
         baseline = session.time_scope(start="2026-10-07", end="2026-10-08")
-        selection = session.observe({"q": metric}, by=(tenant,), where=current)
+        selection = session.observe({"q": metric}, by=(current.by(mv.grain("day")), tenant))
         selection = selection.reduce({"q": selection["q"].sum()}, by=(selection.axes[1],))
         parents = selection.top(1, by=selection["q"]).compute()
         parent_rows = parents.to_pandas()
@@ -395,11 +395,7 @@ def test_postgres_attribute_default_preserves_exact_values_and_fixed_parents(
             {"q": metric}, by=(tenant, category), where=(baseline, mv.in_population(keys))
         )
         compared = left.compare(
-            {
-                "reference": mv.baseline(
-                    right, on=tuple(zip(left.axes, right.axes, strict=True)), match=mv.ordinal()
-                )
-            }
+            {"reference": mv.baseline(right, on=tuple(zip(left.axes, right.axes, strict=True)))}
         )
         pending = compared.select(
             {
@@ -473,7 +469,6 @@ def test_postgres_attribute_default_preserves_exact_values_and_fixed_parents(
                 "reference": mv.baseline(
                     baseline_parent,
                     on=tuple(zip(current_parent.axes, baseline_parent.axes, strict=True)),
-                    match=mv.ordinal(),
                 )
             }
         )

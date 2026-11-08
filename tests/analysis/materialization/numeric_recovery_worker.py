@@ -45,12 +45,12 @@ def run_process(project: str, session_id: str, phase: str) -> None:
         )
         results = {
             "sum": observed.reduce(
-                {"value": observed["value"].sum()}, by=(observed.axes[1],)
+                {"value": observed["value"].sum()}, by=(observed.axes[0],)
             ).persist(),
             "mean": observed.reduce(
-                {"value": observed["value"].mean()}, by=(observed.axes[1],)
+                {"value": observed["value"].mean()}, by=(observed.axes[0],)
             ).persist(),
-            "count": observed.reduce({"value": mv.row_count()}, by=(observed.axes[1],)).persist(),
+            "count": observed.reduce({"value": mv.row_count()}, by=(observed.axes[0],)).persist(),
             "count_defined": observed.where(~observed["value"].is_null())
             .reduce({"value": mv.row_count()})
             .persist(),

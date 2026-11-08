@@ -843,16 +843,17 @@ def test_non_key_outer_and_top_order_survive_cold_filter_reduce_republish(
     worker = """
 import os, sys
 from contextlib import ExitStack
+from datetime import timezone
 from pathlib import Path
 from unittest.mock import patch
 import duckdb, ibis
 import marivo.analysis as mv
 import marivo.semantic as ms
-from marivo import _temporal
+from marivo import _timezones as source_timezone
+from marivo.analysis import timezone as analysis_timezone
 from marivo.analysis.core import frame_calendar
 from marivo.analysis.materialization import frame_source_preparation
 from marivo.analysis.session.core import Session
-from marivo import _timezones as source_timezone
 from marivo.datasource.adapters import SourceSession
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.materialization.domain_recovery_worker import forbidden, snapshot
@@ -871,10 +872,11 @@ with ExitStack() as guards:
         (ibis.duckdb,'connect',forbidden), (frame_calendar,'freeze_calendar',forbidden),
         (frame_source_preparation,'open_query_sources',forbidden),
         (source_timezone,'resolve_system_timezone',forbidden),
-        (_temporal,'ZoneInfo',forbidden),
+        (analysis_timezone,'resolve_system_timezone',forbidden),
     ):
         guards.enter_context(patch.object(target,name,replacement))
     session=mv.session.resume(state['session'])
+    guards.enter_context(patch.object(source_timezone,'ZoneInfo',lambda name: timezone.utc if name == 'UTC' else forbidden(name)))
     before=run_ids(session)
     if sys.argv[2]=='continue':
         assert sorted(before)==state['runs']
@@ -1034,12 +1036,14 @@ def test_calendar_rules_keep_captured_facts_across_carriers(
     worker = """
 import os, sys
 from contextlib import ExitStack
+from datetime import timezone
 from pathlib import Path
 from unittest.mock import patch
 import duckdb, ibis
 import marivo.analysis as mv
 import marivo.semantic as ms
-from marivo import _temporal
+from marivo import _timezones as source_timezone
+from marivo.analysis import timezone as analysis_timezone
 from marivo.analysis.core import frame_calendar
 from marivo.analysis.materialization import frame_source_preparation
 from marivo.analysis.session.core import Session
@@ -1050,9 +1054,11 @@ from tests.support.json import obj, read
 root=Path(sys.argv[1]); os.chdir(root); os.environ['MARIVO_PROJECT_ROOT']=str(root)
 state=obj(read(root/'calendar-rules.json'))
 with ExitStack() as guards:
-    for target,name,replacement in ((ms,'load',forbidden),(Session,'catalog',property(forbidden)),(SourceSession,'__init__',forbidden),(duckdb,'connect',forbidden),(ibis.duckdb,'connect',forbidden),(frame_source_preparation,'open_query_sources',forbidden),(frame_calendar,'freeze_calendar',forbidden),(_temporal,'ZoneInfo',forbidden)):
+    for target,name,replacement in ((ms,'load',forbidden),(Session,'catalog',property(forbidden)),(SourceSession,'__init__',forbidden),(duckdb,'connect',forbidden),(ibis.duckdb,'connect',forbidden),(frame_source_preparation,'open_query_sources',forbidden),(frame_calendar,'freeze_calendar',forbidden),(source_timezone,'resolve_system_timezone',forbidden),(analysis_timezone,'resolve_system_timezone',forbidden)):
         guards.enter_context(patch.object(target,name,replacement))
-    session=mv.session.resume(state['session']); before=run_ids(session)
+    session=mv.session.resume(state['session'])
+    guards.enter_context(patch.object(source_timezone,'ZoneInfo',lambda name: timezone.utc if name == 'UTC' else forbidden(name)))
+    before=run_ids(session)
     left=session.persisted_frame(state['left']); right=session.persisted_frame(state['right'])
     assert [snapshot(left),snapshot(right)]==state['snapshots']
     rule=mv.offset(years=-1) if state['rule']=='years' else mv.offset(periods=-1) if state['rule']=='periods' else mv.ordinal()

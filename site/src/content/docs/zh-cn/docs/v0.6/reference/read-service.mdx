@@ -1,0 +1,120 @@
+---
+slug: zh-cn/docs/v0.6/reference/read-service
+title: 持久化结果服务
+description: 保存 AnalysisFrame 和 pandas 表格，通过 HTTP 读取精确的固定结果。
+---
+
+Marivo 负责显式保存结果和按固定身份读取。插件负责报告布局、文字、数据绑定、日期策略、
+分析程序和刷新执行。服务不再提供脚本端点、当前结果别名或 Catalog HTTP。
+
+## 保存和交付结果
+
+```python
+saved = frame.persist(description="Monthly revenue")
+reference = saved.ref.to_dict()
+```
+
+只有已持久化 Frame 具有 `.ref`，获取引用不会计算、保存或重查来源。引用包含
+`schema: "marivo.frame_ref/v2"`、`store_id`、`session_id`、`artifact_id`，均来自
+结果自身。待计算或内存 Frame 需显式 `persist()`；已计算结果保存时不重新查询，
+已保存结果保持既有提交。
+
+普通表格使用独立入口：
+
+```python
+from pathlib import Path
+import pandas as pd
+import marivo.analysis as mv
+
+reference = mv.persist_dataframe(
+    pd.DataFrame({"region": ["east", "south"], "orders": [12, 7]}),
+    project_root=Path("/srv/sales-project"),
+)
+print(reference.to_dict())
+```
+
+表格引用包含 `schema: "marivo.dataframe_ref/v1"` 和 `result_id`。显式目录是精确的
+已有目标目录，省略时按项目发现规则解析。保存不创建 Session、Analysis Store、Catalog
+或数据源连接，也不要求 HTTP 服务或可选 API 依赖。每次保存产生新身份；后续修改原表
+不影响快照。引用不含服务地址、凭据、报告身份或生产代码，插件单独保存服务连接。
+
+表格必须具有默认无名 RangeIndex、唯一非空字符串列名，列值支持空值、布尔、字符串、
+整数、float32/64、Decimal、日期、时间戳和 duration。业务索引需显式移到列。
+不支持的嵌套/对象值明确报错，不会静默字符串化。保留行列顺序、零列行数、空表类型和
+受支持的精确值。`attrs` 不作为语义元数据保存，不推断单位、血缘、时间轴或新鲜度。
+
+## 启动和连接
+
+安装 `marivo[api]`。通过 `secrets.token_urlsafe(32)` 生成令牌，保存在部署凭据中，
+以 `MARIVO_API_TOKEN` 传给服务。Host 负责连接管理和用户权限。
+
+```sh
+marivo serve --project-root /srv/sales-project --port 0
+```
+
+默认监听 `127.0.0.1:8765`，端口 0 自动分配。前台进程输出一行 JSON 就绪信息，
+包含 host、port、protocol、pid、marivo_version 和 api_version 2。日志写入 stderr。
+SIGTERM/SIGINT 停止服务，固定文件重启后仍可读。令牌通过修改配置并重启轮换。
+
+远端 HTTPS 页面需使用受信任证书和匹配私钥，或通过受保护的 HTTPS 代理访问。
+`--allow-origin` 指定精确来源，可重复，不接受通配符。
+
+```sh
+marivo serve --project-root /srv/sales-project --host 0.0.0.0 --port 8765 \
+  --ssl-certfile /etc/tls/fullchain.pem --ssl-keyfile /etc/tls/privkey.pem \
+  --allow-origin https://analysis.example.com
+```
+
+所有业务请求，包括 info 和 OpenAPI，要求 `Authorization: Bearer <token>`。
+合法 CORS 预检不要求令牌，允许 GET/OPTIONS 及 Authorization/Content-Type 头。
+实际请求均需认证；允许的来源在错误响应中也收到 CORS 头。服务器间请求无需 Origin。
+
+## HTTP v2
+
+| 方法和路径 | 结果 |
+| --- | --- |
+| `GET /v2/info` | API/Marivo 版本、当前 Store 身份或 null |
+| `GET /v2/openapi.json` | OpenAPI 3.1 请求、响应和错误契约 |
+| `GET /v2/sessions` | 已保存 Session，按更新时间倒序 |
+| `GET /v2/sessions/{session_id}/frames` | 已提交 Frame，按提交时间倒序 |
+| `GET /v2/stores/{store_id}/sessions/{session_id}/frames/{artifact_id}` | 精确 AnalysisFrame |
+| `GET /v2/dataframes/{result_id}` | 精确普通表格 |
+
+目录接受 `limit` 1..100，默认 20，以及 `cursor`；后续页保持相同选择和 limit。
+固定读取不接受查询参数，返回完整结果或错误。已有资源的不支持方法返回 405，
+未知或已退役路径返回 404。不提供 HTTP v1 别名或重定向。Frame 的 Store 不匹配时返回
+`409 invalid_result_reference`。没有 Analysis Store 的项目仍可提供 DataFrame，Session
+目录为空。
+
+两类结果均包含 kind、ref、committed_at、schema 和 data。AnalysisFrame 另外保留
+描述、血缘、实际来源读取及已保存期间。数据布局保留真实列名、坐标 slot ID 和确定的
+重名后缀；比较期间保留端点映射和缺失原因。普通表格只声明物理列和行，不合成 Session。
+完整类型契约以 OpenAPI 为准，不从显示标签推断。
+
+整数和 Decimal 用精确字符串；日期/时间戳用 ISO 字符串；duration 用带 dtype 单位的
+整数字符串。有限浮点使用 JSON 数字，非有限值使用 `{"float":"nan"}`、
+`{"float":"inf"}` 或 `{"float":"-inf"}`。空值与布尔 presence 独立。
+空行集为 `rows: []`，零列单行为 `rows: [[]]`。
+
+## 保留与失败
+
+读取不依赖原进程、当前模型或源数据可用性，仅打开已有状态并验证提交归属和文件。
+不执行脚本、恢复生产程序或查询来源。校验可能扫描/哈希完整文件，内部分批不限制总 I/O。
+
+AnalysisFrame 使用现有 Store；普通表格使用原子写入的
+`.marivo/server/dataframes/{result_id}.parquet`。元数据记录结果身份、UTC 提交时间和
+逻辑行数。同一读取器保留历史快照的固定值，忽略旧背景 Session 字段。不自动持久化、
+缓存、删除或垃圾回收。
+
+提交时间和来源读取完成时间不证明业务新鲜度或覆盖完整性。插件记录请求范围，基于
+保存事实生成结论，并在数据和文字准备完成后切换报告版本；跨结果发布由插件拥有。
+
+保存不受 HTTP 响应限制影响。`--max-response-mib` 默认 128，限制完整未压缩 JSON；
+`--read-timeout-seconds` 默认 300；均要求正整数。超大结果返回 response_too_large，
+不会截断。取消为协作式，进行中的原生/文件调用可能需要先返回才能释放槽位。
+错误包含 code、message、location、repair 和可空 target。缺失或损坏不会触发重算。
+意外失败写入服务日志，HTTP 不暴露 traceback。
+
+使用 `marivo help analysis.persist_dataframe`、
+`marivo help analysis.analysis_frame.ref` 和
+`marivo help analysis.results.service.http` 获取聚焦契约。

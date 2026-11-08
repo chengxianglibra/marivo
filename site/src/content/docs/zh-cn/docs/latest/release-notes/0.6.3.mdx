@@ -1,0 +1,43 @@
+---
+slug: zh-cn/docs/latest/release-notes/0.6.3
+title: Marivo 0.6.3
+description: Marivo 0.6.3 版本说明。
+---
+
+发布于 2026 年 11 月 9 日。Marivo 0.6.3 引入固定的 Metric 贡献时间、可组合的日历样本与窗口，
+以及读取已保存结果的服务。时间建模和业务日历包含破坏性变更，请在升级前更新已有模型和分析代码。
+
+## 亮点
+
+- 源规约可通过 `time=field` 或 Entity 的 `default_time` 绑定贡献时间；没有贡献时间的规约独立于报表时间。
+  组合 Metric 保留各分支的时间角色；报表范围和日历轴筛选有时间的分支，独立分支保持原有范围。
+- Metric 窗口与日历样本可按任一顺序组合，并记录窗口端点语义。日历样本使用实际存在的键；
+  普通时间观测保持稀疏，除非显式 Population 提供完整输出域。
+- 保存 AnalysisFrame 或 pandas DataFrame 后，可通过带认证的 `marivo serve` HTTP v2 读取其确切保存标识。
+  固定结果读取不会重新运行生产过程或查询数据源。运行服务需安装 `marivo[api]`。
+
+## 变更
+
+- **Metric 迁移：** 移除了 `ms.TimeParameter` 和 `bind_time(...)`，请为各业务时间分别定义 Metric。
+  省略 `time=` 时，若贡献 Entity 有 `default_time`，规约会继承它；即使存在默认时间，使用 `time=None`
+  仍可使规约独立于报表时间。可通过 `MetricDefinition.time_bindings` 查看已捕获的时间角色。
+- **报表时间迁移：** 替换 `mv.time_group(field, ...)` 时，先通过 `time=field` 或 Entity 的 `default_time`
+  将该字段绑定到每个相关源规约，再在 `observe(by=...)` 中使用 `scope.by(mv.grain(...))`。
+  仅按范围筛选而不分组时使用 `where=scope`。`session.time_scope(...)` 使用 Session 时区，不再接受时区覆盖参数。
+  使用显式字段边界比较替代 `field.within(scope)`。
+- **业务日历迁移：** 移除了 `PeriodCalendar` 和 `TemporalSet` 的声明与认证，不提供其具名结果的兼容读取器。
+  请用普通字段和维度建模财务周期与工作日，由调用方提供权威范围和映射。
+- 有限日历轴本身不会补齐空桶；需要完整输出域时请使用显式 Population。缺失的日历样本不会作为零参与样本规约。
+
+## 修复
+
+- 在时间计算中保留稀疏观测键和样本键；窗口端点及显式 Population 补齐仍遵循各自规则。
+- 改进符合条件的 `ms.hour_prefix(...)` 整日、跨日及单侧范围的日期边界，使受支持的后端能够进行分区裁剪。
+
+## 文档
+
+- 更新中英文时间建模、分析和日历指南，新增已保存结果服务参考，并扩充原生 Help 示例及 CLI 多目标 Help。
+
+## 内部改进
+
+- 合并兼容的同源样本聚合，并为发布工作流增加不执行发布的手动预检。

@@ -26,3 +26,11 @@ For a new project, provide the data location and agreed definitions. For a real 
 For the [six-order DSL example](/docs/v0.6/analysis/dsl/#complete-example-and-shared-inputs), July revenue is CNY 1,000 and August is CNY 800, a decrease of CNY 200. `east` and `west` each decrease by CNY 100. Ask the Agent to explain how the regional changes add to the total without presenting the breakdown as a cause, and to flag material missing data or method limits.
 
 For a follow-up, state which scope stays fixed. To reopen the same values in another process, ask the Agent to save the result and keep its `session_id` and `artifact_id`; see [Results and method facts](/docs/v0.6/analysis/results/). A one-time answer does not need a saved result. For current source values, ask for a fresh observation. For example: “Keep west selected and compare by customer type.”
+
+## Retired service workflow
+
+The package provides `marivo-semantic` and `marivo-analysis`. Service API facts live
+in `marivo help analysis.results.service.http`; the host plugin owns report delivery
+and refresh execution. After upgrading, review and remove obsolete `marivo-service`
+links or copies from project skill directories, preserving any local customizations
+first. `marivo init` no longer installs that skill and does not delete user files.

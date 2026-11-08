@@ -62,7 +62,7 @@ complete = session.observe({"revenue": revenue}, by=mv.product(axis, unit)).comp
 P 必须覆盖所有必要输出键；如需限制贡献，显式使用 `where=mv.in_population(P)`。
 若 P 已含报告时间坐标，则不能在 `where` 中另传 TimeScope。
 
-每个源规约在定义时固定贡献时间，可显式传入 `time=field`，或继承所属 Entity 的
+源规约可在定义时固定贡献时间，显式传入 `time=field`，或继承所属 Entity 的
 `default_time`。没有默认时间时省略参数与显式 `time=None` 都表示独立于报告时间；
 显式 None 还会退出默认继承。报告范围和分桶只作用于有时钟分支，无时钟分支保留业务条件，
 先规约再沿已经成立的完整输出坐标复用。组合可保留不同字段，同一日历桶不证明来自同一批业务对象。
@@ -91,22 +91,8 @@ Catalog Metric，可查看 `metric.definition.time_bindings`，或调用
 
 用 `where=(scope, status == "paid")` 将一个报告范围与行谓词取交集。
 `where=paid_at >= start` 这样的显式字段比较是固定来源字段谓词，可筛选没有贡献时间的
-Metric；它在窗口求值期间持续生效，包括报告范围之前的历史。窗口端点由报告时间上下文提供。若某个分支缺少贡献时间，请修订该分支的定义，
-或在此次观察中省略报告时间。
-
-对于时间能力尚不确定的现有 `metric`，可先读取观察错误的完整结构化详情，再决定如何修复：
-
-```python
-try:
-    pending = session.observe({"value": metric}, where=scope)
-except mv.MetricContributionTimeError as error:
-    print(error.output)
-    for missing in error.missing:
-        print(missing.path, missing.metric, missing.root, missing.reason)
-```
-
-`reason` 区分缺少 Entity 默认时间的源规约与固定 Population 计数。不要给固定
-Population 计数指定归期；应将它放在报告时间运算之外。
+Metric；它在窗口求值期间持续生效，包括报告范围之前的历史。窗口端点由报告时间上下文
+或外层日历样本提供；独立分支在每个有效端点保留原有范围。
 
 精确契约见 `marivo.help("semantic.metric.define")` 和
 `marivo.help("analysis.session.observe")`。

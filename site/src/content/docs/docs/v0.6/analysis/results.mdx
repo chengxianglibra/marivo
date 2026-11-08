@@ -6,6 +6,10 @@ description: Save result identifiers, discover committed Frames, reopen data, an
 
 Run the [analysis DSL example](/docs/v0.6/analysis/dsl/#complete-example-and-shared-inputs), which persists its comparison as `saved`. Use `compute()` for a completed Frame you will keep in the same Python process. Persist the result when you need to reopen it in another process.
 
+## Read a report over HTTP
+
+Use the [project read service](/docs/v0.6/reference/read-service/) to retrieve a complete saved Frame by its IDs.
+
 ## Save the result identifiers
 
 In `analysis.py`, add these lines after `saved = change.persist()` and run the producing script:
@@ -278,3 +282,6 @@ not rematch versions. Use `pd.isna(value)`, `rows["value"].isna()` or `.notna()`
 Arrow missing values; do not coerce `pd.NA` to a Python boolean or fill it with
 zero automatically. Explicit `.astype("float64")` enables approximate arithmetic
 when large-integer rounding and NA becoming NaN are acceptable.
+
+
+Read `frame.schema.value_time_semantics` for per-column contribution-time facts. `observed` retains each original branch's clock or report independence, report effect and window; `derived` describes inputs to fixed-data operations. For a recorded column, use `frame.schema.value_time_semantics[name].show()` or the Column's `.show()`. A shared calendar bucket does not establish a shared cohort, and a repeated fixed denominator is not thereby additive over time. Each branch also keeps `report_axis` and `report_cells`, so removing the time axis retains the original grain and nominal/selected bucket bounds. These facts survive persistence and cold reopening and appear in HTTP Frame reports.

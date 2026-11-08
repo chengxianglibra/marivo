@@ -74,7 +74,7 @@ function docsItems(version, isLatest = false) {
         items: [
           { slug: `${versionSlug}/reference/backends-and-limits` },
           { slug: `${versionSlug}/reference/configuration` },
-          ...(version === "latest" ? [{ slug: `${versionSlug}/reference/read-service` }] : []),
+          ...(version === "latest" || version === "v0.6" ? [{ slug: `${versionSlug}/reference/read-service` }] : []),
           { slug: `${versionSlug}/reference/telemetry` },
           { slug: `${versionSlug}/reference/troubleshooting` },
         ],
