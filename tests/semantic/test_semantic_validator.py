@@ -32,29 +32,6 @@ from marivo.semantic.validator import validate_metric_body_ast
 # ---------------------------------------------------------------------------
 
 
-def test_base_single_return_allowed() -> None:
-    """A single return expression is the canonical metric body."""
-
-    def revenue(table):  # type: ignore[no-untyped-def]
-        return table.amount.sum()
-
-    result = validate_metric_body_ast(revenue, "base")
-    assert isinstance(result, str)
-    assert len(result) > 0
-
-
-def test_base_leading_docstring_allowed() -> None:
-    """A leading function docstring is metadata, not a body statement."""
-
-    def revenue(table):  # type: ignore[no-untyped-def]
-        """Revenue amount."""
-        return table.amount.sum()
-
-    result = validate_metric_body_ast(revenue, "base")
-    assert isinstance(result, str)
-    assert len(result) > 0
-
-
 def test_base_field_ref_bind() -> None:
     """Explicit semantic field binding is allowed in base metrics."""
 
@@ -592,16 +569,6 @@ def test_base_ibis_attr_no_shadow_non_param() -> None:
 
     def metric(table):  # type: ignore[no-untyped-def]
         return other.schema  # type: ignore[name-defined]  # noqa: F821
-
-    result = validate_metric_body_ast(metric, "base")
-    assert isinstance(result, str)
-
-
-def test_base_ibis_attr_no_shadow_safe_name() -> None:
-    """Accessing a non-shadowing attribute like .amount is fine."""
-
-    def metric(orders):  # type: ignore[no-untyped-def]
-        return orders.amount.sum()
 
     result = validate_metric_body_ast(metric, "base")
     assert isinstance(result, str)

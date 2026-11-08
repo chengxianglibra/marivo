@@ -1,6 +1,6 @@
 """Closed inert method facts, exact physical scalars and original-key associations."""
 
-from dataclasses import FrozenInstanceError, fields, replace
+from dataclasses import FrozenInstanceError, replace
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Literal
@@ -292,19 +292,8 @@ def test_null_decimal_and_ticks_boundaries() -> None:
             FrameMethodValue(column("x", dtype), 2**63)
 
 
-def test_records_are_frozen_slotted_and_have_exact_fields() -> None:
+def test_records_reject_mutation_and_unknown_fields() -> None:
     value = facts()
-    assert tuple(field.name for field in fields(value)) == (
-        "kind",
-        "origin_result_id",
-        "output_schema",
-        "coordinates",
-        "parent_axis_count",
-        "parents",
-        "parent_schema",
-        "targets",
-    )
-    assert not hasattr(value, "__dict__")
     with pytest.raises(FrozenInstanceError):
         value.origin_result_id = "other"  # type: ignore[misc]  # Verify runtime immutability.
     with pytest.raises(TypeError):

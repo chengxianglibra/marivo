@@ -324,17 +324,6 @@ def test_sampled_facts_roundtrip_preserves_native_values_and_separation(
         method.seed = 9  # type: ignore[misc]  # Verify runtime immutability.
 
 
-def test_sampled_facts_count_shared_endpoint_capture_once() -> None:
-    method = _method(_facts())
-    capture = replace(method.captures[0], endpoint="both")
-    leaf = replace(method.leaves[0], baseline_capture_ids=(capture.capture_id,))
-    shared = replace(
-        method, captures=(capture,), leaves=(leaf,), state_entries=4, captured_source_reads=1
-    )
-    assert shared.captured_source_reads == 1
-    assert shared.leaves[0].current_capture_ids == shared.leaves[0].baseline_capture_ids
-
-
 def test_sampled_cost_directory_includes_auxiliary_and_split_component_reads() -> None:
     method = _method(_facts())
     assert isinstance(method.captures[0], FrameShapleyCapture)

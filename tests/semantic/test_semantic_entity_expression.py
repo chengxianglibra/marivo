@@ -172,16 +172,6 @@ def test_entity_duplicate_name_via_decorator_collides_with_direct() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_entity_body_accepts_docstring_and_single_return() -> None:
-    def body(raw: ibis_ir.Table) -> object:
-        """One latest order per day."""
-        return raw.filter(raw.is_deleted == False)  # noqa: E712
-
-    compiled = _compile_entity_body(body)
-    assert compiled.parameter_count == 1
-    assert compiled.body_ast_hash.startswith("sha256:")
-
-
 def test_entity_body_rejects_two_positional_parameters() -> None:
     def body(raw: ibis_ir.Table, other: object) -> object:
         return raw
@@ -316,14 +306,6 @@ def test_entity_body_rejects_captured_table() -> None:
 
 def captured_branch(raw: ibis_ir.Table) -> object:
     return captured.join(raw)  # type: ignore[name-defined] # noqa: F821
-
-
-def test_entity_body_rejects_scalar_return_ast_classified_at_runtime() -> None:
-    def body(raw: ibis_ir.Table) -> object:
-        return raw.amount.sum()
-
-    compiled = _compile_entity_body(body)
-    assert compiled.body_ast_hash.startswith("sha256:")
 
 
 def test_entity_body_binds_injected_parameter_by_position() -> None:

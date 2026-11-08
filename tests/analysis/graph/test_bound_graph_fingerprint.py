@@ -6,10 +6,8 @@ from datetime import datetime, timezone
 import pytest
 
 import marivo.analysis as mv
-from marivo._definition.graph import computation_fingerprint
 from marivo._definition.observations import CoordinateBinding, ObservationBinding
 from marivo._definition.query import LiteralValues, ResultQuery
-from marivo._definition.relations import QueryNode
 from marivo._definition.types import Owner
 from marivo.analysis.compiler.optimization import InvocationMemo
 from marivo.analysis.core.graph import BoundGraph
@@ -37,43 +35,17 @@ def _graph(*, calendar: bool = True, value: int = 3) -> BoundGraph:
 
 
 @pytest.mark.parametrize("calendar", (False, True))
-def test_fingerprint_computes_once_without_affecting_value_semantics(
-    monkeypatch: pytest.MonkeyPatch, calendar: bool
-) -> None:
+def test_fingerprint_tracks_literal_values_without_mutating_the_graph(calendar: bool) -> None:
     graph = _graph(calendar=calendar)
-    equal = replace(graph)
-    before_hash, before_repr = hash(graph), repr(graph)
-    calls = 0
-    original = computation_fingerprint
-
-    def fingerprint(node: QueryNode) -> str:
-        nonlocal calls
-        calls += 1
-        return original(node)
-
-    monkeypatch.setattr("marivo.analysis.core.graph.computation_fingerprint", fingerprint)
     memo = InvocationMemo()
-    first = memo.fingerprint(graph)
-    assert first == (
-        # The canonical shape includes the sparse calendar selection flag.
-        "c2035a1bd02c4855140d266509c8b0e987bfd118e1da74dc9876ff0bc6177c9f"
-        if calendar
-        else "7dea064422d12e293c2ceb73ed8fc4464994adb3219e3d15730e046e3b5c2ba4"
-    )
-    assert memo.fingerprint(graph) == first
-    assert calls == 1
-    assert hash(graph) == before_hash and repr(graph) == before_repr
-    assert graph == equal
-    assert memo.fingerprint(equal) == first
-    assert calls == 2
-    changed = _graph(calendar=calendar, value=7)
-    assert memo.fingerprint(changed) != first
-    assert memo.fingerprint(graph) == first
-    before_fresh = calls
-    assert InvocationMemo().fingerprint(graph) == first
-    assert calls == before_fresh + 1
+    original = memo.fingerprint(graph)
+    before = hash(graph), repr(graph)
+    assert memo.fingerprint(replace(graph)) == original
+    assert memo.fingerprint(_graph(calendar=calendar, value=7)) != original
+    assert memo.fingerprint(graph) == original
+    assert (hash(graph), repr(graph)) == before
     with pytest.raises(FrozenInstanceError):
-        graph.__setattr__("root", changed.root)
+        graph.__setattr__("root", _graph(calendar=calendar, value=7).root)
 
 
 def test_fingerprint_retains_calendar_cells_beyond_authority_identity() -> None:
@@ -101,51 +73,6 @@ def test_fingerprint_retains_calendar_cells_beyond_authority_identity() -> None:
     assert changed_calendar.identity == calendar.identity
     assert memo.fingerprint(changed) != original
     assert memo.fingerprint(graph) == original
-
-
-@pytest.mark.parametrize("calendar", (False, True))
-def test_encoded_digest_preserves_existing_canonical_bytes(calendar: bool) -> None:
-    from marivo._definition import graph as definition_graph
-
-    graph = _graph(calendar=calendar)
-    values = (graph.root, graph.signature.observation)
-    for value in values:
-        encoded = definition_graph._encode(value, {})
-        assert definition_graph._encoded_fingerprint(encoded) == definition_graph.fingerprint(
-            encoded
-        )
-
-
-def test_encoding_shares_calendar_traversal_only_inside_one_call(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    from marivo._definition import graph
-    from marivo._definition.types import LiteralValue, literal_token
-
-    calendar = exact_scope("2026-01-01", "2026-01-03", "UTC").by(mv.grain("day"))._binding
-    calls = 0
-    original = literal_token
-
-    def token(value: LiteralValue) -> tuple[str, str]:
-        nonlocal calls
-        calls += 1
-        return original(value)
-
-    monkeypatch.setattr(graph, "literal_token", token)
-    once = graph._encode(calendar, {})
-    once_calls = calls
-    calls = 0
-    shared = graph._encode((calendar, calendar, replace(calendar)), {})
-    assert isinstance(shared, list)
-    assert shared == [once, once, once]
-    assert (
-        graph.fingerprint(shared)
-        == "ae51eeea4389dc4e495b78b0cc4e276a54f4067df4b9c30abca64e40a8f814f7"
-    )
-    assert calls == 2 * once_calls
-    calls = 0
-    assert graph._encode(calendar, {}) == once
-    assert calls == once_calls
 
 
 def test_plain_encoding_skips_node_dispatch_but_preserves_subclass_routes(

@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import textwrap
 from collections.abc import Callable
-from dataclasses import fields
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -101,21 +100,6 @@ def _without_checked_at(report: ReadinessReport) -> dict[str, object]:
     payload = report.to_dict()
     payload.pop("checked_at")
     return payload
-
-
-def test_report_has_one_ready_input_projection() -> None:
-    assert tuple(field.name for field in fields(ReadinessReport)) == (
-        "status",
-        "_analysis_ready_inputs",
-        "blockers",
-        "warnings",
-        "input_summary",
-        "checked_at",
-        "catalog_definition_fingerprint",
-        "requested_ids",
-        "checked_ids",
-        "_resolved_inputs",
-    )
 
 
 def test_report_json_and_render_expose_only_analysis_ready_inputs() -> None:

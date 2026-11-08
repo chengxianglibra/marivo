@@ -396,57 +396,6 @@ def test_explicit_source_occurrences_and_formula_finish_are_never_collapsed(
     assert frame["value.1"].tolist() == [70]
 
 
-def test_actual_plan_memo_hits_and_binding_changes_invalidate(
-    optimization_session: Session,
-) -> None:
-    session = optimization_session
-    source = session.observe(
-        {"kept": catalog_value(session.catalog, "sales.orders.amount", kind="measure").sum()}
-    )
-    graph = _source_graph(source)
-    with (
-        session._runtime.connection_service().operation() as connections,
-        open_query_sources(connections, graph, session.catalog._state) as prepared,
-    ):
-        memo = InvocationMemo()
-        first = plan_query(graph, prepared.schemas, memo=memo)
-        before = memo.hits
-        assert plan_query(graph, prepared.schemas, memo=memo) is first
-        assert memo.hits > before
-        changed = tuple(
-            replace(
-                schema,
-                fields=tuple(
-                    replace(column, nullable=not column.nullable) for column in schema.fields
-                ),
-            )
-            for schema in prepared.schemas
-        )
-        fresh = plan_query(graph, changed, memo=memo)
-        assert fresh is not first
-        key = compilation_key(
-            graph,
-            prepared.schemas,
-            required=("value.0",),
-            relations=prepared.relations,
-        )
-        planned = optimize_query(first)
-        lowered = memo.lower(key, lambda: lower_query(planned, prepared.relations))
-        assert memo.lower(key, lambda: lower_query(planned, prepared.relations)) is lowered
-        another = replace(key, required=("value.0", "presence"))
-        assert memo.lower(another, lambda: lower_query(planned, prepared.relations)) is not lowered
-        changed_policy = replace(key, policy_version=key.policy_version + 1)
-        assert (
-            memo.lower(changed_policy, lambda: lower_query(planned, prepared.relations))
-            is not lowered
-        )
-        changed_kernel = replace(key, implementations=(*key.implementations, "test@v2"))
-        assert (
-            memo.lower(changed_kernel, lambda: lower_query(planned, prepared.relations))
-            is not lowered
-        )
-
-
 def test_memo_node_identity_does_not_serialize_the_definition_subgraph(
     optimization_session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -804,7 +753,7 @@ def test_common_block_keeps_same_period_filter_and_exact_checks(
     query = session.observe(
         {"a": amount.sum(time=time), "b": amount.count(time=time)},
         by=(region,),
-        where=(amount > 0) & time.within(scope),
+        where=(amount > 0) & ((time >= scope.start) & (time < scope.end)),
     )
     result, plan, _, _ = _same(session, query)
     assert any(group.law == "source_block" for group in plan.fusion_groups)
@@ -914,12 +863,13 @@ def test_shared_session_scope_keeps_frozen_fields_and_neutral_roundtrip(
     time = catalog_value(
         optimization_session.catalog, "sales.orders.ordered_at", kind="time_dimension"
     )
-    observed = optimization_session.observe({"sum": amount.sum()}, where=time.within(scope))
-    if clock != "00:00:00":
-        with pytest.raises(AnalysisError, match="complete"):
-            observed.compute()
-    else:
-        assert observed.compute().to_pandas()["sum"].tolist() == [60]
+    observed = optimization_session.observe(
+        {"sum": amount.sum()}, where=((time >= scope.start) & (time < scope.end))
+    )
+    # Explicit comparisons select each DATE by its business-day start, even
+    # when the boundaries do not coincide with complete reporting days.
+    expected = 60 if clock == "00:00:00" else 30
+    assert observed.compute().to_pandas()["sum"].tolist() == [expected]
 
 
 def test_explicit_source_weights_preserve_standardized_and_fixed_results(

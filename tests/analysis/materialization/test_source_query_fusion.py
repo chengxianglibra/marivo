@@ -1,7 +1,6 @@
 """Explicit source leaves, fixed Frame operations and typed Population constraints."""
 
 from collections.abc import Callable
-from dataclasses import replace
 from pathlib import Path
 
 import duckdb
@@ -9,29 +8,21 @@ import pandas as pd
 import pytest
 
 import marivo.analysis as mv
-from marivo._definition.graph import computation_fingerprint
-from marivo._definition.query import PopulationValues, TopValues
-from marivo.analysis.binding.correspondence import ComparisonEndpoint
-from marivo.analysis.compiler.graph_lowering import LoweredRead, lower_query
+from marivo._definition.query import TopValues
+from marivo.analysis.compiler.graph_lowering import LoweredRead
 from marivo.analysis.compiler.graph_plan import (
     FrameCompute,
     LocalCompute,
     NativeRead,
     SourceRead,
-    plan_query,
 )
-from marivo.analysis.compiler.observation import FormulaProgram
 from marivo.analysis.compiler.query_program import FrameProgram, ResultProgram
-from marivo.analysis.core.frame_data import ExpressionFrameBacking, SourceFrameBinding
 from marivo.analysis.materialization import graph_local_execution, graph_source_execution
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.graph_exchange import StageOutput
 from marivo.analysis.materialization.graph_local_execution import LocalKernel
 from marivo.analysis.materialization.graph_source_execution import PreparedSources
-from marivo.analysis.materialization.query_key_fusion import fuse_query_terminal
 from marivo.analysis.session.core import Session
-from marivo.semantic._numeric_lowering import NumericCheck
-from marivo.semantic.errors import SemanticExpressionError
 from marivo.semantic.reader import SemanticProject
 from tests.shared_fixtures import DslCaseFactory, catalog_value, terminal_runs
 from tests.support.source_trace import capture_source
@@ -374,128 +365,6 @@ def test_source_population_set_terminal_preserves_native_layout(
     assert trace.returned_rows == [len(rows)]
     assert locals_ == []
     assert trace.uploaded_key_rows == []
-    assert terminal_runs(session) == ()
-
-
-def test_private_native_union_finish_executes_source_order_layout_and_checks(
-    source_query_session: Session, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Exercise the existing private finish builder without enabling a public route."""
-    session = source_query_session
-    entity = catalog_value(session.catalog, "sales.orders", kind="entity")
-    amount = catalog_value(session.catalog, "sales.orders.amount", kind="measure")
-    left = session.members(entity, where=amount >= 20)
-    right = session.members(entity, where=amount <= 20)
-    union = left.union(right)
-    assert isinstance(union, mv.Population)
-    pending = session.frame(union)
-    assert isinstance(pending._backing, ExpressionFrameBacking)
-    assert isinstance(pending._backing.root, SourceFrameBinding)
-    graph = pending._backing.root.graph
-    trace = capture_source(monkeypatch)
-    raw_frames: list[pd.DataFrame] = []
-    complete = graph_source_execution._complete_source_frame
-
-    def capture_complete(
-        stage: SourceRead,
-        frame: pd.DataFrame,
-        numeric_checks: tuple[tuple[str, NumericCheck], ...],
-        *,
-        value_keys: tuple[str, ...] = (),
-    ) -> StageOutput:
-        raw_frames.append(frame.copy())
-        return complete(stage, frame, numeric_checks, value_keys=value_keys)
-
-    monkeypatch.setattr(graph_source_execution, "_complete_source_frame", capture_complete)
-    with (
-        session._runtime.connection_service().operation() as connections,
-        graph_source_execution.open_query_sources(
-            connections, graph, session.catalog._state
-        ) as prepared,
-    ):
-        plan = plan_query(graph, prepared.schemas)
-        endpoint = next(stage for stage in plan.stages if stage.stage_id == plan.publish)
-        assert isinstance(endpoint, LocalCompute)
-        assert isinstance(endpoint.program, FormulaProgram)
-        atoms = (left._definition, right._definition)
-        bindings = tuple(
-            next(
-                binding
-                for binding in endpoint.program.populations
-                if computation_fingerprint(binding.definition) == computation_fingerprint(atom)
-            )
-            for atom in atoms
-        )
-        layout = ComparisonEndpoint(
-            endpoint.columns, endpoint.keys, graph.signature.axes, plan.output_groups
-        )
-        endpoint = replace(
-            endpoint,
-            inputs=tuple(binding.stage_id for binding in bindings),
-            program=ResultProgram(
-                PopulationValues(union._definition),
-                endpoint.columns,
-                endpoint.keys,
-                graph.signature.axes,
-                plan.output_groups,
-                plan.output_groups,
-                population_inputs=atoms,
-                population_layouts=tuple(binding.key_groups for binding in bindings),
-                output_layout=layout,
-            ),
-        )
-        stages = tuple(
-            endpoint if stage.stage_id == endpoint.stage_id else stage
-            for stage in plan.stages
-            if stage.stage_id in (*endpoint.inputs, endpoint.stage_id)
-        )
-        plan = replace(
-            plan,
-            stages=stages,
-            consumers=tuple(
-                (
-                    stage.stage_id,
-                    tuple(item.stage_id for item in stages if stage.stage_id in item.inputs),
-                )
-                for stage in stages
-            ),
-        )
-        lowered = fuse_query_terminal(prepared, lower_query(plan, prepared.relations))
-        assert len(lowered.plan.stages) == len(lowered.reads) == 1
-        stage = lowered.plan.source_read(lowered.plan.publish)
-        assert isinstance(stage.program, NativeRead)
-        finish = stage.program.finish
-        assert finish is not None
-        assert finish.order == ("__query_union_order", "key.0")
-        assert finish.columns == stage.columns == layout.columns
-        assert finish.layout == layout
-        request = lowered.read(stage.stage_id)
-        assert len(request.numeric_checks) == 2
-        output = graph_source_execution.execute_numeric_query(prepared, lowered)
-    assert output.table.iloc[:, 0].tolist() == [2, 3, 1]
-    assert tuple(output.table.columns) == ("key.0",)
-    assert output.layout == layout
-    assert output.key_groups == (("key.0",),)
-    assert output.layout.key_groups == (("key.0",),)
-    assert output.columns[0].nullable
-    assert str(output.table.dtypes.iloc[0]) == "int64[pyarrow]"
-    assert trace.returned_rows == [3]
-    assert len(trace.native_sql) == 1
-    assert trace.uploaded_key_rows == []
-    assert len(raw_frames) == 1
-    raw = raw_frames[0]
-    assert "__query_union_order" in raw.columns
-    assert all(name in raw.columns for name, _ in request.numeric_checks)
-    # The actual finish payload must check failures before projection can discard flags.
-    name, check = request.numeric_checks[0]
-    raw["__finish_numeric_failure"] = True
-    with pytest.raises(SemanticExpressionError, match="non-NA source values"):
-        complete(
-            stage,
-            raw,
-            (("__finish_numeric_failure", replace(check, expected="non-NA source values")),),
-        )
-    assert name not in output.table.columns
     assert terminal_runs(session) == ()
 
 

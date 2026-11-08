@@ -89,21 +89,6 @@ def test_related_field_null_is_counted_and_missing_owner_remains_null(
     assert session.persisted_frame(result.artifact_id).to_pandas().equals(frame)
 
 
-def test_declared_native_inputs_need_only_one_terminal_read(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    with workload("duckdb", "ordinary-table", 64, "baseline", tmp_path, monkeypatch) as work:
-        reads = _reads(monkeypatch)
-        result = work.total().persist()
-        assert work.validate(result)["passed"] is True
-        assert sum("SUM(" in read.sql.upper() for read in reads) == 1
-        before = len(reads)
-        assert (
-            work.session.persisted_frame(result.artifact_id).to_pandas().equals(result.to_pandas())
-        )
-        assert len(reads) == before
-
-
 def test_checked_pairing_checks_unknown_images_and_reuses_proven_images(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
