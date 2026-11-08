@@ -2358,10 +2358,10 @@ def _expression_capabilities() -> tuple[AuthoringCapability, ...]:
                     "Both builtin forms use the Session report timezone and actual time samples, including all-NULL quantities. "
                     "They need no finite period, create no empty buckets, and reject NULL sample times and order_by. "
                     "Same-field layers require matching timezones and nested grains. Day nests in month. Week in month rejects. "
-                    "Custom hierarchies reject; one complete custom period may be sampled under an interval. "
+                    "Business periods use ordinary fields and explicit externally chosen ranges. "
                     "Each nested layer retains complete external, parent and child keys. "
                     "Natural grains use the Session reporting timezone. "
-                    "Builtin folds inside windows use report endpoints; windows inside builtin samples use the nearest sample endpoints. Actual samples are discovered before inner windows; no empty dates are added. Explicit fields retain their cohorts and contribution clocks. Custom calendar combinations and nested windows reject. "
+                    "Builtin folds inside windows use report endpoints; windows inside builtin samples use the nearest sample endpoints. Actual samples are discovered before inner windows; no empty dates are added. Explicit fields retain their cohorts and contribution clocks. Nested windows reject. "
                     "TimeField sample reducers use represented samples without scheduled coverage or implicit fill; "
                     "sample_interval describes cadence and does not bucket timestamps or require a finite observation period. "
                 )
@@ -2375,7 +2375,7 @@ def _expression_capabilities() -> tuple[AuthoringCapability, ...]:
                     "This is distinct from AnalysisFrame.where on current rows."
                 )
             elif prefix == "Metric" and method == "window":
-                summary += "Window clocked branches at report endpoints, or the nearest enclosing builtin calendar sample endpoints; independent branches retain their scope. per(...).reduce().window(W) folds window contributions; window(W).per(...).reduce() folds sample-endpoint window values. trailing_periods counts the endpoint layer's periods. Fixed predicates and different-field sample cohorts remain in force. Custom calendar sample combinations reject; nested windows are rejected."
+                summary += "Window clocked branches at report endpoints, or the nearest enclosing builtin calendar sample endpoints; independent branches retain their scope. per(...).reduce().window(W) folds window contributions; window(W).per(...).reduce() folds sample-endpoint window values. trailing_periods counts the endpoint layer's periods. Fixed predicates and different-field sample cohorts remain in force. Nested windows are rejected."
             elif method in {"first", "last"}:
                 summary += (
                     f"Select the {method} internal sample. "

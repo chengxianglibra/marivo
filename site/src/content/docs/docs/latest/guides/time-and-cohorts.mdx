@@ -38,7 +38,7 @@ august_revenue = session.observe(
 
 ## Keep exact calendar boundaries
 
-`session.time_scope(start=..., end=...)` includes `start` and excludes `end`. Use the business reporting timezone that defines those boundaries. Civil days and months can span different elapsed durations around daylight-saving changes. For fiscal or named business periods, use a certified [business calendar](/docs/latest/modeling/dates/#business-calendars).
+`session.time_scope(start=..., end=...)` includes `start` and excludes `end`, using the Session report timezone for civil boundaries. Civil days and months can span different elapsed durations around daylight-saving changes. The harness chooses exact ranges and comparison pairs for fiscal or named business periods, using ordinary business fields and explicit `session.time_scope(...)` inputs. See [business calendars and holidays](/docs/latest/modeling/dates/#business-calendars-and-holidays).
 
 ## Attach the window to the Metric
 

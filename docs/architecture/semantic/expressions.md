@@ -356,8 +356,7 @@ other fields remain in force. For example,
 `paid_revenue.window(W).per(created_at, grain=day)` uses each creation day's end
 and filters that creation cohort's contributions by paid_at; it never changes the
 contribution clock. Independent branches retain their scope and missing-coordinate
-broadcast semantics. Multiple windows on one dependency path and custom calendar
-sample/window combinations remain unsupported.
+broadcast semantics. Multiple windows on one dependency path remain unsupported.
 
 Pass a Grain directly to `per` or use a native time field with a keyword-only
 builtin `grain`. Grain-only sampling needs at least one clocked branch; explicit

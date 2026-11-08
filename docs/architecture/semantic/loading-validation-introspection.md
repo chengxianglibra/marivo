@@ -128,20 +128,18 @@ revision/encoding parameters and scope. Changed definitions invalidate affected
 projections; stale/deleted members cannot reappear through vector reuse. No
 business datasource is read by load, search, get, show or related navigation.
 
-The [project read service](../analysis/read-service.md) loads the current Catalog
-in a fresh process and publishes its safe browse projection atomically. This
-snapshot contains public definitions and canonical links. Reload replaces the
-current projection and invalidates its cursors.
+Catalog acquisition and browsing use the explicit Python operations above.
+The [project read service](../analysis/read-service.md) serves exact persisted
+AnalysisFrame and plain DataFrame results.
 
 ## Validation boundaries
 
 | Operation | Reads | Establishes | Does not establish |
 | --- | --- | --- | --- |
 | ms.load | Project Python and configuration | Static project/dependency coherence | Physical types, external health, numerical execution |
-| catalog.readiness | Loaded definitions and local temporal artifacts | Ready physical requested inputs and closures | Backend/method qualification or business completeness |
+| catalog.readiness | Loaded definitions and physical dependency closures | Ready physical requested inputs and closures | Backend/method qualification or business completeness |
 | catalog.preview | Explicit bounded current source scope | Scoped runtime values; ordinary Metric preview is approximate | Whole-source correctness or ordinary readiness promotion |
 | catalog.validate | Current physical schema; scoped data only for explicit checks | Entity outputs, field bindings, numeric and temporal type contracts | Persistent readiness, business meaning or universal match coverage |
-| Temporal preview | Complete declared finite authority source | Certified immutable calendar/set/schedule snapshot | Business fact capture or arbitrary Analysis support |
 | Frame.compute / persist | Explicit prepared analysis dependencies | Actual admitted computation; persist also commits it | Unrun providers, installed packages or release qualification |
 
 Readiness accepts selected named objects,

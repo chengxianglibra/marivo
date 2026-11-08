@@ -37,7 +37,7 @@ calendar buckets instead. DATE rows compare their declared business-day-start in
 instant. Ordinary string fields and fixed Frame Column comparisons retain their
 own types, and saved results are not reinterpreted.
 
-Ordinary report scopes and calendar axes must use the receiving Session timezone, including when supplied through a Population. Create a separate Session for another report timezone; an ordinary domain created by a different Session is accepted only when its timezone matches. Certified business calendar and occurrence domains keep their own timezone, including derived and shifted axes. They do not change the Session timezone used by predicates or internal builtin calendar samples.
+Report TimeScopes and CalendarAxes must use the receiving Session timezone, including shifted axes and domains supplied through a Population. Create a separate Session for another report timezone; a domain created by a different Session is accepted only when its timezone matches.
 
 ## Observe days and months
 
@@ -126,7 +126,11 @@ rows or fixed-day durations: on daily data, `-7` is seven days; on weekly data,
 `-1` is one week; and on monthly data, `-1` is one month. Built-in calendar
 offsets require grain `count=1`; subday offsets are unsupported.
 
-Natural calendars use `mv.grain(...)` and explicit `scope.by(grain)`. Fiscal periods, holidays and working days use ordinary business fields; the harness chooses authority, ranges and pairing. See [dates and time](/docs/latest/modeling/dates/).
+Summing result rows computes statistics over those rows. Observe the original
+Metric at monthly grain for a monthly ratio or distinct count. Natural calendars
+use `mv.grain(...)` and explicit `scope.by(grain)`. Fiscal periods, holidays and
+working days use ordinary business fields; the harness chooses authority, ranges
+and pairing. See [business calendars and holidays](/docs/latest/modeling/dates/#business-calendars-and-holidays).
 
 Source parsing and report timezones are separate: set a parser timezone for
 naive source values; aware timestamps already identify an instant, and date-only
@@ -181,7 +185,7 @@ not trigger local recomputation. Completed Frames continue to use captured data.
 Use `Metric.per(grain)` to fold completed buckets by each source component's
 declared contribution time. Use `Metric.per(created_at, grain=mv.grain("day"))`
 to fix the sample field while the original Metric keeps its contribution time. Grain-only
-sampling needs at least one clocked branch; explicit fields supply their own sample domain. Both builtin forms use the Session report timezone and need no finite
+sampling needs at least one clocked branch; explicit fields and Populations supply their own sample domains. Both builtin forms use the Session report timezone and need no finite
 observation period. If you previously chose the sample timezone through an
 observation axis, set the Session timezone explicitly. An all-NULL day with
 contributions is still a sample. A missing day adds no sample.
@@ -201,8 +205,7 @@ sample reducer's existing NULL policy. TimeField and Grain samples use actual
 keys; final output completion does not affect their mean or count. Builtin nesting
 is static: day in week/month is valid; week in month rejects. Divisible subday
 widths, month in quarter/year and quarter in year are supported at every layer.
-Undefined custom hierarchies reject; one complete certified custom period may be
-sampled under a compatible report TimeScope. The Grain in `per` selects internal
+The Grain in `per` selects internal
 sample buckets; the CalendarAxis in `observe(by=...)` selects report buckets. Help: `semantic.metric.per`.
 
 Natural calendar samples consume actual represented keys; output completion does not add samples. Windows retain their endpoint requirements. The harness supplies explicit ranges for business calendars.
@@ -233,8 +236,8 @@ payment time and averages creation-day groups. For creation-attributed revenue,
 use `amount.sum(time=created_at).per(day).mean()` instead. An inner window on
 an explicit creation-day sample retains that cohort and uses the creation day's
 end; payment time still determines which cohort contributions enter the window.
-Fixed source predicates remain in force. Custom calendar sample/window combinations
-and multiple windows on one dependency path remain unsupported.
+Fixed source predicates remain in force. Multiple windows on one dependency path
+remain unsupported.
 
 Window endpoint facts are captured in each contribution's `window_endpoint` under
 `frame.schema.value_time_semantics`. They distinguish report, contribution-clock

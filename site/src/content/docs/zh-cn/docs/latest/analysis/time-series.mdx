@@ -31,7 +31,7 @@ by_boundaries = (created_at >= start) & (created_at < end)
 `by=(scope.by(day),)`。DATE 行按声明的业务日起点 instant 比较；`==` 表示一个精确时刻。
 普通字符串字段和固定 Frame Column 比较保留原有类型规则，已保存结果不会被重新解释。
 
-普通报告范围和日历轴必须与接收它们的 Session 时区一致，经由 Population 提供也遵循此规则。需要其他报告时区时创建独立 Session；另一 Session 创建的普通域只有在时区一致时才能用于当前观察。认证业务日历和事件范围保留自身时区，派生或平移后的轴也一样；它们不会改变谓词和内部内置日历采样使用的 Session 时区。
+报告 TimeScope 和 CalendarAxis 必须与接收它们的 Session 时区一致，平移后的轴以及经由 Population 提供的域也遵循此规则。需要其他报告时区时创建独立 Session；另一 Session 创建的域只有在时区一致时才能用于当前观察。
 
 ## 按日与月观察
 
@@ -118,7 +118,9 @@ progress.show()
 内置日历偏移要求粒度 `count=1`；不支持子日偏移。
 
 对结果行求和只是对这些行做统计。月度比率或去重数应重新按月度粒度观察
-原始指标。使用财务日历或命名活动前，先[准备并认证对应日历](/zh-cn/docs/latest/modeling/dates/#业务日历与节假日)。
+原始指标。自然日历使用 `mv.grain(...)` 和明确的 `scope.by(grain)`。
+财务周期、节假日和工作日使用普通业务字段；harness 决定来源、范围和配对。
+参见[业务日历与节假日](/zh-cn/docs/latest/modeling/dates/#业务日历与节假日)。
 
 源时间解析时区与报告时区用途不同：无时区时间值使用解析时区，带时区时间戳已确定瞬时，
 纯日期值使用声明的源时区确定业务日零点。投影、筛选和分桶采用实际后端的原生 gap/fold 解释；原始本地时间
@@ -176,7 +178,13 @@ folded = session.observe({"daily_average": daily_average}, by=(august.by(week), 
 folded.show()
 ```
 
-自然日历样本使用实际样本键；输出补空不增加内部样本数。窗口仍需明确端点。业务日历由外部维护并提供明确范围。
+对于已完成的 `daily_p95`，可在同一周粒度轴下使用
+`daily_p95.per(mv.grain("day")).median()`。空比率和分位数仍为 NA，遵循样本规约的
+原有 NULL 策略。TimeField 与 Grain 样本使用实际键；最终输出补空不影响均值或计数。
+内置粒度的嵌套关系固定：day 可以嵌套于 week 或 month，week 不能嵌套于 month。
+可整除的日内粒度、month 到 quarter 或 year、quarter 到 year 可用于各层。
+`per` 中的 Grain 选择内部样本桶，`observe(by=...)` 中的 CalendarAxis 选择报告桶。
+Help：`semantic.metric.per`。
 
 自然日历样本使用实际样本键；输出补空不增加内部样本数。窗口仍需明确端点。业务日历由外部维护并提供明确范围。
 
@@ -204,7 +212,7 @@ window_comparison = session.observe(
 再对创建日分组求平均。创建时间归属的收入则使用
 `amount.sum(time=created_at).per(day).mean()`。显式创建日样本内部的窗口保留该创建日
 订单分组，以创建日结束为端点，仍按支付时间判断该组贡献是否进入窗口。
-固定源过滤条件始终生效。自定义日历样本与窗口的组合、同一依赖路径上的多层窗口仍不支持。
+固定源过滤条件始终生效。同一依赖路径上的多层窗口仍不支持。
 
 `frame.schema.value_time_semantics` 中各贡献的 `window_endpoint` 保存端点解释，
 区分报告端点、贡献时钟样本端点和显式字段样本端点；这些事实随结果持久化。
