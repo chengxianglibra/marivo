@@ -42,7 +42,7 @@ result.show(n=31)
 ```
 
 The range includes August 1 and excludes September 1 in the Session timezone.
-Every Metric branch needs contribution time. This computes and displays daily
+The revenue branch uses its declared contribution clock; independent branches retain their scope. This computes and displays daily
 values without requiring persistence; the range does not certify source completeness.
 
 Use `where=scope` for a range-only total, or `by=(scope.by(grain),)` for
@@ -58,8 +58,11 @@ carries report time, omit a separate TimeScope in `where`.
 
 Each source reduction fixes its contribution time when it is defined, either
 explicitly with `time=field` or by inheriting its Entity's `default_time`.
-A report range or CalendarAxis requires every branch of every Metric to have a
-contribution clock. Composed Metrics can use different fields across branches.
+A report range or CalendarAxis filters only clocked branches. Omission without an
+Entity default and explicit `time=None` both make a branch report independent.
+Independent branches retain their business conditions, reduce first, then repeat
+along missing report time coordinates. Composed Metrics can use different clocks;
+a shared calendar bucket does not identify a shared cohort.
 
 For example, `amount` is a loaded Measure and `booked_at` and `paid_at` are
 loaded TimeDimensions:
@@ -112,3 +115,6 @@ See `marivo.help("semantic.metric.define")` and
 `marivo.help("analysis.session.observe")` for the exact contracts.
 
 See the [observe section of Analysis DSL](/docs/latest/analysis/dsl/#observe-metrics) for the full guide and example.
+
+
+Given an already selected Population `members`, a fixed denominator can participate in report time and windows: `session.observe({"per_member": revenue / members.count()}, by=(scope.by(mv.grain("day")),))`. A window reevaluates revenue and uses the fixed denominator once. Read `frame.schema.value_time_semantics` for each column's branch clocks, report effects and windows. Derived facts describe fixed inputs and do not imply a new source observation.

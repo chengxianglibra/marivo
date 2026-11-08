@@ -254,18 +254,20 @@ def test_field_and_contribution_samples_are_independent(sample_session: Session)
     rows = sample_session.observe(metrics, where=november).compute().to_pandas()
     assert _row_values(rows, list(metrics)) == [90, 140, 85, 170, 170]
     members = mv.coordinates(by=(region,), keys=(("East",), ("West",)))
-    with pytest.raises(SemanticExpressionError, match="contribution time"):
-        (revenue / members.count()).per(created, grain=day).mean()
+    mixed = (revenue / members.count()).per(created, grain=day).mean()
+    assert sample_session.observe({"ratio": mixed}, where=november).compute().to_pandas()[
+        "ratio"
+    ].tolist() == [42.5]
     rows = sample_session.observe(metrics).compute().to_pandas()
     assert _row_values(rows, ["paid_last", "paid_last_explicit"]) == [999, 999]
-    with pytest.raises(SemanticExpressionError, match="contribution time"):
-        amount.sum().per(created, grain=day).mean()
-    with pytest.raises(SemanticExpressionError, match="contribution time"):
+    amount.sum().per(created, grain=day).mean()
+    with pytest.raises(SemanticExpressionError, match="sample times"):
         amount.sum().per(day).mean()
     raw_untimed = amount.sum().per(created).last()
     assert sample_session.observe({"v": raw_untimed}).compute().to_pandas()["v"].tolist() == [999]
-    with pytest.raises(AnalysisError, match="contribution time"):
-        sample_session.observe({"v": raw_untimed}, where=november)
+    assert sample_session.observe({"v": raw_untimed}, where=november).compute().to_pandas()[
+        "v"
+    ].tolist() == [999]
 
     categorized = (
         sample_session.observe(

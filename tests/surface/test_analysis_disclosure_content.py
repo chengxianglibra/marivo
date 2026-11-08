@@ -121,7 +121,7 @@ def test_observe_help_separates_report_time_from_fixed_source_predicates() -> No
 
     for target in ("analysis.session.observe", Session.observe):
         text = render_help_text(target)[0]
-        assert "contribution time on every Metric branch" in text
+        assert "filters only clocked branches" in text
         assert "one CalendarAxis" in text
         assert "at most one TimeScope" in text
         assert "Field comparisons stay fixed throughout windows" in text
@@ -130,7 +130,7 @@ def test_observe_help_separates_report_time_from_fixed_source_predicates() -> No
 
 def test_analysis_root_requires_contribution_clocks_only_for_report_time() -> None:
     text = render_help_text("analysis")[0]
-    assert "Report time requires clocks on all Metric branches" in text
+    assert "Report time affects clocked branches" in text
     assert "All Metric branches need contribution time" not in text
 
 
@@ -673,7 +673,7 @@ def test_observe_help_discloses_report_domains_and_definition_repair() -> None:
     assert "without filtering contributions" in text
     assert "where=mv.in_population(P) restricts contributions" in text
     assert "If by carries time, omit TimeScope in where" in text
-    assert "Fix branch clocks in semantic definitions or omit report time" in text
+    assert "clocked branches" in text
     assert "time_group" not in text
     assert "bind_time" not in text
 
@@ -681,8 +681,10 @@ def test_observe_help_discloses_report_domains_and_definition_repair() -> None:
 def test_construction_type_families_and_retired_surface() -> None:
     registry = prepare()
     assert {d.canonical_id for d in registry.descriptors if isinstance(d, TypeInput)} == {
-        "metric_contribution_time_error",
-        "missing_metric_contribution_time",
+        "frame_clocked_contribution",
+        "frame_independent_contribution",
+        "frame_observed_time_semantics",
+        "frame_derived_time_semantics",
         "grain",
         "time_scope",
         "calendar_correspondence",
@@ -796,7 +798,7 @@ def test_construction_type_families_and_retired_surface() -> None:
         "value_statistic",
         "column",
     }
-    assert len([name for name in mv.__all__ if isinstance(getattr(mv, name), type)]) == 74
+    assert len([name for name in mv.__all__ if isinstance(getattr(mv, name), type)]) == 76
     removed = {
         "before_end_boundary",
         "before_end_boundary.end",

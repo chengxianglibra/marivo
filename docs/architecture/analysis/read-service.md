@@ -356,3 +356,12 @@ Unexpected request failures log their operation and traceback to service stderr.
 Catalog worker stderr is retained there as well; failed worker exits include the
 exit status. HTTP errors do not expose tracebacks. For `catalog_load_failed`,
 inspect these logs and run `marivo doctor --semantic` in the bound project.
+
+
+Per-column contribution time is captured in `frame.schema.value_time_semantics`.
+Observed facts retain each source occurrence's clock or report independence,
+report range/bucket effect, attached window and sample role. Fixed-data arithmetic
+and statistics retain derived input descriptions, not executable Metric authority.
+The same frozen facts survive persistence and cold reopening and are projected in
+HTTP Frame reports. They complement `value_contexts` and `source_times`; a common
+calendar key does not establish a shared source cohort or temporal additivity.

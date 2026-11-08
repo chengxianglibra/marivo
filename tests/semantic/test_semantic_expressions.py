@@ -1503,8 +1503,10 @@ def test_margin_sum_has_no_time_role_unless_supplied(catalog: SemanticCatalog) -
     assert computation_fingerprint(_node_facts(strict).node) != computation_fingerprint(
         implicit.node
     )
-    with pytest.raises(SemanticExpressionError, match="Explicit None"):
-        _consume_value((amount - cost).sum(time=None))
+    independent = _facts((amount - cost).sum(time=None))
+    assert isinstance(independent.node, SourceAggregate)
+    assert independent.node.time is None
+    assert independent.node.independent_origin == "explicit_none"
 
 
 def test_unauthorized_product_sum_is_rejected_but_mean_is_allowed(catalog: SemanticCatalog) -> None:

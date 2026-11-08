@@ -12,6 +12,19 @@ from marivo._temporal import Grain as Grain
 from marivo._temporal import TimeScope as TimeScope
 
 if TYPE_CHECKING:
+    from marivo.analysis.core.frame_interpretation import (
+        FrameClockedContribution as FrameClockedContribution,
+    )
+    from marivo.analysis.core.frame_interpretation import (
+        FrameDerivedTimeSemantics as FrameDerivedTimeSemantics,
+    )
+    from marivo.analysis.core.frame_interpretation import (
+        FrameIndependentContribution as FrameIndependentContribution,
+    )
+    from marivo.analysis.core.frame_interpretation import (
+        FrameObservedTimeSemantics as FrameObservedTimeSemantics,
+    )
+
     __all__: list[str]
     from marivo._definition.correspondence import CalendarCorrespondence as CalendarCorrespondence
     from marivo._grouping import Grouping as Grouping
@@ -184,10 +197,6 @@ if TYPE_CHECKING:
     from marivo.analysis.dsl.population import membership as membership
     from marivo.analysis.dsl.population import product as product
     from marivo.analysis.dsl.temporal import CalendarAxis as CalendarAxis
-    from marivo.analysis.errors import MetricContributionTimeError as MetricContributionTimeError
-    from marivo.analysis.errors import (
-        MissingMetricContributionTime as MissingMetricContributionTime,
-    )
     from marivo.analysis.session.core import Session as Session
 
 

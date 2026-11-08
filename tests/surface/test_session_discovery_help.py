@@ -95,7 +95,7 @@ def test_observe_help_distinguishes_field_axes_from_session_identity(
     show_help("analysis.session.observe")
     text = capsys.readouterr().out
     assert "() gives one cell" in text
-    assert "contribution time on every Metric branch" in text
+    assert "filters only clocked branches" in text
     assert "by=P retains complete keys" in text
     assert "A scope alone adds no output axis" in text
     assert "Windows need report endpoints" in text

@@ -240,7 +240,7 @@ def test_calendar_sample_binding_errors_are_structured(calendar_session: Session
     assert "static" in (captured.value.expected or "")
     assert "week" in (captured.value.received or "")
     assert captured.value.repair is not None and captured.value.repair.action
-    with pytest.raises(SemanticExpressionError, match="contribution time"):
+    with pytest.raises(SemanticExpressionError, match="sample times"):
         amount.sum().per(mv.grain("day")).mean()
     with pytest.raises(AttributeError):
         absent = metric.sum  # type: ignore[attr-defined]  # Verify the missing Metric method.

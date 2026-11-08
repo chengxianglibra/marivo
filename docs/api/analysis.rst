@@ -571,6 +571,10 @@ Canonical public exports
    FrameSourceReadScope
    FrameSourceReadPeriod
    FrameSchema
+   FrameObservedTimeSemantics
+   FrameDerivedTimeSemantics
+   FrameClockedContribution
+   FrameIndependentContribution
    FrameInstantSourceTime
    FrameWallClockSourceTime
    FrameCivilDateSourceTime

@@ -10,14 +10,11 @@ from typing import TYPE_CHECKING
 from marivo._definition.expressions import (
     BuiltinSampleCoordinate,
     DeclaredMetricRef,
-    EntityCount,
     FieldCalendarSample,
     MetricNode,
     MetricWindow,
     PerReduce,
     PerWeightedMean,
-    SourceAggregate,
-    SourceWeightedMean,
 )
 from marivo._definition.graph import DefinitionNode, children, walk
 from marivo._definition.types import CalendarCoordinate, ExactRef
@@ -287,13 +284,6 @@ def bind_windows(
 
     rules: dict[tuple[int, ...], ObservationWindow] = {}
 
-    def has_fact(node: DefinitionNode) -> bool:
-        if isinstance(node, DeclaredMetricRef):
-            return has_fact(declared[node.ref])
-        return isinstance(node, (SourceAggregate, SourceWeightedMean, EntityCount)) or any(
-            has_fact(edge.child) for edge in children(node)
-        )
-
     def visit(
         node: DefinitionNode,
         path: tuple[int, ...],
@@ -321,13 +311,6 @@ def bind_windows(
                     "a Metric window wrapping a calendar fold",
                     "Calendar folds cannot be windowed, and windows inside calendar samples are unsupported. "
                     "Observe the windowed Metric with a CalendarAxis, then explicitly reduce the captured Frame values.",
-                    "Metric.window",
-                )
-            if not has_fact(node.operand):
-                reject(
-                    "fact contributions for a window",
-                    "a count-only or source-free formula",
-                    "Apply windows to fact Metrics; identity counts retain their captured domain.",
                     "Metric.window",
                 )
             if rule is not None:
@@ -416,11 +399,95 @@ def bind_windows(
             "Pass a report TimeScope in where or a CalendarAxis in by to session.observe(...).",
             "Metric.window",
         )
+    # Validate endpoint operations even when no source clock consumes the rule.
+    validation_cells = calendar.cells if calendar is not None else ()
+    validation_ends = tuple(cell[3] for cell in validation_cells) or (period.end,)
+    for validation_rule in dict.fromkeys(rules.values()):
+        if any(
+            item.time is not None and rules.get(item.occurrence) == validation_rule
+            for item in contributions
+        ):
+            continue
+        if isinstance(validation_rule, TrailingPeriods) and (
+            calendar is None or any(cell[:2] != cell[2:] for cell in validation_cells)
+        ):
+            reject(
+                "complete calendar buckets for trailing_periods",
+                "missing or partial report buckets",
+                "Observe a CalendarAxis with complete periods.",
+                "Metric.window",
+            )
+        if isinstance(validation_rule, TrailingPeriods) and calendar is not None:
+            grain = calendar.grain_spec
+            if grain.kind == "builtin" and grain.unit not in (
+                "day",
+                "week",
+                "month",
+                "quarter",
+                "year",
+            ):
+                reject(
+                    "day/week/month/quarter/year periods",
+                    calendar.grain,
+                    "Use trailing_duration for elapsed subday windows.",
+                    "Metric.window",
+                )
+            if calendar.snapshot is not None:
+                assert grain._calendar is not None and grain.level is not None
+                periods = _periods(
+                    semantic_grain(
+                        calendar=grain._calendar, level=grain.level, snapshot=calendar.snapshot
+                    ),
+                    period.timezone,
+                )
+                if any(
+                    next((i for i, bounds in enumerate(periods) if bounds == cell[:2]), -1)
+                    < validation_rule.count - 1
+                    for cell in validation_cells
+                ):
+                    reject(
+                        "certified predecessor periods",
+                        str(validation_rule.count),
+                        "Extend the certified calendar coverage.",
+                        "Metric.window",
+                    )
+        for index, end in enumerate(validation_ends):
+            if isinstance(validation_rule, Since) and validation_rule.start >= end:
+                reject(
+                    "window start before each endpoint",
+                    repr((validation_rule.start, end)),
+                    "Choose an earlier since start.",
+                    "Metric.window",
+                )
+            if isinstance(validation_rule, ToDate):
+                native_start = (
+                    native_starts.get((validation_rule, validation_cells[index][0]))
+                    if native_starts is not None and validation_cells
+                    else None
+                )
+                if native_start is not None:
+                    continue
+                validation_start, validation_right = _reset(
+                    end, validation_rule.grain, period.timezone
+                )
+                if (
+                    validation_cells
+                    and not validation_start
+                    <= validation_cells[index][0]
+                    < validation_cells[index][1]
+                    <= validation_right
+                ):
+                    reject(
+                        "each nominal output bucket inside one reset period",
+                        repr(validation_cells[index]),
+                        "Choose an output Grain contained by the reset Grain.",
+                        "Metric.window",
+                    )
     result: list[ContributionBinding] = []
     for contribution in contributions:
         rule = rules.get(contribution.occurrence)
-        if rule is None:
-            result.append(contribution)
+        if rule is None or contribution.time is None:
+            result.append(replace(contribution, window_rule=rule))
             continue
         # Native keys need not bound the selected instants. In particular a
         # repeated civil hour may localize to a key after the explicit end.

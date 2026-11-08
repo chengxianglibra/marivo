@@ -25,6 +25,7 @@ from marivo.analysis.core.frame_interpretation import (
     FrameAlignment,
     FrameRowAttributeTime,
     FrameSourceTime,
+    FrameValueTimeSemantics,
     source_time_summary,
     validate_source_times,
 )
@@ -294,6 +295,7 @@ class FrameSchema:
     layout: tuple[FrameExportColumn, ...]
     fixed_axes: tuple[FrameFixedAxis, ...] = ()
     _value_contexts: tuple[tuple[str, FrameValueContext], ...] = ()
+    _value_time_semantics: tuple[tuple[str, FrameValueTimeSemantics], ...] = ()
     comparisons: tuple[FrameComparison, ...] = ()
     decompositions: tuple[FrameDecomposition, ...] = ()
     alignments: tuple[FrameAlignment, ...] = ()
@@ -319,6 +321,15 @@ class FrameSchema:
         Constraints: Captured facts only; never reads definitions or source rows.
         """
         return MappingProxyType(dict(self._value_contexts))
+
+    @property
+    def value_time_semantics(self) -> Mapping[str, FrameValueTimeSemantics]:
+        """Captured contribution clocks and report effects by complete value name.
+
+        Args: None. Returns: Immutable captured facts. Example: ``frame.schema.value_time_semantics``.
+        Constraints: Metadata only; derived facts describe inputs and never execute sources.
+        """
+        return MappingProxyType(dict(self._value_time_semantics))
 
     @property
     def values(self) -> Mapping[str, FrameField]:
@@ -375,6 +386,7 @@ class FrameSchema:
                 ".presence",
                 ".fixed_axes",
                 ".value_contexts",
+                ".value_time_semantics",
                 ".comparisons",
                 ".alignments",
                 ".decompositions",
@@ -387,6 +399,7 @@ class FrameSchema:
             ("presence", self._presence),
             ("fixed_axes", self.fixed_axes),
             ("value_contexts", self._value_contexts),
+            ("value_time_semantics", self._value_time_semantics),
             ("comparisons", self.comparisons),
             ("alignments", self.alignments),
             ("decompositions", self.decompositions),
@@ -424,6 +437,7 @@ def capture_schema(input_id: str, schema: LogicalSchema) -> FrameSchema:
         export_layout(schema),
         schema.fixed_axes,
         schema.value_contexts,
+        schema.value_time_semantics,
         capture_comparisons(input_id, schema),
         schema.decompositions,
         tuple(FrameAlignment(input_id, a.alignment_id, a.left, a.right) for a in schema.alignments),

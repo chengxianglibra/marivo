@@ -31,6 +31,7 @@ def test_saved_projection_after_producer_exit(tmp_path: Path) -> None:
 
     detail = report(artifact)
     assert detail["description"] == "service fixture"
+    assert detail["schema"]["value_time_semantics"] == {}
     assert detail["source_reads"] == []
     assert detail["periods"] == []
     assert detail["schema"]["values"]["amount"]["dtype"] == {

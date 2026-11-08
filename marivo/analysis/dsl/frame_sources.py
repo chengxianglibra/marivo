@@ -19,6 +19,7 @@ from marivo._definition.types import (
 from marivo._grouping import Grouping
 from marivo._temporal import PeriodCalendarSnapshotV2, TimeScope
 from marivo.analysis.binding.lineage import observation_contexts
+from marivo.analysis.binding.value_time import observation_time_semantics
 from marivo.analysis.core.artifact_data import DataColumn
 from marivo.analysis.core.calendar_keys import time_key_type
 from marivo.analysis.core.data_types import ScalarDataType
@@ -180,6 +181,7 @@ def pending_schema(graph: BoundGraph, state: CompiledSemanticState | None) -> Pe
         values,
         tuple(value_name(value.name, location="frame.source") for value in values),
         value_contexts=observation_contexts(graph, tuple(axes), state),
+        value_time_semantics=observation_time_semantics(graph, state),
     )
 
 

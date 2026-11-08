@@ -15,6 +15,7 @@ from marivo.analysis.core.frame_interpretation import (
     FrameRowAttributeTime,
     FrameSourceTime,
     FrameValueContext,
+    FrameValueTimeSemantics,
     validate_source_times,
 )
 from marivo.analysis.core.lineage import SemanticObjectIdentity
@@ -397,6 +398,7 @@ class DataSchema:
     comparisons: tuple[DataComparison, ...] = ()
     fixed_axes: tuple[FrameFixedAxis, ...] = ()
     value_contexts: tuple[tuple[str, FrameValueContext], ...] = ()
+    value_time_semantics: tuple[tuple[str, FrameValueTimeSemantics], ...] = ()
     decompositions: tuple[FrameDecomposition, ...] = ()
     alignments: tuple[DataAlignment, ...] = ()
     source_times: tuple[FrameSourceTime, ...] = ()

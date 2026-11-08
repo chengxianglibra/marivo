@@ -356,8 +356,8 @@ class Session:
             ``period = session.time_scope(start='2026-08-01', end='2026-09-01')``;
             ``session.observe(revenue, by=(period.by(mv.grain('day')),)).compute().show()``.
         Constraints:
-            Capture reads no source data. Report time requires contribution time on
-            every Metric branch. A scope alone adds no output axis.
+            Capture reads no source data. Report time filters only clocked branches;
+            independent branches retain their scope and broadcast over missing time keys. A scope alone adds no output axis.
             CalendarAxis supplies finite buckets.
             Bare Grain inputs reject. Custom axes need one complete certified period.
             Windows need report endpoints on every output time key.

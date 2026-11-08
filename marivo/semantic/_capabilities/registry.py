@@ -2556,7 +2556,7 @@ def _expression_capabilities() -> tuple[AuthoringCapability, ...]:
                     "Internal P may select a subset; empty or unmatched samples retain external coordinates. "
                     "Each nested layer keeps its own domain and complete allocation rules. "
                     "per(field) uses exact TimeField values. per(grain) buckets each contribution's declared time role. "
-                    "per(field, grain=grain) buckets one explicit native TimeField without changing contribution time. Every contributing branch must have a contribution clock for either Grain form or a Population with report time. "
+                    "per(field, grain=grain) buckets one explicit native TimeField without changing contribution time. Only clocked branches follow report time. Grain-only sampling needs at least one clocked branch; explicit fields and Populations supply their own sample domains. "
                     "Both builtin forms use the Session report timezone and actual time samples, including all-NULL quantities. "
                     "They need no finite period, create no empty buckets, and reject NULL sample times and order_by. "
                     "Same-field layers require matching timezones and nested grains. Day nests in month. Week in month rejects. "
@@ -2577,9 +2577,7 @@ def _expression_capabilities() -> tuple[AuthoringCapability, ...]:
                     "This is distinct from AnalysisFrame.where on current rows."
                 )
             elif prefix == "Metric" and method == "window":
-                summary += (
-                    "Attach one source-free observation WindowRule; nested windows are rejected."
-                )
+                summary += "Window clocked branches at each report endpoint; independent branches retain their scope. Valid endpoints are required; nested windows are rejected."
             elif method in {"first", "last"}:
                 summary += (
                     f"Select the {method} internal sample. "
@@ -2672,8 +2670,8 @@ def _expression_capabilities() -> tuple[AuthoringCapability, ...]:
             if prefix in {"row", "Entity"}:
                 summary += (
                     " time= fixes this source reduction's contribution clock. Omit it to inherit the "
-                    "single contribution Entity's default_time when declared; otherwise the reduction has no clock. "
-                    "A report TimeScope or CalendarAxis requires a clock on every contributing branch. A field predicate "
+                    "single contribution Entity's default_time when declared; otherwise the reduction is report independent. Explicit time=None disables inheritance. "
+                    "A report TimeScope or CalendarAxis filters only branches with contribution clocks. A field predicate "
                     "can still filter source rows independently."
                 )
             if prefix in {"row", "MetricSamples"} and method not in {"count", "count_distinct"}:
@@ -3221,9 +3219,9 @@ def _build_registry() -> SemanticCapabilityRegistry:
             "lists are frozen as tuples. Arbitrary calls, table parameters, Ibis returns and ms.bind are rejected. "
             "Operator policies stay on their operators. Declaration is source-free and does not publish a Catalog Metric. "
             "Fix contribution time on a source reduction with time=field, or omit time= to inherit its "
-            "Entity's default_time when available. Without either the reduction has no contribution clock. "
-            "Composed Metrics retain their branch clocks. Reporting with where=scope or by=(scope.by(grain),) requires "
-            "a clock on every branch. Use explicit field comparisons for fixed source predicates.",
+            "Entity's default_time when available. Explicit time=None or omission without a default makes the reduction report independent. "
+            "Composed Metrics retain their branch clocks. Reporting with where=scope or by=(scope.by(grain),) filters "
+            "clocked branches only; independent branches retain their scope. Use explicit field comparisons for fixed source predicates.",
             output="NumericMetric",
             inputs=(
                 _parameter_input("dependency", "DomainSymbol", "domain", optional=True),

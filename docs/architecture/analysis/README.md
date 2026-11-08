@@ -29,7 +29,7 @@ captured state and structured repair disclosure.
 Session and its Catalog, search Metric candidates, retrieve the selected exact
 identity, observe with an explicit daily CalendarAxis, then compute and
 show the returned Frame. The example assumes an authored project and contribution
-time on every Metric branch. Selection follows business meaning, not search rank;
+time on the revenue Metric; independent branches would retain their own scope. Selection follows business meaning, not search rank;
 known identities can skip discovery. The example query, identity, dates and
 timezone must match the question. It requires no persistence.
 
@@ -66,7 +66,7 @@ Choose the counted domain before selecting a statistic:
 
 | Question | Exact contract | Meaning |
 | --- | --- | --- |
-| How many selected members or coordinate tuples? | `analysis.population.count` | Complete distinct tuples, including selected members without facts; returns a Metric for observe without report time |
+| How many selected members or coordinate tuples? | `analysis.population.count` | Complete distinct tuples, including selected members without facts; returns a report-independent Metric that retains existing keys and broadcasts along missing report time |
 | How many source contributions? | `semantic.entity.count` | Contributions under explicit time and conditions; returns a Metric for observe |
 | How many represented rows? | `analysis.row_count` | Current Frame rows, consumed by reduce or over |
 

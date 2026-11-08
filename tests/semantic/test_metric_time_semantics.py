@@ -13,7 +13,6 @@ import pytest
 import marivo.analysis as mv
 import marivo.datasource as md
 import marivo.semantic as ms
-from marivo.analysis.errors import AnalysisError
 from marivo.datasource.runtime import DatasourceConnectionService
 from marivo.refs import ref
 from marivo.semantic._deferred_semantics import consume_metric
@@ -325,7 +324,7 @@ def test_missing_time_stays_complete_for_totals_readiness_preview_and_ordinary_s
     (fact,) = count.definition.time_bindings
     assert isinstance(fact, ms.MetricNoTimeBinding)
     assert (fact.root, fact.reason) == ("entity:sales.customers", "no_entity_default")
-    assert "unavailable" in count.render()
+    assert "independent" in count.render()
     assert catalog.readiness(refs=[count]).status == "ready"
     source_scope = md.unpruned(max_rows=10, timeout_seconds=10)
     assert catalog.preview(count, scope=source_scope).rows == ({"value": 2},)
@@ -346,10 +345,8 @@ def test_missing_time_stays_complete_for_totals_readiness_preview_and_ordinary_s
     monkeypatch.setattr(DatasourceConnectionService, "source_session", _reject_source_io)
     report = session.time_scope(start="2026-11-01", end="2026-12-01")
     for expression in (count, mixed, mixed * 0, raw, ordinary, timed + fixed):
-        with pytest.raises(AnalysisError, match="contribution time"):
-            session.observe({"untimed": expression}, where=report)
-        with pytest.raises(AnalysisError, match="contribution time"):
-            session.observe({"untimed": expression}, by=(report.by(mv.grain("day")),))
+        session.observe({"untimed": expression}, where=report)
+        session.observe({"untimed": expression}, by=(report.by(mv.grain("day")),))
     with pytest.raises(SemanticError, match="Catalog preview does not support"):
         catalog.preview(raw, scope=source_scope)
 
@@ -366,26 +363,18 @@ def test_closed_calendar_samples_and_windows_reject_missing_clock_before_reads(
     joined = catalog_get(catalog, "time_dimension:sales.customers.joined_at", kind="time_dimension")
     paid = catalog_get(catalog, "time_dimension:sales.orders.paid_at", kind="time_dimension")
     day = mv.grain("day")
-    with pytest.raises(SemanticError, match=r"Metric\.per.*contribution time"):
-        count.per(day)
-    with pytest.raises(SemanticError, match=r"Metric\.per.*contribution time"):
-        count.per(joined, grain=day)
-    for samples in (inherited.per(day), inherited.per(paid, grain=day)):
-        with pytest.raises(SemanticError, match=r"weight.*customer_count"):
-            samples.weighted_mean(weight=count)
-    with pytest.raises(SemanticError, match=r"Metric\.window.*contribution time"):
-        count.window(mv.all_history())
+    with pytest.raises(SemanticError, match="sample times"):
+        count.per(day).mean()
+    count.per(joined, grain=day).mean()
+    inherited.per(day).weighted_mean(weight=count)
+    # Explicit field samples still require the field to belong to every source root.
+    inherited.per(paid, grain=day).weighted_mean(weight=count)
+    count.window(mv.all_history())
 
 
 @pytest.mark.parametrize(
     "body",
-    [
-        "customer_count.per(day).mean()",
-        "customer_count.per(joined_at, grain=day).mean()",
-        "inherited_count.per(day).weighted_mean(weight=customer_count)",
-        "inherited_count.per(paid_at, grain=day).weighted_mean(weight=customer_count)",
-        "(inherited_count + customer_count * 0).window(history)",
-    ],
+    ["customer_count.per(day).mean()"],
 )
 def test_complete_load_rejects_an_illegal_grain_or_window_in_a_named_definition(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, body: str
@@ -395,7 +384,7 @@ def test_complete_load_rejects_an_illegal_grain_or_window_in_a_named_definition(
         extra=f"\nimport marivo.analysis as mv\nday = mv.grain('day')\nhistory = mv.all_history()\n@ms.metric()\ndef bad():\n    return {body}\n",
     )
     monkeypatch.setattr(DatasourceConnectionService, "backend_for", _reject_source_io)
-    with pytest.raises(SemanticLoadFailed, match="requires contribution time"):
+    with pytest.raises(SemanticLoadFailed, match="sample times"):
         ms.load(workspace_dir=tmp_path)
 
 
@@ -487,8 +476,9 @@ print(catalog._state._definition_version(ref.metric("sales.inherited_amount")))
     )
     assert pending.compute().to_pandas()["amount"].tolist() == [300]
     november = session.time_scope(start="2026-11-01", end="2026-12-01")
-    with pytest.raises(AnalysisError, match="contribution time"):
-        session.observe({"untimed": originally_untimed}, where=november)
+    assert session.observe({"untimed": originally_untimed}, where=november).compute().to_pandas()[
+        "untimed"
+    ].tolist() == [2]
     current_customers = catalog_get(current, "entity:sales.customers", kind="entity")
     assert _clock_facts(current_customers.count()) == (
         ("time_dimension:sales.customers.joined_at", "entity_default"),
@@ -538,7 +528,6 @@ def test_invalid_default_time_cannot_be_inferred_or_replaced(
 @pytest.mark.parametrize(
     ("time", "message"),
     [
-        ("None", "time=None"),
         ("joined_at", "another root"),
         ("status", "requires a native or closed TimeDimension"),
         ('"paid_at"', "requires a native or closed TimeDimension"),
@@ -584,7 +573,281 @@ def test_explicit_none_and_foreign_field_fail_when_constructing_a_closed_reducti
     foreign = catalog_get(
         catalog, "time_dimension:sales.customers.joined_at", kind="time_dimension"
     )
-    with pytest.raises(SemanticError, match="time=None"):
-        amount.sum(time=None)  # type: ignore[arg-type]  # Exercise explicit None.
+    assert _clock_facts(amount.sum(time=None)) == ((None, None),)
     with pytest.raises(SemanticError, match="another root"):
         orders.count(time=foreign)
+
+
+def test_report_independent_values_broadcast_after_reduction_and_window_only_clocked_leaves(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _project(
+        tmp_path,
+        database=True,
+        extra="\n@ms.metric()\ndef all_amount():\n    return amount.sum(time=None)\n",
+    )
+    monkeypatch.setenv("MARIVO_PROJECT_ROOT", str(tmp_path))
+    session = mv.session.get_or_create("mixed-report", timezone="UTC")
+    catalog = session.catalog
+    amount = catalog_get(catalog, "measure:sales.orders.amount", kind="measure")
+    orders = catalog_get(catalog, "entity:sales.orders", kind="entity")
+    customers = catalog_get(catalog, "entity:sales.customers", kind="entity")
+    independent = catalog_get(catalog, "metric:sales.all_amount", kind="metric")
+    timed = amount.sum()
+    fixed = session.members(customers).count()
+    scope = session.time_scope(start="2026-11-02", end="2026-11-05")
+    axis = scope.by(mv.grain("day"))
+    observed = session.observe(
+        {
+            "ratio": timed / fixed,
+            "fixed": fixed,
+            "independent": independent,
+            "count": orders.count(time=None),
+        },
+        by=(axis,),
+    ).compute()
+    rows = observed.to_pandas()
+    assert rows["ratio"].tolist() == [50, 100, 0]
+    assert rows["fixed"].tolist() == [2, 2, 2]
+    assert rows["independent"].tolist() == [300, 300, 300]
+    assert rows["count"].tolist() == [2, 2, 2]
+    assert session.observe(
+        {"independent": independent}, where=session.time_scope(start="2030-01-01", end="2031-01-01")
+    ).compute().to_pandas()["independent"].tolist() == [300]
+    assert session.observe(
+        {"independent": independent.window(mv.to_date(grain=mv.grain("month")))}, where=scope
+    ).compute().to_pandas()["independent"].tolist() == [300]
+    rule = mv.trailing_periods(count=2)
+    windowed = (
+        session.observe(
+            {
+                "ratio": (timed / fixed).window(rule),
+                "difference": (timed - independent).window(rule),
+                "independent": independent.window(rule),
+                "fixed": fixed.window(rule),
+            },
+            by=(axis,),
+        )
+        .compute()
+        .to_pandas()
+    )
+    assert windowed["ratio"].tolist() == [50, 150, 100]
+    assert windowed["difference"].tolist() == [-200, 0, -100]
+    assert windowed["independent"].tolist() == [300, 300, 300]
+    assert windowed["fixed"].tolist() == [2, 2, 2]
+    samples = (
+        session.observe({"mean": (timed / fixed).per(mv.grain("day")).mean()}, where=scope)
+        .compute()
+        .to_pandas()
+    )
+    assert samples["mean"].tolist() == [75]
+
+
+def test_captured_time_facts_survive_fixed_derivation_and_cold_storage(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _project(tmp_path, database=True)
+    monkeypatch.setenv("MARIVO_PROJECT_ROOT", str(tmp_path))
+    session = mv.session.get_or_create("time-facts", timezone="UTC")
+    amount = catalog_get(session.catalog, "measure:sales.orders.amount", kind="measure")
+    created = catalog_get(
+        session.catalog, "time_dimension:sales.orders.created_at", kind="time_dimension"
+    )
+    scope = session.time_scope(start="2026-11-02", end="2026-11-05")
+    fixed = amount.sum(time=None)
+    pending = session.observe(
+        {
+            "mixed": amount.sum() / fixed,
+            "clocks": amount.sum() - amount.sum(time=created),
+            "fixed": fixed,
+        },
+        by=(scope.by(mv.grain("day")),),
+    )
+    facts = pending.schema.value_time_semantics
+    assert isinstance(facts["mixed"], mv.FrameObservedTimeSemantics)
+    assert [item.kind for item in facts["mixed"].contributions] == ["clocked", "independent"]
+    assert facts["mixed"].contributions[1].source == "explicit_none"
+    observed = pending.compute()
+    assert observed.schema.value_time_semantics == facts
+    derived = observed.select(
+        {"ratio": observed["mixed"] * 2, "renamed": observed["fixed"]}
+    ).persist()
+    assert isinstance(derived.schema.value_time_semantics["ratio"], mv.FrameDerivedTimeSemantics)
+    assert derived.schema.value_time_semantics["renamed"] == facts["fixed"]
+    from json import loads
+    from threading import Event
+    from time import monotonic
+
+    from marivo.server.frames import FrameReads
+    from marivo.server.wire import Budget, Limits
+
+    budget = Budget(Limits(), "frame", monotonic() + 30, Event())
+    wire = loads(FrameReads(tmp_path).report(session.id, derived.artifact_id, budget))
+    wire_fact = wire["schema"]["value_time_semantics"]["ratio"]
+    assert wire_fact["kind"] == "derived"
+    assert wire_fact["contributions"][0]["report_axis"]["grain"]["unit"] == "day"
+    assert len(wire_fact["contributions"][0]["report_cells"]) == 3
+    assert [item["kind"] for item in wire_fact["contributions"]] == ["clocked", "independent"]
+    producer = """
+import sys
+import marivo.analysis as mv
+session = mv.session.resume(sys.argv[1])
+frame = session.persisted_frame(sys.argv[2])
+assert isinstance(frame.schema.value_time_semantics['ratio'], mv.FrameDerivedTimeSemantics)
+assert [x.kind for x in frame.schema.value_time_semantics['ratio'].contributions] == ['clocked', 'independent']
+assert frame.to_pandas()['renamed'].tolist() == [300, 300, 300]
+fact = frame.schema.value_time_semantics['ratio'].contributions[0]
+assert fact.report_axis.grain.unit == 'day'
+assert len(fact.report_cells) == 3
+"""
+    # Reopening the leaf must not need definitions or the source database.
+    import shutil
+
+    shutil.rmtree(tmp_path / "models")
+    (tmp_path / "facts.duckdb").unlink()
+    result = subprocess.run(
+        [sys.executable, "-c", producer, session.id, derived.artifact_id],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+
+
+def test_independent_classifications_and_null_clocks_keep_their_own_conditions(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _project(tmp_path, database=True)
+    with duckdb.connect(str(tmp_path / "facts.duckdb")) as connection:
+        connection.execute("INSERT INTO orders VALUES (3, 'paid', NULL, NULL, 50, 1, 11)")
+    monkeypatch.setenv("MARIVO_PROJECT_ROOT", str(tmp_path))
+    session = mv.session.get_or_create("independent-keys", timezone="UTC")
+    amount = catalog_get(session.catalog, "measure:sales.orders.amount", kind="measure")
+    customer = catalog_get(session.catalog, "dimension:sales.orders.customer_id", kind="dimension")
+    clock = catalog_get(
+        session.catalog, "time_dimension:sales.orders.paid_at", kind="time_dimension"
+    )
+    scope = session.time_scope(start="2026-11-02", end="2026-11-05")
+    timed = amount.sum().where(customer == 11)
+    independent = amount.sum(time=None).where(customer == 12)
+    rows = (
+        session.observe(
+            {"timed": timed, "independent": independent}, by=(customer, scope.by(mv.grain("day")))
+        )
+        .compute()
+        .to_pandas()
+    )
+    assert rows["timed"].tolist() == [100, 0, 0, 0, 0, 0]
+    assert rows["independent"].tolist() == [0, 0, 0, 200, 200, 200]
+    all_rows = (
+        session.observe({"all": amount.sum(time=None), "timed": amount.sum()}, where=scope)
+        .compute()
+        .to_pandas()
+    )
+    assert all_rows["all"].tolist() == [350]
+    assert all_rows["timed"].tolist() == [300]
+    filtered = amount.sum(time=None).where((clock >= scope.start) & (clock < scope.end))
+    assert session.observe({"filtered": filtered}, where=scope).compute().to_pandas()[
+        "filtered"
+    ].tolist() == [300]
+
+
+def test_fixed_temporal_population_matches_existing_keys_and_explicit_internal_samples(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _project(tmp_path, database=True)
+    monkeypatch.setenv("MARIVO_PROJECT_ROOT", str(tmp_path))
+    session = mv.session.get_or_create("fixed-time-keys", timezone="UTC")
+    customers = catalog_get(session.catalog, "entity:sales.customers", kind="entity")
+    axis = session.time_scope(start="2026-11-02", end="2026-11-04").by(mv.grain("day"))
+    one = mv.coordinates(by=(mv.identity(customers),), keys=(((11,),),))
+    two = mv.coordinates(by=(mv.identity(customers),), keys=(((11,),), ((12,),)))
+    population = mv.product(axis, two)
+    assert isinstance(population, mv.Population)
+    frame = session.observe({"members": population.count()}, by=(axis,)).compute()
+    assert frame.to_pandas()["members"].tolist() == [2, 2]
+    samples = mv.product(axis, one)
+    # Explicit identity samples must be compatible with the contribution root;
+    # a fixed source-independent count provides a compatible complete domain here.
+    count = one.count().per(samples).mean()
+    assert session.observe({"mean": count}).compute().to_pandas()["mean"].tolist() == [1]
+
+
+def test_independent_windows_still_validate_endpoints_and_calendar_rules(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from marivo.analysis.errors import AnalysisError
+
+    _project(tmp_path)
+    monkeypatch.setenv("MARIVO_PROJECT_ROOT", str(tmp_path))
+    session = mv.session.get_or_create("independent-window-errors", timezone="UTC")
+    customers = catalog_get(session.catalog, "entity:sales.customers", kind="entity")
+    count = mv.coordinates(by=(mv.identity(customers),), keys=(((11,),),)).count()
+    scope = session.time_scope(start="2026-11-02", end="2026-11-03")
+    with pytest.raises(AnalysisError, match="endpoint"):
+        session.observe({"v": count.window(mv.all_history())})
+    with pytest.raises(AnalysisError, match="start before"):
+        session.observe({"v": count.window(mv.since(start=scope.end))}, where=scope)
+    with pytest.raises(AnalysisError, match="day/week/month"):
+        session.observe(
+            {"v": count.window(mv.trailing_periods(count=2))}, by=(scope.by(mv.grain("hour")),)
+        )
+    with pytest.raises(AnalysisError, match="reset period"):
+        session.observe(
+            {"v": count.window(mv.to_date(grain=mv.grain("hour")))}, by=(scope.by(mv.grain("day")),)
+        )
+
+
+def test_mixed_nested_samples_do_not_depend_on_operand_order(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _project(tmp_path, database=True)
+    monkeypatch.setenv("MARIVO_PROJECT_ROOT", str(tmp_path))
+    session = mv.session.get_or_create("nested-independent", timezone="UTC")
+    amount = catalog_get(session.catalog, "measure:sales.orders.amount", kind="measure")
+    customer = catalog_get(session.catalog, "dimension:sales.orders.customer_id", kind="dimension")
+    timed, independent = amount.sum(), amount.sum(time=None)
+    scope = session.time_scope(start="2026-11-02", end="2026-11-05")
+    rows = (
+        session.observe(
+            {
+                "left": (independent + timed).per(customer).sum().per(mv.grain("day")).mean(),
+                "right": (timed + independent).per(customer).sum().per(mv.grain("day")).mean(),
+            },
+            where=scope,
+        )
+        .compute()
+        .to_pandas()
+    )
+    # The actual daily/customer pairs are (Nov 2, 11) and (Nov 3, 12).
+    # Their mixed values are 100 + 100 and 200 + 200; the daily mean is 300.
+    assert rows.iloc[0].to_dict() == {"left": 300, "right": 300}
+
+
+def test_removed_calendar_axis_retains_window_grain_and_frozen_cells(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _project(tmp_path, database=True)
+    monkeypatch.setenv("MARIVO_PROJECT_ROOT", str(tmp_path))
+    session = mv.session.get_or_create("frozen-window-grain", timezone="UTC")
+    amount = catalog_get(session.catalog, "measure:sales.orders.amount", kind="measure")
+    scope = session.time_scope(start="2026-11-01", end="2026-12-01")
+    cases: tuple[tuple[Literal["day", "month"], int, int], ...] = (
+        ("day", 600, 30),
+        ("month", 300, 1),
+    )
+    for grain, expected, cells in cases:
+        original = session.observe(
+            {"v": amount.sum().window(mv.trailing_periods(count=2))},
+            by=(scope.by(mv.grain(grain)),),
+        ).compute()
+        reduced = original.reduce({"total": original["v"].sum()}).persist()
+        reopened = session.persisted_frame(reduced.artifact_id)
+        assert reopened.to_pandas()["total"].tolist() == [expected]
+        assert reopened.schema.axes == ()
+        fact = reopened.schema.value_time_semantics["total"].contributions[0]
+        assert isinstance(fact.report_axis, mv.FrameCalendarEndpoint)
+        assert isinstance(fact.report_axis.grain, mv.FrameBuiltinGrain)
+        assert fact.report_axis.grain.unit == grain
+        assert len(fact.report_cells) == cells
+        assert fact.report_cells[0][0] == scope.start
+        assert fact.report_cells[-1][3] == scope.end

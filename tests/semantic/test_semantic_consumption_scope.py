@@ -13,7 +13,6 @@ import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo._definition.deferred import inspect_deferred
 from marivo._definition.types import LiteralValue, SumAxes
-from marivo.analysis.errors import AnalysisError
 from marivo.semantic._consumption import bind_field, bind_metric
 from marivo.semantic._expression_values import MetricExpression, RowExpression, _as_deferred
 from marivo.semantic.errors import SemanticError
@@ -284,7 +283,7 @@ def test_clip_preserves_each_loaded_bound_project(
                 left.clip(upper=right)
 
 
-def test_local_entity_count_without_time_cannot_observe_period(
+def test_local_entity_count_without_time_retains_scope_under_report_period(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -301,8 +300,9 @@ def test_local_entity_count_without_time_cannot_observe_period(
     current = mv.session.get_or_create(name="local_count_new_scope", timezone="UTC")
     period = current.time_scope(start="2026-10-01", end="2026-11-01")
     for expression in (orders.count(), local_count):
-        with pytest.raises(AnalysisError, match="contribution time"):
-            current.observe({"count": expression}, where=period).compute()
+        assert current.observe({"count": expression}, where=period).compute().to_pandas()[
+            "count"
+        ].tolist() == [2]
 
 
 def test_local_relationship_dependency_matches_direct_routed_formula(

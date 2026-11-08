@@ -119,7 +119,7 @@ assert counts.to_pandas()["orders"].tolist() == [6]
 assert counts.to_pandas()["regions"].tolist() == [2]
 ```
 
-`P.count()` returns a lazy `Metric` that counts distinct complete tuples, including `NULL` field categories and requested identities without source rows. Keeping identity counts six orders; projecting to region first counts two regions. Use `Entity.count()` to count source contributions and `mv.row_count()` to count rows in a Frame. `P.axes` lists coordinate rules; use `P` itself when you need its selected member set. A Population count has no contribution clock. Use it in observations without report time, including a TimeScope, CalendarAxis, or Population carrying a time coordinate.
+`P.count()` returns a lazy `Metric` that counts distinct complete tuples, including `NULL` field categories and requested identities without source rows. Keeping identity counts six orders; projecting to region first counts two regions. Use `Entity.count()` to count source contributions and `mv.row_count()` to count rows in a Frame. `P.axes` lists coordinate rules; use `P` itself when you need its selected member set. A Population count is report independent. Report ranges and windows do not reselect its members; it repeats along a missing report time coordinate and matches any compatible time coordinates already captured in P.
 
 ## Set selection and relationship mapping
 

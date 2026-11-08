@@ -219,8 +219,9 @@ A zero-parameter function supplies the published name and a restricted body.
 Compose typed Metrics or source reductions and set time, NULL and sample
 policies on the operators. For each reduction, `time=field` fixes a contribution
 clock explicitly. Omitting it uses the Entity's `default_time` if declared.
-Otherwise the reduction has no clock and can still be used in a timeless total
-or classification.
+Explicit `time=None` disables default inheritance. Omission without a default
+has the same report-independent behavior: report filters and windows leave its
+scope intact, and missing report time coordinates broadcast its completed value.
 
 An Entity default can use a typed forward reference to its own TimeDimension:
 

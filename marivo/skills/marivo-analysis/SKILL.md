@@ -41,7 +41,11 @@ when that authority is unresolved.
 
 For a time-scoped or time-grouped question, inspect the contribution clocks
 already defined by the governed Metric. A composed Metric may use different
-clocks for different branches. Use an established Metric for the intended
+clocks for different branches, while independent branches retain their scope
+and repeat across missing report time coordinates. Check the captured per-column
+time interpretation when reading mixed formulas: a common calendar bucket does
+not establish a common business-object cohort. A repeated fixed denominator
+is not additive across time. Use an established Metric for the intended
 time role, or route unresolved reusable meaning to semantic authoring.
 Clarify the business time role when plausible choices would change the answer.
 

@@ -320,10 +320,8 @@ def test_time_context_validation_precedes_business_reads(
             assert "Use the time coordinates in by" in error.repair.action
 
         for expr in (untimed, timed + untimed, timed + regions.count(), untimed * 0):
-            with pytest.raises(AnalysisError, match="contribution time"):
-                session.observe({"v": expr}, where=scope)
-            with pytest.raises(AnalysisError, match="contribution time"):
-                session.observe({"v": expr}, by=(scope.by(day),))
+            session.observe({"v": expr}, where=scope)
+            session.observe({"v": expr}, by=(scope.by(day),))
         session.observe({"v": timed * 2}, by=(scope.by(day),))
         session.observe({"v": untimed})
         assert source_trace.native_sql == []

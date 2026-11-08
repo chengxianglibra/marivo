@@ -682,7 +682,8 @@ def test_source_reduction_help_explains_optional_contribution_time(
     marivo.help(target)
     page = capsys.readouterr().out
     assert "inherit the single contribution Entity's default_time" in page
-    assert "clock on every contributing branch" in page
+    assert "filters only branches with contribution clocks" in page
+    assert "Explicit time=None disables inheritance" in page
     assert "field predicate can still filter source rows independently" in page
 
 
@@ -831,7 +832,7 @@ def test_per_help_covers_observed_and_complete_sample_domains(
     assert "per(field) uses exact TimeField values" in text
     assert "per(grain) buckets each contribution's declared time role" in text
     assert "per(field, grain=grain) buckets one explicit native TimeField" in text
-    assert "Every contributing branch must have a contribution clock for either Grain form" in text
+    assert "Grain-only sampling needs at least one clocked branch" in text
     assert "Both builtin forms use the Session report timezone" in text
     assert "Week in month rejects" in text
     assert "Session's current certified snapshot" in text

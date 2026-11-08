@@ -703,8 +703,12 @@ def test_fixed_member_count_and_nonleading_calendar_order(session: Session) -> N
     parents = mv.product(regions, calendar)
     fine = mv.coordinates(by=(channel,), keys=(("A",), ("C",)))
     domain = mv.product(parents, fine)
-    with pytest.raises(AnalysisError, match=r"fixed Population.count"):
+    fixed_rows = (
         session.observe({"q": members.where(mv.in_population(regions)).count()}, by=domain)
+        .compute()
+        .to_pandas()
+    )
+    assert fixed_rows["q"].tolist() == [1, 1, 1, 1]
     day = catalog_value(session.catalog, "sales.facts.day", kind="time_dimension")
     rows = (
         session.observe({"q": entity.count(time=day)}, by=domain, where=region == "east")

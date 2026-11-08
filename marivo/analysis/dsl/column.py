@@ -75,6 +75,10 @@ class Column:
                     print("Complete names: frame.output_names")
             else:
                 print(f"{name}={value}")
+        if self._frame is not None and self._name is not None:
+            fact = self._frame.schema.value_time_semantics.get(self._name)
+            if fact is not None:
+                fact.show()
         print("Help: analysis.column")
 
     def _binary(

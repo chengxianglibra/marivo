@@ -39,7 +39,7 @@ result.show(n=31)
 ```
 
 时间范围按 Session 时区包含 8 月 1 日、不包含 9 月 1 日。
-指标的每个分支都需要贡献时间。该示例直接计算并展示每日数值，无需持久化；
+示例收入指标具有贡献时间；时间独立分支会保留原有范围。该示例直接计算并展示每日数值，无需持久化；
 指定时间范围不代表已确认来源数据完整。
 
 范围合计使用 `where=scope`；时间分组使用 `by=(scope.by(grain),)`。
@@ -52,8 +52,9 @@ P 必须覆盖所有必要输出键；如需限制贡献，显式使用 `where=m
 若 P 已含报告时间坐标，则不能在 `where` 中另传 TimeScope。
 
 每个源规约在定义时固定贡献时间，可显式传入 `time=field`，或继承所属 Entity 的
-`default_time`。使用报告范围或 CalendarAxis 时，每个 Metric 的每个分支都须具备贡献时间。
-组合 Metric 可以保留各分支不同的时间字段。
+`default_time`。没有默认时间时省略参数与显式 `time=None` 都表示独立于报告时间；
+显式 None 还会退出默认继承。报告范围和分桶只作用于有时钟分支，无时钟分支保留业务条件，
+先规约再沿缺少的报告时间坐标复用。组合可保留不同字段，同一日历桶不证明来自同一批业务对象。
 
 例如，`amount` 是已加载的 Measure，`booked_at` 和 `paid_at` 是已加载的 TimeDimension：
 
@@ -100,3 +101,6 @@ Population 计数指定归期；应将它放在报告时间运算之外。
 `marivo.help("analysis.session.observe")`。
 
 完整说明和示例见[分析 DSL 的 observe 部分](/zh-cn/docs/latest/analysis/dsl/#观察指标)。
+
+
+给定已选定的 Population `members`，固定分母可以直接参与报告期和窗口：`session.observe({"per_member": revenue / members.count()}, by=(scope.by(mv.grain("day")),))`。窗口对收入重算，只使用一次固定分母。读取 `frame.schema.value_time_semantics` 可查看每列各分支的时钟、报告作用和窗口；派生列描述的是固定输入，不能当作重新观察。

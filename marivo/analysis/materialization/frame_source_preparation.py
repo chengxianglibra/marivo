@@ -349,6 +349,12 @@ def prepare_frame_sources(captured: CapturedFrameInputs, stack: ExitStack) -> Pr
                 *(schema.source_times for schema in key_schemas.values()),
             ),
         )
+        if isinstance(binding, SourceFrameBinding):
+            from marivo.analysis.binding.value_time import observation_time_semantics
+
+            schema = replace(
+                schema, value_time_semantics=observation_time_semantics(active_graph, binding.state)
+            )
         source_graphs[input_id] = active_graph
         source_schemas[input_id] = schema
         source_plans[input_id] = CompiledSourceFrame(

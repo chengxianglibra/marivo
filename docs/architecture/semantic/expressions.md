@@ -110,7 +110,7 @@ A source reduction fixes its contribution clock when the definition is resolved.
 `time=field` takes priority and requires a legal concrete TimeDimension
 binding for the reduction. If omitted, a reduction with one contribution Entity
 inherits its `default_time` when declared. Otherwise it has no contribution
-clock. Explicit `time=None` is invalid.
+clock and is report independent. Explicit `time=None` also makes the branch report independent, overriding any Entity default.
 
 An Entity default is a native TimeDimension owned by that Entity. Declare it
 with the field's typed forward reference when the field is defined later.
@@ -143,7 +143,7 @@ def timing_gap():
 
 Here `amount` is a declared Measure on orders. The two reductions retain their
 individual clocks when combined. One report TimeScope or CalendarAxis applies to each
-branch through its own clock and requires all branches to have one. A total
+clocked branch through its own clock; independent branches retain their scope. A total
 without a time consumer has no implicit time filter. A fixed row predicate such
 as `(paid_at >= start) & (paid_at < end)` can filter source rows independently
 of these clocks.
@@ -319,9 +319,9 @@ empty samples under the child's empty policy, and may select a subset.
 `revenue.per(mv.grain("day")).mean()` folds actual daily completed revenues
 using each source child's declared contribution time.
 `revenue.per(created_at, grain=mv.grain("day")).mean()` uses one explicit native
-sample field while preserving each child's contribution time. Both Grain forms
-require contribution time on every branch, as does an explicit sample Population
-with a report time coordinate. Use `per(created_at)` to retain exact native timestamps. Both builtin calendar
+sample field while preserving each child's contribution time. Grain-only samples require at least one clocked branch to discover actual sample keys.
+Independent branches reuse their completed value at those keys. Explicit fields
+and Populations supply their own sample domain, without changing contribution clocks. Use `per(created_at)` to retain exact native timestamps. Both builtin calendar
 forms use the receiving Session's report timezone and need no finite
 observation period. An existing observation period still selects contributions
 by each source reduction's time role. Presence, including an all-NULL
@@ -407,7 +407,7 @@ owns allocation and output-domain behavior.
 Window rules are source-free immutable values: all_history, since, to_date,
 trailing_duration and trailing_periods from mv. They attach to a Metric and
 require an observation endpoint; nested windows are rejected. They reevaluate
-its formula over each window rather than summing completed output cells.
+its formula over each window rather than summing completed output cells. Only clocked leaves change their contribution range; independent leaves retain their conditions and are combined once per endpoint. A fully independent window retains its value but still requires valid endpoints and rules.
 [Temporal semantics](../temporal-semantics.md) owns the exact bounds.
 
 ## Numeric policies and physical admission

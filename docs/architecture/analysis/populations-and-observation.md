@@ -34,7 +34,7 @@ bound graphs after a later load.
 `where=session.time_scope(start=..., end=...)` to select a report interval
 without adding a coordinate. Native TimeField samples use represented values
 regardless of cadence and need no report interval. Builtin Grain samples
-likewise work without a finite period when every branch has a contribution
+likewise work without a finite period when at least one branch supplies a contribution
 clock. Windows need report endpoints and custom calendar samples need a complete
 certified period. Some checks run only during `compute()` or `persist()`.
 
@@ -105,9 +105,10 @@ Paths must be explicit, contiguous and legal for the consumer.
 
 Use one fieldless report TimeScope in `where` for range-only totals, or put one
 CalendarAxis from `scope.by(grain)` in the `by` tuple for time grouping. Each contributing branch uses its own fixed contribution clock,
-which may come from its Entity default. Every branch needs a clock for a report
-TimeScope or CalendarAxis, including branches of a composite formula. Multiple branches
-can use different fields in the same report.
+which may come from its Entity default. Report TimeScope and CalendarAxis affect only clocked branches. Independent branches
+retain their own conditions, reduce by applicable ordinary keys, then broadcast
+along missing report time coordinates. Different clocks share calendar coordinates,
+without establishing the same business-object cohort.
 
 | Report TimeScope in where | CalendarAxis in by | Observation |
 | --- | --- | --- |
@@ -147,7 +148,8 @@ the exact observe Help target, without expanding Population calendar cells.
 
 For ordinary tuple grouping, let S be the selected native calendar keys and O
 the actual contribution joint keys. Output completes `(S × K) ∪ O`, where K is
-the projection of O onto the complete ordinary classification tuple. It never
+the union of complete ordinary classification tuples from all branches, including
+independent branches. Independent branches do not generate time keys O. It never
 crosses independent category value sets. Without ordinary axes K is the
 zero-axis unit; without represented classifications K is empty. Complete
 Population domains retain their own exact keys and coverage checks.
@@ -207,8 +209,9 @@ Grouping matches only coordinates already in P: to count identities by a new
 attribute, classify while retaining identity first. Projecting identity away
 counts distinct resulting categories. Fact conditions/windows do not reselect a
 captured count denominator; ineffective count-only conditions/windows reject.
-A fixed Population count cannot be consumed by an observation with a report
-TimeScope or CalendarAxis. Its complete domain remains fixed under row predicates.
+A fixed Population count is report independent. It broadcasts along a missing report
+time axis, or matches existing compatible time coordinates already in P. Report
+ranges and windows do not reselect its members. Its complete domain remains fixed under row predicates.
 
 Qualified same-source counts on DuckDB, PostgreSQL, MySQL, Trino and ClickHouse
 count distinct complete Population tuples in the source, carrying required

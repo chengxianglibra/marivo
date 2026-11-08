@@ -26,6 +26,7 @@ from marivo.analysis.core.frame_interpretation import (
     FrameRowAttributeTime,
     FrameSourceTime,
     FrameValueContext,
+    FrameValueTimeSemantics,
     validate_source_times,
 )
 from marivo.analysis.core.model import reject
@@ -201,6 +202,7 @@ class PendingDataSchema:
     comparisons: tuple[DataComparison, ...] = ()
     fixed_axes: tuple[FrameFixedAxis, ...] = ()
     value_contexts: tuple[tuple[str, FrameValueContext], ...] = ()
+    value_time_semantics: tuple[tuple[str, FrameValueTimeSemantics], ...] = ()
     decompositions: tuple[FrameDecomposition, ...] = ()
     alignments: tuple[DataAlignment, ...] = ()
     source_times: tuple[FrameSourceTime, ...] = ()
@@ -310,6 +312,7 @@ class PendingDataSchema:
         if (
             schema.fixed_axes == self.fixed_axes
             and schema.value_contexts == self.value_contexts
+            and schema.value_time_semantics == self.value_time_semantics
             and schema.decompositions == self.decompositions
             and schema.alignments == self.alignments
         ):
@@ -318,6 +321,7 @@ class PendingDataSchema:
             schema,
             fixed_axes=self.fixed_axes,
             value_contexts=self.value_contexts,
+            value_time_semantics=schema.value_time_semantics or self.value_time_semantics,
             decompositions=self.decompositions,
             alignments=self.alignments,
         )

@@ -697,6 +697,12 @@ def test_hour_reset_uses_native_fold_endpoints(window_session: Session, tmp_path
     # Native local midnight -> 01:00 ends at the later fold occurrence.
     # The two native endpoint windows are [04:00Z,06:00Z) and [06:00Z,07:00Z).
     assert values["hourly"].tolist() == [10, 30]
+    amount = catalog_value(window_session.catalog, "sales.orders.amount", kind="measure")
+    independent = window_session.observe(
+        {"fixed": amount.sum(time=None).window(mv.to_date(grain=mv.grain("hour")))},
+        by=(hours_scope.by(mv.grain("hour")),),
+    ).compute()
+    assert independent.to_pandas()["fixed"].tolist() == [40, 40]
 
 
 def test_hour_index_and_windows_use_native_gap_keys(
@@ -905,10 +911,9 @@ def test_interval_selection_keeps_window_history_and_hard_fact_filter(
     assert restricted["history"].tolist() == [20]
 
 
-def test_fixed_member_count_rejects_report_time_and_windows(window_session: Session) -> None:
-    from marivo.analysis.errors import AnalysisError
-    from marivo.semantic.errors import SemanticExpressionError
-
+def test_fixed_member_count_retains_its_value_under_report_time_and_windows(
+    window_session: Session,
+) -> None:
     session = window_session
     entity = catalog_value(session.catalog, "sales.orders", kind="entity")
     people = mv.coordinates(by=(mv.identity(entity),), keys=(((1,),), ((2,),), ((999,),)))
@@ -916,10 +921,13 @@ def test_fixed_member_count_rejects_report_time_and_windows(window_session: Sess
     assert session.observe({"people": people.count()}).compute().to_pandas()["people"].tolist() == [
         3
     ]
-    with pytest.raises(AnalysisError, match=r"fixed Population.count"):
-        session.observe({"people": people.count()}, by=(scope.by(mv.grain("day")),))
-    with pytest.raises(SemanticExpressionError, match=r"fixed Population.count"):
-        people.count().window(mv.all_history())
+    for count in (people.count(), people.count().window(mv.all_history())):
+        rows = (
+            session.observe({"people": count}, by=(scope.by(mv.grain("day")),))
+            .compute()
+            .to_pandas()
+        )
+        assert rows["people"].tolist() == [3, 3]
 
 
 def test_interval_internal_sample_domain_keeps_its_own_time(window_session: Session) -> None:

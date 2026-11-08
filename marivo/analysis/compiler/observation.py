@@ -143,7 +143,7 @@ def reduction_input(
     node = contribution.definition
     if not isinstance(node, (SourceAggregate, SourceWeightedMean, EntityCount)):
         numeric_failure("an ordinary contribution reduction", type(node).__name__)
-    calendars = contribution.calendars or ((("key.0", calendar),) if calendar is not None else ())
+    calendars = contribution.calendars
     calendar_slots = {slot for slot, _ in calendars}
     axes_list: list[tuple[str, str]] = []
     offset = 0
@@ -151,14 +151,19 @@ def reduction_input(
         for path in coordinate_read_keys(read):
             while f"key.{offset}" in calendar_slots:
                 offset += 1
-            axes_list.append((f"key.{offset}", path))
+            axis_slot = (
+                contribution.coordinate_slots[len(axes_list)]
+                if contribution.coordinate_slots
+                else f"key.{offset}"
+            )
+            axes_list.append((axis_slot, path))
             offset += 1
     axes = tuple(axes_list)
     return ReductionInput(
         node,
         axes,
         slot,
-        calendar,
+        calendar if contribution.time is not None else None,
         field_read_key(
             FieldRead(
                 contribution.time.field,

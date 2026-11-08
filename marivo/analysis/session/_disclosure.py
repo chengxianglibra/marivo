@@ -31,7 +31,6 @@ from marivo.analysis.core.frame_source_reads import (
     FrameSourceReadPeriod,
     FrameSourceReadScope,
 )
-from marivo.analysis.errors import MetricContributionTimeError, MissingMetricContributionTime
 from marivo.analysis.session import _lazy_read_model as r
 from marivo.analysis.session._method_disclosure import section as _doc_section
 from marivo.analysis.session.core import Session
@@ -40,45 +39,6 @@ from marivo.analysis.session.core import Session
 def provider() -> DisclosureProvider:
     descriptors: list[Descriptor] = []
     exports: list[ExportInput] = []
-    descriptors.extend(
-        (
-            value_type(
-                "MetricContributionTimeError",
-                MetricContributionTimeError,
-                summary="A report-time observation has Metric branches without contribution time.",
-                acquisition="Catch this AnalysisError from session.observe and inspect output and missing.",
-                producers=("session.observe",),
-                constraints=(
-                    "missing contains every missing occurrence in expression order; "
-                    "the text is bounded to six occurrences.",
-                ),
-            ),
-            value_type(
-                "MissingMetricContributionTime",
-                MissingMetricContributionTime,
-                summary="A captured Metric occurrence without a contribution time.",
-                acquisition="Read an entry from MetricContributionTimeError.missing.",
-                constraints=(
-                    "path identifies the expression occurrence; metric and root are captured "
-                    "identities when available. reason is no_entity_default or fixed_member_count.",
-                ),
-            ),
-        )
-    )
-    exports.extend(
-        (
-            ExportInput(
-                "MetricContributionTimeError",
-                MetricContributionTimeError,
-                "MetricContributionTimeError",
-            ),
-            ExportInput(
-                "MissingMetricContributionTime",
-                MissingMetricContributionTime,
-                "MissingMetricContributionTime",
-            ),
-        )
-    )
     descriptors.append(
         value_type(
             "Session",
@@ -344,7 +304,7 @@ def provider() -> DisclosureProvider:
                     if name == "get_or_create"
                     else "AnalysisError: read its fields and repair."
                     if name == "members"
-                    else "MetricContributionTimeError: Fix branch clocks in semantic definitions or omit report time; inspect error.missing; marivo.help('analysis.metric_contribution_time_error'). Duplicate/invalid names reject; no name cleaning/numbering."
+                    else "Duplicate/invalid names reject; no name cleaning/numbering."
                     if name == "observe"
                     else "AnalysisError: follow the structured identity, bound or recovery repair.",
                 ),

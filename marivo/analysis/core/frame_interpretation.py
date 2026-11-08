@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from dataclasses import field as dataclass_field
 from datetime import datetime, timedelta
 from decimal import Decimal
 from typing import TYPE_CHECKING, Literal, TypeAlias, get_args
@@ -128,6 +129,7 @@ class _Fact(RenderableResult):
         for item in fields(self):
             if item.name in (
                 "kind",
+                "output",
                 "axis",
                 "consumption_timezone",
                 "role",
@@ -152,6 +154,7 @@ class _Fact(RenderableResult):
                 parts.append(f"{item.name}={str(getattr(self, item.name))[:40]}")
             elif item.name in (
                 "keys",
+                "contributions",
                 "groups",
                 "along",
                 "origins",
@@ -177,6 +180,25 @@ class _Fact(RenderableResult):
 
         assert is_dataclass(self)
         card = Card(identity=self._repr_identity(), available=(".show()",))
+        if isinstance(self, (FrameObservedTimeSemantics, FrameDerivedTimeSemantics)):
+            card.table(
+                ("branch", "clock", "report", "window"),
+                [
+                    (
+                        " / ".join(item.occurrence) or item.output,
+                        item.field.path
+                        if isinstance(item, FrameClockedContribution)
+                        else "independent: " + item.source,
+                        item.report_effect,
+                        repr(item.window),
+                    )
+                    for item in self.contributions
+                ],
+                row_count=len(self.contributions),
+                bounded_row_limit=6,
+                recovery="read .contributions",
+            )
+            return card
         for item in fields(self):
             value = getattr(self, item.name)
             if isinstance(value, tuple):
@@ -535,6 +557,67 @@ FrameObservationWindow: TypeAlias = (
     | FrameTrailingDurationWindow
     | FrameTrailingPeriodsWindow
 )
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class FrameClockedContribution(_Fact):
+    """Captured clock and report effects of one original contribution occurrence."""
+
+    output: str
+    occurrence: tuple[str, ...]
+    metric: SemanticObjectIdentity | None
+    root: SemanticObjectIdentity | None
+    field: SemanticObjectIdentity
+    path: tuple[str, ...]
+    anchor: datetime | None
+    source: Literal["explicit", "entity_default"]
+    report: FrameFixedTime | None
+    report_effect: Literal["none", "range", "buckets"]
+    window: FrameObservationWindow | None
+    samples: tuple[str, ...]
+    report_axis: FrameTimeEndpoint | None = None
+    report_cells: tuple[tuple[datetime, datetime, datetime, datetime], ...] = ()
+    kind: Literal["clocked"] = dataclass_field(default="clocked")
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class FrameIndependentContribution(_Fact):
+    """Captured report-independent contribution; source predicates remain applicable."""
+
+    output: str
+    occurrence: tuple[str, ...]
+    metric: SemanticObjectIdentity | None
+    root: SemanticObjectIdentity | None
+    source: Literal["explicit_none", "no_entity_default", "fixed_member_count"]
+    report: FrameFixedTime | None
+    report_effect: Literal["none", "range_ignored", "broadcast", "coordinate_match"]
+    window: FrameObservationWindow | None
+    samples: tuple[str, ...]
+    report_axis: FrameTimeEndpoint | None = None
+    report_cells: tuple[tuple[datetime, datetime, datetime, datetime], ...] = ()
+    kind: Literal["independent"] = field(default="independent")
+
+
+FrameTimeContribution: TypeAlias = FrameClockedContribution | FrameIndependentContribution
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class FrameObservedTimeSemantics(_Fact):
+    """Original observed contribution clocks and effects, without source authority."""
+
+    contributions: tuple[FrameTimeContribution, ...]
+    kind: Literal["observed"] = field(default="observed")
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class FrameDerivedTimeSemantics(_Fact):
+    """Input contribution snapshots of a fixed-data derivation, not a new source observation."""
+
+    contributions: tuple[FrameTimeContribution, ...]
+    kind: Literal["derived"] = field(default="derived")
+
+
+FrameValueTimeSemantics: TypeAlias = FrameObservedTimeSemantics | FrameDerivedTimeSemantics
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -1069,6 +1152,7 @@ def unary_facts(
     from marivo.analysis.core.frame_fix import FixFrameValues, validate_fixed_key
     from marivo.analysis.core.frame_schema import capture_axis, comparison_id
     from marivo.analysis.core.frozen_calendar import frozen_key_table
+    from marivo.analysis.core.value_time import unary_time_semantics as unary_time_semantics
 
     contexts = dict(schema.value_contexts)
     fixed = schema.fixed_axes
@@ -1279,6 +1363,7 @@ def unary_facts(
         fixed_axes=fixed,
         source_times=merge_source_times(schema.source_times, output.source_times),
         value_contexts=resolved,
+        value_time_semantics=unary_time_semantics(schema, operation),
         decompositions=decompositions,
         comparisons=comparisons,
         alignments=alignments,
@@ -1315,6 +1400,7 @@ def comparison_facts(
 
     current = inputs[0]
     contexts: dict[str, FrameValueContext] = {}
+    time_facts = dict(current.value_time_semantics)
     facts = list(output.comparisons)
     alignments: list[DataAlignment] = []
     common = tuple(f for f in current.fixed_axes if all(f in b.fixed_axes for b in inputs[1:]))
@@ -1384,6 +1470,23 @@ def comparison_facts(
         ] = []
         for path in current.value_paths:
             name = ".".join(path)
+            current_time = dict(current.value_time_semantics).get(name)
+            baseline_time = dict(baseline.value_time_semantics).get(name)
+            if baseline_time is not None:
+                time_facts[".".join((item.alias, "baseline", *path))] = baseline_time
+            branches = tuple(
+                dict.fromkeys(
+                    branch
+                    for description in (current_time, baseline_time)
+                    if description is not None
+                    for branch in description.contributions
+                )
+            )
+            if branches:
+                for role in ("absolute", "relative"):
+                    time_facts[".".join((item.alias, role, *path))] = FrameDerivedTimeSemantics(
+                        branches
+                    )
             current_ids = {
                 comparison_id(f): "current." + comparison_id(f) for f in current.comparisons
             }
@@ -1418,6 +1521,11 @@ def comparison_facts(
         comparisons=tuple(facts),
         source_times=merge_source_times(
             *(schema.source_times for schema in inputs), output.source_times
+        ),
+        value_time_semantics=tuple(
+            (column.name, time_facts[column.name])
+            for column in output.values
+            if column.name in time_facts
         ),
         fixed_axes=common,
         value_contexts=tuple(contexts.items()),
@@ -1506,6 +1614,11 @@ def align_facts(
         fixed_axes=common,
         source_times=merge_source_times(left.source_times, right.source_times, output.source_times),
         value_contexts=tuple(result),
+        value_time_semantics=tuple(
+            (side + "." + name, fact)
+            for side, schema in (("left", left), ("right", right))
+            for name, fact in schema.value_time_semantics
+        ),
         decompositions=(),
         alignments=tuple(alignments),
     )
@@ -1635,6 +1748,49 @@ def _validate_fact(value: _Fact) -> None:
         ):
             _invalid("one closed current value context")
 
+    if isinstance(value, (FrameObservedTimeSemantics, FrameDerivedTimeSemantics)) and (
+        type(value.contributions) is not tuple
+        or any(
+            type(item) not in (FrameClockedContribution, FrameIndependentContribution)
+            for item in value.contributions
+        )
+    ):
+        _invalid("complete immutable contribution time facts")
+    if isinstance(value, (FrameClockedContribution, FrameIndependentContribution)):
+        text(value.output)
+        if type(value.occurrence) is not tuple or any(
+            type(item) is not str for item in value.occurrence
+        ):
+            _invalid("an immutable contribution occurrence path")
+        if value.report is not None and type(value.report) is not FrameFixedTime:
+            _invalid("a captured report selection")
+        if value.report_axis is not None and type(value.report_axis) not in (
+            FrameCalendarEndpoint,
+            FrameIntervalEndpoint,
+        ):
+            _invalid("a captured report axis description")
+        if type(value.report_cells) is not tuple:
+            _invalid("immutable captured report cells")
+        for cell in value.report_cells:
+            if type(cell) is not tuple or len(cell) != 4:
+                _invalid("nominal and selected report bounds")
+            for bound in cell:
+                instant(bound)
+
+        if isinstance(value, FrameClockedContribution):
+            instant(value.anchor)
+            if (
+                type(value.field) is not SemanticObjectIdentity
+                or value.source not in ("explicit", "entity_default")
+                or value.report_effect not in ("none", "range", "buckets")
+            ):
+                _invalid("a captured contribution clock and report effect")
+        elif value.source not in (
+            "explicit_none",
+            "no_entity_default",
+            "fixed_member_count",
+        ) or value.report_effect not in ("none", "range_ignored", "broadcast", "coordinate_match"):
+            _invalid("a report-independent contribution and its report effect")
     if isinstance(
         value, (FrameInstantSourceTime, FrameWallClockSourceTime, FrameCivilDateSourceTime)
     ):
@@ -1993,6 +2149,11 @@ def validate_current_facts(schema: LogicalSchema) -> None:
                             "an alignment coordinate resolving to the actual complete endpoint"
                         )
 
+    time_names = tuple(name for name, _ in schema.value_time_semantics)
+    if len(set(time_names)) != len(time_names) or not set(time_names) <= {
+        column.name for column in schema.values
+    }:
+        _invalid("unique contribution-time descriptions for current value names")
     names = tuple(n for n, _ in schema.value_contexts)
     if len(set(names)) != len(names) or any(n not in values for n in names):
         _invalid("unique context bindings to current value fields")

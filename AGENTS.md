@@ -134,7 +134,10 @@ The public entry points are `marivo.help`, `marivo.datasource`,
   typed row and Metric expressions. A source reduction fixes its contribution
   time through an explicit field or the sole contribution Entity's default.
   Composed Metrics keep each branch's contribution time. A report TimeScope or
-  CalendarAxis requires contribution time on every branch.
+  CalendarAxis filters and buckets only clocked branches; report-independent
+  branches retain their scope and broadcast along missing report time coordinates.
+  Explicit time=None disables default inheritance; omission without a default
+  is also report independent. Windows follow the same branch rule.
   Measure and Metric declarations cannot execute arbitrary Python, accept Ibis
   tables, or use `ms.bind`. Decorator bodies remain restricted by
   `marivo/semantic/validator.py`.

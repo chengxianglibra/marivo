@@ -171,30 +171,32 @@ def _combine_program(
     program = replace(program, values=tuple(bindings))
     inputs = tuple(frames)
     if keys:
+        represented_inputs = []
+        domain_parts = []
+        for frame in inputs:
+            present = next(
+                (
+                    name
+                    for name in (
+                        f"__sample_scope_{len(keys)}",
+                        "__sample_present",
+                        "__numeric_present",
+                    )
+                    if name in frame
+                ),
+                None,
+            )
+            selected = (
+                frame
+                if present is None
+                else frame.loc[frame[present].astype("boolean").fillna(False)]
+            )
+            represented_inputs.append(selected)
+            if all(key in selected for key in keys):
+                domain_parts.append(selected.loc[:, keys])
         domain = (
-            pd.concat(
-                [
-                    frame.loc[
-                        frame[
-                            f"__sample_scope_{len(keys)}"
-                            if f"__sample_scope_{len(keys)}" in frame.columns
-                            else "__sample_present"
-                            if "__sample_present" in frame.columns
-                            else "__numeric_present"
-                        ]
-                        .astype("boolean")
-                        .fillna(False),
-                        keys,
-                    ]
-                    if "__numeric_present" in frame.columns
-                    or "__sample_present" in frame.columns
-                    or f"__sample_scope_{len(keys)}" in frame.columns
-                    else frame.loc[:, keys]
-                    for frame in inputs
-                ],
-                ignore_index=True,
-            ).drop_duplicates()
-            if inputs
+            pd.concat(domain_parts, ignore_index=True).drop_duplicates()
+            if domain_parts
             else pd.DataFrame(columns=keys)
         )
         calendars = (
@@ -203,8 +205,15 @@ def _combine_program(
         if calendars and program.output_population is None and program.complete_calendar:
             calendar_slots = {slot for slot, _ in calendars}
             field_keys = [key for key in keys if key not in calendar_slots]
+            classification_parts = [
+                frame.loc[:, field_keys]
+                for frame in represented_inputs
+                if all(key in frame for key in field_keys)
+            ]
             completed_domain = (
-                domain.loc[:, field_keys].drop_duplicates()
+                pd.concat(classification_parts, ignore_index=True).drop_duplicates()
+                if field_keys and classification_parts
+                else pd.DataFrame(columns=field_keys)
                 if field_keys
                 else pd.DataFrame(index=pd.RangeIndex(1))
             )
@@ -316,6 +325,18 @@ def _combine_program(
         selected.columns = [target for _, target in mapping]
         for slot, time_axis in time_domains:
             selected = selected.merge(pd.DataFrame({slot: time_key_series(time_axis)}), how="cross")
+        offset = 0
+        for axis in program.axes:
+            if isinstance(axis, (CalendarCoordinate, IntervalCoordinate)):
+                slot = key_slots[offset]
+                selected[slot] = selected[slot].astype(time_key_series(axis).dtype)
+                offset += 1
+            elif isinstance(axis, BuiltinSampleCoordinate):
+                offset += 1
+            else:
+                offset += len(
+                    count.axis_mapping[coordinate_position(count.population.axes, axis)][1]
+                )
         if actual_sample_slots:
             ordinary_slots = [slot for slot in keys if slot not in actual_sample_slots]
             actual = domain.loc[:, keys]
@@ -415,13 +436,16 @@ def _combine_program(
                 sample_axes = (calendar_sample,)
             else:
                 sample_axes = node.samples if isinstance(node.samples, tuple) else node.samples.axes
-            source_groups = next(
-                (
-                    binding.key_groups
-                    for binding in bindings
-                    if binding.occurrence[: len(occurrence)] == occurrence and binding.key_groups
-                ),
-                (),
+            source_groups = tuple(
+                sorted(
+                    {
+                        group
+                        for binding in bindings
+                        if binding.occurrence[: len(occurrence)] == occurrence
+                        for group in binding.key_groups
+                    },
+                    key=lambda group: int(group[0].split(".")[1]),
+                )
             )
             remaining_groups = tuple(
                 group for group in source_groups if not all(key in key_slots for key in group)
@@ -603,12 +627,19 @@ def _combine_program(
             )
         if keys:
             marked = frame.assign(**{"__present": True})
-            merged = domain.merge(
-                marked,
-                on=keys,
-                how="left",
-                validate=None if frame_keys[input_index].proves(key_slots) else "many_to_one",
-                sort=False,
+            match_keys = [key for key in keys if key in frame]
+            merged = (
+                domain.merge(
+                    marked,
+                    on=match_keys,
+                    how="left",
+                    validate=None
+                    if frame_keys[input_index].proves(tuple(match_keys))
+                    else "many_to_one",
+                    sort=False,
+                )
+                if match_keys
+                else domain.merge(marked, how="cross")
             )
             value = merged[slot]
             if binding.zero_when_absent:

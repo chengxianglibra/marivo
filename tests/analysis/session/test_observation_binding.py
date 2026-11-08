@@ -314,8 +314,12 @@ def test_time_role_is_optional_but_explicit_cross_entity_time_keeps_its_path(
     query = session.observe({"count": customers.count()})
     assert _captured_observation(query).contributions[0].time is None
     scope = session.time_scope(start="2026-01-01", end="2026-02-01")
-    with pytest.raises(mv.MetricContributionTimeError, match="concrete contribution time"):
-        session.observe({"count": customers.count()}, where=scope)
+    assert (
+        _captured_observation(session.observe({"count": customers.count()}, where=scope))
+        .contributions[0]
+        .period
+        is None
+    )
     time = catalog_value(catalog, "sales.customers.created_at", kind="time_dimension")
     buyer = catalog_get(catalog, "relationship:sales.buyer", kind="relationship")
     amount = catalog_value(catalog, "sales.orders.amount", kind="measure")
@@ -578,8 +582,10 @@ def test_explicit_count_capture_keeps_each_domain_without_reading(
     assert frame.axes == ()
     assert terminal_runs(session) == ()
     for by, where in (((scope.by(mv.grain("day")),), None), ((), scope)):
-        with pytest.raises(AnalysisError, match=r"fixed Population.count"):
-            session.observe({"ratio": amount.sum(time=ordered_at) / p.count()}, by=by, where=where)
+        pending = session.observe(
+            {"ratio": amount.sum(time=ordered_at) / p.count()}, by=by, where=where
+        )
+        assert len(_captured_observation(pending).count_populations) == 1
 
 
 def test_observation_context_captures_direct_subject_and_only_explicit_window(

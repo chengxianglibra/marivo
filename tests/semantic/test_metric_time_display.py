@@ -73,7 +73,7 @@ def test_named_and_anonymous_metrics_disclose_their_captured_branch_clocks(
         assert "operand[1]" in output
         assert "time_dimension:sales.orders.paid_at (entity_default)" in output
         assert "time_dimension:sales.orders.created_at (explicit)" in output
-        assert "grain and source are not validated" in output
+        assert "clocked branches follow report time" in output
     assert len(named.definition.time_bindings) == 2
 
 
@@ -100,8 +100,8 @@ def test_missing_clock_is_distinct_from_unresolved_authoring_symbol(tmp_path: Pa
     _project(tmp_path)
     catalog = ms.load(workspace_dir=tmp_path)
     untimed = catalog_get(catalog, "metric:sales.untimed", kind="metric")
-    assert "entity:sales.customers (no Entity default time)" in untimed.render()
-    assert "unavailable: some Metric branches" in untimed.render()
+    assert "entity:sales.customers (report independent: no_entity_default)" in untimed.render()
+    assert "independent branches retain their scope" in untimed.render()
 
     reference = ms.ref.metric("sales.untimed")
 
@@ -150,4 +150,4 @@ def test_fixed_population_count_is_shown_as_untimed(
     count = session.members(orders).count()
     monkeypatch.setattr(DatasourceConnectionService, "backend_for", _reject_source_io)
     monkeypatch.setattr(DatasourceConnectionService, "source_session", _reject_source_io)
-    assert "fixed Population.count (no contribution time)" in count.render()
+    assert "fixed Population.count (report independent)" in count.render()

@@ -66,7 +66,7 @@ _OMITTED_TIME = _OmittedTime()
 
 
 def _source_arguments(
-    receiver: Resolver, time: TimeExpression | _OmittedTime, **kwargs: object
+    receiver: Resolver, time: TimeExpression | _OmittedTime | None, **kwargs: object
 ) -> dict[str, object]:
     from marivo.semantic._deferred_semantics import capture_source_time
 
@@ -1272,14 +1272,14 @@ class RowExpression(_ExpressionCarrier, Generic[_RowRoleT]):
     def sum(
         self: RowExpression[Literal["numeric"]],
         *,
-        time: TimeExpression | _OmittedTime = _OMITTED_TIME,
+        time: TimeExpression | _OmittedTime | None = _OMITTED_TIME,
         nulls: NullPolicy = "ignore",
         where: RowPredicate | None = None,
     ) -> NumericMetric:
         """Capture the sum reduction using the existing row rules.
 
         Args:
-            time: Contribution TimeDimension. Omit to use the contribution Entity's default if declared.
+            time: Contribution TimeDimension. Omit to inherit the Entity default; None or no default makes the branch report independent.
             nulls: The explicit nulls captured for this operation.
             where: Optional same-root source-row condition captured before reduction.
 
@@ -1304,14 +1304,14 @@ class RowExpression(_ExpressionCarrier, Generic[_RowRoleT]):
     def mean(
         self: RowExpression[Literal["numeric"]],
         *,
-        time: TimeExpression | _OmittedTime = _OMITTED_TIME,
+        time: TimeExpression | _OmittedTime | None = _OMITTED_TIME,
         nulls: NullPolicy = "ignore",
         where: RowPredicate | None = None,
     ) -> NumericMetric:
         """Capture the mean reduction using the existing row rules.
 
         Args:
-            time: Contribution TimeDimension. Omit to use the contribution Entity's default if declared.
+            time: Contribution TimeDimension. Omit to inherit the Entity default; None or no default makes the branch report independent.
             nulls: The explicit nulls captured for this operation.
             where: Optional same-root source-row condition captured before reduction.
 
@@ -1336,14 +1336,14 @@ class RowExpression(_ExpressionCarrier, Generic[_RowRoleT]):
     def min(
         self: RowExpression[Literal["numeric"]],
         *,
-        time: TimeExpression | _OmittedTime = _OMITTED_TIME,
+        time: TimeExpression | _OmittedTime | None = _OMITTED_TIME,
         nulls: NullPolicy = "ignore",
         where: RowPredicate | None = None,
     ) -> NumericMetric:
         """Capture the min reduction using the existing row rules.
 
         Args:
-            time: Contribution TimeDimension. Omit to use the contribution Entity's default if declared.
+            time: Contribution TimeDimension. Omit to inherit the Entity default; None or no default makes the branch report independent.
             nulls: The explicit nulls captured for this operation.
             where: Optional same-root source-row condition captured before reduction.
 
@@ -1368,14 +1368,14 @@ class RowExpression(_ExpressionCarrier, Generic[_RowRoleT]):
     def max(
         self: RowExpression[Literal["numeric"]],
         *,
-        time: TimeExpression | _OmittedTime = _OMITTED_TIME,
+        time: TimeExpression | _OmittedTime | None = _OMITTED_TIME,
         nulls: NullPolicy = "ignore",
         where: RowPredicate | None = None,
     ) -> NumericMetric:
         """Capture the max reduction using the existing row rules.
 
         Args:
-            time: Contribution TimeDimension. Omit to use the contribution Entity's default if declared.
+            time: Contribution TimeDimension. Omit to inherit the Entity default; None or no default makes the branch report independent.
             nulls: The explicit nulls captured for this operation.
             where: Optional same-root source-row condition captured before reduction.
 
@@ -1400,14 +1400,14 @@ class RowExpression(_ExpressionCarrier, Generic[_RowRoleT]):
     def median(
         self: RowExpression[Literal["numeric"]],
         *,
-        time: TimeExpression | _OmittedTime = _OMITTED_TIME,
+        time: TimeExpression | _OmittedTime | None = _OMITTED_TIME,
         nulls: NullPolicy = "ignore",
         where: RowPredicate | None = None,
     ) -> NumericMetric:
         """Capture the median reduction using the existing row rules.
 
         Args:
-            time: Contribution TimeDimension. Omit to use the contribution Entity's default if declared.
+            time: Contribution TimeDimension. Omit to inherit the Entity default; None or no default makes the branch report independent.
             nulls: The explicit nulls captured for this operation.
             where: Optional same-root source-row condition captured before reduction.
 
@@ -1432,14 +1432,14 @@ class RowExpression(_ExpressionCarrier, Generic[_RowRoleT]):
     def count(
         self,
         *,
-        time: TimeExpression | _OmittedTime = _OMITTED_TIME,
+        time: TimeExpression | _OmittedTime | None = _OMITTED_TIME,
         nulls: NullPolicy = "ignore",
         where: RowPredicate | None = None,
     ) -> NumericMetric:
         """Capture the count reduction using the existing row rules.
 
         Args:
-            time: Contribution TimeDimension. Omit to use the contribution Entity's default if declared.
+            time: Contribution TimeDimension. Omit to inherit the Entity default; None or no default makes the branch report independent.
             nulls: The explicit nulls captured for this operation.
             where: Optional same-root source-row condition captured before reduction.
 
@@ -1464,14 +1464,14 @@ class RowExpression(_ExpressionCarrier, Generic[_RowRoleT]):
     def count_distinct(
         self,
         *,
-        time: TimeExpression | _OmittedTime = _OMITTED_TIME,
+        time: TimeExpression | _OmittedTime | None = _OMITTED_TIME,
         nulls: NullPolicy = "ignore",
         where: RowPredicate | None = None,
     ) -> NumericMetric:
         """Capture the count_distinct reduction using the existing row rules.
 
         Args:
-            time: Contribution TimeDimension. Omit to use the contribution Entity's default if declared.
+            time: Contribution TimeDimension. Omit to inherit the Entity default; None or no default makes the branch report independent.
             nulls: The explicit nulls captured for this operation.
             where: Optional same-root source-row condition captured before reduction.
 
@@ -1497,14 +1497,14 @@ class RowExpression(_ExpressionCarrier, Generic[_RowRoleT]):
     def approx_nunique(
         self,
         *,
-        time: TimeExpression | _OmittedTime = _OMITTED_TIME,
+        time: TimeExpression | _OmittedTime | None = _OMITTED_TIME,
         nulls: NullPolicy = "ignore",
         where: RowPredicate | None = None,
     ) -> NumericMetric:
         """Capture the approx_nunique reduction using the existing row rules.
 
         Args:
-            time: Contribution TimeDimension. Omit to use the contribution Entity's default if declared.
+            time: Contribution TimeDimension. Omit to inherit the Entity default; None or no default makes the branch report independent.
             nulls: The explicit nulls captured for this operation.
             where: Optional same-root source-row condition captured before reduction.
 
@@ -1530,14 +1530,14 @@ class RowExpression(_ExpressionCarrier, Generic[_RowRoleT]):
     def approx_median(
         self: RowExpression[Literal["numeric"]],
         *,
-        time: TimeExpression | _OmittedTime = _OMITTED_TIME,
+        time: TimeExpression | _OmittedTime | None = _OMITTED_TIME,
         nulls: NullPolicy = "ignore",
         where: RowPredicate | None = None,
     ) -> NumericMetric:
         """Capture the approx_median reduction using the existing row rules.
 
         Args:
-            time: Contribution TimeDimension. Omit to use the contribution Entity's default if declared.
+            time: Contribution TimeDimension. Omit to inherit the Entity default; None or no default makes the branch report independent.
             nulls: The explicit nulls captured for this operation.
             where: Optional same-root source-row condition captured before reduction.
 
@@ -1564,7 +1564,7 @@ class RowExpression(_ExpressionCarrier, Generic[_RowRoleT]):
         self: RowExpression[Literal["numeric"]],
         q: float,
         *,
-        time: TimeExpression | _OmittedTime = _OMITTED_TIME,
+        time: TimeExpression | _OmittedTime | None = _OMITTED_TIME,
         nulls: NullPolicy = "ignore",
         where: RowPredicate | None = None,
     ) -> NumericMetric:
@@ -1572,7 +1572,7 @@ class RowExpression(_ExpressionCarrier, Generic[_RowRoleT]):
 
         Args:
             q: The explicit q captured for this operation.
-            time: Contribution TimeDimension. Omit to use the contribution Entity's default if declared.
+            time: Contribution TimeDimension. Omit to inherit the Entity default; None or no default makes the branch report independent.
             nulls: The explicit nulls captured for this operation.
             where: Optional same-root source-row condition captured before reduction.
 
@@ -1598,7 +1598,7 @@ class RowExpression(_ExpressionCarrier, Generic[_RowRoleT]):
         self: RowExpression[Literal["numeric"]],
         q: float,
         *,
-        time: TimeExpression | _OmittedTime = _OMITTED_TIME,
+        time: TimeExpression | _OmittedTime | None = _OMITTED_TIME,
         nulls: NullPolicy = "ignore",
         where: RowPredicate | None = None,
     ) -> NumericMetric:
@@ -1606,7 +1606,7 @@ class RowExpression(_ExpressionCarrier, Generic[_RowRoleT]):
 
         Args:
             q: The explicit q captured for this operation.
-            time: Contribution TimeDimension. Omit to use the contribution Entity's default if declared.
+            time: Contribution TimeDimension. Omit to inherit the Entity default; None or no default makes the branch report independent.
             nulls: The explicit nulls captured for this operation.
             where: Optional same-root source-row condition captured before reduction.
 
@@ -1634,7 +1634,7 @@ class RowExpression(_ExpressionCarrier, Generic[_RowRoleT]):
         self: RowExpression[Literal["numeric"]],
         weight: RowExpression[Literal["numeric"]],
         *,
-        time: TimeExpression | _OmittedTime = _OMITTED_TIME,
+        time: TimeExpression | _OmittedTime | None = _OMITTED_TIME,
         nulls: NullPolicy = "ignore",
         where: RowPredicate | None = None,
     ) -> NumericMetric:
@@ -1642,7 +1642,7 @@ class RowExpression(_ExpressionCarrier, Generic[_RowRoleT]):
 
         Args:
             weight: The explicit weight captured for this operation.
-            time: Contribution TimeDimension. Omit to use the contribution Entity's default if declared.
+            time: Contribution TimeDimension. Omit to inherit the Entity default; None or no default makes the branch report independent.
             nulls: The explicit nulls captured for this operation.
             where: Optional same-root source-row condition captured before reduction.
 
@@ -2555,7 +2555,9 @@ class MetricExpression(_ExpressionCarrier, Generic[_MetricRoleT]):
 
         Notes:
             Constraints: Captures immutable inputs without source access. The receiving
-            scope validates roots, roles, units, time and operation-specific rules.
+            scope validates roots, roles, units, time and operation-specific rules. Only clocked
+            branches change their contribution range; independent branches retain their scope
+            and combine once at each valid endpoint.
         """
         return MetricExpression(self._method("window", (window,)), self._context, "numeric")
 

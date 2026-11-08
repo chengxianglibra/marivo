@@ -81,6 +81,7 @@ class ContributionBinding:
     memberships: tuple[MembershipBinding, ...] = ()
     output_axis_count: int = 0
     calendars: tuple[tuple[str, CalendarGrouping], ...] = ()
+    coordinate_slots: tuple[str, ...] = ()
     sample_calendar_reads: tuple[tuple[str, FieldRead], ...] = ()
     population_reads: tuple[tuple[AxisBinding, FieldRead | IdentityRead], ...] = ()
     window_rule: ObservationWindow | None = None

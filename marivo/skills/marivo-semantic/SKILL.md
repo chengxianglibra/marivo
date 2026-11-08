@@ -136,8 +136,10 @@ Publication and source validation have separate evidence. Use an Entity
 default time only when business authority establishes a shared contribution
 clock. Fix an explicit field on a source reduction when it defines that
 Metric's meaning. Define each legitimate time role separately and preserve
-the clocks of composed branches. A missing contribution clock can support
-ordinary totals and classifications. Physical readiness does not establish
+the clocks of composed branches. A branch without a contribution clock is independent of report time;
+use that meaning only for an intended fixed baseline or unscoped quantity.
+Report periods and windows affect clocked branches; independent branches retain
+their own conditions. Physical readiness does not establish
 which clock the business rule requires.
 New Measure permission is explicit business authority;
 naming, filtering or arithmetic cannot grant it. Keep known units, contribution

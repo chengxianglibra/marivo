@@ -76,8 +76,6 @@ SEMANTIC_PUBLIC = {
 }
 
 ANALYSIS_PUBLIC = (
-    "MetricContributionTimeError",
-    "MissingMetricContributionTime",
     "AnalysisFrame",
     "FrameAxis",
     "ComparisonBaseline",
@@ -136,6 +134,10 @@ ANALYSIS_PUBLIC = (
     "FrameTrailingDurationWindow",
     "FrameTrailingPeriodsWindow",
     "FrameObservationContext",
+    "FrameClockedContribution",
+    "FrameIndependentContribution",
+    "FrameObservedTimeSemantics",
+    "FrameDerivedTimeSemantics",
     "FrameAxisGroup",
     "FrameFixedGroup",
     "FrameStatisticContext",

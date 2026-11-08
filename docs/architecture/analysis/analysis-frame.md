@@ -547,3 +547,15 @@ retain this fact. Axis context lineage includes the target, path and control.
 Schema/show, pandas export, fixed operations and cold recovery do not access
 Catalogs or rerun version matching. Store 28 / output v17 records this closed
 variant without older-format migration or dual reads.
+
+
+Per-column contribution time is captured in `frame.schema.value_time_semantics`.
+Each branch retains `report_axis` (an inert calendar/interval endpoint description)
+and `report_cells` (nominal start/end and selected start/end in UTC). These facts
+preserve the original grain and actual endpoints after a derivation removes the time axis.
+Observed facts retain each source occurrence's clock or report independence,
+report range/bucket effect, attached window and sample role. Fixed-data arithmetic
+and statistics retain derived input descriptions, not executable Metric authority.
+The same frozen facts survive persistence and cold reopening and are projected in
+HTTP Frame reports. They complement `value_contexts` and `source_times`; a common
+calendar key does not establish a shared source cohort or temporal additivity.

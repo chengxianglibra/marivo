@@ -160,29 +160,6 @@ def bind_observation(
     )
     if len(set(axes)) != len(axes):
         reject("distinct output axes", repr(by), "Remove repeated axes.", "Session.observe")
-    if period is not None or time_axis is not None:
-        from marivo.analysis.errors import (
-            MetricContributionTimeError,
-            MissingMetricContributionTime,
-        )
-        from marivo.semantic._metric_time import metric_time_occurrences
-
-        for name, node in metrics:
-            missing = []
-            for item in metric_time_occurrences(node, declared):
-                if item.binding is not None:
-                    continue
-                assert item.reason is not None
-                missing.append(
-                    MissingMetricContributionTime(
-                        path=item.path,
-                        metric=item.metric.ref.key if item.metric is not None else None,
-                        root=item.root.ref.key if item.root is not None else None,
-                        reason=item.reason,
-                    )
-                )
-            if missing:
-                raise MetricContributionTimeError(output=name, missing=tuple(missing))
     from marivo.analysis.binding.temporal_predicates import normalize_temporal_predicate
 
     condition = (
@@ -489,6 +466,7 @@ def bind_observation(
             contribution_time_read = bound[len(fields)] if time is not None else None
             physical_reads = iter(coordinates)
             physical_slot = 0
+            coordinate_slots: list[str] = []
             from marivo._definition.types import coordinate_read_keys
 
             for axis in (*axes, *sample_axes):
@@ -506,12 +484,8 @@ def bind_observation(
                         sample_read = native_read(sample_field.field, state.registry, resolver)
                     else:
                         if contribution_time_read is None:
-                            reject(
-                                "a declared business time role on each contribution",
-                                root.ref.path,
-                                "Construct the source reduction with time=field, or pass a native TimeField and grain=.",
-                                "Metric.per",
-                            )
+                            physical_slot += 1
+                            continue
                         sample_read = contribution_time_read
                     for parent_read, parent in parent_calendars:
                         if sample_read == parent_read:
@@ -522,26 +496,17 @@ def bind_observation(
                     physical_slot += 1
                 elif isinstance(axis, (CalendarCoordinate, IntervalCoordinate)):
                     slot = f"key.{physical_slot}"
-                    coordinate_calendars.append((slot, axis))
+                    if contribution_time_read is not None:
+                        coordinate_calendars.append((slot, axis))
                     if isinstance(axis, CalendarCoordinate) and contribution_time_read is not None:
                         parent_calendars.append((contribution_time_read, axis))
                     physical_slot += 1
                 else:
-                    physical_slot += len(coordinate_read_keys(next(physical_reads)))
-            if node.time is None and (
-                contribution_period is not None
-                or any(
-                    isinstance(axis, (CalendarCoordinate, IntervalCoordinate))
-                    for axis in sample_axes
-                )
-            ):
-                reject(
-                    "a contribution time for this report or calendar sample",
-                    f"Metric {metrics[occurrence[0]][0]!r}, source {root.ref.path!r}",
-                    "Define time=field on the source reduction or default_time on its Entity.",
-                    "session.observe",
-                )
-
+                    width = len(coordinate_read_keys(next(physical_reads)))
+                    coordinate_slots.extend(
+                        f"key.{i}" for i in range(physical_slot, physical_slot + width)
+                    )
+                    physical_slot += width
             if isinstance(node, SourceAggregate) and node.reducer == "sum":
                 for field in fields:
                     measure = state.registry.measures.get(field.ref.ref.path)
@@ -605,12 +570,13 @@ def bind_observation(
                     ),
                     coordinates,
                     time,
-                    contribution_period,
+                    contribution_period if time is not None else None,
                     sample_axes=sample_axes,
                     metric=metrics[occurrence[0]][0],
                     memberships=all_memberships,
                     output_axis_count=output_axis_count,
                     calendars=tuple(coordinate_calendars),
+                    coordinate_slots=tuple(coordinate_slots),
                     sample_calendar_reads=tuple(sample_calendar_reads),
                     population_reads=tuple(population_reads.items()),
                 )

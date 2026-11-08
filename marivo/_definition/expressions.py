@@ -187,6 +187,7 @@ class SourceAggregate:
     nulls: NullPolicy = "ignore"
     rule_version: int = RULE_VERSION
     contribution_root: ExactRef | None = None
+    independent_origin: Literal["explicit_none", "no_entity_default"] = "no_entity_default"
 
     def __post_init__(self) -> None:
         _check_quantile(self.reducer, self.q)
@@ -196,6 +197,7 @@ class SourceAggregate:
 class EntityCount:
     entity: ExactRef
     time: TimeBinding | None
+    independent_origin: Literal["explicit_none", "no_entity_default"] = "no_entity_default"
 
 
 @dataclass(frozen=True, slots=True)
@@ -208,6 +210,7 @@ class SourceWeightedMean:
     nulls: NullPolicy = "ignore"
     rule_version: int = NUMERIC_RULE_VERSION
     contribution_root: ExactRef | None = None
+    independent_origin: Literal["explicit_none", "no_entity_default"] = "no_entity_default"
 
 
 @dataclass(frozen=True, slots=True)

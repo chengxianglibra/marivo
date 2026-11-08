@@ -725,22 +725,11 @@ def _plan_query(
     )
     reads: list[SourceRead] = []
     values: list[FormulaInput] = []
-    keys: tuple[DataColumn, ...] = (
-        (
-            DataColumn(
-                "key.0",
-                f"calendar:{calendar.grain}"
-                if isinstance(calendar, CalendarCoordinate)
-                else "interval",
-                time_key_type(calendar),
-                False,
-            ),
-        )
-        if calendar is not None
-        else ()
-    )
+    keys: tuple[DataColumn, ...] = ()
     calendar_key = "key.0"
     source_stages = tuple(stage for stage in base.stages if isinstance(stage, SourceRead))
+    if not source_stages and calendar is not None:
+        keys = (DataColumn(calendar_key, time_name(calendar), time_key_type(calendar), False),)
     for stage, contribution in zip(source_stages, contributions, strict=True):
         reduction = reduction_input(contribution, f"{stage.stage_id}/value", calendar)
         schema = next(
@@ -767,7 +756,9 @@ def _plan_query(
         )
         calendar_slots = dict(reduction.calendars)
         if calendar is not None:
-            calendar_key = next(slot for slot, axis in reduction.calendars if axis == calendar)
+            calendar_key = next(
+                (slot for slot, axis in reduction.calendars if axis == calendar), calendar_key
+            )
         stage_keys = tuple(
             DataColumn(
                 slot,
@@ -793,15 +784,39 @@ def _plan_query(
             len(coordinate_read_keys(read))
             for read in contribution.coordinates[: contribution.output_axis_count]
         )
-        output_keys = stage_keys[:output_width]
-        if reads and tuple(c.dtype for c in keys) != tuple(c.dtype for c in output_keys):
-            reject(
-                "identical physical coordinate types across contributions",
-                repr(stage_keys),
-                "Choose fields with a common lossless coordinate type.",
-                "analysis.query_plan",
+        output_slots = {f"key.{i}" for i in range(output_width)}
+        output_keys = tuple(c for c in stage_keys if c.slot_id in output_slots)
+        merged_keys = {c.slot_id: c for c in keys}
+        if calendar is not None:
+            report_slot = next(
+                (slot for slot, axis in reduction.calendars if axis == calendar),
+                next(
+                    (
+                        f"key.{i}"
+                        for i in range(output_width)
+                        if f"key.{i}" not in contribution.coordinate_slots
+                    ),
+                    calendar_key,
+                ),
             )
-        keys = output_keys
+            calendar_key = report_slot
+            merged_keys[report_slot] = DataColumn(
+                report_slot, time_name(calendar), time_key_type(calendar), False
+            )
+
+        for key in output_keys:
+            previous = merged_keys.get(key.slot_id)
+            if previous is not None and previous.dtype != key.dtype:
+                reject(
+                    "identical physical coordinate types across contributions",
+                    repr(key),
+                    "Choose fields with a common lossless coordinate type.",
+                    "analysis.query_plan",
+                )
+            merged_keys[key.slot_id] = key
+        keys = tuple(
+            merged_keys[k] for k in sorted(merged_keys, key=lambda k: int(k.split(".")[1]))
+        )
         column = DataColumn(
             reduction.value_slot,
             reduction.value_slot,
@@ -856,23 +871,12 @@ def _plan_query(
             )
         )
         node = contribution.definition
-        widths_list: list[int] = []
-        physical_index = 0
-        coordinate_iterator = iter(contribution.coordinates)
-        for _ in range(len(contribution.coordinates) + len(reduction.calendars)):
-            width = (
-                1
-                if f"key.{physical_index}" in calendar_slots
-                else len(coordinate_read_keys(next(coordinate_iterator)))
-            )
-            widths_list.append(width)
-            physical_index += width
-        widths = tuple(widths_list)
-        key_groups: list[tuple[str, ...]] = []
-        key_offset = 0
-        for width in widths:
-            key_groups.append(tuple(f"key.{i}" for i in range(key_offset, key_offset + width)))
-            key_offset += width
+        key_groups = []
+        ordinary = iter(slot for slot, _ in reduction.axes)
+        for read in contribution.coordinates:
+            key_groups.append(tuple(next(ordinary) for _ in coordinate_read_keys(read)))
+        key_groups.extend((slot,) for slot, _ in reduction.calendars)
+        key_groups.sort(key=lambda group: int(group[0].split(".")[1]))
         values.append(
             FormulaInput(
                 contribution.logical_occurrence or contribution.occurrence,

@@ -339,7 +339,7 @@ def provider() -> DisclosureProvider:
                 ),
                 output=output,
                 constraints=(
-                    "Count complete tuples, including field Null and absent identities; empty is zero and the zero-axis singleton is one. Grouping uses existing domain axes; classify explicitly to read attributes. Fact predicates leave the captured domain fixed; count-only conditions reject. Report TimeScope, CalendarAxis and windows require a contribution clock, which Population.count has no way to supply."
+                    "Count complete tuples, including field Null and absent identities; empty is zero and the zero-axis singleton is one. Grouping uses existing domain axes; classify explicitly to read attributes. Fact predicates leave the captured domain fixed; count-only conditions reject. Report ranges and windows do not reselect captured members. Missing report time coordinates broadcast the count; existing compatible time coordinates match by key."
                     if owner is Population and name == "count"
                     else "One Session owner; complete typed keys and explicit version/path bindings remain authoritative."
                     if owner is Population and name != "show"

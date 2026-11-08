@@ -92,7 +92,6 @@ from marivo.refs import ref as ref_factory
 from marivo.semantic._expression_values import _as_deferred, _ExpressionCarrier
 from marivo.semantic._metric_time import (
     calendar_sample_domain,
-    require_metric_time,
     validate_metric_time_consumers,
 )
 from marivo.semantic.errors import ErrorKind, SemanticExpressionError
@@ -751,12 +750,7 @@ def _time(recipe: Resolver | None, row: RowFacts) -> TimeBinding | None:
             )
         return TimeBinding(default, source="entity_default")
     if isinstance(recipe, Just) and recipe.value is None:
-        _fail(
-            "Explicit None is not a contribution time.",
-            expected="a TimeField or an omitted time argument",
-            received="time=None",
-            action="Omit time to use the Entity default if declared, or pass time=field.",
-        )
+        return None
     value = _consume(recipe)
     if (
         not isinstance(value, RowFacts)
@@ -939,10 +933,17 @@ def _reduce(
             received="non-additive expression",
         )
     time = _time(kwargs.get("time"), row)
+    independent_origin: Literal["explicit_none", "no_entity_default"] = (
+        "explicit_none"
+        if isinstance(kwargs.get("time"), Just) and kwargs["time"].value is None
+        else "no_entity_default"
+    )
     if row.field is not None and row.field.reference.ref.kind is SemanticKind.ENTITY:
         if name != "count":
             _fail("Entity only supports count.", expected="count()", received=name)
-        return MetricFacts(EntityCount(row.root, time), (row.root,), "1")
+        return MetricFacts(
+            EntityCount(row.root, time, independent_origin=independent_origin), (row.root,), "1"
+        )
     if name == "weighted_mean":
         weight = _consume(kwargs.get("weight", Just(None)))
         if (
@@ -969,10 +970,17 @@ def _reduce(
             time,
             nulls=policy,
             contribution_root=row.root,
+            independent_origin=independent_origin,
         )
     else:
         node = SourceAggregate(
-            row.node, reducer, time, q=q, nulls=policy, contribution_root=row.root
+            row.node,
+            reducer,
+            time,
+            q=q,
+            nulls=policy,
+            contribution_root=row.root,
+            independent_origin=independent_origin,
         )
     if "where" in kwargs:
         predicate = _consume_predicate_recipe(kwargs["where"])
@@ -1363,13 +1371,6 @@ def _consume(recipe: Resolver) -> _Facts:
                 assert isinstance(receiver, MetricFacts)
                 sample = recipe.args[0] if recipe.args else by
                 assert sample is not None
-                if grain is not None or _calendar_sample_recipe(sample):
-                    require_metric_time(
-                        receiver.node,
-                        dict(receiver._declared),
-                        operation="Metric.per with Grain samples",
-                        help_target="metric.per",
-                    )
                 return _Samples(
                     receiver,
                     _sample_domain(sample)

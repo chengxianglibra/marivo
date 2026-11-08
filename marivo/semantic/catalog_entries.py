@@ -178,10 +178,10 @@ class MetricTimeFieldBinding(MetricTimeBinding):
 
 @dataclass(frozen=True)
 class MetricNoTimeBinding(MetricTimeBinding):
-    """A source reduction without an Entity default, or a fixed member count."""
+    """A report-independent source reduction or captured member count."""
 
     root: str | None
-    reason: Literal["no_entity_default", "fixed_member_count"]
+    reason: Literal["explicit_none", "no_entity_default", "fixed_member_count"]
     source: Literal["none"] = dataclass_field(default="none", init=False)
 
 

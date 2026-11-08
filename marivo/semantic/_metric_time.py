@@ -29,7 +29,7 @@ from marivo._temporal import Grain
 from marivo.semantic.errors import ErrorKind, SemanticExpressionError
 
 _TimeLeaf = SourceAggregate | SourceWeightedMean | EntityCount | MemberCount
-MissingTimeReason = Literal["no_entity_default", "fixed_member_count"]
+IndependentTimeOrigin = Literal["explicit_none", "no_entity_default", "fixed_member_count"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -40,7 +40,7 @@ class MetricTimeOccurrence:
     metric: ExactRef | None
     root: ExactRef | None
     binding: TimeBinding | None
-    reason: MissingTimeReason | None
+    reason: IndependentTimeOrigin | None
     node: _TimeLeaf
 
 
@@ -89,7 +89,7 @@ def metric_time_occurrences(
                 metric,
                 root,
                 node.time,
-                "no_entity_default" if node.time is None else None,
+                node.independent_origin if node.time is None else None,
                 node,
             )
         else:
@@ -99,61 +99,8 @@ def metric_time_occurrences(
     return tuple(visit(node, (), None))
 
 
-def require_metric_time(
-    node: MetricNode,
-    declared: Mapping[ExactRef, MetricNode],
-    *,
-    operation: str,
-    output: str | None = None,
-    help_target: str = "load",
-) -> None:
-    """Require concrete contribution time at every occurrence of a completed Metric."""
-    missing = tuple(
-        fact for fact in metric_time_occurrences(node, declared) if fact.binding is None
-    )
-    if not missing:
-        return
-    details = tuple(
-        {
-            "path": item.path,
-            "metric": item.metric.ref.key if item.metric is not None else None,
-            "root": item.root.ref.key if item.root is not None else None,
-            "reason": item.reason,
-        }
-        for item in missing
-    )
-    received = ", ".join(
-        f"{' / '.join(item.path) or 'root'}: "
-        f"{item.root.ref.key if item.root is not None else 'fixed Population.count'}"
-        for item in missing[:6]
-    )
-    raise SemanticExpressionError(
-        kind=ErrorKind.INVALID_TIME_PATH,
-        message=f"{operation} requires contribution time for every Metric branch"
-        + (f" in output {output!r}." if output is not None else "."),
-        refs=tuple(
-            dict.fromkeys(
-                reference.ref.key
-                for item in missing
-                for reference in (item.metric, item.root)
-                if reference is not None
-            )
-        ),
-        expected="a concrete contribution time (TimeDimension) on every Metric branch",
-        received=received,
-        action=(
-            "Define the missing source reductions with a valid time= or Entity default_time, "
-            "or remove the time operation. Keep fixed Population.count outside time operations."
-            if any(item.reason == "fixed_member_count" for item in missing)
-            else "Define the missing source reductions with a valid time= or Entity default_time, "
-            "or remove the time operation."
-        ),
-        details={"output": output, "missing_contribution_time": details},
-        help_target=help_target,
-    )
-
-
 def calendar_sample_domain(samples: SampleDomainSpec) -> bool:
+    """Identify a sample domain carrying a calendar coordinate."""
     if isinstance(samples, (Grain, FieldCalendarSample)):
         return True
     if isinstance(samples, (SampleDomain, LiteralPopulation, PopulationProgram)):
@@ -176,17 +123,19 @@ def validate_metric_time_consumers(
         if isinstance(node, DeclaredMetricRef):
             visit(declared[node.ref])
             return
-        if isinstance(node, MetricWindow):
-            require_metric_time(
-                node.operand, declared, operation="Metric.window", help_target="metric.window"
+        if (
+            isinstance(node, (PerReduce, PerWeightedMean))
+            and isinstance(node.samples, Grain)
+            and not any(
+                item.binding is not None for item in metric_time_occurrences(node, declared)
             )
-        elif isinstance(node, (PerReduce, PerWeightedMean)) and calendar_sample_domain(
-            node.samples
         ):
-            require_metric_time(
-                node,
-                declared,
-                operation="Metric.per with Grain samples",
+            raise SemanticExpressionError(
+                kind=ErrorKind.INVALID_TIME_PATH,
+                message="Calendar sampling requires a source of actual sample times.",
+                expected="a clocked contribution or an explicit sample domain",
+                received="report-independent branches with per(grain)",
+                action="Pass an explicit sample Population or native time field, or observe a finite CalendarAxis directly.",
                 help_target="metric.per",
             )
         for _role, child in _children(node):

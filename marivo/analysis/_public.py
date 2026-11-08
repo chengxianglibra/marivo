@@ -44,6 +44,9 @@ from marivo.analysis.core.frame_interpretation import (
     FrameCivilDateSourceTime as FrameCivilDateSourceTime,
 )
 from marivo.analysis.core.frame_interpretation import (
+    FrameClockedContribution as FrameClockedContribution,
+)
+from marivo.analysis.core.frame_interpretation import (
     FrameComparedTime as FrameComparedTime,
 )
 from marivo.analysis.core.frame_interpretation import (
@@ -65,6 +68,9 @@ from marivo.analysis.core.frame_interpretation import (
     FrameDecompositionField as FrameDecompositionField,
 )
 from marivo.analysis.core.frame_interpretation import (
+    FrameDerivedTimeSemantics as FrameDerivedTimeSemantics,
+)
+from marivo.analysis.core.frame_interpretation import (
     FrameDerivedValueInput as FrameDerivedValueInput,
 )
 from marivo.analysis.core.frame_interpretation import (
@@ -75,6 +81,9 @@ from marivo.analysis.core.frame_interpretation import (
 )
 from marivo.analysis.core.frame_interpretation import (
     FrameFixedTime as FrameFixedTime,
+)
+from marivo.analysis.core.frame_interpretation import (
+    FrameIndependentContribution as FrameIndependentContribution,
 )
 from marivo.analysis.core.frame_interpretation import (
     FrameInstantSourceTime as FrameInstantSourceTime,
@@ -99,6 +108,9 @@ from marivo.analysis.core.frame_interpretation import (
 )
 from marivo.analysis.core.frame_interpretation import (
     FrameObservationContext as FrameObservationContext,
+)
+from marivo.analysis.core.frame_interpretation import (
+    FrameObservedTimeSemantics as FrameObservedTimeSemantics,
 )
 from marivo.analysis.core.frame_interpretation import (
     FrameOrdinaryAxisSchema as FrameOrdinaryAxisSchema,
@@ -179,13 +191,9 @@ from marivo.analysis.dsl.windows import since as since
 from marivo.analysis.dsl.windows import to_date as to_date
 from marivo.analysis.dsl.windows import trailing_duration as trailing_duration
 from marivo.analysis.dsl.windows import trailing_periods as trailing_periods
-from marivo.analysis.errors import MetricContributionTimeError as MetricContributionTimeError
-from marivo.analysis.errors import MissingMetricContributionTime as MissingMetricContributionTime
 from marivo.analysis.session.core import Session as Session
 
 __all__ = [  # noqa: RUF022 - public order is contractual
-    "MetricContributionTimeError",
-    "MissingMetricContributionTime",
     "AnalysisFrame",
     "FrameAxis",
     "ComparisonBaseline",
@@ -244,6 +252,10 @@ __all__ = [  # noqa: RUF022 - public order is contractual
     "FrameTrailingDurationWindow",
     "FrameTrailingPeriodsWindow",
     "FrameObservationContext",
+    "FrameClockedContribution",
+    "FrameIndependentContribution",
+    "FrameObservedTimeSemantics",
+    "FrameDerivedTimeSemantics",
     "FrameAxisGroup",
     "FrameFixedGroup",
     "FrameStatisticContext",

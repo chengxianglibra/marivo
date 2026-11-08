@@ -1509,7 +1509,7 @@ class Entity(_SemanticObject[EntityKind]):
         """
         return self.definition.primary_key
 
-    def count(self, *, time: TimeExpression | _OmittedTime = _OMITTED_TIME) -> NumericMetric:
+    def count(self, *, time: TimeExpression | _OmittedTime | None = _OMITTED_TIME) -> NumericMetric:
         """Capture an anonymous Metric counting this Entity's contributing rows.
 
         Args:

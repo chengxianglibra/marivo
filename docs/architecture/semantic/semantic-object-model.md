@@ -357,7 +357,10 @@ hh = ms.time_dimension_column(name="hh", entity=orders, column="hh", parse=ms.ho
 
 Source reductions fix the contribution time with `time=field` or inherit the
 single contributing Entity's declared `default_time` when omitted. If neither
-is available, the reduction has no contribution clock. Status-time
+is available, the reduction is report independent. Explicit `time=None` disables
+default inheritance and has the same independent execution semantics. Report
+filters, buckets and windows only constrain clocked leaves; independent leaves
+retain their conditions and broadcast along missing report time coordinates. Status-time
 coordinates on Measures retain their independent additivity contract.
 
 DATE contribution roles require day-or-coarser output/reset and finite boundaries

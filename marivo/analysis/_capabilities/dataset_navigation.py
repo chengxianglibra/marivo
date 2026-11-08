@@ -374,7 +374,7 @@ def navigation(providers: tuple[DisclosureProvider, ...]) -> tuple[NavigationInp
             guidance=(
                 "Catalog: definitions. Session: context. Frame: data.",
                 "In an authored project, reuse a Session; adapt ID, dates and timezone.",
-                "Choose by meaning. Report time requires clocks on all Metric branches.",
+                "Choose by meaning. Report time affects clocked branches; independent branches retain their scope.",
                 "where=scope selects a range; by=(scope.by(grain),) selects report buckets.",
             ),
             example=ExampleInput(

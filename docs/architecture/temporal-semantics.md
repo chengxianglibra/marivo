@@ -241,8 +241,9 @@ empty. See [observation domains](analysis/populations-and-observation.md#observa
 
 Builtin `Metric.per(grain)` follows each source branch's contribution time.
 `Metric.per(field, grain=grain)` fixes an explicit native sample field.
-Both require contribution clocks on every branch and reduce actual internal
-samples in the Session's report timezone.
+Both reduce actual internal samples in the Session's report timezone. Grain-only
+sampling needs at least one clocked leaf; independent leaves reuse values at the
+actual sample keys. Explicit fields and Populations supply their own sample domain.
 Presence includes all-NULL samples. Every sample retains complete external,
 parent and child keys. Static nesting rules apply to layers on the same time
 field and require a common timezone. Subday widths
@@ -275,7 +276,9 @@ Windows attach to the original Metric equation with source-free mv rules:
 | trailing_periods | Declared count of nominal output calendar periods |
 
 Each output endpoint reevaluates the complete Metric on its own contribution
-window. A seven-day duration is exactly 168 hours; seven calendar days can differ
+window for clocked leaves. Independent leaves retain their contribution scope and
+combine once at each endpoint; a fixed denominator is not multiplied by window length.
+Fully independent windows retain their value while still validating endpoints and rules. A seven-day duration is exactly 168 hours; seven calendar days can differ
 across DST. Scalar to_date chooses the unique reset period with left < end <=
 right, so a month boundary endpoint uses the preceding complete month without
 epsilon arithmetic. Calendar output additionally requires compatible reset

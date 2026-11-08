@@ -251,3 +251,8 @@ bool。续读时重复相同 limit、columns、轴别名和 `time_details`。保
 
 分类轴 `at` 为 `None`、固定 UTC datetime，或 acquired `FrameRowAttributeTime(kind="row", field=...)`；后者仅保存控制字段身份。schema、固定运算、保存和冷恢复不重查版本。
 使用 `pd.isna(value)`、`rows["value"].isna()` 或 `.notna()` 判断 Arrow 缺失值；不要让 `pd.NA` 参与 Python 布尔判断或默认填零。确需近似浮点计算时显式 `.astype("float64")`，接受大整数舍入与 NA 变成 NaN。
+
+
+通过 `frame.schema.value_time_semantics` 读取逐列贡献时间事实。`observed` 保存各原始分支的时钟或报告时间独立性、报告作用和窗口；`derived` 保存固定数据运算的输入解释。对有记录的列可调用 `frame.schema.value_time_semantics[name].show()`，也可通过 Column 的 `.show()` 查看。混合时钟共享日历桶不表示同一批业务对象；广播的固定分母不会因此获得时间可加性。这些事实随结果保存和冷进程恢复，HTTP Frame 报告也包含同一解释。
+
+每个贡献分支还保存 `report_axis` 和 `report_cells`；移除时间轴后，仍保留原报告粒度及名义／实际选中桶边界。

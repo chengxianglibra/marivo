@@ -295,6 +295,7 @@ def transport_logical_facts(
     return replace(
         physical,
         value_contexts=tuple(contexts.items()),
+        value_time_semantics=physical.value_time_semantics or logical.value_time_semantics,
         source_times=merge_source_times(physical.source_times, logical.source_times),
     )
 

@@ -272,7 +272,7 @@ class _Entity(_ExpressionDisplay):
         """Return a native lookup symbol for this Entity's identity."""
         return symbol_factory.entity(self._exact_ref.ref.path)
 
-    def count(self, *, time: Deferred | _OmittedTime = _OMITTED_TIME) -> Deferred:
+    def count(self, *, time: Deferred | _OmittedTime | None = _OMITTED_TIME) -> Deferred:
         """Capture a count of complete contribution rows without reading a source."""
         from marivo._definition.deferred import SemanticInput, semantic_input
 

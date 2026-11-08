@@ -15,9 +15,9 @@ def metric_time_binding_text(binding: MetricTimeBinding) -> str:
         return f"{binding.field} ({binding.source})"
     if isinstance(binding, MetricNoTimeBinding):
         return (
-            f"{binding.root} (no Entity default time)"
+            f"{binding.root} (report independent: {binding.reason})"
             if binding.root is not None
-            else "fixed Population.count (no contribution time)"
+            else "fixed Population.count (report independent)"
         )
     return "(none)"
 
@@ -29,12 +29,9 @@ def add_metric_time(
     recovery: str,
 ) -> None:
     """Add the same branch facts to named and anonymous Metric cards."""
-    complete = all(isinstance(item, MetricTimeFieldBinding) for item in bindings)
     card.field(
         "report_time",
-        "available: all contribution clocks are present; grain and source are not validated"
-        if complete
-        else "unavailable: some Metric branches have no contribution time",
+        "clocked branches follow report time; independent branches retain their scope",
     )
     rows = [(item.branch, metric_time_binding_text(item)) for item in bindings]
     card.table(

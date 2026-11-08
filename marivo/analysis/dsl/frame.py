@@ -1690,6 +1690,28 @@ class AnalysisFrame:
             else "max_output_bytes=None; .schema/.lineage for metadata; .read_page()/.to_pandas() for data",
         )
         card.field("values", repr(self.output_names)).field("presence", repr(self.presence_names))
+        if self._schema.value_time_semantics:
+            from marivo.analysis.core.value_time import time_summary
+
+            summaries = tuple(time_summary(fact) for _, fact in self._schema.value_time_semantics)
+            card.field(
+                "time",
+                summaries[0]
+                if len(summaries) == 1
+                else repr(
+                    tuple(
+                        (name, summary)
+                        for (name, _), summary in zip(
+                            self._schema.value_time_semantics[:6], summaries[:6], strict=True
+                        )
+                    )
+                ),
+            )
+            if any(
+                "independent" in summary or "mixed" in summary or "multiple clocks" in summary
+                for summary in summaries
+            ):
+                card.field("time_details", ".schema.value_time_semantics")
         if self._schema.source_times:
             from marivo.analysis.core.frame_interpretation import source_time_summary
 

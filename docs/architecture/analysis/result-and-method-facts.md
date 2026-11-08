@@ -220,3 +220,15 @@ Native approximate distinct retains the canonical `approx_nunique` aggregate
 reducer in `FrameShapleyReduction` and requires the query game's
 `native_approximate_metric/v1` policy. It cannot appear as a reconstructed state
 leaf. Its record fields and wire layout remain unchanged.
+
+
+Per-column contribution time is captured in `frame.schema.value_time_semantics`.
+Each branch retains `report_axis` (an inert calendar/interval endpoint description)
+and `report_cells` (nominal start/end and selected start/end in UTC). These facts
+preserve the original grain and actual endpoints after a derivation removes the time axis.
+Observed facts retain each source occurrence's clock or report independence,
+report range/bucket effect, attached window and sample role. Fixed-data arithmetic
+and statistics retain derived input descriptions, not executable Metric authority.
+The same frozen facts survive persistence and cold reopening and are projected in
+HTTP Frame reports. They complement `value_contexts` and `source_times`; a common
+calendar key does not establish a shared source cohort or temporal additivity.
