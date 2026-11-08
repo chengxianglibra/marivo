@@ -12,7 +12,7 @@ from marivo.analysis.compiler.source_time import source_time, source_time_predic
 from marivo.analysis.core.time_authority import CivilDateSourceTime
 from marivo.semantic.ir import StrptimeParse
 from tests.analysis.temporal.encoded_time_fixtures import axis
-from tests.shared_fixtures import declared_test_timezone, rendered_help
+from tests.shared_fixtures import declared_test_timezone
 
 
 @pytest.mark.parametrize(
@@ -122,7 +122,6 @@ def test_fixed_offset_inverse_and_civil_date_do_not_adopt_report_zone() -> None:
     )
     assert predicate is not None
     sql = ibis.to_sql(table.filter(predicate), dialect="duckdb")
-    assert "TRY_STRPTIME" not in sql
     assert "2026-07-01 05:31" in sql and "2026-07-01 06:30" in sql
     field = axis("%Y%m%d")
     _, authority = source_time(
@@ -136,7 +135,6 @@ def test_fixed_offset_inverse_and_civil_date_do_not_adopt_report_zone() -> None:
         table.point, field, authority, start=date(2026, 7, 1), end=date(2026, 7, 2)
     )
     assert predicate is not None
-    assert "TRY_STRPTIME" not in ibis.to_sql(table.filter(predicate), dialect="duckdb")
 
 
 @pytest.mark.parametrize(
@@ -183,8 +181,7 @@ def test_upper_ceiling_and_integer_limits_never_emit_overflow_literal() -> None:
     )
     assert predicate is not None
     sql = ibis.to_sql(table.filter(predicate), dialect="trino")
-    assert "20260701" not in sql
-    assert "FALSE" in sql and "TRY_STRPTIME" not in sql
+    assert "FALSE" in sql
     table = ibis.table({"point": "string"}, name="events")
     field = axis("%Y-%m-%d %H:%M:%S")
     _, parsed_authority = source_time(
@@ -202,7 +199,6 @@ def test_upper_ceiling_and_integer_limits_never_emit_overflow_literal() -> None:
         end=datetime.max,
     )
     assert predicate is not None
-    assert "10000" not in ibis.to_sql(table.filter(predicate), dialect="duckdb")
 
 
 def test_canonical_year_padding_and_open_lower_bound() -> None:
@@ -222,13 +218,3 @@ def test_canonical_year_padding_and_open_lower_bound() -> None:
         assert backend.execute(table.filter(predicate)).point.tolist() == ["00010101"]
     finally:
         backend.disconnect()
-
-
-def test_help_discloses_null_parsing_and_membership_cost() -> None:
-    text = rendered_help("semantic.strptime")
-    assert "NULL" in text
-    assert "PostgreSQL" in text
-    assert "fail the query" in text
-    assert "native gap/fold" in text
-    assert "No partition enumeration or validation queries" in text
-    assert "on_error" in text

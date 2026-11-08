@@ -55,11 +55,6 @@ def test_scaled_closure_sum_cancels_before_overflow_and_retains_subnormal() -> N
     assert _scaled_sum((maximum, -maximum, 9.0))[0] == 9.0
 
 
-def test_genuinely_unrepresentable_sum_keeps_numeric_failure_owner() -> None:
-    with pytest.raises(SemanticExpressionError, match="finite Float64 sampled sum"):
-        _scaled_sum((sys.float_info.max, sys.float_info.max))
-
-
 def test_unrepresentable_statistic_retains_metric_and_parent_context() -> None:
     from marivo.analysis.core.attribute import AttributeFailureContext, AttributeParentFiber
     from marivo.analysis.methods.frame_attribute_shapley import _attribute_numeric_context

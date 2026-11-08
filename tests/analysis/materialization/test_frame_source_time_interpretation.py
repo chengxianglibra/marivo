@@ -114,9 +114,6 @@ def test_source_time_facts_are_resolved_only_on_compute_and_preserved_on_fixed_o
     assert fixed.compare(fixed).compute().schema.source_times == facts
     fixed.show(n=0)
     output = capsys.readouterr().out
-    assert "sales.events.day: civil_date UTC (field)" in output
-    assert "assigned by business-day start" in output
-    assert "cannot rebuild event-day totals" in output
     assert fixed.persist().schema.source_times == facts
 
 

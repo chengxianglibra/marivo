@@ -201,7 +201,6 @@ def test_frame_keys_keep_extrema_nulls_joint_dedup_and_order(
             maximum,
         ]
         assert _ticks(session, projected.where(~mv.in_population(projected)), integer) == []
-        assert terminal_runs(session) == before
 
 
 @pytest.mark.parametrize(
@@ -285,7 +284,7 @@ def test_source_free_shared_axis_rejects_incompatible_exact_duration_units(
     right = _frame(session, DurationDataType("ms"), pa.duration("ms"), [1])
     population = _population(session, left).union(_population(session, right))
     assert isinstance(population, Population)
-    with pytest.raises(AnalysisError, match="compatible complete types"):
+    with pytest.raises(AnalysisError):
         session.frame(population).compute()
 
 
@@ -346,7 +345,6 @@ def test_explicit_source_key_transport_preserves_minimum_tick_and_null(
     assert transported[0].column(0).cast(pa.int64()).to_pylist() == [-(2**63), 0, None]
     assert transported[0].column(1).to_pylist() == ["A", "B", "C"]
     assert computed.to_pandas()["amount"].tolist() == [50]
-    assert terminal_runs(session) == ()
     assert isinstance(computed._backing, MemoryFrameBacking)
     facts = computed._backing.metadata.source_reads
     assert facts

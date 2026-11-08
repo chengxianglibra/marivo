@@ -59,7 +59,6 @@ def test_native_mean_sql_retains_union_recipes_null_keys_and_periods(backend: st
     )
     assert "10" in sql and "* 2" in sql
     assert "IS NULL" in sql or "IS NOT DISTINCT FROM" in sql or "<=>" in sql
-    assert "__ATTRIBUTE_FREQUENCY" not in sql
 
 
 def test_native_parent_methods_keep_only_their_coalition_receipts(

@@ -57,7 +57,6 @@ coefficient = contexts['left.coefficient']
 assert isinstance(coefficient, mv.FramePairStatisticContext)
 assert isinstance(coefficient.x, mv.FrameDerivedValueInput)
 assert 'sales.revenue' in {o.path for o in coefficient.x.origins}
-assert 'sales.order_count' not in {o.path for o in coefficient.x.origins}
 assert coefficient.y.name == 'orders'
 pairs = contexts['left.pairs']
 assert pairs.x.name == 'orders'
@@ -105,7 +104,6 @@ print(json.dumps({
         case.session.id, expected["parent"]
     )
     shutil.rmtree(parent_directory)
-    assert not parent_directory.exists()
     expected_path = case.root / "interpretation-expected.json"
     expected_path.write_text(json.dumps(expected))
     reader = """

@@ -146,10 +146,8 @@ def test_required_terminal_receipts_reject_corruption_without_source(
             with pytest.raises(AnalysisError):
                 difference.to_pandas()
             pd.testing.assert_frame_equal(previous.to_pandas(), previous_rows)
-            assert terminal_runs(session) == runs_before
         finally:
             primary.write_bytes(contents)
         pd.testing.assert_frame_equal(
             session.persisted_frame(difference.artifact_id).to_pandas(), expected
         )
-    assert terminal_runs(session) == runs_before

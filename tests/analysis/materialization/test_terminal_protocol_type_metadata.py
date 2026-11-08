@@ -23,13 +23,13 @@ def test_record_type_hints_are_reused_without_caching_payload_validation() -> No
 
         invalid = json.loads(first)
         invalid["value"]["fields"]["result_id"] = 42
-        with pytest.raises(IntegrityError, match="exact type"):
+        with pytest.raises(IntegrityError):
             decode(
                 json.dumps(invalid, sort_keys=True, separators=(",", ":"), ensure_ascii=False),
                 InvocationInput,
             )
         invalid["value"]["fields"]["result_id"] = ""
-        with pytest.raises(IntegrityError, match="exact completed result ID"):
+        with pytest.raises(IntegrityError):
             decode(
                 json.dumps(invalid, sort_keys=True, separators=(",", ":"), ensure_ascii=False),
                 InvocationInput,

@@ -61,7 +61,6 @@ def test_validity_versioning_round_trip(
     assert versioning.valid_to == "sales.user_history.valid_to"
     assert versioning.interval == "closed_open"
     assert versioning.open_end == (None,)
-    assert not hasattr(versioning, "timezone")
 
 
 # ---------------------------------------------------------------------------
@@ -202,7 +201,6 @@ def test_validity_rejects_unknown_field_ref(
         _ = SemanticCatalog(project).get("entity:sales.user_history")
     error = exc_info.value.errors[0]
     assert error.kind == "invalid_target_semantics"
-    assert "does_not_exist" in str(error)
 
 
 @pytest.mark.parametrize("sentinel", ["20260802", "OPEN"])

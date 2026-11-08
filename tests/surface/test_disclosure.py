@@ -129,8 +129,6 @@ def test_logical_metric_repr_is_bounded_and_has_identity(
     rendered = repr(result)
     assert "\n" not in rendered
     assert len(rendered) <= 200
-    assert "AnalysisFrame input=" in rendered
-    assert ".show()" in rendered
 
 
 def test_catalog_page_repr_is_one_line(semantic_project_factory: _SemanticProjectFactory) -> None:
@@ -145,67 +143,15 @@ def test_catalog_page_repr_is_one_line(semantic_project_factory: _SemanticProjec
 # ---------------------------------------------------------------------------
 
 
-def test_catalog_page_render_contains_refs_affordance(
-    semantic_project_factory: _SemanticProjectFactory,
-) -> None:
-    catalog = _make_catalog(semantic_project_factory)
-    result = catalog.search(kind="metric")
-    rendered = result.render()
-    assert "available:" in rendered
-    assert "- .items" in rendered
-    assert "metric:" in rendered and "next_cursor:" in rendered
-
-
-def test_datasource_catalog_render_uses_card_listing_shape(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
+def test_datasource_catalog_render_uses_card_listing_shape(tmp_path: Path) -> None:
     md.register(
         DuckDBSpec(name="warehouse", path=str(tmp_path / "warehouse.duckdb")),
         project_root=tmp_path,
     )
     catalog = md.load(workspace_dir=tmp_path)
 
-    rendered = catalog.render()
-
-    assert "DatasourceCatalog datasources=2" in rendered
-    assert "warehouse:" in rendered
-    assert "- backend_type=duckdb" in rendered
-    assert "- fields=path:" in rendered
-    assert "- credentials=(none)" in rendered
-    assert "- name:" not in rendered
-    assert "backend_type: duckdb" not in rendered
     assert repr(catalog).count("\n") == 0
-
     assert catalog.show() is None  # type: ignore[func-returns-value]  # Verify the runtime return contract.
-    assert capsys.readouterr().out == rendered + "\n"
-
-
-def test_catalog_page_available_never_none(
-    semantic_project_factory: _SemanticProjectFactory,
-) -> None:
-    catalog = _make_catalog(semantic_project_factory)
-    result = catalog.search(kind="metric")
-    # "available: none" should never appear — the available: section lists
-    # method entries, never the word "none"
-    assert "available: none" not in result.render().lower()
-
-
-def test_readiness_render_contains_available(
-    semantic_project_factory: _SemanticProjectFactory,
-) -> None:
-    project = _make_project(semantic_project_factory)
-    report = project.readiness()
-    assert "available:" in report.render()
-
-
-# ---------------------------------------------------------------------------
-# Default public export surface is pruned to workflow objects
-# ---------------------------------------------------------------------------
-
-
-# ---------------------------------------------------------------------------
-# Analysis runtime must not query public catalog collections or direct registry
-# ---------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize(

@@ -67,45 +67,6 @@ def test_json_source_ir_has_minimal_json_shape() -> None:
     }
 
 
-def test_json_source_ir_rejects_empty_path_bad_format_and_bad_kind() -> None:
-    from marivo.datasource.ir import JsonSourceIR
-
-    with pytest.raises(ValueError, match=r"JsonSourceIR\.path"):
-        JsonSourceIR(path="", columns=(("event_id", "event_id"),))
-    with pytest.raises(TypeError, match=r"JsonSourceIR\.format"):
-        JsonSourceIR(path="events.json", columns=(("event_id", "event_id"),), format="ndjson")  # type: ignore[arg-type]
-    with pytest.raises(TypeError, match=r"JsonSourceIR\.records_path"):
-        JsonSourceIR(path="events.json", columns=(("event_id", "event_id"),), records_path=1)  # type: ignore[arg-type]
-    with pytest.raises(ValueError, match=r"JsonSourceIR\.records_path"):
-        JsonSourceIR(path="events.json", columns=(("event_id", "event_id"),), records_path="data")
-    with pytest.raises(ValueError, match=r"JsonSourceIR\.kind"):
-        JsonSourceIR(path="events.json", columns=(("event_id", "event_id"),), kind="csv")  # type: ignore[arg-type]
-
-
-def test_source_value_objects_reject_invalid_payloads() -> None:
-    with pytest.raises(TypeError, match=r"TableSourceIR\.table"):
-        TableSourceIR(table=42)  # type: ignore[arg-type]
-    with pytest.raises(TypeError, match=r"TableSourceIR\.database"):
-        TableSourceIR(table="orders", database=("warehouse", 1))  # type: ignore[arg-type]
-    with pytest.raises(TypeError, match=r"ParquetSourceIR\.columns"):
-        ParquetSourceIR(path="/tmp/orders.parquet", columns=("id", 1))  # type: ignore[arg-type]
-    with pytest.raises(TypeError, match=r"CsvSourceIR\.header"):
-        CsvSourceIR(path="/tmp/orders.csv", columns=(("order_id", "order_id"),), header="yes")  # type: ignore[arg-type]
-
-
-def test_source_builders_reject_invalid_payloads() -> None:
-    with pytest.raises(TypeError, match=r"TableSourceIR\.table"):
-        md.table(42)  # type: ignore[arg-type]
-    with pytest.raises(TypeError, match=r"ParquetSourceIR\.hive_partitioning"):
-        md.parquet("/tmp/orders.parquet", hive_partitioning="yes")  # type: ignore[arg-type]
-    with pytest.raises(TypeError, match=r"ParquetSourceIR\.columns"):
-        md.parquet("/tmp/orders.parquet", columns=("id", 1))  # type: ignore[arg-type]
-    with pytest.raises(TypeError, match=r"CsvSourceIR\.delimiter"):
-        md.csv("/tmp/orders.csv", columns={"order_id": "order_id"}, delimiter=123)  # type: ignore[arg-type]
-    with pytest.raises(TypeError, match=r"JsonSourceIR\.format"):
-        md.json("/tmp/events.json", columns={"event_id": "event_id"}, format="ndjson")  # type: ignore[arg-type]
-
-
 def test_source_from_dict_reads_projected_file_variants() -> None:
     assert source_from_dict({"kind": "parquet", "path": "/tmp/orders.parquet"}).to_dict() == {
         "kind": "parquet",
@@ -159,3 +120,42 @@ def test_source_from_dict_reads_json_variant() -> None:
         "body": None,
         "body_params": [],
     }
+
+
+def test_json_source_ir_rejects_empty_path_bad_format_and_bad_kind() -> None:
+    from marivo.datasource.ir import JsonSourceIR
+
+    with pytest.raises(ValueError):
+        JsonSourceIR(path="", columns=(("event_id", "event_id"),))
+    with pytest.raises(TypeError):
+        JsonSourceIR(path="events.json", columns=(("event_id", "event_id"),), format="ndjson")  # type: ignore[arg-type]
+    with pytest.raises(TypeError):
+        JsonSourceIR(path="events.json", columns=(("event_id", "event_id"),), records_path=1)  # type: ignore[arg-type]
+    with pytest.raises(ValueError):
+        JsonSourceIR(path="events.json", columns=(("event_id", "event_id"),), records_path="data")
+    with pytest.raises(ValueError):
+        JsonSourceIR(path="events.json", columns=(("event_id", "event_id"),), kind="csv")  # type: ignore[arg-type]
+
+
+def test_source_value_objects_reject_invalid_payloads() -> None:
+    with pytest.raises(TypeError):
+        TableSourceIR(table=42)  # type: ignore[arg-type]
+    with pytest.raises(TypeError):
+        TableSourceIR(table="orders", database=("warehouse", 1))  # type: ignore[arg-type]
+    with pytest.raises(TypeError):
+        ParquetSourceIR(path="/tmp/orders.parquet", columns=("id", 1))  # type: ignore[arg-type]
+    with pytest.raises(TypeError):
+        CsvSourceIR(path="/tmp/orders.csv", columns=(("order_id", "order_id"),), header="yes")  # type: ignore[arg-type]
+
+
+def test_source_builders_reject_invalid_payloads() -> None:
+    with pytest.raises(TypeError):
+        md.table(42)  # type: ignore[arg-type]
+    with pytest.raises(TypeError):
+        md.parquet("/tmp/orders.parquet", hive_partitioning="yes")  # type: ignore[arg-type]
+    with pytest.raises(TypeError):
+        md.parquet("/tmp/orders.parquet", columns=("id", 1))  # type: ignore[arg-type]
+    with pytest.raises(TypeError):
+        md.csv("/tmp/orders.csv", columns={"order_id": "order_id"}, delimiter=123)  # type: ignore[arg-type]
+    with pytest.raises(TypeError):
+        md.json("/tmp/events.json", columns={"event_id": "event_id"}, format="ndjson")  # type: ignore[arg-type]

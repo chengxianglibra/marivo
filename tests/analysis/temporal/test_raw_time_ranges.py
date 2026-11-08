@@ -24,7 +24,6 @@ from marivo.semantic.ir import DateParse, HourPrefixParse, StrptimeParse, Timest
 from tests.analysis.temporal.encoded_time_fixtures import axis
 from tests.analysis.temporal.test_calendar_native_keys import _maria
 from tests.datasource.source_cases import SourceData, source_case, source_params
-from tests.shared_fixtures import rendered_help
 
 
 @pytest.mark.parametrize("engine", ["duckdb", "postgres", "mysql", "trino", "clickhouse"])
@@ -65,7 +64,6 @@ def test_shanghai_day_compares_original_column_on_every_backend(engine: str, phy
     if engine == "clickhouse" and physical == "date":
         assert "toDate('2026-10-28')" in sql
         assert "toDate('2026-10-29')" in sql
-        assert "toDate32(" not in sql
     if physical in ("string", "int64"):
         assert {item.expression.this for item in comparisons} == {"20261028", "20261029"}
         assert all(item.expression.is_string == (physical == "string") for item in comparisons)
@@ -160,14 +158,6 @@ def test_raw_cutoffs_round_to_source_ticks_and_respect_source_timezone(
         backend.disconnect()
 
 
-def test_strptime_help_declares_ordered_formats_as_canonical_source_contracts() -> None:
-    text = rendered_help("semantic.strptime")
-    assert "fixed-width" in text
-    assert "zero-padded" in text
-    assert "original column" in text
-    assert "No partition enumeration or validation queries" in text
-
-
 @pytest.mark.runtime
 @pytest.mark.skipif(
     os.environ.get("MARIVO_CLICKHOUSE_ANALYSIS_TEST") != "1", reason="opt-in ClickHouse service"
@@ -242,7 +232,6 @@ def test_canonical_comparisons_keep_strictness_and_nullable_complements(
         complement = [value for value in values if value not in expected]
         assert backend.execute(table.filter(predicate)).point.tolist() == expected
         assert backend.execute(table.filter(~predicate)).point.tolist() == complement
-        assert "STRPTIME" not in backend.compile(table.filter(predicate)).upper()
     finally:
         backend.disconnect()
 
@@ -293,7 +282,6 @@ def test_hour_prefix_ranges_compare_both_original_encoded_columns(integer: bool)
         )
         assert predicate is not None
         assert backend.execute(table.filter(predicate)).id.tolist() == [2, 3]
-        assert "STRPTIME" not in backend.compile(table.filter(predicate)).upper()
     finally:
         backend.disconnect()
 

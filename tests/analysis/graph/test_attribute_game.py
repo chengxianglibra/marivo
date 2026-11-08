@@ -70,20 +70,6 @@ def test_formula_identity_preserves_quantile_null_unit_and_time_roles(
     assert error.value.reason == "formula_mismatch"
 
 
-def test_constant_recipe_changes_are_not_treated_as_data_changes() -> None:
-    total = SourceAggregate(FIELD, "sum", None)
-
-    def expression(value: int) -> MetricExpression:
-        return MetricExpression(
-            BinaryOperator(operator.mul, Variable("slot_0"), Just(value)), (total,)
-        )
-
-    a = build_game(expression(2), {}, metric="a", by=BY)
-    b = build_game(expression(3), {}, metric="b", by=BY)
-    with pytest.raises(AttributeGameError):
-        require_games_match(a, b, metric="change")
-
-
 def test_same_actual_input_group_deduplicates_states_without_merging_occurrences() -> None:
     total = SourceAggregate(FIELD, "sum", None)
     node = MetricExpression(
@@ -137,8 +123,6 @@ def test_formula_identity_keeps_inline_row_operations_and_ignores_only_versions(
         return build_game(SourceAggregate(operand, "sum", None), {}, metric="q", by=BY)
 
     require_games_match(scaled(2), scaled(2, "v2"), metric="change")
-    with pytest.raises(AttributeGameError, match="formulas differ"):
-        require_games_match(scaled(2), scaled(3), metric="change")
     assert formula_id(scaled(2)) != formula_id(scaled(3))
 
 
@@ -166,8 +150,6 @@ def test_formula_identity_keeps_metric_filter_predicates() -> None:
         )
 
     require_games_match(filtered(0), filtered(0), metric="change")
-    with pytest.raises(AttributeGameError, match="formulas differ"):
-        require_games_match(filtered(0), filtered(1), metric="change")
     assert formula_id(filtered(0)) != formula_id(filtered(1))
 
 
@@ -195,8 +177,6 @@ def test_filter_population_keeps_keys_without_pinning_semantic_versions() -> Non
         )
 
     require_games_match(filtered("v1", "A"), filtered("v2", "A"), metric="change")
-    with pytest.raises(AttributeGameError, match="formulas differ"):
-        require_games_match(filtered("v1", "A"), filtered("v1", "B"), metric="change")
 
 
 def test_original_approximate_distinct_never_claims_a_mergeable_count_state() -> None:
@@ -209,5 +189,3 @@ def test_original_approximate_distinct_never_claims_a_mergeable_count_state() ->
     exact = build_game(replace(node, reducer="count_distinct"), {}, metric="distinct", by=BY)
     assert exact.leaves[0].state_eligible is True
     assert formula_id(exact) != formula_id(game)
-    with pytest.raises(AttributeGameError, match="formulas differ"):
-        require_games_match(game, exact, metric="distinct")

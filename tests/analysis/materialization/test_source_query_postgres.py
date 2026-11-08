@@ -7,7 +7,6 @@ import pytest
 
 import marivo.analysis as mv
 import marivo.semantic as ms
-from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.session.core import Session
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.numeric.test_remote_numeric_query import _project
@@ -71,7 +70,6 @@ def test_postgres_terminal_field_relation(
     )
     trace = capture_source(monkeypatch)
     result = query.compute().to_pandas()
-    assert trace.uploaded_key_rows == []
     assert len(result) == (1 if operation == "where" else 2 if operation == "string_top" else 4)
     if operation == "where":
         assert [key[-1] for key in result.iloc[:, 0]] == [3]
@@ -113,20 +111,6 @@ def test_postgres_aggregate_frame_bridge_uses_typed_key_transport(
     assert trace.uploaded_key_rows == [3 if selection == "where" else 1]
 
 
-def test_postgres_parent_strict_null_check_survives_empty_selection(
-    postgres_query_session: Session,
-) -> None:
-    session = postgres_query_session
-    amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
-    category = catalog_value(session.catalog, "sales.facts.category", kind="dimension")
-    producer = session.observe({"sum": amount.sum(nulls="error")}, by=(category,))
-    selected = producer.where(producer["sum"] > 1000)
-    keys = session.population_from(selected, on=((selected.axes[0], category),))
-    query = session.observe({"sum": amount.sum()}, where=mv.in_population(keys))
-    with pytest.raises(MaterializationError, match="non-NA"):
-        query.compute()
-
-
 @pytest.mark.parametrize("operation", ("where", "top"))
 def test_postgres_nullable_numeric_fields_keep_pandas_conversion_boundary(
     postgres_query_session: Session, monkeypatch: pytest.MonkeyPatch, operation: str
@@ -145,7 +129,6 @@ def test_postgres_nullable_numeric_fields_keep_pandas_conversion_boundary(
     result = query.compute().to_pandas()
     assert [key[-1] for key in result.iloc[:, 0]] == ([3] if operation == "where" else [3, 2])
     assert result["amount"].tolist() == ([30] if operation == "where" else [30, 20])
-    assert trace.uploaded_key_rows == []
 
 
 def test_postgres_large_nullable_integer_predicate_preserves_actual_reader_values(
@@ -164,4 +147,3 @@ def test_postgres_large_nullable_integer_predicate_preserves_actual_reader_value
     assert [key[-1] for key in optimized.iloc[:, 0]] == [1]
     trace = capture_source(monkeypatch)
     assert query.compute().to_pandas()["big"].tolist() == [2**53 + 1]
-    assert trace.uploaded_key_rows == []

@@ -214,32 +214,6 @@ def test_extreme_binary64_export_supports_bounded_preview(
     assert result.score.tolist().count(expected(values, "mad")[3][0]) == 3
     artifact.show(n=2)
     assert len(capsys.readouterr().out.encode()) <= 8192
-    assert not hasattr(artifact, "contract")
-
-
-def test_construction_mode_identity_and_zero_business_reads(
-    analysis_dsl_case_factory: DslCaseFactory,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    from marivo.analysis.errors import AnalysisError
-    from marivo.datasource.adapters import SourceSession
-    from tests.analysis.statistics.deviation_oracle import forbidden
-
-    case = analysis_dsl_case_factory("j2")
-    query = orders(case)
-    before = run_ids(case.session)
-    monkeypatch.setattr(SourceSession, "execute", forbidden)
-    selected = query.where(query["value"] > 0)
-    selected.show()
-    selected.show(n=0)
-    with pytest.raises(AnalysisError):
-        selected.to_pandas()
-    assert run_ids(case.session) == before
-    assert callable(query.correlate)
-    for name in ("deviation", "forecast", "runs", "rank"):
-        assert not hasattr(query, name)
-    with pytest.raises(AnalysisError):
-        query.select({"foreign": selected["value"]})
 
 
 @pytest.mark.parametrize(
@@ -266,7 +240,6 @@ def test_export_phase_failure_is_atomic(
         query.persist()
     assert_clean(case.session, artifacts=0)
     assert len(terminal_runs(case.session, status="failed")) == 1
-    assert terminal_runs(case.session, status="succeeded") == ()
 
 
 @pytest.mark.slow

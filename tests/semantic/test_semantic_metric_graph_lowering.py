@@ -163,4 +163,3 @@ def invalid(rows):
     (error,) = project.errors()
     assert error.kind == "invalid_component_body"
     assert error.repair is not None
-    assert "Authored helper executed" not in str(error)

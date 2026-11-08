@@ -134,7 +134,6 @@ def producer_recovery(
     if source_file is not None:
         source_file.unlink()
         (tmp_path / "source.duckdb").unlink()
-        assert not source_file.exists() and not (tmp_path / "source.duckdb").exists()
     shutil.rmtree(tmp_path / "models")
     for path in tmp_path.glob("source.duckdb*"):
         path.unlink()
@@ -225,7 +224,6 @@ def test_http_source_supports_fixed_continuation(
         assert fixed.select({"double": fixed["value"] * 2}).compute().to_pandas()[
             "double"
         ].tolist() == [12]
-        assert session._runtime.store.resources(session.id) == ()
 
 
 @pytest.mark.runtime

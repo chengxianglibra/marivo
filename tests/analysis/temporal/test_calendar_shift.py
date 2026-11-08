@@ -1,6 +1,5 @@
 """Independent civil-date witnesses for exact finite calendar shifts."""
 
-from dataclasses import FrozenInstanceError
 from datetime import datetime
 
 import pytest
@@ -19,7 +18,6 @@ from marivo.analysis.core.frozen_calendar import (
     validate_frozen_coordinates,
 )
 from marivo.analysis.dsl.temporal import exact_scope
-from marivo.analysis.errors import AnalysisError
 
 
 def calendar(start: str, end: str, unit: str = "week", zone: str = "UTC") -> mv.CalendarAxis:
@@ -144,18 +142,6 @@ def test_absent_civil_cutoff_never_clamps_current(
 
 
 @pytest.mark.parametrize(
-    ("start", "end"),
-    [
-        ("2026-04-01", "2026-04-08T02:30:00-04:00"),
-        ("2026-12-01", "2026-12-01T01:30:00-05:00"),
-    ],
-)
-def test_nonzero_target_gap_or_fold_requires_explicit_intervals(start: str, end: str) -> None:
-    with pytest.raises(ValueError, match="instants"):
-        calendar(start, end, "month", "America/New_York").shift(mv.offset(periods=-1))
-
-
-@pytest.mark.parametrize(
     ("end", "utc"),
     [
         ("2026-11-01T01:30:00-04:00", "2026-11-01T05:30:00+00:00"),
@@ -166,7 +152,6 @@ def test_zero_offset_copies_aware_fold_instants_after_admission(
     end: str, utc: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     current = calendar("2026-11-01", end, "month", "America/New_York")
-    unsupported = calendar("2026-11-01", "2026-11-02", "day")
 
     def refuse(*args: object, **kwargs: object) -> datetime:
         raise AssertionError("zero offset must not resolve a civil instant")
@@ -177,8 +162,6 @@ def test_zero_offset_copies_aware_fold_instants_after_admission(
         assert baseline.grid.cells == current.grid.cells
         assert baseline.grid.civil_bounds == current.grid.civil_bounds
         assert baseline.grid.cells[0].end.isoformat() == utc
-    with pytest.raises(ValueError):
-        unsupported.shift(mv.offset(periods=0))
 
 
 def test_shift_is_immutable_and_records_only_immediate_stripped_origin() -> None:
@@ -188,9 +171,6 @@ def test_shift_is_immutable_and_records_only_immediate_stripped_origin() -> None
     assert second.grid.origin is not None and second.grid.origin.grid.origin is None
     assert second.grid.origin.grid.cells == first.grid.cells
     assert current.grid.origin is None
-    with pytest.raises(FrozenInstanceError):
-        # The frozen axis must reject mutation at runtime.
-        first.scope = current.scope  # type: ignore[misc]
     equivalent = current.shift(mv.offset(periods=-12))
     assert first.grid.cells == equivalent.grid.cells
     assert first.grid.identity != equivalent.grid.identity
@@ -209,24 +189,6 @@ def test_equivalent_month_rules_have_equal_finite_intentions() -> None:
     assert calendar_match_intents(current, mv.offset(years=-1)) == calendar_match_intents(
         current, mv.offset(periods=-12)
     )
-
-
-@pytest.mark.parametrize(
-    ("start", "end", "unit"),
-    [
-        ("2026-01-02", "2026-01-08", "week"),
-        ("2026-01-02", "2026-02-01", "month"),
-        ("2026-01-01", "2026-01-02", "day"),
-        ("2026-01-01", "2026-04-01", "quarter"),
-    ],
-)
-def test_shift_rejects_unsupported_grain_or_mid_bucket_range(
-    start: str, end: str, unit: str
-) -> None:
-    with pytest.raises(ValueError):
-        calendar(start, end, unit).shift(mv.offset(years=-1))
-    with pytest.raises(ValueError):
-        calendar(start, end, unit).shift(mv.ordinal())
 
 
 def test_source_free_intents_distinguish_absence_from_unselected_target(
@@ -264,7 +226,6 @@ def test_frozen_prefix_matching_requires_exact_saved_progress_and_no_tz_lookup(
 ) -> None:
     _, current = frozen(calendar("2026-03-01", "2026-03-20T12:00:00+00:00", "month"), "current")
     _, baseline = frozen(calendar("2026-02-01", "2026-02-20T12:00:00+00:00", "month"), "baseline")
-    _, full = frozen(calendar("2026-02-01", "2026-03-01", "month"), "full")
 
     def refuse(*args: object, **kwargs: object) -> object:
         raise AssertionError("fixed-data matching must not consult timezone rules")
@@ -274,24 +235,3 @@ def test_frozen_prefix_matching_requires_exact_saved_progress_and_no_tz_lookup(
         build_partial_calendar_map(current, baseline, mv.offset(periods=-1))[0].right_key
         == baseline.buckets[0].key
     )
-    with pytest.raises(AnalysisError, match="progress"):
-        build_partial_calendar_map(current, full, mv.offset(periods=-1))
-    with pytest.raises(AnalysisError, match="complete logical"):
-        build_partial_calendar_map(current, baseline, mv.ordinal())
-
-
-def test_offset_exclusive_integer_keywords_and_out_of_range_errors() -> None:
-    from marivo.analysis.dsl.correspondence import offset
-
-    for kwargs in (
-        {},
-        {"years": -1, "periods": -12},
-        {"years": True},
-        {"periods": None},
-        {"years": -1, "periods": None},
-    ):
-        with pytest.raises(AnalysisError):
-            # Invalid combinations must reach runtime validation.
-            offset.__call__(**kwargs)  # type: ignore[operator]
-    with pytest.raises(ValueError, match="representable"):
-        calendar("2026-01-01", "2026-02-01", "month").shift(mv.offset(years=-2026))

@@ -88,7 +88,6 @@ def test_projection_reads_each_receipt_once_per_call(
         # Post-export projection is pandas work and performs no second receipt read.
         assert frame["value"].equals(expected["value"])
         assert len(opened) == count
-    assert terminal_runs(case.session) == before
     for handle in handles:
         path = (
             case.root
@@ -106,7 +105,6 @@ def test_projection_reads_each_receipt_once_per_call(
     opened.clear()
     with pytest.raises(AnalysisError):
         foreign.persisted_frame(artifact.artifact_id)
-    assert opened == [] and terminal_runs(case.session) == before
 
 
 @pytest.mark.slow

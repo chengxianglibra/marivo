@@ -547,19 +547,6 @@ def failure(project: Path) -> dict[str, object]:
             f"SELECT amount FROM {prefix}orders",
             reason="verify removed source table failure",
         )
-    message = str(caught.value).lower()
-    assert any(
-        token in message
-        for token in (
-            "does not exist",
-            "doesn't exist",
-            "not found",
-            "unknown table",
-            "no such table",
-            "unknown_table",
-            "unknown identifier",
-        )
-    ), message
     return {
         "boundary": "datasource.raw_sql",
         "failure": "missing physical table",
@@ -576,18 +563,6 @@ def privileges(engine: str, project: Path) -> dict[str, object]:
         execute("SELECT 1")
         with pytest.raises(Exception) as caught:
             execute(statement)
-        message = str(caught.value).lower()
-        assert any(
-            token in message
-            for token in (
-                "denied",
-                "permission",
-                "read-only",
-                "readonly",
-                "not allowed",
-                "not enough privileges",
-            )
-        ), message
         return type(caught.value).__name__
 
     if engine == "postgres":

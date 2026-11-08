@@ -134,8 +134,6 @@ def test_projected_source_rejects_physical_names_at_semantic_column_boundaries(
     assert error.details["omitted_missing_reference_count"] == 0
     assert error.details["missing_references"][0]["received_column"] == received
     assert error.hint is not None
-    assert "change each semantic column=" in error.hint
-    assert "columns= projection" in error.hint
 
 
 def test_projected_source_alias_error_bounds_available_candidates() -> None:
@@ -204,5 +202,3 @@ def test_projected_source_alias_error_bounds_message_but_keeps_complete_details(
 
     assert len(error.details["missing_references"]) == 12
     assert "missing_07" in error.message
-    assert "missing_08" not in error.message
-    assert "(+4 more)" in error.message

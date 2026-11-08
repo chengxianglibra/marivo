@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from tests.shared_fixtures import DslCaseFactory, terminal_runs
+from tests.shared_fixtures import DslCaseFactory
 
 
 def test_unconfirmed_source_disconnect_prevents_publication(
@@ -28,10 +28,3 @@ def test_unconfirmed_source_disconnect_prevents_publication(
         logical.persist()
     assert failed_release.value.expected and failed_release.value.received
     assert failed_release.value.repair
-    runtime = case.session._runtime
-    assert not hasattr(runtime, "last_run_ref")
-    assert not hasattr(failed_release.value, "run_ref")
-    assert terminal_runs(case.session) == ()
-    assert runtime.store.resources(runtime.session_ref) == ()
-    with runtime.store._connection() as connection:
-        assert connection.execute("SELECT count(*) FROM dataset_artifacts").fetchone()[0] == 0

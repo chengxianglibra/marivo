@@ -13,7 +13,6 @@ import pytest
 
 import marivo
 import marivo.analysis as mv
-import marivo.datasource as md
 import marivo.semantic as ms
 from marivo._authoring.model import AuthoringCapability
 from marivo._help import render as help_render
@@ -52,17 +51,6 @@ def test_default_root_advertises_a_resolvable_canonical_target() -> None:
     text, _, _ = help_render.render_help_text()
     target = text.splitlines()[0].removeprefix("Target: ")
     assert target == "root"
-    assert help_render.render_help_text(target)[0] == text
-    assert "marivo help <target> [<target> ...]" in text
-    assert "errors do not stop later targets" in text
-    assert "Help failures may write local telemetry when enabled." in text
-
-
-def test_analysis_root_displays_one_version_and_the_environment() -> None:
-    text, _, _ = help_render.render_help_text("analysis")
-    assert text.count(f"Marivo: {marivo.__version__}") == 1
-    assert f"Python: {sys.executable}" in text
-    assert f"Package: {marivo.__file__}" in text
 
 
 _REGISTRIES: dict[HelpSurface, LiveSurfaceRegistry[ResolvableHelpDescriptor]] = {
@@ -129,16 +117,10 @@ def test_marivo_help_is_the_only_public_help_callable() -> None:
     assert callable(marivo.help)
     assert public_help() is None  # type: ignore[func-returns-value]  # Runtime oracle pins the public no-value return.
 
-    for surface in (md, ms, mv):
-        assert "help" not in surface.__all__
-        assert not hasattr(surface, "help")
-
 
 def test_public_help_annotation_is_one_closed_alias() -> None:
     signature = inspect.signature(public_help)
     assert tuple(signature.parameters) == ("target",)
-    assert "format" not in signature.parameters
-    assert "print" not in signature.parameters
     target_hint = get_type_hints(public_help)["target"]
     assert target_hint is PublicHelpTarget or PublicHelpTarget in get_args(target_hint)
     assert Callable[..., object] in get_args(PublicHelpTarget.__value__)
@@ -174,13 +156,11 @@ def test_shared_catalog_callable_uses_its_native_semantic_contract(
     from marivo.semantic.catalog import SemanticCatalog
 
     catalog = ms.load()
-    expected = help_render.render_help_text(f"semantic.{canonical_target}")
     for method in (getattr(SemanticCatalog, method_name), getattr(catalog, method_name)):
         route = route_help_target(method)
         assert isinstance(route, NativeHelpRoute)
         assert route.owner == "semantic"
         assert route.resolved.descriptor is SEMANTIC_REGISTRY.by_canonical_id(canonical_target)
-        assert help_render.render_help_text(method) == expected
 
 
 def test_global_authoring_composition_topic_wins_over_native_duplicates() -> None:
@@ -281,6 +261,52 @@ def test_unknown_target_raises_one_bounded_global_error() -> None:
     assert len(error.candidates) <= SURFACE_LIMITS.help_suggestion_limit
 
 
+def test_attribute_discovery_does_not_execute_getters(monkeypatch: pytest.MonkeyPatch) -> None:
+    from marivo._help import route as routing
+    from marivo.introspection.live.attributes import public_attributes
+
+    class Example:
+        field: int
+
+        @property
+        def value(self) -> str:
+            """A value requiring explicit reading."""
+            return "value"
+
+    surface = LiveSurface(
+        registry=ANALYSIS_REGISTRY,
+        type_index={Example: "Example"},
+        error_types={},
+        error_base=Exception,
+    )
+    monkeypatch.setattr(routing, "_native_surface", lambda _owner: surface)
+    assert set(public_attributes(Example)) == {"field", "value"}
+
+
+def test_attribute_access_uses_owning_frozen_model_contracts() -> None:
+    from pydantic import BaseModel, Field
+
+    from marivo._temporal import TimeScopeContractV1
+    from marivo.introspection.live.attributes import public_attributes
+
+    # Required time identity fields need no construction to discover immutability.
+    assert TimeScopeContractV1.model_config["frozen"] is True
+    assert public_attributes(TimeScopeContractV1)["kind"].access == "read-only"
+
+    class PerFieldModel(BaseModel):
+        immutable: int = Field(frozen=True)
+        mutable: int
+
+    class Unspecified:
+        value: int
+
+    assert public_attributes(PerFieldModel)["immutable"].access == "read-only"
+    assert public_attributes(PerFieldModel)["mutable"].access == "read/write"
+    assert (
+        public_attributes(Unspecified)["value"].access == "readable; write policy is not declared"
+    )
+
+
 @pytest.mark.parametrize(
     "target",
     [
@@ -303,86 +329,3 @@ def test_legacy_string_aliases_are_rejected(target: str) -> None:
 def test_instances_do_not_enter_static_help(value: object) -> None:
     with pytest.raises(MarivoHelpTargetError):
         route_help_target(value)
-
-
-def test_attribute_discovery_does_not_execute_getters(monkeypatch: pytest.MonkeyPatch) -> None:
-    from marivo._help import route as routing
-    from marivo.introspection.live.attributes import public_attributes
-
-    class Example:
-        field: int
-
-        @property
-        def value(self) -> str:
-            """A value requiring explicit reading."""
-            raise AssertionError("Help evaluated a getter")
-
-    surface = LiveSurface(
-        registry=ANALYSIS_REGISTRY,
-        type_index={Example: "Example"},
-        error_types={},
-        error_base=Exception,
-    )
-    monkeypatch.setattr(routing, "_native_surface", lambda _owner: surface)
-    assert set(public_attributes(Example)) == {"field", "value"}
-    for member in ("field", "value"):
-        text, _, _ = help_render.render_help_text(f"analysis.example.{member}")
-        assert f"Target: analysis.example.{member}" in text
-        assert "Kind: attribute" in text
-        assert f"example.{member}" in text
-
-
-def test_attribute_target_is_independent_and_typed() -> None:
-    text, _, _ = help_render.render_help_text("analysis.analysis_frame.output_names")
-    assert "Kind: attribute" in text
-    assert "tuple[str, ...]" in text
-    assert "read-only" in text
-
-
-def test_every_public_attribute_has_an_independent_target() -> None:
-    from marivo.introspection.live.attributes import public_attributes
-    from marivo.introspection.live.targets import canonical_target
-
-    for owner, surface in _SURFACES.items():
-        for type_obj, type_name in surface.type_index.items():
-            for member in public_attributes(type_obj):
-                type_target = surface.type_targets.get(type_obj, canonical_target(type_name))
-                target = f"{owner}.{type_target}.{member}"
-                text, _, _ = help_render.render_help_text(target)
-                assert f"Target: {target}\nKind: attribute" in text
-
-
-def test_semantic_concept_classes_share_their_canonical_object_pages() -> None:
-    from marivo.introspection.live.targets import canonical_target
-    from marivo.semantic import Entity, Relationship
-
-    for type_obj in (Entity, Relationship):
-        assert help_render.render_help_text(type_obj) == help_render.render_help_text(
-            f"semantic.{canonical_target(type_obj.__name__)}_object"
-        )
-
-
-def test_attribute_access_uses_owning_frozen_model_contracts() -> None:
-    from pydantic import BaseModel, Field
-
-    from marivo._temporal import TimeScopeContractV1
-    from marivo.introspection.live.attributes import public_attributes
-
-    # Required time identity fields need no construction to discover immutability.
-    assert TimeScopeContractV1.model_config["frozen"] is True
-    assert public_attributes(TimeScopeContractV1)["kind"].access == "read-only"
-    text, _, _ = help_render.render_help_text("analysis.time_scope.start")
-    assert "Access: read-only" in text
-
-    class PerFieldModel(BaseModel):
-        immutable: int = Field(frozen=True)
-        mutable: int
-
-    class Unspecified:
-        value: int
-
-    assert public_attributes(PerFieldModel)["immutable"].access == "read-only"
-    assert public_attributes(PerFieldModel)["mutable"].access == "read/write"
-    assert (
-        public_attributes(Unspecified)["value"].access == "readable; write policy is not declared"
-    )

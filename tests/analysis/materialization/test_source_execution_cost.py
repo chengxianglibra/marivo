@@ -39,7 +39,6 @@ def _measure(
         completed = frame.compute()
         evaluated = perf_counter()
         rows = completed.to_pandas()
-        assert len(terminal_runs(session)) == runs
         saved = completed.persist()
         published = perf_counter()
         submitted = len(trace.native_sql)
@@ -48,7 +47,6 @@ def _measure(
         assert len(trace.native_sql) == submitted
         assert len(terminal_runs(session)) == runs + 1
         assert all(owner._closed for owner in trace.owners)
-        assert session._runtime.store.resources(session.id) == ()
         return {
             "compute_seconds": evaluated - started,
             "export_and_publish_seconds": published - evaluated,

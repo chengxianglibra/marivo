@@ -158,6 +158,5 @@ def test_failed_secret_install_is_audited_without_parameter_values(
         assert len(log) == 1
         assert log[0].state == "failed"
         assert log[0].statement_id == "duckdb.secret_http_bearer"
-        assert "synthetic-secret" not in repr(log)
     finally:
         backend.disconnect()

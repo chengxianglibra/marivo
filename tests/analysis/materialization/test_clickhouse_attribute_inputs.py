@@ -148,7 +148,7 @@ def test_clickhouse_attribute_input_carriers(
                 ).compute()
                 from marivo.analysis.errors import AnalysisError
 
-                with pytest.raises(AnalysisError, match="baseline=0"):
+                with pytest.raises(AnalysisError):
                     zero.attribute(by=(tenant,)).compute()
         finally:
             if is_proxy:

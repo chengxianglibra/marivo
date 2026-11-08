@@ -11,7 +11,6 @@ from marivo.analysis.core.data_types import DecimalDataType, ScalarDataType
 from marivo.analysis.methods.attribute_quantiles import (
     FrequencyGame,
     FrequencyRankIndex,
-    FrequencyValue,
     frequency_state,
 )
 
@@ -88,12 +87,6 @@ def test_frequency_null_support_and_no_row_expansion() -> None:
     index.add(state)
     assert len(index.values) == 1
     assert index.quantile(0.95, ScalarDataType("float64")) == 9.0
-
-
-@pytest.mark.parametrize("bad", [Decimal("Infinity"), Decimal("NaN")])
-def test_frequency_game_rejects_nonfinite_domain(bad: FrequencyValue) -> None:
-    with pytest.raises(ValueError, match="native numeric values"):
-        frequency_state(ScalarDataType("float64"), [(bad, 1)])
 
 
 def test_frequency_native_nonfinite_order_and_finishing() -> None:

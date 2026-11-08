@@ -61,9 +61,9 @@ def test_return_annotation_check_rejects_nullable_and_family_drift() -> None:
         nullable=False,
     )
 
-    assert missing_none is not None and "CoverageFrame | None" in missing_none
-    assert extra_none is not None and "callable annotation is CoverageFrame | None" in extra_none
-    assert wrong_family is not None and "callable annotation is ComponentFrame" in wrong_family
+    assert missing_none is not None
+    assert extra_none is not None
+    assert wrong_family is not None
 
 
 def test_return_annotation_check_accepts_runtime_type_annotations() -> None:

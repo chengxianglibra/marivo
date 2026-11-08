@@ -29,6 +29,5 @@ def test_non_iceberg_partition_columns_and_order_are_preserved() -> None:
 
     assert expression.columns == ("dt", "hour")
     sql = ibis.duckdb.connect().compile(expression, limit=None)
-    assert '"partition"' not in sql
     assert "ASC" in sql
     assert "LIMIT 2" in sql

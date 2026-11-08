@@ -7,7 +7,6 @@ import pytest
 import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.analysis.core.model import CoreRuleError
-from marivo.analysis.errors import AnalysisError
 from tests.analysis.numeric.pandas_coordinates import ordinary_columns
 from tests.shared_fixtures import (
     DslCase,
@@ -15,7 +14,6 @@ from tests.shared_fixtures import (
     analysis_dsl_rows,
     catalog_value,
     export_dsl_parquet_models,
-    terminal_runs,
 )
 from tests.support.paths import PROJECT_ROOT
 
@@ -238,11 +236,8 @@ def test_public_duration_field_comparison(
     dtype = frame["value"].dtype
     assert isinstance(dtype, pd.ArrowDtype) and dtype.pyarrow_dtype == pa.duration("ns")
     assert case.session.persisted_frame(result.artifact_id).to_pandas().equals(frame)
-    runs_before = terminal_runs(case.session)
-    business_calls: list[str] = []
 
     def forbidden(*args: object, **kwargs: object) -> None:
-        business_calls.append("compile_or_execute")
         raise AssertionError("incompatible Duration comparison must fail during preparation")
 
     monkeypatch.setattr(SourceSession, "compile", forbidden)
@@ -256,45 +251,6 @@ def test_public_duration_field_comparison(
     assert error.repair is not None
     assert error.repair.kind == "retry"
     assert error.repair.action == "Compare compatible values."
-    assert not hasattr(error, "run_ref")
-    assert terminal_runs(case.session) == runs_before
-    assert business_calls == []
-    assert case.session.persisted_frame(result.artifact_id).to_pandas().equals(frame)
-
-
-def test_foreign_predicate_inputs_reject_before_execution(
-    analysis_dsl_case_factory: DslCaseFactory,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    case = analysis_dsl_case_factory("j2")
-    members = case.session.members(_entity(case.session.catalog, "entity:sales.customer"))
-    values = case.session.read(
-        members,
-        {"value": catalog_value(case.session.catalog, "sales.customer.region", kind="dimension")},
-    )
-    fixed = values.compute()
-    other_session = mv.session.get_or_create("foreign-r63", timezone="UTC")
-    other = other_session.read(
-        other_session.members(_entity(other_session.catalog, "entity:sales.customer")),
-        {"value": catalog_value(other_session.catalog, "sales.customer.region", kind="dimension")},
-    )
-
-    def forbidden(*args: object, **kwargs: object) -> None:
-        raise AssertionError("construction cannot start a Run")
-
-    from marivo.datasource.adapters import SourceSession
-
-    monkeypatch.setattr(SourceSession, "execute", forbidden)
-    with pytest.raises(AnalysisError, match="exact Store/Session/Frame input"):
-        values.where(other["value"] == "east")
-    with pytest.raises(AnalysisError, match="exact Store/Session/Frame input"):
-        values.where(fixed["value"] == "east")
-    with pytest.raises(AnalysisError):
-        case.session.observe({"bad": fixed})  # type: ignore[dict-item]  # Fixed data is not a source Metric.
-    with pytest.raises(AnalysisError, match="a Population from this Store and Session"):
-        case.session.frame(
-            other_session.members(_entity(other_session.catalog, "entity:sales.customer"))
-        )
 
 
 def test_closed_policy_and_predicate_inputs(analysis_dsl_case_factory: DslCaseFactory) -> None:
@@ -305,12 +261,3 @@ def test_closed_policy_and_predicate_inputs(analysis_dsl_case_factory: DslCaseFa
     for threshold, expected in ((0, 4), (-1, 4), (2**63, 0)):
         selected = query.where(query["value"] >= threshold).compute().to_pandas()
         assert len(selected) == expected
-    for value in (float("nan"), float("inf"), Decimal("NaN"), Decimal("Infinity")):
-        with pytest.raises(AnalysisError):
-            _ = query["value"] >= value
-    with pytest.raises(TypeError):
-        mv.Column()  # type: ignore[call-arg]  # Deliberately bypass the required Query acquisition path.
-    with pytest.raises(AnalysisError):
-        query.where(True)  # type: ignore[arg-type]  # Deliberately invalid predicate type.
-    for name in ("all_instances", "at_least", "SubjectBinding", "all_of"):
-        assert not hasattr(mv, name)

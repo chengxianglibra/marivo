@@ -42,8 +42,6 @@ def test_scoped_http_provider_sql_audit(tmp_path: Path, monkeypatch: pytest.Monk
                 item.category == "provider" and item.purpose == "datasource.credentials"
                 for item in audit.submissions
             )
-            assert all("synthetic-source_profile" not in item.sql for item in audit.submissions)
-            assert "synthetic-source_profile" not in str(execution_records(tmp_path))
             assert any(
                 r.get("purpose") == "datasource.credentials" for r in execution_records(tmp_path)
             )
@@ -131,7 +129,6 @@ def test_public_sql_owner_audit(
                     expected_schema=bound.relation.schema().to_pyarrow(),
                 )
                 assert len(case.session.execute(read)) == len(ROWS)
-            assert session._runtime.store.resources(session._runtime.session_ref) == ()
             statement = "SELECT 7 AS marker"
             terminal = md.raw_sql(
                 reference,

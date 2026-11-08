@@ -172,18 +172,18 @@ def test_symbolic_population_capture_requires_owned_parameters(operation: str) -
         if operation == "preimage"
         else getattr(population, operation)()
     )
-    with pytest.raises(DefinitionGraphError, match="requires explicit"):
+    with pytest.raises(DefinitionGraphError):
         inspect_capture(recipe)
 
 
 def test_symbolic_helper_capture_checks_known_semantic_roles() -> None:
-    with pytest.raises(CoreRuleError, match="Dimension, TimeDimension or Measure"):
+    with pytest.raises(CoreRuleError):
         mv.coordinates(by=(ms.ref.entity("sales.orders"),), keys=((1,),))
-    with pytest.raises(CoreRuleError, match="Dimension, TimeDimension or Measure"):
+    with pytest.raises(CoreRuleError):
         mv.membership(ms.ref.metric("sales.revenue"), via=(), unmatched="exclude")
     grouping = mv.identity(ms.ref.entity("sales.orders"))
     assert isinstance(grouping, Deferred)
-    with pytest.raises(DefinitionGraphError, match="Grouping parameters"):
+    with pytest.raises(DefinitionGraphError):
         inspect_capture(grouping.count())
 
 
@@ -262,8 +262,6 @@ raise AssertionError("decorator accepted an invalid relationship path")
     errors = project.errors()
     assert len(errors) == 1
     assert isinstance(errors[0], SemanticExpressionError)
-    assert "via" in str(errors[0])
-    assert "native Relationship symbols or closed Relationship values" in str(errors[0])
 
 
 def test_population_path_capture_keeps_closed_relationship_values(

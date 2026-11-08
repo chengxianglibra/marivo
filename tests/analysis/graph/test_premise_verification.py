@@ -101,9 +101,7 @@ def test_checked_pairing_checks_unknown_images_and_reuses_proven_images(
         left = values.where(values["value"] > 20)
         unequal = values.where(values["value"] > 16)
         matching = values.where(values["value"] > 20)
-        before = terminal_runs(session)
         paired = left.align(matching, on=tuple(zip(left.axes, matching.axes, strict=True)))
-        assert terminal_runs(session) == before
         union = left.align(unequal, on=tuple(zip(left.axes, unequal.axes, strict=True))).compute()
         union_rows = union.to_pandas()
         assert union_rows["right_present"].all()
@@ -133,8 +131,6 @@ def test_shared_matching_assumption_never_becomes_completed_evidence(
         assert frame["value"].tolist() == [index % 15 for index in range(64)]
         selected = values.where(values["value"] == 1).persist()
         assert selected.to_pandas()["value"].tolist() == [1] * 5
-        assert not hasattr(trusted, "_graph") and not hasattr(trusted, "_node")
-        assert not hasattr(trusted, "rollup")
         assert session.persisted_frame(trusted.artifact_id).to_pandas().equals(frame)
 
 

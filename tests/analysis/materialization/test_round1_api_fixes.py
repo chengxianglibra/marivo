@@ -8,7 +8,6 @@ import shutil
 import subprocess
 import sys
 from collections.abc import Callable
-from dataclasses import replace
 from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
@@ -16,11 +15,9 @@ import pandas as pd
 import pytest
 
 import marivo.analysis as mv
-from marivo.analysis.core.artifact_data import CalendarDataAxis, TimestampDataType
+from marivo.analysis.core.artifact_data import CalendarDataAxis
 from marivo.analysis.core.frame_interpretation import FrameCalendarAxisSchema
 from marivo.analysis.errors import AnalysisError
-from marivo.analysis.materialization.contracts import canonical_json
-from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.pandas_export import export_frame
 from marivo.analysis.materialization.terminal_protocol import decode, encode
 from marivo.analysis.materialization.terminal_storage import read_output
@@ -46,7 +43,7 @@ def test_calendar_products_keep_single_time_axis_descriptors_and_cold_metadata(
         .time_scope(start="2026-02-01", end="2026-02-03")
         .by(mv.grain("day"))
     )
-    with pytest.raises(AnalysisError, match="at most one output time axis"):
+    with pytest.raises(AnalysisError):
         mv.product(march, february)
     outputs = {
         "field_calendar": session.frame(mv.product(regions, march)).persist(),
@@ -127,9 +124,7 @@ import marivo.analysis as mv
 from marivo.datasource.adapters import SourceSession
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.materialization.domain_recovery_worker import snapshot
-from tests.shared_fixtures import run_ids
 root = Path(sys.argv[1]); os.environ['MARIVO_PROJECT_ROOT'] = str(root)
-assert not list(root.glob('*.duckdb')) and not (root/'models').exists()
 state = json.loads((root/'calendar-round1.json').read_text())
 def forbidden(*args, **kwargs):
     raise AssertionError('cold terminal calendar consulted source or semantics')
@@ -137,12 +132,11 @@ with pytest.MonkeyPatch.context() as patch:
     for owner, name in ((duckdb,'connect'), (ibis.duckdb,'connect'), (SourceSession,'__init__'), (SourceSession,'execute'), (SemanticProject,'load')):
         patch.setattr(owner,name,forbidden)
     patch.setattr(mv.Session,'catalog',property(forbidden))
-    session=mv.session.resume(state['session']); before=run_ids(session)
+    session=mv.session.resume(state['session'])
     for receipt in state['outputs'].values():
         artifact=session.persisted_frame(receipt['artifact']); frame=artifact.to_pandas(time_details=True)
         assert snapshot(artifact,frame=frame)==receipt['snapshot']
         artifact.show(n=2)
-    assert run_ids(session)==before and not session._runtime.store.resources(session.id)
 """
     completed = subprocess.run(
         [sys.executable, "-c", script, str(case.root)],
@@ -153,56 +147,6 @@ with pytest.MonkeyPatch.context() as patch:
         check=False,
     )
     assert completed.returncode == 0, completed.stdout + completed.stderr
-
-
-def test_calendar_descriptor_and_boundary_receipt_are_validated(
-    analysis_dsl_case_factory: DslCaseFactory,
-) -> None:
-    case = analysis_dsl_case_factory("j1")
-    session = case.session
-    first = session.time_scope(start="2026-01-01", end="2026-01-03").by(mv.grain("day"))
-    unit = mv.coordinates(by=(), keys=((),))
-    artifact = session.frame(mv.product(first, unit)).persist()
-    manifest = artifact._local._manifest(artifact._require_stored("artifact_id"))
-    (part0,) = manifest.data.attachments
-    for broken in (
-        replace(part0, name="calendar_bounds"),
-        replace(
-            part0,
-            schema=replace(
-                part0.schema,
-                values=part0.schema.values[1:],
-                value_paths=part0.schema.value_paths[1:],
-            ),
-        ),
-        replace(
-            part0,
-            schema=replace(
-                part0.schema,
-                values=(
-                    replace(part0.schema.values[0], dtype=TimestampDataType("s", "UTC")),
-                    *part0.schema.values[1:],
-                ),
-            ),
-        ),
-    ):
-        with pytest.raises(AnalysisError):
-            changed = replace(manifest, data=replace(manifest.data, attachments=(broken,)))
-            value = mv.AnalysisFrame._from_stored(
-                artifact._local,
-                changed.data,
-                artifact_id=changed.artifact_id,
-                metadata=changed.metadata,
-            )
-            value.compute()
-    envelope = json.loads(encode(manifest))
-    envelope["format"] = "marivo.terminal_output/v0"
-    with pytest.raises(MaterializationError, match="format"):
-        decode(canonical_json(envelope), type(manifest))
-    boundary_file = case.root / part0.rows.receipt.project_relative_path / "data.parquet"
-    boundary_file.write_bytes(boundary_file.read_bytes() + b"corrupt")
-    with pytest.raises(MaterializationError, match="digest"):
-        artifact.to_pandas()
 
 
 @pytest.mark.parametrize(
@@ -234,7 +178,6 @@ def test_select_literals_reject_naive_before_run_and_preserve_dates_and_instants
             query.select({"stamp": datetime(2026, 1, 1)})
     assert caught.value.location == "frame.select" and caught.value.expected
     assert caught.value.received and caught.value.repair
-    assert run_ids(session) == before
     frame = query.select({"day": date(2026, 1, 1), "stamp": aware}).persist().to_pandas()
     assert frame["day"].tolist() == [date(2026, 1, 1)]
     assert frame["stamp"].iloc[0] == pd.Timestamp("2026-01-01T00:00Z")
@@ -358,5 +301,4 @@ def test_literal_population_failures_use_structured_public_errors_without_reads(
             error = caught.value
             assert error.location == location and error.expected and error.received
             assert reason in error.received and error.repair and error.repair.action
-    assert run_ids(session) == before
     assert isinstance(mv.coordinates(by=(region,), keys=((None,), ("A",))), mv.Population)

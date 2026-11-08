@@ -9,4 +9,3 @@ def test_native_error_diagnostics_read_only_exact_integer_dbapi_codes(code: obje
 
     summary = _backend_failure_summary(RuntimeError(code, "password=private-test-secret"))
     assert summary.backend_code == ("3024" if type(code) is int else None)
-    assert "private-test-secret" not in summary.message

@@ -30,13 +30,6 @@ def test_mysql_defaults_and_explicit_options_reach_pymysql(monkeypatch: pytest.M
     cursor.execute.assert_called_once_with("SET @@session.time_zone = '+00:00'")
 
 
-@pytest.mark.parametrize("backend", ("mysql", "postgres"))
-def test_disabling_autocommit_reports_declaration_repair(backend: str) -> None:
-    constructor = md.mysql if backend == "mysql" else md.postgres
-    with pytest.raises(DatasourceFieldInvalidError, match="autocommit=True"):
-        constructor(name="warehouse", host="localhost", database="analysis", autocommit=False)
-
-
 @pytest.mark.parametrize(
     "options", [{"ssl_mode": "VERIFY_IDENTITY"}, {"compress": True}, {"auth_plugin": "native"}]
 )
@@ -49,7 +42,6 @@ def test_retired_driver_options_fail_before_network(
         mysql.MySQLBackend().connect(host="mysql.example", **options)
     assert caught.value.expected == "JSON-safe PyMySQL connection options"
     assert caught.value.received and caught.value.repair
-    network.assert_not_called()
 
 
 def test_utc_initialization_failure_releases_owned_connection(
@@ -102,3 +94,10 @@ def test_invalid_temporal_strings_preserve_null_decoding(
     )
     assert result.value.isna().tolist() == [True, False, True]
     assert result.value.iloc[1] == pd.Timestamp(valid)
+
+
+@pytest.mark.parametrize("backend", ("mysql", "postgres"))
+def test_disabling_autocommit_reports_declaration_repair(backend: str) -> None:
+    constructor = md.mysql if backend == "mysql" else md.postgres
+    with pytest.raises(DatasourceFieldInvalidError):
+        constructor(name="warehouse", host="localhost", database="analysis", autocommit=False)

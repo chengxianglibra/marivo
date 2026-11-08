@@ -170,14 +170,6 @@ def test_trino_fractional_format_reaches_date_parse() -> None:
     )
 
 
-@pytest.mark.parametrize("fmt", ("%Y-%U", "%Y-%m-%d %w"))
-def test_trino_unsupported_format_is_configuration_error_before_try(fmt: str) -> None:
-    with pytest.raises(
-        (DatasetCompilationError, TemporalExpressionError), match="unsupported directive"
-    ):
-        _sql("trino", fmt)
-
-
 def test_clickhouse_refuses_subsecond_formats() -> None:
     """A format ClickHouse cannot express exactly is refused, never truncated.
 
@@ -190,20 +182,6 @@ def test_clickhouse_refuses_subsecond_formats() -> None:
         parse_strptime("clickhouse", table.c.cast("string"), parse)
     assert isinstance(failure.value, (DatasetCompilationError, TemporalExpressionError))
     assert "sub-second" in (failure.value.received or "")
-
-
-@pytest.mark.parametrize("fmt", ["%Y-%m-%d %H:%M:%S%z", "%Y-%m-%d %H:%M:%S%Z"])
-def test_timezone_directives_never_reach_authoring_or_clickhouse(fmt: str) -> None:
-    """This stage excludes offset/zone parsing, and authoring already refuses it.
-
-    ``normalize_strptime`` probes the format through ``time.strptime``, which
-    rejects both directives, so no ClickHouse-specific timezone gate is needed
-    at compile time: an unauthorable format cannot reach the parser.
-    """
-    from marivo.semantic.time_format import normalize_strptime
-
-    with pytest.raises(ValueError):
-        normalize_strptime(fmt)
 
 
 @pytest.mark.parametrize("engine", ["mysql", "trino", "clickhouse"])

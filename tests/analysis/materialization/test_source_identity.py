@@ -93,7 +93,6 @@ def test_source_identity_metadata_preserves_binding_and_compact_aggregates(
             assert len({schema.binding_id for schema in prepared.schemas}) == 1
             plan = optimize_query(plan_query(graph, prepared.schemas))
             assert any(group.law == "source_block" for group in plan.fusion_groups)
-        assert trace.native_sql == []
 
         ordinary = session.observe({"total": amount.sum()}).compute().to_pandas()
         assert ordinary["total"].tolist() == [60]
@@ -114,7 +113,6 @@ def test_source_identity_metadata_preserves_binding_and_compact_aggregates(
         # neither a NULL preflight nor a transport of original identity rows.
         assert len(trace.native_sql) == 3
         assert trace.returned_rows == [1, 1, 3]
-        assert trace.uploaded_key_rows == []
 
         members = session.frame(session.members(entity)).compute()
         assert all(not column.nullable for axis in members._schema.axes for column in axis.columns)

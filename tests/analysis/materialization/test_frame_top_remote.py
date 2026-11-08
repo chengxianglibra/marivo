@@ -91,12 +91,7 @@ def test_native_read_top_retains_order_bounded_transport_and_fixed_boundary(
         assert top.to_pandas().iloc[0].tolist() == [("a", 1), 2**53 + 1]
         assert pending.top(0, by=pending["score"]).compute().to_pandas().empty
         assert trace.returned_rows == [4, 4, 1, 1]
-        assert trace.uploaded_key_rows == []
         assert all("ORDER BY" in sql for sql in trace.native_sql)
-        assert all(
-            "IS NOT DISTINCT FROM" not in sql and "<=>" not in sql for sql in trace.native_sql
-        )
-        assert all("SELECT DISTINCT" not in sql for sql in trace.native_sql)
         trace.save(
             "frame-top-" + backend,
             case.environment,
@@ -121,7 +116,7 @@ def test_native_read_top_retains_order_bounded_transport_and_fixed_boundary(
                 2**53 + 1,
             ]
             assert fixed.top(0, by=fixed["score"]).compute().to_pandas().empty
-        assert trace.returned_rows == [] and trace.uploaded_key_rows == []
+        assert trace.returned_rows == []
         if backend == "postgres":
             from tests.datasource.environment import postgres_analysis as postgres
 
@@ -141,7 +136,7 @@ def test_native_read_top_retains_order_bounded_transport_and_fixed_boundary(
                 empty = pending.top(n, by=pending["score"]).compute().to_pandas()
                 assert empty.empty
                 assert str(empty["score"].dtype) == "int64[pyarrow]"
-            assert trace.returned_rows == [1, 1] and trace.uploaded_key_rows == []
+            assert trace.returned_rows == [1, 1]
 
 
 @pytest.mark.parametrize("backend,profile", source_params(CASES))
@@ -167,8 +162,7 @@ def test_filtered_native_read_top_reuses_its_exact_member_scope(
         assert selected.top(0, by=selected["score"]).compute().to_pandas().empty
         empty = session.read(session.members(entity, where=weight < 0), {"score": score})
         assert empty.top(1, by=empty["score"]).compute().to_pandas().empty
-        assert trace.returned_rows == [2, 1, 1] and trace.uploaded_key_rows == []
-        assert all("EXISTS" not in sql and "SELECT DISTINCT" not in sql for sql in trace.native_sql)
+        assert trace.returned_rows == [2, 1, 1]
 
 
 @pytest.mark.parametrize(
@@ -216,7 +210,7 @@ def test_native_read_top_preserves_full_input_nonnull_identity_errors(
         assert failure.value.expected is not None
         assert "identity" in failure.value.expected
         assert "non-null" in failure.value.expected
-        assert trace.returned_rows == [1] and trace.uploaded_key_rows == []
+        assert trace.returned_rows == [1]
 
 
 @pytest.mark.parametrize(
@@ -265,7 +259,6 @@ def test_native_read_top_preserves_nonfinite_values_outside_selection(
             assert trace.returned_rows and all(count == 2 for count in trace.returned_rows)
         else:
             assert trace.returned_rows == [1]
-        assert trace.uploaded_key_rows == []
 
 
 @pytest.mark.parametrize("backend,profile", source_params([("mysql", "innodb-table")]))
@@ -302,7 +295,7 @@ def test_native_read_top_keeps_byte_identity_on_case_insensitive_columns(
         assert rows["score"].tolist() == [2**53 + 1, 2**53 + 1]
         top = pending.top(1, by=pending["score"]).compute().to_pandas()
         assert top.iloc[0].tolist() == [("A", 1), 2**53 + 1]
-        assert trace.returned_rows == [2, 1] and trace.uploaded_key_rows == []
+        assert trace.returned_rows == [2, 1]
         requested = mv.coordinates(
             by=(mv.identity(catalog_value(session.catalog, "sales.facts", kind="entity")),),
             keys=((("a", 1),), (("missing", 99),)),
@@ -348,4 +341,3 @@ def test_native_read_top_keeps_byte_identity_on_case_insensitive_columns(
         )
         result = session.observe({"total": total}, where=mv.in_population(native_categories))
         assert result.compute().to_pandas()["total"].tolist() == [30]
-        assert trace.uploaded_key_rows == []

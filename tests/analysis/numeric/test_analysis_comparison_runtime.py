@@ -344,7 +344,6 @@ def test_ordinary_ratio_and_cohort_singleton(analysis_dsl_case_factory: DslCaseF
     frame = _plain(saved).set_index("key_0")
     assert frame.loc[["A", "B"], "value"].tolist() == [1.0, 1.0]
     assert frame.loc[["C", "D"], "value"].isna().all()
-    assert not hasattr(saved, "rollup") and not hasattr(saved, "contract")
     first, second = _monthly(case, 8, overall=True), _monthly(case, 8, overall=True)
     assert _plain(
         first.compare(

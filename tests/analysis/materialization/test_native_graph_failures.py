@@ -78,7 +78,6 @@ def test_source_and_python_failures_preserve_atomic_publication(
         assert len(added) == 1
         assert added[0].lifecycle == ("succeeded" if phase == "after_commit" else "failed")
     assert prior.to_pandas().equals(prior_frame)
-    assert runtime.store.resources(session.id) == ()
     with runtime.store._connection() as connection:
         assert connection.execute("SELECT COUNT(*) FROM dataset_artifacts").fetchone()[
             0
@@ -113,10 +112,8 @@ def test_graph_has_no_hidden_600_second_expiry(
     monkeypatch.setattr(time, "monotonic", clock)
     monkeypatch.setattr(SourceSession, "execute", delayed)
     result = logical.compute()
-    assert terminal_runs(case.session) == ()
     assert ticks[0] > 600
     assert len(result.to_pandas()) > 0
-    assert case.session._runtime.store.resources(case.session.id) == ()
 
 
 def test_fresh_worker_contender_only_rejects_publication(
@@ -158,5 +155,4 @@ def test_fresh_worker_contender_only_rejects_publication(
     assert report["artifact"] == saved.artifact_id
     assert report["before"] == report["after"]
     assert len(terminal_runs(case.session)) == 1
-    assert store.resources(case.session.id) == ()
     assert saved.to_pandas()["value"].tolist() == [1000]

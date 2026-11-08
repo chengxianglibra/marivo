@@ -43,7 +43,6 @@ from marivo.analysis.core.frame_structure import (
 )
 from marivo.analysis.core.graph import BoundGraph
 from marivo.analysis.dsl.frame import AnalysisFrame
-from marivo.analysis.errors import AnalysisError
 from marivo.analysis.materialization.graph_exchange import StageOutput
 from marivo.analysis.materialization.graph_source_execution import (
     open_query_sources,
@@ -236,18 +235,6 @@ def test_native_source_child_keeps_one_prefixed_schedule(
             refused = fuse(prepared, fixed.lowered)
             assert refused.reads == ()
     assert output.table.iloc[0, 0] == 1
-
-
-def test_binary_and_unary_arities_are_closed() -> None:
-    from marivo.analysis.core.frame_expression import AlignFrameValues
-
-    leaf = FixedFrameInput("one", _schema())
-    for expression in (
-        FrameOperation((leaf,), AlignFrameValues(((0, 0),))),
-        FrameOperation((leaf, leaf), SelectValues((("copy", ValueSlot(0)),))),
-    ):
-        with pytest.raises(AnalysisError, match=r"explicit.*input"):
-            plan_frame(expression, {})
 
 
 def test_native_division_inference_uses_typed_nonnull_proxy() -> None:

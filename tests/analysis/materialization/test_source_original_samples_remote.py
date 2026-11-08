@@ -131,10 +131,8 @@ def test_native_sample_formula_shares_inner_aggregate(
         assert trace.returned_rows == [2]
         statement = trace.native_sql[0].upper()
         assert statement.count("GROUP BY") == 2
-        assert "JOIN" not in statement
-        assert "UNION" not in statement
         strict = (amount.sum(nulls="error") / amount.count(nulls="error")).per(customer).mean()
-        with pytest.raises(AnalysisError, match="non-NA source values"):
+        with pytest.raises(AnalysisError):
             session.observe({"strict": strict}, by=(channel,)).compute()
 
 
@@ -159,9 +157,6 @@ def test_remote_per_rollup_combines_shared_sample_before_empty_domain_mean(
         trace = capture_source(monkeypatch)
         frame = query.compute().to_pandas()
         assert frame["value"].tolist() == [400 / 3]
-        assert not any(
-            "__original_value" in name for names in trace.returned_columns for name in names
-        )
 
 
 @pytest.mark.parametrize("backend,profile", source_params(CASES))

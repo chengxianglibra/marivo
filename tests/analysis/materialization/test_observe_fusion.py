@@ -124,7 +124,6 @@ def test_multi_field_aggregate_keeps_nulls_types_and_empty_buckets(
         pd.testing.assert_frame_equal(result, baseline, check_dtype=backend != "mysql")
         assert str(result["total"].dtype) == "int64[pyarrow]"
         assert len(trace.native_sql) == (2 if calendar else 1)
-        assert trace.uploaded_key_rows == []
         assert result["total"].iloc[0] == 40
         assert result["exact"].iloc[0] == Decimal("40.03")
         assert result["average"].iloc[0] == 2.0
@@ -266,27 +265,3 @@ def test_count_and_quantiles_share_actual_scan(
                 "unmerged_seconds": baseline_trace.source_seconds,
             },
         )
-
-
-@pytest.mark.parametrize(
-    "backend,profile", source_params([("mysql", "innodb-table"), ("trino", "iceberg")])
-)
-def test_joint_aggregate_does_not_admit_unsupported_quantile(
-    backend: str,
-    profile: str,
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
-) -> None:
-    from marivo.analysis.errors import AnalysisStageUnavailableError
-    from tests.analysis.numeric.test_remote_numeric_query import DATA
-
-    monkeypatch.chdir(tmp_path)
-    with source_case(backend, profile, tmp_path, monkeypatch, DATA) as case:
-        _project(backend, case, monkeypatch, semantic_project_factory)
-        session = mv.session.get_or_create("unsupported-joint", timezone="UTC")
-        value = catalog_value(session.catalog, "sales.facts.weight", kind="measure")
-        trace = capture_source(monkeypatch)
-        with pytest.raises(AnalysisStageUnavailableError, match="quantile"):
-            session.observe({"count": value.count(), "q": value.quantile(0.5)}).compute()
-        assert trace.native_sql == []

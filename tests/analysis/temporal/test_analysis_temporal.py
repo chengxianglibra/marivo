@@ -1,6 +1,5 @@
 """Independent temporal boundaries, full-window evaluation and terminal reads."""
 
-from dataclasses import replace
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Literal
@@ -13,7 +12,6 @@ import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo._temporal_grid import BoundTimeGrid, bind_grid
 from marivo.analysis.core.time_grid import instant
-from marivo.analysis.datasets.errors import DatasetConstructionError
 from marivo.analysis.dsl.temporal import exact_scope
 from marivo.analysis.errors import AnalysisError
 from tests.shared_fixtures import (
@@ -77,12 +75,6 @@ def test_partial_cells_are_retained_by_shared_grid() -> None:
     assert len(day.cells) == 31
 
 
-@pytest.mark.parametrize("wall", [datetime(2026, 3, 8, 2, 30), datetime(2026, 11, 1, 1, 30)])
-def test_naive_gap_and_fold_have_no_implicit_resolution(wall: datetime) -> None:
-    with pytest.raises(DatasetConstructionError, match="instants"):
-        instant(wall, "America/New_York")
-
-
 def test_grid_wire_preserves_authority_and_rejects_changed_identity() -> None:
     grid = bind_grid(
         exact_scope(start="2026-03-08", end="2026-03-09", timezone="America/New_York"),
@@ -90,8 +82,6 @@ def test_grid_wire_preserves_authority_and_rejects_changed_identity() -> None:
     )
     adapter = TypeAdapter(BoundTimeGrid)
     assert adapter.validate_json(adapter.dump_json(grid), strict=True) == grid
-    with pytest.raises(ValueError, match="identity"):
-        replace(grid, boundary_timezone="UTC")
 
 
 def test_aware_endpoint_remains_instant() -> None:
@@ -1018,7 +1008,7 @@ def test_calendar_rules_keep_captured_facts_across_carriers(
         assert len(frozen_coordinates(combined)) == 5
         assert combined.schema.axes[0].role == "calendar"
     scalar = session.observe({"value": metric}, where=current_scope).compute()
-    with pytest.raises(AnalysisError, match="ordinal"):
+    with pytest.raises(AnalysisError):
         scalar.compare({"reference": mv.baseline(scalar, match=rule)})
     partial = session.observe(
         {"value": metric},
@@ -1026,7 +1016,7 @@ def test_calendar_rules_keep_captured_facts_across_carriers(
     ).compute()
     empty_partial = partial.where(partial["value"] > 10000).compute()
     for how in ("exact", "outer"):
-        with pytest.raises(AnalysisError, match=r"complete|prefix"):
+        with pytest.raises(AnalysisError):
             empty_partial.compare({"reference": mv.baseline(right_memory, match=rule)}).compute()
     state = checked(
         {

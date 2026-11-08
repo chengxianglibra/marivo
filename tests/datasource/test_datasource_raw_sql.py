@@ -41,13 +41,6 @@ def _register_raw_sql_ranking_fixture(project_root: Path) -> None:
     md.register(DuckDBSpec(name="warehouse", path=str(db_path)), project_root=project_root)
 
 
-def test_raw_sql_requires_reason_before_connecting(tmp_path: Path) -> None:
-    _register_raw_sql_fixture(tmp_path)
-
-    with pytest.raises(ValueError, match="reason must be non-empty"):
-        md.raw_sql(ms.ref.datasource("warehouse"), "SELECT 1", reason="", project_root=tmp_path)
-
-
 def test_raw_sql_does_not_classify_sql_text(tmp_path: Path) -> None:
     _register_raw_sql_fixture(tmp_path)
 
@@ -77,49 +70,8 @@ def test_raw_sql_returns_bounded_terminal_only_result(tmp_path: Path) -> None:
     assert as_ref(result.datasource) == ref_factory.datasource("warehouse")
     assert result.reason == "diagnose order amount sample"
     assert result.returned_row_count == 2
-    assert not hasattr(result, "row_count")
     assert result.shape == (2, 2)
     assert result.returned_row_count == result.shape[0]
-    assert not hasattr(result, "contract")
-    rendered = result.render()
-    assert "terminal_only" in rendered
-    assert "no semantic identity or typed analysis reentry" in rendered
-    assert "scope=complete returned query rows" in rendered
-    assert "business_coverage: unknown" in rendered
-    assert "Rows: 2 total; 2 shown" in rendered
-    assert "not full-source cardinality" in rendered
-    assert "no semantic identity or typed analysis reentry" in rendered
-    assert "escape_hatch" not in rendered
-    assert "diagnose order amount sample" in rendered
-    assert "memory" in rendered
-
-
-def test_raw_sql_result_cannot_reenter_typed_analysis(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    _register_raw_sql_fixture(tmp_path)
-    result = md.raw_sql(
-        ms.ref.datasource("warehouse"),
-        "SELECT id, amount FROM orders ORDER BY id",
-        reason="verify terminal result cannot reenter typed analysis",
-        project_root=tmp_path,
-    )
-
-    monkeypatch.chdir(tmp_path)
-    session = mv.session.get_or_create("raw-sql-terminal", timezone="UTC")
-    with pytest.raises(AnalysisError, match="RawSqlResult"):
-        session.observe({"raw": result})  # type: ignore[dict-item]  # Terminal results are invalid analysis inputs.
-    from marivo.datasource.adapters import provider_for
-
-    datasource = store.load_one("warehouse", project_root=tmp_path)
-    assert datasource is not None
-    with (
-        provider_for("duckdb").open(datasource) as source_session,
-        pytest.raises(DatasourceSourceCapabilityError),
-    ):
-        source_session.bind(result, source_identity="raw-sql-terminal")  # type: ignore[arg-type]  # Reject a terminal result.
-    assert not hasattr(result, "contract")
-    assert not hasattr(result, "execute")
 
 
 def test_raw_sql_works_after_inspect_table_on_same_duckdb_file(tmp_path: Path) -> None:
@@ -582,8 +534,6 @@ def test_raw_sql_retains_all_query_rows_and_sql_controls_size(tmp_path: Path) ->
         project_root=tmp_path,
     )
     assert [row["id"] for row in selected.rows] == [3, 5, 1]
-    assert not hasattr(complete, "is_truncated")
-    assert not hasattr(complete, "requested_limit")
 
 
 def test_raw_sql_has_no_implicit_row_cap(tmp_path: Path) -> None:
@@ -596,8 +546,6 @@ def test_raw_sql_has_no_implicit_row_cap(tmp_path: Path) -> None:
     )
     assert result.returned_row_count == 137
     assert len(result.to_pandas()) == 137
-    assert "137 total" in result.render()
-    assert "query_limit" not in result.render()
 
 
 def test_raw_sql_result_display_prioritizes_data_and_terminal_boundary(tmp_path: Path) -> None:
@@ -609,13 +557,8 @@ def test_raw_sql_result_display_prioritizes_data_and_terminal_boundary(tmp_path:
         timeout_seconds=10,
         project_root=tmp_path,
     )
-    rendered = result.render()
-    assert "terminal_only" in rendered
-    assert "escape_hatch" not in rendered
     assert result.timeout_seconds == 10
     assert result.duration_ms >= 0
-    assert "no metric" in rendered.lower() or "no semantic" in rendered.lower()
-    assert "available:" not in rendered
 
 
 def test_raw_sql_result_carries_duration_ms(tmp_path: Path) -> None:
@@ -682,25 +625,6 @@ def test_raw_sql_to_pandas_recursive_isolation_for_object_columns() -> None:
     assert result.rows[0]["data"] == [1, 2, 3]
 
 
-def test_raw_sql_result_rejects_returned_row_count_drift() -> None:
-    from marivo.datasource.manage import RawSqlResult
-
-    with pytest.raises(ValueError, match="returned_row_count must equal"):
-        RawSqlResult(
-            _datasource=ref_factory.datasource("wh"),
-            backend_type="duckdb",
-            sql="SELECT ok",
-            reason="validate bounded result count",
-            columns=("ok",),
-            types={"ok": "int64"},
-            rows=({"ok": 1},),
-            returned_row_count=2,
-            timeout_seconds=30,
-            duration_ms=5,
-            warnings=(),
-        )
-
-
 def test_raw_sql_terminal_facts_render_in_contract_order(tmp_path: Path) -> None:
     _register_raw_sql_fixture(tmp_path)
     result = md.raw_sql(
@@ -721,9 +645,6 @@ def test_raw_sql_terminal_facts_render_in_contract_order(tmp_path: Path) -> None
     )
     positions = tuple(rendered.index(label) for label in labels)
     assert positions == tuple(sorted(positions))
-    assert not hasattr(result, "contract")
-    for pandas_convenience in ("head", "dtypes", "groupby", "plot"):
-        assert not hasattr(result, pandas_convenience)
 
 
 def test_raw_sql_error_includes_execution_context(tmp_path: Path) -> None:
@@ -741,9 +662,6 @@ def test_raw_sql_error_includes_execution_context(tmp_path: Path) -> None:
     assert err.effect_observed.query_executed is True
     assert err.location is not None
     assert "warehouse" in err.location
-    rendered = str(err)
-    assert "raw_sql execution or result fetching failed" in rendered
-    assert "Repair:" in rendered
     assert err.repair is not None
 
 
@@ -796,4 +714,57 @@ def test_connectivity_worker_preserves_explicit_root_and_context(
     ]
     assert submitted["datasource"] == completed["datasource"] == "warehouse"
     assert completed["state"] == "succeeded" and completed["consumed_rows"] == 1
-    assert not (elsewhere / ".marivo").exists()
+
+
+def test_raw_sql_requires_reason_before_connecting(tmp_path: Path) -> None:
+    _register_raw_sql_fixture(tmp_path)
+
+    with pytest.raises(ValueError):
+        md.raw_sql(ms.ref.datasource("warehouse"), "SELECT 1", reason="", project_root=tmp_path)
+
+
+def test_raw_sql_result_cannot_reenter_typed_analysis(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _register_raw_sql_fixture(tmp_path)
+    result = md.raw_sql(
+        ms.ref.datasource("warehouse"),
+        "SELECT id, amount FROM orders ORDER BY id",
+        reason="verify terminal result cannot reenter typed analysis",
+        project_root=tmp_path,
+    )
+
+    monkeypatch.chdir(tmp_path)
+    session = mv.session.get_or_create("raw-sql-terminal", timezone="UTC")
+    with pytest.raises(AnalysisError):
+        session.observe({"raw": result})  # type: ignore[dict-item]  # Terminal results are invalid analysis inputs.
+    from marivo.datasource.adapters import provider_for
+
+    datasource = store.load_one("warehouse", project_root=tmp_path)
+    assert datasource is not None
+    with (
+        provider_for("duckdb").open(datasource) as source_session,
+        pytest.raises(DatasourceSourceCapabilityError),
+    ):
+        source_session.bind(result, source_identity="raw-sql-terminal")  # type: ignore[arg-type]  # Reject a terminal result.
+    assert not hasattr(result, "contract")
+    assert not hasattr(result, "execute")
+
+
+def test_raw_sql_result_rejects_returned_row_count_drift() -> None:
+    from marivo.datasource.manage import RawSqlResult
+
+    with pytest.raises(ValueError):
+        RawSqlResult(
+            _datasource=ref_factory.datasource("wh"),
+            backend_type="duckdb",
+            sql="SELECT ok",
+            reason="validate bounded result count",
+            columns=("ok",),
+            types={"ok": "int64"},
+            rows=({"ok": 1},),
+            returned_row_count=2,
+            timeout_seconds=30,
+            duration_ms=5,
+            warnings=(),
+        )

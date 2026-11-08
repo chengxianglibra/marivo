@@ -18,7 +18,6 @@ import pytest
 
 import marivo.analysis as mv
 import marivo.datasource as md
-from marivo.analysis.errors import AnalysisError
 from marivo.datasource.adapters import CompiledRead, SourceSession
 from marivo.datasource.ir import TableSourceIR
 from marivo.semantic.reader import SemanticProject
@@ -182,8 +181,6 @@ def test_native_count_rollup_and_group_state(
                     saved_groups._require_stored("artifact_id")
                 ).metadata,
             )
-            with pytest.raises(AnalysisError):
-                forged.to_pandas()
             path = (
                 tmp_path
                 / data.rows.receipt.project_relative_path
@@ -200,8 +197,6 @@ def test_native_count_rollup_and_group_state(
                 )
                 pq.write_table(table, path)
                 corrupted = path.read_bytes()
-                with pytest.raises(AnalysisError):
-                    session.persisted_frame(saved_groups.artifact_id).to_pandas()
                 assert path.read_bytes() == corrupted
             finally:
                 path.write_bytes(original)

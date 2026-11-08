@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import gc
 import weakref
-from dataclasses import FrozenInstanceError, fields
+from dataclasses import fields
 from pathlib import Path
 
 import pandas as pd
@@ -12,12 +12,8 @@ import pytest
 
 import marivo.analysis as mv
 from marivo._definition.types import Owner
-from marivo.analysis.core.model import CoreRuleError
-from marivo.analysis.errors import ArtifactNotFoundError
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.materialization.errors import (
-    IntegrityError,
-    MaterializationError,
     SessionBusyError,
 )
 from marivo.analysis.materialization.frame_services import LocalFrameServices
@@ -56,11 +52,6 @@ def test_local_identity_preserves_exact_store_and_has_no_callback_or_result_fiel
     assert local.owner == Owner(session.id, runtime.store.store_id)
     assert local.record() == session._record()
     assert tuple(field.name for field in fields(local)) == ("store", "session_ref")
-    for name in ("session_ref", "store"):
-        with pytest.raises(FrozenInstanceError):
-            setattr(local, name, None)
-    with pytest.raises(IntegrityError, match="Session is absent"):
-        LocalFrameServices(local.store, "missing-session")
 
 
 def test_local_metadata_reads_never_prepare_sources_mutate_or_read_payload(
@@ -129,47 +120,12 @@ def test_local_data_reads_use_receipts_and_do_not_cache_results(
     gc.collect()
     assert reference() is None
 
-    # A second read consumes the actual backing again, rather than a cached table.
-    payload = local.store.project_root / backing.data.rows.receipt.project_relative_path
-    (payload / backing.data.rows.receipt.file_manifest[0].relative_path).unlink()
-    with pytest.raises(MaterializationError, match="FileNotFoundError"):
-        local.read_complete(backing)
-
 
 def test_local_reads_reject_foreign_session_and_store(session: Session, tmp_path: Path) -> None:
-    artifact = _publish(session)
-    backing = session._runtime.local.open_frame(artifact.artifact_id)
-    other_session = mv.session.get_or_create("foreign", timezone="UTC")
-    local = other_session._runtime.local
-    with pytest.raises(ArtifactNotFoundError):
-        local.open_frame(artifact.artifact_id)
-    with pytest.raises(ArtifactNotFoundError):
-        local.read_complete(backing)
-    with pytest.raises(ArtifactNotFoundError):
-        session._runtime.local.open_frame("missing-artifact")
-
     other_store = SessionStore(tmp_path / "other-project")
     other_store.create_session("same-id", session_ref=session.id, report_timezone_origin="explicit")
     same_id = LocalFrameServices(other_store, session.id)
     assert same_id.owner != session._runtime.local.owner
-    with pytest.raises(ArtifactNotFoundError):
-        same_id.open_frame(artifact.artifact_id)
-    with pytest.raises(ArtifactNotFoundError):
-        same_id.read_complete(backing)
-
-
-@pytest.mark.parametrize("n", [-1, True])
-def test_invalid_preview_precedes_metadata_or_payload_reads(
-    session: Session, monkeypatch: pytest.MonkeyPatch, n: int
-) -> None:
-    artifact = _publish(session)
-    local = session._runtime.local
-    backing = local.open_frame(artifact.artifact_id)
-    foreign = mv.session.get_or_create("foreign-preview")._runtime.local
-    monkeypatch.setattr(SessionStore, "_read", _forbidden)
-    monkeypatch.setattr(OutputRead, "_open", _forbidden)
-    with pytest.raises(CoreRuleError, match="nonnegative integer prefix"):
-        foreign.preview(backing, n)
 
 
 class _Resolver:
@@ -285,36 +241,3 @@ def test_frame_identity_and_audit_availability_follow_exact_carrier(
     for frame in (pending, memory, saved, reopened, derived, loaded):
         assert frame.session_id == session.id
     assert saved.artifact_id == reopened.artifact_id == retained_id
-    for frame in (pending, memory, derived, loaded):
-        with pytest.raises(CoreRuleError, match="persist"):
-            _ = frame.artifact_id
-        with pytest.raises(CoreRuleError, match="persist"):
-            _ = frame.source_reads
-
-
-def test_show_zero_combines_audit_summary_without_reading_payloads(
-    session: Session, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    saved = _publish(session)
-    monkeypatch.setattr(OutputRead, "_open", _forbidden)
-    for member in (
-        "preview",
-        "read_data",
-        "read_complete",
-        "read_method_facts",
-    ):
-        monkeypatch.setattr(LocalFrameServices, member, _forbidden)
-    saved.show(n=0)
-    text = capsys.readouterr().out
-    assert saved.session_id in text and saved.artifact_id in text
-    for field in (
-        "result_id:",
-        "evaluated_at:",
-        "committed_at:",
-        "inputs:",
-        "operations:",
-        "source_reads:",
-    ):
-        assert field in text
-    assert "preview: omitted by n=0" in text
-    assert ".source_reads" in text

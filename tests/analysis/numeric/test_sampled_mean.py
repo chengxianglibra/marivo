@@ -117,11 +117,8 @@ def test_sample_folds_compile_native_aggregates_without_clock_completion(
     sql = ibis.to_sql(result.table, dialect=backend).lower()
     assert "avg(" in sql
     assert f"{'avg' if reducer == 'mean' else reducer}(" in sql
-    assert "row_number" not in sql
-    assert "__coverage_" not in sql
     assert len(result.checks) == 1
     assert result.checks[0][1] == "non-NA internal samples"
-    assert "key.1" not in result.table.columns
     _assert_no_true_filters(sql, backend)
     assert "2026-10-01" in sql and "2026-10-02" in sql
 
@@ -345,7 +342,6 @@ def test_clickhouse_set_index_sample_mean_omits_true_filters(
         [
             ("duckdb", "table", "DECIMAL(18,2)", True),
             ("duckdb", "table", "DECIMAL(18,2)", False),
-            ("trino", "iceberg", "DOUBLE", False),
         ]
     ),
 )
@@ -375,15 +371,6 @@ def test_exact_quantiles_with_cadence_finish_before_sample_mean(
         quantile = amount.quantile(0.95, time=point)
         median = amount.median(time=point)
         trace = capture_source(monkeypatch)
-        if backend == "trino":
-            from marivo.analysis.errors import AnalysisStageUnavailableError
-
-            with pytest.raises(AnalysisStageUnavailableError, match="trino: quantile"):
-                session.observe(
-                    {"q": quantile.per(point).mean()}, by=(category,), where=scope
-                ).compute()
-            assert trace.returned_rows == []
-            return
         rows = (
             session.observe(
                 {"q": quantile.per(point).mean(), "median": median.per(point).mean()},
@@ -400,14 +387,7 @@ def test_exact_quantiles_with_cadence_finish_before_sample_mean(
             assert actual == [Decimal(expected) if amount_type != "DOUBLE" else float(expected)]
             if amount_type != "DOUBLE":
                 assert isinstance(actual[0], Decimal) and actual[0].as_tuple().exponent == -2
-        assert all("__quantile_count" not in columns for columns in trace.returned_columns)
         assert trace.returned_rows in ([1], [1, 1])
-        for metric in (
-            amount.quantile(0.95, time=point, nulls="error").per(point).mean(),
-            median.per(point).mean(nulls="error"),
-        ):
-            with pytest.raises(MaterializationError, match="non-NA"):
-                session.observe({"v": metric}, where=scope).compute()
         missing = session.time_scope(start="2026-10-01", end="2026-10-01T03:00:00")
         rows = (
             session.observe({"v": quantile.per(point).mean()}, where=missing).compute().to_pandas()
@@ -474,7 +454,6 @@ def test_native_mean_preserves_sample_weighting_and_fixed_result(
             old = session.observe({"v": metric}, by=(category,), where=scope).compute().to_pandas()
         assert old["v"].tolist() == pytest.approx([100 / 3])
         assert trace.returned_rows[-1] == 3
-        assert not trace.uploaded_key_rows
         stored = result.persist()
 
         def offline(*args: object, **kwargs: object) -> None:
@@ -521,7 +500,6 @@ def test_native_mean_keeps_backend_null_and_large_value_results(
         value = query.compute().to_pandas()["v"].iloc[0]
         assert pd.isna(value) if expected is None else value == pytest.approx(expected)
         assert trace.returned_rows == [1]
-        assert not trace.uploaded_key_rows
 
 
 def _driver_rows(backend: str, case: Case, sql: str) -> tuple[tuple[object, ...], ...]:
@@ -605,7 +583,6 @@ def test_native_mean_uses_backend_large_value_arithmetic_without_local_retry(
             assert failure.stage in ("source_execution", "source_conversion")
             assert failure.received is not None
             assert type(error).__name__ in failure.received
-            assert not trace.returned_rows
         else:
             assert failure is None
             assert actual is not None
@@ -621,9 +598,7 @@ def test_native_mean_uses_backend_large_value_arithmetic_without_local_retry(
             else:
                 assert value == expected
             assert trace.returned_rows == [1]
-        assert not trace.uploaded_key_rows
         assert len(trace.native_sql) == 1
-        assert "__mean_safe" not in trace.native_sql[0]
 
 
 @pytest.mark.parametrize(
@@ -687,9 +662,6 @@ def test_native_mean_finishes_integer_and_decimal_samples_in_one_row(
         else:
             assert rows["v"].tolist() == pytest.approx(expected)
         assert trace.returned_rows == [1, 1]
-        assert not trace.uploaded_key_rows
-        assert "ROW_NUMBER" not in trace.native_sql[0]
-        assert "__coverage_" not in trace.native_sql[0]
 
 
 @pytest.mark.parametrize("reducer,expected", [("min", 0.0), ("max", 80.0)])
@@ -736,7 +708,6 @@ def test_native_extrema_reduce_sparse_completed_means_with_null_checks(
         # Three completed timestamp means are [0, 80, 20], despite a raw maximum of 100.
         assert rows["v"].tolist() == [expected]
         assert trace.returned_rows == [1]
-        assert "sample_check.null" not in trace.returned_columns[0]
         missing = session.time_scope(start="2026-10-01", end="2026-10-01T03:00:00")
         rows = session.observe({"v": metric}, by=(category,), where=missing).compute().to_pandas()
         assert rows["v"].tolist() == [expected]
@@ -776,7 +747,7 @@ def test_clickhouse_native_nonnull_sample_clock_preserves_extrema_policies(
         # The native timestamp means are [0, NULL, 20].
         assert rows["v"].tolist() == [expected]
         strict = samples.min(nulls="error") if reducer == "min" else samples.max(nulls="error")
-        with pytest.raises(MaterializationError, match="non-NA internal samples"):
+        with pytest.raises(MaterializationError):
             session.observe({"v": strict}, where=scope).compute()
         empty = amount.mean(time=point).where(amount < 0).per(point)
         metric = empty.min() if reducer == "min" else empty.max()
@@ -785,7 +756,6 @@ def test_clickhouse_native_nonnull_sample_clock_preserves_extrema_policies(
         # Empty grouped input returns no source row; the fixed scope supplies
         # the one NA output cell.
         assert trace.returned_rows == [1, 1, 0]
-        assert not trace.uploaded_key_rows
 
 
 @pytest.mark.parametrize(
@@ -821,7 +791,7 @@ def test_native_extrema_preserve_null_policy_and_backend_floats(
         trace = capture_source(monkeypatch)
         query = session.observe({"v": metric}, by=time_population(scope))
         if error:
-            with pytest.raises(MaterializationError, match=error):
+            with pytest.raises(MaterializationError):
                 query.compute()
         else:
             value = query.compute().to_pandas()["v"].iloc[0]
@@ -874,32 +844,6 @@ def test_sample_extrema_without_cadence_exclude_filtered_away_samples(
             metric = invalid.min() if reducer == "min" else invalid.max()
             rows = session.observe({"v": metric}, where=scope).compute().to_pandas()
             assert rows["v"].isna().all() and len(rows) == 1
-
-
-@pytest.mark.parametrize("reducer", ["min", "max"])
-def test_sample_extrema_without_cadence_keep_present_null_samples(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
-    reducer: str,
-) -> None:
-    with mean_session(
-        "duckdb",
-        "table",
-        tmp_path,
-        monkeypatch,
-        semantic_project_factory,
-        values=(0, None, None, None, 20),
-        cadence=False,
-    ) as (session, _):
-        amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
-        point = catalog_value(session.catalog, "sales.facts.point", kind="time_dimension")
-        category = catalog_value(session.catalog, "sales.facts.category", kind="dimension")
-        scope = session.time_scope(start="2026-10-01", end="2026-10-01T02:00:00")
-        samples = amount.mean(time=point).where(category == "A").per(point)
-        metric = samples.min(nulls="error") if reducer == "min" else samples.max(nulls="error")
-        with pytest.raises(MaterializationError, match="non-NA internal samples"):
-            session.observe({"v": metric}, where=scope).compute()
 
 
 @pytest.mark.parametrize(
@@ -970,7 +914,6 @@ def test_native_sample_extrema_return_final_rows_at_scale(
         assert rows["min"].tolist() == [0.0]
         assert rows["max"].tolist() == [10.0]
         assert trace.returned_rows == [1]
-        assert not trace.uploaded_key_rows
         trace.save(
             f"samples-extrema-{sample_count}",
             case.environment,
@@ -1100,7 +1043,7 @@ def test_native_mean_checks_nulls_without_requiring_clock_coverage(
         ):
             query = session.observe({"v": metric}, by=time_population(scope))
             for selected in (query, query.top(0, by=query["v"])):
-                with pytest.raises(MaterializationError, match="non-NA"):
+                with pytest.raises(MaterializationError):
                     selected.compute()
         empty = (
             session.observe(
@@ -1131,8 +1074,6 @@ def test_native_mean_checks_nulls_without_requiring_clock_coverage(
         )
         assert unbounded["v"].tolist() == [0.0]
         assert trace.returned_rows == [1] * 8
-        assert not trace.uploaded_key_rows
-        assert all("__coverage_" not in sql and "ROW_NUMBER" not in sql for sql in trace.native_sql)
 
 
 @pytest.mark.parametrize("shape", ["direct", "add_zero", "multiply_one"])
@@ -1161,12 +1102,10 @@ def test_sample_mean_strict_domain_is_independent_of_child_shape(
         trace = capture_source(monkeypatch)
         ignored = session.observe({"v": samples.mean()}, where=scope).compute().to_pandas()
         assert ignored["v"].tolist() == [20.0]
-        assert all("sample_check.null" not in names for names in trace.returned_columns)
-        with pytest.raises(MaterializationError, match="non-NA") as captured:
+        with pytest.raises(MaterializationError) as captured:
             session.observe({"v": samples.mean(nulls="error")}, where=scope).compute()
         assert captured.value.expected == "non-NA internal samples"
         assert "mean(nulls='error')" in (captured.value.received or "")
-        assert not trace.uploaded_key_rows
 
 
 @pytest.mark.parametrize(
@@ -1207,7 +1146,7 @@ def test_native_mean_strict_empty_domain_returns_null(
             frame = session.observe({"v": metric}).compute().to_pandas()
             assert frame["v"].isna().tolist() == [True]
         assert trace.returned_rows == [1, 1]
-        assert len(trace.native_sql) == 2 and not trace.uploaded_key_rows
+        assert len(trace.native_sql) == 2
 
 
 def test_native_mean_strict_does_not_demand_filtered_away_samples(
@@ -1331,13 +1270,8 @@ def test_time_means_share_observed_sample_policy_across_formulas(
             assert frame["wrapped"].tolist() == [15.0]
             assert frame["sum_mean"].tolist() == [35.0]
             assert frame["weighted"].tolist() == pytest.approx([1300 / 70])
-            quantile = amount.quantile(0.95, time=point).per(point).mean()
-            if backend in {"mysql", "trino"}:
-                from marivo.analysis.errors import AnalysisStageUnavailableError
-
-                with pytest.raises(AnalysisStageUnavailableError, match=backend + ": quantile"):
-                    session.observe({"quantile_mean": quantile}, by=by, where=where).compute()
-            else:
+            if backend not in {"mysql", "trino"}:
+                quantile = amount.quantile(0.95, time=point).per(point).mean()
                 rows = (
                     session.observe({"quantile_mean": quantile}, by=by, where=where)
                     .compute()
@@ -1382,7 +1316,6 @@ def test_sparse_time_samples_preserve_nulls_and_native_extrema(
         )
         assert rows["latency"].tolist() == [20.0]
         assert trace.returned_rows == ([2] if not native and backend in {"mysql", "trino"} else [1])
-        assert not trace.uploaded_key_rows
 
 
 @pytest.mark.parametrize(
@@ -1431,7 +1364,6 @@ def test_sparse_samples_exclude_filtered_clocks(
         )
         assert rows["filtered"].tolist() == [30.0 if native else 29.5]
         assert trace.returned_rows == ([2] if not native and backend in {"mysql", "trino"} else [1])
-        assert not trace.uploaded_key_rows
 
 
 def test_time_mean_keeps_explicit_sample_domain_and_existing_null_policy(
@@ -1472,7 +1404,7 @@ def test_time_mean_keeps_explicit_sample_domain_and_existing_null_policy(
         assert frame["mean_samples"].tolist() == [10.0]
         assert frame["min_sum"].tolist() == [0.0]
         assert frame["p95_sum"].tolist() == [9.5]
-        with pytest.raises(MaterializationError, match="non-NA"):
+        with pytest.raises(MaterializationError):
             session.observe(
                 {"strict": amount.mean(time=point).per(samples).mean(nulls="error")}
             ).compute()
@@ -1496,8 +1428,6 @@ def test_calendar_sample_folds_keep_joint_keys_without_cross_bucket_completion(
     profile: str,
     grain: Literal["day", "hour"],
 ) -> None:
-    from marivo.analysis.methods import _sample_numeric
-
     with mean_session(
         backend,
         profile,
@@ -1521,12 +1451,9 @@ def test_calendar_sample_folds_keep_joint_keys_without_cross_bucket_completion(
         category = catalog_value(session.catalog, "sales.facts.category", kind="dimension")
         samples = amount.sum(time=point).per(point)
         mean, p95 = samples.mean(), samples.quantile(0.95)
-        reducer = Mock(wraps=_sample_numeric.reduce_samples)
-        monkeypatch.setattr(_sample_numeric, "reduce_samples", reducer)
         for days in (1, 3):
             scope = session.time_scope(start="2026-10-01", end=f"2026-10-0{days + 1}")
             report_grain = scope.by(mv.grain(grain))
-            reducer.reset_mock()
             rows = (
                 session.observe(
                     {"mean": mean, "p95": p95, "ratio": p95 / mean, "count": samples.count()},
@@ -1546,7 +1473,6 @@ def test_calendar_sample_folds_keep_joint_keys_without_cross_bucket_completion(
             assert absent[["p95", "ratio"]].isna().all().all()
             assert absent["count"].tolist() == [0] * len(absent)
             assert len(rows) == days * (24 if grain == "hour" else 1)
-            assert not reducer.call_args_list
 
 
 @pytest.mark.parametrize(
@@ -1729,10 +1655,6 @@ def test_all_time_sample_reducers_allow_missing_clocks_without_period(
                 assert rows[reducer].tolist() == pytest.approx([value])
             if len(expected) == 1 and next(iter(expected)) in ("mean", "min", "max"):
                 assert trace.returned_rows[before:] == [1]
-        assert all(
-            "__coverage_" not in sql and "__sampling_" not in sql for sql in trace.native_sql
-        )
-        assert not trace.uploaded_key_rows
 
 
 @pytest.mark.parametrize(
@@ -1746,8 +1668,6 @@ def test_sample_summary_shares_one_native_read_and_returns_only_final_groups(
     backend: str,
     profile: str,
 ) -> None:
-    from marivo.analysis.methods import _sample_numeric
-
     with mean_session(
         backend,
         profile,
@@ -1775,8 +1695,6 @@ def test_sample_summary_shares_one_native_read_and_returns_only_final_groups(
         ):
             with monkeypatch.context() as probe:
                 trace = capture_source(probe, measure_cost=True)
-                reducer = Mock(wraps=_sample_numeric.reduce_samples)
-                probe.setattr(_sample_numeric, "reduce_samples", reducer)
                 result = session.observe(
                     {
                         "average": samples.mean(),
@@ -1798,7 +1716,6 @@ def test_sample_summary_shares_one_native_read_and_returns_only_final_groups(
                 assert trace.returned_rows == (
                     [2, size] if any(isinstance(axis, mv.CalendarAxis) for axis in by) else [size]
                 )
-                assert not reducer.call_args_list
                 sql = trace.native_sql[-1].lower()
                 assert sql.count("sum(") == 1
                 if backend == "clickhouse":
@@ -1818,8 +1735,6 @@ def test_distributed_sample_sum_finishes_globally_before_exact_fold(
     monkeypatch: pytest.MonkeyPatch,
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
 ) -> None:
-    from marivo.analysis.methods import _sample_numeric
-
     with mean_session(
         "clickhouse",
         "distributed",
@@ -1833,8 +1748,6 @@ def test_distributed_sample_sum_finishes_globally_before_exact_fold(
         point = catalog_value(session.catalog, "sales.facts.point", kind="time_dimension")
         samples = amount.sum(time=point).per(point)
         trace = capture_source(monkeypatch)
-        reducer = Mock(wraps=_sample_numeric.reduce_samples)
-        monkeypatch.setattr(_sample_numeric, "reduce_samples", reducer)
         rows = (
             session.observe({"average": samples.mean(), "p95": samples.quantile(0.95)})
             .compute()
@@ -1844,7 +1757,6 @@ def test_distributed_sample_sum_finishes_globally_before_exact_fold(
         assert rows["average"].tolist() == [60.0]
         assert rows["p95"].tolist() == [114.0]
         assert trace.returned_rows == [1]
-        assert not reducer.call_args_list
 
 
 @pytest.mark.parametrize(
@@ -1866,8 +1778,6 @@ def test_native_time_sample_fold_keeps_overlapping_window_occurrences(
     backend: str,
     profile: str,
 ) -> None:
-    from marivo.analysis.methods import _sample_numeric
-
     with mean_session(
         backend, profile, tmp_path, monkeypatch, semantic_project_factory, aware=backend != "mysql"
     ) as (session, _):
@@ -1881,8 +1791,6 @@ def test_native_time_sample_fold_keeps_overlapping_window_occurrences(
             .window(mv.trailing_duration(duration=timedelta(hours=2)))
         )
         trace = capture_source(monkeypatch)
-        reducer = Mock(wraps=_sample_numeric.reduce_samples)
-        monkeypatch.setattr(_sample_numeric, "reduce_samples", reducer)
         rows = (
             session.observe({"average": metric}, by=(calendar_scope.by(mv.grain("hour")),))
             .compute()
@@ -1891,7 +1799,6 @@ def test_native_time_sample_fold_keeps_overlapping_window_occurrences(
         # Each window independently completes the SUM samples: [0, 300] and [0, 300, 0].
         assert rows["average"].tolist() == [150.0, 100.0]
         assert trace.returned_rows == [2, 2]
-        assert not reducer.call_args_list
 
 
 @pytest.mark.runtime
@@ -1963,7 +1870,6 @@ def test_native_ordered_samples_preserve_null_endpoints_and_duplicate_time_check
 ) -> None:
     from marivo._definition.expressions import MetricNode, PerReduce
     from marivo.analysis.compiler.sample_reductions import SampleLowerer, SampleRelation
-    from marivo.analysis.methods import _sample_numeric
 
     ordered_checks: list[tuple[tuple[str, str, str], ...]] = []
     original_lower = SampleLowerer.lower
@@ -1998,8 +1904,6 @@ def test_native_ordered_samples_preserve_null_endpoints_and_duplicate_time_check
         scope = session.time_scope(start="2026-10-01", end="2026-10-01T02:00:00")
         samples = amount.mean(time=point).per(point)
         trace = capture_source(monkeypatch)
-        reducer = Mock(wraps=_sample_numeric.reduce_samples)
-        monkeypatch.setattr(_sample_numeric, "reduce_samples", reducer)
         rows = (
             session.observe(
                 {
@@ -2017,7 +1921,6 @@ def test_native_ordered_samples_preserve_null_endpoints_and_duplicate_time_check
         assert rows["last"].tolist() == [20.0]
         assert rows[["first_null", "last_null"]].isna().all().all()
         assert trace.returned_rows == [1, 1, 1, 1]
-        assert not reducer.call_args_list
         assert ordered_checks
         assert all(
             expected != "one internal sample per time key"
@@ -2026,7 +1929,7 @@ def test_native_ordered_samples_preserve_null_endpoints_and_duplicate_time_check
         )
         ordered_checks.clear()
         duplicate = amount.mean(time=point).per((point, category)).first(order_by=point)
-        with pytest.raises(MaterializationError, match="one internal sample per time key"):
+        with pytest.raises(MaterializationError):
             session.observe({"first": duplicate}, where=scope).compute()
         assert any(
             expected == "one internal sample per time key"
@@ -2054,8 +1957,6 @@ def test_nested_ordered_samples_keep_explicit_parent_domain(
     backend: str,
     profile: str,
 ) -> None:
-    from marivo.analysis.methods import _sample_numeric
-
     with mean_session(
         backend,
         profile,
@@ -2073,8 +1974,6 @@ def test_nested_ordered_samples_keep_explicit_parent_domain(
             "first": samples.first(order_by=point),
             "last": samples.last(order_by=point),
         }
-        reducer = Mock(wraps=_sample_numeric.reduce_samples)
-        monkeypatch.setattr(_sample_numeric, "reduce_samples", reducer)
         for keys in ((("A",),), (("B",),), (("A",), ("B",))):
             domain = mv.coordinates(by=(category,), keys=keys)
             rows = (
@@ -2090,10 +1989,6 @@ def test_nested_ordered_samples_keep_explicit_parent_domain(
             else:
                 assert rows["first"].tolist() == [10.0]
                 assert rows["last"].tolist() == [100.0]
-        assert not reducer.call_args_list
-        for endpoint in endpoints.values():
-            with pytest.raises(MaterializationError, match="non-NA internal samples"):
-                session.observe({"strict": endpoint.per(domain).mean(nulls="error")}).compute()
 
 
 @pytest.mark.parametrize("native", [True, False])

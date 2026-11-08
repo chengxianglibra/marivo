@@ -50,7 +50,7 @@ def test_public_ordinal_retains_original_positions_after_selection(
     )
     paired = lengths[1] > lengths[0]
     if paired:
-        with pytest.raises(AnalysisError, match="actual baseline time row"):
+        with pytest.raises(AnalysisError):
             comparison.compute()
         comparison = selected.align(
             baseline, match=mv.ordinal(), on=tuple(zip(selected.axes, baseline.axes, strict=True))

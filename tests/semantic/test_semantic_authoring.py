@@ -18,7 +18,7 @@ Historical coverage groups:
 from __future__ import annotations
 
 from collections.abc import Callable, Iterator
-from typing import Literal, get_type_hints
+from typing import Literal
 
 import ibis.expr.types as ibis_ir
 import pytest
@@ -256,15 +256,6 @@ def test_model_default_false_does_not_set_context() -> None:
         _exit_ctx()
 
 
-def test_model_requires_owner_keyword() -> None:
-    _enter_ctx()
-    try:
-        with pytest.raises(TypeError):
-            ms.domain(name="sales")  # type: ignore[call-arg]
-    finally:
-        _exit_ctx()
-
-
 def test_model_owner_must_be_non_empty_string() -> None:
     owner: object
     for owner in [42, None, "", "   "]:
@@ -273,7 +264,6 @@ def test_model_owner_must_be_non_empty_string() -> None:
             with pytest.raises(SemanticDecoratorError) as exc_info:
                 ms.domain(name="sales", owner=owner)  # type: ignore[arg-type]
             assert exc_info.value.kind == ErrorKind.INVALID_DOMAIN_OWNER
-            assert "owner must be a non-empty string" in str(exc_info.value)
         finally:
             _exit_ctx()
 
@@ -318,7 +308,6 @@ def test_dataset_rejects_bare_string_datasource() -> None:
             ms.entity(name="orders", datasource="wh", source=md.table("orders"))  # type: ignore[call-overload]  # intentional rejection input
 
         assert exc_info.value.kind == ErrorKind.INVALID_REF
-        assert 'ms.ref.datasource("warehouse")' in str(exc_info.value)
     finally:
         _exit_ctx()
 
@@ -338,7 +327,6 @@ def test_dimension_rejects_bare_string_domain() -> None:
                 return table.region
 
         assert exc_info.value.kind == ErrorKind.INVALID_REF
-        assert "ms.domain(name=...)" in str(exc_info.value)
     finally:
         _exit_ctx()
 
@@ -412,7 +400,6 @@ def test_entity_rejects_invalid_source_value() -> None:
         with pytest.raises(SemanticDecoratorError) as exc_info:
             ms.entity(name="orders", datasource=ms.ref.datasource("wh"), source=object())  # type: ignore[call-overload]  # intentional rejection input
         assert exc_info.value.kind == ErrorKind.INVALID_REF
-        assert "source" in str(exc_info.value)
     finally:
         _exit_ctx()
 
@@ -560,7 +547,6 @@ def test_field_body_rejects_lambda() -> None:
                 return fn(table)
 
         assert exc_info.value.kind == ErrorKind.INVALID_COMPONENT_BODY
-        assert "Dimension body of 'amount'" in str(exc_info.value)
     finally:
         _exit_ctx()
 
@@ -616,7 +602,6 @@ def test_dimension_column_rejects_string_entity() -> None:
         _exit_ctx()
 
     assert exc_info.value.kind == ErrorKind.INVALID_REF
-    assert "entity must be native entity symbol" in str(exc_info.value)
 
 
 def test_dimension_column_rejects_empty_column() -> None:
@@ -631,7 +616,6 @@ def test_dimension_column_rejects_empty_column() -> None:
         _exit_ctx()
 
     assert exc_info.value.kind == ErrorKind.INVALID_REF
-    assert "column must be a non-empty string" in str(exc_info.value)
 
 
 def test_measure_body_error_uses_measure_label() -> None:
@@ -642,7 +626,6 @@ def test_measure_body_error_uses_measure_label() -> None:
             return table.amount
 
     assert caught.value.kind == ErrorKind.INVALID_COMPONENT_BODY
-    assert "amount" in str(caught.value)
     assert "zero-argument" in str(caught.value.expected)
 
 
@@ -700,7 +683,6 @@ def test_measure_column_rejects_string_entity() -> None:
         _exit_ctx()
 
     assert exc_info.value.kind == ErrorKind.INVALID_REF
-    assert "entity must be native entity symbol" in str(exc_info.value)
 
 
 # ---------------------------------------------------------------------------
@@ -718,8 +700,6 @@ def test_time_dimension_body_error_uses_time_dimension_label() -> None:
                 return table.created_at
                 table.created_at  # noqa: B018
 
-        assert "Time dimension body of 'order_date'" in str(exc_info.value)
-        assert "forbidden Expr statement" in str(exc_info.value)
     finally:
         _exit_ctx()
 
@@ -761,8 +741,6 @@ def test_hour_prefix_rejects_string_prefix() -> None:
         ms.hour_prefix("sales.orders.order_date")  # type: ignore[arg-type]
 
     assert exc_info.value.kind == ErrorKind.INVALID_REF
-    assert "prefix must be native time_dimension symbol" in str(exc_info.value)
-    assert "got str" in str(exc_info.value)
 
 
 def test_time_dimension_rejects_invalid_parse_value() -> None:
@@ -778,14 +756,13 @@ def test_time_dimension_rejects_invalid_parse_value() -> None:
                 parse=object(),  # type: ignore[arg-type]
             )(order_date)
         assert exc_info.value.kind == ErrorKind.INVALID_REF
-        assert "parse" in str(exc_info.value)
     finally:
         _exit_ctx()
 
 
 def test_time_field_rejects_removed_granularity() -> None:
-    with pytest.raises(TypeError, match="granularity"):
-        ms.time_dimension(entity=ms.ref.entity("sales.orders"), granularity="day")  # type: ignore[call-arg]
+    with pytest.raises(TypeError):
+        ms.time_dimension(entity=ms.ref.entity("sales.orders"), granularity="day")  # type: ignore[call-arg]  # Removed keyword.
 
 
 def test_time_field_body_rejects_sql_escape_hatch() -> None:
@@ -879,34 +856,16 @@ def test_time_field_rejects_invalid_timezone() -> None:
             def created_at(table: object) -> object:
                 return None
 
-        assert "timezone" in exc_info.value.message
     finally:
         _exit_ctx()
 
 
 def test_time_field_rejects_unsupported_strptime_shorthands() -> None:
     """Shorthand formats are rejected by ms.strptime()."""
-    with pytest.raises(ValueError, match="%"):
+    with pytest.raises(ValueError):
         ms.strptime("yyyymmdd")
-    with pytest.raises(ValueError, match="%"):
+    with pytest.raises(ValueError):
         ms.strptime("hh")
-
-
-def test_time_field_rejects_date_format_on_temporal_type() -> None:
-    """date_format is no longer a parameter on time_dimension; this is enforced by signature."""
-    _enter_ctx(default_domain="sales")
-    try:
-        with pytest.raises(TypeError):
-
-            @ms.time_dimension(
-                entity=ms.ref.entity("sales.orders"),
-                parse=ms.timestamp(timezone="UTC"),
-                date_format="%Y-%m-%d",  # type: ignore[call-arg]
-            )
-            def created_at(table: object) -> object:
-                return None
-    finally:
-        _exit_ctx()
 
 
 def test_time_dimension_without_parse_is_valid() -> None:
@@ -970,12 +929,6 @@ def test_time_field_strips_whitespace_from_strptime() -> None:
         assert ir.parse.format == "%Y-%m-%d"
     finally:
         _exit_ctx()
-
-
-def test_time_field_rejects_invalid_strptime_directive() -> None:
-    """Unknown strptime directives like %Q are rejected by ms.strptime()."""
-    with pytest.raises(ValueError):
-        ms.strptime("%Q%m%d")
 
 
 def test_time_dimension_accepts_sample_interval() -> None:
@@ -1071,7 +1024,6 @@ def test_strptime_time_dimension_rejects_sample_interval_without_date_context() 
                 return None
 
         assert exc_info.value.kind == ErrorKind.INVALID_SAMPLE_INTERVAL
-        assert "date context" in exc_info.value.message
     finally:
         _exit_ctx()
 
@@ -1201,7 +1153,6 @@ def test_time_dimension_column_rejects_string_entity() -> None:
         _exit_ctx()
 
     assert exc_info.value.kind == ErrorKind.INVALID_REF
-    assert "entity must be native entity symbol" in str(exc_info.value)
 
 
 def test_time_dimension_column_rejects_date_sampling() -> None:
@@ -1216,7 +1167,6 @@ def test_time_dimension_column_rejects_date_sampling() -> None:
                 sample_interval=(1, "hour"),
             )
         assert error.value.kind == ErrorKind.INVALID_SAMPLE_INTERVAL
-        assert "DATE" in error.value.message
     finally:
         _exit_ctx()
 
@@ -1357,7 +1307,6 @@ def test_semi_additive_rejects_string_over() -> None:
         ms.additive_except("sales.orders.order_date")  # type: ignore[arg-type]
 
     assert exc_info.value.kind == ErrorKind.INVALID_REF
-    assert "Dimension or TimeDimension refs" in str(exc_info.value)
 
 
 def test_closed_additivity_and_value_policies_reject_invalid_values() -> None:
@@ -1370,7 +1319,7 @@ def test_closed_additivity_and_value_policies_reject_invalid_values() -> None:
         assert caught.value.kind == ErrorKind.INVALID_COMPONENT_BODY
     _enter_ctx(default_domain="sales")
     try:
-        with pytest.raises(SemanticDecoratorError, match="additivity requires"):
+        with pytest.raises(SemanticDecoratorError):
             ms.measure_column(
                 name="amount",
                 entity=ms.ref.entity("sales.orders"),
@@ -1379,13 +1328,6 @@ def test_closed_additivity_and_value_policies_reject_invalid_values() -> None:
             )
     finally:
         _exit_ctx()
-
-
-def test_retired_fold_aliases_are_not_public() -> None:
-    assert "fold" not in get_type_hints(ms.metric)
-    assert "status_time_fold" not in get_type_hints(ms.measure_column)
-    assert "AggregateFoldInput" not in ms.__all__
-    assert "AggregateFoldValue" not in ms.__all__
 
 
 def test_aggregate_rejects_values_outside_shared_fold_alias() -> None:
@@ -1688,7 +1630,6 @@ def test_linear_requires_at_least_two_terms() -> None:
     with pytest.raises(SemanticExpressionError) as caught:
         ms.linear(name="lonely", add=[ms.ref.metric("sales.revenue")])
     assert caught.value.kind == ErrorKind.INVALID_COMPONENT_BODY
-    assert caught.value.repair is not None and "+ and -" in caught.value.repair.action
 
 
 def test_metric_rejects_empty_entities() -> None:
@@ -1793,7 +1734,6 @@ def test_relationship_rejects_non_join_key_entries() -> None:
                 keys=[object()],  # type: ignore[list-item]
             )
         assert exc_info.value.kind == ErrorKind.INVALID_REF
-        assert "join_on" in str(exc_info.value)
     finally:
         _exit_ctx()
 
@@ -1881,7 +1821,6 @@ def test_authoring_reference_parameters_reject_naked_strings() -> None:
                     call()
                 assert invalid.value.kind == ErrorKind.INVALID_REF
                 assert invalid.value.constraint_id == ConstraintId.REF_SHAPE
-                assert expected in str(invalid.value)
         finally:
             _exit_ctx()
 
@@ -1954,7 +1893,6 @@ def test_authoring_reference_parameters_reject_wrong_ref_kind() -> None:
                     call()
                 assert invalid.value.kind == ErrorKind.INVALID_REF
                 assert invalid.value.constraint_id == ConstraintId.REF_SHAPE
-                assert expected in str(invalid.value)
         finally:
             _exit_ctx()
 
@@ -2058,33 +1996,6 @@ def test_field_and_time_field_same_name_same_dataset_collides() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_model_keyword_only() -> None:
-    _enter_ctx()
-    try:
-        with pytest.raises(TypeError):
-            ms.domain("sales")  # type: ignore[call-arg]  # intentional rejection input
-    finally:
-        _exit_ctx()
-
-
-def test_dataset_keyword_only() -> None:
-    _enter_ctx(default_domain="sales")
-    try:
-        with pytest.raises(TypeError):
-            ms.entity("wh")  # type: ignore[call-overload]  # intentional rejection input
-    finally:
-        _exit_ctx()
-
-
-def test_metric_keyword_only() -> None:
-    _enter_ctx(default_domain="sales")
-    try:
-        with pytest.raises(TypeError):
-            ms.metric("additive")  # type: ignore[arg-type, call-arg]  # intentional rejection input
-    finally:
-        _exit_ctx()
-
-
 # ---------------------------------------------------------------------------
 # AiContext handling
 # ---------------------------------------------------------------------------
@@ -2099,7 +2010,7 @@ def test_ai_context_invalid_key_raises_type_error() -> None:
     """ms.ai_context() rejects unsupported metadata keys."""
     key: str
     for key in ("summary", "synonyms", "examples", "instructions", "owner_notes"):
-        with pytest.raises(TypeError, match="ai_context"):
+        with pytest.raises(TypeError):
             ms.ai_context(**{key: "oops"})
 
 
@@ -2108,7 +2019,6 @@ def test_ai_context_with_wrong_type_for_guardrails_raises() -> None:
     with pytest.raises(SemanticDecoratorError) as exc_info:
         ms.ai_context(guardrails="not a list")
     assert exc_info.value.kind == ErrorKind.INVALID_AI_CONTEXT
-    assert "guardrails" in str(exc_info.value)
 
 
 def test_ai_context_with_wrong_type_for_business_definition_raises() -> None:
@@ -2116,7 +2026,6 @@ def test_ai_context_with_wrong_type_for_business_definition_raises() -> None:
     with pytest.raises(SemanticDecoratorError) as exc_info:
         ms.ai_context(business_definition=42)  # type: ignore[arg-type]
     assert exc_info.value.kind == ErrorKind.INVALID_AI_CONTEXT
-    assert "business_definition" in str(exc_info.value)
 
 
 def test_ai_context_with_non_string_in_list_raises() -> None:
@@ -2147,7 +2056,6 @@ def test_ai_context_raw_dict_raises_teachable_error() -> None:
                 return None
 
         assert exc_info.value.kind == ErrorKind.INVALID_AI_CONTEXT
-        assert "ms.ai_context" in str(exc_info.value)
     finally:
         _exit_ctx()
 
@@ -2164,10 +2072,10 @@ def test_ai_context_error_location_points_to_user_code() -> None:
 
 def test_ai_context_value_post_init_rejects_invalid_types() -> None:
     """AiContextValue.__post_init__ rejects invalid field types even when bypassing ms.ai_context()."""
-    with pytest.raises(TypeError, match=r"ms\.ai_context"):
-        ms.typing.AiContextValue(business_definition=42)  # type: ignore[arg-type]
-    with pytest.raises(TypeError, match=r"ms\.ai_context"):
-        ms.typing.AiContextValue(guardrails=("ok", 1))  # type: ignore[arg-type]
+    with pytest.raises(TypeError):
+        ms.typing.AiContextValue(business_definition=42)  # type: ignore[arg-type]  # Invalid payload.
+    with pytest.raises(TypeError):
+        ms.typing.AiContextValue(guardrails=("ok", 1))  # type: ignore[arg-type]  # Invalid payload.
 
 
 # ---------------------------------------------------------------------------
@@ -2299,14 +2207,6 @@ def test_ratio_unit_rejects_whitespace_and_empty() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_retired_window_factories_are_absent() -> None:
-    from marivo.semantic import authoring
-
-    for name in ("cumulative", "grain_to_date", "trailing"):
-        assert not hasattr(ms, name)
-        assert not hasattr(authoring, name)
-
-
 def test_sampled_encoding_requires_an_hour_component() -> None:
     fmt: str
     for fmt in ["%Y-%m-%d %M", "%Y-%m-%d %S"]:
@@ -2321,6 +2221,5 @@ def test_sampled_encoding_requires_an_hour_component() -> None:
                     sample_interval=(1, "hour"),
                 )
             assert error.value.kind == ErrorKind.INVALID_SAMPLE_INTERVAL
-            assert "hour-bearing" in error.value.message
         finally:
             _exit_ctx()

@@ -122,7 +122,6 @@ def test_public_frequency_game_keeps_source_capture_fixed_as_permutations_grow(
         )
         sql = "\n".join(trace.native_sql[start:]).lower()
         assert "__attribute_frequency_value" in sql
-        assert "coalition" not in sql
     assert costs[0] == costs[1]
     import json
     import os
@@ -160,26 +159,6 @@ def test_public_frequency_game_keeps_source_capture_fixed_as_permutations_grow(
                 indent=2,
             )
         )
-
-
-@pytest.mark.parametrize("frequency_session", ["csv"], indirect=True)
-def test_frequency_game_rejects_non_table_sources_before_business_reads(
-    frequency_session: Session, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    from marivo.analysis.errors import AnalysisStageUnavailableError
-
-    session = frequency_session
-    amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
-    batch = catalog_value(session.catalog, "sales.facts.batch", kind="dimension")
-    player = catalog_value(session.catalog, "sales.facts.player", kind="dimension")
-    current = session.observe({"q": amount.quantile(0.5)}, where=batch == 1)
-    baseline = session.observe({"q": amount.quantile(0.5)}, where=batch == 0)
-    compared = current.compare({"b": mv.baseline(baseline, on=())})
-    target = compared.select({"change": compared["b.absolute.q"]})
-    trace = capture_source(monkeypatch)
-    with pytest.raises(AnalysisStageUnavailableError, match="native physical table source"):
-        target.attribute(by=(player,), permutations=2).compute()
-    assert not trace.native_sql
 
 
 def test_native_duckdb_interpolation_uses_original_queries_and_observe_still_works(

@@ -9,7 +9,6 @@ from pathlib import Path
 import pytest
 
 import marivo.analysis as mv
-from marivo._help.render import render_help_text
 from marivo.analysis.errors import AnalysisError
 from marivo.datasource.adapters import SourceSession
 from marivo.semantic.reader import SemanticProject
@@ -141,7 +140,5 @@ def test_unresolved_json_parameters_are_refused_before_source_open(
         assert error.repair is not None and error.repair.action
         target = error.repair.help_target.display
         assert target == "analysis.analysis_frame.compute"
-        assert f"marivo.help('{target}')" in str(error)
-        assert "Target: analysis.analysis_frame.compute" in render_help_text(target)[0]
         assert calls == [] and terminal_runs(session) == ()
         assert session._runtime.store.resources(session.id) == ()

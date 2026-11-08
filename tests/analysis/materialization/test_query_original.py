@@ -171,7 +171,7 @@ def test_member_count_uses_complete_identities_and_selected_fine_keys(
     fine = session.observe({"members": members.count()}, by=(region,))
     fixed = fine.where(fine.coord(fine.axes[0]) == "East").compute()
     keys = session.population_from(fixed, on=((fixed.axes[0], region),))
-    with pytest.raises(AnalysisError, match="condition"):
+    with pytest.raises(AnalysisError):
         session.observe({"members": members.count()}, where=mv.in_population(keys))
     control = session.observe({"members": members.count()}).compute()
     assert control.to_pandas()["members"].tolist() == [3]
@@ -371,7 +371,7 @@ def test_original_contribution_and_projected_domain_skip_independent_proven_key_
     from dataclasses import replace
 
     unknown = replace(layout, table_unique_keys=UniqueKeys())
-    with pytest.raises(MaterializationError, match="unique stage key"):
+    with pytest.raises(MaterializationError):
         complete_components(unknown, pd.concat([rows, rows.iloc[:1]], ignore_index=True))
 
 

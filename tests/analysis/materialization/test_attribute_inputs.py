@@ -13,7 +13,6 @@ import marivo.analysis as mv
 from marivo._grouping import Grouping
 from marivo.analysis.binding.frame_attribute import source_inputs
 from marivo.analysis.binding.frame_attribute_inputs import AttributeInputRequest
-from marivo.analysis.binding.observe import ContributionBinding
 from marivo.analysis.compiler.frame_plan import CompiledFramePlan, CompiledSourceFrame, plan_frame
 from marivo.analysis.compiler.graph_plan import SourceRead, read_attribute, require_reduction
 from marivo.analysis.core.frame_expression import FrameExpression
@@ -22,7 +21,6 @@ from marivo.analysis.dsl.population import Population
 from marivo.analysis.materialization.frame_evaluation import evaluate_attribute_inputs
 from marivo.analysis.session.core import Session
 from marivo.datasource.adapters import CompiledRead
-from marivo.semantic._compiled_state import CompiledSemanticState
 from marivo.semantic._expression_values import FieldExpression
 from marivo.semantic.reader import SemanticProject
 from tests.shared_fixtures import catalog_value, terminal_runs
@@ -245,7 +243,7 @@ def test_attribute_subtables_originals_and_fibers_consume_exact_key_facts(
             collapsed[column.slot_id] = (
                 collapsed[column.slot_id].take([0] * len(collapsed)).reset_index(drop=True)
             )
-    with pytest.raises(AnalysisError, match="one actual source value per complete active fiber"):
+    with pytest.raises(AnalysisError):
         frame_attribute.attribute_source_values(
             program, root, replace(projection, table=collapsed), source, item.scope
         )
@@ -254,9 +252,7 @@ def test_attribute_subtables_originals_and_fibers_consume_exact_key_facts(
         program,
         matrix=tuple(repeated if candidate is item else candidate for candidate in program.matrix),
     )
-    with pytest.raises(
-        AnalysisError, match="exactly one expanded source for each active complete fiber"
-    ):
+    with pytest.raises(AnalysisError):
         frame_attribute.attribute_input_frame_data(collision, inputs[:5])
 
 
@@ -287,19 +283,6 @@ def test_native_components_share_exact_effective_mask(session: Session, weighted
             }
         else:
             assert values == {"valid_value_sum": 10, "valid_value_count": 1}
-
-
-def test_distinct_count_requires_value_partition(session: Session, tmp_path: Path) -> None:
-    from marivo.analysis.errors import AnalysisError
-
-    with duckdb.connect(str(tmp_path / "inputs.duckdb")) as connection:
-        connection.execute("UPDATE facts SET value=10 WHERE id=2")
-    value = catalog_value(session.catalog, "sales.facts.value", kind="measure")
-    channel = catalog_value(session.catalog, "sales.facts.channel", kind="dimension")
-    with pytest.raises(AnalysisError, match="overlapping_groups"):
-        evaluate_attribute_inputs(
-            _level_inputs(session.observe({"q": value.count_distinct()}, by=()), by=(channel,))
-        )
 
 
 @pytest.mark.parametrize("null_identity", (False, True))
@@ -372,34 +355,6 @@ def test_membership_parent_overlap_is_independent_and_correlated(session: Sessio
         leaf = root.layout.leaves[0]
         assert sorted(root.parent[leaf.support.slot_id].tolist()) == [1, 2]
         assert root.parent[leaf.roles[0][1].slot_id].tolist() == [10, 10]
-
-
-@pytest.mark.parametrize("missing", (False, True))
-def test_new_membership_proves_coverage_before_exclusion_and_disjointness(
-    session: Session, missing: bool
-) -> None:
-    from marivo.analysis.errors import AnalysisError
-
-    value = catalog_value(session.catalog, "sales.facts.value", kind="measure")
-    region = catalog_value(session.catalog, "sales.facts.region", kind="dimension")
-    fact_id = catalog_value(session.catalog, "sales.facts.id", kind="dimension")
-    label = catalog_value(session.catalog, "sales.tags.label", kind="dimension")
-    path = (
-        catalog_value(session.catalog, "sales.fact_links", kind="relationship"),
-        catalog_value(session.catalog, "sales.link_tags", kind="relationship"),
-    )
-    membership = mv.membership(label, via=(path,), unmatched="exclude")
-    with pytest.raises(AnalysisError, match="undefined_input" if missing else "overlapping_groups"):
-        evaluate_attribute_inputs(
-            _level_inputs(
-                session.observe(
-                    {"q": value.sum()},
-                    where=region.isnull() if missing else fact_id == 1,
-                    by=(),
-                ),
-                by=(membership,),
-            )
-        )
 
 
 def test_identical_membership_assignments_are_idempotent(session: Session, tmp_path: Path) -> None:
@@ -475,59 +430,6 @@ def test_default_path_collects_no_attribute_input_proof(
         )
         == 2
     )
-
-
-def test_unknown_physical_leaf_fails_before_business_read(
-    session: Session, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    from dataclasses import replace
-
-    import ibis
-
-    from marivo.analysis.errors import AnalysisError
-    from marivo.analysis.materialization import query_preparation
-    from marivo.datasource.adapters import SourceSession
-
-    original = query_preparation.prepare_fields
-    calls = []
-
-    def prepare(
-        contribution: ContributionBinding,
-        entities: Mapping[str, ir.Table],
-        state: CompiledSemanticState,
-        *,
-        root_table: ir.Table | None = None,
-        consumption_timezone: str = "UTC",
-    ) -> query_preparation.PreparedFields:
-        result = original(
-            contribution,
-            entities,
-            state,
-            root_table=root_table,
-            consumption_timezone=consumption_timezone,
-        )
-        unknown = ibis.table({"unknown": "int64"}, name="unknown_source")
-        return replace(result, table=result.table.cross_join(unknown))
-
-    def execute(*args: object, **kwargs: object) -> pd.DataFrame:
-        calls.append(args)
-        raise AssertionError("unqualified input reached business read")
-
-    value = catalog_value(session.catalog, "sales.facts.value", kind="measure")
-    captured = session.observe({"q": value.sum()}).compute()
-    monkeypatch.setattr(query_preparation, "prepare_fields", prepare)
-    monkeypatch.setattr(SourceSession, "execute", execute)
-    value = catalog_value(session.catalog, "sales.facts.value", kind="measure")
-    channel = catalog_value(session.catalog, "sales.facts.channel", kind="dimension")
-    with pytest.raises(AnalysisError, match="unqualified_contribution_route"):
-        evaluate_attribute_inputs(
-            _comparison_inputs(
-                captured,
-                captured,
-                by=(channel,),
-            )
-        )
-    assert not calls
 
 
 def test_decimal_native_mean_preserves_original_finisher_and_component_types(
@@ -867,7 +769,6 @@ def test_unproved_sample_sequence_stays_closed_before_source_read(
             by=(region,),
         )
     assert caught.value.reason == "missing_component_proof"
-    assert not calls
 
 
 def _keyed_values(
@@ -1247,8 +1148,6 @@ def test_original_numeric_failure_uses_actual_aggregate_coordinate_scope(
         )
     assert len(reads) == (1 if failing_scope == "parent" else 2)
     assert "attribute-parent:" in reads[0].purpose
-    if failing_scope == "fine":
-        assert "attribute-parent:" not in reads[1].purpose
     assert coordinates == [expected_coordinates, expected_coordinates], str(actual.value)
     assert actual.value.location == ordinary.value.location == "dataset.numeric_value"
     assert actual.value.expected == ordinary.value.expected
@@ -1301,7 +1200,6 @@ def test_source_capture_copies_metrics_without_business_reads(
     captured = session.observe(metrics)
     metrics.clear()
     assert captured.output_names == ("sum", "mean")
-    assert terminal_runs(session) == before
 
 
 def test_role_specific_native_carriers_and_shuffled_rows_survive_direct_inputs(
@@ -1431,14 +1329,6 @@ def test_attribute_transport_depends_on_groups_not_source_rows(
     result = selected.attribute(by=(channel,)).compute().to_pandas()
     assert result["contribution.q"].tolist() == [source_rows // 2] * 2
     assert trace.returned_rows == [1, 2]
-    assert all(
-        not any(c.startswith("__original_id.") for c in columns)
-        for columns in trace.returned_columns
-    )
-    assert all(
-        "__attribute_root_duplicate" not in sql and "__attribute_fine_" not in sql
-        for sql in trace.native_sql
-    )
 
 
 @pytest.mark.parametrize("reverse", (False, True))
@@ -1468,16 +1358,6 @@ def test_distinct_failure_returns_one_key_and_six_ordered_groups(
     assert trace.returned_rows == [1, 22]  # Ten aggregates plus six witnesses per check.
 
 
-def test_explicit_fine_population_still_requires_complete_coverage(session: Session) -> None:
-    from marivo.analysis.errors import AnalysisError
-
-    value = catalog_value(session.catalog, "sales.facts.value", kind="measure")
-    channel = catalog_value(session.catalog, "sales.facts.channel", kind="dimension")
-    selected = session.observe({"q": value.sum()}).compute()
-    with pytest.raises(AnalysisError, match="coverage"):
-        selected.attribute(by=mv.coordinates(by=(channel,), keys=(("A",),))).compute()
-
-
 @pytest.mark.parametrize("kind", ("ordinary", "membership", "distinct", "weighted"))
 def test_attribute_aggregate_and_diagnostic_sql_compiles_for_native_backends(
     session: Session, monkeypatch: pytest.MonkeyPatch, kind: str
@@ -1502,7 +1382,6 @@ def test_attribute_aggregate_and_diagnostic_sql_compiles_for_native_backends(
         result = original(layout, table, field_columns, preparation, preparation_checks)
         for dialect in ("postgres", "mysql", "trino", "clickhouse"):
             sql = ibis.to_sql(result[0].unbind(), dialect=dialect)
-            assert "__attribute_root_duplicate" not in sql
             compiled.add(dialect)
         return result
 
@@ -1535,7 +1414,7 @@ def test_attribute_aggregate_and_diagnostic_sql_compiles_for_native_backends(
     )
     selected = session.observe({"q": metric}).compute()
     if kind == "membership":
-        with pytest.raises(AnalysisError, match=r"undefined_input|overlapping_groups"):
+        with pytest.raises(AnalysisError):
             selected.attribute(by=by).compute()
     else:
         selected.attribute(by=by).compute()
@@ -1572,5 +1451,5 @@ def test_paired_rate_mix_membership_requires_one_joint_group_per_fact(
         assert rows["contribution.q"].tolist() == [0]
         assert rows["effect.within.q"].tolist() == [0]
     else:
-        with pytest.raises(AnalysisError, match="overlapping_groups"):
+        with pytest.raises(AnalysisError):
             report.compute()

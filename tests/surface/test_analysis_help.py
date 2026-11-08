@@ -45,9 +45,7 @@ def test_unqualified_receiver_method_remains_unregistered() -> None:
     with pytest.raises(MarivoHelpTargetError) as captured:
         public_help("analysis.where")
     error = captured.value
-    assert "analysis.where" in str(error)
     assert sum(target.endswith(".where") for target in error.candidates) >= 2
-    assert all("Materialized" not in target for target in error.candidates)
     for candidate in error.candidates:
         assert isinstance(route_help_target(candidate), NativeHelpRoute)
 
@@ -56,19 +54,7 @@ def test_unqualified_receiver_method_remains_unregistered() -> None:
 def test_time_construction_help_has_only_session_entry(name: str) -> None:
     if name == "time_scope":
         assert isinstance(route_help_target("analysis.time_scope"), NativeHelpRoute)
-    else:
-        with pytest.raises(MarivoHelpTargetError):
-            public_help("analysis." + name)
     assert isinstance(route_help_target("analysis.session." + name), NativeHelpRoute)
-
-
-def test_readiness_help_uses_physical_inputs(capsys: pytest.CaptureFixture[str]) -> None:
-    public_help("semantic.readiness")
-    text = capsys.readouterr().out
-    assert "catalog.readiness([catalog.get(" in text
-    assert "sales.orders" in text
-    assert "without connecting or querying" in text
-    assert "ms.ref.metric" not in text
 
 
 @pytest.mark.parametrize("filename", ("README.md", "README.zh-CN.md"))

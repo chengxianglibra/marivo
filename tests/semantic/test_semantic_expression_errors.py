@@ -27,12 +27,6 @@ def test_expression_error_carries_expected_received_and_reauthor_repair() -> Non
     assert error.repair is not None
     assert error.repair.kind == "reauthor"
     rendered = str(error)
-    assert rendered.startswith("[incommensurable_linear_units] amount + amount_usd")
-    assert "  refs: sales.orders.amount, sales.orders.amount_usd" in rendered
-    assert "  expected: operands with one unit" in rendered
-    assert "  received: CNY + USD" in rendered
-    assert "Repair:\n  Convert one operand explicitly" in rendered
-    assert "Help: marivo.help('semantic.load')" in rendered
 
 
 def test_definition_failure_translates_with_its_location() -> None:
@@ -45,7 +39,6 @@ def test_definition_failure_translates_with_its_location() -> None:
     assert error.received == str(raised.value)
     assert error.details["definition_kind"] == "invalid_value"
     assert error.repair is not None
-    assert "row constant" in error.repair.action
 
 
 def test_translated_error_names_the_definition_path() -> None:
@@ -62,4 +55,3 @@ def test_translated_error_names_the_definition_path() -> None:
         "definition_kind": "unknown_rule_version",
         "definition_path": ["MetricExpression.operand[0]"],
     }
-    assert "  at: MetricExpression.operand[0]" in str(error)

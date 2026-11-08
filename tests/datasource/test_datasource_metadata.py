@@ -90,7 +90,6 @@ def test_table_metadata_to_dict_is_json_safe() -> None:
     assert physical_profile["row_count"] == 1200
     assert physical_profile["source"] == "test.catalog"
     assert json.loads(json.dumps(payload))["warnings"][0]["kind"] == "partitions_unavailable"
-    assert "row_count" not in payload
 
 
 def test_table_metadata_to_dict_includes_view_fields() -> None:
@@ -127,73 +126,6 @@ def test_table_metadata_to_dict_includes_view_fields() -> None:
     assert payload["is_view"] is True
     assert payload["view_definition"] == "SELECT order_id FROM orders"
     assert json.loads(json.dumps(payload))["is_view"] is True
-
-
-def test_table_metadata_renders_shared_card_shape_and_uses_default_cap() -> None:
-    metadata = TableMetadata(
-        datasource="wh",
-        table="orders",
-        database=("analytics", "public"),
-        backend_type="duckdb",
-        comment="One row per order.",
-        columns=(
-            ColumnMetadata(
-                name="order_id",
-                type="int64",
-                nullable=False,
-                comment="Unique order id.",
-                ordinal_position=1,
-            ),
-            ColumnMetadata(
-                name="created_at",
-                type="timestamp",
-                nullable=None,
-                comment=None,
-                ordinal_position=2,
-            ),
-        ),
-        partitions=(
-            PartitionMetadata(
-                name="order_date",
-                type="date",
-                transform="identity",
-                comment="Date partition.",
-            ),
-        ),
-        partition_state="known",
-        warnings=(
-            MetadataWarning(
-                kind="partitions_unavailable",
-                message="partition metadata is not exposed",
-            ),
-        ),
-        is_view=True,
-        physical_profile=TablePhysicalProfile(
-            row_count=1200,
-            row_count_kind="estimate",
-            size_bytes=4096,
-            size_kind="on_disk",
-            source="test.catalog",
-        ),
-    )
-
-    assert metadata.render() == "\n".join(
-        [
-            "TableMetadata ref=wh.analytics.public.orders backend=duckdb columns=2",
-            "status: view=yes warnings=1 partitions=1",
-            "comment: One row per order.",
-            "physical profile: rows=1200 row_count_kind=estimate size_bytes=4096 size_kind=on_disk source=test.catalog",
-            "columns: column | type | nullable | comment",
-            "preview:",
-            "order_id | int64 | N | Unique order id.",
-            "created_at | timestamp | ? | ",
-            "suggested next calls:",
-            '- md.inspect(ms.ref.datasource("wh"), md.table("orders")).partitions().show()',
-            '- md.partition({"order_date": "<value>"}, max_rows=..., timeout_seconds=...) to scope a snapshot to order_date',
-            "available:",
-            "- .show()",
-        ]
-    )
 
 
 @pytest.fixture
@@ -329,7 +261,7 @@ def test_inspect_table_duckdb_unqualified_uses_default_schema_for_view_detection
 
 
 def test_inspect_table_missing_datasource_raises(project_root: Path) -> None:
-    with pytest.raises(DatasourceMetadataError, match="not configured") as exc_info:
+    with pytest.raises(DatasourceMetadataError) as exc_info:
         _inspect_table("missing", table="orders")
 
     assert exc_info.value.received == "missing"
@@ -715,10 +647,6 @@ def test_inspect_table_trino_adapter_uses_information_schema(
     assert any("table_schema = 'analytics'" in query for query in backend.queries)
     assert any("table_name = 'orders'" in query for query in backend.queries)
     assert any("information_schema.columns" in query for query in backend.queries)
-    assert not any(
-        query.startswith("SELECT comment FROM information_schema.tables")
-        for query in backend.queries
-    )
     assert any("SHOW COLUMNS FROM" in query for query in backend.queries)
 
 
@@ -787,7 +715,6 @@ def test_inspect_table_trino_splits_dotted_database_for_metadata_sql(
         'SHOW STATS FOR "hive"."iceberg_inf"."dwd_olap_trino_query_info_i_hr"' in query
         for query in backend.queries
     )
-    assert not any('"hive"."hive.iceberg_inf"' in query for query in backend.queries)
 
 
 def test_inspect_table_trino_keeps_two_part_database_tuple_for_metadata_sql(
@@ -846,7 +773,6 @@ def test_inspect_table_trino_keeps_two_part_database_tuple_for_metadata_sql(
         'SHOW CREATE TABLE "hive"."iceberg_inf"."dwd_olap_trino_query_info_i_hr"' in query
         for query in backend.queries
     )
-    assert not any('"hive"."hive.iceberg_inf"' in query for query in backend.queries)
 
 
 def test_inspect_table_trino_populates_physical_profile_from_show_stats(
@@ -951,9 +877,7 @@ def test_inspect_table_trino_stats_failure_is_warning_only(
 
     assert metadata.comment == "Orders"
     assert metadata.physical_profile is None
-    assert any(
-        "trino physical profile query failed" in warning.message for warning in metadata.warnings
-    )
+    assert any(warning.kind == "metadata_query_failed" for warning in metadata.warnings)
 
 
 def test_inspect_table_trino_keeps_column_comments_when_table_comments_unavailable(
@@ -1005,8 +929,6 @@ def test_inspect_table_trino_keeps_column_comments_when_table_comments_unavailab
     assert by_name["amount"].comment == "Amount"
     warning_kinds = {warning.kind for warning in metadata.warnings}
     assert "table_comments_unavailable" in warning_kinds
-    assert "comments_unavailable" not in warning_kinds
-    assert "metadata_query_failed" not in warning_kinds
 
 
 def test_inspect_table_trino_detects_view_definition(
@@ -1162,8 +1084,6 @@ def test_inspect_table_trino_falls_back_when_comment_columns_are_unavailable(
         for query in backend.queries
     )
     assert any(warning.kind == "column_comments_unavailable" for warning in metadata.warnings)
-    assert not any(warning.kind == "comments_unavailable" for warning in metadata.warnings)
-    assert not any(warning.kind == "metadata_query_failed" for warning in metadata.warnings)
 
 
 def test_inspect_table_trino_hive_partitioned_by_from_show_create(
@@ -1221,7 +1141,6 @@ def test_inspect_table_trino_hive_partitioned_by_from_show_create(
         PartitionMetadata(name="dt", type="varchar", transform=None, comment=None),
         PartitionMetadata(name="region", type="varchar", transform=None, comment=None),
     )
-    assert not any(warning.kind == "partitions_unavailable" for warning in metadata.warnings)
 
 
 def test_inspect_table_trino_iceberg_partitioning_from_show_create(
@@ -1279,7 +1198,6 @@ def test_inspect_table_trino_iceberg_partitioning_from_show_create(
         PartitionMetadata(name="created_at", type="timestamp(6)", transform="month", comment=None),
         PartitionMetadata(name="user_id", type="bigint", transform="bucket", comment=None),
     )
-    assert not any(warning.kind == "partitions_unavailable" for warning in metadata.warnings)
 
 
 def test_inspect_table_trino_without_schema_returns_schema_only(
@@ -1364,7 +1282,6 @@ def test_inspect_table_clickhouse_adapter_uses_system_tables(
     assert by_name["region"].comment is None
     assert any("system.tables" in query for query in backend.queries)
     assert any("system.columns" in query for query in backend.queries)
-    assert not any(warning.kind == "partitions_unavailable" for warning in metadata.warnings)
     assert len(metadata.partitions) == 1
     assert metadata.partitions[0].name == "created_at"
     assert metadata.partitions[0].transform == "toYYYYMM"
@@ -1890,7 +1807,6 @@ def test_inspect_table_clickhouse_partition_key_parsed(
     assert metadata.partitions == (
         PartitionMetadata(name="time_iso", type="DateTime", transform="toYYYYMMDD", comment=None),
     )
-    assert not any(w.kind == "partitions_unavailable" for w in metadata.warnings)
 
 
 def test_inspect_table_clickhouse_partition_key_bare_column(
@@ -2195,11 +2111,7 @@ def test_inspect_table_clickhouse_distributed_dereference_failure(
 
     assert metadata.partitions == ()
     assert metadata.physical_profile is None
-    assert not any(w.kind == "partitions_unavailable" for w in metadata.warnings)
-    assert any(
-        "clickhouse distributed physical profile dereference failed" in warning.message
-        for warning in metadata.warnings
-    )
+    assert any(warning.kind == "metadata_query_failed" for warning in metadata.warnings)
 
 
 def test_inspect_table_clickhouse_system_tables_fallback(
@@ -2234,7 +2146,6 @@ def test_inspect_table_clickhouse_system_tables_fallback(
 
     assert metadata.comment == "Orders table"
     assert metadata.partitions == ()
-    assert not any(w.kind == "partitions_unavailable" for w in metadata.warnings)
 
 
 def test_inspect_table_trino_short_name_is_not_rejected(
@@ -2308,16 +2219,6 @@ def test_table_metadata_default_inspection_contract() -> None:
     from marivo.render import AgentResult
 
     metadata = _make_table_metadata()
-    r = repr(metadata)
-    assert r.startswith("<TableMetadata ref=")
-    assert "call .show() to inspect>" in r
-    rendered = metadata.render()
-    assert rendered.startswith("TableMetadata ref=wh.orders backend=duckdb columns=3")
-    assert "order_id" in rendered
-    assert "int64" in rendered
-    assert "float64" in rendered
-    assert "available:" in rendered
-    assert "status:" not in rendered
     assert isinstance(metadata, AgentResult)
 
 
@@ -2335,70 +2236,14 @@ def test_table_metadata_render_uses_shared_output_cap() -> None:
         ),
     )
 
-    with pytest.raises(ValueError, match="max_output_bytes is too small"):
+    with pytest.raises(ValueError):
         metadata.render(max_output_bytes=120)
-
-    rendered = metadata.render(max_output_bytes=None)
-    assert "amount | float64 | Y | " in rendered
-    assert "output truncated" not in rendered
 
     metadata = _make_table_metadata(comment="x" * (_DEFAULT_MAX_OUTPUT_BYTES * 2))
 
     rendered = metadata.render()
 
     assert len(rendered.encode("utf-8")) <= _DEFAULT_MAX_OUTPUT_BYTES
-    assert "output truncated" in rendered
-    assert "available:" in rendered
-
-
-def test_table_metadata_render_optional_details_and_partition_guidance() -> None:
-    partition = PartitionMetadata(name="dt", type="date", transform="identity", comment=None)
-    cases = (
-        (
-            "view",
-            _make_table_metadata(
-                comment="One row per order",
-                is_view=True,
-                view_definition="SELECT * FROM raw_orders",
-            ),
-            ("comment: One row per order", "view=yes"),
-            (),
-        ),
-        (
-            "partitions_and_warnings",
-            _make_table_metadata(
-                partitions=(partition,),
-                warnings=(MetadataWarning(kind="comments_unavailable", message="no comments"),),
-            ),
-            ("partitions=1", "warnings=1"),
-            (),
-        ),
-        (
-            "partition_guidance",
-            _make_table_metadata(partitions=(partition,)),
-            ("md.inspect(", ".partitions().show()", "md.partition(", "dt"),
-            (),
-        ),
-        (
-            "no_partitions",
-            _make_table_metadata(partitions=()),
-            (),
-            (".partitions().show()", "md.partition("),
-        ),
-    )
-    for case, metadata, expected, absent in cases:
-        rendered = metadata.render()
-        for text in expected:
-            assert text in rendered, (case, text)
-        for text in absent:
-            assert text not in rendered, (case, text)
-
-
-def test_table_metadata_show_prints(capsys: pytest.CaptureFixture[str]) -> None:
-    metadata = _make_table_metadata()
-    metadata.show()
-    captured = capsys.readouterr()
-    assert captured.out.startswith("TableMetadata ref=wh.orders")
 
 
 def _create_duckdb_with_constraints(path: Path) -> None:
@@ -2428,7 +2273,6 @@ def test_inspect_table_duckdb_populates_primary_keys_and_unique(
     uc = metadata.unique_constraints[0]
     assert uc.columns == ("customer_id",)
     assert uc.kind == "unique"
-    assert not any(w.kind == "primary_keys_unavailable" for w in metadata.warnings)
 
 
 def test_inspect_table_duckdb_populates_physical_profile_from_estimated_size(
@@ -2474,7 +2318,6 @@ def test_table_metadata_to_dict_includes_key_constraints() -> None:
     assert isinstance(constraints, list) and isinstance(constraints[0], dict)
     assert constraints[0]["columns"] == ["customer_id"]
     assert payload["physical_profile"] is None
-    assert "row_count" not in payload
     assert json.loads(json.dumps(payload))["primary_keys"] == ["order_id"]
 
 

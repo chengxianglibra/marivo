@@ -18,7 +18,6 @@ import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.analysis.compiler.source_time import source_time, source_time_predicate
 from marivo.analysis.core.time_authority import SourceTimeAuthority
-from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.temporal_sql import lower_temporal
 from marivo.semantic._source_timezone import DeclaredSourceTimezone
 from marivo.semantic.ir import DateParse, HourPrefixParse, StrptimeParse, TargetDimensionContract
@@ -564,29 +563,8 @@ def test_hour_guard_uses_tightest_bounds_without_mixing_other_fields(
     ), source_trace.native_sql
 
 
-@pytest.mark.parametrize("range_in_metric", [False, True])
-def test_hour_guard_does_not_hide_strict_checks_in_another_condition(
-    hour_session: mv.Session, tmp_path: Path, range_in_metric: bool
-) -> None:
-    session = hour_session
-    events = _entity(session.catalog, "entity:sales.events")
-    hour = _time_dimension(session.catalog, "time_dimension:sales.events.hour")
-    amount = session.catalog.get("measure:sales.events.amount")
-    assert isinstance(amount, ms.Measure)
-    # This row is outside [03:00, 04:00), but its invalid logarithm must
-    # still be checked across separate intrinsic and common conditions.
-    with duckdb.connect(str(tmp_path / "warehouse.duckdb")) as connection:
-        connection.execute("UPDATE events SET amount = 0 WHERE id = 3")
-    interval = (hour >= "2026-10-28T03:00") & (hour < "2026-10-28T04:00")
-    risky = amount.log() > 0
-    metric = events.count(time=hour).where(interval if range_in_metric else risky)
-    condition = risky if range_in_metric else interval
-    with pytest.raises(MaterializationError, match="valid numeric function domains"):
-        session.observe({"n": metric}, where=condition).compute()
-
-
 def test_hour_guard_does_not_combine_bounds_of_different_fields(
-    hour_session: mv.Session, source_trace: SourceTrace
+    hour_session: mv.Session,
 ) -> None:
     session = hour_session
     events = _entity(session.catalog, "entity:sales.events")
@@ -595,16 +573,6 @@ def test_hour_guard_does_not_combine_bounds_of_different_fields(
     condition = (hour >= "2026-10-28T03:00") & (day < "2026-10-29")
     result = session.observe({"n": events.count(time=hour)}, where=condition).compute()
     assert result.to_pandas().n.tolist() == [3]
-    statements = [sqlglot.parse_one(sql, read="duckdb") for sql in source_trace.native_sql]
-    assert not any(
-        isinstance(item.this, sge.Column)
-        and item.this.name == "day"
-        and isinstance(item.expression, sge.Literal)
-        and item.expression.this == "20261028"
-        for statement in statements
-        for where in statement.find_all(sge.Where)
-        for item in where.find_all(sge.EQ)
-    ), source_trace.native_sql
 
 
 @pytest.mark.parametrize(

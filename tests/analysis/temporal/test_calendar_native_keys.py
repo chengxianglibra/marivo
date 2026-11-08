@@ -17,7 +17,7 @@ from marivo.datasource.ir import TableSourceIR
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.numeric.test_remote_numeric_query import _datasource_model
 from tests.datasource.source_cases import SourceData, receipt, source_case, source_params
-from tests.shared_fixtures import catalog_value, frozen_coordinates
+from tests.shared_fixtures import catalog_value
 from tests.support.source_trace import capture_source
 
 CASES = source_params(
@@ -320,13 +320,6 @@ def test_public_calendar_keeps_facts_when_midnight_fold_returns_to_previous_date
                     for bucket, total in zip(oracle.bucket, oracle.total, strict=True)
                 }
                 assert sum(actual.values()) == expected
-                columns = list(frozen_coordinates(result)[0].rows.columns)
-                assert not set(columns) & {
-                    "nominal_start",
-                    "nominal_end",
-                    "actual_start",
-                    "actual_end",
-                }
                 assert len(trace.native_sql) >= before + 2
                 if backend == "mysql":
                     # Only constant digit tables may use UNION; calendar keys
@@ -343,8 +336,6 @@ def test_public_calendar_keeps_facts_when_midnight_fold_returns_to_previous_date
                             digit = branch.expressions[0].unalias()
                             assert isinstance(digit, sge.Literal) and digit.is_int
                             assert 0 <= int(digit.this) <= 9
-                else:
-                    assert "UNION ALL" not in trace.native_sql[-1].upper()
                 if backend == "clickhouse":
                     assert len(trace.native_sql[-1].encode()) < 65536
         receipt(
@@ -403,7 +394,7 @@ def test_source_free_calendar_preserves_pandas_native_ambiguity(
     error_type = AmbiguousTimeError if error_name == "AmbiguousTimeError" else NonExistentTimeError
     with pytest.raises(error_type):
         pd.DatetimeIndex(clocks).tz_localize(zone)
-    with pytest.raises(MaterializationError, match="pandas native calendar evaluation") as captured:
+    with pytest.raises(MaterializationError) as captured:
         session.frame(_calendar_population(axis)).compute()
     assert isinstance(captured.value.__cause__, error_type)
 

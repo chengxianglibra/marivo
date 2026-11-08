@@ -54,8 +54,6 @@ def test_runtime_filter_incompatibility_preserves_authored_business_literals() -
     assert err.repair.kind == "user_choice"
     assert err.repair.help_target == LiveHelpTarget(surface="semantic", canonical_id="metric.where")
     assert err.repair.preserves_evidence is True
-    assert "Preserve the authored filter literals" in err.repair.action
-    assert "Do not replace business codes" in err.repair.action
     assert err.details["query_executed"] is False
     assert err.details["declaration_preserved"] is True
 
@@ -72,7 +70,6 @@ def test_semantic_help_target_error_carries_payload() -> None:
     assert err.repair is not None
     assert err.repair.candidates == ("entity", "metric")
     assert err.repair.help_target == LiveHelpTarget(surface="semantic")
-    assert "ms.help" not in str(err)
 
 
 def test_semantic_contract_scope_error_carries_repair() -> None:

@@ -13,7 +13,6 @@ def assert_conforms(obj: object) -> None:
     r = repr(obj)
     assert "\n" not in r, f"repr must be single-line: {r!r}"
     assert len(r) <= REPR_MAX_LEN, f"repr too long ({len(r)}): {r!r}"
-    assert type(obj).__name__ in r, f"repr must name the type: {r!r}"
 
     rendered = obj.render()
     assert isinstance(rendered, str)

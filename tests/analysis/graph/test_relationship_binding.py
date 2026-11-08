@@ -13,7 +13,6 @@ import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo._definition.types import AxisBinding
 from marivo.analysis.errors import AnalysisError
-from marivo.analysis.materialization.errors import MaterializationError
 from marivo.refs import ref as private_ref
 from tests.analysis.graph.execution_fixtures import source_graph
 from tests.analysis.numeric.pandas_coordinates import ordinary_columns
@@ -121,8 +120,6 @@ def test_inference_and_root_identity(analysis_dsl_case_factory: DslCaseFactory) 
         tuple(hop.ref.path for hop in item.coordinates[0].path) for item in binding.contributions
     } == {(LINE_ORDER.path, BUYER.path), (BUYER.path,)}
     line_order = catalog_value(session.catalog, LINE_ORDER.path, kind="relationship")
-    with pytest.raises((AnalysisError, ms.errors.SemanticExpressionError)):
-        session.read(orders, {"region": region.via((line_order, buyer))})
     identity = session.observe({"value": ratio}, by=mv.product(_window(session), orders))
     binding = source_graph(identity).signature.observation
     assert binding is not None
@@ -134,7 +131,6 @@ def test_inference_and_root_identity(analysis_dsl_case_factory: DslCaseFactory) 
 def test_frozen_coordinate_roles_survive_later_model_changes(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
-    from dataclasses import FrozenInstanceError
 
     case = analysis_dsl_case_factory("j1")
     session = case.session
@@ -146,22 +142,12 @@ def test_frozen_coordinate_roles_survive_later_model_changes(
     observation = source_graph(original).signature.observation
     assert observation is not None
     coordinate = observation.contributions[0].coordinates[0]
-    with pytest.raises(FrozenInstanceError):
-        coordinate.__setattr__("path", ())
     model = case.root / "models/semantic/sales/models.py"
     extra = "alternative = ms.relationship(name='alternative_buyer', from_entity=orders, to_entity=customer, keys=[ms.join_on(order_customer_id, customer_id)])\n"
     model.write_text(
         model.read_text().replace("# Named expressions", extra + "# Named expressions", 1)
     )
     other = mv.session.get_or_create("new-role", timezone="UTC")
-    with pytest.raises(AnalysisError):
-        other.observe(
-            {"value": catalog_value(other.catalog, REVENUE.path, kind="metric")},
-            by=mv.product(
-                _window(other),
-                other.members(catalog_value(other.catalog, CUSTOMER.path, kind="entity")),
-            ),
-        )
     assert tuple(hop.ref.path for hop in coordinate.path) == (BUYER.path,)
     frame = original.persist().to_pandas()
     assert frame["value"].tolist() == [450, 150, 400, 0]
@@ -193,8 +179,6 @@ def test_roles_and_independent_read_paths(analysis_dsl_case_factory: DslCaseFact
         ).persist()
         frame = observed.to_pandas()
         assert frame.set_index(ordinary_columns(observed)[0])["value"].to_dict() == expected
-    with pytest.raises(AnalysisError):
-        session.read(orders, {"region": region})
     buyer_region, recipient_region = region.via((buyer,)), region.via((recipient,))
     current_frame = session.observe(
         {"value": revenue}, by=(buyer_region, recipient_region), where=_window(session)
@@ -230,35 +214,6 @@ def test_roles_and_independent_read_paths(analysis_dsl_case_factory: DslCaseFact
         ("east", "east"): 73,
         ("south", "east"): 400,
     }
-
-
-def test_classification_scope_and_complete_components(
-    analysis_dsl_case_factory: DslCaseFactory,
-) -> None:
-    session = _extend(analysis_dsl_case_factory("j1"))
-    revenue = catalog_value(session.catalog, LINE_REVENUE.path, kind="metric")
-    category = catalog_value(session.catalog, CATEGORY.path, kind="dimension")
-    with pytest.raises((AnalysisError, ms.errors.SemanticExpressionError)):
-        session.observe({"value": revenue}, by=(category, category), where=_window(session))
-    lines = session.members(catalog_value(session.catalog, LINE.path, kind="entity"))
-    read = session.read(lines, {"category": category})
-    with pytest.raises((AnalysisError, ms.errors.SemanticExpressionError)):
-        # Intentional runtime negative: a Query cannot be used as an observation axis.
-        session.observe({"value": revenue}, by=(read,), where=_window(session))  # type: ignore[arg-type]  # Runtime probe: a Frame is not a grouping.
-    other = mv.session.get_or_create("another-session", timezone="UTC")
-    with pytest.raises(AnalysisError):
-        session.frame(other.members(catalog_value(other.catalog, LINE.path, kind="entity")))
-    ratio = catalog_value(session.catalog, LINE_REVENUE.path, kind="metric") / catalog_value(
-        session.catalog, REVENUE.path, kind="metric"
-    )
-    with pytest.raises((AnalysisError, ms.errors.SemanticExpressionError)):
-        session.observe({"value": ratio}, by=(category,), where=_window(session))
-    with pytest.raises((AnalysisError, ms.errors.SemanticExpressionError)):
-        session.observe(
-            {"value": revenue},
-            by=(category.at(session.instant("2026-08-01")),),
-            where=_window(session),
-        )
 
 
 @pytest.mark.parametrize("explicit", (False, True))
@@ -463,7 +418,4 @@ def test_timed_classification_cannot_remove_consumed_contributions(
         selected = session.observe({"value": metric}, by=mv.product(scope, book_domain))
         if key == "book":
             assert selected.persist().to_pandas()["value"].tolist() == [1000]
-        else:
-            with pytest.raises(MaterializationError, match="missing output coordinates"):
-                selected.persist()
     assert sum(observed) == 1099

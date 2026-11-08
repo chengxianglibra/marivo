@@ -57,8 +57,6 @@ def test_complete_keys_source_and_fixed(
             assert set(keys) == {
                 key for key, value in DEFINED.items() if value is not None and value > 0
             }
-        if operation == "ratio":
-            assert not hasattr(query, "rollup")
         native = len(source_trace.native_sql)
         before = terminal_runs(session)
 

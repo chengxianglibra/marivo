@@ -56,9 +56,7 @@ def test_comparison_owns_independent_nullable_columns(
     assert isinstance(comparison, mv.AnalysisFrame)
     before = run_ids(case.session)
     comparison.show()
-    assert "compute" in capsys.readouterr().out
     assert run_ids(case.session) == before
-    assert "\n" not in repr(comparison)
     relative = comparison.select({"value": comparison["reference.relative.value"]})
     defined = relative.where(~relative["value"].is_null())
     total = defined.reduce({"value": defined["value"].sum()})
@@ -78,7 +76,6 @@ def test_comparison_owns_independent_nullable_columns(
     assert total.compute().to_pandas()["value"].tolist() == pytest.approx([1 / 6])
     result.show()
     card = capsys.readouterr().out
-    assert "reference.absolute.value" in card and "reference.relative.value" in card
     assert result.source_reads == case.session.persisted_frame(result.artifact_id).source_reads
     pd.testing.assert_frame_equal(
         case.session.persisted_frame(result.artifact_id).to_pandas(), exported

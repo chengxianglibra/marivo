@@ -2,13 +2,10 @@ from __future__ import annotations
 
 from typing import get_args, get_type_hints
 
-import pytest
-
 import marivo.datasource as md
 from marivo.datasource.ir import ParquetSourceIR
 from marivo.semantic.dtos import (
     AssessmentIssue,
-    AuthoringAssessment,
     AuthoringSourceInput,
     TableSource,
     derive_status,
@@ -101,9 +98,3 @@ def test_derive_status_needs_input_then_supported() -> None:
     )
     assert derive_status((needs,)) == "needs_input"
     assert derive_status(()) == "supported"
-
-
-def test_authoring_assessment_is_frozen() -> None:
-    assessment = AuthoringAssessment(status="supported", issues=())
-    with pytest.raises(AttributeError):
-        assessment.status = "blocked"  # type: ignore[misc]

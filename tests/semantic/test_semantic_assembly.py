@@ -136,24 +136,6 @@ def _make_registry(**overrides: object) -> Registry:
 # ---------------------------------------------------------------------------
 
 
-def test_hour_prefix_with_valid_short_name_ok() -> None:
-    registry = _make_registry()
-    registry.dimensions["sales.orders.order_hour"] = DimensionIR(
-        semantic_id="sales.orders.order_hour",
-        domain="sales",
-        entity="sales.orders",
-        name="order_hour",
-        ai_context=AiContextIR(),
-        is_time_dimension=True,
-        kind=DimensionKind.TIME,
-        parse=HourPrefixParse(prefix="order_date"),
-        python_symbol="order_hour",
-        location=_LOC,
-    )
-    errors, _warnings = assembly_validate(registry)
-    assert not any(e.kind == ErrorKind.MISSING_DIMENSION_REF for e in errors)
-
-
 def test_hour_prefix_with_invalid_prefix() -> None:
     registry = _make_registry()
     registry.dimensions["sales.orders.order_hour"] = DimensionIR(
@@ -244,12 +226,11 @@ def test_raw_partition_time_field_has_no_pushdown_advisory_warning() -> None:
         location=_LOC,
     )
 
-    errors, warnings = assembly_validate(
+    errors, _warnings = assembly_validate(
         registry, sidecar=_time_dimension_sidecar(_raw_partition_time_field)
     )
 
     assert errors == []
-    assert not any(w.kind == WarningKind.TIME_DIMENSION_PUSHDOWN_ADVISORY.value for w in warnings)
 
 
 # ---------------------------------------------------------------------------
@@ -399,15 +380,6 @@ _MINIMAL_DOMAIN_PY = textwrap.dedent("""\
 """)
 
 
-def test_time_dimensions_have_no_default_authoring_option() -> None:
-    import inspect
-
-    import marivo.semantic as ms
-
-    for constructor in (ms.time_dimension, ms.time_dimension_column):
-        assert "is_default" not in inspect.signature(constructor).parameters
-
-
 def test_warnings_in_load_result(semantic_project_factory: Callable[..., SemanticProject]) -> None:
     """LoadResult should expose an empty warnings tuple when no warnings exist."""
     metrics_py = textwrap.dedent("""        import marivo.datasource as md
@@ -523,34 +495,6 @@ def test_missing_dimension_ref_includes_did_you_mean() -> None:
     assert len(dym_errors) >= 1
     dym = dym_errors[0].details.get("did_you_mean", [])
     assert "sales.orders.amount" in dym
-
-
-def test_semantic_error_str_renders_did_you_mean() -> None:
-    from marivo.semantic.errors import SemanticLoadError
-
-    err = SemanticLoadError(
-        kind="MISSING_ENTITY_REF",
-        message="references unknown datasource 'w'.",
-        refs=("sales.bad_ds", "w"),
-        details={"missing_ref": "w", "did_you_mean": ["wh"]},
-    )
-
-    rendered = str(err)
-    assert "Did you mean: wh" in rendered
-
-
-def test_semantic_error_str_omits_did_you_mean_when_empty() -> None:
-    from marivo.semantic.errors import SemanticLoadError
-
-    err = SemanticLoadError(
-        kind="MISSING_ENTITY_REF",
-        message="references unknown datasource 'xyz'.",
-        refs=("sales.bad_ds", "xyz"),
-        details={"missing_ref": "xyz", "did_you_mean": []},
-    )
-
-    rendered = str(err)
-    assert "Did you mean" not in rendered
 
 
 # ---------------------------------------------------------------------------

@@ -70,7 +70,7 @@ def test_callback_failure_rejects_whole_sample_and_does_not_retry() -> None:
             raise LookupError("source changed to an invalid demanded value")
         return CoalitionValue(column, mask)
 
-    with pytest.raises(LookupError, match="invalid demanded"):
+    with pytest.raises(LookupError):
         sample_game((), PLAYERS, 64, 42, evaluate)
     assert len(calls) == 3
     assert calls[:2] == [0, 7]

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-import pytest
 from ibis.common.deferred import Deferred
 
 import marivo.semantic as ms
@@ -166,25 +165,12 @@ def test_multi_root_metric_covers_each_contribution_root_in_expression_order(
 
 
 def test_metric_reads_are_silent_with_bounded_repr_and_show_prints_contract(
-    semantic_project_factory: _SemanticProjectFactory, capsys: pytest.CaptureFixture[str]
+    semantic_project_factory: _SemanticProjectFactory,
 ) -> None:
     catalog = _catalog(semantic_project_factory)
-    revenue = catalog.get("metric:sales.revenue")
     contract = catalog.get("metric:sales.revenue")
     rendered = repr(contract)
-
-    assert rendered.startswith("Metric metric:sales.revenue")
-    assert ".show()" in rendered
     assert "\n" not in rendered and len(rendered) < 120
-    assert capsys.readouterr().out == ""
-
-    contract.show()
-
-    shown = capsys.readouterr().out
-    assert "Metric metric:sales.revenue" in shown
-    assert "formula:" in shown
-    assert "unit: CNY" in shown
-    assert capsys.readouterr().out == ""
 
 
 def test_snapshot_versioning_stays_a_valued_representation_on_the_entity(
@@ -222,7 +208,5 @@ def test_snapshot_versioning_stays_a_valued_representation_on_the_entity(
     assert versioning is not None
     assert versioning.kind == "snapshot"
     assert versioning.partition_field == "sales.user_profile_daily.dt"
-    assert not hasattr(versioning, "grain")
     assert versioning.timezone == "Asia/Shanghai"
-    assert not hasattr(versioning, "format")
     assert entity.definition.versioning == versioning

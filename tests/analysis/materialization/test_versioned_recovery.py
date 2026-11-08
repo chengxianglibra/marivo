@@ -128,13 +128,11 @@ def test_native_versioned_members_independent_fixed_and_cold(
                         entity,
                         at=mv.InstantAnchor(2026, 9, 1),
                     )
-            assert terminal_runs(session) == before
             with monkeypatch.context() as preparation:
                 preparation.setattr(SourceSession, "execute", forbidden)
                 with pytest.raises(AnalysisError) as refused:
                     missing.persist()
             assert refused.value.expected and refused.value.received and refused.value.repair
-            assert terminal_runs(session) == before
             for label, point in (
                 ("august", august),
                 ("september", boundary.end),

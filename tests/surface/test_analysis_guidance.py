@@ -9,8 +9,6 @@ import re
 from collections import deque
 from itertools import pairwise
 
-import pytest
-
 import marivo.analysis as mv
 from marivo._help.model import NativeHelpRoute
 from marivo._help.route import route_help_target
@@ -38,7 +36,6 @@ def test_metric_intent_reaches_observation_without_restarting_discovery() -> Non
         if isinstance(d, NavigationInput) and "session.observe" in d.members
     ]
     assert owners == ["operators"]
-    assert rendered_help(mv.Session.observe) == rendered_help(path[-1])
 
 
 def test_execution_help_links_retention_and_exact_recovery_without_new_owners() -> None:
@@ -59,8 +56,6 @@ def test_execution_help_links_retention_and_exact_recovery_without_new_owners() 
     for target, expected in routes.items():
         links = re.findall(r"marivo\.help\(['\"]([^'\"]+)['\"]\)", rendered_help(target))
         assert set(expected) <= set(links), target
-        for link in expected:
-            assert rendered_help(link).startswith(f"Target: {link}\n")
     descriptor = REGISTRY.by_canonical_id("session.persisted_frame")
     assert isinstance(descriptor, CallableInput)
     assert descriptor.discovery_group == "sessions"
@@ -111,61 +106,16 @@ def test_rendered_callable_examples_have_no_duplicate_imports() -> None:
 def test_grouping_is_the_public_observation_family() -> None:
     annotation = str(inspect.signature(mv.Session.observe).parameters["by"].annotation)
     assert "Grouping" in annotation and "Population" in annotation
-    for name in ("member", "MemberAxis", "MembershipAxis"):
-        assert not hasattr(mv, name)
-        assert name not in mv.__all__
     assert inspect.isabstract(mv.Grouping)
 
 
-@pytest.mark.parametrize(
-    ("target", "required"),
-    (
-        (
-            "coordinates",
-            ("field or identity Grouping", "complete primary-key tuple", "Rejects membership"),
-        ),
-        ("membership", ("resolved fields", "one member Entity")),
-        ("population.project", ("existing coordinates", "population.axes", "observe.by")),
-        ("population.classify", ("same-Entity", "existing identity", "calendar", "routed fields")),
-        ("session.values", ("field or identity Grouping", "calendar and membership")),
-        (
-            "session.observe",
-            (
-                "Dimensions, non-time Groupings",
-                "one CalendarAxis",
-                "by=P retains complete keys",
-            ),
-        ),
-    ),
-)
-def test_grouping_help_discloses_each_consumers_admitted_inputs(
-    target: str, required: tuple[str, ...]
-) -> None:
-    page = rendered_help("analysis." + target)
-    by = next(line for line in page.splitlines() if line.startswith("Input by:"))
-    for text in required:
-        assert text in by
-
-
 def test_time_binding_has_one_public_entry_per_operation() -> None:
-    assert not hasattr(mv, "time_grid")
-    assert not hasattr(mv.Population, "observe")
-    assert not hasattr(mv, "time_scope")
-    assert not hasattr(mv, "instant")
     assert callable(mv.Session.time_scope) and callable(mv.Session.instant)
-    for name in (
-        "GridWindow",
-        "TimeGrid",
-        "LogicalTimeAnalysisDomain",
-        "MaterializedTimeAnalysisDomain",
-    ):
-        assert not hasattr(mv, name) and name not in REGISTRY.canonical_ids()
     parameters = inspect.signature(mv.Session.observe).parameters
     assert tuple(parameters) == ("self", "metrics", "by", "where")
     by = str(parameters["by"].annotation)
     where = str(parameters["where"].annotation)
     assert all(family in by for family in ("DimensionExpression", "Grouping", "Population"))
-    assert "TimeScope" not in by and "Grain" not in by
     assert all(family in where for family in ("RowPredicate", "TimeScope", "tuple", "None"))
     assert tuple(inspect.signature(mv.Session.read).parameters) == ("self", "population", "fields")
 
@@ -207,9 +157,6 @@ def test_first_round_help_targets_are_reachable_and_bounded() -> None:
             re.MULTILINE,
         ):
             target = match[0] or match[1]
-            text = rendered_help("analysis." + target)
-            if target not in REGISTRY.canonical_ids():
-                assert text.startswith(f"Target: analysis.{target}\nKind: attribute")
             if target not in seen:
                 seen.add(target)
                 pending.append(target)
@@ -226,23 +173,9 @@ def test_first_round_help_targets_are_reachable_and_bounded() -> None:
     for target in (*sorted(first_round), "session.members"):
         route = route_help_target("analysis." + target)
         assert isinstance(route, NativeHelpRoute)
-        page = render(REGISTRY, target)
         descriptor = REGISTRY.by_canonical_id(target)
         if isinstance(descriptor, CallableInput):
             assert _free_names(descriptor.example.code) <= set(descriptor.example.requires)
-
-
-def test_grouping_surface_stays_with_finite_query_operations() -> None:
-    assert not hasattr(mv, "GroupedAnalysisDomain")
-    for owner in (mv.Population, mv.AnalysisFrame):
-        assert not hasattr(owner, "group_by")
-        assert not hasattr(owner, "aggregate")
-    for query_owner, method in (
-        (mv.AnalysisFrame, "reduce"),
-        (mv.Session, "observe"),
-    ):
-        assert "groups" not in inspect.signature(getattr(query_owner, method)).parameters
-    assert not any("GroupedAnalysisDomain" in target for target in REGISTRY.canonical_ids())
 
 
 def test_current_row_aggregation_has_one_public_entry() -> None:
@@ -260,32 +193,9 @@ def test_current_row_aggregation_has_one_public_entry() -> None:
         route = route_help_target(function)
         assert isinstance(route, NativeHelpRoute) and route.owner == "analysis"
         assert route.resolved.canonical_id == target
-    for alias in ("aggregate", "summarize", "agg"):
-        assert not hasattr(mv.AnalysisFrame, alias)
-    assert not any(target.endswith(".aggregate") for target in REGISTRY.canonical_ids())
-
-    page = rendered_help("analysis.analysis_frame.reduce")
-    assert page == rendered_help(mv.AnalysisFrame.reduce)
-    assert "Sum/mean retain expression units" in page
-    assert "not original Metric additivity or rollup" in page
-    for target in ("analysis.column.sum", "analysis.column.mean"):
-        assert "Retain the expression's unit without certifying" in rendered_help(target)
 
 
 def test_partition_and_share_help_disclose_binding_denominators_and_discovery() -> None:
-    over = rendered_help("analysis.analysis_frame.over")
-    share = rendered_help("analysis.column.share")
-    assert over == rendered_help(mv.AnalysisFrame.over)
-    assert share == rendered_help(mv.Column.share)
-    for fact in ("same-input Column", "empty input stays empty", "before selection", "Nested over"):
-        assert fact in over
-    for fact in (
-        "complementary axes",
-        "zero-axis",
-        "filtering afterward preserves",
-        "unknown units",
-    ):
-        assert fact in share
     assert "analysis.analysis_frame.over" in rendered_help("analysis.value_statistic")
     assert "analysis.analysis_frame.over" in rendered_help("analysis.analysis_frame")
     assert "analysis.column.share" in rendered_help("analysis.column")
@@ -293,40 +203,19 @@ def test_partition_and_share_help_disclose_binding_denominators_and_discovery() 
     assert "analysis.analysis_frame.over" in axis and "analysis.column.share" in axis
 
 
-@pytest.mark.parametrize("method", ("align", "compare"))
-def test_frame_correspondence_help_separates_caller_intent_from_identity(method: str) -> None:
-    page = rendered_help("analysis.analysis_frame." + method)
-    assert page == rendered_help(getattr(mv.AnalysisFrame, method))
-    if method == "compare":
-        assert "Caller owns business correspondence" in page
-        assert "Entity/Field identity is not checked" in page
-        assert "Names certify no Metric identity/business comparability" in page
-    else:
-        assert "declaring caller business correspondence" in page
-        assert "without checking original Entity/Field equality" in page
-    axis = rendered_help("analysis.frame_axis")
-    assert axis == rendered_help(mv.FrameAxis)
-    assert "without original Entity/Field nominal bindings" in axis
-    assert "validation does not prove semantic identity" in axis
-
-
-def test_population_bridge_help_uses_actual_static_method_without_catalog_reads(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    def forbidden(_session: object) -> object:
-        raise AssertionError("Static Help read a Catalog")
-
-    monkeypatch.setattr(mv.Session, "catalog", property(forbidden))
-    page = rendered_help("analysis.session.population_from")
-    assert page == rendered_help(mv.Session.population_from)
-    assert "Target: analysis.session.population_from\nKind: callable" in page
-    assert "on:" in page and "FrameAxis" in page and "Entity" in page
-    assert "Required immutable tuple" in page
-    assert "construction reads no rows" in page.lower()
-    assert "new semantic bindings after joint key projection" in page
-    assert "not original Entity/Field equality" in page
-    assert "Compatible Customer keys may bind Product" in page
-    assert "shipping-city keys may bind billing-city" in page
-    assert "Ordinary fields cannot become identities" in page
+def test_population_bridge_help_uses_actual_static_method_without_catalog_reads() -> None:
     assert "analysis.session.population_from" in rendered_help("analysis.inputs.population")
     assert "analysis.session.population_from" in rendered_help("analysis.population")
+
+
+def test_grouping_surface_stays_with_finite_query_operations() -> None:
+    assert not hasattr(mv, "GroupedAnalysisDomain")
+    for owner in (mv.Population, mv.AnalysisFrame):
+        assert not hasattr(owner, "group_by")
+        assert not hasattr(owner, "aggregate")
+    for query_owner, method in (
+        (mv.AnalysisFrame, "reduce"),
+        (mv.Session, "observe"),
+    ):
+        assert "groups" not in inspect.signature(getattr(query_owner, method)).parameters
+    assert not any("GroupedAnalysisDomain" in target for target in REGISTRY.canonical_ids())

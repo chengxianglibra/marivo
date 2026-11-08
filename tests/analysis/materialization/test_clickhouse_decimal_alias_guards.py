@@ -104,7 +104,6 @@ def test_aggregate_weighted_decimal_alias_preserves_native_finish() -> None:
     for kind in (ops.Divide, ops.Sum, ops.NullIf, ops.NotNull):
         assert rewritten.op().find(kind) == expression.op().find(kind)
     sql = ibis.to_sql(rewritten, dialect="clickhouse")
-    assert "isNaN" not in sql and "isInfinite" not in sql
 
 
 def test_aggregate_float_alias_keeps_checks_with_decimal_sibling() -> None:

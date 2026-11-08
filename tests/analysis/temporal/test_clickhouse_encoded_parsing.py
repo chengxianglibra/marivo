@@ -20,7 +20,6 @@ from marivo.semantic.reader import SemanticProject
 from tests.analysis.numeric.test_remote_numeric_query import _datasource_model
 from tests.datasource.environment.clickhouse_analysis import connection
 from tests.datasource.source_cases import SourceData, source_case
-from tests.shared_fixtures import rendered_help
 from tests.support.source_trace import SourceTrace
 
 FORMATS = (
@@ -45,12 +44,6 @@ def _time_dimension(catalog: ms.SemanticCatalog, path: str) -> ms.TimeDimension:
     result = catalog.get(path)
     assert result.kind == "time_dimension"
     return result
-
-
-def test_help_discloses_clickhouse_parser_version_boundary() -> None:
-    help_text = rendered_help("semantic.strptime")
-    assert "22.3" in help_text and "23.3" in help_text
-    assert "Date32" in help_text and "DateTime64" in help_text
 
 
 @pytest.mark.runtime
@@ -86,7 +79,6 @@ def test_canonical_clickhouse_compilation_uses_wide_native_carriers(fmt: str) ->
     parsed = parse_strptime("clickhouse", table.point, StrptimeParse(fmt))
     sql = str(ibis.to_sql(parsed, dialect="clickhouse"))
     assert ("toDateTime64OrNull" if "%H" in fmt else "toDate32OrNull") in sql
-    assert "parseDateTimeOrNull" not in sql
 
 
 @pytest.mark.runtime

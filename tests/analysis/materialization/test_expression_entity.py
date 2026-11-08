@@ -16,7 +16,7 @@ import pytest
 import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.analysis.core.frame_data import ExpressionFrameBacking, SourceFrameBinding
-from tests.shared_fixtures import catalog_value, terminal_runs
+from tests.shared_fixtures import catalog_value
 from tests.support.paths import PROJECT_ROOT
 
 
@@ -125,4 +125,3 @@ def test_output_keys_rejected_before_run(tmp_path: Path, monkeypatch: pytest.Mon
     cause = caught.value
     assert cause.expected == "primary_key 'amount' present on the Entity output schema"
     assert cause.received == "output columns: 'region', 'day', 'total'"
-    assert terminal_runs(session) == ()

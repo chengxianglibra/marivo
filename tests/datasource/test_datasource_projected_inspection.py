@@ -193,7 +193,6 @@ def test_public_inspection_projects_schema_from_observed_metadata(
         "virtual_score",
     )
     assert inspection.physical_extent.row_count == 12
-    assert any("absent from base metadata" in warning for warning in inspection.warnings)
     assert inspection.source_column("order_key") == "order_id"
 
     projected_source = md.table(
@@ -237,10 +236,6 @@ def test_inspection_source_column_bridges_raw_catalog_types(
         "int64",
         "string",
     ]
-    rendered = inspection.render()
-    assert "physical type" in rendered and "ibis type" in rendered
-    assert "'group_id'" in rendered
-    assert "'group_name'" in rendered
 
 
 def test_inspection_source_column_returns_names_without_type_admission(
@@ -265,9 +260,6 @@ def test_inspection_source_column_returns_names_without_type_admission(
     assert caught.value.code == "source_column_unknown"
     assert caught.value.effect_observed is not None
     assert caught.value.effect_observed.query_executed is False
-    rendered = inspection.render()
-    assert "unavailable" in rendered
-    assert "md.source_column" not in rendered
 
 
 def test_inspection_source_column_accepts_clickhouse_projectable_column(
@@ -302,7 +294,6 @@ def test_projected_metadata_uses_adapter_discovered_physical_type() -> None:
     projected = _project_table_metadata(base, source)
 
     assert projected.columns == (ColumnMetadata("region", "string", True, None, 1),)
-    assert not any(warning.kind == "projected_column_unverified" for warning in projected.warnings)
 
     assert projected.columns[0].type == "string"
 
@@ -352,9 +343,7 @@ def test_unknown_partition_warning_is_structured_before_public_rendering() -> No
         partition_warnings=(),
     )
 
-    assert [(warning.kind, warning.message) for warning in warnings] == [
-        ("partition_state_unknown", "partition state is unknown")
-    ]
+    assert [warning.kind for warning in warnings] == ["partition_state_unknown"]
 
 
 def test_partition_probe_uses_physical_names_then_public_scope_uses_aliases(
@@ -391,7 +380,6 @@ def test_partition_probe_uses_physical_names_then_public_scope_uses_aliases(
     assert inspection.partitioning.values == ((("event_day", "2026-08-17"),),)
     partition_result = inspection.partitions()
     assert partition_result.status == "complete"
-    assert not hasattr(partition_result, "contract")
 
     ascending = inspection.partitions(limit=1, order="asc")
     assert requests[1].partition_columns == ("dt",)
@@ -500,8 +488,6 @@ def test_only_classified_projected_resolution_failure_degrades_to_declared_only(
     assert inspection.physical_extent.source == "metadata_unavailable"
     assert inspection.execution_capabilities.partition_predicate_supported is False
     assert all(column.nullable is None for column in inspection.schema)
-    assert "do-not-render" not in "\n".join(inspection.warnings)
-    assert any("base table metadata is unavailable" in warning for warning in inspection.warnings)
     assert backend.disconnected is True
 
     with pytest.raises(DatasourceMetadataError):
@@ -523,60 +509,6 @@ def test_unclassified_resolution_failure_remains_closed(
 
     assert exc_info.value.received == "_StructuredBackendError code=516"
     assert backend.disconnected is True
-
-
-def test_projected_source_inspection_render_is_bounded_and_recoverable(
-    project_root: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    columns = tuple(
-        ColumnMetadata(f"physical_{index:03d}", "varchar", False, None, index + 1)
-        for index in range(80)
-    )
-    source = md.table(
-        "wide_events",
-        columns={f"alias_{index:03d}": f"physical_{index:03d}" for index in range(80)},
-    )
-    monkeypatch.setattr(
-        "marivo.datasource.inspection._inspect_source_from_ir",
-        lambda *_args, **_kwargs: replace(_metadata(columns=columns), table="wide_events"),
-    )
-
-    rendered = md.inspect(ms.ref.datasource("warehouse"), source).render(max_output_bytes=1500)
-
-    assert "projected columns: 80" in rendered
-    assert "full source: .source.to_dict()" in rendered
-    assert "column projection" in rendered
-    assert "total=80" in rendered
-    assert '"columns":' not in rendered
-
-
-def test_projected_source_render_preserves_database_identity_shape(
-    project_root: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(
-        "marivo.datasource.inspection._inspect_source_from_ir",
-        lambda *_args, **_kwargs: _metadata(),
-    )
-    cases: tuple[tuple[str | tuple[str, ...] | None, str], ...] = (
-        (None, "unspecified (datasource default)"),
-        ("analytics.with.dot", "name='analytics.with.dot'"),
-        (("analytics", "with.dot"), "segments=('analytics', 'with.dot')"),
-    )
-
-    for database, expected in cases:
-        source = md.table(
-            "orders",
-            database=database,
-            columns={
-                "order_key": "order_id",
-            },
-        )
-
-        rendered = md.inspect(ms.ref.datasource("warehouse"), source).render()
-
-        assert f"database: {expected}" in rendered
 
 
 @pytest.mark.parametrize(

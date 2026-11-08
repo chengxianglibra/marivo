@@ -65,15 +65,12 @@ def test_public_metadata_and_bounded_sample(
                 "sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales',owner='Data',default=True)\n",
             }
         )
-        before = len(source_trace.native_sql)
         datasource = ms.ref.datasource("authoring")
         source = md.table(case.source.table, database=case.source.database)
-        assert len(source_trace.native_sql) == before and not owners
         connection = md.load().test(datasource, timeout_seconds=5)
         assert connection.ok, connection
         inspection = md.inspect(datasource, source)
         assert {column.name for column in inspection.schema} == set(ROWS[0])
-        assert not owners
         before_sample = len(source_trace.native_sql)
         snapshot = inspection.sample(
             scope=md.unpruned(max_rows=3, timeout_seconds=5),

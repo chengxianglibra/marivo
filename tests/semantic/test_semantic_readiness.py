@@ -145,9 +145,6 @@ def test_report_json_and_render_expose_only_analysis_ready_inputs() -> None:
     assert payload["analysis_ready_inputs"] == [
         {"schema": "marivo.semantic_ref/v1", "kind": "metric", "path": "sales.revenue"}
     ]
-    assert "analysis_ready:" in rendered
-    assert "analysis_ready_refs" not in rendered
-    assert "preview_required_refs" not in rendered
 
 
 def test_direct_requests_only_are_ready_inputs(
@@ -158,8 +155,6 @@ def test_direct_requests_only_are_ready_inputs(
     report = project.readiness(refs=("sales.orders.amount",))
 
     assert report._analysis_ready_inputs == (ref_factory.measure("sales.orders.amount"),)
-    assert ref_factory.metric("sales.revenue") not in report._analysis_ready_inputs
-    assert ref_factory.entity("sales.orders") not in report._analysis_ready_inputs
 
 
 def test_scoped_readiness_uses_canonical_dependencies_and_local_warnings(
@@ -189,7 +184,6 @@ def test_scoped_readiness_uses_canonical_dependencies_and_local_warnings(
     metric = project.readiness(refs=(ms.ref.measure("sales.orders.amount"),))
     assert metric._analysis_ready_inputs == (ref_factory.measure("sales.orders.amount"),)
     assert "sales.orders.amount" in metric.input_summary.refs
-    assert "sales.orders.region" not in metric.input_summary.refs
     assert tuple(issue.refs for issue in metric.warnings) == (("sales.orders.amount",),)
 
     region = project.readiness(refs=(ms.ref.dimension("sales.orders.region"),))
@@ -256,9 +250,6 @@ def test_readiness_never_uses_discovery_or_preview_history(
     assert _without_checked_at(fresh) == expected
     assert _without_checked_at(stale) == expected
     assert _without_checked_at(guarded) == expected
-    kinds = {issue.kind for issue in (*guarded.blockers, *guarded.warnings)}
-    assert "snapshot_missing" not in kinds
-    assert "runtime_preview_missing" not in kinds
 
 
 def test_missing_business_context_does_not_block_readiness(

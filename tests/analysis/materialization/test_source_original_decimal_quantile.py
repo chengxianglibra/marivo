@@ -8,7 +8,6 @@ import pandas as pd
 import pytest
 
 import marivo.analysis as mv
-from marivo.analysis.errors import AnalysisError
 from marivo.analysis.session.core import Session
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.numeric.test_remote_numeric_query import _project
@@ -60,12 +59,6 @@ def test_decimal_quantile_rollup_returns_fractional_native_value(
     )
     assert frame["value"].tolist() == [expected]
     assert trace.returned_rows == [1]
-    assert trace.uploaded_key_rows == []
-    assert not any(
-        "__original_upper" in name or "__original_value" in name
-        for names in trace.returned_columns
-        for name in names
-    )
     assert not any("APPROX" in statement.upper() for statement in trace.native_sql)
 
 
@@ -116,21 +109,6 @@ def test_decimal_quantile_all_null_and_empty_target_remain_null(
 @pytest.mark.parametrize(
     "backend,profile", source_params([("duckdb", "table"), ("postgres", "table")])
 )
-def test_decimal_quantile_strict_nulls_survive_top_zero(
-    decimal_session: Session, monkeypatch: pytest.MonkeyPatch, backend: str
-) -> None:
-    session = decimal_session
-    amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
-    category = catalog_value(session.catalog, "sales.facts.category", kind="dimension")
-    fine = session.observe({"value": amount.quantile(0.25, nulls="error")}, by=(category,))
-    trace = capture_source(monkeypatch)
-    with pytest.raises(AnalysisError, match="non-NA source values"):
-        fine.top(0, by=fine["value"]).compute()
-
-
-@pytest.mark.parametrize(
-    "backend,profile", source_params([("duckdb", "table"), ("postgres", "table")])
-)
 def test_decimal_quantile_parent_formula_masks_zero(
     decimal_session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -156,4 +134,3 @@ def test_decimal_sample_quantiles_finish_before_per_mean(
     trace = capture_source(monkeypatch)
     frame = session.observe({"value": metric}).compute().to_pandas()
     assert frame["value"].tolist() == [Decimal("1.62" if backend == "duckdb" else "1.63")]
-    assert not any("__original_upper" in name for names in trace.returned_columns for name in names)

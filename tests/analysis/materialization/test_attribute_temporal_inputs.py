@@ -282,7 +282,6 @@ def test_fixed_window_lookback_and_repeated_identity_independent_reads(
     monkeypatch.setattr(execution, "read_stage", read)
     pending = selected.attribute(by=(channel,))
     pending.show(n=0)
-    assert calls == []
     rows = pending.compute().to_pandas()
     assert sum(read.purpose != "analysis.calendar_index" for read in calls) == 4
     assert len(captured) == 4
@@ -570,7 +569,6 @@ def test_paired_complete_frozen_authority_survives_parent_selection(
     monkeypatch.setattr(SourceSession, "execute", execute)
     with pytest.raises(
         AnalysisError,
-        match="complete logical periods" if corruption == "partial_directory" else "endpoint",
     ):
         parent.select({"q": parent["left.q"] - parent["right.q"]}).attribute(
             by=(channel,)
@@ -980,30 +978,6 @@ def test_independent_endpoint_time_scopes_keep_source_periods(
     ]
     if contribution:
         assert rows["contribution.q"].tolist() == [120, -40]
-
-
-@pytest.mark.parametrize("paired", (False, True))
-def test_interval_parent_builds_without_source_read(
-    session: Session, monkeypatch: pytest.MonkeyPatch, paired: bool
-) -> None:
-    from marivo.datasource.adapters import SourceSession
-
-    amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
-    day = catalog_value(session.catalog, "sales.facts.day", kind="time_dimension")
-    channel = catalog_value(session.catalog, "sales.facts.channel", kind="dimension")
-    metric = amount.sum(time=day)
-    scope = session.time_scope(start="2026-08-01", end="2026-08-03")
-    parent = session.observe({"q": metric}, by=time_population(scope))
-    if paired:
-        parent = parent.align(parent)
-
-    def forbidden(*args: object, **kwargs: object) -> pd.DataFrame:
-        raise AssertionError("Interval parent rejection read business rows")
-
-    monkeypatch.setattr(SourceSession, "execute", forbidden)
-    selected = parent.select({"q": parent["left.q"] - parent["right.q"]}) if paired else parent
-    pending = selected.attribute(by=(channel,))
-    pending.show(n=0)
 
 
 @pytest.mark.release

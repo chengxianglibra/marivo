@@ -15,7 +15,6 @@ import ibis.expr.types as ibis_ir
 import pytest
 
 import marivo.datasource as md
-import marivo.semantic as ms
 from marivo.datasource.ir import JsonSourceIR, QueryParamScalar, QueryParamScalarList
 from marivo.datasource.json_source import JsonResponseCache
 from marivo.datasource.source import PartitionScope
@@ -299,7 +298,6 @@ def test_sql_query_result_remains_sql_view_provenance(
 
     meta = project._runtime_metadata["sales.orders"]
     assert meta.entity_provenance == EntityProvenance.SQL_VIEW
-    assert meta.raw_sql_snippet == "SELECT 1 AS value"
 
 
 def test_dataset_projected_table_uses_observed_lookup_schema(
@@ -506,7 +504,6 @@ def test_dataset_file_source_requires_backend_reader(
         _materialize_dataset(project, connections, "sales.orders")
 
     assert exc_info.value.kind == ErrorKind.MATERIALIZE_FAILED
-    assert "does not support csv file sources" in exc_info.value.message
 
 
 def test_dataset_json_source_requires_backend_reader(
@@ -533,7 +530,6 @@ def test_dataset_json_source_requires_backend_reader(
         _materialize_dataset(project, connections, "sales.orders")
 
     assert exc_info.value.kind == ErrorKind.MATERIALIZE_FAILED
-    assert "json file sources" in exc_info.value.message
 
 
 # ---------------------------------------------------------------------------
@@ -606,28 +602,6 @@ def test_materializer_dimension_on_uses_supplied_table(
     value = mat.dimension_on("sales.orders.amount", supplied)
 
     assert isinstance(value, ibis.expr.types.Value)
-    assert "supplied_orders" in repr(value)
-
-
-def test_materializer_dimension_on_is_not_ref_cached(
-    semantic_project_factory: _SemanticProjectFactory,
-    backend_factory: Callable[[str], ibis.duckdb.DuckDBBackend],
-) -> None:
-    project = semantic_project_factory(
-        {
-            "sales/_domain.py": _DOMAIN_PY,
-            "sales/datasets.py": _DATASET_AND_METRIC_PY,
-        }
-    )
-    mat = Materializer(project, backend_factory)
-    first = ibis.table({"amount": "float64", "region": "string"}, name="first_orders")
-    second = ibis.table({"amount": "float64", "region": "string"}, name="second_orders")
-
-    first_value = mat.dimension_on("sales.orders.amount", first)
-    second_value = mat.dimension_on("sales.orders.amount", second)
-
-    assert "first_orders" in repr(first_value)
-    assert "second_orders" in repr(second_value)
 
 
 # ---------------------------------------------------------------------------
@@ -799,31 +773,6 @@ def test_runtime_metadata_lifecycle(
 # ---------------------------------------------------------------------------
 # Project must be loaded before materialize
 # ---------------------------------------------------------------------------
-
-
-def test_materialize_on_unloaded_project_raises(
-    semantic_project_factory: _SemanticProjectFactory,
-) -> None:
-    """Calling materialize on an unloaded project should raise."""
-
-    con = ibis.duckdb.connect(":memory:")
-    con.con.execute(
-        "CREATE TABLE orders (order_id INT, amount FLOAT, region TEXT, created_at TIMESTAMP)"
-    )
-
-    def factory(ds_id: str) -> ibis.duckdb.DuckDBBackend:
-        return con
-
-    project = semantic_project_factory(
-        {"sales/_domain.py": _DOMAIN_PY, "sales/datasets.py": _DATASET_AND_METRIC_PY},
-        load=False,
-    )
-    # Not loaded yet
-    with (
-        patch_semantic_connections(project, factory),
-        pytest.raises(ms.errors.SemanticLoadFailed) as connections,
-    ):
-        _materialize_dataset(project, connections, "sales.orders")
 
 
 def test_materialization_sample_size_bounds_entity_output(

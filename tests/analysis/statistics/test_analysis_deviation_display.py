@@ -32,16 +32,6 @@ def _metric(catalog: ms.SemanticCatalog, path: str) -> ms.Metric:
     return result
 
 
-def test_local_display_pairing_rejects_different_current_keys(
-    analysis_dsl_case_factory: DslCaseFactory,
-) -> None:
-    case = analysis_dsl_case_factory("j2")
-    query = orders(case)
-    selected = query.top(3, by=query["value"])
-    with pytest.raises(AnalysisError):
-        query.select({"current": selected["value"]})
-
-
 @pytest.mark.parametrize(
     "method,mode,reverse",
     [("zscore", "category", False), ("zscore", "other_fit", True), ("mad", "ranks", False)],

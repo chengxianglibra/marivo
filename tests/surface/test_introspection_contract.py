@@ -38,11 +38,6 @@ def test_constraint_paths_exist() -> None:
             )
 
 
-def test_datasource_help_does_not_resolve_private_symbols() -> None:
-    with pytest.raises(MarivoHelpTargetError):
-        rendered_help("_build_ai_context", owner="datasource")
-
-
 def test_datasource_constraint_defaults_use_error_kind_only() -> None:
     from marivo.datasource.constraints import default_constraint_for_error_kind
 
@@ -70,4 +65,8 @@ def test_datasource_error_requires_typed_repair() -> None:
     )
 
     assert err.repair is not None
-    assert not hasattr(err, "hint")
+
+
+def test_datasource_help_does_not_resolve_private_symbols() -> None:
+    with pytest.raises(MarivoHelpTargetError):
+        rendered_help("_build_ai_context", owner="datasource")

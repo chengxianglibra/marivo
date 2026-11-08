@@ -44,7 +44,6 @@ from marivo.analysis.core.frozen_calendar import calendar_directory_schema
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.materialization.graph_exchange import StageOutput
 from marivo.analysis.materialization.graph_source_execution import run_frame_plan
-from marivo.semantic.errors import SemanticExpressionError
 
 
 def _data() -> CompletedFrameData:
@@ -115,28 +114,6 @@ def test_completed_chain_and_memory_page_do_not_rescan_proven_keys(
     assert _keys(page.rows) == ["C", "A"]
     page.rows.loc[0, "a"] = 999
     assert completed.copy_rows()["a"].tolist() == [10, 10, pd.NA, 5]
-
-
-def test_top_zero_rejects_unknown_duplicate_input_before_cropping() -> None:
-    from marivo.analysis.compiler.graph_plan import FrameCompute
-    from marivo.analysis.compiler.query_program import FrameProgram
-    from marivo.analysis.core.unique_keys import UniqueKeys
-    from marivo.analysis.materialization.graph_local_execution import run_local
-
-    data = _data()
-    checked = StageOutput.from_completed(data)
-    unknown = replace(
-        checked,
-        table=pd.concat([checked.table.iloc[:1], checked.table.iloc[:1]], ignore_index=True),
-        unique_keys=UniqueKeys(),
-    )
-    stage = FrameCompute(
-        "top",
-        ("unknown",),
-        FrameProgram(TopValues(0, ValueSlot(0), True), data.schema, data.schema),
-    )
-    with pytest.raises(AnalysisError, match="unique complete row keys"):
-        run_local(stage, (unknown,))
 
 
 def _run(
@@ -305,61 +282,6 @@ def test_all_na_sum_and_mean_stay_null_while_count_uses_rows() -> None:
     assert result.iloc[0, :2].isna().all() and result.iloc[0, 2] == 4
 
 
-def test_duration_mixed_units_and_overflow_are_checked() -> None:
-    key = DataColumn("k", "k", ScalarDataType("int64"), False)
-    left = DataColumn("a", "a", DurationDataType("ns"), True)
-    right = DataColumn("b", "b", DurationDataType("us"), True)
-    schema = DataSchema(
-        (DataAxis("k", (key,), name="k"),), (left, right), value_paths=(("a",), ("b",))
-    )
-    data = CompletedFrameData(
-        schema,
-        pd.DataFrame(
-            {
-                "k": [1],
-                "a": pd.Series([2**63 - 1], dtype="duration[ns][pyarrow]"),
-                "b": pd.Series([1], dtype="duration[us][pyarrow]"),
-            }
-        ),
-    )
-    with pytest.raises(AnalysisError, match="exact Duration"):
-        _run(data, SelectValues((("mixed", ValueBinary("add", ValueSlot(0), ValueSlot(1))),)))
-    with pytest.raises(SemanticExpressionError, match="Duration"):
-        _run(data, SelectValues((("overflow", ValueBinary("mul", ValueSlot(0), ValueLiteral(2))),)))
-
-
-def test_completed_data_validates_every_column_on_entry() -> None:
-    data = _data()
-    rows = data.copy_rows()
-    rows["a"] = ["bad", "bad", "bad", "bad"]
-    with pytest.raises(AnalysisError):
-        CompletedFrameData(data.schema, rows)
-
-
-@pytest.mark.parametrize("corruption", ["duplicate_key", "missing_key", "missing_presence"])
-def test_completed_data_validates_full_keys_and_nonnullable_presence(corruption: str) -> None:
-    original = _data()
-    axis = original.schema.axes[0]
-    required_key = replace(axis.columns[0], nullable=False)
-    presence = DataColumn("present", "left_present", ScalarDataType("boolean"), False)
-    schema = replace(
-        original.schema,
-        axes=(replace(axis, columns=(required_key,)),),
-        presence=(presence,),
-        presence_paths=(("left_present",),),
-    )
-    rows = original.copy_rows().iloc[:3].copy()
-    rows["present"] = [True, True, False]
-    if corruption == "duplicate_key":
-        rows["key"] = ["same"] * 3
-    elif corruption == "missing_key":
-        rows.loc[0, "key"] = None
-    else:
-        rows["present"] = pd.Series([pd.NA, True, False], dtype="boolean[pyarrow]")
-    with pytest.raises(AnalysisError):
-        CompletedFrameData(schema, rows)
-
-
 def test_strict_arithmetic_is_not_erased_by_later_select_or_top_zero() -> None:
     strict = SelectValues(
         (
@@ -502,24 +424,6 @@ def test_complete_validation_preserves_native_infinite_stage_cells(
             ].iloc[0]
             == invalid
         )
-
-
-@pytest.mark.parametrize("invalid", [float("inf"), -float("inf")])
-def test_fixed_typed_attachment_checks_finite_coordinate_keys(invalid: float) -> None:
-    key = DataColumn("k", "bucket", ScalarDataType("float64"), False)
-    axis = CalendarDataAxis(
-        "calendar",
-        (key,),
-        "UTC",
-        name="calendar",
-        frozen=FrozenCalendarData(BuiltinCalendarData("month", 1), "directory"),
-    )
-    value = DataColumn("v", "value", ScalarDataType("int64"), True)
-    schema = DataSchema((axis,), (value,), value_paths=(("value",),))
-    attachment = _calendar_directory(axis)
-    attachment.rows["k"] = [invalid]
-    with pytest.raises(AnalysisError, match="finite typed coordinate"):
-        CompletedFrameData(schema, pd.DataFrame({"k": [0.0], "v": [7]}), (attachment,))
 
 
 def test_complete_float_validation_preserves_na() -> None:

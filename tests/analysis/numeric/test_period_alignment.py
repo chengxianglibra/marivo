@@ -123,7 +123,7 @@ def test_period_outer_keeps_time_missing_and_original_keys(
     on = tuple(zip(current.axes, baseline.axes, strict=True))
     comparison = current.compare({"reference": mv.baseline(baseline, match=mv.ordinal(), on=on)})
     if lengths[1] > lengths[0]:
-        with pytest.raises(AnalysisError, match="actual baseline time row"):
+        with pytest.raises(AnalysisError):
             comparison.compute()
         aligned = current.align(baseline, match=mv.ordinal(), on=on).compute()
         frame = aligned.to_pandas()

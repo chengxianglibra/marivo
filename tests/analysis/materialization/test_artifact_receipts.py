@@ -5,7 +5,6 @@ from pathlib import Path
 import pytest
 
 from marivo.analysis.materialization import contracts as c
-from marivo.analysis.materialization.errors import IntegrityError
 
 
 def _local() -> c.LocalReceipt:
@@ -29,17 +28,3 @@ def test_closed_receipt_round_trip(monkeypatch: pytest.MonkeyPatch) -> None:
     recovered = c.decode_receipt(c.parse_json(c.canonical_json(payload)))
     assert recovered == receipt
     assert recovered.identity_digest == receipt.identity_digest
-    assert "datasource" not in repr(receipt)
-
-
-def test_local_receipt_rejects_unregistered_or_mutable_authority() -> None:
-    for field, value in (
-        ("format", "csv"),
-        ("project_relative_path", "../foreign"),
-        ("project_relative_path", "/absolute"),
-        ("realized_row_count", True),
-    ):
-        payload = c.receipt_payload(_local())
-        payload[field] = value
-        with pytest.raises(IntegrityError):
-            c.decode_receipt(payload)

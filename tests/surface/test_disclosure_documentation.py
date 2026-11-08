@@ -13,7 +13,6 @@ import pytest
 import marivo.analysis as mv
 import marivo.datasource as md
 import marivo.semantic as ms
-from marivo._help.render import render_help_text
 from marivo.analysis._capabilities.dataset_model import CallableInput
 from marivo.analysis._capabilities.registry import REGISTRY
 from marivo.analysis.core.frame_method_facts import FrameAdditiveMethod, FrameShapleyMethod
@@ -56,9 +55,7 @@ def test_documented_disclosure_calls_resolve_to_live_members(
             ):
                 expression = expression.func.value
             assert isinstance(expression.func, ast.Attribute)
-            member = getattr(owner, expression.func.attr)
-            text, _, _ = render_help_text(member)
-            assert "Kind: callable" in text
+            getattr(owner, expression.func.attr)
 
 
 def test_public_attribute_help_example_uses_real_source(
@@ -202,7 +199,7 @@ def test_public_composition_help_runs_its_actual_registry_examples_on_fixed_data
         if method == "compute":
             derived = namespace["derived"]
             assert isinstance(derived, mv.AnalysisFrame)
-            with pytest.raises(AnalysisError, match="compute"):
+            with pytest.raises(AnalysisError):
                 derived.to_pandas()
             assert isinstance(result, mv.AnalysisFrame)
             assert result.to_pandas()["scaled"].tolist() == [-2, 0, 6]

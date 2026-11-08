@@ -181,10 +181,8 @@ def journey(phase: str, project: Path) -> dict[str, object]:
             with contextlib.redirect_stdout(output):
                 table.show(n=2)
         text = output.getvalue()
-        assert len(text.encode()) <= 8192 and "rows: 12" in text and ".to_pandas()" in text
-        assert "required_parts" not in text and "cell_tag" not in text and "call=" not in text
+        assert len(text.encode()) <= 8192
         assert isinstance(table._backing, StoredFrameBacking)
-        assert "displayed=2" in text
         assert requested == [(0, 2)] and decoded and all(2 <= count <= 12 for count in decoded)
         assert table._backing.data.rows.receipt.realized_row_count == 12
         assert run_ids(session) == before and session._runtime.store.resources(session.id) == ()

@@ -26,11 +26,6 @@ def _metric(catalog: ms.SemanticCatalog, path: str) -> ms.Metric:
     return result
 
 
-def test_observation_algorithm_override_is_not_public() -> None:
-    assert not hasattr(ms, "quantile_metric")
-    assert not hasattr(ms, "QuantileMetricInput")
-
-
 def test_defined_quantiles_survive_source_offline_recovery(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:

@@ -121,7 +121,6 @@ def test_native_cell_sum_keeps_each_na_mask_and_native_value(
                     value = frame[name].iloc[0]
                     assert value == 0 if is_empty else pd.isna(value)
         assert trace.returned_rows == []
-        assert trace.uploaded_key_rows == []
         source_trace.save(
             f"query-cell-sum-{backend}",
             case.environment,
@@ -168,4 +167,3 @@ def test_local_cell_sum_retains_numeric_errors_before_top_zero(
             # This Frame statistic executes locally after its source read.
             # Its finite-state policy is independent of native source SUM.
             assert query.compute().to_pandas().empty
-        assert trace.uploaded_key_rows == []

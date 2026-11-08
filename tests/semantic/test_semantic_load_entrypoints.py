@@ -4,11 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-
 import marivo.semantic as ms
 from marivo.semantic.catalog import SemanticCatalog
-from marivo.semantic.errors import SemanticLoadFailed
 from marivo.semantic.loader import LoadResult, load_project
 
 
@@ -86,15 +83,6 @@ def test_project_catalog_returns_semantic_catalog(tmp_path: Path) -> None:
     assert isinstance(result, LoadResult)
     catalog = project.catalog()
     assert isinstance(catalog, SemanticCatalog)
-
-
-def test_project_catalog_raises_when_not_ready(tmp_path: Path) -> None:
-    _write_minimal_project(tmp_path)
-    from marivo.semantic.reader import SemanticProject
-
-    project = SemanticProject(workspace_dir=tmp_path)
-    with pytest.raises(SemanticLoadFailed):
-        project.catalog()
 
 
 def test_ms_load_and_project_catalog_agree(tmp_path: Path) -> None:

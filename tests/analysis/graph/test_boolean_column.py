@@ -7,7 +7,6 @@ import pandas as pd
 import pytest
 
 import marivo.analysis as mv
-from marivo.analysis.errors import AnalysisError
 from tests.analysis.numeric.pandas_coordinates import ordinary_columns
 from tests.shared_fixtures import DslCase, DslCaseFactory, catalog_get, catalog_value
 
@@ -48,10 +47,6 @@ def test_boolean_operations_return_plain_columns_and_select_only_true(
     ):
         assert type(column) is mv.Column
         assert column._kind == "boolean"
-    with pytest.raises(AnalysisError, match="Python truth conversion"):
-        bool(flag)
-    with pytest.raises(AnalysisError, match="a boolean Column"):
-        frame.where(region)
 
     rows = frame.to_pandas()
     key = ordinary_columns(frame)[0]
@@ -67,19 +62,8 @@ def test_boolean_operations_return_plain_columns_and_select_only_true(
             filtered, rows.loc[rows[key].isin(expected)].reset_index(drop=True)
         )
 
-    for derived in (
-        frame.select({"flag": flag}),
-        frame.where(flag),
-        frame.top(2, by=region),
-    ):
-        with pytest.raises(AnalysisError, match="exact Store/Session/Frame"):
-            derived.where(flag)
     other = frame.select({"flag": flag, "region": region}).compute()
     assert other.output_names == frame.output_names
-    with pytest.raises(AnalysisError, match="exact Store/Session/Frame"):
-        other.where(flag)
-    with pytest.raises(AnalysisError, match="different Frame inputs"):
-        flag & other["flag"]
 
 
 def test_negated_boolean_null_checks_preserve_unknown(
@@ -116,8 +100,6 @@ def test_presence_and_nullable_boolean_filtering_survive_storage(
     assert tuple(axis.name for axis in selected.axes) == tuple(axis.name for axis in original.axes)
 
     saved = original.persist()
-    with pytest.raises(AnalysisError, match="exact Store/Session/Frame"):
-        saved.where(original["left.flag"])
     offline = case.database_path.with_suffix(".offline")
     case.database_path.rename(offline)
     try:

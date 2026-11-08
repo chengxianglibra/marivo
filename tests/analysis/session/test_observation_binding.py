@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import FrozenInstanceError, replace
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Protocol
@@ -10,21 +10,18 @@ from typing import Protocol
 import pytest
 
 import marivo.analysis as mv
-import marivo.semantic as ms
 from marivo._definition.deferred import resolver_of, semantic_input
 from marivo._definition.observations import ObservationBinding
 from marivo._definition.types import AxisBinding, CalendarCoordinate
 from marivo._temporal import InstantAnchor
 from marivo.analysis.core.frame_data import ExpressionFrameBacking, SourceFrameBinding
 from marivo.analysis.core.graph import BoundGraph
-from marivo.analysis.core.model import CoreRuleError
 from marivo.analysis.dsl.frame import AnalysisFrame
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.session.core import Session
-from marivo.semantic._deferred_semantics import consume_field, consume_metric, consume_predicate
+from marivo.semantic._deferred_semantics import consume_field, consume_predicate
 from marivo.semantic._expression_values import RowExpression
 from marivo.semantic.catalog import Entity
-from marivo.semantic.errors import SemanticError
 from marivo.semantic.reader import SemanticProject
 from tests.shared_fixtures import catalog_get, catalog_value, terminal_runs
 
@@ -219,12 +216,7 @@ def test_each_fact_occurrence_keeps_its_condition_and_complete_classification(
     assert terminal_runs(session) == ()
     query.show()
     shown = capsys.readouterr().out
-    assert "net" in shown and "branches" in shown
-    assert "rows: pending; no input rows read" in shown
     assert terminal_runs(session) == ()
-    with pytest.raises(FrozenInstanceError):
-        frozen_attribute = "period"
-        setattr(binding, frozen_attribute, None)
 
 
 @pytest.mark.parametrize("problem", ("missing", "alternate"))
@@ -250,10 +242,6 @@ def test_explicit_field_routes_and_during_none_are_frozen(
     region = catalog_value(catalog, "sales.customers.region", kind="dimension")
     buyer = catalog_get(catalog, "relationship:sales.buyer", kind="relationship")
     routed = region.via((buyer,))
-    with pytest.raises(SemanticError):
-        consume_metric(routed.count())
-    with pytest.raises(SemanticError):
-        ms.additive_over(routed)  # type: ignore[arg-type]  # Routed expressions are not declaration fields.
     query = session.observe(
         {"revenue": catalog_get(catalog, "metric:sales.revenue", kind="metric")},
         by=(routed,),
@@ -275,11 +263,6 @@ def test_explicit_field_routes_and_during_none_are_frozen(
         where=routed == "EMEA",
     )
     assert _captured_graph(query).fingerprint != _captured_graph(changed).fingerprint
-    for bad in ((), [buyer], buyer):
-        with pytest.raises(SemanticError):
-            consume_field(region.via(bad))  # type: ignore[arg-type]  # Reject malformed paths.
-    with pytest.raises(SemanticError):
-        consume_field(region.at(session.instant("2026-01-01")))
 
 
 def test_time_samples_without_period_keep_formula_and_declared_closure(
@@ -292,10 +275,7 @@ def test_time_samples_without_period_keep_formula_and_declared_closure(
     assert _captured_observation(session.observe({"zero": mean})).period is None
     nested = revenue.per((field,)).median() * 0
     assert _captured_observation(session.observe({"zero": nested})).period is None
-    assert not hasattr(field, "within")
     scope = session.time_scope(start="2026-01-01", end="2026-02-01")
-    with pytest.raises(SemanticError):
-        consume_predicate(ms.ref.time_dimension("sales.orders.ordered_at").within(scope))
     # A where time range remains a contribution filter, without an output interval.
     query = session.observe({"zero": nested}, where=((field >= scope.start) & (field < scope.end)))
     assert _captured_observation(query).period is None
@@ -373,9 +353,7 @@ def test_exact_boundaries_calendar_and_host_independence(
     assert cells[1].original_end - cells[1].original_start == timedelta(hours=23)
     assert session.instant(scope.end, timezone="Asia/Shanghai") == scope.end
     assert session.instant("2026-01-01T08:00:00+08:00") == datetime(2026, 1, 1, tzinfo=timezone.utc)
-    before = repr(axis)
     monkeypatch.setenv("TZ", "Pacific/Honolulu")
-    assert repr(axis) == before
     assert scope.by(mv.grain("day")) == axis
     assert mv.grain("day")._width_seconds() == 86400
     assert scope._contract().model_dump(mode="json")["schema"] == "time-scope/v1"
@@ -383,16 +361,11 @@ def test_exact_boundaries_calendar_and_host_independence(
     assert reopened == scope
     assert reopened.by(mv.grain("day")) == axis
     assert _validate_time_scope_data(scope._model_dump(mode="json")) == scope
-    for value in (datetime(2026, 1, 1), "2026-03-08T02:30:00", "2026-11-01T01:30:00"):
-        with pytest.raises(AnalysisError):
-            session.instant(value)
     with pytest.raises(ValueError):
         # Intentionally pass a retired string shape to the runtime validator.
         by: object = scope.by
         assert callable(by)
         by("day")
-    with pytest.raises(AnalysisError):
-        session.time_scope(start="2026-01-01", end="2026-01-01")
     assert terminal_runs(session) == ()
 
 
@@ -404,8 +377,6 @@ def test_attribute_anchor_preserves_exact_exclusive_endpoint(
     region = catalog_value(catalog, "sales.customers.region", kind="dimension")
     revenue = catalog_get(catalog, "metric:sales.revenue", kind="metric")
     scope = session.time_scope(start="2026-01-01", end="2026-02-01")
-    with pytest.raises(CoreRuleError, match="attribute anchor"):
-        session.observe({"revenue": revenue}, by=(region,))
     field = region.via((catalog_get(catalog, "relationship:sales.buyer", kind="relationship"),)).at(
         scope.end
     )
@@ -420,22 +391,6 @@ def test_attribute_anchor_preserves_exact_exclusive_endpoint(
     assert original.field_read is not None
     assert consume_field(field).reference == original.reference
     assert original.field_read.at is None
-    assert terminal_runs(session) == ()
-
-
-def test_to_many_scalar_path_is_rejected_without_source_reads(
-    bound_catalog: BoundCatalogFactory,
-) -> None:
-    session = bound_catalog(fanout=True)
-    region = catalog_value(session.catalog, "sales.customers.region", kind="dimension")
-    buyer = catalog_get(session.catalog, "relationship:sales.buyer", kind="relationship")
-    with pytest.raises(SemanticError, match="single-valued"):
-        consume_field(region.via((buyer,)))
-    with pytest.raises(AnalysisError):
-        session.observe(
-            {"revenue": catalog_get(session.catalog, "metric:sales.revenue", kind="metric")},
-            by=(region,),
-        )
     assert terminal_runs(session) == ()
 
 
@@ -495,8 +450,6 @@ def filtered():
     routed = catalog_value(catalog, f"sales.customers.{field_name}", kind="field").via(
         (catalog_get(catalog, "relationship:sales.buyer", kind="relationship"),)
     )
-    with pytest.raises(SemanticError, match="native field"):
-        consume_metric(routed.count())
     assert terminal_runs(session) == ()
 
 

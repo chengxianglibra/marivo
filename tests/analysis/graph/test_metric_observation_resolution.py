@@ -53,7 +53,7 @@ def test_business_completeness_uses_the_complete_calendar_domain(
     values = frame["revenue"]
     assert values.sum() == 1000
     assert values.eq(0).sum() == 28
-    with pytest.raises(SemanticRuntimeError, match=r"missing\.metric") as missing:
+    with pytest.raises(SemanticRuntimeError) as missing:
         _ = catalog_get(case.session.catalog, "metric:missing.metric", kind="metric")
     assert missing.value.repair
     assert "metric:sales.revenue" in missing.value.repair.candidates

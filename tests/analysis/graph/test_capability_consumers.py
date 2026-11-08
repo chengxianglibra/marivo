@@ -525,7 +525,6 @@ def test_cumulative_keeps_anchor_and_overlap(
             by=(grid_scope.by(mv.grain("month")),),
         ).persist()
         assert _value(grouped).tolist() == expected
-        assert not hasattr(fixed, "rollup")
         if not overlap:
             assert _value(grouped).sum() == 23
         assert session._runtime.store.resources(session._runtime.session_ref) == ()

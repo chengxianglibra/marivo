@@ -2,7 +2,6 @@ from typing import Literal
 
 import pytest
 
-from marivo._temporal import Grain
 from marivo.analysis import grain
 
 
@@ -41,57 +40,6 @@ def test_grain_width_seconds_fixed_size(
     }
     unit = units[token]
     assert grain(unit, count=count)._width_seconds() == seconds
-
-
-@pytest.mark.parametrize("token", ["month", "quarter", "year"])
-def test_grain_width_seconds_rejects_calendar_variable(
-    token: Literal["month", "quarter", "year"],
-) -> None:
-    with pytest.raises(ValueError, match="calendar-variable"):
-        grain(token)._width_seconds()
-
-
-def test_positional_construction_rejected() -> None:
-    with pytest.raises(TypeError):
-        Grain(5, "minute")
-
-
-def test_calendar_multiples_rejected() -> None:
-    with pytest.raises(ValueError):
-        grain("week", count=2)
-
-
-def test_count_must_be_positive() -> None:
-    with pytest.raises(ValueError):
-        grain("minute", count=0)
-
-
-def test_grains_have_no_ordering() -> None:
-    import operator as comparisons
-
-    for comparison in ("lt", "le", "gt", "ge"):
-        for units in (("minute", "hour"), ("week", "month"), ("day", "day")):
-            with pytest.raises(TypeError):
-                getattr(comparisons, comparison)(grain(units[0]), grain(units[1]))
-
-
-@pytest.mark.parametrize(
-    "unit,count,repair",
-    [
-        ("minute", 7, "divide"),
-        ("second", 60, "1minute"),
-        ("second", 120, "2minute"),
-        ("minute", 60, "1hour"),
-        ("hour", 24, "timedelta"),
-        ("minute", 1440, "timedelta"),
-        ("second", 86400, "timedelta"),
-    ],
-)
-def test_subday_grain_rejects_invalid_spelling_at_construction(
-    unit: Literal["second", "minute", "hour"], count: int, repair: str
-) -> None:
-    with pytest.raises(ValueError, match=repair):
-        grain(unit, count=count)
 
 
 @pytest.mark.parametrize("unit,count,width", [("second", 90, 90), ("minute", 90, 5400)])

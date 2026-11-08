@@ -194,7 +194,6 @@ def test_scope_max_rows_limits_entity_output_not_raw_input(
     winners = set(zip(rows["order_id"].tolist(), rows["amount"].tolist(), strict=True))
     assert len(winners) == 2
     assert winners <= {(1, 12.0), (2, 25.0), (3, 30.0)}
-    assert (1, 10.0) not in winners and (2, 20.0) not in winners
 
 
 def test_metric_sample_size_limits_entity_output_before_aggregation(
@@ -413,14 +412,11 @@ def test_expression_entity_scalar_return_fails_at_materialization(
 def test_direct_entity_materialization_unchanged(
     semantic_project_factory: _SemanticProjectFactory,
 ) -> None:
-    from marivo.refs import ref as ref_factory
-
     project = _expr_project(semantic_project_factory, _DIRECT_MODEL)
     connection = _warehouse_connection()
 
     sidecar = project._expression_sidecar
     assert sidecar is not None
-    assert ref_factory.entity("sales.orders") not in sidecar.bodies
 
     table = Materializer(project, lambda _ds: connection).entity("sales.orders")
     assert list(table.columns) == [

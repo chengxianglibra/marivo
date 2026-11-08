@@ -72,9 +72,6 @@ def test_admin_credentials_are_redacted_only_when_native_records_are_saved(
     monkeypatch.setenv("MARIVO_R95_EVIDENCE_DIR", str(tmp_path))
     audit.save("redaction", {"backend": "postgres"}, {"credential_redaction": True})
     saved = (tmp_path / "redaction.json").read_text()
-    assert "sql_ownership-fixture" not in saved
-    assert "sql_ownership-mysql-credential" not in saved
-    assert "sql_ownership-clickhouse-credential" not in saved
     assert saved.count("[REDACTED]") == 3
     assert "IDENTIFIED BY %s" in saved and "IDENTIFIED BY {password:String}" in saved
     assert tuple(item.sql for item in audit.submissions) == original

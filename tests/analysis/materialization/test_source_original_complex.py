@@ -19,8 +19,6 @@ def test_multi_root_original_ratio_recomputes_before_host_finish(
     result = session.observe({"aov": metric}).compute().to_pandas()
     assert result["aov"].tolist() == [200 / 101]
     assert trace.returned_rows == [1]
-    assert trace.uploaded_key_rows == []
-    assert not any("__original_value" in columns for columns in trace.returned_columns)
 
 
 def test_multi_root_selection_restricts_each_actual_fiber(

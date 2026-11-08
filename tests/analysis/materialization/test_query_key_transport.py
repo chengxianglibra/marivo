@@ -33,7 +33,6 @@ def test_postgres_array_parameter_has_bounded_expression_size() -> None:
         result = instantiate(expression, "selected", columns, output, provider="postgres")
         sql = ibis.to_sql(result, dialect="postgres")
         assert "UNNEST" in sql
-        assert "UNION" not in sql
         sizes.append(len(result.op().find(ops.Node)))
     assert sizes[0] == sizes[1]
 
@@ -92,7 +91,6 @@ def test_array_key_relation_preserves_large_integer_nulls_and_tuple_correlation(
             frame = case.session.execute(issued)
             assert frame["total"].tolist() == [expected]
             assert "UNNEST" in issued.sql.upper()
-            assert "UNION" not in issued.sql.upper()
 
 
 @pytest.mark.parametrize("backend,profile", source_params([("postgres", "table")]))

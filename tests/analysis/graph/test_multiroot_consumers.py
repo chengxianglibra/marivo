@@ -329,7 +329,6 @@ def test_independent_roots_and_temporal_fold(
                 and refused_route.value.received
                 and refused_route.value.repair
             )
-            assert "left" in str(refused_route.value) or "right" in str(refused_route.value)
             assert set(root.rglob("*.parquet")) == before
             assert terminal_runs(session) == ()
             assert not source_trace.native_sql

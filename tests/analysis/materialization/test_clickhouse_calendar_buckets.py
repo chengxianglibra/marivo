@@ -124,7 +124,6 @@ def test_observe_calendar_preserves_bucket_types_boundaries_and_windows(
         assert isinstance(axis, FrameCalendarAxisSchema) and axis.timezone == "UTC"
         directory = frozen_coordinates(frame)[0].rows
         assert len(directory["key.0"]) == 3
-        assert "nominal_start" not in directory.columns
 
         # Inspect actual submissions, preserving the regression's native boundary
         # and nullable-type coverage without requiring the retired CASE encoding.

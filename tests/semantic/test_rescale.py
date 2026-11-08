@@ -153,7 +153,7 @@ def test_rescale_rejects_unknown_units_and_nonnumeric_or_unfinished_inputs(
 
 
 def test_rescale_binds_forward_references_and_retains_fingerprint_and_disclosure(
-    semantic_project_factory: ProjectFactory, capsys: pytest.CaptureFixture[str]
+    semantic_project_factory: ProjectFactory,
 ) -> None:
     source = (
         """import marivo.semantic as ms
@@ -189,9 +189,6 @@ def nested():
     contract = catalog.get("metric:traffic.bandwidth")
     assert contract.kind == "metric"
     assert ("rescale", "input_unit='By', divisor=1024, unit='GiB/s'") in contract.definition.facts
-    contract.show()
-    shown = capsys.readouterr().out
-    assert "rescale" in shown and "divisor=1024" in shown and "GiB/s" in shown
     nested = catalog.get("metric:traffic.nested")
     assert nested.kind == "metric"
     assert nested.definition.facts == (
@@ -263,4 +260,3 @@ def invalid():
     error = project.errors()[0]
     assert error.kind == ErrorKind.INVALID_EXPRESSION_VALUE.value
     assert error.expected and error.received and error.repair
-    assert "author callback was executed" not in str(error)

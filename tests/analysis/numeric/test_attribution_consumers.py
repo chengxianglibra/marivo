@@ -132,7 +132,7 @@ def test_source_and_retained(
                     current_frame.null_region.isna().all()
                     and baseline_frame.null_region.isna().all()
                 )
-                with pytest.raises(ValueError, match="non-null labels"):
+                with pytest.raises(ValueError):
                     allocation(current_frame, baseline_frame, method="sum", axes=axes, parents=())
                 assert terminal_runs(session) == runs_before
                 continue

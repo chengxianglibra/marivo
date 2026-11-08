@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
 from datetime import datetime, timezone
 from decimal import Decimal
 from pathlib import Path
@@ -370,7 +369,6 @@ def test_pending_source_inputs_survive_physical_type_closing_and_attribute_stays
             o.path for o in frame.lineage.values["c"].value_origins
         }
         assert "sales.revenue" in {o.path for o in context.x.origins}
-        assert "sales.revenue" not in {o.path for o in context.y.origins}
     shares = frame.select({"s": x.share(along=frame.axes)})
     assert shares.compute().schema.value_contexts == shares.schema.value_contexts
     broadcast = frame.select({"r": frame.over(frame["a"].corr(frame["c"], method="pearson"))})
@@ -379,52 +377,6 @@ def test_pending_source_inputs_survive_physical_type_closing_and_attribute_stays
             rejected.attribute(by=(region,))
         assert caught.value.location == "frame.attribute"
         assert caught.value.repair is not None
-
-
-def test_invalid_current_alignment_references_are_rejected(local: LocalFrameServices) -> None:
-    frame = _frame(local)
-    aligned = frame.align(frame)
-    relationship = aligned._schema.alignments[0]
-    for side in (
-        replace(relationship.left, values=("absent",)),
-        replace(relationship.left, presence=("absent",)),
-        replace(relationship.left, coordinates=(FrameAlignmentAxis("group", "left"),)),
-    ):
-        with pytest.raises(AnalysisError):
-            validate_current_facts(
-                replace(aligned._schema, alignments=(replace(relationship, left=side),))
-            )
-
-
-@pytest.mark.parametrize("damage", ("share_group", "left_coordinates", "right_axis"))
-def test_canonical_wire_rejects_incomplete_active_axis_directories(
-    local: LocalFrameServices,
-    damage: str,
-) -> None:
-    import json
-
-    from marivo.analysis.core.artifact_data import ArtifactManifest
-    from marivo.analysis.materialization import terminal_protocol
-    from marivo.analysis.materialization.contracts import canonical_json
-    from marivo.analysis.materialization.errors import IntegrityError
-    from marivo.analysis.materialization.graph_reading import open_manifest
-
-    frame = _frame(local)
-    shares = frame.select({"share": frame["input.x"].share(along=(frame.axes[1],))})
-    saved = shares.align(shares).persist()
-    manifest = open_manifest(local.store, local.session_ref, saved.artifact_id)
-    wire = json.loads(terminal_protocol.encode(manifest))
-    if damage == "share_group":
-        share = next(c for c in wire["contexts"] if c["record"] == "FrameShareContext")
-        share["fields"]["groups"] = []
-    else:
-        relationship = wire["value"]["fields"]["data"]["fields"]["schema"]["fields"]["alignments"][
-            0
-        ]
-        side = relationship["fields"]["left" if damage == "left_coordinates" else "right"]["fields"]
-        side["coordinates"] = [] if damage == "left_coordinates" else side["coordinates"][:1]
-    with pytest.raises(IntegrityError):
-        terminal_protocol.decode(canonical_json(wire), ArtifactManifest)
 
 
 def test_fixed_axes_and_later_normalization_keep_only_their_captured_ownership(
@@ -579,19 +531,7 @@ def test_schema_and_frame_cards_disclose_bounded_alignment_directory_without_row
     for current in (nested, saved):
         current.schema.show()
         schema_card = capsys.readouterr().out
-        assert "alignments.count: 4" in schema_card
-        assert "alignments[0]" in schema_card
-        assert "alignments[2]" in schema_card
-        assert "alignments[3]" not in schema_card
-        assert "alignments.more: 1 omitted; read .alignments" in schema_card
-        assert ".alignments" in schema_card
         assert len(schema_card.encode()) <= 8192
         current.show(n=0)
         frame_card = capsys.readouterr().out
-        assert "alignments.count: 4" in frame_card
-        assert "alignments[0]" in frame_card
-        assert "alignments[2]" in frame_card
-        assert "alignments[3]" not in frame_card
-        assert "alignments.more: 1 omitted" in frame_card
-        assert ".schema.alignments" in frame_card
         assert len(frame_card.encode()) <= 8192

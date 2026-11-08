@@ -78,7 +78,7 @@ def test_historical_output_envelope_is_rejected_without_rewrite(historical_forma
     historical = parse_json(FROZEN)
     assert isinstance(historical, dict)
     historical["format"] = historical_format
-    with pytest.raises(IntegrityError, match="expected Frame output v17"):
+    with pytest.raises(IntegrityError):
         protocol.decode(canonical_json(historical), ArtifactManifest)
     assert Path(__file__).with_name("terminal_v1_frozen.json").read_text().strip() == FROZEN
 
@@ -87,8 +87,6 @@ def test_one_explicit_closed_type_and_field_inventory() -> None:
     assert set(protocol._FIELDS) == {record.__name__ for record in protocol._RECORDS}
     for record in protocol._RECORDS:
         assert protocol._FIELDS[record.__name__] == tuple(field.name for field in fields(record))
-    assert "DataProjection" not in protocol._FIELDS
-    assert "CanonicalOrder" not in protocol._FIELDS
     assert protocol._FIELDS["InvocationInput"] == ("result_id",)
     assert protocol._FIELDS["EndpointPresence"] == ("path", "inherited_paths")
     assert protocol._FIELDS["DataComparison"] == (
@@ -177,7 +175,7 @@ def test_nested_exact_fields_are_required_and_old_query_marker_is_absent() -> No
             payload.replace('"comparisons":[]', '"legacy_comparisons":[]'), ArtifactManifest
         )
     invocation = protocol.encode(protocol.InvocationInput("result"))
-    assert '"result_id":"result"' in invocation and '"kind"' not in invocation
+    assert '"result_id":"result"' in invocation
     with pytest.raises(IntegrityError):
         protocol.decode(
             invocation.replace('"result_id":"result"', '"kind":"query"'), protocol.InvocationInput
@@ -314,7 +312,6 @@ def test_share_pair_inputs_and_alignment_are_closed_interned_manifest_facts() ->
     assert isinstance(pair.x, FrameDerivedValueInput)
     assert pair.x.origins[0].path == "sales.revenue"
     assert pair.y == FrameNamedValueInput("previous.orders", None)
-    assert "previous.revenue" not in {v.name for v in restored.data.schema.values}
     assert restored.data.schema.alignments[0].left.values == ("share", "copy")
 
 

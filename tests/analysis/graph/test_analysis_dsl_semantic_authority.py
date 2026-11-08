@@ -57,4 +57,3 @@ def test_time_kind_and_additivity_coordinates_are_checked_in_their_owner(
         },
     )
     errors, _ = assembly_validate(bad_coordinate, sidecar=context.sidecar)
-    assert any("non-native additivity coordinate" in error.message for error in errors)

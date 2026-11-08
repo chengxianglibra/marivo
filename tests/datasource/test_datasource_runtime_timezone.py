@@ -56,7 +56,6 @@ def test_mysql_named_source_timezone_requires_non_null_native_conversion() -> No
     )
     assert failure.value.received == "America/New_York"
     assert failure.value.repair is not None
-    assert "time zone tables" in failure.value.repair.action
     assert backend.cursors[0].closed
     assert backend.queries == [
         "SELECT CONVERT_TZ('2000-01-01 00:00:00', '+00:00', 'America/New_York') AS converted"

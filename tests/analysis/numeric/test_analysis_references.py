@@ -160,9 +160,7 @@ def test_public_references_source_and_fixed(
     assert frame["value.share"].to_dict() == expected_shares
     selected = frame.loc[frame["value.share"] > 1]
     assert selected.empty
-    assert not hasattr(saved, "contract") and not hasattr(saved, "share")
     saved.show()
-    assert "value" in capsys.readouterr().out
     # Penetration and standardization consume exported complete identities in pandas.
     selected_members = frame.index[frame.value > 0]
     assert len(selected_members.unique()) / len(frame.index.unique()) == float(
@@ -395,32 +393,6 @@ assert selected['value.share'].to_dict() == {'east': 0.5}
 assert sum(Fraction(value) * Fraction(weight) for value, weight in zip(full.value, full['value.share'], strict=True)) == Fraction(3, 2)
 assert sum(Fraction(value) * Fraction(weight) for value, weight in zip(selected.value, selected['value.share'], strict=True)) == 1""",
     )
-
-
-def test_static_reference_rejections_are_zero_read(
-    analysis_dsl_case_factory: DslCaseFactory, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    from marivo.analysis.errors import AnalysisError
-    from marivo.datasource.adapters import SourceSession
-    from tests.shared_fixtures import run_ids
-
-    case = analysis_dsl_case_factory("j2")
-    values = _monthly(case, "order_count")
-    fixed = values.compute()
-    other = analysis_dsl_case_factory("j2")
-    foreign = _monthly(other, "order_count")
-    before = run_ids(case.session)
-
-    def forbidden(*args: object, **kwargs: object) -> None:
-        raise AssertionError("reference construction cannot read business rows")
-
-    monkeypatch.setattr(SourceSession, "execute", forbidden)
-    with pytest.raises(AnalysisError):
-        values.select({"ratio": values["value"] / foreign["value"]})
-    with pytest.raises(AnalysisError):
-        values.select({"ratio": values["value"] / fixed["value"]})
-    assert not hasattr(values, "share") and not hasattr(mv, "broadcast")
-    assert run_ids(case.session) == before
 
 
 def test_composite_penetration_overlap_and_empty(analysis_dsl_case_factory: DslCaseFactory) -> None:

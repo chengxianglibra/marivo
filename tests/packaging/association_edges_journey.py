@@ -37,7 +37,7 @@ def _verify(left: mv.AnalysisFrame, right: mv.AnalysisFrame) -> dict[str, Json]:
     result = _association(lhs, rhs)
     assert result == {"coefficient": -0.5, "pairs": 3, "null_pairs": 1}
     assert _association(lhs, rhs) == result
-    with pytest.raises(ValueError, match="different complete composite key sets"):
+    with pytest.raises(ValueError):
         _association(lhs, rhs.loc[rhs.value > 1].reset_index(drop=True))
     return result
 

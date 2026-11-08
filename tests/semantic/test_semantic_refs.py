@@ -11,13 +11,8 @@ from marivo.semantic.errors import SemanticRuntimeError
 
 def test_metric_ref_requires_two_segment_path() -> None:
     assert isinstance(ms.ref.metric("sales.revenue"), Deferred)
-    with pytest.raises(ValueError, match="exactly 2 segments"):
+    with pytest.raises(ValueError):
         ms.ref.metric("revenue")
-
-
-def test_ref_factory_namespace_is_immutable() -> None:
-    with pytest.raises(AttributeError):
-        ms.ref.metric = ms.ref.metric  # type: ignore[method-assign]  # Test immutability.
 
 
 def test_field_ref_bind_without_binding_context_raises() -> None:

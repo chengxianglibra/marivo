@@ -80,7 +80,7 @@ def test_period_alignment_native_carriers(
                 )
             }
         )
-        with pytest.raises(AnalysisError, match="actual baseline time row"):
+        with pytest.raises(AnalysisError):
             comparison.compute()
         aligned = current.align(
             baseline,

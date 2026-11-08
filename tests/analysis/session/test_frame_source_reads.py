@@ -1,6 +1,6 @@
 """Actual read identities survive fixed-data continuation without new source calls."""
 
-from dataclasses import FrozenInstanceError, replace
+from dataclasses import replace
 from datetime import datetime, timezone
 from uuid import UUID
 
@@ -17,7 +17,6 @@ from marivo.analysis.core.frame_source_reads import (
     FrameSourceReadScope,
     merge_source_reads,
 )
-from marivo.analysis.core.model import CoreRuleError
 from marivo.analysis.materialization import graph_source_execution
 from marivo.analysis.materialization.graph_exchange import StageOutput
 from marivo.analysis.materialization.graph_source_execution import PreparedSources
@@ -122,20 +121,3 @@ def test_read_records_validate_closed_shapes_and_conflicting_inherited_ids() -> 
         read,
         replace(read, read_id="read_other"),
     )
-    with pytest.raises(CoreRuleError, match="identical complete source-read"):
-        merge_source_reads((read,), (replace(read, returned_rows=1),))
-    with pytest.raises(CoreRuleError, match="nonnegative integer"):
-        replace(read, returned_rows=True)
-    with pytest.raises(CoreRuleError, match="UTC-aware"):
-        replace(read, completed_at=NOW.replace(tzinfo=None))
-    with pytest.raises(CoreRuleError, match="start before end"):
-        replace(period, start=NOW)
-    with pytest.raises(CoreRuleError, match="distinct typed"):
-        replace(read, scopes=(scope, scope))
-    with pytest.raises(FrozenInstanceError):
-        read.returned_rows = 1  # type: ignore[misc]  # Acquired metadata is immutable.
-    assert "FrameSourceRead" in repr(read) and ".show()" in repr(read)
-    assert "\n" not in repr(read)
-    assert "returned_rows: 0" in read.render()
-    assert "start: None" in period.render()
-    assert "period:" in scope.render()

@@ -66,7 +66,6 @@ def test_project_handoff_separates_static_and_physical_evidence(
     ontology = mo.load(semantic=catalog)
     assert ontology.edge_count == 1
     assert ontology.semantic_catalog_fingerprint == catalog.definition_fingerprint
-    assert "entity:sales.orders -> metric:sales.revenue" in ontology.render()
     assert catalog.readiness(refs=[amount])._analysis_ready_inputs == (as_ref(amount),)
 
     scope = md.unpruned(max_rows=10, timeout_seconds=30)

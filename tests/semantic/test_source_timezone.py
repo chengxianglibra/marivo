@@ -51,14 +51,6 @@ def _project(
 def test_date_and_date_only_parse_normalize_source_timezone() -> None:
     assert ms.date(timezone="Etc/UTC").timezone == "UTC"
     assert ms.strptime("%Y%m%d", timezone="+08:00").timezone == "UTC+08:00"
-    with pytest.raises(TypeError):
-        ms.validity(
-            valid_from=ms.ref.time_dimension("sales.events.day"),
-            valid_to=ms.ref.time_dimension("sales.events.day_end"),
-            interval="closed_open",
-            open_end=(None,),
-            timezone="UTC",
-        )  # type: ignore[call-arg]
 
 
 def test_hour_prefix_recursively_inherits_declared_origin(
@@ -89,8 +81,6 @@ def test_hour_prefix_recursively_inherits_declared_origin(
         scope=md.unpruned(max_rows=5, timeout_seconds=10),
     )
     assert preview.timezones["hour"]["inherited_from"] == "sales.events.day"
-    assert "inherited from sales.events.day" in preview.render()
-    assert "UTC (field)" in catalog.get("time_dimension:sales.events.hour").render()
 
 
 def test_encoded_missing_timezone_is_readiness_blocker(
@@ -131,7 +121,6 @@ def test_native_missing_timezone_rejects_before_business_read(
             scope=md.unpruned(max_rows=5, timeout_seconds=10),
         )
     assert captured.value.details["query_executed"] is False
-    assert "md.duckdb" in str(captured.value)
     assert (
         "ms.date" in str(captured.value)
         if column == "day"

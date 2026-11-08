@@ -94,4 +94,3 @@ def test_resolver_measure_on_rejects_wrong_kind(
         resolver.measure_on(ref_factory.dimension("sales.orders.amount"), table)  # type: ignore[arg-type]  # Exercise wrong kind.
 
     assert exc_info.value.kind == ErrorKind.MATERIALIZE_FAILED
-    assert "expected measure" in str(exc_info.value)

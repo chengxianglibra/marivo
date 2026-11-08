@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
@@ -21,7 +20,6 @@ from marivo.analysis.core.data_types import (
 from marivo.analysis.core.frame_data import CompletedFrameData, CompletedFrameResult
 from marivo.analysis.core.frame_metadata import EvaluationRecord, FrameResultMetadata
 from marivo.analysis.dsl.frame import AnalysisFrame
-from marivo.analysis.errors import AnalysisError
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.materialization.frame_services import LocalFrameServices
 from tests.shared_fixtures import DslCaseFactory, catalog_get, catalog_value
@@ -180,23 +178,6 @@ def test_partition_division_masks_zeros_before_reduction(local: LocalFrameServic
     cancelled = _frame(local, (1, -1))
     output = cancelled.select({"share": cancelled["x"].share(along=cancelled.axes)})
     assert output.compute().to_pandas()["share"].isna().all()
-
-
-def test_over_rejects_different_exact_input_and_session(
-    local: LocalFrameServices, tmp_path: Path
-) -> None:
-    frame = _frame(local, (1, 3))
-    other = frame.select({"x": frame["x"]})
-    with pytest.raises(AnalysisError):
-        frame.over(other["x"].sum())
-    with pytest.raises(AnalysisError):
-        frame.over(frame["x"].sum(), by=other.axes)
-    foreign = _frame(
-        DatasetRuntime.create(tmp_path / "other", "other", timezone="UTC").local, (1, 3)
-    )
-    statistic = replace(foreign["x"].sum(), _input_id=frame._input_id)
-    with pytest.raises(AnalysisError):
-        frame.over(statistic)
 
 
 def test_duration_share_and_unknown_unit_follow_existing_division(

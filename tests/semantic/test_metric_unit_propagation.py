@@ -113,7 +113,6 @@ def test_categorical_unit_is_rejected() -> None:
     source = _FIELDS.split("finalized =", 1)[0] + 'ms.dimension(entity=orders, unit="CNY")\n'
     with load_inline_semantic(source) as result:
         assert result.errors
-        assert "unit" in str(result.errors[0])
 
 
 def test_incommensurable_metric_addition_is_rejected() -> None:

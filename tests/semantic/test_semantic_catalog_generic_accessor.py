@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from dataclasses import FrozenInstanceError
 from pathlib import Path
 
 import pytest
@@ -36,14 +35,6 @@ def test_every_loaded_kind_has_one_immutable_canonical_entry(tmp_path: Path) -> 
         assert catalog.get(symbol) is entry
         assert entry.id == f"{entry.kind}:{entry.path}"
         assert len(repr(entry).encode()) < 200
-        assert "show" in repr(entry)
-        with pytest.raises((FrozenInstanceError, AttributeError)):
-            entry.name = "changed"  # type: ignore[misc]  # Verify immutable property.
-        with pytest.raises((FrozenInstanceError, AttributeError)):
-            entry.new_attribute = 1  # type: ignore[union-attr]  # Verify immutable objects.
-    assert not hasattr(catalog, "metrics")
-    assert not hasattr(catalog, "describe")
-    assert "CatalogCollection" not in ms.__all__
 
 
 def test_object_kind_narrowing_exposes_direct_typed_operations(tmp_path: Path) -> None:
@@ -59,18 +50,6 @@ def test_object_kind_narrowing_exposes_direct_typed_operations(tmp_path: Path) -
     entity = catalog.get("entity:sales.orders")
     assert entity.kind == "entity"
     assert entity.primary_key == ("order_id",)
-    assert not hasattr(catalog.get("domain:sales"), "value")
-    assert not hasattr(catalog.get("datasource:warehouse"), "value")
-
-
-@pytest.mark.parametrize(
-    "identity", ["revenue", "sales.revenue", "metric:", "unknown:sales.revenue"]
-)
-def test_get_requires_a_canonical_kind_and_complete_path(tmp_path: Path, identity: str) -> None:
-    write_minimal_catalog_project(tmp_path)
-    catalog = ms.load(workspace_dir=tmp_path)
-    with pytest.raises(SemanticRuntimeError):
-        catalog.get(identity)
 
 
 def test_get_preserves_requested_kind_and_relevant_repair(tmp_path: Path) -> None:

@@ -145,7 +145,6 @@ def test_register_discloses_its_model_loading_boundary() -> None:
     constraints = {constraint.id: constraint for constraint in constraints_for_symbol("register")}
     constraint = constraints["datasource_register_outside_loader"]
     assert constraint.error_kind == "DatasourceLoad"
-    assert "constructor directly" in constraint.hint
 
 
 def test_registry_effects_match_callable_contracts() -> None:

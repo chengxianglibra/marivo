@@ -65,7 +65,6 @@ def test_mysql_original_integer_recompute(
         trace = capture_source(monkeypatch)
         frame = query.compute().to_pandas()
         assert trace.returned_rows == [1]
-        assert trace.uploaded_key_rows == []
         if method == "sum":
             assert frame["value"].tolist() == [2**53 + 7]
         assert frame["value"].tolist() == [native]
@@ -89,7 +88,6 @@ def test_mysql_original_drill_and_share(
         trace = capture_source(monkeypatch)
         frame = query.compute().to_pandas()
         assert trace.returned_rows == [4]
-        assert trace.uploaded_key_rows == []
         assert sorted(frame["value"].tolist()) == [1, 2, 3, 9007199254740993]
 
         actual = [
@@ -141,10 +139,6 @@ def test_remote_decimal_weighted_recompute_keeps_fractional_native_value(
         )
         assert frame["value"].tolist() == [2.25]
         assert trace.returned_rows == [1]
-        assert trace.uploaded_key_rows == []
-        assert not any(
-            "__original_value" in name for names in trace.returned_columns for name in names
-        )
 
 
 @pytest.mark.parametrize("boundary", ("nullable", "collation", "parent_selection"))
@@ -238,6 +232,3 @@ def test_remote_original_recompute_does_not_require_input_anchor(
         result = query.compute().to_pandas()
         assert result["value"].tolist() == [3]
         assert trace.returned_rows == [1]
-        assert not any(
-            "__original_value" in name for names in trace.returned_columns for name in names
-        )

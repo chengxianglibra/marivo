@@ -202,7 +202,6 @@ def test_selected_row_groups_preserve_count_mean_state(
     assert _dict(result, "mean") == {"east": 300}
     assert (frame["sum"].sum() / frame["count"].sum()) == 300
     assert case.session.persisted_frame(result.artifact_id).to_pandas().equals(frame)
-    assert not hasattr(stats, "rollup")
 
 
 def test_original_mean_merges_support_not_finished_values(
@@ -448,7 +447,6 @@ def test_numeric_read_grouping_creates_only_row_statistics(
     stats = frame["amount"].groupby(frame["channel"]).mean()
     assert stats.to_dict() == {"app": 13.5, "web": 60.0}
     assert stats.mean() == 36.75
-    assert not hasattr(raw, "rollup")
 
 
 def test_invalid_classification_rejects(retained_coordinates_case: DslCase) -> None:

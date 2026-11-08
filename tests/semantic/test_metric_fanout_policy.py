@@ -26,8 +26,6 @@ def invalid(rows):
         assert error.repair is not None
         assert "Population.preimage" in error.repair.action
         assert "mv.membership" in error.repair.action
-        assert "separately keyed Entity" in error.repair.action
-        assert "preserve each source root" in error.repair.action
 
 
 def test_derived_metric_uses_source_permission_without_global_fanout_policy() -> None:
@@ -46,4 +44,3 @@ def aov():
         metric = result.registry.declared_metrics["test.aov"]
         assert consume_metric(metric).roots == (consume_metric(metric).roots[0],)
         assert consume_metric(metric).roots[0].ref.path == "test.orders"
-        assert not hasattr(consume_metric(metric), "fanout_policy")

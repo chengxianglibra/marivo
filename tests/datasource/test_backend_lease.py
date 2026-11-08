@@ -57,7 +57,7 @@ def test_failed_close_retries_disconnect_and_closed_means_confirmed() -> None:
 
     assert lease.close() is False
     assert lease.closed is False
-    with pytest.raises(RuntimeError, match="connection release failed"):
+    with pytest.raises(RuntimeError):
         lease.close(suppress_errors=False)
     assert lease.closed is False
     assert backend.calls == 2

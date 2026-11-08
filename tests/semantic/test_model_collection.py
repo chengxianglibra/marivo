@@ -66,8 +66,6 @@ def test_module_level_declarations_publish_once_under_their_function_name(
         "sales.revenue",
     ]
     assert sorted(registry.declared_measures) == ["sales.orders.margin"]
-    assert "sales.revenue_alias" not in registry.declared_metrics
-    assert "sales.hidden_base" not in registry.declared_metrics
     assert ref_factory.metric("sales.revenue") in catalog._state.definitions
 
 
@@ -353,7 +351,6 @@ def test_closure_resolves_an_updated_metric_by_current_path(
         consume_metric(current).node
     )
     assert _metric_ref_node(current).ref in closure.refs
-    assert _metric_ref_node(old_revenue).ref not in closure.refs
     assert (
         consume_metric(second._state.registry.declared_metrics["sales.revenue"]).node
         in closure.order

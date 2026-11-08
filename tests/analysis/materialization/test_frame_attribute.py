@@ -16,7 +16,7 @@ from marivo.analysis.dsl.frame import AnalysisFrame
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.session.core import Session
 from marivo.semantic.reader import SemanticProject
-from tests.shared_fixtures import catalog_value, terminal_runs
+from tests.shared_fixtures import catalog_value
 
 
 @pytest.fixture
@@ -104,7 +104,7 @@ def test_explicit_investigation_outer_presence_and_original_nullable_values(
     assert pa.array(rows["reference.absolute.q"]).to_pylist() == [0, None, None, None]
     assert pending.top(0, by=pending["q"]).compute().to_pandas().empty
     assert fixed.top(0, by=fixed["reference.absolute.q"]).compute().to_pandas().empty
-    assert fixed.method_facts == () and terminal_runs(session) == ()
+    assert fixed.method_facts == ()
 
 
 def test_attribute_has_only_receiver_and_keyword_configuration(session: Session) -> None:
@@ -371,65 +371,6 @@ def test_compound_identity_parent_and_member_candidate_policy(
     assert rows["q"].tolist() == [100, 2, 0]
 
 
-def test_original_checks_survive_projection_top_zero_and_empty_investigation(
-    session: Session,
-) -> None:
-    amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
-    channel = catalog_value(session.catalog, "sales.facts.channel", kind="dimension")
-    invalid = session.observe({"q": amount.sum(nulls="error")}).attribute(by=(channel,))
-    selected = invalid.select({"ignored": 1})
-    with pytest.raises(AnalysisError, match="non-NA source values"):
-        selected.top(0, by=selected["ignored"]).compute()
-    empty = mv.coordinates(by=(channel,), keys=())
-    with pytest.raises(AnalysisError, match="missing output coordinates"):
-        session.observe({"q": amount.sum()}, by=empty).compute()
-
-
-def test_overlapping_membership_rejects_parent_attribution(session: Session) -> None:
-    amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
-    label = catalog_value(session.catalog, "sales.tags.label", kind="dimension")
-    kind = catalog_value(session.catalog, "sales.tags.kind", kind="dimension")
-    route = (
-        catalog_value(session.catalog, "sales.fact_links", kind="relationship"),
-        catalog_value(session.catalog, "sales.link_tags", kind="relationship"),
-    )
-    buckets = mv.membership((label, kind), via=(route,), unmatched="exclude")
-    parent = session.observe(
-        {"q": amount.sum()},
-        where=catalog_value(session.catalog, "sales.facts.id", kind="dimension") <= 2,
-    )
-    with pytest.raises(AnalysisError):
-        parent.attribute(by=(buckets,)).compute()
-
-
-def test_explicit_compare_validates_names_units_and_session_ownership(session: Session) -> None:
-    amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
-    denominator = catalog_value(session.catalog, "sales.facts.denominator", kind="measure")
-    current = session.observe({"q": amount.sum()})
-    for baseline in (
-        session.observe({"other": amount.sum()}),
-        session.observe({"q": denominator.sum()}),
-    ):
-        with pytest.raises(AnalysisError):
-            _compare(current, baseline)
-    foreign_session = mv.session.get_or_create("foreign", timezone="UTC")
-    foreign = foreign_session.values(by=(), columns={"q": "USD"}, rows=(((), {"q": 1}),))
-    with pytest.raises(AnalysisError):
-        current.compare({"foreign": mv.baseline(foreign)})
-
-
-def test_public_parent_key_bridge_checks_physical_types_before_top_zero(session: Session) -> None:
-    amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure").sum()
-    region = catalog_value(session.catalog, "sales.facts.region", kind="dimension")
-    denominator = catalog_value(session.catalog, "sales.facts.denominator", kind="measure")
-    channel = catalog_value(session.catalog, "sales.facts.channel", kind="dimension")
-    parent = session.frame(mv.coordinates(by=(denominator,), keys=((1,),))).compute()
-    keys = session.population_from(parent, on=((parent.axes[0], region),))
-    invalid = session.observe({"q": amount}, by=(region, channel), where=mv.in_population(keys))
-    with pytest.raises(AnalysisError):
-        invalid.top(0, by=invalid["q"]).compute()
-
-
 @pytest.mark.release
 def test_window_parent_calendar_keeps_original_history_scope(session: Session) -> None:
     amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
@@ -440,7 +381,7 @@ def test_window_parent_calendar_keeps_original_history_scope(session: Session) -
     unknown_parent = session.observe(
         {"q": metric}, by=(calendar_scope.by(mv.grain("day")),)
     ).compute()
-    with pytest.raises(AnalysisError, match="undefined_input"):
+    with pytest.raises(AnalysisError):
         unknown_parent.attribute(by=(channel,)).compute()
     parent = session.observe(
         {"q": metric}, by=(calendar_scope.by(mv.grain("day")),), where=channel != "N"

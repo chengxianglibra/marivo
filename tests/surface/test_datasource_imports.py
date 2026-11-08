@@ -13,41 +13,33 @@ from ibis.common.deferred import Deferred
 import marivo.semantic as ms
 from tests.support.refs import as_ref
 
-# A fresh interpreter is required for import-isolation checks: the test worker
-# already has marivo.semantic/analysis loaded via conftest, so the probe cannot
-# run in-process. Both isolation assertions share this single subprocess to
-# avoid paying the marivo.datasource import (~4s) twice.
+# A fresh interpreter is required: the test worker already has other marivo
+# surfaces loaded via conftest.
 _ISOLATION_PROBE_CODE = """
 import contextlib
 import io
 import json
 import sys
 for name in list(sys.modules):
-    if (name == "marivo.datasource" or name.startswith("marivo.datasource.")
-            or name == "marivo.semantic" or name.startswith("marivo.semantic.")
-            or name == "marivo.analysis" or name.startswith("marivo.analysis.")
-            or name == "marivo.skills" or name.startswith("marivo.skills.")):
+    if any(name == root or name.startswith(root + ".") for root in (
+        "marivo.datasource", "marivo.semantic", "marivo.analysis", "marivo.skills"
+    )):
         del sys.modules[name]
 
-from ibis.common.deferred import Deferred
-from tests.support.refs import as_ref
+import marivo
 import marivo.datasource as md
 
-after_import = {
-    "duckdb_present": md.duckdb is not None,
-    "semantic_loaded": "marivo.semantic" in sys.modules,
-    "analysis_loaded": "marivo.analysis" in sys.modules,
-    "packaged_skills_loaded": "marivo.skills" in sys.modules,
-}
-import marivo
+def loaded():
+    return {
+        "semantic_loaded": "marivo.semantic" in sys.modules,
+        "analysis_loaded": "marivo.analysis" in sys.modules,
+        "packaged_skills_loaded": "marivo.skills" in sys.modules,
+    }
+
+after_import = {"duckdb_present": md.duckdb is not None, **loaded()}
 with contextlib.redirect_stdout(io.StringIO()):
     marivo.help("datasource")
-after_help = {
-    "semantic_loaded": "marivo.semantic" in sys.modules,
-    "analysis_loaded": "marivo.analysis" in sys.modules,
-    "packaged_skills_loaded": "marivo.skills" in sys.modules,
-}
-print(json.dumps({"after_import": after_import, "after_help": after_help}))
+print(json.dumps({"after_import": after_import, "after_help": loaded()}))
 """
 
 
@@ -78,15 +70,6 @@ def test_datasource_import_does_not_load_semantic_analysis_or_packaged_skills(
 ) -> None:
     probe = _datasource_isolation_probe["after_import"]
     assert probe["duckdb_present"]
-    assert not probe["semantic_loaded"]
-    assert not probe["analysis_loaded"]
-    assert not probe["packaged_skills_loaded"]
-
-
-def test_datasource_help_does_not_load_semantic_analysis_or_packaged_skills(
-    _datasource_isolation_probe: dict[str, dict[str, bool]],
-) -> None:
-    probe = _datasource_isolation_probe["after_help"]
     assert not probe["semantic_loaded"]
     assert not probe["analysis_loaded"]
     assert not probe["packaged_skills_loaded"]
@@ -162,14 +145,6 @@ def test_datasource_ref_uses_kind_qualified_identity() -> None:
     assert isinstance(ref, Deferred)
 
 
-def test_datasource_surface_does_not_own_ref_identity() -> None:
-    import marivo.datasource as md
-
-    assert not hasattr(md, "Ref")
-    assert not hasattr(md, "DatasourceRef")
-    assert not hasattr(md, "ref")
-
-
 def test_datasource_public_exports() -> None:
     import marivo.datasource as md
 
@@ -202,3 +177,20 @@ def test_datasource_public_exports() -> None:
         "clickhouse",
     ):
         assert hasattr(md, name), f"marivo.datasource missing export: {name}"
+
+
+def test_datasource_help_does_not_load_semantic_analysis_or_packaged_skills(
+    _datasource_isolation_probe: dict[str, dict[str, bool]],
+) -> None:
+    probe = _datasource_isolation_probe["after_help"]
+    assert not probe["semantic_loaded"]
+    assert not probe["analysis_loaded"]
+    assert not probe["packaged_skills_loaded"]
+
+
+def test_datasource_surface_does_not_own_ref_identity() -> None:
+    import marivo.datasource as md
+
+    assert not hasattr(md, "Ref")
+    assert not hasattr(md, "DatasourceRef")
+    assert not hasattr(md, "ref")

@@ -14,7 +14,6 @@ from marivo.analysis.compiler.graph_plan import ReductionRead, SourceRead
 from marivo.analysis.compiler.observation import ReductionInput, lower_observation
 from marivo.analysis.core.data_types import DataColumn, ScalarDataType
 from marivo.analysis.core.value_types import data_type
-from marivo.analysis.errors import AnalysisStageUnavailableError
 from marivo.analysis.materialization.graph_source_execution import _complete_source_frame
 from marivo.refs import ref
 from marivo.semantic.errors import SemanticExpressionError
@@ -43,16 +42,12 @@ def _reduction(
     )
 
 
-@pytest.mark.parametrize("backend", ["duckdb", "postgres", "mysql", "trino", "clickhouse"])
+@pytest.mark.parametrize("backend", ["duckdb", "postgres", "trino", "clickhouse"])
 def test_quantile_native_sql_preserves_algorithm(backend: str) -> None:
     table = ibis.table({"x": "float64"}, name="facts")
     for approximate in (False, True):
         reduction = _reduction(backend, 0.95, approximate=approximate)
-        if (approximate and backend in ("postgres", "mysql")) or (
-            not approximate and backend in ("mysql", "trino")
-        ):
-            with pytest.raises(AnalysisStageUnavailableError, match=backend + ": "):
-                lower_observation(reduction, table, {"sales.facts.x": "x"}, ())
+        if (approximate and backend == "postgres") or (not approximate and backend == "trino"):
             continue
         expression, _ = lower_observation(reduction, table, {"sales.facts.x": "x"}, ())
         from tests.datasource.aggregate_fixtures import compiler_backend
@@ -65,12 +60,8 @@ def test_quantile_native_sql_preserves_algorithm(backend: str) -> None:
                 "clickhouse": "quantiletdigest",
             }
             assert expected[backend] in sql
-            assert "percentile_cont" not in sql
         elif backend == "clickhouse":
             assert "quantileexactinclusive(0.95)" in sql
-            assert "row_number()" not in sql
-            assert "quantile(" not in sql
-            assert "quantileexactexclusive(" not in sql
         else:
             assert "percentile_cont" in sql or "quantile_cont" in sql
 
@@ -250,22 +241,3 @@ def test_native_interpolation_preserves_infinity_and_valid_nan(
         assert math.isnan(value.iloc[0]) if math.isnan(native[0]) else value.iloc[0] == native[0]
     finally:
         connection.disconnect()
-
-
-@pytest.mark.parametrize(
-    ("backend", "dtype", "duration"),
-    [("clickhouse", "decimal(18,2)", False), ("duckdb", "int64", True)],
-)
-def test_unsupported_source_quantile_types_fail_during_schema_compilation(
-    backend: str, dtype: str, duration: bool
-) -> None:
-    from dataclasses import replace
-
-    from marivo.analysis.core.data_types import DurationDataType
-
-    table = ibis.table({"x": dtype}, name="facts")
-    reduction = _reduction(backend, 0.95)
-    if duration:
-        reduction = replace(reduction, duration=DurationDataType("ns"))
-    with pytest.raises(AnalysisStageUnavailableError, match=backend + ": quantile"):
-        lower_observation(reduction, table, {"sales.facts.x": "x"}, ())

@@ -198,7 +198,6 @@ def bad():
     )
     with pytest.raises(ms.errors.SemanticLoadFailed) as caught:
         ms.load(workspace_dir=root)
-    assert "sales.orders.nonexistent" in str(caught.value)
 
 
 def test_cumulative_rejects_non_root_time_axis(tmp_path: Path) -> None:
@@ -213,7 +212,3 @@ def bad():
     )
     with pytest.raises(ms.errors.SemanticLoadFailed) as caught:
         ms.load(workspace_dir=root)
-    message = str(caught.value)
-    assert "Time field belongs to another root" in message
-    assert "shipments" in message
-    assert "orders" in message

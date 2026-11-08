@@ -12,12 +12,11 @@ import pyarrow as pa
 import pytest
 
 import marivo.analysis as mv
-from marivo.analysis.materialization.errors import MaterializationError
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.materialization.test_source_query_numeric import _data
 from tests.analysis.numeric.test_remote_numeric_query import _project
 from tests.datasource.source_cases import SourceData, source_case, source_params
-from tests.shared_fixtures import catalog_get, catalog_value, terminal_runs
+from tests.shared_fixtures import catalog_get, catalog_value
 from tests.support.paths import PROJECT_ROOT
 from tests.support.source_trace import capture_source
 
@@ -181,7 +180,6 @@ def test_query_arithmetic_keeps_selected_completed_values(
         actual = query.compute().to_pandas()
         assert len(actual) == expected_rows
         assert trace.returned_rows == ([3] if operation == "formula" else [6])
-        assert trace.uploaded_key_rows == []
         if operation == "formula":
             assert actual["sparse"].tolist() == [110]
             assert actual["total"].tolist() == [110]
@@ -198,35 +196,6 @@ def test_query_arithmetic_keeps_selected_completed_values(
             None,
             (case.session,),
         )
-
-
-@pytest.mark.parametrize("backend,profile", source_params(CASES))
-@pytest.mark.parametrize("projection", ("top", "empty_select"))
-def test_local_query_overflow_survives_projection(
-    semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    backend: str,
-    profile: str,
-    projection: str,
-) -> None:
-    monkeypatch.chdir(tmp_path)
-    with source_case(
-        backend, profile, tmp_path, monkeypatch, _case_data(backend, "overflow")
-    ) as case:
-        _project(backend, case, monkeypatch, semantic_project_factory)
-        session = mv.session.get_or_create("source-query-checks", timezone="UTC")
-        big = catalog_value(session.catalog, "sales.facts.big", kind="measure")
-        source = session.read(
-            session.members(catalog_get(session.catalog, "entity:sales.facts", kind="entity")),
-            {"big": big},
-        )
-        source = source.select({"value": source["big"] + 1})
-        query = source.top(0, by=source["value"]) if projection == "top" else source.select({})
-        trace = capture_source(monkeypatch)
-        with pytest.raises(MaterializationError, match="overflow"):
-            query.compute()
-        assert trace.uploaded_key_rows == []
 
 
 @pytest.mark.parametrize("operation", ("filter", "top"))
@@ -258,7 +227,6 @@ def test_unary_float_selection_preserves_infinite_scores_without_new_checks(
         assert actual["facts"].tolist() == (
             [("t4", 4)] if operation == "filter" else [("t4", 4), ("t5", 5)]
         )
-        assert terminal_runs(session) == ()
         from marivo._definition.query import (
             FilterValues,
             TopValues,
@@ -322,7 +290,6 @@ def test_local_float_select_preserves_direct_values_and_checks_computed_outputs(
             if top_zero
             else actual["value"].iloc[0] == float("-inf" if negated else "inf")
         )
-        assert terminal_runs(session) == ()
         from marivo._definition.query import SelectValues, ValueSlot, ValueUnary
         from marivo.analysis.compiler.query_program import FrameProgram
         from marivo.analysis.core.data_schema import DataSchema

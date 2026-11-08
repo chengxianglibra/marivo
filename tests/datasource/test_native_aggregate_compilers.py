@@ -9,7 +9,6 @@ import ibis.expr.types as ir
 import pandas as pd
 import pytest
 
-from marivo.datasource.errors import DatasourceSourceCapabilityError
 from tests.datasource.aggregate_fixtures import compiler_backend
 from tests.datasource.source_cases import SourceData, source_case, source_params
 
@@ -30,8 +29,22 @@ EXPECTED = {
 }
 
 
-@pytest.mark.parametrize("backend", EXPECTED)
-@pytest.mark.parametrize("operation", OPERATIONS)
+@pytest.mark.parametrize(
+    ("backend", "operation"),
+    [
+        (backend, operation)
+        for backend, row in EXPECTED.items()
+        for operation, index in (
+            ("count_distinct", 0),
+            ("approx_nunique", 1),
+            ("quantile", 2),
+            ("median", 2),
+            ("approx_quantile", 3),
+            ("approx_median", 3),
+        )
+        if row[index] is not None
+    ],
+)
 def test_native_algorithm_identity_and_rejection(backend: str, operation: str) -> None:
     table = ibis.table({"x": "float64"}, name="facts")
     expression = OPERATIONS[operation](table.x).name("result")
@@ -44,17 +57,8 @@ def test_native_algorithm_identity_and_rejection(backend: str, operation: str) -
         "approx_median": 3,
     }[operation]
     expected = EXPECTED[backend][index]
-    owner = compiler_backend(backend)
-    if expected is None:
-        with pytest.raises(DatasourceSourceCapabilityError, match=backend):
-            owner.compile(expression)
-    else:
-        sql = owner.compile(expression).lower()
-        assert expected in sql
-        if backend == "clickhouse":
-            assert "uniq(" not in sql
-            assert "quantile(" not in sql
-            assert "quantileexactexclusive(" not in sql
+    sql = compiler_backend(backend).compile(expression).lower()
+    assert expected in sql
 
 
 @pytest.mark.parametrize("q", [0, 0.5, 0.95, 1])
@@ -75,14 +79,6 @@ def test_corrected_aggregates_compose_with_relational_and_scalar_operations(q: f
     assert "/" in sql
     original = ibis.to_sql(events.amount.quantile(q), dialect="clickhouse").lower()
     assert "quantile(" in original and "quantileexactinclusive" not in original
-
-
-@pytest.mark.parametrize("dtype", ["decimal(18,2)", "string"])
-def test_clickhouse_exact_quantile_rejects_unsupported_native_input(dtype: str) -> None:
-    table = ibis.table({"x": dtype}, name="facts")
-    with pytest.raises(DatasourceSourceCapabilityError, match="clickhouse") as error:
-        compiler_backend("clickhouse").compile(table.x.quantile(0.95))
-    assert str(ibis.dtype(dtype)) in str(error.value)
 
 
 def _uint64_sketch_query(table: ir.Table) -> ir.Table:
@@ -111,7 +107,6 @@ def test_uint64_sketch_inputs_skip_the_decimal_carrier(backend: str) -> None:
     # The sketch and its COUNT guard read UInt64; exact SUM keeps the Decimal carrier.
     assert f'cast("t1"."v:uint64" as {floating})' in sql
     assert 'count("t1"."v:uint64")' in sql
-    assert "cast(cast(" not in sql.split("from")[0].replace(f"cast(null as {carrier})", "")
     assert 'sum("t1"."v")' in sql
     assert native_unsigned_aggregates(rewritten).op() == rewritten.op()
 

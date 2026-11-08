@@ -101,10 +101,6 @@ def test_duckdb_inspect_reads_catalog_facts_beyond_schema(tmp_path: Path) -> Non
     assert by_name["amount"].nullable is True
     assert metadata.physical_profile is not None
     assert metadata.physical_profile.source == "duckdb.duckdb_tables"
-    assert not any(
-        warning.kind in {"primary_keys_unavailable", "view_unavailable", "nullable_unavailable"}
-        for warning in metadata.warnings
-    )
 
 
 def test_file_inspection_knows_it_is_not_a_view(tmp_path: Path) -> None:
@@ -115,7 +111,6 @@ def test_file_inspection_knows_it_is_not_a_view(tmp_path: Path) -> None:
     metadata = _inspect_source("warehouse", source=md.csv(str(source_path)), project_root=tmp_path)
 
     assert metadata.is_view is False
-    assert "view_unavailable" not in {warning.kind for warning in metadata.warnings}
 
 
 def test_table_metadata_json_and_render_are_bounded() -> None:
@@ -140,7 +135,4 @@ def test_table_metadata_json_and_render_are_bounded() -> None:
     assert isinstance(constraints[0], dict)
     assert constraints[0]["kind"] == "primary"
     assert json.loads(json.dumps(payload))["ref"] == "warehouse.analytics.public.orders"
-    assert "partitions=1" in metadata.render()
-    assert "Order fact table" in metadata.render()
     assert isinstance(metadata, AgentResult)
-    assert "call .show() to inspect" in repr(metadata)

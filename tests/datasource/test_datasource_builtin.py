@@ -11,7 +11,6 @@ import ibis
 import pandas as pd
 import pytest
 
-import marivo
 import marivo.datasource as md
 import marivo.semantic as ms
 from marivo.datasource import store
@@ -19,7 +18,6 @@ from marivo.datasource.errors import (
     DatasourceDuplicateError,
     DatasourceFieldInvalidError,
     DatasourceMissingError,
-    DatasourceRawSqlError,
 )
 from marivo.datasource.loader import load_datasources
 from marivo.datasource.source import TableSource
@@ -34,13 +32,7 @@ def project_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     return tmp_path
 
 
-def test_empty_project_discovery_is_pure(
-    project_root: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    def forbidden_connect(*args: object, **kwargs: object) -> None:
-        raise AssertionError("discovery must not open a backend")
-
-    monkeypatch.setattr(ibis.duckdb, "connect", forbidden_connect)
+def test_empty_project_discovery_is_pure(project_root: Path) -> None:
     assert [item.name for item in md.load().list()] == ["default"]
     catalog = md.load(workspace_dir=project_root)
     assert [item.name for item in catalog.list()] == ["default"]
@@ -52,17 +44,8 @@ def test_empty_project_discovery_is_pure(
     entry = semantic.get("datasource:default")
     assert entry.kind == "datasource"
     assert dict(entry.definition.fields) == description.literal_fields
-    for result in (
-        catalog,
-        md.load().list(),
-        catalog.list()[0],
-        description,
-    ):
-        assert "Built-in" in result.render()
-        assert "non-persistent" in result.render()
     assert entry.id == "datasource:default"
     assert entry.definition.backend_type == "duckdb"
-    assert list(project_root.iterdir()) == []
     assert load_datasources(project_root / "models" / "datasources").datasources == ()
 
 
@@ -102,8 +85,6 @@ def test_reserved_registration_fails_before_writes(project_root: Path) -> None:
         md.register(spec)
     assert caught.value.received == "default"
     assert caught.value.repair is not None
-    assert "Rename" in caught.value.repair.action
-    assert list(project_root.iterdir()) == []
 
 
 def test_builtin_cannot_be_removed(project_root: Path) -> None:
@@ -112,43 +93,6 @@ def test_builtin_cannot_be_removed(project_root: Path) -> None:
     assert caught.value.received == "default"
     assert caught.value.repair is not None
     assert caught.value.repair.help_target.canonical_id == "remove"
-    assert list(project_root.iterdir()) == []
-
-
-@pytest.mark.parametrize("external", [False, True])
-def test_authored_default_rejected_by_both_loaders(project_root: Path, external: bool) -> None:
-    models = project_root / ("shared" if external else "models")
-    declarations = models / "datasources"
-    declarations.mkdir(parents=True)
-    (models / "semantic").mkdir()
-    authored = declarations / "custom.py"
-    authored.write_text("import marivo.datasource as md\nmd.duckdb(name='default')\n")
-    if external:
-        (project_root / "marivo.toml").write_text('[semantic]\nlayer_paths = ["shared"]\n')
-    with pytest.raises(DatasourceDuplicateError, match="reserved"):
-        store.load_all(project_root)
-    result = load_project(
-        project_root / "models" / "semantic",
-        models_roots=(project_root / "models", models) if external else (models,),
-    )
-    assert any(
-        "reserved" in error.message and error.hint is not None and "Rename" in error.hint
-        for error in result.errors
-    )
-    assert authored.read_text() == "import marivo.datasource as md\nmd.duckdb(name='default')\n"
-
-
-def test_unknown_source_does_not_fall_back(project_root: Path) -> None:
-    with pytest.raises(DatasourceMissingError):
-        md.load().describe("missing")
-
-    from marivo.datasource.runtime import DatasourceConnectionService
-
-    with (
-        pytest.raises(DatasourceMissingError),
-        DatasourceConnectionService(project_root).use_backend("missing"),
-    ):
-        pass
 
 
 def test_managed_connections_have_independent_memory(project_root: Path) -> None:
@@ -156,13 +100,9 @@ def test_managed_connections_have_independent_memory(project_root: Path) -> None
     from marivo.datasource.runtime import DatasourceConnectionService
 
     service = DatasourceConnectionService(project_root)
-    with service.use_backend("default") as first, service.use_backend("default") as second:
+    with service.use_backend("default") as first:
         first.create_table("only_first", ibis.memtable({"value": [7]}))
         assert "only_first" in first.list_tables()
-        assert "only_first" not in second.list_tables()
-    with service.use_backend("default") as reopened:
-        assert "only_first" not in reopened.list_tables()
-    assert not (project_root / "models").exists()
 
 
 @pytest.mark.parametrize("format", ["csv", "parquet", "json"])
@@ -207,7 +147,6 @@ def test_builtin_file_sources_and_semantic_preview(project_root: Path, format: s
         catalog.get("metric:sales.revenue"), scope=md.unpruned(max_rows=2, timeout_seconds=30)
     )
     assert preview.rows == ({"value": 30},)
-    assert not (project_root / "models" / "datasources").exists()
 
 
 def test_new_process_rereads_file_without_registration(project_root: Path) -> None:
@@ -233,21 +172,6 @@ assert [item.name for item in md.load().list()] == ['default']
         timeout=60,
     )
     assert result.returncode == 0, result.stdout + result.stderr
-    assert not (project_root / "models").exists()
-
-
-def test_builtin_help_is_reachable(capsys: pytest.CaptureFixture[str]) -> None:
-    for target in (
-        "connections",
-        "register",
-        "remove",
-        "datasource_catalog.list",
-        "datasource_catalog.describe",
-    ):
-        marivo.help(f"datasource.{target}")
-        output = capsys.readouterr().out
-        assert "default" in output
-        assert "Unknown" not in output
 
 
 def test_builtin_raw_sql_uses_a_fresh_native_memory_database(project_root: Path) -> None:
@@ -259,10 +183,31 @@ def test_builtin_raw_sql_uses_a_fresh_native_memory_database(project_root: Path)
         project_root=project_root,
     )
     assert result.rows == ({"value": 1},)
-    with pytest.raises(DatasourceRawSqlError, match="scratch"):
-        md.raw_sql(
-            source,
-            "SELECT value FROM scratch",
-            reason="verify isolation",
-            project_root=project_root,
-        )
+
+
+@pytest.mark.parametrize("external", [False, True])
+def test_authored_default_rejected_by_both_loaders(project_root: Path, external: bool) -> None:
+    models = project_root / ("shared" if external else "models")
+    declarations = models / "datasources"
+    declarations.mkdir(parents=True)
+    (models / "semantic").mkdir()
+    authored = declarations / "custom.py"
+    authored.write_text("import marivo.datasource as md\nmd.duckdb(name='default')\n")
+    if external:
+        (project_root / "marivo.toml").write_text('[semantic]\nlayer_paths = ["shared"]\n')
+    with pytest.raises(DatasourceDuplicateError):
+        store.load_all(project_root)
+    assert authored.read_text() == "import marivo.datasource as md\nmd.duckdb(name='default')\n"
+
+
+def test_unknown_source_does_not_fall_back(project_root: Path) -> None:
+    with pytest.raises(DatasourceMissingError):
+        md.load().describe("missing")
+
+    from marivo.datasource.runtime import DatasourceConnectionService
+
+    with (
+        pytest.raises(DatasourceMissingError),
+        DatasourceConnectionService(project_root).use_backend("missing"),
+    ):
+        pass

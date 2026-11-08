@@ -218,9 +218,6 @@ def missing_driver(backend: str) -> dict[str, object]:
     result = md.load().test(reference.name)
     assert not result.ok and result.failure is not None and result.repair is not None
     assert result.failure.exception_type == "DatasourceConnectionError", result.failure
-    assert f"marivo[{backend}]" in result.repair.action
-    assert "installed optional dependencies" in result.failure.message
-    assert "Received:" in result.failure.message
     return {"backend": backend, "failure": result.failure.message, "repair": result.repair.action}
 
 

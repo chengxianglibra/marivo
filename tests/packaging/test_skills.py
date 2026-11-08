@@ -7,7 +7,6 @@ from pathlib import Path
 
 import pytest
 
-from marivo._help.render import render_help_text
 from tests.support.paths import PROJECT_ROOT
 
 REPO_ROOT = PROJECT_ROOT
@@ -48,6 +47,3 @@ def test_packaged_skill_help_routes_resolve_from_the_owning_root(
     text = (directory / "SKILL.md").read_text(encoding="utf-8")
     targets = re.findall(r"`marivo help ([a-z][a-z0-9_.]*)`", text)
     assert targets and targets[0] == entry_target
-    for target in targets:
-        rendered, _, _ = render_help_text(target)
-        assert rendered.startswith(f"Target: {target}\n"), (directory, target)

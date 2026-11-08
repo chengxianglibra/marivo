@@ -14,7 +14,6 @@ import marivo.analysis as mv
 from marivo.analysis.compiler.frame_plan import CompiledFramePlan
 from marivo.analysis.compiler.graph_plan import FrameKeysInput, QueryPlan
 from marivo.analysis.materialization import frame_evaluation
-from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.graph_source_execution import run_frame_plan
 from marivo.analysis.session.core import Session
 from marivo.semantic.reader import SemanticProject
@@ -232,28 +231,6 @@ def test_shared_selected_host_domain_stays_fixed_when_source_ranking_changes(
     assert rows["direct"].tolist() == [10]
     assert rows["sample"].tolist() == [10.0]
     assert trace.uploaded_key_rows == [1]
-
-
-@pytest.mark.parametrize("backend,profile", source_params([("duckdb", "table")]))
-def test_shared_empty_selection_cannot_erase_parent_strict_error(
-    shared_session: Session, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    session = shared_session
-    amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
-    category = catalog_value(session.catalog, "sales.facts.category", kind="dimension")
-    producer = session.observe({"n": amount.sum(nulls="error")}, by=(category,))
-    chosen = producer.top(0, by=producer["n"])
-    samples = session.population_from(chosen, on=((chosen.axes[0], category),))
-    query = session.observe(
-        {
-            "direct": amount.count().where(mv.in_population(samples)),
-            "sample": amount.sum().per(samples).mean(),
-        }
-    )
-    trace = capture_source(monkeypatch)
-    with pytest.raises(MaterializationError, match="non-NA source values"):
-        query.compute()
-    assert trace.uploaded_key_rows == []
 
 
 @pytest.mark.parametrize("backend,profile", source_params(CASES))

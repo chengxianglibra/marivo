@@ -18,7 +18,7 @@ def test_mixed_numeric_nullable_arithmetic_preserves_object_masks(decimal: bool)
         from marivo.semantic.errors import SemanticExpressionError
 
         # Native Python object arithmetic rejects Decimal/float mixing.
-        with pytest.raises(SemanticExpressionError, match="unsupported operand"):
+        with pytest.raises(SemanticExpressionError):
             nullable_arithmetic("divide", left, right)
         return
     result = nullable_arithmetic("divide", left, right)

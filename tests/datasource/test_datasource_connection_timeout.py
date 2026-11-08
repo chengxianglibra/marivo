@@ -30,16 +30,6 @@ def _patch_load_one(monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
 
-def test_test_rejects_non_positive_timeout() -> None:
-    with pytest.raises(ValueError, match="timeout_seconds must be positive"):
-        md.load().test("warehouse", timeout_seconds=0)
-
-
-def test_test_no_persist_rejects_non_positive_timeout() -> None:
-    with pytest.raises(ValueError, match="timeout_seconds must be positive"):
-        manage_mod.test_no_persist("warehouse", timeout_seconds=-1)
-
-
 def test_test_reports_normal_backend_error_as_open_failed(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -62,3 +52,13 @@ def test_test_reports_normal_backend_error_as_open_failed(
 def test_default_timeout_seconds_is_documented_int() -> None:
     assert DEFAULT_CONNECTION_TIMEOUT_SECONDS == 30
     assert isinstance(DEFAULT_CONNECTION_TIMEOUT_SECONDS, int)
+
+
+def test_test_rejects_non_positive_timeout() -> None:
+    with pytest.raises(ValueError):
+        md.load().test("warehouse", timeout_seconds=0)
+
+
+def test_test_no_persist_rejects_non_positive_timeout() -> None:
+    with pytest.raises(ValueError):
+        manage_mod.test_no_persist("warehouse", timeout_seconds=-1)

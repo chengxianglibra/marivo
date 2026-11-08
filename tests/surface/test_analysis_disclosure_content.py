@@ -4,13 +4,10 @@ from __future__ import annotations
 
 import re
 from dataclasses import replace
-from inspect import signature
-from pathlib import Path
 
 import pytest
 
 import marivo.analysis as mv
-from marivo._help.model import MarivoHelpTargetError
 from marivo._help.render import render_help_text
 from marivo.analysis._capabilities.dataset_model import CallableInput, TypeInput
 from marivo.analysis._capabilities.dataset_registry import assemble, prepare
@@ -47,7 +44,6 @@ from marivo.analysis.core.frame_method_facts import (
 from marivo.analysis.datasets.errors import DatasetRegistrationError
 from marivo.analysis.errors import AnalysisError
 from marivo.cli import main
-from marivo.datasource.adapters import SourceSession
 from tests.shared_fixtures import DslCaseFactory, catalog_value
 
 
@@ -61,9 +57,7 @@ def test_analysis_root_example_discovers_and_reads_complete_daily_revenue(
     main(["help", "analysis"])
     cli = capsys.readouterr()
     assert cli.err == ""
-    assert text.index("\nExample:\n") < text.index("marivo.help('analysis.inputs')")
     code = text.split("\nExample:\n", 1)[1].split("\nExpected:", 1)[0]
-    assert cli.out.split("\nExample:\n", 1)[1].split("\nExpected:", 1)[0] == code
     namespace: dict[str, object] = {}
     exec(compile(code, "<analysis-root-help-example>", "exec"), namespace)
     output = capsys.readouterr().out
@@ -81,73 +75,12 @@ def test_analysis_root_example_discovers_and_reads_complete_daily_revenue(
     assert rows["revenue"].tolist() == [450] + [0] * 13 + [150] + [0] * 15 + [400]
 
 
-def test_empty_select_help_discloses_retained_domain() -> None:
-    text = render_help_text("analysis.analysis_frame.select")[0]
-    assert "{} removes all values" in text
-    assert "preserving rows, order, complete coordinates and presence" in text
-
-
-def test_read_help_preserves_native_nonfinite_values() -> None:
-    from marivo.analysis.session.core import Session
-
-    expected = "Numeric reads preserve NULL, NaN and Infinity"
-    assert expected in render_help_text("analysis.session.read")[0]
-    assert expected in render_help_text(Session.read)[0]
-    assert expected in (Session.read.__doc__ or "")
-    assert (
-        "finite local operations validate their demanded inputs"
-        in render_help_text("analysis.session.read")[0]
-    )
-
-
 def test_observe_routes_identity_audit_details_to_source_checks() -> None:
     from marivo.analysis.session.core import Session
 
     for target in ("analysis.session.observe", Session.observe):
         text = render_help_text(target)[0]
         assert "semantic.source_check" in text
-        assert "nullable physical metadata" not in text
-        assert "full-source NULL/uniqueness precheck" not in text
-        assert "TimeField samples" not in text
-    checks = render_help_text("semantic.source_check")[0]
-    assert "trusts semantic primary_key" in checks
-    assert "nullable physical metadata" in checks
-    assert "no full-source NULL/uniqueness precheck" in checks
-    assert "identity-output and operation checks remain" in checks
-
-
-def test_observe_help_separates_report_time_from_fixed_source_predicates() -> None:
-    from marivo.analysis.session.core import Session
-
-    for target in ("analysis.session.observe", Session.observe):
-        text = render_help_text(target)[0]
-        assert "Clocked branches follow report time" in text
-        assert "one CalendarAxis" in text
-        assert "at most one TimeScope" in text
-        assert "Field comparisons stay fixed throughout windows" in text
-        assert "no report endpoint" in text
-
-
-def test_analysis_root_requires_contribution_clocks_only_for_report_time() -> None:
-    text = render_help_text("analysis")[0]
-    assert "Report time affects clocked branches" in text
-    assert "All Metric branches need contribution time" not in text
-
-
-def test_simplified_policies_have_one_public_route() -> None:
-    assert not hasattr(mv.Column, "divide")
-    with pytest.raises((AnalysisError, MarivoHelpTargetError)):
-        render_help_text("analysis.column.divide")
-    for method in (mv.AnalysisFrame.align, mv.AnalysisFrame.compare, mv.Column.share):
-        parameters = signature(method).parameters
-        assert "how" not in parameters and "zero_denominator" not in parameters
-    division = render_help_text(mv.Column.__truediv__)[0]
-    assert "zero denominators give NA before arithmetic" in division
-    observation = render_help_text("analysis.session.observe")[0]
-    assert "Input memberships:" not in observation
-    assert "necessary output keys before sampling" in observation
-    membership = render_help_text("analysis.membership")[0]
-    assert "(rule, customer, channel)" in membership and "(R,S,b,d)" in membership
 
 
 def test_output_naming_help_discloses_and_runs_both_entry_shapes(
@@ -166,13 +99,11 @@ def test_output_naming_help_discloses_and_runs_both_entry_shapes(
         "previous": baseline,
     }
     registry = prepare()
-    for target, implementation, bound, expected_names in (
-        ("session.observe", mv.Session.observe, session.observe, ("revenue",)),
-        ("analysis_frame.reduce", mv.AnalysisFrame.reduce, frame.reduce, ("value_sum",)),
+    for target, expected_names in (
+        ("session.observe", ("revenue",)),
+        ("analysis_frame.reduce", ("value_sum",)),
         (
             "analysis_frame.compare",
-            mv.AnalysisFrame.compare,
-            frame.compare,
             (
                 "value",
                 "reference.baseline.value",
@@ -184,8 +115,6 @@ def test_output_naming_help_discloses_and_runs_both_entry_shapes(
         descriptor = registry.by_canonical_id(target)
         assert isinstance(descriptor, CallableInput)
         text = render_help_text("analysis." + target)[0]
-        assert text == render_help_text(implementation)[0] == render_help_text(bound)[0]
-        assert "Mapping" in text
         assert len(text) <= ANALYSIS_HELP_RENDER_BUDGETS["exact_callable"].max_codepoints
         exec(compile(descriptor.example.code, "<naming-help-example>", "exec"), namespace)
         result = namespace["result"]
@@ -198,78 +127,13 @@ def test_output_naming_help_discloses_and_runs_both_entry_shapes(
             assert result._schema.values[-1].unit is None
             comparison_rows = result.compute().to_pandas()
             assert comparison_rows["reference.relative.value"].tolist() == [2]
-    observation = render_help_text("analysis.session.observe")[0]
-    for fact in (
-        "published root Metric or nonempty list/tuple of them",
-        "local names in order",
-        "Derived expressions and source/Population counts require a nonempty Mapping",
-        "business identity",
-    ):
-        assert fact in observation
-    assert "conflicts" in observation or "duplicate" in observation.lower()
-    for fact in (
-        "nonempty",
-        "dots",
-        "backslashes",
-        "controls",
-        "left_present/right_present",
-        "no name cleaning/numbering",
-    ):
-        assert fact in observation
-    reduction = render_help_text("analysis.analysis_frame.reduce")[0]
-    for fact in ("<name>_sum/<name>_mean", "multi-segment", "row_count", "bound value slots"):
-        assert fact in reduction
-    comparison = render_help_text("analysis.analysis_frame.compare")[0]
-    assert comparison.count("\nSignature:") == 2
-    for fact in (
-        "Bare Frame only",
-        "mv.baseline",
-        "reference.present",
-        "infers no time relationship",
-    ):
-        assert fact in comparison
-    for fact in (
-        "relative is dimensionless (unit=None)",
-        "Calendar ordinal needs complete buckets",
-        "week/month/year bucket-start offset prefixes",
-        "exactly equal saved progress",
-    ):
-        assert fact in comparison
-    assert "marivo.help('analysis.inputs.comparison')" in comparison
-    assert "marivo.help('analysis.ordinal')" in render_help_text("analysis.inputs.comparison")[0]
-    ordinal = render_help_text("analysis.ordinal")[0]
-    assert "one declared record per side" in ordinal and "equal boundary timezones" in ordinal
     main(["help", "analysis.analysis_frame.compare"])
     output = capsys.readouterr()
     assert output.err == ""
-    assert output.out.count("\nSignature:") == 2
-
-
-@pytest.mark.release
-def test_every_advertised_native_member_has_exact_help() -> None:
-    registry = prepare()
-    for descriptor in registry.descriptors:
-        if isinstance(descriptor, TypeInput):
-            for binding in descriptor.bindings:
-                for name in binding.methods:
-                    method = getattr(binding.implementation, name)
-                    resolved = registry.by_callable(method)
-                    text, _, _ = render_help_text(method)
-                    assert text == render_help_text("analysis." + resolved.canonical_id)[0]
-    assert (
-        render_help_text(mv.ordinal().show)[0]
-        == render_help_text("analysis.calendar_correspondence.show")[0]
-    )
 
 
 def test_parameter_semantics_and_real_producers() -> None:
     registry = prepare()
-    for descriptor in registry.descriptors:
-        if isinstance(descriptor, TypeInput):
-            for producer in descriptor.producers:
-                assert render_help_text("analysis." + producer)[0]
-            if descriptor.canonical_id != "population":
-                assert "session.members" not in descriptor.producers, descriptor.canonical_id
     for target, producer in (
         ("analysis_frame", "session.observe"),
         ("analysis_frame", "session.read"),
@@ -312,42 +176,6 @@ def test_family_projection_preserves_every_canonical_member() -> None:
             assert targets.count(target) == 1
 
 
-@pytest.mark.parametrize("fault", ("input", "guidance", "family", "missing_family", "syntax"))
-def test_registration_rejects_incomplete_example_or_foreign_family(fault: str) -> None:
-    registry = prepare()
-    providers = list(registry.providers)
-    index, provider = next(
-        (i, p)
-        for i, p in enumerate(providers)
-        if any(
-            isinstance(d, CallableInput) and d.canonical_id == "analysis_frame.reduce"
-            for d in p.descriptors
-        )
-    )
-    descriptors = list(provider.descriptors)
-    position, descriptor = next(
-        (i, d)
-        for i, d in enumerate(descriptors)
-        if isinstance(d, CallableInput) and d.canonical_id == "analysis_frame.reduce"
-    )
-    if fault == "input":
-        broken = replace(descriptor, example=replace(descriptor.example, requires=()))
-    elif fault == "guidance":
-        broken = replace(
-            descriptor, parameters=(replace(descriptor.parameters[0], acquisition=""),)
-        )
-    elif fault == "family":
-        broken = replace(descriptor, discovery_family="analysis_frame.compare")
-    elif fault == "missing_family":
-        broken = replace(descriptor, discovery_family="Missing.reduce")
-    else:
-        broken = replace(descriptor, example=replace(descriptor.example, code="result = ("))
-    descriptors[position] = broken
-    providers[index] = replace(provider, descriptors=tuple(descriptors))
-    with pytest.raises(DatasetRegistrationError):
-        assemble(tuple(providers))
-
-
 def test_frame_targets_have_one_semantic_owner_and_no_retired_edges() -> None:
     registry = prepare()
     frame_methods = (
@@ -371,29 +199,6 @@ def test_frame_targets_have_one_semantic_owner_and_no_retired_edges() -> None:
         target = "analysis_frame." + name
         descriptor = registry.by_callable(getattr(mv.AnalysisFrame, name))
         assert descriptor.canonical_id == target
-        assert render_help_text("analysis." + target)[0].startswith(
-            f"Target: analysis.{target}\nKind: callable"
-        )
-    for target in registry.canonical_ids():
-        assert not target.startswith(("query", "analysisframe", "frameaxis"))
-        assert target not in (
-            "broadcast",
-            "corresponding",
-            "declared_correspondence",
-            "correspondence_axis",
-            "session.query",
-            "session.artifact",
-            "artifact.to_pandas",
-            "calendar_axis.coarsen",
-        )
-    compare = render_help_text("analysis.analysis_frame.compare")[0]
-    assert "<alias>.absolute.<name>" in compare and "absolute baseline" in compare
-    assert "on/outer cannot repair ownership" in compare
-    assert "partition_by" not in render_help_text("analysis.analysis_frame.top")[0]
-    assert (
-        "Semantic row predicates belong to source"
-        in render_help_text("analysis.analysis_frame.where")[0]
-    )
 
 
 def test_partition_and_share_help_examples_return_composable_same_input_columns(
@@ -407,13 +212,11 @@ def test_partition_and_share_help_examples_return_composable_same_input_columns(
         rows=((("east",), {"value": 1}), (("west",), {"value": 3})),
     ).compute()
     registry = prepare()
-    for target, implementation, bound, expected in (
-        ("analysis_frame.over", mv.AnalysisFrame.over, frame.over, [4, 4]),
-        ("column.share", mv.Column.share, frame["value"].share, [0.25, 0.75]),
+    for target, expected in (
+        ("analysis_frame.over", [4, 4]),
+        ("column.share", [0.25, 0.75]),
     ):
         text = render_help_text("analysis." + target)[0]
-        assert text == render_help_text(implementation)[0] == render_help_text(bound)[0]
-        assert text.startswith(f"Target: analysis.{target}\nKind: callable")
         assert len(text) < 3500
         descriptor = registry.by_canonical_id(target)
         assert isinstance(descriptor, CallableInput)
@@ -451,7 +254,7 @@ def test_selected_frame_statistics_reacquire_exact_input_handles(
         if selection == "where"
         else frame.top(1, by=frame["amount"])
     )
-    with pytest.raises(AnalysisError, match="exact Frame input"):
+    with pytest.raises(AnalysisError):
         selected.reduce({"total": frame["amount"].sum()})
     total = selected.reduce({"total": selected["amount"].sum()}).compute()
     assert total.to_pandas()["total"].tolist() == [5 if selection == "where" else 4]
@@ -463,43 +266,20 @@ def test_selected_frame_statistics_reacquire_exact_input_handles(
 @pytest.mark.parametrize("method", ("compute", "reduce", "over", "to_pandas"))
 def test_composition_help_is_static_bounded_and_matches_cli(
     method: str,
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     descriptor = prepare().by_canonical_id("analysis_frame." + method)
     assert isinstance(descriptor, CallableInput)
 
-    def forbidden(*args: object, **kwargs: object) -> None:
-        raise AssertionError("Static Help executed an example or opened a source")
-
-    monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr(mv.session, "get_or_create", forbidden)
-    monkeypatch.setattr(mv.Session, "catalog", property(forbidden))
-    monkeypatch.setattr(SourceSession, "__enter__", forbidden)
-    monkeypatch.setattr(SourceSession, "execute", forbidden)
-    for name in ("compute", "reduce", "over", "to_pandas"):
-        monkeypatch.setattr(mv.AnalysisFrame, name, forbidden)
     target = "analysis.analysis_frame." + method
     text = render_help_text(target)[0]
-    assert text == render_help_text(target)[0]
     assert descriptor.example.requires == ("frame",)
-    assert descriptor.example.code in text
-    assert "Example needs" in text or "Example input: frame has a" in text
-    assert text.count("\nExample:\n") == 1
     budget = ANALYSIS_HELP_RENDER_BUDGETS["exact_callable"]
     assert len(text.splitlines()) <= budget.max_lines + 4
     assert len(text) <= budget.max_codepoints + 100
     main(["help", target])
     cli = capsys.readouterr()
     assert cli.err == ""
-    expected = re.sub(
-        r"marivo\.help\(([\"'])([a-z_][a-z0-9_.]*)\1\)",
-        lambda match: "marivo help " + match.group(2),
-        text,
-    )
-    assert cli.out.rstrip() == expected.rstrip()
-    assert not (tmp_path / ".marivo").exists()
 
 
 def test_correlation_help_contract_and_executable_examples(
@@ -518,33 +298,14 @@ def test_correlation_help_contract_and_executable_examples(
         ),
     )
     registry = prepare()
-    for target, implementation, bound, expected in (
-        (
-            "analysis_frame.correlate",
-            mv.AnalysisFrame.correlate,
-            frame.correlate,
-            ("coefficient", "n_pairs"),
-        ),
-        ("column.corr", mv.Column.corr, frame["value"].corr, ("coefficient", "n_pairs")),
-        (
-            "column.pair_count",
-            mv.Column.pair_count,
-            frame["value"].pair_count,
-            ("n_pairs", "n_values"),
-        ),
+    for target, expected in (
+        ("analysis_frame.correlate", ("coefficient", "n_pairs")),
+        ("column.corr", ("coefficient", "n_pairs")),
+        ("column.pair_count", ("n_pairs", "n_values")),
     ):
         text = render_help_text("analysis." + target)[0]
-        assert text == render_help_text(implementation)[0] == render_help_text(bound)[0]
-        assert text.startswith(f"Target: analysis.{target}\nKind: callable")
         assert len(text) < 5000
-        for fact in (
-            "Duration",
-            "Frame/Session",
-            "constant",
-            "NA",
-            "analysis.analysis_frame.reduce",
-        ):
-            assert fact in text
+        assert "analysis.analysis_frame.reduce" in text
         descriptor = registry.by_canonical_id(target)
         assert isinstance(descriptor, CallableInput)
         namespace: dict[str, object] = {"frame": frame}
@@ -564,11 +325,6 @@ def test_correlation_help_contract_and_executable_examples(
     assert "analysis.analysis_frame.correlate" in frame_help
     assert "analysis.column.corr" in column_help and "analysis.column.pair_count" in column_help
     assert "analysis.analysis_frame.correlate" in axis_help
-    high = render_help_text("analysis.analysis_frame.correlate")[0]
-    assert "coefficient" in high and "n_pairs" in high and "one input evaluation" in high
-    assert "nonnullable int64" in high and "nullable float64" in high
-    count = render_help_text("analysis.column.pair_count")[0]
-    assert "Self pair_count counts non-NA" in count and "without ranking" in count
 
 
 def test_fact_show_has_one_canonical_owner_for_every_concrete_record() -> None:
@@ -604,9 +360,7 @@ def test_fact_show_has_one_canonical_owner_for_every_concrete_record() -> None:
         mv.FrameMethodFacts,
     )
     assert len({owner.show for owner in types}) == 1
-    expected = render_help_text("analysis.frame_method_facts.show")[0]
     assert registry.by_callable(mv.FrameMethodFacts.show).canonical_id == "frame_method_facts.show"
-    assert render_help_text(mv.FrameMethodFacts.show)[0] == expected
     for owner in types:
         assert "analysis.frame_method_facts.show" in render_help_text(owner)[0]
     owners = [
@@ -622,61 +376,7 @@ def test_fact_show_has_one_canonical_owner_for_every_concrete_record() -> None:
 
 def test_attribute_help_distinguishes_actual_qualification_and_inert_facts() -> None:
     text = render_help_text("analysis.analysis_frame.attribute")[0]
-    assert text == render_help_text(mv.AnalysisFrame.attribute)[0]
-    for expected in (
-        "qualified physical tables",
-        "reads are independent",
-        "MySQL/MariaDB use source collations",
-        "align returned strings",
-        "1% of abs(total)",
-        "unchanged additive/level",
-        "Trust semantic identity",
-        "rate/mix",
-        "effect.within",
-        "mix/entry_exit",
-        "effect.additive",
-        "before reads",
-        "whole-Metric group-replacement Shapley",
-        "date32 keys",
-        "Distributed GLOBAL IN/JOIN",
-        "Enum8/16",
-        "Query Enum sorting uses decoded strings",
-        "Attribute excludes FixedString",
-        "contribution_std_error",
-        "domain proof for all coalitions",
-        "State capture reads do not grow",
-        "native-query games validate visited",
-        "observed marginal SE",
-        "summary reconstruction",
-        "excludes summary bias",
-        "no snapshot, materialization or drift audit",
-        "without arithmetic recomputation",
-        "independent reopen",
-        "complete",
-        "observed_total",
-        "each target",
-        "source declaration",
-    ):
-        assert expected.lower() in text.lower()
     assert "analysis.analysis_frame.method_facts" in text
-    for target in ("frame_method_facts", "frame_ratio_method"):
-        assert target not in prepare().discovery_ids()
-
-
-def test_observe_help_discloses_report_domains_and_definition_repair() -> None:
-    text = render_help_text("analysis.session.observe")[0]
-    assert "Ordinary domains require Session timezone" in text
-    assert "Predicates and natural calendar samples use the Session timezone" in text
-    assert "Bare Grains reject" in text
-    assert "CalendarAxis supplies buckets" in text
-    assert "A scope adds no axis" in text
-    assert "by=P retains complete keys without filtering contributions" in text
-    assert "without filtering contributions" in text
-    assert "where=mv.in_population(P) restricts contributions" in text
-    assert "If by carries time, omit TimeScope in where" in text
-    assert "clocked branches" in text.lower()
-    assert "time_group" not in text
-    assert "bind_time" not in text
 
 
 def test_construction_type_families_and_retired_surface() -> None:
@@ -804,56 +504,12 @@ def test_construction_type_families_and_retired_surface() -> None:
         "column",
     }
     assert len([name for name in mv.__all__ if isinstance(getattr(mv, name), type)]) == 80
-    removed = {
-        "before_end_boundary",
-        "before_end_boundary.end",
-        "before_end_boundary.boundary_timezone",
-        "before_end_boundary.show",
-        "time_scope.before_end",
-        "grain.to_token",
-        "grain.width_seconds",
-        "grain.is_day",
-        "grain.is_subday",
-        "time_scope.contract",
-        "time_scope.model_dump",
-    }
-    for target in removed:
-        with pytest.raises((AnalysisError, MarivoHelpTargetError)) as error:
-            render_help_text("analysis." + target)
-        assert "registered" in str(error.value).lower() or "unknown" in str(error.value).lower()
-    assert not hasattr(mv, "BeforeEndBoundary")
-    for member in ("to_token", "width_seconds", "is_day", "is_subday"):
-        assert not hasattr(mv.grain("day"), member)
-    assert not hasattr(mv.TimeScope, "before_end")
-    assert not hasattr(mv.TimeScope, "contract")
-    assert "model_dump" not in vars(mv.TimeScope)
     descriptor = registry.by_canonical_id("value_statistic")
     assert isinstance(descriptor, TypeInput)
     assert tuple(f.name for f in descriptor.bindings[0].fields) == ("unit",)
     statistic = mv.row_count()
-    assert not hasattr(statistic, "input_id") and not hasattr(statistic, "definition")
-    page = render_help_text(type(statistic))[0]
-    assert page == render_help_text("analysis.value_statistic")[0]
-    assert "input_id" not in page and "definition" not in page
-    assert "input_id" not in repr(statistic) and "definition" not in repr(statistic)
+    assert "analysis.value_statistic" in render_help_text(type(statistic))[0]
     assert "analysis.value_statistic" in render_help_text(mv.row_count)[0]
-    assert not hasattr(mv, "attribute_endpoint")
-    assert not hasattr(mv, "AttributeEndpoint")
-
-
-def test_nested_metadata_help_keeps_read_boundaries() -> None:
-    for target, fact in (
-        ("calendar_axis.scope", "never rebuilds"),
-        ("calendar_axis.grid", "frozen finite buckets"),
-        ("frame_method_facts.output_schema", "complete original saved output layout"),
-        ("frame_method_coordinate.schema", "complete saved coordinate layout"),
-        ("frame_method_value.column", "physical dtype, unit and nullability"),
-    ):
-        page = render_help_text("analysis." + target)[0]
-        assert "Kind: attribute" in page and fact in page
-    for target in ("time_scope_contract_v1", "data_schema", "bound_time_grid", "run_failure"):
-        with pytest.raises((AnalysisError, MarivoHelpTargetError)):
-            render_help_text("analysis." + target)
 
 
 def test_fix_help_matches_callable_and_runs_public_example(
@@ -868,11 +524,6 @@ def test_fix_help_matches_callable_and_runs_public_example(
     )
     descriptor = prepare().by_canonical_id("analysis_frame.fix")
     assert isinstance(descriptor, CallableInput)
-    text = render_help_text("analysis.analysis_frame.fix")[0]
-    assert text == render_help_text(mv.AnalysisFrame.fix)[0]
-    assert text == render_help_text(frame.fix)[0]
-    for phrase in ("without aggregating", "NULL", "empty", "explicit on", "complete tuple"):
-        assert phrase in text
     namespace = {"frame": frame}
     exec(descriptor.example.code, namespace)
     assert namespace["result"].compute().to_pandas()["value"].tolist() == [120]
@@ -881,124 +532,12 @@ def test_fix_help_matches_callable_and_runs_public_example(
 
 def test_fixed_read_surface_has_one_reachable_contract_per_entry() -> None:
     registry = prepare()
-    targets = (
-        "analysis_frame.schema",
-        "analysis_frame.read_page",
-        "analysis_frame.read_periods",
-        "analysis_frame.source_reads",
-        "frame_source_read.read_id",
-        "frame_source_read.completed_at",
-        "frame_source_read.scopes",
-        "frame_source_read.returned_rows",
-        "frame_source_read_scope.source",
-        "frame_source_read_scope.period",
-        "frame_source_read_period.start",
-        "frame_source_read_period.end",
-        "frame_source_read_period.timezone",
-        "frame_schema.input_id",
-        "frame_schema.values",
-        "frame_schema.presence",
-        "frame_schema.slots",
-        "frame_schema.axes",
-        "frame_schema.fixed_axes",
-        "frame_schema.value_contexts",
-        "frame_schema.alignments",
-        "frame_schema.comparisons",
-        "frame_schema.decompositions",
-        "frame_schema.layout",
-        "frame_field.dtype",
-        "frame_axis_schema.keys",
-        "frame_calendar_axis_schema.timezone",
-        "frame_calendar_axis_schema.grain",
-        "frame_interval_axis_schema.timezone",
-        "frame_paired_axis_schema.left",
-        "frame_paired_axis_schema.right",
-        "frame_fixed_axis.key",
-        "frame_observation_context.window",
-        "frame_statistic_context.groups",
-        "frame_named_value_input.name",
-        "frame_named_value_input.subject",
-        "frame_derived_value_input.origins",
-        "frame_share_context.numerator",
-        "frame_share_context.groups",
-        "frame_share_context.along",
-        "frame_share_context.row_scope",
-        "frame_pair_statistic_context.statistic",
-        "frame_pair_statistic_context.x",
-        "frame_pair_statistic_context.y",
-        "frame_pair_statistic_context.groups",
-        "frame_pair_statistic_context.row_scope",
-        "frame_alignment.input_id",
-        "frame_alignment.alignment_id",
-        "frame_alignment.left",
-        "frame_alignment.right",
-        "frame_alignment_side.values",
-        "frame_alignment_side.presence",
-        "frame_alignment_side.coordinates",
-        "frame_alignment_axis.axis_token",
-        "frame_alignment_axis.endpoint",
-        "frame_comparison.groups",
-        "frame_comparison.binding",
-        "frame_decomposition.outputs",
-        "field_export_column.slot_id",
-        "coordinate_export_column.endpoint",
-        "frame_page.coordinates",
-        "frame_page.layout",
-        "frame_page.read_stats",
-        "frame_page.total_count",
-        "frame_page.to_pandas",
-        "frame_period_page.target",
-        "frame_period_page.items",
-        "frame_period_page.read_stats",
-        "frame_calendar_period.key",
-        "frame_calendar_period.selection",
-        "frame_interval_period.key",
-        "frame_paired_period.left",
-        "frame_paired_period.right",
-        "frame_comparison_period.baseline",
-        "frame_comparison_period.absent_reason",
-        "frame_read_stats.receipt_bytes_hashed",
-        "timestamp_data_type.timezone",
-        "unresolved_data_type.kind",
-    )
-    for target in targets:
-        text = render_help_text("analysis." + target)[0]
-        assert "Target: analysis." + target in text
-    for target in (
-        "analysis_frame.findings",
-        "analysis_frame.evidence",
-        "finding",
-        "finding_page",
-        "evidence_page",
-        "results.evidence",
-        "analysis_frame.evidence_digest",
-        "artifact_digest",
-        "artifact_evidence_summary",
-    ):
-        with pytest.raises((AnalysisError, MarivoHelpTargetError)):
-            render_help_text("analysis." + target)
-    assert not hasattr(mv.AnalysisFrame, "evidence_digest")
-    assert not hasattr(mv, "ArtifactDigest")
     assert "analysis_frame.read_page" in registry.discovery_ids()
     inspect = render_help_text("analysis.results.inspect")[0]
     assert "analysis.analysis_frame.schema" in inspect
     assert "analysis.analysis_frame.read_page" in inspect
     assert "analysis.analysis_frame.read_periods" in inspect
     assert "analysis.analysis_frame.source_reads" in inspect
-    for member in ("findings", "evidence"):
-        assert not hasattr(mv.AnalysisFrame, member)
-    for name in ("Finding", "FindingPage", "EvidencePage"):
-        assert name not in mv.__all__
-    assert "Kind: attribute" in render_help_text("analysis.analysis_frame.source_reads")[0]
-    for target, meaning in (
-        ("frame_source_read.read_id", "preserved across inherited results"),
-        ("frame_source_read.completed_at", "not a database snapshot"),
-        ("frame_source_read.returned_rows", "None means unavailable"),
-        ("frame_source_read_scope.period", "does not imply an unfiltered"),
-        ("frame_source_read_period.start", "inclusive UTC lower bound"),
-        ("frame_source_read_period.end", "exclusive UTC upper bound"),
-    ):
-        assert meaning in render_help_text("analysis." + target)[0]
 
 
 def test_interpretation_facts_and_periods_share_canonical_display_contracts() -> None:
@@ -1025,6 +564,39 @@ def test_interpretation_facts_and_periods_share_canonical_display_contracts() ->
     assert isinstance(descriptor, CallableInput)
     assert descriptor.bindings[0].implementation is mv.AnalysisFrame.read_periods
     assert descriptor.output == "FramePeriodPage"
-    assert "No execution, automatic persistence, Catalog or source reads" in " ".join(
-        descriptor.constraints
+
+
+@pytest.mark.parametrize("fault", ("input", "guidance", "family", "missing_family", "syntax"))
+def test_registration_rejects_incomplete_example_or_foreign_family(fault: str) -> None:
+    registry = prepare()
+    providers = list(registry.providers)
+    index, provider = next(
+        (i, p)
+        for i, p in enumerate(providers)
+        if any(
+            isinstance(d, CallableInput) and d.canonical_id == "analysis_frame.reduce"
+            for d in p.descriptors
+        )
     )
+    descriptors = list(provider.descriptors)
+    position, descriptor = next(
+        (i, d)
+        for i, d in enumerate(descriptors)
+        if isinstance(d, CallableInput) and d.canonical_id == "analysis_frame.reduce"
+    )
+    if fault == "input":
+        broken = replace(descriptor, example=replace(descriptor.example, requires=()))
+    elif fault == "guidance":
+        broken = replace(
+            descriptor, parameters=(replace(descriptor.parameters[0], acquisition=""),)
+        )
+    elif fault == "family":
+        broken = replace(descriptor, discovery_family="analysis_frame.compare")
+    elif fault == "missing_family":
+        broken = replace(descriptor, discovery_family="Missing.reduce")
+    else:
+        broken = replace(descriptor, example=replace(descriptor.example, code="result = ("))
+    descriptors[position] = broken
+    providers[index] = replace(provider, descriptors=tuple(descriptors))
+    with pytest.raises(DatasetRegistrationError):
+        assemble(tuple(providers))

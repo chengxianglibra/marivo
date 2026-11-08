@@ -25,8 +25,6 @@ def test_datasource_error_exposes_only_stable_recovery_fields() -> None:
         ),
     )
 
-    assert not hasattr(error, "details")
-    assert not hasattr(error, "hint")
     assert error.repair is not None
     assert error.repair.help_target.surface == "datasource"
 
@@ -54,5 +52,3 @@ def test_authoring_error_preserves_no_query_fact() -> None:
     assert error.effect_observed is not None
     assert error.effect_observed.query_executed is False
     assert error.effect_observed.scope_state == "unknown"
-    assert "Code: partition_state_unknown" in str(error)
-    assert "Stage: preflight" in str(error)

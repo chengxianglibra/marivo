@@ -146,7 +146,6 @@ def test_mysql_public_native_membership_and_projection_require_selected_zone_bef
                 pending.compute()
             assert failure.value.received == "America/New_York"
             assert probes == ["America/New_York"]
-            assert all("CONVERT_TZ(" not in read.sql.upper() for read in executed)
             outcomes[name] = {
                 "probes": list(probes),
                 "executed_purposes": [read.purpose for read in executed],

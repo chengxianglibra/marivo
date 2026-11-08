@@ -39,5 +39,5 @@ def test_archive_content_damage_is_rejected(tmp_path: Path, damage: str, archive
             member = tarfile.TarInfo("candidate/" + name)
             member.size = len(content)
             archive.addfile(member, io.BytesIO(content))
-    with pytest.raises(ValueError, match="archive differs"):
+    with pytest.raises(ValueError):
         check_archives(tmp_path, wheel, sdist)

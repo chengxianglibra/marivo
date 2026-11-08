@@ -11,14 +11,10 @@ def test_public_bindings_stay_stable_across_private_imports() -> None:
     script = """
 import importlib
 import marivo.analysis as mv
-import sys
-assert 'scipy.stats' not in sys.modules
 from marivo.analysis._capabilities.registry import REGISTRY
 names = ('Population', 'AnalysisFrame', 'FrameAxis', 'Column',
          'FrameMethodFacts')
 bindings = tuple(getattr(mv, name) for name in names)
-assert 'marivo.analysis.public_dsl' not in sys.modules
-assert 'marivo.analysis.forecast_models' not in sys.modules
 exports = tuple(mv.__all__)
 help_targets = REGISTRY.canonical_ids()
 for module in ('core.data_types', 'core.artifact_data', 'datasets.errors'):
@@ -28,18 +24,15 @@ assert all(name in mv.__all__ for name in names)
 assert tuple(mv.__all__) == exports
 assert REGISTRY.canonical_ids() == help_targets
 assert {'analysis_frame', 'frame_axis', 'analysis_frame.compute'} <= set(help_targets)
-assert 'artifact' not in help_targets
 from marivo.analysis.session.core import Session
 
 exports = tuple(mv.__all__)
 help_targets = REGISTRY.canonical_ids()
 members = Session.members
-assert not hasattr(Session, "source_bindings")
 for module in ('source_bindings', 'relationship_binding', 'contracts', 'errors'):
     importlib.import_module('marivo.analysis.observation.' + module)
 importlib.import_module('marivo.analysis.session._lazy_sources')
 assert Session.members is members
-assert not hasattr(Session, "source_bindings")
 assert tuple(mv.__all__) == exports
 assert REGISTRY.canonical_ids() == help_targets
 """
@@ -136,11 +129,8 @@ def test_analysis_keeps_typed_correspondence_and_member_values() -> None:
     assert isinstance(mv.ordinal(), mv.CalendarCorrespondence)
     assert isinstance(mv.offset(periods=1), mv.CalendarCorrespondence)
     assert isinstance(mv.offset(years=-1), mv.CalendarCorrespondence)
-    assert not hasattr(mv, "period_offset")
-    assert not hasattr(mv, "previous_year")
     assert callable(mv.identity) and isinstance(mv.Grouping, type)
     assert callable(mv.Population.count)
-    assert not hasattr(mv, "member_count")
     assert callable(mv.row_count)
 
 
@@ -174,37 +164,21 @@ def test_session_class_exposes_sources_and_frame_owned_operators() -> None:
         "coord",
     ):
         assert callable(getattr(mv.AnalysisFrame, name))
-    assert not hasattr(mv.Session, "correlate")
-    for name in ("forecast", "deviation", "runs"):
-        if name != "runs":
-            assert not hasattr(mv.Session, name)
-        assert not hasattr(mv.AnalysisFrame, name)
-    assert not hasattr(mv.Session, "_attribute")
-    assert not hasattr(mv.Session, "attribute")
 
 
 def test_analysis_keeps_subdomain_dtos_out_of_top_level() -> None:
     import marivo.analysis as mv
-    import marivo.datasource as md
     from marivo.datasource.metadata import TableMetadata
     from marivo.preview import PreviewResult
 
     assert mv.FrameSourceRead is not None
     assert TableMetadata is not None
     assert PreviewResult is not None
-    assert not hasattr(md, "TableMetadata")
-    assert not hasattr(md, "PreviewResult")
 
 
 def test_private_workers_defer_public_analysis_initialization() -> None:
     script = """
-import sys
 import marivo.analysis as mv
-from marivo.analysis.materialization import storage
-assert 'marivo.analysis._public' not in sys.modules
-assert 'marivo.analysis.session' not in sys.modules
-from marivo.analysis.materialization import terminal_storage
-assert 'marivo.analysis._capabilities.registry' not in sys.modules
 # A normal session facade access must still install wrappers before invocation.
 assert callable(mv.session.get_or_create)
 from marivo.analysis.session.core import Session

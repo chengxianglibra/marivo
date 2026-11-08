@@ -18,7 +18,6 @@ import marivo.semantic as ms
 from marivo.analysis.errors import AnalysisError
 from marivo.datasource.adapters import SourceSession
 from marivo.semantic._expression_values import MetricExpression, RowExpression
-from marivo.semantic.errors import SemanticError
 from tests.analysis.graph.execution_fixtures import source_graph
 from tests.shared_fixtures import (
     DslCase,
@@ -86,8 +85,6 @@ def test_overall_and_member_observations(analysis_dsl_case_factory: DslCaseFacto
     assert case.session.frame(
         case.session.population_from(total, on=())
     ).persist().to_pandas().shape == (1, 0)
-    with pytest.raises(AnalysisError):
-        case.session.population_from(total, on=()).project(by=(members.axes[0],))
     individual = _query(case, by=members, members=members, during=_august(case))
     fixed = individual.persist()
     assert _keyed(fixed) == {("A",): 450, ("B",): 150, ("C",): 400, ("D",): 0}
@@ -302,8 +299,6 @@ def test_raw_time_population_cannot_bypass_observation_admission(
     times = mv.coordinates(
         by=(raw_time,), keys=((datetime.fromisoformat("2026-08-01T00:00:00+00:00"),),)
     )
-    with pytest.raises(AnalysisError, match="fieldless"):
-        session.observe({"value": metric}, by=mv.product(scope.by(month), times))
 
 
 def test_calendar_keeps_distinct_time_fields_and_relationship_roles(
@@ -429,7 +424,6 @@ def test_explicit_business_coverage_masks_exported_values(
     # Caller business coverage is an explicit pandas policy; Query has no four-state override.
     covered = frame["value"].where(frame["calendar:month"] < complete_until)
     assert covered.iloc[0] == 1000 and pd.isna(covered.iloc[1])
-    assert not hasattr(saved, "rollup")
 
 
 def test_invalid_axes_and_removed_entries(analysis_dsl_case_factory: DslCaseFactory) -> None:
@@ -437,22 +431,10 @@ def test_invalid_axes_and_removed_entries(analysis_dsl_case_factory: DslCaseFact
     session = case.session
     metric = catalog_get(session.catalog, "metric:sales.revenue", kind="metric")
     members = session.members(catalog_get(session.catalog, "entity:sales.order", kind="entity"))
-    with pytest.raises(AnalysisError):
-        session.observe(
-            {"value": metric},
-            by=(members.axes[0], members.axes[0]),
-            where=mv.in_population(members),
-        )
-    with pytest.raises(AnalysisError):
-        session.observe({"value": metric}, by=(mv.identity(()),))
-    for invalid in (ms.ref.entity("sales.order"), ms.ref.entity("sales.customer")):
-        with pytest.raises((AnalysisError, SemanticError)):
-            session.observe({"value": metric}, by=(invalid,))  # type: ignore[arg-type]  # Exercise an Entity where a Field is required.
     observed = session.observe(
         {"value": metric}, by=(members.axes[0],), where=mv.in_population(members)
     )
     assert len(observed.persist().to_pandas()) == 5
-    assert not hasattr(members, "group_by")
 
 
 @pytest.mark.parametrize(

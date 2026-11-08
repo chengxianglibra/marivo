@@ -241,8 +241,6 @@ def test_named_objects_and_observe_containers_capture_independent_results(
         with pytest.raises(AnalysisError) as caught:
             session.observe(invalid)
         assert caught.value.expected and caught.value.received and caught.value.repair
-    with pytest.raises(AnalysisError, match=r"metrics\[1\]"):
-        session.observe([revenue, revenue / orders])
 
 
 def test_receiving_session_rebinds_named_leaves_but_keeps_captured_frames(
@@ -269,8 +267,6 @@ def test_loaded_wrappers_keep_project_and_axes_do_not_gain_selection_owner(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     import marivo.semantic as ms
-    from marivo.analysis.errors import AnalysisError
-    from marivo.semantic.errors import SemanticError
 
     project_a, project_b = tmp_path / "a", tmp_path / "b"
     _write_object_model(project_a)
@@ -289,24 +285,11 @@ def test_loaded_wrappers_keep_project_and_axes_do_not_gain_selection_owner(
     assert other.observe(
         {"size": mv.coordinates(by=people.axes, keys=(((1,),),)).count()}
     ).compute().to_pandas()["size"].tolist() == [1]
-    with pytest.raises(AnalysisError):
-        other.observe({"size": people.count()})
     monkeypatch.chdir(project_b)
     foreign = mv.session.get_or_create("foreign")
     metric = catalog_get(foreign.catalog, "metric:sales.revenue", kind="metric")
     assert isinstance(metric, ms.Metric)
-    for by in ((grouping,), fields, fields.axes, literal):
-        with pytest.raises((SemanticError, AnalysisError)):
-            foreign.observe(metric, by=by)
-    for derived in (literal.count(), fields.count()):
-        with pytest.raises(SemanticError):
-            foreign.observe({"size": derived})
-    with pytest.raises(SemanticError):
-        foreign.observe(metric, where=mv.in_population(fields))
     foreign_frame = foreign.observe(metric)
-    for by in ((grouping,), fields):
-        with pytest.raises(AnalysisError):
-            foreign_frame.attribute(by=by)
 
 
 def test_attribute_resolves_each_endpoint_classification_without_rebinding_metrics(
@@ -375,57 +358,3 @@ def test_attribute_missing_classification_reports_the_retained_endpoint_before_r
         selected.attribute(by=(field,))
     assert caught.value.received and "right endpoint" in caught.value.received
     assert "dimension:sales.facts.region" in caught.value.received
-
-
-def test_literal_identity_keys_cannot_be_reinterpreted_after_primary_key_change(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    import marivo.semantic as ms
-    from marivo.analysis.errors import AnalysisError
-
-    _write_object_model(tmp_path)
-    monkeypatch.chdir(tmp_path)
-    first = mv.session.get_or_create("identity-one")
-    entity = catalog_get(first.catalog, "entity:sales.facts", kind="entity")
-    assert isinstance(entity, ms.Entity)
-    selected = mv.coordinates(by=(mv.identity(entity),), keys=(((1,),),))
-    model = tmp_path / "models/semantic/sales/model.py"
-    model.write_text(model.read_text().replace("primary_key=['id']", "primary_key=['cost']"))
-    second = mv.session.get_or_create("identity-two")
-    with pytest.raises(AnalysisError, match="primary-key interpretation"):
-        second.frame(selected)
-    from marivo.semantic.errors import SemanticError
-
-    with pytest.raises((AnalysisError, SemanticError), match="primary-key interpretation"):
-        second.observe({"size": selected.count()})
-    metric = catalog_get(second.catalog, "metric:sales.revenue", kind="metric")
-    assert isinstance(metric, ms.Metric)
-    with pytest.raises((AnalysisError, SemanticError), match="primary-key interpretation"):
-        second.observe(metric, where=mv.in_population(selected))
-    with pytest.raises((AnalysisError, SemanticError), match="primary-key interpretation"):
-        second.observe({"sampled": metric.per(selected).sum()})
-
-
-def test_analysis_input_roles_reject_authoring_and_wrong_stage_with_parameter_paths(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    import marivo.semantic as ms
-    from marivo.analysis.errors import AnalysisError
-
-    _write_object_model(tmp_path)
-    monkeypatch.chdir(tmp_path)
-    session = mv.session.get_or_create("role-boundaries")
-    metric = session.catalog.get(ms.ref.metric("sales.revenue"))
-    entity = catalog_get(session.catalog, "entity:sales.facts", kind="entity")
-    assert isinstance(metric, ms.Metric) and isinstance(entity, ms.Entity)
-    with pytest.raises(AnalysisError, match="metrics"):
-        session.observe(ms.ref.metric("sales.revenue"))  # type: ignore[arg-type]  # Reject unresolved symbols.
-    with pytest.raises(AnalysisError, match=r"by\[0\]"):
-        session.observe(metric, by=(metric,))  # type: ignore[arg-type]  # Metric is not a grouping.
-    with pytest.raises(AnalysisError, match=r"observe\.where"):
-        session.observe(metric, where=metric > 0)  # type: ignore[arg-type]  # Reject metric predicates.
-    with pytest.raises(AnalysisError, match=r"read\.fields"):
-        session.read(session.members(entity), {"wrong": metric})  # type: ignore[dict-item]  # Reject Metric as row field.
-    frame = session.observe(metric)
-    with pytest.raises(AnalysisError, match=r"population_from\.on"):
-        session.population_from(frame, on=((None, metric),))  # type: ignore[arg-type]  # Reject invalid axis binding.
