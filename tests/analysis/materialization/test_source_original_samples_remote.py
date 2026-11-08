@@ -14,6 +14,7 @@ from marivo.analysis.core.frame_data import MemoryFrameBacking
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.session.core import Session
 from marivo.datasource.ir import TableSourceIR
+from marivo.semantic.errors import ErrorKind, SemanticExpressionError
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.numeric.test_remote_numeric_query import _datasource_model
 from tests.datasource.environment import clickhouse_analysis, trino_analysis
@@ -134,6 +135,18 @@ def test_native_sample_formula_shares_inner_aggregate(
         strict = (amount.sum(nulls="error") / amount.count(nulls="error")).per(customer).mean()
         with pytest.raises(AnalysisError):
             session.observe({"strict": strict}, by=(channel,)).compute()
+        # Input checks survive even when a predicate removes every sample and
+        # the ordinary calendar domain consequently has no result rows.
+        day = catalog_value(session.catalog, "sales.facts.day", kind="time_dimension")
+        axis = session.time_scope(start="2026-10-01", end="2026-11-01").by(mv.grain("day"))
+        with pytest.raises(AnalysisError) as invalid:
+            session.observe(
+                {"mean": amount.sum(time=day).per(customer).mean()},
+                by=(axis,),
+                where=(customer == "B", amount.log() > 0),
+            ).compute()
+        assert isinstance(invalid.value.__cause__, SemanticExpressionError)
+        assert invalid.value.__cause__.kind == ErrorKind.INVALID_EXPRESSION_VALUE
 
 
 @pytest.mark.parametrize("backend,profile", source_params(CASES))

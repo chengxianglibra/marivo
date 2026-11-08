@@ -139,22 +139,35 @@ entries are frozen at capture.
 Conflicting report time selectors reject at capture with bounded input facts and
 the exact observe Help target, without expanding Population calendar cells.
 
-For ordinary tuple grouping, let S be the selected native calendar keys and O
-the actual contribution joint keys. Output completes `(S × K) ∪ O`, where K is
-the union of complete ordinary classification tuples from all branches, including
-independent branches. Independent branches do not generate time keys O. It never
-crosses independent category value sets. Without ordinary axes K is the
-zero-axis unit; without represented classifications K is empty. Complete
-Population domains retain their own exact keys and coverage checks.
+Ordinary tuple time grouping returns the union of actual complete contribution
+keys; it does not complete a calendar/category Cartesian product. A coordinate
+exists before reducers ignore NULL or evaluate formulas: actual zero and all-NULL
+contributions still support rows. Independent branches only broadcast over already
+established full keys, including their ordinary classifications. An observation containing
+only independent branches needs explicit by=Population for time grouping, unless a
+Population count already carries compatible report time coordinates. This is checked
+at capture without scanning facts; a clocked formula with no matching facts is a
+valid typed zero-row result.
 
-Window and ordinary branches discover K jointly. Historical contributions are
-assigned to selected window endpoints, not their original fact-time buckets.
-Window endpoints do not expand with ordinary observed keys: every final output
-time key must have a defined endpoint on every window branch. Missing endpoints
-reject before completion rather than receiving zero or NULL. At a defined
-endpoint, no contributions follow the reducer's ordinary empty-result rule.
-This applies equally to separate outputs and mixed formulas. An empty selected
-time axis produces no rows; it never becomes a zero-axis total.
+Multiple Metrics and formula leaves share the union of their supported coordinates.
+At an existing coordinate, an absent sum/count branch is zero and an absent mean is
+NA before formula evaluation. Adding a Metric can therefore add rows to another
+Metric and change current-row statistics. Multiplication by zero does not remove
+a declared branch's coordinate support. Separately observed Frames instead retain
+missing-side NA/presence when aligned. Explicit output Populations retain exactly
+their keys and existing contribution coverage checks; they do not filter facts.
+
+Window branches support an endpoint when its actual window contribution set is
+nonempty, including historical contributions without current-bucket facts. Historical
+categories support only those endpoints with contributions. Empty windows do not
+invent rows; use explicit by=Population for complete endpoints. Real zero/all-NULL
+window contributions still support rows. all_history can naturally support every
+selected endpoint. Each final time key needs a defined endpoint on every window
+branch; an extra ordinary key without one rejects rather than receiving zero or NA.
+Internal sample selection does not erase already established external support.
+The complete calendar directory remains available independently of result rows;
+empty selected axes never become zero-axis totals. Zero-axis sums/counts retain
+their one-row empty result.
 
 Native calendar merging requires consistent bucket boundaries, progress and
 direct shift relations. A saved shift map must cover every origin bucket with

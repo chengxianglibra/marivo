@@ -244,8 +244,8 @@ def test_grid_observation_keeps_time_without_member_axis(
     rows = (
         _query(case, by=(channel,), during=calendar, members=_members(case)).persist().to_pandas()
     )
-    assert len(rows) == 4
-    assert sorted(rows["value"]) == [0, 99, 150, 850]
+    assert len(rows) == 3
+    assert sorted(rows["value"]) == [99, 150, 850]
 
 
 @pytest.mark.parametrize(
@@ -403,12 +403,18 @@ history_link = ms.relationship(name='order_history', from_entity=orders, to_enti
     )
 
 
-def test_empty_members_keep_overall_buckets(analysis_dsl_case_factory: DslCaseFactory) -> None:
+def test_empty_members_leave_time_grouping_empty_but_keep_scalar_total(
+    analysis_dsl_case_factory: DslCaseFactory,
+) -> None:
     case = analysis_dsl_case_factory("empty_domain")
     calendar = case.session.time_scope(start="2026-08-01", end="2026-10-01").by(mv.grain("month"))
-    assert _query(case, during=calendar, members=_members(case)).persist().to_pandas()[
-        "value"
-    ].tolist() == [0, 0]
+    assert (
+        _query(case, during=calendar, members=_members(case))
+        .persist()
+        .to_pandas()["value"]
+        .tolist()
+        == []
+    )
     assert _query(case, members=_members(case)).persist().to_pandas()["value"].tolist() == [0]
 
 

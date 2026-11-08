@@ -236,7 +236,7 @@ def test_calendar_fold_completes_multiclock_formula_per_actual_day(
             .to_pandas()
             .sort_values("calendar:month")
         )
-        assert monthly["mean"].fillna(-1).tolist() == [100, -1]
+        assert monthly["mean"].tolist() == [100]
 
 
 def test_field_and_contribution_samples_are_independent(sample_session: Session) -> None:

@@ -575,6 +575,23 @@ def bind_observation(
 
     for index, (_, node) in enumerate(metrics):
         visit(node, (index,), ())
+    if (
+        time_axis is not None
+        and population is None
+        and not any(item.time is not None for item in contributions)
+        and not any(
+            coordinate_matches(time_axis, axis)
+            for domain in count_populations
+            for axis in domain.axes
+        )
+    ):
+        reject(
+            "a time-coordinate provider or an explicit output Population",
+            "report-independent Metric branches without existing report time coordinates",
+            "Use by=mv.product(axis, mv.coordinates(by=(), keys=((),))) for a complete time domain, or where=scope for a range total.",
+            "session.observe",
+            canonical_id="session.observe",
+        )
     row_reads = tuple(
         read
         for contribution in contributions
@@ -647,7 +664,6 @@ def bind_observation(
             mode,
             population,
             memberships,
-            complete_calendar=not (calendar is not None and calendar.actual_only),
         ),
         bound_contributions,
         tuple(count_populations.items()),

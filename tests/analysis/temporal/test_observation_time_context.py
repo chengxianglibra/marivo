@@ -15,12 +15,14 @@ import marivo.semantic as ms
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.session.core import Session
 from marivo.datasource.ir import TableSourceIR
+from marivo.semantic.errors import ErrorKind, SemanticExpressionError
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.numeric.test_remote_numeric_query import _datasource_model
 from tests.datasource.source_cases import SourceData, source_case, source_params
 from tests.shared_fixtures import (
     catalog_value,
     frozen_coordinates,
+    time_population,
 )
 from tests.support.paths import PROJECT_ROOT
 from tests.support.source_trace import SourceTrace
@@ -161,10 +163,10 @@ def test_report_domains_align_distinct_clocks_and_keep_window_history(
 
         finite = session.observe(outputs, by=(scope.by(month),), where=split).compute()
         rows = finite.to_pandas().sort_values("calendar:month")
-        assert rows["calendar:month"].dt.month.tolist() == [9, 10, 11, 12]
-        assert rows["booked"].fillna(-1).tolist() == [100, 0, -1, 0]
-        assert rows["settled"].tolist() == [0, 100, 0, 0]
-        assert rows["net"].fillna(-1).tolist() == [-100, 100, -1, 0]
+        assert rows["calendar:month"].dt.month.tolist() == [9, 10, 11]
+        assert rows["booked"].fillna(-1).tolist() == [100, 0, -1]
+        assert rows["settled"].tolist() == [0, 100, 0]
+        assert rows["net"].fillna(-1).tolist() == [-100, 100, -1]
 
         october = session.time_scope(start="2026-10-01", end="2026-10-03")
         september = session.time_scope(start="2026-09-01", end="2026-10-01")
@@ -181,7 +183,7 @@ def test_report_domains_align_distinct_clocks_and_keep_window_history(
             .to_pandas()
             .sort_values("calendar:day")
         )
-        assert cohort["settled"].tolist() == [100, 0]
+        assert cohort["settled"].tolist() == [100]
 
         window = settled.window(mv.trailing_duration(duration=timedelta(days=7)))
         formula = {"ordinary": settled, "rolling": window, "prior": window - settled}
@@ -220,6 +222,15 @@ def test_report_domains_align_distinct_clocks_and_keep_window_history(
         ).compute()
         assert not unbucketed.schema.axes
         assert unbucketed.to_pandas()["rolling"].tolist() == [30]
+        # The only selected fact fails log(amount - 10), leaving no output row.
+        # Its predicate check must survive sparse completion on every provider.
+        invalid_axis = session.time_scope(start="2026-09-30", end="2026-10-01").by(day)
+        with pytest.raises(AnalysisError) as invalid:
+            session.observe(
+                {"v": settled}, by=(invalid_axis,), where=(amount - 10).log() > 0
+            ).compute()
+        assert isinstance(invalid.value.__cause__, SemanticExpressionError)
+        assert invalid.value.__cause__.kind == ErrorKind.INVALID_EXPRESSION_VALUE
 
 
 def test_finite_calendar_windows_keep_empty_values(
@@ -258,7 +269,7 @@ def test_finite_calendar_windows_keep_empty_values(
         empty = session.observe(
             {"v": settled.window(mv.all_history())}, by=(day,), where=region == "absent"
         ).compute()
-        assert empty.to_pandas()["v"].tolist() == [0, 0]
+        assert empty.to_pandas().empty
         assert len(frozen_coordinates(empty)[0].rows) == 2
 
 
@@ -317,8 +328,18 @@ def test_time_context_validation_precedes_business_reads(
 
         for expr in (untimed, timed + untimed, timed + regions.count(), untimed * 0):
             session.observe({"v": expr}, where=scope)
+            session.observe({"v": expr}, by=time_population(scope.by(day)))
+        for expr in (untimed, untimed * 0):
+            with pytest.raises(AnalysisError) as missing_time:
+                session.observe({"v": expr}, by=(scope.by(day),))
+            assert (
+                missing_time.value.expected
+                == "a time-coordinate provider or an explicit output Population"
+            )
+            assert missing_time.value.repair is not None
+            assert missing_time.value.repair.help_target.canonical_id == "session.observe"
+        for expr in (timed * 2, timed + untimed, timed + regions.count()):
             session.observe({"v": expr}, by=(scope.by(day),))
-        session.observe({"v": timed * 2}, by=(scope.by(day),))
         session.observe({"v": untimed})
         assert source_trace.native_sql == []
 
@@ -359,12 +380,25 @@ def test_time_context_freezes_bounds_and_reopens_without_sources(
         empty = session.time_scope(start="2026-11-05", end="2026-11-07")
         outputs = {"sum": amount.sum(), "count": amount.count(), "mean": amount.mean()}
         empty_cells = session.observe(outputs, by=(empty.by(day),)).compute().to_pandas()
-        assert empty_cells["sum"].tolist() == empty_cells["count"].tolist() == [0, 0]
-        assert empty_cells["mean"].isna().all()
+        assert empty_cells.empty
+        complete_cells = (
+            session.observe(outputs, by=time_population(empty.by(day))).compute().to_pandas()
+        )
+        assert complete_cells["sum"].tolist() == complete_cells["count"].tolist() == [0, 0]
+        assert complete_cells["mean"].isna().all()
         assert session.observe(outputs, by=(empty.by(day), region)).compute().to_pandas().empty
-        assert session.observe(
-            outputs, by=(empty.by(day),), where=((created >= empty.start) & (created < empty.end))
-        ).compute().to_pandas()["sum"].tolist() == [0, 0]
+        assert (
+            session.observe(
+                outputs,
+                by=(empty.by(day),),
+                where=((created >= empty.start) & (created < empty.end)),
+            )
+            .compute()
+            .to_pandas()
+            .empty
+        )
+        saved_empty = session.observe(outputs, by=(empty.by(day),)).persist()
+        assert saved_empty.artifact_id is not None
 
         (tmp_path / "models").rename(tmp_path / "models.offline")
         (tmp_path / "source.duckdb").rename(tmp_path / "source.offline")
@@ -378,9 +412,13 @@ assert [axis.timezone for axis in frame.schema.axes] == ['Asia/Shanghai']
 assert frozen_coordinates(frame)[0].rows["selection"].tolist() == ["partial", "prefix"]
 rows = frame.select({"twice": frame["v"] * 2}).compute().to_pandas()
 assert rows.sort_values("calendar:day")["twice"].tolist() == [400, 80]
+empty = mv.session.resume(sys.argv[1]).persisted_frame(sys.argv[3])
+assert empty.to_pandas().empty
+assert len(frozen_coordinates(empty)[0].rows) == 2
+assert empty.compare(empty, match=mv.ordinal()).compute().to_pandas().empty
 """
         completed = subprocess.run(
-            [sys.executable, "-c", worker, session.id, saved.artifact_id],
+            [sys.executable, "-c", worker, session.id, saved.artifact_id, saved_empty.artifact_id],
             cwd=tmp_path,
             env=dict(os.environ, PYTHONPATH=str(PROJECT_ROOT), TZ="America/Los_Angeles"),
             capture_output=True,

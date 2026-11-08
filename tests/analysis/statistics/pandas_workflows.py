@@ -80,7 +80,7 @@ def daily(case: DslCase, *, end: str = "2026-08-04") -> mv.AnalysisFrame:
     period = session.time_scope(start="2026-08-01", end=end)
     return session.observe(
         {"value": _metric(session.catalog, "metric:sales.order_count")},
-        by=(period.by(mv.grain("day")),),
+        by=mv.product(period.by(mv.grain("day")), mv.coordinates(by=(), keys=((),))),
     )
 
 

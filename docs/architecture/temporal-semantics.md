@@ -219,18 +219,20 @@ progress (`full`, `prefix`, `partial`, or `unavailable`, with a civil cutoff for
 prefix). Labels and nominal ordinals may repeat for distinct actual keys. Genuine
 TimeScope, source-read and window ranges have independent owners.
 
-With a CalendarAxis, ordinary output completes the union of generated positions
-S and observed keys O.
-Only missing S keys receive empty-result rows; additional O keys remain present.
-Window output instead uses its explicit endpoint domain. Calendar output never
-creates new category keys.
+With a CalendarAxis, ordinary output contains only actual supported complete
+joint keys, without filling missing buckets or category combinations. A window
+supports its evaluation endpoint through actual window contributions, including
+history; a completely empty window does not create a row. Explicit by=Population
+retains its complete keys. Independent branches broadcast only at established keys;
+fully independent time grouping requires an explicit output Population or an already
+compatible time-coordinate provider.
 
-When ordinary and windowed Metrics share an observation, their contributions
-jointly discover ordinary classification tuples, including members represented
-only in window history. Final time keys require endpoints on every window
-branch; an extra ordinary key without such an endpoint rejects rather than
-creating a window or filling an undefined position. Empty selected axes remain
-empty. See [observation domains](analysis/populations-and-observation.md#observation-domain-contributions-and-counts).
+Frozen directories still contain all selected native positions S plus legal extra
+observed keys O. Directory presence is not result-row presence. Keep original ordinals,
+progress and direct shift origins even when the main table is sparse or empty.
+All window branches must define endpoints for each final time key; an extra ordinary
+key without an endpoint rejects. See
+[observation domains](analysis/populations-and-observation.md#observation-domain-contributions-and-counts).
 
 Builtin `Metric.per(grain)` follows each source branch's contribution time.
 `Metric.per(field, grain=grain)` fixes an explicit native sample field.
@@ -265,7 +267,9 @@ Windows attach to the original Metric equation with source-free mv rules:
 Each output endpoint reevaluates the complete Metric on its own contribution
 window for clocked leaves. Independent leaves retain their contribution scope and
 combine once at each endpoint; a fixed denominator is not multiplied by window length.
-Fully independent windows retain their value while still validating endpoints and rules. A seven-day duration is exactly 168 hours; seven calendar days can differ
+Fully independent windows retain their value in range totals or at keys supplied by
+an explicit output Population or another coordinate provider, while still validating
+endpoints and rules. A seven-day duration is exactly 168 hours; seven calendar days can differ
 across DST. Scalar to_date chooses the unique reset period with left < end <=
 right, so a month boundary endpoint uses the preceding complete month without
 epsilon arithmetic. Calendar output additionally requires compatible reset
@@ -310,10 +314,10 @@ accept ordinal. Multiple calendar axes and already paired inputs cannot acquire
 an arbitrary automatic matching route.
 
 align requires explicit match or equality. compare may consume a compatible
-immediate frozen shift relation; wrong current anchors or conflicting explicit
-rules reject. A manually prepared baseline can use an explicit alias-keyed match.
-Exact checks actual complete joint rows under that relation; unused directory
-buckets alone neither create rows nor cause failure. Compare outer requires
+immediate frozen shift relation. A different current origin needs an explicit match
+between the saved endpoints; an invalid saved map always rejects. When consuming
+the same direct origin, explicit rules must agree with that relation.
+Unused directory buckets alone do not create rows. Compare is always outer and requires
 actual baseline time rows to map into the current declared domain; general
 two-ended time unions belong to align. The complete correspondence and presence
 rules are owned by [AnalysisFrame](analysis/analysis-frame.md#correspondence-and-comparison).

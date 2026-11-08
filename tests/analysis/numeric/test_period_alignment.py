@@ -306,10 +306,10 @@ def test_period_outer_distinguishes_absent_groups_from_zero_activity(
         .compute()
         .to_pandas()
     )
-    assert len(frame) == 6 and set(frame["channel"]) == {"mobile", "web"}
+    assert len(frame) == 2 and set(frame["channel"]) == {"mobile", "web"}
     assert frame["reference.absolute.value"].isna().all()
-    assert frame["current.present"].sum() == 3
-    assert frame["reference.present"].sum() == 3
+    assert frame["current.present"].sum() == 1
+    assert frame["reference.present"].sum() == 1
 
 
 def test_period_saved_output_checks_endpoint_projections_and_presence(

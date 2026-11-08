@@ -338,7 +338,8 @@ class Session:
                 local declaration names. Derived expressions and source/Population
                 counts require a nonempty mapping with explicit output names.
             by: Ordered classification fields and grouping rules with at most
-                one CalendarAxis, or a complete Population defining output keys,
+                one CalendarAxis, returning the union of actual complete contribution
+                keys without filling missing buckets; or a complete Population defining output keys,
                 including keys without facts. Population does not filter contributions
                 and must cover their necessary output keys before sampling.
             where: A row predicate, a report TimeScope, or a tuple combining
@@ -352,12 +353,14 @@ class Session:
             ``period = session.time_scope(start='2026-08-01', end='2026-09-01')``;
             ``session.observe(revenue, by=(period.by(mv.grain('day')),)).compute().show()``.
         Constraints:
-            No source reads at capture. Clocked branches follow report time; others
-            retain scope and broadcast on missing time keys. A scope adds no axis;
-            CalendarAxis supplies buckets. Ordinary domains require Session timezone;
-            Predicates and natural calendar samples use the Session timezone.
-            Bare Grains reject; use an explicit scope.by(grain) axis.
-            Windows need endpoints on every output time key.
+            No reads at capture. Clocked branches follow report time; others
+            broadcast to existing keys. Time grouping needs a clocked
+            branch or compatible Population count keys. A scope adds no axis;
+            scope.by(grain) supplies candidates and the full time directory.
+            Bare Grains reject. Domains, predicates and calendar samples require
+            Session timezone. Windows require endpoints; history can support rows.
+            At existing keys, absent sum/count is zero; mean is NA.
+            Adding Metrics can add rows.
         """
         from marivo.analysis.core.model import reject
         from marivo.analysis.dsl import frame_sources

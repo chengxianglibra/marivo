@@ -219,6 +219,12 @@ Bare Grain inputs reject. For an exact
 finite calendar or interval output domain, build a complete Population using
 `mv.product` and pass it as `by=P`.
 
+Ordinary CalendarAxis grouping returns actual supported joint keys without filling
+empty buckets; explicit `by=P` retains a complete domain. Multiple Metrics first
+union actual keys, then apply each branch's empty-set rule. Independent branches
+broadcast only over existing keys. Without a clocked branch or compatible time-bearing
+Population count, time grouping needs explicit P.
+
 TimeScopes use inclusive start and exclusive end. An explicitly selected Population can retain members without facts; no-fact sums are zero, while nonempty all-null sums are NA. `Population.count()` counts selected complete tuples, `Entity.count()` counts source contributions, and `mv.row_count()` counts current Frame rows. Help: `analysis.session.observe`.
 
 <a id="compare-and-align"></a>

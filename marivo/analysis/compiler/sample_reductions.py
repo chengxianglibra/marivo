@@ -298,6 +298,17 @@ class SampleLowerer:
             return self.lower(node.operand, (*path, 0), keys, forced)
         if isinstance(node, (SourceAggregate, SourceWeightedMean, EntityCount)):
             bindings = self.bindings(path)
+            if any(
+                name.startswith("predicate_check.")
+                and expected != "non-NULL internal calendar sample time"
+                for binding in bindings
+                for name, expected, _ in binding.checks
+            ):
+                # Calendar-time assertions retain sample-scope presence. Input
+                # predicates can instead remove every sample carrying a check.
+                raise SampleReductionUnavailableError(
+                    "input predicate checks retain their source validation boundary"
+                )
             if any(binding.keys != keys for binding in bindings):
                 raise SampleReductionUnavailableError(
                     "contribution has a different complete sample grain"
@@ -431,21 +442,12 @@ class SampleLowerer:
             # Explicit internal domains consume the complete enclosing output domain.
             parent = self.domain(keys, ())
             if (
-                self.program.calendar is not None
-                and self.program.complete_calendar
+                isinstance(self.program.calendar, CalendarCoordinate)
+                and not self.program.calendar.actual_only
                 and self.program.output_population is None
             ):
-                if isinstance(self.program.calendar, CalendarCoordinate):
-                    raise SampleReductionUnavailableError(
-                        "explicit Population completion over final calendar positions remains local"
-                    )
-                slot = self.program.calendar_key
-                unit = ibis.literal(0).cast("int64").name(slot).as_table()
-                fields = tuple(key for key in keys if key != slot)
-                parent = (
-                    distinct_returned_keys(parent.select(*fields), self.provider).cross_join(unit)
-                    if fields
-                    else unit
+                raise SampleReductionUnavailableError(
+                    "explicit internal Population over report time remains local"
                 )
             if self.program.output_population is not None and keys:
                 selected_domain = self.population(self.program.output_population, keys)

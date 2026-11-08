@@ -675,7 +675,9 @@ def test_complete_keys_and_null_classification(warehouse_session: Session) -> No
     assert output.table.loc[output.table["key.0"].isna(), "value.0"].tolist() == [10]
 
 
-def test_calendar_fills_only_empty_reductions(warehouse_session: Session) -> None:
+def test_calendar_retains_null_contributions_without_filling_empty_buckets(
+    warehouse_session: Session,
+) -> None:
     session = warehouse_session
     amount, _ = _numeric_inputs(session)
     ordered_at = catalog_value(session.catalog, "sales.orders.ordered_at", kind="time_dimension")
@@ -685,9 +687,9 @@ def test_calendar_fills_only_empty_reductions(warehouse_session: Session) -> Non
         {"sum": amount.sum(time=ordered_at), "mean": amount.mean(time=ordered_at)},
         during=calendar,
     )
-    assert output.table["key.0"].tolist() == list(pd.date_range("2026-01-05", periods=4, tz="UTC"))
-    assert output.table["value.0"].to_dict() == {0: 10, 1: None, 2: 30, 3: 0}
-    assert pd.isna(output.table["value.1"].iloc[1]) and pd.isna(output.table["value.1"].iloc[3])
+    assert output.table["key.0"].tolist() == list(pd.date_range("2026-01-05", periods=3, tz="UTC"))
+    assert output.table["value.0"].to_dict() == {0: 10, 1: None, 2: 30}
+    assert pd.isna(output.table["value.1"].iloc[1])
 
 
 def test_multiple_roots_reduce_before_combining(warehouse_session: Session) -> None:

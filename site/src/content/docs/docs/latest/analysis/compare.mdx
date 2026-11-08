@@ -12,3 +12,10 @@ head:
 Use `AnalysisFrame.compare` to compare the current result with one or more baselines from the same Session. The result keeps current values and adds baseline values, absolute and relative changes for each baseline, and row-presence indicators. Missing rows and NA values are not treated as zero; a zero baseline produces an NA relative change.
 
 See [Compare baselines in the Analysis DSL](/docs/latest/analysis/dsl/#compare-and-align) for an executable example and guidance on matching axes and time periods.
+
+Sparse current and baseline results use the outer union of actual rows. A baseline-only
+date that maps into the current directory is retained with `current.present=False`
+and NA differences. Dates missing on both sides produce no row. If no-fact dates
+should participate as zero in period-over-period or year-over-year comparisons,
+construct an explicit complete Population on each side. Matching uses saved calendar
+positions, never the ranks of returned rows.

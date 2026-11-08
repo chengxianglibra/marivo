@@ -127,16 +127,16 @@ def test_date_day_grouping_keeps_empty_null_and_category_domains(
         result = frame.to_pandas().sort_values(["calendar:day", "category"]).reset_index(drop=True)
         assert result["calendar:day"].tolist() == [
             pd.Timestamp(day, tz="Asia/Shanghai")
-            for day in ("2026-10-28", "2026-10-29", "2026-10-30")
+            for day in ("2026-10-28", "2026-10-30")
             for _ in range(2)
         ]
-        assert result.category.tolist() == ["A", "B"] * 3
-        assert result["count"].tolist() == [2, 1, 0, 0, 0, 1]
-        assert result["sum"].fillna(-1).tolist() == [40, 5, 0, 0, -1, 20]
-        assert result["mean"].fillna(-1).tolist() == [20, 5, -1, -1, -1, 20]
-        assert result["minimum"].fillna(-1).tolist() == [10, 5, -1, -1, -1, 20]
+        assert result.category.tolist() == ["A", "B"] * 2
+        assert result["count"].tolist() == [2, 1, 0, 1]
+        assert result["sum"].fillna(-1).tolist() == [40, 5, -1, 20]
+        assert result["mean"].fillna(-1).tolist() == [20, 5, -1, 20]
+        assert result["minimum"].fillna(-1).tolist() == [10, 5, -1, 20]
         if "quantile" in result:
-            assert result["quantile"].fillna(-1).tolist() == [10, 5, -1, -1, -1, 20]
+            assert result["quantile"].fillna(-1).tolist() == [10, 5, -1, 20]
         assert (
             str(frozen_coordinates(frame)[0].rows["key.0"].dtype)
             == "timestamp[us, tz=UTC][pyarrow]"

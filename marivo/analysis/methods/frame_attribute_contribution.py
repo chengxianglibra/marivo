@@ -377,7 +377,6 @@ def _original(
         populations=(),
         output_population=None,
         counts=(),
-        complete_calendar=False,
         parent_scope=None,
         parent_slots=(),
         values=tuple(bindings),

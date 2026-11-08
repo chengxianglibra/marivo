@@ -468,7 +468,6 @@ def source_inputs(
             coordinates=replace(
                 bound.coordinates,
                 parent_scope=projection._definition,
-                complete_calendar=isinstance(by, Population),
             ),
         )
         graph = BoundGraph(

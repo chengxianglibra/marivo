@@ -586,12 +586,12 @@ def test_group_and_entity_time_display_domains(analysis_dsl_case_factory: DslCas
         ]
         for member, _ in facts.customers
     }
-    assert len(frame) == 12
+    assert len(frame) == 11
     assert {
         member: sorted(frame.loc[frame["member"] == member, "value"].tolist())
         for member in expected
-    } == {member: sorted(values) for member, values in expected.items()}
-    assert frame.shape == (12, 5)
+    } == {member: sorted(value for value in values if value) for member, values in expected.items()}
+    assert frame.shape == (11, 5)
 
 
 def test_public_undefined_ranks_and_strict_two_step_filter(

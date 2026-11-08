@@ -13,6 +13,7 @@ import pytest
 import marivo.analysis as mv
 import marivo.datasource as md
 import marivo.semantic as ms
+from marivo.analysis.errors import AnalysisError
 from marivo.datasource.runtime import DatasourceConnectionService
 from marivo.refs import ref
 from marivo.semantic._deferred_semantics import consume_metric
@@ -281,6 +282,7 @@ def test_aliases_keep_repeated_occurrences_and_independent_clocks(
         .compute()
         .to_pandas()
     )
+    monthly = monthly.sort_values("calendar:month")
     assert monthly["difference"].tolist() == [-100, 100]
     assert monthly["cashflow"].tolist() == [-25, 250]
     segment = catalog_get(catalog, "dimension:sales.customers.segment", kind="dimension")
@@ -297,7 +299,7 @@ def test_aliases_keep_repeated_occurrences_and_independent_clocks(
         .compute()
         .to_pandas()
     )
-    assert grouped["difference"].tolist() == [-100, 100]
+    assert grouped.sort_values("calendar:month")["difference"].tolist() == [-100, 100]
     classified = (
         session.observe({"amount": amount.sum()}, by=(segment.via((buyer,)),), where=november)
         .compute()
@@ -344,7 +346,15 @@ def test_missing_time_stays_complete_for_totals_readiness_preview_and_ordinary_s
     report = session.time_scope(start="2026-11-01", end="2026-12-01")
     for expression in (count, mixed, mixed * 0, raw, ordinary, timed + fixed):
         session.observe({"untimed": expression}, where=report)
+    for expression in (mixed, mixed * 0, timed + fixed):
         session.observe({"untimed": expression}, by=(report.by(mv.grain("day")),))
+    for expression in (count, raw, ordinary):
+        with pytest.raises(AnalysisError):
+            session.observe({"untimed": expression}, by=(report.by(mv.grain("day")),))
+        session.observe(
+            {"untimed": expression},
+            by=mv.product(report.by(mv.grain("day")), mv.coordinates(by=(), keys=((),))),
+        )
     with pytest.raises(SemanticError):
         catalog.preview(raw, scope=source_scope)
 
@@ -597,10 +607,10 @@ def test_report_independent_values_broadcast_after_reduction_and_window_only_clo
         by=(axis,),
     ).compute()
     rows = observed.to_pandas()
-    assert rows["ratio"].tolist() == [50, 100, 0]
-    assert rows["fixed"].tolist() == [2, 2, 2]
-    assert rows["independent"].tolist() == [300, 300, 300]
-    assert rows["count"].tolist() == [2, 2, 2]
+    assert rows["ratio"].tolist() == [50, 100]
+    assert rows["fixed"].tolist() == [2, 2]
+    assert rows["independent"].tolist() == [300, 300]
+    assert rows["count"].tolist() == [2, 2]
     assert session.observe(
         {"independent": independent}, where=session.time_scope(start="2030-01-01", end="2031-01-01")
     ).compute().to_pandas()["independent"].tolist() == [300]
@@ -685,7 +695,7 @@ session = mv.session.resume(sys.argv[1])
 frame = session.persisted_frame(sys.argv[2])
 assert isinstance(frame.schema.value_time_semantics['ratio'], mv.FrameDerivedTimeSemantics)
 assert [x.kind for x in frame.schema.value_time_semantics['ratio'].contributions] == ['clocked', 'independent']
-assert frame.to_pandas()['renamed'].tolist() == [300, 300, 300]
+assert frame.to_pandas()['renamed'].tolist() == [300, 300]
 fact = frame.schema.value_time_semantics['ratio'].contributions[0]
 assert fact.report_axis.grain.unit == 'day'
 assert len(fact.report_cells) == 3
@@ -726,8 +736,9 @@ def test_independent_classifications_and_null_clocks_keep_their_own_conditions(
         .compute()
         .to_pandas()
     )
-    assert rows["timed"].tolist() == [100, 0, 0, 0, 0, 0]
-    assert rows["independent"].tolist() == [0, 0, 0, 200, 200, 200]
+    assert rows["customer_id"].tolist() == [11]
+    assert rows["timed"].tolist() == [100]
+    assert rows["independent"].tolist() == [0]
     all_rows = (
         session.observe({"all": amount.sum(time=None), "timed": amount.sum()}, where=scope)
         .compute()

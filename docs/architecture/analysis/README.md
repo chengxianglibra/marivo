@@ -29,7 +29,9 @@ captured state and structured repair disclosure.
 Session and its Catalog, search Metric candidates, retrieve the selected exact
 identity, observe with an explicit daily CalendarAxis, then compute and
 show the returned Frame. The example assumes an authored project and contribution
-time on the revenue Metric; independent branches would retain their own scope. Selection follows business meaning, not search rank;
+time on the revenue Metric; ordinary time grouping returns only actually supported
+keys, while independent branches retain their own scope and broadcast over those keys.
+Use an explicit output Population to retain a complete time domain. Selection follows business meaning, not search rank;
 known identities can skip discovery. The example query, identity, dates and
 timezone must match the question. It requires no persistence.
 

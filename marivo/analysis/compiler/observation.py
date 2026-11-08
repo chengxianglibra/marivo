@@ -124,7 +124,6 @@ class FormulaProgram:
     calendar_key: str = "key.0"
     counts: tuple[MemberInput, ...] = ()
     axes: tuple[SampleAxis, ...] = ()
-    complete_calendar: bool = True
     parent_scope: PopulationDependency | None = None
     parent_slots: tuple[str, ...] = ()
     population_checked: bool = False

@@ -129,8 +129,8 @@ def test_multi_field_aggregate_keeps_nulls_types_and_empty_buckets(
         assert result["average"].iloc[0] == 2.0
         assert result["minimum"].iloc[0] == 10
         assert result["maximum"].iloc[0] == 3.0
-        assert result["count"].tolist() == ([2, 0, 0] if calendar else [2, 0])
-        assert result["distinct"].tolist() == ([2, 0, 0] if calendar else [2, 0])
+        assert result["count"].tolist() == [2, 0]
+        assert result["distinct"].tolist() == [2, 0]
         assert result["weighted"].iloc[0] == 25
         if backend in ("duckdb", "postgres", "clickhouse"):
             assert result["median"].iloc[0] == 20
@@ -155,10 +155,7 @@ def test_multi_field_aggregate_keeps_nulls_types_and_empty_buckets(
             assert result["approx_median"].iloc[0] == pytest.approx(expected_median)
             assert result["approx_distinct"].iloc[0] == 2
         assert result.iloc[1][["total", "exact", "average", "minimum", "maximum"]].isna().all()
-        if calendar:
-            assert result["total"].iloc[2] == 0
-            assert result["exact"].iloc[2] == 0
-            assert result.iloc[2][["average", "minimum", "maximum"]].isna().all()
+        assert len(result) == 2
 
 
 @pytest.mark.parametrize(

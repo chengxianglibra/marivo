@@ -523,7 +523,7 @@ def provider() -> DisclosureProvider:
             "inputs.time",
             (
                 "Use the scope report timezone and a natural Grain.",
-                "Pass by=(scope.by(grain),) to session.observe; range-only totals use where=scope.",
+                "Ordinary by=(scope.by(grain),) returns actual supported keys without filling buckets; use by=mv.product(axis, mv.coordinates(by=(), keys=((),))) for complete time output. Range-only totals use where=scope.",
             ),
         ),
         (

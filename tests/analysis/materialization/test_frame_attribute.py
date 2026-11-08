@@ -317,12 +317,8 @@ def test_calendar_tuple_actual_domain_and_complete_fine_population(session: Sess
     for alias, count, expected in (
         (
             "current",
-            6,
-            {
-                (bucket, key): values.get((bucket, key), 0)
-                for bucket in (first_day, second_day)
-                for key in "ABC"
-            },
+            3,
+            values,
         ),
         ("actual", 3, values),
         (

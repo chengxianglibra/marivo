@@ -39,6 +39,14 @@ own types, and saved results are not reinterpreted.
 
 Report TimeScopes and CalendarAxes must use the receiving Session timezone, including shifted axes and domains supplied through a Population. Create a separate Session for another report timezone; a domain created by a different Session is accepted only when its timezone matches.
 
+Ordinary time grouping uses actual contributions without filling buckets. A window
+supports an endpoint through actual contributions in that window: history can produce
+a row even when the current bucket has no new facts. A completely empty window does
+not create a row; real zero and all-NULL history still support it. Use explicit
+`by=Population` for every date and empty-window values. The calendar directory keeps
+all selected positions, so `read_periods()` can include dates absent from the main
+table. Shift, offset, ordinal and trailing_periods never renumber visible rows.
+
 ## Observe days and months
 
 ```python
@@ -311,4 +319,4 @@ immediate origin; independently valid results can still need an explicit support
 correspondence. Completed and reopened comparisons use saved data without rereading sources.
 
 
-Windows filter clocked leaves only; independent leaves retain their value at each valid endpoint. Fully independent windows still require valid endpoints and rules. Report completion does not create internal samples for a mean.
+Windows filter clocked leaves only; independent leaves retain their value at each valid endpoint. Fully independent windows need established output keys or a range total, with valid endpoints and rules; they do not create time coordinates. Explicit output completion does not create internal samples for a mean.

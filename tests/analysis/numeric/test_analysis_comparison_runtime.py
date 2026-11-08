@@ -949,4 +949,4 @@ def test_period_change_after_bucket_rollup(analysis_dsl_case_factory: DslCaseFac
 
     left, right = grouped(8, 14), grouped(7, 9)
     saved = left.compare({"reference": mv.baseline(right, match=mv.ordinal())}).compute()
-    assert sorted(_plain(saved)["reference.absolute.value"].tolist()) == [-1, 0, 0]
+    assert sorted(_plain(saved)["reference.absolute.value"].tolist()) == [-1]

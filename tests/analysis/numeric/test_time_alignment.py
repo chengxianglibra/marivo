@@ -242,8 +242,14 @@ def test_previous_year_leap_day_is_missing_and_current_projection_is_exact(
     metric = _metric(session.catalog, "metric:sales.revenue")
     current_axis_scope = session.time_scope(start="2024-02-28", end="2024-03-01")
     baseline_axis_scope = session.time_scope(start="2023-02-28", end="2023-03-01")
-    current = session.observe({"value": metric}, by=(current_axis_scope.by(mv.grain("day")),))
-    baseline = session.observe({"value": metric}, by=(baseline_axis_scope.by(mv.grain("day")),))
+    current = session.observe(
+        {"value": metric},
+        by=mv.product(current_axis_scope.by(mv.grain("day")), mv.coordinates(by=(), keys=((),))),
+    )
+    baseline = session.observe(
+        {"value": metric},
+        by=mv.product(baseline_axis_scope.by(mv.grain("day")), mv.coordinates(by=(), keys=((),))),
+    )
     result = current.compare(
         {
             "reference": mv.baseline(

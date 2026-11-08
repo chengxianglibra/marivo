@@ -26,7 +26,7 @@ def _daily(case: DslCase) -> mv.AnalysisFrame:
     grid_scope = case.session.time_scope(start="2026-08-01", end="2026-08-04")
     return case.session.observe(
         {"value": _metric(case.session.catalog, "metric:sales.revenue")},
-        by=(grid_scope.by(mv.grain("day")),),
+        by=mv.product(grid_scope.by(mv.grain("day")), mv.coordinates(by=(), keys=((),))),
     )
 
 

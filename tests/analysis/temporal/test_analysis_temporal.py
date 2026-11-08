@@ -633,7 +633,7 @@ def test_fixed_date_windows_keep_authority_on_a_foreign_zone_grid(
         by=(grid_scope.by(mv.grain("day")),),
     ).compute()
     # UTC Aug 2 starts on New York Aug 1; UTC Aug 1 precedes the selected range.
-    assert frame.to_pandas()["value"].tolist() == [20, 0]
+    assert frame.to_pandas()["value"].tolist() == [20]
     axis = frame.schema.axes[0]
     assert isinstance(axis, mv.FrameCalendarAxisSchema)
     assert axis.timezone == "America/New_York"

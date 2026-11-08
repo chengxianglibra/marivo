@@ -47,6 +47,23 @@ values without requiring persistence; the range does not certify source complete
 
 Natural calendars use `mv.grain(...)` and explicit `scope.by(grain)`. Fiscal periods, holidays and working days use ordinary business fields; the harness chooses authority, ranges and pairing. See [dates and time](/docs/latest/modeling/dates/).
 
+Ordinary `by=(axis, ...)` does not fill missing time buckets. It returns the union
+of complete keys supported by actual contributions, including real zero and all-NULL
+contributions. At a row supported by another Metric, absent sum/count is zero and
+mean is NA. Adding a Metric can therefore add rows and change current-row means.
+Independent branches broadcast only over established complete keys. Time grouping
+without a clocked branch or compatible time-bearing Population count rejects;
+use an explicit output Population or a range total.
+
+For a business question requiring every date, request a complete domain:
+
+{/* example: complete-time-domain */}
+```python
+axis = period.by(mv.grain("day"))
+unit = mv.coordinates(by=(), keys=((),))
+complete = session.observe({"revenue": revenue}, by=mv.product(axis, unit)).compute()
+```
+
 `by=P` retains P's complete output keys, including keys without facts; it does
 not filter contributions. P must cover all necessary output keys. Use
 `where=mv.in_population(P)` to restrict contributions explicitly. If P already
@@ -57,7 +74,7 @@ explicitly with `time=field` or by inheriting its Entity's `default_time`.
 A report range or CalendarAxis filters only clocked branches. Omission without an
 Entity default and explicit `time=None` both make a branch report independent.
 Independent branches retain their business conditions, reduce first, then repeat
-along missing report time coordinates. Composed Metrics can use different clocks;
+only along already established report coordinates. Composed Metrics can use different clocks;
 a shared calendar bucket does not identify a shared cohort.
 
 For example, `amount` is a loaded Measure and `booked_at` and `paid_at` are

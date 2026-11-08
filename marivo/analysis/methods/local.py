@@ -175,7 +175,6 @@ def _combine_program(
     program = replace(program, values=tuple(bindings))
     inputs = tuple(frames)
     if keys:
-        represented_inputs = []
         domain_parts = []
         for frame in inputs:
             present = next(
@@ -195,7 +194,6 @@ def _combine_program(
                 if present is None
                 else frame.loc[frame[present].astype("boolean").fillna(False)]
             )
-            represented_inputs.append(selected)
             if all(key in selected for key in keys):
                 domain_parts.append(selected.loc[:, keys])
         domain = (
@@ -203,32 +201,6 @@ def _combine_program(
             if domain_parts
             else pd.DataFrame(columns=keys)
         )
-        calendars = (
-            ((program.calendar_key, program.calendar),) if program.calendar is not None else ()
-        )
-        if calendars and program.output_population is None and program.complete_calendar:
-            calendar_slots = {slot for slot, _ in calendars}
-            field_keys = [key for key in keys if key not in calendar_slots]
-            classification_parts = [
-                frame.loc[:, field_keys]
-                for frame in represented_inputs
-                if all(key in frame for key in field_keys)
-            ]
-            completed_domain = (
-                pd.concat(classification_parts, ignore_index=True).drop_duplicates()
-                if field_keys and classification_parts
-                else pd.DataFrame(columns=field_keys)
-                if field_keys
-                else pd.DataFrame(index=pd.RangeIndex(1))
-            )
-            for slot, axis in calendars:
-                buckets = pd.DataFrame({slot: time_key_series(axis)})
-                completed_domain = completed_domain.merge(buckets, how="cross")
-            if domain.empty:
-                domain = completed_domain
-            elif not completed_domain.empty:
-                domain = pd.concat([completed_domain, domain], ignore_index=True).drop_duplicates()
-            domain = domain.loc[:, keys]
         domain = domain.reset_index(drop=True)
     else:
         domain = pd.DataFrame(index=pd.RangeIndex(1))
@@ -327,8 +299,17 @@ def _combine_program(
                 offset += len(source_keys)
         selected = members.loc[:, [source for source, _ in mapping]].copy()
         selected.columns = [target for _, target in mapping]
-        for slot, time_axis in time_domains:
-            selected = selected.merge(pd.DataFrame({slot: time_key_series(time_axis)}), how="cross")
+        if time_domains:
+            # Independent counts broadcast only over established complete keys.
+            # The calendar directory describes positions, not represented rows.
+            support_keys = [key for key in keys if key not in actual_sample_slots]
+            support = domain.loc[:, support_keys].drop_duplicates()
+            shared = [key for key in support_keys if key in selected]
+            selected = (
+                support.merge(selected, on=shared, how="inner")
+                if shared
+                else support.merge(selected, how="cross")
+            )
         offset = 0
         for axis in program.axes:
             if isinstance(axis, (CalendarCoordinate, IntervalCoordinate)):
@@ -523,8 +504,6 @@ def _combine_program(
                 axes=(*program.axes, *sample_axes),
                 parent_scope=program.parent_scope,
                 parent_slots=program.parent_slots,
-                # Output buckets are complete; internal samples keep their joint keys.
-                complete_calendar=False,
                 calendar_samples=tuple(
                     ((index, *path[len(prefix) :]), coordinate)
                     for index in range(len(operands))

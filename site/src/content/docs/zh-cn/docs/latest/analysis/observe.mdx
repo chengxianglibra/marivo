@@ -44,6 +44,20 @@ result.show(n=31)
 
 自然日历使用 `mv.grain(...)` 和明确的 `scope.by(grain)`。财务周期、节假日和工作日使用普通业务字段；harness 决定来源、范围和配对。参见[日期与时间](/zh-cn/docs/latest/modeling/dates/)。
 
+普通 `by=(axis, ...)` 不补缺失时间桶，返回各指标实际贡献支持的完整联合键并集。
+真实零值和全 NULL 贡献仍保留行。在另一指标支持的行上，缺贡献的 sum/count 为零、mean 为 NA；
+因此增加指标可能增加行，并改变结果行均值。独立分支只沿已有完整坐标广播；没有有时钟分支、
+也没有携带兼容时间键的 Population count 时，普通时间分组会拒绝，改用显式输出 Population 或范围合计。
+
+若业务需要每一天，使用显式完整域：
+
+{/* example: complete-time-domain */}
+```python
+axis = period.by(mv.grain("day"))
+unit = mv.coordinates(by=(), keys=((),))
+complete = session.observe({"revenue": revenue}, by=mv.product(axis, unit)).compute()
+```
+
 `by=P` 保留 P 的完整输出键，包括没有事实的键，但不会自动筛选贡献。
 P 必须覆盖所有必要输出键；如需限制贡献，显式使用 `where=mv.in_population(P)`。
 若 P 已含报告时间坐标，则不能在 `where` 中另传 TimeScope。
@@ -51,7 +65,7 @@ P 必须覆盖所有必要输出键；如需限制贡献，显式使用 `where=m
 每个源规约在定义时固定贡献时间，可显式传入 `time=field`，或继承所属 Entity 的
 `default_time`。没有默认时间时省略参数与显式 `time=None` 都表示独立于报告时间；
 显式 None 还会退出默认继承。报告范围和分桶只作用于有时钟分支，无时钟分支保留业务条件，
-先规约再沿缺少的报告时间坐标复用。组合可保留不同字段，同一日历桶不证明来自同一批业务对象。
+先规约再沿已经成立的完整输出坐标复用。组合可保留不同字段，同一日历桶不证明来自同一批业务对象。
 
 例如，`amount` 是已加载的 Measure，`booked_at` 和 `paid_at` 是已加载的 TimeDimension：
 

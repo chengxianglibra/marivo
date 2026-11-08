@@ -40,7 +40,12 @@ from marivo.analysis.methods.physical import QUERY_COMBINE_KERNEL
 if TYPE_CHECKING:
     from marivo.analysis.compiler.attribute_inputs import AttributeRootLayout
     from marivo.analysis.compiler.native_query import NativeQueryFinish
-    from marivo.analysis.compiler.observation import FormulaProgram, PopulationInput, ReductionInput
+    from marivo.analysis.compiler.observation import (
+        FormulaProgram,
+        MemberInput,
+        PopulationInput,
+        ReductionInput,
+    )
     from marivo.analysis.compiler.optimization import (
         FusionGroup,
         InvocationMemo,
@@ -187,6 +192,7 @@ class SampleWindowRead:
     key_inputs: tuple[str, ...]
     candidates: tuple[ContributionBinding, ...]
     populations: tuple[PopulationInput, ...]
+    counts: tuple[MemberInput, ...]
 
 
 SourceProgram: TypeAlias = (
@@ -1022,9 +1028,6 @@ def _plan_query(
         output_population=observation.coordinates.population if observation is not None else None,
         calendar_key=calendar_key,
         axes=graph.signature.axes,
-        complete_calendar=observation.coordinates.complete_calendar
-        if observation is not None
-        else True,
         calendar_samples=observation.calendar_samples if observation is not None else (),
         window_endpoints=window_endpoint_keys(contributions),
     )

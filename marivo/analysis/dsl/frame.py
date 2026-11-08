@@ -1143,7 +1143,8 @@ class AnalysisFrame:
                 ordinary axes with equal roles and ordered key names, plus at most
                 one same-kind time axis per side.
             match: Closed time rule for a bare Frame only. For named inputs, put
-                match inside mv.baseline(...). Must agree with a frozen direct relation.
+                match inside mv.baseline(...). Must agree with a consumed direct relation
+                when current is its origin; otherwise declares a new endpoint match.
 
         Returns:
             A lazy ordinary Frame with current values, named baseline/difference

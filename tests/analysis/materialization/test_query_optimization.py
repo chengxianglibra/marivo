@@ -621,10 +621,9 @@ def test_observe_different_fields_share_one_actual_aggregate(
         assert physical_plan is not None
         assert physical_plan[1].count("SEQ_SCAN") == 1
     if domain == "calendar":
-        assert result["v0"].tolist() == [30, 30, 0]
-        assert result["v1"].tolist() == [Decimal("30.04"), Decimal("30.02"), Decimal(0)]
+        assert result["v0"].tolist() == [30, 30]
+        assert result["v1"].tolist() == [Decimal("30.04"), Decimal("30.02")]
         assert result["v2"].iloc[:2].tolist() == [15.0, 30.0]
-        assert pd.isna(result["v2"].iloc[2])
     else:
         assert result["v0"].tolist() == [60]
         assert result["v1"].tolist() == [Decimal("60.06")]

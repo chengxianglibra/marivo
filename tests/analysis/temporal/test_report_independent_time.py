@@ -11,7 +11,7 @@ from marivo.datasource.ir import TableSourceIR
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.numeric.test_remote_numeric_query import _datasource_model
 from tests.datasource.source_cases import SourceData, source_case, source_params
-from tests.shared_fixtures import catalog_get
+from tests.shared_fixtures import catalog_get, time_population
 
 
 @pytest.mark.parametrize(
@@ -70,11 +70,14 @@ def test_native_mixed_scope_calendar_and_windows(
             .compute()
             .to_pandas()
         )
-        assert rows["ratio"].tolist() == [50, 100, 0]
-        assert rows["all"].tolist() == [300, 300, 300]
-        assert session.observe({"members": members}, by=(axis,)).compute().to_pandas()[
-            "members"
-        ].tolist() == [2, 2, 2]
+        assert rows["ratio"].tolist() == [50, 100]
+        assert rows["all"].tolist() == [300, 300]
+        assert session.observe(
+            {"members": members}, by=time_population(axis)
+        ).compute().to_pandas()["members"].tolist() == [2, 2, 2]
+        assert session.observe(
+            {"positions": time_population(axis).count()}, by=(axis,)
+        ).compute().to_pandas()["positions"].tolist() == [1, 1, 1]
         rules = [
             mv.all_history(),
             mv.since(start=scope.start),

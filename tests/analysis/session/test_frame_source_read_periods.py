@@ -38,7 +38,7 @@ def test_captured_period_keeps_utc_instants_and_original_timezone(
     scope = scope_scope.by(mv.grain("day"))
     trace = capture_source(monkeypatch)
     saved = session.observe({"value": metric}, by=(scope_scope.by(mv.grain("day")),)).persist()
-    assert len(saved.to_pandas()) == 2
+    assert len(saved.to_pandas()) == (2 if all_history else 1)
     expected_count = 2 if all_history else 1
     assert len(saved.source_reads) == expected_count
     assert len(trace.native_sql) == expected_count + 1

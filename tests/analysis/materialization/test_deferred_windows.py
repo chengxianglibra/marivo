@@ -16,6 +16,7 @@ from marivo.analysis.core.frame_data import MemoryFrameBacking
 from marivo.analysis.core.frozen_calendar import read_calendar_directory
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.session.core import Session
+from marivo.semantic.errors import ErrorKind, SemanticExpressionError
 from marivo.semantic.reader import SemanticProject
 from tests.shared_fixtures import catalog_value, frozen_coordinates, time_population
 
@@ -56,6 +57,7 @@ encoded_ref = ms.time_dimension_column(name="encoded_at", entity=orders, column=
 day_ref = ms.time_dimension_column(name="date_at", entity=orders, column="date_at")
 hour_ref = ms.time_dimension_column(name="hour_at", entity=orders, column="hour_at", parse=ms.hour_prefix(day_ref), sample_interval=(1, "hour"))
 customer_ref = ms.dimension_column(name="customer", entity=orders, column="customer")
+check_value = ms.measure_column(name="check_value", entity=orders, column="customer", additivity=ms.additive_all())
 region_ref = ms.dimension_column(name="region", entity=orders, column="region")
 channel_ref = ms.dimension_column(name="channel", entity=orders, column="channel")
 amount = amount_ref
@@ -376,7 +378,7 @@ def test_wall_membership_calendar_windows_and_population_agree(
         {"ordinary": metric, "history": metric.window(mv.all_history())},
         by=(scope.by(mv.grain("hour")),),
     ).compute()
-    values = frame.to_pandas()
+    values = frame.to_pandas().sort_values("calendar:hour")
     assert frozen_coordinates(frame)[0].rows["ordinal"].tolist() == list(range(len(expected)))
     assert values["ordinary"].tolist() == expected
     assert values["history"].tolist() == [
@@ -704,7 +706,7 @@ def test_hour_reset_uses_native_fold_endpoints(window_session: Session, tmp_path
     amount = catalog_value(window_session.catalog, "sales.orders.amount", kind="measure")
     independent = window_session.observe(
         {"fixed": amount.sum(time=None).window(mv.to_date(grain=mv.grain("hour")))},
-        by=(hours_scope.by(mv.grain("hour")),),
+        by=time_population(hours_scope.by(mv.grain("hour"))),
     ).compute()
     assert independent.to_pandas()["fixed"].tolist() == [40, 40]
 
@@ -772,7 +774,7 @@ def test_repeated_hour_selection_keeps_its_exact_scope_and_endpoint(
     revenue = catalog_value(window_session.catalog, "sales.revenue", kind="metric")
     window_session = mv.session.get_or_create("windows-hourly", timezone="America/New_York")
     hours_scope = window_session.time_scope(start=f"2026-11-01T{start}Z", end=f"2026-11-01T{end}Z")
-    # Keep ordinary completion independently observable from the window domain.
+    # Ordinary support and historical window support can have different rows.
     ordinary = (
         window_session.observe({"hourly": revenue}, by=(hours_scope.by(mv.grain("hour")),))
         .compute()
@@ -786,13 +788,14 @@ def test_repeated_hour_selection_keeps_its_exact_scope_and_endpoint(
         .compute()
         .to_pandas()
     )
-    assert (
-        ordinary["calendar:hour"].dt.tz_convert("UTC").tolist()
-        == history["calendar:hour"].dt.tz_convert("UTC").tolist()
-        == [pd.Timestamp(key).tz_convert("UTC")]
+    assert ordinary["calendar:hour"].dt.tz_convert("UTC").tolist() == (
+        [] if empty else [pd.Timestamp(key).tz_convert("UTC")]
     )
-    assert ordinary["hourly"].tolist() == [0 if empty else expected]
-    assert history["cumulative"].tolist() == [cumulative]
+    assert history["calendar:hour"].dt.tz_convert("UTC").tolist() == (
+        [] if empty else [pd.Timestamp(key).tz_convert("UTC")]
+    )
+    assert ordinary["hourly"].tolist() == ([] if empty else [expected])
+    assert history["cumulative"].tolist() == ([] if empty else [cumulative])
 
 
 @pytest.mark.parametrize("calendar_first", [False, True])
@@ -924,8 +927,10 @@ def test_fixed_member_count_retains_its_value_under_report_time_and_windows(
         3
     ]
     for count in (people.count(), people.count().window(mv.all_history())):
-        rows = (
+        with pytest.raises(AnalysisError, match="time-coordinate provider"):
             session.observe({"people": count}, by=(scope.by(mv.grain("day")),))
+        rows = (
+            session.observe({"people": count}, by=time_population(scope.by(mv.grain("day"))))
             .compute()
             .to_pandas()
         )
@@ -1101,20 +1106,27 @@ def test_mixed_windows_discover_historical_categories_and_keep_formula_domain(
         connection.execute(
             "INSERT INTO orders(id,ordered_at,amount,region) VALUES "
             "(1,'2026-07-31 12:00:00+00',10,'east'),"
-            "(2,'2026-08-02 12:00:00+00',20,'west')"
+            "(2,'2026-08-02 12:00:00+00',20,'west'),"
+            "(3,'2026-08-03 12:00:00+00',0,'east')"
         )
     revenue = catalog_value(session.catalog, "sales.revenue", kind="metric")
     region = catalog_value(session.catalog, "sales.orders.region", kind="dimension")
     at = catalog_value(session.catalog, "sales.orders.ordered_at", kind="time_dimension")
-    scope = session.time_scope(start="2026-08-01", end="2026-08-03")
+    scope = session.time_scope(start="2026-08-01", end="2026-08-05")
     days = scope.by(mv.grain("day"))
-    rolling = revenue.window(mv.trailing_duration(duration=timedelta(days=7)))
+    rolling = revenue.window(mv.trailing_duration(duration=timedelta(days=2)))
     metrics = {"ordinary": revenue, "rolling": rolling, "difference": rolling - revenue}
-    expected = [(0, 10, 10), (0, 0, 0), (0, 10, 10), (20, 20, 0)]
+    expected = [(0, 10, 10), (20, 20, 0), (0, 0, 0), (0, 20, 20), (0, 0, 0)]
     for outputs in (metrics, dict(reversed(tuple(metrics.items())))):
         rows = session.observe(outputs, by=(days, region)).compute().to_pandas()
         rows = rows.sort_values(["calendar:day", "region"])
-        assert rows["region"].tolist() == ["east", "west", "east", "west"]
+        assert list(zip(rows["calendar:day"].dt.day, rows["region"], strict=True)) == [
+            (1, "east"),
+            (2, "west"),
+            (3, "east"),
+            (3, "west"),
+            (4, "east"),
+        ]
         assert (
             list(rows[["ordinary", "rolling", "difference"]].itertuples(index=False, name=None))
             == expected
@@ -1122,8 +1134,9 @@ def test_mixed_windows_discover_historical_categories_and_keep_formula_domain(
     restricted = session.observe(
         metrics, by=(days, region), where=((at >= scope.start) & (at < scope.end))
     ).compute()
-    assert restricted.to_pandas()["region"].tolist() == ["west", "west"]
-    assert restricted.to_pandas()["rolling"].tolist() == [0, 20]
+    restricted_rows = restricted.to_pandas().sort_values(["calendar:day", "region"])
+    assert restricted_rows["region"].tolist() == ["west", "east", "west", "east"]
+    assert restricted_rows["rolling"].tolist() == [20, 0, 20, 0]
     domain = mv.product(days, mv.coordinates(by=(region,), keys=(("east",), ("west",))))
     complete = (
         session.observe(metrics, by=domain, where=((at >= scope.start) & (at < scope.end)))
@@ -1131,7 +1144,114 @@ def test_mixed_windows_discover_historical_categories_and_keep_formula_domain(
         .to_pandas()
     )
     east = complete.loc[complete["region"] == "east"]
-    assert east["rolling"].tolist() == east["ordinary"].tolist() == [0, 0]
+    assert len(complete) == 8
+    assert east["rolling"].tolist() == east["ordinary"].tolist() == [0, 0, 0, 0]
+
+
+def test_sparse_formulas_union_support_without_inventing_joint_keys(
+    window_session: Session, tmp_path: Path
+) -> None:
+    with duckdb.connect(str(tmp_path / "windows.duckdb")) as connection:
+        connection.execute("DELETE FROM orders")
+        connection.execute(
+            "INSERT INTO orders(id,ordered_at,amount,region,channel) VALUES "
+            "(1,'2026-11-01 12:00:00+00',100,'east','web'),"
+            "(2,'2026-11-03 12:00:00+00',300,'west','shop'),"
+            "(3,'2026-11-05 12:00:00+00',0,'zero','web'),"
+            "(4,'2026-11-06 12:00:00+00',NULL,'null','shop')"
+        )
+    session = window_session
+    amount = catalog_value(session.catalog, "sales.orders.amount", kind="measure")
+    region = catalog_value(session.catalog, "sales.orders.region", kind="dimension")
+    channel = catalog_value(session.catalog, "sales.orders.channel", kind="dimension")
+    at = catalog_value(session.catalog, "sales.orders.ordered_at", kind="time_dimension")
+    axis = session.time_scope(start="2026-11-01", end="2026-11-08").by(mv.grain("day"))
+    total = amount.sum(time=at)
+    a, b = total.where(region == "east"), total.where(region == "west")
+    short = session.time_scope(start="2026-11-01", end="2026-11-04").by(mv.grain("day"))
+    sparse_values = session.observe({"v": a + b}, by=(short,)).compute().to_pandas()["v"]
+    complete_values = (
+        session.observe({"v": a + b}, by=time_population(short)).compute().to_pandas()["v"]
+    )
+    assert sparse_values.mean() == 200
+    assert complete_values.mean() == pytest.approx(400 / 3)
+    alone = session.observe({"a": a + 1}, by=(axis,)).compute().to_pandas()
+    assert alone["calendar:day"].dt.day.tolist() == [1]
+    assert alone["a"].tolist() == [101]
+    metrics = {"a": a, "b": b, "ratio": a / b, "zero_branch": a + 0 * b}
+    for outputs in (metrics, dict(reversed(tuple(metrics.items())))):
+        rows = session.observe(outputs, by=(axis,)).compute().to_pandas()
+        assert rows["calendar:day"].dt.day.tolist() == [1, 3]
+        assert rows["a"].tolist() == rows["zero_branch"].tolist() == [100, 0]
+        assert rows["b"].tolist() == [0, 300]
+        assert rows["ratio"].isna().tolist() == [True, False]
+        assert rows["ratio"].iloc[1] == 0
+    rows = (
+        session.observe({"sum": total, "count": amount.count(time=at)}, by=(axis, region, channel))
+        .compute()
+        .to_pandas()
+    )
+    assert list(zip(rows["calendar:day"].dt.day, rows["region"], rows["channel"], strict=True)) == [
+        (1, "east", "web"),
+        (3, "west", "shop"),
+        (5, "zero", "web"),
+        (6, "null", "shop"),
+    ]
+    assert rows["sum"].fillna(-1).tolist() == [100, 300, 0, -1]
+    assert rows["count"].tolist() == [1, 1, 1, 0]
+    fixed = amount.sum(time=None).where(region == "west")
+    independent = mv.coordinates(by=(region,), keys=(("west",),)).count()
+    mixed = (
+        session.observe({"a": a, "fixed": fixed, "members": independent}, by=(axis, region))
+        .compute()
+        .to_pandas()
+    )
+    assert mixed["region"].tolist() == ["east"]
+    assert mixed["fixed"].tolist() == mixed["members"].tolist() == [0]
+    # Predicate-domain errors are evaluated before value filtering, even when
+    # the failing bucket has no surviving contribution or output row.
+    with duckdb.connect(str(tmp_path / "windows.duckdb")) as connection:
+        connection.execute("UPDATE orders SET customer=amount")
+    customer = catalog_value(session.catalog, "sales.orders.check_value", kind="measure")
+    for metric in (total, total.per(region).mean()):
+        with pytest.raises(AnalysisError) as invalid:
+            session.observe({"v": metric}, by=(axis,), where=customer.log() > 0).compute()
+        assert isinstance(invalid.value.__cause__, SemanticExpressionError)
+        assert invalid.value.__cause__.kind == ErrorKind.INVALID_EXPRESSION_VALUE
+
+
+def test_sparse_month_comparison_distinguishes_missing_rows_from_explicit_zero(
+    window_session: Session, tmp_path: Path
+) -> None:
+    with duckdb.connect(str(tmp_path / "windows.duckdb")) as connection:
+        connection.execute("DELETE FROM orders")
+        connection.execute(
+            "INSERT INTO orders(id,ordered_at,amount) VALUES "
+            "(1,'2026-03-01 12:00:00+00',80),"
+            "(2,'2026-04-01 12:00:00+00',100),"
+            "(3,'2026-06-01 12:00:00+00',300)"
+        )
+    session = window_session
+    revenue = catalog_value(session.catalog, "sales.revenue", kind="metric")
+    axis = session.time_scope(start="2026-04-01", end="2026-07-01").by(mv.grain("month"))
+    prior = axis.shift(mv.offset(periods=-1))
+    current = session.observe({"v": revenue}, by=(axis,)).compute()
+    baseline = session.observe({"v": revenue}, by=(prior,)).compute()
+    assert current.to_pandas()["calendar:month"].dt.month.tolist() == [4, 6]
+    assert len(frozen_coordinates(current)[0].rows) == 3
+    rows = current.compare({"mom": mv.baseline(baseline)}).compute().to_pandas()
+    assert rows["calendar:month"].dt.month.tolist() == [4, 6, 5]
+    assert rows["current.present"].tolist() == [True, True, False]
+    assert rows["mom.present"].tolist() == [True, False, True]
+    assert rows["mom.absolute.v"].fillna(-1).tolist() == [20, -1, -1]
+    assert rows["mom.relative.v"].fillna(-1).tolist() == [0.25, -1, -1]
+    complete = session.observe({"v": revenue}, by=time_population(axis))
+    full_baseline = session.observe({"v": revenue}, by=time_population(prior))
+    rows = complete.compare({"mom": mv.baseline(full_baseline)}).compute().to_pandas()
+    assert rows["current.present"].all() and rows["mom.present"].all()
+    assert rows["mom.absolute.v"].tolist() == [20, -100, 300]
+    assert rows["mom.relative.v"].iloc[:2].tolist() == [0.25, -1]
+    assert pd.isna(rows["mom.relative.v"].iloc[2])
 
 
 @pytest.mark.parametrize("shifted", [False, True])

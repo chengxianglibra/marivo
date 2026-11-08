@@ -435,7 +435,7 @@ def test_calendar_positions_are_explicit_output_attachment(source_session: Sessi
     assert attachment.name == calendar_axis.frozen.directory_name
     frame = read_output(session.project_root, attachment.schema, attachment.rows)
     assert len(frame) == 4 and frame.iloc[0, 0] == pd.Timestamp("2026-01-01", tz="UTC")
-    assert len(stored_frame(session, artifact)) == 4
+    assert len(stored_frame(session, artifact)) == 3
 
 
 @pytest.mark.parametrize("zone", ("Europe/Paris", "UTC+05:30"))

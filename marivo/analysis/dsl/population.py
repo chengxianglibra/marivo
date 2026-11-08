@@ -412,6 +412,8 @@ class Population(PopulationParameter):
         Example: ``session.observe({'people': people.count()})``.
         Constraints: Counts complete tuples, including field Nulls; performs no reads.
         Grouping coordinates must already belong to the domain; use classify for new fields.
+        Existing compatible time keys support rows; missing report time broadcasts only
+        over established output coordinates. Use an explicit by=Population for a full time domain.
         """
         from marivo._definition.deferred import PopulationCountResolver
 

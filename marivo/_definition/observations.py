@@ -48,7 +48,6 @@ class CoordinateBinding:
     mode: Literal["calendar", "grouped", "singleton"]
     population: PopulationDependency | None = None
     memberships: tuple[MembershipBinding, ...] = ()
-    complete_calendar: bool = True
     parent_scope: PopulationDependency | None = None
 
 

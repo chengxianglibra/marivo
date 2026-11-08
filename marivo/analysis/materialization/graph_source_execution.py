@@ -1884,7 +1884,12 @@ def _validate_source_checks(
         if name in retained_checks and name in frame.columns:
             frame[name] = frame[name].astype("boolean").fillna(False)
     for name, check in numeric_checks:
-        if name in retained_checks:
+        orphaned_predicate = (
+            name in retained_checks
+            and name.startswith("predicate_check.")
+            and "__numeric_present" in frame.columns
+        )
+        if name in retained_checks and not orphaned_predicate:
             continue
         layout = read_attribute(stage)
         if layout is not None:
@@ -1933,6 +1938,11 @@ def _validate_source_checks(
                     )
             continue
         violation = frame[name].astype("boolean").fillna(False)
+        if orphaned_predicate:
+            # Failed input predicates can eliminate every value at this key.
+            # Such checks cannot travel through a sparse result's row domain;
+            # checks on represented values remain demand-aware in the formula.
+            violation &= ~frame["__numeric_present"].astype("boolean").fillna(False)
         if violation.any():
             finish = read_finish(stage)
             witness_slots = (

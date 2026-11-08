@@ -1472,7 +1472,7 @@ def test_calendar_sample_folds_keep_joint_keys_without_cross_bucket_completion(
             absent = rows.loc[rows["mean"].isna()]
             assert absent[["p95", "ratio"]].isna().all().all()
             assert absent["count"].tolist() == [0] * len(absent)
-            assert len(rows) == days * (24 if grain == "hour" else 1)
+            assert len(rows) == expected
 
 
 @pytest.mark.parametrize(
@@ -1560,7 +1560,7 @@ def test_calendar_sample_domains_keep_sparse_samples_explicit_keys_and_windows(
 )
 @pytest.mark.parametrize("aware", [False, True])
 @pytest.mark.parametrize("grain", ["day", "hour"])
-def test_time_samples_keep_empty_calendar_buckets(
+def test_explicit_population_keeps_empty_calendar_sample_results(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
@@ -1587,7 +1587,10 @@ def test_time_samples_keep_empty_calendar_buckets(
         rows = (
             session.observe(
                 {"mean": total.per(point).mean(), "p95": total.per(point).quantile(0.95)},
-                by=(category, calendar_scope.by(mv.grain(grain))),
+                by=mv.product(
+                    calendar_scope.by(mv.grain(grain)),
+                    mv.coordinates(by=(category,), keys=(("A",),)),
+                ),
             )
             .compute()
             .to_pandas()
@@ -1598,7 +1601,12 @@ def test_time_samples_keep_empty_calendar_buckets(
         assert pd.isna(rows["p95"].iloc[1])
         nested = total.per(point).quantile(0.95).per(category).mean()
         rows = (
-            session.observe({"p95": nested}, by=(calendar_scope.by(mv.grain(grain)),))
+            session.observe(
+                {"p95": nested},
+                by=mv.product(
+                    calendar_scope.by(mv.grain(grain)), mv.coordinates(by=(), keys=((),))
+                ),
+            )
             .compute()
             .to_pandas()
         )

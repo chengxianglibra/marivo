@@ -315,6 +315,8 @@ class TimeScope(BaseModel):
         Returns: An immutable CalendarAxis; evaluation resolves native keys.
         Example: ``scope.by(mv.grain('day'))``.
         Constraints: Uses this scope's frozen report timezone without source reads.
+        Defines candidate positions, not result rows; ordinary observe does not fill
+        missing buckets. Use an explicit output Population for complete time output.
         """
         return calendar_axis(self, grain)
 
@@ -378,6 +380,8 @@ def _time_scope_from_contract_data(data: Mapping[str, Any]) -> TimeScope:
 class CalendarAxis(Grouping):
     """Exact finite calendar selection with captured civil boundary authority.
 
+    Ordinary observe returns actual contribution keys; only explicit by=Population
+    retains the complete output domain. Frozen time directories keep selected positions.
     Acquire with scope.by(grain) or axis.shift(rule); raw scope/grid construction
     is not a supported public entrypoint.
     """

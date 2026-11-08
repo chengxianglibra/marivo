@@ -161,7 +161,7 @@ def test_public_encoded_clocks_retain_wall_bucket_membership(
                     by=(axis_scope.by(mv.grain("minute", count=5)),),
                 )
                 actual = pending.compute().to_pandas()
-                assert actual.total.tolist() == expected
+                assert actual.total.tolist() == [count for count in expected if count]
 
 
 @pytest.mark.parametrize("backend,profile", CASES)

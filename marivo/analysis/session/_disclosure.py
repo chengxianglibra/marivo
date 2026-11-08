@@ -198,7 +198,7 @@ def provider() -> DisclosureProvider:
         "cursor": "Use the preceding page's opaque next_cursor with the identical selection.",
         "session_id": "Use the exact existing Session id.",
         "artifact_id": "Use the exact saved Frame's artifact_id string from this Session; objects and Refs are not IDs.",
-        "metrics": "A published root Metric or nonempty list/tuple of them: local names in order. Derived expressions and source/Population counts require a nonempty Mapping {'total': expr}. Names: distinct, nonempty, not business identity; no dots, backslashes, controls or left_present/right_present.",
+        "metrics": "Root Metric or nonempty list/tuple: local names in order. Expressions and counts need a nonempty Mapping {'total': expr}. Names: distinct, nonempty, not business identity; no dots, backslashes, controls or left_present/right_present.",
         "entity": "Pass a resolved governed Entity, not a Ref or path.",
     }
     parameter_targets: dict[str, tuple[str, ...]] = {
@@ -258,11 +258,11 @@ def provider() -> DisclosureProvider:
                         if name == "get_or_create" and n == "domains"
                         else "Choose an integer from 1 through 100, excluding bool; default 20. Keep the same limit when continuing a cursor."
                         if name == "persisted_frames" and n == "limit"
-                        else "Tuple of Dimensions, non-time Groupings and at most one CalendarAxis; () gives one cell. by=P retains complete keys without filtering contributions; cover necessary output keys before sampling. If by carries time, omit TimeScope in where."
+                        else "Dimensions/Groupings tuple with at most one CalendarAxis: actual complete keys, no missing-bucket rows; () gives one cell. by=P retains complete keys without filtering facts; cover required keys before sampling. Time in by excludes TimeScope in where."
                         if name == "observe" and n == "by"
                         else "Pass resolved fields or field or identity Grouping values; calendar and membership groupings are rejected. Use () for scalar literal rows."
                         if name == "values" and n == "by"
-                        else "None adds no filter. RowPredicate, TimeScope or AND tuple; at most one TimeScope. where=mv.in_population(P) restricts contributions. Field comparisons stay fixed throughout windows and supply no report endpoint. Population.count domains stay fixed."
+                        else "None, RowPredicate, TimeScope or AND tuple; at most one TimeScope. mv.in_population(P) filters facts. Field comparisons stay fixed through windows and supply no endpoint. Population.count domains stay fixed."
                         if name == "observe" and n == "where"
                         else "Population with exactly one complete Entity identity axis, unowned or from this Session. Project that identity axis before reading a classified or multi-axis domain."
                         if name == "read" and n == "population"

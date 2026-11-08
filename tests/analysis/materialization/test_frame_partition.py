@@ -283,7 +283,7 @@ def test_over_keeps_interval_and_paired_current_axis_facts(
     assert output.presence_names == paired.presence_names
     result = output.compute()
     assert result._schema.axes == paired._schema.axes
-    assert result.to_pandas()["rows"].tolist() == [1, 1]
+    assert result.to_pandas()["rows"].tolist() == [1]
 
 
 def test_over_preserves_native_integer_sum_type(local: LocalFrameServices) -> None:

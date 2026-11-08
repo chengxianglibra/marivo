@@ -1158,6 +1158,7 @@ def numeric_program_frame(
         where=None,
         timezone=session.timezone,
         state=None,
+        population=time_population(during)._definition if during is not None else None,
     )
     signature = BoundSignature(
         owner,

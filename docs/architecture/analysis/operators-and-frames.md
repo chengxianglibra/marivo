@@ -241,9 +241,9 @@ exact quantiles can share one native multi-quantile state. Only completed output
 values and required checks cross the source boundary.
 
 Implicit field/TimeField samples retain their observed joint keys. Explicit
-Population domains and calendar Grain grids complete child values with their
-existing absence rules at each nested layer. Output calendar completion does not
-cross every bucket with every observed timestamp. Captured timezone, clipped
+Population domains complete child values with their existing absence rules at
+each nested layer; natural calendar samples use actual joint keys. Ordinary output
+time grouping is sparse. Explicit output completion never creates internal samples. Captured timezone, clipped
 bounds, memberships, NULL/weight assertions and unique first/last ordering retain
 their original owners. Native AVG, Decimal interpolation, casts, rounding loss and
 overflow follow the selected backend; no bitwise equivalence with local kernels

@@ -2556,7 +2556,9 @@ class MetricExpression(_ExpressionCarrier, Generic[_MetricRoleT]):
             Constraints: Captures immutable inputs without source access. The receiving
             scope validates roots, roles, units, time and operation-specific rules. Only clocked
             branches change their contribution range; independent branches retain their scope
-            and combine once at each valid endpoint. A surrounding builtin calendar sample
+            and combine once at each established endpoint. Ordinary time grouping retains endpoints
+            with actual window contributions, including history; use explicit by=Population
+            to retain endpoints with no contributions. A surrounding builtin calendar sample
             supplies its own endpoints; otherwise the report supplies them. For example,
             ``revenue.window(rule).per(mv.grain("day")).mean()`` averages actual daily
             window values, while ``revenue.per(mv.grain("day")).mean().window(rule)``

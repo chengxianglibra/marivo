@@ -48,7 +48,7 @@ from marivo.analysis.compiler.graph_plan import (
     read_reduction,
 )
 from marivo.analysis.compiler.observation import reduction_input
-from marivo.analysis.core.calendar_keys import time_key_series, time_key_type
+from marivo.analysis.core.calendar_keys import time_key_type
 from marivo.analysis.core.data_schema import DataSchema
 from marivo.analysis.core.data_types import DataColumn
 from marivo.analysis.core.graph import BoundGraph
@@ -171,6 +171,7 @@ def prepare_sample_window_plan(
             tuple(stage.stage_id for stage in keys),
             originals,
             populations,
+            plan.original.counts,
         ),
         (),
         (),
@@ -240,6 +241,35 @@ def _enclosing_populations(
     return result
 
 
+def _population_domain(
+    population: PopulationDependency,
+    slots: tuple[str, ...],
+    populations: Mapping[PopulationDependency, pd.DataFrame],
+) -> pd.DataFrame:
+    """Read captured finite or prepared population keys with their physical slots."""
+    finite = population_keys(population)
+    if finite is None:
+        keys = populations[population].copy()
+        keys.columns = list(slots)
+    else:
+        rows = [
+            tuple(
+                component
+                for axis, value in zip(population.axes, row, strict=True)
+                for component in (
+                    value
+                    if isinstance(axis, AxisBinding)
+                    and axis.role == "identity"
+                    and isinstance(value, tuple)
+                    else (value,)
+                )
+            )
+            for row in finite
+        ]
+        keys = pd.DataFrame(rows, columns=slots)
+    return keys
+
+
 def _select_parent_samples(
     graph: BoundGraph,
     item: ContributionBinding,
@@ -259,26 +289,7 @@ def _select_parent_samples(
             start = int(_sample_slot(graph, item, SampleWindow((), depth + offset))[4:]) + 1
             end = int(_sample_slot(graph, item, SampleWindow((), depth + offset + 1))[4:]) + 1
             slots.extend(f"key.{index}" for index in range(start, end))
-        finite = population_keys(population)
-        if finite is None:
-            keys = populations[population].copy()
-            keys.columns = slots
-        else:
-            rows = [
-                tuple(
-                    component
-                    for axis, value in zip(population.axes, row, strict=True)
-                    for component in (
-                        value
-                        if isinstance(axis, AxisBinding)
-                        and axis.role == "identity"
-                        and isinstance(value, tuple)
-                        else (value,)
-                    )
-                )
-                for row in finite
-            ]
-            keys = pd.DataFrame(rows, columns=slots)
+        keys = _population_domain(population, tuple(slots), populations)
         domain = (
             domain.merge(keys.drop_duplicates(), on=slots, how="inner")
             if slots
@@ -330,14 +341,48 @@ def _domains(
             )
             if missing and item.time is None and report_axis is not None:
                 sample_keys = {key for key, _ in item.calendars}
-                output_width = int(slot[4:]) + 1 - context.depth
+                output_width = 1 + sum(
+                    len(coordinate_read_keys(read))
+                    for read in item.coordinates[: item.output_axis_count]
+                )
                 report_keys = tuple(
                     key for key in missing if int(key[4:]) < output_width and key not in sample_keys
                 )
                 if len(report_keys) == 1:
                     report_key = report_keys[0]
-                    selected = selected.merge(
-                        pd.DataFrame({report_key: time_key_series(report_axis)}), how="cross"
+                    outer_keys = tuple(f"key.{i}" for i in range(output_width))
+                    output_population = observation.coordinates.population
+                    if output_population is not None:
+                        outer = _population_domain(output_population, outer_keys, populations)
+                    else:
+                        outer = _required_report_domain(outer_keys, inputs)
+                        count_domains = []
+                        for count in program.counts:
+                            groups = [
+                                group
+                                for axis in program.graph.signature.axes
+                                for candidate, group in count.axis_mapping
+                                if coordinate_matches(axis, candidate)
+                            ]
+                            if len(groups) != len(program.graph.signature.axes):
+                                continue
+                            members = _population_domain(count.population, count.keys, populations)
+                            count_keys = members.loc[
+                                :, [key for group in groups for key in group]
+                            ].copy()
+                            count_keys.columns = list(outer_keys)
+                            count_domains.append(count_keys)
+                        if count_domains:
+                            represented = [
+                                part for part in (outer, *count_domains) if not part.empty
+                            ]
+                            if represented:
+                                outer = pd.concat(represented, ignore_index=True).drop_duplicates()
+                    shared = [key for key in outer_keys if key in selected]
+                    selected = (
+                        outer.merge(selected, on=shared, how="inner")
+                        if shared
+                        else outer.merge(selected, how="cross")
                     )
                     context_columns[report_key] = DataColumn(
                         report_key, "report", time_key_type(report_axis), False
@@ -446,13 +491,9 @@ def _restrict(
 
 
 def _required_report_domain(
-    graph: BoundGraph, keys: tuple[str, ...], candidates: tuple[StageOutput, ...]
-) -> pd.DataFrame | None:
-    """Keep external Population coverage independent of internal sample selection."""
-    observation = graph.signature.observation
-    assert observation is not None
-    if observation.coordinates.population is None:
-        return None
+    keys: tuple[str, ...], candidates: tuple[StageOutput, ...]
+) -> pd.DataFrame:
+    """Keep actual outer support independent of internal sample selection."""
     parts = []
     for output in candidates:
         selected = output.table
@@ -627,7 +668,9 @@ def run_sample_windows(
         sources,
         lowered,
         observe_read=observe_read,
-        report_domain=_required_report_domain(graph, stage.keys, candidates),
+        report_domain=_required_report_domain(stage.keys, candidates)
+        if observation.coordinates.population is not None
+        else None,
         sample_domains=domains,
         frame_key_inputs=dict(
             zip(program.key_inputs, inputs[len(program.candidates) : key_end], strict=True)

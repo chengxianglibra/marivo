@@ -42,7 +42,7 @@ when that authority is unresolved.
 For a time-scoped or time-grouped question, inspect the contribution clocks
 already defined by the governed Metric. A composed Metric may use different
 clocks for different branches, while independent branches retain their scope
-and repeat across missing report time coordinates. Check the captured per-column
+and repeat only across already established output coordinates. Check the captured per-column
 time interpretation when reading mixed formulas: a common calendar bucket does
 not establish a common business-object cohort. A repeated fixed denominator
 is not additive across time. Use an established Metric for the intended
@@ -73,8 +73,9 @@ checklist requiring additional queries:
   units, weighting, and additivity when choosing the intended calculation.
 - Choose output grain independently of member scope. Ordinary observation
   computes the overall Metric; preserve member identity explicitly for member
-  screening, comparisons or association. A time grid retains its buckets while
-  spatial grouping chooses who shares each value. Preserve attribution
+  screening, comparisons or association. Ordinary time grouping retains actual
+  contribution-supported coordinates. Request an explicit Population when the
+  business question needs every date or date/member combination. Preserve attribution
   partitions before reducing them, and use current-row statistics only when the
   question concerns the represented rows rather than the original Metric.
 - Establish the comparison baseline and comparability before interpreting a

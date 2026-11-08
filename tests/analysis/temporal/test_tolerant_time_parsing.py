@@ -413,7 +413,7 @@ def test_public_parsed_time_predicate_and_calendar_keep_native_interpretation(
         daily = session.observe(
             {"value": amount.sum(time=point)}, by=(scope.by(mv.grain("minute")),)
         ).compute()
-        assert daily.to_pandas()["value"].tolist() == expected
+        assert daily.to_pandas()["value"].tolist() == [value for value in expected if value]
         unparsed = session.observe({"value": amount.sum()}, where=point.isnull()).compute()
         assert unparsed.to_pandas()["value"].tolist() == [19]
 

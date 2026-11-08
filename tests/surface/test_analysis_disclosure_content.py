@@ -45,9 +45,10 @@ from marivo.analysis.datasets.errors import DatasetRegistrationError
 from marivo.analysis.errors import AnalysisError
 from marivo.cli import main
 from tests.shared_fixtures import DslCaseFactory, catalog_value
+from tests.support.documentation import _example as documentation_example
 
 
-def test_analysis_root_example_discovers_and_reads_complete_daily_revenue(
+def test_analysis_root_example_discovers_and_reads_sparse_daily_revenue(
     analysis_dsl_case_factory: DslCaseFactory,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -68,11 +69,18 @@ def test_analysis_root_example_discovers_and_reads_complete_daily_revenue(
     assert result.output_names == ("revenue",)
     rows = result.to_pandas().sort_values("calendar:day")
     assert rows["calendar:day"].dt.strftime("%Y-%m-%d").tolist() == [
-        f"2026-08-{day:02d}" for day in range(1, 32)
+        f"2026-08-{day:02d}" for day in (1, 15, 31)
     ]
     # Include the exact start and final second; exclude July and the exact end.
-    # The empty days remain in the report, with the sum Metric's zero identity.
-    assert rows["revenue"].tolist() == [450] + [0] * 13 + [150] + [0] * 15 + [400]
+    # Missing days remain in the calendar directory, without result rows.
+    assert rows["revenue"].tolist() == [450, 150, 400]
+    for edition in ("docs", "zh-cn/docs"):
+        source = documentation_example(edition, "complete-time-domain", page="analysis/observe")
+        exec(compile(source, "<complete-time-domain>", "exec"), namespace)
+        complete = namespace["complete"]
+        assert isinstance(complete, mv.AnalysisFrame)
+        values = complete.to_pandas()["revenue"]
+        assert len(values) == 31 and values.eq(0).sum() == 28
 
 
 def test_observe_routes_identity_audit_details_to_source_checks() -> None:

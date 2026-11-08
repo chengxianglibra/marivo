@@ -415,7 +415,7 @@ owns allocation and output-domain behavior.
 Window rules are source-free immutable values: all_history, since, to_date,
 trailing_duration and trailing_periods from mv. They attach to a Metric and
 require an observation endpoint; nested windows are rejected. They reevaluate
-its formula over each window rather than summing completed output cells. Only clocked leaves change their contribution range; independent leaves retain their conditions and are combined once per endpoint. A fully independent window retains its value but still requires valid endpoints and rules.
+its formula over each window rather than summing completed output cells. Only clocked leaves change their contribution range; independent leaves retain their conditions and are combined once per endpoint. A fully independent window retains its value in a range total or at keys supplied by an explicit output Population or another coordinate provider, and still requires valid endpoints and rules. Ordinary time grouping uses actual window contribution support; it does not generate empty-window rows.
 [Temporal semantics](../temporal-semantics.md) owns the exact bounds.
 
 ## Numeric policies and physical admission

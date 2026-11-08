@@ -20,7 +20,7 @@ from marivo.semantic._expression_values import MetricExpression
 from marivo.semantic.catalog import Entity, Metric
 from marivo.semantic.errors import ErrorKind, SemanticExpressionError
 from marivo.semantic.reader import SemanticProject
-from tests.shared_fixtures import catalog_value
+from tests.shared_fixtures import catalog_value, time_population
 from tests.support.documentation import _example as documentation_example
 
 
@@ -188,9 +188,9 @@ def test_final_completion_keeps_empty_policies_and_historical_window_values(
         .compute()
         .to_pandas()
     )
-    assert rows["sum_plus_one"].tolist() == [1, 1]
+    assert rows["sum_plus_one"].tolist() == [1]
     assert rows["mean_plus_one"].isna().all() and rows["sample_mean"].isna().all()
-    assert rows["history"].tolist() == [300, 0]
+    assert rows["history"].tolist() == [300]
 
 
 def test_actual_null_sample_is_retained_while_missing_samples_are_absent(
@@ -211,7 +211,7 @@ def test_actual_null_sample_is_retained_while_missing_samples_are_absent(
         .compute()
         .to_pandas()
     )
-    assert pd.isna(rows.v.iloc[0]) and rows.v.iloc[1] == 1
+    assert len(rows) == 1 and pd.isna(rows.v.iloc[0])
     strict = metric.per(mv.grain("hour")).mean(nulls="error")
     with pytest.raises(MaterializationError):
         session.observe(
@@ -349,7 +349,7 @@ def test_calendar_sample_windows_preserve_order_and_empty_sample_domains(
         session.observe({"v": metric}, by=(scope_scope.by(mv.grain("week")),)).compute().to_pandas()
     )
     expected = (0 if empty else 960) if placement == "inside" else (0 if empty and reset else 560)
-    assert rows["v"].tolist() == [expected]
+    assert rows["v"].tolist() == ([] if empty and (placement == "inside" or reset) else [expected])
 
 
 def test_calendar_windows_complete_weighted_nested_and_declared_formulas(
@@ -508,9 +508,30 @@ def test_explicit_sample_window_keeps_independent_values_on_report_axis(
     scope = session.time_scope(start="2026-10-05", end="2026-10-12")
     metric = amount.sum(time=None).window(mv.all_history()).per(point, grain=mv.grain("day")).mean()
     rows = (
-        session.observe({"fixed": metric}, by=(scope.by(mv.grain("week")),)).compute().to_pandas()
+        session.observe({"fixed": metric}, by=time_population(scope.by(mv.grain("week"))))
+        .compute()
+        .to_pandas()
     )
     assert rows["fixed"].tolist() == pytest.approx([1310 / 6])
+    # An independent sample clock cannot add an otherwise unsupported report week.
+    sparse_axis = session.time_scope(start="2026-10-05", end="2026-10-19").by(mv.grain("week"))
+    mixed = (
+        session.observe({"actual": amount.sum(time=point), "fixed": metric}, by=(sparse_axis,))
+        .compute()
+        .to_pandas()
+    )
+    assert mixed["calendar:week"].dt.day.tolist() == [5]
+    assert mixed["actual"].tolist() == [560]
+    assert mixed["fixed"].tolist() == pytest.approx([1310 / 6])
+    counted = (
+        session.observe(
+            {"positions": time_population(sparse_axis).count(), "fixed": metric}, by=(sparse_axis,)
+        )
+        .compute()
+        .to_pandas()
+    )
+    assert counted["positions"].tolist() == [1, 1]
+    assert counted["fixed"].tolist() == pytest.approx([1310 / 6, 1310 / 6])
 
 
 @pytest.mark.parametrize("edition", ["docs", "zh-cn/docs"])
