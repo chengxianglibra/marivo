@@ -16,6 +16,7 @@ from marivo.analysis.core.data_schema import (
 from marivo.analysis.core.data_types import DataType
 from marivo.analysis.core.frame_interpretation import FrameAxisSchema, FrameComparison
 from marivo.analysis.core.frame_schema import axis_export_layout, comparison_id, export_layout
+from marivo.analysis.core.result_reference import FrameReference
 from marivo.analysis.errors import SessionStateError
 from marivo.analysis.materialization.contracts import digest
 from marivo.analysis.materialization.frame_paging import read_frame_page, read_frame_periods
@@ -42,8 +43,10 @@ def unscoped_cursor(cursor: str, *scope: object) -> str | int:
     raise stale_cursor()
 
 
-def frame_ref(session_id: str, artifact_id: str) -> JsonObject:
-    return {"schema": "marivo.frame_ref/v1", "session_id": session_id, "artifact_id": artifact_id}
+def frame_ref(store_id: str, session_id: str, artifact_id: str) -> JsonObject:
+    result = fact(FrameReference._create(store_id, session_id, artifact_id).to_dict(), "ref")
+    assert isinstance(result, dict)
+    return result
 
 
 def directory(items: list[JsonValue], limit: int, cursor: str | None) -> JsonObject:
@@ -93,14 +96,22 @@ class FrameReads:
             scope_cursor(page.next_cursor, *scope) if page.next_cursor is not None else None,
         )
 
-    def local(self, session_id: str) -> LocalFrameServices:
+    def local(self, session_id: str, *, store_id: str | None = None) -> LocalFrameServices:
         store = SessionStore.find_existing(self.root)
+        if store is not None and store_id is not None and store.store_id != store_id:
+            raise ServiceError(
+                "invalid_result_reference",
+                "The result belongs to a different Store.",
+                "store_id",
+                "Use the service bound to the original Store.",
+                "analysis.results.service.http",
+            )
         if store is None or store.session(session_id) is None:
             raise ServiceError(
                 "not_found",
                 "The Session does not exist in this project's Store.",
                 "session_id",
-                "Check the project binding and select an ID from GET /v1/sessions.",
+                "Check the project binding and select an ID from GET /v2/sessions.",
                 "analysis.session.recent",
             )
         return LocalFrameServices(store, session_id)
@@ -114,7 +125,7 @@ class FrameReads:
         return directory(
             [
                 {
-                    "ref": frame_ref(session_id, item.artifact_id),
+                    "ref": frame_ref(local.store.store_id, session_id, item.artifact_id),
                     "committed_at": item.committed_at.isoformat(),
                     "description": item.description,
                     "schema": fact(item.schema, "schema"),
@@ -125,15 +136,17 @@ class FrameReads:
             page.next_cursor,
         )
 
-    def report(self, session_id: str, artifact_id: str, budget: Budget) -> bytes:
-        local = self.local(session_id)
+    def report(
+        self, session_id: str, artifact_id: str, budget: Budget, *, store_id: str | None = None
+    ) -> bytes:
+        local = self.local(session_id, store_id=store_id)
         frame = local.reopen(artifact_id)
         backing = frame._require_stored("detail")
         schema = backing.data.schema
         public = frame.schema
         metadata: JsonObject = {
             "kind": "analysis_frame",
-            "ref": frame_ref(session_id, artifact_id),
+            "ref": fact(frame.ref.to_dict(), "ref"),
             "description": frame.description,
             "committed_at": local.committed_at(backing).isoformat(),
             "schema": fact(public, "schema"),

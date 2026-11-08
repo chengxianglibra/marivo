@@ -9,47 +9,39 @@ from threading import Event
 from time import monotonic
 from typing import Literal, TypeAlias
 
+from marivo.analysis.materialization.result_files import ResultErrorCode
+
 JsonValue: TypeAlias = str | int | float | bool | list["JsonValue"] | dict[str, "JsonValue"] | None
 JsonObject: TypeAlias = dict[str, JsonValue]
-ErrorCode: TypeAlias = Literal[
-    "invalid_parameter",
-    "unauthorized",
-    "origin_not_allowed",
-    "not_found",
-    "invalid_cursor",
-    "response_too_large",
-    "catalog_load_failed",
-    "catalog_load_in_progress",
-    "unsupported_store_format",
-    "corrupt_artifact",
-    "unencodable_value",
-    "read_timeout",
-    "service_unavailable",
-    "internal_error",
-    "result_not_found",
-    "refresh_in_progress",
-    "script_contract_error",
-    "refresh_failed",
-    "invalid_result_reference",
-    "corrupt_dataframe",
-    "refresh_timeout",
-    "result_publication_failed",
-]
-API_VERSION = 1
+ErrorCode: TypeAlias = (
+    ResultErrorCode
+    | Literal[
+        "unauthorized",
+        "origin_not_allowed",
+        "not_found",
+        "invalid_cursor",
+        "response_too_large",
+        "unsupported_store_format",
+        "corrupt_artifact",
+        "read_timeout",
+        "service_unavailable",
+        "internal_error",
+        "method_not_allowed",
+    ]
+)
+API_VERSION = 2
 DEFAULT_MIB = 128
 DEFAULT_SECONDS = 300
 HELP = "analysis.results.service"
-SCRIPTS_HELP = "analysis.results.service.scripts"
 
 STATUS: dict[ErrorCode, int] = {
+    "method_not_allowed": 405,
     "invalid_parameter": 400,
     "unauthorized": 401,
     "origin_not_allowed": 403,
     "not_found": 404,
     "invalid_cursor": 409,
     "response_too_large": 413,
-    "catalog_load_failed": 422,
-    "catalog_load_in_progress": 409,
     "unsupported_store_format": 422,
     "corrupt_artifact": 422,
     "unencodable_value": 422,
@@ -57,12 +49,8 @@ STATUS: dict[ErrorCode, int] = {
     "service_unavailable": 503,
     "internal_error": 500,
     "result_not_found": 404,
-    "refresh_in_progress": 409,
-    "script_contract_error": 422,
-    "refresh_failed": 422,
-    "invalid_result_reference": 422,
+    "invalid_result_reference": 409,
     "corrupt_dataframe": 422,
-    "refresh_timeout": 503,
     "result_publication_failed": 500,
 }
 
@@ -138,14 +126,6 @@ class Limits:
         )
 
     def timed_out(self, location: str) -> ServiceError:
-        if location == "refresh":
-            return ServiceError(
-                "refresh_timeout",
-                f"The refresh exceeded {self.seconds} seconds.",
-                location,
-                "Read the current result before retrying; adjust --refresh-timeout-seconds if needed.",
-                HELP,
-            )
         repair = "Ask the administrator to increase --read-timeout-seconds and retry."
         if location == "frame":
             repair = (

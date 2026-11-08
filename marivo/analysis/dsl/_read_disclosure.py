@@ -12,6 +12,7 @@ from marivo.analysis._capabilities.dataset_model import (
     value_type,
 )
 from marivo.analysis._capabilities.dataset_model import ParameterInput as P
+from marivo.analysis._result_disclosure import provider as result_provider
 from marivo.analysis.core.data_types import (
     DecimalDataType,
     DurationDataType,
@@ -872,12 +873,14 @@ def provider() -> DisclosureProvider:
         FramePairedPeriod,
         FrameComparisonPeriod,
     }
+    results = result_provider()
     return DisclosureProvider(
         "analysis.dsl.reads",
-        tuple(descriptors),
+        tuple(descriptors) + results.descriptors,
         tuple(
             ExportInput(owner.__name__, owner, target)
             for owner, target, _, _ in types
             if owner in exported
-        ),
+        )
+        + results.exports,
     )

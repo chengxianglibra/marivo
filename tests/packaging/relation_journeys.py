@@ -20,7 +20,7 @@ import pytest
 
 import marivo.analysis as mv
 import marivo.semantic as ms
-from marivo import _temporal
+from marivo import _timezones
 from marivo.analysis.core.data_schema import (
     CalendarComparisonBinding,
     CalendarDataAxis,
@@ -447,7 +447,7 @@ def _produce(
             session.observe({"value": metric}, where=session.time_scope(start=start, end=end))
             for start, end in (("2026-08-01", "2026-09-01"), ("2026-07-01", "2026-08-01"))
         ]
-        difference = totals[0].compare({"reference": mv.baseline(totals[1], match=mv.ordinal())})
+        difference = totals[0].compare({"reference": mv.baseline(totals[1])})
         frames = {
             "counts": counts,
             "region": session.read(targets, {"value": region}),
@@ -1014,7 +1014,7 @@ def journey(phase: str, project: Path, scenario_name: str, source: str) -> dict[
             (SemanticProject, "load"),
             (SourceSession, "__init__"),
             (SourceSession, "execute"),
-            (_temporal, "ZoneInfo"),
+            (_timezones, "ZoneInfo"),
         ):
             patch.setattr(owner, name, forbidden)
         patch.setattr(mv.Session, "catalog", property(forbidden))

@@ -71,6 +71,7 @@ def produce(root: Path, *, extended: bool = False) -> dict[str, str]:
         return frame.persist(description=description).artifact_id
 
     ids = {
+        "store_id": local.store.store_id,
         "session_id": local.session_ref,
         "artifact_id": save(
             completed(CompletedFrameData(schema, rows), "exact"), "service fixture"

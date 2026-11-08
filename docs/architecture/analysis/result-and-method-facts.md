@@ -3,6 +3,10 @@
 Captured metadata describes the exact completed result. Method facts explain an original
 successful contribution investigation. Neither is an executable producer graph,
 a source of hidden Metric state or a stored business narrative.
+
+Source-time facts retain the normalized timezone identities validated during
+production. Fixed-data metadata decoding checks their field structure without
+loading timezone rules or revalidating IANA availability on the reader's host.
 [Runtime](session-state-and-runtime.md) owns publication, recovery and integrity;
 [Observation](populations-and-observation.md#explicit-endpoint-investigation)
 owns endpoint and contribution admission.

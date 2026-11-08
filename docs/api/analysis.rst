@@ -722,3 +722,14 @@ row selection context too. Attribute weighted-mean denominators take value origi
 from weights and context origins from valid-pair selection. Valid-pair counts
 have context origins only. Direct-ratio components retain their own named Metric origins.
 Use ``marivo.help("analysis.frame_lineage")`` for fields and bounded display.
+
+Fixed result publication
+------------------------
+
+.. autofunction:: marivo.analysis.persist_dataframe
+
+.. autoclass:: marivo.analysis.FrameReference
+   :members: kind, store_id, session_id, artifact_id, to_dict
+
+.. autoclass:: marivo.analysis.DataFrameReference
+   :members: kind, result_id, to_dict

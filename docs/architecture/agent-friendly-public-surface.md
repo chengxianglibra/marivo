@@ -226,10 +226,10 @@ retain their original population, and typed audit never stores an agent's
 narrative as established truth. Terminal pandas/raw SQL work must state its own
 sample, denominator and interpretation limits.
 
-The `marivo-service` skill routes service publication and consumption decisions.
-It hands analysis or reusable semantic definition work to the corresponding
-workflow skill. The service Help owns script and HTTP facts; the host owns the
-selected project, connection, credentials, user authorization and saved reports.
+Result publication and read-only HTTP facts belong to native Help and the current
+service guide. Plugins own project connections, credentials, user authorization,
+report publication and refresh execution. The packaged authoring and analysis
+skills retain their existing domain judgment; there is no separate service skill.
 
 ## Change and verification ownership
 

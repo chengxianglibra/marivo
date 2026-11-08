@@ -94,13 +94,6 @@ def _manifest() -> Manifest:
             for call in calls:
                 result[(f"marivo/{path}.py", symbol, call)] = owner
 
-    script = Owner(
-        "non_submit_python_script",
-        "Compile and invoke a trusted project Python endpoint; these calls do not compile or submit SQL. Source access remains owned by the APIs used inside the script.",
-    )
-    add("server/refresh_worker", ("execute",), ("compile",), script)
-    add("server/refresh_worker", ("main",), ("execute",), script)
-
     store = Owner(
         "store_sqlite_persistence",
         "SessionStore-owned SQLite connection and schema transactions; no datasource reads or algorithms.",

@@ -83,6 +83,7 @@ from marivo.analysis.core.frame_structure import (
 from marivo.analysis.core.lineage import FrameLineage
 from marivo.analysis.core.lineage import validate as validate_lineage
 from marivo.analysis.core.model import reject
+from marivo.analysis.core.result_reference import FrameReference
 from marivo.analysis.dsl.baseline import ComparisonBaseline
 from marivo.analysis.dsl.baseline import baseline as declare_baseline
 from marivo.analysis.dsl.column import Column, _Statistic
@@ -1348,6 +1349,20 @@ class AnalysisFrame:
             method_facts=backing.method_facts,
             description=backing.description,
             derivation=completed._derivation,
+        )
+
+    @property
+    def ref(self) -> FrameReference:
+        """Export the exact stored result identity without reading rows.
+
+        Returns: A fixed FrameReference including the owning Store identity.
+        Example: ``frame.persist().ref.to_dict()``.
+        Constraints: Only persisted Frames have references; explicitly persist
+        pending or memory data first. Never executes, saves or queries a source.
+        """
+        backing = self._require_stored("ref")
+        return FrameReference._create(
+            self._local.store.store_id, self.session_id, backing.artifact_id
         )
 
     @property

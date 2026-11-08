@@ -255,54 +255,28 @@ _PAGES = (
     ),
     NavigationInput(
         "results.service",
-        "Serve current definitions, saved reports and explicitly refreshed script endpoints.",
+        "Read explicitly persisted results through a project-bound HTTP service.",
         (),
         guidance=(
-            "A fixed reference reads the same saved result. A named endpoint reads its current saved result; an explicit refresh executes trusted project code and publishes a new fixed reference.",
-            "Use the host-selected project, environment and credential handling. The host owns its connection and user authorization.",
+            "Persist AnalysisFrames explicitly, or save pandas tables with persist_dataframe. Keep the service connection and exact result reference in the consumer.",
+            "The plugin owns production, date policies, report layout, conclusions and refresh. HTTP reads never execute analysis or load the Catalog.",
         ),
         discovery_group="results",
         route_summaries=(
-            ("results.service.scripts", "Write and discover a refreshable endpoint script."),
-            ("results.service.http", "Start the service and read or refresh over HTTP."),
+            ("results.service.http", "Start the read-only service and consume fixed results."),
         ),
-    ),
-    NavigationInput(
-        "results.service.scripts",
-        "Define a trusted project script for an explicitly refreshed data endpoint.",
-        (),
-        "service_reference",
-        guidance=(
-            "Place endpoints/sales/total.py in the bound project for /v1/data/sales/total. Path segments are lowercase snake_case; private names beginning with _ are not endpoints. Restart after adding a path; an existing path loads its latest source on refresh.",
-            "Define exactly one top-level synchronous main(session: mv.Session) with no defaults or extra arguments. Its concrete return annotation and value must both be mv.AnalysisFrame or both pandas.DataFrame; async functions, generators and union returns are rejected.",
-            "The service supplies a fresh project Session. An AnalysisFrame must belong to that Session and be unpersisted; a pending or computed Frame is accepted. The service computes and persists it. Set the intended time scope in the script; publication does not imply fresh or complete source data.",
-            "A DataFrame needs an unnamed default RangeIndex, unique nonempty string column names and supported scalar columns: null, boolean, string, integer, float32/64, decimal, date, timestamp or duration. Move business indexes into columns. Nested or unsupported values fail; attrs is not saved as semantic metadata.",
-            "Scripts and imports are trusted project code. Named endpoint requests do not accept a script, arbitrary path or business parameters. Replace the example Metric identity with one established in the project.",
-        ),
-        example=ExampleInput(
-            "import marivo.analysis as mv\n"
-            "\n"
-            "def main(session: mv.Session) -> mv.AnalysisFrame:\n"
-            "    total = session.catalog.get('metric:sales.total')\n"
-            "    assert total.kind == 'metric'\n"
-            "    return session.observe({'total': total})",
-            ("session",),
-            "main",
-            "An unpersisted AnalysisFrame owned by the supplied Session.",
-        ),
-        discovery_group="results.service",
     ),
     NavigationInput(
         "results.service.http",
-        "Start the project service and consume saved or explicitly refreshed results.",
+        "Serve fixed results using authenticated HTTP v2.",
         (),
         guidance=(
-            "Install marivo[api], configure MARIVO_API_TOKEN as a deployment credential, and run marivo serve --project-root PATH. The default listener is 127.0.0.1:8765; --port 0 selects a free port and stdout reports the bound address. Use marivo serve --help for TLS, CORS and budgets.",
-            "All business requests, including GET /v1/openapi.json and GET /v1/info, require Authorization: Bearer TOKEN. The token grants reads, Catalog reload and execution of installed endpoint scripts; the host owns user authorization and project selection.",
-            "GET /v1/data/{endpoint} reads its current saved result. POST /v1/data/{endpoint}/refresh with an empty body executes the script and publishes a new result. Neither route accepts query parameters. Do not automatically retry refresh. Before first publication a saved read returns result_not_found. If a refresh outcome is uncertain, read current state before retrying.",
-            "Responses carry kind and a fixed ref. Save the service connection and ref; for AnalysisFrames also retain store_id from /v1/info. Read a fixed Frame with /v1/sessions/{session_id}/frames/{artifact_id}, or a fixed DataFrame with /v1/dataframes/{result_id}. These reads never refresh, load models or query sources.",
-            "The service returns a complete report or an error, not a paged data preview. Schema and data layout preserve exact string-encoded integers and decimals, nulls and typed values. Directories use limit and cursor. The API has no named endpoint directory; obtain names from the project or host.",
-            "Errors return code, message, location, repair and nullable target. Inspect the repair. POST /v1/semantic/reload starts a new load or returns 409 catalog_load_in_progress if a load is active. Shared Catalog loads continue after disconnect until their deadline; failed loads retain the last snapshot. Inspect service logs for unexpected failures. Saved results remain fixed when a named endpoint is refreshed.",
+            "Install marivo[api], set MARIVO_API_TOKEN and run marivo serve --project-root PATH. The JSON readiness line reports the listener. See marivo serve --help for TLS, CORS and read budgets.",
+            "All requests require Authorization: Bearer TOKEN. GET /v2/info reports Store identity; GET /v2/openapi.json declares the complete protocol.",
+            "Use saved.ref.to_dict() for an AnalysisFrame, or mv.persist_dataframe(table).to_dict() for a pandas table. Preserve the service connection separately.",
+            "Read a Frame at /v2/stores/{store_id}/sessions/{session_id}/frames/{artifact_id}; read a table at /v2/dataframes/{result_id}. A different Store returns invalid_result_reference. Reads require neither producer nor current models.",
+            "Responses return complete data or a structured error. Integers and Decimal values are exact strings; nulls and typed time values retain their saved meaning. Directories use limit/cursor.",
+            "The service has no named endpoints, refresh, Catalog HTTP or write operations. The host owns credentials, user permissions and report publication.",
         ),
         discovery_group="results.service",
     ),

@@ -46,6 +46,11 @@ Session/Artifact ID；仅导出 DataFrame、打印内存卡片或恢复 Session 
 
 session_id 在所有载体上返回捕获的所属 Session ID；artifact_id 仅对持久根返回提交 ID，
 两个属性均不读取 Store。未保存根的 artifact_id 和 source_reads 给出 persist 修复。
+
+已保存根的 `ref` 返回不可变 `FrameReference`，包含自身的 Store、Session 和
+Artifact 身份。`saved.ref.to_dict()` 输出 `marivo.frame_ref/v2` 引用；获取或显示引用
+不读取数据、查询模型或自动保存。表达式和内存根读取 `ref` 时要求显式 persist。
+引用不含服务 URL 或凭据；插件独立保存连接身份，通过结果服务读取精确版本。
 持久根 compute 返回的内存根没有提交身份。show 展示有界输入、操作和实际源读取摘要，持久根另展示提交时间；show(n=0) 不读取结果行、坐标附件或完整方法载荷。
 
 ## 稳定结构与有界读取

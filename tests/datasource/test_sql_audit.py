@@ -136,24 +136,6 @@ def test_current_product_has_only_classified_submitters() -> None:
     } <= categories
 
 
-def test_script_invocation_classification_does_not_allow_driver_submission(tmp_path: Path) -> None:
-    _module(
-        tmp_path,
-        "server/refresh_worker.py",
-        "def execute(source, cursor):\n"
-        "    compile(source, 'endpoint.py', 'exec')\n"
-        "    cursor.execute('SELECT 1')\n"
-        "def main(source, cursor):\n"
-        "    execute(source, cursor)\n",
-    )
-    report = audit(tmp_path)
-    assert [(row.symbol, row.call) for row in report.failures] == [("execute", "cursor.execute")]
-    assert {(row.symbol, row.call) for row in report.records if not row.failed} >= {
-        ("execute", "compile"),
-        ("main", "execute"),
-    }
-
-
 def test_clickhouse_parser_inspection_grants_no_submission_authority(tmp_path: Path) -> None:
     _module(
         tmp_path,

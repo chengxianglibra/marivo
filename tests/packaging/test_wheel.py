@@ -145,7 +145,7 @@ def test_installed_origin_surface_and_console(installed_wheel: InstalledWheel) -
     assert (project / "marivo.toml").is_file() and (project / "models").is_dir()
     assert (project / ".marivo").is_dir()
     for agent in (".agents", ".claude", ".codex"):
-        for skill in ("marivo-semantic", "marivo-analysis", "marivo-service"):
+        for skill in ("marivo-semantic", "marivo-analysis"):
             link = project / agent / "skills" / skill
             assert link.is_symlink() and link.resolve().is_relative_to(candidate.work / ".venv")
             assert (link / "SKILL.md").read_bytes() == (
@@ -261,3 +261,31 @@ def test_installed_relations_offline_and_cold(
     assert isinstance(cold_count, int)
     assert fixed_count == source_count
     assert fixed_count == cold_count
+
+
+def test_installed_base_persists_plain_table_without_api(
+    installed_base_wheel: InstalledWheel,
+) -> None:
+    candidate = installed_base_wheel
+    project = candidate.work / "plain-table"
+    project.mkdir()
+    output = candidate.run(
+        "plain-table-publication",
+        [
+            str(candidate.interpreter),
+            "-c",
+            "import importlib.util, json, sys; from pathlib import Path; "
+            "import pandas as pd; import marivo.analysis as mv; "
+            "assert importlib.util.find_spec('uvicorn') is None; "
+            "root = Path(sys.argv[1]); "
+            "ref = mv.persist_dataframe(pd.DataFrame({'count': [9007199254740993]}), project_root=root); "
+            "assert not (root / '.marivo/analysis').exists(); "
+            "assert 'marivo.server' not in sys.modules; "
+            "print(json.dumps(ref.to_dict()))",
+            str(project),
+        ],
+    )
+    reference = obj(json.loads(output))
+    assert reference["schema"] == "marivo.dataframe_ref/v1"
+    assert set(reference) == {"schema", "result_id"}
+    assert len(list((project / ".marivo/server/dataframes").glob("*.parquet"))) == 1

@@ -194,6 +194,22 @@ explicit worker counts and simultaneous invocations. Compiler oracle tests can u
 every named validation in one query without repeatedly compiling shared Ibis
 nodes. Keep independent budget checks parametrized so xdist can distribute them.
 
+### 安装测试的 PostgreSQL 系统依赖
+
+`postgres` 扩展保留 psycopg 的系统 libpq 前置条件。隔离 wheel 的依赖检查也会导入
+PostgreSQL 后端，即使该检查不连接数据库，也必须让新建的 Python 子进程能够发现
+libpq。先确认系统已安装 libpq，并将提供 `pg_config` 的目录加入验收命令的 `PATH`。
+macOS 使用 Homebrew 安装 libpq 后，可运行：
+
+```bash
+PATH="/opt/homebrew/opt/libpq/bin:$PATH" make test \
+  TESTS='-m release tests/packaging/test_wheel.py' PYTEST_WORKERS=4
+```
+
+其他安装位置使用其实际 `bin` 目录。不要只依赖 `DYLD_LIBRARY_PATH` 穿过 macOS
+系统 `make`：它可能被启动环境过滤。此配置只作用于本次命令，无需修改全局 shell
+配置，也不需要为了通过安装检查额外加入 `psycopg-binary` 产品依赖。
+
 ### 测试覆盖率
 
 覆盖率用于寻找未执行的重要分支；必须结合独立预期值、有效断言和关键风险评审。

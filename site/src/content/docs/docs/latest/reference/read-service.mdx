@@ -1,260 +1,148 @@
 ---
-title: Project read service
-description: Read saved reports and explicitly refresh AnalysisFrame or DataFrame script endpoints.
+title: Persisted result service
+description: Save AnalysisFrames and pandas tables, then read exact fixed results over HTTP.
 ---
 
-Install the optional API dependencies in the project's Marivo Runtime. Generate
-a token once with `secrets.token_urlsafe(32)`, store it in deployment
-credentials, and set `MARIVO_API_TOKEN` in the service environment. Restart
-with the same value to keep access. To rotate the token, change the configuration
-and restart the service.
+Marivo explicitly saves AnalysisFrames and pandas DataFrames. The project-bound
+HTTP service reads their exact saved identities. The plugin owns report layout,
+text, data bindings, date policies, analysis programs and refresh execution.
+There are no script endpoints, current-result aliases or Catalog HTTP operations.
 
-For agent-directed service work, use the packaged `marivo-service` workflow.
-`marivo help analysis.results.service` routes to the installed Runtime's script
-and HTTP contracts. The host selects the project and manages its connection,
-credentials and user authorization.
+## Save and deliver results
 
-```bash
-pip install 'marivo[api]'
-marivo serve --project-root /path/to/project --port 0
-```
-
-The default listener is `127.0.0.1:8765`. Port `0` requests an available port.
-Read the one-line JSON receipt from stdout for `host`, `port`, `protocol`,
-`pid`, `marivo_version` and `api_version`. Service logs go to stderr.
-
-## Read a report
-
-Keep the IDs from the stored root returned by `persist()`.
+AnalysisFrames retain the existing persistence contract:
 
 ```python
-saved = frame.persist(description="Recorded revenue")
-ref = {
-    "schema": "marivo.frame_ref/v1",
-    "session_id": saved.session_id,
-    "artifact_id": saved.artifact_id,
-}
+saved = frame.persist(description="Monthly revenue")
+reference = saved.ref.to_dict()
 ```
 
-Use the service address and the saved IDs. This example assumes the default
-listener port. The client environment supplies the configured token.
+Only stored Frames have a `ref`; reading it never computes or saves a result.
+The reference contains `schema: "marivo.frame_ref/v2"`, `store_id`, `session_id`
+and `artifact_id`, all captured from the saved Frame. Pending or memory Frames
+require explicit `persist()`. An already computed Frame is saved without rereading
+sources; an already stored Frame retains its existing commit.
 
-```bash
-curl --fail-with-body -H "Authorization: Bearer ${MARIVO_API_TOKEN}" \
-  "http://127.0.0.1:8765/v1/sessions/${session_id}/frames/${artifact_id}"
-```
-
-One successful request returns `kind: "analysis_frame"`, `ref`, `description`, `committed_at`,
-`schema`, `lineage`, `source_reads`, `data` and `periods`.
-`data.layout` orders the cells in each row. Join by field slot or coordinate
-identity to find the original display names and types in `schema`.
-Coordinate export names use deterministic suffixes if default names collide.
-`data.coordinates` maps key slots to the original values per row.
-
-Use the types in the schema to decode business values. Integers and Decimal
-values use exact strings. Dates and timestamps use ISO strings, and durations
-use integer ticks in the declared unit. Finite floats are numbers and
-nonfinite floats are tagged values such as `{"float":"nan"}`. Null and
-Boolean presence are distinct. Period keys and labels carry a `dtype` and
-`value`. Saved periods may have no result row. Comparison records include
-the saved endpoint or its absence reason.
-
-## Complete scalar response
-
-```json
-{
-  "kind": "analysis_frame",
-  "ref": {"schema":"marivo.frame_ref/v1","session_id":"session_example","artifact_id":"artifact_example"},
-  "description": "Recorded revenue",
-  "committed_at": "2026-11-06T00:00:00+00:00",
-  "schema": {
-    "input_id": "stored_example",
-    "values": {"revenue":{"slot_id":"amount","name":"revenue","dtype":{"kind":"decimal","precision":18,"scale":2},"nullable":false,"unit":"CNY"}},
-    "presence": {},
-    "axes": [],
-    "layout": [{"kind":"field","name":"revenue","slot_id":"amount"}],
-    "fixed_axes": [],
-    "value_contexts": {},
-    "source_times": [],
-    "alignments": [],
-    "comparisons": [],
-    "decompositions": []
-  },
-  "lineage": {
-    "input_id": "stored_example",
-    "values": {"revenue":{"value_origins":[],"context_origins":[]}},
-    "axes": {},
-    "presence": {}
-  },
-  "source_reads": [],
-  "data": {
-    "layout": [{"kind":"field","name":"revenue","slot_id":"amount"}],
-    "coordinates": {},
-    "rows": [["123.45"]],
-    "row_count": 1
-  },
-  "periods": []
-}
-```
-
-## Refresh a script endpoint
-
-Create `endpoints/sales/revenue.py` in the project:
+Plain tables have an independent public entry point:
 
 ```python
-import marivo.analysis as mv
-
-
-def main(session: mv.Session) -> mv.AnalysisFrame:
-    revenue = session.catalog.get("metric:sales.revenue")
-    assert revenue.kind == "metric"
-    return session.observe({"revenue": revenue})
-```
-
-The service discovers lowercase snake_case paths on startup, without importing
-scripts. Files and directories beginning with `_` are private. Restart after
-adding a path. Existing endpoints load their latest source on each refresh.
-Declare one synchronous `main(session)` with the shown Session annotation and
-one concrete return type. The service supplies a new project Session and saves
-the output. That Session belongs to the service's bound project even if imports
-configure another project environment. Return an unpersisted AnalysisFrame from that Session. The script
-owns time scopes and business logic; imports execute as trusted project code.
-
-```bash
-curl --fail-with-body -X POST -H "Authorization: Bearer ${MARIVO_API_TOKEN}" \
-  'http://127.0.0.1:8765/v1/data/sales/revenue/refresh'
-curl --fail-with-body -H "Authorization: Bearer ${MARIVO_API_TOKEN}" \
-  'http://127.0.0.1:8765/v1/data/sales/revenue'
-```
-
-Only `POST /v1/data/{endpoint}/refresh` with an empty body runs the script,
-publishes a new result and atomically changes the current reference.
-`GET /v1/data/{endpoint}` reads saved data, even
-if the script or model has been removed. Before the first publication it returns
-`result_not_found`; it never executes implicitly. Both routes reject all query
-parameters, including `refresh`. Refresh is synchronous and returns the complete
-report with its fixed ref. Do not automatically retry POST refresh: a timeout or
-lost response does not prove publication failed. Read current state before
-deciding whether another refresh is needed.
-
-## DataFrame results and saved report versions
-
-DataFrame endpoints also receive a Session for continuing Marivo analysis:
-
-```python
-# endpoints/sales/revenue_table.py
+from pathlib import Path
 import pandas as pd
 import marivo.analysis as mv
 
-
-def main(session: mv.Session) -> pd.DataFrame:
-    revenue = session.catalog.get("metric:sales.revenue")
-    assert revenue.kind == "metric"
-    table = session.observe({"revenue": revenue}).compute().to_pandas()
-    return table.assign(double_revenue=table["revenue"] * 2)
+reference = mv.persist_dataframe(
+    pd.DataFrame({"region": ["east", "south"], "orders": [12, 7]}),
+    project_root=Path("/srv/sales-project"),
+)
+print(reference.to_dict())
 ```
 
-Use unique nonempty string columns and a default unnamed RangeIndex. Move business
-indexes into columns. Supported scalar columns include null, boolean, string,
-integer, float32/64, Decimal, date, timestamp and duration. Unsupported objects
-and nested values fail explicitly; `attrs` is not semantic metadata. Row and
-column order, typed empty columns and zero-column row counts are preserved.
+The DataFrame reference contains `schema: "marivo.dataframe_ref/v1"` and
+`result_id`. The explicit root is the exact existing directory; omission uses
+normal project discovery. Saving needs no Session, Analysis Store, Catalog,
+source connection, running HTTP service or optional API dependencies. Every call
+creates a new fixed identity. Later edits to the original table do not affect it.
+Neither reference includes URLs, credentials, a report identity or producer code.
+Keep the service connection separately in the consuming application.
 
-```json
-{
-  "kind": "dataframe",
-  "ref": {"schema":"marivo.dataframe_ref/v1","result_id":"df_0123456789abcdef0123456789abcdef"},
-  "session_id": "session_example",
-  "committed_at": "2026-11-07T00:00:00+00:00",
-  "schema": {"columns":[{"name":"count","dtype":{"kind":"int64"}}]},
-  "data": {"layout":["count"],"rows":[["9007199254740993"]],"row_count":1}
-}
+Tables require an unnamed default RangeIndex, unique nonempty string column
+names and supported scalar columns: null, boolean, string, integer, float32/64,
+Decimal, date, timestamp or duration. Move business indexes into columns.
+Unsupported nested/object values fail rather than becoming strings. Row/column
+order, zero-column row counts, empty typed columns and supported exact values
+are retained. `attrs` is not saved as semantic metadata. Plain tables do not gain
+inferred units, lineage, axes, periods or source freshness.
+
+## Start and connect
+
+Install `marivo[api]`. Generate a token once with `secrets.token_urlsafe(32)`,
+store it in deployment credentials, and set `MARIVO_API_TOKEN` in the service
+environment. The host owns connection management and user authorization.
+
+```sh
+marivo serve --project-root /srv/sales-project --port 0
 ```
 
-DataFrames use independent `.marivo/server/dataframes/{result_id}.parquet` files.
-`GET /v1/dataframes/{result_id}` reads a fixed version without loading its Session,
-Analysis Store, model or script. `session_id` records the production context.
-Physical types live in `schema.columns`; `data.layout` gives the column order.
-Scalar encoding follows the Frame rules above. No axes, lineage, units or periods
-are inferred from pandas data.
+The default listener is `127.0.0.1:8765`. Port 0 selects an available port.
+The foreground process emits one JSON readiness line with host, port, protocol,
+pid, marivo_version and api_version 2. Logs go to stderr. SIGTERM/SIGINT stop it;
+fixed files remain available after restart. Token rotation uses configuration
+and restart, without changing fixed references.
 
-Save the service identity, `kind` and `ref` in the UI report. For AnalysisFrames,
-also retain the connection's `store_id` from `/v1/info`. Reopen via the exact
-Frame or DataFrame route; these routes do not accept `refresh`. Refreshing the
-named endpoint never changes the report's saved version. Adopt a new ref only
-when explicitly updating that report. Current pointers are stored under
-`.marivo/server/endpoints/`. `committed_at` is save time, not source freshness.
+For remote HTTPS browser access, configure a trusted certificate and matching key,
+or use a protected HTTPS proxy. Configure exact browser Origins; repeat the flag
+for multiple Origins. No wildcard Origin is accepted.
 
-## Browse current definitions
-
-Use the same Bearer header on all API calls. Fetch `GET /v1/openapi.json`
-for typed routes and payloads. It describes the generic named endpoint route;
-get concrete endpoint names from the project or host. `GET /v1/info` identifies the versions,
-Store and current Catalog load state. Semantic object IDs use canonical
-`kind:path`, with URL encoding in path parameters.
-
-| Operation | Route |
-| --- | --- |
-| List semantic objects | `GET /v1/semantic/objects` with optional `kind` and `domain` |
-| Read a definition | `GET /v1/semantic/objects/{id}` |
-| Browse dependencies or dependents | `GET /v1/semantic/objects/{id}/related?relation=dependencies` |
-| Reload current definitions | `POST /v1/semantic/reload` with an empty body |
-| Discover Sessions and Frames | `GET /v1/sessions` and `GET /v1/sessions/{session_id}/frames` |
-
-Directory limits default to 20 and accept 1 through 100. Continue with
-`next_cursor` and the same filters and limit. A successful Catalog reload
-invalidates semantic cursors. A failed reload retains the last loaded Catalog.
-Reload starts a new load, or returns `409 catalog_load_in_progress` if a load is
-already active; wait for it to finish before requesting reload again. Ordinary
-reads share the initial load or use the last successful snapshot during reload.
-Catalog loads belong to the service and continue after client disconnect or
-request timeout, bounded by their own read deadline and service shutdown.
-Unexpected request failures and Catalog worker tracebacks go to service stderr,
-not HTTP responses. For `catalog_load_failed`, inspect the logs and run
-`marivo doctor --semantic` in the bound project.
-The saved report is independent of current model loading.
-
-## Deploy and handle failures
-
-Use both PEM options for native TLS or terminate TLS at an existing HTTPS
-entry point and forward to a protected listener.
-
-```bash
-marivo serve --project-root /path/to/project --host 0.0.0.0 --port 8765 \
+```sh
+marivo serve --project-root /srv/sales-project --host 0.0.0.0 --port 8765 \
   --ssl-certfile /etc/tls/fullchain.pem --ssl-keyfile /etc/tls/privkey.pem \
   --allow-origin https://analysis.example.com
 ```
 
-Repeat `--allow-origin` for each exact browser Origin. The default permits
-server-to-server requests with Bearer and no Origin. Valid preflight needs no
-token. Actual requests always use Bearer. The service provides CORS headers
-for allowed Origins on successful and error responses. Use a certificate
-trusted by browsers for the public API hostname. Host integrations own user
-authorization and project binding.
+All business requests require `Authorization: Bearer <token>`, including info and
+OpenAPI. Valid CORS preflights require no token, allow GET/OPTIONS and the
+Authorization/Content-Type headers. Actual requests are authenticated. Allowed
+Origins receive CORS headers on errors too. Server-to-server requests need no Origin.
 
-`--max-response-mib` defaults to 128 and `--read-timeout-seconds` defaults to
-300. Both accept positive integers and cover the whole report. The same
-limits apply to Catalog loading. On `response_too_large` or `read_timeout`,
-an administrator can increase the corresponding setting and restart. Retry
-the same reference or explicitly persist a smaller result. The response is
-complete on success. Table display pagination stays on the client.
+## HTTP v2
 
-Inspect `error.code`, `location`, `repair` and optional Help `target` when
-a request fails. Restart a listing on `invalid_cursor`, check project and IDs
-on `not_found`, and restore the saved files on `corrupt_artifact`.
-`--refresh-timeout-seconds` defaults to 300 and `--max-refreshes` to 1 per service
-process. Both accept positive integers. A refresh has its own deadline and uses
-the same response-size limit. Same-endpoint refreshes are excluded across service
-processes (`refresh_in_progress`); a full refresh capacity returns
-`service_unavailable` without queuing. Saved reads remain available.
+| Method and path | Result |
+| --- | --- |
+| `GET /v2/info` | API/Marivo versions and current Store identity or null |
+| `GET /v2/openapi.json` | OpenAPI 3.1 request, response and error schemas |
+| `GET /v2/sessions` | Saved Sessions, newest updated first |
+| `GET /v2/sessions/{session_id}/frames` | Committed Frames, newest committed first |
+| `GET /v2/stores/{store_id}/sessions/{session_id}/frames/{artifact_id}` | Exact AnalysisFrame result |
+| `GET /v2/dataframes/{result_id}` | Exact plain-table result |
 
-Timeout or disconnect stops the worker before releasing its slot and lock.
-Subprocesses inheriting the refresh's process group share its lifetime and are
-stopped on completion, cancellation or parent loss.
-Script, persistence or encoding failures before the pointer switch retain the old
-result. A completed snapshot may remain unpublished; existing fixed versions are
-not deleted. If a response is lost after publication, read the current endpoint
-before retrying. `refresh_timeout`, `script_contract_error`, `refresh_failed`,
-`result_publication_failed`, `invalid_result_reference` and `corrupt_dataframe`
-identify the owning failure; use their repair fields. The configured token grants
-refresh access to installed scripts. The host owns report saving and user authorization.
+Directories accept `limit` 1..100 (default 20) and `cursor`. Continue with the
+same selection/limit. Fixed reads accept no query parameters and return the
+complete saved result or an error. Other methods on these resources return 405;
+unknown and retired routes return 404. There are no HTTP v1 aliases or redirects.
+A Frame's Store must match the path identity or the read returns
+`409 invalid_result_reference`. A project without an Analysis Store can still
+serve saved DataFrames and has an empty Session directory.
+
+Both result kinds contain `kind`, `ref`, `committed_at`, `schema` and `data`.
+AnalysisFrames additionally retain description, lineage, source_reads and saved
+periods. Their data layout preserves actual column names, coordinate slot IDs and
+deterministic collision suffixes. Comparison periods retain saved endpoint mapping
+and missing reasons. Plain tables expose physical columns and rows without a
+synthetic Session. Full schemas are in OpenAPI, not inferred from display labels.
+
+Integers and Decimal values use exact strings; dates/timestamps use ISO strings;
+durations use tick strings with dtype units. Finite floats are JSON numbers;
+nonfinite values use `{"float":"nan"}`, `{"float":"inf"}` or `{"float":"-inf"}`.
+Null and Boolean presence remain independent. Empty rows use `rows: []`;
+a zero-column single row uses `rows: [[]]`.
+
+## Ownership, retention and failures
+
+Reads operate independently of the producer process, source availability and
+current models. They open existing state and validate committed ownership and
+consumed files. They never replay producers, execute scripts or query sources.
+Read validation can scan/hash complete files; internal batches do not bound total I/O.
+
+AnalysisFrames use the existing Analysis Store. Plain tables use immutable
+`.marivo/server/dataframes/{result_id}.parquet` files, written atomically. Their
+metadata records result identity, UTC commit time and logical row count. The same
+reader consumes retained snapshots; an older background Session field is ignored.
+There is no automatic persistence, cache, deletion or garbage collection.
+
+Commit time and source-read completion do not prove business freshness or complete
+coverage. The plugin records the requested range and generates supported conclusions
+from saved facts. It publishes a complete report version only after all referenced
+data and text are ready. Marivo does not manage that cross-result transaction.
+
+Saving is independent of HTTP response limits. `--max-response-mib` defaults to 128
+and bounds the complete uncompressed JSON; `--read-timeout-seconds` defaults to 300.
+Both require positive integers. Oversized results return `response_too_large`,
+without truncation. Reads cancel cooperatively; an active native/file call may need
+to return before releasing its slot. Errors contain `code`, `message`, `location`,
+`repair` and nullable `target`; use the stable code and exact saved reference.
+Missing/corrupt data never triggers recalculation. The server logs unexpected
+failures without exposing tracebacks to HTTP clients.
+
+Use `marivo help analysis.persist_dataframe`,
+`marivo help analysis.analysis_frame.ref` and
+`marivo help analysis.results.service.http` for focused native contracts.

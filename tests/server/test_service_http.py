@@ -11,18 +11,15 @@ import ssl
 import subprocess
 import sys
 from collections.abc import Iterator, Mapping, Sequence
-from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from datetime import date, timedelta
 from pathlib import Path
-from time import monotonic, sleep
 from typing import Any, Protocol, TypeAlias
 from urllib.parse import urlencode
 
 import pytest
 from jsonschema import Draft202012Validator
 
-from marivo._help.render import render_help_text
 from marivo.analysis.dsl.frame import AnalysisFrame
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.materialization.layout import MaterializationLayout
@@ -81,7 +78,7 @@ def server(
             "protocol": "https" if context else "http",
             "pid": process.pid,
             "marivo_version": ready["marivo_version"],
-            "api_version": 1,
+            "api_version": 2,
         }
         assert ready["port"] > 0
 
@@ -145,7 +142,7 @@ def _produce(root: Path, *args: str) -> dict[str, str]:
 
 
 def _path(ids: Mapping[str, str], key: str = "artifact_id") -> str:
-    return f"/v1/sessions/{ids['session_id']}/frames/{ids[key]}"
+    return f"/v2/stores/{ids['store_id']}/sessions/{ids['session_id']}/frames/{ids[key]}"
 
 
 def _ok(reply: Reply) -> Document:
@@ -176,7 +173,8 @@ def test_complete_reports_restart_and_budget(tmp_path: Path) -> None:
     with server(tmp_path, "--max-response-mib", "1") as request:
         report = _ok(request(path))
         assert report["ref"] == {
-            "schema": "marivo.frame_ref/v1",
+            "schema": "marivo.frame_ref/v2",
+            "store_id": ids["store_id"],
             "session_id": ids["session_id"],
             "artifact_id": ids["artifact_id"],
         }
@@ -188,17 +186,18 @@ def test_complete_reports_restart_and_budget(tmp_path: Path) -> None:
         assert report["schema"]["values"]["event_time"]["nullable"] is False
         assert report["data"]["rows"][2][2] == "1677-09-21T00:12:43.145224192+00:00"
         assert report["periods"] == []
-        assert _ok(request("/v1/info"))["catalog"] == {"loaded": False, "loaded_at": None}
-        spec = _ok(request("/v1/openapi.json"))
-        assert len(spec["paths"]) == 12
-        assert spec["paths"]["/v1/sessions/{session_id}/frames/{artifact_id}"]["get"][
-            "parameters"
-        ] == [
+        assert "catalog" not in _ok(request("/v2/info"))
+        spec = _ok(request("/v2/openapi.json"))
+        assert len(spec["paths"]) == 6
+        assert spec["paths"]["/v2/stores/{store_id}/sessions/{session_id}/frames/{artifact_id}"][
+            "get"
+        ]["parameters"] == [
+            {"name": "store_id", "in": "path", "required": True, "schema": {"type": "string"}},
             {"name": "session_id", "in": "path", "required": True, "schema": {"type": "string"}},
             {"name": "artifact_id", "in": "path", "required": True, "schema": {"type": "string"}},
         ]
         _schema(spec, "FrameReport", report)
-        _error(request("/v1/openapi.json", bearer=None), 401, "unauthorized")
+        _error(request("/v2/openapi.json", bearer=None), 401, "unauthorized")
         for suffix, status, code in (
             ("?limit=1", 400, "invalid_parameter"),
             ("?include=rows", 400, "invalid_parameter"),
@@ -207,11 +206,11 @@ def test_complete_reports_restart_and_budget(tmp_path: Path) -> None:
         ):
             _error(request(path + suffix), status, code)
 
-        sessions = _ok(request("/v1/sessions"))
+        sessions = _ok(request("/v2/sessions"))
         assert sessions["items"][0]["session_id"] == ids["session_id"]
-        assert sessions["items"][0]["artifact_count"] == len(ids) - 1
+        assert sessions["items"][0]["artifact_count"] == len(ids) - 2
         _schema(spec, "SessionDirectory", sessions)
-        frames = path.rsplit("/", 1)[0]
+        frames = f"/v2/sessions/{ids['session_id']}/frames"
         page = _ok(request(frames + "?limit=1"))
         _schema(spec, "FrameDirectory", page)
         assert page["items"][0]["ref"]["artifact_id"] == ids["paired_id"]
@@ -298,140 +297,6 @@ def test_complete_reports_restart_and_budget(tmp_path: Path) -> None:
         assert _ok(request(path)) == report
 
 
-def _models(root: Path, text: str, *, bad: bool = False, slow: bool = False) -> None:
-    sales = root / "models" / "semantic" / "sales"
-    datasources = root / "models" / "datasources"
-    sales.mkdir(parents=True, exist_ok=True)
-    datasources.mkdir(parents=True, exist_ok=True)
-    (root / "marivo.toml").write_text('[project]\nname = "service-test"\n')
-    (datasources / "warehouse.py").write_text(
-        "import marivo.datasource as md\n"
-        "md.duckdb(name='warehouse', path='private-storage-name.duckdb')\n"
-    )
-    (sales / "_domain.py").write_text(
-        "import marivo.semantic as ms\nms.domain(name='sales', owner='Finance')\n"
-    )
-    events = sales / "events.py"
-    events.write_text(
-        "def broken(:\n"
-        if bad
-        else (
-            ("import time\ntime.sleep(6)\n" if slow else "")
-            + "import os\n"
-            + "import marivo.datasource as md\nimport marivo.semantic as ms\n"
-            + "os.write(1, b'ordinary model output')\n"
-            + "warehouse = ms.ref.datasource('warehouse')\n"
-            + "events = ms.entity(name='events', datasource=warehouse, "
-            + "source=md.json('https://data.example.test/events?secret=private-source-token', "
-            + "columns={'amount': 'amount', 'created': 'created'}), "
-            + "default_time=ms.ref.time_dimension('sales.events.created'))\n"
-            + "created = ms.time_dimension_column(name='created', entity=events, column='created')\n"
-            + "amount = ms.measure_column(name='amount', entity=events, column='amount', "
-            + f"additivity=ms.additive_all(), unit='USD', ai_context=ms.ai_context(business_definition={text!r}))\n"
-            + "@ms.metric()\ndef total():\n    return amount.sum()\n"
-        )
-    )
-
-
-def test_current_catalog_reload_isolated_from_saved_report(tmp_path: Path) -> None:
-    ids = _produce(tmp_path)
-    _models(tmp_path, "before", bad=True)
-    with server(tmp_path) as request:
-        report = _ok(request(_path(ids)))
-        _error(request("/v1/semantic/objects"), 422, "catalog_load_failed")
-        assert _ok(request("/v1/info"))["catalog"]["loaded"] is False
-        assert _ok(request(_path(ids))) == report
-        _models(tmp_path, "before")
-        spec = _ok(request("/v1/openapi.json"))
-        first = _ok(request("/v1/semantic/objects?limit=1"))
-        _schema(spec, "ObjectDirectory", first)
-        assert "sales" in first["domains"] and "measure" in first["kinds"]
-        continuation = "/v1/semantic/objects?" + urlencode(
-            {"limit": 1, "cursor": first["next_cursor"]}
-        )
-        assert _ok(request(continuation))["items"][0]["id"] != first["items"][0]["id"]
-        endpoint = "/v1/semantic/objects/measure%3Asales.events.amount"
-        detail = _ok(request(endpoint))
-        _schema(spec, "SemanticObject", detail)
-        assert detail["business_definition"] == "before"
-        assert detail["definition"]["unit"] == "USD"
-        assert set(detail) == {
-            "id",
-            "kind",
-            "path",
-            "name",
-            "domain",
-            "business_definition",
-            "definition",
-            "provenance",
-        }
-        related = _ok(request(endpoint + "/related?relation=dependencies"))
-        _schema(spec, "RelatedDirectory", related)
-        assert "entity:sales.events" in {item["id"] for item in related["items"]}
-        entity = _ok(request("/v1/semantic/objects/entity%3Asales.events"))
-        _schema(spec, "SemanticObject", entity)
-        assert entity["definition"]["source"] == {"kind": "json"}
-        assert entity["definition"]["default_time"] == "time_dimension:sales.events.created"
-        assert "private-source-token" not in json.dumps(entity)
-        metric = _ok(request("/v1/semantic/objects/metric%3Asales.total"))
-        _schema(spec, "SemanticObject", metric)
-        (binding,) = metric["definition"]["time_bindings"]
-        assert binding["source"] == "entity_default"
-        assert binding["field"] == "time_dimension:sales.events.created"
-        assert binding["anchor"] is None
-        assert "time_parameters" not in metric["definition"]
-        datasource = _ok(request("/v1/semantic/objects/datasource%3Awarehouse"))
-        _schema(spec, "SemanticObject", datasource)
-        assert datasource["definition"]["backend_type"] == "duckdb"
-        assert "private-storage-name" not in json.dumps(datasource)
-        _error(request(endpoint + "?as_of=yesterday"), 400, "invalid_parameter")
-
-        _models(tmp_path, "after")
-        reload = _ok(request("/v1/semantic/reload", method="POST"))
-        assert reload["object_count"] >= 4 and reload["loaded_at"] != ""
-        assert _ok(request(endpoint))["business_definition"] == "after"
-        _error(request(continuation), 409, "invalid_cursor")
-        _models(tmp_path, "bad", bad=True)
-        _error(request("/v1/semantic/reload", method="POST"), 422, "catalog_load_failed")
-        assert _ok(request("/v1/info"))["catalog"]["loaded_at"] == reload["loaded_at"]
-        assert _ok(request(endpoint))["business_definition"] == "after"
-        assert _ok(request(_path(ids))) == report
-
-
-@pytest.mark.parametrize("initial_method", ["GET", "POST"])
-def test_reload_rejects_active_load_then_reads_new_model(
-    tmp_path: Path, initial_method: str
-) -> None:
-    _models(tmp_path, "before")
-    events = tmp_path / "models/semantic/sales/events.py"
-    ready, release = tmp_path / "ready", tmp_path / "release"
-    with events.open("a") as model:
-        model.write(
-            "\nfrom pathlib import Path\nimport time\n"
-            f"Path({str(ready)!r}).touch()\n"
-            f"while not Path({str(release)!r}).exists():\n    time.sleep(0.01)\n"
-        )
-    with server(tmp_path) as request, ThreadPoolExecutor(max_workers=1) as pool:
-        initial_path = "/v1/semantic/objects" if initial_method == "GET" else "/v1/semantic/reload"
-        pending = pool.submit(request, initial_path, method=initial_method)
-        try:
-            deadline = monotonic() + 20
-            while not ready.exists():
-                assert monotonic() < deadline, "Catalog worker did not reach the model barrier"
-                sleep(0.01)
-            _models(tmp_path, "after")
-            reply = request("/v1/semantic/reload", method="POST")
-            _error(reply, 409, "catalog_load_in_progress")
-            _schema(_ok(request("/v1/openapi.json")), "Error409", reply[2])
-        finally:
-            release.touch()
-        _ok(pending.result(timeout=30))
-        endpoint = "/v1/semantic/objects/measure%3Asales.events.amount"
-        assert _ok(request(endpoint))["business_definition"] == "before"
-        _ok(request("/v1/semantic/reload", method="POST"))
-        assert _ok(request(endpoint))["business_definition"] == "after"
-
-
 def test_missing_store_wrong_identity_and_corruption(tmp_path: Path) -> None:
     project = tmp_path / "producer"
     project.mkdir()
@@ -439,8 +304,8 @@ def test_missing_store_wrong_identity_and_corruption(tmp_path: Path) -> None:
     empty = tmp_path / "empty"
     empty.mkdir()
     with server(empty) as request:
-        assert _ok(request("/v1/info"))["store_id"] is None
-        assert _ok(request("/v1/sessions")) == {
+        assert _ok(request("/v2/info"))["store_id"] is None
+        assert _ok(request("/v2/sessions")) == {
             "items": [],
             "limit": 20,
             "has_more": False,
@@ -504,19 +369,19 @@ def test_tls_cors_and_cli_validation(tmp_path: Path) -> None:
         _ORIGIN,
         context=context,
     ) as request:
-        assert _ok(request("/v1/info"))["api_version"] == 1
+        assert _ok(request("/v2/info"))["api_version"] == 2
         headers = {
             "Origin": _ORIGIN,
-            "Access-Control-Request-Method": "POST",
+            "Access-Control-Request-Method": "GET",
             "Access-Control-Request-Headers": "authorization, Content-Type",
         }
         status, cors, body = request(
-            "/v1/semantic/reload", method="OPTIONS", bearer=None, headers=headers
+            "/v2/semantic/reload", method="OPTIONS", bearer=None, headers=headers
         )
         assert status == 204 and body is None
         assert cors["access-control-allow-origin"] == _ORIGIN
         assert "access-control-allow-credentials" not in cors
-        assert cors["access-control-allow-methods"] == "GET, POST, OPTIONS"
+        assert cors["access-control-allow-methods"] == "GET, OPTIONS"
         assert cors["access-control-allow-headers"] == "Authorization, Content-Type"
         for override in (
             {"Origin": "https://other.example.test"},
@@ -524,17 +389,17 @@ def test_tls_cors_and_cli_validation(tmp_path: Path) -> None:
             {"Access-Control-Request-Headers": "X-Unknown"},
         ):
             _error(
-                request("/v1/info", method="OPTIONS", bearer=None, headers={**headers, **override}),
+                request("/v2/info", method="OPTIONS", bearer=None, headers={**headers, **override}),
                 403,
                 "origin_not_allowed",
             )
         failure = request(
-            "/v1/semantic/reload", method="POST", bearer="wrong", headers={"Origin": _ORIGIN}
+            "/v2/semantic/reload", method="POST", bearer="wrong", headers={"Origin": _ORIGIN}
         )
         _error(failure, 401, "unauthorized")
         assert failure[1]["access-control-allow-origin"] == _ORIGIN
         assert failure[1]["vary"] == "Origin"
-        assert _ok(request("/v1/info"))["catalog"]["loaded"] is False
+        assert "catalog" not in _ok(request("/v2/info"))
 
     no_token = {k: v for k, v in os.environ.items() if k != "MARIVO_API_TOKEN"}
     for opts, env, expected in (
@@ -547,8 +412,6 @@ def test_tls_cors_and_cli_validation(tmp_path: Path) -> None:
         ),
         (["--max-response-mib", "0"], no_token, "positive integers"),
         (["--read-timeout-seconds", "-1"], no_token, "positive integers"),
-        (["--refresh-timeout-seconds", "0"], no_token, "positive integers"),
-        (["--max-refreshes", "-1"], no_token, "positive integers"),
         (
             ["--allow-origin", "https://example.test/path"],
             {**os.environ, "MARIVO_API_TOKEN": _TOKEN},
@@ -566,9 +429,8 @@ def test_tls_cors_and_cli_validation(tmp_path: Path) -> None:
         assert expected in failed.stderr and _TOKEN not in failed.stderr
 
 
-def test_read_timeout_covers_complete_report_and_catalog(tmp_path: Path) -> None:
+def test_read_timeout_covers_complete_report(tmp_path: Path) -> None:
     ids = _produce(tmp_path)
-    _models(tmp_path, "slow", slow=True)
     # Hold a real Frame read past the deadline at its file-read boundary.
     script = """
 from time import sleep
@@ -587,9 +449,8 @@ main()
     ) as request:
         error = _error(request(_path(ids)), 503, "read_timeout")
         assert "1 second" in error["message"] and "--read-timeout-seconds" in error["repair"]
-        _error(request("/v1/semantic/objects"), 503, "read_timeout")
-        assert _ok(request("/v1/info"))["catalog"]["loaded"] is False
-        assert len(_ok(request("/v1/sessions"))["items"]) == 1
+        assert "catalog" not in _ok(request("/v2/info"))
+        assert len(_ok(request("/v2/sessions"))["items"]) == 1
 
 
 def test_in_progress_publication_does_not_block_or_enter_committed_directory(
@@ -630,7 +491,7 @@ print(source.compute().persist(description="next commit").artifact_id, flush=Tru
         try:
             assert select.select([producer.stdout], [], [], 20)[0]
             assert producer.stdout.readline().strip() == "staged"
-            directory = _path(ids).rsplit("/", 1)[0]
+            directory = f"/v2/sessions/{ids['session_id']}/frames"
             previous = _ok(request(directory))
             assert {item["ref"]["artifact_id"] for item in previous["items"]} == {
                 ids["artifact_id"],
@@ -660,7 +521,15 @@ def test_read_report_with_missing_method_payload(tmp_path: Path) -> None:
     file.unlink()
     with server(tmp_path) as request:
         report = _ok(
-            request(_path({"session_id": saved.session_id, "artifact_id": saved.artifact_id}))
+            request(
+                _path(
+                    {
+                        "store_id": local.store.store_id,
+                        "session_id": saved.session_id,
+                        "artifact_id": saved.artifact_id,
+                    }
+                )
+            )
         )
         fields = [item["name"] for item in report["data"]["layout"]]
         assert report["data"]["rows"][0][fields.index("contribution.q")] == "40"
@@ -668,160 +537,50 @@ def test_read_report_with_missing_method_payload(tmp_path: Path) -> None:
         assert not file.exists()
 
 
-def _refresh_project(root: Path) -> Path:
-    _models(root, "Endpoint input")
-    facts = root / "facts.json"
-    facts.write_text('[{"amount": 10}]')
-    (root / "models/datasources/warehouse.py").write_text(
-        "import marivo.datasource as md\nmd.duckdb(name='warehouse', extra={'threads': 1})\n"
-    )
-    (root / "models/semantic/sales/events.py").write_text(
-        "import marivo.datasource as md\nimport marivo.semantic as ms\n"
-        "events = ms.entity(name='events', datasource=ms.ref.datasource('warehouse'), "
-        f"source=md.json({str(facts)!r}, columns={{'amount': 'amount'}}))\n"
-        "amount = ms.measure_column(name='amount', entity=events, column='amount', "
-        "additivity=ms.additive_all(), unit='USD')\n"
-        "@ms.metric()\ndef total():\n    return amount.sum()\n"
-    )
-    endpoints = root / "endpoints/sales"
-    endpoints.mkdir(parents=True)
-    for name, returned, output in (
-        ("total", "mv.AnalysisFrame", "return frame"),
-        (
-            "table",
-            "pd.DataFrame",
-            "table = frame.compute().to_pandas()\n    return table.assign(double=table['total'] * 2)",
-        ),
-    ):
-        (endpoints / f"{name}.py").write_text(
-            "from pathlib import Path\nimport pandas as pd\nimport marivo.analysis as mv\n"
-            "with Path('invocations').open('a') as log:\n    log.write('import\\n')\n"
-            f"def main(session: mv.Session) -> {returned}:\n"
-            "    metric = session.catalog.get('metric:sales.total')\n"
-            "    assert metric.kind == 'metric'\n"
-            "    frame = session.observe({'total': metric})\n"
-            f"    {output}\n"
-        )
-    return facts
+def test_plain_table_publication_and_retired_routes(tmp_path: Path) -> None:
+    import pandas as pd
 
+    import marivo.analysis as mv
 
-def test_script_example_from_live_help_runs_through_service(tmp_path: Path) -> None:
-    _refresh_project(tmp_path)
-    help_text = render_help_text("analysis.results.service.scripts")[0]
-    example = help_text.split("\nExample:\n", 1)[1].split("\nExpected:", 1)[0]
-    (tmp_path / "endpoints/sales/from_help.py").write_text(example + "\n")
-
+    (tmp_path / "endpoints").mkdir()
+    (tmp_path / "endpoints" / "bad.py").write_text("raise AssertionError('must not execute')")
+    (tmp_path / "models").mkdir()
+    (tmp_path / "models" / "bad.py").write_text("raise AssertionError('must not load')")
+    ref = mv.persist_dataframe(pd.DataFrame({"orders": [9007199254740993]}), project_root=tmp_path)
+    path = "/v2/dataframes/" + ref.result_id
     with server(tmp_path) as request:
-        url = "/v1/data/sales/from_help"
-        _error(request(url), 404, "result_not_found")
-        report = _ok(request(url + "/refresh", method="POST"))
-        assert report["kind"] == "analysis_frame"
-        assert report["data"]["rows"] == [["10"]]
-        assert _ok(request(url)) == report
-        assert _ok(request(_path(report["ref"]))) == report
-
-
-def test_refresh_source_updates_and_report_saved_refs(tmp_path: Path) -> None:
-    facts = _refresh_project(tmp_path)
-    frame_url, table_url = "/v1/data/sales/total", "/v1/data/sales/table"
-    with server(tmp_path) as request:
-        _error(request(frame_url), 404, "result_not_found")
-        _error(request(table_url), 404, "result_not_found")
-        _error(request(frame_url + "/refresh", method="POST", bearer=None), 401, "unauthorized")
-        for query in (
-            "refresh=true",
-            "refresh=false",
-            "refresh=",
-            "refresh=1",
-            "refresh=TRUE",
-            "refresh=true&refresh=true",
-            "x=1",
+        spec = _ok(request("/v2/openapi.json"))
+        result = _ok(request(path))
+        assert result["ref"] == ref.to_dict()
+        assert result["data"]["rows"] == [["9007199254740993"]]
+        assert "session_id" not in result
+        assert _ok(request("/v2/info"))["store_id"] is None
+        _schema(spec, "DataFrameReport", result)
+        for retired in (
+            "/v1/info",
+            "/v2/data/sales/total",
+            "/v2/data/sales/total/refresh",
+            "/v2/semantic/objects",
+            "/v2/semantic/reload",
         ):
-            _error(request(frame_url + "?" + query), 400, "invalid_parameter")
-        _error(request(frame_url + "/refresh"), 404, "result_not_found")
-        _error(request(frame_url, method="POST"), 404, "not_found")
-        _error(
-            request(frame_url + "/refresh?refresh=true", method="POST"), 400, "invalid_parameter"
-        )
-        _error(request(frame_url + "/refresh", method="POST", body=b"{}"), 400, "invalid_parameter")
-        assert not (tmp_path / "invocations").exists()
-        assert not (tmp_path / ".marivo").exists()
-        spec = _ok(request("/v1/openapi.json"))
-        data_operation = spec["paths"]["/v1/data/{endpoint}"]["get"]
-        assert [parameter["in"] for parameter in data_operation["parameters"]] == ["path"]
-        refresh_operation = spec["paths"]["/v1/data/{endpoint}/refresh"]["post"]
-        assert "Do not automatically retry" in refresh_operation["description"]
-        assert "read current state" in refresh_operation["description"]
-        first_frame = _ok(request(frame_url + "/refresh", method="POST"))
-        first_table = _ok(request(table_url + "/refresh", method="POST"))
-        assert first_frame["kind"] == "analysis_frame"
-        assert first_frame["data"]["rows"] == [["10"]]
-        assert first_table["data"] == {
-            "layout": ["total", "double"],
-            "rows": [["10", "20"]],
-            "row_count": 1,
-        }
-        for report in (first_frame, first_table):
-            _schema(spec, "DataReport", report)
-        assert first_table["session_id"] != first_frame["ref"]["session_id"]
-        saved = tmp_path / "report.json"
-        saved.write_text(json.dumps({"frame": first_frame["ref"], "table": first_table["ref"]}))
-        facts.write_text('[{"amount": 20}]')
-        assert _ok(request(frame_url)) == first_frame
-        assert _ok(request(table_url)) == first_table
-        assert (tmp_path / "invocations").read_text().splitlines() == ["import", "import"]
-        newer_frame = _ok(request(frame_url + "/refresh", method="POST"))
-        newer_table = _ok(request(table_url + "/refresh", method="POST"))
-        assert newer_frame["data"]["rows"] == [["20"]]
-        assert newer_table["data"]["rows"] == [["20", "40"]]
-        assert newer_frame["ref"] != first_frame["ref"]
-        assert newer_table["ref"] != first_table["ref"]
-        restored = json.loads(saved.read_text())
-        fixed_frame = _path(restored["frame"])
-        fixed_table = "/v1/dataframes/" + restored["table"]["result_id"]
-        assert _ok(request(fixed_frame)) == first_frame
-        assert _ok(request(fixed_table)) == first_table
-        _error(request(fixed_table + "?refresh=true"), 400, "invalid_parameter")
-        assert len(list((tmp_path / ".marivo/server/dataframes").glob("*.parquet"))) == 2
-        (tmp_path / "endpoints").rename(tmp_path / "removed_endpoints")
-        (tmp_path / "models").rename(tmp_path / "removed_models")
-        facts.unlink()
-        assert _ok(request(frame_url)) == newer_frame
-        assert _ok(request(table_url)) == newer_table
-    with server(tmp_path) as request:
-        assert _ok(request(fixed_frame)) == first_frame
-        assert _ok(request(frame_url)) == newer_frame
-        assert _ok(request(fixed_table)) == first_table
-        _error(request(frame_url + "/refresh", method="POST"), 404, "not_found")
-    (tmp_path / ".marivo/analysis").rename(tmp_path / "removed_store")
-    with server(tmp_path) as request:
-        assert _ok(request(fixed_table)) == first_table
-        assert _ok(request(table_url)) == newer_table
+            _error(request(retired), 404, "not_found")
+            _error(request(retired, method="POST"), 404, "not_found")
+        _error(request(path, method="POST"), 405, "method_not_allowed")
+    assert not (tmp_path / ".marivo/analysis").exists()
 
 
-def test_refresh_timeout_cross_process_lock_and_read_availability(tmp_path: Path) -> None:
-    _refresh_project(tmp_path)
-    url = "/v1/data/sales/table"
-    path = tmp_path / "endpoints/sales/table.py"
-    original = path.read_text()
-    with server(tmp_path, "--refresh-timeout-seconds", "10") as first:
-        saved = _ok(first(url + "/refresh", method="POST"))
-        path.write_text(
-            original.replace(
-                "    metric =",
-                "    Path('ready').touch()\n    import time\n    time.sleep(120)\n    metric =",
-            )
-        )
-        with server(tmp_path) as second, ThreadPoolExecutor(max_workers=1) as pool:
-            pending = pool.submit(first, url + "/refresh", method="POST")
-            deadline = monotonic() + 8
-            while not (tmp_path / "ready").exists():
-                assert monotonic() < deadline, "Worker did not enter the script"
-                sleep(0.01)
-            assert _ok(second(url)) == saved
-            _error(second(url + "/refresh", method="POST"), 409, "refresh_in_progress")
-            _error(first("/v1/data/sales/total/refresh", method="POST"), 503, "service_unavailable")
-            _error(pending.result(timeout=15), 503, "refresh_timeout")
-            assert _ok(first(url)) == saved
-            path.write_text(original)
-            assert _ok(second(url + "/refresh", method="POST"))["ref"] != saved["ref"]
+def test_frame_wrong_store_is_rejected(tmp_path: Path) -> None:
+    ids = _produce(tmp_path)
+    with server(tmp_path) as request:
+        _error(request(_path({**ids, "store_id": "store_other"})), 409, "invalid_result_reference")
+
+
+def test_old_reference_against_replacement_store_reports_identity_conflict(tmp_path: Path) -> None:
+    original = tmp_path / "original"
+    replacement = tmp_path / "replacement"
+    ids = _produce(original)
+    other = _produce(replacement)
+    assert ids["store_id"] != other["store_id"]
+    assert ids["session_id"] != other["session_id"]
+    with server(replacement) as request:
+        _error(request(_path(ids)), 409, "invalid_result_reference")

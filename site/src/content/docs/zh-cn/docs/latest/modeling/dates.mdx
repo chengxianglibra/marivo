@@ -27,7 +27,7 @@ order_date = ms.time_dimension_column(
 )
 ```
 
-物理列使用 `ms.time_dimension_column`，派生字段使用 `@ms.time_dimension`。原生日期和带时区时间戳无需解析器；编码字符串或整数使用 `ms.strptime(...)`，只有小时的字段使用 `ms.hour_prefix(...)`。DATE、无时区时间戳和编码时间必须在解析器或 Datasource `wall_clock_timezone` 上声明源时区；两者都缺失时在读取业务数据前拒绝。原生带时区时间戳忽略 Datasource 默认值。源规约通过 `time=field` 或继承 Entity 的可选 `default_time` 固定贡献时间。范围合计使用 `where=scope`，时间分组使用 `by=(scope.by(grain),)`。财务期间参见[业务日历](#业务日历)。
+物理列使用 `ms.time_dimension_column`，派生字段使用 `@ms.time_dimension`。原生日期和带时区时间戳无需解析器；编码字符串或整数使用 `ms.strptime(...)`，只有小时的字段使用 `ms.hour_prefix(...)`。DATE、无时区时间戳和编码时间必须在解析器或 Datasource `wall_clock_timezone` 上声明源时区；两者都缺失时在读取业务数据前拒绝。原生带时区时间戳忽略 Datasource 默认值。源规约通过 `time=field` 或继承 Entity 的可选 `default_time` 固定贡献时间。范围合计使用 `where=scope`，时间分组使用 `by=(scope.by(grain),)`。财务期间参见[业务日历](#业务日历与节假日)。
 
 `sample_interval` 描述来源采样节拍，不会将时间戳截断或分桶。所有 TimeField 样本规约均允许缺点；已表示样本上的 NULL 遵循规约自身策略，声明节拍不代表来源完整。
 

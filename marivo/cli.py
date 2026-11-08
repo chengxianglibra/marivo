@@ -223,7 +223,7 @@ def main(argv: list[str] | None = None) -> None:
     from marivo.server.wire import DEFAULT_MIB, DEFAULT_SECONDS
 
     serve_parser = subparsers.add_parser(
-        "serve", help="Serve definitions, fixed data and explicitly refreshed endpoints"
+        "serve", help="Serve explicitly persisted results over read-only HTTP"
     )
     serve_parser.add_argument(
         "--project-root", type=Path, help="Bind an existing project directory"
@@ -252,22 +252,8 @@ def main(argv: list[str] | None = None) -> None:
         help=f"Time budget per read, in seconds (default {DEFAULT_SECONDS})",
     )
     serve_parser.epilog = (
-        "Set MARIVO_API_TOKEN in the environment; it grants reads, Catalog reload and script execution. "
-        "GET reads saved results; POST /v1/data/{endpoint}/refresh executes trusted project code. "
-        "Do not automatically retry refresh: a timeout or lost response does not prove publication failed. "
-        "Read current state before deciding to refresh again. See marivo help analysis.results.service."
-    )
-    serve_parser.add_argument(
-        "--refresh-timeout-seconds",
-        type=int,
-        default=300,
-        help="Time budget per explicit script refresh (default 300 seconds)",
-    )
-    serve_parser.add_argument(
-        "--max-refreshes",
-        type=int,
-        default=1,
-        help="Concurrent script refreshes per service process (default 1)",
+        "Set MARIVO_API_TOKEN in the environment for fixed-result reads. "
+        "See marivo help analysis.results.service.http."
     )
 
     help_parser = subparsers.add_parser(
@@ -343,8 +329,6 @@ def main(argv: list[str] | None = None) -> None:
                 certfile=args.ssl_certfile,
                 keyfile=args.ssl_keyfile,
                 limits=Limits(args.max_response_mib, args.read_timeout_seconds),
-                refresh_seconds=args.refresh_timeout_seconds,
-                max_refreshes=args.max_refreshes,
             )
         except ValueError as error:
             serve_parser.error(str(error))

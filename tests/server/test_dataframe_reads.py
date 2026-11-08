@@ -14,7 +14,9 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
-from marivo.server.dataframes import publish, report
+import marivo.analysis as mv
+from marivo.analysis.materialization.result_files import ResultStorageError
+from marivo.server.dataframes import report
 from marivo.server.wire import Budget, Limits, ServiceError
 
 
@@ -48,10 +50,10 @@ def test_exact_values_and_cold_reader_without_store(tmp_path: Path) -> None:
         }
     )
     frame.attrs["not_json"] = object()
-    reference = publish(tmp_path, frame, "session_capture")
+    reference = mv.persist_dataframe(frame, project_root=tmp_path)
     assert not (tmp_path / ".marivo/analysis").exists()
     payload = read(tmp_path, reference.result_id)
-    assert payload["kind"] == "dataframe" and payload["session_id"] == "session_capture"
+    assert payload["kind"] == "dataframe" and "session_id" not in payload
     assert payload["ref"] == {"schema": "marivo.dataframe_ref/v1", "result_id": reference.result_id}
     assert payload["data"] == {
         "layout": ["id", "amount", "stamp", "elapsed", "ratio"],
@@ -97,14 +99,14 @@ sys.stdout.buffer.write(report(Path(sys.argv[1]), sys.argv[2], Budget(limits, 'd
 
 @pytest.mark.parametrize("rows", [0, 1, 3])
 def test_zero_column_row_count_is_retained(tmp_path: Path, rows: int) -> None:
-    reference = publish(tmp_path, pd.DataFrame(index=pd.RangeIndex(rows)), "session_zero")
+    reference = mv.persist_dataframe(pd.DataFrame(index=pd.RangeIndex(rows)), project_root=tmp_path)
     payload = read(tmp_path, reference.result_id)
     assert payload["schema"] == {"columns": []}
     assert payload["data"] == {"layout": [], "rows": [[] for _ in range(rows)], "row_count": rows}
 
 
 def test_zero_column_invalid_logical_row_count_fails(tmp_path: Path) -> None:
-    reference = publish(tmp_path, pd.DataFrame(index=pd.RangeIndex(3)), "session_zero")
+    reference = mv.persist_dataframe(pd.DataFrame(index=pd.RangeIndex(3)), project_root=tmp_path)
     path = tmp_path / ".marivo/server/dataframes" / (reference.result_id + ".parquet")
     table = pq.read_table(path)
     metadata = json.loads(table.schema.metadata[b"marivo.dataframe"])
@@ -112,7 +114,7 @@ def test_zero_column_invalid_logical_row_count_fails(tmp_path: Path) -> None:
     pq.write_table(
         table.replace_schema_metadata({b"marivo.dataframe": json.dumps(metadata).encode()}), path
     )
-    with pytest.raises(ServiceError) as failure:
+    with pytest.raises(ResultStorageError) as failure:
         read(tmp_path, reference.result_id)
     assert failure.value.code == "corrupt_dataframe"
 
@@ -124,8 +126,8 @@ def test_empty_typed_columns_and_immutable_versions(tmp_path: Path) -> None:
             "amount": pd.Series([], dtype=pd.ArrowDtype(pa.decimal128(18, 2))),
         }
     )
-    old = publish(tmp_path, frame, "session_old")
-    newer = publish(tmp_path, pd.DataFrame({"count": [20]}), "session_new")
+    old = mv.persist_dataframe(frame, project_root=tmp_path)
+    newer = mv.persist_dataframe(pd.DataFrame({"count": [20]}), project_root=tmp_path)
     assert old != newer
     payload = read(tmp_path, old.result_id)
     assert payload["schema"] == {
@@ -156,19 +158,21 @@ def test_empty_typed_columns_and_immutable_versions(tmp_path: Path) -> None:
 def test_unsupported_structure_is_not_silently_coerced(
     tmp_path: Path, frame: pd.DataFrame, location: str
 ) -> None:
-    with pytest.raises(ServiceError) as failure:
-        publish(tmp_path, frame, "session_bad")
+    with pytest.raises(ResultStorageError) as failure:
+        mv.persist_dataframe(frame, project_root=tmp_path)
     assert failure.value.code == "unencodable_value"
     assert failure.value.location == location
     assert not list(tmp_path.rglob("*.parquet"))
 
 
 def test_corrupt_metadata_missing_data_and_response_budget(tmp_path: Path) -> None:
-    saved = publish(tmp_path, pd.DataFrame({"value": ["x" * 1000] * 1200}), "session_budget")
+    saved = mv.persist_dataframe(
+        pd.DataFrame({"value": ["x" * 1000] * 1200}), project_root=tmp_path
+    )
     limits = Limits(mib=1)
-    with pytest.raises(ServiceError) as failure:
+    with pytest.raises(ServiceError) as budget_failure:
         report(tmp_path, saved.result_id, Budget(limits, "dataframe", limits.deadline(), Event()))
-    assert failure.value.code == "response_too_large"
+    assert budget_failure.value.code == "response_too_large"
     path = tmp_path / ".marivo/server/dataframes" / (saved.result_id + ".parquet")
     table = pq.read_table(path)
     metadata = json.loads(table.schema.metadata[b"marivo.dataframe"])
@@ -176,10 +180,10 @@ def test_corrupt_metadata_missing_data_and_response_budget(tmp_path: Path) -> No
     pq.write_table(
         table.replace_schema_metadata({b"marivo.dataframe": json.dumps(metadata).encode()}), path
     )
-    with pytest.raises(ServiceError) as failure:
+    with pytest.raises(ResultStorageError) as failure:
         read(tmp_path, saved.result_id)
     assert failure.value.code == "corrupt_dataframe"
     path.unlink()
-    with pytest.raises(ServiceError) as failure:
+    with pytest.raises(ResultStorageError) as failure:
         read(tmp_path, saved.result_id)
     assert failure.value.code == "result_not_found"

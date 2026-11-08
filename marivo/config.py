@@ -30,8 +30,7 @@ CODEX_SKILLS_DIR = ".codex/skills"
 AGENTS_SKILLS_DIR = ".agents/skills"
 SKILL_SEMANTIC = "marivo-semantic"
 SKILL_ANALYSIS = "marivo-analysis"
-SKILL_SERVICE = "marivo-service"
-PACKAGED_SKILLS = (SKILL_SEMANTIC, SKILL_ANALYSIS, SKILL_SERVICE)
+PACKAGED_SKILLS = (SKILL_SEMANTIC, SKILL_ANALYSIS)
 
 
 # ---------------------------------------------------------------------------

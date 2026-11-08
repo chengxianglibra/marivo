@@ -1840,10 +1840,6 @@ def _validate_fact(value: _Fact) -> None:
     if isinstance(
         value, (FrameInstantSourceTime, FrameWallClockSourceTime, FrameCivilDateSourceTime)
     ):
-        from zoneinfo import ZoneInfoNotFoundError
-
-        from marivo._timezones import normalize_timezone
-
         text(value.axis)
         text(value.physical_type)
         for zone in (
@@ -1854,12 +1850,10 @@ def _validate_fact(value: _Fact) -> None:
                 else ()
             ),
         ):
-            try:
-                canonical = normalize_timezone(zone).name
-            except (TypeError, ValueError, ZoneInfoNotFoundError):
-                _invalid("a valid canonical captured timezone")
-            if canonical != zone:
-                _invalid("a canonical captured timezone")
+            # Producers validate and normalize declarations. These are captured
+            # identities, just like saved axis timezones below; reopening must
+            # not reinterpret them through the reader's current timezone data.
+            text(zone)
         if isinstance(
             value, (FrameWallClockSourceTime, FrameCivilDateSourceTime)
         ) and value.origin not in ("field", "datasource"):

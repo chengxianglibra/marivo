@@ -170,7 +170,7 @@ def test_first_discovery_reaches_a_meaningful_exact_choice_within_four_reads() -
             "analysis",
             "analysis.results",
             "analysis.results.service",
-            "analysis.results.service.scripts",
+            "analysis.results.service.http",
         ),
         (
             "analysis",

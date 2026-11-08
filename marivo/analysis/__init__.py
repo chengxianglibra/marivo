@@ -33,6 +33,9 @@ if TYPE_CHECKING:
     from marivo.analysis.core.frame_interpretation import (
         FrameReportWindowEndpoint as FrameReportWindowEndpoint,
     )
+    from marivo.analysis.core.result_reference import DataFrameReference as DataFrameReference
+    from marivo.analysis.core.result_reference import FrameReference as FrameReference
+    from marivo.analysis.results import persist_dataframe as persist_dataframe
 
     __all__: list[str]
     from marivo._definition.correspondence import CalendarCorrespondence as CalendarCorrespondence

@@ -10,7 +10,6 @@ from zipfile import ZipFile
 SKILLS = (
     "marivo/skills/marivo-analysis/SKILL.md",
     "marivo/skills/marivo-semantic/SKILL.md",
-    "marivo/skills/marivo-service/SKILL.md",
 )
 REQUIRED_PATHS = frozenset(SKILLS)
 

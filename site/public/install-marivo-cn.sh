@@ -178,6 +178,7 @@ ensure_uv() {
         local powershell
         powershell="$(command -v powershell.exe || command -v powershell || command -v pwsh || true)"
         [ -n "$powershell" ] || die "Windows uv installation requires PowerShell"
+        # shellcheck disable=SC2016 # PowerShell, not the calling shell, expands $env.
         if ! "$powershell" -NoProfile -ExecutionPolicy Bypass -Command \
             '$env:UV_NO_MODIFY_PATH="1"; irm https://astral.sh/uv/install.ps1 | iex' >&2; then
             die "could not install uv with the official PowerShell installer"
@@ -276,9 +277,6 @@ validate_marivo() {
 warn_missing_skill_links() {
     local agent_dir skill_name skill_path
     local skill_names=(marivo-semantic marivo-analysis)
-    if "$VENV_PYTHON" -c 'import marivo.skills; from pathlib import Path; import sys; sys.exit(not (Path(marivo.skills.__file__).parent / "marivo-service" / "SKILL.md").is_file())' >/dev/null 2>&1; then
-        skill_names+=(marivo-service)
-    fi
     for agent_dir in .agents .claude .codex; do
         for skill_name in "${skill_names[@]}"; do
             skill_path="$agent_dir/skills/$skill_name"

@@ -269,9 +269,6 @@ def test_doctor_reports_initialized_agent_skills(tmp_path: Path) -> None:
 
     assert _section(report, "skills").status == "ok"
     assert _check(report, "skills", "skills.claude.marivo-semantic").status == "ok"
-    assert _check(report, "skills", "skills.agents.marivo-service").status == "ok"
-    assert _check(report, "skills", "skills.claude.marivo-service").status == "ok"
-    assert _check(report, "skills", "skills.codex.marivo-service").status == "ok"
 
 
 def test_doctor_fails_on_broken_agent_skill_link(tmp_path: Path) -> None:

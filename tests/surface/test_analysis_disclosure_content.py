@@ -682,6 +682,8 @@ def test_observe_help_discloses_report_domains_and_definition_repair() -> None:
 def test_construction_type_families_and_retired_surface() -> None:
     registry = prepare()
     assert {d.canonical_id for d in registry.descriptors if isinstance(d, TypeInput)} == {
+        "frame_reference",
+        "dataframe_reference",
         "frame_clocked_contribution",
         "frame_report_window_endpoint",
         "frame_contribution_sample_window_endpoint",
@@ -801,7 +803,7 @@ def test_construction_type_families_and_retired_surface() -> None:
         "value_statistic",
         "column",
     }
-    assert len([name for name in mv.__all__ if isinstance(getattr(mv, name), type)]) == 78
+    assert len([name for name in mv.__all__ if isinstance(getattr(mv, name), type)]) == 80
     removed = {
         "before_end_boundary",
         "before_end_boundary.end",

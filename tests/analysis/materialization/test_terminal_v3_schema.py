@@ -519,7 +519,7 @@ def test_source_time_records_have_required_closed_fields(damage: str) -> None:
     elif damage == "kind":
         payload = payload.replace('"kind":"civil_date"', '"kind":"wall_clock"')
     elif damage == "timezone":
-        payload = payload.replace('"timezone":"UTC"', '"timezone":"No/Such_Zone"')
+        payload = payload.replace('"timezone":"UTC"', '"timezone":""')
     elif damage == "origin":
         payload = payload.replace('"origin":"field"', '"origin":"session"')
     else:
@@ -531,3 +531,34 @@ def test_source_time_records_have_required_closed_fields(damage: str) -> None:
         )
     with pytest.raises(IntegrityError):
         protocol.decode(payload, ArtifactManifest)
+
+
+def test_source_time_facts_decode_without_current_timezone_rules(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from marivo import _timezones
+    from marivo.analysis.core.frame_interpretation import (
+        FrameCivilDateSourceTime,
+        FrameInstantSourceTime,
+        FrameWallClockSourceTime,
+    )
+
+    saved = manifest()
+    clocks = (
+        FrameCivilDateSourceTime("sales.day", "date", "UTC", "UTC", "field"),
+        FrameInstantSourceTime("sales.instant", "timestamp", "America/New_York"),
+        FrameWallClockSourceTime(
+            "sales.wall", "timestamp", "UTC+05:30", "Asia/Tokyo", "datasource"
+        ),
+    )
+    schema = replace(saved.data.schema, source_times=clocks)
+    saved = replace(saved, data=replace(saved.data, schema=schema))
+    payload = protocol.encode(saved)
+
+    def forbidden(*args: object, **kwargs: object) -> None:
+        raise AssertionError("fixed source-time metadata consulted live timezone rules")
+
+    monkeypatch.setattr(_timezones, "ZoneInfo", forbidden)
+    restored = protocol.decode(payload, ArtifactManifest)
+    assert restored.data.schema.source_times == clocks
+    assert protocol.encode(restored) == payload

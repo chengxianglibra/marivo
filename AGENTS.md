@@ -21,8 +21,8 @@ in project-local skills, README files, or owning domain documentation.
   changing behavior. Proposals and plans alone do not prove implementation.
 - Keep source code, comments, tests, fixtures, generated code, and user-facing
   strings in English. Localized documentation may use its target language.
-- Editing this file or any packaged skill (`marivo-semantic`, `marivo-analysis`,
-  and `marivo-service`) requires explicit user approval. A request to edit the
+- Editing this file or any packaged skill (`marivo-semantic` and
+  `marivo-analysis`) requires explicit user approval. A request to edit the
   named file grants that approval; general implementation or documentation
   work does not implicitly authorize packaged-skill edits.
 
@@ -39,7 +39,7 @@ For datasource or semantic work, start with the overview and focused live Help.
 | Semantic authoring | `docs/architecture/semantic/authoring-workflow.md` |
 | Loading, validation, runtime, and analysis handoff | `docs/architecture/semantic/loading-validation-introspection.md` |
 | Python analysis | `docs/architecture/analysis/README.md` |
-| Agent workflow and boundaries | `marivo/skills/marivo-semantic/SKILL.md`, `marivo/skills/marivo-analysis/SKILL.md`, or `marivo/skills/marivo-service/SKILL.md` |
+| Agent workflow and boundaries | `marivo/skills/marivo-semantic/SKILL.md` or `marivo/skills/marivo-analysis/SKILL.md` |
 
 ## Documentation Placement
 
