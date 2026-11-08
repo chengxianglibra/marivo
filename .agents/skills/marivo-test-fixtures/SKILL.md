@@ -11,22 +11,20 @@ and isolation. Follow [AGENTS.md](../../../AGENTS.md) and
 
 ## Choose the behavior before the fixture
 
-Apply the test admission criteria in [CONTRIBUTING.md](../../../CONTRIBUTING.md#测试要求):
-identify the current contract, an incorrect implementation the test would detect,
-an independent expected result, the smallest real boundary, and the value beyond
-existing coverage. Ordinary cases express these through names, data and assertions;
-they do not need a separate ledger or evidence bundle. Expand an existing owning
-test when it already reaches the required boundary.
+Test Marivo's promised results, operation effects and usage boundaries. Contract
+violations should fail tests; behavior-preserving refactors and wording changes
+should pass. Use the [test quality standard](../marivo-review/references/test-quality.md)
+for test targets, exclusions and admission criteria before choosing fixtures.
+Express the contract, failure mode, independent expected result, boundary and
+distinct value through names, data and assertions; ordinary cases need no separate
+ledger. Expand an existing owning test when it already reaches the required boundary.
 
 Reuse input builders while keeping expected results independent of production logic.
 Doubles may control external I/O or inject faults; they must not replace the calculation
 being tested. Follow the current native arithmetic contract: backend, pandas/Arrow and
-Decimal kernels may have different valid results or failures. Do not require protective
-widening, extra scans or retries unless the owning contract requires them. Preserve
-explicit NULL, identity, time, unit and storage guarantees.
+Decimal kernels may have different valid results or failures.
 
-The tracked [test quality standard](../marivo-review/references/test-quality.md) provides
-detailed criteria. The local, Git-ignored [coverage map](../../../docs/testing/runtime-coverage.md)
+The local, Git-ignored [coverage map](../../../docs/testing/runtime-coverage.md)
 is optional evidence of test ownership; it does not define the current contract.
 
 ## Select the validation boundary
