@@ -10,6 +10,7 @@ from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
+import numpy.typing as npt
 import pytest
 
 from marivo.semantic import _catalog_search_model as models
@@ -109,7 +110,7 @@ class _Encoder:
         normalize_embeddings: bool,
         convert_to_numpy: bool,
         show_progress_bar: bool,
-    ) -> np.ndarray[tuple[int, int], np.dtype[np.float32]]:
+    ) -> npt.NDArray[np.float32]:
         self.inputs.extend(sentences)
         if self.fail_on is not None and any(self.fail_on in sentence for sentence in sentences):
             raise RuntimeError("injected encoder fault")
