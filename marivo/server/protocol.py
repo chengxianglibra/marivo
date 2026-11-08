@@ -325,8 +325,6 @@ def _schemas() -> dict[str, JsonObject]:
         "entity": entries.EntityDefinition,
         "metric": entries.MetricDefinition,
         "relationship": entries.RelationshipDefinition,
-        "period_calendar": entries.PeriodCalendarDefinition,
-        "temporal_set": entries.TemporalSetDefinition,
         "dimension": entries.FieldDefinition,
         "measure": entries.FieldDefinition,
         "time_dimension": entries.FieldDefinition,

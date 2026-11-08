@@ -30,13 +30,7 @@ retain their project constraints, including literal coordinates and pure axes.
 Cross-project inputs fail before source access. Captured Frames retain their
 bound graphs after a later load.
 
-`session.observe(metrics, by=())` requests one overall, zero-axis cell. Pass
-`where=session.time_scope(start=..., end=...)` to select a report interval
-without adding a coordinate. Native TimeField samples use represented values
-regardless of cadence and need no report interval. Builtin Grain samples
-likewise work without a finite period when at least one branch supplies a contribution
-clock. Windows need report or enclosing builtin sample endpoints and custom calendar samples need a complete
-certified period. Some checks run only during `compute()` or `persist()`.
+Natural calendar inputs use explicit scopes and mv.grain(...). Some checks run during compute or persist.
 
 ## Population identity and set semantics
 
@@ -117,8 +111,7 @@ without establishing the same business-object cohort.
 | Omitted | Present | Finite selected time domain with ordinary output completion |
 | Present | Present | Rejected, including identical selections |
 
-Bare Grain inputs reject. Custom calendar axes require a TimeScope selecting
-exactly one complete certified period and a Grain with a captured snapshot.
+Business calendar keys use ordinary fields. The harness supplies explicit ranges and comparison mappings.
 
 Use `where=(scope, condition)` to conjoin a TimeScope and source conditions.
 An explicit field comparison is a RowPredicate on a fixed source field. It can

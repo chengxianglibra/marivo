@@ -10,7 +10,7 @@ from marivo._temporal import (
 )
 from marivo._temporal import (
     InstantAnchor,
-    _SessionTimeScope,
+    TimeScope,
     anchor_from_datetime,
     session_time_scope,
 )
@@ -86,7 +86,7 @@ def exact_instant(
         )
 
 
-def exact_scope(start: TimeBoundary, end: TimeBoundary, timezone: str) -> _SessionTimeScope:
+def exact_scope(start: TimeBoundary, end: TimeBoundary, timezone: str) -> TimeScope:
     """Freeze both endpoints and the timezone used for calendar partitioning."""
     left, right = exact_instant(start, timezone), exact_instant(end, timezone)
     if left >= right:

@@ -3,17 +3,15 @@
 from __future__ import annotations
 
 from dataclasses import asdict
-from datetime import date, timedelta
+from datetime import timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
-from pydantic import TypeAdapter
 
 import marivo.datasource as md
 import marivo.semantic as ms
 from marivo._symbolic import native_symbol_ref
-from marivo._temporal import Grain, _new_time_scope, semantic_grain
 from marivo.refs import ref as internal_ref
 from marivo.semantic.catalog import SemanticCatalog
 from marivo.semantic.errors import SemanticRuntimeError
@@ -90,49 +88,6 @@ def test_preview_pairs_validate_keys_duplicates_and_exact_coverage(
         _normalize_scopes(
             ("sales.orders",), ((orders, scope),), preview_ref="sales.orders", catalog=catalog
         )
-
-
-def test_temporal_navigation_preserves_identity_and_wire() -> None:
-    calendar = internal_ref.period_calendar("sales.fiscal")
-    grain = semantic_grain(calendar=calendar, level="week")
-    same = semantic_grain(calendar=calendar, level="week")
-    assert grain.calendar_id == calendar.key
-    assert not hasattr(grain, "calendar")
-    assert grain == same and hash(grain) == hash(same)
-    adapter = TypeAdapter(Grain)
-    wire = adapter.dump_python(grain, mode="json")
-    assert wire["calendar"] == {
-        "schema": "marivo.semantic_ref/v1",
-        "kind": "period_calendar",
-        "path": "sales.fiscal",
-    }
-    scope = _new_time_scope(
-        start=date(2026, 1, 1),
-        end=date(2026, 1, 8),
-        calendar=calendar,
-        snapshot_digest="frozen",
-        boundary_timezone="UTC",
-        level="week",
-        key=1,
-        ordinal=0,
-    )
-    assert scope.calendar_id == calendar.key
-    assert not hasattr(scope, "calendar")
-    encoded = scope._model_dump(mode="json")
-    assert encoded["calendar"] == wire["calendar"]
-    assert "calendar_identity" not in encoded
-    assert hash(scope) == hash(
-        _new_time_scope(
-            start=date(2026, 1, 1),
-            end=date(2026, 1, 8),
-            calendar=calendar,
-            snapshot_digest="frozen",
-            boundary_timezone="UTC",
-            level="week",
-            key=1,
-            ordinal=0,
-        )
-    )
 
 
 def test_catalog_navigation_is_reusable_without_deferred_comparison(

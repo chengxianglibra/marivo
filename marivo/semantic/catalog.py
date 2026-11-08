@@ -6,12 +6,11 @@ Public entrypoint: ms.load() -> SemanticCatalog
 from __future__ import annotations
 
 import base64
-import binascii
 import json
 from collections.abc import Iterable, Iterator, Mapping, Sequence
 from contextlib import ExitStack, contextmanager, nullcontext
 from dataclasses import dataclass, replace
-from datetime import date, datetime, timedelta
+from datetime import date
 from difflib import SequenceMatcher
 from pathlib import Path
 from types import MappingProxyType
@@ -29,39 +28,25 @@ from typing import (
 )
 
 import ibis.expr.datatypes as dt
-import ibis.expr.types as ir
 from ibis.common.deferred import Deferred, Resolver
 
 from marivo._definition.deferred import RelationshipParameter, _RelationshipValue, root_declaration
 from marivo._definition.types import InputContext
 from marivo._symbolic import (
     DatasourceSymbol,
-    DimensionSymbol,
     DomainSymbol,
     LookupSymbol,
-    PeriodCalendarSymbol,
-    TemporalSetSymbol,
-    TimeDimensionSymbol,
     _DatasourceIdentity,
     _DatasourceInput,
     native_symbol_ref,
     symbol_factory,
     symbol_from_ref,
 )
-from marivo._temporal import (
-    Grain,
-    PeriodCalendarSnapshotV2,
-    TemporalOccurrenceRecord,
-    TemporalResolver,
-    TemporalSetSnapshotStore,
-    TemporalSetSnapshotV1,
-    TimeScope,
-)
 from marivo.datasource import credentials as cr
 from marivo.datasource._builtin import DEFAULT_DATASOURCE_DESCRIPTION, DEFAULT_DATASOURCE_NAME
 from marivo.datasource.credential_inputs import credential_labels
 from marivo.datasource.engines import require_profile_for_backend_type
-from marivo.datasource.errors import DatasourceError, _backend_failure_summary
+from marivo.datasource.errors import DatasourceError
 from marivo.datasource.ir import (
     AiContextIR,
     DatasourceIR,
@@ -74,12 +59,10 @@ from marivo.datasource.source import AuthoringScope
 from marivo.preview import (
     METRIC_PREVIEW_SAMPLE_SIZE,
     PREVIEW_DEFAULT_LIMIT,
-    PreviewCoverage,
     PreviewExecutionLimits,
     PreviewResult,
     PreviewSamplePolicy,
     PreviewWarning,
-    normalize_preview_cell,
     preview_from_pandas,
     preview_ibis_table,
     validate_preview_limit,
@@ -92,12 +75,10 @@ from marivo.refs import (
     FieldKind,
     MeasureKind,
     MetricKind,
-    PeriodCalendarKind,
     Ref,
     RelationshipKind,
     SemanticKind,
     SemanticKindTag,
-    TemporalSetKind,
     TimeDimensionKind,
 )
 from marivo.refs import (
@@ -131,9 +112,7 @@ from marivo.semantic.catalog_entries import (
     JsonValue,
     MetricDefinition,
     MetricTimeBinding,
-    PeriodCalendarDefinition,
     RelationshipDefinition,
-    TemporalSetDefinition,
     _json_value,
 )
 from marivo.semantic.catalog_search import (
@@ -147,7 +126,6 @@ from marivo.semantic.constraints import ConstraintId
 from marivo.semantic.dtos import PreviewBatchResult
 from marivo.semantic.errors import (
     ErrorKind,
-    SemanticError,
     SemanticExpressionError,
     SemanticLoadFailed,
     SemanticRuntimeError,
@@ -173,10 +151,8 @@ from marivo.semantic.ir import (
     DimensionIR,
     DomainIR,
     EntityVersioningIR,
-    PeriodCalendarIR,
     SnapshotVersioningIR,
     SourceLocation,
-    TemporalSetIR,
     ValidityVersioningIR,
 )
 from marivo.semantic.preview_scope import (
@@ -204,7 +180,6 @@ if TYPE_CHECKING:
 
 __all__ = [
     "AiContextView",
-    "CalendarPeriodPage",
     "CatalogFilters",
     "CatalogPage",
     "CatalogScope",
@@ -222,16 +197,11 @@ __all__ = [
     "Metric",
     "MetricDefinition",
     "MetricTimeBinding",
-    "PeriodCalendar",
-    "PeriodCalendarDefinition",
     "Relationship",
     "RelationshipDefinition",
     "SemanticCatalog",
     "SemanticKind",
     "SnapshotVersioning",
-    "TemporalOccurrencePage",
-    "TemporalSet",
-    "TemporalSetDefinition",
     "TimeDimension",
     "ValidityVersioning",
     "_SemanticObject",
@@ -303,16 +273,6 @@ def _make_ref(path: str, kind: Literal[SemanticKind.RELATIONSHIP]) -> Ref[Relati
 
 
 @overload
-def _make_ref(
-    path: str, kind: Literal[SemanticKind.PERIOD_CALENDAR]
-) -> Ref[PeriodCalendarKind]: ...
-
-
-@overload
-def _make_ref(path: str, kind: Literal[SemanticKind.TEMPORAL_SET]) -> Ref[TemporalSetKind]: ...
-
-
-@overload
 def _make_ref(path: str, kind: SemanticKind) -> Ref[SemanticKindTag]: ...
 
 
@@ -326,8 +286,6 @@ def _make_ref(path: str, kind: SemanticKind) -> Ref[SemanticKindTag]:
         SemanticKind.MEASURE: ref_factory.measure,
         SemanticKind.METRIC: ref_factory.metric,
         SemanticKind.RELATIONSHIP: ref_factory.relationship,
-        SemanticKind.PERIOD_CALENDAR: ref_factory.period_calendar,
-        SemanticKind.TEMPORAL_SET: ref_factory.temporal_set,
     }[kind]
     return factory(path)
 
@@ -549,195 +507,7 @@ class DomainDetails(_DetailsBase):
         return sections
 
 
-@dataclass(frozen=True, repr=False)
-class CalendarLevelDetails(RenderableResult):
-    """Certification-derived facts for one owned period-calendar level."""
-
-    name: str
-    _key_ref: Ref[DimensionKind] | Ref[TimeDimensionKind]
-    period_count: int | None
-    direct_finer_levels: tuple[str, ...] | None
-    direct_coarser_levels: tuple[str, ...] | None
-    rollup_targets: tuple[str, ...] | None
-
-    @property
-    def key_ref(self) -> DimensionSymbol | TimeDimensionSymbol:
-        if self._key_ref.kind is SemanticKind.TIME_DIMENSION:
-            return symbol_factory.time_dimension(self._key_ref.path)
-        return symbol_factory.dimension(self._key_ref.path)
-
-    def _repr_identity(self) -> str:
-        return f"CalendarLevelDetails name={self.name}"
-
-    def _card(self) -> Card:
-        return (
-            Card(identity=self._repr_identity(), available=(".show()",))
-            .field("key_ref", self._key_ref.key)
-            .field("period_count", str(self.period_count))
-            .field("direct_finer_levels", repr(self.direct_finer_levels))
-            .field("direct_coarser_levels", repr(self.direct_coarser_levels))
-            .field("rollup_targets", repr(self.rollup_targets))
-        )
-
-
-@dataclass(frozen=True, repr=False)
-class PeriodCalendarDetails(_DetailsBase):
-    """Static source contract for one governed period calendar."""
-
-    _date: Ref[TimeDimensionKind]
-    boundary_timezone: str
-    coverage: tuple[CalendarDate, CalendarDate]
-    levels: tuple[CalendarLevelDetails, ...]
-    _level_bindings: tuple[tuple[str, Ref[DimensionKind]], ...]
-    snapshot_status: Literal["missing", "current", "stale", "invalid"]
-    snapshot_digest: str | None = None
-
-    @property
-    def ref(self) -> PeriodCalendarSymbol:
-        return symbol_factory.period_calendar(self._ref.path)
-
-    @property
-    def source_date(self) -> TimeDimensionSymbol:
-        """The calendar's civil-date source field."""
-        return symbol_factory.time_dimension(self._date.path)
-
-    def _detail_sections(self) -> list[Section]:
-        sections = super()._detail_sections()
-        sections.extend(
-            (
-                FieldSection(label="calendar_ref", value=self._ref.key),
-                FieldSection(label="source_date", value=self._date.key),
-                FieldSection(label="boundary_timezone", value=self.boundary_timezone),
-                FieldSection(
-                    label="coverage",
-                    value=f"[{self.coverage[0].isoformat()}, {self.coverage[1].isoformat()})",
-                ),
-                FieldSection(label="levels", value=", ".join(item.name for item in self.levels)),
-                FieldSection(label="snapshot_status", value=self.snapshot_status),
-                FieldSection(
-                    label="snapshot_digest",
-                    value=self.snapshot_digest or "(unavailable)",
-                ),
-            )
-        )
-        return sections
-
-
-@dataclass(frozen=True, repr=False)
-class CalendarPeriodPage(RenderableResult):
-    """Bounded snapshot-bound page of exact period scopes."""
-
-    items: tuple[TimeScope, ...]
-    next_cursor: str | None
-
-    def _repr_identity(self) -> str:
-        return f"CalendarPeriodPage items={len(self.items)}"
-
-    def _card(self) -> Card:
-        return Card(
-            identity=self._repr_identity(),
-            available=(".items", ".next_cursor", ".show()"),
-        ).table(
-            columns=("scope",),
-            rows=((repr(item),) for item in self.items),
-            row_count=len(self.items),
-        )
-
-
-@dataclass(frozen=True, repr=False)
-class TemporalSetDetails(_DetailsBase):
-    """Static source contract for one governed temporal set."""
-
-    boundary_timezone: str
-    coverage: tuple[CalendarDate, CalendarDate]
-    _occurrence_id: Ref[DimensionKind]
-    _start: Ref[TimeDimensionKind]
-    _end: Ref[TimeDimensionKind]
-    _category: Ref[DimensionKind] | None
-    occurrence_count: int | None
-    snapshot_status: Literal["missing", "current", "stale", "invalid"]
-
-    @property
-    def ref(self) -> TemporalSetSymbol:
-        return symbol_factory.temporal_set(self._ref.path)
-
-    @property
-    def occurrence_id(self) -> DimensionSymbol:
-        return symbol_factory.dimension(self._occurrence_id.path)
-
-    @property
-    def start(self) -> TimeDimensionSymbol:
-        return symbol_factory.time_dimension(self._start.path)
-
-    @property
-    def end(self) -> TimeDimensionSymbol:
-        return symbol_factory.time_dimension(self._end.path)
-
-    @property
-    def category(self) -> DimensionSymbol | None:
-        return symbol_factory.dimension(self._category.path) if self._category is not None else None
-
-    def _detail_sections(self) -> list[Section]:
-        sections = super()._detail_sections()
-        sections.extend(
-            (
-                FieldSection(label="boundary_timezone", value=self.boundary_timezone),
-                FieldSection(
-                    label="coverage",
-                    value=f"[{self.coverage[0].isoformat()}, {self.coverage[1].isoformat()})",
-                ),
-                FieldSection(label="occurrence_id", value=self._occurrence_id.key),
-                FieldSection(label="start", value=self._start.key),
-                FieldSection(label="end", value=self._end.key),
-                FieldSection(
-                    label="category",
-                    value=self._category.key if self._category is not None else "(none)",
-                ),
-                FieldSection(label="occurrence_count", value=str(self.occurrence_count)),
-                FieldSection(label="snapshot_status", value=self.snapshot_status),
-            )
-        )
-        return sections
-
-
-@dataclass(frozen=True, repr=False)
-class TemporalOccurrencePage(RenderableResult):
-    """Bounded snapshot-bound page of exact occurrence scopes."""
-
-    items: tuple[TimeScope, ...]
-    next_cursor: str | None
-
-    def _repr_identity(self) -> str:
-        return f"TemporalOccurrencePage items={len(self.items)}"
-
-    def _card(self) -> Card:
-        return (
-            Card(
-                identity=self._repr_identity(),
-                available=(".items", ".next_cursor", ".show()"),
-            )
-            .field(label="has_more", value=str(self.next_cursor is not None))
-            .table(
-                columns=("temporal_set", "key", "start", "end", "category", "boundary_timezone"),
-                rows=(
-                    (
-                        item._temporal_set.key,
-                        repr(item.key),
-                        item.start.isoformat(),
-                        item.end.isoformat(),
-                        repr(item.occurrence_category),
-                        item.boundary_timezone,
-                    )
-                    for item in self.items
-                ),
-                row_count=len(self.items),
-            )
-        )
-
-
-_CatalogObjectDetails = (
-    DatasourceDetails | DomainDetails | PeriodCalendarDetails | TemporalSetDetails
-)
+_CatalogObjectDetails = DatasourceDetails | DomainDetails
 
 
 @dataclass(frozen=True, repr=False, eq=False)
@@ -930,14 +700,6 @@ class _SemanticObject(RenderableResult, Generic[CatalogEntryKindT]):
             )
         elif isinstance(definition, (DomainDefinition, DatasourceDefinition)):
             available.append('.related("members")')
-        elif definition.snapshot_status == "current":
-            available.extend(
-                (".grain(level)", ".periods(level)")
-                if isinstance(definition, PeriodCalendarDefinition)
-                else (".occurrence(key)", ".occurrences()")
-            )
-        else:
-            available.append("catalog.preview(entry, scope=...) -> certify temporal authority")
         card = Card(identity=self._repr_identity(), available=tuple(available)).field(
             "business_definition", self.summary
         )
@@ -988,11 +750,7 @@ class _SemanticObject(RenderableResult, Generic[CatalogEntryKindT]):
             card.field("primary_key", ", ".join(definition.primary_key))
             card.field("datasource", definition.datasource)
             card.field("default_time", definition.default_time or "(none)")
-        elif isinstance(definition, (PeriodCalendarDefinition, TemporalSetDefinition)):
-            card.field("boundary_timezone", definition.boundary_timezone)
-            card.field("coverage", str(definition.coverage))
-            card.field("snapshot_status", definition.snapshot_status)
-        elif isinstance(definition, DomainDefinition):
+        if isinstance(definition, DomainDefinition):
             card.field("owner", definition.owner)
         elif isinstance(definition, DatasourceDefinition):
             card.field("backend_type", definition.backend_type)
@@ -1036,450 +794,6 @@ class Datasource(_SemanticObject[DatasourceKind], _DatasourceInput):
     @property
     def definition(self) -> DatasourceDefinition:
         return cast("DatasourceDefinition", super().definition)
-
-
-@dataclass(frozen=True, repr=False, eq=False)
-class PeriodCalendar(_SemanticObject[PeriodCalendarKind]):
-    """Loaded period-calendar declaration with direct semantic-grain lookup."""
-
-    _ref: Ref[PeriodCalendarKind]
-
-    @property
-    def kind(self) -> Literal["period_calendar"]:
-        return "period_calendar"
-
-    @property
-    def definition(self) -> PeriodCalendarDefinition:
-        return cast("PeriodCalendarDefinition", super().definition)
-
-    @property
-    def _selector(self) -> PeriodCalendarSymbol:
-        return symbol_factory.period_calendar(self._ref.path)
-
-    def _temporal_details(self) -> PeriodCalendarDetails:
-        details = cast("PeriodCalendarDetails", self._details)
-        status, snapshot = self._snapshot_with_status()
-        if status != "current" or snapshot is None:
-            return replace(
-                details,
-                snapshot_status=status,
-                snapshot_digest=None,
-                levels=_calendar_level_details(
-                    details,
-                    snapshot=None,
-                ),
-            )
-        return replace(
-            details,
-            snapshot_status="current",
-            snapshot_digest=snapshot.snapshot_digest,
-            levels=_calendar_level_details(details, snapshot=snapshot),
-        )
-
-    def grain(self, level: str, /) -> Grain:
-        """Return the common semantic Grain for one declared calendar level.
-
-        Args:
-            level: Exact declared calendar level name; unknown levels are rejected.
-
-        Example:
-            >>> calendar = catalog.get("period_calendar:sales.fiscal")
-            >>> fiscal_week = calendar.grain("fiscal_week")
-        """
-        details = self._temporal_details()
-        if level not in {item.name for item in details.levels}:
-            _raise_period_lookup(
-                self._ref,
-                "grain",
-                f"Calendar level {level!r} is not declared by {self._ref.key}.",
-                details={"level": level},
-            )
-        from marivo._temporal import semantic_grain
-
-        status, snapshot = self._snapshot_with_status()
-        return semantic_grain(
-            calendar=self._ref,
-            level=level,
-            snapshot=snapshot if status == "current" else None,
-        )
-
-    def period(self, level: str, key: str | int | float | bool, /) -> TimeScope:
-        """Return the exact certified scope for one named period.
-
-        Args:
-            level: Declared calendar level name, such as ``"fiscal_week"``.
-            key: Exact certified period key at that level.
-
-        Returns:
-            Snapshot-bound half-open ``TimeScope`` accepted by
-            ``session.observe``.
-
-        Example:
-            >>> session = mv.session.get_or_create(
-            ...     "analysis", question="Compare one certified fiscal week"
-            ... )
-            >>> calendar = session.catalog.get("period_calendar:sales.fiscal")
-            >>> scope = calendar.period("fiscal_week", "FY2026-W01")
-
-        Guidance:
-            The calendar must have a current certified snapshot, and ``level``
-            and ``key`` must identify one exact record in that snapshot.
-        """
-        try:
-            return self._snapshot().period_scope(level, key)
-        except (KeyError, TypeError, ValueError):
-            _raise_period_lookup(
-                self._ref,
-                "period",
-                f"No certified {level!r} period matches key {key!r}.",
-                details={"level": level, "key": key},
-            )
-
-    def period_on(self, level: str, value: date, /) -> TimeScope:
-        """Return the exact certified scope containing one civil date.
-
-        Args:
-            level: Exact declared calendar level name.
-            value: Civil date contained in one certified period; missing coverage is rejected.
-
-        Example:
-            >>> from datetime import date
-            >>> calendar = catalog.get("period_calendar:sales.fiscal")
-            >>> scope = calendar.period_on("fiscal_week", date(2026, 1, 15))
-        """
-        try:
-            snapshot = self._snapshot()
-            period = TemporalResolver(snapshot).period_on(level, value)
-            return snapshot.period_scope(level, period.key)
-        except (KeyError, TypeError, ValueError):
-            _raise_period_lookup(
-                self._ref,
-                "period_on",
-                f"No certified {level!r} period contains date {value!r}.",
-                details={"level": level, "date": str(value)},
-            )
-
-    def periods(
-        self,
-        level: str,
-        /,
-        *,
-        limit: int = 20,
-        cursor: str | None = None,
-    ) -> CalendarPeriodPage:
-        """Return a bounded ordinal page of certified periods for one level.
-
-        Args:
-            level: Exact declared calendar level name.
-            limit: Integer page size in [1, 100].
-            cursor: Previous page.next_cursor for this same snapshot and level; omit for the first page.
-
-        Example:
-            >>> calendar = catalog.get("period_calendar:sales.fiscal")
-            >>> page = calendar.periods("fiscal_week", limit=20)
-            >>> page.show()
-        """
-        if type(limit) is not int or isinstance(limit, bool) or not 1 <= limit <= 100:
-            _raise_period_lookup(
-                self._ref,
-                "periods",
-                "period page limit must be an integer in [1, 100].",
-                details={"limit": limit},
-            )
-        snapshot = self._snapshot()
-        try:
-            offset = _decode_period_cursor(
-                cursor, snapshot_digest=snapshot.snapshot_digest, level=level
-            )
-        except (TypeError, ValueError):
-            _raise_period_lookup(
-                self._ref,
-                "periods",
-                "The cursor is invalid or belongs to a different certified snapshot/level.",
-                details={"level": level, "cursor": "provided"},
-            )
-        if level not in snapshot.levels:
-            _raise_period_lookup(
-                self._ref,
-                "periods",
-                f"Calendar level {level!r} is not certified.",
-                details={"level": level},
-            )
-        if level == "day":
-            start, end = snapshot.coverage
-            total = (end - start).days
-            if offset >= total and total:
-                _raise_period_lookup(
-                    self._ref,
-                    "periods",
-                    "The cursor points beyond the current certified period page.",
-                    details={"level": level, "cursor": "provided", "offset": offset},
-                )
-            page_items = tuple(
-                snapshot.period_scope(
-                    level,
-                    (start + timedelta(days=index)).isoformat(),
-                )
-                for index in range(offset, min(offset + limit, total))
-            )
-            next_offset = offset + len(page_items)
-            next_cursor = (
-                _encode_period_cursor(snapshot.snapshot_digest, level, next_offset)
-                if next_offset < total
-                else None
-            )
-            return CalendarPeriodPage(items=page_items, next_cursor=next_cursor)
-
-        values = tuple(period for period in snapshot.periods if period.level_name == level)
-        if offset >= len(values) and values:
-            _raise_period_lookup(
-                self._ref,
-                "periods",
-                "The cursor points beyond the current certified period page.",
-                details={"level": level, "cursor": "provided", "offset": offset},
-            )
-        page_values = values[offset : offset + limit]
-        next_offset = offset + len(page_values)
-        next_cursor = (
-            _encode_period_cursor(snapshot.snapshot_digest, level, next_offset)
-            if next_offset < len(values)
-            else None
-        )
-        return CalendarPeriodPage(
-            items=tuple(snapshot.period_scope(level, value.key) for value in page_values),
-            next_cursor=next_cursor,
-        )
-
-    def _snapshot(self) -> PeriodCalendarSnapshotV2:
-        status, snapshot = self._snapshot_with_status()
-        if status != "current" or snapshot is None:
-            _raise_period_lookup(
-                self._ref,
-                "snapshot",
-                f"{self._ref.key} has no current certified period-calendar snapshot ({status}).",
-                details={"snapshot_status": status},
-            )
-        return snapshot
-
-    def _snapshot_with_status(
-        self,
-    ) -> tuple[Literal["missing", "current", "stale", "invalid"], PeriodCalendarSnapshotV2 | None]:
-        from marivo._temporal import TemporalSnapshotStore, period_calendar_definition_digest
-        from marivo.semantic._definition_identity import scoped_definition_fingerprint
-
-        details = cast("PeriodCalendarDetails", self._details)
-        definition_digest = period_calendar_definition_digest(
-            calendar_ref=self._ref,
-            boundary_timezone=details.boundary_timezone,
-            coverage=(details.coverage[0], details.coverage[1]),
-            levels=tuple((name, value.path) for name, value in details._level_bindings),
-            dependency_digest=scoped_definition_fingerprint(
-                root=self._ref,
-                definitions=self._catalog._state.definitions,
-                dependencies=self._catalog._state.dependencies,
-                sidecar=self._catalog._state.sidecar,
-            ),
-        )
-        return TemporalSnapshotStore(self._catalog.workspace_dir).inspect_current(
-            self._ref,
-            definition_digest=definition_digest,
-        )
-
-
-@dataclass(frozen=True, repr=False, eq=False)
-class TemporalSet(_SemanticObject[TemporalSetKind]):
-    """Loaded temporal-set declaration with exact occurrence navigation."""
-
-    _ref: Ref[TemporalSetKind]
-
-    @property
-    def kind(self) -> Literal["temporal_set"]:
-        return "temporal_set"
-
-    @property
-    def definition(self) -> TemporalSetDefinition:
-        return cast("TemporalSetDefinition", super().definition)
-
-    @property
-    def _selector(self) -> TemporalSetSymbol:
-        return symbol_factory.temporal_set(self._ref.path)
-
-    def _temporal_details(self) -> TemporalSetDetails:
-        details = cast("TemporalSetDetails", self._details)
-        status, snapshot = self._snapshot_with_status()
-        return replace(
-            details,
-            snapshot_status=status,
-            occurrence_count=len(snapshot.occurrences)
-            if status == "current" and snapshot
-            else None,
-        )
-
-    def occurrence(self, key: str | int | float | bool, /) -> TimeScope:
-        """Return the exact certified scope for one named occurrence.
-
-        Args:
-            key: Exact occurrence key in the current certified snapshot; unknown keys are rejected.
-
-        Returns:
-            The original half-open scope with category, boundary timezone and snapshot identity.
-
-        Example:
-            >>> temporal_set = catalog.get("temporal_set:sales.campaigns")
-            >>> scope = temporal_set.occurrence("spring_launch")
-
-        Constraints:
-            Reads certified local facts only; missing, stale or invalid snapshots reject.
-        """
-        try:
-            return self._snapshot().occurrence_scope(key)
-        except (KeyError, TypeError, ValueError):
-            _raise_temporal_set_lookup(
-                self._ref,
-                "occurrence",
-                f"No certified temporal occurrence matches key {key!r}.",
-                details={"key": key},
-            )
-
-    def occurrences(
-        self,
-        *,
-        start: date | datetime | None = None,
-        end: date | datetime | None = None,
-        category: str | None = None,
-        limit: int = 20,
-        cursor: str | None = None,
-    ) -> TemporalOccurrencePage:
-        """Return deterministic, bounded certified occurrence scopes.
-
-        Args:
-            start: Optional inclusive overlap filter inside certified coverage; date for
-                civil-date sets or datetime for timestamp sets.
-            end: Optional exclusive overlap filter inside certified coverage, compatible
-                with start. Timestamp coverage uses local midnights in boundary_timezone.
-            category: Exact non-empty category filter; None accepts every category.
-            limit: Integer page size in [1, 100].
-            cursor: Previous page.next_cursor for the same snapshot and filters; omit for the first page.
-
-        Returns:
-            Original occurrence scopes ordered by start, end and key, plus next_cursor.
-            Covered filters with no matches return an empty page.
-
-        Example:
-            >>> temporal_set = catalog.get("temporal_set:sales.campaigns")
-            >>> page = temporal_set.occurrences(category="promotion", limit=20)
-            >>> page.show()
-
-        Constraints:
-            Overlap filters never clip returned scopes. Omitted bounds leave that side
-            unfiltered. Read next_cursor until None before treating results as complete.
-            Explicit bounds outside coverage reject rather than implying no occurrences.
-            Reads certified local facts only; unavailable snapshots reject.
-        """
-        if type(limit) is not int or isinstance(limit, bool) or not 1 <= limit <= 100:
-            _raise_temporal_set_lookup(
-                self._ref,
-                "occurrences",
-                "occurrence page limit must be an integer in [1, 100].",
-                details={"limit": limit},
-            )
-        if category is not None and (type(category) is not str or not category):
-            _raise_temporal_set_lookup(
-                self._ref,
-                "occurrences",
-                "category must be a non-empty string or null.",
-                details={"category": category},
-            )
-        snapshot = self._snapshot()
-        try:
-            start, end = _normalize_occurrence_filters(
-                snapshot,
-                start=start,
-                end=end,
-            )
-        except (TypeError, ValueError) as exc:
-            _raise_temporal_set_lookup(
-                self._ref,
-                "occurrences",
-                str(exc),
-                details={"start": repr(start), "end": repr(end)},
-            )
-        filter_token = _occurrence_filter_token(start=start, end=end, category=category)
-        try:
-            offset = _decode_occurrence_cursor(
-                cursor,
-                snapshot_digest=snapshot.snapshot_digest,
-                filter_token=filter_token,
-            )
-        except (TypeError, ValueError):
-            _raise_temporal_set_lookup(
-                self._ref,
-                "occurrences",
-                "The cursor is invalid or belongs to a different snapshot/filter.",
-                details={"cursor": "provided"},
-            )
-        values = tuple(
-            occurrence
-            for occurrence in snapshot.occurrences
-            if _occurrence_overlaps(occurrence, start=start, end=end)
-            and (category is None or occurrence.category == category)
-        )
-        if offset > len(values):
-            _raise_temporal_set_lookup(
-                self._ref,
-                "occurrences",
-                "The cursor points beyond the current certified occurrence page.",
-                details={"offset": offset},
-            )
-        page_values = values[offset : offset + limit]
-        next_offset = offset + len(page_values)
-        next_cursor = (
-            _encode_occurrence_cursor(snapshot.snapshot_digest, filter_token, next_offset)
-            if next_offset < len(values)
-            else None
-        )
-        return TemporalOccurrencePage(
-            items=tuple(snapshot.occurrence_scope(item.key) for item in page_values),
-            next_cursor=next_cursor,
-        )
-
-    def _snapshot(self) -> TemporalSetSnapshotV1:
-        status, snapshot = self._snapshot_with_status()
-        if status != "current" or snapshot is None:
-            _raise_temporal_set_lookup(
-                self._ref,
-                "snapshot",
-                f"{self._ref.key} has no current certified temporal-set snapshot ({status}).",
-                details={"snapshot_status": status},
-            )
-        return snapshot
-
-    def _snapshot_with_status(
-        self,
-    ) -> tuple[Literal["missing", "current", "stale", "invalid"], TemporalSetSnapshotV1 | None]:
-        from marivo._temporal import temporal_set_definition_digest
-        from marivo.semantic._definition_identity import scoped_definition_fingerprint
-
-        details = cast("TemporalSetDetails", self._details)
-        definition_digest = temporal_set_definition_digest(
-            temporal_set_ref=self._ref,
-            boundary_timezone=details.boundary_timezone,
-            coverage=(details.coverage[0], details.coverage[1]),
-            occurrence_id=details._occurrence_id.path,
-            start=details._start.path,
-            end=details._end.path,
-            category=details._category.path if details._category is not None else None,
-            dependency_digest=scoped_definition_fingerprint(
-                root=self._ref,
-                definitions=self._catalog._state.definitions,
-                dependencies=self._catalog._state.dependencies,
-                sidecar=self._catalog._state.sidecar,
-            ),
-        )
-        return TemporalSetSnapshotStore(self._catalog.workspace_dir).inspect_current(
-            self._ref,
-            definition_digest=definition_digest,
-        )
 
 
 RelatedRelation: TypeAlias = Literal[
@@ -1699,166 +1013,16 @@ class Relationship(_SemanticObject[RelationshipKind], _RelationshipValue):
 
 
 SemanticObject: TypeAlias = (
-    Domain
-    | Datasource
-    | Entity
-    | Dimension
-    | TimeDimension
-    | Measure
-    | Metric
-    | Relationship
-    | PeriodCalendar
-    | TemporalSet
+    Domain | Datasource | Entity | Dimension | TimeDimension | Measure | Metric | Relationship
 )
 
 
-def _calendar_level_details(
-    details: PeriodCalendarDetails,
-    *,
-    snapshot: PeriodCalendarSnapshotV2 | None,
-) -> tuple[CalendarLevelDetails, ...]:
-    """Project static level bindings plus certified graph facts."""
-    bindings: tuple[tuple[str, Ref[DimensionKind] | Ref[TimeDimensionKind]], ...] = (
-        ("day", details._date),
-        *details._level_bindings,
-    )
-    if snapshot is None:
-        return tuple(
-            CalendarLevelDetails(
-                name=name,
-                _key_ref=key_ref,
-                period_count=None,
-                direct_finer_levels=None,
-                direct_coarser_levels=None,
-                rollup_targets=None,
-            )
-            for name, key_ref in bindings
-        )
-
-    all_edges = {(item.source_level, item.target_level) for item in snapshot.containments}
-    # Certification stores the full containment closure.  Details expose the
-    # mechanically derived transitive reduction as direct edges and retain all
-    # reachable targets for rollup admission.
-    direct_edges = {
-        edge
-        for edge in all_edges
-        if not any(
-            edge != (edge[0], middle)
-            and (edge[0], middle) in all_edges
-            and (middle, edge[1]) in all_edges
-            for middle in snapshot.levels
-        )
-    }
-    finer_by_target: dict[str, tuple[str, ...]] = {
-        name: tuple(sorted(source for source, target in direct_edges if target == name))
-        for name, _ in bindings
-    }
-    coarser_by_source: dict[str, tuple[str, ...]] = {
-        name: tuple(sorted(target for source, target in direct_edges if source == name))
-        for name, _ in bindings
-    }
-    targets_by_source: dict[str, tuple[str, ...]] = {
-        name: tuple(sorted(target for source, target in all_edges if source == name))
-        for name, _ in bindings
-    }
-    counts = {
-        name: (
-            (details.coverage[1] - details.coverage[0]).days
-            if name == "day"
-            else sum(1 for item in snapshot.periods if item.level_name == name)
-        )
-        for name, _ in bindings
-    }
-    return tuple(
-        CalendarLevelDetails(
-            name=name,
-            _key_ref=key_ref,
-            period_count=counts.get(name, 0),
-            direct_finer_levels=finer_by_target.get(name, ()),
-            direct_coarser_levels=coarser_by_source.get(name, ()),
-            rollup_targets=targets_by_source.get(name, ()),
-        )
-        for name, key_ref in bindings
-    )
-
-
-def _raise_period_lookup(
-    calendar_ref: Ref[PeriodCalendarKind],
-    operation: str,
-    message: str,
-    *,
-    details: Mapping[str, object],
-) -> NoReturn:
-    """Raise one structured, bounded-retry catalog error for temporal lookup."""
-    from marivo._authoring.model import AuthoringRepair
-    from marivo.introspection.live.model import LiveHelpTarget
-
-    routes = {
-        "grain": (
-            LiveHelpTarget(surface="analysis", canonical_id="calendar.grain"),
-            (
-                f"Inspect catalog.get({calendar_ref.key!r}).definition for "
-                "the exact declared levels, then retry calendar.grain(level) with one of them."
-            ),
-        ),
-        "period": (
-            LiveHelpTarget(surface="analysis", canonical_id="calendar.period"),
-            (
-                f"Inspect catalog.get({calendar_ref.key!r}).definition, enumerate "
-                "the level with calendar.periods(level), then retry calendar.period(level, key) "
-                "with one exact certified key."
-            ),
-        ),
-        "period_on": (
-            LiveHelpTarget(surface="analysis", canonical_id="calendar.period_on"),
-            (
-                f"Inspect catalog.get({calendar_ref.key!r}).definition for "
-                "declared levels and certified coverage, then retry calendar.period_on(level, "
-                "value) with one covered civil date."
-            ),
-        ),
-        "periods": (
-            LiveHelpTarget(surface="analysis", canonical_id="calendar.periods"),
-            (
-                f"Inspect catalog.get({calendar_ref.key!r}).definition, then retry "
-                "calendar.periods(level, limit=..., cursor=...) with a declared level, a limit in "
-                "[1, 100], and either no cursor or the cursor returned by the current snapshot."
-            ),
-        ),
-        "snapshot": (
-            LiveHelpTarget(surface="semantic", canonical_id="preview"),
-            (
-                f"Certify the current period-calendar snapshot with catalog.preview("
-                f"catalog.get({calendar_ref.key!r}), scope=...), then retry. "
-                "If certification is blocked, inspect scoped catalog.readiness(...)."
-            ),
-        ),
-    }
-    route = routes.get(operation)
-    if route is None:
-        raise RuntimeError(f"unsupported period-calendar lookup operation: {operation}")
-    help_target, action = route
-    _raise(
-        ErrorKind.NOT_FOUND,
-        message,
-        cls=SemanticRuntimeError,
-        refs=(calendar_ref.key,),
-        details={"operation": operation, **dict(details)},
-        hint=action,
-        repair_value=AuthoringRepair(
-            kind="retry",
-            help_target=help_target,
-            action=action,
-        ),
-    )
-
-
-def _encode_period_cursor(snapshot_digest: str, level: str, offset: int) -> str:
+def _encode_related_cursor(snapshot_digest: str, level: str, offset: int) -> str:
     payload = json.dumps([snapshot_digest, level, offset], separators=(",", ":")).encode()
     return base64.urlsafe_b64encode(payload).decode().rstrip("=")
 
 
-def _decode_period_cursor(cursor: str | None, *, snapshot_digest: str, level: str) -> int:
+def _decode_related_cursor(cursor: str | None, *, snapshot_digest: str, level: str) -> int:
     if cursor is None:
         return 0
     if type(cursor) is not str or not cursor:
@@ -1874,180 +1038,7 @@ def _decode_period_cursor(cursor: str | None, *, snapshot_digest: str, level: st
         or type(raw_offset) is not int
         or raw_offset < 0
     ):
-        raise ValueError("period cursor does not match the current certified snapshot and level")
-    return raw_offset
-
-
-def _raise_temporal_set_lookup(
-    temporal_set_ref: Ref[TemporalSetKind],
-    operation: str,
-    message: str,
-    *,
-    details: Mapping[str, object],
-) -> NoReturn:
-    """Raise one structured, bounded-retry temporal-set catalog error."""
-    from marivo._authoring.model import AuthoringRepair
-    from marivo.introspection.live.model import LiveHelpTarget
-
-    routes = {
-        "occurrence": (
-            LiveHelpTarget(surface="analysis", canonical_id="temporal_set.occurrence"),
-            (
-                "Browse the current certified keys with temporal_set.occurrences(...), then retry "
-                "temporal_set.occurrence(key) with one exact returned key."
-            ),
-        ),
-        "occurrences": (
-            LiveHelpTarget(surface="analysis", canonical_id="temporal_set.occurrences"),
-            (
-                "Inspect the temporal-set details, then retry temporal_set.occurrences(...) with "
-                "valid bounds inside certified coverage, a non-empty category or None, a limit in [1, 100], and either no "
-                "cursor or the cursor returned for the same current snapshot and filters."
-            ),
-        ),
-        "snapshot": (
-            LiveHelpTarget(surface="semantic", canonical_id="preview"),
-            (
-                f"Certify the current temporal-set snapshot with catalog.preview("
-                f"catalog.get({temporal_set_ref.key!r}), scope=...), then retry. "
-                "If certification is blocked, inspect scoped catalog.readiness(...)."
-            ),
-        ),
-    }
-    route = routes.get(operation)
-    if route is None:
-        raise RuntimeError(f"unsupported temporal-set lookup operation: {operation}")
-    help_target, action = route
-    _raise(
-        ErrorKind.NOT_FOUND,
-        message,
-        cls=SemanticRuntimeError,
-        refs=(temporal_set_ref.key,),
-        details={"operation": operation, **dict(details)},
-        hint=action,
-        repair_value=AuthoringRepair(
-            kind="retry",
-            help_target=help_target,
-            action=action,
-        ),
-    )
-
-
-def _occurrence_filter_token(
-    *,
-    start: date | datetime | None,
-    end: date | datetime | None,
-    category: str | None,
-) -> str:
-    def encode(value: date | datetime | None) -> str | None:
-        return value.isoformat() if value is not None else None
-
-    return json.dumps(
-        [encode(start), encode(end), category],
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(",", ":"),
-    )
-
-
-def _normalize_occurrence_filters(
-    snapshot: TemporalSetSnapshotV1,
-    *,
-    start: date | datetime | None,
-    end: date | datetime | None,
-) -> tuple[date | datetime | None, date | datetime | None]:
-    """Validate and normalize overlap filters to the certified encoding."""
-    if start is not None and type(start) not in {date, datetime}:
-        raise ValueError("start filter must be date or datetime")
-    if end is not None and type(end) not in {date, datetime}:
-        raise ValueError("end filter must be date or datetime")
-    if start is not None and end is not None and type(start) is not type(end):
-        raise ValueError("start and end filters must use the same date or datetime encoding")
-    if snapshot.encoding == "date":
-        if (start is not None and type(start) is not date) or (
-            end is not None and type(end) is not date
-        ):
-            raise ValueError("date temporal sets require date overlap filters")
-    elif (start is not None and type(start) is not datetime) or (
-        end is not None and type(end) is not datetime
-    ):
-        raise ValueError("timestamp temporal sets require datetime overlap filters")
-    if start is not None and type(start) is datetime:
-        from marivo._temporal import _normalize_temporal_timestamp
-
-        start = _normalize_temporal_timestamp(start, boundary_timezone=snapshot.boundary_timezone)
-    if end is not None and type(end) is datetime:
-        from marivo._temporal import _normalize_temporal_timestamp
-
-        end = _normalize_temporal_timestamp(end, boundary_timezone=snapshot.boundary_timezone)
-    if start is not None and end is not None and start >= end:
-        raise ValueError("occurrence filter requires start < end")
-    coverage_start: date | datetime = snapshot.coverage[0]
-    coverage_end: date | datetime = snapshot.coverage[1]
-    if snapshot.encoding == "timestamp":
-        from marivo._temporal import _normalize_temporal_timestamp
-
-        coverage_start = _normalize_temporal_timestamp(
-            datetime.combine(snapshot.coverage[0], datetime.min.time()),
-            boundary_timezone=snapshot.boundary_timezone,
-        )
-        coverage_end = _normalize_temporal_timestamp(
-            datetime.combine(snapshot.coverage[1], datetime.min.time()),
-            boundary_timezone=snapshot.boundary_timezone,
-        )
-    if any(
-        bound is not None and not coverage_start <= bound <= coverage_end for bound in (start, end)
-    ):
-        raise ValueError(
-            "occurrence filters must lie within certified coverage "
-            f"[{coverage_start.isoformat()}, {coverage_end.isoformat()}) "
-            f"in {snapshot.boundary_timezone}"
-        )
-    return start, end
-
-
-def _occurrence_overlaps(
-    occurrence: TemporalOccurrenceRecord,
-    *,
-    start: date | datetime | None,
-    end: date | datetime | None,
-) -> bool:
-    if start is None and end is None:
-        return True
-    if type(occurrence.start) is not type(start) and start is not None:
-        raise ValueError("occurrence filter encoding does not match the certified set")
-    if type(occurrence.end) is not type(end) and end is not None:
-        raise ValueError("occurrence filter encoding does not match the certified set")
-    return (end is None or occurrence.start < end) and (start is None or occurrence.end > start)
-
-
-def _encode_occurrence_cursor(snapshot_digest: str, filter_token: str, offset: int) -> str:
-    payload = json.dumps([snapshot_digest, filter_token, offset], separators=(",", ":")).encode()
-    return base64.urlsafe_b64encode(payload).decode().rstrip("=")
-
-
-def _decode_occurrence_cursor(
-    cursor: str | None,
-    *,
-    snapshot_digest: str,
-    filter_token: str,
-) -> int:
-    if cursor is None:
-        return 0
-    if type(cursor) is not str or not cursor:
-        raise ValueError("occurrence cursor must be an opaque non-empty string or None")
-    try:
-        padded = cursor + "=" * (-len(cursor) % 4)
-        raw_digest, raw_filter, raw_offset = json.loads(base64.urlsafe_b64decode(padded))
-    except (binascii.Error, UnicodeDecodeError, ValueError, TypeError, json.JSONDecodeError) as exc:
-        raise ValueError("occurrence cursor is invalid") from exc
-    if (
-        raw_digest != snapshot_digest
-        or raw_filter != filter_token
-        or type(raw_offset) is not int
-        or raw_offset < 0
-    ):
-        raise ValueError("occurrence cursor does not match the current certified snapshot/filter")
+        raise ValueError("related cursor does not match the current Catalog snapshot and relation")
     return raw_offset
 
 
@@ -2080,8 +1071,6 @@ _ENTRY_TYPE_BY_KIND: dict[SemanticKind, type[_SemanticObject[SemanticKindTag]]] 
     SemanticKind.RELATIONSHIP: Relationship,
     SemanticKind.DOMAIN: Domain,
     SemanticKind.DATASOURCE: Datasource,
-    SemanticKind.PERIOD_CALENDAR: PeriodCalendar,
-    SemanticKind.TEMPORAL_SET: TemporalSet,
 }
 
 
@@ -2375,14 +1364,6 @@ class _CatalogBuildIndex:
             datasource_entities.setdefault(entity.datasource, []).append(entity_ref)
         for path in registry.declared_metrics:
             domain_children.setdefault(path.split(".", 1)[0], []).append(ref_factory.metric(path))
-        for calendar in registry.period_calendars.values():
-            domain_children.setdefault(calendar.domain, []).append(
-                ref_factory.period_calendar(calendar.semantic_id)
-            )
-        for temporal_set in registry.temporal_sets.values():
-            domain_children.setdefault(temporal_set.domain, []).append(
-                ref_factory.temporal_set(temporal_set.semantic_id)
-            )
         self.domain_children = MappingProxyType(
             {key: tuple(values) for key, values in domain_children.items()}
         )
@@ -2470,614 +1451,7 @@ def _preview_timezones_for_field(
     }
 
 
-def _build_period_calendar_object(
-    calendar_ir: PeriodCalendarIR,
-    catalog: SemanticCatalog,
-) -> PeriodCalendar:
-    from marivo.semantic._source_timezone import period_calendar_timezone
-
-    ref = ref_factory.period_calendar(calendar_ir.semantic_id)
-    date_ref = ref_factory.time_dimension(calendar_ir.date)
-    levels = tuple((name, ref_factory.dimension(path)) for name, path in calendar_ir.levels)
-    parents = (date_ref, *(value for _name, value in levels))
-    # Slice 1 has no metric IR edge that can reference a semantic calendar.
-    # Do not turn unrelated cumulative anchors into fabricated dependents;
-    # reverse edges will be added when Slice 2 persists calendar Grain refs.
-    dependents: tuple[Ref[SemanticKindTag], ...] = ()
-    declared_levels = tuple((name, value) for name, value in levels)
-    details = PeriodCalendarDetails(
-        _ref=ref,
-        kind=SemanticKind.PERIOD_CALENDAR,
-        name=calendar_ir.name,
-        domain=calendar_ir.domain,
-        context=calendar_ir.ai_context,
-        source_location=calendar_ir.location,
-        _parents=parents,
-        _children=(),
-        _dependents=dependents,
-        python_symbol=calendar_ir.python_symbol,
-        _date=date_ref,
-        boundary_timezone=period_calendar_timezone(catalog._reg, calendar_ir),
-        coverage=(
-            date.fromisoformat(calendar_ir.coverage[0]),
-            date.fromisoformat(calendar_ir.coverage[1]),
-        ),
-        levels=tuple(
-            CalendarLevelDetails(
-                name=name,
-                _key_ref=cast("Ref[DimensionKind] | Ref[TimeDimensionKind]", value),
-                period_count=None,
-                direct_finer_levels=None,
-                direct_coarser_levels=None,
-                rollup_targets=None,
-            )
-            for name, value in (("day", date_ref), *declared_levels)
-        ),
-        _level_bindings=declared_levels,
-        snapshot_status="missing",
-    )
-    return _object_from_details(PeriodCalendar, details, catalog)
-
-
-def _build_temporal_set_object(
-    temporal_set_ir: TemporalSetIR,
-    catalog: SemanticCatalog,
-) -> TemporalSet:
-    ref = ref_factory.temporal_set(temporal_set_ir.semantic_id)
-    occurrence_ref = ref_factory.dimension(temporal_set_ir.occurrence_id)
-    start_ref = ref_factory.time_dimension(temporal_set_ir.start)
-    end_ref = ref_factory.time_dimension(temporal_set_ir.end)
-    category_ref = (
-        ref_factory.dimension(temporal_set_ir.category)
-        if temporal_set_ir.category is not None
-        else None
-    )
-    parents = tuple(
-        value for value in (occurrence_ref, start_ref, end_ref, category_ref) if value is not None
-    )
-    details = TemporalSetDetails(
-        _ref=ref,
-        kind=SemanticKind.TEMPORAL_SET,
-        name=temporal_set_ir.name,
-        domain=temporal_set_ir.domain,
-        context=temporal_set_ir.ai_context,
-        source_location=temporal_set_ir.location,
-        _parents=parents,
-        _children=(),
-        _dependents=(),
-        python_symbol=temporal_set_ir.python_symbol,
-        boundary_timezone=temporal_set_ir.boundary_timezone,
-        coverage=(
-            date.fromisoformat(temporal_set_ir.coverage[0]),
-            date.fromisoformat(temporal_set_ir.coverage[1]),
-        ),
-        _occurrence_id=occurrence_ref,
-        _start=start_ref,
-        _end=end_ref,
-        _category=category_ref,
-        occurrence_count=None,
-        snapshot_status="missing",
-    )
-    return _object_from_details(TemporalSet, details, catalog)
-
-
 _PreviewCell: TypeAlias = str | int | float | bool | None
-
-
-@dataclass(frozen=True)
-class _CertificationCapture:
-    """Exact current-source rows used only for one temporal certification."""
-
-    scope: AuthoringScope
-    columns: tuple[str, ...]
-    column_bindings: tuple[tuple[str, str], ...]
-    rows_observed: int
-    retained_values: tuple[dict[str, _PreviewCell], ...]
-
-    def coverage(self, entity_id: str) -> PreviewCoverage:
-        return PreviewCoverage(
-            scopes=((entity_id, self.scope),),
-            rows_observed=self.rows_observed,
-            scope_exhaustion="exhaustive",
-            scope_exactness="scope_exact",
-        )
-
-
-def _certification_capture(
-    *,
-    ref: Ref[SemanticKindTag],
-    kind: SemanticKind,
-    registry: Registry,
-    bindings: NormalizedPreviewScope,
-    resolver: SemanticResolver,
-) -> _CertificationCapture:
-    """Read one exhaustive bounded value capture for a certified artifact."""
-    if len(bindings.entity_ids) != 1:
-        _raise(
-            ErrorKind.MATERIALIZE_FAILED,
-            "Certified semantic artifacts require exactly one dependency entity.",
-            cls=SemanticRuntimeError,
-            refs=(ref.key,),
-            details={"query_executed": False, "entities": bindings.entity_ids},
-        )
-    entity_id = bindings.entity_ids[0]
-    scope = bindings.scopes[0][1]
-    if kind is SemanticKind.PERIOD_CALENDAR:
-        calendar = registry.period_calendars[ref.path]
-        field_ids = (
-            calendar.date,
-            *(field for _name, field in calendar.levels),
-        )
-    elif kind is SemanticKind.TEMPORAL_SET:
-        temporal_set = registry.temporal_sets[ref.path]
-        field_ids = tuple(
-            field
-            for field in (
-                temporal_set.occurrence_id,
-                temporal_set.start,
-                temporal_set.end,
-                temporal_set.category,
-            )
-            if field is not None
-        )
-    else:
-        raise AssertionError(f"unsupported certified artifact kind: {kind}")
-    fields = tuple(registry.dimensions[field_id] for field_id in field_ids)
-    if any(field.source_column is None for field in fields):
-        _raise(
-            ErrorKind.MATERIALIZE_FAILED,
-            "Certified artifact fields must all use direct physical source columns.",
-            cls=SemanticRuntimeError,
-            refs=(ref.key,),
-            details={"query_executed": False},
-        )
-    columns = tuple(dict.fromkeys(cast("str", field.source_column) for field in fields))
-    connections = resolver.connections
-    profile = require_profile_for_backend_type(bindings.backend)
-    timeout_guard = profile.native_query_timeout
-    with connections.terminal_scope(bindings.timeout_seconds):
-        backend = connections.session_backend(bindings.datasource_id)
-        with (
-            cr.backend_errors(backend),
-            (
-                timeout_guard(backend, bindings.timeout_seconds)
-                if timeout_guard is not None
-                else nullcontext()
-            ),
-        ):
-            table = resolver.entity(ref_factory.entity(entity_id)).select(*columns)
-            if kind is SemanticKind.PERIOD_CALENDAR:
-                date_field = registry.dimensions[registry.period_calendars[ref.path].date]
-                date_column = date_field.source_column
-                assert date_column is not None
-                if date_field.parse is None and not table.schema()[date_column].is_date():
-                    _raise(
-                        ErrorKind.MATERIALIZE_FAILED,
-                        "Period-calendar certification requires a native civil DATE spine.",
-                        cls=SemanticRuntimeError,
-                        refs=(ref.key, date_field.semantic_id),
-                        expected="a native DATE field or an explicitly encoded civil-date field",
-                        received=str(table.schema()[date_column]),
-                        details={"query_executed": False},
-                        repair_value=repair(
-                            kind="reauthor",
-                            canonical_id="time_dimension_column",
-                            action=(
-                                "Declare a native DATE source field, or explicitly derive the "
-                                "business DATE in the authored source view, then retry "
-                                "catalog.preview(..., scope=...) with complete coverage."
-                            ),
-                        ),
-                    )
-            from marivo.datasource._temporal_expressions import localize, parse_strptime, timestamp
-            from marivo.datasource._temporal_lowering import lower_temporal
-            from marivo.semantic._physical_contracts import validate_bound_field
-            from marivo.semantic._source_timezone import (
-                require_source_timezone,
-                source_timezone_axis,
-            )
-            from marivo.semantic.ir import HourPrefixParse, StrptimeParse, is_time_bearing_format
-
-            parsed_columns: dict[str, ir.Value] = {}
-            source_timezones: set[str] = set()
-            for field in fields:
-                if not field.is_time_dimension:
-                    continue
-                column = cast("str", field.source_column)
-                field_ref = ref_factory.time_dimension(field.semantic_id)
-                raw = table[column]
-                validate_bound_field(raw, ref=field_ref, registry=registry)
-                value = raw
-                if isinstance(field.parse, HourPrefixParse):
-                    _raise(
-                        ErrorKind.MATERIALIZE_FAILED,
-                        "Certified temporal bounds require complete date-bearing fields.",
-                        cls=SemanticRuntimeError,
-                        refs=(field.semantic_id,),
-                        details={"query_executed": False},
-                    )
-                if isinstance(field.parse, StrptimeParse):
-                    from marivo.datasource._temporal_expressions import TemporalExpressionError
-
-                    try:
-                        value = parse_strptime(
-                            bindings.backend,
-                            raw.cast("string"),
-                            field.parse.format,
-                            time_bearing=is_time_bearing_format(field.parse.format),
-                        )
-                    except TemporalExpressionError as error:
-                        _raise(
-                            ErrorKind.MATERIALIZE_FAILED,
-                            "Native temporal parsing is unsupported.",
-                            cls=SemanticRuntimeError,
-                            refs=(field.semantic_id,),
-                            expected=error.expected,
-                            received=error.received,
-                            details={"query_executed": False},
-                            repair_value=repair(
-                                kind="reauthor",
-                                canonical_id="strptime",
-                                action=error.repair
-                                or "Choose a supported temporal source encoding and retry certification.",
-                            ),
-                        )
-                if value.type().is_timestamp():
-                    physical = raw.type()
-                    aware = (
-                        isinstance(physical, dt.Timestamp)
-                        and (physical.timezone is not None or bindings.backend == "clickhouse")
-                        and not isinstance(field.parse, StrptimeParse)
-                    )
-                    if not aware:
-                        declaration = require_source_timezone(
-                            registry,
-                            source_timezone_axis(registry, field.semantic_id),
-                            physical_type=str(physical),
-                        )
-                        clock = timestamp(value)
-                        if clock.type().timezone is not None:
-                            clock = clock.cast(dt.Timestamp(scale=6))
-                        source_timezones.add(declaration.timezone)
-                        value = localize(declaration.timezone, clock)
-                parsed_columns[field.semantic_id] = value
-            column_bindings = tuple(
-                (field.semantic_id, f"field_{index}") for index, field in enumerate(fields)
-            )
-            expression = table.select(
-                *(
-                    parsed_columns.get(
-                        field.semantic_id, table[cast("str", field.source_column)]
-                    ).name(alias)
-                    for field, (_field_id, alias) in zip(fields, column_bindings, strict=True)
-                )
-            )
-            from marivo.datasource._temporal_expressions import TemporalExpressionError
-
-            try:
-                lowered = lower_temporal(expression, bindings.backend)
-            except TemporalExpressionError as error:
-                _raise(
-                    ErrorKind.MATERIALIZE_FAILED,
-                    "Native temporal certification is unsupported.",
-                    cls=SemanticRuntimeError,
-                    refs=(ref.key,),
-                    expected=error.expected,
-                    received=error.received,
-                    details={"query_executed": False},
-                    repair_value=repair(
-                        kind="reauthor",
-                        canonical_id="preview",
-                        action=error.repair
-                        or "Choose a supported temporal source encoding and retry certification.",
-                    ),
-                )
-            assert isinstance(lowered, ir.Table)
-            table = lowered
-            columns = tuple(alias for _field_id, alias in column_bindings)
-
-            source_owner = connections.source_session(
-                bindings.datasource_id, registry.datasources[bindings.datasource_id]
-            )
-            source_owner.verify_source_timezones(tuple(sorted(source_timezones)))
-            try:
-                frame = connections.collect_source(
-                    bindings.datasource_id,
-                    table,
-                    purpose="semantic.certified_preview",
-                    max_rows=scope.max_rows + 1,
-                )
-            except (DatasourceError, SemanticError):
-                raise
-            except Exception as error:
-                failure = _backend_failure_summary(error)
-                _raise(
-                    ErrorKind.MATERIALIZE_FAILED,
-                    "Certified artifact source capture failed before snapshot publication.",
-                    cls=SemanticRuntimeError,
-                    refs=(ref.key,),
-                    expected="an exhaustive source capture within the scoped deadline",
-                    received=failure.identity,
-                    details={
-                        "backend": bindings.backend,
-                        "backend_code": failure.backend_code,
-                        "backend_exception": failure.exception_type,
-                        "query_executed": any(
-                            item.purpose == "semantic.certified_preview"
-                            for item in source_owner.submissions
-                        ),
-                        "timeout_seconds": bindings.timeout_seconds,
-                    },
-                    repair_value=repair(
-                        kind="rescope",
-                        canonical_id="preview",
-                        action="Restore the selected source and retry certification with an exhaustive bounded scope and a sufficient timeout.",
-                    ),
-                )
-    observed = len(frame)
-    if observed > scope.max_rows:
-        _raise(
-            ErrorKind.MATERIALIZE_FAILED,
-            "Certified artifact preview requires an exhaustive explicit scope.",
-            cls=SemanticRuntimeError,
-            refs=(ref.key,),
-            details={
-                "query_executed": True,
-                "rows_observed": observed,
-                "max_rows": scope.max_rows,
-                "scope_exhaustion": "truncated",
-            },
-            repair_value=repair(
-                kind="rescope",
-                canonical_id="preview",
-                action=(
-                    "Retry catalog.preview(..., scope=...) with a complete bounded "
-                    "source range and a row budget that admits every required row."
-                ),
-                preserves_evidence=False,
-            ),
-        )
-    retained = frame.iloc[: scope.max_rows]
-    schema = table.schema()
-    return _CertificationCapture(
-        scope=scope,
-        columns=columns,
-        column_bindings=column_bindings,
-        rows_observed=observed,
-        retained_values=tuple(
-            {
-                column: cast(
-                    "str | int | float | bool | None",
-                    (
-                        value.date().isoformat()
-                        if schema[column].is_date() and isinstance(value, datetime)
-                        else normalize_preview_cell(value)
-                    ),
-                )
-                for column, value in zip(columns, row, strict=True)
-            }
-            for row in retained.itertuples(index=False, name=None)
-        ),
-    )
-
-
-def _preview_temporal_set(
-    *,
-    temporal_set_ref: Ref[TemporalSetKind],
-    registry: Registry,
-    project_root: Path,
-    capture: _CertificationCapture,
-    limit: int,
-    dependency_digest: str,
-) -> PreviewResult:
-    """Certify a temporal-set artifact from one live exhaustive capture."""
-    preview_limit = validate_preview_limit(limit)
-    temporal_set = registry.temporal_sets.get(temporal_set_ref.path)
-    if temporal_set is None:
-        raise RuntimeError(f"missing compiled temporal set {temporal_set_ref.path!r}")
-    occurrence_field = registry.dimensions.get(temporal_set.occurrence_id)
-    start_field = registry.dimensions.get(temporal_set.start)
-    end_field = registry.dimensions.get(temporal_set.end)
-    category_field = (
-        registry.dimensions.get(temporal_set.category)
-        if temporal_set.category is not None
-        else None
-    )
-    if (
-        occurrence_field is None
-        or start_field is None
-        or end_field is None
-        or occurrence_field.source_column is None
-        or start_field.source_column is None
-        or end_field.source_column is None
-        or (category_field is not None and category_field.source_column is None)
-    ):
-        _raise(
-            ErrorKind.MATERIALIZE_FAILED,
-            "Temporal-set fields must be declared with physical source columns.",
-            cls=SemanticRuntimeError,
-            refs=(temporal_set_ref.key,),
-            details={"query_executed": False},
-        )
-    columns_by_field = dict(capture.column_bindings)
-    from marivo._temporal import (
-        TemporalSetSnapshotStore,
-        certify_temporal_set_rows,
-        temporal_set_definition_digest,
-    )
-
-    try:
-        snapshot = certify_temporal_set_rows(
-            temporal_set_ref=temporal_set_ref,
-            boundary_timezone=temporal_set.boundary_timezone,
-            coverage=(
-                date.fromisoformat(temporal_set.coverage[0]),
-                date.fromisoformat(temporal_set.coverage[1]),
-            ),
-            columns=capture.columns,
-            retained_values=capture.retained_values,
-            occurrence_id=columns_by_field[occurrence_field.semantic_id],
-            start=columns_by_field[start_field.semantic_id],
-            end=columns_by_field[end_field.semantic_id],
-            category=columns_by_field[category_field.semantic_id]
-            if category_field is not None
-            else None,
-        )
-    except (KeyError, TypeError, ValueError) as exc:
-        _raise(
-            ErrorKind.MATERIALIZE_FAILED,
-            f"Temporal-set certification failed: {exc}",
-            cls=SemanticRuntimeError,
-            refs=(temporal_set_ref.key,),
-            details={"query_executed": False, "certification_error": type(exc).__name__},
-        )
-    definition_digest = temporal_set_definition_digest(
-        temporal_set_ref=temporal_set_ref,
-        boundary_timezone=temporal_set.boundary_timezone,
-        coverage=temporal_set.coverage,
-        occurrence_id=temporal_set.occurrence_id,
-        start=temporal_set.start,
-        end=temporal_set.end,
-        category=temporal_set.category,
-        dependency_digest=dependency_digest,
-    )
-    TemporalSetSnapshotStore(project_root).publish(snapshot, definition_digest=definition_digest)
-    rows: tuple[dict[str, object], ...] = tuple(
-        {
-            "key": item.key,
-            "start": item.start.isoformat(),
-            "end": item.end.isoformat(),
-            "category": item.category,
-        }
-        for item in snapshot.occurrences[:preview_limit]
-    )
-    return PreviewResult(
-        kind="semantic_dataset",
-        ref=temporal_set_ref.path,
-        columns=("key", "start", "end", "category"),
-        types={
-            "key": "json_scalar",
-            "start": snapshot.encoding,
-            "end": snapshot.encoding,
-            "category": "string|null",
-        },
-        rows=rows,
-        requested_limit=preview_limit,
-        returned_row_count=len(rows),
-        is_truncated=len(snapshot.occurrences) > preview_limit,
-        status="passed",
-        coverage=capture.coverage(occurrence_field.entity),
-        sample_policy=PreviewSamplePolicy(method="bounded_limit", limit=preview_limit),
-    )
-
-
-def _preview_period_calendar(
-    *,
-    calendar_ref: Ref[PeriodCalendarKind],
-    registry: Registry,
-    project_root: Path,
-    capture: _CertificationCapture,
-    limit: int,
-    dependency_digest: str,
-) -> PreviewResult:
-    """Certify a period-calendar artifact from one live exhaustive capture."""
-    from marivo.semantic._source_timezone import period_calendar_timezone
-
-    preview_limit = validate_preview_limit(limit)
-    calendar = registry.period_calendars.get(calendar_ref.path)
-    if calendar is None:
-        raise RuntimeError(f"missing compiled period calendar {calendar_ref.path!r}")
-    date_dimension = registry.dimensions.get(calendar.date)
-    if date_dimension is None or date_dimension.source_column is None:
-        _raise(
-            ErrorKind.MATERIALIZE_FAILED,
-            "Period-calendar date must be declared with ms.time_dimension_column(...).",
-            cls=SemanticRuntimeError,
-            refs=(calendar_ref.key, calendar.date),
-            details={"query_executed": False},
-        )
-    columns_by_field = dict(capture.column_bindings)
-    level_columns: dict[str, str] = {}
-    for level, field_ref in calendar.levels:
-        field = registry.dimensions.get(field_ref)
-        if field is None or field.source_column is None:
-            _raise(
-                ErrorKind.MATERIALIZE_FAILED,
-                f"Period-calendar level {level!r} must be declared with ms.dimension_column(...).",
-                cls=SemanticRuntimeError,
-                refs=(calendar_ref.key, field_ref),
-                details={"query_executed": False},
-            )
-        level_columns[level] = columns_by_field[field.semantic_id]
-    from marivo._temporal import (
-        TemporalSnapshotStore,
-        certify_period_calendar_rows,
-        period_calendar_definition_digest,
-    )
-
-    try:
-        snapshot = certify_period_calendar_rows(
-            calendar_ref=calendar_ref,
-            boundary_timezone=period_calendar_timezone(registry, calendar),
-            coverage=(
-                date.fromisoformat(calendar.coverage[0]),
-                date.fromisoformat(calendar.coverage[1]),
-            ),
-            columns=capture.columns,
-            retained_values=capture.retained_values,
-            date_column=columns_by_field[date_dimension.semantic_id],
-            levels=level_columns,
-        )
-    except (KeyError, TypeError, ValueError) as exc:
-        _raise(
-            ErrorKind.MATERIALIZE_FAILED,
-            f"Period-calendar certification failed: {exc}",
-            cls=SemanticRuntimeError,
-            refs=(calendar_ref.key,),
-            details={
-                "query_executed": False,
-                "certification_error": type(exc).__name__,
-            },
-            repair_value=repair(
-                kind="rescope",
-                canonical_id="preview",
-                action=(
-                    "Correct the calendar source values or declared coverage, then retry "
-                    "catalog.preview(..., scope=...) with complete bounded coverage."
-                ),
-                preserves_evidence=False,
-            ),
-        )
-    definition_digest = period_calendar_definition_digest(
-        calendar_ref=calendar_ref,
-        boundary_timezone=period_calendar_timezone(registry, calendar),
-        coverage=calendar.coverage,
-        levels=calendar.levels,
-        dependency_digest=dependency_digest,
-    )
-    TemporalSnapshotStore(project_root).publish(snapshot, definition_digest=definition_digest)
-    rows: tuple[dict[str, object], ...] = tuple(
-        {
-            "level": period.level_name,
-            "key": period.key,
-            "start": period.start_date.isoformat(),
-            "end": period.end_date.isoformat(),
-        }
-        for period in snapshot.periods[:preview_limit]
-    )
-    return PreviewResult(
-        kind="semantic_dataset",
-        ref=calendar_ref.path,
-        columns=("level", "key", "start", "end"),
-        types={"level": "string", "key": "json_scalar", "start": "date", "end": "date"},
-        rows=rows,
-        requested_limit=preview_limit,
-        returned_row_count=len(rows),
-        is_truncated=len(snapshot.periods) > preview_limit,
-        status="passed",
-        coverage=capture.coverage(date_dimension.entity),
-        sample_policy=PreviewSamplePolicy(method="bounded_limit", limit=preview_limit),
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -3107,14 +1481,6 @@ class _CatalogIndex:
                 for item in registry.domains.values()
             ),
             *(_build_datasource_object(item, build_index, catalog) for item in datasource_irs),
-            *(
-                _build_period_calendar_object(item, catalog)
-                for item in registry.period_calendars.values()
-            ),
-            *(
-                _build_temporal_set_object(item, catalog)
-                for item in registry.temporal_sets.values()
-            ),
         )
         self._entries = MappingProxyType({entry._ref: entry for entry in entries})
         self._refs: tuple[Ref[SemanticKindTag], ...] = tuple(
@@ -3435,10 +1801,7 @@ class SemanticCatalog(RenderableResult):
     def _definition(self, ref: Ref[SemanticKindTag]) -> EntryDefinition:
         from marivo.semantic._catalog_definition import definition_for
 
-        # Temporal certification is inspected on every read. All other facts
-        # belong to this immutable loaded scope and can reuse their projection.
-        if ref.kind in {SemanticKind.PERIOD_CALENDAR, SemanticKind.TEMPORAL_SET}:
-            return definition_for(self, ref)
+        # Definition facts belong to this immutable scope and reuse their projection.
         definition = self._definitions.get(ref)
         if definition is None:
             definition = self._definitions[ref] = definition_for(self, ref)
@@ -3609,30 +1972,6 @@ class SemanticCatalog(RenderableResult):
         limit: int = 10,
         cursor: str | None = None,
     ) -> CatalogPage[Relationship]: ...
-
-    @overload
-    def search(
-        self,
-        query: str = "",
-        *,
-        kind: Literal["period_calendar"],
-        domain: str | None = None,
-        entity: str | None = None,
-        limit: int = 10,
-        cursor: str | None = None,
-    ) -> CatalogPage[PeriodCalendar]: ...
-
-    @overload
-    def search(
-        self,
-        query: str = "",
-        *,
-        kind: Literal["temporal_set"],
-        domain: str | None = None,
-        entity: str | None = None,
-        limit: int = 10,
-        cursor: str | None = None,
-    ) -> CatalogPage[TemporalSet]: ...
 
     @overload
     def search(
@@ -3816,7 +2155,7 @@ class SemanticCatalog(RenderableResult):
         outside = tuple(sorted(item.key for item in selected if item not in self._index._refs))
         token = f"{entry.id}:{relation}"
         try:
-            offset = _decode_period_cursor(
+            offset = _decode_related_cursor(
                 cursor, snapshot_digest=self.definition_fingerprint, level=token
             )
         except ValueError as exc:
@@ -3831,7 +2170,7 @@ class SemanticCatalog(RenderableResult):
         page_refs = loaded[offset : offset + limit]
         next_offset = offset + len(page_refs)
         next_cursor = (
-            _encode_period_cursor(self.definition_fingerprint, token, next_offset)
+            _encode_related_cursor(self.definition_fingerprint, token, next_offset)
             if next_offset < len(loaded)
             else None
         )
@@ -4179,8 +2518,7 @@ class SemanticCatalog(RenderableResult):
         Constraints:
             Input ownership and membership are checked before connection
             acquisition or materialization. ``limit`` is independent from the
-            ``scope.max_rows`` acquisition guard and does not reduce temporal
-            certification coverage. Ordinary Metric previews support DuckDB,
+            ``scope.max_rows`` acquisition guard. Ordinary Metric previews support DuckDB,
             PostgreSQL, MySQL, Trino and ClickHouse and reuse datasource physical
             partition preflight. Each Entity contributes at most
             min(scope.max_rows, 10,000) output rows. Coverage reports actual
@@ -4307,8 +2645,6 @@ class SemanticCatalog(RenderableResult):
             SemanticKind.DIMENSION,
             SemanticKind.TIME_DIMENSION,
             SemanticKind.MEASURE,
-            SemanticKind.PERIOD_CALENDAR,
-            SemanticKind.TEMPORAL_SET,
         }
         resolved: list[tuple[str, SemanticKind]] = []
         for ref_obj in ref_objects:
@@ -4381,67 +2717,6 @@ class SemanticCatalog(RenderableResult):
             metric = self._index.values.get(ref_obj)
             assert isinstance(metric, Deferred)
             validate_preview_metric(metric)
-        if kind in {
-            SemanticKind.PERIOD_CALENDAR,
-            SemanticKind.TEMPORAL_SET,
-        }:
-            validate_preview_limit(limit)
-        if kind is SemanticKind.PERIOD_CALENDAR:
-            from marivo.semantic._definition_identity import scoped_definition_fingerprint
-
-            resolver = self._semantic_resolver(
-                connections=connections,
-                entity_scopes=bindings.entity_scopes,
-                source_bindings=bindings.source_bindings,
-            )
-
-            return _preview_period_calendar(
-                calendar_ref=cast("Ref[PeriodCalendarKind]", ref_obj),
-                registry=reg,
-                project_root=self.workspace_dir,
-                capture=_certification_capture(
-                    ref=ref_obj,
-                    kind=kind,
-                    registry=reg,
-                    bindings=bindings,
-                    resolver=resolver,
-                ),
-                limit=limit,
-                dependency_digest=scoped_definition_fingerprint(
-                    root=ref_obj,
-                    definitions=self._state.definitions,
-                    dependencies=self._state.dependencies,
-                    sidecar=self._state.sidecar,
-                ),
-            )
-        if kind is SemanticKind.TEMPORAL_SET:
-            from marivo.semantic._definition_identity import scoped_definition_fingerprint
-
-            resolver = self._semantic_resolver(
-                connections=connections,
-                entity_scopes=bindings.entity_scopes,
-                source_bindings=bindings.source_bindings,
-            )
-
-            return _preview_temporal_set(
-                temporal_set_ref=cast("Ref[TemporalSetKind]", ref_obj),
-                registry=reg,
-                project_root=self.workspace_dir,
-                capture=_certification_capture(
-                    ref=ref_obj,
-                    kind=kind,
-                    registry=reg,
-                    bindings=bindings,
-                    resolver=resolver,
-                ),
-                limit=limit,
-                dependency_digest=scoped_definition_fingerprint(
-                    root=ref_obj,
-                    definitions=self._state.definitions,
-                    dependencies=self._state.dependencies,
-                    sidecar=self._state.sidecar,
-                ),
-            )
         preview_limit = validate_preview_limit(limit)
         row_preview_limit = min(
             preview_limit,

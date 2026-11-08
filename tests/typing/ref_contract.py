@@ -9,8 +9,6 @@ import marivo.semantic as ms
 from marivo._symbolic import (
     EntitySymbol,
     MeasureSymbol,
-    PeriodCalendarSymbol,
-    TemporalSetSymbol,
 )
 from marivo.refs import (
     DatasourceKind,
@@ -40,8 +38,6 @@ assert_type(ref_factory.dimension("sales.orders.region"), Ref[DimensionKind])
 assert_type(ref_factory.time_dimension("sales.orders.ordered_at"), Ref[TimeDimensionKind])
 assert_type(ref_factory.measure("sales.orders.revenue"), Ref[MeasureKind])
 assert_type(ref_factory.metric("sales.revenue"), Ref[MetricKind])
-assert_type(ms.ref.period_calendar("sales.calendar"), PeriodCalendarSymbol)
-assert_type(ms.ref.temporal_set("sales.holidays"), TemporalSetSymbol)
 assert_type(ms.ai_context(business_definition="Sales context"), ms.typing.AiContextValue)
 
 

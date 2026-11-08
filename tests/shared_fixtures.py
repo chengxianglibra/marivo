@@ -8,7 +8,6 @@ import tempfile
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager, suppress
 from dataclasses import dataclass
-from datetime import date, timedelta
 from functools import lru_cache
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal, Protocol, overload
@@ -40,11 +39,9 @@ if TYPE_CHECKING:
         Entity,
         Measure,
         Metric,
-        PeriodCalendar,
         Relationship,
         SemanticCatalog,
         SemanticObject,
-        TemporalSet,
         TimeDimension,
     )
     from marivo.semantic.expressions import ResolvedValue
@@ -66,18 +63,6 @@ _AUTHORING_EVIDENCE_V = "v2"
 def catalog_entry(
     catalog: SemanticCatalog | SemanticObject, name: str, *, kind: Literal["domain"]
 ) -> Domain: ...
-
-
-@overload
-def catalog_entry(
-    catalog: SemanticCatalog | SemanticObject, name: str, *, kind: Literal["period_calendar"]
-) -> PeriodCalendar: ...
-
-
-@overload
-def catalog_entry(
-    catalog: SemanticCatalog | SemanticObject, name: str, *, kind: Literal["temporal_set"]
-) -> TemporalSet: ...
 
 
 @overload
@@ -734,98 +719,6 @@ def rendered_help(target: PublicHelpTarget = None, *, owner: str | None = None) 
     from marivo._help.render import render_help_text
 
     return render_help_text(target)[0]
-
-
-def fiscal_analysis_project_files() -> dict[str, str]:
-    """Return the compact fiscal-calendar project used by temporal tests."""
-
-    return {
-        "sales/_domain.py": (
-            "import marivo.semantic as ms\nms.domain(name='sales', owner='Data', default=True)\n"
-        ),
-        "sales/calendar.py": (
-            "import marivo.datasource as md\n"
-            "import marivo.semantic as ms\n"
-            "calendar = ms.entity(name='calendar', datasource=ms.ref.datasource('warehouse'), source=md.table('calendar'))\n"
-            "calendar_date = ms.time_dimension_column(name='calendar_date', entity=calendar, column='calendar_date')\n"
-            "fiscal_week = ms.dimension_column(name='fiscal_week', entity=calendar, column='fiscal_week')\n"
-            "fiscal_month = ms.dimension_column(name='fiscal_month', entity=calendar, column='fiscal_month')\n"
-            "fiscal = ms.period_calendar(name='fiscal', date=calendar_date, coverage=(__import__('datetime').date(2026, 1, 1), __import__('datetime').date(2026, 3, 1)), levels={'fiscal_week': fiscal_week, 'fiscal_month': fiscal_month})\n"
-        ),
-        "sales/metrics.py": (
-            "import marivo.datasource as md\n"
-            "import marivo.semantic as ms\n"
-            "events = ms.entity(name='events', datasource=ms.ref.datasource('warehouse'), source=md.table('events'))\n"
-            "event_date = ms.time_dimension_column(name='event_date', entity=events, column='event_date')\n"
-            "amount = ms.measure_column(name='amount', entity=events, column='amount', additivity=ms.additive_all(), unit='USD')\n"
-            "user_id = ms.measure_column(name='user_id', entity=events, column='user_id', additivity=ms.non_additive())\n"
-            ""
-            "amount_value = amount\n"
-            "@ms.metric()\n"
-            "def gmv():\n"
-            "    return amount_value.sum(time=event_date)\n"
-        ),
-    }
-
-
-def publish_fiscal_calendar_artifact(catalog: SemanticCatalog) -> None:
-    """Publish the certified fiscal calendar used by analysis-only tests."""
-
-    from marivo._temporal import (
-        TemporalSnapshotStore,
-        certify_period_calendar_rows,
-        period_calendar_definition_digest,
-    )
-    from marivo.refs import ref as ref_factory
-    from marivo.semantic._definition_identity import scoped_definition_fingerprint
-    from marivo.semantic._source_timezone import period_calendar_timezone
-
-    rows: list[dict[str, str]] = []
-    cursor = date(2026, 1, 1)
-    while cursor < date(2026, 3, 1):
-        month = "M1" if cursor.month == 1 else "M2"
-        week = f"{month}-W{((cursor.day - 1) // 7) + 1}"
-        rows.append(
-            {
-                "calendar_date": cursor.isoformat(),
-                "fiscal_week": week,
-                "fiscal_month": month,
-            }
-        )
-        cursor += timedelta(days=1)
-    calendar_ref = ref_factory.period_calendar("sales.fiscal")
-    calendar = catalog._require_ready().period_calendars[calendar_ref.path]
-    snapshot = certify_period_calendar_rows(
-        calendar_ref=calendar_ref,
-        boundary_timezone=period_calendar_timezone(catalog._require_ready(), calendar),
-        coverage=(
-            date.fromisoformat(calendar.coverage[0]),
-            date.fromisoformat(calendar.coverage[1]),
-        ),
-        columns=("calendar_date", "fiscal_week", "fiscal_month"),
-        retained_values=tuple(rows),
-        date_column="calendar_date",
-        levels={
-            "fiscal_week": "fiscal_week",
-            "fiscal_month": "fiscal_month",
-        },
-    )
-    dependency_digest = scoped_definition_fingerprint(
-        root=calendar_ref,
-        definitions=catalog._state.definitions,
-        dependencies=catalog._state.dependencies,
-        sidecar=catalog._state.sidecar,
-    )
-    TemporalSnapshotStore(catalog.workspace_dir).publish(
-        snapshot,
-        definition_digest=period_calendar_definition_digest(
-            calendar_ref=calendar_ref,
-            boundary_timezone=period_calendar_timezone(catalog._require_ready(), calendar),
-            coverage=calendar.coverage,
-            levels=calendar.levels,
-            dependency_digest=dependency_digest,
-        ),
-    )
 
 
 def _template_cache_dir() -> Path:

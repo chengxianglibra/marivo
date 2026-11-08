@@ -8,7 +8,6 @@ import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo._definition.windows import AllHistory, TrailingDuration
 from marivo._help.render import render_help_text
-from marivo._temporal import TimeScope
 from marivo.analysis.core.frame_method_facts import (
     FrameAdditiveMethod,
     FrameAttributeMetric,
@@ -38,7 +37,6 @@ from marivo.analysis.core.frame_method_facts import (
     FrameShapleyQueryGame,
     FrameShapleyReduction,
 )
-from tests.support.refs import as_ref
 
 
 def test_preview_help_distinguishes_retained_rows_from_acquisition() -> None:
@@ -51,7 +49,7 @@ def test_preview_help_distinguishes_retained_rows_from_acquisition() -> None:
     text, _, _ = render_help_text("semantic.preview_result.is_truncated")
     assert "Kind: attribute" in text
     assert "retained preview rows" in text
-    assert "exhaustive temporal certification can succeed" in text
+    assert "certification can succeed" not in text
     assert "Read coverage for acquisition completeness" in text
     text, _, _ = render_help_text("semantic.preview_result.coverage")
     assert "exhaustive/scope_exact" in text
@@ -80,61 +78,6 @@ def test_contribution_time_definition_help_exposes_captured_fields(
     assert f"Python: {target}" in page
     assert "Access: read-only" in page
     assert all(fact in page for fact in facts)
-
-
-def test_grain_field_help_matches_runtime_variant_availability() -> None:
-    builtin = mv.grain("day")
-    calendar = ms.ref.period_calendar("sales.fiscal")
-    semantic = ms.calendar_grain(calendar=calendar, level="week")
-
-    assert builtin.kind == "builtin"
-    assert semantic.kind == "semantic"
-    assert semantic._calendar == as_ref(calendar)
-    with pytest.raises(AttributeError):
-        _ = builtin.calendar_id
-
-    text, _, _ = render_help_text("analysis.grain.calendar_id")
-    assert "Target: analysis.grain.calendar_id\nKind: attribute" in text
-    assert "Python: grain.calendar_id" in text
-    assert "Applies when: grain.kind == 'semantic'" in text
-    assert "_SemanticGrain" not in text
-    type_text, _, _ = render_help_text("analysis.grain")
-    assert "grain.kind == 'semantic'" in type_text
-    assert "grain.kind == 'builtin'" in type_text
-
-    builtin_text, _, _ = render_help_text("analysis.grain.unit")
-    assert "Applies when: grain.kind == 'builtin'" in builtin_text
-    common_text, _, _ = render_help_text("analysis.grain.kind")
-    assert "Applies to all grain values." in common_text
-    assert "Applies when:" not in common_text
-
-
-def test_time_scope_field_help_does_not_evaluate_variant_getter(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    def fail_if_read(_scope: TimeScope) -> str:
-        raise AssertionError("Help must not read a kind getter to discover applicability")
-
-    monkeypatch.setattr(TimeScope, "kind", property(fail_if_read))
-    text, _, _ = render_help_text("analysis.time_scope.calendar_id")
-    assert "Python: time_scope.calendar_id" in text
-    assert "Applies when: time_scope.kind == 'calendar_period'" in text
-    assert "_CalendarPeriodTimeScope" not in text
-
-    text, _, _ = render_help_text("analysis.time_scope.temporal_set_id")
-    assert "Applies when: time_scope.kind == 'temporal_occurrence'" in text
-    assert "_TemporalOccurrenceTimeScope" not in text
-
-
-def test_shared_variant_field_lists_each_applicable_public_condition() -> None:
-    text, _, _ = render_help_text("analysis.time_scope.boundary_timezone")
-    assert "Python: time_scope.boundary_timezone" in text
-    assert "time_scope.kind == 'absolute' constructed by session.time_scope(...)" in text
-    assert "time_scope.kind == 'calendar_period'" in text
-    assert "time_scope.kind == 'temporal_occurrence'" in text
-    assert "without a frozen session timezone" not in text
-    assert "Applies to all" not in text
-    assert "_SessionTimeScope" not in text
 
 
 def test_window_attribute_identifies_its_public_constructor() -> None:
@@ -271,8 +214,6 @@ def test_method_facts_property_owns_full_read_and_exact_type_continuation() -> N
         (ms.Measure, "measure_object"),
         (ms.Metric, "metric_object"),
         (ms.Relationship, "relationship_object"),
-        (ms.PeriodCalendar, "period_calendar_object"),
-        (ms.TemporalSet, "temporal_set_object"),
     ),
 )
 def test_named_object_type_targets_do_not_replace_constructors(
@@ -289,3 +230,16 @@ def test_named_object_type_targets_do_not_replace_constructors(
         constructor_page, _, _ = render_help_text(f"semantic.{constructor}.define")
         assert f"Target: semantic.{constructor}.define\nKind: callable\n" in constructor_page
         assert f"semantic.{constructor}.kind" not in constructor_page
+
+
+def test_natural_time_fields_have_direct_help() -> None:
+    for target in (
+        "analysis.grain.unit",
+        "analysis.grain.count",
+        "analysis.time_scope.start",
+        "analysis.time_scope.end",
+        "analysis.time_scope.boundary_timezone",
+    ):
+        text, _, _ = render_help_text(target)
+        assert "Kind: attribute" in text
+        assert "Applies when:" not in text

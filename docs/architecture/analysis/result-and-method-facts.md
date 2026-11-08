@@ -172,8 +172,7 @@ original Artifact or a source/calendar rebuild.
 ## Interpretation
 
 Source read, evaluation completion and commit times are distinct. Recent
-publication does not establish source freshness. Calendar partition certification
-does not certify business capture. Arithmetic change and complete reconciliation
+publication does not establish source freshness. Arithmetic change and complete reconciliation
 do not establish cause or universal source completeness. Method
 explanations retain the method's exact scope and assumptions.
 

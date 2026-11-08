@@ -45,9 +45,9 @@ def test_observation_and_group_variants_are_discoverable(
         ("frame_alignment", ("frame_alignment_side",)),
         ("frame_alignment_side", ("frame_alignment_axis", "frame_fixed_group")),
         ("frame_decomposition", ("frame_axis_group", "frame_fixed_group")),
-        ("frame_to_date_window", ("frame_builtin_grain", "frame_named_grain")),
-        ("frame_calendar_axis_schema", ("frame_builtin_grain", "frame_named_grain")),
-        ("frame_calendar_endpoint", ("frame_builtin_grain", "frame_named_grain")),
+        ("frame_to_date_window", ("frame_builtin_grain",)),
+        ("frame_calendar_axis_schema", ("frame_builtin_grain",)),
+        ("frame_calendar_endpoint", ("frame_builtin_grain",)),
     ):
         marivo.help("analysis." + owner)
         page = capsys.readouterr().out

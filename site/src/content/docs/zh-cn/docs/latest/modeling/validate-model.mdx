@@ -25,8 +25,7 @@ catalog.readiness(refs=[amount]).show()
 catalog.validate([amount_entry]).show()
 ```
 
-`ms.load()` 检查模型声明、引用、依赖循环和表达式契约。`catalog.readiness(...)`
-接受所选定义（包括声明式 Measure 和 Metric），检查其物理依赖和已认证的时间产物。这两步都不会打开数据源连接。
+readiness 只检查选定语义闭包和物理声明，不打开数据源。普通 preview 提供有界来源证据。
 
 `catalog.validate(...)` 会连接所选对象的完整物理依赖，使用实际 Entity 输出
 结构检查字段绑定、数值类型、时间解析器和时区契约。报告包含物理类型、受影响字段、

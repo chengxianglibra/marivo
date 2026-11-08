@@ -171,8 +171,6 @@ class _Fact(RenderableResult):
             parts.append(f"axis={self.fixed.axis.token[:40]}")
         elif isinstance(self, FrameObservationContext) and self.subject is not None:
             parts.append(f"subject={self.subject.path[:64]}")
-        elif isinstance(self, FrameNamedGrain):
-            parts.append(f"ref={self.ref.path[:64]}")
         return " ".join(parts)[:220]
 
     def _card(self) -> Card:
@@ -353,16 +351,7 @@ class FrameBuiltinGrain(_Fact):
     kind: Literal["builtin"] = field(default="builtin")
 
 
-@dataclass(frozen=True, slots=True, repr=False)
-class FrameNamedGrain(_Fact):
-    """Captured named calendar identity and level; details require explicit Catalog lookup."""
-
-    ref: SemanticObjectIdentity
-    level: str
-    kind: Literal["named"] = field(default="named")
-
-
-FrameGrain: TypeAlias = FrameBuiltinGrain | FrameNamedGrain
+FrameGrain: TypeAlias = FrameBuiltinGrain
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -440,8 +429,6 @@ class FrameAxisSchema(_Fact):
 @dataclass(frozen=True, slots=True, repr=False)
 class FrameOrdinaryAxisSchema(FrameAxisSchema):
     """Complete field or identity key description."""
-
-    pass
 
 
 @dataclass(frozen=True, slots=True, repr=False)
@@ -1916,11 +1903,7 @@ def _validate_fact(value: _Fact) -> None:
             or value.step < 1
         ):
             _invalid("a positive builtin grain")
-    elif isinstance(value, FrameNamedGrain):
-        if type(value.ref) is not SemanticObjectIdentity or value.ref.kind != "period_calendar":
-            _invalid("the actual consumed named calendar identity")
-        text(value.level)
-    elif isinstance(value, FrameFixedAxis):
+    if isinstance(value, FrameFixedAxis):
         if (
             type(value.axis) is not FrameOrdinaryAxisSchema
             or type(value.key) is not tuple
@@ -2102,7 +2085,7 @@ def _validate_fact(value: _Fact) -> None:
             _invalid("a current decomposition with retained values and a closed row scope")
     if isinstance(
         value, (FrameCalendarAxisSchema, FrameCalendarEndpoint, FrameToDateWindow)
-    ) and type(value.grain) not in (FrameBuiltinGrain, FrameNamedGrain):
+    ) and type(value.grain) not in (FrameBuiltinGrain,):
         _invalid("one closed captured nominal grain")
     if isinstance(value, FramePairedAxisSchema) and (
         type(value.left) not in (FrameCalendarEndpoint, FrameIntervalEndpoint)

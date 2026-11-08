@@ -35,7 +35,6 @@ from marivo.analysis.core.frame_interpretation import (
     FrameFixedTime,
     FrameIndependentContribution,
     FrameIntervalEndpoint,
-    FrameNamedGrain,
     FrameObservationWindow,
     FrameObservedTimeSemantics,
     FrameReportWindowEndpoint,
@@ -52,7 +51,6 @@ from marivo.analysis.core.graph import BoundGraph
 from marivo.analysis.core.lineage import SemanticObjectIdentity
 from marivo.semantic._compiled_state import CompiledSemanticState
 from marivo.semantic._metric_time import metric_time_occurrences
-from marivo.semantic.expressions import _Resolver
 
 
 def _identity(value: ExactRef | None) -> SemanticObjectIdentity | None:
@@ -80,15 +78,10 @@ def _window(
         return FrameTrailingPeriodsWindow(rule.count)
     if isinstance(rule, ToDate):
         grain = rule.grain
-        if grain.kind == "builtin":
-            from marivo.analysis.core.frame_calendar import _UNITS
+        from marivo.analysis.core.frame_calendar import _UNITS
 
-            assert grain.unit is not None and grain.count is not None
-            return FrameToDateWindow(FrameBuiltinGrain(_UNITS[grain.unit], grain.count))
-        if state is not None and grain._calendar is not None and grain.level is not None:
-            identity = _identity(_Resolver(state).exact(grain._calendar))
-            assert identity is not None
-            return FrameToDateWindow(FrameNamedGrain(identity, grain.level))
+        assert grain.unit is not None and grain.count is not None
+        return FrameToDateWindow(FrameBuiltinGrain(_UNITS[grain.unit], grain.count))
     return None
 
 
@@ -175,35 +168,34 @@ def observation_time_semantics(
                 samples = (*samples, role)
                 if isinstance(sample, (Grain, FieldCalendarSample)):
                     grain = sample.grain if isinstance(sample, FieldCalendarSample) else sample
-                    if grain.kind == "builtin":
-                        from marivo.analysis.core.frame_calendar import _UNITS
+                    from marivo.analysis.core.frame_calendar import _UNITS
 
-                        assert grain.unit is not None and grain.count is not None
-                        captured = FrameBuiltinGrain(_UNITS[grain.unit], grain.count)
-                        # Builtin sample bindings own the Session's frozen timezone.
-                        binding = (
-                            next(
-                                (
-                                    coordinate
-                                    for _, coordinate in observation.calendar_samples
-                                    if getattr(coordinate, "sample", None) == sample
-                                ),
-                                None,
-                            )
-                            if observation is not None
-                            else None
+                    assert grain.unit is not None and grain.count is not None
+                    captured = FrameBuiltinGrain(_UNITS[grain.unit], grain.count)
+                    # Builtin sample bindings own the Session's frozen timezone.
+                    binding = (
+                        next(
+                            (
+                                coordinate
+                                for _, coordinate in observation.calendar_samples
+                                if getattr(coordinate, "sample", None) == sample
+                            ),
+                            None,
                         )
-                        assert binding is not None
-                        if isinstance(sample, FieldCalendarSample):
-                            field = _identity(sample.field.field)
-                            assert field is not None
-                            sample_endpoint = FrameFieldSampleWindowEndpoint(
-                                len(samples), field, captured, binding.timezone
-                            )
-                        else:
-                            sample_endpoint = FrameContributionSampleWindowEndpoint(
-                                len(samples), captured, binding.timezone
-                            )
+                        if observation is not None
+                        else None
+                    )
+                    assert binding is not None
+                    if isinstance(sample, FieldCalendarSample):
+                        field = _identity(sample.field.field)
+                        assert field is not None
+                        sample_endpoint = FrameFieldSampleWindowEndpoint(
+                            len(samples), field, captured, binding.timezone
+                        )
+                    else:
+                        sample_endpoint = FrameContributionSampleWindowEndpoint(
+                            len(samples), captured, binding.timezone
+                        )
             occurrences = metric_time_occurrences(node, declared)
             if len(occurrences) == 1 and occurrences[0].node is node:
                 occurrence = occurrences[0]

@@ -46,9 +46,7 @@ from marivo.semantic.catalog_entries import (
     MetricDefinition,
     MetricNoTimeBinding,
     MetricTimeFieldBinding,
-    PeriodCalendarDefinition,
     RelationshipDefinition,
-    TemporalSetDefinition,
     _freeze_json,
 )
 from marivo.semantic.ir import DimensionIR, EntityIR, RelationshipIR
@@ -328,7 +326,6 @@ def _source_null_rule(node: SourceAggregate | SourceWeightedMean | EntityCount) 
 
 def definition_for(catalog: SemanticCatalog, ref: Ref[SemanticKindTag]) -> EntryDefinition:
     """Project complete captured facts without execution or authored-function replay."""
-    from marivo.semantic.catalog import PeriodCalendar, TemporalSet
 
     registry = catalog._reg
     context = context_for(catalog, ref)
@@ -363,36 +360,6 @@ def definition_for(catalog: SemanticCatalog, ref: Ref[SemanticKindTag]) -> Entry
                 for item in registry.entities.values()
                 if item.datasource == ref.path
             ),
-        )
-    if ref.kind is SemanticKind.PERIOD_CALENDAR:
-        calendar = catalog._index.entry(ref)
-        assert isinstance(calendar, PeriodCalendar)
-        calendar_details = calendar._temporal_details()
-        return PeriodCalendarDefinition(
-            context,
-            calendar_details._date.key,
-            calendar_details.boundary_timezone,
-            calendar_details.coverage,
-            tuple((name, item.key) for name, item in calendar_details._level_bindings),
-            calendar_details.snapshot_status,
-            calendar_details.snapshot_digest,
-            dependencies,
-        )
-    if ref.kind is SemanticKind.TEMPORAL_SET:
-        temporal_set = catalog._index.entry(ref)
-        assert isinstance(temporal_set, TemporalSet)
-        set_details = temporal_set._temporal_details()
-        return TemporalSetDefinition(
-            context,
-            set_details._occurrence_id.key,
-            set_details._start.key,
-            set_details._end.key,
-            set_details._category.key if set_details._category is not None else None,
-            set_details.boundary_timezone,
-            set_details.coverage,
-            set_details.snapshot_status,
-            set_details.occurrence_count,
-            dependencies,
         )
     captured = catalog._state.definitions[ref]
     if isinstance(captured, RelationshipIR):

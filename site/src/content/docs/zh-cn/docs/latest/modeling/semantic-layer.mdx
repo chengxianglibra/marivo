@@ -5,7 +5,7 @@ description: 逐项说明实体、维度、度量、指标与关系的参数和�
 
 语义层用 Python 定义可复用的业务含义。本页依次介绍 Entity、Dimension、Time dimension、Measure、Metric 和 Relationship，说明每类对象表达什么、有哪些属性、如何定义。Datasource 负责物理访问，语义对象在此基础上定义身份、字段、聚合规则和映射关系。
 
-查询能力时从 `marivo.help("authoring")` 开始。身份、字段、关系与 Metric 定义进入 `semantic.model`，时间解析与认证日历进入 `semantic.time`，已有定义进入 `semantic.catalog`，按证明需求选择 load、readiness、preview 或 在线校验 则进入 `semantic.validation`。支持性构造值跟随其定义。本次问题组合已有闭合输入时使用 `semantic.expressions`，无需先发布 Metric。
+readiness 只检查选定语义闭包和物理声明，不打开数据源。普通 preview 提供有界来源证据。
 
 各节的简短声明是模型文件片段，不是直接粘贴到分析脚本中的命令。运行时请结合[完整模型](#complete-model)和[本地教程](/zh-cn/docs/latest/start/python/)。在 `models/semantic/sales/_domain.py` 中用 `ms.domain(name="sales", owner="Mina Zhang")` 声明业务域；默认域允许同目录下的定义省略 `domain=`。`ai_context=ms.ai_context(business_definition=..., guardrails=[...])` 记录业务含义与使用限制，不执行计算逻辑。
 
@@ -512,7 +512,7 @@ validation.show()
 
 连接检查失败时，先检查数据源路径与凭据，再重试。
 
-[日历证书](/zh-cn/docs/latest/modeling/semantic-layer/#业务日历)缺失或截断，需要覆盖完整有限范围的时间预览。这些检查均不代表业务负责人认可收入口径，最后仍应运行实际观察。
+自然日历使用 `mv.grain(...)` 和明确的 `scope.by(grain)`。财务周期、节假日和工作日使用普通业务字段；harness 决定来源、范围和配对。参见[日期与时间](/zh-cn/docs/latest/modeling/dates/)。
 
 ## 组合指标表达式
 
@@ -542,6 +542,6 @@ def gross_margin_rate():
 
 <a id="业务日历"></a>
 
-日历定义与认证：[日期与时间定义](/zh-cn/docs/latest/modeling/dates/)。
+业务时间数据：[日期与时间定义](/zh-cn/docs/latest/modeling/dates/)。
 
-时间字段通过 `ms.date`、`ms.timestamp` 或 `ms.strptime` 声明源时区，省略时使用 Datasource `wall_clock_timezone`；`ms.hour_prefix` 继承前缀字段。DATE validity 从两端字段推导共同时区，期间日历从日期字段推导边界时区，二者均不接受额外时区覆盖。Snapshot 与 temporal_set 覆盖范围仍保留自身边界声明。
+时间字段通过 `ms.date`、`ms.timestamp` 或 `ms.strptime` 声明源时区，省略时使用 Datasource `wall_clock_timezone`；`ms.hour_prefix` 继承前缀字段。DATE validity 从两端字段推导共同时区，不接受额外时区覆盖。Snapshot 版本选择保留自身边界声明。

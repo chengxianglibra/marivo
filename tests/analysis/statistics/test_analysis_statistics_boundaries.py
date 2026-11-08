@@ -30,13 +30,11 @@ def test_future_grid_uses_actual_dst_boundaries(
     history = bind_grid(
         exact_scope(finish - 2 * step, finish, "America/New_York"),
         mv.grain(unit),
-        report_timezone="America/New_York",
     )
     expected_start = history.cells[-1].end
     future = bind_grid(
         exact_scope(expected_start, expected_start + count * step, "America/New_York"),
         mv.grain(unit),
-        report_timezone="America/New_York",
     )
     assert [(c.start, c.end, c.partial) for c in future.cells] == [
         (expected_start + i * step, expected_start + (i + 1) * step, False) for i in range(count)

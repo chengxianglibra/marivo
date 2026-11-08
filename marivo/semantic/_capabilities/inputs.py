@@ -215,8 +215,6 @@ _EXTRAS: dict[str, tuple[str, ...]] = {
     "time_dimension_column": ("domain", "ai_context"),
     "measure_column": ("unit", "domain", "ai_context"),
     "relationship": ("domain", "ai_context"),
-    "period_calendar": ("coverage", "domain", "ai_context"),
-    "temporal_set": ("boundary_timezone", "coverage", "domain", "ai_context"),
     "ai_context": ("business_definition", "guardrails", "aliases"),
 }
 

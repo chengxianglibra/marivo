@@ -10,9 +10,9 @@ from marivo.analysis.datasets.errors import DatasetConstructionError
 
 def _invalid(received: str) -> DatasetConstructionError:
     return DatasetConstructionError(
-        expected="finite half-open time cells with exact timezone and calendar authority",
+        expected="finite half-open time cells with an exact report timezone",
         received=received,
-        repair="Bind the Session report timezone and the exact certified calendar; choose wholly contained cells.",
+        repair="Use explicit non-empty bounds in the Session report timezone.",
         location="analysis.time_grid",
     )
 

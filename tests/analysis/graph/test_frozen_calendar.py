@@ -9,6 +9,7 @@ import pyarrow as pa
 import pytest
 
 from marivo._definition.correspondence import CalendarCorrespondence
+from marivo._temporal import CalendarAxis, builtin_grain
 from marivo._temporal_grid import builtin_nominal_ordinal
 from marivo.analysis.core.data_schema import (
     BuiltinCalendarData,
@@ -23,7 +24,6 @@ from marivo.analysis.core.data_schema import (
     FrozenIntervalData,
     IntervalComparisonBinding,
     IntervalDataAxis,
-    NamedCalendarData,
     PairedDataAxis,
 )
 from marivo.analysis.core.data_types import (
@@ -193,36 +193,6 @@ def test_duplicate_civil_labels_keep_distinct_actual_keys_until_offset_matching(
         build_partial_calendar_map(frozen, frozen, CalendarCorrespondence("years", -1))
 
 
-def test_named_identity_includes_level_and_only_ordinal_is_supported() -> None:
-    base = axis()
-    assert base.frozen is not None
-    named = replace(
-        base,
-        frozen=replace(base.frozen, definition=NamedCalendarData("business", "digest", "month")),
-    )
-    attachment = directory(named, ("2026-08-01",))
-    attachment.rows["nominal_label"] = pd.Series(['"August"'], dtype="string[pyarrow]")
-    frozen = read(attachment, named)
-    assert len(build_partial_calendar_map(frozen, frozen, CalendarCorrespondence("ordinal"))) == 1
-    for kind in ("years", "periods"):
-        rule = (
-            CalendarCorrespondence("years", -1)
-            if kind == "years"
-            else CalendarCorrespondence("periods", -1)
-        )
-        with pytest.raises(CoreRuleError, match="builtin"):
-            build_partial_calendar_map(frozen, frozen, rule)
-    assert named.frozen is not None
-    other = replace(
-        named,
-        frozen=replace(named.frozen, definition=NamedCalendarData("business", "digest", "quarter")),
-    )
-    with pytest.raises(CoreRuleError, match="compatible frozen"):
-        build_partial_calendar_map(
-            frozen, replace(frozen, axis=other), CalendarCorrespondence("ordinal")
-        )
-
-
 def test_paired_map_schema_is_closed_and_region_presence_is_irrelevant() -> None:
     left, right = axis("pair.left"), axis("pair.right")
     paired = PairedDataAxis(
@@ -371,20 +341,6 @@ def test_subday_offset_rejects_without_timezone_lookup() -> None:
     frozen = read(attachment, endpoint)
     with pytest.raises(CoreRuleError, match="supported builtin"):
         build_partial_calendar_map(frozen, frozen, CalendarCorrespondence("periods", -1))
-
-
-@pytest.mark.parametrize("label", ["null", "[]", "{}", "NaN", '"a" ', "01"])
-def test_named_labels_are_exact_canonical_nonnull_json_scalars(label: str) -> None:
-    endpoint = axis()
-    assert endpoint.frozen is not None
-    endpoint = replace(
-        endpoint,
-        frozen=replace(endpoint.frozen, definition=NamedCalendarData("named", "digest", "month")),
-    )
-    attachment = directory(endpoint, ("2026-08-01",))
-    attachment.rows["nominal_label"] = pd.Series([label], dtype="string[pyarrow]")
-    with pytest.raises(CoreRuleError, match="canonical frozen"):
-        read(attachment, endpoint)
 
 
 def test_date_key_uses_exact_physical_days_outside_python_date_range() -> None:
@@ -600,13 +556,12 @@ def test_sparse_directory_keeps_nominal_distance_separate_from_selection_order()
 
 
 def test_two_hour_fold_writer_and_reader_preserve_distinct_nominal_starts() -> None:
-    from marivo._temporal import CalendarAxis, _BuiltinGrain
     from marivo._temporal_grid import bind_grid
     from marivo.analysis.core.frame_calendar import freeze_calendar
     from marivo.analysis.dsl.temporal import exact_scope
 
     scope = exact_scope("2026-10-25", "2026-10-26", "Europe/Berlin")
-    grid = bind_grid(scope, _BuiltinGrain(unit="hour", count=2), report_timezone="Europe/Berlin")
+    grid = bind_grid(scope, builtin_grain(unit="hour", count=2))
     captured = freeze_calendar(
         CalendarAxis(scope, grid)._binding,
         token="axis.0",
@@ -713,7 +668,6 @@ def test_direct_origin_cannot_capture_an_ancestor_relation() -> None:
 
 
 def test_selected_grid_is_sparse_or_empty_and_direct_origin_changes_identity() -> None:
-    from marivo._temporal import _BuiltinGrain
     from marivo._temporal_grid import (
         BoundTimeGrid,
         TimeCell,
@@ -725,7 +679,7 @@ def test_selected_grid_is_sparse_or_empty_and_direct_origin_changes_identity() -
     )
     from marivo.analysis.core.frame_calendar import freeze_calendar
 
-    grain = _BuiltinGrain(unit="week")
+    grain = builtin_grain(unit="week")
 
     def cell(label: str) -> TimeCell:
         start = datetime.fromisoformat(label).replace(tzinfo=timezone.utc)
@@ -741,18 +695,12 @@ def test_selected_grid_is_sparse_or_empty_and_direct_origin_changes_identity() -
             _identity(
                 grain._to_token(),
                 "UTC",
-                "UTC",
-                None,
-                None,
                 cells,
                 origin=origin,
                 civil_bounds=civil,
             ),
             grain,
             "UTC",
-            "UTC",
-            None,
-            None,
             cells,
             origin=origin,
             civil_bounds=civil,
@@ -781,7 +729,6 @@ def test_selected_grid_is_sparse_or_empty_and_direct_origin_changes_identity() -
     )
     empty = grid((), empty_origin)
     assert empty.cells == ()
-    from marivo._temporal import CalendarAxis
 
     coordinate = CalendarAxis(None, shifted)._binding
     frozen = freeze_calendar(

@@ -111,11 +111,8 @@ def scoped_definition_fingerprint(
 ) -> str:
     """Hash one definition and its transitive semantic dependencies.
 
-    A persisted executable semantic snapshot must become stale when any field,
-    entity, datasource, or expression that supplies its meaning changes.  The
-    whole-project fingerprint is intentionally not used here: unrelated
-    objects should not force recertification of an otherwise unchanged
-    temporal authority.
+    Consumed definition versions include their dependency closure. Unrelated
+    objects do not change the identity of an otherwise unchanged definition.
     """
     selected: set[Ref[SemanticKindTag]] = set()
     pending = [root]

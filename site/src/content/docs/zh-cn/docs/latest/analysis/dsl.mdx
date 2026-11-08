@@ -61,11 +61,7 @@ session = mv.session.get_or_create("revenue-review", timezone="UTC", domains="sa
 
 非 `None` 的 `question`、`timezone`、`domains` 必须与保存值一致。比较前会规范化时区偏移，并对域名称排序去重。冲突会在恢复之前抛出 `SessionStateError`；读取 `error.expected`、`error.received` 和 `error.repair.candidates`（已有 Session ID）即可程序化处理。可省略冲突配置、传入一致的值，或选择新名称。恢复使用与 `mv.session.resume(session_id)` 相同的 writer guard，存在活动 writer 时仍会拒绝。没有待恢复工作时，重复获取保持 `updated_at` 不变。Help：`analysis.session.get_or_create`。
 
-`session.observe(metrics, by=())` 请求一个整体单元，结果为零轴。
-加入 `where=scope` 可限定报告范围，输出仍为零轴。原生 TimeField 样本使用实际值，
-不要求覆盖声明的采样节奏。若至少一个分支提供贡献时间，内置 Grain 样本也可在没有有限
-报告范围时计算。窗口需要报告端点或外层内置日历样本端点，自定义日历样本需要完整认证期间。部分检查在
-compute 或 persist 时执行。
+自然日历样本使用实际样本键；输出补空不增加内部样本数。窗口仍需明确端点。业务日历由外部维护并提供明确范围。
 
 ## 执行前选择结果保留方式
 
@@ -156,10 +152,7 @@ Entity/Population count 和未命名表达式同样需要显式名称，不读�
 不能含点号或使用保留的 presence 名 `left_present`/`right_present`；非法名称不自动清洗或编号。
 名称在捕获时确定，可立即读取 `output_names`，空结果、compute、persist 和恢复都不重新命名。
 
-每个 Metric 分支使用定义时固定的贡献时间。范围合计使用 `where=scope`，
-时间分组使用 `by=(scope.by(grain),)`；CalendarAxis 同时携带范围、粒度和时区。
-已有时间轴时，where 中不能再传报告 TimeScope，但仍可传固定字段谓词。
-裸 Grain 输入会被拒绝。自定义日历轴要求恰好一个完整认证期间和已捕获快照的 Grain。
+自然日历使用 `mv.grain(...)` 和明确的 `scope.by(grain)`。财务周期、节假日和工作日使用普通业务字段；harness 决定来源、范围和配对。参见[日期与时间](/zh-cn/docs/latest/modeling/dates/)。
 
 ### 读取 8 月收入
 

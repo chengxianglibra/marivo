@@ -16,7 +16,6 @@ from marivo.analysis.core.data_schema import (
     CalendarDataAxis,
     IntervalComparisonBinding,
     IntervalDataAxis,
-    NamedCalendarData,
     PairedDataAxis,
 )
 from marivo.analysis.core.data_types import (
@@ -377,11 +376,7 @@ def _period(
     key = frozen_key_values(bucket.key)
     if isinstance(bucket, FrozenCalendarBucket):
         assert isinstance(axis, CalendarDataAxis) and axis.frozen is not None
-        label: object = (
-            json.loads(bucket.nominal_label)
-            if isinstance(axis.frozen.definition, NamedCalendarData)
-            else bucket.nominal_label
-        )
+        label: object = bucket.nominal_label
         assert isinstance(label, (bool, str, int, float))
         return FrameCalendarPeriod(
             key,

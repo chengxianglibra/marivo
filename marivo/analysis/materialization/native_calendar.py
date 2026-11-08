@@ -11,7 +11,7 @@ import ibis.expr.datatypes as dt
 import ibis.expr.types as ir
 import pandas as pd
 
-from marivo._definition.observations import ContributionBinding, ObservationPeriod
+from marivo._definition.observations import ContributionBinding
 from marivo._definition.relations import LiteralPopulation, ObserveQuery
 from marivo._definition.types import (
     CalendarCoordinate,
@@ -30,7 +30,6 @@ from marivo.analysis.core.artifact_data import (
     CalendarDataAxis,
     DataAxis,
     DataSchema,
-    NamedCalendarData,
     OutputAttachment,
 )
 from marivo.analysis.core.calendar_keys import require_window_endpoints, window_endpoint_keys
@@ -87,8 +86,7 @@ def _actual_positions(
     native_windows = {
         f"window_{index}": rule
         for index, rule in enumerate(windows)
-        if isinstance(rule, TrailingPeriods)
-        or (isinstance(rule, ToDate) and rule.grain.kind == "builtin")
+        if isinstance(rule, (TrailingPeriods, ToDate))
     }
     starts = {
         slot: localize(
@@ -151,71 +149,62 @@ def _source_output_calendar(
     grain = coordinate.grain_spec
     selected_positions: dict[int, tuple[datetime, ...]]
     position_count = 1
-    if grain.kind != "builtin":
-        # A certified custom selection is one complete civil period.
-        positions = ibis.literal(0).name("position").as_table()
-        first = datetime.fromisoformat(coordinate.civil_bounds[0][0]).replace(tzinfo=None)
-        last = datetime.fromisoformat(coordinate.civil_bounds[0][1]).replace(tzinfo=None)
-        start, end = ibis.literal(first), ibis.literal(last)
-        selected_positions = {0: tuple(cell[0] for cell in coordinate.cells)}
+    first = datetime.fromisoformat(coordinate.civil_bounds[0][0]).replace(tzinfo=None)
+    assert grain.unit is not None and grain.count is not None
+    seconds = {"second": 1, "minute": 60, "hour": 3600, "day": 86400, "week": 604800}
+    if grain.unit in seconds:
+        width = seconds[grain.unit] * grain.count
+        interval = _bucket_step(grain)
     else:
-        first = datetime.fromisoformat(coordinate.civil_bounds[0][0]).replace(tzinfo=None)
-        assert grain.unit is not None and grain.count is not None
-        seconds = {"second": 1, "minute": 60, "hour": 3600, "day": 86400, "week": 604800}
-        if grain.unit in seconds:
-            width = seconds[grain.unit] * grain.count
-            interval = _bucket_step(grain)
-        else:
-            width = {"month": 1, "quarter": 3, "year": 12}[grain.unit]
-            interval = _bucket_step(grain)
-        selected_positions = {}
-        for cell, civil_bounds in zip(coordinate.cells, coordinate.civil_bounds, strict=True):
-            local = datetime.fromisoformat(civil_bounds[0]).replace(tzinfo=None)
-            position = (
-                int((local - first).total_seconds()) // width
-                if grain.unit in seconds
-                else ((local.year - first.year) * 12 + local.month - first.month) // width
-            )
-            selected_positions[position] = (*selected_positions.get(position, ()), cell[0])
-        # A selected start survives even when its exclusive end repeats the
-        # same civil clock. End-label subtraction would erase that selection.
-        position_count = max(selected_positions) + 1
-        positions = calendar_range(position_count)
-        if coordinate.origin is not None and len(selected_positions) != position_count:
-            positions = positions.filter(positions.position.isin(tuple(selected_positions)))
-        # ClickHouse reads a zoneless literal in the server zone, so the civil clock
-        # is carried under a UTC label there.
-        clock_type = (
-            dt.Timestamp(timezone="UTC", scale=6)
-            if source.provider.name == "clickhouse"
-            else dt.Timestamp(scale=6)
+        width = {"month": 1, "quarter": 3, "year": 12}[grain.unit]
+        interval = _bucket_step(grain)
+    selected_positions = {}
+    for cell, civil_bounds in zip(coordinate.cells, coordinate.civil_bounds, strict=True):
+        local = datetime.fromisoformat(civil_bounds[0]).replace(tzinfo=None)
+        position = (
+            int((local - first).total_seconds()) // width
+            if grain.unit in seconds
+            else ((local.year - first.year) * 12 + local.month - first.month) // width
         )
-        start = ibis.literal(first, type=clock_type) + positions.position * interval
+        selected_positions[position] = (*selected_positions.get(position, ()), cell[0])
+    # A selected start survives even when its exclusive end repeats the
+    # same civil clock. End-label subtraction would erase that selection.
+    position_count = max(selected_positions) + 1
+    positions = calendar_range(position_count)
+    if coordinate.origin is not None and len(selected_positions) != position_count:
+        positions = positions.filter(positions.position.isin(tuple(selected_positions)))
+    # ClickHouse reads a zoneless literal in the server zone, so the civil clock
+    # is carried under a UTC label there.
+    clock_type = (
+        dt.Timestamp(timezone="UTC", scale=6)
+        if source.provider.name == "clickhouse"
+        else dt.Timestamp(scale=6)
+    )
+    start = ibis.literal(first, type=clock_type) + positions.position * interval
     key = localize(coordinate.timezone, timestamp(start))
-    if grain.kind == "builtin":
-        key = timestamp(builtin_key(key, coordinate, engine=source.provider.name))
-        # Keep the native key as a query-local column. The exact range bound
-        # makes this LIMIT lossless and prevents repeated clock expressions
-        # from being inlined through every endpoint/label on older engines.
-        positions = positions.select(positions.position, native_key=key).limit(position_count)
-        key = timestamp(positions.native_key)
-        # Native gap interpretation can merge nominal candidates. Derive all
-        # endpoint parameters from their resulting key, so merged positions
-        # describe one window rather than whichever candidate arrived first.
-        start = render(coordinate.timezone, key)
-        end = start + interval
+    key = timestamp(builtin_key(key, coordinate, engine=source.provider.name))
+    # Keep the native key as a query-local column. The exact range bound
+    # makes this LIMIT lossless and prevents repeated clock expressions
+    # from being inlined through every endpoint/label on older engines.
+    positions = positions.select(positions.position, native_key=key).limit(position_count)
+    key = timestamp(positions.native_key)
+    # Native gap interpretation can merge nominal candidates. Derive all
+    # endpoint parameters from their resulting key, so merged positions
+    # describe one window rather than whichever candidate arrived first.
+    start = render(coordinate.timezone, key)
+    end = start + interval
     finish = localize(coordinate.timezone, timestamp(end))
     requested_start = min(cell[2] for cell in coordinate.cells)
     requested_end = max(cell[3] for cell in coordinate.cells)
-    lower = key if grain.kind == "semantic" else ibis.greatest(key, ibis.literal(requested_start))
-    upper = finish if grain.kind == "semantic" else ibis.least(finish, ibis.literal(requested_end))
+    lower = ibis.greatest(key, ibis.literal(requested_start))
+    upper = ibis.least(finish, ibis.literal(requested_end))
     window_columns: dict[str, ir.Value] = {}
     window_rules: dict[str, ObservationWindow] = {}
     for index, rule in enumerate(windows):
         wall_start: ir.Value | None = None
-        if isinstance(rule, ToDate) and rule.grain.kind == "builtin":
+        if isinstance(rule, ToDate):
             wall_start = builtin_wall_key(timestamp(start), rule.grain, engine=source.provider.name)
-        elif isinstance(rule, TrailingPeriods) and grain.kind == "builtin":
+        elif isinstance(rule, TrailingPeriods):
             wall_start = start - (rule.count - 1) * interval
         if wall_start is not None:
             name = f"window_{index}"
@@ -317,7 +306,7 @@ def _source_output_calendar(
             civil_bounds=tuple(civil[index] for index in order),
             origin=origin,
             ranges=_merge_time_ranges(tuple((cell[2], cell[3]) for cell in cells))
-            if origin is not None or grain.kind == "semantic"
+            if origin is not None
             else coordinate.ranges,
         ),
         native_starts,
@@ -352,32 +341,25 @@ def _pandas_output_calendar(coordinate: CalendarCoordinate) -> CalendarCoordinat
         return coordinate
     grain = coordinate.grain_spec
     first = datetime.fromisoformat(coordinate.civil_bounds[0][0]).replace(tzinfo=None)
-    if grain.kind == "builtin":
-        last = datetime.fromisoformat(coordinate.civil_bounds[-1][0]).replace(tzinfo=None)
-        unit, count = grain.unit, grain.count
-        assert unit is not None and count is not None
-        step = (
-            pd.DateOffset(
-                seconds={"second": 1, "minute": 60, "hour": 3600, "day": 86400, "week": 604800}[
-                    unit
-                ]
-                * count
-            )
-            if unit in ("second", "minute", "hour", "day", "week")
-            else pd.DateOffset(months={"month": 1, "quarter": 3, "year": 12}[unit])
+    last = datetime.fromisoformat(coordinate.civil_bounds[-1][0]).replace(tzinfo=None)
+    unit, count = grain.unit, grain.count
+    assert unit is not None and count is not None
+    step = (
+        pd.DateOffset(
+            seconds={"second": 1, "minute": 60, "hour": 3600, "day": 86400, "week": 604800}[unit]
+            * count
         )
-        local = pd.date_range(first, last, freq=step, unit="us")
-        if coordinate.origin is not None:
-            selected = {
-                datetime.fromisoformat(bounds[0]).replace(tzinfo=None)
-                for bounds in coordinate.civil_bounds
-            }
-            local = local[local.isin(selected)]
-        finishes = local + step
-    else:
-        last = datetime.fromisoformat(coordinate.civil_bounds[0][1]).replace(tzinfo=None)
-        local = pd.DatetimeIndex([first])
-        finishes = pd.DatetimeIndex([last])
+        if unit in ("second", "minute", "hour", "day", "week")
+        else pd.DateOffset(months={"month": 1, "quarter": 3, "year": 12}[unit])
+    )
+    local = pd.date_range(first, last, freq=step, unit="us")
+    if coordinate.origin is not None:
+        selected = {
+            datetime.fromisoformat(bounds[0]).replace(tzinfo=None)
+            for bounds in coordinate.civil_bounds
+        }
+        local = local[local.isin(selected)]
+    finishes = local + step
     starts = local.tz_localize(normalize_timezone(coordinate.timezone).tz)
     ends = finishes.tz_localize(normalize_timezone(coordinate.timezone).tz)
     requested_start = min(cell[2] for cell in coordinate.cells)
@@ -394,8 +376,8 @@ def _pandas_output_calendar(coordinate: CalendarCoordinate) -> CalendarCoordinat
             anchor_from_datetime(start.to_pydatetime()),
             anchor_from_datetime(end.to_pydatetime()),
         )
-        low = key if grain.kind == "semantic" else max(key, requested_start)
-        high = finish if grain.kind == "semantic" else min(finish, requested_end)
+        low = max(key, requested_start)
+        high = min(finish, requested_end)
         cells.append((key, finish, low, high))
         civil.append(
             tuple(
@@ -430,7 +412,7 @@ def _pandas_output_calendar(coordinate: CalendarCoordinate) -> CalendarCoordinat
         civil_bounds=tuple((row[0], row[1], row[2], row[3]) for row in civil),
         origin=origin,
         ranges=_merge_time_ranges(tuple((cell[2], cell[3]) for cell in cells))
-        if origin is not None or grain.kind == "semantic"
+        if origin is not None
         else coordinate.ranges,
     )
 
@@ -499,29 +481,22 @@ def _interval_windows(
             contribution = contributions[index]
             rule, period = contribution.window_rule, contribution.period
             assert isinstance(rule, ToDate) and period is not None and period.start is not None
-            if rule.grain.kind == "builtin":
-                unit = rule.grain.unit
-                assert unit is not None
-                end = ibis.literal(period.end, type=dt.Timestamp(timezone="UTC", scale=6))
-                wall = render(period.timezone, timestamp(end))
-                reset = builtin_wall_key(wall, rule.grain, engine=owner.provider.name)
-                step = (
-                    ibis.interval(
-                        seconds={"second": 1, "minute": 60, "hour": 3600}[unit]
-                        * (rule.grain.count or 1)
-                    )
-                    if unit in ("second", "minute", "hour")
-                    else ibis.interval(days={"day": 1, "week": 7}[unit])
-                    if unit in ("day", "week")
-                    else ibis.interval(months={"month": 1, "quarter": 3, "year": 12}[unit])
+            unit = rule.grain.unit
+            assert unit is not None
+            end = ibis.literal(period.end, type=dt.Timestamp(timezone="UTC", scale=6))
+            wall = render(period.timezone, timestamp(end))
+            reset = builtin_wall_key(wall, rule.grain, engine=owner.provider.name)
+            step = (
+                ibis.interval(
+                    seconds={"second": 1, "minute": 60, "hour": 3600}[unit]
+                    * (rule.grain.count or 1)
                 )
-                start = (wall == reset).ifelse(reset - step, reset)
-            else:
-                start = ibis.literal(
-                    period.start.astimezone(normalize_timezone(period.timezone).tz).replace(
-                        tzinfo=None
-                    )
-                )
+                if unit in ("second", "minute", "hour")
+                else ibis.interval(days={"day": 1, "week": 7}[unit])
+                if unit in ("day", "week")
+                else ibis.interval(months={"month": 1, "quarter": 3, "year": 12}[unit])
+            )
+            start = (wall == reset).ifelse(reset - step, reset)
             values[f"window_{index}"] = localize(period.timezone, timestamp(start))
         expression = lower_temporal(
             ibis.literal(0).as_table().select(**values), owner.provider.name
@@ -569,13 +544,6 @@ def bind_native_calendars(
             item.window_rule
             for item in observation.contributions
             if item.window_rule is not None and item.sample_window is None
-        )
-    )
-    snapshots = tuple(
-        dict.fromkeys(
-            rule.grain._snapshot
-            for rule in windows
-            if isinstance(rule, ToDate) and rule.grain._snapshot is not None
         )
     )
     for contribution in observation.contributions:
@@ -628,13 +596,6 @@ def bind_native_calendars(
     graph = rebound
     observation = graph.signature.observation
     assert observation is not None
-    if calendar.grain_spec.kind == "semantic" and calendar.ranges:
-        observation = replace(
-            observation,
-            period=ObservationPeriod(
-                calendar.ranges[0][0], calendar.ranges[-1][1], calendar.timezone
-            ),
-        )
     axes = graph.signature.axes
     contributions: list[ContributionBinding] = []
     seen: set[tuple[int, ...]] = set()
@@ -662,7 +623,6 @@ def bind_native_calendars(
                 dict(graph.signature.declared_metrics),
                 observation.period,
                 coordinate,
-                snapshots,
                 native_starts=native_starts_by_owner[owner],
             )
             if isinstance(graph.root, ObserveQuery)
@@ -776,9 +736,6 @@ def freeze_output_calendars(
                 token=axis.token,
                 name=axis.name,
                 key=axis.columns[0],
-                calendar_ref=axis.frozen.definition.ref
-                if isinstance(axis.frozen.definition, NamedCalendarData)
-                else None,
             )
             if frozen.axis.frozen is not None and frozen.axis.frozen.direct is not None:
                 from marivo.analysis.core.frozen_calendar import (

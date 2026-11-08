@@ -55,7 +55,7 @@ from marivo._definition.types import (
 )
 from marivo._definition.windows import AllHistory, Since, ToDate, TrailingDuration, TrailingPeriods
 from marivo._symbolic import SymbolResolver
-from marivo._temporal import InstantAnchor, _BuiltinGrain, _SemanticGrain
+from marivo._temporal import Grain, InstantAnchor
 from marivo.refs import DomainKind, Ref, SemanticKind, SemanticKindTag
 
 if TYPE_CHECKING:
@@ -468,7 +468,7 @@ def _captured_relationship(recipe: Resolver) -> bool:
 
 def _capture_sample(recipe: Resolver, path: tuple[str, ...]) -> None:
     """Validate the finite sample-parameter grammar without resolving fields."""
-    if isinstance(recipe, Just) and isinstance(recipe.value, (_BuiltinGrain, _SemanticGrain)):
+    if isinstance(recipe, Just) and isinstance(recipe.value, (Grain,)):
         return
     from marivo._definition.population_parameters import (
         IdentityParameter,
@@ -805,19 +805,9 @@ class _Inspector:
             for reference in refs:
                 self.dependency(reference)
             return
-        from marivo._temporal import (
-            TimeScope,
-            _CalendarPeriodTimeScope,
-            _SessionTimeScope,
-            _TemporalOccurrenceTimeScope,
-        )
+        from marivo._temporal import TimeScope
 
-        if type(value) in (
-            TimeScope,
-            _SessionTimeScope,
-            _CalendarPeriodTimeScope,
-            _TemporalOccurrenceTimeScope,
-        ):
+        if type(value) in (TimeScope, TimeScope):
             assert isinstance(value, TimeScope)
             self.token(
                 "time_scope",
@@ -826,16 +816,10 @@ class _Inspector:
                 ),
             )
             return
-        if isinstance(value, _BuiltinGrain):
+        if isinstance(value, Grain):
             self.token("grain", value.unit, str(value.count))
-        elif isinstance(value, _SemanticGrain):
-            self.token(
-                "grain",
-                value._calendar.key,
-                value.level,
-                "unbound" if value._snapshot is None else value._snapshot.snapshot_digest,
-            )
-        elif type(value) is AllHistory:
+            return
+        if type(value) is AllHistory:
             self.token("window", "all_history")
         elif isinstance(value, TrailingDuration) and type(value) is TrailingDuration:
             self.token(
@@ -851,18 +835,8 @@ class _Inspector:
             self.token("window", "since", value.start.isoformat())
         elif isinstance(value, ToDate) and type(value) is ToDate:
             grain = value.grain
-            if isinstance(grain, _BuiltinGrain):
+            if isinstance(grain, Grain):
                 self.token("window", "to_date", grain.unit, str(grain.count))
-            elif isinstance(grain, _SemanticGrain):
-                self.token(
-                    "window",
-                    "to_date",
-                    grain._calendar.key,
-                    grain.level,
-                    "unbound" if grain._snapshot is None else grain._snapshot.snapshot_digest,
-                )
-            else:
-                invalid("Expected a closed calendar grain for to_date.", path=path)
         elif isinstance(value, RelationshipParameter):
             self.token("relationship", value.cardinality)
             for reference in (value.ref, value.from_entity, value.to_entity):
@@ -1179,7 +1153,7 @@ class _Inspector:
                     _capture_sample(sample, (*path, "samples"))
                 elif (
                     not isinstance(grain, Just)
-                    or not isinstance(grain.value, _BuiltinGrain)
+                    or not isinstance(grain.value, Grain)
                     or _captured_field_kind(sample) is not SemanticKind.TIME_DIMENSION
                     or _captured_scalar_path(sample)
                 ):

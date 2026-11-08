@@ -5,10 +5,9 @@ import subprocess
 import sys
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
-from datetime import date, datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-import duckdb
 import pytest
 
 import marivo.analysis as mv
@@ -21,9 +20,7 @@ from tests.analysis.numeric.test_remote_numeric_query import _datasource_model
 from tests.datasource.source_cases import SourceData, source_case, source_params
 from tests.shared_fixtures import (
     catalog_value,
-    fiscal_analysis_project_files,
     frozen_coordinates,
-    publish_fiscal_calendar_artifact,
 )
 from tests.support.paths import PROJECT_ROOT
 from tests.support.source_trace import SourceTrace
@@ -393,72 +390,3 @@ assert rows.sort_values("calendar:day")["twice"].tolist() == [400, 80]
             check=False,
         )
         assert completed.returncode == 0, completed.stdout + completed.stderr
-
-
-def test_custom_report_grain_preserves_certification_and_date_membership(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
-) -> None:
-    database = tmp_path / "fiscal.duckdb"
-    with duckdb.connect(str(database)) as connection:
-        connection.execute("CREATE TABLE events (user_id BIGINT, event_date DATE, amount BIGINT)")
-        connection.execute(
-            "INSERT INTO events VALUES "
-            "(1, DATE '2026-01-07', 10), (2, DATE '2026-01-08', 900), (3, NULL, 800)"
-        )
-    monkeypatch.chdir(tmp_path)
-    files = fiscal_analysis_project_files()
-    files["datasources/warehouse.py"] = (
-        "import marivo.datasource as md\n"
-        + f"md.duckdb(name='warehouse', path={str(database)!r}, wall_clock_timezone='UTC')\n"
-    )
-    files["sales/metrics.py"] = files["sales/metrics.py"].replace(
-        "source=md.table('events')", "source=md.table('events'), primary_key=['user_id']"
-    )
-    files["sales/calendar.py"] = files["sales/calendar.py"].replace(
-        "source=md.table('calendar')", "source=md.table('calendar'), primary_key=['calendar_date']"
-    )
-    publish_fiscal_calendar_artifact(ms.SemanticCatalog(semantic_project_factory(files)))
-    session = mv.session.get_or_create("custom-report-calendar", timezone="UTC")
-    calendar = session.catalog.get("period_calendar:sales.fiscal")
-    assert isinstance(calendar, ms.PeriodCalendar)
-    week = calendar.grain("fiscal_week")
-    events = catalog_value(session.catalog, "sales.events.event_date", kind="field")
-    gmv = session.catalog.get("metric:sales.gmv")
-    assert isinstance(events, ms.TimeDimension) and isinstance(gmv, ms.Metric)
-    one_period = calendar.period("fiscal_week", "M1-W1")
-    with pytest.raises(AnalysisError, match="CalendarAxis") as missing_scope:
-        session.observe(gmv, by=(week,))  # type: ignore[arg-type]
-    assert missing_scope.value.repair is not None
-    assert missing_scope.value.repair.help_target.canonical_id == "session.observe"
-    assert "scope.by(grain)" in missing_scope.value.repair.action
-    frame = session.observe(gmv, by=(one_period.by(week),)).compute()
-    assert frame.to_pandas()["gmv"].tolist() == [10]
-    assert frozen_coordinates(frame)[0].rows["selection"].tolist() == ["full"]
-    for end_text in ("2026-01-05", "2026-01-15"):
-        with pytest.raises(ValueError, match="one complete custom calendar period"):
-            session.observe(
-                gmv, by=(session.time_scope(start="2026-01-01", end=end_text).by(week),)
-            )
-
-    from marivo._temporal import certify_period_calendar_rows, semantic_grain
-    from marivo.refs import ref
-
-    calendar_ref = ref.period_calendar("sales.fiscal")
-    start, end = date(2026, 1, 1), date(2026, 1, 8)
-    conflicting = certify_period_calendar_rows(
-        calendar_ref=calendar_ref,
-        boundary_timezone="UTC",
-        coverage=(start, end),
-        columns=("day", "period"),
-        date_column="day",
-        levels={"fiscal_week": "period"},
-        retained_values=tuple(
-            {"day": (start + timedelta(days=index)).isoformat(), "period": "different"}
-            for index in range((end - start).days)
-        ),
-    )
-    bad_grain = semantic_grain(calendar=calendar_ref, level="fiscal_week", snapshot=conflicting)
-    with pytest.raises(ValueError, match="different calendar snapshot"):
-        session.observe(gmv, by=(one_period.by(bad_grain),))

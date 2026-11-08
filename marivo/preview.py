@@ -126,9 +126,8 @@ class PreviewResult(_DataResult):
     is_truncated: bool = field(
         metadata={
             "meaning": (
-                "True when observed rows or certified temporal entries exceed the retained "
-                "preview rows. Read coverage for acquisition completeness: exhaustive "
-                "temporal certification can succeed while is_truncated is True."
+                "True when observed rows exceed the retained "
+                "preview rows. Read coverage for acquisition completeness independently."
             )
         }
     )
@@ -137,8 +136,7 @@ class PreviewResult(_DataResult):
         metadata={
             "meaning": (
                 "Observed acquisition scope and completeness. exhaustive/scope_exact can "
-                "accompany is_truncated=True when a complete temporal snapshot was certified "
-                "and only its retained preview rows were bounded."
+                "accompany is_truncated=True when retained preview rows are bounded independently."
             )
         }
     )

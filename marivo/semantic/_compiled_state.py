@@ -9,7 +9,7 @@ from typing import Literal, cast
 
 from marivo._definition.deferred import root_declaration
 from marivo._definition.expressions import MetricNode, RowNode
-from marivo._definition.graph import computation_fingerprint, direct_calendar_refs, direct_refs
+from marivo._definition.graph import computation_fingerprint, direct_refs
 from marivo.datasource.ir import AiContextIR
 from marivo.datasource.typing import AiContextValue
 from marivo.refs import Ref, SemanticKindTag
@@ -22,11 +22,9 @@ from marivo.semantic.ir import (
     EntityIR,
     HourPrefixParse,
     MeasureIR,
-    PeriodCalendarIR,
     RelationshipIR,
     SemiAdditive,
     SnapshotVersioningIR,
-    TemporalSetIR,
     ValidityVersioningIR,
 )
 from marivo.semantic.validator import Registry
@@ -145,14 +143,6 @@ def _definition_rows(registry: Registry) -> dict[Ref[SemanticKindTag], object]:
         (cast("Ref[SemanticKindTag]", ref_factory.relationship(key)), value)
         for key, value in registry.relationships.items()
     )
-    rows.update(
-        (cast("Ref[SemanticKindTag]", ref_factory.period_calendar(key)), value)
-        for key, value in registry.period_calendars.items()
-    )
-    rows.update(
-        (cast("Ref[SemanticKindTag]", ref_factory.temporal_set(key)), value)
-        for key, value in registry.temporal_sets.items()
-    )
     from marivo.semantic._deferred_semantics import consume_metric, consume_row
 
     for key, measure in registry.declared_measures.items():
@@ -197,10 +187,6 @@ def _ref_for_path(registry: Registry, path: str) -> Ref[SemanticKindTag] | None:
         return cast("Ref[SemanticKindTag]", ref_factory.measure(path))
     if path in registry.relationships:
         return cast("Ref[SemanticKindTag]", ref_factory.relationship(path))
-    if path in registry.period_calendars:
-        return cast("Ref[SemanticKindTag]", ref_factory.period_calendar(path))
-    if path in registry.temporal_sets:
-        return cast("Ref[SemanticKindTag]", ref_factory.temporal_set(path))
     if path in registry.domains:
         return cast("Ref[SemanticKindTag]", ref_factory.domain(path))
     return None
@@ -245,20 +231,6 @@ def _dependencies_for(
         paths.extend((definition.from_entity, definition.to_entity))
         for key in definition.keys:
             paths.extend((key.from_key, key.to_key))
-    elif isinstance(definition, PeriodCalendarIR):
-        paths.append(definition.date)
-        paths.extend(ref for _level, ref in definition.levels)
-    elif isinstance(definition, TemporalSetIR):
-        paths.extend(
-            value
-            for value in (
-                definition.occurrence_id,
-                definition.start,
-                definition.end,
-                definition.category,
-            )
-            if isinstance(value, str)
-        )
     body = sidecar.bodies.get(ref)
     if body is not None:
         paths.extend(binding.field_ref.path for binding in body.bindings)
@@ -287,7 +259,7 @@ def definition_graph(
         # defined here, so no edge is filtered out.
         dependencies[ref] = tuple(
             sorted(
-                ({exact.ref for exact in direct_refs(node)} | direct_calendar_refs(node)) - {ref},
+                ({exact.ref for exact in direct_refs(node)}) - {ref},
                 key=lambda item: item.key,
             )
         )
@@ -324,11 +296,7 @@ class CompilationGraph:
         )
         self.dependencies[reference] = tuple(
             sorted(
-                (
-                    {exact.ref for exact in direct_refs(node)}
-                    | direct_calendar_refs(node)
-                    | set(captured_dependencies)
-                )
+                ({exact.ref for exact in direct_refs(node)} | set(captured_dependencies))
                 - {reference},
                 key=lambda item: item.key,
             )

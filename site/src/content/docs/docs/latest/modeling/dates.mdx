@@ -3,7 +3,7 @@ title: Date and time definitions
 description: Define temporal fields, parsers, ranges, grains, business calendars and named occurrences.
 ---
 
-Model source encoding, business-time role and observation range/grain separately. A civil `DATE` is a calendar day; a timezone-aware timestamp identifies an instant; and `TimeScope` captures a finite half-open `[start, end)` interval. The parser timezone interprets source values, the Session timezone sets reporting boundaries, and a certified calendar's boundary timezone governs its periods.
+Model source encoding, business-time role and observation range/grain separately. A civil `DATE` is a calendar day; a timezone-aware timestamp identifies an instant; and `TimeScope` captures a finite half-open `[start, end)` interval. The parser timezone interprets source values, the Session timezone sets reporting boundaries.
 
 The declaration snippets assume `import marivo.semantic as ms` and that their referenced Entities and fields already exist. They show alternatives for different source encodings. The complete calendar walkthrough below uses a separate project.
 
@@ -140,133 +140,16 @@ The scope always uses the Session’s saved report timezone for civil boundaries
 
 Use `by=(august.by(day),)` to observe daily buckets. `scope.by(grain)` returns a `CalendarAxis`, also usable in an explicit Population or a shifted domain. At subday grains, its grid skips nonexistent local times and retains both instants for a repeated local time. Civil days and months are calendar periods, so their elapsed durations vary around daylight-saving transitions. A DATE time role requires day-or-coarser contributions whose boundaries fall at business midnight. See [time series and windows](/docs/latest/analysis/time-series/) for observation and comparison examples.
 
-## Business calendar: `ms.period_calendar`
+## Business calendars and holidays
 
-| Parameter | Required | Default | Meaning |
-| --- | --- | --- | --- |
-| `name` | Yes | — | Semantic name, unique in its owning scope. |
-| `date` | Yes | — | Civil-date TimeDimension. |
-| `coverage` | Yes | — | Nonempty `(start_date, end_date)` pair, inclusive start and exclusive end. |
-| `levels` | Yes | — | Level name → Dimension mapping on the same Entity. Period keys must be globally unique within a level; day is reserved and derived. |
+The harness or external business service owns calendar authority and versions,
+including holidays, compensatory working days and fiscal periods. Model dates,
+working-day states and fiscal keys with ordinary Entity, TimeDimension and
+Dimension declarations. Declare the required relationships and aggregate the
+original Metric by the business dimension.
 
-All fields belong to one Entity. Calendar boundaries derive from the date field's effective source timezone; `ms.period_calendar` has no `boundary_timezone` argument. The date field must be a civil `DATE` TimeDimension; a midnight timestamp is not equivalent. Certification requires one row for every covered date and a non-`NULL` key for every level on every date. Within a level, each key identifies one contiguous period, so periods neither overlap nor leave gaps. Use a `TemporalSet` for separate or overlapping activities.
-
-## Business calendars
-
-Use ordinary grains in [time analysis](/docs/latest/analysis/time-series/) when civil days and months fit. This page builds a small finite business calendar of your own.
-
-### Create seven calendar dates
-
-Use the environment from [installation](/docs/latest/start/installation/). In a separate `calendar-demo` project, create `models/datasources/warehouse.py` with the DuckDB declaration from [Declare the connection](/docs/latest/start/python/#declare-the-connection), using the local path `warehouse.duckdb`. Run from this project with the installed interpreter's absolute path. Save the following as `seed_calendar.py` and run it; rerunning replaces only this demo's `calendar` table.
-
-{/* example: calendar-seed */}
-
-```python
-from datetime import date, timedelta
-import duckdb
-
-with duckdb.connect("warehouse.duckdb") as connection:
-    connection.execute(
-        "CREATE OR REPLACE TABLE calendar (day DATE PRIMARY KEY, fiscal_week VARCHAR)"
-    )
-    connection.executemany(
-        "INSERT INTO calendar VALUES (?, ?)",
-        [(date(2026, 1, 1) + timedelta(days=i), "FY2026-W01") for i in range(7)],
-    )
-```
-
-### Declare dates and periods
-
-Save as `models/semantic/sales/_domain.py`. This is the complete calendar model for `calendar-demo`. The example week runs from January 1 to January 8, including the start and excluding the end; it is not an ISO week.
-
-{/* example: calendar-model */}
-
-```python
-from datetime import date
-import marivo.datasource as md
-import marivo.semantic as ms
-
-ms.domain(name="sales", owner="Mina Zhang", default=True)
-calendar_days = ms.entity(
-    name="calendar",
-    datasource=ms.ref.datasource("warehouse"),
-    source=md.table("calendar"),
-    primary_key=["day"],
-)
-day = ms.time_dimension_column(name="calendar_date", entity=calendar_days, column="day", parse=ms.date(timezone="UTC"))
-week = ms.dimension_column(
-    name="fiscal_week", entity=calendar_days, column="fiscal_week"
-)
-ms.period_calendar(
-    name="fiscal",
-    date=day,
-    coverage=(date(2026, 1, 1), date(2026, 1, 8)),
-    levels={"week": week},
-)
-```
-
-### Certify and read
-
-Save as `check_calendar.py` and run it. The complete range has seven source rows; use `scope.max_rows=8` to allow complete acquisition. The separate `limit=1` retains one preview entry and still certifies the complete calendar.
-
-{/* example: calendar-read */}
-
-```python
-import marivo.datasource as md
-import marivo.semantic as ms
-
-catalog = ms.load(workspace_dir=".")
-ref = catalog.get("period_calendar:sales.fiscal")
-preview = catalog.preview(ref, scope=md.unpruned(max_rows=8, timeout_seconds=30), limit=1)
-assert preview.returned_row_count == 1
-assert not preview.is_truncated
-assert preview.coverage.scope_exhaustion == "exhaustive"
-calendar = catalog.get("period_calendar:sales.fiscal")
-period = calendar.period("week", "FY2026-W01")
-assert period.kind == "calendar_period"
-period.show()
-```
-
-Expect FY2026-W01 to cover seven dates. Those dates form one period, so `limit=1` retains the whole period preview while certification still acquires the complete date range. Preview limits count period entries, not source dates, and accept integers from 1 to 100. Keep `scope.max_rows` high enough for exhaustive acquisition; a failed or truncated read does not replace the current certificate. Check `calendar.definition.snapshot_status` for its status.
-
-Real models need authoritative business periods and a complete date spine. When the business week is defined by this calendar, use `calendar.grain("week")` to select that certified level.
-
-### Activities and working days
-
-Use `ms.temporal_set` for finite named intervals such as campaigns or holidays, including schedules with gaps or overlaps. Each occurrence has a unique ID and half-open bounds within finite coverage. Certification needs a complete bounded preview; see [named occurrences](#named-occurrences-mstemporal_set) for the fields and exact Help target.
-
-For a working-day schedule, provide a status for every date in the counting range, including compensating workdays. A missing date or `NULL` status is unknown, not a rest day. Give each organizational or regional schedule its own identity.
-
-## Declaration-time grain: `ms.calendar_grain`
-
-`ms.calendar_grain(calendar=calendar_ref, level="week")` creates a source-free grain lookup during modeling. After certification, `calendar.grain("week")` returns a grain bound to that snapshot; use `scope.by(grain)` with one complete certified report period in `observe.by`, or use the Grain in a supported Metric window.
-
-Custom calendar output accepts exactly one complete certified period. Multiple, sparse or partial periods reject before business reads; custom sample hierarchies have no implicit nesting rule.
-
-## Named occurrences: `ms.temporal_set`
-
-| Parameter | Required | Default | Meaning |
-| --- | --- | --- | --- |
-| `name` | Yes | — | Semantic name, unique in its owning scope. |
-| `occurrence_id` | Yes | — | Dimension containing unique occurrence IDs on the owning Entity. |
-| `start` | Yes | — | TimeDimension containing each inclusive start. |
-| `end` | Yes | — | TimeDimension containing each exclusive end, strictly after its start. |
-| `boundary_timezone` | Yes | — | IANA or fixed-offset coverage boundary zone; DATE fields must declare this same zone. |
-| `coverage` | Yes | — | Nonempty `(start_date, end_date)` pair, inclusive start and exclusive end. |
-| `category` | No | `None` | Optional Dimension whose values are nonempty strings or `NULL`. |
-
-
-```python
-# Model fragment: all fields belong to the same event Entity.
-from datetime import date
-
-ms.temporal_set(
-    name="campaigns", occurrence_id=campaign_id, start=campaign_start,
-    end=campaign_end, boundary_timezone="Asia/Shanghai",
-    coverage=(date(2026, 1, 1), date(2027, 1, 1)), category=campaign_type,
-)
-```
-
-DATE endpoints must declare the same normalized timezone as `boundary_timezone`. Timestamp source values use their own parser or Datasource declaration, and certification applies native parsing and localization within its existing source read. It does not reinterpret raw clocks in Python or use the boundary timezone as a source fallback. Backend DST behavior is preserved. Occurrences use either civil dates or timestamps consistently; each has a unique ID, and its bounds lie wholly within coverage. Timestamp bounds need clear timezone semantics; a naive repeated local clock cannot identify both instants. Gaps and overlaps are allowed. A one-day holiday is `[day, day + 1)`. Certification uses `catalog.preview(...)` over complete coverage; a failed or truncated read does not replace the current snapshot. Matching categories do not define cross-year holiday pairing.
-
-Read certified scopes through `calendar.period(level, key)`, `calendar.period_on(level, date)` or `campaigns.occurrence(key)`; these return `TimeScope` values from the local certificate. For exact signatures, use Live Help targets `semantic.time_dimension.from_column`, `semantic.strptime`, `semantic.period_calendar` and `semantic.temporal_set`.
+The harness chooses exact ranges and comparison pairs, using
+`session.time_scope(...)` and ordinary field or member filters. Natural calendars
+use `mv.grain(...)`. Non-contiguous working days cannot be replaced by an envelope;
+missing status is unknown, not a rest day. Fiscal cumulative windows and holiday
+alignment require explicit external ranges or mappings.

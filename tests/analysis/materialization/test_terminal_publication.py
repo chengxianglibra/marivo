@@ -99,7 +99,6 @@ def calendar_constant(session: Session, calendar: mv.CalendarAxis) -> AnalysisFr
         grid.identity,
         grid.grain_spec,
         grid.boundary_timezone,
-        grid.snapshot_digest,
         tuple(
             (
                 anchor_from_datetime(cell.original_start),
@@ -109,7 +108,6 @@ def calendar_constant(session: Session, calendar: mv.CalendarAxis) -> AnalysisFr
             )
             for cell in grid.cells
         ),
-        grid.calendar_snapshot,
         civil_bounds=grid.civil_bounds,
     )
     frozen = freeze_calendar(

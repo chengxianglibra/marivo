@@ -9,13 +9,7 @@ from decimal import Decimal
 from pathlib import Path
 from typing import TYPE_CHECKING, Final, Literal, NoReturn, TypeAlias, overload
 
-from marivo._temporal import (
-    Grain,
-    InstantAnchor,
-    PeriodCalendarSnapshotV2,
-    ReportTimeAuthority,
-    SessionTimeAuthority,
-)
+from marivo._temporal import Grain, InstantAnchor
 from marivo.refs import Ref, SemanticKind, SemanticKindTag
 
 if TYPE_CHECKING:
@@ -337,7 +331,6 @@ class IntervalCoordinate:
     start: InstantAnchor
     end: InstantAnchor
     timezone: str
-    time_authority: ReportTimeAuthority = field(default=SessionTimeAuthority(), kw_only=True)
 
 
 def _merge_time_ranges(
@@ -372,14 +365,11 @@ class CalendarCoordinate:
     identity: str
     grain_spec: Grain
     timezone: str
-    snapshot_digest: str | None
     cells: tuple[tuple[InstantAnchor, InstantAnchor, InstantAnchor, InstantAnchor], ...]
-    snapshot: PeriodCalendarSnapshotV2 | None = None
     origin: CalendarOrigin | None = None
     civil_bounds: tuple[CivilBounds, ...] = field(kw_only=True)
     ranges: tuple[tuple[InstantAnchor, InstantAnchor], ...] = field(default=(), kw_only=True)
     actual_only: bool = field(default=False, kw_only=True)
-    time_authority: ReportTimeAuthority = field(default=SessionTimeAuthority(), kw_only=True)
 
     def __post_init__(self) -> None:
         if len(self.civil_bounds) != len(self.cells):

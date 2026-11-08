@@ -425,35 +425,8 @@ def provider() -> DisclosureProvider:
                 ),
             )
         )
-    from marivo.analysis._capabilities.catalog_inputs import CATALOG_INPUTS
     from marivo.analysis._capabilities.dataset_model import NavigationInput
 
-    descriptors.extend(CATALOG_INPUTS)
-    temporal = tuple(
-        d.canonical_id for d in CATALOG_INPUTS if d.receiver_family != "SemanticCatalog"
-    )
-    descriptors.append(
-        NavigationInput(
-            "inputs.time.calendars",
-            "Resolve periods or occurrences from existing certified definitions.",
-            temporal,
-            guidance=(
-                "Use existing certified calendar or event definitions; these reads do not author new definitions.",
-            ),
-            discovery_group="inputs.time",
-            route_summaries=(
-                ("catalog.period_calendars.grain", "Choose a certified calendar level."),
-                ("catalog.period_calendars.period", "Use one known period key."),
-                ("catalog.period_calendars.period_on", "Find the period containing a civil date."),
-                ("catalog.period_calendars.periods", "Browse available periods."),
-                ("catalog.temporal_sets.occurrence", "Use one known event occurrence key."),
-                (
-                    "catalog.temporal_sets.occurrences",
-                    "Browse occurrences overlapping explicit bounds.",
-                ),
-            ),
-        )
-    )
     descriptors.append(
         NavigationInput(
             "inputs.catalog",

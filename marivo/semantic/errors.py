@@ -386,7 +386,7 @@ class DeclaredTimezoneContradiction(SemanticError):  # noqa: N818 - Exact public
                 canonical_id="date",
                 action=(
                     "Set the DATE field parsers to the same timezone as the other boundary declaration, "
-                    "then reload and certify again."
+                    "then reload and validate the selected definition again."
                 ),
             ),
         )

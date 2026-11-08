@@ -17,7 +17,6 @@ from marivo.analysis.core.data_schema import (
     DataSchema,
     IntervalComparisonBinding,
     IntervalDataAxis,
-    NamedCalendarData,
     PairedDataAxis,
 )
 from marivo.analysis.core.data_types import DataColumn, require_data_text
@@ -88,9 +87,6 @@ from marivo.analysis.core.frame_interpretation import (
 )
 from marivo.analysis.core.frame_interpretation import (
     FrameLevelTarget as FrameLevelTarget,
-)
-from marivo.analysis.core.frame_interpretation import (
-    FrameNamedGrain as FrameNamedGrain,
 )
 from marivo.analysis.core.frame_interpretation import (
     FrameObservationContext as FrameObservationContext,
@@ -445,14 +441,9 @@ def capture_schema(input_id: str, schema: LogicalSchema) -> FrameSchema:
     )
 
 
-def capture_grain(definition: BuiltinCalendarData | NamedCalendarData) -> FrameGrain:
+def capture_grain(definition: BuiltinCalendarData) -> FrameGrain:
     """Project only a captured nominal definition; never perform a Catalog lookup."""
-    if isinstance(definition, BuiltinCalendarData):
-        return FrameBuiltinGrain(definition.unit, definition.step)
-    if definition.ref is None:
-        _invalid("a named calendar requires its consumed semantic definition identity")
-    assert definition.ref is not None
-    return FrameNamedGrain(definition.ref, definition.level)
+    return FrameBuiltinGrain(definition.unit, definition.step)
 
 
 def capture_endpoint(axis: CalendarDataAxis | IntervalDataAxis) -> FrameTimeEndpoint:

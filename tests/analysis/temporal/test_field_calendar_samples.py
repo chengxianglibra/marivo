@@ -308,7 +308,6 @@ def test_new_sample_shape_validates_grain_and_windows(
         (day, day),
         (scope.by(day), day),
         (mv.coordinates(by=(region,), keys=(("East",),)), day),
-        (created, ms.calendar_grain(calendar=ms.ref.period_calendar("sales.fiscal"), level="day")),
     ):
         with pytest.raises(SemanticExpressionError, match="native TimeField and a builtin Grain"):
             # Invalid field and grain combinations exercise runtime validation.

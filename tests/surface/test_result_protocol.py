@@ -398,8 +398,7 @@ def test_time_scope_render_honors_output_budget(capsys: pytest.CaptureFixture[st
     scope = exact_scope("2026-07-01", "2026-08-01", "UTC")
 
     assert scope.render() == (
-        "TimeScope(kind=absolute, start=2026-07-01T00:00:00+00:00, "
-        "end=2026-08-01T00:00:00+00:00, boundary_timezone=UTC)"
+        "TimeScope([2026-07-01T00:00:00+00:00, 2026-08-01T00:00:00+00:00), timezone=UTC; use .show())"
     )
     assert scope.render(max_output_bytes=None) == scope.render()
     scope.show()

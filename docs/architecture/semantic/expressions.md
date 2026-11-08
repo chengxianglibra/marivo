@@ -332,15 +332,10 @@ Static nesting permits equal builtin grains, divisible subday widths, day in
 week/month/quarter/year, month in quarter/year, and quarter in year. Week does not
 nest in month/quarter/year. Each layer keeps complete external, parent and child
 keys; a child label need not determine one global parent at a timezone anomaly.
-Custom hierarchies reject; one complete certified custom period can be sampled
-under a compatible complete report interval. There are no internal calendar grids or date-to-parent
-maps. Final output completion does not affect sample counts or means.
-
-Semantic sample Grains authored with `ms.calendar_grain(...)` are calendar
-dependencies. Observation resolves them against the Session's current certified
-snapshot, as for semantic reset Grains in windows. Missing certification, an
-explicit Grain from a different snapshot, unknown levels and timezone mismatches
-reject before business reads.
+Calendar samples use natural grains with static containment rules. Business
+periods remain ordinary dimensions or explicit external range selections.
+There are no internal calendar grids or date-to-parent maps. Final output
+completion does not affect sample counts or means.
 
 Builtin calendar samples compose with one window per dependency path.
 `revenue.per(day).mean().window(W)` discovers actual daily samples inside the
@@ -391,8 +386,7 @@ reducer's NULL policy; weighted means retain their common valid-pair mask.
 Explicit Population sample domains retain their declared tuples and empty-sample
 policy. Calendar Grain samples consume actual represented bucket keys. TimeField
 samples and builtin calendar samples require no observation period. Windows
-retain their endpoint requirements, and custom grains require a complete
-certified period.
+retain their endpoint requirements.
 Naive source values use parser timezone or Datasource wall_clock_timezone;
 missing declarations reject before reading rows. Aware values retain their
 physical instant. Source wall clocks follow backend-native DST gap/fold interpretation.

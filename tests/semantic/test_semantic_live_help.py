@@ -13,7 +13,6 @@ from marivo._authoring.model import AuthoringRepair
 from marivo._help.model import MarivoHelpTargetError
 from marivo._symbolic import native_symbol_ref
 from marivo.introspection.live.model import LiveHelpTarget
-from marivo.refs import ref as ref_factory
 from marivo.semantic.errors import SemanticHelpTargetError, SemanticLoadError, SemanticRuntimeError
 
 
@@ -130,64 +129,7 @@ def test_registered_preview_string_paths_resolve_to_one_descriptor(target: str) 
 
 @pytest.mark.parametrize(
     ("raiser_name", "ref", "operation", "surface", "canonical_id"),
-    (
-        (
-            "_raise_period_lookup",
-            ms.ref.period_calendar("sales.fiscal"),
-            "grain",
-            "analysis",
-            "calendar.grain",
-        ),
-        (
-            "_raise_period_lookup",
-            ms.ref.period_calendar("sales.fiscal"),
-            "period",
-            "analysis",
-            "calendar.period",
-        ),
-        (
-            "_raise_period_lookup",
-            ms.ref.period_calendar("sales.fiscal"),
-            "period_on",
-            "analysis",
-            "calendar.period_on",
-        ),
-        (
-            "_raise_period_lookup",
-            ms.ref.period_calendar("sales.fiscal"),
-            "periods",
-            "analysis",
-            "calendar.periods",
-        ),
-        (
-            "_raise_period_lookup",
-            ms.ref.period_calendar("sales.fiscal"),
-            "snapshot",
-            "semantic",
-            "preview",
-        ),
-        (
-            "_raise_temporal_set_lookup",
-            ms.ref.temporal_set("sales.campaigns"),
-            "occurrence",
-            "analysis",
-            "temporal_set.occurrence",
-        ),
-        (
-            "_raise_temporal_set_lookup",
-            ms.ref.temporal_set("sales.campaigns"),
-            "occurrences",
-            "analysis",
-            "temporal_set.occurrences",
-        ),
-        (
-            "_raise_temporal_set_lookup",
-            ms.ref.temporal_set("sales.campaigns"),
-            "snapshot",
-            "semantic",
-            "preview",
-        ),
-    ),
+    (),
 )
 def test_temporal_catalog_error_instances_route_to_the_exact_next_help(
     raiser_name: str,
@@ -210,18 +152,6 @@ def test_temporal_catalog_error_instances_route_to_the_exact_next_help(
         surface=surface,
         canonical_id=canonical_id,
     )
-
-
-def test_temporal_catalog_lookup_rejects_an_unregistered_operation() -> None:
-    from marivo.semantic.catalog import _raise_period_lookup
-
-    with pytest.raises(RuntimeError, match="unsupported period-calendar lookup operation"):
-        _raise_period_lookup(
-            ref_factory.period_calendar("sales.fiscal"),
-            "synthetic",
-            "probe",
-            details={},
-        )
 
 
 def test_help_rejects_private_object() -> None:
@@ -340,7 +270,6 @@ def test_live_help_performs_no_runtime_effects(monkeypatch: pytest.MonkeyPatch) 
         "semantic.expressions",
         "semantic.time",
         "semantic.time.parsing",
-        "semantic.time.calendars",
         "semantic.catalog",
         "semantic.validation",
         "semantic.load",
@@ -620,10 +549,6 @@ def test_type_method_navigation_uses_the_actual_documentation_owner(
     assert 'show: marivo.help("analysis.runtime.values.show")' in page
     marivo.help("semantic.relationship_object")
     assert 'show: marivo.help("semantic.semantic_object.show")' in capsys.readouterr().out
-    marivo.help("semantic.period_calendar_object")
-    assert (
-        'period: marivo.help("analysis.catalog.period_calendars.period")' in capsys.readouterr().out
-    )
 
 
 def test_unregistered_method_requires_explicit_type_page_ownership(
@@ -835,7 +760,7 @@ def test_per_help_covers_observed_and_complete_sample_domains(
     assert "Grain-only sampling needs at least one clocked branch" in text
     assert "Both builtin forms use the Session report timezone" in text
     assert "Week in month rejects" in text
-    assert "Session's current certified snapshot" in text
+    assert "certified snapshot" not in text.lower()
     assert "windows inside builtin samples use the nearest sample endpoints" in text
 
 
@@ -981,12 +906,8 @@ def test_semantic_task_tree_keeps_definition_and_proof_choices_direct() -> None:
     for target in ("load", "readiness", "preview", "preview_many", "validate", "source_check"):
         assert f'marivo.help("semantic.{target}")' in validation
     assert "load success != readiness != preview success != online validation" in validation
-    assert "Ordinary previews do not persist certification or change readiness" in validation
+    assert "Ordinary preview does not change readiness" in validation
     assert "That the current source satisfies it" in validation
-    assert (
-        'marivo.help("analysis.inputs.time.calendars")'
-        in render_help_text("semantic.time.calendars")[0]
-    )
 
 
 def test_expression_navigation_serves_closed_question_scoped_composition() -> None:

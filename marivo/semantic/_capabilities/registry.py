@@ -61,10 +61,8 @@ OUTPUT_FAMILIES = frozenset(
         "MetricPredicate",
         "SemanticCatalog",
         "SemanticObject",
-        "DatasourceDetails | DomainDetails | PeriodCalendarDetails | TemporalSetDetails",
         "DomainDetails",
         "DatasourceDetails",
-        "TemporalSetDetails",
         "dict[str, object]",
         "dict[str, JsonValue]",
         "tuple[str, str]",
@@ -90,8 +88,6 @@ OUTPUT_FAMILIES = frozenset(
         "MeasureSymbol",
         "MetricSymbol",
         "RelationshipSymbol",
-        "PeriodCalendarSymbol",
-        "TemporalSetSymbol",
         "DimensionSymbol | TimeDimensionSymbol",
         "DimensionSymbol | TimeDimensionSymbol | MeasureSymbol",
         "JoinKey",
@@ -118,10 +114,6 @@ OUTPUT_FAMILIES = frozenset(
         "IbisTable",
         "IbisValue",
         "Grain",
-        "CalendarPeriodPage",
-        "CalendarLevelDetails",
-        "PeriodCalendarDetails",
-        "PeriodCalendar",
     }
 )
 
@@ -161,16 +153,12 @@ INPUT_FAMILIES = frozenset(
         "tuple[RelationshipSymbol, ...]",
         "NullInputPolicyV1",
         "EmptyContributionPolicyV1",
-        "PeriodCalendarSymbol",
-        "TemporalSetSymbol",
         "DimensionSymbol | TimeDimensionSymbol",
         "DimensionSymbol | TimeDimensionSymbol | MeasureSymbol",
         "SemanticObject",
         "CatalogPage",
         "Domain",
         "Datasource",
-        "PeriodCalendar",
-        "TemporalSet",
         "ReadinessReport",
         "ValidationReport",
         "ValidationCheckResult",
@@ -324,16 +312,6 @@ _VALIDATE = _effects(
     "opens_connection",
     flags=("scope_required_for_declared_data_checks",),
 )
-_CERTIFYING_PREVIEW = _effects(
-    "scoped_data_read",
-    "opens_connection",
-    flags=(
-        "requires_explicit_scope",
-        "requires_positive_row_guard",
-        "may_publish_certified_artifact",
-    ),
-)
-
 _ADDITIVITY_HELP = (
     "\n  additivity: ms.additive_all(), ms.additive_except(...), ms.additive_over(...), or ms.non_additive()."
     "\n  unit=None leaves the declared unit unspecified."
@@ -619,10 +597,7 @@ def _object_contracts() -> tuple[SemanticObjectContract, ...]:
         ),
         _object_contract(
             SemanticKind.ENTITY,
-            (
-                "Reusable business entity or fact-set identity backed by one source; "
-                "an optional expression body owns its output relation and grain."
-            ),
+            "Reusable business entity or fact-set identity backed by one source; an optional expression body owns its output relation and grain.",
             decisions=(
                 _business_decision(
                     "recordset_meaning",
@@ -652,8 +627,7 @@ def _object_contracts() -> tuple[SemanticObjectContract, ...]:
             ),
             construction_modes=(
                 _mode(
-                    "Declare an Entity directly or as a one-return expression decorator "
-                    "over its source; an explicit name takes the direct form.",
+                    "Declare an Entity directly or as a one-return expression decorator over its source; an explicit name takes the direct form.",
                     "default",
                     "entity",
                 ),
@@ -861,10 +835,7 @@ def _object_contracts() -> tuple[SemanticObjectContract, ...]:
                 "row.sum",
             ),
             checks=("readiness",),
-            check_guidance=(
-                "Readiness accepts this entry and checks its physical dependency closure. "
-                "Only directly requested ready physical refs enter analysis_ready_inputs."
-            ),
+            check_guidance="Readiness accepts this entry and checks its physical dependency closure. Only directly requested ready physical refs enter analysis_ready_inputs.",
         ),
         _object_contract(
             SemanticKind.METRIC,
@@ -936,11 +907,7 @@ def _object_contracts() -> tuple[SemanticObjectContract, ...]:
                 "measure",
             ),
             checks=("readiness",),
-            check_guidance=(
-                "Readiness accepts this Metric entry and checks its physical dependencies. "
-                "It does not return the Metric as an analysis_ready_input. "
-                "AnalysisFrame.compute()/persist() qualifies the selected computation."
-            ),
+            check_guidance="Readiness accepts this Metric entry and checks its physical dependencies. It does not return the Metric as an analysis_ready_input. AnalysisFrame.compute()/persist() qualifies the selected computation.",
         ),
         _object_contract(
             SemanticKind.RELATIONSHIP,
@@ -993,123 +960,6 @@ def _object_contracts() -> tuple[SemanticObjectContract, ...]:
                 "source_check.relationship_cardinality",
                 "validate",
             ),
-        ),
-        _object_contract(
-            SemanticKind.PERIOD_CALENDAR,
-            "Governed finite business-period hierarchy.",
-            decisions=(
-                _business_decision(
-                    "calendar_convention",
-                    "Which fiscal, retail, or operational calendar convention is authoritative?",
-                    "period_calendar",
-                    "ai_context",
-                ),
-                _source_business_decision(
-                    "civil_date_authority",
-                    "Which exhaustive civil-date spine is authoritative?",
-                    "period_calendar",
-                ),
-                _business_decision(
-                    "boundary_timezone",
-                    "Which timezone owns civil-day boundaries?",
-                    "period_calendar",
-                ),
-                _source_business_decision(
-                    "finite_coverage",
-                    "Which half-open civil-date coverage is complete?",
-                    "period_calendar",
-                ),
-                _source_business_decision(
-                    "level_key_meaning",
-                    "What does each period level and key mean?",
-                    "period_calendar",
-                    "ai_context",
-                ),
-                _source_decision(
-                    "containment_expectations",
-                    "Which level containment relationships should certification derive?",
-                    "period_calendar",
-                    "preview",
-                ),
-            ),
-            construction_modes=(
-                _mode("Declare one finite governed calendar.", "default", "period_calendar"),
-            ),
-            relationships=(
-                _relationship(
-                    "requires", "objects.time_dimension", "The civil-date spine is a TimeDimension."
-                ),
-                _relationship(
-                    "requires",
-                    "objects.dimension",
-                    "Period levels are Dimensions.",
-                ),
-            ),
-            supporting=("ai_context",),
-            checks=("load", "readiness", "preview", "validate"),
-        ),
-        _object_contract(
-            SemanticKind.TEMPORAL_SET,
-            "Governed finite set of named temporal occurrences.",
-            decisions=(
-                _business_decision(
-                    "occurrence_set_meaning",
-                    "What named sparse or overlapping occurrences does this set govern?",
-                    "temporal_set",
-                    "ai_context",
-                ),
-                _source_business_decision(
-                    "occurrence_identity",
-                    "Which Dimension uniquely identifies each occurrence?",
-                    "temporal_set",
-                ),
-                _source_business_decision(
-                    "half_open_bounds",
-                    "Which start and exclusive-end fields define each occurrence?",
-                    "temporal_set",
-                ),
-                _source_business_decision(
-                    "temporal_encoding",
-                    "Are bounds civil dates or timestamps with explicit semantics?",
-                    "temporal_set",
-                ),
-                _business_decision(
-                    "boundary_timezone",
-                    "Which timezone owns occurrence boundaries?",
-                    "temporal_set",
-                ),
-                _source_business_decision(
-                    "finite_coverage",
-                    "Which half-open civil-date coverage is complete?",
-                    "temporal_set",
-                ),
-                _business_decision(
-                    "category",
-                    "Does an optional category have reusable business meaning?",
-                    "temporal_set",
-                    "ai_context",
-                ),
-                _business_decision(
-                    "overlap_gap_semantics",
-                    "Are overlaps and gaps intentional for this occurrence set?",
-                    "ai_context",
-                ),
-            ),
-            construction_modes=(
-                _mode("Declare one finite occurrence set.", "default", "temporal_set"),
-            ),
-            relationships=(
-                _relationship(
-                    "requires",
-                    "objects.dimension",
-                    "Occurrence identity and optional category are Dimensions.",
-                ),
-                _relationship(
-                    "requires", "objects.time_dimension", "Occurrence bounds are TimeDimensions."
-                ),
-            ),
-            supporting=("ai_context",),
-            checks=("load", "readiness", "preview", "validate"),
         ),
     )
 
@@ -1164,10 +1014,8 @@ def _check_topic() -> SemanticCheckTopic:
             route(
                 "What does this entry produce under one explicit authoring scope?",
                 (_target("preview"), _target("preview_many")),
-                "A bounded current runtime observation; period calendars and temporal sets "
-                "can also publish dedicated certified artifacts.",
-                "Ordinary previews do not persist certification or change readiness; "
-                "certified artifacts are inputs to a subsequent readiness check.",
+                "Preview reads bounded current-source values and reports acquisition coverage and retained rows. Ordinary preview does not change readiness or certify business completeness.",
+                "Preview reads bounded current-source values and reports acquisition coverage and retained rows. Ordinary preview does not change readiness or certify business completeness.",
             ),
             route(
                 "How do I declare an exact source expectation?",
@@ -1203,8 +1051,6 @@ def _navigation_descriptors(
                 "measure": "Choose a numeric row quantity and its aggregation permissions.",
                 "metric": "Choose existing Metric composition or a reusable Metric definition.",
                 "relationship": "Choose directed endpoints, cardinality, and complete join keys.",
-                "period_calendar": "Choose a reusable definition of business period boundaries.",
-                "temporal_set": "Choose a reusable definition of event occurrence boundaries.",
             }[kind],
         )
 
@@ -1230,27 +1076,16 @@ def _navigation_descriptors(
                         "relationship",
                     )
                 ),
-                route(
-                    "business calendars and events",
-                    "time.calendars",
-                    "Define finite business periods or occurrences.",
-                    owns=False,
-                ),
             ),
         ),
         SemanticNavigationTopic(
             "time",
-            "Distinguish physical time parsing from reusable certified calendar and event definitions.",
+            "Declare physical time parsing and source timezone semantics.",
             (
                 route(
                     "physical time encoding",
                     "time.parsing",
                     "Declare native dates, timestamps, formatted values, or hour prefixes.",
-                ),
-                route(
-                    "business calendars and events",
-                    "time.calendars",
-                    "Define reusable period calendars and temporal sets.",
                 ),
             ),
         ),
@@ -1273,35 +1108,6 @@ def _navigation_descriptors(
                     ),
                     ("hour prefix", "hour_prefix", "Parse supported hour-prefix source values."),
                 )
-            ),
-        ),
-        SemanticNavigationTopic(
-            "time.calendars",
-            "Define a governed period calendar or event set. Preview can certify these definitions; analysis uses the resulting certified periods or occurrences.",
-            (
-                object_entry("period_calendar"),
-                object_entry("temporal_set"),
-                route(
-                    "define period calendar",
-                    "period_calendar",
-                    "Declare reusable business period boundaries.",
-                    owns=False,
-                ),
-                route(
-                    "define temporal set",
-                    "temporal_set",
-                    "Declare reusable event occurrence boundaries.",
-                    owns=False,
-                ),
-                route(
-                    "calendar level", "calendar_grain", "Build a named level in a period calendar."
-                ),
-                _navigation_route(
-                    "use existing certified periods or events",
-                    LiveHelpTarget(surface="analysis", canonical_id="inputs.time.calendars"),
-                    summary="Choose periods or occurrences for an analysis question.",
-                    owns_discovery=False,
-                ),
             ),
         ),
         SemanticNavigationTopic(
@@ -2218,14 +2024,6 @@ def _ref_role(kind: SemanticKind) -> tuple[str, tuple[LiveHelpTarget, ...]]:
             "Parameter-only directed relationship for explicit via paths and relationship checks; no numeric operations.",
             (_target("Field.via"), _target("relationship")),
         ),
-        SemanticKind.PERIOD_CALENDAR: (
-            "Parameter-only calendar identity for calendar= and calendar_grain; authority still requires certification.",
-            (_target("calendar_grain"), _target("period_calendar")),
-        ),
-        SemanticKind.TEMPORAL_SET: (
-            "Parameter-only temporal-set identity for navigation and temporal authority; no numeric operations.",
-            (_target("temporal_set"),),
-        ),
     }
     return roles[kind]
 
@@ -2562,7 +2360,7 @@ def _expression_capabilities() -> tuple[AuthoringCapability, ...]:
                     "Same-field layers require matching timezones and nested grains. Day nests in month. Week in month rejects. "
                     "Custom hierarchies reject; one complete custom period may be sampled under an interval. "
                     "Each nested layer retains complete external, parent and child keys. "
-                    "Semantic Grain lookups bind the Session's current certified snapshot and require certification. "
+                    "Natural grains use the Session reporting timezone. "
                     "Builtin folds inside windows use report endpoints; windows inside builtin samples use the nearest sample endpoints. Actual samples are discovered before inner windows; no empty dates are added. Explicit fields retain their cohorts and contribution clocks. Custom calendar combinations and nested windows reject. "
                     "TimeField sample reducers use represented samples without scheduled coverage or implicit fill; "
                     "sample_interval describes cadence and does not bucket timestamps or require a finite observation period. "
@@ -2868,21 +2666,10 @@ def _result_method_capabilities() -> tuple[AuthoringCapability, ...]:
 def _build_registry() -> SemanticCapabilityRegistry:
     """Build the immutable semantic descriptor catalog from live callables."""
     descriptor_rows = (
-        # ------------------------------------------------------------------
-        # browse_load
-        # ------------------------------------------------------------------
         _capability(
             "load",
             "marivo.semantic.catalog.load",
-            (
-                "Load the read-only semantic catalog.\n  workspace_dir is an exact project root;"
-                " when omitted: MARIVO_PROJECT_ROOT > nearest ancestor manifest > current directory."
-                "\n  Always loads the local models/ root; marivo.toml [semantic].layer_paths adds"
-                " external models/ roots containing datasources/ and semantic/."
-                "\n  domains=None loads all domains; a name or sequence selects only those domain"
-                " directories, without automatic dependency expansion. Include every required domain."
-                " Filtered Relationship references may warn; unresolved required Metric dependencies fail loading."
-            ),
+            "Load the read-only semantic catalog.\n  workspace_dir is an exact project root; when omitted: MARIVO_PROJECT_ROOT > nearest ancestor manifest > current directory.\n  Always loads the local models/ root; marivo.toml [semantic].layer_paths adds external models/ roots containing datasources/ and semantic/.\n  domains=None loads all domains; a name or sequence selects only those domain directories, without automatic dependency expansion. Include every required domain. Filtered Relationship references may warn; unresolved required Metric dependencies fail loading.",
             output="SemanticCatalog",
             effects=_LOCAL,
             preconditions=(
@@ -2892,9 +2679,6 @@ def _build_registry() -> SemanticCapabilityRegistry:
             example="catalog = ms.load()\ncatalog.show()",
         ),
         *_ref_factory_capabilities(),
-        # ------------------------------------------------------------------
-        # semantic constructors and supporting builders
-        # ------------------------------------------------------------------
         _capability(
             "domain",
             "marivo.semantic._authoring_declarations.domain",
@@ -2911,17 +2695,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
         _capability(
             "entity",
             "marivo.semantic._authoring_decorators.entity",
-            (
-                "Declare an Entity over one datasource source. Table columns map output "
-                "names to physical names; md.inspect supplies current names and types."
-                "\n  Explicit name declares directly; omitting name returns a one-expression "
-                "Table decorator whose output schema and grain own downstream fields and identity."
-                "\n  Entity bodies admit the injected Table, inline literals, deterministic public "
-                "ibis root symbols and typed scalar builtin UDFs from ibis.udf.scalar.builtin "
-                "with at least one argument and concrete argument/return types. Python UDF "
-                "bodies are not executed. Arbitrary helpers, Ibis submodules and "
-                "Python/Pandas/Arrow UDFs are rejected."
-            ),
+            "Declare an Entity over one datasource source. Table columns map output names to physical names; md.inspect supplies current names and types.\n  Explicit name declares directly; omitting name returns a one-expression Table decorator whose output schema and grain own downstream fields and identity.\n  Entity bodies admit the injected Table, inline literals, deterministic public ibis root symbols and typed scalar builtin UDFs from ibis.udf.scalar.builtin with at least one argument and concrete argument/return types. Python UDF bodies are not executed. Arbitrary helpers, Ibis submodules and Python/Pandas/Arrow UDFs are rejected.",
             output="EntitySymbol",
             inputs=(
                 _parameter_input("mapping_key", "EntityName", "name", optional=True),
@@ -2936,18 +2710,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
                 "entity_identity_key_unique",
                 "entity_version_key_separate",
             ),
-            example=(
-                "warehouse = ms.ref.datasource('warehouse')\n"
-                "orders = ms.entity(\n"
-                "    name='orders', datasource=warehouse,\n"
-                "    source=md.table('orders', columns={'order_id': 'id', 'amount': 'total', 'paid_at': 'paid_at'}),\n"
-                "    primary_key=['order_id'],\n"
-                "    default_time=ms.ref.time_dimension('sales.orders.paid_at'),\n"
-                ")\n"
-                "paid_at = ms.time_dimension_column(\n"
-                "    name='paid_at', entity=orders, column='paid_at', parse=ms.timestamp(timezone='UTC'),\n"
-                ")"
-            ),
+            example="warehouse = ms.ref.datasource('warehouse')\norders = ms.entity(\n    name='orders', datasource=warehouse,\n    source=md.table('orders', columns={'order_id': 'id', 'amount': 'total', 'paid_at': 'paid_at'}),\n    primary_key=['order_id'],\n    default_time=ms.ref.time_dimension('sales.orders.paid_at'),\n)\npaid_at = ms.time_dimension_column(\n    name='paid_at', entity=orders, column='paid_at', parse=ms.timestamp(timezone='UTC'),\n)",
             see_also=(
                 LiveHelpTarget(surface="datasource", canonical_id="inspect"),
                 _target("expressions.row"),
@@ -2965,11 +2728,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
             ),
             effects=_AUTHOR,
             constraints=("active_loader_context", "ast_single_return", "ast_forbidden_statement"),
-            example=(
-                "@ms.dimension(name='region', entity=orders)\n"
-                "def region(rows):\n"
-                "    return rows.region"
-            ),
+            example="@ms.dimension(name='region', entity=orders)\ndef region(rows):\n    return rows.region",
             invocation_shape="decorator",
         ),
         _capability(
@@ -2984,7 +2743,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
             ),
             effects=_AUTHOR,
             constraints=("active_loader_context", "ref_shape"),
-            example=("region = ms.dimension_column(name='region', entity=orders, column='region')"),
+            example="region = ms.dimension_column(name='region', entity=orders, column='region')",
         ),
         _capability(
             "time_dimension",
@@ -3006,11 +2765,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
                 "time_dimension_dtype_compat",
                 "sample_interval_valid",
             ),
-            example=(
-                "@ms.time_dimension(name='log_date', entity=orders)\n"
-                "def log_date(rows):\n"
-                "    return rows.log_date"
-            ),
+            example="@ms.time_dimension(name='log_date', entity=orders)\ndef log_date(rows):\n    return rows.log_date",
             invocation_shape="decorator",
         ),
         _capability(
@@ -3034,65 +2789,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
                 "time_dimension_dtype_compat",
                 "sample_interval_valid",
             ),
-            example=(
-                "log_date = ms.time_dimension_column(name='log_date', entity=orders, "
-                "column='log_date', parse=ms.strptime('%Y%m%d'))"
-            ),
-        ),
-        _capability(
-            "period_calendar",
-            "marivo.semantic._authoring_temporal.period_calendar",
-            "Declare a finite governed period calendar over an exhaustive civil-date spine; its boundary timezone derives from the date field.",
-            output="PeriodCalendarSymbol",
-            inputs=(
-                _parameter_input("mapping_key", "Text", "name"),
-                _parameter_input("subject", "TimeDimensionSymbol", "date"),
-                _parameter_input("dependency", "DimensionSymbol", "levels"),
-            ),
-            effects=_AUTHOR,
-            constraints=("active_loader_context", "ref_shape"),
-            example=(
-                "ms.period_calendar(name='fiscal', "
-                "date=ms.ref.time_dimension('sales.calendar.calendar_date'), "
-                "coverage=(__import__('datetime').date(2026, 1, 1), "
-                "__import__('datetime').date(2027, 1, 1)), "
-                "levels={'week': ms.ref.dimension('sales.calendar.fiscal_week')})"
-            ),
-        ),
-        _capability(
-            "temporal_set",
-            "marivo.semantic._authoring_temporal.temporal_set",
-            "Declare a finite governed set of named temporal occurrences. boundary_timezone controls coverage midnights; DATE fields must declare the same timezone, while timestamp source interpretation remains field-owned.",
-            output="TemporalSetSymbol",
-            inputs=(
-                _parameter_input("mapping_key", "Text", "name"),
-                _parameter_input("subject", "DimensionSymbol", "occurrence_id"),
-                _parameter_input("dependency", "TimeDimensionSymbol", "start"),
-                _parameter_input("dependency", "TimeDimensionSymbol", "end"),
-                _parameter_input("dependency", "DimensionSymbol", "category", optional=True),
-            ),
-            effects=_AUTHOR,
-            constraints=("active_loader_context", "ref_shape"),
-            example=(
-                "ms.temporal_set(name='campaigns', occurrence_id=ms.ref.dimension('sales.events.id'), "
-                "start=ms.ref.time_dimension('sales.events.start'), end=ms.ref.time_dimension('sales.events.end'), "
-                "boundary_timezone='UTC', coverage=(__import__('datetime').date(2026, 1, 1), __import__('datetime').date(2027, 1, 1)))"
-            ),
-        ),
-        _capability(
-            "calendar_grain",
-            "marivo.semantic._authoring_temporal.calendar_grain",
-            "Construct a source-free semantic Grain lookup for one governed calendar level. Metric windows and calendar samples bind it against the consuming Session's frozen certified scope; naming does not require a loaded calendar.",
-            output="Grain",
-            inputs=(
-                _parameter_input("subject", "PeriodCalendarSymbol", "calendar"),
-                _parameter_input("dependency", "Granularity", "level"),
-            ),
-            effects=_NONE,
-            constraints=("ref_shape",),
-            example=(
-                "ms.calendar_grain(calendar=ms.ref.period_calendar('sales.fiscal'), level='week')"
-            ),
+            example="log_date = ms.time_dimension_column(name='log_date', entity=orders, column='log_date', parse=ms.strptime('%Y%m%d'))",
         ),
         _capability(
             "measure",
@@ -3106,12 +2803,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
             ),
             effects=_NONE,
             constraints=("ast_single_return", "ast_forbidden_statement"),
-            example=(
-                "quantity = ms.measure_column(name='quantity', entity=orders, column='quantity', additivity=ms.additive_all(), unit='1')\n"
-                "unit_price = ms.measure_column(name='unit_price', entity=orders, column='price', additivity=ms.non_additive(), unit='CNY')\n"
-                "@ms.measure(additivity=ms.additive_all())\n"
-                "def order_amount():\n    return quantity * unit_price"
-            ),
+            example="quantity = ms.measure_column(name='quantity', entity=orders, column='quantity', additivity=ms.additive_all(), unit='1')\nunit_price = ms.measure_column(name='unit_price', entity=orders, column='price', additivity=ms.non_additive(), unit='CNY')\n@ms.measure(additivity=ms.additive_all())\ndef order_amount():\n    return quantity * unit_price",
             see_also=(_target("measure_column"), _target("metric")),
             invocation_shape="decorator",
         ),
@@ -3131,10 +2823,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
             ),
             effects=_AUTHOR,
             constraints=("active_loader_context", "ref_shape"),
-            example=(
-                "amount = ms.measure_column("
-                "name='amount', entity=orders, column='amount', additivity=ms.additive_all())"
-            ),
+            example="amount = ms.measure_column(name='amount', entity=orders, column='amount', additivity=ms.additive_all())",
         ),
         _capability(
             "relationship",
@@ -3154,10 +2843,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
                 "relationship_mapping",
                 "ref_shape",
             ),
-            example=(
-                "ms.relationship(name='orders_to_customers', from_entity=orders, "
-                "to_entity=customers, keys=[ms.join_on(order_customer_id, customer_id)])"
-            ),
+            example="ms.relationship(name='orders_to_customers', from_entity=orders, to_entity=customers, keys=[ms.join_on(order_customer_id, customer_id)])",
             see_also=(_target("join_on"),),
         ),
         _capability(
@@ -3173,9 +2859,6 @@ def _build_registry() -> SemanticCapabilityRegistry:
             effects=_AUTHOR,
             example="ms.join_on(order_customer_id, customer_id)",
         ),
-        # ------------------------------------------------------------------
-        # Low-level expression builders (public authoring surface)
-        # ------------------------------------------------------------------
         _capability(
             "rescale",
             "marivo.semantic._rescale.rescale",
@@ -3187,12 +2870,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
                 _parameter_input("dependency", "Text", "unit"),
             ),
             effects=_NONE,
-            example=(
-                "# total_bytes is a closed byte-valued Metric over 86400 seconds.\n"
-                "daily_bandwidth = ms.rescale(\n"
-                "    total_bytes, divisor=86400 * 1024**3, unit='GiB/s',\n"
-                ")"
-            ),
+            example="# total_bytes is a closed byte-valued Metric over 86400 seconds.\ndaily_bandwidth = ms.rescale(\n    total_bytes, divisor=86400 * 1024**3, unit='GiB/s',\n)",
             see_also=(_target("expressions"), _target("measure")),
         ),
         _capability(
@@ -3214,14 +2892,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
         _capability(
             "metric",
             "marivo.semantic._authoring_declarations.metric",
-            "Name a Metric with a zero-parameter pure expression body. The decorator returns a Metric "
-            "expression. Fresh locals, a leading docstring, and tuple/list literal arguments are allowed; "
-            "lists are frozen as tuples. Arbitrary calls, table parameters, Ibis returns and ms.bind are rejected. "
-            "Operator policies stay on their operators. Declaration is source-free and does not publish a Catalog Metric. "
-            "Fix contribution time on a source reduction with time=field, or omit time= to inherit its "
-            "Entity's default_time when available. Explicit time=None or omission without a default makes the reduction report independent. "
-            "Composed Metrics retain their branch clocks. Reporting with where=scope or by=(scope.by(grain),) filters "
-            "clocked branches only; independent branches retain their scope. Use explicit field comparisons for fixed source predicates.",
+            "Name a Metric with a zero-parameter pure expression body. The decorator returns a Metric expression. Fresh locals, a leading docstring, and tuple/list literal arguments are allowed; lists are frozen as tuples. Arbitrary calls, table parameters, Ibis returns and ms.bind are rejected. Operator policies stay on their operators. Declaration is source-free and does not publish a Catalog Metric. Fix contribution time on a source reduction with time=field, or omit time= to inherit its Entity's default_time when available. Explicit time=None or omission without a default makes the reduction report independent. Composed Metrics retain their branch clocks. Reporting with where=scope or by=(scope.by(grain),) filters clocked branches only; independent branches retain their scope. Use explicit field comparisons for fixed source predicates.",
             output="NumericMetric",
             inputs=(
                 _parameter_input("dependency", "DomainSymbol", "domain", optional=True),
@@ -3229,13 +2900,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
             ),
             effects=_NONE,
             constraints=("ast_single_return", "ast_forbidden_statement"),
-            example=(
-                "quantity = ms.measure_column(name='quantity', entity=orders, column='quantity', additivity=ms.additive_all(), unit='1')\n"
-                "unit_price = ms.measure_column(name='unit_price', entity=orders, column='price', additivity=ms.non_additive(), unit='CNY')\n"
-                "@ms.measure(additivity=ms.additive_all())\n"
-                "def amount():\n    return quantity * unit_price\n"
-                "@ms.metric()\ndef revenue():\n    return amount.sum()"
-            ),
+            example="quantity = ms.measure_column(name='quantity', entity=orders, column='quantity', additivity=ms.additive_all(), unit='1')\nunit_price = ms.measure_column(name='unit_price', entity=orders, column='price', additivity=ms.non_additive(), unit='CNY')\n@ms.measure(additivity=ms.additive_all())\ndef amount():\n    return quantity * unit_price\n@ms.metric()\ndef revenue():\n    return amount.sum()",
             see_also=(
                 _target("measure"),
                 _target("expressions"),
@@ -3271,10 +2936,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
                 _parameter_input("dependency", "TimeDimensionSymbol", "valid_from", "valid_to"),
             ),
             effects=_AUTHOR,
-            example=(
-                "ms.validity(valid_from=valid_from, valid_to=valid_to, "
-                "interval='closed_open', open_end=(None,))"
-            ),
+            example="ms.validity(valid_from=valid_from, valid_to=valid_to, interval='closed_open', open_end=(None,))",
         ),
         _capability(
             "additive_over",
@@ -3305,13 +2967,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
         _capability(
             "additive_except",
             "marivo.semantic._authoring_values.additive_except",
-            (
-                "Declare additivity on all native coordinates except one or more fixed axes, "
-                "passed positionally. Unpack a collection with *axes. Fixed axes do not "
-                "select a temporal reduction or declare a status-time role. A physical Measure "
-                "declares status_time_dimension separately and includes it among these axes. "
-                "Temporal sample reduction is explicit in per(time_field).reducer()."
-            ),
+            "Declare additivity on all native coordinates except one or more fixed axes, passed positionally. Unpack a collection with *axes. Fixed axes do not select a temporal reduction or declare a status-time role. A physical Measure declares status_time_dimension separately and includes it among these axes. Temporal sample reduction is explicit in per(time_field).reducer().",
             output="Additivity",
             constraints=("ref_shape",),
             inputs=(
@@ -3323,17 +2979,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
                 ),
             ),
             effects=_AUTHOR,
-            example=(
-                "sample_time = ms.time_dimension_column(\n"
-                "    name='sample_time', entity=inventory, column='sample_time',\n"
-                "    parse=ms.timestamp(timezone='UTC'), sample_interval=(5, 'minute'),\n"
-                ")\n"
-                "quantity = ms.measure_column(\n"
-                "    name='quantity', entity=inventory, column='quantity',\n"
-                "    additivity=ms.additive_except(sample_time),\n"
-                "    status_time_dimension=sample_time,\n"
-                ")"
-            ),
+            example="sample_time = ms.time_dimension_column(\n    name='sample_time', entity=inventory, column='sample_time',\n    parse=ms.timestamp(timezone='UTC'), sample_interval=(5, 'minute'),\n)\nquantity = ms.measure_column(\n    name='quantity', entity=inventory, column='quantity',\n    additivity=ms.additive_except(sample_time),\n    status_time_dimension=sample_time,\n)",
             see_also=(_target("measure_column"), _target("metric")),
         ),
         _capability(
@@ -3377,33 +3023,17 @@ def _build_registry() -> SemanticCapabilityRegistry:
             effects=_AUTHOR,
             example="ms.hour_prefix(log_date)",
         ),
-        # ------------------------------------------------------------------
-        # scoped runtime observations and online validation
-        # ------------------------------------------------------------------
         _capability(
             "preview",
             "marivo.semantic.catalog.SemanticCatalog.preview",
-            (
-                "Run one scoped data preview for a current catalog entry or exact ref. "
-                "Ordinary Metric previews support DuckDB, PostgreSQL, MySQL, Trino and ClickHouse, reusing the nullable Row/Metric kernel; Population/sample/window preparation rejects. Each Entity contributes at most min(scope.max_rows, 10,000) output rows and reports "
-                "an approximate result; period calendars and temporal sets "
-                "publish their dedicated certified artifacts. Build scopes with "
-                "md.unpruned (no pruning predicate), md.time_range (physical time range), or "
-                "md.partition (physical partition values), all with positive row/time guards. "
-                "Physical scopes reuse datasource partition preflight; no partition is selected automatically. For multiple dependency Entities, supply exact (Entity, scope) pairs. "
-                "limit must be an integer from 1 to 100 inclusive and bounds retained preview "
-                "rows; scope.max_rows independently guards source acquisition. A temporal "
-                "preview can certify complete coverage while retaining fewer preview rows. coverage reports Entity input counts and caps; exhaustion is unknown when a cap is reached. execution_limits reports native timeout enforcement; no scan row/byte cap is requested and scan statistics are unknown. Unordered samples are not full-source estimates."
-            ),
+            "Run one scoped data preview for a current catalog entry or exact ref. Ordinary Metric previews support DuckDB, PostgreSQL, MySQL, Trino and ClickHouse, reusing the nullable Row/Metric kernel; Population/sample/window preparation rejects. Each Entity contributes at most min(scope.max_rows, 10,000) output rows and reports an approximate result. Build scopes with md.unpruned (no pruning predicate), md.time_range (physical time range), or md.partition (physical partition values), all with positive row/time guards. Physical scopes reuse datasource partition preflight; no partition is selected automatically. For multiple dependency Entities, supply exact (Entity, scope) pairs. limit must be an integer from 1 to 100 inclusive and bounds retained preview rows; scope.max_rows independently guards source acquisition. coverage reports Entity input counts and caps; exhaustion is unknown when a cap is reached. execution_limits reports native timeout enforcement; no scan row/byte cap is requested and scan statistics are unknown. Unordered samples are not full-source estimates.",
             kind="method",
             output="PreviewResult",
             inputs=(
                 AuthoringInputRequirement(role="receiver", family="SemanticCatalog"),
                 _parameter_input("subject", "SemanticObject", "ref"),
                 _parameter_input(
-                    "scope",
-                    "AuthoringScope | Sequence[tuple[Entity, AuthoringScope]]",
-                    "scope",
+                    "scope", "AuthoringScope | Sequence[tuple[Entity, AuthoringScope]]", "scope"
                 ),
                 _parameter_input(
                     "dependency",
@@ -3412,11 +3042,9 @@ def _build_registry() -> SemanticCapabilityRegistry:
                     optional=True,
                 ),
             ),
-            effects=_CERTIFYING_PREVIEW,
+            effects=_PREVIEW,
             constraints=("backend_factory_available",),
-            example=(
-                "catalog.preview(revenue, scope=md.unpruned(max_rows=1000, timeout_seconds=30))"
-            ),
+            example="catalog.preview(revenue, scope=md.unpruned(max_rows=1000, timeout_seconds=30))",
             preconditions=("a current loaded SemanticCatalog",),
             repair_kinds=("reconnect", "reauthor", "user_choice"),
             public_entrypoint="catalog.preview",
@@ -3431,19 +3059,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
         _capability(
             "preview_many",
             "marivo.semantic.catalog.SemanticCatalog.preview_many",
-            (
-                "Run scoped data previews for a non-empty entry/ref sequence. Ordinary Metric "
-                "previews support all five SQL backends and reuse datasource partition preflight "
-                "for every input before any business read. Each Entity contributes at most "
-                "min(scope.max_rows, 10,000) output rows and reports an "
-                "approximate result; period calendars and temporal sets "
-                "publish their dedicated certified artifacts through preview. limit must "
-                "be an integer from 1 to 100 inclusive and bounds retained preview rows "
-                "per result; scope.max_rows independently guards Entity output acquisition. "
-                "coverage reports actual Entity input counts and caps. execution_limits "
-                "reports native timeout enforcement; no scan row/byte cap is requested. "
-                "Physical scan statistics remain unknown."
-            ),
+            "Run scoped data previews for a non-empty entry/ref sequence. Ordinary Metric previews support all five SQL backends and reuse datasource partition preflight for every input before any business read. Each Entity contributes at most min(scope.max_rows, 10,000) output rows and reports an approximate result. limit must be an integer from 1 to 100 inclusive and bounds retained preview rows per result; scope.max_rows independently guards Entity output acquisition. coverage reports actual Entity input counts and caps. execution_limits reports native timeout enforcement; no scan row/byte cap is requested. Physical scan statistics remain unknown.",
             kind="method",
             output="PreviewBatchResult",
             inputs=(
@@ -3455,9 +3071,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
                     max_count=None,
                 ),
                 _parameter_input(
-                    "scope",
-                    "AuthoringScope | Sequence[tuple[Entity, AuthoringScope]]",
-                    "scope",
+                    "scope", "AuthoringScope | Sequence[tuple[Entity, AuthoringScope]]", "scope"
                 ),
                 _parameter_input(
                     "dependency",
@@ -3468,10 +3082,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
             ),
             effects=_PREVIEW,
             constraints=("backend_factory_available",),
-            example=(
-                "catalog.preview_many([revenue], "
-                "scope=md.unpruned(max_rows=1000, timeout_seconds=30))"
-            ),
+            example="catalog.preview_many([revenue], scope=md.unpruned(max_rows=1000, timeout_seconds=30))",
             preconditions=("a current loaded SemanticCatalog",),
             repair_kinds=("reconnect", "reauthor", "user_choice"),
             public_entrypoint="catalog.preview_many",
@@ -3480,10 +3091,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
         _capability(
             "source_check",
             None,
-            (
-                "Build explicit null, enum, uniqueness, freshness, relationship, "
-                "or cardinality expectations; no expectation is inferred from samples."
-            ),
+            "Build explicit null, enum, uniqueness, freshness, relationship, or cardinality expectations; no expectation is inferred from samples.",
             kind="boundary",
             output="SourceCheck",
             effects=_NONE,
@@ -3503,15 +3111,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
         _capability(
             "validate",
             "marivo.semantic.catalog.SemanticCatalog.validate",
-            (
-                "Connect to the selected dependency closure and validate Entity outputs, "
-                "field bindings, numeric/duration types and temporal parser/timezone contracts against "
-                "real physical types. Unavailable types disclose column names and raw types in "
-                'observed["unavailable_columns"]; direct Entities still check independent fields. '
-                "Preview and analysis reuse these field checks. "
-                "Explicit data expectations require a bounded scope. Does not change readiness "
-                "or qualify arbitrary analysis methods."
-            ),
+            'Connect to the selected dependency closure and validate Entity outputs, field bindings, numeric/duration types and temporal parser/timezone contracts against real physical types. Unavailable types disclose column names and raw types in observed["unavailable_columns"]; direct Entities still check independent fields. Preview and analysis reuse these field checks. Explicit data expectations require a bounded scope. Does not change readiness or qualify arbitrary analysis methods.',
             kind="method",
             output="ValidationReport",
             inputs=(
@@ -3536,17 +3136,10 @@ def _build_registry() -> SemanticCapabilityRegistry:
             repair_kinds=("inspect", "reconnect", "rescope", "reauthor"),
             public_entrypoint="catalog.validate",
         ),
-        # ------------------------------------------------------------------
-        # readiness
-        # ------------------------------------------------------------------
         _capability(
             "readiness",
             "marivo.semantic.catalog.SemanticCatalog.readiness",
-            "Check selected definitions' physical dependency closures and certified temporal artifacts "
-            "without connecting or querying. Declared Measures and Metrics are accepted; an open Metric "
-            "checks only known dependencies. Unselected binding fields and executable Metric instances "
-            "are not certified. requested_ids and checked_ids retain the distinction. Unrelated load "
-            "warnings are excluded. Analysis execution qualifies physical types and operation support.",
+            "Check selected definitions' physical dependency closures without connecting or querying. Declared Measures and Metrics are accepted; an open Metric checks only known dependencies. Unselected binding fields and executable Metric instances remain independent input checks. requested_ids and checked_ids retain the distinction. Unrelated load warnings are excluded. Analysis execution qualifies physical types and operation support.",
             kind="method",
             output="ReadinessReport",
             inputs=(
@@ -3562,12 +3155,6 @@ def _build_registry() -> SemanticCapabilityRegistry:
                 LiveHelpTarget(surface="analysis", canonical_id="analysis_frame.persist"),
             ),
         ),
-        # ------------------------------------------------------------------
-        # diagnostics_boundaries
-        # ------------------------------------------------------------------
-        # ------------------------------------------------------------------
-        # SemanticCatalog methods
-        # ------------------------------------------------------------------
         _capability(
             "SemanticCatalog.get",
             "marivo.semantic.catalog.SemanticCatalog.get",
@@ -3880,30 +3467,8 @@ REGISTRY = _build_registry()
 
 
 def _type_contracts() -> Mapping[type, SemanticTypeContract]:
-    """Build private type contracts without exposing constructors as help targets."""
     from dataclasses import fields
 
-    from marivo._symbolic import symbol_factory as ref_factory
-    from marivo.preview import PreviewResult
-    from marivo.refs import (
-        PeriodCalendarKind,
-        SemanticKind,
-    )
-    from marivo.semantic.catalog import (
-        CalendarPeriodPage,
-        Datasource,
-        Dimension,
-        Domain,
-        Entity,
-        Measure,
-        Metric,
-        PeriodCalendar,
-        Relationship,
-        SemanticCatalog,
-        TemporalOccurrencePage,
-        TemporalSet,
-        TimeDimension,
-    )
     from marivo.semantic.catalog_entries import (
         CatalogFilters,
         CatalogPage,
@@ -3917,9 +3482,24 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
         MetricNoTimeBinding,
         MetricTimeBinding,
         MetricTimeFieldBinding,
-        PeriodCalendarDefinition,
         RelationshipDefinition,
-        TemporalSetDefinition,
+    )
+
+    """Build private type contracts without exposing constructors as help targets."""
+
+    from marivo._symbolic import symbol_factory as ref_factory
+    from marivo.preview import PreviewResult
+    from marivo.refs import SemanticKind
+    from marivo.semantic.catalog import (
+        Datasource,
+        Dimension,
+        Domain,
+        Entity,
+        Measure,
+        Metric,
+        Relationship,
+        SemanticCatalog,
+        TimeDimension,
     )
     from marivo.semantic.dtos import PreviewBatchResult
     from marivo.semantic.ir import DateParse, JoinKey
@@ -4067,6 +3647,7 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
         MetricTimeFieldBinding: "source is explicit or entity_default. field, path and anchor capture the bound TimeDimension, relationship route and optional exact version anchor.",
         MetricNoTimeBinding: "reason identifies a source reduction with no Entity default or a fixed member count. root is the contribution Entity when there is one.",
     }
+
     for record_type in (
         CatalogScope,
         CatalogFilters,
@@ -4080,8 +3661,6 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
         MetricTimeBinding,
         MetricTimeFieldBinding,
         RelationshipDefinition,
-        PeriodCalendarDefinition,
-        TemporalSetDefinition,
     ):
         add(
             record_type,
@@ -4095,6 +3674,7 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
                 ),
             ),
         )
+
     add(
         Domain,
         "Domain",
@@ -4104,67 +3684,6 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
         methods=("related", "to_dict", "to_json", "show", "render"),
     )
 
-    add(
-        PeriodCalendar,
-        "PeriodCalendar",
-        ("SemanticCatalog.get", "SemanticCatalog.search"),
-        target="period_calendar_object",
-        properties=(
-            "id",
-            "kind",
-            "path",
-            "name",
-            "domain",
-            "summary",
-            "definition",
-            "provenance",
-        ),
-        methods=(
-            "related",
-            "to_dict",
-            "to_json",
-            "grain",
-            "period",
-            "period_on",
-            "periods",
-            "show",
-            "render",
-        ),
-    )
-
-    add(
-        CalendarPeriodPage,
-        "CalendarPeriodPage",
-        (LiveHelpTarget(surface="analysis", canonical_id="calendar.periods"),),
-        properties=("items", "next_cursor"),
-        methods=show_render,
-    )
-
-    add(
-        TemporalSet,
-        "TemporalSet",
-        ("SemanticCatalog.get", "SemanticCatalog.search"),
-        target="temporal_set_object",
-        properties=(
-            "id",
-            "kind",
-            "path",
-            "name",
-            "domain",
-            "summary",
-            "definition",
-            "provenance",
-        ),
-        methods=("occurrence", "occurrences", "related", "to_dict", "to_json", "show", "render"),
-    )
-
-    add(
-        TemporalOccurrencePage,
-        "TemporalOccurrencePage",
-        (LiveHelpTarget(surface="analysis", canonical_id="temporal_set.occurrences"),),
-        properties=("items", "next_cursor"),
-        methods=show_render,
-    )
     add(
         Datasource,
         "Datasource",
@@ -4333,18 +3852,7 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
         (),
         methods=factory_methods("ref"),
     )
-    add(
-        PeriodCalendarKind,
-        "PeriodCalendarKind",
-        ("period_calendar",),
-    )
-    from marivo.refs import TemporalSetKind
 
-    add(
-        TemporalSetKind,
-        "TemporalSetKind",
-        ("temporal_set",),
-    )
     # IR types
     add(
         JoinKey,

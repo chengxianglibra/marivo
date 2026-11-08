@@ -42,10 +42,7 @@ result.show(n=31)
 示例收入指标具有贡献时间；时间独立分支会保留原有范围。该示例直接计算并展示每日数值，无需持久化；
 指定时间范围不代表已确认来源数据完整。
 
-范围合计使用 `where=scope`；时间分组使用 `by=(scope.by(grain),)`。
-CalendarAxis 可与普通 Dimension、非时间 Grouping 放在同一元组中，裸 Grain 输入会被拒绝。
-若 by 已携带时间，where 中不能再传报告 TimeScope，即使两者选择相同。
-自定义日历轴要求一个完整认证期间和已捕获快照的 Grain。
+自然日历使用 `mv.grain(...)` 和明确的 `scope.by(grain)`。财务周期、节假日和工作日使用普通业务字段；harness 决定来源、范围和配对。参见[日期与时间](/zh-cn/docs/latest/modeling/dates/)。
 
 `by=P` 保留 P 的完整输出键，包括没有事实的键，但不会自动筛选贡献。
 P 必须覆盖所有必要输出键；如需限制贡献，显式使用 `where=mv.in_population(P)`。

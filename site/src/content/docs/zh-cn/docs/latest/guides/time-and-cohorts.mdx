@@ -38,7 +38,7 @@ august_revenue = session.observe(
 
 ## 保留精确日历边界
 
-`session.time_scope(start=..., end=...)` 包含 `start`，不包含 `end`。选择定义这些边界的业务报告时区。夏令时切换附近，自然日和自然月的实际经过时长可能不同。财务或命名业务期间应使用已认证的[业务日历](/zh-cn/docs/latest/modeling/dates/#业务日历)。
+自然日历使用 `mv.grain(...)` 和明确的 `scope.by(grain)`。财务周期、节假日和工作日使用普通业务字段；harness 决定来源、范围和配对。参见[日期与时间](/zh-cn/docs/latest/modeling/dates/)。
 
 ## 将窗口附着到 Metric
 

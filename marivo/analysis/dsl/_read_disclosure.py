@@ -52,7 +52,6 @@ from marivo.analysis.core.frame_interpretation import (
     FrameIntervalComparisonBinding,
     FrameIntervalEndpoint,
     FrameLevelTarget,
-    FrameNamedGrain,
     FrameNamedValueInput,
     FrameObservationContext,
     FrameObservedTimeSemantics,
@@ -233,17 +232,15 @@ def provider() -> DisclosureProvider:
             ("frame_schema.axes",),
             ("frame_fixed_axis", "frame_row_attribute_time"),
         ),
-        (
-            FrameRowAttributeTime,
-            "frame_row_attribute_time",
-            ("frame_axis_schema.at",),
-            (),
-        ),
+        (FrameRowAttributeTime, "frame_row_attribute_time", ("frame_axis_schema.at",), ()),
         (
             FrameCalendarAxisSchema,
             "frame_calendar_axis_schema",
             ("frame_schema.axes",),
-            ("frame_period_page", "frame_builtin_grain", "frame_named_grain"),
+            (
+                "frame_period_page",
+                "frame_builtin_grain",
+            ),
         ),
         (
             FrameIntervalAxisSchema,
@@ -268,16 +265,6 @@ def provider() -> DisclosureProvider:
             (),
         ),
         (
-            FrameNamedGrain,
-            "frame_named_grain",
-            (
-                "frame_calendar_axis_schema.grain",
-                "frame_calendar_endpoint.grain",
-                "frame_to_date_window.grain",
-            ),
-            ("semantic_object_identity",),
-        ),
-        (
             FrameCalendarEndpoint,
             "frame_calendar_endpoint",
             (
@@ -285,7 +272,10 @@ def provider() -> DisclosureProvider:
                 "frame_paired_axis_schema.right",
                 "frame_calendar_comparison_binding.baseline",
             ),
-            ("frame_period_page", "frame_builtin_grain", "frame_named_grain"),
+            (
+                "frame_period_page",
+                "frame_builtin_grain",
+            ),
         ),
         (
             FrameIntervalEndpoint,
@@ -317,7 +307,7 @@ def provider() -> DisclosureProvider:
             FrameToDateWindow,
             "frame_to_date_window",
             ("frame_observation_context.window",),
-            ("frame_builtin_grain", "frame_named_grain"),
+            ("frame_builtin_grain",),
         ),
         (
             FrameTrailingDurationWindow,
@@ -834,7 +824,6 @@ def provider() -> DisclosureProvider:
         FrameIntervalAxisSchema,
         FramePairedAxisSchema,
         FrameBuiltinGrain,
-        FrameNamedGrain,
         FrameCalendarEndpoint,
         FrameIntervalEndpoint,
         FrameFixedAxis,

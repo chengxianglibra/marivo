@@ -520,7 +520,7 @@ def _unmapped_time_details(
         grain = (
             f"{definition.unit} step={definition.step}"
             if isinstance(definition, BuiltinCalendarData)
-            else "named calendar"
+            else "calendar"
         )
         timezone = baseline.axis.timezone
         calendar_bucket = next((bucket for bucket in baseline.buckets if bucket.key == key), None)

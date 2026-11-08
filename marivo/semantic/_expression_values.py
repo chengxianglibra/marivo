@@ -2515,7 +2515,6 @@ class MetricExpression(_ExpressionCarrier, Generic[_MetricRoleT]):
             field = _parameter(by)
             if (
                 not isinstance(grain, Grain)
-                or grain.kind != "builtin"
                 or _captured_field_kind(field) is not SemanticKind.TIME_DIMENSION
                 or _captured_scalar_path(field)
             ):

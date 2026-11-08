@@ -37,7 +37,7 @@ def _extend_authoring_project(root: Path) -> None:
     source.write_text(
         source.read_text()
         + textwrap.dedent(
-            "\nquery_id = ms.dimension_column(name='query_id', entity=orders, column='query_id')\nevents = ms.entity(name='events', datasource=ms.ref.datasource('warehouse'),\n                   source=md.table('events'), primary_key=['event_id'])\nevent_id = ms.dimension_column(name='event_id', entity=events, column='event_id')\nevent_query_id = ms.dimension_column(name='query_id', entity=events, column='query_id')\nsequence = ms.dimension_column(name='sequence_number', entity=events,\n                               column='sequence_number')\noccurred_at = ms.time_dimension_column(name='occurred_at', entity=events,\n    column='occurred_at', parse=ms.timestamp(timezone='UTC'))\nevent_to_order = ms.relationship(name='event_to_order', from_entity=events,\n    to_entity=orders, keys=[ms.join_on(event_query_id, query_id)])\n\n\n\n\ncalendar = ms.entity(name='calendar', datasource=ms.ref.datasource('warehouse'),\n    source=md.table('calendar'))\ncalendar_date = ms.time_dimension_column(name='calendar_date', entity=calendar,\n    column='calendar_date')\nmonth = ms.dimension_column(name='month', entity=calendar, column='month')\nfiscal = ms.period_calendar(name='fiscal', date=calendar_date,\n\n    coverage=(__import__('datetime').date(2041, 7, 17),\n              __import__('datetime').date(2041, 7, 19)),\n    levels={'month': month})\n"
+            "\nquery_id = ms.dimension_column(name='query_id', entity=orders, column='query_id')\nevents = ms.entity(name='events', datasource=ms.ref.datasource('warehouse'),\n                   source=md.table('events'), primary_key=['event_id'])\nevent_id = ms.dimension_column(name='event_id', entity=events, column='event_id')\nevent_query_id = ms.dimension_column(name='query_id', entity=events, column='query_id')\nsequence = ms.dimension_column(name='sequence_number', entity=events,\n                               column='sequence_number')\noccurred_at = ms.time_dimension_column(name='occurred_at', entity=events,\n    column='occurred_at', parse=ms.timestamp(timezone='UTC'))\nevent_to_order = ms.relationship(name='event_to_order', from_entity=events,\n    to_entity=orders, keys=[ms.join_on(event_query_id, query_id)])\n\n\n\n\ncalendar = ms.entity(name='calendar', datasource=ms.ref.datasource('warehouse'),\n    source=md.table('calendar'))\ncalendar_date = ms.time_dimension_column(name='calendar_date', entity=calendar,\n    column='calendar_date')\nmonth = ms.dimension_column(name='month', entity=calendar, column='month')\n"
         ),
         encoding="utf-8",
     )
@@ -58,19 +58,11 @@ def test_project_handoff_separates_static_and_physical_evidence(
     catalog = ms.load(workspace_dir=authoring_evidence_project)
     revenue = catalog.get("metric:sales.revenue")
     amount = catalog.get("measure:sales.orders.amount")
-    calendar = catalog.get("period_calendar:sales.fiscal")
     revenue_identity = catalog.get(revenue.id)
     assert revenue_identity is not None and as_ref(revenue_identity) == as_ref(revenue)
-    assert as_ref(catalog.get("period_calendar:sales.fiscal")) == as_ref(calendar)
 
     baseline = catalog.readiness(refs=[amount])
     assert baseline._analysis_ready_inputs == (as_ref(amount),)
-    calendar_report = catalog.readiness(refs=[calendar])
-    assert calendar_report.analysis_ready_inputs == ()
-    assert any(
-        issue.kind == "period_calendar_artifact_missing" for issue in calendar_report.blockers
-    )
-
     ontology = mo.load(semantic=catalog)
     assert ontology.edge_count == 1
     assert ontology.semantic_catalog_fingerprint == catalog.definition_fingerprint

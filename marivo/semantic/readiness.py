@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field, replace
 from datetime import datetime
-from typing import TYPE_CHECKING, ClassVar, Literal, cast
+from typing import TYPE_CHECKING, ClassVar, Literal
 
 from marivo._authoring.model import AuthoringRepair
 from marivo._authoring.render import _repair_summary
@@ -28,12 +28,6 @@ ReadinessIssueKind = Literal[
     "cross_datasource_unfederated",
     "fragile_string_ref",
     "time_dimension_pushdown_advisory",
-    "period_calendar_artifact_missing",
-    "period_calendar_artifact_stale",
-    "period_calendar_artifact_invalid",
-    "temporal_set_artifact_missing",
-    "temporal_set_artifact_stale",
-    "temporal_set_artifact_invalid",
 ]
 
 
@@ -183,8 +177,6 @@ def _exact_ref(path: str, kind: SemanticKind) -> Ref[SemanticKindTag]:
         SemanticKind.MEASURE: ref_factory.measure,
         SemanticKind.METRIC: ref_factory.metric,
         SemanticKind.RELATIONSHIP: ref_factory.relationship,
-        SemanticKind.PERIOD_CALENDAR: ref_factory.period_calendar,
-        SemanticKind.TEMPORAL_SET: ref_factory.temporal_set,
     }[kind]
     return factory(path)
 
@@ -277,14 +269,6 @@ def _object_maps(project: SemanticProject) -> tuple[dict[str, SemanticKind], dic
         key = _exact_key(relationship.semantic_id, SemanticKind.RELATIONSHIP)
         kinds[key] = SemanticKind.RELATIONSHIP
         objects[key] = relationship
-    for calendar in reg.period_calendars.values():
-        key = _exact_key(calendar.semantic_id, SemanticKind.PERIOD_CALENDAR)
-        kinds[key] = SemanticKind.PERIOD_CALENDAR
-        objects[key] = calendar
-    for temporal_set in reg.temporal_sets.values():
-        key = _exact_key(temporal_set.semantic_id, SemanticKind.TEMPORAL_SET)
-        kinds[key] = SemanticKind.TEMPORAL_SET
-        objects[key] = temporal_set
     for domain_ir in reg.domains.values():
         key = _exact_key(domain_ir.name, SemanticKind.DOMAIN)
         kinds[key] = SemanticKind.DOMAIN
@@ -404,7 +388,7 @@ def build_readiness_report(
 
     Uses the compiled definition graph for dependency closure, then performs
     static checks: load errors, unknown physical refs, cross-datasource dependencies,
-    certified temporal artifact
+    physical declarations
     integrity, and load warnings. It never reads ordinary
     discovery or preview history and never executes a datasource query.
     Load warnings outside an explicit requested closure are excluded.
@@ -415,7 +399,7 @@ def build_readiness_report(
 
     Returns:
         ReadinessReport indicating whether the selected refs satisfy the
-        current certification contract.
+        current declaration contract.
     """
     blockers: list[ReadinessIssue] = []
     warnings: list[ReadinessIssue] = []
@@ -476,12 +460,7 @@ def build_readiness_report(
         for field_id, dimension in reg.dimensions.items():
             if f"time_dimension:{field_id}" not in checked_refs:
                 continue
-            calendar_date = any(
-                calendar.date == field_id for calendar in reg.period_calendars.values()
-            )
-            if not calendar_date and not isinstance(
-                dimension.parse, DateParse | StrptimeParse | HourPrefixParse
-            ):
+            if not isinstance(dimension.parse, DateParse | StrptimeParse | HourPrefixParse):
                 continue
             try:
                 require_source_timezone(
@@ -532,122 +511,6 @@ def build_readiness_report(
                 ),
             )
         )
-
-    # Period calendars are executable semantic dependencies. Unlike ordinary
-    # preview output, a missing/stale certified artifact is a hard blocker
-    # and is checked entirely from project-local state.
-    if reg is not None:
-        from marivo._temporal import TemporalSnapshotStore, period_calendar_definition_digest
-        from marivo.refs import ref as ref_factory
-        from marivo.semantic._definition_identity import scoped_definition_fingerprint
-        from marivo.semantic._source_timezone import period_calendar_timezone
-        from marivo.semantic.ir import PeriodCalendarIR
-
-        snapshot_store = TemporalSnapshotStore(project._workspace_dir)
-        for ref in checked_refs:
-            if kinds.get(ref) is not SemanticKind.PERIOD_CALENDAR:
-                continue
-            calendar = objects.get(ref)
-            if not isinstance(calendar, PeriodCalendarIR):
-                continue
-            calendar_ref = ref_factory.period_calendar(_display_path(ref))
-            definition_digest = period_calendar_definition_digest(
-                calendar_ref=calendar_ref,
-                boundary_timezone=period_calendar_timezone(reg, calendar),
-                coverage=calendar.coverage,
-                levels=calendar.levels,
-                dependency_digest=scoped_definition_fingerprint(
-                    root=calendar_ref,
-                    definitions=compiled_state.definitions,
-                    dependencies=compiled_state.dependencies,
-                    sidecar=compiled_state.sidecar,
-                ),
-            )
-            status, _snapshot = snapshot_store.inspect_current(
-                calendar_ref,
-                definition_digest=definition_digest,
-            )
-            if status != "current":
-                path = _display_path(ref)
-                issue_kind = cast(
-                    "ReadinessIssueKind",
-                    f"period_calendar_artifact_{status}",
-                )
-                if status == "missing":
-                    issue_kind = "period_calendar_artifact_missing"
-                blockers.append(
-                    _issue(
-                        issue_kind,
-                        "blocker",
-                        (path,),
-                        (
-                            f"{path} has no current certified period-calendar artifact for its "
-                            f"declaration (state={status})."
-                        ),
-                        repair(
-                            kind="rescope",
-                            canonical_id="preview",
-                            action=(
-                                "Run catalog.preview(ref, scope=...) with one exhaustive explicit "
-                                "scope covering the period-calendar declaration."
-                            ),
-                        ),
-                        details={"artifact_status": status},
-                    )
-                )
-
-        from marivo._temporal import TemporalSetSnapshotStore, temporal_set_definition_digest
-        from marivo.semantic.ir import TemporalSetIR
-
-        temporal_set_store = TemporalSetSnapshotStore(project._workspace_dir)
-        for ref in checked_refs:
-            if kinds.get(ref) is not SemanticKind.TEMPORAL_SET:
-                continue
-            temporal_set = objects.get(ref)
-            if not isinstance(temporal_set, TemporalSetIR):
-                continue
-            temporal_set_ref = ref_factory.temporal_set(_display_path(ref))
-            definition_digest = temporal_set_definition_digest(
-                temporal_set_ref=temporal_set_ref,
-                boundary_timezone=temporal_set.boundary_timezone,
-                coverage=temporal_set.coverage,
-                occurrence_id=temporal_set.occurrence_id,
-                start=temporal_set.start,
-                end=temporal_set.end,
-                category=temporal_set.category,
-                dependency_digest=scoped_definition_fingerprint(
-                    root=temporal_set_ref,
-                    definitions=compiled_state.definitions,
-                    dependencies=compiled_state.dependencies,
-                    sidecar=compiled_state.sidecar,
-                ),
-            )
-            status, _temporal_snapshot = temporal_set_store.inspect_current(
-                temporal_set_ref,
-                definition_digest=definition_digest,
-            )
-            if status != "current":
-                path = _display_path(ref)
-                issue_kind = cast("ReadinessIssueKind", f"temporal_set_artifact_{status}")
-                if status == "missing":
-                    issue_kind = "temporal_set_artifact_missing"
-                blockers.append(
-                    _issue(
-                        issue_kind,
-                        "blocker",
-                        (path,),
-                        f"{path} has no current certified temporal-set artifact for its declaration (state={status}).",
-                        repair(
-                            kind="rescope",
-                            canonical_id="preview",
-                            action=(
-                                "Run catalog.preview(ref, scope=...) with one exhaustive explicit "
-                                "scope covering the temporal-set declaration."
-                            ),
-                        ),
-                        details={"artifact_status": status},
-                    )
-                )
 
     # Cross-datasource physical dependencies.
     if reg is not None:

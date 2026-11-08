@@ -396,8 +396,6 @@ def test_authoring_parameters_keep_complete_native_acquisition_and_real_links() 
         "measure.from_column",
         "metric.define",
         "relationship.define",
-        "period_calendar.define",
-        "temporal_set.define",
         "load",
     ):
         descriptor = SEMANTIC_REGISTRY.by_canonical_id(target)

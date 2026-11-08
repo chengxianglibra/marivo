@@ -18,7 +18,6 @@ from marivo.analysis.core.data_schema import DataSchema as DataSchema
 from marivo.analysis.core.data_schema import FrozenCalendarData as FrozenCalendarData
 from marivo.analysis.core.data_schema import FrozenIntervalData as FrozenIntervalData
 from marivo.analysis.core.data_schema import IntervalDataAxis as IntervalDataAxis
-from marivo.analysis.core.data_schema import NamedCalendarData as NamedCalendarData
 from marivo.analysis.core.data_schema import PairedDataAxis as PairedDataAxis
 from marivo.analysis.core.data_types import DataColumn as DataColumn
 from marivo.analysis.core.data_types import DataType as DataType

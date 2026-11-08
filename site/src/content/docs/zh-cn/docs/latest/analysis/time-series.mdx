@@ -50,10 +50,7 @@ monthly_source = session.observe({"revenue": revenue}, by=(august.by(mv.grain("m
 monthly_source.show()
 ```
 
-日历桶使用实际执行方的原生键。有报告范围时，普通输出保留生成位置和实际键的并集，
-并补齐缺失位置。by 直接接收 CalendarAxis，裸 Grain 输入会被拒绝。键与民用标签不承诺成员构成连续 UTC 区间；`read_periods()` 提供保存的顺序
-和选择进度。内置日／周／月使用原生民用截断，子日宽度按当地午夜对齐。自定义日历输出
-必须显式指定恰好一个完整的已认证期间范围，多期间或局部选择在业务读取前拒绝，不上传日期到期间执行目录。
+自然日历使用 `mv.grain(...)` 和明确的 `scope.by(grain)`。财务周期、节假日和工作日使用普通业务字段；harness 决定来源、范围和配对。参见[日期与时间](/zh-cn/docs/latest/modeling/dates/)。
 
 {/* example: metric-window-query */}
 
@@ -153,9 +150,7 @@ sample_mean.show()
 adjusted.show()
 ```
 
-`samples.quantile(0.95)`、`min/max`、`first/last` 等规约与均值采用相同的缺点策略。
-声明节拍不会触发完整覆盖检查，也不要求有限观察期间。窗口需要报告端点或外层内置日历样本端点，自定义日历样本仍需要完整认证期间。
-已表示时刻上的 NULL 仍受 `nulls` 策略约束。统计结果描述实际样本，并不证明整个期间的数据完整。
+自然日历样本使用实际样本键；输出补空不增加内部样本数。窗口仍需明确端点。业务日历由外部维护并提供明确范围。
 
 
 具备原生执行条件的来源样本在来源端完成：先完成每个时间戳上的子 Metric，再执行外层
@@ -181,16 +176,9 @@ folded = session.observe({"daily_average": daily_average}, by=(august.by(week), 
 folded.show()
 ```
 
-对于已完成的 `daily_p95`，在同一周轴下使用
-`daily_p95.per(mv.grain("day")).median()`。空比率和分位数保持 NA，遵循样本规约既有的
-NULL 策略。TimeField 和 Grain 样本均使用实际键，最终输出补空不影响样本均值或数量。
-内置嵌套采用静态规则：日可嵌入周／月，周不可嵌入月；子日宽度须整除父宽度，月可嵌入
-季度／年，季度可嵌入年。每层保留完整外部键、父键和子键。未定义的自定义层级拒绝；
-兼容的报告 TimeScope 内可采样一个完整认证自定义期间。`per` 中的 Grain
-选择内部样本桶；`observe(by=...)` 中的 CalendarAxis 选择报告桶。帮助入口：`semantic.metric.per`。
+自然日历样本使用实际样本键；输出补空不增加内部样本数。窗口仍需明确端点。业务日历由外部维护并提供明确范围。
 
-`ms.calendar_grain(...)` 创建的语义粒度绑定到 Session 当前的认证日历快照。
-声明的日历折叠指标要求日历已认证。内置日历样本支持两种窗口组合顺序：
+自然日历样本使用实际样本键；输出补空不增加内部样本数。窗口仍需明确端点。业务日历由外部维护并提供明确范围。
 
 {/* example: calendar-sample-window */}
 
@@ -245,7 +233,7 @@ restated = session.observe(
 ).compute()
 ```
 
-逐行模式按每条事实的时间选属性；固定锚点给整个窗口统一口径。两笔事实 7/11 在变更前后对应 A/B 时，逐行得到 A=7、B=11，固定新口径得到 B=18。事实 Entity 可以未版本化，也可以声明 snapshot；原生快照分区 TimeDimension 可作为控制字段，同一稳定业务键跨日的记录各自保留当天贡献，无需逐日查询。DuckDB/Trino 支持已认证的同源单根 observe by/where；NULL 控制或缺失版本保留 NULL 标签，不回退到最近版本。DATE 选择目标业务日；timestamp validity 要求 timestamp 控制。原生绝对时刻和 UTC/固定偏移本地钟面获准，validity 事实根、IANA 本地钟面、read/classify、多根、window/per 组合使用固定锚点。每个桶端点重分类不属于这个语义。
+自然日历使用 `mv.grain(...)` 和明确的 `scope.by(grain)`。财务周期、节假日和工作日使用普通业务字段；harness 决定来源、范围和配对。参见[日期与时间](/zh-cn/docs/latest/modeling/dates/)。
 
 
 ## 检查捕获的源时间解释

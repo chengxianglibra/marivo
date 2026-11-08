@@ -49,7 +49,7 @@ class SemanticObjectIdentity:
     definition_id: str
 
     def __post_init__(self) -> None:
-        if self.kind not in {kind.value for kind in SemanticKind} or any(
+        if self.kind not in ({kind.value for kind in SemanticKind}) or any(
             type(value) is not str or not value or not value.isprintable()
             for value in (self.kind, self.path, self.definition_id)
         ):

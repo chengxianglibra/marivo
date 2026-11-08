@@ -2,11 +2,9 @@
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass, replace
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
-from math import isfinite
 from typing import Literal, NoReturn, TypeAlias
 
 import pandas as pd
@@ -28,7 +26,6 @@ from marivo.analysis.core.data_schema import (
     DataSchema,
     IntervalComparisonBinding,
     IntervalDataAxis,
-    NamedCalendarData,
     PairedDataAxis,
 )
 from marivo.analysis.core.data_types import (
@@ -612,16 +609,7 @@ def _label(label: str, axis: CalendarDataAxis) -> None:
     assert axis.frozen is not None
     definition = axis.frozen.definition
     try:
-        if isinstance(definition, NamedCalendarData):
-            value = json.loads(label)
-            if (
-                type(value) not in (str, int, float, bool)
-                or (isinstance(value, float) and not isfinite(value))
-                or json.dumps(value, ensure_ascii=False, separators=(",", ":"), allow_nan=False)
-                != label
-            ):
-                raise ValueError("noncanonical scalar label")
-        elif definition.unit in ("second", "minute", "hour"):
+        if definition.unit in ("second", "minute", "hour"):
             stamp = datetime.fromisoformat(label)
             if stamp.utcoffset() is None or stamp.isoformat(timespec="microseconds") != label:
                 raise ValueError("missing captured offset or microseconds")

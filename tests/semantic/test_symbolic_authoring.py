@@ -63,8 +63,6 @@ def test_native_factories_preserve_private_identity_and_expression_protocol() ->
         "measure": "sales.orders.amount",
         "metric": "sales.revenue",
         "relationship": "sales.buyer",
-        "period_calendar": "sales.fiscal",
-        "temporal_set": "sales.campaigns",
     }
     for kind, path in paths.items():
         value = getattr(ms.ref, kind)(path)

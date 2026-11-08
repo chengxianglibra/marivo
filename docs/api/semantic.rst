@@ -56,10 +56,10 @@ Other formats require ClickHouse 23.3 or newer and fail capability checks before
 business query submission on older servers.
 
 ``ms.validity`` has no timezone parameter: DATE bounds derive one common field
-zone. ``ms.period_calendar`` derives its boundary zone from its date field.
-``ms.snapshot.timezone`` and ``ms.temporal_set.boundary_timezone`` remain explicit;
-DATE fields must agree with them. Temporal certification applies native parsing
-and localization inside its existing source read, preserving backend DST behavior.
+zone. ``ms.snapshot.timezone`` remains an explicit boundary declaration. Business
+calendars, holidays and fiscal periods are ordinary business data maintained
+outside Marivo; the harness supplies explicit observation ranges and mappings.
+
 
 Typed expression authoring
 --------------------------
@@ -134,8 +134,9 @@ Population and calendar Grain domains, NULL and weight policies remain authorita
 Both builtin calendar sample forms use the Session report timezone and
 actual samples, even without a finite observation period. ``per(grain)`` uses
 each branch's contribution time. ``per(field, grain=grain)`` fixes the sample
-field. Both Grain forms require contribution clocks on every branch. Windows require an observation endpoint and custom calendar samples
-require a complete certified period.
+field. Grain-only sampling needs at least one clocked branch; independent
+branches retain their scope at represented sample keys. Explicit fields supply
+their sample domain. Windows require an observation endpoint.
 
 ``ms.rescale(expr, divisor=..., unit=...)`` explicitly divides a numeric Row or
 completed Metric by a finite positive constant and declares its target unit.
@@ -169,9 +170,6 @@ Column helpers
    dimension_column
    measure_column
    time_dimension_column
-   period_calendar
-   temporal_set
-   calendar_grain
 
 Time parsing
 ------------
@@ -307,8 +305,6 @@ Captured definitions
    MetricTimeFieldBinding
    MetricNoTimeBinding
    RelationshipDefinition
-   PeriodCalendarDefinition
-   TemporalSetDefinition
 
 Catalog & objects
 -----------------
@@ -378,10 +374,6 @@ creating alternate identities.
    RowExpression
    MetricExpression
    SemanticKind
-   PeriodCalendar
-   CalendarPeriodPage
-   TemporalSet
-   TemporalOccurrencePage
 
 Readiness & assessment
 ----------------------
@@ -434,8 +426,8 @@ and columns; ``max_output_bytes=None`` removes the byte limit, still respecting
 ``n``. Neither option reruns the preview or expands its source limit. The card's
 ``preview_limit`` and ``preview_rows_truncated`` describe retained preview rows;
 ``scope_coverage`` describes acquisition completeness. ``is_truncated=True`` can
-accompany successful exhaustive temporal certification when only the retained
-preview entries are bounded. Scope coverage, sampling and warnings remain visible
+accompany complete bounded acquisition when retained preview rows are bounded
+independently. Scope coverage, sampling and warnings remain visible
 independently of display omissions. ``PreviewBatchResult`` remains a batch summary.
 
 Ordinary preview reuses datasource metadata-only physical scope preflight before

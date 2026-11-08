@@ -91,7 +91,7 @@ def _capture(
         if isinstance(value, Ref):
             return identity(resolver.exact(value)) if resolver is not None else ()
         if isinstance(value, Grain):
-            return collect(value._calendar) if value.kind == "semantic" else ()
+            return ()
         if isinstance(value, tuple):
             return union(*(collect(item) for item in value))
         if is_dataclass(value) and not isinstance(value, type):
@@ -286,7 +286,6 @@ def observation_contexts(
         FrameAxisTime,
         FrameBuiltinGrain,
         FrameFixedTime,
-        FrameNamedGrain,
         FrameObservationContext,
         FrameObservationWindow,
         FrameSinceWindow,
@@ -340,22 +339,9 @@ def observation_contexts(
                 window = FrameTrailingPeriodsWindow(rule.count)
             elif isinstance(rule, ToDate):
                 grain = rule.grain
-                if grain.kind == "semantic":
-                    assert grain._calendar is not None and grain.level is not None
-                    if state is not None:
-                        exact = _Resolver(state).exact(grain._calendar)
-                        window = FrameToDateWindow(
-                            FrameNamedGrain(
-                                SemanticObjectIdentity(
-                                    exact.ref.kind.value, exact.ref.path, exact.version
-                                ),
-                                grain.level,
-                            )
-                        )
-                else:
-                    from marivo.analysis.core.frame_calendar import _UNITS
+                from marivo.analysis.core.frame_calendar import _UNITS
 
-                    assert grain.unit is not None and grain.count is not None
-                    window = FrameToDateWindow(FrameBuiltinGrain(_UNITS[grain.unit], grain.count))
+                assert grain.unit is not None and grain.count is not None
+                window = FrameToDateWindow(FrameBuiltinGrain(_UNITS[grain.unit], grain.count))
         result.append((quantity.name, FrameObservationContext(subject, time, window)))
     return tuple(result)

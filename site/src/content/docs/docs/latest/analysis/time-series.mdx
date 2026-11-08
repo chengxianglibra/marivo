@@ -56,13 +56,7 @@ monthly_source = session.observe({"revenue": revenue}, by=(august.by(mv.grain("m
 monthly_source.show()
 ```
 
-Calendar buckets use the actual executor's native keys. With a report scope,
-ordinary output retains both generated and observed positions and fills missing
-positions. Pass a CalendarAxis in by; bare Grain inputs reject. The key and civil label do not promise a contiguous UTC member range.
-`read_periods()` exposes saved order and selection progress. Builtin day/week/month
-use native civil truncation; subday widths align to local midnight. Custom calendar
-output requires an explicit scope selecting exactly one complete certified period; multiple or partial periods
-reject before business reads. No date-to-period execution directory is uploaded.
+Natural calendars use `mv.grain(...)` and explicit `scope.by(grain)`. Fiscal periods, holidays and working days use ordinary business fields; the harness chooses authority, ranges and pairing. See [dates and time](/docs/latest/modeling/dates/).
 
 {/* example: metric-window-query */}
 
@@ -132,10 +126,7 @@ rows or fixed-day durations: on daily data, `-7` is seven days; on weekly data,
 `-1` is one week; and on monthly data, `-1` is one month. Built-in calendar
 offsets require grain `count=1`; subday offsets are unsupported.
 
-Summing result rows is a statistic on those rows. For a monthly ratio or
-distinct count, observe the original `Metric` at monthly grain instead. Prepare
-and certify a [fiscal or named-activity calendar](/docs/latest/modeling/dates/#business-calendars)
-before using it as a grain.
+Natural calendars use `mv.grain(...)` and explicit `scope.by(grain)`. Fiscal periods, holidays and working days use ordinary business fields; the harness chooses authority, ranges and pairing. See [dates and time](/docs/latest/modeling/dates/).
 
 Source parsing and report timezones are separate: set a parser timezone for
 naive source values; aware timestamps already identify an instant, and date-only
@@ -174,11 +165,7 @@ sample_mean.show()
 adjusted.show()
 ```
 
-`samples.quantile(0.95)`, min/max and first/last share the same missing-clock
-policy as means. Declaring cadence triggers no complete-coverage check and
-requires no finite observation period. Windows still require an observation
-endpoint, and custom calendar samples require a complete certified period. Represented NULLs still follow `nulls`. Results describe
-the observed samples and do not prove completeness of the whole period.
+Natural calendar samples consume actual represented keys; output completion does not add samples. Windows retain their endpoint requirements. The harness supplies explicit ranges for business calendars.
 
 
 Qualified source-backed samples finish at the source: each timestamp's child
@@ -218,9 +205,7 @@ Undefined custom hierarchies reject; one complete certified custom period may be
 sampled under a compatible report TimeScope. The Grain in `per` selects internal
 sample buckets; the CalendarAxis in `observe(by=...)` selects report buckets. Help: `semantic.metric.per`.
 
-Semantic grains from `ms.calendar_grain(...)` bind to the Session's current
-certified calendar snapshot. Declared calendar folds require calendar
-certification. Builtin calendar samples support both window orders:
+Natural calendar samples consume actual represented keys; output completion does not add samples. Windows retain their endpoint requirements. The harness supplies explicit ranges for business calendars.
 
 {/* example: calendar-sample-window */}
 

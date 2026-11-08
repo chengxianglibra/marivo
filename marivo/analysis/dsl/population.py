@@ -665,10 +665,10 @@ def in_population(population: Population | Deferred) -> Deferred | RowPredicate:
 
 
 def _interval_coordinate(scope: TimeScope) -> IntervalCoordinate:
-    from marivo._temporal import _SessionTimeScope, anchor_from_datetime, scope_time_authority
+    from marivo._temporal import TimeScope, anchor_from_datetime
     from marivo.analysis.core.time_grid import instant
 
-    if scope.kind == "absolute" and not isinstance(scope, _SessionTimeScope):
+    if not isinstance(scope, TimeScope):
         reject(
             "a TimeScope with a frozen timezone",
             repr(scope),
@@ -683,7 +683,6 @@ def _interval_coordinate(scope: TimeScope) -> IntervalCoordinate:
         start,
         end,
         zone,
-        time_authority=scope_time_authority(scope),
     )
 
 

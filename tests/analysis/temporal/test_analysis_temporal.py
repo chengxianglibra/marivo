@@ -16,7 +16,6 @@ from marivo.analysis.core.time_grid import instant
 from marivo.analysis.datasets.errors import DatasetConstructionError
 from marivo.analysis.dsl.temporal import exact_scope
 from marivo.analysis.errors import AnalysisError
-from marivo.refs import ref as ref_factory
 from tests.shared_fixtures import (
     DSL_NAMES,
     DslCase,
@@ -56,47 +55,26 @@ def test_civil_day_retains_actual_dst_instants(day: str, hours: int, start: str,
         end=date.fromisoformat(day) + timedelta(days=1),
         timezone="America/New_York",
     )
-    grid = bind_grid(scope, mv.grain("day"), report_timezone="America/New_York")
+    grid = bind_grid(scope, mv.grain("day"))
     assert len(grid.cells) == 1
     cell = grid.cells[0]
     assert cell.start.isoformat() == start
     assert cell.end.isoformat() == end
     assert (cell.end - cell.start).total_seconds() == hours * 3600
     assert not cell.partial
-    hourly = bind_grid(scope, mv.grain("hour"), report_timezone="America/New_York")
+    hourly = bind_grid(scope, mv.grain("hour"))
     assert len(hourly.cells) == hours
     assert all((c.end - c.start).total_seconds() == 3600 for c in hourly.cells)
 
 
 def test_partial_cells_are_retained_by_shared_grid() -> None:
     scope = exact_scope(start="2026-08-01", end="2026-09-01", timezone="UTC")
-    week = bind_grid(scope, mv.grain("week"), report_timezone="UTC")
+    week = bind_grid(scope, mv.grain("week"))
     assert week.cells[0].original_start.isoformat() == "2026-07-27T00:00:00+00:00"
     assert week.cells[0].partial
     assert week.cells[-1].partial
-    day = bind_grid(scope, mv.grain("day"), report_timezone="UTC")
+    day = bind_grid(scope, mv.grain("day"))
     assert len(day.cells) == 31
-
-
-def test_named_occurrence_scopes_keep_distinct_grid_identity() -> None:
-    from marivo._temporal import certify_temporal_set
-
-    snapshot = certify_temporal_set(
-        temporal_set_ref=ref_factory.temporal_set("sales.promotions"),
-        boundary_timezone="UTC",
-        coverage=(date(2026, 8, 1), date(2026, 8, 4)),
-        rows=(
-            {"id": "a", "start": date(2026, 8, 1), "end": date(2026, 8, 3)},
-            {"id": "b", "start": date(2026, 8, 1), "end": date(2026, 8, 3)},
-        ),
-        occurrence_id="id",
-        start="start",
-        end="end",
-    )
-    first = bind_grid(snapshot.occurrence_scope("a"), mv.grain("day"), report_timezone="UTC")
-    second = bind_grid(snapshot.occurrence_scope("b"), mv.grain("day"), report_timezone="UTC")
-    assert first.scope_digest == second.scope_digest == snapshot.snapshot_digest
-    assert first.identity != second.identity
 
 
 @pytest.mark.parametrize("wall", [datetime(2026, 3, 8, 2, 30), datetime(2026, 11, 1, 1, 30)])
@@ -109,7 +87,6 @@ def test_grid_wire_preserves_authority_and_rejects_changed_identity() -> None:
     grid = bind_grid(
         exact_scope(start="2026-03-08", end="2026-03-09", timezone="America/New_York"),
         mv.grain("day"),
-        report_timezone="America/New_York",
     )
     adapter = TypeAdapter(BoundTimeGrid)
     assert adapter.validate_json(adapter.dump_json(grid), strict=True) == grid
@@ -122,53 +99,12 @@ def test_aware_endpoint_remains_instant() -> None:
     assert instant(stamp, "America/New_York") == stamp
 
 
-def test_certified_grid_keeps_calendar_authority_and_coverage() -> None:
-    from marivo._temporal import certify_period_calendar_rows, semantic_grain
-
-    calendar = ref_factory.period_calendar("sales.fiscal")
-    snapshot = certify_period_calendar_rows(
-        calendar_ref=calendar,
-        boundary_timezone="Asia/Shanghai",
-        coverage=(date(2026, 8, 1), date(2026, 8, 4)),
-        columns=("day", "period"),
-        retained_values=tuple(
-            {"day": f"2026-08-0{i}", "period": "P1" if i < 3 else "P2"} for i in (1, 2, 3)
-        ),
-        date_column="day",
-        levels={"period": "period"},
-    )
-    grain = semantic_grain(calendar=calendar, level="period")
-    scope = exact_scope(
-        start=datetime(2026, 7, 31, 16, tzinfo=timezone.utc),
-        end=datetime(2026, 8, 3, 16, tzinfo=timezone.utc),
-        timezone="Asia/Shanghai",
-    )
-    grid = bind_grid(scope, grain, report_timezone="America/New_York", snapshot=snapshot)
-    assert grid.snapshot_digest == snapshot.snapshot_digest
-    assert grid.report_timezone == "America/New_York"
-    assert grid.boundary_timezone == "Asia/Shanghai"
-    assert [(c.start.isoformat(), c.end.isoformat()) for c in grid.cells] == [
-        ("2026-07-31T16:00:00+00:00", "2026-08-02T16:00:00+00:00"),
-        ("2026-08-02T16:00:00+00:00", "2026-08-03T16:00:00+00:00"),
-    ]
-    with pytest.raises(ValueError, match="conflicts"):
-        bind_grid(scope, grain, report_timezone="UTC", explicit_timezone="UTC", snapshot=snapshot)
-    with pytest.raises(ValueError, match="coverage"):
-        bind_grid(
-            exact_scope(start="2026-07-30", end="2026-08-04", timezone="Asia/Shanghai"),
-            grain,
-            report_timezone="UTC",
-            snapshot=snapshot,
-        )
-
-
 def test_single_second_grid_has_exact_boundaries() -> None:
     start = datetime(2026, 8, 1, tzinfo=timezone.utc)
     end = start + timedelta(seconds=1)
     grid = bind_grid(
         exact_scope(start=start, end=end, timezone="UTC"),
         mv.grain("second"),
-        report_timezone="UTC",
     )
 
     assert len(grid.cells) == 1
@@ -184,7 +120,6 @@ def test_repeated_hour_minute_cells_keep_both_instant_sequences() -> None:
             timezone="America/New_York",
         ),
         mv.grain("minute"),
-        report_timezone="America/New_York",
     )
     assert [(cell.start.isoformat(), cell.end.isoformat()) for cell in grid.cells] == [
         ("2026-11-01T05:59:00+00:00", "2026-11-01T06:00:00+00:00"),

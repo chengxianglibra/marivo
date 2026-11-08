@@ -30,10 +30,8 @@ from marivo.semantic.ir import (
     DomainIR,
     EntityIR,
     MeasureIR,
-    PeriodCalendarIR,
     RelationshipIR,
     SourceLocation,
-    TemporalSetIR,
 )
 from marivo.semantic.loader import _LOADER_CTX, LoaderContext
 
@@ -79,15 +77,7 @@ def _value_ref(value: object) -> Ref[SemanticKindTag] | None:
     return None
 
 
-DefinitionIR: TypeAlias = (
-    DomainIR
-    | EntityIR
-    | DimensionIR
-    | MeasureIR
-    | RelationshipIR
-    | PeriodCalendarIR
-    | TemporalSetIR
-)
+DefinitionIR: TypeAlias = DomainIR | EntityIR | DimensionIR | MeasureIR | RelationshipIR
 
 
 @dataclass(frozen=True, slots=True)
@@ -162,19 +152,13 @@ def _ir_kind(ir: Any) -> str:
         return "entity"
     if isinstance(ir, RelationshipIR):
         return "relationship"
-    if isinstance(ir, PeriodCalendarIR):
-        return "period calendar"
-    if isinstance(ir, TemporalSetIR):
-        return "temporal set"
     return type(ir).__name__
 
 
 def _check_duplicate(
     ctx: LoaderContext,
     semantic_id: str,
-    ir_type: type[
-        EntityIR | DimensionIR | MeasureIR | RelationshipIR | PeriodCalendarIR | TemporalSetIR
-    ],
+    ir_type: type[EntityIR | DimensionIR | MeasureIR | RelationshipIR],
 ) -> None:
     """Raise DUPLICATE_NAME if semantic_id already in pending_objects of the same kind.
 
@@ -184,17 +168,7 @@ def _check_duplicate(
     _cross_kinds: set[type[DimensionIR | MeasureIR]] = {DimensionIR, MeasureIR}
     for pending in ctx.pending_definitions:
         ir = pending.definition
-        if not isinstance(
-            ir,
-            (
-                EntityIR,
-                DimensionIR,
-                MeasureIR,
-                RelationshipIR,
-                PeriodCalendarIR,
-                TemporalSetIR,
-            ),
-        ):
+        if not isinstance(ir, (EntityIR, DimensionIR, MeasureIR, RelationshipIR)):
             continue
         if ir.semantic_id != semantic_id:
             continue

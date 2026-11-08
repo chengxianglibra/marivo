@@ -832,17 +832,13 @@ def test_shared_session_scope_keeps_frozen_fields_and_neutral_roundtrip(
     clock: str,
 ) -> None:
 
-    from marivo._temporal import (
-        TimeScope,
-        _SessionTimeScope,
-        _time_scope_from_contract_data,
-    )
+    from marivo._temporal import TimeScope, _time_scope_from_contract_data
 
     scope = optimization_session.time_scope(
         start=f"2026-01-01T{clock}+00:00", end=f"2026-01-03T{clock}+00:00"
     )
     assert isinstance(scope, TimeScope)
-    assert type(scope) is _SessionTimeScope
+    assert type(scope) is TimeScope
     axis = scope.by(mv.grain("day"))
     assert scope.by(mv.grain("month")).scope is scope
     restored = _time_scope_from_contract_data(scope._contract().model_dump(mode="json"))
@@ -850,7 +846,7 @@ def test_shared_session_scope_keeps_frozen_fields_and_neutral_roundtrip(
     assert restored.start == scope.start and restored.end == scope.end
     assert restored.boundary_timezone == scope.boundary_timezone
     assert restored.by(mv.grain("day")).grid.identity == axis.grid.identity
-    with pytest.raises(ValueError, match="frozen boundary_timezone"):
+    with pytest.raises(ValueError, match="boundary_timezone"):
         _time_scope_from_contract_data(
             {
                 "schema": "time-scope/v1",

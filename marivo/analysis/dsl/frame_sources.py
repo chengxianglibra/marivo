@@ -17,7 +17,7 @@ from marivo._definition.types import (
     RowAttributeTime,
 )
 from marivo._grouping import Grouping
-from marivo._temporal import PeriodCalendarSnapshotV2, TimeScope
+from marivo._temporal import TimeScope
 from marivo.analysis.binding.lineage import observation_contexts
 from marivo.analysis.binding.value_time import observation_time_semantics
 from marivo.analysis.core.artifact_data import DataColumn
@@ -73,7 +73,6 @@ from marivo.semantic._expression_values import (
     RowExpression,
     RowPredicate,
 )
-from marivo.semantic.expressions import _Resolver
 
 
 def _utc(value: datetime | None) -> datetime | None:
@@ -109,17 +108,6 @@ def pending_schema(graph: BoundGraph, state: CompiledSemanticState | None) -> Pe
                 token=f"axis.{index}",
                 name=name,
                 key=DataColumn(f"key.{offset}", name, time_key_type(axis), False),
-                calendar_ref=(
-                    SemanticObjectIdentity(
-                        "period_calendar",
-                        axis.grain_spec._calendar.path,
-                        _Resolver(state).exact(axis.grain_spec._calendar).version,
-                    )
-                    if state is not None
-                    and axis.grain_spec.kind == "semantic"
-                    and axis.grain_spec._calendar is not None
-                    else None
-                ),
             )
             axes.append(frozen_axis)
             offset += len(frozen_axis.columns)
@@ -271,7 +259,6 @@ def observe(
     where: Deferred | RowPredicate | None = None,
     scope: TimeScope | None = None,
     timezone: str = "UTC",
-    calendar_snapshots: tuple[PeriodCalendarSnapshotV2, ...] = (),
     _captured_frame_inputs: tuple[FrameKeyInput, ...] = (),
 ) -> AnalysisFrame:
     selected = tuple(metrics.items()) if isinstance(metrics, Mapping) else metrics
@@ -310,7 +297,6 @@ def observe(
         where=bound_where,
         timezone=timezone,
         state=state,
-        calendar_snapshots=calendar_snapshots,
         scope=scope,
     )
     return _capture(

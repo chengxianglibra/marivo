@@ -9,32 +9,13 @@ head:
       content: noindex
 ---
 
-Choose how source dates or timestamps are interpreted, which time field supplies
-business time, and an explicit observation range. The range includes its start
-and excludes its end. Treat the source parser timezone, calendar boundary
-timezone, and `Session` reporting timezone as separate roles. Define business
-periods with an appropriate calendar and boundary timezone; model activities or
-holidays that can overlap as named occurrences. Workday counts need a schedule
-covering each selected date, including compensatory workdays; a missing status is
-unknown. All TimeField sample reducers allow missing clocks; `sample_interval`
-describes cadence without asserting complete coverage. See
-[Date and time definitions](/docs/latest/modeling/dates/) and
-[Time series and windows](/docs/latest/analysis/time-series/).
-Pass the report range as `where=scope` and the calendar Grain in `by`.
+The harness or business data service maintains business calendars. Marivo
+executes analysis using ordinary business fields and explicit time ranges.
 
-## Certify a period calendar
+- Fiscal grouping: model dates and fiscal keys, then aggregate the original Metric by the business dimension.
+- Holiday comparison: the harness chooses exact bounds and pairing, then constructs `session.time_scope(...)`.
+- Working-day filters: use ordinary date data and working status; retain unknown states and select non-contiguous members explicitly.
+- Natural windows: use `mv.grain(...)`, `scope.by(grain)` and supported window rules.
 
-[See how to certify and read a calendar](/docs/latest/modeling/dates/#certify-and-read).
-
-## Name temporal occurrences
-
-[See how to declare named occurrences](/docs/latest/modeling/dates/#named-occurrences-mstemporal_set).
-
-## Browse holidays and choose comparison ranges
-
-[Review holiday and workday schedules](/docs/latest/modeling/dates/#activities-and-working-days),
-then see [time-range comparisons](/docs/latest/analysis/time-series/).
-
-## Read working-day facts from ordinary fields
-
-[See how to model working-day fields and schedules](/docs/latest/modeling/dates/#activities-and-working-days).
+See [dates and time](/docs/latest/modeling/dates/) for source encoding and timezone
+declarations, and [time series](/docs/latest/analysis/time-series/) for bucketing and windows.

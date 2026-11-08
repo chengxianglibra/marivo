@@ -33,18 +33,15 @@ def reusable_date_day(calendar: CalendarCoordinate, date_timezone: str, engine: 
 
     grain = calendar.grain_spec
     return (
-        grain.kind == "builtin"
-        and grain.unit == "day"
+        grain.unit == "day"
         and same_timezone(date_timezone, calendar.timezone)
         and bool(calendar.cells)
-        and len(calendar.civil_bounds) == len(calendar.cells)
+        and (len(calendar.civil_bounds) == len(calendar.cells))
         and all(cell[1] - cell[0] == timedelta(days=1) for cell in calendar.cells)
-        # Captured native labels also qualify the executor's timezone rules;
-        # Python and an older server need not ship the same timezone database.
         and all(
             (start := datetime.fromisoformat(bounds[0])).time() == time.min
             and (end := datetime.fromisoformat(bounds[1])).time() == time.min
-            and end.date() - start.date() == timedelta(days=1)
+            and (end.date() - start.date() == timedelta(days=1))
             for bounds in calendar.civil_bounds
         )
         and all(
@@ -66,7 +63,7 @@ def builtin_key(
     from marivo.datasource._temporal_expressions import localize
 
     grain = calendar.grain_spec
-    assert grain.kind == "builtin" and grain.unit is not None
+    assert grain.unit is not None
     if (
         engine is not None
         and date_timezone is not None
@@ -83,7 +80,7 @@ def builtin_key(
 
 def builtin_wall_key(wall: ir.Value, grain: Grain, *, engine: str | None) -> ir.Value:
     """Truncate a civil clock without choosing a timezone interpretation."""
-    assert grain.kind == "builtin" and grain.unit is not None
+    assert grain.unit is not None
     if grain.unit in ("second", "minute", "hour"):
         # Generic compiler paths also build expressions before a provider is
         # known. Only an explicit engine can qualify backend-specific functions.
@@ -160,27 +157,5 @@ def bind_calendar(
         selected = condition if selected is None else selected | condition
     if selected is None:
         return table.mutate(**{slot: ibis.null().cast(KEY_TYPE)})
-    if calendar.grain_spec.kind == "builtin":
-        key = builtin_key(time, calendar, date_timezone=date_timezone, engine=engine)
-        return table.mutate(**{slot: selected.ifelse(key, ibis.null())})
-    if len(calendar.cells) != 1 or calendar.cells[0][:2] != calendar.cells[0][2:]:
-        from marivo.analysis.core.model import reject
-
-        reject(
-            "one complete custom calendar period",
-            calendar.identity,
-            "Select exactly one complete period from the certified calendar.",
-            "calendar.observe",
-        )
-    from datetime import datetime
-
-    from marivo.datasource._temporal_expressions import localize
-
-    wall = datetime.fromisoformat(calendar.civil_bounds[0][0]).replace(tzinfo=None)
-    return table.mutate(
-        **{
-            slot: selected.ifelse(
-                localize(calendar.timezone, timestamp(ibis.literal(wall))), ibis.null()
-            )
-        }
-    )
+    key = builtin_key(time, calendar, date_timezone=date_timezone, engine=engine)
+    return table.mutate(**{slot: selected.ifelse(key, ibis.null())})

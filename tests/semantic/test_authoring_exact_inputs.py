@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import copy
-from datetime import date
 from typing import TypeVar
 
 import ibis.expr.types as ibis_ir
@@ -53,12 +52,6 @@ _CASES = (
     ("snapshot", "sales.snapshot_orders.day"),
     ("validity_from", "sales.validity_orders.start"),
     ("validity_to", "sales.validity_orders.end"),
-    ("calendar_date", "sales.calendar.day"),
-    ("calendar_level", "sales.calendar.week"),
-    ("temporal_id", "sales.orders.id"),
-    ("temporal_start", "sales.orders.start"),
-    ("temporal_end", "sales.orders.end"),
-    ("temporal_category", "sales.orders.region"),
 )
 
 
@@ -239,25 +232,7 @@ def _consume(
             primary_key=["id"],
             versioning=_copy_helper(validity_versioning, helper_copy),
         )
-    coverage = (date(2026, 1, 1), date(2027, 1, 1))
-    if family.startswith("calendar_"):
-        return ms.period_calendar(
-            name="probe",
-            date=time("sales.calendar.day"),
-            coverage=coverage,
-            levels={"week": dimension("sales.calendar.week")},
-        )
-    if family.startswith("temporal_"):
-        return ms.temporal_set(
-            name="probe",
-            occurrence_id=dimension("sales.orders.id"),
-            start=time("sales.orders.start"),
-            end=time("sales.orders.end"),
-            category=dimension("sales.orders.region"),
-            boundary_timezone="UTC",
-            coverage=coverage,
-        )
-    raise AssertionError(f"unknown input family: {family}")
+    raise AssertionError(f"Unsupported family {family}")
 
 
 def _version(state: SemanticCatalog, ref: object) -> str:

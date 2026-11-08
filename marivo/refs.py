@@ -33,8 +33,6 @@ class SemanticKind(StrEnum):
     TIME_DIMENSION = "time_dimension"
     METRIC = "metric"
     RELATIONSHIP = "relationship"
-    PERIOD_CALENDAR = "period_calendar"
-    TEMPORAL_SET = "temporal_set"
 
 
 class SemanticKindTag:
@@ -75,14 +73,6 @@ class RelationshipKind(SemanticKindTag):
     __slots__ = ()
 
 
-class PeriodCalendarKind(SemanticKindTag):
-    __slots__ = ()
-
-
-class TemporalSetKind(SemanticKindTag):
-    __slots__ = ()
-
-
 FieldKind: TypeAlias = DimensionKind | TimeDimensionKind | MeasureKind
 
 
@@ -95,8 +85,6 @@ _KIND_BY_MARKER: dict[type[SemanticKindTag], frozenset[SemanticKind]] = {
     MeasureKind: frozenset({SemanticKind.MEASURE}),
     MetricKind: frozenset({SemanticKind.METRIC}),
     RelationshipKind: frozenset({SemanticKind.RELATIONSHIP}),
-    PeriodCalendarKind: frozenset({SemanticKind.PERIOD_CALENDAR}),
-    TemporalSetKind: frozenset({SemanticKind.TEMPORAL_SET}),
 }
 
 _SEGMENT_RE = re.compile(r"^[a-z][a-z0-9_]*$")
@@ -109,8 +97,6 @@ _SEGMENT_COUNT = {
     SemanticKind.MEASURE: 3,
     SemanticKind.METRIC: 2,
     SemanticKind.RELATIONSHIP: 2,
-    SemanticKind.PERIOD_CALENDAR: 2,
-    SemanticKind.TEMPORAL_SET: 2,
 }
 
 
@@ -329,12 +315,6 @@ class _RefFactory:
             _create_ref(SemanticKind.RELATIONSHIP, path),
         )
 
-    def period_calendar(self, path: str) -> Ref[PeriodCalendarKind]:
-        return cast("Ref[PeriodCalendarKind]", _create_ref(SemanticKind.PERIOD_CALENDAR, path))
-
-    def temporal_set(self, path: str) -> Ref[TemporalSetKind]:
-        return cast("Ref[TemporalSetKind]", _create_ref(SemanticKind.TEMPORAL_SET, path))
-
 
 ref = _RefFactory()
 
@@ -405,24 +385,10 @@ _FACTORY_BY_KIND: dict[SemanticKind, Callable[[str], Ref[SemanticKindTag]]] = {
     SemanticKind.DATASOURCE: cast("Callable[[str], Ref[SemanticKindTag]]", ref.datasource),
     SemanticKind.ENTITY: cast("Callable[[str], Ref[SemanticKindTag]]", ref.entity),
     SemanticKind.DIMENSION: cast("Callable[[str], Ref[SemanticKindTag]]", ref.dimension),
-    SemanticKind.TIME_DIMENSION: cast(
-        "Callable[[str], Ref[SemanticKindTag]]",
-        ref.time_dimension,
-    ),
+    SemanticKind.TIME_DIMENSION: cast("Callable[[str], Ref[SemanticKindTag]]", ref.time_dimension),
     SemanticKind.MEASURE: cast("Callable[[str], Ref[SemanticKindTag]]", ref.measure),
     SemanticKind.METRIC: cast("Callable[[str], Ref[SemanticKindTag]]", ref.metric),
-    SemanticKind.RELATIONSHIP: cast(
-        "Callable[[str], Ref[SemanticKindTag]]",
-        ref.relationship,
-    ),
-    SemanticKind.PERIOD_CALENDAR: cast(
-        "Callable[[str], Ref[SemanticKindTag]]",
-        ref.period_calendar,
-    ),
-    SemanticKind.TEMPORAL_SET: cast(
-        "Callable[[str], Ref[SemanticKindTag]]",
-        ref.temporal_set,
-    ),
+    SemanticKind.RELATIONSHIP: cast("Callable[[str], Ref[SemanticKindTag]]", ref.relationship),
 }
 
 

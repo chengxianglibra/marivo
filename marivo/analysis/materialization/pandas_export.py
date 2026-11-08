@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from collections import Counter
 
 import pandas as pd
@@ -13,7 +12,6 @@ from marivo.analysis.core.data_schema import (
     CalendarDataAxis,
     DataAxis,
     IntervalDataAxis,
-    NamedCalendarData,
     PairedDataAxis,
 )
 from marivo.analysis.core.data_types import DataColumn, DurationDataType, TimestampDataType
@@ -101,11 +99,6 @@ def _time_columns(
     )
     if isinstance(axis, CalendarDataAxis) and time_details:
         labels = selected["nominal_label"]
-        if isinstance(axis.frozen.definition, NamedCalendarData):
-            labels = pd.Series(
-                [json.loads(label) if isinstance(label, str) else label for label in labels],
-                dtype=object,
-            )
         bounds.append(labels)
     return bounds
 

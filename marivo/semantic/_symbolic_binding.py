@@ -34,7 +34,7 @@ from marivo._definition.deferred import (
     root_declaration,
 )
 from marivo._definition.expressions import PredicateExpression
-from marivo._definition.graph import direct_calendar_refs, walk
+from marivo._definition.graph import walk
 from marivo._definition.types import DefinitionGraphError, FieldRead, SumNone
 from marivo._symbolic import SymbolResolver
 from marivo.refs import Ref, SemanticKind, SemanticKindTag
@@ -530,10 +530,7 @@ def publish_declarations(
                     received=f"Session {closure.owner.session_id}/{closure.owner.owner_id} owns a captured parameter",
                     action="Keep Session-owned values in the analysis script.",
                 )
-            consumed = frozenset(
-                {exact.ref for exact in closure.refs}
-                | {ref for node in closure.order for ref in direct_calendar_refs(node)}
-            )
+            consumed = frozenset({exact.ref for exact in closure.refs})
             scope_error = _closure_scope_error(target.path, value, consumed, available)
             if scope_error is not None:
                 raise scope_error

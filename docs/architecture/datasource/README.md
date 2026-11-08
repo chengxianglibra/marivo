@@ -22,7 +22,7 @@ ClickHouse DateTime/DateTime64) retain their native meaning.
 `wall_clock_timezone` is stored separately from connection `fields` and secret
 `env_refs`, and is never a driver kwarg. It participates in semantic dependency
 and definition fingerprints, while raw acquisition evidence identity excludes
-it. Changing it can invalidate certification even for an aware-only Entity.
+it. Changing it changes the captured datasource definition.
 Trino has no public `timezone` parameter; its private UTC connection setting
 only stabilizes transport.
 
@@ -81,7 +81,7 @@ Trino deployments that do not require an authentication token or password.
 Trino exact `.median()` and `.quantile(q)` fail source compilation because no
 qualified native exact algorithm is available. Explicit `.approx_median()` and `.approx_quantile(q)` use
 native `approx_percentile` when approximation is acceptable. Analysis preparation qualifies the selected
-operation and physical types against its backend. Semantic readiness checks physical declarations and temporal certification;
+operation and physical types against its backend. Semantic readiness checks physical declarations and time declarations;
 loading alone grants no backend execution support.
 
 `DatasourceSpec` is the closed union of these five types. Concrete engine

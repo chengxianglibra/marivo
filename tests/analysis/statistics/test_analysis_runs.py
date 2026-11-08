@@ -60,46 +60,6 @@ def test_public_runs(analysis_dsl_case_factory: DslCaseFactory) -> None:
     assert len(terminal_runs(case.session)) == before
 
 
-@pytest.mark.slow
-@pytest.mark.release
-def test_offline_runs_keep_calendar_cold_recovery(
-    analysis_dsl_case_factory: DslCaseFactory,
-) -> None:
-    import json
-    import subprocess
-    import sys
-
-    case = analysis_dsl_case_factory("j2")
-    root = case.root / "calendar-recipe"
-    root.mkdir()
-    reports = []
-    for phase in ("produce", "fixed", "cold"):
-        if phase == "fixed":
-            for path in root.glob("*.parquet"):
-                path.rename(path.with_suffix(".offline"))
-            import shutil
-
-            shutil.rmtree(root / "models")
-        completed = subprocess.run(
-            [
-                sys.executable,
-                "-m",
-                "tests.analysis.statistics.runs_worker",
-                str(root),
-                phase,
-                "calendar",
-            ],
-            capture_output=True,
-            text=True,
-            timeout=120,
-        )
-        assert completed.returncode == 0, completed.stdout + completed.stderr
-        report = json.loads(completed.stdout.strip().splitlines()[-1])
-        assert report["phase"] == phase
-        reports.append(report)
-    assert len({report["pid"] for report in reports}) == 3
-
-
 @pytest.mark.parametrize("fixed", [False, True])
 @pytest.mark.filterwarnings(
     "error:Specifying null_placement in RankOptions is deprecated:FutureWarning"

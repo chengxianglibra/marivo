@@ -27,12 +27,6 @@ def _metric(catalog: ms.SemanticCatalog, path: str) -> ms.Metric:
     return result
 
 
-def _period_calendar(catalog: ms.SemanticCatalog, path: str) -> ms.PeriodCalendar:
-    result = catalog.get(path)
-    assert result.kind == "period_calendar"
-    return result
-
-
 def segments(frame: pd.DataFrame, threshold: float = 0) -> pd.DataFrame:
     """Find consecutive UTC daily positions under this recipe's explicit one-day rule."""
     calendar_column = "calendar:day"
@@ -95,22 +89,9 @@ def _author(root: Path) -> None:
     (semantic / "_domain.py").write_text(
         "import marivo.semantic as ms\nms.domain(name='sales', owner='Fixture', default=True)\n"
     )
-    (semantic / "models.py").write_text("""from datetime import date
-import marivo.datasource as md
-import marivo.semantic as ms
-orders = ms.entity(name="orders", datasource=ms.ref.datasource("warehouse"), source=md.parquet("rows.parquet"), primary_key=["id"])
-amount_ref = ms.measure_column(name="amount", entity=orders, column="amount", additivity=ms.additive_all())
-time_ref = ms.time_dimension_column(name="time", entity=orders, column="time")
-calendar = ms.entity(name="calendar", datasource=ms.ref.datasource("warehouse"), source=md.parquet("calendar.parquet"), primary_key=["calendar_date"])
-calendar_date = ms.time_dimension_column(name="calendar_date", entity=calendar, column="calendar_date")
-period = ms.dimension_column(name="period", entity=calendar, column="period")
-unequal = ms.period_calendar(name="unequal", date=calendar_date, coverage=(date(2026, 8, 1), date(2026, 8, 7)), levels={"period": period})
-amount = amount_ref
-time = time_ref
-@ms.metric()
-def maximum():
-    return amount.max(time=time)
-""")
+    (semantic / "models.py").write_text(
+        'from datetime import date\nimport marivo.datasource as md\nimport marivo.semantic as ms\norders = ms.entity(name="orders", datasource=ms.ref.datasource("warehouse"), source=md.parquet("rows.parquet"), primary_key=["id"])\namount_ref = ms.measure_column(name="amount", entity=orders, column="amount", additivity=ms.additive_all())\ntime_ref = ms.time_dimension_column(name="time", entity=orders, column="time")\ncalendar = ms.entity(name="calendar", datasource=ms.ref.datasource("warehouse"), source=md.parquet("calendar.parquet"), primary_key=["calendar_date"])\ncalendar_date = ms.time_dimension_column(name="calendar_date", entity=calendar, column="calendar_date")\nperiod = ms.dimension_column(name="period", entity=calendar, column="period")\namount = amount_ref\ntime = time_ref\n@ms.metric()\ndef maximum():\n    return amount.max(time=time)\n'
+    )
     pq.write_table(
         pa.table(
             {
@@ -143,20 +124,13 @@ def run(root: Path, phase: str, calendar: bool = False) -> None:
     if phase == "produce":
         _author(root)
         catalog = ms.load(workspace_dir=root)
-        if calendar:
-            from tests.analysis.statistics.deviation_time_worker import publish_calendar
-
-            publish_calendar(catalog, "UTC")
+        pass
         session = mv.session.get_or_create("runs-export", timezone="UTC")
         scope = session.time_scope(
             start="2026-08-04" if calendar else "2026-08-01",
             end="2026-08-07" if calendar else "2026-08-04",
         )
-        grain = (
-            _period_calendar(catalog, "period_calendar:sales.unequal").grain("period")
-            if calendar
-            else mv.grain("day")
-        )
+        grain = mv.grain("day")
         result = session.observe(
             {"value": _metric(catalog, "metric:sales.maximum")}, by=(scope.by(grain),)
         ).persist()
@@ -177,16 +151,10 @@ def run(root: Path, phase: str, calendar: bool = False) -> None:
             result = session.persisted_frame(manifest["artifact"])
             frame = result.to_pandas()
             before = len(terminal_runs(session))
-            if calendar:
-                period = result.read_periods(result.axes[0]).items[0]
-                assert isinstance(period, mv.FrameCalendarPeriod)
-                assert period.selection == "full"
-                assert frame["value"].tolist() == [7]
-            else:
-                selected = segments(frame, threshold=1)
-                assert selected["count"].tolist() == [2]
-                assert selected["duration"].tolist() == [timedelta(days=2)]
-                assert segments(frame, threshold=2)["count"].tolist() == [1]
+            selected = segments(frame, threshold=1)
+            assert selected["count"].tolist() == [2]
+            assert selected["duration"].tolist() == [timedelta(days=2)]
+            assert segments(frame, threshold=2)["count"].tolist() == [1]
             assert len(terminal_runs(session)) == before
     assert session._runtime.store.resources(session.id) == ()
 

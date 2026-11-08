@@ -11,7 +11,7 @@ from ibis.common.deferred import Deferred
 
 from marivo._definition.types import Owner
 from marivo._grouping import Grouping
-from marivo._temporal import InstantAnchor, TimeScope, _SessionTimeScope
+from marivo._temporal import InstantAnchor, TimeScope
 from marivo.analysis.materialization.contracts import SessionRecord
 from marivo.analysis.observation.contracts import ObservationOwner
 from marivo.semantic._expression_values import (
@@ -107,21 +107,11 @@ class Session:
             cr.check_binding(config.resolver)
             with cr.bind_resolver(config.resolver):
                 catalog = load(workspace_dir=self.project_root, domains=self._record().domains)
-            from marivo._temporal import PeriodCalendarSnapshotV2
-            from marivo.semantic.catalog import PeriodCalendar
 
-            snapshots: list[PeriodCalendarSnapshotV2] = []
-            for identity in sorted(catalog._state.registry.period_calendars):
-                calendar = catalog.get("period_calendar:" + identity)
-                assert isinstance(calendar, PeriodCalendar)
-                status, snapshot = calendar._snapshot_with_status()
-                if status == "current" and snapshot is not None:
-                    snapshots.append(snapshot)
             self._sources_value = self._runtime.sources(
                 semantic_registry=catalog._state.registry,
                 sidecar=catalog._state.sidecar,
                 catalog=catalog,
-                period_calendar_snapshots=tuple(snapshots),
             )
             self._catalog_value = catalog
         return self._sources_value
@@ -309,7 +299,7 @@ class Session:
         *,
         start: str | date | datetime,
         end: str | date | datetime,
-    ) -> _SessionTimeScope:
+    ) -> TimeScope:
         """Freeze a nonempty half-open scope in the saved Session report timezone.
 
         Args:
@@ -365,8 +355,8 @@ class Session:
             No source reads at capture. Clocked branches follow report time; others
             retain scope and broadcast on missing time keys. A scope adds no axis;
             CalendarAxis supplies buckets. Ordinary domains require Session timezone;
-            certified domains keep theirs. Predicates and builtin samples use Session timezone.
-            Bare Grains reject; custom axes need one complete certified period.
+            Predicates and natural calendar samples use the Session timezone.
+            Bare Grains reject; use an explicit scope.by(grain) axis.
             Windows need endpoints on every output time key.
         """
         from marivo.analysis.core.model import reject
@@ -454,7 +444,6 @@ class Session:
             where=bound_where,
             scope=scope,
             timezone=self.timezone,
-            calendar_snapshots=self._sources().period_calendar_snapshots,
             _captured_frame_inputs=captured_frame_inputs,
         )
 

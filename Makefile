@@ -110,7 +110,6 @@ release-test: pypi-build pypi-check
 		tests/analysis/materialization/test_frame_temporal_expressions.py \
 		tests/analysis/materialization/test_mean_recovery.py \
 		tests/analysis/materialization/test_multiroot_recovery.py \
-		tests/analysis/materialization/test_named_calendar_windows.py \
 		tests/analysis/materialization/test_numeric_recovery.py \
 		tests/analysis/materialization/test_round1_api_fixes.py \
 		tests/analysis/numeric/test_analysis_cohort.py \

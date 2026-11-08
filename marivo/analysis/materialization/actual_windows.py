@@ -12,7 +12,6 @@ from marivo._definition.expressions import EntityCount
 from marivo._definition.observations import ObservationPeriod
 from marivo._definition.relations import ObserveQuery
 from marivo._definition.types import CalendarCoordinate
-from marivo._definition.windows import ToDate
 from marivo.analysis.binding.windows import actual_window_axis, bind_windows
 from marivo.analysis.compiler.graph_lowering import LoweredQuery, LoweredRead, lower_query
 from marivo.analysis.compiler.graph_plan import (
@@ -175,11 +174,6 @@ def _bind_actual_windows(
                 dict(graph.signature.declared_metrics),
                 period,
                 calendar,
-                tuple(
-                    rule.grain._snapshot
-                    for rule in rules
-                    if isinstance(rule, ToDate) and rule.grain._snapshot is not None
-                ),
                 native_starts=starts,
             )
         )

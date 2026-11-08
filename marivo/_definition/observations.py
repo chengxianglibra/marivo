@@ -30,7 +30,6 @@ from marivo._temporal import InstantAnchor
 
 CalendarGrouping: TypeAlias = CalendarCoordinate | IntervalCoordinate | BuiltinSampleCoordinate
 SampleAxis: TypeAlias = AxisBinding | CalendarGrouping
-CalendarSample: TypeAlias = CalendarCoordinate | BuiltinSampleCoordinate
 
 
 @dataclass(frozen=True, slots=True)
@@ -84,7 +83,6 @@ class ContributionBinding:
     physical_dtype: Literal["unresolved"] = "unresolved"
     logical_occurrence: tuple[int, ...] | None = None
     window_key: int | datetime | None = None
-    window_calendar_digest: str | None = None
     sample_axes: tuple[SampleAxis, ...] = ()
     memberships: tuple[MembershipBinding, ...] = ()
     output_axis_count: int = 0
@@ -107,7 +105,7 @@ class ObservationBinding:
     coordinates: CoordinateBinding
     contributions: tuple[ContributionBinding, ...]
     count_populations: tuple[tuple[PopulationDependency, PopulationDependency], ...] = ()
-    calendar_samples: tuple[tuple[tuple[int, ...], CalendarSample], ...] = ()
+    calendar_samples: tuple[tuple[tuple[int, ...], BuiltinSampleCoordinate], ...] = ()
 
     @property
     def fingerprint(self) -> str:

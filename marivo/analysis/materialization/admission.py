@@ -6,7 +6,6 @@ from collections.abc import Callable
 from pathlib import Path
 from uuid import uuid4
 
-from marivo._temporal import PeriodCalendarSnapshotV2
 from marivo.analysis.core.time_authority import ReportTimeAuthority
 from marivo.analysis.materialization.errors import (
     _execution_error as _error,
@@ -108,7 +107,6 @@ class DatasetRuntime:
         semantic_registry: Registry,
         sidecar: CompiledExpressionSidecar,
         catalog: SemanticCatalog | None = None,
-        period_calendar_snapshots: tuple[PeriodCalendarSnapshotV2, ...] = (),
     ) -> ObservationOwner:
         return make_source_owner(
             semantic_registry=semantic_registry,
@@ -116,7 +114,6 @@ class DatasetRuntime:
             session_id=self.session_ref,
             store_id=self.store.store_id,
             catalog=catalog,
-            period_calendar_snapshots=period_calendar_snapshots,
             report_time=self.report_time,
         )
 

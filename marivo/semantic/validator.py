@@ -17,7 +17,6 @@ import textwrap
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import datetime, time, timedelta
-from types import MappingProxyType
 from typing import TYPE_CHECKING, Any, Literal, NoReturn, cast
 
 from ibis.common.deferred import Deferred
@@ -51,7 +50,6 @@ from marivo.semantic.ir import (
     EntityIR,
     HourPrefixParse,
     MeasureIR,
-    PeriodCalendarIR,
     RelationshipIR,
     SnapshotVersioningIR,
     SourceLocation,
@@ -63,7 +61,6 @@ from marivo.semantic.ir import (
     TargetSnapshotVersion,
     TargetValiditySelection,
     TargetValidityVersion,
-    TemporalSetIR,
     TimestampParse,
     ValidityVersioningIR,
     is_time_bearing_format,
@@ -95,8 +92,6 @@ class Registry:
     dimensions: dict[str, DimensionIR] = field(default_factory=dict)
     measures: dict[str, MeasureIR] = field(default_factory=dict)
     relationships: dict[str, RelationshipIR] = field(default_factory=dict)
-    period_calendars: dict[str, PeriodCalendarIR] = field(default_factory=dict)
-    temporal_sets: dict[str, TemporalSetIR] = field(default_factory=dict)
     # Published pure declarations, keyed by their qualified full name.
     declared_measures: dict[str, Deferred] = field(default_factory=dict)
     declared_metrics: dict[str, Deferred] = field(default_factory=dict)
@@ -106,20 +101,6 @@ class Registry:
         """Freeze every registry map after successful whole-graph validation."""
         if self._frozen:
             return
-        for name in (
-            "domains",
-            "datasources",
-            "entities",
-            "dimensions",
-            "measures",
-            "relationships",
-            "period_calendars",
-            "temporal_sets",
-            "declared_measures",
-            "declared_metrics",
-        ):
-            value = dict(getattr(self, name))
-            object.__setattr__(self, name, MappingProxyType(value))
         object.__setattr__(self, "_frozen", True)
 
     def __setattr__(self, name: str, value: object) -> None:
@@ -579,26 +560,6 @@ _TEMPORAL_DATA_TYPES = {"date", "datetime", "timestamp"}
 _PUSHDOWN_UNFRIENDLY_CALLS = {"cast", "as_date", "as_timestamp"}
 
 
-def _temporal_set_encoding(field: DimensionIR | None) -> Literal["date", "timestamp"] | None:
-    """Return the closed civil-date/timestamp encoding for one time field.
-
-    An omitted parse is resolved from the physical datasource at runtime, so
-    the assembly validator leaves that case open.  ``strptime`` formats carry
-    the same distinction explicitly; hour-prefix parsing is intentionally
-    left unknown because it needs a separate date-bearing prefix field.
-    """
-    if field is None or not field.is_time_dimension:
-        return None
-    parse = field.parse
-    if isinstance(parse, DateParse):
-        return "date"
-    if isinstance(parse, (TimestampParse)):
-        return "timestamp"
-    if isinstance(parse, StrptimeParse):
-        return "timestamp" if is_time_bearing_format(parse.format) else "date"
-    return None
-
-
 def _source_column_name(node: ast.AST) -> str | None:
     """Return the base table column name for simple chained column expressions."""
     current = node
@@ -663,7 +624,6 @@ def _time_dimension_pushdown_advisory(
     parse = field_ir.parse
     _temporal_parse_kinds = (DateParse, TimestampParse)
     if not isinstance(parse, _temporal_parse_kinds):
-        return False
         return False
     if fn is None:
         return False
@@ -1868,160 +1828,7 @@ def assembly_validate(
 
     # -- Validate measure entity refs -----------------------------------------
     # -- Validate period-calendar source-field ownership --------------------
-    for calendar_id, calendar in registry.period_calendars.items():
-        date_field = registry.dimensions.get(calendar.date)
-        if date_field is None or not date_field.is_time_dimension:
-            errors.append(
-                SemanticLoadError(
-                    kind=ErrorKind.INVALID_REF,
-                    message=(
-                        f"Period calendar {calendar_id!r} date ref {calendar.date!r} must "
-                        "resolve to a civil-date time dimension."
-                    ),
-                    refs=(calendar_id, calendar.date),
-                )
-            )
-            continue
-        if isinstance(date_field.parse, (TimestampParse, HourPrefixParse)) or (
-            isinstance(date_field.parse, StrptimeParse)
-            and is_time_bearing_format(date_field.parse.format)
-        ):
-            errors.append(
-                SemanticLoadError(
-                    kind=ErrorKind.INVALID_REF,
-                    message=f"Period calendar {calendar_id!r} date axis declares timestamp meaning.",
-                    refs=(calendar_id, calendar.date),
-                    expected="civil-date TimeDimension",
-                    received=type(date_field.parse).__name__,
-                    hint="Declare a civil-date axis; native untyped axes must prove date values during complete certification.",
-                    repair=repair(
-                        kind="reauthor",
-                        canonical_id="period_calendar",
-                        action="Choose a civil-date TimeDimension and reload the calendar.",
-                    ),
-                )
-            )
-            continue
-        from marivo.semantic._source_timezone import period_calendar_timezone
-
-        owner = registry.entities.get(date_field.entity)
-        if owner is not None and owner.datasource in registry.datasources:
-            try:
-                period_calendar_timezone(registry, calendar)
-            except SemanticError as error:
-                errors.append(error)
-        for level, level_ref in calendar.levels:
-            field = registry.dimensions.get(level_ref)
-            if field is None or field.is_time_dimension or field.entity != date_field.entity:
-                errors.append(
-                    SemanticLoadError(
-                        kind=ErrorKind.INVALID_REF,
-                        message=(
-                            f"Period calendar {calendar_id!r} level {level!r} must reference "
-                            "a categorical dimension on the calendar date entity."
-                        ),
-                        refs=(calendar_id, level_ref),
-                    )
-                )
     # -- Validate temporal-set source-field ownership -----------------------
-    for set_id, temporal_set in registry.temporal_sets.items():
-        occurrence = registry.dimensions.get(temporal_set.occurrence_id)
-        start_field = registry.dimensions.get(temporal_set.start)
-        end_field = registry.dimensions.get(temporal_set.end)
-        category_field = (
-            registry.dimensions.get(temporal_set.category)
-            if temporal_set.category is not None
-            else None
-        )
-        if (
-            occurrence is None
-            or occurrence.is_time_dimension
-            or occurrence.entity != getattr(start_field, "entity", None)
-            or occurrence.entity != getattr(end_field, "entity", None)
-            or (temporal_set.category is not None and category_field is None)
-            or (
-                category_field is not None
-                and (category_field.is_time_dimension or category_field.entity != occurrence.entity)
-            )
-        ):
-            errors.append(
-                SemanticLoadError(
-                    kind=ErrorKind.INVALID_REF,
-                    message=(
-                        f"Temporal set {set_id!r} occurrence_id, start, end, and category "
-                        "must be fields on one source entity, with occurrence_id/category categorical."
-                    ),
-                    refs=tuple(
-                        ref
-                        for ref in (
-                            set_id,
-                            temporal_set.occurrence_id,
-                            temporal_set.start,
-                            temporal_set.end,
-                            temporal_set.category,
-                        )
-                        if isinstance(ref, str)
-                    ),
-                )
-            )
-
-        for label, field in (("start", start_field), ("end", end_field)):
-            if field is None or not field.is_time_dimension:
-                errors.append(
-                    SemanticLoadError(
-                        kind=ErrorKind.INVALID_REF,
-                        message=(
-                            f"Temporal set {set_id!r} {label} ref must resolve to a time dimension."
-                        ),
-                        refs=(set_id, getattr(temporal_set, label)),
-                    )
-                )
-        start_encoding = _temporal_set_encoding(start_field)
-        end_encoding = _temporal_set_encoding(end_field)
-        if (
-            start_encoding is not None
-            and end_encoding is not None
-            and start_encoding != end_encoding
-        ):
-            errors.append(
-                SemanticLoadError(
-                    kind=ErrorKind.INVALID_REF,
-                    message=(
-                        f"Temporal set {set_id!r} start and end time dimensions must "
-                        "use the same civil-date or timestamp encoding."
-                    ),
-                    refs=(set_id, temporal_set.start, temporal_set.end),
-                    expected="matching date/date or timestamp/timestamp time encodings",
-                    received=f"start={start_encoding}, end={end_encoding}",
-                )
-            )
-
-        if start_encoding == "date" and end_encoding == "date":
-            from marivo.semantic._source_timezone import require_source_timezone
-            from marivo.semantic.errors import DeclaredTimezoneContradiction
-
-            try:
-                start_zone = require_source_timezone(
-                    registry,
-                    normalize_target_dimension(registry, temporal_set.start),
-                    physical_type="date",
-                )
-                end_zone = require_source_timezone(
-                    registry,
-                    normalize_target_dimension(registry, temporal_set.end),
-                    physical_type="date",
-                )
-                declarations = (
-                    (temporal_set.start, start_zone.timezone, start_zone.origin),
-                    (temporal_set.end, end_zone.timezone, end_zone.origin),
-                    (set_id, temporal_set.boundary_timezone, "temporal_set"),
-                )
-                if len({zone for _path, zone, _origin in declarations}) > 1:
-                    errors.append(
-                        DeclaredTimezoneContradiction(ref=set_id, declarations=declarations)
-                    )
-            except SemanticError as error:
-                errors.append(error)
 
     # -- Validate measure entity refs -----------------------------------------
     errors.extend(_validate_measure_refs(registry))

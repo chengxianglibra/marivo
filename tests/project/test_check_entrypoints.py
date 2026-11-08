@@ -222,7 +222,6 @@ def test_release_runs_all_suites_even_after_a_focused_daily_run(tmp_path: Path) 
         "tests/analysis/materialization/test_frame_temporal_expressions.py",
         "tests/analysis/materialization/test_mean_recovery.py",
         "tests/analysis/materialization/test_multiroot_recovery.py",
-        "tests/analysis/materialization/test_named_calendar_windows.py",
         "tests/analysis/materialization/test_numeric_recovery.py",
         "tests/analysis/materialization/test_round1_api_fixes.py",
         "tests/analysis/numeric/test_analysis_cohort.py",

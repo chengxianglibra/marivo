@@ -45,11 +45,7 @@ The range includes August 1 and excludes September 1 in the Session timezone.
 The revenue branch uses its declared contribution clock; independent branches retain their scope. This computes and displays daily
 values without requiring persistence; the range does not certify source completeness.
 
-Use `where=scope` for a range-only total, or `by=(scope.by(grain),)` for
-finite time grouping. A CalendarAxis can share the tuple with ordinary
-Dimensions and non-time Groupings. Bare Grain inputs reject. If by carries
-time, omit a report TimeScope in where, even if both selections are equal.
-Custom calendar axes require one complete certified period and a captured Grain.
+Natural calendars use `mv.grain(...)` and explicit `scope.by(grain)`. Fiscal periods, holidays and working days use ordinary business fields; the harness chooses authority, ranges and pairing. See [dates and time](/docs/latest/modeling/dates/).
 
 `by=P` retains P's complete output keys, including keys without facts; it does
 not filter contributions. P must cover all necessary output keys. Use

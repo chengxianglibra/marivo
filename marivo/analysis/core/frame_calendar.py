@@ -9,7 +9,6 @@ from typing import Literal
 import pandas as pd
 
 from marivo._definition.types import CalendarCoordinate, IntervalCoordinate
-from marivo._temporal import _BuiltinGrain, _key_token, _SemanticGrain
 from marivo._temporal_grid import TimeShiftAbsent, TimeShiftMatch, builtin_nominal_ordinal
 from marivo.analysis.core.artifact_data import (
     BuiltinCalendarData,
@@ -18,13 +17,10 @@ from marivo.analysis.core.artifact_data import (
     FrozenCalendarData,
     FrozenIntervalData,
     IntervalDataAxis,
-    NamedCalendarData,
     OutputAttachment,
 )
 from marivo.analysis.core.calendar_keys import time_key_series, time_keys
 from marivo.analysis.core.data_schema import FrozenCalendarOrigin
-from marivo.analysis.core.lineage import SemanticObjectIdentity
-from marivo.analysis.core.model import reject
 
 BuiltinUnit = Literal["second", "minute", "hour", "day", "week", "month", "quarter", "year"]
 _UNITS: dict[str, BuiltinUnit] = {
@@ -56,18 +52,11 @@ def calendar_descriptor(
     token: str,
     name: str,
     key: DataColumn,
-    calendar_ref: SemanticObjectIdentity | None = None,
 ) -> CalendarDataAxis:
     """Capture a pending axis descriptor without freezing result positions."""
     grain = coordinate.grain_spec
-    definition: BuiltinCalendarData | NamedCalendarData
-    if isinstance(grain, _BuiltinGrain):
-        definition = BuiltinCalendarData(_UNITS[grain.unit], grain.count)
-    else:
-        assert isinstance(grain, _SemanticGrain) and coordinate.snapshot_digest is not None
-        definition = NamedCalendarData(
-            grain._calendar.path, coordinate.snapshot_digest, grain.level, calendar_ref
-        )
+    definition: BuiltinCalendarData
+    definition = BuiltinCalendarData(_UNITS[grain.unit], grain.count)
     origin = coordinate.origin
     direct = (
         FrozenCalendarOrigin(
@@ -76,7 +65,6 @@ def calendar_descriptor(
                 token=f"{token}.origin",
                 name=name,
                 key=replace(key, slot_id=f"{key.slot_id}.origin"),
-                calendar_ref=calendar_ref,
             ),
             f"shift.{token}",
             origin.kind,
@@ -100,70 +88,19 @@ def freeze_calendar(
     token: str,
     name: str,
     key: DataColumn,
-    calendar_ref: SemanticObjectIdentity | None = None,
 ) -> FrozenSourceCalendar:
     grain = coordinate.grain_spec
     labels: list[str] = []
     nominal_ordinals: list[int] = []
-    if isinstance(grain, _BuiltinGrain):
-        definition: BuiltinCalendarData | NamedCalendarData = BuiltinCalendarData(
-            _UNITS[grain.unit], grain.count
+    definition: BuiltinCalendarData = BuiltinCalendarData(_UNITS[grain.unit], grain.count)
+    for civil in coordinate.civil_bounds:
+        local = datetime.fromisoformat(civil[0])
+        labels.append(
+            local.isoformat(timespec="microseconds")
+            if grain.unit in ("second", "minute", "hour")
+            else local.date().isoformat()
         )
-        for civil in coordinate.civil_bounds:
-            local = datetime.fromisoformat(civil[0])
-            labels.append(
-                local.isoformat(timespec="microseconds")
-                if grain.unit in ("second", "minute", "hour")
-                else local.date().isoformat()
-            )
-            nominal_ordinals.append(builtin_nominal_ordinal(grain.unit, grain.count, local))
-    elif isinstance(grain, _SemanticGrain):
-        snapshot = coordinate.snapshot
-        if (
-            snapshot is None
-            or snapshot.snapshot_digest != coordinate.snapshot_digest
-            or snapshot.calendar_ref != grain._calendar
-        ):
-            reject(
-                "the exact captured named calendar snapshot",
-                coordinate.identity,
-                "Capture the complete certified calendar before source evaluation.",
-                "frame.calendar",
-            )
-        definition = NamedCalendarData(
-            grain._calendar.path, snapshot.snapshot_digest, grain.level, calendar_ref
-        )
-        for civil in coordinate.civil_bounds:
-            start, end = (
-                datetime.fromisoformat(civil[0]).date(),
-                datetime.fromisoformat(civil[1]).date(),
-            )
-            if grain.level == "day":
-                labels.append(_key_token(start.isoformat()))
-                nominal_ordinals.append(start.toordinal() - 1)
-            else:
-                periods = tuple(
-                    period
-                    for period in snapshot.periods
-                    if period.level_name == grain.level
-                    and (period.start_date, period.end_date) == (start, end)
-                )
-                if len(periods) != 1:
-                    reject(
-                        "one exact captured named period",
-                        repr((grain.level, start, end)),
-                        "Use a complete certified period matching the nominal bounds.",
-                        "frame.calendar",
-                    )
-                labels.append(_key_token(periods[0].key))
-                nominal_ordinals.append(periods[0].global_ordinal)
-    else:
-        reject(
-            "a structured builtin or named grain",
-            type(grain).__name__,
-            "Capture the owning Grain before evaluation.",
-            "frame.calendar",
-        )
+        nominal_ordinals.append(builtin_nominal_ordinal(grain.unit, grain.count, local))
     directory_name = f"calendar.{token}"
     axis = CalendarDataAxis(
         token,
@@ -186,7 +123,6 @@ def freeze_calendar(
             token=f"{token}.origin",
             name=name,
             key=replace(key, slot_id=f"{key.slot_id}.origin"),
-            calendar_ref=calendar_ref,
         )
         assert axis.frozen is not None
         mapping_name = f"shift.{token}"

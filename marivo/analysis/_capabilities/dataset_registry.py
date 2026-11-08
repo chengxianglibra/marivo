@@ -49,13 +49,6 @@ class DatasetDisclosureRegistry:
         object.__setattr__(self, "_suggestions", build_suggestion_index(self))
 
     @property
-    def retained_catalog_inputs(self) -> tuple[ReadCapability, ...]:
-        """Return native Catalog descriptors for exact callable resolution."""
-        from marivo.analysis._capabilities.catalog_inputs import CATALOG_INPUTS
-
-        return CATALOG_INPUTS
-
-    @property
     def surface(self) -> Literal["analysis"]:
         return "analysis"
 
@@ -132,12 +125,6 @@ class DatasetDisclosureRegistry:
             )
         ]
         if not matches:
-            from marivo.introspection.live.reflect import callable_identity
-
-            path = callable_identity(value)
-            for descriptor in self.retained_catalog_inputs:
-                if descriptor.callable_path == path:
-                    return descriptor
             raise KeyError("unregistered callable")
         if len(matches) > 1:
             defaults = [d for d in matches if d.unbound_default]

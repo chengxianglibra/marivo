@@ -13,6 +13,7 @@ import ibis.expr.types as ir
 
 from marivo._definition.correspondence import ComparisonAxis
 from marivo._definition.expressions import (
+    BuiltinSampleCoordinate,
     ContributionFilter,
     DeclaredMetricRef,
     EntityCount,
@@ -30,7 +31,7 @@ from marivo._definition.expressions import (
     SourceAggregate,
     SourceWeightedMean,
 )
-from marivo._definition.observations import CalendarGrouping, CalendarSample, SampleAxis
+from marivo._definition.observations import CalendarGrouping, SampleAxis
 from marivo._definition.relations import PopulationDependency
 from marivo._definition.types import (
     CalendarCoordinate,
@@ -127,7 +128,7 @@ class FormulaProgram:
     parent_scope: PopulationDependency | None = None
     parent_slots: tuple[str, ...] = ()
     population_checked: bool = False
-    calendar_samples: tuple[tuple[tuple[int, ...], CalendarSample], ...] = ()
+    calendar_samples: tuple[tuple[tuple[int, ...], BuiltinSampleCoordinate], ...] = ()
     window_endpoints: tuple[tuple[tuple[int, ...], tuple[datetime, ...]], ...] = ()
 
 

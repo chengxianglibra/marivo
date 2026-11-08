@@ -548,7 +548,7 @@ def native_query_timeout(backend: BaseBackend, timeout_seconds: int) -> Iterator
             repair=repair(
                 kind="configure",
                 canonical_id="datasource_catalog.test",
-                action="Retry certification with a supported positive scope timeout.",
+                action="Retry the read with a supported positive scope timeout.",
             ),
         )
     if getattr(backend, "_marivo_configured_query_timeout_seconds", None) == timeout_seconds:

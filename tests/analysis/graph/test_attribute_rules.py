@@ -42,7 +42,7 @@ from marivo._definition.types import (
     SumPermission,
 )
 from marivo._definition.windows import AllHistory
-from marivo._temporal import Grain, anchor_from_datetime, builtin_grain, semantic_grain
+from marivo._temporal import anchor_from_datetime, builtin_grain
 from marivo.analysis.binding.attribute_rules import (
     AdditiveRule,
     AdditiveSource,
@@ -368,79 +368,6 @@ def test_signature_rejects_changed_root_time_and_classification_roles() -> None:
     assert not rules_match(original, build(changed, captured=(captured,)))
 
 
-def test_calendar_roles_match_across_periods_without_comparing_endpoint_directories() -> None:
-    node = total()
-
-    def captured(start: str, end: str, grain: Grain, zone: str = "UTC") -> ContributionBinding:
-        scope = exact_scope(start, end, zone)
-        grid = scope.by(grain).grid
-        calendar = CalendarCoordinate(
-            grid.identity,
-            grid.grain_spec,
-            grid.boundary_timezone,
-            grid.snapshot_digest,
-            tuple(
-                (
-                    anchor_from_datetime(cell.original_start),
-                    anchor_from_datetime(cell.original_end),
-                    anchor_from_datetime(cell.start),
-                    anchor_from_datetime(cell.end),
-                )
-                for cell in grid.cells
-            ),
-            grid.calendar_snapshot,
-            civil_bounds=grid.civil_bounds,
-        )
-        return replace(
-            bindings(node)[0],
-            period=ObservationPeriod(scope.start, scope.end, zone),
-            calendars=(("key.0", calendar),),
-        )
-
-    july = captured("2026-07-01", "2026-07-03", builtin_grain("day"))
-    august = captured("2026-08-01", "2026-08-03", builtin_grain("day"))
-    assert july.period != august.period
-    july_coordinate, august_coordinate = july.calendars[0][1], august.calendars[0][1]
-    assert isinstance(july_coordinate, CalendarCoordinate)
-    assert isinstance(august_coordinate, CalendarCoordinate)
-    assert july_coordinate.identity != august_coordinate.identity
-    assert july_coordinate.cells != august_coordinate.cells
-    july_rule = build(node, captured=(july,))
-    assert rules_match(july_rule, build(node, captured=(august,)))
-
-    for incompatible in (
-        captured("2026-08-01", "2026-09-01", builtin_grain("month")),
-        captured("2026-08-01", "2026-08-03", builtin_grain("day"), "Asia/Shanghai"),
-        replace(august, calendars=(("key.1", august.calendars[0][1]),)),
-    ):
-        assert not rules_match(july_rule, build(node, captured=(incompatible,)))
-
-    # Role matching deliberately does not replace each endpoint's separate
-    # frozen directory/snapshot validation in the parent projection.
-    coordinate = august.calendars[0][1]
-    assert isinstance(coordinate, CalendarCoordinate)
-    fiscal = semantic_grain(calendar=ref.period_calendar("sales.fiscal"), level="month")
-    named = replace(coordinate, grain_spec=fiscal, snapshot_digest="captured-left")
-    named_left = replace(august, calendars=(("key.0", named),))
-    named_right = replace(
-        july,
-        calendars=(
-            (
-                "key.0",
-                replace(named, identity="another-directory", snapshot_digest="captured-right"),
-            ),
-        ),
-    )
-    assert rules_match(build(node, captured=(named_left,)), build(node, captured=(named_right,)))
-    for other_grain in (
-        builtin_grain("month"),
-        semantic_grain(calendar=ref.period_calendar("sales.other"), level="month"),
-        semantic_grain(calendar=ref.period_calendar("sales.fiscal"), level="quarter"),
-    ):
-        other = replace(named_right, calendars=(("key.0", replace(named, grain_spec=other_grain)),))
-        assert not rules_match(build(node, captured=(named_left,)), build(node, captured=(other,)))
-
-
 def test_declared_filtered_and_repeated_uses_have_distinct_paths() -> None:
     declared_ref = ExactRef(ref.metric("sales.revenue"), "v1")
     predicate = PredicateExpression(Just(True), ())
@@ -552,7 +479,6 @@ def test_fixed_additive_window_retains_each_expanded_binding_obligation() -> Non
         grid.identity,
         grid.grain_spec,
         grid.boundary_timezone,
-        grid.snapshot_digest,
         tuple(
             (
                 anchor_from_datetime(c.original_start),
@@ -562,7 +488,6 @@ def test_fixed_additive_window_retains_each_expanded_binding_obligation() -> Non
             )
             for c in grid.cells
         ),
-        grid.calendar_snapshot,
         civil_bounds=grid.civil_bounds,
     )
     leaf = bindings(node)[0]

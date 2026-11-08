@@ -34,7 +34,7 @@ from marivo._definition.types import (
     fixed_attribute_time,
 )
 from marivo._grouping import Grouping
-from marivo._temporal import CalendarAxis, PeriodCalendarSnapshotV2, SessionTimeAuthority, TimeScope
+from marivo._temporal import CalendarAxis, TimeScope
 from marivo._timezones import same_timezone
 from marivo.analysis.binding.observe import ObservationPeriod, bind_observation
 from marivo.analysis.core.frame_structure import value_name
@@ -340,14 +340,12 @@ def capture_values(
 def _validate_report_timezone(
     coordinate: CalendarCoordinate | IntervalCoordinate, timezone: str, *, location: str
 ) -> None:
-    if isinstance(coordinate.time_authority, SessionTimeAuthority) and not same_timezone(
-        coordinate.timezone, timezone
-    ):
+    if not same_timezone(coordinate.timezone, timezone):
         reject(
             f"an ordinary report domain in Session timezone {timezone!r}",
             f"report domain timezone {coordinate.timezone!r}",
             f"Rebuild the report domain in this Session, or use a Session created with "
-            f"timezone={coordinate.timezone!r}. Certified business domains retain their own timezone.",
+            f"timezone={coordinate.timezone!r}.",
             location,
             canonical_id="session.observe",
         )
@@ -361,7 +359,6 @@ def capture_metrics(
     where: Deferred | None = None,
     timezone: str = "UTC",
     state: CompiledSemanticState | None = None,
-    calendar_snapshots: tuple[PeriodCalendarSnapshotV2, ...] = (),
     scope: TimeScope | None = None,
 ) -> BoundGraph:
     quantities: list[BoundQuantity] = []
@@ -516,7 +513,6 @@ def capture_metrics(
         where=condition,
         timezone=timezone,
         state=state,
-        calendar_snapshots=calendar_snapshots,
         memberships=bindings,
         population=population,
         report_period=period,

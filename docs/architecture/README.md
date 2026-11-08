@@ -16,7 +16,7 @@
 
 ```text
 datasource: connection / source / scoped evidence
-    -> semantic: identity / fields / Metric definitions / certified time
+    -> semantic: identity / fields / Metric definitions
     -> analysis: explicit Population and source bindings
     -> AnalysisFrame: expression -> complete memory -> stored data
     -> Session: persisted-Frame discovery and exact reopening

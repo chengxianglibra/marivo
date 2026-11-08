@@ -2,7 +2,7 @@
 
 from collections.abc import Callable, Mapping
 from dataclasses import replace
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Literal
 
@@ -25,7 +25,6 @@ from marivo.analysis.core.data_schema import (
     DataAxis,
     DataSchema,
     FrozenCalendarData,
-    NamedCalendarData,
     PairedDataAxis,
 )
 from marivo.analysis.core.data_types import (
@@ -50,7 +49,6 @@ from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.materialization.frame_services import LocalFrameServices
 from marivo.analysis.materialization.graph_exchange import StageOutput
 from marivo.analysis.materialization.graph_source_execution import PreparedSources
-from marivo.refs import ref as ref_factory
 from tests.shared_fixtures import DslCaseFactory, catalog_value, terminal_runs, time_population
 
 
@@ -545,59 +543,6 @@ def test_generated_pair_tokens_and_names_avoid_independent_input_names(
     assert len({a.name for a in _memory_backing(output).data.copy_attachments()}) == 3
 
 
-def test_named_ordinal_is_source_free_and_level_mismatch_precedes_values(
-    local: LocalFrameServices,
-) -> None:
-    def named(frame: AnalysisFrame, level: str) -> AnalysisFrame:
-        data = _memory_backing(frame).data
-        endpoint = data.schema.axes[0]
-        assert isinstance(endpoint, CalendarDataAxis) and endpoint.frozen is not None
-        endpoint = replace(
-            endpoint,
-            frozen=replace(
-                endpoint.frozen, definition=NamedCalendarData("fiscal", "captured-digest", level)
-            ),
-        )
-        (attachment,) = data.copy_attachments()
-        label = attachment.rows["nominal_label"].iloc[0]
-        attachment.rows["nominal_label"] = pd.Series([f'"{label}"'], dtype="string[pyarrow]")
-        attachment = replace(attachment, schema=calendar_directory_schema(endpoint))
-        return AnalysisFrame._from_memory(
-            local,
-            CompletedFrameResult(
-                CompletedFrameData(
-                    replace(data.schema, axes=(endpoint,)), data.copy_rows(), (attachment,)
-                ),
-                replace(_memory_backing(frame).metadata, lineage=None),
-            ),
-        )
-
-    left = named(memory(local, ("2026-08-01",), (0,), (8,)), "month")
-    right = named(memory(local, ("2026-07-01",), (0,), (2,)), "month")
-    automatic = left.compare(
-        {"reference": mv.baseline(right, match=CalendarCorrespondence("ordinal"))}
-    ).compute()
-    explicit = left.compare(
-        {
-            "reference": mv.baseline(
-                right, on=((left.axes[0], right.axes[0]),), match=CalendarCorrespondence("ordinal")
-            )
-        }
-    ).compute()
-    pd.testing.assert_frame_equal(
-        _memory_backing(automatic).data.copy_rows(), _memory_backing(explicit).data.copy_rows()
-    )
-    assert _memory_backing(automatic).data.copy_rows()[
-        automatic._schema.values[2].slot_id
-    ].tolist() == [6]
-    with pytest.raises(AnalysisError, match="supported builtin"):
-        left.compare({"reference": mv.baseline(right, match=CalendarCorrespondence("periods", -1))})
-    different = named(memory(local, ("2026-07-01",), (0,), (2,)), "quarter")
-    different = different.select({"other_name": different["amount"]}).compute()
-    with pytest.raises(AnalysisError, match="compatible frozen"):
-        left.compare({"reference": mv.baseline(different, match=CalendarCorrespondence("ordinal"))})
-
-
 def test_select_filter_and_top_keep_complete_pair_interpretation(local: LocalFrameServices) -> None:
     left = memory(local, ("2026-08-01", "2026-08-02"), (1, 0), (8, 4))
     right = memory(local, ("2026-07-01", "2026-07-02"), (0, 1), (2, 3))
@@ -692,7 +637,6 @@ def test_source_completion_rejects_unused_corrupt_directory_before_top_zero(
     assert isinstance(binding, SourceFrameBinding)
     from marivo._definition.types import CalendarCoordinate
     from marivo.analysis.core.frame_calendar import FrozenSourceCalendar, freeze_calendar
-    from marivo.analysis.core.lineage import SemanticObjectIdentity
 
     def corrupt(
         coordinate: CalendarCoordinate,
@@ -700,10 +644,12 @@ def test_source_completion_rejects_unused_corrupt_directory_before_top_zero(
         token: str,
         name: str,
         key: DataColumn,
-        calendar_ref: SemanticObjectIdentity | None = None,
     ) -> FrozenSourceCalendar:
         frozen = freeze_calendar(
-            coordinate, token=token, name=name, key=key, calendar_ref=calendar_ref
+            coordinate,
+            token=token,
+            name=name,
+            key=key,
         )
         frozen.directory.rows.loc[30, "ordinal"] = 99
         return frozen
@@ -732,7 +678,6 @@ def test_captured_source_calendar_errors_precede_values_for_every_carrier(
 ) -> None:
     from marivo._definition.types import CalendarCoordinate
     from marivo.analysis.core.frame_calendar import FrozenSourceCalendar
-    from marivo.analysis.core.lineage import SemanticObjectIdentity
     from marivo.analysis.dsl import frame_sources
 
     session = analysis_dsl_case_factory("j2").session
@@ -746,11 +691,15 @@ def test_captured_source_calendar_errors_precede_values_for_every_carrier(
         token: str,
         name: str,
         key: DataColumn,
-        calendar_ref: SemanticObjectIdentity | None = None,
     ) -> FrozenSourceCalendar:
         nonlocal frozen
         frozen += 1
-        return original(coordinate, token=token, name=name, key=key, calendar_ref=calendar_ref)
+        return original(
+            coordinate,
+            token=token,
+            name=name,
+            key=key,
+        )
 
     monkeypatch.setattr("marivo.analysis.core.frame_calendar.freeze_calendar", freeze)
 
@@ -853,121 +802,6 @@ def test_pending_unary_shared_and_paired_axes_retain_exact_frozen_facts(
         assert pending._schema.axes == result._schema.axes
     with pytest.raises(AnalysisError, match="without paired"):
         grouped.compare({"reference": mv.baseline(grouped)})
-
-
-@pytest.mark.parametrize("fault", ["level", "digest"])
-def test_named_source_pending_interpretation_is_checked_before_value_names(
-    analysis_dsl_case_factory: DslCaseFactory, monkeypatch: pytest.MonkeyPatch, fault: str
-) -> None:
-    import marivo.semantic as ms
-    from marivo._temporal import PeriodCalendarSnapshotV2, certify_period_calendar, semantic_grain
-    from marivo.analysis.core.frame_data import SourceFrameBinding
-    from marivo.analysis.dsl import frame_sources
-
-    session = analysis_dsl_case_factory("j2").session
-    metric = catalog_value(session.catalog, "sales.revenue", kind="metric")
-    start, end = (date(2026, 8, 1), date(2026, 8, 9))
-    calendar = ms.ref.period_calendar("sales.fiscal")
-
-    def snapshot(prefix: str) -> PeriodCalendarSnapshotV2:
-        return certify_period_calendar(
-            calendar_ref=ref_factory.period_calendar("sales.fiscal"),
-            boundary_timezone="UTC",
-            coverage=(start, end),
-            rows=(
-                {"date": start + timedelta(days=i), "short": i // 2, "long": f"{prefix}{i // 4}"}
-                for i in range(8)
-            ),
-            levels={"short": "short", "long": "long"},
-        )
-
-    first = snapshot("P")
-    second = first if fault == "level" else snapshot("Q")
-
-    def source(level: str, captured: PeriodCalendarSnapshotV2) -> AnalysisFrame:
-        scope = session.time_scope(
-            start=start, end=start + timedelta(days=2 if level == "short" else 4)
-        )
-        grain = semantic_grain(
-            calendar=ref_factory.period_calendar("sales.fiscal"), level=level, snapshot=captured
-        )
-        return frame_sources.observe(
-            session._runtime.local,
-            session.catalog._state,
-            session._runtime.connection_config,
-            {"amount": metric},
-            calendar_snapshots=(captured,),
-            by=(scope.by(grain),),
-        )
-
-    left = source("short" if fault == "level" else "long", first)
-    right = source("long", second)
-    endpoint = right._schema.axes[0]
-    assert isinstance(endpoint, CalendarDataAxis)
-    assert isinstance(right._backing, ExpressionFrameBacking)
-    binding = right._backing.root
-    assert isinstance(binding, SourceFrameBinding)
-    schema = DataSchema(
-        (endpoint,),
-        (
-            DataColumn(
-                "value.0", "amount", ScalarDataType("int64"), True, right._schema.values[0].unit
-            ),
-        ),
-        value_paths=(("amount",),),
-    )
-    from marivo._definition.types import CalendarCoordinate
-    from marivo.analysis.core.frame_calendar import freeze_calendar
-
-    coordinate = binding.graph.signature.axes[0]
-    assert isinstance(coordinate, CalendarCoordinate) and endpoint.frozen is not None
-    assert isinstance(endpoint.frozen.definition, NamedCalendarData)
-    captured_calendar = freeze_calendar(
-        coordinate,
-        token=endpoint.token,
-        name=endpoint.name,
-        key=endpoint.columns[0],
-        calendar_ref=endpoint.frozen.definition.ref,
-    )
-    frozen = AnalysisFrame._from_memory(
-        session._runtime.local,
-        CompletedFrameResult(
-            CompletedFrameData(
-                schema,
-                pd.DataFrame(
-                    {
-                        endpoint.columns[0].slot_id: [datetime(2026, 8, 1, tzinfo=timezone.utc)],
-                        "value.0": [2],
-                    }
-                ),
-                captured_calendar.attachments,
-            ),
-            FrameResultMetadata(
-                "named-literal",
-                EvaluationRecord(datetime(2026, 10, 19, tzinfo=timezone.utc), (), ()),
-            ),
-        ),
-    )
-    frozen = frozen.select({"other": frozen["amount"]}).compute()
-    right = right.select({"other": right["amount"]})
-    assert isinstance(left._schema.axes[0], CalendarDataAxis)
-    assert isinstance(right._schema.axes[0], CalendarDataAxis)
-
-    def forbidden(*args: object, **kwargs: object) -> None:
-        raise AssertionError("named construction consulted source state or rebuilt its calendar")
-
-    monkeypatch.setattr(frame_sources, "calendar_descriptor", forbidden)
-    monkeypatch.setattr(
-        "marivo.analysis.materialization.frame_source_preparation.open_query_sources", forbidden
-    )
-    monkeypatch.setattr("marivo.analysis.session.core.Session.catalog", property(forbidden))
-    monkeypatch.setattr(CompletedFrameData, "copy_rows", forbidden)
-    monkeypatch.setattr(CompletedFrameData, "copy_attachments", forbidden)
-    for baseline in (right, frozen):
-        with pytest.raises(AnalysisError, match="compatible frozen"):
-            left.compare(
-                {"reference": mv.baseline(baseline, match=CalendarCorrespondence("ordinal"))}
-            )
 
 
 def _captured_calendar_frame(

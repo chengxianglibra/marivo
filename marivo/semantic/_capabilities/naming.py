@@ -17,8 +17,6 @@ def semantic_target(identity: str) -> str:
         "measure",
         "metric",
         "relationship",
-        "period_calendar",
-        "temporal_set",
     }:
         return identity + ".define"
     if identity in {"measure_column", "dimension_column", "time_dimension_column"}:

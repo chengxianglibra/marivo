@@ -50,11 +50,6 @@ from marivo.semantic._authoring_metrics import (
 from marivo.semantic._authoring_metrics import (
     ratio as ratio,
 )
-from marivo.semantic._authoring_temporal import (
-    calendar_grain,
-    period_calendar,
-    temporal_set,
-)
 from marivo.semantic._authoring_values import (
     additive_all,
     additive_except,
@@ -114,7 +109,6 @@ __all__ = [
     "additive_over",
     "ai_context",
     "bind",
-    "calendar_grain",
     "date",
     "dimension",
     "dimension_column",
@@ -126,12 +120,10 @@ __all__ = [
     "measure_column",
     "metric",
     "non_additive",
-    "period_calendar",
     "relationship",
     "rescale",
     "snapshot",
     "strptime",
-    "temporal_set",
     "time_dimension",
     "time_dimension_column",
     "timestamp",

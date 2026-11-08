@@ -512,8 +512,8 @@ def provider() -> DisclosureProvider:
             (
                 P(
                     "grain",
-                    "Pass mv.grain(unit) or a certified calendar.grain(level).",
-                    ("grain.define", "catalog.period_calendars.grain"),
+                    "Pass mv.grain(unit) for a natural calendar.",
+                    ("grain.define",),
                 ),
             ),
             "CalendarAxis",
@@ -522,7 +522,7 @@ def provider() -> DisclosureProvider:
             ("scope",),
             "inputs.time",
             (
-                "Frozen scope and compatible Grain are required; semantic Grain must already capture a certified snapshot through calendar.grain(level).",
+                "Use the scope report timezone and a natural Grain.",
                 "Pass by=(scope.by(grain),) to session.observe; range-only totals use where=scope.",
             ),
         ),
@@ -573,9 +573,7 @@ def provider() -> DisclosureProvider:
             (),
             "AnalysisFrame",
             "Return complete independent memory; memory roots return self.",
-            "fixed = frame.compute()\n"
-            "derived = fixed.select({'scaled': fixed['value'] * 2})\n"
-            "result = derived.compute()",
+            "fixed = frame.compute()\nderived = fixed.select({'scaled': fixed['value'] * 2})\nresult = derived.compute()",
             ("frame",),
             "execution",
             (

@@ -35,7 +35,6 @@ from marivo._definition.types import (
     coordinate_read_keys,
     field_read_key,
 )
-from marivo._definition.windows import ToDate
 from marivo._temporal import Grain, anchor_from_datetime
 from marivo.analysis.binding.windows import bind_windows
 from marivo.analysis.compiler.calendar import bind_calendar
@@ -519,7 +518,6 @@ def run_sample_windows(
             "sample:" + ".".join(map(str, context.occurrence)),
             sample.grain_spec,
             sample.timezone,
-            None,
             (),
             civil_bounds=(),
             actual_only=True,
@@ -584,9 +582,6 @@ def run_sample_windows(
                 {},
                 ObservationPeriod(cell[2], cell[3], sample.timezone),
                 endpoint,
-                (rule.grain._snapshot,)
-                if isinstance(rule, ToDate) and rule.grain._snapshot is not None
-                else (),
                 native_starts=starts,
             )[0]
             if item.time is None:

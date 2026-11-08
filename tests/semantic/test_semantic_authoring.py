@@ -18,7 +18,6 @@ Historical coverage groups:
 from __future__ import annotations
 
 from collections.abc import Callable, Iterator
-from datetime import date
 from typing import Literal, get_type_hints
 
 import ibis.expr.types as ibis_ir
@@ -41,7 +40,7 @@ from marivo._definition.expressions import (
 )
 from marivo._definition.graph import computation_fingerprint
 from marivo._symbolic import MeasureSymbol
-from marivo.semantic._authoring_context import DefinitionIR, PendingDefinition
+from marivo.semantic._authoring_context import DefinitionIR
 from marivo.semantic._deferred_semantics import (
     consume_field,
     consume_metric,
@@ -64,11 +63,10 @@ from marivo.semantic.ir import (
     DomainIR,
     EntityIR,
     MeasureIR,
-    PeriodCalendarIR,
     RelationshipIR,
     TableSourceIR,
 )
-from marivo.semantic.loader import _LOADER_CTX, LoaderContext, loader_context
+from marivo.semantic.loader import _LOADER_CTX, LoaderContext
 from marivo.semantic.reader import SemanticProject
 from tests.shared_fixtures import captured_catalog, in_memory_datasource_ir
 from tests.shared_fixtures import resolve_test_symbol as resolve
@@ -2307,23 +2305,6 @@ def test_retired_window_factories_are_absent() -> None:
     for name in ("cumulative", "grain_to_date", "trailing"):
         assert not hasattr(ms, name)
         assert not hasattr(authoring, name)
-
-
-def test_period_calendar_authoring_pushes_typed_declaration() -> None:
-    ctx = LoaderContext(default_domain="sales")
-    with loader_context(ctx):
-        calendar = ms.period_calendar(
-            name="fiscal",
-            date=ms.ref.time_dimension("sales.calendar.calendar_date"),
-            coverage=(date(2026, 1, 1), date(2027, 1, 1)),
-            levels={"week": ms.ref.dimension("sales.calendar.fiscal_week")},
-        )
-
-    assert as_ref(calendar) == as_ref(ms.ref.period_calendar("sales.fiscal"))
-    pending = ctx.pending_definitions[-1]
-    assert isinstance(pending, PendingDefinition)
-    assert isinstance(pending.definition, PeriodCalendarIR)
-    assert pending.definition.levels == (("week", "sales.calendar.fiscal_week"),)
 
 
 def test_sampled_encoding_requires_an_hour_component() -> None:

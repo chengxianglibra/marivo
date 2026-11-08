@@ -66,12 +66,7 @@ The first call creates the Session; later calls recover the same name. No curren
 
 Non-None `question`, `timezone` and `domains` must match the saved values. Timezone offsets are normalized, and domain names are sorted and deduplicated before comparison. A conflict raises `SessionStateError` before recovery; inspect `error.expected`, `error.received` and `error.repair.candidates` (the existing Session ID). Omit the conflicting configuration, pass matching values or choose a new name. Recovery uses the same writer guard as `mv.session.resume(session_id)` and can reject an active writer. With no pending recovery work, repeated acquisition preserves `updated_at`. Help: `analysis.session.get_or_create`.
 
-`session.observe(metrics, by=())` requests one overall, zero-axis cell. Add
-`where=scope` to select a report range without adding a time axis. Native
-TimeField samples use represented values regardless of cadence. Builtin
-Grain samples also work without a finite report range if at least one branch supplies
-contribution clocks. Windows need report or enclosing builtin sample endpoints and custom calendar samples
-need a complete certified period. Some checks run during compute or persist.
+Natural calendar samples consume actual represented keys; output completion does not add samples. Windows retain their endpoint requirements. The harness supplies explicit ranges for business calendars.
 
 ## Choose retention before execution
 
@@ -168,15 +163,7 @@ reserved presence names `left_present`/`right_present`. Invalid names are not
 cleaned or numbered automatically. Names are fixed at capture, available through
 `output_names`, and unchanged by empty results, compute, persist or recovery.
 
-Each Metric branch uses the contribution time fixed in its definition. Use
-`where=scope` for a range-only result or `by=(scope.by(grain),)` for
-finite report buckets. CalendarAxis carries its own range, grain and timezone;
-adding a report TimeScope in where rejects. Fixed field predicates remain legal.
-Bare Grain inputs in by reject. A custom calendar axis requires a scope selecting
-exactly one complete certified period and a Grain with a captured snapshot.
-`by=P` retains complete output keys without filtering contributions; use
-`where=mv.in_population(P)` for that restriction.
-If P already carries report time, omit a separate TimeScope in `where`.
+Natural calendars use `mv.grain(...)` and explicit `scope.by(grain)`. Fiscal periods, holidays and working days use ordinary business fields; the harness chooses authority, ranges and pairing. See [dates and time](/docs/latest/modeling/dates/).
 
 ### Read August revenue
 

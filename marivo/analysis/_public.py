@@ -107,9 +107,6 @@ from marivo.analysis.core.frame_interpretation import (
     FrameLevelTarget as FrameLevelTarget,
 )
 from marivo.analysis.core.frame_interpretation import (
-    FrameNamedGrain as FrameNamedGrain,
-)
-from marivo.analysis.core.frame_interpretation import (
     FrameNamedValueInput as FrameNamedValueInput,
 )
 from marivo.analysis.core.frame_interpretation import (
@@ -248,7 +245,6 @@ __all__ = [  # noqa: RUF022 - public order is contractual
     "FrameIntervalAxisSchema",
     "FramePairedAxisSchema",
     "FrameBuiltinGrain",
-    "FrameNamedGrain",
     "FrameCalendarEndpoint",
     "FrameIntervalEndpoint",
     "FrameFixedAxis",

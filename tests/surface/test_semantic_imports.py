@@ -344,8 +344,6 @@ def test_symbol_kind_values() -> None:
         "time_dimension",
         "metric",
         "relationship",
-        "period_calendar",
-        "temporal_set",
     }
     actual = {k.value for k in SemanticKind}
     assert actual == expected
@@ -540,7 +538,6 @@ def test_reader_project_init() -> None:
 def test_removed_temporal_models_have_no_direct_entry_or_ref_factory() -> None:
     import marivo._temporal as temporal
     import marivo.refs as refs
-    import marivo.semantic._authoring_temporal as authoring
     import marivo.semantic.catalog as catalog
 
     for owner, names in (
@@ -555,7 +552,6 @@ def test_removed_temporal_models_have_no_direct_entry_or_ref_factory() -> None:
                 "trailing",
             ),
         ),
-        (authoring, ("PeriodCorrespondence", "period_correspondence", "work_schedule")),
         (refs, ("WorkScheduleKind",)),
         (ms.ref, ("work_schedule",)),
         (catalog, ("WorkScheduleEntry", "WorkScheduleDetails")),

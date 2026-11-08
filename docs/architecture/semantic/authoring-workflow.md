@@ -156,18 +156,7 @@ separate per-object validation checkpoint between load and catalog navigation.
 
 ### 6. Scoped readiness and targeted runtime checks
 
-Run `catalog.readiness(refs=[...])` on the selected named objects. Declared Measures and Metrics automatically expand to
-their physical dependency closures; the report separates requested and checked
-identities. `analysis_ready_inputs` contains only directly requested ready physical
-objects, so select those explicitly when a physical handoff is needed. Inspect
-captured definitions through `catalog.get("kind:path").definition`.
-Readiness does not consume DiscoverySnapshot evidence: it evaluates
-the current semantic project, the requested closure, and dedicated certified
-temporal artifacts, and exposes only `analysis_ready_inputs` as its handoff.
-Readiness opens no connection or query. Follow its physical-definition or temporal
-artifact repairs, then rerun the scoped check. Source Frame preparation owns aggregate/backend
-compatibility and operation-specific execution. Online validation checks
-physical types before analysis; source preparation rechecks consumed fields.
+Readiness checks the selected semantic closure and physical declarations without source reads.
 
 Use targeted `catalog.preview(..., scope=...)` only for a concrete runtime risk
 or dedicated artifact repair. Ordinary preview reads the current datasource and

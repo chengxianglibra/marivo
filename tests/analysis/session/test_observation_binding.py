@@ -449,57 +449,6 @@ def test_sample_interval_does_not_require_period_for_nested_declarations(
     assert terminal_runs(session) == ()
 
 
-def test_certified_calendar_uses_frozen_snapshot_and_checks_coverage(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    from datetime import date
-
-    from marivo._temporal import certify_period_calendar, semantic_grain
-    from marivo.refs import ref
-
-    monkeypatch.chdir(tmp_path)
-    session = mv.session.get_or_create("fiscal", timezone="UTC")
-    rows = tuple(
-        {"date": date(2026, 1, day), "week": "W1" if day < 3 else "W2"} for day in range(1, 5)
-    )
-    snapshot = certify_period_calendar(
-        calendar_ref=ref.period_calendar("sales.fiscal"),
-        boundary_timezone="UTC",
-        coverage=(date(2026, 1, 1), date(2026, 1, 5)),
-        levels={"week": "week"},
-        rows=rows,
-    )
-    grain = semantic_grain(calendar=snapshot.calendar_ref, level="week", snapshot=snapshot)
-    scope = session.time_scope(start="2026-01-01", end="2026-01-03")
-    axis = scope.by(grain)
-    assert len(axis.grid.cells) == 1 and not axis.grid.cells[0].partial
-    with pytest.raises(ValueError, match="one complete custom"):
-        session.time_scope(start="2026-01-02", end="2026-01-03").by(grain)
-    with pytest.raises(ValueError, match="one complete custom"):
-        session.time_scope(start="2026-01-01", end="2026-01-05").by(grain)
-    assert axis.grid.snapshot_digest == snapshot.snapshot_digest
-    certified_scope = snapshot.period_scope("week", "W1")
-    assert certified_scope.by(grain).grid.snapshot_digest == snapshot.snapshot_digest
-    with pytest.raises(ValueError, match="coverage"):
-        session.time_scope(start="2025-12-31", end="2026-01-05").by(grain)
-    with pytest.raises(ValueError, match="timezones"):
-        mv.session.get_or_create("foreign-fiscal", timezone="Asia/Shanghai").time_scope(
-            start="2026-01-01", end="2026-01-05"
-        ).by(grain)
-    other = certify_period_calendar(
-        calendar_ref=ref.period_calendar("sales.other"),
-        boundary_timezone="UTC",
-        coverage=snapshot.coverage,
-        levels={"week": "week"},
-        rows=rows,
-    )
-    with pytest.raises(ValueError, match="different calendar snapshot"):
-        certified_scope.by(
-            semantic_grain(calendar=other.calendar_ref, level="week", snapshot=other)
-        )
-    assert terminal_runs(session) == ()
-
-
 @pytest.mark.parametrize("field_kind", ("dimension", "measure"))
 def test_declared_metric_binds_inline_scalar_via(
     semantic_project_factory: ProjectFactory,

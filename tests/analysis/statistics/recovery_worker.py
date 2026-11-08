@@ -24,7 +24,6 @@ from marivo.datasource.adapters import SourceSession
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.materialization.domain_recovery_worker import snapshot as frame_snapshot
 from tests.analysis.statistics.deviation_oracle import PROFILES, expected, forbidden
-from tests.analysis.statistics.deviation_time_worker import publish_calendar
 from tests.analysis.statistics.journeys import create
 from tests.analysis.statistics.pandas_workflows import deviation, forecast, plain
 from tests.shared_fixtures import DslCase, catalog_value, run_ids
@@ -35,12 +34,6 @@ from tests.support.paths import PROJECT_ROOT
 def _entity(catalog: ms.SemanticCatalog, path: str) -> ms.Entity:
     result = catalog.get(path)
     assert result.kind == "entity"
-    return result
-
-
-def _period_calendar(catalog: ms.SemanticCatalog, path: str) -> ms.PeriodCalendar:
-    result = catalog.get(path)
-    assert result.kind == "period_calendar"
     return result
 
 
@@ -162,13 +155,8 @@ def run(root: Path, phase: str, mode: str) -> dict[str, object]:
         if mode == "scalar":
             query = session.observe({"value": field.max()})
         elif mode in ("time", "entity_time", "category_time"):
-            if profile["calendar"]:
-                publish_calendar(session.catalog, profile["zone"], baseline=profile["followup"])
-            grain = (
-                _period_calendar(session.catalog, "period_calendar:sales.unequal").grain("period")
-                if profile["calendar"]
-                else mv.grain("day")
-            )
+            pass
+            grain = mv.grain("day")
             grid = session.time_scope(
                 start="2026-08-01", end="2026-08-07" if profile["calendar"] else "2026-08-04"
             ).by(grain)

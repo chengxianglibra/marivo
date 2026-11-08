@@ -143,7 +143,7 @@ def provider() -> DisclosureProvider:
         "duration": "Pass a positive datetime.timedelta; duration is elapsed time, not a civil period count.",
         "count": "Pass a positive integer excluding bool; evaluation requires complete CalendarAxis buckets.",
         "start": "Pass an aware datetime or session.instant(...), strictly before every consumed endpoint.",
-        "grain": "Pass mv.grain(unit), ms.calendar_grain(calendar=ref, level=...), or a Catalog grain. Unbound semantic reset grains resolve in the Session's frozen certified scope; captured snapshots must match it.",
+        "grain": "Pass mv.grain(unit) for a natural calendar reset; it uses the Session reporting timezone.",
         "predicate": "Pass in_population(...) or its closed &, | and ~ combinations over existing axes.",
         "other": "Pass a Population with identical ordered bound business axes, or a native Deferred parameter. Project closed domains to matching coordinates before combining.",
         "targets": "Pass the path target Entity's same-Session single identity-axis Population, or a native Deferred parameter.",
@@ -161,7 +161,7 @@ def provider() -> DisclosureProvider:
         "predicate": ("in_population",),
         "at": ("session.instant",),
         "start": ("session.instant",),
-        "grain": ("grain.define", "catalog.period_calendars.grain"),
+        "grain": ("grain.define",),
     }
     constructor_constraints = {
         "identity": "Pass by=(grouping,) to observe. Identity grouping does not select keys; use coordinates for a finite domain. Observation binds complete primary keys through single-valued routes and validates version anchors.",
@@ -171,7 +171,7 @@ def provider() -> DisclosureProvider:
         "in_population": "Match complete null-safe tuples on existing axes; membership does not introduce new output coordinates.",
         "all_history": "Source retention still limits available history; the endpoint is exclusive.",
         "trailing_duration": "Use elapsed time, independent of civil clock changes; the endpoint is exclusive.",
-        "trailing_periods": "Require complete day/week/month/quarter/year or certified named-calendar buckets; partial buckets and subday grains reject. Count calendar predecessors, not positions in a sparse axis. Named calendars must certify the required predecessor coverage.",
+        "trailing_periods": "Require complete day/week/month/quarter/year buckets; partial buckets and subday grains reject. Count calendar predecessors, not positions in a sparse axis. Named calendars must certify the required predecessor coverage.",
         "since": "The start is inclusive and each actual observation endpoint is exclusive; start must precede every endpoint.",
         "to_date": "Each nominal output bucket must lie inside one reset period. At an exact reset boundary, the just-completed period owns the endpoint.",
     }

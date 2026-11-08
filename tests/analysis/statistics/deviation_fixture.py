@@ -16,7 +16,7 @@ ORIGINS = tuple(
     for zone in ("UTC", "America/New_York")
     for form, units in (("table", ("us",)), ("parquet", ("s", "ms", "us", "ns")))
     for unit in units
-    for calendar in (False, True)
+    for calendar in (False,)
     if not calendar or unit == "us"
 )
 
@@ -110,31 +110,7 @@ def prepare_profiles(
             "keys=[ms.join_on(line_order_id, order_id)]",
             "keys=[ms.join_on(line_order_id, order_id), ms.join_on(line_seq, order_seq)]",
         )
-    if calendar:
-        coverage_start = (
-            "__import__('datetime').date(2026, 7, 26)"
-            if followup
-            else "__import__('datetime').date(2026, 8, 1)"
-        )
-        body += (
-            "\ncalendar = ms.entity(name='calendar', datasource=warehouse, source=md.table('calendar', columns={'calendar_date': 'calendar_date', 'period': 'period'}), primary_key=['calendar_date'])\n"
-            f"calendar_date = ms.time_dimension_column(name='calendar_date', entity=calendar, column='calendar_date', parse=ms.date(timezone={zone!r}))\n"
-            "period = ms.dimension_column(name='period', entity=calendar, column='period')\n"
-            f"unequal = ms.period_calendar(name='unequal', date=calendar_date, coverage=({coverage_start}, __import__('datetime').date(2026, 8, 7)), levels={{'period': period}})\n"
-        )
-        with duckdb.connect(str(case.database_path)) as db:
-            db.execute("CREATE TABLE calendar(calendar_date DATE, period VARCHAR)")
-            for day in range(1, 7):
-                db.execute(
-                    "INSERT INTO calendar VALUES (?, ?)",
-                    [f"2026-08-{day:02}", "abc"[0 if day == 1 else 1 if day <= 3 else 2]],
-                )
-            if followup:
-                for day in range(26, 32):
-                    db.execute(
-                        "INSERT INTO calendar VALUES (?, ?)",
-                        [f"2026-07-{day:02}", "xyz"[0 if day == 26 else 1 if day <= 28 else 2]],
-                    )
+    pass
     models.write_text(
         body
         + "\n"
@@ -154,13 +130,4 @@ def prepare_profiles(
         assert pq.read_schema(path).field("ordered_at").type == pa.timestamp(
             "ms" if unit == "s" else unit
         )
-        if calendar:
-            with duckdb.connect(str(case.database_path)) as db:
-                calendar_table = db.execute("SELECT * FROM calendar").fetch_arrow_table()
-            path = case.root / "source_files/calendar.parquet"
-            pq.write_table(calendar_table, path)
-            models.write_text(
-                models.read_text().replace(
-                    "md.table('calendar', columns=", f"md.parquet({str(path)!r}, columns="
-                )
-            )
+        pass

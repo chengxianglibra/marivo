@@ -1,7 +1,7 @@
 # Semantic Loading, Validation and Introspection
 
 Loading establishes a coherent semantic project. Readiness, online validation,
-ordinary preview and temporal certification answer different questions; no
+ordinary preview and analysis execution answer different questions; no
 single success flag covers all of them.
 
 ## Project selection and loading
@@ -77,8 +77,8 @@ identity. Alternatively pass one uncomposed `ms.ref.*` lookup symbol, such as
 identity in this Catalog; composite Deferred expressions are not identities.
 It returns a closed union: check `entry.kind` before using specialized
 members and consume the object directly. Domain/Datasource have no arithmetic
-operations. Calendar and temporal-set objects retain
-certified period/occurrence operations.
+operations. Business calendars use ordinary fields and externally chosen
+explicit ranges; they have no specialized Catalog object.
 
 ```python
 page = catalog.search("accepted revenue", kind="metric", limit=5)
@@ -254,16 +254,9 @@ relationship cardinality and version grain without automatically running these
 checks. Missing scalar matches follow the consuming operator's NULL policy;
 explicit source_check is the route for validating source matching expectations.
 
-Temporal previews intentionally publish dedicated artifacts because the source
-values define executable semantic authority. Their exhaustive certification and
-staleness rules are owned by [Temporal authority](temporal-authority.md).
-PreviewResult.is_truncated reports whether the retained preview omits observed
-rows or certified temporal entries, independently from acquisition completeness
-in coverage. Its card labels preview_limit,
-preview_rows_truncated and scope_coverage separately. A successfully certified
-temporal snapshot can therefore have is_truncated=True with
-exhaustive/scope_exact coverage; the smaller retained preview does not invalidate
-the certificate. .show(n=...) only bounds display of those retained rows.
+PreviewResult.is_truncated reports whether retained preview rows omit observed
+values. Acquisition coverage and retained-row truncation remain separate facts.
+Preview does not establish business completeness or publish calendar authority.
 
 ## Errors and implementation
 

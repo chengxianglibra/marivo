@@ -589,7 +589,6 @@ Canonical public exports
    FrameIntervalAxisSchema
    FramePairedAxisSchema
    FrameBuiltinGrain
-   FrameNamedGrain
    FrameCalendarEndpoint
    FrameIntervalEndpoint
    FrameFixedAxis

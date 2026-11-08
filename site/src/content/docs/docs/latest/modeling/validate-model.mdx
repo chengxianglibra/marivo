@@ -25,11 +25,7 @@ catalog.readiness(refs=[amount]).show()
 catalog.validate([amount_entry]).show()
 ```
 
-`ms.load()` checks model declarations, references, dependency cycles, and
-expression contracts. `catalog.readiness(...)` accepts definitions, including
-declared Measures and Metrics, and checks their physical dependencies and
-certified temporal artifacts. Neither step opens a datasource
-connection.
+Readiness checks the selected semantic closure and physical declarations without opening a datasource. Ordinary preview supplies bounded source evidence.
 
 `catalog.validate(...)` opens the datasource connections for the selected
 dependency closure and checks actual Entity output schemas, field bindings,

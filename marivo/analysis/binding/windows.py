@@ -27,15 +27,9 @@ from marivo._definition.windows import (
     TrailingDuration,
     TrailingPeriods,
 )
-from marivo._temporal import (
-    Grain,
-    PeriodCalendarSnapshotV2,
-    anchor_from_datetime,
-    semantic_grain,
-    session_time_scope,
-)
+from marivo._temporal import Grain, anchor_from_datetime, session_time_scope
 from marivo._temporal_grid import _floor, _next, bind_grid, instant
-from marivo._timezones import normalize_timezone, same_timezone
+from marivo._timezones import normalize_timezone
 from marivo.analysis.core.model import reject
 
 if TYPE_CHECKING:
@@ -75,44 +69,6 @@ def require_finite_attribution_scope(graph: BoundGraph) -> None:
         )
 
 
-def resolve_calendar_grain(
-    grain: Grain,
-    calendar_snapshots: tuple[PeriodCalendarSnapshotV2, ...],
-    *,
-    location: str,
-) -> Grain:
-    """Resolve a semantic level against the consuming Session's certified scope."""
-    if grain.kind != "semantic":
-        return grain
-    snapshot = next(
-        (item for item in calendar_snapshots if item.calendar_ref == grain._calendar), None
-    )
-    if snapshot is None:
-        reject(
-            "a current certified calendar in the completed Session scope",
-            repr(grain),
-            "Inspect calendar.details() and catalog.readiness(refs=[calendar.ref]); certify the calendar before creating a new Session handle.",
-            location,
-        )
-    captured = grain._snapshot
-    if captured is not None and captured.snapshot_digest != snapshot.snapshot_digest:
-        reject(
-            "the same certified snapshot for the explicit Grain and Session",
-            f"{grain!r}: captured={captured.snapshot_digest}; Session={snapshot.snapshot_digest}",
-            "Use ms.calendar_grain(...) for a scope lookup, or rebuild the Grain and observation in a new Session handle after certification.",
-            location,
-        )
-    if grain.level not in ("day", *snapshot.levels):
-        reject(
-            f"a calendar level in {('day', *snapshot.levels)!r}",
-            repr(grain.level),
-            "Use a level declared by the consumed calendar.",
-            location,
-        )
-    assert grain._calendar is not None and grain.level is not None
-    return semantic_grain(calendar=grain._calendar, level=grain.level, snapshot=snapshot)
-
-
 def _previous(value: datetime, grain: Grain) -> datetime:
     """The predecessor in civil calendar space, without epsilon arithmetic."""
     unit, count = grain.unit, grain.count
@@ -124,45 +80,7 @@ def _previous(value: datetime, grain: Grain) -> datetime:
     return value.replace(year=ordinal // 12, month=ordinal % 12 + 1)
 
 
-def _periods(grain: Grain, zone: str) -> tuple[tuple[datetime, datetime], ...]:
-    snapshot = grain._snapshot
-    if snapshot is None or not same_timezone(snapshot.boundary_timezone, zone):
-        reject(
-            "a captured calendar in the observation timezone",
-            repr(grain),
-            "Use a certified Grain matching the observation timezone.",
-            "Metric.window",
-        )
-    if grain.level == "day":
-        cursor = snapshot.coverage[0]
-        result: list[tuple[datetime, datetime]] = []
-        while cursor < snapshot.coverage[1]:
-            right = cursor + timedelta(days=1)
-            result.append((instant(cursor, zone), instant(right, zone)))
-            cursor = right
-        return tuple(result)
-    return tuple(
-        sorted(
-            (instant(p.start_date, zone), instant(p.end_date, zone))
-            for p in snapshot.periods
-            if p.level_name == grain.level
-        )
-    )
-
-
 def _reset(end: datetime, grain: Grain, zone: str) -> tuple[datetime, datetime]:
-    if grain.kind == "semantic":
-        matches = tuple(
-            (left, right) for left, right in _periods(grain, zone) if left < end <= right
-        )
-        if len(matches) != 1:
-            reject(
-                "one certified reset period at the endpoint",
-                end.isoformat(),
-                "Extend calendar coverage or choose a uniquely covering Grain.",
-                "Metric.window",
-            )
-        return matches[0]
     if grain.unit in ("second", "minute", "hour"):
         width = timedelta(
             seconds={"second": 1, "minute": 60, "hour": 3600}[grain.unit] * (grain.count or 1)
@@ -172,8 +90,6 @@ def _reset(end: datetime, grain: Grain, zone: str) -> tuple[datetime, datetime]:
                 anchor_from_datetime(end - width), anchor_from_datetime(end + width), zone
             ),
             grain,
-            report_timezone=zone,
-            explicit_timezone=zone,
         )
         return next(
             (cell.original_start, cell.original_end)
@@ -228,19 +144,11 @@ def validate_date_contribution(contribution: ContributionBinding, path: str) -> 
     rule = contribution.window_rule
     if isinstance(rule, TrailingDuration) and rule.duration % timedelta(days=1):
         fail(f"{path}: elapsed duration {rule.duration}")
-    if (
-        isinstance(rule, ToDate)
-        and rule.grain.kind == "builtin"
-        and rule.grain.unit in ("second", "minute", "hour")
-    ):
+    if isinstance(rule, ToDate) and rule.grain.unit in ("second", "minute", "hour"):
         fail(f"{path}: subday reset {rule.grain!r}")
     for axis in calendars:
         if isinstance(axis, (CalendarCoordinate, BuiltinSampleCoordinate)):
-            if axis.grain_spec.kind == "builtin" and axis.grain_spec.unit in (
-                "second",
-                "minute",
-                "hour",
-            ):
+            if axis.grain_spec.unit in ("second", "minute", "hour"):
                 fail(f"{path}: subday calendar {axis.grain_spec._to_token()}")
             if isinstance(axis, BuiltinSampleCoordinate):
                 continue
@@ -277,7 +185,6 @@ def bind_windows(
     declared: dict[ExactRef, MetricNode],
     period: ObservationPeriod | None,
     calendar: CalendarCoordinate | None,
-    calendar_snapshots: tuple[PeriodCalendarSnapshotV2, ...] = (),
     *,
     native_starts: Mapping[tuple[ObservationWindow, datetime], datetime] | None = None,
 ) -> tuple[ContributionBinding, ...]:
@@ -300,12 +207,7 @@ def bind_windows(
             visit(declared[node.ref], (*path, 0), rule, sample, depth, window_sample)
             return
         if isinstance(node, MetricWindow):
-            if any(
-                isinstance(child, (PerReduce, PerWeightedMean))
-                and isinstance(child.samples, Grain)
-                and child.samples.kind == "semantic"
-                for child in walk((node.operand,), resolve=declared.get).order
-            ):
+            if any(False for child in walk((node.operand,), resolve=declared.get).order):
                 reject(
                     "builtin calendar samples inside a Metric window",
                     "a Metric window wrapping a custom calendar fold",
@@ -332,25 +234,6 @@ def bind_windows(
                     "Use trailing_duration for elapsed subday windows.",
                     "Metric.window",
                 )
-            if isinstance(rule, ToDate) and rule.grain.kind == "semantic":
-                grain = resolve_calendar_grain(
-                    rule.grain, calendar_snapshots, location="Metric.window"
-                )
-                snapshot = grain._snapshot
-                assert snapshot is not None
-                if (
-                    calendar is not None
-                    and calendar.snapshot is not None
-                    and calendar.snapshot.calendar_ref == snapshot.calendar_ref
-                    and calendar.snapshot_digest != snapshot.snapshot_digest
-                ):
-                    reject(
-                        "one certified snapshot for the output and reset calendar",
-                        repr((calendar.snapshot_digest, snapshot.snapshot_digest)),
-                        "Build the output axis and Metric in the same completed Session scope.",
-                        "Metric.window",
-                    )
-                rule = ToDate(grain)
         if rule is not None:
             rules[path] = rule
             if window_sample is not None:
@@ -363,20 +246,6 @@ def bind_windows(
                 else len(domain if isinstance(domain, tuple) else domain.axes)
             )
             if isinstance(domain, (Grain, FieldCalendarSample)):
-                if (
-                    isinstance(domain, Grain)
-                    and domain.kind == "semantic"
-                    and any(
-                        isinstance(child, MetricWindow)
-                        for child in walk((node,), resolve=declared.get).order
-                    )
-                ):
-                    reject(
-                        "builtin calendar samples for nested windows",
-                        "a custom calendar sample around a window",
-                        "Use a builtin sample Grain or observe the custom calendar separately.",
-                        "Metric.window",
-                    )
                 sample = SampleWindow(path, depth)
                 sample_grains[sample] = (
                     domain.grain if isinstance(domain, FieldCalendarSample) else domain
@@ -471,38 +340,13 @@ def bind_windows(
             )
         if isinstance(validation_rule, TrailingPeriods) and calendar is not None:
             grain = calendar.grain_spec
-            if grain.kind == "builtin" and grain.unit not in (
-                "day",
-                "week",
-                "month",
-                "quarter",
-                "year",
-            ):
+            if grain.unit not in ("day", "week", "month", "quarter", "year"):
                 reject(
                     "day/week/month/quarter/year periods",
                     calendar.grain,
                     "Use trailing_duration for elapsed subday windows.",
                     "Metric.window",
                 )
-            if calendar.snapshot is not None:
-                assert grain._calendar is not None and grain.level is not None
-                periods = _periods(
-                    semantic_grain(
-                        calendar=grain._calendar, level=grain.level, snapshot=calendar.snapshot
-                    ),
-                    period.timezone,
-                )
-                if any(
-                    next((i for i, bounds in enumerate(periods) if bounds == cell[:2]), -1)
-                    < validation_rule.count - 1
-                    for cell in validation_cells
-                ):
-                    reject(
-                        "certified predecessor periods",
-                        str(validation_rule.count),
-                        "Extend the certified calendar coverage.",
-                        "Metric.window",
-                    )
         for index, end in enumerate(validation_ends):
             if isinstance(validation_rule, Since) and validation_rule.start >= end:
                 reject(
@@ -586,42 +430,20 @@ def bind_windows(
                     start = native_start
                 else:
                     grid = calendar
-                    if grid.snapshot is not None:
-                        captured = grid.grain_spec
-                        assert captured._calendar is not None and captured.level is not None
-                        grain = semantic_grain(
-                            calendar=captured._calendar,
-                            level=captured.level,
-                            snapshot=grid.snapshot,
+                    grain = grid.grain_spec
+                    if grain.unit not in ("day", "week", "month", "quarter", "year"):
+                        reject(
+                            "day/week/month/quarter/year periods",
+                            grid.grain,
+                            "Use trailing_duration for elapsed subday windows.",
+                            "Metric.window",
                         )
-                        periods = _periods(grain, period.timezone)
-                        position = next(
-                            (i for i, p in enumerate(periods) if p == cells[index][:2]),
-                            -1,
-                        )
-                        if position < rule.count - 1:
-                            reject(
-                                "certified predecessor periods",
-                                str(rule.count),
-                                "Extend the certified calendar coverage.",
-                                "Metric.window",
-                            )
-                        start = periods[position - rule.count + 1][0]
-                    else:
-                        grain = grid.grain_spec
-                        if grain.unit not in ("day", "week", "month", "quarter", "year"):
-                            reject(
-                                "day/week/month/quarter/year periods",
-                                grid.grain,
-                                "Use trailing_duration for elapsed subday windows.",
-                                "Metric.window",
-                            )
-                        local: datetime = cells[index][0].astimezone(
-                            normalize_timezone(period.timezone).tz
-                        )
-                        for _ in range(rule.count - 1):
-                            local = _previous(local, grain)
-                        start = instant(local.replace(tzinfo=None), period.timezone)
+                    local: datetime = cells[index][0].astimezone(
+                        normalize_timezone(period.timezone).tz
+                    )
+                    for _ in range(rule.count - 1):
+                        local = _previous(local, grain)
+                    start = instant(local.replace(tzinfo=None), period.timezone)
             if start is not None and start >= end:
                 reject(
                     "window start before each endpoint",
@@ -638,11 +460,6 @@ def bind_windows(
                     window_key=(calendar.cells[index][0] if calendar is not None else index)
                     if contribution.calendars
                     else None,
-                    window_calendar_digest=(
-                        rule.grain._snapshot.snapshot_digest
-                        if isinstance(rule, ToDate) and rule.grain._snapshot is not None
-                        else None
-                    ),
                     period=ObservationPeriod(
                         None if start is None else anchor_from_datetime(start),
                         anchor_from_datetime(end),

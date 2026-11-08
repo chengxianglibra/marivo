@@ -666,11 +666,9 @@ def test_attribute_help_distinguishes_actual_qualification_and_inert_facts() -> 
 def test_observe_help_discloses_report_domains_and_definition_repair() -> None:
     text = render_help_text("analysis.session.observe")[0]
     assert "Ordinary domains require Session timezone" in text
-    assert "certified domains keep theirs" in text
-    assert "Predicates and builtin samples use Session timezone" in text
+    assert "Predicates and natural calendar samples use the Session timezone" in text
     assert "Bare Grains reject" in text
     assert "CalendarAxis supplies buckets" in text
-    assert "custom axes need one complete certified period" in text
     assert "A scope adds no axis" in text
     assert "by=P retains complete keys without filtering contributions" in text
     assert "without filtering contributions" in text
@@ -710,7 +708,6 @@ def test_construction_type_families_and_retired_surface() -> None:
         "frame_interval_axis_schema",
         "frame_paired_axis_schema",
         "frame_builtin_grain",
-        "frame_named_grain",
         "frame_calendar_endpoint",
         "frame_interval_endpoint",
         "frame_fixed_axis",
@@ -804,7 +801,7 @@ def test_construction_type_families_and_retired_surface() -> None:
         "value_statistic",
         "column",
     }
-    assert len([name for name in mv.__all__ if isinstance(getattr(mv, name), type)]) == 79
+    assert len([name for name in mv.__all__ if isinstance(getattr(mv, name), type)]) == 78
     removed = {
         "before_end_boundary",
         "before_end_boundary.end",
@@ -914,7 +911,6 @@ def test_fixed_read_surface_has_one_reachable_contract_per_entry() -> None:
         "frame_interval_axis_schema.timezone",
         "frame_paired_axis_schema.left",
         "frame_paired_axis_schema.right",
-        "frame_named_grain.ref",
         "frame_fixed_axis.key",
         "frame_observation_context.window",
         "frame_statistic_context.groups",

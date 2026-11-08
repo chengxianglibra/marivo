@@ -9,10 +9,7 @@ head:
       content: noindex
 ---
 
-`catalog.readiness` checks selected catalog entries, their physical dependency
-closures, and any required certified temporal artifacts. It opens no datasource
-connection and reads no business rows. Pass `refs` to scope the check; omitting
-`refs` checks all loaded physical objects.
+Readiness checks the selected semantic closure and physical declarations without opening a datasource. Ordinary preview supplies bounded source evidence.
 
 Read `status`, `blockers`, and `warnings` together. `blocked` means at least one
 blocker was found. `ready_with_warnings` means no blockers were found, but there

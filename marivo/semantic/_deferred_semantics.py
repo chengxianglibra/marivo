@@ -672,10 +672,9 @@ def _field_calendar_sample(
     field = _consume(recipe)
     if (
         not isinstance(grain, Grain)
-        or grain.kind != "builtin"
         or not isinstance(field, RowFacts)
         or field.field is None
-        or field.field.reference.ref.kind is not SemanticKind.TIME_DIMENSION
+        or (field.field.reference.ref.kind is not SemanticKind.TIME_DIMENSION)
     ):
         _fail(
             "Explicit calendar samples require one native TimeField and a builtin Grain.",

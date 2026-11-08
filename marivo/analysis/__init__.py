@@ -124,9 +124,6 @@ if TYPE_CHECKING:
         FrameLevelTarget as FrameLevelTarget,
     )
     from marivo.analysis.core.frame_interpretation import (
-        FrameNamedGrain as FrameNamedGrain,
-    )
-    from marivo.analysis.core.frame_interpretation import (
         FrameNamedValueInput as FrameNamedValueInput,
     )
     from marivo.analysis.core.frame_interpretation import (
@@ -264,9 +261,7 @@ def grain(
         Subday widths must tile a nominal day and remain shorter than one day.
         Use one spelling: 60second, 120second and 60minute reject in favor of
         larger units; 24hour rejects. 90second and 90minute remain legal.
-        Grains have equality/hash but no ordering. Semantic calendar lookup
-        comes from ``ms.calendar_grain(...)``; ``calendar.grain(level)`` captures
-        its certified snapshot identity.
+        Grains have unit/count equality and hashing, with no ordering.
     """
     from marivo._temporal import builtin_grain
 

@@ -22,8 +22,6 @@ def object_types(catalog: ms.SemanticCatalog) -> None:
     assert_type(catalog.search(kind="measure"), ms.CatalogPage[ms.Measure])
     assert_type(catalog.search(kind="metric"), ms.CatalogPage[ms.Metric])
     assert_type(catalog.search(kind="relationship"), ms.CatalogPage[ms.Relationship])
-    assert_type(catalog.search(kind="period_calendar"), ms.CatalogPage[ms.PeriodCalendar])
-    assert_type(catalog.search(kind="temporal_set"), ms.CatalogPage[ms.TemporalSet])
     value = catalog.get("metric:sales.revenue")
     if value.kind == "metric":
         assert_type(value, ms.Metric)
@@ -37,10 +35,6 @@ def object_types(catalog: ms.SemanticCatalog) -> None:
         assert_type(value, ms.TimeDimension)
     elif value.kind == "relationship":
         assert_type(value, ms.Relationship)
-    elif value.kind == "period_calendar":
-        assert_type(value, ms.PeriodCalendar)
-    elif value.kind == "temporal_set":
-        assert_type(value, ms.TemporalSet)
     elif value.kind == "datasource":
         assert_type(value, ms.Datasource)
     elif value.kind == "domain":

@@ -8,7 +8,6 @@ from typing import TYPE_CHECKING, Literal
 from marivo.semantic.ir import (
     DateParse,
     HourPrefixParse,
-    PeriodCalendarIR,
     StrptimeParse,
     TargetDimensionContract,
     TimestampParse,
@@ -89,10 +88,3 @@ def require_source_timezone(
             backend=datasource.backend_type,
         )
     return declaration
-
-
-def period_calendar_timezone(registry: Registry, calendar: PeriodCalendarIR) -> str:
-    """Derive a governed calendar boundary from its business-date field."""
-    return require_source_timezone(
-        registry, source_timezone_axis(registry, calendar.date), physical_type="date"
-    ).timezone

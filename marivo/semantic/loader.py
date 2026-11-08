@@ -621,10 +621,9 @@ def _defined_kinds(registry: Registry) -> dict[str, SemanticKind]:
         (SemanticKind.ENTITY, registry.entities),
         (SemanticKind.MEASURE, registry.measures),
         (SemanticKind.RELATIONSHIP, registry.relationships),
-        (SemanticKind.PERIOD_CALENDAR, registry.period_calendars),
-        (SemanticKind.TEMPORAL_SET, registry.temporal_sets),
     ):
         kinds.update(dict.fromkeys(paths, kind))
+
     for path, dimension in registry.dimensions.items():
         kinds[path] = (
             SemanticKind.TIME_DIMENSION if dimension.is_time_dimension else SemanticKind.DIMENSION
@@ -710,12 +709,7 @@ def _build_registry(
 
     Pass 2: assemble all pending IR objects into the registry.
     """
-    from marivo.semantic.ir import (
-        EntityIR,
-        PeriodCalendarIR,
-        RelationshipIR,
-        TemporalSetIR,
-    )
+    from marivo.semantic.ir import EntityIR, RelationshipIR
 
     registry = Registry()
     bodies = {}
@@ -746,11 +740,7 @@ def _build_registry(
             elif isinstance(ir, MeasureIR):
                 registry.measures[sid] = ir
                 field_owners[cast("Ref[FieldKind]", ref)] = ref_factory.entity(ir.entity)
-            elif isinstance(ir, PeriodCalendarIR):
-                registry.period_calendars[sid] = ir
-            elif isinstance(ir, TemporalSetIR):
-                registry.temporal_sets[sid] = ir
-            elif isinstance(ir, RelationshipIR):
+            if isinstance(ir, RelationshipIR):
                 registry.relationships[sid] = ir
             if expression_body is not None:
                 bodies[ref] = expression_body

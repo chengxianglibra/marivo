@@ -216,36 +216,6 @@ class RelationshipDefinition:
     dependencies: tuple[str, ...]
 
 
-@dataclass(frozen=True)
-class PeriodCalendarDefinition:
-    """Finite calendar declaration and current local certification status."""
-
-    context: AiContextIR
-    source_date: str
-    boundary_timezone: str
-    coverage: tuple[date, date]
-    levels: tuple[tuple[str, str], ...]
-    snapshot_status: Literal["missing", "current", "stale", "invalid"]
-    snapshot_digest: str | None
-    dependencies: tuple[str, ...]
-
-
-@dataclass(frozen=True)
-class TemporalSetDefinition:
-    """Finite occurrence declaration and current local certification status."""
-
-    context: AiContextIR
-    occurrence_id: str
-    start: str
-    end: str
-    category: str | None
-    boundary_timezone: str
-    coverage: tuple[date, date]
-    snapshot_status: Literal["missing", "current", "stale", "invalid"]
-    occurrence_count: int | None
-    dependencies: tuple[str, ...]
-
-
 EntryDefinition: TypeAlias = (
     DomainDefinition
     | DatasourceDefinition
@@ -253,8 +223,6 @@ EntryDefinition: TypeAlias = (
     | FieldDefinition
     | MetricDefinition
     | RelationshipDefinition
-    | PeriodCalendarDefinition
-    | TemporalSetDefinition
 )
 
 

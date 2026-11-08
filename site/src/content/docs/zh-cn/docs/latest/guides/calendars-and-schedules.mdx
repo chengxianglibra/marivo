@@ -9,29 +9,11 @@ head:
       content: noindex
 ---
 
-明确来源日期或时间戳的解释方式、业务时间字段和观察范围。观察区间包含起点、
-不包含终点。来源解析时区、日历边界时区和 `Session` 报告时区各有不同作用。
-定义业务期间时，应使用合适的日历和边界时区；可能重叠的活动或节假日应建模为
-命名活动期间。
-统计工作日时，日程需覆盖所选范围内的每个日期，包括调休日；缺失状态表示未知。
-所有 TimeField 样本规约均允许缺点；`sample_interval` 描述节拍，不隐式断言完整覆盖。详见
-[日期与时间定义](/zh-cn/docs/latest/modeling/dates/)和
-[时间序列与窗口](/zh-cn/docs/latest/analysis/time-series/)。
-将报告范围传入 `where=scope`，将日历 Grain 放入 `by`。
+业务日历由 harness 或业务数据服务维护。Marivo 使用普通业务字段和明确时间范围执行分析。
 
-## 认证周期日历
+- 按财务月汇总：建模日期和财务月 key，并按业务维度聚合原始 Metric。
+- 比较节假日：harness 确定每次假期的准确起止时刻和配对规则，再创建 `session.time_scope(...)`。
+- 筛选工作日：使用普通日期数据和工作日状态；保留未知状态，显式选择不连续成员。
+- 自然周期窗口：使用 `mv.grain(...)`、`scope.by(grain)` 和已支持的窗口规则。
 
-[查看如何认证并读取日历](/zh-cn/docs/latest/modeling/dates/#认证并读取)。
-
-## 命名时间发生项
-
-[查看如何声明命名期间](/zh-cn/docs/latest/modeling/dates/#命名活动期间mstemporal_set)。
-
-## 浏览节假日并选择比较范围
-
-[查看节假日和工作日程](/zh-cn/docs/latest/modeling/dates/#活动与工作日)，
-再参阅[时间范围比较](/zh-cn/docs/latest/analysis/time-series/)。
-
-## 用普通字段读取工作日事实
-
-[查看如何建模工作日字段与日程](/zh-cn/docs/latest/modeling/dates/#活动与工作日)。
+日期编码和时区声明见[日期与时间](/zh-cn/docs/latest/modeling/dates/)。输出分桶和窗口见[时间序列](/zh-cn/docs/latest/analysis/time-series/)。

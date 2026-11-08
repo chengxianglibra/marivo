@@ -207,7 +207,7 @@ def test_temporal_branches_preserve_conditions_and_normalize_only_time_values(
             _ = observed.coord(observed.axes[0]) >= "2026-10-28"
 
 
-def test_session_timezone_is_frozen_independently_of_certified_scope(
+def test_session_timezone_is_frozen_independently_of_aware_scope_bounds(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
@@ -221,18 +221,8 @@ def test_session_timezone_is_frozen_independently_of_certified_scope(
     ):
         condition = (point >= "2026-10-28") & (point < "2026-10-30")
         before = repr(condition)
-        from marivo._temporal import certify_temporal_set
-        from marivo.refs import ref
 
-        scope = certify_temporal_set(
-            temporal_set_ref=ref.temporal_set("sales.campaign"),
-            boundary_timezone="UTC",
-            coverage=(date(2026, 10, 27), date(2026, 10, 31)),
-            rows=({"id": "campaign", "start": date(2026, 10, 27), "end": date(2026, 10, 31)},),
-            occurrence_id="id",
-            start="start",
-            end="end",
-        ).occurrence_scope("campaign")
+        scope = session.time_scope(start="2026-10-26T16:00Z", end="2026-10-30T16:00Z")
         result = session.observe(
             {"value": amount.sum(time=point)}, where=(scope, condition)
         ).compute()

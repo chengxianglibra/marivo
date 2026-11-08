@@ -58,7 +58,6 @@ __all__ = [
     "MeasureIR",
     "MetricAdditivity",
     "ParquetSourceIR",
-    "PeriodCalendarIR",
     "RelationshipIR",
     "SampleIntervalIR",
     "SemanticKind",
@@ -68,7 +67,6 @@ __all__ = [
     "SourceLocation",
     "StrptimeParse",
     "TableSourceIR",
-    "TemporalSetIR",
     "TimeFoldIR",
     "TimestampParse",
     "ValidityVersioningIR",
@@ -428,39 +426,6 @@ class TargetValiditySelection:
     open_end: tuple[str | None, ...]
     interpretation: Literal["instant", "before_endpoint"]
     kind: Literal["validity"] = "validity"
-
-
-@dataclass(frozen=True)
-class PeriodCalendarIR:
-    """Authored identity and source-field contract for one period authority."""
-
-    semantic_id: str
-    domain: str
-    name: str
-    date: str
-    coverage: tuple[str, str]
-    levels: tuple[tuple[str, str], ...]
-    ai_context: AiContextIR
-    python_symbol: str
-    location: SourceLocation
-
-
-@dataclass(frozen=True)
-class TemporalSetIR:
-    """Authored identity and source-field contract for named occurrences."""
-
-    semantic_id: str
-    domain: str
-    name: str
-    occurrence_id: str
-    start: str
-    end: str
-    boundary_timezone: str
-    coverage: tuple[str, str]
-    category: str | None
-    ai_context: AiContextIR
-    python_symbol: str
-    location: SourceLocation
 
 
 @dataclass(frozen=True)

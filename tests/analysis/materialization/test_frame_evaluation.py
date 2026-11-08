@@ -6,7 +6,7 @@ import weakref
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import replace
-from datetime import date, datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone
 from hashlib import sha256
 from pathlib import Path
 from unittest.mock import DEFAULT, Mock, patch
@@ -17,9 +17,8 @@ import pytest
 
 import marivo.analysis as mv
 from marivo._definition.types import CalendarCoordinate
-from marivo._temporal import certify_period_calendar, semantic_grain
 from marivo.analysis.compiler.graph_lowering import LoweredQuery
-from marivo.analysis.core.artifact_data import DataColumn, NamedCalendarData
+from marivo.analysis.core.artifact_data import DataColumn
 from marivo.analysis.core.data_types import TimestampDataType
 from marivo.analysis.core.frame_calendar import freeze_calendar
 from marivo.analysis.core.frame_data import MemoryFrameBacking, StoredFrameBacking
@@ -682,41 +681,6 @@ def test_calendar_freeze_preserves_dst_fold_and_partial_nominal_bounds() -> None
     assert rows["key.0"].iloc[0].isoformat() == "2026-08-01T00:00:00+00:00"
     assert rows["selection"].tolist() == ["partial"]
     assert not {"nominal_start", "actual_start"} & set(rows.columns)
-
-
-def test_named_calendar_freeze_captures_exact_level_and_canonical_labels() -> None:
-    start, end = date(2026, 1, 1), date(2026, 1, 9)
-    calendar = ref.period_calendar("sales.fiscal")
-    snapshot = certify_period_calendar(
-        calendar_ref=calendar,
-        boundary_timezone="UTC",
-        coverage=(start, end),
-        rows=(
-            {"date": start + timedelta(days=i), "short": i // 2, "long": f"P{i // 4}"}
-            for i in range(8)
-        ),
-        levels={"short": "short", "long": "long"},
-    )
-    key = DataColumn("key.0", "bucket", TimestampDataType("us", "UTC"), False)
-    for level, days, labels in (("short", 2, ["0"]), ("long", 4, ['"P0"'])):
-        grain = semantic_grain(calendar=calendar, level=level, snapshot=snapshot)
-        axis = exact_scope(start, start + timedelta(days=days), "UTC").by(grain)
-        coordinate = _calendar_population(axis)._definition.axes[0]
-        assert isinstance(coordinate, CalendarCoordinate)
-        frozen = freeze_calendar(coordinate, token="axis.0", name=level, key=key)
-        assert frozen.axis.frozen is not None
-        assert frozen.axis.frozen.definition == NamedCalendarData(
-            "sales.fiscal", snapshot.snapshot_digest, level
-        )
-        assert frozen.directory.rows["nominal_label"].tolist() == labels
-        assert frozen.directory.rows["ordinal"].tolist() == list(range(len(labels)))
-    day = exact_scope(start, start + timedelta(days=1), "UTC").by(
-        semantic_grain(calendar=calendar, level="day", snapshot=snapshot)
-    )
-    coordinate = _calendar_population(day)._definition.axes[0]
-    assert isinstance(coordinate, CalendarCoordinate)
-    frozen = freeze_calendar(coordinate, token="axis.0", name="day", key=key)
-    assert frozen.directory.rows["nominal_label"].tolist() == ['"2026-01-01"']
 
 
 def test_source_top_keeps_entire_frozen_calendar_directory(

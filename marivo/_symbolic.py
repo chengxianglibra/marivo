@@ -21,8 +21,6 @@ TimeDimensionSymbol = NewType("TimeDimensionSymbol", Deferred)
 MeasureSymbol = NewType("MeasureSymbol", Deferred)
 MetricSymbol = NewType("MetricSymbol", Deferred)
 RelationshipSymbol = NewType("RelationshipSymbol", Deferred)
-PeriodCalendarSymbol = NewType("PeriodCalendarSymbol", Deferred)
-TemporalSetSymbol = NewType("TemporalSetSymbol", Deferred)
 
 LookupSymbol: TypeAlias = (
     DomainSymbol
@@ -33,8 +31,6 @@ LookupSymbol: TypeAlias = (
     | MeasureSymbol
     | MetricSymbol
     | RelationshipSymbol
-    | PeriodCalendarSymbol
-    | TemporalSetSymbol
 )
 _SYMBOL_MARKERS: dict[SemanticKind, Callable[[Deferred], LookupSymbol]] = {
     SemanticKind.DOMAIN: DomainSymbol,
@@ -45,8 +41,6 @@ _SYMBOL_MARKERS: dict[SemanticKind, Callable[[Deferred], LookupSymbol]] = {
     SemanticKind.MEASURE: MeasureSymbol,
     SemanticKind.METRIC: MetricSymbol,
     SemanticKind.RELATIONSHIP: RelationshipSymbol,
-    SemanticKind.PERIOD_CALENDAR: PeriodCalendarSymbol,
-    SemanticKind.TEMPORAL_SET: TemporalSetSymbol,
 }
 
 
@@ -253,42 +247,6 @@ class _SymbolFactory:
             and identity attributes are unsupported.
         """
         return RelationshipSymbol(symbol_from_ref(ref_factory.relationship(path)))
-
-    def period_calendar(self, path: str) -> PeriodCalendarSymbol:
-        """Capture one native PeriodCalendar lookup symbol without looking it up.
-
-        Args:
-            path: Exact period_calendar path, such as 'sales.fiscal'.
-        Returns:
-            A native Deferred marked as PeriodCalendarSymbol for calendar= identity parameters and governed-calendar metadata selection; it cannot compute values.
-        Example:
-            ``ms.ref.period_calendar('sales.fiscal')``.
-        Constraints:
-            Path shape is checked immediately; existence and semantic facts bind
-            in the loader. This does not register a definition or read a source.
-            Use the symbol only in matching identity parameters or supported
-            Catalog metadata operations. Equality builds a recipe; bool, hashing
-            and identity attributes are unsupported.
-        """
-        return PeriodCalendarSymbol(symbol_from_ref(ref_factory.period_calendar(path)))
-
-    def temporal_set(self, path: str) -> TemporalSetSymbol:
-        """Capture one native TemporalSet lookup symbol without looking it up.
-
-        Args:
-            path: Exact temporal_set path, such as 'sales.campaigns'.
-        Returns:
-            A native Deferred marked as TemporalSetSymbol for temporal-set identity parameters and governed-set metadata selection; it cannot compute values.
-        Example:
-            ``ms.ref.temporal_set('sales.campaigns')``.
-        Constraints:
-            Path shape is checked immediately; existence and semantic facts bind
-            in the loader. This does not register a definition or read a source.
-            Use the symbol only in matching identity parameters or supported
-            Catalog metadata operations. Equality builds a recipe; bool, hashing
-            and identity attributes are unsupported.
-        """
-        return TemporalSetSymbol(symbol_from_ref(ref_factory.temporal_set(path)))
 
 
 symbol_factory = _SymbolFactory()

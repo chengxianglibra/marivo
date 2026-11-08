@@ -6,8 +6,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import ibis
-import ibis.expr.types as ibis_ir
-import pandas as pd
 import pytest
 
 import marivo.datasource as md
@@ -16,7 +14,6 @@ from marivo.semantic._source_timezone import effective_source_timezone
 from marivo.semantic.catalog import SemanticCatalog
 from marivo.semantic.errors import SemanticLoadFailed, SourceTimezoneMissing
 from marivo.semantic.validator import normalize_target_dimension, normalize_target_entity
-from tests.shared_fixtures import catalog_entry
 
 if TYPE_CHECKING:
     from tests.conftest import _SemanticProjectFactory
@@ -61,17 +58,6 @@ def test_date_and_date_only_parse_normalize_source_timezone() -> None:
             interval="closed_open",
             open_end=(None,),
             timezone="UTC",
-        )  # type: ignore[call-arg]
-    with pytest.raises(TypeError):
-        ms.period_calendar(
-            name="calendar",
-            date=ms.ref.time_dimension("sales.events.day"),
-            boundary_timezone="UTC",
-            coverage=(
-                __import__("datetime").date(2026, 1, 1),
-                __import__("datetime").date(2027, 1, 1),
-            ),
-            levels={},
         )  # type: ignore[call-arg]
 
 
@@ -211,73 +197,6 @@ def test_date_snapshot_contradiction_is_structured(
     )
 
 
-@pytest.mark.parametrize(
-    "clock,encoded,end",
-    [
-        ("2026-03-08 02:30:00", "20260308023000", "2026-03-08 08:30:00+00"),
-        ("2026-11-01 01:30:00", "20261101013000", "2026-11-01 08:30:00+00"),
-    ],
-)
-def test_native_certification_resolves_dst_in_one_source_read(
-    tmp_path: Path,
-    semantic_project_factory: _SemanticProjectFactory,
-    monkeypatch: pytest.MonkeyPatch,
-    clock: str,
-    encoded: str,
-    end: str,
-) -> None:
-    catalog, _ = _project(
-        tmp_path,
-        semantic_project_factory,
-        default="America/New_York",
-        fields=(
-            "identifier=ms.dimension_column(name='id',entity=events,column='id')\n"
-            "start=ms.time_dimension_column(name='start',entity=events,column='encoded',parse=ms.strptime('%Y%m%d%H%M%S'))\n"
-            "end=ms.time_dimension_column(name='end',entity=events,column='instant')\n"
-            "periods=ms.temporal_set(name='periods',occurrence_id=identifier,start=start,end=end,boundary_timezone='America/New_York',coverage=(date(2026,1,1),date(2027,1,1)))\n"
-        ),
-    )
-    # Native DuckDB maps the gap to 07:30Z; make the existing aware endpoint later.
-    backend = ibis.duckdb.connect(str(tmp_path / "source-time.duckdb"))
-    backend.raw_sql(f"UPDATE events SET encoded='{encoded}',instant=TIMESTAMPTZ '{end}'")
-    expected = (
-        backend.sql(f"SELECT timezone('America/New_York', TIMESTAMP '{clock}') AS start")
-        .execute()
-        .iloc[0, 0]
-    )
-    backend.disconnect()
-    from marivo.datasource.runtime import DatasourceConnectionService
-
-    collect = DatasourceConnectionService.collect_source
-    reads: list[str] = []
-
-    def capture(
-        self: DatasourceConnectionService,
-        name: str,
-        expression: ibis_ir.Table,
-        *,
-        purpose: str,
-        max_rows: int,
-    ) -> pd.DataFrame:
-        reads.append(purpose)
-        return collect(self, name, expression, purpose=purpose, max_rows=max_rows)
-
-    monkeypatch.setattr(DatasourceConnectionService, "collect_source", capture)
-    entry = catalog_entry(catalog, "sales.periods", kind="temporal_set")
-    catalog.preview(entry, scope=md.unpruned(max_rows=5, timeout_seconds=10))
-    occurrence = entry.occurrence(1)
-    assert occurrence.start == expected
-    assert reads == ["semantic.certified_preview"]
-    declaration = tmp_path / "models/datasources/warehouse.py"
-    declaration.write_text(declaration.read_text().replace("America/New_York", "UTC"))
-    changed = ms.load(workspace_dir=tmp_path)
-    assert (
-        catalog_entry(changed, "sales.periods", kind="temporal_set").definition.snapshot_status
-        == "stale"
-    )
-    assert reads == ["semantic.certified_preview"]
-
-
 def test_source_declaration_fingerprints_use_normalized_timezone(
     tmp_path: Path, semantic_project_factory: _SemanticProjectFactory
 ) -> None:
@@ -300,26 +219,6 @@ def test_source_declaration_fingerprints_use_normalized_timezone(
     changed = ms.load(workspace_dir=tmp_path)
     assert changed.definition_fingerprint != first_definition
     assert entity_dependency_fingerprint(changed._reg, "sales.events") != first_physical
-
-
-def test_certification_preserves_distinct_declarations_on_one_source_column(
-    tmp_path: Path, semantic_project_factory: _SemanticProjectFactory
-) -> None:
-    catalog, _ = _project(
-        tmp_path,
-        semantic_project_factory,
-        fields=(
-            "identifier=ms.dimension_column(name='id',entity=events,column='id')\n"
-            "start=ms.time_dimension_column(name='start',entity=events,column='clock',parse=ms.timestamp(timezone='UTC'))\n"
-            "end=ms.time_dimension_column(name='end',entity=events,column='clock',parse=ms.timestamp(timezone='America/New_York'))\n"
-            "periods=ms.temporal_set(name='periods',occurrence_id=identifier,start=start,end=end,boundary_timezone='UTC',coverage=(date(2026,1,1),date(2027,1,1)))\n"
-        ),
-    )
-    entry = catalog_entry(catalog, "sales.periods", kind="temporal_set")
-    catalog.preview(entry, scope=md.unpruned(max_rows=5, timeout_seconds=10))
-    occurrence = entry.occurrence(1)
-    assert occurrence.start.isoformat() == "2026-03-08T02:30:00+00:00"
-    assert occurrence.end.isoformat() == "2026-03-08T07:30:00+00:00"
 
 
 def test_hour_prefix_inherits_datasource_from_derived_date_field(

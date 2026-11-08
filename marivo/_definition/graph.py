@@ -72,10 +72,9 @@ from marivo._definition.types import (
     invalid,
     literal_token,
 )
-from marivo._definition.windows import ToDate
 from marivo._temporal import Grain as TemporalGrain
 from marivo._temporal import InstantAnchor
-from marivo.refs import PeriodCalendarKind, Ref
+from marivo.refs import Ref
 
 DefinitionNode: TypeAlias = (
     RowNode
@@ -113,15 +112,7 @@ def canonical_value(value: object) -> object:
     if isinstance(value, Enum):
         return canonical_value(value.value)
     if isinstance(value, TemporalGrain):
-        if value.kind == "builtin":
-            return value._to_token()
-        assert value._calendar is not None and value.level is not None
-        return {
-            "kind": "semantic",
-            "calendar_ref": value._calendar.path,
-            "level": value.level,
-            "snapshot_digest": None if value._snapshot is None else value._snapshot.snapshot_digest,
-        }
+        return value._to_token()
     if value is None or isinstance(value, (str, bool, int)):
         return value
     if isinstance(value, float):
@@ -436,34 +427,6 @@ def direct_refs(root: DefinitionNode) -> frozenset[ExactRef]:
             continue
         seen.add(id(node))
         _consumed_refs(node, found)
-        pending.extend(edge.child for edge in children(node))
-    return frozenset(found)
-
-
-def direct_calendar_refs(root: DefinitionNode) -> frozenset[Ref[PeriodCalendarKind]]:
-    """Calendar lookup dependencies of windows and samples, without definition versions.
-
-    Declared Metric references remain edges to their own published dependencies.
-    A Grain's captured snapshot is not an authored dependency graph.
-    """
-    found: set[Ref[PeriodCalendarKind]] = set()
-    pending = [root]
-    seen: set[int] = set()
-    while pending:
-        node = pending.pop()
-        if id(node) in seen:
-            continue
-        seen.add(id(node))
-        grain = None
-        if isinstance(node, MetricWindow) and isinstance(node.rule, ToDate):
-            grain = node.rule.grain
-        elif isinstance(node, (PerReduce, PerWeightedMean)) and isinstance(
-            node.samples, TemporalGrain
-        ):
-            grain = node.samples
-        if grain is not None and grain.kind == "semantic":
-            assert grain._calendar is not None
-            found.add(grain._calendar)
         pending.extend(edge.child for edge in children(node))
     return frozenset(found)
 

@@ -38,7 +38,7 @@ collisions. Shared expression routes are explicitly owned by semantic role, rath
 Public fields/properties have independent attribute targets, queried by string
 without evaluating a getter, such as analysis.analysis_frame.output_names.
 Read actual values in their original object context. Variant-only members state
-the availability condition, for example a semantic Grain's calendar_id field.
+the availability condition, for example the clocked contribution's time field.
 Private error subclasses reuse their nearest registered public error contract.
 
 Reflection supplies installed signatures/members. Owning docstrings and domain

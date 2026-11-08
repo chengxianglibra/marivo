@@ -9,8 +9,7 @@ head:
       content: noindex
 ---
 
-`catalog.readiness` 检查所选目录条目及其物理依赖闭包，并核验所需的已认证时间产物。
-它不会连接数据源，也不读取业务行。传入 `refs` 可限定检查范围；省略时会检查所有已加载的物理对象。
+readiness 只检查选定语义闭包和物理声明，不打开数据源。普通 preview 提供有界来源证据。
 
 结合 `status`、`blockers` 和 `warnings` 阅读报告。`blocked` 表示发现至少一个阻塞项；
 `ready_with_warnings` 表示没有阻塞项，但仍有警告需要检查。按报告修复阻塞项后重新运行；

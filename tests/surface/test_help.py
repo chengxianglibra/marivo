@@ -371,7 +371,7 @@ def test_attribute_access_uses_owning_frozen_model_contracts() -> None:
     # Required time identity fields need no construction to discover immutability.
     assert TimeScopeContractV1.model_config["frozen"] is True
     assert public_attributes(TimeScopeContractV1)["kind"].access == "read-only"
-    text, _, _ = help_render.render_help_text("analysis.time_scope.kind")
+    text, _, _ = help_render.render_help_text("analysis.time_scope.start")
     assert "Access: read-only" in text
 
     class PerFieldModel(BaseModel):

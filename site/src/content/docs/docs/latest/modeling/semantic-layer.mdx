@@ -5,7 +5,7 @@ description: Define entities, dimensions, measures, metrics and relationships wi
 
 The semantic layer defines reusable business meaning in Python. This page introduces Entity, Dimension, Time dimension, Measure, Metric, and Relationship: what each object represents, which properties it owns, and how to define it. Datasource owns physical access; semantic objects add identity, fields, aggregation rules, and mappings.
 
-For focused discovery, start at `marivo.help("authoring")`. Use `semantic.model` for identity, fields, relationships and Metric definitions; `semantic.time` for time parsing and certified calendars; `semantic.catalog` for existing definitions; and `semantic.validation` to choose what load, readiness, preview or online validation must prove. Supporting constructor values follow their definition. Question-scoped composition of established closed inputs uses `semantic.expressions` without requiring a published Metric.
+Readiness checks the selected semantic closure and physical declarations without opening a datasource. Ordinary preview supplies bounded source evidence.
 
 The short declarations are model-file fragments, not commands to paste into an analysis script. Use the [complete model](#complete-model) below with the [local tutorial](/docs/latest/start/python/) to run them. A domain is declared in `models/semantic/sales/_domain.py` with `ms.domain(name="sales", owner="Mina Zhang")`; its default domain lets sibling definitions omit `domain=`. `ai_context=ms.ai_context(business_definition=..., guardrails=[...])` records meaning and usage limits, not executable logic.
 
@@ -528,7 +528,7 @@ For `preview` and `preview_many`, `limit` must be an integer from 1 to 100 inclu
 
 If connection testing fails, check the datasource path and credentials before retrying.
 
-A missing or truncated [calendar certificate](/docs/latest/modeling/semantic-layer/#business-calendars) needs a complete bounded temporal preview. None of these checks confirms the business owner intended this revenue policy. Finish by executing the actual observation you need.
+Natural calendars use `mv.grain(...)` and explicit `scope.by(grain)`. Fiscal periods, holidays and working days use ordinary business fields; the harness chooses authority, ranges and pairing. See [dates and time](/docs/latest/modeling/dates/).
 
 ## Compose metric expressions
 
@@ -558,6 +558,6 @@ Connection settings and inspection: [Datasource configuration](/docs/latest/mode
 
 <a id="business-calendars"></a>
 
-Calendar declarations and certification: [Date and time definitions](/docs/latest/modeling/dates/).
+Natural calendars use `mv.grain(...)` and explicit `scope.by(grain)`. Fiscal periods, holidays and working days use ordinary business fields; the harness chooses authority, ranges and pairing. See [dates and time](/docs/latest/modeling/dates/).
 
-Time fields declare source timezone on `ms.date`, `ms.timestamp` or `ms.strptime`, with Datasource `wall_clock_timezone` as the default. `ms.hour_prefix` inherits its prefix. DATE validity derives the common endpoint zone; period calendars derive the date-field zone. Neither constructor accepts a separate timezone override. Snapshot and temporal-set coverage still retain their own boundary declarations.
+Time fields declare source timezone on `ms.date`, `ms.timestamp` or `ms.strptime`, with Datasource `wall_clock_timezone` as the default. `ms.hour_prefix` inherits its prefix. DATE validity derives the common endpoint zone and does not accept a separate timezone override. Snapshot versioning retains its own boundary declaration.

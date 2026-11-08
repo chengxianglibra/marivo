@@ -27,7 +27,6 @@ from marivo._definition.expressions import (
 from marivo._definition.graph import DefinitionNode, children, walk
 from marivo._definition.observations import (
     CalendarGrouping,
-    CalendarSample,
     SampleAxis,
     SampleLayer,
 )
@@ -51,11 +50,8 @@ from marivo._definition.types import (
     field_read_key,
     fixed_attribute_time,
 )
-from marivo._temporal import (
-    Grain,
-    PeriodCalendarSnapshotV2,
-)
-from marivo.analysis.binding.calendar_samples import bind_calendar_samples, validate_sample_parent
+from marivo._temporal import Grain
+from marivo.analysis.binding.calendar_samples import validate_sample_parent
 from marivo.analysis.binding.coordinates import (
     CoordinateBinding,
     bind_identity,
@@ -108,7 +104,6 @@ def bind_observation(
     where: PredicateExpression | None,
     timezone: str,
     state: CompiledSemanticState | None,
-    calendar_snapshots: tuple[PeriodCalendarSnapshotV2, ...] = (),
     memberships: tuple[MembershipBinding, ...] = (),
     population: PopulationDependency | None = None,
     report_period: ObservationPeriod | None = None,
@@ -168,7 +163,7 @@ def bind_observation(
         else None
     )
     contributions: list[ContributionBinding] = []
-    calendar_samples: list[tuple[tuple[int, ...], CalendarSample]] = []
+    calendar_samples: list[tuple[tuple[int, ...], BuiltinSampleCoordinate]] = []
     count_populations: dict[PopulationDependency, PopulationDependency] = {}
     resolver = _Resolver(state) if state is not None else None
     paths = RelationshipResolver.build(state.registry) if state is not None else None
@@ -220,14 +215,7 @@ def bind_observation(
             sample_domain = node.samples
             inner_domain_axes: tuple[SampleAxis, ...]
             if isinstance(sample_domain, (Grain, FieldCalendarSample)):
-                sample_scope = (
-                    IntervalCoordinate("observation", period.start, period.end, period.timezone)
-                    if time_axis is None and period is not None and period.start is not None
-                    else time_axis
-                )
-                inner = bind_calendar_samples(
-                    sample_domain, timezone, sample_scope, sample_axes, calendar_snapshots
-                )
+                inner = BuiltinSampleCoordinate(sample_domain, timezone)
                 calendar_samples.append((occurrence, inner))
                 inner_domain_axes = (inner,)
             else:
@@ -633,9 +621,7 @@ def bind_observation(
     )
     from marivo.analysis.binding.windows import bind_windows
 
-    bound_contributions = bind_windows(
-        tuple(contributions), metrics, declared, period, calendar, calendar_snapshots
-    )
+    bound_contributions = bind_windows(tuple(contributions), metrics, declared, period, calendar)
     if (
         not contributions
         and count_populations

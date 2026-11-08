@@ -2,11 +2,9 @@
 
 from __future__ import annotations
 
-import json
-import re
 import textwrap
 from collections.abc import Mapping
-from datetime import date, datetime
+from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -17,7 +15,6 @@ import pytest
 
 import marivo
 import marivo.datasource as md
-import marivo.semantic as ms
 from marivo.datasource import runtime as datasource_runtime
 from marivo.datasource.errors import DatasourceAuthoringError
 from marivo.datasource.ir import (
@@ -32,12 +29,10 @@ from marivo.preview import PreviewResult
 from marivo.refs import ref as ref_factory
 from marivo.semantic.catalog import (
     Domain,
-    PeriodCalendar,
     SemanticCatalog,
-    TemporalSet,
 )
 from marivo.semantic.errors import SemanticRuntimeError
-from tests.semantic.preview_helpers import certified_project, default_scope
+from tests.semantic.preview_helpers import default_scope
 from tests.shared_fixtures import catalog_entry, catalog_value
 
 if TYPE_CHECKING:
@@ -528,209 +523,6 @@ def test_json_source_bindings_use_native_entity_pairs(
     )
     assert [row["event_id"] for row in second.rows] == [2, 3]
     assert captured == {"params": {"start": 2}}
-
-
-def test_temporal_artifact_certification_and_failed_previews(
-    tmp_path: Path,
-    semantic_project_factory: _SemanticProjectFactory,
-) -> None:
-    catalog = certified_project(
-        tmp_path=tmp_path, semantic_project_factory=semantic_project_factory
-    )
-    calendar_ref = catalog_entry(catalog, "sales.fiscal", kind="period_calendar")
-    with pytest.raises(SemanticRuntimeError, match="exhaustive explicit scope"):
-        catalog.preview(calendar_ref, scope=default_scope(max_rows=3), limit=1)
-    assert (
-        catalog_entry(catalog, calendar_ref.path, kind="period_calendar").definition.snapshot_status
-        == "missing"
-    )
-
-    for artifact_ref, missing_kind, max_rows in (
-        (calendar_ref, "period_calendar_artifact_missing", 4),
-        (
-            catalog_entry(catalog, "sales.named_campaigns", kind="temporal_set"),
-            "temporal_set_artifact_missing",
-            2,
-        ),
-    ):
-        before = catalog.readiness(refs=[artifact_ref])
-        assert missing_kind in {issue.kind for issue in before.blockers}
-        preview = catalog.preview(artifact_ref, scope=default_scope(max_rows=max_rows), limit=1)
-        assert preview.returned_row_count == 1
-        assert preview.is_truncated is True
-        assert preview.coverage.scope_exhaustion == "exhaustive"
-        assert preview.coverage.scope_exactness == "scope_exact"
-        card = preview.render()
-        assert "preview_limit: 1" in card
-        assert "preview_rows_truncated: true" in card
-        assert "scope_coverage: exhaustive/scope_exact" in card
-        assert "query_truncated" not in card
-        refreshed = catalog.get(artifact_ref.id)
-        assert isinstance(refreshed, PeriodCalendar | TemporalSet)
-        assert refreshed.definition.snapshot_status == "current"
-        assert missing_kind not in {
-            issue.kind for issue in catalog.readiness(refs=[artifact_ref]).blockers
-        }
-
-    assert catalog_entry(catalog, "sales.fiscal", kind="period_calendar").period(
-        "week", "W2"
-    ).start == date(2026, 1, 3)
-    assert catalog_entry(catalog, "sales.named_campaigns", kind="temporal_set").occurrence(
-        "incident"
-    ).start == date(2026, 3, 3)
-
-    with pytest.raises(SemanticRuntimeError) as invalid_limit:
-        catalog.preview(calendar_ref, scope=default_scope(max_rows=4), limit=0)
-    assert invalid_limit.value.expected == "an integer preview limit from 1 to 100 inclusive"
-    assert invalid_limit.value.details["query_executed"] is False
-    assert (
-        catalog_entry(catalog, calendar_ref.path, kind="period_calendar").definition.snapshot_status
-        == "current"
-    )
-
-
-def test_calendar_lookup_repairs_resolve_collection_paths_and_help(
-    tmp_path: Path,
-    semantic_project_factory: _SemanticProjectFactory,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    catalog = certified_project(
-        tmp_path=tmp_path, semantic_project_factory=semantic_project_factory
-    )
-    calendar = catalog_entry(catalog, "sales.fiscal", kind="period_calendar")
-
-    def repaired_calendar(error: SemanticRuntimeError, operation: str) -> PeriodCalendar:
-        assert error.kind == "not_found"
-        assert error.details["operation"] == operation
-        assert error.repair is not None
-        match = re.search(r"catalog\.get\('([^']+)'\)", error.repair.action)
-        assert match is not None
-        assert match.group(1) == "period_calendar:sales.fiscal"
-        entry = catalog.get(match.group(1))
-        assert entry is calendar
-        marivo.help(error.repair.help_target.display)
-        assert "Kind: callable" in capsys.readouterr().out
-        return entry
-
-    with pytest.raises(SemanticRuntimeError) as missing:
-        calendar.period_on("week", date(2026, 1, 3))
-    repair_entry = repaired_calendar(missing.value, "snapshot")
-    assert missing.value.details["snapshot_status"] == "missing"
-    catalog.preview(repair_entry, scope=default_scope(max_rows=4))
-    period = calendar.period_on("week", date(2026, 1, 3))
-    assert (period.start, period.end) == (date(2026, 1, 3), date(2026, 1, 5))
-
-    for operation, lookup in (
-        ("grain", lambda: calendar.grain("unknown")),
-        ("period", lambda: calendar.period("week", "unknown")),
-        ("period_on", lambda: calendar.period_on("week", date(2026, 1, 5))),
-        ("periods", lambda: calendar.periods("unknown")),
-    ):
-        with pytest.raises(SemanticRuntimeError) as invalid:
-            lookup()
-        assert repaired_calendar(invalid.value, operation).definition.snapshot_status == "current"
-
-
-def test_scoped_temporal_navigation_does_not_inspect_certified_snapshots(
-    tmp_path: Path,
-    semantic_project_factory: _SemanticProjectFactory,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    catalog = certified_project(
-        tmp_path=tmp_path, semantic_project_factory=semantic_project_factory
-    )
-
-    def reject_snapshot(_entry: object) -> None:
-        pytest.fail("static navigation inspected a certified snapshot")
-
-    for entry_type in (PeriodCalendar, TemporalSet):
-        monkeypatch.setattr(entry_type, "_snapshot_with_status", reject_snapshot)
-    for kind, identity in (
-        ("period_calendar", "period_calendar:sales.fiscal"),
-        ("temporal_set", "temporal_set:sales.named_campaigns"),
-    ):
-        page = catalog.search(kind=kind, domain="sales")
-        assert len(page.items) == 1
-        assert page.items[0].id == identity
-        assert catalog.get(identity) is page.items[0]
-
-
-@pytest.mark.parametrize(
-    ("kind", "path", "max_rows"),
-    (
-        (ms.SemanticKind.PERIOD_CALENDAR, "sales.fiscal", 4),
-        (ms.SemanticKind.TEMPORAL_SET, "sales.named_campaigns", 2),
-    ),
-)
-def test_temporal_details_observe_state_changes_after_navigation(
-    tmp_path: Path,
-    semantic_project_factory: _SemanticProjectFactory,
-    kind: ms.SemanticKind,
-    path: str,
-    max_rows: int,
-) -> None:
-    catalog = certified_project(
-        tmp_path=tmp_path, semantic_project_factory=semantic_project_factory
-    )
-    entry = catalog.get(f"{kind.value}:{path}")
-    assert isinstance(entry, PeriodCalendar | TemporalSet)
-    if isinstance(entry, PeriodCalendar):
-        assert entry.definition.source_date == "time_dimension:sales.calendar.calendar_date"
-        assert not hasattr(entry.definition, "date")
-
-    def snapshot_status() -> str:
-        return entry.definition.snapshot_status
-
-    assert snapshot_status() == "missing"
-    catalog.preview(entry, scope=default_scope(max_rows=max_rows), limit=1)
-    assert catalog.get(entry.id) is entry
-    assert snapshot_status() == "current"
-
-    manifests = tuple((catalog.workspace_dir / ".marivo" / "temporal").rglob("current.json"))
-    assert len(manifests) == 1
-    manifest_path = manifests[0]
-    current = manifest_path.read_text()
-    manifest = json.loads(current)
-    manifest["definition_digest"] = "0" * 64
-    manifest_path.write_text(json.dumps(manifest))
-    assert snapshot_status() == "stale"
-    manifest_path.write_text("invalid json")
-    assert snapshot_status() == "invalid"
-    manifest_path.unlink()
-    assert snapshot_status() == "missing"
-    manifest_path.write_text(current)
-    assert snapshot_status() == "current"
-
-
-@pytest.mark.parametrize("invalid_source", ("timestamp", "empty"))
-def test_native_calendar_certification_requires_date_schema_and_nonempty_coverage(
-    tmp_path: Path,
-    semantic_project_factory: _SemanticProjectFactory,
-    invalid_source: str,
-) -> None:
-    catalog = certified_project(
-        tmp_path=tmp_path, semantic_project_factory=semantic_project_factory
-    )
-    backend = ibis.duckdb.connect(str(tmp_path / "calendar.duckdb"))
-    try:
-        if invalid_source == "timestamp":
-            backend.raw_sql("ALTER TABLE calendar ALTER COLUMN calendar_date TYPE TIMESTAMP")
-        else:
-            backend.raw_sql("DELETE FROM calendar")
-    finally:
-        backend.disconnect()
-    calendar = catalog_entry(catalog, "sales.fiscal", kind="period_calendar")
-    with pytest.raises(SemanticRuntimeError) as caught:
-        catalog.preview(calendar, scope=default_scope(max_rows=4))
-    assert caught.value.kind == "materialize_failed"
-    assert calendar.definition.snapshot_status == "missing"
-    if invalid_source == "timestamp":
-        assert (
-            caught.value.expected == "a native DATE field or an explicitly encoded civil-date field"
-        )
-        assert caught.value.details["query_executed"] is False
-    else:
-        assert "completely cover" in caught.value.message
 
 
 def test_metric_input_cap_is_exact_and_disclosed(

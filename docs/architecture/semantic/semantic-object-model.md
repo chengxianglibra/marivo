@@ -7,7 +7,7 @@ backend qualification are checked by their respective consumers.
 [Expressions](expressions.md) owns physical capture, native Deferred grammar,
 Measure authorization and Metric equations. [Loading and validation](loading-validation-introspection.md)
 owns Catalog acquisition and proof boundaries. [Temporal authority](temporal-authority.md)
-owns certified calendars and occurrences.
+owns ordinary business-time fields; calendar governance belongs to the harness.
 
 ## Object families
 
@@ -21,9 +21,9 @@ owns certified calendars and occurrences.
 | Relationship | Directed endpoint/key mapping | catalog.search(kind='relationship') |
 
 Physical constructors return native typed Deferred symbols. The loader binds
-its complete dependency scope and publishes ten immutable named objects:
+its complete dependency scope and publishes eight immutable named objects:
 Domain, Datasource, Entity, Dimension, TimeDimension, Measure, Metric,
-Relationship, PeriodCalendar and TemporalSet. `SemanticObject` is their closed
+and Relationship. `SemanticObject` is their closed
 union. `catalog.get("kind:path")` accepts a canonical identity string or an
 uncomposed `ms.ref.*` lookup symbol;
 `search(kind=...)` retains a kind-specific page type. Check `.kind` or use

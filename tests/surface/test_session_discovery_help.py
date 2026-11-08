@@ -99,7 +99,7 @@ def test_observe_help_distinguishes_field_axes_from_session_identity(
     assert "by=P retains complete keys" in text
     assert "A scope adds no axis" in text
     assert "Windows need endpoints" in text
-    assert "custom axes need one complete certified period" in text
+    assert "use an explicit scope.by(grain) axis" in text
     assert "Input during:" not in text and "Input members:" not in text
     show_help("analysis.population.count")
     assert "declared identities without facts still count" in capsys.readouterr().out
@@ -178,7 +178,6 @@ def test_catalog_discovery_separates_definitions_from_execution_values(
 
 def test_catalog_focused_help_preserves_one_semantic_owner() -> None:
     from marivo._help.model import MarivoHelpTargetError
-    from marivo.analysis._capabilities.catalog_inputs import CATALOG_INPUTS
 
     for name, target in (
         ("search", "semantic_catalog.search"),
@@ -189,9 +188,6 @@ def test_catalog_focused_help_preserves_one_semantic_owner() -> None:
         assert isinstance(contract, AuthoringCapability)
         page = rendered_help("semantic." + target)
         assert f"Output family: {contract.output_family}\n" in page
-        assert all(
-            descriptor.callable_path != contract.callable_path for descriptor in CATALOG_INPUTS
-        )
         with pytest.raises(MarivoHelpTargetError):
             rendered_help("analysis.catalog." + name)
     navigation = rendered_help("analysis.inputs.catalog")

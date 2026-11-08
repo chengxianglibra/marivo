@@ -408,19 +408,7 @@ def source_inputs(
                     (*condition.inputs, *selected_condition.inputs),
                 )
             )
-        from marivo._definition.windows import ToDate
 
-        snapshots = {
-            axis.snapshot.snapshot_digest: axis.snapshot
-            for contribution in observation.contributions
-            for _, axis in contribution.calendars
-            if isinstance(axis, CalendarCoordinate) and axis.snapshot is not None
-        }
-        for contribution in observation.contributions:
-            window = contribution.window_rule
-            if isinstance(window, ToDate) and window.grain._snapshot is not None:
-                snapshot = window.grain._snapshot
-                snapshots[snapshot.snapshot_digest] = snapshot
         group = None if groups is None else groups[source_group_key(metric, side, target.target)]
         quantities: tuple[BoundQuantity, ...]
         if group is None:
@@ -472,7 +460,6 @@ def source_inputs(
             timezone=observation.period.timezone if observation.period is not None else "UTC",
             state=source.state,
             memberships=(*observation.coordinates.memberships, *fine_memberships),
-            calendar_snapshots=tuple(snapshots.values()),
             population=fine_by._definition if fine_by is not None else None,
             report_period=observation.period,
         )

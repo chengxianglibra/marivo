@@ -18,6 +18,7 @@ import pytest
 
 import marivo.analysis as mv
 from marivo._definition.correspondence import CalendarCorrespondence
+from marivo._temporal import CalendarAxis, builtin_grain
 from marivo.analysis.core.artifact_data import (
     ArtifactManifest,
     BuiltinCalendarData,
@@ -1192,71 +1193,6 @@ def test_old_manifest_cannot_enter_any_current_read(local: LocalFrameServices) -
         )
 
 
-def test_named_calendar_snapshot_and_level_roundtrip(local: LocalFrameServices) -> None:
-    from marivo.analysis.core.artifact_data import NamedCalendarData
-
-    original = calendar(local, 3)
-    axis = original._schema.axes[0]
-    assert isinstance(axis, CalendarDataAxis) and axis.frozen is not None
-    named = replace(
-        axis,
-        frozen=replace(
-            axis.frozen, definition=NamedCalendarData("business", "snapshot-exact", "period")
-        ),
-    )
-    schema = replace(_complete_schema(original), axes=(named,))
-    part = _memory_backing(original).data.copy_attachments()[0]
-    directory = part.rows.copy()
-    directory["nominal_label"] = pd.Series(['"P1"', '"P2"', '"P3"'], dtype="string[pyarrow]")
-    fixed = AnalysisFrame._from_memory(
-        local,
-        CompletedFrameResult(
-            CompletedFrameData(
-                schema,
-                _memory_backing(original).data.copy_rows(),
-                (OutputAttachment(part.name, calendar_directory_schema(named), directory),),
-            ),
-            metadata(),
-        ),
-    )
-    assert fixed.to_pandas(time_details=True)["day.label"].tolist() == ["P3", "P2", "P1"]
-    saved = fixed.persist()
-    assert saved.to_pandas(time_details=True)["day.label"].tolist() == ["P3", "P2", "P1"]
-    value = decode(encode(manifest(saved)), ArtifactManifest)
-    saved_axis = value.data.schema.axes[0]
-    assert isinstance(saved_axis, CalendarDataAxis) and saved_axis.frozen is not None
-    assert saved_axis.frozen.definition == NamedCalendarData("business", "snapshot-exact", "period")
-    loaded = saved.compute()
-    pd.testing.assert_frame_equal(
-        _memory_backing(loaded).data.copy_attachments()[0].rows,
-        _memory_backing(fixed).data.copy_attachments()[0].rows,
-    )
-    loaded_metadata = _memory_backing(loaded).metadata
-    fixed_metadata = _memory_backing(fixed).metadata
-    assert replace(loaded_metadata, lineage=fixed_metadata.lineage) == fixed_metadata
-    assert replace(loaded.lineage, input_id=fixed.lineage.input_id) == fixed.lineage
-    assert loaded.lineage.input_id == loaded._input_id
-    assert local.preview(_stored_backing(saved), 1).attachments[0].rows[
-        "nominal_label"
-    ].tolist() == ['"P3"']
-
-    mixed_directory = directory.copy()
-    mixed_directory["nominal_label"] = pd.Series(["1", "true", '"1"'], dtype="string[pyarrow]")
-    mixed = AnalysisFrame._from_memory(
-        local,
-        CompletedFrameResult(
-            CompletedFrameData(
-                schema,
-                _memory_backing(original).data.copy_rows(),
-                (OutputAttachment(part.name, calendar_directory_schema(named), mixed_directory),),
-            ),
-            metadata(),
-        ),
-    ).to_pandas(time_details=True)["day.label"]
-    assert mixed.tolist() == ["1", True, 1]
-    assert [type(value) for value in mixed] == [str, bool, int]
-
-
 def test_storage_error_help_targets_resolve(capsys: pytest.CaptureFixture[str]) -> None:
     import marivo
     from marivo.analysis.materialization.errors import SessionBusyError, StorageAccessError
@@ -1664,7 +1600,7 @@ def test_stored_two_selects_keep_data_and_remove_duplicate_fixed_adaptation(
 
 
 @pytest.mark.release
-@pytest.mark.parametrize("kind", ["ordinary", "calendar", "named_calendar"])
+@pytest.mark.parametrize("kind", ["ordinary", "calendar"])
 def test_actual_stored_inputs_derive_without_sources_and_republish_detached(
     local: LocalFrameServices,
     monkeypatch: pytest.MonkeyPatch,
@@ -1675,7 +1611,6 @@ def test_actual_stored_inputs_derive_without_sources_and_republish_detached(
     from marivo.analysis.compiler.graph_plan import FrameCompute, LocalCompute
     from marivo.analysis.compiler.query_program import FrameProgram
     from marivo.analysis.core import frame_calendar
-    from marivo.analysis.core.artifact_data import NamedCalendarData
     from marivo.analysis.core.frame_metadata import StoredInput
     from marivo.analysis.materialization import frame_source_preparation, graph_local_execution
     from marivo.analysis.materialization.graph_exchange import StageOutput
@@ -1685,29 +1620,7 @@ def test_actual_stored_inputs_derive_without_sources_and_republish_detached(
     from marivo.datasource.adapters import SourceSession
 
     memory = ordinary(local) if kind == "ordinary" else calendar(local, 3)
-    if kind == "named_calendar":
-        axis = memory._schema.axes[0]
-        assert isinstance(axis, CalendarDataAxis) and axis.frozen is not None
-        named = replace(
-            axis,
-            frozen=replace(
-                axis.frozen, definition=NamedCalendarData("business", "snapshot-exact", "period")
-            ),
-        )
-        part = _memory_backing(memory).data.copy_attachments()[0]
-        directory = part.rows.copy()
-        directory["nominal_label"] = pd.Series(['"P1"', '"P2"', '"P3"'], dtype="string[pyarrow]")
-        memory = AnalysisFrame._from_memory(
-            local,
-            CompletedFrameResult(
-                CompletedFrameData(
-                    replace(_complete_schema(memory), axes=(named,)),
-                    _memory_backing(memory).data.copy_rows(),
-                    (OutputAttachment(part.name, calendar_directory_schema(named), directory),),
-                ),
-                metadata(),
-            ),
-        )
+    pass
     saved = memory.persist()
 
     def forbidden(*args: object, **kwargs: object) -> None:
@@ -3251,7 +3164,6 @@ print(json.dumps({"keys": page.coordinates["key"], "values": page.to_pandas()["a
 
 
 def test_calendar_export_unifies_grains_and_preserves_clipped_timezone_bounds() -> None:
-    from marivo._temporal import CalendarAxis, _BuiltinGrain
     from marivo._temporal_grid import bind_grid
     from marivo.analysis.core.frame_calendar import freeze_calendar
     from marivo.analysis.dsl.temporal import exact_scope
@@ -3259,9 +3171,7 @@ def test_calendar_export_unifies_grains_and_preserves_clipped_timezone_bounds() 
 
     for unit, count in (("day", 1), ("minute", 5)):
         scope = exact_scope("2026-10-25T00:02:00", "2026-10-25T04:00:00", "Europe/Berlin")
-        grid = bind_grid(
-            scope, _BuiltinGrain(unit=unit, count=count), report_timezone="Europe/Berlin"
-        )
+        grid = bind_grid(scope, builtin_grain(unit=unit, count=count))
         frozen = freeze_calendar(
             CalendarAxis(scope, grid)._binding,
             token="axis.0",
@@ -3352,13 +3262,12 @@ def test_fixed_offset_exports_are_readable_and_keep_exact_instants(
     export_zone: str,
     calendar_zone: str,
 ) -> None:
-    from marivo._temporal import CalendarAxis, _BuiltinGrain
     from marivo._temporal_grid import bind_grid
     from marivo.analysis.core.frame_calendar import freeze_calendar
     from marivo.analysis.dsl.temporal import exact_scope
 
     scope = exact_scope("2024-01-01T00:02:00", "2024-01-03T00:00:00", zone)
-    grid = bind_grid(scope, _BuiltinGrain(unit="day", count=1), report_timezone=zone)
+    grid = bind_grid(scope, builtin_grain(unit="day", count=1))
     frozen = freeze_calendar(
         CalendarAxis(scope, grid)._binding,
         token="day",
@@ -3668,47 +3577,6 @@ def test_interval_period_pages_keep_saved_pairs_and_comparison_endpoints(
                 assert isinstance(item.right, FrameIntervalPeriod)
                 assert item.left.start == datetime(2024, 1, 1, tzinfo=timezone.utc)
                 assert item.right.end == datetime(2024, 1, 5, tzinfo=timezone.utc)
-
-
-def test_named_period_pages_decode_captured_labels_and_keep_identity(
-    local: LocalFrameServices,
-) -> None:
-    from marivo.analysis.core.data_schema import NamedCalendarData
-    from marivo.analysis.core.frame_page import FrameCalendarPeriod
-    from marivo.analysis.core.lineage import SemanticObjectIdentity
-
-    original = calendar(local, 3)
-    source = _memory_backing(original).data
-    axis = source.schema.axes[0]
-    assert isinstance(axis, CalendarDataAxis) and axis.frozen is not None
-    ref = SemanticObjectIdentity("period_calendar", "business", "definition-exact")
-    named = replace(
-        axis,
-        frozen=replace(
-            axis.frozen, definition=NamedCalendarData("business", "snapshot", "period", ref)
-        ),
-    )
-    part = source.copy_attachments()[0]
-    directory = part.rows.copy()
-    directory["nominal_label"] = pd.Series(['"P1"', "true", "1"], dtype="string[pyarrow]")
-    memory = AnalysisFrame._from_memory(
-        local,
-        CompletedFrameResult(
-            CompletedFrameData(
-                replace(source.schema, axes=(named,)),
-                source.copy_rows(),
-                (OutputAttachment(part.name, calendar_directory_schema(named), directory),),
-            ),
-            metadata(),
-        ),
-    )
-    for frame in (memory, memory.persist()):
-        page = _period_page(frame)
-        labels = [item.label for item in page.items if isinstance(item, FrameCalendarPeriod)]
-        assert labels == ["P1", True, 1]
-        assert [type(label) for label in labels] == [str, bool, int]
-        assert page.target == frame.schema.axes[0]
-        assert page.items[2].key == (900_034,)
 
 
 def test_period_page_retains_only_selected_records_and_uses_bounded_batches(

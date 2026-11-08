@@ -1,220 +1,47 @@
-# Certified Temporal Authority
+# Business time data and external calendar ownership
 
-PeriodCalendar and TemporalSet define finite governed time facts.
-Their Python declarations state intent; exhaustive certification freezes the
-source values that execute that intent. Analysis consumes these snapshots
-without querying their sources at business execution time.
-[Temporal semantics](../temporal-semantics.md) owns consuming boundaries, windows,
-report timezones and frozen Frame correspondence.
+Business calendars, holidays, compensatory working days and event schedules are
+owned by the harness or an authoritative external data service. Marivo consumes
+explicit observation ranges and ordinary semantic fields. It does not certify,
+store or resolve business-calendar authority.
 
-## Two independent semantic kinds
+## Ordinary business data
 
-| Kind | Source fields | Certified meaning |
-| --- | --- | --- |
-| PeriodCalendar | Civil date plus named level keys | Finite exhaustive ordered partition and containment graph |
-| TemporalSet | Unique occurrence ID, start/end and optional category | Exact finite occurrences; overlap and gaps permitted |
+Model dates, fiscal period keys, occurrence IDs and working-day states with
+ordinary Entity, TimeDimension, Dimension and Relationship declarations.
+Analysis trusts declared identity and relationship cardinality; explicit
+source_check can validate selected data expectations. No full date-spine audit
+is added automatically. Missing working-day rows or NULL states are unknown,
+not rest days.
 
-All field refs for an object belong to one Entity. Constructors use half-open
-civil-date coverage. A PeriodCalendar derives its boundary timezone from its
-date field. A TemporalSet explicitly declares boundary_timezone for coverage
-midnights; DATE endpoints must declare the same timezone. These declarations do not
-require physical table/column names or redundant author-maintained ordinals.
-The same source Entity may back both kinds, each with its own ref/digest.
+Fiscal grouping aggregates the original Metric contributions by the declared
+business dimension. Completed daily means, distinct counts or ratios cannot
+generally be summed into a fiscal result.
 
-## Period calendars
+## Explicit analysis inputs
 
-ms.period_calendar declares name, date, coverage and a levels
-mapping. date must be a civil-date TimeDimension. A timestamp-bearing parse is rejected;
-parse=None retains a premise until source schema preparation proves native DATE.
-Midnight timestamp values cannot substitute for a DATE type. Empty coverage does
-not certify a calendar.
+The harness chooses the authoritative calendar, version, timezone and comparison
+policy. It supplies exact ranges through session.time_scope(...) and existing
+field or member filters. Non-contiguous working days require explicit membership;
+a bounding interval cannot replace that membership. Overlaps and repeated uses
+must follow the chosen analysis contract.
 
-Each level maps a local name to a non-null Dimension on that Entity. Keys must
-be globally unique within the level, so FY2026-Q1 can identify a quarter while
-Q1 repeated across years cannot. The reserved day level derives from coverage;
-authors do not declare it.
+Natural report buckets use mv.grain(...) and scope.by(grain). Fiscal cumulative
+or holiday-aligned windows require explicit ranges or mappings chosen outside
+Marivo; they do not acquire natural Grain semantics from their names. Unsupported
+combinations can be decomposed into explicit observations without adding an
+implicit calendar service.
 
-Certification requires exactly one row per covered date and proves:
+[Temporal semantics](../temporal-semantics.md) owns exact boundaries, natural
+calendar execution, windows and fixed-result correspondence.
 
-- Every date has exactly one key for each level.
-- Equal keys form a contiguous interval; different periods neither overlap nor
-  leave gaps.
-- Canonical period ordinals increase strictly.
-- A finer period belongs to exactly one containing coarser period on each
-  inferred edge, and the graph is acyclic.
+## Persistence
 
-An edge A -> B requires every A period to fit one B and at least one B to
-contain multiple A periods. Crossing partitions and coincident boundaries gain
-no edge. The system stores the direct transitive reduction and admissible
-closure; authors do not add manual roll-up overrides. Derived starts, ends,
-ordinals and containment positions come from the validated rows.
+New computations have no calendar certificates, snapshot stores or readiness
+dependencies on business calendars. Preview reads bounded source evidence and
+does not publish business-time authority.
 
-Given the `calendar_days` Entity, level fields and domain, a calendar can be authored as:
-
-```python
-from datetime import date
-import marivo.semantic as ms
-
-calendar_date = ms.time_dimension_column(
-    name="calendar_date",
-    entity=calendar_days,
-    column="calendar_date",
-    parse=ms.date(timezone="Asia/Shanghai"),
-)
-retail_calendar = ms.period_calendar(
-    name="retail_445",
-    date=calendar_date,
-    coverage=(date(2025, 1, 1), date(2027, 1, 1)),
-    levels={"year": fiscal_year_key, "month": fiscal_month_key},
-    domain=commerce,
-    ai_context=ms.ai_context(business_definition="Governed retail reporting periods"),
-)
-retail_month = ms.calendar_grain(calendar=retail_calendar, level="month")
-```
-
-`ms.calendar_grain` captures a source-free lookup. A Catalog entry's `grain(level)`
-captures its current certified snapshot when available and otherwise returns an
-unbound lookup. Both return a Grain without certifying the calendar or reading
-business rows. `scope.by(grain)` requires a captured snapshot. Session consumers
-resolve lookups according to their own certification requirements.
-
-## Temporal sets
-
-ms.temporal_set declares occurrence_id, start, end, boundary_timezone, coverage
-and optional category. IDs are unique. End is exclusive and strictly after start;
-occurrences lie wholly within finite coverage. Civil dates and timestamps cannot
-mix in one set. Timestamp coverage converts its civil dates to local-midnight
-instants in the declared boundary timezone. Naive and encoded timestamp source
-values use the field parser timezone or Datasource wall_clock_timezone, never
-the coverage boundary timezone.
-
-Overlapping seasons, incidents, promotions and holidays belong here when they
-are not a complete partition. A one-day holiday is explicitly [date, date+1),
-without inferring duration from a label. Category is a nonempty canonical string
-or null. Certification stores exact IDs, boundaries, categories and digest;
-there is no runtime recurrence expansion.
-
-## Certification, staleness and storage
-
-catalog.preview(ref, scope=...) reads the current datasource over complete
-declared coverage. The positive acquisition budget must admit all required
-columns and rows, with a sentinel to detect truncation and observed exhaustion.
-The preview limit is an integer from 1 to 100 inclusive and bounds retained
-preview entries without reducing certification coverage. PreviewResult.is_truncated
-can be True after successful exhaustive certification: only the retained preview
-entries are cut off. Read coverage for acquisition completeness and the calendar
-or temporal-set entry's definition.snapshot_status for the current certificate.
-A larger physical source may need a bounded upstream view/partition; sampling
-cannot certify it.
-Requested native query timeouts retain datasource support limits.
-
-The one existing source capture applies the same native backend parsing and
-localization expressions used by Analysis. Certification freezes resolved aware
-instants and DATE values; it does not replay strptime or choose a DST branch in
-Python. Missing source declarations reject before reading rows.
-
-Successful preview validates and atomically publishes an immutable normalized
-snapshot under project-local semantic state. Failed reads/validation do not
-replace the current certificate. Readiness is query-free and blocks missing,
-stale, invalid or insufficiently covered required temporal authority before a
-business scan.
-
-The manifest binds definition/dependency digests for staleness. The snapshot
-digest binds canonical executable content and excludes acquisition time, paths
-and display context. Prior content-addressed payloads remain available for
-already captured dependencies. Calendar identity is its ref and snapshot digest,
-plus the level when bound as a Grain; textual keys alone cannot establish equality.
-
-| Snapshot | Normalized executable fields |
-| --- | --- |
-| period-calendar-snapshot/v2 | Ref, timezone, coverage, level periods/bounds/ordinals, containments |
-| TemporalSetSnapshotV1 | Ref, timezone, coverage, occurrence IDs/bounds/categories |
-
-Calendar day rows may be discarded after validation because contiguous bounds
-reproduce membership. The reserved day level derives from coverage. Encoding
-and indexing remain private; no public sync/prepare or second calendar store exists.
-
-## Catalog navigation
-
-```python
-calendar = catalog.get("period_calendar:commerce.retail_445")
-month = calendar.grain("month")
-period = calendar.period_on("month", date(2026, 5, 15))
-page = calendar.periods("month", limit=20)
-
-campaigns = catalog.get("temporal_set:commerce.campaigns")
-occurrence = campaigns.occurrence("launch-2026")
-occurrences = campaigns.occurrences(
-    start=date(2026, 1, 1),
-    end=date(2027, 1, 1),
-    limit=20,
-)
-```
-
-period(level, key), period_on(level, date) and occurrence(key) return exact
-TimeScope values directly. Period/occurrence pages contain those same scopes;
-there are no independent level/occurrence collections or public scope factories.
-Periods are ordered by global ordinal. Occurrence filters select overlap with
-[start,end) and must match the set's civil-date/timestamp kind: use Python date
-for civil-date sets and datetime for timestamp sets. Omitted bounds leave that
-side unfiltered. Explicit bounds must lie inside certified coverage; timestamp
-coverage endpoints are local midnights in the certified boundary timezone.
-Coverage endpoints themselves are valid filter boundaries. Covered filters with
-no matches return an empty page; uncovered filters fail rather than implying
-that no occurrences exist.
-
-Overlap selection never clips the returned occurrence's original bounds.
-category is an exact nonempty string filter; None accepts all categories.
-Occurrences are ordered by start, end and canonical key. Continue with
-page.next_cursor until None, keeping the same snapshot and filters. A page's
-show displays key, original start/exclusive end, category, boundary timezone
-and has_more; individual scopes also disclose their frozen boundary timezone.
-
-For holidays, give each occurrence a unique key and, when useful, a stable
-cross-year category such as spring_festival. Separate sets and their business
-context state regional or organizational authority. Agents select the actual
-occurrences and comparison ranges; categories do not imply unique cross-year
-pairing. Existing interval or daily ordinal matching expresses the resulting
-comparison without a holiday-specific alignment policy.
-
-Daily working status can remain an ordinary Entity with a civil-date
-TimeDimension and a final is_workday Dimension, including compensatory working
-days. Multiple schedules require their own identity component. Read all dates
-and states over the explicit counting range with session.members/session.read
-before selecting working days. Missing rows or NULL states are unknown, not
-rest days; source uniqueness/non-null checks do not prove a complete date spine.
-A TemporalSet can alternatively disclose explicit working/rest intervals, but
-its certification permits gaps and overlaps and does not prove one state per
-date. Neither representation introduces a new semantic kind or alignment rule.
-
-Keys are non-null canonical JSON scalars; date-like business keys normalize to
-ISO strings. Bounded pages use limit 1..100 and opaque cursors bound to the
-snapshot and filters. Changing either requires a fresh first page. Lookups read
-certified local data, never a datasource. Missing/stale/out-of-coverage authority
-fails with concrete semantic repairs.
-
-Object definition metadata exposes snapshot_status and definition/dependency facts. Derived
-period counts/graphs or occurrence counts are available only with a current
-certificate; unavailable and an empty certified graph remain distinct.
-Exact members are discoverable through native type Help.
-
-## Implementation map
-
-[Semantic temporal constructors](../../../marivo/semantic/_authoring_temporal.py)
-own declarations; [catalog.py](../../../marivo/semantic/catalog.py) owns certification
-dispatch and entries. Normalized snapshots and validation live with shared scope/Grain values in
-[_temporal.py](../../../marivo/_temporal.py) and grid construction in
-[_temporal_grid.py](../../../marivo/_temporal_grid.py). Analysis freezes the consumed
-coordinates through [core/time_authority.py](../../../marivo/analysis/core/time_authority.py)
-and [core/frozen_calendar.py](../../../marivo/analysis/core/frozen_calendar.py).
-
-## Captured reverse identities
-
-Semantic Grain and calendar-period TimeScope values expose `calendar_id`;
-temporal-occurrence TimeScope values expose `temporal_set_id`. These canonical
-strings are identity metadata. A built-in Grain has no `calendar_id` property.
-Explicit `catalog.get(value.calendar_id)` or `catalog.get(scope.temporal_set_id)`
-gets that Catalog's current object; it does not restore or replace the existing
-time value. The original snapshot digest, timezone, ordinal and half-open bounds
-remain fixed. Authoring `ms.calendar_grain(...)` remains uncertified until its
-existing binding/certification boundary.
+This is a breaking removal. Historical named-calendar descriptors, saved results
+requiring them and executable business-calendar inputs are unsupported. No
+compatibility reader, migration or producer replay is provided. Natural-calendar
+results retain their current fixed-data and source-free cold-read contracts.

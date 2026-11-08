@@ -2,11 +2,11 @@
 
 Status: implemented current contract.
 
-Civil dates, absolute instants, wall clocks, calendar periods and elapsed
-durations have different meaning. Semantic declarations own source time roles
-and certified authority; Analysis captures exact boundaries and freezes the
-coordinates needed to interpret completed data. Calendar/set authoring
-and certification belong to [Temporal authority](semantic/temporal-authority.md).
+Civil dates, absolute instants, wall clocks, natural calendar periods and elapsed
+durations have different meaning. Semantic declarations own source time roles;
+Analysis captures exact boundaries and freezes completed result coordinates.
+Business calendar governance belongs to the harness; see
+[Business time data](semantic/temporal-authority.md).
 
 ## Time authority and exact boundaries
 
@@ -19,8 +19,7 @@ or relative-date language.
 Dates and offset-free ISO strings are local civil inputs. Python naive datetime
 objects and ambiguous/nonexistent local clocks reject. Aware inputs and existing
 anchors retain their absolute instant even when a parsing timezone is supplied.
-Catalog period/occurrence scopes retain their certified boundary timezone and
-snapshot rather than adopting a new report timezone.
+
 
 Ordinary report TimeScopes and CalendarAxes, including those carried by a
 Population, must match the receiving Session timezone at observation capture.
@@ -30,21 +29,11 @@ create a Session in the intended report timezone or rebuild the domain in the
 receiving Session. Offset-bearing bounds keep their absolute instants but do
 not override the ordinary reporting calendar timezone.
 
-Certified calendar/occurrence scopes and their derived axes retain their own
-timezone, including after shifts and Population composition. A captured semantic
-Grain also supplies certified calendar authority. Internal coordinates preserve
-the typed authority and certified identity/snapshot rather than inferring it
-from a timezone or coordinate name. Certified report domains may differ from
-the Session; ordinary predicate civil boundaries and builtin internal samples
-still use the Session timezone. This check applies to the new observation's
-report domain, not independent branch domains or fixed-data result reading.
-
 | Authority | Purpose |
 | --- | --- |
 | Field parser, then Datasource `wall_clock_timezone` | Interpret naive source clocks and business DATE values |
 | Physical aware type | Preserve an existing absolute instant |
 | Session report timezone | Interpret ordinary reporting ranges, calendar groups and labels |
-| Certified calendar timezone/snapshot | Govern named period boundaries and membership |
 | Frozen result coordinates and source interpretation | Read saved values without current declarations or host state |
 
 `ms.timestamp(timezone=...)`, `ms.date(timezone=...)` and supported
@@ -54,7 +43,7 @@ inherits the prefix field's effective declaration, including its origin.
 Missing declarations for naive values and DATE fail before a business read;
 readiness handles statically known encodings, while validation qualifies physical
 schema. Aware physical fields ignore the Datasource default and reject an explicit
-parser timezone. No reader, report, host or certification boundary timezone fills
+parser timezone. No reader, report or host timezone fills
 in missing source meaning.
 
 Native transport settings remain private: DuckDB, PostgreSQL, MySQL and Trino use
@@ -147,8 +136,7 @@ their source business-day-start instant even without an observation time role.
 This comparison read is distinct from the original DATE grouping/projection.
 Time-valued branches used by the comparison follow the same boundary rule.
 Use `session.instant(value, timezone=...)` for explicit boundary timezones.
-Session scopes have instant bounds; certified scopes may retain civil dates,
-which require their boundary timezone when converted to instants. Ordinary string
+Session scopes have exact instant bounds and a frozen report timezone. Ordinary string
 Dimensions, physical identity values and fixed Frame Column comparisons retain
 their existing types. No DATE subday totals are inferred.
 
@@ -171,8 +159,9 @@ coordinate with its own frozen bounds.
 
 Windows require available report endpoints. Native TimeField sample reducers
 can use represented samples without an observation period, regardless of
-`sample_interval`. The two Grain sample forms require clocks on all
-contributing branches. Builtin calendar samples use the Session report
+`sample_interval`. Grain-only sampling needs at least one clocked branch; explicit fields
+supply their own sample domain. Independent branches retain their scope at
+represented sample keys. Builtin calendar samples use the Session report
 timezone and actual sample keys. A fixed source predicate such as
 a field comparison remains in force throughout a window and supplies no
 report endpoint. Membership time, attribute time, Metric observation time and
@@ -207,21 +196,10 @@ owns snapshot and validity selection.
 
 ## Grain and bucket structure
 
-mv.grain(unit, count=1) constructs builtin second/minute/hour/day/week/month/
-quarter/year grains. Count greater than one is a sub-day width and must tile
-one nominal day at construction; calendar-variable units require one.
-Grain has no ordering operators. Duplicate subday spellings such as 60second,
-120second and 60minute reject; 24hour is outside the subday contract.
-90second and 90minute remain legal. There are no
-string aliases, guessed tuple grains or direct public Grain constructors.
-Named grains come from `ms.calendar_grain` or a Catalog calendar entry. Equality
-and hashing include captured snapshot identity; a lookup Grain differs from a
-captured Grain. Scope.by requires a captured calendar Grain because it has no
-Session resolution authority.
+Business calendar keys use ordinary fields. The harness supplies explicit ranges and comparison mappings.
 
 TimeScope.by(grain) constructs a CalendarAxis for an explicit domain without
-business reads. It captures selection intent, timezone, grain and required
-snapshot identity. During result
+business reads. It captures selection intent, report timezone and natural grain. During result
 evaluation, the source backend generates its required output positions; original
 local time data uses pandas. Builtin day/week/month/quarter/year use native civil
 truncation. Subday widths align to local midnight and must divide a nominal day.
@@ -245,9 +223,7 @@ With a CalendarAxis, ordinary output completes the union of generated positions
 S and observed keys O.
 Only missing S keys receive empty-result rows; additional O keys remain present.
 Window output instead uses its explicit endpoint domain. Calendar output never
-creates new category keys. Certified custom output supports exactly one complete
-period; partial, sparse and multiple-period selections reject before business
-reads. Certification remains necessary but does not create an execution map.
+creates new category keys.
 
 When ordinary and windowed Metrics share an observation, their contributions
 jointly discover ordinary classification tuples, including members represented
@@ -266,20 +242,9 @@ parent and child keys. Static nesting rules apply to layers on the same time
 field and require a common timezone. Subday widths
 divide the parent width, day nests in week/month/quarter/year, month in
 quarter/year, and quarter in year. Equal builtin grains are valid; week does not
-nest in month/quarter/year. Custom hierarchies have no implicit containment rule;
-one complete custom period may be sampled under a compatible report interval.
+nest in month/quarter/year. Business calendar keys are ordinary dimensions, not natural grains.
 Final output completion never changes an internal sample mean or count. See
 [internal samples](semantic/expressions.md#internal-samples-and-windows).
-
-Semantic sample Grains resolve against the Session's frozen current certified
-snapshot and become declared calendar dependencies. Builtin calendar samples
-support inner windows at each actual sample's endpoint
-and enclosing windows at report endpoints. Sample discovery precedes inner window
-reads, retains complete parent keys, and does not generate empty dates. Fixed source
-predicates and different-field cohorts stay in force. `trailing_periods` counts
-periods of the endpoint layer, with the existing complete-period requirement.
-Custom calendar sample/window combinations remain unsupported. See
-[expression composition](semantic/expressions.md#internal-samples-and-windows).
 
 The axis preserves these distinctions. An original scope is available through
 axis.scope; a shifted sparse axis may have scope=None. An envelope does not
@@ -340,8 +305,7 @@ MTD/YTD progress uses civil positions, rather than equal seconds or ordinal day.
 
 mv.ordinal matches compatible full logical selections using their saved original
 ordinals, without compressing positions after where/top. It also pairs two
-single-record interval directories with the same boundary timezone. Named
-calendars support ordinal, without builtin offset semantics. Shift does not
+single-record interval directories with the same boundary timezone. Historical named result descriptors retain fixed-data ordinal matching only. Shift does not
 accept ordinal. Multiple calendar axes and already paired inputs cannot acquire
 an arbitrary automatic matching route.
 
@@ -369,8 +333,7 @@ keys under compatible axis/grain/timezone contracts. Offset and ordinal consume
 saved civil identity and progress without relocalizing old keys; ambiguous
 one-to-many civil matches reject only the affected comparison. Cold reads consume
 saved values without current timezone, Catalog or source reconstruction. Missing
-or corrupt required metadata fails integrity checks. Calendar certification does
-not certify business source coverage.
+or corrupt required metadata fails integrity checks. Calendar coordinates do not certify business source coverage.
 
 ## Encoded event-time predicates
 
@@ -483,8 +446,7 @@ Required final output indexes use a compact native scalar range expression; this
 is result evaluation with O(N) output cost, not a timezone qualification query or
 a business-fact scan. MySQL and MariaDB generate positions with products of fixed
 0–9 UNION ALL digit tables; SQL size grows with the number of decimal digits,
-without recursion or a JSON_TABLE dependency. Custom single-period output uses
-its certified range and a native constant key. No source calendar date directory
+without recursion or a JSON_TABLE dependency.  No source calendar date directory
 is uploaded or reread.
 
 Remaining finite mixed-key parameters use invocation-owned typed SQL relations.

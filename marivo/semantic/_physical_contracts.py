@@ -157,10 +157,5 @@ def validate_bound_field(value: ir.Value, *, ref: Ref[SemanticKindTag], registry
                     registry, source_timezone_axis(registry, other), physical_type="date"
                 )
                 declarations.append((other, other_zone.timezone, other_zone.origin))
-            for temporal_set in registry.temporal_sets.values():
-                if ref.path in (temporal_set.start, temporal_set.end):
-                    declarations.append(
-                        (temporal_set.semantic_id, temporal_set.boundary_timezone, "temporal_set")
-                    )
             if len({zone for _path, zone, _origin in declarations}) > 1:
                 raise DeclaredTimezoneContradiction(ref=ref.path, declarations=tuple(declarations))

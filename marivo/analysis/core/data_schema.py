@@ -18,7 +18,6 @@ from marivo.analysis.core.frame_interpretation import (
     FrameValueTimeSemantics,
     validate_source_times,
 )
-from marivo.analysis.core.lineage import SemanticObjectIdentity
 from marivo.analysis.core.model import reject
 
 
@@ -80,39 +79,24 @@ class BuiltinCalendarData:
 
 
 @dataclass(frozen=True, slots=True)
-class NamedCalendarData:
-    """An inert identifier and digest explaining a saved named calendar."""
-
-    identity: str
-    snapshot_digest: str
-    level: str
-    ref: SemanticObjectIdentity | None = None
-
-    def __post_init__(self) -> None:
-        require_data_text(self.identity, "data.calendar.identity")
-        require_data_text(self.snapshot_digest, "data.calendar.snapshot")
-        require_data_text(self.level, "data.calendar.level")
-
-
-@dataclass(frozen=True, slots=True)
 class FrozenCalendarData:
     """Small calendar descriptor referencing the required finite directory."""
 
-    definition: BuiltinCalendarData | NamedCalendarData
+    definition: BuiltinCalendarData
     directory_name: str
     rule_version: Literal["calendar.v3"] = "calendar.v3"
     direct: FrozenCalendarOrigin | None = None
 
     def __post_init__(self) -> None:
         if (
-            type(self.definition) not in (BuiltinCalendarData, NamedCalendarData)
+            type(self.definition) not in (BuiltinCalendarData,)
             or self.rule_version != "calendar.v3"
             or (self.direct is not None and type(self.direct) is not FrozenCalendarOrigin)
         ):
             reject(
                 "a closed versioned frozen calendar descriptor",
                 repr(self),
-                "Freeze the builtin or named calendar and its finite directory.",
+                "Freeze the natural calendar and its finite directory.",
                 "data.calendar",
             )
         require_data_text(self.directory_name, "data.calendar.directory")

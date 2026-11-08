@@ -11,12 +11,6 @@ import pandas as pd
 import pytest
 
 import marivo.analysis as mv
-import marivo.semantic as ms
-from marivo.datasource.adapters import SourceSession
-from marivo.datasource.capabilities import provider_statement_log
-from marivo.datasource.ir import DatasourceIR
-from marivo.datasource.json_source import JsonResponseCache
-from marivo.datasource.runtime import DatasourceConnectionService
 from marivo.semantic.reader import SemanticProject
 from tests.analysis.graph.source_fixtures import author_source_project
 from tests.analysis.numeric.pandas_coordinates import ordinary_columns
@@ -615,9 +609,7 @@ def test_dst_grid_keeps_instant_edges_and_fixed_coordinate(
         )
         grain = mv.grain("day")
         grid = scope.by(grain)
-        bound = bind_grid(
-            scope, grain, report_timezone=session.timezone, explicit_timezone=session.timezone
-        )
+        bound = bind_grid(scope, grain)
         hours = [23, 24] if transition == "spring" else [25, 24]
         assert [(c.end - c.start).total_seconds() / 3600 for c in bound.cells] == hours
         assert [c.start.strftime("%Y-%m-%d %H:%M:%S") for c in bound.cells] == [
@@ -656,179 +648,6 @@ def test_dst_grid_keeps_instant_edges_and_fixed_coordinate(
                 "grid_timezone": "America/New_York",
                 "end_exclusive": True,
                 "last_half_hour_included": True,
-                "resources": 0,
-            },
-            grouped,
-            (case.session,),
-        )
-
-
-@pytest.mark.parametrize(
-    "backend", source_params(["duckdb", "postgres", "mysql", "trino", "clickhouse"])
-)
-def test_certified_unequal_calendar_owns_native_boundaries(
-    backend: str,
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
-    source_trace: SourceTrace,
-) -> None:
-    from datetime import date, timedelta
-
-    import marivo.datasource as md
-
-    monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("MARIVO_PROJECT_ROOT", str(tmp_path))
-    facts = [
-        (
-            i + 1,
-            amount,
-            date(2026, 8, 1) + timedelta(days=i),
-            (datetime(2026, 7, 31, 16) + timedelta(days=i)).strftime("%Y-%m-%d %H:%M:%S"),
-            "P1" if i < 2 else "P2",
-        )
-        for i, amount in enumerate([2, 5, 11, 13, 17])
-    ]
-    data = SourceData(
-        "id BIGINT, revision BIGINT, tenant VARCHAR(10), amount BIGINT, happened VARCHAR(32), calendar_day DATE, period VARCHAR(10)",
-        ",".join(
-            (
-                f"({identity},1,'a',{amount},'{instant}',{('DATE ' if backend == 'trino' else '')}'{day}','{period}')"
-                for identity, amount, day, instant, period in facts
-            )
-        ),
-        "id Int64, revision Int64, tenant String, amount Int64, happened String, calendar_day Date, period String",
-        [
-            {
-                "id": identity,
-                "revision": 1,
-                "tenant": "a",
-                "amount": amount,
-                "happened": instant,
-                "calendar_day": day,
-                "period": period,
-            }
-            for identity, amount, day, instant, period in facts
-        ],
-    )
-    profile = (
-        "iceberg" if backend == "trino" else "mergetree" if backend == "clickhouse" else "table"
-    )
-    with source_case(backend, profile, tmp_path, monkeypatch, data) as case:
-        author_source_project(
-            backend,
-            case,
-            monkeypatch,
-            semantic_project_factory,
-            time_parse="string",
-            certified_calendar=True,
-        )
-        catalog = ms.load(workspace_dir=tmp_path)
-        calendar = catalog.get("period_calendar:sales.fiscal")
-        source_session = DatasourceConnectionService.source_session
-        certification_owners: list[SourceSession] = []
-
-        def capture_certification_owner(
-            connections: DatasourceConnectionService,
-            name: str,
-            datasource: DatasourceIR,
-            *,
-            binding_scope: object | None = None,
-            json_responses: JsonResponseCache | None = None,
-        ) -> SourceSession:
-            owner = source_session(
-                connections,
-                name,
-                datasource,
-                binding_scope=binding_scope,
-                json_responses=json_responses,
-            )
-            if binding_scope is None and owner not in certification_owners:
-                certification_owners.append(owner)
-            return owner
-
-        monkeypatch.setattr(
-            DatasourceConnectionService, "source_session", capture_certification_owner
-        )
-        catalog.preview(calendar, scope=md.unpruned(max_rows=5, timeout_seconds=30))
-        assert any(
-            submission.purpose == "semantic.certified_preview"
-            for owner in certification_owners
-            for submission in owner.submissions
-        )
-        for owner in certification_owners:
-            if owner not in source_trace.owners:
-                source_trace.owners.append(owner)
-        assert all(owner._closed for owner in certification_owners)
-        deadline_controls = [
-            {
-                "statement_id": item.statement_id,
-                "purpose": item.purpose,
-                "sql": item.sql,
-                "state": item.state,
-            }
-            for owner in certification_owners
-            for item in provider_statement_log(owner._backend)
-            if item.statement_id.startswith("mysql.authoring.")
-        ]
-        if backend == "mysql":
-            assert [item["statement_id"] for item in deadline_controls] == [
-                "mysql.authoring.install_select_deadline",
-                "mysql.authoring.read_select_deadline",
-            ]
-            assert all(
-                item["state"] == "succeeded"
-                and item["purpose"] == "datasource.native_query_timeout"
-                for item in deadline_controls
-            )
-        entry = catalog.get("period_calendar:sales.fiscal")
-        assert entry.kind == "period_calendar"
-        assert entry.definition.snapshot_status == "current"
-        grain = entry.grain("period")
-        session = mv.session.get_or_create("r93-certified-calendar", timezone="UTC")
-        scope = entry.period("period", "P1")
-        grid = scope.by(grain)
-        members = session.members(catalog_get(session.catalog, "entity:sales.facts", kind="entity"))
-        with pytest.raises(ValueError) as conflict:
-            mv.session.get_or_create("r93-foreign-calendar", timezone="UTC").time_scope(
-                start=scope.start, end=scope.end
-            ).by(grain)
-        assert str(conflict.value) == (
-            "Expected compatible scope and calendar timezones; use a certified calendar scope "
-            "or create a Session in the calendar boundary timezone."
-        )
-        logical = session.observe(
-            {"value": catalog_get(session.catalog, "metric:sales.total", kind="metric")},
-            by=mv.product(grid, members),
-        )
-        fixed = logical.persist()
-        assert len(fixed.to_pandas()) == 5
-        source_trace.record(fixed)
-        grouped = session.observe(
-            {"value": catalog_get(session.catalog, "metric:sales.total", kind="metric")},
-            by=(scope.by(grain),),
-        ).persist()
-        assert _value(grouped).tolist() == [7]
-        second_scope = entry.period("period", "P2")
-        other = session.observe(
-            {"value": catalog_get(session.catalog, "metric:sales.total", kind="metric")},
-            by=(second_scope.by(grain),),
-        ).compute()
-        assert _value(other).tolist() == [41]
-        assert session._runtime.store.resources(session._runtime.session_ref) == ()
-        source_trace.save(
-            f"c06-source-{backend}-certified-calendar",
-            {**case.environment, "profile": profile},
-            {"columns": data.columns, "values": data.values},
-            {
-                "values": [7, 41],
-                "period_days": [2, 3],
-                "product_rows": 5,
-                "calendar_timezone": "Asia/Shanghai",
-                "report_timezone": session.timezone,
-                "snapshot_current": True,
-                "deadline_controls": deadline_controls,
-                "conflicting_zone_rejected": True,
                 "resources": 0,
             },
             grouped,

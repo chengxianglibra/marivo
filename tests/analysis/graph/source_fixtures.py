@@ -20,7 +20,6 @@ def author_source_project(
     identity_type: Literal["int64", "string"] = "string",
     time_parse: Literal["native", "native_resolved", "string", "date"] = "native",
     cumulative_anchor: str | None = None,
-    certified_calendar: bool = False,
     read_timezone: str = "UTC",
 ) -> bool:
     assert isinstance(case.source, TableSourceIR)
@@ -61,15 +60,6 @@ def author_source_project(
             + "revision = ms.dimension_column(name='revision', entity=facts, column='revision')\n"
             + "amount = ms.measure_column(name='amount', entity=facts, column='amount', additivity=ms.additive_all())\n"
             + f"happened = ms.time_dimension_column(name='happened', entity=facts, column='happened', parse={parse})\n"
-            + (
-                "from datetime import date\n"
-                "calendar_day = ms.time_dimension_column(name='calendar_day', entity=facts, column='calendar_day', parse=ms.date(timezone='Asia/Shanghai'))\n"
-                "period = ms.dimension_column(name='period', entity=facts, column='period')\n"
-                "fiscal = ms.period_calendar(name='fiscal', date=calendar_day, coverage=(date(2026, 8, 1), date(2026, 8, 6)), levels={'period': period})\n"
-                if certified_calendar
-                else ""
-            )
-            + ""
             + "amount_value = amount\n"
             + "happened_value = happened\n"
             + "@ms.metric()\ndef total():\n    return amount_value.sum(time=happened_value)\n"

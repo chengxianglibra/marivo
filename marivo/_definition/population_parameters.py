@@ -63,9 +63,7 @@ from marivo._temporal import (
     CalendarAxis,
     InstantAnchor,
     TimeScope,
-    _SessionTimeScope,
     anchor_from_datetime,
-    scope_time_authority,
 )
 from marivo._temporal_grid import instant
 from marivo.refs import Ref, SemanticKind, SemanticKindTag
@@ -436,7 +434,7 @@ def parameter(value: Parameter) -> Deferred:
 
 
 def interval(scope: TimeScope) -> PopulationParameter:
-    if scope.kind == "absolute" and not isinstance(scope, _SessionTimeScope):
+    if not isinstance(scope, TimeScope):
         invalid("an absolute Population interval requires a TimeScope with a frozen timezone")
     zone = scope.boundary_timezone
     start = anchor_from_datetime(instant(scope.start, zone))
@@ -446,7 +444,6 @@ def interval(scope: TimeScope) -> PopulationParameter:
         start,
         end,
         zone,
-        time_authority=scope_time_authority(scope),
     )
     return PopulationParameter(PopulationProgram(IntervalKeys(coordinate), None, (coordinate,)))
 

@@ -9,16 +9,8 @@ from hashlib import sha256
 from itertools import pairwise
 from typing import Literal, TypeAlias
 
-from marivo._temporal import (
-    CertifiedTimeAuthority,
-    Grain,
-    PeriodCalendarSnapshotV2,
-    ReportTimeAuthority,
-    SessionTimeAuthority,
-    TimeScope,
-    scope_time_authority,
-)
-from marivo._timezones import normalize_timezone, same_timezone
+from marivo._temporal import Grain, TimeScope
+from marivo._timezones import normalize_timezone
 
 CivilBounds: TypeAlias = tuple[str, str, str, str]
 InstantBounds: TypeAlias = tuple[datetime, datetime, datetime, datetime]
@@ -27,8 +19,7 @@ InstantBounds: TypeAlias = tuple[datetime, datetime, datetime, datetime]
 def _invalid(received: str) -> ValueError:
     return ValueError(
         "Expected finite half-open time cells with exact timezone and calendar authority; "
-        f"received {received}. Bind the frozen timezone and the exact certified calendar "
-        "and choose boundaries inside its coverage."
+        f"received {received}. Use an explicit non-empty range in the report timezone."
     )
 
 
@@ -117,17 +108,11 @@ class BoundTimeGrid:
 
     identity: str
     grain_spec: Grain
-    report_timezone: str
     boundary_timezone: str
-    snapshot_digest: str | None
-    scope_digest: str | None
     cells: tuple[TimeCell, ...]
     civil_bounds: tuple[CivilBounds, ...] = field(kw_only=True)
     precision: Literal["us"] = "us"
-    scope_identity: str | None = None
-    calendar_snapshot: PeriodCalendarSnapshotV2 | None = None
     origin: TimeGridOrigin | None = None
-    time_authority: ReportTimeAuthority = field(default=SessionTimeAuthority(), kw_only=True)
 
     @property
     def grain_token(self) -> str:
@@ -136,12 +121,7 @@ class BoundTimeGrid:
     def __post_init__(self) -> None:
         if not self.identity or not self.grain_token or self.precision != "us":
             raise _invalid("missing grid identity or grain")
-        if (
-            self.calendar_snapshot is not None
-            and self.calendar_snapshot.snapshot_digest != self.snapshot_digest
-        ):
-            raise _invalid("captured calendar differs from grid snapshot digest")
-        for zone in (self.report_timezone, self.boundary_timezone):
+        for zone in (self.boundary_timezone,):
             try:
                 normalize_timezone(zone)
             except (ValueError, KeyError) as error:
@@ -152,12 +132,8 @@ class BoundTimeGrid:
             raise _invalid("grid cells are duplicated, unordered or overlapping")
         if self.identity != _identity(
             self.grain_token,
-            self.report_timezone,
             self.boundary_timezone,
-            self.snapshot_digest,
-            self.scope_digest,
             self.cells,
-            self.scope_identity,
             self.origin,
             civil_bounds=self.civil_bounds,
         ):
@@ -231,24 +207,16 @@ class TimeGridOrigin:
 
 def _identity(
     grain_token: str,
-    report: str,
     boundary: str,
-    snapshot_digest: str | None,
-    scope_digest: str | None,
     cells: tuple[TimeCell, ...],
-    scope_identity: str | None = None,
     origin: TimeGridOrigin | None = None,
     *,
     civil_bounds: tuple[CivilBounds, ...],
 ) -> str:
     domain = (
         grain_token,
-        report,
         boundary,
-        snapshot_digest,
-        scope_digest,
         cells,
-        scope_identity,
         civil_bounds,
     )
     return sha256(repr(domain if origin is None else (*domain, origin)).encode()).hexdigest()
@@ -397,7 +365,7 @@ def civil_shift(
 def shift_grid(grid: BoundTimeGrid, kind: Literal["years", "periods"], by: int) -> BoundTimeGrid:
     """Construct one exact selected domain with only its stripped immediate origin."""
     grain = grid.grain_spec
-    if grain.kind != "builtin" or grain.unit not in ("week", "month", "year") or grain.count != 1:
+    if grain.unit not in ("week", "month", "year") or grain.count != 1:
         raise _invalid("shift requires builtin unit-step week, month or year")
     cells: list[TimeCell] = []
     civil_bounds: list[CivilBounds] = []
@@ -428,12 +396,8 @@ def shift_grid(grid: BoundTimeGrid, kind: Literal["years", "periods"], by: int) 
         origin=None,
         identity=_identity(
             grid.grain_token,
-            grid.report_timezone,
             grid.boundary_timezone,
-            grid.snapshot_digest,
-            grid.scope_digest,
             grid.cells,
-            grid.scope_identity,
             civil_bounds=grid.civil_bounds,
         ),
     )
@@ -442,22 +406,14 @@ def shift_grid(grid: BoundTimeGrid, kind: Literal["years", "periods"], by: int) 
     return BoundTimeGrid(
         _identity(
             grid.grain_token,
-            grid.report_timezone,
             grid.boundary_timezone,
-            grid.snapshot_digest,
-            None,
             selected,
             origin=origin,
             civil_bounds=frozen_civil,
         ),
         grain,
-        grid.report_timezone,
         grid.boundary_timezone,
-        grid.snapshot_digest,
-        None,
         selected,
-        calendar_snapshot=grid.calendar_snapshot,
-        time_authority=grid.time_authority,
         origin=origin,
         civil_bounds=frozen_civil,
     )
@@ -525,79 +481,38 @@ def _next(value: datetime, grain: Grain) -> datetime:
 def bind_grid(
     during: TimeScope,
     grain: Grain,
-    *,
-    report_timezone: str,
-    explicit_timezone: str | None = None,
-    snapshot: PeriodCalendarSnapshotV2 | None = None,
 ) -> BoundTimeGrid:
     """Freeze a finite grid; no source, host clock or calendar store is consulted."""
     if not isinstance(during, TimeScope) or not isinstance(grain, Grain):
         raise _invalid("grid requires a TimeScope and Grain")
-    scope_digest = None if during.kind == "absolute" else during.snapshot_digest
-    if grain.kind == "semantic":
-        if snapshot is None or snapshot.calendar_ref != grain._calendar:
-            raise _invalid("missing exact certified calendar snapshot")
-        if (
-            grain._snapshot is not None
-            and grain._snapshot.snapshot_digest != snapshot.snapshot_digest
-        ):
-            raise _invalid("grain and supplied calendar have different snapshot identities")
-        boundary = snapshot.boundary_timezone
-        if explicit_timezone is not None and not same_timezone(explicit_timezone, boundary):
-            raise _invalid("explicit calendar timezone conflicts with certification")
-        if during.kind == "calendar_period" and (
-            during._calendar != snapshot.calendar_ref or scope_digest != snapshot.snapshot_digest
-        ):
-            raise _invalid("scope and grain have different calendar snapshot identities")
-    else:
-        if snapshot is not None:
-            raise _invalid("builtin grain cannot adopt a calendar snapshot")
-        boundary = explicit_timezone or during.boundary_timezone
+    boundary = during.boundary_timezone
     scope_zone = during.boundary_timezone
     start, end = instant(during.start, scope_zone), instant(during.end, scope_zone)
     if start >= end:
         raise _invalid("grid scope is empty or reversed")
     periods: list[tuple[datetime, datetime]] = []
-    if snapshot is not None:
-        if start < instant(snapshot.coverage[0], boundary) or end > instant(
-            snapshot.coverage[1], boundary
-        ):
-            raise _invalid("grid extends beyond certified calendar coverage")
-        if grain.level == "day":
-            cursor_date = snapshot.coverage[0]
-            while cursor_date < snapshot.coverage[1]:
-                next_date = cursor_date + timedelta(days=1)
-                periods.append((instant(cursor_date, boundary), instant(next_date, boundary)))
-                cursor_date = next_date
-        else:
-            periods.extend(
-                (instant(p.start_date, boundary), instant(p.end_date, boundary))
-                for p in snapshot.periods
-                if p.level_name == grain.level
-            )
-    else:
-        authority = normalize_timezone(boundary).tz
-        lookback = timedelta(0) if authority.utcoffset(None) is not None else timedelta(days=2)
-        cursor = _floor((start - lookback).astimezone(authority).replace(tzinfo=None), grain)
-        # Enumerate civil boundaries, retaining both instants of repeated subday
-        # boundaries and skipping nonexistent ones. This is captured selection
-        # intent; result evaluation resolves positions in its native executor.
-        boundaries: set[datetime] = set()
-        earliest: datetime | None = None
-        while True:
-            current: list[datetime] = []
-            for fold in (0, 1):
-                local = cursor.replace(tzinfo=authority, fold=fold)
-                candidate = local.astimezone(timezone.utc)
-                if candidate.astimezone(authority).replace(tzinfo=None) == cursor:
-                    boundaries.add(candidate)
-                    current.append(candidate)
-                    earliest = candidate if earliest is None else min(earliest, candidate)
-            if earliest is not None and earliest <= start and current and min(current) >= end:
-                break
-            cursor = _next(cursor, grain)
-        ordered = sorted(boundaries)
-        periods.extend(pairwise(ordered))
+    authority = normalize_timezone(boundary).tz
+    lookback = timedelta(0) if authority.utcoffset(None) is not None else timedelta(days=2)
+    cursor = _floor((start - lookback).astimezone(authority).replace(tzinfo=None), grain)
+    # Enumerate civil boundaries, retaining both instants of repeated subday
+    # boundaries and skipping nonexistent ones. This is captured selection
+    # intent; result evaluation resolves positions in its native executor.
+    boundaries: set[datetime] = set()
+    earliest: datetime | None = None
+    while True:
+        current: list[datetime] = []
+        for fold in (0, 1):
+            local = cursor.replace(tzinfo=authority, fold=fold)
+            candidate = local.astimezone(timezone.utc)
+            if candidate.astimezone(authority).replace(tzinfo=None) == cursor:
+                boundaries.add(candidate)
+                current.append(candidate)
+                earliest = candidate if earliest is None else min(earliest, candidate)
+        if earliest is not None and earliest <= start and current and min(current) >= end:
+            break
+        cursor = _next(cursor, grain)
+    ordered = sorted(boundaries)
+    periods.extend(pairwise(ordered))
     cells = tuple(
         TimeCell(a.isoformat(), a, b, max(a, start), min(b, end), a < start or b > end)
         for a, b in sorted(periods)
@@ -611,34 +526,16 @@ def bind_grid(
         )
         for cell in cells
     )
-    snapshot_digest = snapshot.snapshot_digest if snapshot is not None else None
     token = grain._to_token()
-    scope_identity = (
-        None if during.kind == "absolute" else sha256(repr(during._identity()).encode()).hexdigest()
-    )
     return BoundTimeGrid(
         _identity(
             token,
-            report_timezone,
             boundary,
-            snapshot_digest,
-            scope_digest,
             cells,
-            scope_identity,
             civil_bounds=civil_bounds,
         ),
         grain,
-        report_timezone,
         boundary,
-        snapshot_digest,
-        scope_digest,
         cells,
-        scope_identity=scope_identity,
-        calendar_snapshot=snapshot,
-        time_authority=(
-            CertifiedTimeAuthority(snapshot.calendar_ref, snapshot.snapshot_digest)
-            if snapshot is not None
-            else scope_time_authority(during)
-        ),
         civil_bounds=civil_bounds,
     )

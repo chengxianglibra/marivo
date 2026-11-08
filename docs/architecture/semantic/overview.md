@@ -13,7 +13,7 @@ marivo.datasource
         |
 marivo.semantic
   project/domain + Entity/Relationship + row/Metric expressions
-  immutable resolved definitions + certified temporal snapshots
+  immutable resolved definitions
         |
 marivo.analysis
   Population + explicit observations + AnalysisFrame operations
@@ -44,7 +44,7 @@ semantic-role owner; navigation does not duplicate their contracts.
 | Physical capture, Deferred grammar, units and reductions | [Expressions](expressions.md) |
 | Loading, Catalog, readiness, preview and online validation | [Loading and validation](loading-validation-introspection.md) |
 | Choosing evidence and completing an authoring task | [Authoring workflow](authoring-workflow.md) |
-| Period calendars and temporal sets | [Temporal authority](temporal-authority.md) |
+| Business time data and external calendars | [Temporal authority](temporal-authority.md) |
 | Exact boundaries, windows and frozen time coordinates | [Temporal semantics](../temporal-semantics.md) |
 | Analysis source binding, data operations and Runtime | [Analysis](../analysis/README.md) |
 | Help, state display and repair ownership | [Public surface](../agent-friendly-public-surface.md) |
@@ -90,8 +90,6 @@ Online validation connects to the physical dependency closure and checks Entity
 outputs, field types and parser/timezone compatibility using actual schemas.
 Preview and analysis reuse the same field checks. Ordinary preview and explicit
 data checks answer scoped external-data questions.
-Temporal certification is different: its finite source values define executable
-calendar authority, so preview publishes a dedicated validated snapshot.
 Analysis preparation qualifies the actual source types, method and backend.
 None of these stages certifies another stage merely by succeeding.
 

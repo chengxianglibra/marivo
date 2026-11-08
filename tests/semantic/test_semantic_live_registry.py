@@ -185,12 +185,11 @@ def test_slice3_activates_native_navigation_and_object_descriptors() -> None:
         "model",
         "time",
         "time.parsing",
-        "time.calendars",
         "catalog",
         "validation",
         *(contract.canonical_id for contract in REGISTRY.object_contracts),
     } <= set(REGISTRY.canonical_ids())
-    assert len(REGISTRY.object_contracts) == 9
+    assert len(REGISTRY.object_contracts) == 7
     assert all(contract in REGISTRY.help_descriptors for contract in REGISTRY.object_contracts)
 
 
@@ -255,28 +254,6 @@ REQUIRED_DECISION_IDS = MappingProxyType(
                 "join_key_equivalence",
                 "multiplicity_fanout",
                 "evidence_checks",
-            }
-        ),
-        SemanticKind.PERIOD_CALENDAR: frozenset(
-            {
-                "calendar_convention",
-                "civil_date_authority",
-                "boundary_timezone",
-                "finite_coverage",
-                "level_key_meaning",
-                "containment_expectations",
-            }
-        ),
-        SemanticKind.TEMPORAL_SET: frozenset(
-            {
-                "occurrence_set_meaning",
-                "occurrence_identity",
-                "half_open_bounds",
-                "temporal_encoding",
-                "boundary_timezone",
-                "finite_coverage",
-                "category",
-                "overlap_gap_semantics",
             }
         ),
     }
@@ -730,7 +707,6 @@ def test_terminal_result_help_matrix_accepts_type_string_and_instance() -> None:
     from marivo._help.route import route_help_target
     from marivo.introspection.live.resolve import resolve_live_target
     from marivo.preview import PreviewResult
-    from marivo.semantic.catalog import CalendarPeriodPage, TemporalOccurrencePage
     from marivo.semantic.dtos import PreviewBatchResult
     from marivo.semantic.readiness import ReadinessReport
     from marivo.semantic.validation import ValidationCheckResult, ValidationReport
@@ -741,20 +717,7 @@ def test_terminal_result_help_matrix_accepts_type_string_and_instance() -> None:
         ReadinessReport,
         ValidationReport,
         ValidationCheckResult,
-        CalendarPeriodPage,
-        TemporalOccurrencePage,
     )
-    assert TYPE_CONTRACTS[CalendarPeriodPage].producers == (
-        LiveHelpTarget(surface="analysis", canonical_id="calendar.periods"),
-    )
-    assert TYPE_CONTRACTS[TemporalOccurrencePage].producers == (
-        LiveHelpTarget(surface="analysis", canonical_id="temporal_set.occurrences"),
-    )
-    for page_type in (CalendarPeriodPage, TemporalOccurrencePage):
-        for producer in TYPE_CONTRACTS[page_type].producers:
-            route = route_help_target(f"{producer.surface}.{producer.canonical_id}")
-            assert isinstance(route, NativeHelpRoute)
-            assert route.owner == producer.surface
     for result_type in result_types:
         contract = TYPE_CONTRACTS[result_type]
         declared_members = {
@@ -842,7 +805,7 @@ def test_preview_capability_accepts_one_named_object() -> None:
     assert subject.family == "SemanticObject"
     assert preview.effects is not None
     assert preview.effects.mutations == ("project_state",)
-    assert "may_publish_certified_artifact" in preview.effects.flags
+    assert "may_publish_certified_artifact" not in preview.effects.flags
     preview_many = _authoring("preview_many")
     assert preview_many.output_family == "PreviewBatchResult"
     assert preview_many.effects is not None
@@ -857,8 +820,8 @@ def test_temporal_certification_help_names_only_retained_models(target: str) -> 
     from marivo._help.render import render_help_text
 
     text, _, _ = render_help_text(target)
-    assert "period calendars" in text.lower()
-    assert "temporal sets" in text.lower()
+    assert "period calendars" not in text.lower()
+    assert "temporal sets" not in text.lower()
     assert "work schedule" not in text.lower()
 
 

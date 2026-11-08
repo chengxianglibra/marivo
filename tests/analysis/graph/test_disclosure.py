@@ -8,6 +8,7 @@ import pytest
 import marivo.analysis as mv
 from marivo.analysis._capabilities.dataset_model import (
     CallableInput,
+    FieldInput,
     ParameterInput,
     TypeInput,
 )
@@ -194,7 +195,10 @@ def test_corrupt_native_input_fails_closed(fault: str) -> None:
             )
         elif fault == "variant_fields":
             descriptors[i] = replace(
-                type_descriptor, variants=(replace(type_descriptor.variants[0], fields=()),)
+                type_descriptor,
+                variants=(
+                    replace(type_descriptor.variants[0], fields=(FieldInput("fabricated", "str"),)),
+                ),
             )
         elif fault == "duplicate":
             descriptors.append(type_descriptor)

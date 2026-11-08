@@ -92,7 +92,6 @@ def _calendar(
         grid.identity,
         grid.grain_spec,
         grid.boundary_timezone,
-        grid.snapshot_digest,
         tuple(
             (
                 anchor_from_datetime(cell.original_start),

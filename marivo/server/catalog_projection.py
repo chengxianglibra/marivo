@@ -18,9 +18,7 @@ from marivo.semantic.catalog_entries import (
     EntityDefinition,
     FieldDefinition,
     MetricDefinition,
-    PeriodCalendarDefinition,
     RelationshipDefinition,
-    TemporalSetDefinition,
     _json_value,
 )
 from marivo.semantic.errors import ErrorKind, SemanticLoadFailed
@@ -32,9 +30,7 @@ DEFINITION_FIELDS: dict[type[object], str] = {
     EntityDefinition: "context datasource primary_key versioning default_time fields dependencies",
     FieldDefinition: "context entity expression unit additivity parse sample_interval dependencies dependency_context facts",
     MetricDefinition: "context roots formula reductions conditions time_bindings unit null_rules dependencies dependency_context facts",
-    PeriodCalendarDefinition: "context source_date boundary_timezone coverage levels snapshot_status dependencies",
     RelationshipDefinition: "context from_entity to_entity keys cardinality dependencies",
-    TemporalSetDefinition: "context occurrence_id start end category boundary_timezone coverage snapshot_status occurrence_count dependencies",
 }
 SUMMARY_FIELDS = ("id", "kind", "path", "name", "domain", "business_definition")
 

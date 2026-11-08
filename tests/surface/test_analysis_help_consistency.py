@@ -1,6 +1,5 @@
 """Analysis Help agrees with real symbolic, numeric and temporal boundaries."""
 
-from collections.abc import Callable
 from datetime import timedelta
 from typing import Literal
 
@@ -15,15 +14,9 @@ from marivo.analysis._capabilities.registry import REGISTRY
 from marivo.analysis.core.data_types import DurationDataType
 from marivo.analysis.errors import AnalysisError
 from marivo.semantic import Entity
-from marivo.semantic.catalog import PeriodCalendar, SemanticCatalog
-from marivo.semantic.errors import SemanticError
-from marivo.semantic.reader import SemanticProject
 from tests.shared_fixtures import (
     DslCaseFactory,
-    catalog_entry,
     catalog_value,
-    fiscal_analysis_project_files,
-    publish_fiscal_calendar_artifact,
 )
 
 
@@ -227,57 +220,6 @@ def test_window_help_discloses_consuming_restrictions(
     assert disclosure in text
     assert "marivo.help('analysis.observation_window')" in text
     assert "marivo.help('semantic.metric.window')" in text
-
-
-@pytest.fixture
-def calendar_catalog(
-    semantic_project_factory: Callable[..., SemanticProject],
-) -> SemanticCatalog:
-    return SemanticCatalog(semantic_project_factory(fiscal_analysis_project_files()))
-
-
-def test_calendar_grain_help_distinguishes_missing_and_current_certification(
-    calendar_catalog: SemanticCatalog,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    catalog = calendar_catalog
-    monkeypatch.setenv("MARIVO_PROJECT_ROOT", str(catalog.workspace_dir))
-    session = mv.session.get_or_create("help-calendar", timezone="UTC")
-    scope = session.time_scope(start="2026-01-01", end="2026-01-08")
-    calendar = catalog_entry(catalog, "sales.fiscal", kind="period_calendar")
-    assert isinstance(calendar, PeriodCalendar)
-    unbound = calendar.grain("fiscal_week")
-    with pytest.raises(ValueError, match="captured semantic Grain"):
-        scope.by(unbound)
-    publish_fiscal_calendar_artifact(catalog)
-    captured = calendar.grain("fiscal_week")
-    assert captured != unbound
-    assert isinstance(scope.by(captured), mv.CalendarAxis)
-    for target in ("analysis.grain", "analysis.catalog.period_calendars.grain"):
-        text = render_help_text(target)[0]
-        assert "unbound lookup" in text
-        assert "certif" in text
-    assert "semantic.preview" in render_help_text("analysis.catalog.period_calendars.grain")[0]
-
-
-def test_calendar_periods_help_discloses_page_bounds_and_cursor_ownership(
-    calendar_catalog: SemanticCatalog,
-) -> None:
-    publish_fiscal_calendar_artifact(calendar_catalog)
-    calendar = catalog_entry(calendar_catalog, "sales.fiscal", kind="period_calendar")
-    assert isinstance(calendar, PeriodCalendar)
-    for invalid_limit in (0, 101, True):
-        with pytest.raises(SemanticError, match="integer in"):
-            calendar.periods("fiscal_week", limit=invalid_limit)
-    first = calendar.periods("fiscal_week", limit=1)
-    assert first.next_cursor is not None
-    assert calendar.periods("fiscal_week", limit=1, cursor=first.next_cursor).items != first.items
-    with pytest.raises(SemanticError, match="different certified snapshot/level"):
-        calendar.periods("fiscal_month", limit=1, cursor=first.next_cursor)
-    text = render_help_text("analysis.catalog.period_calendars.periods")[0]
-    assert "limit=1..100, excluding bool" in text
-    assert "same snapshot and level" in text
-    assert "next_cursor is None" in text
 
 
 def test_method_fact_help_keeps_details_with_their_owning_record() -> None:

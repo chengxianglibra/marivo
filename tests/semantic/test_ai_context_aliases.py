@@ -30,49 +30,7 @@ _DATASOURCE = """import marivo.datasource as md
 import marivo.semantic as ms
 md.duckdb(name='warehouse', wall_clock_timezone='UTC', path=':memory:', ai_context=ms.ai_context(aliases=['Datasource alias']))
 """
-_OBJECTS = """from datetime import date
-import marivo.datasource as md
-import marivo.semantic as ms
-orders = ms.entity(
-    name='orders', datasource=ms.ref.datasource('warehouse'), source=md.table('orders'),
-    primary_key=['id'], ai_context=ms.ai_context(aliases=['Entity alias']),
-)
-identifier = ms.dimension_column(
-    name='id', entity=orders, column='id', ai_context=ms.ai_context(aliases=['Dimension alias']),
-)
-day = ms.time_dimension_column(
-    name='day', entity=orders, column='day', parse=ms.strptime('%Y-%m-%d'),
-    ai_context=ms.ai_context(aliases=['Time alias']),
-)
-end_day = ms.time_dimension_column(
-    name='end_day', entity=orders, column='end_day', parse=ms.strptime('%Y-%m-%d'),
-)
-amount = ms.measure_column(
-    name='amount', entity=orders, column='amount', additivity=ms.additive_all(),
-    ai_context=ms.ai_context(aliases=['Physical measure alias']),
-)
-@ms.measure(ai_context=ms.ai_context(aliases=['Measure alias']))
-def doubled():
-    return amount * 2
-@ms.metric(ai_context=ms.ai_context(aliases=['Metric alias']))
-def revenue():
-    return doubled.sum()
-identity = ms.relationship(
-    name='identity', from_entity=orders, to_entity=orders,
-    keys=[ms.join_on(identifier, identifier)],
-    ai_context=ms.ai_context(aliases=['Relationship alias']),
-)
-calendar = ms.period_calendar(
-    name='calendar', date=day,
-    coverage=(date(2026, 1, 1), date(2027, 1, 1)), levels={'month': identifier},
-    ai_context=ms.ai_context(aliases=['Calendar alias']),
-)
-campaigns = ms.temporal_set(
-    name='campaigns', occurrence_id=identifier, start=day, end=end_day,
-    boundary_timezone='UTC', coverage=(date(2026, 1, 1), date(2027, 1, 1)),
-    ai_context=ms.ai_context(aliases=['Temporal set alias']),
-)
-"""
+_OBJECTS = "from datetime import date\nimport marivo.datasource as md\nimport marivo.semantic as ms\norders = ms.entity(\n    name='orders', datasource=ms.ref.datasource('warehouse'), source=md.table('orders'),\n    primary_key=['id'], ai_context=ms.ai_context(aliases=['Entity alias']),\n)\nidentifier = ms.dimension_column(\n    name='id', entity=orders, column='id', ai_context=ms.ai_context(aliases=['Dimension alias']),\n)\nday = ms.time_dimension_column(\n    name='day', entity=orders, column='day', parse=ms.strptime('%Y-%m-%d'),\n    ai_context=ms.ai_context(aliases=['Time alias']),\n)\nend_day = ms.time_dimension_column(\n    name='end_day', entity=orders, column='end_day', parse=ms.strptime('%Y-%m-%d'),\n)\namount = ms.measure_column(\n    name='amount', entity=orders, column='amount', additivity=ms.additive_all(),\n    ai_context=ms.ai_context(aliases=['Physical measure alias']),\n)\n@ms.measure(ai_context=ms.ai_context(aliases=['Measure alias']))\ndef doubled():\n    return amount * 2\n@ms.metric(ai_context=ms.ai_context(aliases=['Metric alias']))\ndef revenue():\n    return doubled.sum()\nidentity = ms.relationship(\n    name='identity', from_entity=orders, to_entity=orders,\n    keys=[ms.join_on(identifier, identifier)],\n    ai_context=ms.ai_context(aliases=['Relationship alias']),\n)\n"
 
 
 def _project(factory: ProjectFactory, *, old: str = "", new: str = "") -> SemanticProject:
@@ -170,8 +128,6 @@ def test_all_context_owners_capture_aliases_in_loaded_definitions(
         "measure:sales.orders.doubled": "Measure alias",
         "metric:sales.revenue": "Metric alias",
         "relationship:sales.identity": "Relationship alias",
-        "period_calendar:sales.calendar": "Calendar alias",
-        "temporal_set:sales.campaigns": "Temporal set alias",
     }
 
     definitions = {ref.key: definition for ref, definition in state.definitions.items()}

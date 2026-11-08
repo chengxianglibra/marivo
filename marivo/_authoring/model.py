@@ -26,7 +26,6 @@ EffectFlag = Literal[
     "requires_explicit_scope",
     "requires_positive_row_guard",
     "scope_required_for_declared_data_checks",
-    "may_publish_certified_artifact",
     "may_persist_plaintext_values",
     "may_cache_resolved_secret",
     "may_call_model",

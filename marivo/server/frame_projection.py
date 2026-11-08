@@ -44,7 +44,6 @@ _FIELDS: dict[type[object], str] = {
     facts.FrameWallClockSourceTime: "kind axis physical_type consumption_timezone timezone origin inherited_from",
     facts.FrameCivilDateSourceTime: "kind axis physical_type consumption_timezone timezone origin",
     facts.FrameBuiltinGrain: "kind unit step",
-    facts.FrameNamedGrain: "kind ref level",
     facts.FrameCalendarEndpoint: "kind name at timezone grain",
     facts.FrameIntervalEndpoint: "kind name at timezone",
     facts.FrameRowAttributeTime: "kind field",

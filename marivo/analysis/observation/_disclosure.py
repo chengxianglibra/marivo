@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import inspect
 
-from marivo import _temporal
 from marivo._temporal import Grain, TimeScope
 from marivo.analysis import grain
 from marivo.analysis._capabilities.dataset_model import (
@@ -15,7 +14,6 @@ from marivo.analysis._capabilities.dataset_model import (
     bind,
     operation,
     value_type,
-    with_sealed_variants,
 )
 from marivo.analysis._capabilities.dataset_model import (
     ParameterInput as P,
@@ -63,33 +61,18 @@ def provider() -> DisclosureProvider:
                 target,
                 type_value,
                 summary=f"Exact {target} input contract.",
-                acquisition=(
-                    "Obtain session.time_scope(...), calendar.period/period_on or periods(...).items, "
-                    "temporal_set.occurrence or occurrences(...).items, or a non-None calendar_axis.scope. "
-                    "Direct construction is unsupported; scope reads never rebuild a range."
-                    if type_value is TimeScope
-                    else "Use mv.grain for builtin units; ms.calendar_grain for source-free lookup; "
-                    "calendar.grain(level) captures a current certified snapshot when available, otherwise returns an unbound lookup. Direct construction is unsupported."
-                ),
-                producers=(
-                    "session.time_scope",
-                    "catalog.period_calendars.period",
-                    "catalog.period_calendars.period_on",
-                    "catalog.period_calendars.periods",
-                    "catalog.temporal_sets.occurrence",
-                    "catalog.temporal_sets.occurrences",
-                    "calendar_axis.scope",
-                )
+                acquisition="Obtain session.time_scope(...) or a non-None calendar_axis.scope. Direct construction is unsupported."
                 if type_value is TimeScope
-                else ("grain.define", "catalog.period_calendars.grain"),
+                else "Use mv.grain(unit, count=...). Direct construction is unsupported.",
+                producers=("session.time_scope", "calendar_axis.scope")
+                if type_value is TimeScope
+                else ("grain.define",),
                 constraints=(
-                    "Use scope.by(grain) in observe.by to choose finite report buckets; bare Grain rejects. Equality/hash include captured snapshot identity. "
-                    "scope.by requires a captured calendar Grain; a Session consumer can resolve an unbound lookup in its certified scope.",
+                    "Use scope.by(grain) in observe.by; bare Grain rejects. Natural grains have unit/count value identity.",
                 )
                 if type_value is Grain
                 else (
-                    "Use one TimeScope in observe.where to select report time. Session scopes retain frozen timezone "
-                    "and exact InstantAnchor start/end; Catalog periods can retain civil date bounds.",
+                    "Use one TimeScope in observe.where. Exact anchors retain a frozen timezone.",
                 ),
             )
         )
@@ -128,26 +111,4 @@ def provider() -> DisclosureProvider:
                     ),
                 )
             )
-    sealed_variants = {
-        "Grain": (_temporal._BuiltinGrain, _temporal._SemanticGrain),
-        "TimeScope": (
-            _temporal._SessionTimeScope,
-            _temporal._CalendarPeriodTimeScope,
-            _temporal._TemporalOccurrenceTimeScope,
-        ),
-    }
-    return DisclosureProvider(
-        "observation",
-        with_sealed_variants(
-            descriptors,
-            sealed_variants,
-            applicability={
-                _temporal._BuiltinGrain: "grain.kind == 'builtin'",
-                _temporal._SemanticGrain: "grain.kind == 'semantic'",
-                _temporal._SessionTimeScope: "time_scope.kind == 'absolute' constructed by session.time_scope(...)",
-                _temporal._CalendarPeriodTimeScope: "time_scope.kind == 'calendar_period'",
-                _temporal._TemporalOccurrenceTimeScope: "time_scope.kind == 'temporal_occurrence'",
-            },
-        ),
-        tuple(exports),
-    )
+    return DisclosureProvider("observation", tuple(descriptors), tuple(exports))
