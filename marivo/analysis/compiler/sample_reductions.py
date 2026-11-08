@@ -118,6 +118,7 @@ class SampleLowerer:
         population: Callable[[PopulationDependency, tuple[str, ...]], ir.Table],
         identities: Mapping[str, str] | None = None,
         unique_keys: Mapping[str, UniqueKeys] | None = None,
+        shared_relations: frozenset[ops.Relation] = frozenset(),
     ) -> None:
         self.program = program
         self.relations = relations
@@ -126,6 +127,7 @@ class SampleLowerer:
         self.population = population
         self.identities = identities or {}
         self.unique_keys = unique_keys or {}
+        self.shared_relations = shared_relations
         self.declared = dict(program.declared)
         self.serial = 0
         self.cache: dict[
@@ -206,6 +208,47 @@ class SampleLowerer:
                 **{name: table[name].fill_null(False) for name, _, _ in value.checks},
             )
         return result
+
+    def shared_input(
+        self, values: tuple[SampleRelation, ...], keys: tuple[str, ...]
+    ) -> ir.Table | None:
+        """Compose projections of the exact same source rows without domain joins.
+
+        Only projection edges may be crossed. Filters, sample completion and
+        aggregates terminate the proof unless they are the shared source itself.
+        Coordinate expressions must agree, including returned-key normalization.
+        """
+        if len(values) < 2:
+            return None
+        parent: ops.Relation | None = None
+        coordinates: tuple[ops.Value, ...] | None = None
+        projected: dict[str, ops.Value] = {}
+        for value in values:
+            relation = value.table.op()
+            fields = {
+                name: value.table[name].op()
+                for name in (*keys, value.value, *(name for name, _, _ in value.checks))
+            }
+            while relation not in self.shared_relations:
+                if not isinstance(relation, ops.Project):
+                    return None
+                replacements = {
+                    ops.Field(relation, name): expression
+                    for name, expression in relation.values.items()
+                }
+                fields = {
+                    name: expression.replace(replacements) for name, expression in fields.items()
+                }
+                relation = relation.parent
+            current = tuple(fields[key] for key in keys)
+            if parent is not None and (relation != parent or current != coordinates):
+                return None
+            parent, coordinates = relation, current
+            projected.update(fields)
+        assert parent is not None
+        return parent.to_expr().select(
+            **{name: expression.to_expr() for name, expression in projected.items()}
+        )
 
     @staticmethod
     def aligned_keys(
@@ -321,9 +364,11 @@ class SampleLowerer:
             operands = tuple(
                 self.lower(child, (*path, i), keys, forced) for i, child in enumerate(node.operands)
             )
-            table = self.align(
-                self.domain(keys, path) if forced is None else forced, operands, keys
-            )
+            table = self.shared_input(operands, keys) if forced is None else None
+            if table is None:
+                table = self.align(
+                    self.domain(keys, path) if forced is None else forced, operands, keys
+                )
             values = {
                 (*path, i): NumericValue(
                     table[operand.value],

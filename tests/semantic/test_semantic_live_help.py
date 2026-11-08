@@ -652,7 +652,7 @@ def test_mean_help_discloses_fixed_null_rules_and_sampling(
         ("row.max", "maximum numeric value", "Integer SUM"),
         ("row.count", "Count non-NULL values", "sum requires business permission"),
         ("entity.count", "Count complete Entity contribution rows", "cancelling weight"),
-        ("metric.window", "nested windows are rejected", "Decimal SUM"),
+        ("metric.window", "Nested windows are rejected", "Decimal SUM"),
     ),
 )
 def test_focused_expression_help_keeps_only_the_receivers_contract(

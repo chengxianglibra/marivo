@@ -68,6 +68,14 @@ def test_source_rollup_finishes_each_sample_ratio_before_mean(
     trace = capture_source(monkeypatch)
     frame = session.observe({"mean": metric}).compute().to_pandas()
     assert frame["mean"].tolist() == [200.0]
+    assert trace.returned_rows == [1]
+    with duckdb.connect(str(case.database_path)) as connection:
+        explained = connection.execute("EXPLAIN " + trace.native_sql[0]).fetchone()
+    assert explained is not None
+    assert explained[1].count("SEQ_SCAN") == 1
+    assert "JOIN" not in explained[1]
+    assert "UNION" not in explained[1]
+    assert trace.native_sql[0].upper().count("GROUP BY") == 1
 
 
 @pytest.mark.parametrize("ratio", [False, True])

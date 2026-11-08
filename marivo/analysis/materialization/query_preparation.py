@@ -194,7 +194,12 @@ def share_source_projections(
     """Union root projections while preserving every relationship read and row domain."""
     groups: dict[SourceInputContract, list[int]] = {}
     for index, (contribution, contract) in enumerate(zip(contributions, contracts, strict=True)):
-        if contribution.sample_axes or contribution.window_key is not None:
+        if contribution.window_key is not None or any(
+            not isinstance(axis, AxisBinding)
+            or axis.field is None
+            or axis.field.ref.kind is not SemanticKind.DIMENSION
+            for axis in contribution.sample_axes
+        ):
             continue
         # Only direct root fields are projections. Path/version reads retain
         # their exact identity because adding a join can change contributions.

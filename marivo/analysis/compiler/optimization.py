@@ -9,7 +9,14 @@ from typing import TYPE_CHECKING, Literal, TypeAlias
 import ibis
 import ibis.expr.types as ir
 
-from marivo._definition.expressions import SourceAggregate, SourceWeightedMean
+from marivo._definition.expressions import (
+    MetricWindow,
+    PerReduce,
+    PerWeightedMean,
+    SourceAggregate,
+    SourceWeightedMean,
+)
+from marivo._definition.graph import walk
 from marivo._definition.query import (
     CoordinateSlot,
     FilterValues,
@@ -27,7 +34,7 @@ from marivo._definition.query import (
     ValueSlot,
     ValueUnary,
 )
-from marivo._definition.types import RULE_VERSION, Owner
+from marivo._definition.types import RULE_VERSION, AxisBinding, Owner
 from marivo.analysis.compiler.graph_plan import (
     AttributeRead,
     ComponentRead,
@@ -62,6 +69,7 @@ from marivo.analysis.core.local_laws import (
 from marivo.analysis.core.model import ResultQuantity
 from marivo.analysis.core.value_types import ibis_type
 from marivo.analysis.methods.physical import QUERY_COMBINE_KERNEL
+from marivo.refs import SemanticKind
 
 if TYPE_CHECKING:
     from marivo.analysis.compiler.graph_lowering import LoweredQuery
@@ -374,7 +382,7 @@ def _fuse(plan: QueryPlan) -> QueryPlan:
     )
 
 
-def _source_merge_issue(stage: SourceRead) -> str | None:
+def _source_merge_issue(stage: SourceRead, *, ordinary_samples: bool = False) -> str | None:
     """Explain the first physical boundary that prevents a common aggregate."""
     reduction = require_reduction(stage)
     value = next(column for column in stage.columns if column.slot_id == reduction.value_slot)
@@ -397,8 +405,21 @@ def _source_merge_issue(stage: SourceRead) -> str | None:
             "Window contributions retain their own period and grid.",
         ),
         (
-            bool(reduction.sampled or reduction.preserve_sample_presence),
+            bool(
+                (reduction.sampled and not ordinary_samples) or reduction.preserve_sample_presence
+            ),
             "Sample presence retains its own domain.",
+        ),
+        (
+            reduction.sampled
+            and (
+                not isinstance(stage.program, ReductionRead)
+                or bool(
+                    reduction.calendar or reduction.calendars or reduction.sample_calendar_reads
+                )
+                or any(path.startswith("__sample_assigned_") for path, _ in stage.field_columns)
+            ),
+            "Sample calendars, allocation and original components retain their execution boundary.",
         ),
         (reduction.duration is not None, "Duration reductions retain their exact tick completion."),
         (
@@ -412,18 +433,55 @@ def _source_merge_issue(stage: SourceRead) -> str | None:
     return next((reason for refused, reason in reasons if refused), None)
 
 
+def _ordinary_sample_formula(stage: QueryStage) -> bool:
+    """Admit only represented field samples without enclosing domain completion."""
+    if not isinstance(stage, LocalCompute) or not isinstance(stage.program, FormulaProgram):
+        return False
+    program = stage.program
+    if (
+        program.calendar is not None
+        or program.populations
+        or program.output_population is not None
+        or program.parent_scope is not None
+        or program.counts
+    ):
+        return False
+    closure = walk((node for _, node in program.outputs), resolve=dict(program.declared).get)
+    return all(
+        not isinstance(node, MetricWindow)
+        and (
+            not isinstance(node, (PerReduce, PerWeightedMean))
+            or (
+                isinstance(node.samples, tuple)
+                and all(
+                    isinstance(axis, AxisBinding)
+                    and axis.field is not None
+                    and axis.field.ref.kind is SemanticKind.DIMENSION
+                    for axis in node.samples
+                )
+            )
+        )
+        for node in closure.order
+    )
+
+
 def _common_sources(plan: QueryPlan) -> QueryPlan:
     """Share one actual bound aggregate input while retaining each occurrence."""
     groups: dict[
         tuple[str, str, str, tuple[str, ...], type[object], bool, bool], list[SourceRead]
     ] = {}
     consumers = dict(plan.consumers)
+    ordinary_samples = {stage.stage_id for stage in plan.stages if _ordinary_sample_formula(stage)}
     for stage in plan.stages:
         if not isinstance(stage, SourceRead) or read_reduction(stage) is None:
             continue
         reduction = require_reduction(stage)
         node = reduction.node
-        if _source_merge_issue(stage) is not None or len(consumers.get(stage.stage_id, ())) != 1:
+        users = consumers.get(stage.stage_id, ())
+        if (
+            len(users) != 1
+            or _source_merge_issue(stage, ordinary_samples=users[0] in ordinary_samples) is not None
+        ):
             continue
         policy = node.nulls if isinstance(node, (SourceAggregate, SourceWeightedMean)) else "ignore"
         identity = (
@@ -454,6 +512,7 @@ def _common_sources(plan: QueryPlan) -> QueryPlan:
             and require_reduction(prior).calendars == reduction.calendars
             and require_reduction(prior).sample_calendar_reads == reduction.sample_calendar_reads
             and require_reduction(prior).time_column == reduction.time_column
+            and require_reduction(prior).sampled == reduction.sampled
             and tuple(column for column in prior.columns if column.slot_id in prior.keys)
             == tuple(column for column in stage.columns if column.slot_id in stage.keys)
             and (

@@ -30,6 +30,7 @@ from marivo.analysis.compiler.graph_plan import (
     NativeRead,
     SourceRead,
     read_components,
+    read_members,
     read_reduction,
 )
 from marivo.analysis.compiler.observation import FormulaInput, FormulaProgram
@@ -260,6 +261,11 @@ def fuse_sample_reductions(prepared: PreparedSources, lowered: LoweredQuery) -> 
                             if value.stage_id in sources
                         },
                         {identifier: source.unique_keys for identifier, source in sources.items()},
+                        shared_relations=frozenset(
+                            relations[identifier].op()
+                            for identifier, source in sources.items()
+                            if identifier in relations and read_members(source)
+                        ),
                     )
                     lowerers[owner] = lowerer
                 result = lowerer.lower(node, path, keys)
@@ -303,6 +309,13 @@ def fuse_sample_reductions(prepared: PreparedSources, lowered: LoweredQuery) -> 
                         for name, _, _ in result.checks
                     ),
                 )
+                logical_sources = tuple(
+                    dict.fromkeys(
+                        member
+                        for stage in source_stages
+                        for member in (read_members(stage) or (stage,))
+                    )
+                )
                 source = SourceRead(
                     identifier,
                     source_stages[0].source_id,
@@ -312,7 +325,7 @@ def fuse_sample_reductions(prepared: PreparedSources, lowered: LoweredQuery) -> 
                     NativeRead(
                         tuple(
                             reduction
-                            for stage in source_stages
+                            for stage in logical_sources
                             if (reduction := read_reduction(stage)) is not None
                         )
                     ),
@@ -322,7 +335,7 @@ def fuse_sample_reductions(prepared: PreparedSources, lowered: LoweredQuery) -> 
                     preparation_checks=preparation,
                     inputs=tuple(dependencies),
                     parameters=tuple(dependencies.values()),
-                    native_reads=tuple(dict.fromkeys(source_stages)),
+                    native_reads=logical_sources,
                     unique_keys=result.unique_keys.project(
                         tuple(column.slot_id for column in output_columns), {result.value: slot}
                     ),

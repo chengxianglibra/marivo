@@ -5,11 +5,13 @@ from contextlib import contextmanager
 from datetime import date, datetime, timezone
 from pathlib import Path
 
+import ibis
 import pytest
 
 import marivo.analysis as mv
 from marivo.analysis.core.data_schema import CalendarDataAxis
 from marivo.analysis.core.frame_data import MemoryFrameBacking
+from marivo.analysis.errors import AnalysisError
 from marivo.analysis.session.core import Session
 from marivo.datasource.ir import TableSourceIR
 from marivo.semantic.reader import SemanticProject
@@ -32,11 +34,16 @@ def _session(
     *,
     window: bool = False,
     zero: bool = False,
+    sample_formula: bool = False,
 ) -> Iterator[tuple[Session, Case]]:
     rows: list[dict[str, object]] = [
         {
             "id": index,
-            "customer": ("A" if index % 2 else "B") if window else "A",
+            "customer": ("A" if index % 2 else "B")
+            if window
+            else "B"
+            if sample_formula and index > 900
+            else "A",
             "channel": "web" if index <= 500 else "store",
             "amount": 1
             if window
@@ -49,14 +56,19 @@ def _session(
         }
         for index in range(1, 1001)
     ]
+    if sample_formula:
+        rows[-1]["amount"] = None
     values = ",".join(
-        f"({row['id']},'{row['customer']}','{row['channel']}',{row['amount']},DATE '{row['day']}')"
+        f"({row['id']},'{row['customer']}','{row['channel']}',"
+        f"{row['amount'] if row['amount'] is not None else 'NULL'},DATE '{row['day']}')"
         for row in rows
     )
     data = SourceData(
-        "id BIGINT NOT NULL, customer VARCHAR(16) NOT NULL, channel VARCHAR(16) NOT NULL, amount BIGINT NOT NULL, day DATE",
+        "id BIGINT NOT NULL, customer VARCHAR(16) NOT NULL, channel VARCHAR(16) NOT NULL, "
+        + ("amount BIGINT, day DATE" if sample_formula else "amount BIGINT NOT NULL, day DATE"),
         values,
-        "id Int64, customer String, channel String, amount Int64, day Date",
+        "id Int64, customer String, channel String, "
+        + ("amount Nullable(Int64), day Date" if sample_formula else "amount Int64, day Date"),
         rows,
     )
     monkeypatch.chdir(root)
@@ -75,6 +87,55 @@ def _session(
             }
         )
         yield (mv.session.get_or_create("remote-samples", timezone="UTC"), case)
+
+
+@pytest.mark.parametrize(
+    "backend,profile", source_params([*CASES, ("postgres", "table"), ("mysql", "table")])
+)
+def test_native_sample_formula_shares_inner_aggregate(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
+    backend: str,
+    profile: str,
+) -> None:
+    with _session(
+        backend, profile, tmp_path, monkeypatch, semantic_project_factory, sample_formula=True
+    ) as (session, case):
+        amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
+        customer = catalog_value(session.catalog, "sales.facts.customer", kind="dimension")
+        channel = catalog_value(session.catalog, "sales.facts.channel", kind="dimension")
+        table = case.session.bind(case.source, source_identity="sample-formula-oracle").relation
+        sql = ibis.to_sql(table, dialect=backend)
+        oracle_sql = (
+            "SELECT channel, AVG(ratio) AS value FROM ("
+            "SELECT channel, customer, 1.0 * SUM(amount) / NULLIF(COUNT(amount), 0) AS ratio "
+            f"FROM ({sql}) AS facts GROUP BY channel, customer"
+            ") AS samples GROUP BY channel ORDER BY channel"
+        )
+        if backend == "clickhouse":
+            oracle = case.session._backend.raw_sql(oracle_sql).result_rows
+        else:
+            with case.session._backend.raw_sql(oracle_sql) as cursor:
+                oracle = cursor.fetchall()
+        trace = capture_source(monkeypatch)
+        result = (
+            session.observe(
+                {"value": (amount.sum() / amount.count()).per(customer).mean()}, by=(channel,)
+            )
+            .compute()
+            .to_pandas()
+        )
+        assert sorted(float(row[1]) for row in oracle) == pytest.approx([0.2, 0.375])
+        assert sorted(result["value"].tolist()) == pytest.approx([0.2, 0.375])
+        assert trace.returned_rows == [2]
+        statement = trace.native_sql[0].upper()
+        assert statement.count("GROUP BY") == 2
+        assert "JOIN" not in statement
+        assert "UNION" not in statement
+        strict = (amount.sum(nulls="error") / amount.count(nulls="error")).per(customer).mean()
+        with pytest.raises(AnalysisError, match="non-NA source values"):
+            session.observe({"strict": strict}, by=(channel,)).compute()
 
 
 @pytest.mark.parametrize("backend,profile", source_params(CASES))

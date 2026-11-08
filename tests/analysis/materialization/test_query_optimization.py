@@ -17,6 +17,7 @@ from ibis.common.deferred import Deferred
 import marivo.analysis as mv
 from marivo._definition.query import LiteralValues
 from marivo._definition.types import AxisBinding
+from marivo.analysis.compiler import optimization
 from marivo.analysis.compiler.frame_plan import CompiledFramePlan
 from marivo.analysis.compiler.graph_lowering import LoweredRead, lower_query
 from marivo.analysis.compiler.graph_plan import (
@@ -719,7 +720,7 @@ def test_joint_aggregate_preserves_each_metric_failure(
 
 
 @pytest.mark.parametrize("kind", ("per", "window"))
-def test_internal_samples_and_windows_keep_their_physical_boundaries(
+def test_field_samples_share_aggregates_while_windows_keep_their_boundary(
     optimization_session: Session, kind: str
 ) -> None:
     session = optimization_session
@@ -739,7 +740,112 @@ def test_internal_samples_and_windows_keep_their_physical_boundaries(
         )
         query = source
     _, plan, _, _ = _same(session, query)
-    assert not any(group.law in ("L8", "source_block") for group in plan.fusion_groups)
+    assert not any(group.law == "L8" for group in plan.fusion_groups)
+    assert any(group.law == "source_block" for group in plan.fusion_groups) == (kind == "per")
+
+
+@pytest.mark.parametrize("grouped", (False, True))
+@pytest.mark.parametrize("empty", (False, True))
+def test_sample_formula_shares_different_fields_and_preserves_null_samples(
+    optimization_session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+    grouped: bool,
+    empty: bool,
+) -> None:
+    session = optimization_session
+    database = session.project_root / "optimization.duckdb"
+    with duckdb.connect(str(database)) as connection:
+        connection.execute("DELETE FROM orders")
+        if not empty:
+            connection.execute(
+                "INSERT INTO orders(id,region,detail,amount,approximate) VALUES "
+                "(1,'A','x',10,10),(2,'A','x',30,30),"
+                "(3,'A',NULL,300,300),(4,'B','z',NULL,NULL)"
+            )
+    amount = catalog_value(session.catalog, "sales.orders.amount", kind="measure")
+    approximate = catalog_value(session.catalog, "sales.orders.approximate", kind="measure")
+    detail = catalog_value(session.catalog, "sales.orders.detail", kind="dimension")
+    region = catalog_value(session.catalog, "sales.orders.region", kind="dimension")
+    metric = (amount.sum() / approximate.count()).per(detail).mean()
+    query = session.observe({"value": metric}, by=(region,) if grouped else ())
+    # Disable only common input fusion: both controls still use the native sample reducer.
+    with patch("marivo.analysis.compiler.optimization._common_sources", side_effect=lambda p: p):
+        baseline = query.compute().to_pandas()
+    trace = capture_source(monkeypatch)
+    result = query.compute()
+    frame = result.to_pandas()
+    pd.testing.assert_frame_equal(frame, baseline)
+    if empty:
+        assert frame.empty if grouped else frame["value"].isna().all()
+    else:
+        assert frame["value"].dropna().tolist() == [160.0]
+        assert len(frame) == (2 if grouped else 1)
+    assert trace.returned_rows == [len(frame)]
+    stored = result.persist()
+    assert [read.returned_rows for read in stored.source_reads] == trace.returned_rows
+    assert {scope.source for read in stored.source_reads for scope in read.scopes} == {
+        "sales.orders"
+    }
+    with duckdb.connect(str(database)) as connection:
+        explained = connection.execute("EXPLAIN " + trace.native_sql[0]).fetchone()
+    assert explained is not None
+    assert explained[1].count("SEQ_SCAN") <= 1
+    if not empty:
+        assert explained[1].count("SEQ_SCAN") == 1
+    assert "JOIN" not in explained[1]
+    assert "UNION" not in explained[1]
+
+
+@pytest.mark.parametrize("strict_operand", ("sum", "count"))
+def test_shared_sample_formula_keeps_each_strict_operand_check(
+    optimization_session: Session, strict_operand: str
+) -> None:
+    session = optimization_session
+    amount = catalog_value(session.catalog, "sales.orders.amount", kind="measure")
+    approximate = catalog_value(session.catalog, "sales.orders.approximate", kind="measure")
+    detail = catalog_value(session.catalog, "sales.orders.detail", kind="dimension")
+    with duckdb.connect(str(session.project_root / "optimization.duckdb")) as connection:
+        connection.execute(
+            "UPDATE orders SET " + ("approximate=0" if strict_operand == "sum" else "amount=0")
+        )
+    metric = (amount.sum(nulls="error") / approximate.count(nulls="error")).per(detail).mean()
+    query = session.observe({"value": metric})
+    errors: list[tuple[type[AnalysisError], str]] = []
+    for optimized in (False, True):
+        with patch(
+            "marivo.analysis.compiler.optimization._common_sources",
+            side_effect=optimization._common_sources if optimized else lambda p: p,
+        ):
+            with pytest.raises(AnalysisError) as error:
+                query.compute()
+            errors.append((type(error.value), str(error.value)))
+    assert errors[0] == errors[1]
+
+
+@pytest.mark.parametrize("boundary", ("filter", "nulls", "population", "time_field", "calendar"))
+def test_sample_source_merge_preserves_distinct_domains(
+    optimization_session: Session, boundary: str
+) -> None:
+    session = optimization_session
+    amount = catalog_value(session.catalog, "sales.orders.amount", kind="measure")
+    detail = catalog_value(session.catalog, "sales.orders.detail", kind="dimension")
+    time = catalog_value(session.catalog, "sales.orders.ordered_at", kind="time_dimension")
+    numerator = amount.sum()
+    denominator = amount.count(nulls="error") if boundary == "nulls" else amount.count()
+    if boundary == "filter":
+        denominator = denominator.where(amount > 10)
+    formula = numerator / denominator
+    if boundary == "population":
+        metric = formula.per(mv.coordinates(by=(detail,), keys=(("x",), ("absent",)))).mean()
+    elif boundary == "time_field":
+        metric = formula.per(time).mean()
+    elif boundary == "calendar":
+        metric = formula.per(time, grain=mv.grain("day")).mean()
+    else:
+        metric = formula.per(detail).mean()
+    query = session.observe({"value": metric}, where=amount > 0)
+    _, plan, _, _ = _same(session, query)
+    assert not any(group.law == "source_block" for group in plan.fusion_groups)
 
 
 def test_common_block_keeps_same_period_filter_and_exact_checks(
