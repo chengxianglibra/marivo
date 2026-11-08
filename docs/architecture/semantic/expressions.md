@@ -342,16 +342,31 @@ snapshot, as for semantic reset Grains in windows. Missing certification, an
 explicit Grain from a different snapshot, unknown levels and timezone mismatches
 reject before business reads.
 
-Windows inside calendar sample layers and windows wrapping calendar folds are
-currently unsupported and raise `CoreRuleError` before execution. The source
-window binder supplies output endpoints only; it cannot supply an independent
-window at each inner cell's actual end. Observe a windowed Metric with a
-CalendarAxis and explicitly reduce the captured Frame values. Windows
-on independent formula branches and existing field-sample windows retain their
-own semantics.
+Builtin calendar samples compose with one window per dependency path.
+`revenue.per(day).mean().window(W)` discovers actual daily samples inside the
+window bound to each report endpoint, then averages their completed values.
+`revenue.window(W).per(day).mean()` first discovers actual joint samples under
+the report selection and fixed predicates, then evaluates W at each sample end
+and averages those values. Historical reads do not add sample dates. A represented
+sample remains even when its window has no contributions; NULL and empty reducers
+keep their existing policies. Inner windows need no additional report endpoint.
+
+The nearest enclosing builtin calendar sample owns an inner window's endpoint
+and `trailing_periods` grain. Same-clock samples use selected end boundaries,
+including partial report cutoffs; partial periods still reject `trailing_periods`.
+The native executor owns calendar boundaries and DST behavior. A window replaces
+same-clock report/sample time constraints for its branch, retaining their result
+coordinates. Ordinary keys, memberships, fixed predicates, and sample cohorts on
+other fields remain in force. For example,
+`paid_revenue.window(W).per(created_at, grain=day)` uses each creation day's end
+and filters that creation cohort's contributions by paid_at; it never changes the
+contribution clock. Independent branches retain their scope and missing-coordinate
+broadcast semantics. Multiple windows on one dependency path and custom calendar
+sample/window combinations remain unsupported.
 
 Pass a Grain directly to `per` or use a native time field with a keyword-only
-builtin `grain`. Both Grain forms need contribution time on each source branch.
+builtin `grain`. Grain-only sampling needs at least one clocked branch; explicit
+fields supply their own sample domain.
 Calendar nesting checks apply to layers on the same field, which must agree
 on their timezone. Ordered calendar reducers use chronological bucket order.
 A completed Metric requires `per` before another reduction.

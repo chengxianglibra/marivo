@@ -30,12 +30,15 @@ from marivo.analysis.core.frame_interpretation import (
     FrameBuiltinGrain,
     FrameCalendarEndpoint,
     FrameClockedContribution,
+    FrameContributionSampleWindowEndpoint,
+    FrameFieldSampleWindowEndpoint,
     FrameFixedTime,
     FrameIndependentContribution,
     FrameIntervalEndpoint,
     FrameNamedGrain,
     FrameObservationWindow,
     FrameObservedTimeSemantics,
+    FrameReportWindowEndpoint,
     FrameSinceWindow,
     FrameTimeContribution,
     FrameTimeEndpoint,
@@ -43,6 +46,7 @@ from marivo.analysis.core.frame_interpretation import (
     FrameTrailingDurationWindow,
     FrameTrailingPeriodsWindow,
     FrameValueTimeSemantics,
+    FrameWindowEndpoint,
 )
 from marivo.analysis.core.graph import BoundGraph
 from marivo.analysis.core.lineage import SemanticObjectIdentity
@@ -139,15 +143,26 @@ def observation_time_semantics(
             metric: ExactRef | None = None,
             rule: ObservationWindow | None = None,
             samples: tuple[str, ...] = (),
+            sample_endpoint: FrameWindowEndpoint | None = None,
+            window_endpoint: FrameWindowEndpoint | None = None,
             *,
             facts: list[FrameTimeContribution] = facts,
             name: str = name,
         ) -> None:
             if isinstance(node, DeclaredMetricRef):
-                visit(declared[node.ref], (*path, node.ref.ref.key), node.ref, rule, samples)
+                visit(
+                    declared[node.ref],
+                    (*path, node.ref.ref.key),
+                    node.ref,
+                    rule,
+                    samples,
+                    sample_endpoint,
+                    window_endpoint,
+                )
                 return
             if isinstance(node, MetricWindow):
                 rule = node.rule
+                window_endpoint = sample_endpoint or FrameReportWindowEndpoint()
             if isinstance(node, (PerReduce, PerWeightedMean)):
                 sample = node.samples
                 role = (
@@ -158,6 +173,37 @@ def observation_time_semantics(
                     else "explicit_population"
                 )
                 samples = (*samples, role)
+                if isinstance(sample, (Grain, FieldCalendarSample)):
+                    grain = sample.grain if isinstance(sample, FieldCalendarSample) else sample
+                    if grain.kind == "builtin":
+                        from marivo.analysis.core.frame_calendar import _UNITS
+
+                        assert grain.unit is not None and grain.count is not None
+                        captured = FrameBuiltinGrain(_UNITS[grain.unit], grain.count)
+                        # Builtin sample bindings own the Session's frozen timezone.
+                        binding = (
+                            next(
+                                (
+                                    coordinate
+                                    for _, coordinate in observation.calendar_samples
+                                    if getattr(coordinate, "sample", None) == sample
+                                ),
+                                None,
+                            )
+                            if observation is not None
+                            else None
+                        )
+                        assert binding is not None
+                        if isinstance(sample, FieldCalendarSample):
+                            field = _identity(sample.field.field)
+                            assert field is not None
+                            sample_endpoint = FrameFieldSampleWindowEndpoint(
+                                len(samples), field, captured, binding.timezone
+                            )
+                        else:
+                            sample_endpoint = FrameContributionSampleWindowEndpoint(
+                                len(samples), captured, binding.timezone
+                            )
             occurrences = metric_time_occurrences(node, declared)
             if len(occurrences) == 1 and occurrences[0].node is node:
                 occurrence = occurrences[0]
@@ -181,6 +227,7 @@ def observation_time_semantics(
                             samples,
                             report_axis=report_axis,
                             report_cells=report_cells,
+                            window_endpoint=window_endpoint,
                         )
                     )
                 else:
@@ -208,12 +255,21 @@ def observation_time_semantics(
                             samples,
                             report_axis=report_axis,
                             report_cells=report_cells,
+                            window_endpoint=window_endpoint,
                         )
                     )
                 return
             for edge in children(node):
                 if isinstance(edge.child, MetricNode):
-                    visit(edge.child, (*path, f"{edge.role}[{edge.index}]"), metric, rule, samples)
+                    visit(
+                        edge.child,
+                        (*path, f"{edge.role}[{edge.index}]"),
+                        metric,
+                        rule,
+                        samples,
+                        sample_endpoint,
+                        window_endpoint,
+                    )
 
         visit(root, ())
         result.append((name, FrameObservedTimeSemantics(tuple(facts))))

@@ -255,9 +255,14 @@ Final output completion never changes an internal sample mean or count. See
 [internal samples](semantic/expressions.md#internal-samples-and-windows).
 
 Semantic sample Grains resolve against the Session's frozen current certified
-snapshot and become declared calendar dependencies. Calendar sample layers do
-not support inner windows or wrapping windows; both raise a typed error before
-execution rather than discarding the window rule.
+snapshot and become declared calendar dependencies. Builtin calendar samples
+support inner windows at each actual sample's endpoint
+and enclosing windows at report endpoints. Sample discovery precedes inner window
+reads, retains complete parent keys, and does not generate empty dates. Fixed source
+predicates and different-field cohorts stay in force. `trailing_periods` counts
+periods of the endpoint layer, with the existing complete-period requirement.
+Custom calendar sample/window combinations remain unsupported. See
+[expression composition](semantic/expressions.md#internal-samples-and-windows).
 
 The axis preserves these distinctions. An original scope is available through
 axis.scope; a shifted sparse axis may have scope=None. An envelope does not

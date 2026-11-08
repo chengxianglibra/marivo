@@ -682,6 +682,9 @@ def test_construction_type_families_and_retired_surface() -> None:
     registry = prepare()
     assert {d.canonical_id for d in registry.descriptors if isinstance(d, TypeInput)} == {
         "frame_clocked_contribution",
+        "frame_report_window_endpoint",
+        "frame_contribution_sample_window_endpoint",
+        "frame_field_sample_window_endpoint",
         "frame_independent_contribution",
         "frame_observed_time_semantics",
         "frame_derived_time_semantics",
@@ -798,7 +801,7 @@ def test_construction_type_families_and_retired_surface() -> None:
         "value_statistic",
         "column",
     }
-    assert len([name for name in mv.__all__ if isinstance(getattr(mv, name), type)]) == 76
+    assert len([name for name in mv.__all__ if isinstance(getattr(mv, name), type)]) == 79
     removed = {
         "before_end_boundary",
         "before_end_boundary.end",

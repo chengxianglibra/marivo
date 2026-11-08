@@ -182,7 +182,7 @@ class _Fact(RenderableResult):
         card = Card(identity=self._repr_identity(), available=(".show()",))
         if isinstance(self, (FrameObservedTimeSemantics, FrameDerivedTimeSemantics)):
             card.table(
-                ("branch", "clock", "report", "window"),
+                ("branch", "clock", "report", "window", "endpoint"),
                 [
                     (
                         " / ".join(item.occurrence) or item.output,
@@ -191,6 +191,7 @@ class _Fact(RenderableResult):
                         else "independent: " + item.source,
                         item.report_effect,
                         repr(item.window),
+                        repr(item.window_endpoint),
                     )
                     for item in self.contributions
                 ],
@@ -560,6 +561,41 @@ FrameObservationWindow: TypeAlias = (
 
 
 @dataclass(frozen=True, slots=True, repr=False)
+class FrameReportWindowEndpoint(_Fact):
+    """A Metric window evaluated at the captured report endpoints."""
+
+    kind: Literal["report"] = dataclass_field(default="report")
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class FrameContributionSampleWindowEndpoint(_Fact):
+    """A window evaluated at actual contribution-clock sample endpoints."""
+
+    layer: int
+    grain: FrameBuiltinGrain
+    timezone: str
+    kind: Literal["contribution_sample"] = dataclass_field(default="contribution_sample")
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class FrameFieldSampleWindowEndpoint(_Fact):
+    """A window evaluated at explicit-field sample endpoints, retaining its cohort."""
+
+    layer: int
+    field: SemanticObjectIdentity
+    grain: FrameBuiltinGrain
+    timezone: str
+    kind: Literal["field_sample"] = dataclass_field(default="field_sample")
+
+
+FrameWindowEndpoint: TypeAlias = (
+    FrameReportWindowEndpoint
+    | FrameContributionSampleWindowEndpoint
+    | FrameFieldSampleWindowEndpoint
+)
+
+
+@dataclass(frozen=True, slots=True, repr=False)
 class FrameClockedContribution(_Fact):
     """Captured clock and report effects of one original contribution occurrence."""
 
@@ -577,6 +613,7 @@ class FrameClockedContribution(_Fact):
     samples: tuple[str, ...]
     report_axis: FrameTimeEndpoint | None = None
     report_cells: tuple[tuple[datetime, datetime, datetime, datetime], ...] = ()
+    window_endpoint: FrameWindowEndpoint | None = None
     kind: Literal["clocked"] = dataclass_field(default="clocked")
 
 
@@ -595,6 +632,7 @@ class FrameIndependentContribution(_Fact):
     samples: tuple[str, ...]
     report_axis: FrameTimeEndpoint | None = None
     report_cells: tuple[tuple[datetime, datetime, datetime, datetime], ...] = ()
+    window_endpoint: FrameWindowEndpoint | None = None
     kind: Literal["independent"] = field(default="independent")
 
 
@@ -1756,7 +1794,28 @@ def _validate_fact(value: _Fact) -> None:
         )
     ):
         _invalid("complete immutable contribution time facts")
+    if isinstance(value, (FrameContributionSampleWindowEndpoint, FrameFieldSampleWindowEndpoint)):
+        if (
+            type(value.layer) is not int
+            or value.layer < 1
+            or type(value.grain) is not FrameBuiltinGrain
+        ):
+            _invalid("a positive sample layer and builtin endpoint Grain")
+        text(value.timezone)
+        if (
+            isinstance(value, FrameFieldSampleWindowEndpoint)
+            and type(value.field) is not SemanticObjectIdentity
+        ):
+            _invalid("an explicit captured sample field")
     if isinstance(value, (FrameClockedContribution, FrameIndependentContribution)):
+        if value.window_endpoint is not None and type(value.window_endpoint) not in (
+            FrameReportWindowEndpoint,
+            FrameContributionSampleWindowEndpoint,
+            FrameFieldSampleWindowEndpoint,
+        ):
+            _invalid("a closed report or sample window endpoint")
+        if (value.window is None) != (value.window_endpoint is None):
+            _invalid("a window endpoint exactly when a window is captured")
         text(value.output)
         if type(value.occurrence) is not tuple or any(
             type(item) is not str for item in value.occurrence

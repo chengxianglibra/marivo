@@ -2563,7 +2563,7 @@ def _expression_capabilities() -> tuple[AuthoringCapability, ...]:
                     "Custom hierarchies reject; one complete custom period may be sampled under an interval. "
                     "Each nested layer retains complete external, parent and child keys. "
                     "Semantic Grain lookups bind the Session's current certified snapshot and require certification. "
-                    "Windows inside calendar samples or wrapping calendar folds are unsupported and reject before execution. "
+                    "Builtin folds inside windows use report endpoints; windows inside builtin samples use the nearest sample endpoints. Actual samples are discovered before inner windows; no empty dates are added. Explicit fields retain their cohorts and contribution clocks. Custom calendar combinations and nested windows reject. "
                     "TimeField sample reducers use represented samples without scheduled coverage or implicit fill; "
                     "sample_interval describes cadence and does not bucket timestamps or require a finite observation period. "
                 )
@@ -2577,7 +2577,7 @@ def _expression_capabilities() -> tuple[AuthoringCapability, ...]:
                     "This is distinct from AnalysisFrame.where on current rows."
                 )
             elif prefix == "Metric" and method == "window":
-                summary += "Window clocked branches at each report endpoint; independent branches retain their scope. Valid endpoints are required; nested windows are rejected."
+                summary += "Window clocked branches at report endpoints, or the nearest enclosing builtin calendar sample endpoints; independent branches retain their scope. per(...).reduce().window(W) folds window contributions; window(W).per(...).reduce() folds sample-endpoint window values. trailing_periods counts the endpoint layer's periods. Fixed predicates and different-field sample cohorts remain in force. Custom calendar sample combinations reject; nested windows are rejected."
             elif method in {"first", "last"}:
                 summary += (
                     f"Select the {method} internal sample. "

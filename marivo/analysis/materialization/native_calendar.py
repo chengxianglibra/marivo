@@ -486,7 +486,11 @@ def _interval_windows(
     contributions = list(observation.contributions)
     by_owner: dict[SourceSession, list[int]] = {}
     for index, contribution in enumerate(contributions):
-        if contribution.time is not None and isinstance(contribution.window_rule, ToDate):
+        if (
+            contribution.time is not None
+            and contribution.sample_window is None
+            and isinstance(contribution.window_rule, ToDate)
+        ):
             owner = sources[state.registry.entities[contribution.root.ref.path].datasource]
             by_owner.setdefault(owner, []).append(index)
     for owner, indices in by_owner.items():
@@ -562,7 +566,9 @@ def bind_native_calendars(
     ] = {}
     windows = tuple(
         dict.fromkeys(
-            item.window_rule for item in observation.contributions if item.window_rule is not None
+            item.window_rule
+            for item in observation.contributions
+            if item.window_rule is not None and item.sample_window is None
         )
     )
     snapshots = tuple(

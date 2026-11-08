@@ -16,13 +16,22 @@ if TYPE_CHECKING:
         FrameClockedContribution as FrameClockedContribution,
     )
     from marivo.analysis.core.frame_interpretation import (
+        FrameContributionSampleWindowEndpoint as FrameContributionSampleWindowEndpoint,
+    )
+    from marivo.analysis.core.frame_interpretation import (
         FrameDerivedTimeSemantics as FrameDerivedTimeSemantics,
+    )
+    from marivo.analysis.core.frame_interpretation import (
+        FrameFieldSampleWindowEndpoint as FrameFieldSampleWindowEndpoint,
     )
     from marivo.analysis.core.frame_interpretation import (
         FrameIndependentContribution as FrameIndependentContribution,
     )
     from marivo.analysis.core.frame_interpretation import (
         FrameObservedTimeSemantics as FrameObservedTimeSemantics,
+    )
+    from marivo.analysis.core.frame_interpretation import (
+        FrameReportWindowEndpoint as FrameReportWindowEndpoint,
     )
 
     __all__: list[str]

@@ -17,6 +17,7 @@ from marivo._definition.expressions import (
     PerWeightedMean,
 )
 from marivo._definition.graph import DefinitionNode, children, walk
+from marivo._definition.observations import SampleWindow
 from marivo._definition.types import CalendarCoordinate, ExactRef
 from marivo._definition.windows import (
     AllHistory,
@@ -46,7 +47,8 @@ def actual_window_axis(graph: BoundGraph) -> CalendarCoordinate | None:
     """Find a report calendar whose window endpoints depend on actual source keys."""
     observation = graph.signature.observation
     if observation is None or not any(
-        item.window_rule is not None for item in observation.contributions
+        item.window_rule is not None and item.sample_window is None
+        for item in observation.contributions
     ):
         return None
     return next(
@@ -283,34 +285,31 @@ def bind_windows(
     from marivo.analysis.binding.observe import ObservationPeriod
 
     rules: dict[tuple[int, ...], ObservationWindow] = {}
+    sample_windows: dict[tuple[int, ...], SampleWindow] = {}
+    sample_grains: dict[SampleWindow, Grain] = {}
 
     def visit(
         node: DefinitionNode,
         path: tuple[int, ...],
         rule: ObservationWindow | None,
-        in_calendar_sample: bool = False,
+        sample: SampleWindow | None = None,
+        depth: int = 0,
+        window_sample: SampleWindow | None = None,
     ) -> None:
         if isinstance(node, DeclaredMetricRef):
-            visit(declared[node.ref], (*path, 0), rule, in_calendar_sample)
+            visit(declared[node.ref], (*path, 0), rule, sample, depth, window_sample)
             return
         if isinstance(node, MetricWindow):
-            if in_calendar_sample:
-                reject(
-                    "window endpoints supported by the source contribution binder",
-                    "a Metric window inside a calendar sample layer",
-                    "Observe the windowed Metric with a CalendarAxis, then explicitly reduce the captured Frame values; inner calendar-sample windows are not supported.",
-                    "Metric.window",
-                )
             if any(
                 isinstance(child, (PerReduce, PerWeightedMean))
-                and isinstance(child.samples, (Grain, FieldCalendarSample))
+                and isinstance(child.samples, Grain)
+                and child.samples.kind == "semantic"
                 for child in walk((node.operand,), resolve=declared.get).order
             ):
                 reject(
-                    "a window applied before calendar sample folding",
-                    "a Metric window wrapping a calendar fold",
-                    "Calendar folds cannot be windowed, and windows inside calendar samples are unsupported. "
-                    "Observe the windowed Metric with a CalendarAxis, then explicitly reduce the captured Frame values.",
+                    "builtin calendar samples inside a Metric window",
+                    "a Metric window wrapping a custom calendar fold",
+                    "Use a builtin sample Grain, or observe the custom calendar separately.",
                     "Metric.window",
                 )
             if rule is not None:
@@ -321,6 +320,18 @@ def bind_windows(
                     "Metric.window",
                 )
             rule = node.rule
+            window_sample = sample
+            if (
+                isinstance(rule, TrailingPeriods)
+                and sample is not None
+                and sample_grains[sample].unit not in ("day", "week", "month", "quarter", "year")
+            ):
+                reject(
+                    "day/week/month/quarter/year sample periods",
+                    repr(sample_grains[sample]),
+                    "Use trailing_duration for elapsed subday windows.",
+                    "Metric.window",
+                )
             if isinstance(rule, ToDate) and rule.grain.kind == "semantic":
                 grain = resolve_calendar_grain(
                     rule.grain, calendar_snapshots, location="Metric.window"
@@ -342,22 +353,59 @@ def bind_windows(
                 rule = ToDate(grain)
         if rule is not None:
             rules[path] = rule
+            if window_sample is not None:
+                sample_windows[path] = window_sample
+        if isinstance(node, (PerReduce, PerWeightedMean)):
+            domain = node.samples
+            depth += (
+                1
+                if isinstance(domain, (Grain, FieldCalendarSample))
+                else len(domain if isinstance(domain, tuple) else domain.axes)
+            )
+            if isinstance(domain, (Grain, FieldCalendarSample)):
+                if (
+                    isinstance(domain, Grain)
+                    and domain.kind == "semantic"
+                    and any(
+                        isinstance(child, MetricWindow)
+                        for child in walk((node,), resolve=declared.get).order
+                    )
+                ):
+                    reject(
+                        "builtin calendar samples for nested windows",
+                        "a custom calendar sample around a window",
+                        "Use a builtin sample Grain or observe the custom calendar separately.",
+                        "Metric.window",
+                    )
+                sample = SampleWindow(path, depth)
+                sample_grains[sample] = (
+                    domain.grain if isinstance(domain, FieldCalendarSample) else domain
+                )
         for edge in children(node):
             visit(
                 edge.child,
                 (*path, edge.index),
                 rule,
-                in_calendar_sample
-                or (
-                    isinstance(node, (PerReduce, PerWeightedMean))
-                    and isinstance(node.samples, (Grain, FieldCalendarSample))
-                ),
+                sample,
+                depth,
+                window_sample,
             )
 
     for index, (_, node) in enumerate(metrics):
         visit(node, (index,), None)
     if not rules:
         return contributions
+    deferred = tuple(
+        replace(
+            item, window_rule=rules[item.occurrence], sample_window=sample_windows[item.occurrence]
+        )
+        for item in contributions
+        if item.occurrence in sample_windows
+    )
+    contributions = tuple(item for item in contributions if item.occurrence not in sample_windows)
+    rules = {path: rule for path, rule in rules.items() if path not in sample_windows}
+    if not rules:
+        return (*contributions, *deferred)
     if calendar is not None and calendar.actual_only and not calendar.cells:
         grain = calendar.grain_spec
         for deferred_rule in rules.values():
@@ -375,22 +423,26 @@ def bind_windows(
                     "Metric.window",
                 )
         # Keep W as a rule until execution has obtained the complete O key image.
-        return tuple(
-            replace(item, window_rule=rules.get(item.occurrence)) for item in contributions
+        return (
+            *deferred,
+            *(replace(item, window_rule=rules.get(item.occurrence)) for item in contributions),
         )
     if calendar is not None and not calendar.cells:
         # Retain schema-bearing reads without creating window endpoints from O.
-        return tuple(
-            replace(
-                contribution,
-                calendars=tuple(
-                    (slot, replace(axis, ranges=())) if axis == calendar else (slot, axis)
-                    for slot, axis in contribution.calendars
-                ),
-            )
-            if contribution.occurrence in rules
-            else contribution
-            for contribution in contributions
+        return (
+            *deferred,
+            *(
+                replace(
+                    contribution,
+                    calendars=tuple(
+                        (slot, replace(axis, ranges=())) if axis == calendar else (slot, axis)
+                        for slot, axis in contribution.calendars
+                    ),
+                )
+                if contribution.occurrence in rules
+                else contribution
+                for contribution in contributions
+            ),
         )
     if period is None:
         reject(
@@ -483,7 +535,7 @@ def bind_windows(
                         "Choose an output Grain contained by the reset Grain.",
                         "Metric.window",
                     )
-    result: list[ContributionBinding] = []
+    result: list[ContributionBinding] = list(deferred)
     for contribution in contributions:
         rule = rules.get(contribution.occurrence)
         if rule is None or contribution.time is None:

@@ -61,6 +61,14 @@ class ObservationPeriod:
 
 
 @dataclass(frozen=True, slots=True)
+class SampleWindow:
+    """The enclosing calendar sample that supplies a window's endpoints."""
+
+    occurrence: tuple[int, ...]
+    depth: int
+
+
+@dataclass(frozen=True, slots=True)
 class ContributionBinding:
     """One source reduction usage, before any physical fusion or source reading."""
 
@@ -85,6 +93,8 @@ class ContributionBinding:
     sample_calendar_reads: tuple[tuple[str, FieldRead], ...] = ()
     population_reads: tuple[tuple[AxisBinding, FieldRead | IdentityRead], ...] = ()
     window_rule: ObservationWindow | None = None
+    sample_window: SampleWindow | None = None
+    window_coordinates: tuple[tuple[str, int | datetime], ...] = ()
     metric: str = ""
 
 

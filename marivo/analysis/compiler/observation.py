@@ -72,6 +72,7 @@ class ReductionInput:
     time_column: str | None = None
     duration: DurationDataType | None = None
     window_key: int | datetime | None = None
+    window_coordinates: tuple[tuple[str, int | datetime], ...] = ()
     preserve_sample_presence: bool = False
     calendars: tuple[tuple[str, CalendarGrouping], ...] = ()
     sampled: bool = False
@@ -175,6 +176,7 @@ def reduction_input(
         if contribution.time
         else None,
         window_key=contribution.window_key,
+        window_coordinates=contribution.window_coordinates,
         calendars=calendars,
         sampled=bool(contribution.sample_axes),
         sample_calendar_reads=contribution.sample_calendar_reads,
@@ -203,6 +205,16 @@ def bind_reduction_calendars(
         if isinstance(calendar, CalendarCoordinate) and calendar.actual_only:
             table = table.filter(table[name].notnull())
         bound[field] = name
+    for slot, point in prepared.window_coordinates:
+        name = "__fixed_calendar_" + slot.replace(".", "_")
+        table = table.mutate(
+            **{
+                name: ibis.literal(
+                    point, type="int64" if isinstance(point, int) else "timestamp('UTC', 6)"
+                )
+            }
+        ).view()
+        bound[calendar_field(slot)] = name
     return table, bound
 
 

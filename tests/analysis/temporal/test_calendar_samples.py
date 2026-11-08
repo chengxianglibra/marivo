@@ -10,6 +10,7 @@ import pytest
 
 import marivo.analysis as mv
 from marivo._authoring.model import AuthoringCapability
+from marivo._definition.windows import ObservationWindow
 from marivo.analysis.core.model import CoreRuleError
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.session.core import Session
@@ -327,7 +328,7 @@ def test_calendar_sample_mean_uses_present_hours_during_dst(calendar_session: Se
 @pytest.mark.parametrize("empty", [False, True])
 @pytest.mark.parametrize("placement", ["inside", "wrapping"])
 @pytest.mark.parametrize("reset", [False, True])
-def test_calendar_sample_windows_reject_instead_of_silently_ignoring_rules(
+def test_calendar_sample_windows_preserve_order_and_empty_sample_domains(
     calendar_session: Session, empty: bool, placement: str, reset: bool
 ) -> None:
     session = calendar_session
@@ -344,20 +345,14 @@ def test_calendar_sample_windows_reject_instead_of_silently_ignoring_rules(
         if placement == "inside"
         else revenue.per(mv.grain("day")).sum().window(rule)
     )
-    # Inner all-history values would be [40, 100, 100, 260, 260, 260, 560]
-    # or seven copies of 560 in the empty week. Returning 560 or 0 ignores the rule.
-    with pytest.raises(CoreRuleError) as captured:
-        session.observe({"v": metric}, by=(scope_scope.by(mv.grain("week")),))
-    error = captured.value
-    assert "window" in (error.expected or "").lower()
-    assert "calendar" in (error.received or "").lower()
-    assert error.repair
-    assert "CalendarAxis" in error.repair.action
-    if placement == "wrapping":
-        assert "cannot be windowed" in error.repair.action
+    rows = (
+        session.observe({"v": metric}, by=(scope_scope.by(mv.grain("week")),)).compute().to_pandas()
+    )
+    expected = (0 if empty else 960) if placement == "inside" else (0 if empty and reset else 560)
+    assert rows["v"].tolist() == [expected]
 
 
-def test_calendar_window_rejection_reaches_weighted_nested_and_declared_formulas(
+def test_calendar_windows_complete_weighted_nested_and_declared_formulas(
     calendar_session: Session,
 ) -> None:
     session = calendar_session
@@ -372,11 +367,9 @@ def test_calendar_window_rejection_reaches_weighted_nested_and_declared_formulas
         daily.window(mv.all_history()),
     )
     scope = session.time_scope(start="2026-10-05", end="2026-10-12")
-    for metric in metrics:
-        with pytest.raises(CoreRuleError) as captured:
-            session.observe({"v": metric}, where=scope)
-        assert "window" in (captured.value.expected or "").lower()
-        assert captured.value.repair
+    for metric, expected in zip(metrics, (226.25, 240, 140), strict=True):
+        rows = session.observe({"v": metric}, where=scope).compute().to_pandas()
+        assert rows["v"].tolist() == [expected]
 
 
 def test_calendar_folds_and_windows_on_independent_branches_keep_their_values(
@@ -409,3 +402,343 @@ def test_calendar_sample_formula_discloses_public_builtin_grain(
     text = capsys.readouterr().out
     assert ".per(Grain('day'))" in text
     assert "_BuiltinGrain" not in text
+
+
+def test_window_calendar_order_preserves_sparse_samples(
+    calendar_session: Session, tmp_path: Path
+) -> None:
+    import duckdb
+
+    with duckdb.connect(str(tmp_path / "warehouse.duckdb")) as connection:
+        connection.execute("DELETE FROM facts")
+        connection.execute(
+            "INSERT INTO facts VALUES (1, '2026-01-02', '2026-01-02', 20, 'east'), (2, '2026-01-03', '2026-01-03', 30, 'east'), (3, '2026-01-05', '2026-01-05', 50, 'east')"
+        )
+    session = calendar_session
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
+    point = catalog_value(session.catalog, "sales.facts.point", kind="time_dimension")
+    revenue = amount.sum(time=point)
+    window = mv.trailing_duration(duration=timedelta(days=3))
+    scope = session.time_scope(start="2026-01-03", end="2026-01-06")
+    rows = (
+        session.observe(
+            {
+                "outer": revenue.per(mv.grain("day")).mean().window(window),
+                "inner": revenue.window(window).per(mv.grain("day")).mean(),
+            },
+            where=scope,
+        )
+        .compute()
+        .to_pandas()
+    )
+    assert rows["outer"].tolist() == [40]
+    assert rows["inner"].tolist() == [65]
+
+
+@pytest.mark.parametrize(
+    "rule,expected",
+    [
+        (mv.all_history(), 240),
+        (mv.trailing_duration(duration=timedelta(days=2)), 150),
+        (mv.trailing_periods(count=2), 150),
+        (mv.to_date(grain=mv.grain("day")), 140),
+    ],
+)
+def test_inner_window_rules_use_sample_endpoints(
+    calendar_session: Session, rule: ObservationWindow, expected: float
+) -> None:
+    session = calendar_session
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
+    point = catalog_value(session.catalog, "sales.facts.point", kind="time_dimension")
+    scope = session.time_scope(start="2026-10-05", end="2026-10-12")
+    metric = amount.sum(time=point).window(rule).per(mv.grain("day")).mean()
+    rows = session.observe({"v": metric}, by=(scope.by(mv.grain("week")),)).compute().to_pandas()
+    assert rows["v"].tolist() == [expected]
+
+
+def test_inner_window_preserves_fixed_conditions_and_independent_denominator(
+    calendar_session: Session,
+) -> None:
+    session = calendar_session
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
+    point = catalog_value(session.catalog, "sales.facts.point", kind="time_dimension")
+    scope = session.time_scope(start="2026-10-05", end="2026-10-12")
+    filtered = amount.sum(time=point, where=point >= "2026-10-08")
+    fixed = amount.sum(time=None)
+    window = mv.since(start=session.instant("2026-10-01"))
+    rows = (
+        session.observe(
+            {
+                "filtered": filtered.window(window).per(mv.grain("day")).mean(),
+                "ratio": (amount.sum(time=point) / fixed)
+                .window(window)
+                .per(mv.grain("day"))
+                .mean(),
+            },
+            where=scope,
+        )
+        .compute()
+        .to_pandas()
+    )
+    assert rows["filtered"].tolist() == [310]
+    assert rows["ratio"].tolist() == pytest.approx([240 / 1310])
+
+
+def test_sample_endpoints_work_without_a_report_range(calendar_session: Session) -> None:
+    session = calendar_session
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
+    point = catalog_value(session.catalog, "sales.facts.point", kind="time_dimension")
+    revenue = amount.sum(time=point)
+    rows = (
+        session.observe(
+            {
+                "v": revenue.window(mv.to_date(grain=mv.grain("day"))).per(mv.grain("day")).mean(),
+            }
+        )
+        .compute()
+        .to_pandas()
+    )
+    assert rows["v"].tolist() == pytest.approx([1310 / 6])
+
+
+def test_explicit_sample_window_keeps_independent_values_on_report_axis(
+    calendar_session: Session,
+) -> None:
+    session = calendar_session
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
+    point = catalog_value(session.catalog, "sales.facts.point", kind="time_dimension")
+    scope = session.time_scope(start="2026-10-05", end="2026-10-12")
+    metric = amount.sum(time=None).window(mv.all_history()).per(point, grain=mv.grain("day")).mean()
+    rows = (
+        session.observe({"fixed": metric}, by=(scope.by(mv.grain("week")),)).compute().to_pandas()
+    )
+    assert rows["fixed"].tolist() == pytest.approx([1310 / 6])
+
+
+def test_calendar_windows_keep_nested_window_and_subday_period_rejections(
+    calendar_session: Session,
+) -> None:
+    session = calendar_session
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
+    point = catalog_value(session.catalog, "sales.facts.point", kind="time_dimension")
+    revenue = amount.sum(time=point)
+    with pytest.raises(SemanticExpressionError, match="nested on one dependency path"):
+        session.observe(
+            revenue.window(mv.all_history()).per(mv.grain("day")).mean().window(mv.all_history())
+        )
+    with pytest.raises(CoreRuleError, match="subday windows"):
+        session.observe(
+            {"v": revenue.window(mv.trailing_periods(count=2)).per(mv.grain("hour")).mean()}
+        )
+
+
+@pytest.mark.parametrize("edition", ["docs", "zh-cn/docs"])
+def test_calendar_window_documentation_examples(calendar_session: Session, edition: str) -> None:
+    session = calendar_session
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
+    point = catalog_value(session.catalog, "sales.facts.point", kind="time_dimension")
+    namespace: dict[str, object] = {
+        "mv": mv,
+        "session": session,
+        "revenue": amount.sum(time=point),
+        "august": session.time_scope(start="2026-10-05", end="2026-10-12"),
+    }
+    source = documentation_example(edition, "calendar-sample-window", page="analysis/time-series")
+    exec(compile(source, "<calendar-window-example>", "exec"), namespace)
+    frame = namespace["window_comparison"]
+    assert isinstance(frame, mv.AnalysisFrame)
+    actual = frame.to_pandas()
+    assert actual["window_daily_mean"].tolist() == [140]
+    assert actual["mean_daily_window"].tolist() == [240]
+
+
+def test_calendar_window_dst_distinguishes_elapsed_and_civil_days(
+    calendar_session: Session, tmp_path: Path
+) -> None:
+    import duckdb
+
+    with duckdb.connect(str(tmp_path / "warehouse.duckdb")) as connection:
+        connection.execute("DELETE FROM facts")
+        connection.execute(
+            "INSERT INTO facts VALUES (1, '2026-03-08 04:30:00', '2026-03-08 04:30:00', 10, 'east'), (2, '2026-03-08 16:00:00', '2026-03-08 16:00:00', 20, 'east')"
+        )
+    session = mv.session.get_or_create("sample-window-dst", timezone="America/New_York")
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
+    point = catalog_value(session.catalog, "sales.facts.point", kind="time_dimension")
+    revenue = amount.sum(time=point)
+    scope = session.time_scope(start="2026-03-08", end="2026-03-09")
+    rows = (
+        session.observe(
+            {
+                "elapsed": revenue.window(mv.trailing_duration(duration=timedelta(days=1)))
+                .per(mv.grain("day"))
+                .mean(),
+                "civil": revenue.window(mv.trailing_periods(count=1)).per(mv.grain("day")).mean(),
+            },
+            by=(scope.by(mv.grain("day")),),
+        )
+        .compute()
+        .to_pandas()
+    )
+    assert rows["elapsed"].tolist() == [30]
+    assert rows["civil"].tolist() == [20]
+
+
+def test_partial_sample_endpoints_keep_empty_window_samples(calendar_session: Session) -> None:
+    session = calendar_session
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
+    point = catalog_value(session.catalog, "sales.facts.point", kind="time_dimension")
+    revenue = amount.sum(time=point)
+    scope = session.time_scope(start="2026-10-05T06:00Z", end="2026-10-05T14:00Z")
+    rows = (
+        session.observe(
+            {
+                "empty": revenue.window(mv.trailing_duration(duration=timedelta(hours=1)))
+                .per(mv.grain("day"))
+                .mean(),
+                "history": revenue.window(mv.all_history()).per(mv.grain("day")).mean(),
+            },
+            where=scope,
+        )
+        .compute()
+        .to_pandas()
+    )
+    assert rows["empty"].tolist() == [0]
+    assert rows["history"].tolist() == [40]
+    with pytest.raises(CoreRuleError, match="complete calendar buckets"):
+        session.observe(
+            {"v": revenue.window(mv.trailing_periods(count=1)).per(mv.grain("day")).mean()},
+            where=scope,
+        ).compute()
+
+
+def test_sample_windows_keep_other_outputs_fixed_frame_parameters(
+    calendar_session: Session,
+) -> None:
+    session = calendar_session
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
+    point = catalog_value(session.catalog, "sales.facts.point", kind="time_dimension")
+    region = catalog_value(session.catalog, "sales.facts.region", kind="dimension")
+    revenue = amount.sum(time=point)
+    captured = session.observe({"v": revenue}, by=(region,)).compute()
+    selected = session.population_from(captured, on=((captured.axes[0], region),))
+    scope = session.time_scope(start="2026-10-05", end="2026-10-12")
+    actual = (
+        session.observe(
+            {
+                "window": revenue.window(mv.all_history()).per(mv.grain("day")).mean(),
+                "selected": revenue.where(mv.in_population(selected)),
+            },
+            where=scope,
+        )
+        .compute()
+        .to_pandas()
+    )
+    assert actual["window"].tolist() == [240]
+    assert actual["selected"].tolist() == [560]
+
+
+def test_window_samples_retain_all_null_and_zero_days(
+    calendar_session: Session, tmp_path: Path
+) -> None:
+    import duckdb
+
+    with duckdb.connect(str(tmp_path / "warehouse.duckdb")) as connection:
+        connection.execute("DELETE FROM facts")
+        connection.execute(
+            "INSERT INTO facts VALUES (1, '2026-01-02', '2026-01-02', 20, 'east'), (2, '2026-01-03', '2026-01-03', NULL, 'east'), (3, '2026-01-05', '2026-01-05', 0, 'east')"
+        )
+    session = calendar_session
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
+    point = catalog_value(session.catalog, "sales.facts.point", kind="time_dimension")
+    revenue = amount.sum(time=point)
+    scope = session.time_scope(start="2026-01-03", end="2026-01-06")
+    rule = mv.trailing_duration(duration=timedelta(days=3))
+    actual = (
+        session.observe(
+            {
+                "inner": revenue.window(rule).per(mv.grain("day")).mean(),
+                "outer": revenue.per(mv.grain("day")).mean().window(rule),
+            },
+            where=scope,
+        )
+        .compute()
+        .to_pandas()
+    )
+    assert actual["inner"].tolist() == [10]
+    assert actual["outer"].tolist() == [0]
+
+
+@pytest.mark.parametrize("captured_population", [False, True])
+def test_calendar_window_samples_respect_enclosing_population_selection(
+    calendar_session: Session, captured_population: bool
+) -> None:
+    session = calendar_session
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
+    point = catalog_value(session.catalog, "sales.facts.point", kind="time_dimension")
+    region = catalog_value(session.catalog, "sales.facts.region", kind="dimension")
+    selected = mv.coordinates(by=(region,), keys=(("west",),))
+    if captured_population:
+        captured = session.frame(selected).compute()
+        selected = session.population_from(captured, on=((captured.axes[0], region),))
+    metric = (
+        amount.sum(time=point)
+        .window(mv.since(start=session.instant("2026-10-09")))
+        .per(mv.grain("day"))
+        .mean()
+        .per(selected)
+        .mean()
+    )
+    scope = session.time_scope(start="2026-10-05", end="2026-10-12")
+    actual = session.observe({"v": metric}, where=scope).compute().to_pandas()
+    assert actual["v"].isna().all()
+
+
+def test_calendar_window_internal_selection_cannot_hide_output_coverage(
+    calendar_session: Session, tmp_path: Path
+) -> None:
+    import duckdb
+
+    with duckdb.connect(str(tmp_path / "warehouse.duckdb")) as connection:
+        connection.execute("UPDATE facts SET region='west' WHERE id=7")
+    session = calendar_session
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
+    point = catalog_value(session.catalog, "sales.facts.point", kind="time_dimension")
+    region = catalog_value(session.catalog, "sales.facts.region", kind="dimension")
+    facts = catalog_value(session.catalog, "sales.facts", kind="entity")
+    selected = mv.coordinates(by=(mv.identity(facts),), keys=(((7,),),))
+    metric = (
+        amount.sum(time=point)
+        .window(mv.all_history())
+        .per(mv.grain("day"))
+        .mean()
+        .per(selected)
+        .mean()
+    )
+    scope = session.time_scope(start="2026-10-05", end="2026-10-12")
+    output = mv.coordinates(by=(region,), keys=(("west",),))
+    with pytest.raises(MaterializationError, match="missing output coordinates"):
+        session.observe({"v": metric}, by=output, where=scope).compute()
+
+
+def test_sample_windows_keep_each_outputs_sample_key_types(calendar_session: Session) -> None:
+    session = calendar_session
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
+    point = catalog_value(session.catalog, "sales.facts.point", kind="time_dimension")
+    region = catalog_value(session.catalog, "sales.facts.region", kind="dimension")
+    facts = catalog_value(session.catalog, "sales.facts", kind="entity")
+    daily = amount.sum(time=point).window(mv.all_history()).per(mv.grain("day")).mean()
+    scope = session.time_scope(start="2026-10-05", end="2026-10-12")
+    actual = (
+        session.observe(
+            {
+                "region_mean": daily.per(region).mean(),
+                "entity_total": daily.per(session.members(facts)).sum(),
+            },
+            where=scope,
+        )
+        .compute()
+        .to_pandas()
+    )
+    assert actual["region_mean"].tolist() == [240]
+    assert actual["entity_total"].tolist() == [560]

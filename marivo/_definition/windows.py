@@ -85,7 +85,7 @@ def trailing_periods(*, count: int) -> ObservationWindow:
     Args: count: A positive, non-boolean integer.
     Returns: A source-free calendar window rule.
     Example: ``revenue.window(mv.trailing_periods(count=7))``.
-    Constraints: Observation requires a CalendarAxis.
+    Constraints: Requires complete periods from the report CalendarAxis or nearest enclosing builtin calendar sample.
     """
     if type(count) is not int or count <= 0:
         invalid(

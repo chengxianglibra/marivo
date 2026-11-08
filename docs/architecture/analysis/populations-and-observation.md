@@ -35,7 +35,7 @@ bound graphs after a later load.
 without adding a coordinate. Native TimeField samples use represented values
 regardless of cadence and need no report interval. Builtin Grain samples
 likewise work without a finite period when at least one branch supplies a contribution
-clock. Windows need report endpoints and custom calendar samples need a complete
+clock. Windows need report or enclosing builtin sample endpoints and custom calendar samples need a complete
 certified period. Some checks run only during `compute()` or `persist()`.
 
 ## Population identity and set semantics

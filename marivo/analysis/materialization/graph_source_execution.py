@@ -26,6 +26,7 @@ from marivo.analysis.compiler.graph_plan import (
     AttributeFrequencyRead,
     AttributeRead,
     ReductionRead,
+    SampleWindowRead,
     local_steps,
     read_attribute,
     read_components,
@@ -2242,6 +2243,7 @@ def execute_numeric_query(
     native_prepared: Mapping[str, PreparedNativeGame] | None = None,
     frame_key_inputs: Mapping[str, StageOutput] | None = None,
     report_domain: pd.DataFrame | None = None,
+    sample_domains: Mapping[tuple[int, ...], pd.DataFrame] | None = None,
 ) -> StageOutput:
     """Execute the fixed numeric schedule and return invocation-local pandas data."""
     from marivo.analysis.core.model import reject
@@ -2297,8 +2299,9 @@ def execute_numeric_query(
 
         stage = effective_local(stage, inputs) if not local_steps(stage) else stage
         output = (
-            run_local(stage, inputs, report_domain=report_domain)
-            if report_domain is not None and stage.stage_id == lowered.plan.publish
+            run_local(stage, inputs, report_domain=report_domain, sample_domains=sample_domains)
+            if (report_domain is not None or sample_domains is not None)
+            and stage.stage_id == lowered.plan.publish
             else run_local(stage, inputs)
         )
         if observe_local is not None:
@@ -2323,6 +2326,12 @@ def execute_numeric_query(
             prepared_by_stage.get(stage.stage_id) if prepared_by_stage is not None else prepared
         )
         assert selected is not None
+        if isinstance(stage.program, SampleWindowRead):
+            from marivo.analysis.materialization.sample_windows import run_sample_windows
+
+            return run_sample_windows(
+                selected, stage, stage.program, inputs, observe_read=observe_read
+            )
         if isinstance(stage.program, ActualWindowRead):
             from marivo.analysis.materialization.actual_windows import run_actual_windows
 

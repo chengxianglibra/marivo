@@ -228,6 +228,12 @@ def test_date_contributions_reject_subday_and_non_midnight_windows(
         (revenue, scope.by(mv.grain("hour"))),
         (revenue.window(mv.to_date(grain=mv.grain("hour"))), scope),
         (revenue.window(mv.trailing_duration(duration=timedelta(hours=6))), scope),
+        (
+            revenue.window(mv.trailing_duration(duration=timedelta(hours=6)))
+            .per(mv.grain("day"))
+            .mean(),
+            scope,
+        ),
         (revenue.window(mv.trailing_duration(duration=timedelta(hours=25))), scope),
         (revenue, session.time_scope(start="2026-10-07", end="2026-10-07T12:00Z")),
     ):

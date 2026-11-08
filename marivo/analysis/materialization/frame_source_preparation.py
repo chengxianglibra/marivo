@@ -230,13 +230,28 @@ def prepare_frame_sources(captured: CapturedFrameInputs, stack: ExitStack) -> Pr
             prepared.graph if prepared is not None and prepared.graph is not None else active_graph
         )
         from marivo.analysis.materialization.actual_windows import prepare_actual_window_plan
+        from marivo.analysis.materialization.sample_windows import (
+            has_sample_windows,
+            prepare_sample_window_plan,
+        )
 
+        sample_windows = has_sample_windows(active_graph)
         sparse_window = actual_window_axis(active_graph)
         if sparse_window is not None and (input_id in requested or input_id in captured.games):
             require_finite_attribution_scope(active_graph)
         native_reads: tuple[SourceRead, ...] = ()
         native_value_slots: list[str] = []
-        if sparse_window is not None:
+        if sample_windows:
+            assert prepared is not None and isinstance(binding, SourceFrameBinding)
+            lowered, prepared = prepare_sample_window_plan(
+                active_graph,
+                prepared,
+                binding.state,
+                current._local.record().report_timezone_name,
+                key_schemas,
+            )
+            prepared_by_input[input_id] = prepared
+        elif sparse_window is not None:
             assert prepared is not None and isinstance(binding, SourceFrameBinding)
             lowered, prepared = prepare_actual_window_plan(
                 active_graph,
@@ -313,13 +328,14 @@ def prepare_frame_sources(captured: CapturedFrameInputs, stack: ExitStack) -> Pr
                     qualified_stages.append(candidate)
                 plan = share_frequency_reads(replace(plan, stages=tuple(qualified_stages)))
             plan = optimize_query(plan)
-        if sparse_window is None:
+        if sparse_window is None and not sample_windows:
             lowered = lower_query(plan, {} if prepared is None else prepared.relations)
         if (
             prepared is not None
             and input_id not in requested
             and input_id not in captured.games
             and sparse_window is None
+            and not sample_windows
         ):
             from marivo.analysis.materialization.query_key_fusion import (
                 fuse_query_keys,

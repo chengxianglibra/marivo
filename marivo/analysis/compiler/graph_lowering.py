@@ -17,6 +17,7 @@ from marivo.analysis.compiler.graph_plan import (
     NativeRead,
     ProjectionRead,
     QueryPlan,
+    SampleWindowRead,
     SourceRead,
     read_attribute,
     read_components,
@@ -96,7 +97,7 @@ def lower_query(plan: QueryPlan, relations: dict[str, ir.Table]) -> LoweredQuery
     for stage in plan.stages:
         if not isinstance(stage, SourceRead):
             continue
-        if isinstance(stage.program, (ActualWindowRead, AttributeCoalitionRead)):
+        if isinstance(stage.program, (ActualWindowRead, SampleWindowRead, AttributeCoalitionRead)):
             continue
         if isinstance(stage.program, NativeRead):
             raise compilation_error(

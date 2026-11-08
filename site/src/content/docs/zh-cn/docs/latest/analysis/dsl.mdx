@@ -64,7 +64,7 @@ session = mv.session.get_or_create("revenue-review", timezone="UTC", domains="sa
 `session.observe(metrics, by=())` 请求一个整体单元，结果为零轴。
 加入 `where=scope` 可限定报告范围，输出仍为零轴。原生 TimeField 样本使用实际值，
 不要求覆盖声明的采样节奏。若至少一个分支提供贡献时间，内置 Grain 样本也可在没有有限
-报告范围时计算。窗口需要报告端点，自定义日历样本需要完整认证期间。部分检查在
+报告范围时计算。窗口需要报告端点或外层内置日历样本端点，自定义日历样本需要完整认证期间。部分检查在
 compute 或 persist 时执行。
 
 ## 执行前选择结果保留方式

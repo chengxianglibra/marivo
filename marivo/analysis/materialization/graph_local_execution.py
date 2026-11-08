@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from typing import TYPE_CHECKING, TypeAlias
 
 import pandas as pd
@@ -39,6 +39,7 @@ def run_local(
     kernel: LocalKernel | None = None,
     *,
     report_domain: pd.DataFrame | None = None,
+    sample_domains: Mapping[tuple[int, ...], pd.DataFrame] | None = None,
 ) -> StageOutput:
     """Run one checked Query kernel without mutating its shared inputs."""
     attribute_inputs: tuple[AttributeRootInputs, ...] = ()
@@ -339,7 +340,11 @@ def run_local(
             )
         elif isinstance(stage.program, FormulaProgram) and kernel is query_combine:
             frame = query_combine(
-                stage, views, unique_keys=tuple(view_keys), report_domain=report_domain
+                stage,
+                views,
+                unique_keys=tuple(view_keys),
+                report_domain=report_domain,
+                sample_domains=sample_domains,
             )
         else:
             frame = kernel(stage, views)

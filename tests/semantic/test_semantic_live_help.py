@@ -836,7 +836,7 @@ def test_per_help_covers_observed_and_complete_sample_domains(
     assert "Both builtin forms use the Session report timezone" in text
     assert "Week in month rejects" in text
     assert "Session's current certified snapshot" in text
-    assert "Windows inside calendar samples or wrapping calendar folds are unsupported" in text
+    assert "windows inside builtin samples use the nearest sample endpoints" in text
 
 
 def test_semantic_concept_constructor_and_expression_role_share_one_navigation(

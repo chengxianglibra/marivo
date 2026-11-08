@@ -321,8 +321,7 @@ def test_new_sample_shape_validates_grain_and_windows(
         revenue.window(window).per(created, grain=day).last(),
         revenue.per(created, grain=day).last().window(window),
     ):
-        with pytest.raises(CoreRuleError, match=r"calendar sampl|calendar fold"):
-            sample_session.observe({"v": expression}, where=scope)
+        sample_session.observe({"v": expression}, where=scope)
     with pytest.raises(SemanticExpressionError, match="calendar order"):
         sample_session.observe({"v": revenue.per(created, grain=day).last(order_by=created)})
     sample_session.observe({"v": revenue.per(created, grain=day).last()})
@@ -737,11 +736,13 @@ def test_asynchronous_status_last_and_spatial_sum_are_order_sensitive(
         assert _row_values(actual, ["whole_snapshot", "last_per_region"]) == [15, 35]
 
 
+@pytest.mark.parametrize("windowed", [False, True])
 def test_saved_field_calendar_fold_reopens_without_sources_or_sample_axes(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     semantic_project_factory: ProjectFactory,
     capsys: pytest.CaptureFixture[str],
+    windowed: bool,
 ) -> None:
     with _sample_project(tmp_path, monkeypatch, semantic_project_factory, _F9):
         model = tmp_path / "models" / "semantic" / "sales" / "folded.py"
@@ -751,7 +752,7 @@ def test_saved_field_calendar_fold_reopens_without_sources_or_sample_axes(
             "from .facts import amount, created, paid\n"
             "day = mv.grain('day')\n"
             "@ms.metric()\ndef latest_creation_day():\n"
-            "    return amount.sum(time=paid).per(created, grain=day).last()\n"
+            f"    return amount.sum(time=paid){'.window(mv.all_history())' if windowed else ''}.per(created, grain=day).last()\n"
         )
         session = mv.session.get_or_create("persisted-sample", timezone="UTC")
         metric = catalog_value(session.catalog, "sales.latest_creation_day", kind="metric")
@@ -775,11 +776,17 @@ import marivo.analysis as mv
 
 frame = mv.session.resume(sys.argv[1]).persisted_frame(sys.argv[2])
 assert not frame.axes
-assert frame.to_pandas()["v"].tolist() == [140]
+expected = 0 if sys.argv[3] == "True" else 140
+assert frame.to_pandas()["v"].tolist() == [expected]
+if sys.argv[3] == "True":
+    endpoint = frame.schema.value_time_semantics["v"].contributions[0].window_endpoint
+    assert isinstance(endpoint, mv.FrameFieldSampleWindowEndpoint)
+    assert endpoint.field.path == "sales.facts.created"
 assert not hasattr(frame, "per")
 """,
             session.id,
             saved.artifact_id,
+            str(windowed),
         ],
         cwd=tmp_path,
         env=dict(os.environ, PYTHONPATH=str(PROJECT_ROOT), TZ="America/Los_Angeles"),
@@ -789,3 +796,96 @@ assert not hasattr(frame, "per")
         check=False,
     )
     assert result.returncode == 0, result.stdout + result.stderr
+
+
+@pytest.mark.parametrize(
+    "backend,profile",
+    source_params(
+        [
+            ("duckdb", "table"),
+            ("postgres", "table"),
+            ("mysql", "innodb-table"),
+            ("trino", "non-iceberg"),
+            ("clickhouse", "mergetree"),
+        ]
+    ),
+)
+def test_calendar_window_order_and_cross_clock_cohorts(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    semantic_project_factory: ProjectFactory,
+    backend: str,
+    profile: str,
+) -> None:
+    rows: tuple[Row, ...] = (
+        ("2026-01-01 12:00:00", "2026-01-02 12:00:00", 10, "East", 1),
+        ("2026-01-03 12:00:00", "2026-01-03 12:00:00", 30, "East", 1),
+        ("2026-01-03 12:00:00", "2026-01-05 12:00:00", 50, "East", 1),
+        ("2026-01-05 12:00:00", "2026-01-05 12:00:00", 70, "West", 1),
+    )
+    with _sample_project(
+        tmp_path, monkeypatch, semantic_project_factory, rows, backend=backend, profile=profile
+    ):
+        session = mv.session.get_or_create("sample-window-cohorts", timezone="UTC")
+        amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
+        paid = catalog_value(session.catalog, "sales.facts.paid", kind="time_dimension")
+        created = catalog_value(session.catalog, "sales.facts.created", kind="time_dimension")
+        region = catalog_value(session.catalog, "sales.facts.region", kind="dimension")
+        scope = session.time_scope(start="2026-01-03", end="2026-01-06")
+        # Explicit Float64 keeps this temporal comparison independent of Decimal scale.
+        revenue = amount.sum(time=paid).cast("float64")
+        day = mv.grain("day")
+        observed = session.observe(
+            {
+                "cohort": revenue.window(mv.all_history()).per(created, grain=day).mean(),
+                "clock": revenue.window(mv.all_history()).per(paid, grain=day).mean(),
+                "clock_grain": revenue.window(mv.all_history()).per(day).mean(),
+                "outer": revenue.per(created, grain=day).mean().window(mv.all_history()),
+            },
+            where=scope,
+        ).compute()
+        actual = observed.to_pandas()
+        assert actual["cohort"].tolist() == [50]
+        assert actual["clock"].tolist() == [100]
+        assert actual["clock_grain"].tolist() == [100]
+        assert [float(value) for value in actual["outer"]] == pytest.approx([160 / 3])
+        facts = observed.schema.value_time_semantics
+        cohort = facts["cohort"].contributions[0].window_endpoint
+        assert isinstance(cohort, mv.FrameFieldSampleWindowEndpoint)
+        assert cohort.field.path == "sales.facts.created"
+        assert cohort.layer == 1
+        assert isinstance(
+            facts["outer"].contributions[0].window_endpoint, mv.FrameReportWindowEndpoint
+        )
+        grouped = (
+            session.observe(
+                {
+                    "cohort": revenue.window(mv.all_history()).per(created, grain=day).mean(),
+                    "clock": revenue.window(mv.all_history()).per(paid, grain=day).mean(),
+                },
+                by=(scope.by(mv.grain("month")), region),
+            )
+            .compute()
+            .to_pandas()
+        )
+        assert sorted(grouped["cohort"].tolist()) == [30, 70]
+        assert sorted(grouped["clock"].tolist()) == [65, 70]
+
+
+def test_calendar_sample_windows_share_multiroot_endpoint_domain(sample_session: Session) -> None:
+    session = sample_session
+    amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
+    paid = catalog_value(session.catalog, "sales.facts.paid", kind="time_dimension")
+    refund = catalog_value(session.catalog, "sales.refunds.amount", kind="measure")
+    reviewed = catalog_value(session.catalog, "sales.refunds.reviewed", kind="time_dimension")
+    net = amount.sum(time=paid) - refund.sum(time=reviewed)
+    scope = session.time_scope(start="2026-11-01", end="2026-12-01")
+    actual = (
+        session.observe(
+            {"net": net.window(mv.all_history()).per(mv.grain("day")).mean()}, where=scope
+        )
+        .compute()
+        .to_pandas()
+    )
+    # Actual endpoint dates are Nov 1, 3, 9 and 10, shared across both clocks.
+    assert actual["net"].tolist() == [-592]

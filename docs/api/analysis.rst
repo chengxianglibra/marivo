@@ -574,6 +574,9 @@ Canonical public exports
    FrameObservedTimeSemantics
    FrameDerivedTimeSemantics
    FrameClockedContribution
+   FrameReportWindowEndpoint
+   FrameContributionSampleWindowEndpoint
+   FrameFieldSampleWindowEndpoint
    FrameIndependentContribution
    FrameInstantSourceTime
    FrameWallClockSourceTime

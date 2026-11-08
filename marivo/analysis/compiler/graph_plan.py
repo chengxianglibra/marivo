@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Literal, TypeAlias
 
 from marivo._definition.correspondence import coordinate_position
 from marivo._definition.expressions import PredicateExpression
+from marivo._definition.observations import ContributionBinding
 from marivo._definition.relations import PopulationDependency
 from marivo.analysis.compiler.query_program import (
     FrameCombineProgram,
@@ -39,7 +40,7 @@ from marivo.analysis.methods.physical import QUERY_COMBINE_KERNEL
 if TYPE_CHECKING:
     from marivo.analysis.compiler.attribute_inputs import AttributeRootLayout
     from marivo.analysis.compiler.native_query import NativeQueryFinish
-    from marivo.analysis.compiler.observation import FormulaProgram, ReductionInput
+    from marivo.analysis.compiler.observation import FormulaProgram, PopulationInput, ReductionInput
     from marivo.analysis.compiler.optimization import (
         FusionGroup,
         InvocationMemo,
@@ -175,6 +176,19 @@ class ActualWindowRead:
     key_inputs: tuple[str, ...]
 
 
+@dataclass(frozen=True, slots=True)
+class SampleWindowRead:
+    """Evaluate windows over discovered calendar sample domains."""
+
+    graph: BoundGraph
+    state: CompiledSemanticState
+    timezone: str
+    frame_schemas: tuple[tuple[str, DataSchema], ...]
+    key_inputs: tuple[str, ...]
+    candidates: tuple[ContributionBinding, ...]
+    populations: tuple[PopulationInput, ...]
+
+
 SourceProgram: TypeAlias = (
     ProjectionRead
     | ReductionRead
@@ -185,6 +199,7 @@ SourceProgram: TypeAlias = (
     | NativeRead
     | AttributeCoalitionRead
     | ActualWindowRead
+    | SampleWindowRead
 )
 
 
@@ -1097,6 +1112,7 @@ def _plan_query(
         and not population_stages
         and program.output_population is None
         and direct == contributions[0].definition
+        and not contributions[0].sample_axes
         and calendar is None
     ):
         stage = reads[0]

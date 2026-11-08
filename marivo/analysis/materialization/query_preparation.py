@@ -148,6 +148,7 @@ class SourceInputContract:
     calendars: tuple[tuple[str, CalendarGrouping], ...]
     time_authorities: tuple[SourceTimeAuthority, ...]
     sample_calendar_reads: tuple[tuple[str, FieldRead], ...] = ()
+    window_coordinates: tuple[tuple[str, int | datetime], ...] = ()
 
     @classmethod
     def capture(
@@ -183,6 +184,7 @@ class SourceInputContract:
             contribution.calendars,
             (),
             sample_calendar_reads=contribution.sample_calendar_reads,
+            window_coordinates=contribution.window_coordinates,
         )
 
 
@@ -390,8 +392,9 @@ def prepare_fields(
     # Window bindings own their contribution period instead of the output cells.
     selected_calendars = tuple(
         calendar
-        for _, calendar in contribution.calendars
-        if not isinstance(calendar, BuiltinSampleCoordinate)
+        for key, calendar in contribution.calendars
+        if key not in dict(contribution.window_coordinates)
+        and not isinstance(calendar, BuiltinSampleCoordinate)
         and not (isinstance(calendar, CalendarCoordinate) and calendar.actual_only)
         and (contribution.window_key is None or calendar in contribution.sample_axes)
     )
@@ -594,7 +597,12 @@ def prepare_fields(
                     if isinstance(calendar, BuiltinSampleCoordinate):
                         continue
                     name = unique("__bucket_" + key.replace(".", "_"))
-                    if isinstance(calendar, CalendarCoordinate):
+                    if key in dict(contribution.window_coordinates):
+                        point = dict(contribution.window_coordinates)[key]
+                        extras[name] = ibis.literal(
+                            point, type="int64" if isinstance(point, int) else "timestamp('UTC', 6)"
+                        )
+                    elif isinstance(calendar, CalendarCoordinate):
                         extras[name] = ibis.null().cast("timestamp('UTC', 6)")
                         clock_key = read_key
                         pending_calendars.append((name, clock_key, calendar))

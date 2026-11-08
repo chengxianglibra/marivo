@@ -62,6 +62,9 @@ from marivo.analysis.core.frame_interpretation import (
     FrameComparisonValue as FrameComparisonValue,
 )
 from marivo.analysis.core.frame_interpretation import (
+    FrameContributionSampleWindowEndpoint as FrameContributionSampleWindowEndpoint,
+)
+from marivo.analysis.core.frame_interpretation import (
     FrameDecomposition as FrameDecomposition,
 )
 from marivo.analysis.core.frame_interpretation import (
@@ -72,6 +75,9 @@ from marivo.analysis.core.frame_interpretation import (
 )
 from marivo.analysis.core.frame_interpretation import (
     FrameDerivedValueInput as FrameDerivedValueInput,
+)
+from marivo.analysis.core.frame_interpretation import (
+    FrameFieldSampleWindowEndpoint as FrameFieldSampleWindowEndpoint,
 )
 from marivo.analysis.core.frame_interpretation import (
     FrameFixedAxis as FrameFixedAxis,
@@ -123,6 +129,9 @@ from marivo.analysis.core.frame_interpretation import (
 )
 from marivo.analysis.core.frame_interpretation import (
     FramePairStatisticContext as FramePairStatisticContext,
+)
+from marivo.analysis.core.frame_interpretation import (
+    FrameReportWindowEndpoint as FrameReportWindowEndpoint,
 )
 from marivo.analysis.core.frame_interpretation import (
     FrameRowAttributeTime as FrameRowAttributeTime,
@@ -253,6 +262,9 @@ __all__ = [  # noqa: RUF022 - public order is contractual
     "FrameTrailingPeriodsWindow",
     "FrameObservationContext",
     "FrameClockedContribution",
+    "FrameReportWindowEndpoint",
+    "FrameContributionSampleWindowEndpoint",
+    "FrameFieldSampleWindowEndpoint",
     "FrameIndependentContribution",
     "FrameObservedTimeSemantics",
     "FrameDerivedTimeSemantics",

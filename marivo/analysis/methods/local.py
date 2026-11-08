@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import replace
 from decimal import Decimal
 from typing import TYPE_CHECKING, NoReturn
@@ -69,6 +70,7 @@ def query_combine(
     attribute: AttributeFormulaContext | None = None,
     unique_keys: tuple[UniqueKeys, ...] = (),
     report_domain: pd.DataFrame | None = None,
+    sample_domains: Mapping[tuple[int, ...], pd.DataFrame] | None = None,
 ) -> pd.DataFrame:
     """Combine completed Metric samples and check only demanded numeric values."""
     from marivo.semantic._numeric_lowering import numeric_failure
@@ -81,6 +83,7 @@ def query_combine(
         stage.keys,
         stage.columns[len(stage.keys) :],
         forced_domain=report_domain,
+        sample_domains=sample_domains,
         attribute=attribute,
         unique_keys=unique_keys,
     )
@@ -100,6 +103,7 @@ def _combine_program(
     forced_domain: pd.DataFrame | None = None,
     attribute: AttributeFormulaContext | None = None,
     unique_keys: tuple[UniqueKeys, ...] = (),
+    sample_domains: Mapping[tuple[int, ...], pd.DataFrame] | None = None,
 ) -> tuple[pd.DataFrame, tuple[tuple[str, str, str], ...]]:
     """Keep sample checks as data until the enclosing formula demands them."""
 
@@ -364,6 +368,18 @@ def _combine_program(
                         .reset_index(drop=True)
                     )
 
+    if sample_domains and keys and forced_domain is None:
+        parents = [
+            value.loc[:, keys]
+            for value in sample_domains.values()
+            if all(key in value for key in keys)
+        ]
+        if parents:
+            domain = (
+                pd.concat([domain, *parents], ignore_index=True)
+                .drop_duplicates()
+                .reset_index(drop=True)
+            )
     domain = parent_scoped(domain)
     if program.output_population is not None:
         complete_domain = parent_scoped(population_domain(program.output_population, key_slots))
@@ -524,6 +540,15 @@ def _combine_program(
                 complete_domain = (
                     domain.merge(sample_domain, how="cross") if keys else sample_domain
                 )
+            if sample_domains is not None and occurrence in sample_domains:
+                complete_domain = sample_domains[occurrence].loc[:, list(complete_keys)]
+            child_domains = {
+                (index, *path[len(prefix) :]): selected
+                for index in range(len(operands))
+                for prefix in ((*occurrence, index),)
+                for path, selected in (sample_domains or {}).items()
+                if path[: len(prefix)] == prefix
+            }
             child_outputs = formula_columns(child_program)
             child_frame, child_checks = _combine_program(
                 child_program,
@@ -532,6 +557,7 @@ def _combine_program(
                 child_outputs,
                 complete_domain,
                 unique_keys=tuple(selected_keys),
+                sample_domains=child_domains,
             )
             for child_column in child_outputs:
                 if isinstance(child_column.dtype, DurationDataType):
