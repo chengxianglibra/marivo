@@ -755,18 +755,19 @@ def test_captured_source_calendar_errors_precede_values_for_every_carrier(
     monkeypatch.setattr("marivo.analysis.core.frame_calendar.freeze_calendar", freeze)
 
     def source(grain: Literal["day", "hour", "month"], zone: str) -> AnalysisFrame:
+        report_session = mv.session.get_or_create(f"matching-{zone}", timezone=zone)
         return frame_sources.observe(
             session._runtime.local,
             session.catalog._state,
             session._runtime.connection_config,
             {"amount": metric},
             by=(
-                session.time_scope(
+                report_session.time_scope(
                     start="2026-08-01",
                     end="2026-08-01T02:00:00+00:00" if fault == "hour_rule" else "2026-09-01",
-                    timezone=zone,
                 ).by(mv.grain(grain)),
             ),
+            timezone=zone,
         )
 
     left = source("hour" if fault == "hour_rule" else "day", "UTC")

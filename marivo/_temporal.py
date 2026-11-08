@@ -23,6 +23,7 @@ from typing import (
     Any,
     Literal,
     Protocol,
+    TypeAlias,
     cast,
     runtime_checkable,
 )
@@ -656,6 +657,31 @@ class TimeScopeContractV1(BaseModel):
 
     def __str__(self) -> str:
         return self.render()
+
+
+@dataclass(frozen=True, slots=True)
+class SessionTimeAuthority:
+    """An ordinary report domain must match its receiving Session timezone."""
+
+
+@dataclass(frozen=True, slots=True)
+class CertifiedTimeAuthority:
+    """A captured business calendar or occurrence owns its report timezone."""
+
+    ref: Ref[PeriodCalendarKind] | Ref[TemporalSetKind]
+    snapshot_digest: str
+
+
+ReportTimeAuthority: TypeAlias = SessionTimeAuthority | CertifiedTimeAuthority
+
+
+def scope_time_authority(scope: TimeScope) -> ReportTimeAuthority:
+    """Retain certified provenance when a scope becomes a report coordinate."""
+    if isinstance(scope, _CalendarPeriodTimeScope):
+        return CertifiedTimeAuthority(scope._calendar, scope.snapshot_digest)
+    if isinstance(scope, _TemporalOccurrenceTimeScope):
+        return CertifiedTimeAuthority(scope._temporal_set, scope.snapshot_digest)
+    return SessionTimeAuthority()
 
 
 class TimeScope(BaseModel):
@@ -2798,6 +2824,7 @@ class CalendarAxis(Grouping):
                     for cell in grid.cells
                 )
             ),
+            time_authority=grid.time_authority,
         )
 
     def shift(self, rule: CalendarCorrespondence) -> CalendarAxis:
@@ -2877,7 +2904,8 @@ def calendar_axis(scope: TimeScope, grain: Grain) -> CalendarAxis:
         and not same_timezone(zone, grain._snapshot.boundary_timezone)
     ):
         raise ValueError(
-            "Expected compatible scope and calendar timezones; construct the scope in the certified calendar boundary timezone."
+            "Expected compatible scope and calendar timezones; use a certified calendar scope "
+            "or create a Session in the calendar boundary timezone."
         )
     from marivo._temporal_grid import bind_grid
 

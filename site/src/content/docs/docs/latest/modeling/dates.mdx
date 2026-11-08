@@ -119,16 +119,17 @@ pruning; SQL shape alone is insufficient.
 | --- | --- | --- | --- |
 | `start` | Yes | — | Inclusive boundary as an ISO date/time string, `date`, or timezone-aware `datetime`. |
 | `end` | Yes | — | Exclusive boundary after `start`; accepts the same input types. |
-| `timezone` | No | `None` | Interprets civil dates and offset-free ISO strings and sets reporting calendar boundaries; defaults to the Session's saved report timezone. Aware datetimes retain their instants. |
 
 
 ```python
 # Continue in the quick-start analysis Session.
-august = session.time_scope(start="2026-08-01", end="2026-09-01", timezone="UTC")
+august = session.time_scope(start="2026-08-01", end="2026-09-01")
 day = mv.grain("day")
 ```
 
 Python naive `datetime` objects and ambiguous or nonexistent local boundary times are rejected. Use a `date` for a civil boundary and an ISO timestamp with an explicit offset for an exact subday instant.
+
+The scope always uses the Session’s saved report timezone for civil boundaries and calendar grouping. Aware inputs retain their instants. Create a Session with the desired timezone to change the ordinary reporting calendar; `time_scope` has no timezone override.
 
 ## Calendar grain: `mv.grain`
 

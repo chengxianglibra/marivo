@@ -31,6 +31,8 @@ by_boundaries = (created_at >= start) & (created_at < end)
 `by=(scope.by(day),)`。DATE 行按声明的业务日起点 instant 比较；`==` 表示一个精确时刻。
 普通字符串字段和固定 Frame Column 比较保留原有类型规则，已保存结果不会被重新解释。
 
+普通报告范围和日历轴必须与接收它们的 Session 时区一致，经由 Population 提供也遵循此规则。需要其他报告时区时创建独立 Session；另一 Session 创建的普通域只有在时区一致时才能用于当前观察。认证业务日历和事件范围保留自身时区，派生或平移后的轴也一样；它们不会改变谓词和内部内置日历采样使用的 Session 时区。
+
 ## 按日与月观察
 
 ```python

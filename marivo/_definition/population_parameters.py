@@ -65,6 +65,7 @@ from marivo._temporal import (
     TimeScope,
     _SessionTimeScope,
     anchor_from_datetime,
+    scope_time_authority,
 )
 from marivo._temporal_grid import instant
 from marivo.refs import Ref, SemanticKind, SemanticKindTag
@@ -441,7 +442,11 @@ def interval(scope: TimeScope) -> PopulationParameter:
     start = anchor_from_datetime(instant(scope.start, zone))
     end = anchor_from_datetime(instant(scope.end, zone))
     coordinate = IntervalCoordinate(
-        f"interval:{start.isoformat()}:{end.isoformat()}:{zone}", start, end, zone
+        f"interval:{start.isoformat()}:{end.isoformat()}:{zone}",
+        start,
+        end,
+        zone,
+        time_authority=scope_time_authority(scope),
     )
     return PopulationParameter(PopulationProgram(IntervalKeys(coordinate), None, (coordinate,)))
 

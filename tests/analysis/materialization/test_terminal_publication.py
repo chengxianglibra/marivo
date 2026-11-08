@@ -446,8 +446,8 @@ def test_calendar_positions_are_explicit_output_attachment(source_session: Sessi
 
 @pytest.mark.parametrize("zone", ("Europe/Paris", "UTC+05:30"))
 def test_calendar_timezone_survives_private_cold_read(source_session: Session, zone: str) -> None:
-    session = source_session
-    axis_scope = session.time_scope(start="2026-03-28", end="2026-03-31", timezone=zone)
+    session = mv.session.get_or_create("report-calendar", timezone=zone)
+    axis_scope = session.time_scope(start="2026-03-28", end="2026-03-31")
     axis = axis_scope.by(mv.grain("day"))
     # Both producers enter the same fresh reader process for this timezone.
     constant = calendar_constant(session, axis).persist()
@@ -973,11 +973,10 @@ def test_wide_artifact_truncation_routes_to_callable_reads(
 def test_public_calendar_uses_saved_instants_and_boundaries(
     session: Session, zone: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    session = mv.session.get_or_create("report-calendar", timezone=zone)
     from marivo.analysis.materialization.graph_reading import OutputRead
 
-    axis = session.time_scope(start="2026-03-28T06:00", end="2026-03-31", timezone=zone).by(
-        mv.grain("day")
-    )
+    axis = session.time_scope(start="2026-03-28T06:00", end="2026-03-31").by(mv.grain("day"))
     artifact = calendar_constant(session, axis).persist()
     reopened = session.persisted_frame(artifact.artifact_id)
     exported = reopened.to_pandas(time_details=True)

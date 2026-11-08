@@ -31,10 +31,10 @@ def test_captured_period_keeps_utc_instants_and_original_timezone(
     all_history: bool,
 ) -> None:
     case = analysis_dsl_case_factory("j2")
-    session = case.session
+    session = mv.session.get_or_create("report-calendar", timezone="Asia/Shanghai")
     revenue = catalog_get(session.catalog, "metric:sales.revenue", kind="metric")
     metric = revenue.window(mv.all_history()) if all_history else revenue
-    scope_scope = session.time_scope(start="2026-08-01", end="2026-08-03", timezone="Asia/Shanghai")
+    scope_scope = session.time_scope(start="2026-08-01", end="2026-08-03")
     scope = scope_scope.by(mv.grain("day"))
     trace = capture_source(monkeypatch)
     saved = session.observe({"value": metric}, by=(scope_scope.by(mv.grain("day")),)).persist()
@@ -73,11 +73,11 @@ def test_combined_endpoints_do_not_expand_distinct_source_periods(
     metric = catalog_get(session.catalog, "metric:sales.revenue", kind="metric")
     current = session.observe(
         {"value": metric},
-        where=session.time_scope(start="2026-09-01", end="2026-10-01", timezone="UTC"),
+        where=session.time_scope(start="2026-09-01", end="2026-10-01"),
     )
     prior = session.observe(
         {"value": metric},
-        where=session.time_scope(start="2026-08-01", end="2026-09-01", timezone="Asia/Shanghai"),
+        where=session.time_scope(start="2026-08-01T00:00+08:00", end="2026-09-01T00:00+08:00"),
     )
     trace = capture_source(monkeypatch)
     saved = current.align(prior).persist()
@@ -96,7 +96,7 @@ def test_combined_endpoints_do_not_expand_distinct_source_periods(
         (
             datetime(2026, 7, 31, 16, tzinfo=timezone.utc),
             datetime(2026, 8, 31, 16, tzinfo=timezone.utc),
-            "Asia/Shanghai",
+            "UTC",
         ),
     }
     assert [read.returned_rows for read in saved.source_reads] == trace.returned_rows

@@ -121,7 +121,7 @@ def test_observe_help_separates_report_time_from_fixed_source_predicates() -> No
 
     for target in ("analysis.session.observe", Session.observe):
         text = render_help_text(target)[0]
-        assert "filters only clocked branches" in text
+        assert "Clocked branches follow report time" in text
         assert "one CalendarAxis" in text
         assert "at most one TimeScope" in text
         assert "Field comparisons stay fixed throughout windows" in text
@@ -665,15 +665,18 @@ def test_attribute_help_distinguishes_actual_qualification_and_inert_facts() -> 
 
 def test_observe_help_discloses_report_domains_and_definition_repair() -> None:
     text = render_help_text("analysis.session.observe")[0]
-    assert "Bare Grain inputs reject" in text
-    assert "CalendarAxis supplies finite buckets" in text
-    assert "Custom axes need one complete certified period" in text
-    assert "A scope alone adds no output axis" in text
+    assert "Ordinary domains require Session timezone" in text
+    assert "certified domains keep theirs" in text
+    assert "Predicates and builtin samples use Session timezone" in text
+    assert "Bare Grains reject" in text
+    assert "CalendarAxis supplies buckets" in text
+    assert "custom axes need one complete certified period" in text
+    assert "A scope adds no axis" in text
     assert "by=P retains complete keys without filtering contributions" in text
     assert "without filtering contributions" in text
     assert "where=mv.in_population(P) restricts contributions" in text
     assert "If by carries time, omit TimeScope in where" in text
-    assert "clocked branches" in text
+    assert "clocked branches" in text.lower()
     assert "time_group" not in text
     assert "bind_time" not in text
 

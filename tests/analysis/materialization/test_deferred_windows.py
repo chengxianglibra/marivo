@@ -108,18 +108,16 @@ def test_sampling_uses_source_clock_across_report_zones(
         )
     metric = amount.sum(time=sampled).per(sampled).median()
     for zone in ("UTC", "Asia/Kolkata"):
-        scope = session.time_scope(
-            start="2026-01-15T00:00Z", end="2026-01-15T03:00Z", timezone=zone
-        )
+        session = mv.session.get_or_create(f"windows-report-{zone}", timezone=zone)
+        scope = session.time_scope(start="2026-01-15T00:00Z", end="2026-01-15T03:00Z")
         assert session.observe({"mean": metric}, where=scope).compute().to_pandas()[
             "mean"
         ].tolist() == [20.0]
     with duckdb.connect(str(tmp_path / "windows.duckdb")) as connection:
         connection.execute("DELETE FROM orders WHERE id=2")
     for zone in ("UTC", "Asia/Kolkata"):
-        scope = session.time_scope(
-            start="2026-01-15T00:00Z", end="2026-01-15T03:00Z", timezone=zone
-        )
+        session = mv.session.get_or_create(f"windows-report-{zone}", timezone=zone)
+        scope = session.time_scope(start="2026-01-15T00:00Z", end="2026-01-15T03:00Z")
         assert session.observe({"mean": metric}, where=scope).compute().to_pandas()[
             "mean"
         ].tolist() == [20.0]
@@ -143,8 +141,9 @@ def test_aware_two_hour_sampling_keeps_utc_phase(
         )
     metric = amount.sum(time=sampled).per(sampled).median()
     for zone in ("UTC", "Europe/Berlin"):
+        session = mv.session.get_or_create(f"windows-report-{zone}", timezone=zone)
         scope = session.time_scope(
-            start=f"2026-{month:02d}-15T00:00Z", end=f"2026-{month:02d}-15T06:00Z", timezone=zone
+            start=f"2026-{month:02d}-15T00:00Z", end=f"2026-{month:02d}-15T06:00Z"
         )
         assert session.observe({"mean": metric}, where=scope).compute().to_pandas()[
             "mean"
@@ -152,8 +151,9 @@ def test_aware_two_hour_sampling_keeps_utc_phase(
     with duckdb.connect(str(tmp_path / "windows.duckdb")) as connection:
         connection.execute("DELETE FROM orders WHERE id=1")
     for zone in ("UTC", "Europe/Berlin"):
+        session = mv.session.get_or_create(f"windows-report-{zone}", timezone=zone)
         scope = session.time_scope(
-            start=f"2026-{month:02d}-15T00:00Z", end=f"2026-{month:02d}-15T06:00Z", timezone=zone
+            start=f"2026-{month:02d}-15T00:00Z", end=f"2026-{month:02d}-15T06:00Z"
         )
         assert session.observe({"mean": metric}, where=scope).compute().to_pandas()[
             "mean"
@@ -163,7 +163,7 @@ def test_aware_two_hour_sampling_keeps_utc_phase(
 def test_sampling_encoding_null_and_duplicate_fact_contract(
     window_session: Session, tmp_path: Path
 ) -> None:
-    session = window_session
+    session = mv.session.get_or_create("windows-encoded", timezone="Asia/Kolkata")
     amount = catalog_value(session.catalog, "sales.orders.amount", kind="measure")
     fields = [
         catalog_value(session.catalog, f"sales.orders.{name}", kind="time_dimension")
@@ -174,9 +174,7 @@ def test_sampling_encoding_null_and_duplicate_fact_contract(
         connection.execute(
             "INSERT INTO orders (id, ordered_at, amount, encoded_at, date_at, hour_at) VALUES (1,'2026-01-15 00:00:00+00',4,'2026011500','2026-01-15',0), (2,'2026-01-15 00:00:00+00',6,'2026011500','2026-01-15',0), (3,'2026-01-15 01:00:00+00',NULL,'2026011501','2026-01-15',1), (4,'2026-01-15 02:00:00+00',30,'2026011502','2026-01-15',2)"
         )
-    scope = session.time_scope(
-        start="2026-01-15T00:00Z", end="2026-01-15T03:00Z", timezone="Asia/Kolkata"
-    )
+    scope = session.time_scope(start="2026-01-15T00:00Z", end="2026-01-15T03:00Z")
     for field in fields:
         values = (
             session.observe({"mean": amount.sum(time=field).per(field).median()}, where=scope)
@@ -243,7 +241,8 @@ def test_date_contributions_reject_subday_and_non_midnight_windows(
             else:
                 session.observe({"revenue": metric}, where=axis).compute()
     for start, end in (("2026-03-08", "2026-03-09"), ("2026-11-01", "2026-11-02")):
-        dst_scope = session.time_scope(start=start, end=end, timezone="America/New_York")
+        session = mv.session.get_or_create("windows-dst", timezone="America/New_York")
+        dst_scope = session.time_scope(start=start, end=end)
         with pytest.raises(AnalysisError, match=r"DATE|midnight"):
             session.observe(
                 {"bad": revenue.window(mv.trailing_duration(duration=timedelta(hours=24)))},
@@ -689,9 +688,8 @@ def test_hour_reset_uses_native_fold_endpoints(window_session: Session, tmp_path
             "INSERT INTO orders (id, ordered_at, amount) VALUES (1,'2026-11-01 05:30:00+00',10), (2,'2026-11-01 06:30:00+00',30)"
         )
     revenue = catalog_value(window_session.catalog, "sales.revenue", kind="metric")
-    hours_scope = window_session.time_scope(
-        start="2026-11-01T04:00Z", end="2026-11-01T07:00Z", timezone="America/New_York"
-    )
+    window_session = mv.session.get_or_create("windows-hourly", timezone="America/New_York")
+    hours_scope = window_session.time_scope(start="2026-11-01T04:00Z", end="2026-11-01T07:00Z")
     values = (
         window_session.observe(
             {"hourly": revenue.window(mv.to_date(grain=mv.grain("hour")))},
@@ -731,9 +729,8 @@ def test_hour_index_and_windows_use_native_gap_keys(
             "AS cumulative FROM positions ORDER BY key"
         ).fetchall()
     revenue = catalog_value(window_session.catalog, "sales.revenue", kind="metric")
-    hours_scope = window_session.time_scope(
-        start="2026-03-08T05:00Z", end="2026-03-08T09:00Z", timezone="America/New_York"
-    )
+    window_session = mv.session.get_or_create("windows-hourly", timezone="America/New_York")
+    hours_scope = window_session.time_scope(start="2026-03-08T05:00Z", end="2026-03-08T09:00Z")
     values = (
         window_session.observe(
             {"hourly": revenue, "cumulative": revenue.window(mv.all_history())},
@@ -773,9 +770,8 @@ def test_repeated_hour_selection_keeps_its_exact_scope_and_endpoint(
     assert result is not None
     key, cumulative = result
     revenue = catalog_value(window_session.catalog, "sales.revenue", kind="metric")
-    hours_scope = window_session.time_scope(
-        start=f"2026-11-01T{start}Z", end=f"2026-11-01T{end}Z", timezone="America/New_York"
-    )
+    window_session = mv.session.get_or_create("windows-hourly", timezone="America/New_York")
+    hours_scope = window_session.time_scope(start=f"2026-11-01T{start}Z", end=f"2026-11-01T{end}Z")
     # Keep ordinary completion independently observable from the window domain.
     ordinary = (
         window_session.observe({"hourly": revenue}, by=(hours_scope.by(mv.grain("hour")),))

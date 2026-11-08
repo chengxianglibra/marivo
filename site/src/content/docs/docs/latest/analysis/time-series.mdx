@@ -37,6 +37,8 @@ calendar buckets instead. DATE rows compare their declared business-day-start in
 instant. Ordinary string fields and fixed Frame Column comparisons retain their
 own types, and saved results are not reinterpreted.
 
+Ordinary report scopes and calendar axes must use the receiving Session timezone, including when supplied through a Population. Create a separate Session for another report timezone; an ordinary domain created by a different Session is accepted only when its timezone matches. Certified business calendar and occurrence domains keep their own timezone, including derived and shifted axes. They do not change the Session timezone used by predicates or internal builtin calendar samples.
+
 ## Observe days and months
 
 ```python

@@ -446,10 +446,11 @@ def test_pending_source_show_discloses_captured_scope_without_execution(
 def test_pending_scope_summary_keeps_interval_count_domains_and_joint_keys_without_reads(
     session: Session, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
+    session = mv.session.get_or_create("report-calendar", timezone="Asia/Shanghai")
     entity = catalog_value(session.catalog, "sales.facts", kind="entity")
     first = mv.coordinates(by=(mv.identity(entity),), keys=((("t1", 1),), (("missing", 999),)))
     second = mv.coordinates(by=(mv.identity(entity),), keys=((("t2", 2),),))
-    scope = session.time_scope(start="2026-08-01", end="2026-09-01", timezone="Asia/Shanghai")
+    scope = session.time_scope(start="2026-08-01", end="2026-09-01")
     domain = mv.product(scope, first)
     counted = session.observe({"first": first.count(), "second": second.count()}, by=first)
     keys = session.frame(domain)

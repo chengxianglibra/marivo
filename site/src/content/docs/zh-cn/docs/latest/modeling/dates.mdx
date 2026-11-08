@@ -113,16 +113,17 @@ AND 中的必需 `event_hour` 显式边界比较，包括午夜起点。整日�
 | --- | --- | --- | --- |
 | `start` | 是 | — | 包含的起点，可用 ISO 日期/时间字符串、`date` 或带时区的 `datetime`。 |
 | `end` | 是 | — | 不包含的终点，必须晚于 `start`；同样支持上述输入类型。 |
-| `timezone` | 否 | `None` | 用于解释民用日期和无偏移量的 ISO 字符串，并确定报告日历边界；默认使用 Session 保存的报告时区。带时区的 datetime 保留其时刻。 |
 
 
 ```python
 # Continue in the quick-start analysis Session.
-august = session.time_scope(start="2026-08-01", end="2026-09-01", timezone="UTC")
+august = session.time_scope(start="2026-08-01", end="2026-09-01")
 day = mv.grain("day")
 ```
 
 Python 无时区 `datetime` 对象以及含糊或不存在的本地边界时间会被拒绝。民用边界使用 `date`，精确的日内时刻使用带明确偏移量的 ISO 时间戳。
+
+范围始终使用 Session 已保存的报告时区解释民用时间边界并进行日历分桶；带时区输入保留原有瞬间。需要其他普通报告时区时，创建对应时区的 Session；`time_scope` 不再接受时区覆盖参数。
 
 ## 日历粒度：`mv.grain`
 

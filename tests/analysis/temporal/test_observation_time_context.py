@@ -336,9 +336,8 @@ def test_time_context_freezes_bounds_and_reopens_without_sources(
         created, _, region, amount = _fields(session)
         day = mv.grain("day")
         ordinary = (region != "window") & (region != "split")
-        partial_scope = session.time_scope(
-            start="2026-11-01T16:30:00", end="2026-11-02T18:00:00", timezone="Asia/Shanghai"
-        )
+        session = mv.session.get_or_create("time-context-shanghai", timezone="Asia/Shanghai")
+        partial_scope = session.time_scope(start="2026-11-01T16:30:00", end="2026-11-02T18:00:00")
         frame = session.observe({"v": amount.sum()}, where=ordinary, by=(partial_scope.by(day),))
         saved = frame.persist()
         assert saved.artifact_id is not None
@@ -347,12 +346,11 @@ def test_time_context_freezes_bounds_and_reopens_without_sources(
         assert directory["selection"].tolist() == ["partial", "prefix"]
         assert directory["key.0"].iloc[0].isoformat() == "2026-10-31T16:00:00+00:00"
 
-        two_instants = session.time_scope(start="2026-11-01T08:00:00", end="2026-11-01T10:00:00")
-        offset_scope = session.time_scope(
-            start="2026-10-31", end="2026-11-02", timezone="UTC-08:30"
-        )
+        two_instants = session.time_scope(start="2026-11-01T08:00:00Z", end="2026-11-01T10:00:00Z")
+        offset_session = mv.session.get_or_create("time-context-offset", timezone="UTC-08:30")
+        offset_scope = offset_session.time_scope(start="2026-10-31", end="2026-11-02")
         split = (
-            session.observe(
+            offset_session.observe(
                 {"v": amount.sum()},
                 by=(offset_scope.by(day),),
                 where=((created >= two_instants.start) & (created < two_instants.end)),

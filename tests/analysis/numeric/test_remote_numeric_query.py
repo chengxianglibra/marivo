@@ -282,14 +282,13 @@ def test_clickhouse_dst_fold_preserves_instants_and_half_open_boundaries(
         assert isinstance(native, pd.DataFrame)
         assert native.total.tolist() == [31]
         assert native["count"].tolist() == [3]
-        session = mv.session.get_or_create("clickhouse_dst", timezone="UTC")
+        session = mv.session.get_or_create("clickhouse_dst", timezone="America/New_York")
         amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
         happened = catalog_value(session.catalog, "sales.facts.happened", kind="time_dimension")
         assert isinstance(amount, ms.Measure) and isinstance(happened, ms.TimeDimension)
         scope = session.time_scope(
             start="2026-11-01T01:00:00-04:00",
             end="2026-11-01T02:00:00-05:00",
-            timezone="America/New_York",
         )
         artifact = session.observe(
             {"total": amount.sum(time=happened), "count": amount.count(time=happened)}, where=scope

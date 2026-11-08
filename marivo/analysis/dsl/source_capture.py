@@ -34,7 +34,8 @@ from marivo._definition.types import (
     fixed_attribute_time,
 )
 from marivo._grouping import Grouping
-from marivo._temporal import CalendarAxis, PeriodCalendarSnapshotV2, TimeScope
+from marivo._temporal import CalendarAxis, PeriodCalendarSnapshotV2, SessionTimeAuthority, TimeScope
+from marivo._timezones import same_timezone
 from marivo.analysis.binding.observe import ObservationPeriod, bind_observation
 from marivo.analysis.core.frame_structure import value_name
 from marivo.analysis.core.graph import BoundGraph
@@ -336,6 +337,22 @@ def capture_values(
     return BoundGraph(root, signature)
 
 
+def _validate_report_timezone(
+    coordinate: CalendarCoordinate | IntervalCoordinate, timezone: str, *, location: str
+) -> None:
+    if isinstance(coordinate.time_authority, SessionTimeAuthority) and not same_timezone(
+        coordinate.timezone, timezone
+    ):
+        reject(
+            f"an ordinary report domain in Session timezone {timezone!r}",
+            f"report domain timezone {coordinate.timezone!r}",
+            f"Rebuild the report domain in this Session, or use a Session created with "
+            f"timezone={coordinate.timezone!r}. Certified business domains retain their own timezone.",
+            location,
+            canonical_id="session.observe",
+        )
+
+
 def capture_metrics(
     metrics: _MetricInputs,
     owner: Owner,
@@ -401,6 +418,8 @@ def capture_metrics(
             canonical_id="session.observe",
         )
     interval = _interval_coordinate(scope) if scope is not None else None
+    if interval is not None:
+        _validate_report_timezone(interval, timezone, location="Session.observe.where")
     period = (
         ObservationPeriod(interval.start, interval.end, interval.timezone)
         if interval is not None
@@ -440,8 +459,9 @@ def capture_metrics(
         )
     source_axes: list[AxisBinding | CalendarCoordinate | IntervalCoordinate] = []
     time_axes = 0
-    for axis in axes:
+    for index, axis in enumerate(axes):
         if isinstance(axis, (CalendarCoordinate, IntervalCoordinate)):
+            _validate_report_timezone(axis, timezone, location=f"Session.observe.by[{index}]")
             time_axes += 1
             source_axes.append(axis)
         elif isinstance(axis, AxisBinding) and (

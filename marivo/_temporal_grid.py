@@ -9,7 +9,15 @@ from hashlib import sha256
 from itertools import pairwise
 from typing import Literal, TypeAlias
 
-from marivo._temporal import Grain, PeriodCalendarSnapshotV2, TimeScope
+from marivo._temporal import (
+    CertifiedTimeAuthority,
+    Grain,
+    PeriodCalendarSnapshotV2,
+    ReportTimeAuthority,
+    SessionTimeAuthority,
+    TimeScope,
+    scope_time_authority,
+)
 from marivo._timezones import normalize_timezone, same_timezone
 
 CivilBounds: TypeAlias = tuple[str, str, str, str]
@@ -119,6 +127,7 @@ class BoundTimeGrid:
     scope_identity: str | None = None
     calendar_snapshot: PeriodCalendarSnapshotV2 | None = None
     origin: TimeGridOrigin | None = None
+    time_authority: ReportTimeAuthority = field(default=SessionTimeAuthority(), kw_only=True)
 
     @property
     def grain_token(self) -> str:
@@ -448,6 +457,7 @@ def shift_grid(grid: BoundTimeGrid, kind: Literal["years", "periods"], by: int) 
         None,
         selected,
         calendar_snapshot=grid.calendar_snapshot,
+        time_authority=grid.time_authority,
         origin=origin,
         civil_bounds=frozen_civil,
     )
@@ -625,5 +635,10 @@ def bind_grid(
         cells,
         scope_identity=scope_identity,
         calendar_snapshot=snapshot,
+        time_authority=(
+            CertifiedTimeAuthority(snapshot.calendar_ref, snapshot.snapshot_digest)
+            if snapshot is not None
+            else scope_time_authority(during)
+        ),
         civil_bounds=civil_bounds,
     )

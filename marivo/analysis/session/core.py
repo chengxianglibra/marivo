@@ -309,21 +309,27 @@ class Session:
         *,
         start: str | date | datetime,
         end: str | date | datetime,
-        timezone: str | None = None,
     ) -> _SessionTimeScope:
-        """Freeze a nonempty half-open observation scope and its calendar timezone.
+        """Freeze a nonempty half-open scope in the saved Session report timezone.
 
         Args:
             start: Inclusive explicit boundary.
             end: Exclusive explicit boundary.
-            timezone: Parsing/calendar timezone; None uses the saved report timezone.
-        Returns: The shared TimeScope with exact InstantAnchor boundaries.
-        Example: ``scope = session.time_scope(start='2026-01-01', end='2026-02-01')``.
-        Constraints: No source/schema reads; DST ambiguity and naive datetime inputs reject.
+
+        Returns:
+            The shared TimeScope with exact InstantAnchor boundaries.
+
+        Example:
+            ``scope = session.time_scope(start='2026-01-01', end='2026-02-01')``.
+
+        Constraints:
+            No source/schema reads; DST ambiguity and naive datetime inputs reject.
+            Aware boundaries retain their instants. Calendar grouping uses the Session
+            timezone; use another Session for a different ordinary report timezone.
         """
         from marivo.analysis.dsl.temporal import exact_scope
 
-        return exact_scope(start, end, self.timezone if timezone is None else timezone)
+        return exact_scope(start, end, self.timezone)
 
     def observe(
         self,
@@ -356,11 +362,12 @@ class Session:
             ``period = session.time_scope(start='2026-08-01', end='2026-09-01')``;
             ``session.observe(revenue, by=(period.by(mv.grain('day')),)).compute().show()``.
         Constraints:
-            Capture reads no source data. Report time filters only clocked branches;
-            independent branches retain their scope and broadcast over missing time keys. A scope alone adds no output axis.
-            CalendarAxis supplies finite buckets.
-            Bare Grain inputs reject. Custom axes need one complete certified period.
-            Windows need report endpoints on every output time key.
+            No source reads at capture. Clocked branches follow report time; others
+            retain scope and broadcast on missing time keys. A scope adds no axis;
+            CalendarAxis supplies buckets. Ordinary domains require Session timezone;
+            certified domains keep theirs. Predicates and builtin samples use Session timezone.
+            Bare Grains reject; custom axes need one complete certified period.
+            Windows need endpoints on every output time key.
         """
         from marivo.analysis.core.model import reject
         from marivo.analysis.dsl import frame_sources

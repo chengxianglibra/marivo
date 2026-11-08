@@ -38,10 +38,13 @@ def test_calendar_products_keep_single_time_axis_descriptors_and_cold_metadata(
     session = case.session
     region = catalog_value(session.catalog, "sales.customer.region", kind="field")
     regions = mv.coordinates(by=(region,), keys=(("A",), ("B",)))
-    march_scope = session.time_scope(start="2026-03-28", end="2026-03-31", timezone="Europe/Paris")
+    session = mv.session.get_or_create("paris-calendar", timezone="Europe/Paris")
+    march_scope = session.time_scope(start="2026-03-28", end="2026-03-31")
     march = march_scope.by(mv.grain("day"))
-    february = session.time_scope(start="2026-02-01", end="2026-02-03", timezone="Asia/Tokyo").by(
-        mv.grain("day")
+    february = (
+        mv.session.get_or_create("tokyo-calendar", timezone="Asia/Tokyo")
+        .time_scope(start="2026-02-01", end="2026-02-03")
+        .by(mv.grain("day"))
     )
     with pytest.raises(AnalysisError, match="at most one output time axis"):
         mv.product(march, february)

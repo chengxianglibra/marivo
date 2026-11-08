@@ -483,7 +483,9 @@ def test_certified_calendar_uses_frozen_snapshot_and_checks_coverage(
     with pytest.raises(ValueError, match="coverage"):
         session.time_scope(start="2025-12-31", end="2026-01-05").by(grain)
     with pytest.raises(ValueError, match="timezones"):
-        session.time_scope(start="2026-01-01", end="2026-01-05", timezone="Asia/Shanghai").by(grain)
+        mv.session.get_or_create("foreign-fiscal", timezone="Asia/Shanghai").time_scope(
+            start="2026-01-01", end="2026-01-05"
+        ).by(grain)
     other = certify_period_calendar(
         calendar_ref=ref.period_calendar("sales.other"),
         boundary_timezone="UTC",

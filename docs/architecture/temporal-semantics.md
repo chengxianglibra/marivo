@@ -12,7 +12,7 @@ and certification belong to [Temporal authority](semantic/temporal-authority.md)
 
 Session creation freezes the default report timezone. session.instant(value,
 timezone=None) produces an exact UTC InstantAnchor. session.time_scope(start=...,
-end=..., timezone=None) captures [start,end) with its boundary timezone.
+end=...) captures [start,end) in that saved Session timezone.
 Date-only upper bounds exclude that midnight. There is no implicit latest period
 or relative-date language.
 
@@ -22,11 +22,28 @@ anchors retain their absolute instant even when a parsing timezone is supplied.
 Catalog period/occurrence scopes retain their certified boundary timezone and
 snapshot rather than adopting a new report timezone.
 
+Ordinary report TimeScopes and CalendarAxes, including those carried by a
+Population, must match the receiving Session timezone at observation capture.
+A same-zone scope from another Session is allowed; existing object ownership
+checks still apply. A mismatched ordinary domain rejects before source reads;
+create a Session in the intended report timezone or rebuild the domain in the
+receiving Session. Offset-bearing bounds keep their absolute instants but do
+not override the ordinary reporting calendar timezone.
+
+Certified calendar/occurrence scopes and their derived axes retain their own
+timezone, including after shifts and Population composition. A captured semantic
+Grain also supplies certified calendar authority. Internal coordinates preserve
+the typed authority and certified identity/snapshot rather than inferring it
+from a timezone or coordinate name. Certified report domains may differ from
+the Session; ordinary predicate civil boundaries and builtin internal samples
+still use the Session timezone. This check applies to the new observation's
+report domain, not independent branch domains or fixed-data result reading.
+
 | Authority | Purpose |
 | --- | --- |
 | Field parser, then Datasource `wall_clock_timezone` | Interpret naive source clocks and business DATE values |
 | Physical aware type | Preserve an existing absolute instant |
-| Session / explicit scope report timezone | Interpret reporting ranges, calendar groups and labels |
+| Session report timezone | Interpret ordinary reporting ranges, calendar groups and labels |
 | Certified calendar timezone/snapshot | Govern named period boundaries and membership |
 | Frozen result coordinates and source interpretation | Read saved values without current declarations or host state |
 

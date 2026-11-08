@@ -441,9 +441,7 @@ def test_builtin_samples_freeze_session_timezone_independently_of_scope(
                 "following_first": following.first(),
                 "following_last": following.last(),
             }
-            scope = session.time_scope(
-                start="2026-11-01", end="2026-11-03", timezone="Asia/Shanghai"
-            )
+            scope = session.time_scope(start="2026-11-01", end="2026-11-03")
             for where in (None, scope):
                 pending = session.observe(metrics, where=where)
                 pending.show(n=0, max_output_bytes=None)
@@ -455,8 +453,9 @@ def test_builtin_samples_freeze_session_timezone_independently_of_scope(
                 assert _row_values(actual, list(metrics)) == values * 2
             if session is utc:
                 for metric in metrics.values():
-                    with pytest.raises(CoreRuleError, match="matching timezones"):
-                        session.observe({"v": metric}, by=(scope.by(day),))
+                    with pytest.raises(CoreRuleError, match="ordinary report domain"):
+                        foreign = shanghai.time_scope(start="2026-11-01", end="2026-11-03")
+                        session.observe({"v": metric}, by=(foreign.by(day),))
 
 
 @pytest.mark.parametrize(

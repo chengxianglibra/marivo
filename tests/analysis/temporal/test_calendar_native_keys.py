@@ -263,8 +263,8 @@ def test_calendar_capacity_and_sum_before_p95(
             for sql in trace.native_sql[before:]
         )
         with pytest.raises(ValueError, match="one complete custom"):
-            session.time_scope(
-                start=start, end=start + timedelta(days=14), timezone="Asia/Shanghai"
+            mv.session.get_or_create("partial-custom", timezone="Asia/Shanghai").time_scope(
+                start=start, end=start + timedelta(days=14)
             ).by(custom._binding.grain_spec)
         # Missing time buckets do not enter the internal reduction.
         before = len(trace.native_sql)
@@ -489,7 +489,7 @@ def test_public_calendar_keeps_facts_when_midnight_fold_returns_to_previous_date
                 + "amount=ms.measure_column(name='amount', entity=facts, column='amount', additivity=ms.additive_all())\n",
             }
         )
-        session = mv.session.get_or_create("midnight-fold", timezone="UTC")
+        session = mv.session.get_or_create("midnight-fold", timezone=zone)
         point = catalog_value(session.catalog, "sales.facts.point", kind="time_dimension")
         amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
         trace = capture_source(monkeypatch)
@@ -498,7 +498,6 @@ def test_public_calendar_keeps_facts_when_midnight_fold_returns_to_previous_date
                 axis_scope = session.time_scope(
                     start=day + "T" + start + "Z",
                     end=day + "T" + end + "Z",
-                    timezone=zone,
                 )
                 before = len(trace.native_sql)
                 result = session.observe(
@@ -656,8 +655,8 @@ def test_source_free_calendar_preserves_pandas_native_ambiguity(
     from marivo.analysis.materialization.errors import MaterializationError
 
     monkeypatch.chdir(tmp_path)
-    session = mv.session.get_or_create("pandas-native-calendar", timezone="UTC")
-    axis = session.time_scope(start=start, end=end, timezone=zone).by(mv.grain(unit))
+    session = mv.session.get_or_create("pandas-native-calendar", timezone=zone)
+    axis = session.time_scope(start=start, end=end).by(mv.grain(unit))
     error_type = AmbiguousTimeError if error_name == "AmbiguousTimeError" else NonExistentTimeError
     with pytest.raises(error_type):
         pd.DatetimeIndex(clocks).tz_localize(zone)
@@ -695,7 +694,7 @@ def test_public_hour_index_follows_native_gap_and_fold_interpretation(
                 + "amount=ms.measure_column(name='amount', entity=facts, column='amount', additivity=ms.additive_all())\n",
             }
         )
-        session = mv.session.get_or_create("native-hour-index", timezone="UTC")
+        session = mv.session.get_or_create("native-hour-index", timezone="America/New_York")
         point = catalog_value(session.catalog, "sales.facts.point", kind="time_dimension")
         amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
         for day, start, end, clocks in (
@@ -729,9 +728,7 @@ def test_public_hour_index_follows_native_gap_and_fold_interpretation(
                     for value in oracle.bucket
                 }
             )
-            axis_scope = session.time_scope(
-                start=f"{day}T{start}Z", end=f"{day}T{end}Z", timezone="America/New_York"
-            )
+            axis_scope = session.time_scope(start=f"{day}T{start}Z", end=f"{day}T{end}Z")
             total = amount.sum(time=point)
             rows = (
                 session.observe(

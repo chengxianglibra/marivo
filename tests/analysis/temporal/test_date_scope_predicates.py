@@ -96,10 +96,10 @@ def test_date_boundaries_uses_source_business_day_start_and_explicit_scope_timez
     expected: list[int],
 ) -> None:
     _project(tmp_path, monkeypatch, semantic_project_factory, source_timezone)
-    session = mv.session.get_or_create("date-boundaries", timezone="America/New_York")
+    session = mv.session.get_or_create("date-boundaries", timezone=scope_timezone)
     day = _time_dimension(session.catalog, "time_dimension:sales.facts.day")
     assert isinstance(day, ms.TimeDimension)
-    scope = session.time_scope(start="2026-07-01", end="2026-07-02", timezone=scope_timezone)
+    scope = session.time_scope(start="2026-07-01", end="2026-07-02")
     members = session.members(
         _entity(session.catalog, "entity:sales.facts"),
         where=((day >= scope.start) & (day < scope.end)),
@@ -215,10 +215,10 @@ def test_date_boundaries_uses_backend_native_start_at_a_midnight_fold(
     # DuckDB chooses the later Havana midnight (05:00Z). Choosing the earlier
     # Python fold branch (04:00Z) would incorrectly exclude November 2.
     assert oracle == [(2,)]
-    session = mv.session.get_or_create("native-date-start", timezone="UTC")
+    session = mv.session.get_or_create("native-date-start", timezone="-04:30")
     day = _time_dimension(session.catalog, "time_dimension:sales.facts.day")
     assert isinstance(day, ms.TimeDimension)
-    scope = session.time_scope(start="2025-11-02", end="2025-11-03", timezone="-04:30")
+    scope = session.time_scope(start="2025-11-02", end="2025-11-03")
     selected = session.members(
         _entity(session.catalog, "entity:sales.facts"),
         where=((day >= scope.start) & (day < scope.end)),

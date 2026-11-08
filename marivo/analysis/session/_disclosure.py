@@ -170,7 +170,7 @@ def provider() -> DisclosureProvider:
             "time_scope",
             "TimeScope",
             "result = session.time_scope(start='2026-01-01', end='2026-02-01')",
-            "Freeze half-open exact boundaries and their calendar timezone.",
+            "Freeze [start,end) in Session timezone; aware boundaries keep their instants.",
         ),
         (
             Session,

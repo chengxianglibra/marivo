@@ -173,7 +173,9 @@ def test_calendar_samples_validate_session_authority_before_business_reads(
 ) -> None:
     if case != "missing":
         publish_fiscal_calendar_artifact(calendar_window_project)
-    session = mv.session.get_or_create("calendar-sample-authority", timezone="UTC")
+    session = mv.session.get_or_create(
+        "calendar-sample-authority", timezone="Asia/Shanghai" if case == "timezone" else "UTC"
+    )
     grain = ms.calendar_grain(
         calendar=ms.ref.period_calendar("sales.fiscal"),
         level="unknown" if case == "level" else "fiscal_week",
@@ -199,7 +201,6 @@ def test_calendar_samples_validate_session_authority_before_business_reads(
     scope = session.time_scope(
         start="2026-01-01",
         end="2026-02-01",
-        timezone="Asia/Shanghai" if case == "timezone" else "UTC",
     )
 
     def forbidden(*args: object, **kwargs: object) -> None:
@@ -391,7 +392,9 @@ def test_calendar_window_validates_consumed_authority(
     calendar_window_project: SemanticCatalog, case: str
 ) -> None:
     publish_fiscal_calendar_artifact(calendar_window_project)
-    session = mv.session.get_or_create("invalid-calendar", timezone="UTC")
+    session = mv.session.get_or_create(
+        "invalid-calendar", timezone="Asia/Shanghai" if case == "timezone" else "UTC"
+    )
     calendar = _calendar(session.catalog)
     grain = ms.calendar_grain(
         calendar=ms.ref.period_calendar(calendar.path),
@@ -401,7 +404,6 @@ def test_calendar_window_validates_consumed_authority(
     scope = session.time_scope(
         start="2026-01-20",
         end="2026-04-01" if case == "coverage" else "2026-02-04",
-        timezone="Asia/Shanghai" if case == "timezone" else "UTC",
     )
     with pytest.raises(AnalysisError):
         session.observe(

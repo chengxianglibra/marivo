@@ -692,10 +692,8 @@ def test_fixed_date_windows_keep_authority_on_a_foreign_zone_grid(
     path = case.root / "models/semantic/sales/models.py"
     path.write_text(path.read_text().replace("parse=ms.timestamp()", "parse=None"))
     ms.load(workspace_dir=case.root)
-    session = mv.session.get_or_create("date-window", timezone="Asia/Tokyo")
-    grid_scope = session.time_scope(
-        start="2026-08-01", end="2026-08-03", timezone="America/New_York"
-    )
+    session = mv.session.get_or_create("date-window", timezone="America/New_York")
+    grid_scope = session.time_scope(start="2026-08-01", end="2026-08-03")
     grid = grid_scope.by(mv.grain("day"))
     population = mv.product(
         grid, session.members(_entity(session.catalog, "entity:sales.customer"))

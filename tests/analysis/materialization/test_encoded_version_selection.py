@@ -533,7 +533,9 @@ def test_trino_row_version_join_and_daily_statement_count(
         monkeypatch.chdir(tmp_path)
         _assert_row_result(tmp_path)
         _assert_shared_routes(monkeypatch, "trino", target.source.table)
-        session = mv.session.get_or_create("row-version", timezone="UTC")
+        session = mv.session.get_or_create(
+            "row-report", timezone="Asia/Shanghai" if time_kind in ("date", "mixed") else "UTC"
+        )
         control = catalog_value(session.catalog, "sales.facts.event_time", kind="time_dimension")
         label = (
             catalog_value(session.catalog, "sales.profiles.label", kind="dimension")
@@ -549,7 +551,6 @@ def test_trino_row_version_join_and_daily_statement_count(
             days_scope = session.time_scope(
                 start="2026-08-25",
                 end=end,
-                timezone="Asia/Shanghai" if time_kind in ("date", "mixed") else "UTC",
             )
             frame = session.observe(
                 {"value": metric}, by=(days_scope.by(mv.grain("day")), label)
@@ -592,7 +593,7 @@ def test_trino_snapshot_fact_row_time_uses_one_business_query(
         )
         monkeypatch.chdir(tmp_path)
         _assert_snapshot_row_result()
-        session = mv.session.get_or_create("snapshot-row-version", timezone="UTC")
+        session = mv.session.get_or_create("snapshot-row-report", timezone="Asia/Shanghai")
         control = catalog_value(session.catalog, "sales.facts.event_time", kind="time_dimension")
         historical = (
             catalog_value(session.catalog, "sales.profiles.label", kind="dimension")
@@ -605,7 +606,7 @@ def test_trino_snapshot_fact_row_time_uses_one_business_query(
         trace = capture_source(monkeypatch, measure_cost=True)
         for end, expected in (("2026-08-27", 7), ("2026-09-08", 31)):
             before = len(trace.native_sql)
-            days_scope = session.time_scope(start="2026-08-25", end=end, timezone="Asia/Shanghai")
+            days_scope = session.time_scope(start="2026-08-25", end=end)
             result = session.observe(
                 {"value": metric}, by=(days_scope.by(mv.grain("day")), historical)
             ).compute()

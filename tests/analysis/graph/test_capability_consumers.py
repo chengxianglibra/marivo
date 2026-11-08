@@ -607,17 +607,16 @@ def test_dst_grid_keeps_instant_edges_and_fixed_coordinate(
         author_source_project(
             backend, case, monkeypatch, semantic_project_factory, time_parse="string"
         )
-        session = mv.session.get_or_create("r93-dst-grid", timezone="Asia/Tokyo")
         zone = ZoneInfo("America/New_York")
+        session = mv.session.get_or_create("r93-dst-grid", timezone=str(zone))
         scope = session.time_scope(
             start=datetime.fromisoformat(start).replace(tzinfo=zone),
             end=datetime.fromisoformat(end).replace(tzinfo=zone),
-            timezone=str(zone),
         )
         grain = mv.grain("day")
         grid = scope.by(grain)
         bound = bind_grid(
-            scope, grain, report_timezone="Asia/Tokyo", explicit_timezone="America/New_York"
+            scope, grain, report_timezone=session.timezone, explicit_timezone=session.timezone
         )
         hours = [23, 24] if transition == "spring" else [25, 24]
         assert [(c.end - c.start).total_seconds() / 3600 for c in bound.cells] == hours
@@ -653,7 +652,7 @@ def test_dst_grid_keeps_instant_edges_and_fixed_coordinate(
                 "cell_hours": hours,
                 "product_rows": 8,
                 "source_timezone": "UTC",
-                "report_timezone": "Asia/Tokyo",
+                "report_timezone": session.timezone,
                 "grid_timezone": "America/New_York",
                 "end_exclusive": True,
                 "last_half_hour_included": True,
@@ -787,18 +786,16 @@ def test_certified_unequal_calendar_owns_native_boundaries(
         assert entry.definition.snapshot_status == "current"
         grain = entry.grain("period")
         session = mv.session.get_or_create("r93-certified-calendar", timezone="UTC")
-        scope = session.time_scope(
-            start=datetime(2026, 7, 31, 16, tzinfo=timezone.utc),
-            end=datetime(2026, 8, 2, 16, tzinfo=timezone.utc),
-            timezone="Asia/Shanghai",
-        )
+        scope = entry.period("period", "P1")
         grid = scope.by(grain)
         members = session.members(catalog_get(session.catalog, "entity:sales.facts", kind="entity"))
         with pytest.raises(ValueError) as conflict:
-            session.time_scope(start=scope.start, end=scope.end, timezone="UTC").by(grain)
+            mv.session.get_or_create("r93-foreign-calendar", timezone="UTC").time_scope(
+                start=scope.start, end=scope.end
+            ).by(grain)
         assert str(conflict.value) == (
-            "Expected compatible scope and calendar timezones; construct the scope "
-            "in the certified calendar boundary timezone."
+            "Expected compatible scope and calendar timezones; use a certified calendar scope "
+            "or create a Session in the calendar boundary timezone."
         )
         logical = session.observe(
             {"value": catalog_get(session.catalog, "metric:sales.total", kind="metric")},
@@ -812,9 +809,7 @@ def test_certified_unequal_calendar_owns_native_boundaries(
             by=(scope.by(grain),),
         ).persist()
         assert _value(grouped).tolist() == [7]
-        second_scope = session.time_scope(
-            start="2026-08-03", end="2026-08-06", timezone="Asia/Shanghai"
-        )
+        second_scope = entry.period("period", "P2")
         other = session.observe(
             {"value": catalog_get(session.catalog, "metric:sales.total", kind="metric")},
             by=(second_scope.by(grain),),
@@ -830,7 +825,7 @@ def test_certified_unequal_calendar_owns_native_boundaries(
                 "period_days": [2, 3],
                 "product_rows": 5,
                 "calendar_timezone": "Asia/Shanghai",
-                "report_timezone": "UTC",
+                "report_timezone": session.timezone,
                 "snapshot_current": True,
                 "deadline_controls": deadline_controls,
                 "conflicting_zone_rejected": True,
@@ -882,12 +877,11 @@ def test_civil_date_grid_keeps_date_keys_on_foreign_zone(
         author_source_project(
             backend, case, monkeypatch, semantic_project_factory, time_parse="date"
         )
-        session = mv.session.get_or_create("r93-civil-date", timezone="UTC")
         zone = ZoneInfo("America/New_York")
+        session = mv.session.get_or_create("r93-civil-date", timezone=str(zone))
         grid_scope = session.time_scope(
             start=datetime(2026, 8, 1, tzinfo=zone),
             end=datetime(2026, 8, 3, tzinfo=zone),
-            timezone=str(zone),
         )
         grid = grid_scope.by(mv.grain("day"))
         logical = session.observe(
@@ -933,7 +927,7 @@ def test_civil_date_grid_keeps_date_keys_on_foreign_zone(
                 "values": [5, 99],
                 "product_rows": 8,
                 "source_role": "civil_date",
-                "report_timezone": "UTC",
+                "report_timezone": session.timezone,
                 "grid_timezone": str(zone),
                 "end_exclusive": True,
                 "before_start_excluded": True,
@@ -1007,12 +1001,11 @@ def test_native_timestamp_retains_reader_and_grid_authority(
         author_source_project(
             backend, case, monkeypatch, semantic_project_factory, time_parse="native_resolved"
         )
-        session = mv.session.get_or_create("r93-native-time", timezone="Asia/Tokyo")
         zone = ZoneInfo("America/New_York")
+        session = mv.session.get_or_create("r93-native-time", timezone=str(zone))
         scope = session.time_scope(
             start=datetime(2026, 8, 1, tzinfo=zone),
             end=datetime(2026, 8, 3, tzinfo=zone),
-            timezone=str(zone),
         )
         grid = scope.by(mv.grain("day"))
         members = session.members(catalog_get(session.catalog, "entity:sales.facts", kind="entity"))
@@ -1042,7 +1035,7 @@ def test_native_timestamp_retains_reader_and_grid_authority(
                 "native_time_type": str(native_type),
                 "reader_timezone": reader_zone,
                 "parser": None,
-                "report_timezone": "Asia/Tokyo",
+                "report_timezone": session.timezone,
                 "grid_timezone": str(zone),
                 "last_microsecond_included": True,
                 "exact_start_included": True,
@@ -1087,12 +1080,11 @@ def test_aware_native_repeated_hour_keeps_distinct_instants(
         author_source_project(
             backend, case, monkeypatch, semantic_project_factory, time_parse="native_resolved"
         )
-        session = mv.session.get_or_create("r93-aware-time", timezone="Asia/Tokyo")
         zone = ZoneInfo("America/New_York")
+        session = mv.session.get_or_create("r93-aware-time", timezone=str(zone))
         scope = session.time_scope(
             start=datetime(2026, 11, 1, tzinfo=zone),
             end=datetime(2026, 11, 2, tzinfo=zone),
-            timezone=str(zone),
         )
         grid = scope.by(mv.grain("day"))
         logical = session.observe(
@@ -1122,7 +1114,7 @@ def test_aware_native_repeated_hour_keeps_distinct_instants(
                 "product_rows": 4,
                 "native_time_type": str(native_type),
                 "parser": None,
-                "report_timezone": "Asia/Tokyo",
+                "report_timezone": session.timezone,
                 "grid_timezone": str(zone),
                 "distinct_repeated_hour_values": [2, 5],
                 "exact_start_included": True,
@@ -1167,12 +1159,11 @@ def test_native_observation_does_not_audit_wall_times_outside_its_scope(
         author_source_project(
             backend, case, monkeypatch, semantic_project_factory, read_timezone="America/New_York"
         )
-        session = mv.session.get_or_create("r93-native-wall-scope", timezone="Asia/Tokyo")
         zone = ZoneInfo("America/New_York")
+        session = mv.session.get_or_create("r93-native-wall-scope", timezone=str(zone))
         scope = session.time_scope(
             start=datetime.fromisoformat(start).replace(tzinfo=zone),
             end=datetime.fromisoformat(end).replace(tzinfo=zone),
-            timezone=str(zone),
         )
         grid = scope.by(mv.grain("day"))
         logical = session.observe(
@@ -1203,7 +1194,7 @@ def test_native_observation_does_not_audit_wall_times_outside_its_scope(
                 "backend": backend,
                 "wall": wall,
                 "read_timezone": str(zone),
-                "report_timezone": "Asia/Tokyo",
+                "report_timezone": session.timezone,
                 "grid_timezone": str(zone),
                 "outside_scope_wall": wall,
                 "run_lifecycle": run.lifecycle,

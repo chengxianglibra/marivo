@@ -285,10 +285,11 @@ def test_native_calendar_and_actual_samples_without_multipart(
                 .empty
             )
             for zone in ("UTC", "Asia/Shanghai"):
+                session = mv.session.get_or_create(
+                    f"native-calendar-{profile}-{zone}", timezone=zone
+                )
                 for unit in ("day", "week", "month"):
-                    axis_scope = session.time_scope(
-                        start="2026-01-01", end="2026-01-16", timezone=zone
-                    )
+                    axis_scope = session.time_scope(start="2026-01-01", end="2026-01-16")
                     observed = (
                         session.observe({"v": total}, by=(axis_scope.by(mv.grain(unit)),))
                         .compute()

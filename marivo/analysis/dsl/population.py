@@ -665,7 +665,7 @@ def in_population(population: Population | Deferred) -> Deferred | RowPredicate:
 
 
 def _interval_coordinate(scope: TimeScope) -> IntervalCoordinate:
-    from marivo._temporal import _SessionTimeScope, anchor_from_datetime
+    from marivo._temporal import _SessionTimeScope, anchor_from_datetime, scope_time_authority
     from marivo.analysis.core.time_grid import instant
 
     if scope.kind == "absolute" and not isinstance(scope, _SessionTimeScope):
@@ -679,7 +679,11 @@ def _interval_coordinate(scope: TimeScope) -> IntervalCoordinate:
     start = anchor_from_datetime(instant(scope.start, zone))
     end = anchor_from_datetime(instant(scope.end, zone))
     return IntervalCoordinate(
-        f"interval:{start.isoformat()}:{end.isoformat()}:{zone}", start, end, zone
+        f"interval:{start.isoformat()}:{end.isoformat()}:{zone}",
+        start,
+        end,
+        zone,
+        time_authority=scope_time_authority(scope),
     )
 
 
