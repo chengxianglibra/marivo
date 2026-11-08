@@ -120,7 +120,7 @@ def provider() -> DisclosureProvider:
         (
             to_date,
             "ObservationWindow",
-            "Reset at the civil or semantic period boundary owning each endpoint.",
+            "Reset at the natural calendar period boundary owning each endpoint.",
             "result = mv.to_date(grain=mv.grain('month'))",
             (),
             "inputs.time.windows",
@@ -141,7 +141,7 @@ def provider() -> DisclosureProvider:
         "factors": "Pass at least two Populations, CalendarAxis or TimeScope values, or native Deferred parameters; closed factors need disjoint axes and compatible owners.",
         "population": "Pass a literal or same-Session Population, or a native Deferred parameter for loader binding.",
         "duration": "Pass a positive datetime.timedelta; duration is elapsed time, not a civil period count.",
-        "count": "Pass a positive integer excluding bool; evaluation requires complete CalendarAxis buckets.",
+        "count": "Pass a positive integer excluding bool; evaluation requires complete periods from the report CalendarAxis or nearest enclosing builtin calendar sample.",
         "start": "Pass an aware datetime or session.instant(...), strictly before every consumed endpoint.",
         "grain": "Pass mv.grain(unit) for a natural calendar reset; it uses the Session reporting timezone.",
         "predicate": "Pass in_population(...) or its closed &, | and ~ combinations over existing axes.",
@@ -171,7 +171,7 @@ def provider() -> DisclosureProvider:
         "in_population": "Match complete null-safe tuples on existing axes; membership does not introduce new output coordinates.",
         "all_history": "Source retention still limits available history; the endpoint is exclusive.",
         "trailing_duration": "Use elapsed time, independent of civil clock changes; the endpoint is exclusive.",
-        "trailing_periods": "Require complete day/week/month/quarter/year buckets; partial buckets and subday grains reject. Count calendar predecessors, not positions in a sparse axis. Named calendars must certify the required predecessor coverage.",
+        "trailing_periods": "Require complete day/week/month/quarter/year periods at the endpoint layer; partial periods and subday grains reject. Count calendar predecessors, not positions in a sparse axis. An enclosing builtin calendar sample supplies endpoints without requiring a report TimeScope or CalendarAxis.",
         "since": "The start is inclusive and each actual observation endpoint is exclusive; start must precede every endpoint.",
         "to_date": "Each nominal output bucket must lie inside one reset period. At an exact reset boundary, the just-completed period owns the endpoint.",
     }
@@ -407,7 +407,7 @@ def provider() -> DisclosureProvider:
             producers=("all_history", "trailing_duration", "trailing_periods", "since", "to_date"),
             consumers=("semantic.metric.window", "ObservationWindow.show"),
             constraints=(
-                "Attach with metric.window(rule); supply endpoints through a TimeScope in observe.where or report buckets. Nested windows reject.",
+                "Attach with metric.window(rule). The nearest enclosing builtin calendar sample supplies endpoints; otherwise use a TimeScope in observe.where or report buckets. Each rule retains its endpoint requirements. Nested windows reject.",
             ),
         )
     )

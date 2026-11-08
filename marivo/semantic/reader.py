@@ -223,7 +223,7 @@ class SemanticProject:
 
         Performs in-memory checks of the selected semantic closure:
         load errors, unknown physical refs, cross-datasource dependencies,
-        temporal artifact integrity, and scoped load warnings. Use
+        physical declaration integrity, and scoped load warnings. Use
         ``refs`` to scope which semantic objects to check; by default all loaded
         objects are checked.
 

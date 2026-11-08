@@ -83,7 +83,7 @@ consumed definitions; this policy permits neither live refresh nor import replay
 `ms.load()` establishes project coherence without source reads. Catalog search
 and canonical get return immutable typed semantic objects for direct composition
 and consumption; their definitions explain captured meaning. Readiness checks
-physical dependency closures and dedicated temporal artifacts without a query.
+physical dependency closures without a query.
 Its `analysis_ready_inputs` contains only directly requested ready physical objects.
 
 Online validation connects to the physical dependency closure and checks Entity

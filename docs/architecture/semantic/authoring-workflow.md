@@ -159,7 +159,7 @@ separate per-object validation checkpoint between load and catalog navigation.
 Readiness checks the selected semantic closure and physical declarations without source reads.
 
 Use targeted `catalog.preview(..., scope=...)` only for a concrete runtime risk
-or dedicated artifact repair. Ordinary preview reads the current datasource and
+or definition repair. Ordinary preview reads the current datasource and
 does not persist a check or change readiness. A successful project load proves
 static coherence, not current physical compatibility or every possible
 downstream execution.

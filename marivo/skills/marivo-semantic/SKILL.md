@@ -106,9 +106,9 @@ Do not add a separate verification checkpoint.
 
 For analysis handoff, resolve every requested definition, then run scoped
 readiness on the selected objects and inspect the expanded physical dependency
-closure. Requested identities, checked dependencies and directly ready physical
-inputs have distinct meanings; dependency readiness is not Metric execution proof. AnalysisFrame evaluation qualifies the selected computation and source;
-compute fixes complete memory data and persist commits the completed result.
+closure. Distinguish the requested definitions from checked dependencies and
+directly ready physical inputs. Dependency readiness does not prove that the
+parent analysis can execute; hand that qualification back to the analysis workflow.
 Use online validation to check definitions against real source types and current
 source drift; choose preview when scoped values answer a concrete runtime risk
 or repair. Explicit data checks need a bounded scope. Read each report's scope, findings and repair; no
@@ -117,18 +117,12 @@ checks while their identity and scope remain applicable.
 
 ## Expression authoring boundary
 
-Physical constructors and exact lookup factories capture native typed Deferred
-symbols. Compose them directly and load the complete dependency slice once;
-the loader binds forward references before publishing typed Catalog objects.
-Inspect kind and use a loaded named object directly. Declaration selectors belong
-to explicitly supported authoring, source-check and physical datasource boundaries. Unsupported recipes
-fail at declaration or parameter capture; ordinary Python attribute access and
-already formatted strings do not establish identity or binding facts.
+Use `marivo help semantic.expressions` for expression roles, legal composition
+and binding requirements. Keep construction mechanics with the focused Help
+for the chosen definition; do not infer support from remembered Python recipes.
 Do not reject an input solely because a same-path definition changed. Assess
 whether the changed meaning still suits the question, and follow structured
-repairs for incompatible inputs. Resolve needed inputs from the complete scope;
-the receiving Catalog or Session resolves named leaves in its completed scope,
-while the original object and captured analysis inputs do not refresh.
+repairs for incompatible inputs.
 
 Reuse constructed fields and Metrics for reusable declarations and local
 analysis expressions. A local declaration adds a business name and context.
@@ -138,31 +132,25 @@ clock. Fix an explicit field on a source reduction when it defines that
 Metric's meaning. Define each legitimate time role separately and preserve
 the clocks of composed branches. A branch without a contribution clock is independent of report time;
 use that meaning only for an intended fixed baseline or unscoped quantity.
-Report periods and windows affect clocked branches; independent branches retain
-their own conditions. Physical readiness does not establish
-which clock the business rule requires.
+Physical readiness does not establish which clock the business rule requires.
 New Measure permission is explicit business authority;
 naming, filtering or arithmetic cannot grant it. Keep known units, contribution
 roots, status-time constraints and sampling contracts with their owners.
 
-Keep restricted Ibis source and categorical/time-field authoring separate from
-pure Measure/Metric bodies. Lookup symbols need binding before analysis. Do not revive old
-Metric factories, table-parameter bodies, default folds or declaration-wide
-value policies; follow the concrete structured reauthoring error. Where model
-publication or execution is unavailable, report that boundary and continue the
-parts of the task that construction and existing leaf checks can establish.
+Where model publication or execution is unavailable, report that boundary and
+continue the parts of the task that construction and existing checks can
+establish. Follow structured reauthoring errors without changing the intended
+business meaning merely to make a declaration pass.
 
 ## Delivery and return to the parent task
 
 Leave authoring when its selected exit is satisfied. For analysis handoff, pass
-the exact ready objects or `analysis_ready_inputs` to `marivo-analysis` and continue
-the original question. Kind-level Help routes identify candidate consumers;
-their focused contracts own companion inputs. Population and AnalysisFrame show captured
-facts; static type Help owns operation discovery. Continue analysis from the
-returned computed or persisted Frame. A persisted Frame can resume supported
-data operations and directly provides committed audit. New source facts need
-explicit governed inputs, including an explicit ordinary-axis Population bridge
-when selected result keys constrain the new source question.
+the exact requested objects, their established business meaning, checks and
+remaining limitations to `marivo-analysis`. Distinguish the requested definitions
+from the report's `analysis_ready_inputs`; dependency readiness alone is not
+execution proof. Resume the original question without restarting unaffected
+work. The analysis workflow owns subsequent computation, retained-result reuse
+and any explicit request for new source facts.
 
 For authoring-only work, report the slice, evidence and scope, material business
 authority, checks performed, their outcomes, exact roots, and remaining risks.

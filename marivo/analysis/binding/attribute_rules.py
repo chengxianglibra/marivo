@@ -604,7 +604,7 @@ def _source_signature(request: AttributeSourceRequest) -> tuple[object, ...]:
             )
             for read in binding.coordinates
         ),
-        # Grain equality compares builtin unit/count or semantic calendar/level.
+        # Grain equality compares natural calendar unit/count.
         # A grid identity also captures its endpoint directory and scope, whose
         # independent validation belongs to that side's parent projection.
         tuple(

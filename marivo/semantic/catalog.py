@@ -2284,7 +2284,7 @@ class SemanticCatalog(RenderableResult):
         self,
         refs: Sequence[_SemanticInput] | None = None,
     ) -> ReadinessReport:
-        """Check selected definitions' physical dependencies and temporal artifacts offline.
+        """Check selected definitions' physical dependency closures offline.
 
         Args:
             refs: Named objects from the same project,

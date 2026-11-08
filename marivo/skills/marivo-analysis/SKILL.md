@@ -136,16 +136,14 @@ compatible work into one decision round.
 Choose disclosure for the current gap:
 
 - Unknown method: start at `marivo help analysis` and follow the current
-  information gap. Source questions use governed inputs or explicit member
-  domains; Frame work calculates over the represented data. Construction
-  captures dependencies, so a source question need not read a source and
-  evaluating a pending Frame can still execute its captured source dependencies.
+  information gap. Decide whether the question needs new source facts or work
+  over retained values; use focused Help to establish the operation's inputs
+  and effects before evaluation.
 - Unknown identity: search or browse bounded Catalog candidates and compare their
   complete business definitions and restrictions. Preserve canonical identities
-  across calls; inspect kind and use the named object directly. Declaration
-  selectors belong to explicitly supported authoring, checks and physical datasource
-  operations. The receiving Catalog or Session owns resolution; captured Frames
-  retain their bound inputs when definitions later change.
+  across calls. Assess changed definitions against the current question without
+  assuming earlier results were recalculated; focused Help owns lookup and
+  binding mechanics.
 - Missing syntax or precondition: read the exact callable Help.
 - Missing captured facts: read Population/AnalysisFrame `.show()`; use `frame.output_names`
   for complete names. Type Help lists operations when the next method is unknown.
@@ -228,24 +226,21 @@ unsupported method; follow structured repair and disclose a blocked branch when
 the public contract cannot produce its required evidence. Do not bypass it with
 direct Ibis, DuckDB, pandas readers, backend handles, ad hoc SQL, or uploads.
 
-Before exporting, read `marivo help analysis.analysis_frame.to_pandas` and
-identify whether requested typed work remains. Supported transformations of
-complete Frame data can continue after compute, persist or exact recovery.
-For original Metric contributions or new attributes, check whether the current
-Frame retains an admitted source declaration in this process. Its attribute
-operation may read fresh source facts for the selected fixed parent keys;
-distinguish the observed parent values from the newly evaluated totals.
-An independently reopened Frame has no executable declaration. Continue its
-fixed-data operations or explicitly rebuild the source question with governed
-definitions and the saved joint keys. Current-row statistics and saved method
-facts cannot reconstruct that declaration. Arranging, plotting, labeling and
-formatting saved values are presentation.
-Numerical arithmetic is not automatically presentation.
+Before exporting, identify whether requested typed work remains and read
+`marivo help analysis.analysis_frame.to_pandas` for the export boundary. Continue
+supported work from retained Frames. When original contributions or new
+attributes are needed, use `marivo help analysis.analysis_frame.attribute` to
+check the current input requirements. If the retained result cannot support
+that source question, rebuild it explicitly from governed inputs and the
+selected joint keys. Keep historical parent values distinct from newly read
+facts; recovery and current-row statistics cannot substitute for missing source
+meaning. Arranging, plotting, labeling and formatting saved values are
+presentation; numerical arithmetic is not automatically presentation.
 For a method outside the installed surface, first complete supported upstream
 work, then preserve exact inputs, assumptions and rerunnable external calculations.
-External outputs do not inherit typed Frame guarantees. Exported tables and
-attrs cannot restore semantic objects, source history or typed authority. The
-saved Frame remains available for supported data operations and captured source-read metadata.
+External outputs do not inherit typed Frame guarantees. Retain the original
+Frame as evidence, and do not treat exported or externally calculated values
+as a substitute for governed inputs.
 
 Use `md.raw_sql(...)` only for a concrete source-specific question public
 inspection cannot answer, or provisional terminal analysis when typed inputs

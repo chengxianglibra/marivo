@@ -272,7 +272,7 @@ _PAGES = (
         (),
         guidance=(
             "Install marivo[api], set MARIVO_API_TOKEN and run marivo serve --project-root PATH. The JSON readiness line reports the listener. See marivo serve --help for TLS, CORS and read budgets.",
-            "All requests require Authorization: Bearer TOKEN. GET /v2/info reports Store identity; GET /v2/openapi.json declares the complete protocol.",
+            "All business requests require Authorization: Bearer TOKEN; valid CORS preflights require no token. GET /v2/info reports Store identity; GET /v2/openapi.json declares the complete protocol.",
             "Use saved.ref.to_dict() for an AnalysisFrame, or mv.persist_dataframe(table).to_dict() for a pandas table. Preserve the service connection separately.",
             "Read a Frame at /v2/stores/{store_id}/sessions/{session_id}/frames/{artifact_id}; read a table at /v2/dataframes/{result_id}. A different Store returns invalid_result_reference. Reads require neither producer nor current models.",
             "Responses return complete data or a structured error. Integers and Decimal values are exact strings; nulls and typed time values retain their saved meaning. Directories use limit/cursor.",

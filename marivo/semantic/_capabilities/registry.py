@@ -3139,7 +3139,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
         _capability(
             "readiness",
             "marivo.semantic.catalog.SemanticCatalog.readiness",
-            "Check selected definitions' physical dependency closures without connecting or querying. Declared Measures and Metrics are accepted; an open Metric checks only known dependencies. Unselected binding fields and executable Metric instances remain independent input checks. requested_ids and checked_ids retain the distinction. Unrelated load warnings are excluded. Analysis execution qualifies physical types and operation support.",
+            "Check selected definitions' physical dependency closures without connecting or querying. Declared Measures and Metrics are accepted and expand to their loaded physical dependencies, including declared contribution time fields. requested_ids and checked_ids retain the distinction. analysis_ready_inputs contains only directly requested ready physical objects. Unrelated load warnings are excluded. Analysis execution qualifies physical types and operation support.",
             kind="method",
             output="ReadinessReport",
             inputs=(
