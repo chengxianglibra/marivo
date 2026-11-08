@@ -25,7 +25,7 @@ from marivo._definition.expressions import (
     RowExpression,
     RowField,
 )
-from marivo._definition.types import TimeInstantFieldRead, TimeScopeFieldRead
+from marivo._definition.types import TimeInstantFieldRead
 from marivo.analysis.core.model import reject
 from marivo.analysis.dsl.temporal import exact_instant
 from marivo.refs import SemanticKind
@@ -60,11 +60,7 @@ def _row(node: RowExpression, timezone: str, location: str) -> RowExpression:
 
     def time_slot(recipe: Variable) -> bool:
         value = inputs[int(recipe.name.removeprefix("slot_"))]
-        return (
-            isinstance(value, RowField)
-            and value.ref.ref.kind is SemanticKind.TIME_DIMENSION
-            and not isinstance(value.read, TimeScopeFieldRead)
-        )
+        return isinstance(value, RowField) and value.ref.ref.kind is SemanticKind.TIME_DIMENSION
 
     def temporal(recipe: Resolver) -> bool:
         if isinstance(recipe, Variable):

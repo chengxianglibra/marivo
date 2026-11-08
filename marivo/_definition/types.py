@@ -273,15 +273,6 @@ class TimeInstantFieldRead(FieldRead):
 
 
 @dataclass(frozen=True, slots=True)
-class TimeScopeFieldRead(FieldRead):
-    """Temporal membership usage, distinct from the field's raw scalar value."""
-
-    scope_start: InstantAnchor = field(kw_only=True)
-    scope_end: InstantAnchor = field(kw_only=True)
-    scope_timezone: str = field(kw_only=True)
-
-
-@dataclass(frozen=True, slots=True)
 class IdentityRead:
     """Complete declared primary-key coordinates through one scalar path."""
 
@@ -300,18 +291,6 @@ def field_read_key(read: FieldRead | IdentityRead) -> str:
                 read.field.ref.path,
                 tuple(step.ref.path for step in read.path),
                 attribute_time_key(read.at) if read.at is not None else None,
-            )
-        )
-    if isinstance(read, TimeScopeFieldRead):
-        return repr(
-            (
-                "within",
-                read.field.ref.path,
-                tuple(step.ref.path for step in read.path),
-                attribute_time_key(read.at) if read.at is not None else None,
-                read.scope_start.isoformat(),
-                read.scope_end.isoformat(),
-                read.scope_timezone,
             )
         )
     if isinstance(read, IdentityRead):

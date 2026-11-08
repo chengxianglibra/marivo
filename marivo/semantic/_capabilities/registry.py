@@ -2204,7 +2204,7 @@ def _ref_role(kind: SemanticKind) -> tuple[str, tuple[LiveHelpTarget, ...]]:
         ),
         SemanticKind.TIME_DIMENSION: (
             "TimeField for time=, time predicates and grouping; its role and ownership are checked at binding.",
-            (_target("TimeField.within"), _target("time_dimension")),
+            (_target("expressions"), _target("time_dimension")),
         ),
         SemanticKind.MEASURE: (
             "Numeric row field or declared Measure; arithmetic and source reductions retain unit and sum permission.",
@@ -2733,23 +2733,14 @@ def _expression_capabilities() -> tuple[AuthoringCapability, ...]:
             "InstantAnchor | TimeExpression",
             "region.at(session.instant('2026-01-01'))",
         ),
-        (
-            "TimeField.within",
-            "_FieldComparisons",
-            "within",
-            "Deferred",
-            "scope",
-            "TimeScope",
-            "created_at.within(scope)",
-        ),
     ):
         rows.append(
             _capability(
                 target,
                 f"marivo.semantic._expression_values.RowExpression.{_method}",
-                "Construct an immutable scalar field binding or half-open time predicate. Directed paths must be single-valued. at selects one fixed InstantAnchor for the whole question, or a native TimeDimension on an unversioned or snapshot fact root for same-source, single-root observe by/where on DuckDB/Trino. Row time excludes validity fact roots, read/classify, windows, internal samples and IANA local clocks. DATE control selects target business dates; timestamp validity needs timestamp control. Missing versions and NULL control retain NULL labels. No schema or business reads.",
+                "Construct an immutable scalar field binding. Directed paths must be single-valued. at selects one fixed InstantAnchor for the whole question, or a native TimeDimension on an unversioned or snapshot fact root for same-source, single-root observe by/where on DuckDB/Trino. Row time excludes validity fact roots, read/classify, windows, internal samples and IANA local clocks. DATE control selects target business dates; timestamp validity needs timestamp control. Missing versions and NULL control retain NULL labels. No schema or business reads.",
                 kind="method",
-                output="RowPredicate" if _method == "within" else "RowExpression",
+                output="RowExpression",
                 inputs=(
                     AuthoringInputRequirement(role="receiver", family="Field"),
                     _parameter_input("dependency", family, parameter),
@@ -3232,7 +3223,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
             "Fix contribution time on a source reduction with time=field, or omit time= to inherit its "
             "Entity's default_time when available. Without either the reduction has no contribution clock. "
             "Composed Metrics retain their branch clocks. Reporting with where=scope or by=(scope.by(grain),) requires "
-            "a clock on every branch. Use where=field.within(scope) for a fixed source predicate.",
+            "a clock on every branch. Use explicit field comparisons for fixed source predicates.",
             output="NumericMetric",
             inputs=(
                 _parameter_input("dependency", "DomainSymbol", "domain", optional=True),
@@ -3762,7 +3753,9 @@ def _build_registry() -> SemanticCapabilityRegistry:
                     "Session report timezone, as session.time_scope does; aware inputs keep their "
                     "instant. Naive datetimes and ambiguous/nonexistent civil boundaries reject. "
                     "DATE compares its source business-day start; == selects an exact instant. "
-                    "within(scope) keeps the scope's explicit boundaries. Ordinary string fields "
+                    "Use session.instant(value, timezone=...) for explicit boundary timezones. Fixed "
+                    "field predicates remain in force through window history and supply no report endpoint. "
+                    "Ordinary string fields "
                     "and fixed Frame Column comparisons keep their own types. "
                     "Member leaves support boolean operators/constants, not comparisons, "
                     "arithmetic, ifelse, cast or methods. Bare Python bool is not a condition. "
@@ -3877,7 +3870,6 @@ def _build_registry() -> SemanticCapabilityRegistry:
                         _target("SemanticObject.show"),
                         owns_discovery=False,
                     ),
-                    _navigation_route("half-open time predicates", _target("TimeField.within")),
                 ),
             ),
             *_navigation_descriptors(object_contracts),

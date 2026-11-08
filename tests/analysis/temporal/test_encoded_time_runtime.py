@@ -1,6 +1,8 @@
 """Public source consumers preserve results and reads under encoded filtering."""
 
+import operator
 from dataclasses import replace
+from datetime import datetime
 
 import duckdb
 import pandas as pd
@@ -39,7 +41,7 @@ def _member_frame(frame: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame({"value": frame["value"], "member": frame["customer"]})
 
 
-def _encode_orders(case: DslCase, fmt: str, *, integer: bool = False) -> None:
+def _encode_orders(case: DslCase, fmt: str, *, integer: bool = False, zone: str = "UTC") -> None:
     with duckdb.connect(str(case.database_path)) as connection:
         connection.execute("SET TimeZone='UTC'")
         value = f"strftime(ordered_at, '{fmt}')"
@@ -50,7 +52,7 @@ def _encode_orders(case: DslCase, fmt: str, *, integer: bool = False) -> None:
             f"{'BIGINT' if integer else 'VARCHAR'} USING {value}"
         )
     path = case.root / "models" / "semantic" / "sales" / "models.py"
-    parse = f"ms.strptime({fmt!r}" + (", timezone='UTC')" if "%H" in fmt else ")")
+    parse = f"ms.strptime({fmt!r}" + (f", timezone={zone!r})" if "%H" in fmt else ")")
     path.write_text(path.read_text().replace("ms.timestamp()", parse))
     ms.load(workspace_dir=case.root)
 
@@ -59,7 +61,7 @@ def _forbid_partition_probe(request: PartitionProbeRequest) -> PartitionProbeRes
     raise AssertionError("Encoded filtering must not inspect partition values")
 
 
-def test_explicit_within_filters_the_original_encoded_column(
+def test_explicit_boundaries_filter_the_original_encoded_column(
     analysis_dsl_case_factory: DslCaseFactory, source_trace: SourceTrace
 ) -> None:
     case = analysis_dsl_case_factory("j1")
@@ -71,7 +73,7 @@ def test_explicit_within_filters_the_original_encoded_column(
     result = case.session.observe(
         {"value": _metric(case.session.catalog, "metric:sales.revenue")},
         by=(),
-        where=point.within(scope),
+        where=((point >= scope.start) & (point < scope.end)),
     ).compute()
     assert result.to_pandas()["value"].tolist() == [1000]
     sql = next(sql for sql in source_trace.native_sql if "ordered_at" in sql and "WHERE" in sql)
@@ -83,6 +85,126 @@ def test_explicit_within_filters_the_original_encoded_column(
         and isinstance(item.expression, sge.Literal)
         and item.expression.this == "20260801"
         for item in ast.find_all(sge.GTE)
+    ), sql
+
+
+@pytest.mark.parametrize("integer", [False, True])
+@pytest.mark.parametrize("mode", ["or", "not", "isnull"])
+def test_encoded_explicit_comparisons_preserve_boolean_nulls(
+    analysis_dsl_case_factory: DslCaseFactory,
+    source_trace: SourceTrace,
+    integer: bool,
+    mode: str,
+) -> None:
+    case = analysis_dsl_case_factory("j1")
+    _encode_orders(case, "%Y%m%d", integer=integer)
+    table = case.names.order
+    with duckdb.connect(str(case.database_path)) as connection:
+        connection.execute(f'UPDATE "{table}" SET ordered_at=NULL WHERE order_id=?', ["j1_july"])
+        parsed = "try_strptime(CAST(ordered_at AS VARCHAR), '%Y%m%d')"
+        august = f"({parsed} >= TIMESTAMP '2026-08-01' AND {parsed} < TIMESTAMP '2026-09-01')"
+        native = {
+            "or": f"({august} OR {parsed} IS NULL)",
+            "not": f"NOT {august}",
+            "isnull": f"({august}) IS NULL",
+        }[mode]
+        expected = connection.execute(f'SELECT count(*) FROM "{table}" WHERE {native}').fetchone()
+    assert expected is not None
+    session = case.session
+    point = _time_dimension(
+        session.catalog, f"time_dimension:sales.{table}.{case.names.ordered_at}"
+    )
+    entity = _entity(session.catalog, f"entity:sales.{table}")
+    interval = (point >= "2026-08-01") & (point < "2026-09-01")
+    condition = {"or": interval | point.isnull(), "not": ~interval, "isnull": interval.isnull()}[
+        mode
+    ]
+    result = session.observe({"count": entity.count(time=point)}, where=condition).compute()
+    assert result.to_pandas()["count"].tolist() == [expected[0]]
+    sql = next(sql for sql in source_trace.native_sql if "ordered_at" in sql and "WHERE" in sql)
+    where = next(sqlglot.parse_one(sql, read="duckdb").find_all(sge.Where))
+    assert any(
+        isinstance(node.this, sge.Column) and node.this.name == "ordered_at"
+        for node in where.find_all(sge.GTE, sge.LT)
+    ), sql
+
+
+@pytest.mark.parametrize("integer", [False, True])
+@pytest.mark.parametrize("reverse", [False, True])
+@pytest.mark.parametrize(
+    "compare,sql_operator",
+    [
+        (operator.eq, "="),
+        (operator.ne, "<>"),
+        (operator.lt, "<"),
+        (operator.le, "<="),
+        (operator.gt, ">"),
+        (operator.ge, ">="),
+    ],
+)
+def test_encoded_comparisons_preserve_unaligned_instants_and_reversed_operands(
+    analysis_dsl_case_factory: DslCaseFactory,
+    integer: bool,
+    reverse: bool,
+    compare: object,
+    sql_operator: str,
+) -> None:
+    case = analysis_dsl_case_factory("j1")
+    _encode_orders(case, "%Y%m%d", integer=integer)
+    table = case.names.order
+    with duckdb.connect(str(case.database_path)) as connection:
+        connection.execute(f'UPDATE "{table}" SET ordered_at=NULL WHERE order_id=?', ["j1_july"])
+        parsed = "try_strptime(CAST(ordered_at AS VARCHAR), '%Y%m%d')"
+        expression = f"? {sql_operator} {parsed}" if reverse else f"{parsed} {sql_operator} ?"
+        expected = connection.execute(
+            f'SELECT count(*) FROM "{table}" WHERE {expression}',
+            [datetime.fromisoformat("2026-08-01T12:00:00")],
+        ).fetchone()
+    assert expected is not None
+    session = case.session
+    point = _time_dimension(
+        session.catalog, f"time_dimension:sales.{table}.{case.names.ordered_at}"
+    )
+    entity = _entity(session.catalog, f"entity:sales.{table}")
+    anchor = session.instant("2026-08-01T12:00:00Z")
+    assert callable(compare)
+    condition = compare(anchor, point) if reverse else compare(point, anchor)
+    result = session.observe({"count": entity.count(time=point)}, where=condition).compute()
+    assert result.to_pandas()["count"].tolist() == [expected[0]]
+
+
+def test_unqualified_encoded_time_keeps_native_parser_near_dst(
+    analysis_dsl_case_factory: DslCaseFactory, source_trace: SourceTrace
+) -> None:
+    case = analysis_dsl_case_factory("j1")
+    _encode_orders(case, "%Y%m%d%H%M%S", zone="America/New_York")
+    table = case.names.order
+    with duckdb.connect(str(case.database_path)) as connection:
+        connection.execute(f'UPDATE "{table}" SET ordered_at=?', ["20261101010000"])
+        connection.execute(
+            f'UPDATE "{table}" SET ordered_at=? WHERE order_id=?', ["20261101020000", "j1_july"]
+        )
+        parsed = "timezone('America/New_York', try_strptime(ordered_at, '%Y%m%d%H%M%S'))"
+        expected = connection.execute(
+            f'SELECT count(*) FROM "{table}" WHERE {parsed} >= ?',
+            [datetime.fromisoformat("2026-11-01T05:30:00+00:00")],
+        ).fetchone()
+    assert expected is not None
+    session = case.session
+    point = _time_dimension(
+        session.catalog, f"time_dimension:sales.{table}.{case.names.ordered_at}"
+    )
+    entity = _entity(session.catalog, f"entity:sales.{table}")
+    start = session.instant("2026-11-01T05:30:00Z")
+    result = session.observe({"count": entity.count(time=point)}, where=point >= start).compute()
+    assert result.to_pandas()["count"].tolist() == [expected[0]]
+    sql = next(sql for sql in source_trace.native_sql if "ordered_at" in sql and "WHERE" in sql)
+    ast = sqlglot.parse_one(sql, read="duckdb")
+    assert "TRY_STRPTIME" in ast.sql(dialect="duckdb"), sql
+    where = next(ast.find_all(sge.Where))
+    assert not any(
+        isinstance(node.this, sge.Column) and node.this.name == "ordered_at"
+        for node in where.find_all(sge.GTE, sge.LT)
     ), sql
 
 

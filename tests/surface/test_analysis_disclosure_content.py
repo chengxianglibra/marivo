@@ -124,8 +124,8 @@ def test_observe_help_separates_report_time_from_fixed_source_predicates() -> No
         assert "contribution time on every Metric branch" in text
         assert "one CalendarAxis" in text
         assert "at most one TimeScope" in text
-        assert "where=field.within(scope)" in text
-        assert "without a report endpoint" in text
+        assert "Field comparisons stay fixed throughout windows" in text
+        assert "no report endpoint" in text
 
 
 def test_analysis_root_requires_contribution_clocks_only_for_report_time() -> None:

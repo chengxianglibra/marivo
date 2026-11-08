@@ -18,6 +18,7 @@ import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.analysis.compiler.source_time import source_time, source_time_predicate
 from marivo.analysis.core.time_authority import SourceTimeAuthority
+from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.temporal_sql import lower_temporal
 from marivo.semantic._source_timezone import DeclaredSourceTimezone
 from marivo.semantic.ir import DateParse, HourPrefixParse, StrptimeParse, TargetDimensionContract
@@ -460,6 +461,7 @@ def hour_session(
             "sales/events.py": "import marivo.semantic as ms\nimport marivo.datasource as md\n"
             "events=ms.entity(name='events',datasource=ms.ref.datasource('warehouse'),source=md.table('events'),primary_key=['id'])\n"
             "identity=ms.dimension_column(name='id',entity=events,column='id')\n"
+            "amount=ms.measure_column(name='amount',entity=events,column='amount',additivity=ms.additive_all())\n"
             "day=ms.time_dimension_column(name='day',entity=events,column='day',parse=ms.strptime('%Y%m%d'))\n"
             "hour=ms.time_dimension_column(name='hour',entity=events,column='hour',parse=ms.hour_prefix(day))\n"
             "@ms.metric()\ndef hourly_count():\n    return events.count(time=hour)\n",
@@ -477,7 +479,7 @@ def hour_session(
         ("scope", 2),
         ("calendar", 2),
         ("midnight", 1),
-        ("within", 2),
+        ("range", 2),
         ("and", 1),
         ("not", 3),
         ("or", 3),
@@ -506,7 +508,7 @@ def test_public_observe_only_pushes_required_hour_membership(
             where=scope if mode == "scope" else None,
         )
     else:
-        predicate = hour.within(scope)
+        predicate = (hour >= scope.start) & (hour < scope.end)
         if mode == "and":
             predicate = predicate & (identity == 1)
         elif mode == "not":
@@ -527,14 +529,87 @@ def test_public_observe_only_pushes_required_hour_membership(
         for where in statement.find_all(sge.Where)
         for item in where.find_all(sge.EQ)
     )
-    assert has_day_equality == (mode in ("scope", "calendar", "midnight", "within", "and")), (
+    assert has_day_equality == (mode in ("scope", "calendar", "midnight", "range", "and")), (
         source_trace.native_sql
     )
 
 
+def test_hour_guard_uses_tightest_bounds_without_mixing_other_fields(
+    hour_session: mv.Session, source_trace: SourceTrace
+) -> None:
+    session = hour_session
+    events = _entity(session.catalog, "entity:sales.events")
+    hour = _time_dimension(session.catalog, "time_dimension:sales.events.hour")
+    day = _time_dimension(session.catalog, "time_dimension:sales.events.day")
+    identity = _dimension(session.catalog, "dimension:sales.events.id")
+    condition = (
+        (hour >= "2026-10-27")
+        & (day >= "2026-10-28")
+        & (hour < "2026-10-29")
+        & (hour >= "2026-10-28T03:00")
+        & (hour < "2026-10-28T04:00")
+        & (identity != 2)
+    )
+    result = session.observe({"n": events.count(time=hour)}, where=condition).compute()
+    assert result.to_pandas().n.tolist() == [1]
+    statements = [sqlglot.parse_one(sql, read="duckdb") for sql in source_trace.native_sql]
+    assert any(
+        isinstance(item.this, sge.Column)
+        and item.this.name == "day"
+        and isinstance(item.expression, sge.Literal)
+        and item.expression.this == "20261028"
+        for statement in statements
+        for where in statement.find_all(sge.Where)
+        for item in where.find_all(sge.EQ)
+    ), source_trace.native_sql
+
+
+@pytest.mark.parametrize("range_in_metric", [False, True])
+def test_hour_guard_does_not_hide_strict_checks_in_another_condition(
+    hour_session: mv.Session, tmp_path: Path, range_in_metric: bool
+) -> None:
+    session = hour_session
+    events = _entity(session.catalog, "entity:sales.events")
+    hour = _time_dimension(session.catalog, "time_dimension:sales.events.hour")
+    amount = session.catalog.get("measure:sales.events.amount")
+    assert isinstance(amount, ms.Measure)
+    # This row is outside [03:00, 04:00), but its invalid logarithm must
+    # still be checked across separate intrinsic and common conditions.
+    with duckdb.connect(str(tmp_path / "warehouse.duckdb")) as connection:
+        connection.execute("UPDATE events SET amount = 0 WHERE id = 3")
+    interval = (hour >= "2026-10-28T03:00") & (hour < "2026-10-28T04:00")
+    risky = amount.log() > 0
+    metric = events.count(time=hour).where(interval if range_in_metric else risky)
+    condition = risky if range_in_metric else interval
+    with pytest.raises(MaterializationError, match="valid numeric function domains"):
+        session.observe({"n": metric}, where=condition).compute()
+
+
+def test_hour_guard_does_not_combine_bounds_of_different_fields(
+    hour_session: mv.Session, source_trace: SourceTrace
+) -> None:
+    session = hour_session
+    events = _entity(session.catalog, "entity:sales.events")
+    hour = _time_dimension(session.catalog, "time_dimension:sales.events.hour")
+    day = _time_dimension(session.catalog, "time_dimension:sales.events.day")
+    condition = (hour >= "2026-10-28T03:00") & (day < "2026-10-29")
+    result = session.observe({"n": events.count(time=hour)}, where=condition).compute()
+    assert result.to_pandas().n.tolist() == [3]
+    statements = [sqlglot.parse_one(sql, read="duckdb") for sql in source_trace.native_sql]
+    assert not any(
+        isinstance(item.this, sge.Column)
+        and item.this.name == "day"
+        and isinstance(item.expression, sge.Literal)
+        and item.expression.this == "20261028"
+        for statement in statements
+        for where in statement.find_all(sge.Where)
+        for item in where.find_all(sge.EQ)
+    ), source_trace.native_sql
+
+
 @pytest.mark.parametrize(
     "mode,expected",
-    [("within", 3), ("not", 2), ("or", 4), ("isnull", 4), ("not_isnull", 4), ("not_notnull", 5)],
+    [("range", 3), ("not", 2), ("or", 4), ("isnull", 4), ("not_isnull", 4), ("not_notnull", 5)],
 )
 def test_public_multiday_boolean_conditions(
     hour_session: mv.Session, mode: str, expected: int
@@ -544,7 +619,7 @@ def test_public_multiday_boolean_conditions(
     hour = _time_dimension(session.catalog, "time_dimension:sales.events.hour")
     identity = _dimension(session.catalog, "dimension:sales.events.id")
     scope = session.time_scope(start="2026-10-28T03:00", end="2026-10-29T04:00")
-    predicate = hour.within(scope)
+    predicate = (hour >= scope.start) & (hour < scope.end)
     if mode == "not":
         predicate = ~predicate
     elif mode == "or":

@@ -292,9 +292,12 @@ def test_time_samples_without_period_keep_formula_and_declared_closure(
     assert _captured_observation(session.observe({"zero": mean})).period is None
     nested = revenue.per((field,)).median() * 0
     assert _captured_observation(session.observe({"zero": nested})).period is None
-    # A where time range remains a contribution filter, without an output interval.
+    assert not hasattr(field, "within")
     scope = session.time_scope(start="2026-01-01", end="2026-02-01")
-    query = session.observe({"zero": nested}, where=field.within(scope))
+    with pytest.raises(SemanticError):
+        consume_predicate(ms.ref.time_dimension("sales.orders.ordered_at").within(scope))
+    # A where time range remains a contribution filter, without an output interval.
+    query = session.observe({"zero": nested}, where=((field >= scope.start) & (field < scope.end)))
     assert _captured_observation(query).period is None
     assert (
         _captured_graph(session.observe({"sample": nested}, where=scope)).signature.observation

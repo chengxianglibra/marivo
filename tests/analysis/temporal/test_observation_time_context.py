@@ -176,7 +176,7 @@ def test_report_domains_align_distinct_clocks_and_keep_window_history(
                 {"settled": settled},
                 by=(october.by(day),),
                 where=(
-                    created.within(september),
+                    ((created >= september.start) & (created < september.end)),
                     split,
                 ),
             )
@@ -200,7 +200,7 @@ def test_report_domains_align_distinct_clocks_and_keep_window_history(
                 by=(october.by(day),),
                 where=(
                     region == "window",
-                    paid.within(october),
+                    ((paid >= october.start) & (paid < october.end)),
                 ),
             )
             .compute()
@@ -280,7 +280,10 @@ def test_time_context_validation_precedes_business_reads(
         assert isinstance(mirror, ms.Measure)
         untimed = mirror.sum()
         with pytest.raises(AnalysisError, match="endpoint"):
-            session.observe({"v": timed.window(mv.all_history())}, where=created.within(scope))
+            session.observe(
+                {"v": timed.window(mv.all_history())},
+                where=((created >= scope.start) & (created < scope.end)),
+            )
         with pytest.raises(AnalysisError, match="complete calendar buckets"):
             session.observe({"v": timed.window(mv.trailing_periods(count=2))}, where=scope)
 
@@ -352,7 +355,9 @@ def test_time_context_freezes_bounds_and_reopens_without_sources(
         )
         split = (
             session.observe(
-                {"v": amount.sum()}, by=(offset_scope.by(day),), where=created.within(two_instants)
+                {"v": amount.sum()},
+                by=(offset_scope.by(day),),
+                where=((created >= two_instants.start) & (created < two_instants.end)),
             )
             .compute()
             .to_pandas()
@@ -366,7 +371,7 @@ def test_time_context_freezes_bounds_and_reopens_without_sources(
         assert empty_cells["mean"].isna().all()
         assert session.observe(outputs, by=(empty.by(day), region)).compute().to_pandas().empty
         assert session.observe(
-            outputs, by=(empty.by(day),), where=created.within(empty)
+            outputs, by=(empty.by(day),), where=((created >= empty.start) & (created < empty.end))
         ).compute().to_pandas()["sum"].tolist() == [0, 0]
 
         (tmp_path / "models").rename(tmp_path / "models.offline")

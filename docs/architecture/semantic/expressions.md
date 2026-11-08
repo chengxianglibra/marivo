@@ -145,7 +145,8 @@ Here `amount` is a declared Measure on orders. The two reductions retain their
 individual clocks when combined. One report TimeScope or CalendarAxis applies to each
 branch through its own clock and requires all branches to have one. A total
 without a time consumer has no implicit time filter. A fixed row predicate such
-as `paid_at.within(scope)` can filter source rows independently of these clocks.
+as `(paid_at >= start) & (paid_at < end)` can filter source rows independently
+of these clocks.
 
 Catalog `EntityDefinition.default_time` captures the declared field.
 `MetricDefinition.time_bindings` captures each branch's actual field and
@@ -295,8 +296,8 @@ the field retains its versioned identity. Validity fact roots require a fixed
 anchor. These bindings do not read attributes or prove that a matching version
 exists. Source reductions, sample axes
 and sum-permission coordinates still require their native field forms.
-TimeField.within(scope) creates a half-open predicate; it does not supply the
-observation endpoint needed by a window. TimeField sample reducers can use
+TimeField boundary comparisons create fixed row predicates; they do not supply
+the observation endpoint needed by a window, and remain in force throughout it. TimeField sample reducers can use
 represented samples without an observation endpoint.
 TimeField scalar comparisons use the receiving Session's report timezone for ISO
 dates, Python dates and offset-free ISO clocks, while aware boundaries retain

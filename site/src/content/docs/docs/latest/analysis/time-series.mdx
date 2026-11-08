@@ -17,20 +17,23 @@ Session's report timezone; aware datetimes and ISO timestamps with an offset kee
 their instant. This covers `observe(where=...)`, `members(where=...)`,
 `Metric.where(...)` and a source reducer's `where=`. Invalid ISO, naive Python
 datetimes and ambiguous/nonexistent local clocks reject before source reads.
-Using the example's order time field, these conditions select the same range:
+Using the example's order time field, capture explicit half-open field bounds:
 
 ```python
 from analysis import session
 
 created_at = session.catalog.get("time_dimension:sales.orders.order_date")
-scope = session.time_scope(start="2026-08-01", end="2026-09-01")
-by_boundaries = (created_at >= "2026-08-01") & (created_at < "2026-09-01")
-by_scope = created_at.within(scope)
+start = session.instant("2026-08-01", timezone="Asia/Shanghai")
+end = session.instant("2026-09-01", timezone="Asia/Shanghai")
+by_boundaries = (created_at >= start) & (created_at < end)
 ```
 
 An output calendar's timezone does not change the implicit comparison timezone.
-Use `within(scope)` with an explicit scope timezone to choose different boundaries.
-DATE rows compare their declared business-day-start instant; `==` means one exact
+Use `session.instant(..., timezone=...)` to choose an explicit boundary timezone.
+A field predicate does not provide report endpoints or calendar completion, and
+stays in force during the full window, including history before the report range.
+Use `where=scope` for an unbucketed report range or `by=(scope.by(day),)` for
+calendar buckets instead. DATE rows compare their declared business-day-start instant; `==` means one exact
 instant. Ordinary string fields and fixed Frame Column comparisons retain their
 own types, and saved results are not reinterpreted.
 

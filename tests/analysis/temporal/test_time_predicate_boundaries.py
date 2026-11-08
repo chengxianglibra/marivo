@@ -226,9 +226,10 @@ def test_session_timezone_is_frozen_independently_of_output_scope(
             {"value": amount.sum(time=point)}, where=(scope, condition)
         ).compute()
         assert result.to_pandas().value.tolist() == [57]
-        explicit = session.time_scope(start="2026-10-28", end="2026-10-30", timezone="UTC")
+        start = session.instant("2026-10-28", timezone="UTC")
+        end = session.instant("2026-10-30", timezone="UTC")
         assert session.observe(
-            {"value": amount.sum()}, where=point.within(explicit)
+            {"value": amount.sum()}, where=(point >= start) & (point < end)
         ).compute().to_pandas().value.tolist() == [59]
         utc = mv.session.get_or_create("utc-boundaries", timezone="UTC")
         assert utc.observe(

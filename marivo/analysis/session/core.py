@@ -349,7 +349,7 @@ class Session:
                 them with AND. At most one TimeScope selects the report.
                 None adds no filter. Use mv.in_population(P) to restrict contributions.
                 If by's Population carries time, omit a separate report TimeScope.
-                A field.within(scope) predicate stays fixed and supplies no report endpoint.
+                A field comparison stays fixed and supplies no report endpoint.
         Returns:
             An immutable pending AnalysisFrame owned by this Session.
         Example:
@@ -420,7 +420,7 @@ class Session:
                 reject(
                     "a TimeScope or row Predicate in the where conjunction",
                     type(term).__name__,
-                    "Use where=scope, where=field.within(scope), or where=(scope, predicate).",
+                    "Use where=scope, a row predicate, or where=(scope, predicate).",
                     "Session.observe.where",
                     canonical_id="session.observe",
                 )

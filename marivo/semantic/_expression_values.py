@@ -1269,25 +1269,6 @@ class RowExpression(_ExpressionCarrier, Generic[_RowRoleT]):
             self._method("at", (anchor,)), _merge(self, anchor), cast("_RowRoleT", self._role)
         )
 
-    def within(self: TimeExpression, scope: TimeScope) -> RowPredicate:
-        """Capture the half-open bounds of an immutable time scope.
-
-        Args:
-            scope: The explicit scope captured for this operation.
-
-        Returns:
-            A typed expression with the stage and role indicated by this method.
-
-        Examples:
-            ``paid_at.within(period)``.
-
-        Notes:
-            Constraints: Captures immutable inputs without source access. The receiving
-            scope validates roots, roles, units, time and operation-specific rules.
-        """
-        self._require("time")
-        return RowExpression(self._method("within", (scope,)), self._context, "boolean")
-
     def sum(
         self: RowExpression[Literal["numeric"]],
         *,

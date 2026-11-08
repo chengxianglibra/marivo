@@ -14,19 +14,21 @@ description: 按日历期间分组，计算滚动窗口与累计值。
 和无偏移 ISO 时间按 Session 的报告时区解释；aware datetime 和带偏移的 ISO 时间保持原
 instant。该规则覆盖 `observe(where=...)`、`members(where=...)`、`Metric.where(...)`
 及源 reduction 的 `where=`。非法 ISO、naive Python datetime、歧义或不存在的本地时刻，
-都会在源读取前拒绝。使用示例的订单时间字段时，下面两个条件选择相同范围：
+都会在源读取前拒绝。使用示例的订单时间字段时，可以显式构造左闭右开的字段范围：
 
 ```python
 from analysis import session
 
 created_at = session.catalog.get("time_dimension:sales.orders.order_date")
-scope = session.time_scope(start="2026-08-01", end="2026-09-01")
-by_boundaries = (created_at >= "2026-08-01") & (created_at < "2026-09-01")
-by_scope = created_at.within(scope)
+start = session.instant("2026-08-01", timezone="Asia/Shanghai")
+end = session.instant("2026-09-01", timezone="Asia/Shanghai")
+by_boundaries = (created_at >= start) & (created_at < end)
 ```
 
-输出日历的时区不改变普通比较的隐式时区。需要其他边界时，使用指定时区的 scope 和
-`within(scope)`。DATE 行按声明的业务日起点 instant 比较；`==` 表示一个精确时刻。
+输出日历的时区不改变普通比较的隐式时区。使用 `session.instant(..., timezone=...)`
+显式指定边界时区。字段谓词不提供报告端点或日历补齐，并在整个窗口期间持续生效，
+包括报告范围之前的历史。无分桶报告范围使用 `where=scope`；日历分桶使用
+`by=(scope.by(day),)`。DATE 行按声明的业务日起点 instant 比较；`==` 表示一个精确时刻。
 普通字符串字段和固定 Frame Column 比较保留原有类型规则，已保存结果不会被重新解释。
 
 ## 按日与月观察

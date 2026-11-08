@@ -239,7 +239,8 @@ def test_count_choices_disclose_distinct_domains_and_completion() -> None:
         "Entity source contributions",
         "current Frame rows",
         "including value NA",
-        "Metrics for observe",
+        "Entity/Population counts are Metrics",
+        "Metric for observe",
     ):
         assert fact in text
     assert "reduce/over" in text

@@ -131,7 +131,8 @@ def test_mysql_public_native_membership_and_projection_require_selected_zone_bef
         operations = {
             "native_membership": session.observe({"value": amount.sum(time=clock)}, where=scope),
             "parsed_membership": session.observe(
-                {"value": amount.sum(time=clock)}, where=parsed.within(scope)
+                {"value": amount.sum(time=clock)},
+                where=((parsed >= scope.start) & (parsed < scope.end)),
             ),
             "output": session.read(members, {"clock": parsed}),
         }

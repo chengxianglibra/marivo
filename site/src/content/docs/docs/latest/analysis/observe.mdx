@@ -86,9 +86,10 @@ to read all captured bindings. Clock availability does not certify a particular
 grain or the source's physical types.
 
 Use `where=(scope, status == "paid")` to conjoin one report range with a row
-predicate. `where=paid_at.within(scope)` is a fixed source-field predicate and
-can filter a Metric that has no contribution clock. Window endpoints come
-from the report time context. If a branch lacks a clock, repair that branch's
+predicate. An explicit field comparison such as `where=paid_at >= start` filters
+a fixed source field and can filter a Metric with no contribution clock. It stays
+in force throughout window evaluation, including history before the report range.
+Window endpoints come from the report time context. If a branch lacks a clock, repair that branch's
 definition or omit report time from the observation.
 
 For an existing `metric` whose time capability is not known, inspect a rejected

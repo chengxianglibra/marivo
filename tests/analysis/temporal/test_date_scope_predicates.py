@@ -10,7 +10,6 @@ import pytest
 import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.analysis.core.data_types import ScalarDataType
-from marivo.analysis.errors import AnalysisError
 from marivo.semantic.reader import SemanticProject
 from tests.support.source_trace import SourceTrace
 
@@ -87,7 +86,7 @@ def _project(
     "source_timezone,scope_timezone,expected",
     [("Asia/Tokyo", "UTC", [2]), ("UTC", "Asia/Tokyo", [1])],
 )
-def test_date_within_uses_source_business_day_start_and_explicit_scope_timezone(
+def test_date_boundaries_uses_source_business_day_start_and_explicit_scope_timezone(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
@@ -97,12 +96,13 @@ def test_date_within_uses_source_business_day_start_and_explicit_scope_timezone(
     expected: list[int],
 ) -> None:
     _project(tmp_path, monkeypatch, semantic_project_factory, source_timezone)
-    session = mv.session.get_or_create("date-within", timezone="America/New_York")
+    session = mv.session.get_or_create("date-boundaries", timezone="America/New_York")
     day = _time_dimension(session.catalog, "time_dimension:sales.facts.day")
     assert isinstance(day, ms.TimeDimension)
     scope = session.time_scope(start="2026-07-01", end="2026-07-02", timezone=scope_timezone)
     members = session.members(
-        _entity(session.catalog, "entity:sales.facts"), where=day.within(scope)
+        _entity(session.catalog, "entity:sales.facts"),
+        where=((day >= scope.start) & (day < scope.end)),
     )
     result = session.frame(members).compute()
 
@@ -113,11 +113,11 @@ def test_date_within_uses_source_business_day_start_and_explicit_scope_timezone(
     assert len(facts) == 1
     assert facts[0].kind == "civil_date"
     assert facts[0].timezone == source_timezone
-    assert facts[0].consumption_timezone == scope_timezone
+    assert facts[0].consumption_timezone == session.timezone
     assert len(source_trace.native_sql) == 1
 
 
-def test_date_within_preserves_date_identity_coordinates(
+def test_date_boundaries_preserves_date_identity_coordinates(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
@@ -125,33 +125,34 @@ def test_date_within_preserves_date_identity_coordinates(
     _project(tmp_path, monkeypatch, semantic_project_factory, "Asia/Tokyo", primary_key="day")
     with duckdb.connect(str(tmp_path / "date_scopes.duckdb")) as connection:
         connection.execute("DELETE FROM facts WHERE day IS NULL")
-    session = mv.session.get_or_create("date-identity-within", timezone="UTC")
+    session = mv.session.get_or_create("date-identity-boundaries", timezone="UTC")
     day = _time_dimension(session.catalog, "time_dimension:sales.facts.day")
     assert isinstance(day, ms.TimeDimension)
     scope = session.time_scope(start="2026-07-01", end="2026-07-02")
     selected = session.members(
-        _entity(session.catalog, "entity:sales.facts"), where=day.within(scope)
+        _entity(session.catalog, "entity:sales.facts"),
+        where=((day >= scope.start) & (day < scope.end)),
     )
     result = session.frame(selected).compute()
     assert result.to_pandas().iloc[:, 0].tolist() == [date(2026, 7, 2)]
     assert result.schema.axes[0].keys[0].dtype == ScalarDataType("date")
 
 
-def test_date_within_composition_preserves_raw_projection_and_exact_equality(
+def test_date_boundaries_composition_preserves_raw_projection_and_exact_equality(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
 ) -> None:
     _project(tmp_path, monkeypatch, semantic_project_factory, "Asia/Tokyo")
-    session = mv.session.get_or_create("composed-date-within", timezone="UTC")
+    session = mv.session.get_or_create("composed-date-boundaries", timezone="UTC")
     entity = _entity(session.catalog, "entity:sales.facts")
     day = _time_dimension(session.catalog, "time_dimension:sales.facts.day")
     amount = _measure(session.catalog, "measure:sales.facts.amount")
     assert isinstance(day, ms.TimeDimension) and isinstance(amount, ms.Measure)
     scope = session.time_scope(start="2026-07-01", end="2026-07-02")
-    within = day.within(scope)
+    interval = (day >= scope.start) & (day < scope.end)
     second_start = session.instant("2026-07-02", timezone="Asia/Tokyo")
-    selected = session.members(entity, where=within & (day == second_start))
+    selected = session.members(entity, where=interval & (day == second_start))
     result = session.read(selected, {"day": day}).compute()
     data = result.to_pandas()
     assert data.iloc[:, 0].tolist() == [2]
@@ -165,15 +166,15 @@ def test_date_within_composition_preserves_raw_projection_and_exact_equality(
     first_start = session.instant("2026-07-01", timezone="Asia/Tokyo")
     source_equality = session.members(entity, where=day == first_start)
     assert session.frame(source_equality).compute().to_pandas().iloc[:, 0].tolist() == [1]
-    either = session.members(entity, where=within | (day == first_start))
+    either = session.members(entity, where=interval | (day == first_start))
     assert session.frame(either).compute().to_pandas().iloc[:, 0].tolist() == [1, 2]
-    outside = session.members(entity, where=~within)
+    outside = session.members(entity, where=~interval)
     assert session.frame(outside).compute().to_pandas().iloc[:, 0].tolist() == [1]
-    observed = session.observe({"total": amount.sum()}, where=within).compute()
+    observed = session.observe({"total": amount.sum()}, where=interval).compute()
     assert observed.to_pandas()["total"].tolist() == [20]
 
 
-def test_date_within_requires_whole_days_in_scope_timezone_but_timestamp_does_not(
+def test_date_boundaries_accept_partial_days_using_business_day_starts(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
@@ -185,16 +186,13 @@ def test_date_within_requires_whole_days_in_scope_timezone_but_timestamp_does_no
     clock = _time_dimension(session.catalog, "time_dimension:sales.facts.clock")
     assert isinstance(day, ms.TimeDimension) and isinstance(clock, ms.TimeDimension)
     scope = session.time_scope(start="2026-07-01T14:00Z", end="2026-07-01T16:00Z")
-    selected = session.members(entity, where=day.within(scope))
-    with pytest.raises(AnalysisError, match="complete-day scope") as caught:
-        session.frame(selected).compute()
-    assert "source timezone Asia/Tokyo" in str(caught.value.received)
-    assert "scope timezone UTC" in str(caught.value.received)
-    absolute = session.members(entity, where=clock.within(scope))
+    selected = session.members(entity, where=((day >= scope.start) & (day < scope.end)))
+    assert session.frame(selected).compute().to_pandas().iloc[:, 0].tolist() == [2]
+    absolute = session.members(entity, where=((clock >= scope.start) & (clock < scope.end)))
     assert session.frame(absolute).compute().to_pandas().iloc[:, 0].tolist() == [2]
 
 
-def test_date_within_uses_backend_native_start_at_a_midnight_fold(
+def test_date_boundaries_uses_backend_native_start_at_a_midnight_fold(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
@@ -222,12 +220,13 @@ def test_date_within_uses_backend_native_start_at_a_midnight_fold(
     assert isinstance(day, ms.TimeDimension)
     scope = session.time_scope(start="2025-11-02", end="2025-11-03", timezone="-04:30")
     selected = session.members(
-        _entity(session.catalog, "entity:sales.facts"), where=day.within(scope)
+        _entity(session.catalog, "entity:sales.facts"),
+        where=((day >= scope.start) & (day < scope.end)),
     )
     assert session.frame(selected).compute().to_pandas().iloc[:, 0].tolist() == [2]
 
 
-def test_date_within_through_versioned_relationship_retains_scope_read(
+def test_date_boundaries_through_versioned_relationship_retain_field_read(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
@@ -285,13 +284,15 @@ def test_date_within_through_versioned_relationship_retains_scope_read(
     historical_day = day.via((relationship,)).at(session.instant("2026-06-30T16:00Z"))
     scope = session.time_scope(start="2026-07-01", end="2026-07-02")
     selected = session.members(
-        _entity(session.catalog, "entity:sales.facts"), where=historical_day.within(scope)
+        _entity(session.catalog, "entity:sales.facts"),
+        where=((historical_day >= scope.start) & (historical_day < scope.end)),
     )
     result = session.read(selected, {"day": historical_day}).compute()
     data = result.to_pandas()
     assert data.iloc[:, 0].tolist() == [2]
     assert data["day"].tolist() == [date(2026, 7, 2)]
     observed = session.observe(
-        {"total": amount.sum()}, where=historical_day.within(scope)
+        {"total": amount.sum()},
+        where=((historical_day >= scope.start) & (historical_day < scope.end)),
     ).compute()
     assert observed.to_pandas()["total"].tolist() == [2]

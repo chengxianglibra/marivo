@@ -62,7 +62,7 @@ if TYPE_CHECKING:
             {"value": metric},
             by=(region, scope.by(day)),
             where=(
-                created.within(scope),
+                ((created >= scope.start) & (created < scope.end)),
                 region == "APAC",
             ),
         )

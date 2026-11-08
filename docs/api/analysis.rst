@@ -37,7 +37,7 @@ axis. ``by=(scope.by(grain),)`` selects finite report buckets; bare Grain inputs
 reject. A time axis cannot accompany a report scope in where. Ordinary tuple
 output completes selected native buckets for represented classification tuples.
 Every Metric branch needs a contribution clock for report time.
-A fixed ``field.within(scope)`` predicate constrains its own source field.
+A fixed field comparison constrains its own source field throughout window evaluation.
 If a branch has no contribution clock, ``observe`` raises
 ``MetricContributionTimeError`` before source reads. Its ``output`` names the
 rejected output and ``missing`` contains every immutable

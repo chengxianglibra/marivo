@@ -458,7 +458,8 @@ def test_population_time_predicate_uses_source_authority_and_owns_its_period(
     time = catalog_value(session.catalog, "sales.orders.happened", kind="time_dimension")
     metric = _metric(session.catalog, "metric:sales.total")
     members = session.members(
-        _entity(session.catalog, "entity:sales.orders"), where=time.within(scope)
+        _entity(session.catalog, "entity:sales.orders"),
+        where=((time >= scope.start) & (time < scope.end)),
     )
     assert case_members(session, members) == expected_ids
     for period in (scope, session.time_scope(start="2026-07-01", end="2026-09-01")):

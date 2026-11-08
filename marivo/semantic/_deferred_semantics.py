@@ -83,7 +83,6 @@ from marivo._definition.types import (
     RowAttributeTime,
     SumNone,
     SumPermission,
-    TimeScopeFieldRead,
     fixed_attribute_time,
 )
 from marivo._grouping import Grouping
@@ -1259,64 +1258,6 @@ def _consume(recipe: Resolver) -> _Facts:
                         read=read,
                         origins=receiver.node.origins,
                     ),
-                )
-            if name == "within":
-                from marivo._temporal import TimeScope
-
-                scope = _constant(recipe.args[0]) if len(recipe.args) == 1 else None
-                if (
-                    not isinstance(receiver, RowFacts)
-                    or receiver.field is None
-                    or receiver.field.reference.ref.kind is not SemanticKind.TIME_DIMENSION
-                    or not isinstance(scope, TimeScope)
-                    or recipe.kwargs
-                ):
-                    _fail(
-                        "within requires a TimeField and immutable time scope.",
-                        expected="TimeField.within(TimeScope)",
-                        received="invalid field or scope",
-                    )
-                assert isinstance(scope, TimeScope) and receiver.field is not None
-                from marivo._temporal import anchor_from_datetime
-                from marivo._temporal_grid import instant
-
-                start = anchor_from_datetime(instant(scope.start, scope.boundary_timezone))
-                end = anchor_from_datetime(instant(scope.end, scope.boundary_timezone))
-                native = receiver.field.field_read or FieldRead(
-                    receiver.field.reference, receiver.field.root
-                )
-                read = TimeScopeFieldRead(
-                    native.field,
-                    native.entity,
-                    native.path,
-                    native.at,
-                    scope_start=start,
-                    scope_end=end,
-                    scope_timezone=scope.boundary_timezone,
-                )
-                return replace(
-                    receiver,
-                    node=RowExpression(
-                        BinaryOperator(
-                            operator.and_,
-                            BinaryOperator(operator.ge, Variable("slot_0"), Just(start)),
-                            BinaryOperator(operator.lt, Variable("slot_0"), Just(end)),
-                        ),
-                        (
-                            RowField(
-                                native.field,
-                                native.entity,
-                                receiver.unit,
-                                receiver.permission,
-                                read=read,
-                                origins=receiver.node.origins,
-                            ),
-                        ),
-                        origins=receiver.node.origins,
-                    ),
-                    numeric=False,
-                    boolean=True,
-                    field=None,
                 )
             if name == "via":
                 if (

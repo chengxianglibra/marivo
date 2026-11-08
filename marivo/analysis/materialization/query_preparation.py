@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import operator
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from datetime import datetime
@@ -9,10 +10,12 @@ from datetime import datetime
 import ibis
 import ibis.expr.operations as ops
 import ibis.expr.types as ir
+from ibis.common.deferred import BinaryOperator, Just, Resolver, Variable
 
 from marivo._definition.expressions import (
     BuiltinSampleCoordinate,
     PredicateExpression,
+    RowExpression,
     RowField,
     TimeBinding,
 )
@@ -27,7 +30,6 @@ from marivo._definition.types import (
     IdentityRead,
     RowAttributeTime,
     TimeInstantFieldRead,
-    TimeScopeFieldRead,
     coordinate_read_keys,
     field_read_key,
 )
@@ -73,6 +75,57 @@ class PreparedFields:
     dependencies: tuple[ir.Value, ...]
     time_authorities: tuple[SourceTimeAuthority, ...] = ()
     source_times: tuple[FrameSourceTime, ...] = ()
+
+
+def _required_time_ranges(
+    conditions: tuple[PredicateExpression, ...],
+) -> dict[TimeInstantFieldRead, tuple[datetime, datetime]]:
+    """Find explicit half-open time ranges required by the full predicate.
+
+    Only direct comparisons in top-level conjunctions are eligible. In
+    particular, descending through a negation or disjunction could remove
+    rows which satisfy the complete predicate.
+    """
+    bounds: dict[TimeInstantFieldRead, tuple[list[datetime], list[datetime]]] = {}
+
+    def row(recipe: Resolver, expression: RowExpression) -> None:
+        if isinstance(recipe, BinaryOperator) and recipe.func is operator.and_:
+            row(recipe.left, expression)
+            row(recipe.right, expression)
+            return
+        if not (
+            isinstance(recipe, BinaryOperator)
+            and recipe.func in (operator.ge, operator.lt)
+            and isinstance(recipe.left, Variable)
+            and isinstance(recipe.right, Just)
+            and isinstance(recipe.right.value, datetime)
+        ):
+            return
+        index = int(recipe.left.name.removeprefix("slot_"))
+        field = expression.inputs[index]
+        if not isinstance(field, RowField) or not isinstance(field.read, TimeInstantFieldRead):
+            return
+        lower, upper = bounds.setdefault(field.read, ([], []))
+        (lower if recipe.func is operator.ge else upper).append(recipe.right.value)
+
+    def predicate(recipe: Resolver, condition: PredicateExpression) -> None:
+        if isinstance(recipe, BinaryOperator) and recipe.func is operator.and_:
+            predicate(recipe.left, condition)
+            predicate(recipe.right, condition)
+        elif isinstance(recipe, Variable):
+            value = condition.inputs[int(recipe.name.removeprefix("slot_"))]
+            if isinstance(value, RowExpression):
+                row(value.recipe, value)
+
+    for condition in conditions:
+        predicate(condition.recipe, condition)
+    result: dict[TimeInstantFieldRead, tuple[datetime, datetime]] = {}
+    for read, (lower, upper) in bounds.items():
+        if lower and upper:
+            start, end = max(lower), min(upper)
+            if start < end:
+                result[read] = (start, end)
+    return result
 
 
 @dataclass(frozen=True, slots=True)
@@ -234,7 +287,6 @@ def prepare_fields(
         path: str,
         table: ir.Table,
         authority_zone: str | None = None,
-        time_scope: TimeScopeFieldRead | None = None,
         instant_read: bool = False,
     ) -> ir.Value:
         is_measure = path in registry.measures
@@ -267,13 +319,7 @@ def prepare_fields(
         dependencies.append(result)
         if target.kind is SemanticKind.TIME_DIMENSION:
             axis = normalize_target_dimension(registry, path, prepared_column=path)
-            consumed_zone = (
-                time_scope.scope_timezone
-                if time_scope is not None
-                else consumption_timezone
-                if instant_read
-                else authority_zone or zone
-            )
+            consumed_zone = consumption_timezone if instant_read else authority_zone or zone
             prefix = (
                 value(axis.parse.prefix, table, consumed_zone)
                 if isinstance(axis.parse, HourPrefixParse)
@@ -306,27 +352,8 @@ def prepare_fields(
                 from marivo.analysis.binding.windows import validate_date_contribution
 
                 validate_date_contribution(contribution, path)
-                if time_scope is not None:
-                    from marivo._timezones import normalize_timezone
-                    from marivo.analysis.core.model import reject
-
-                    timezone = normalize_timezone(time_scope.scope_timezone).tz
-                    if any(
-                        bound.astimezone(timezone).time() != datetime.min.time()
-                        for bound in (time_scope.scope_start, time_scope.scope_end)
-                    ):
-                        reject(
-                            "civil DATE within a complete-day scope in its consumption timezone",
-                            f"{path}: source timezone {authority.timezone}; "
-                            f"scope timezone {time_scope.scope_timezone}",
-                            "Use complete civil-day boundaries in the scope timezone, "
-                            "or use a timestamp TimeField for a subday scope.",
-                            "TimeField.within",
-                        )
-                if (
-                    instant_read
-                    or time_scope is not None
-                    or (contribution.time is not None and contribution.time.field.ref.path == path)
+                if instant_read or (
+                    contribution.time is not None and contribution.time.field.ref.path == path
                 ):
                     result = localize(authority.timezone, timestamp(result))
             if authority.kind != "civil_date" and result.type().timezone is None:
@@ -339,19 +366,14 @@ def prepare_fields(
                         "submicrosecond conversion unsupported",
                     )
                 result = localize("UTC", timestamp(result))
-            if time_scope is not None:
-                condition = source_time_predicate(
-                    raw,
-                    axis,
-                    authority,
-                    start=time_scope.scope_start,
-                    end=time_scope.scope_end,
-                    prefix=raw_prefix,
-                    prefix_axis=prefix_axis,
-                    engine=engine,
-                )
-                if condition is not None:
-                    return condition
+            if (
+                instant_read
+                and isinstance(axis.parse, StrptimeParse)
+                and authority.kind != "instant"
+            ):
+                from marivo.analysis.materialization.encoded_time import encoded_time
+
+                result = encoded_time(raw, result, axis.parse.format, authority.timezone)
         return result
 
     reserved = {name for entity in entities.values() for name in entity.columns}
@@ -482,7 +504,6 @@ def prepare_fields(
                     fields[field_read_key(read)] = value(
                         read.field.ref.path,
                         relation,
-                        time_scope=read if isinstance(read, TimeScopeFieldRead) else None,
                         instant_read=isinstance(read, TimeInstantFieldRead),
                     )
             lowered = lower_condition(condition, fields)
@@ -532,7 +553,7 @@ def prepare_fields(
             read
             for read in reads
             if isinstance(read, FieldRead)
-            and not isinstance(read, (TimeScopeFieldRead, TimeInstantFieldRead))
+            and not isinstance(read, TimeInstantFieldRead)
             and contribution.time is not None
             and read.field == contribution.time.field
             and read.path == contribution.time.path
@@ -620,7 +641,6 @@ def prepare_fields(
             return value(
                 read.field.ref.path,
                 relation,
-                time_scope=read if isinstance(read, TimeScopeFieldRead) else None,
                 instant_read=isinstance(read, TimeInstantFieldRead),
             )
 
@@ -881,31 +901,23 @@ def prepare_fields(
         from marivo.analysis.compiler.predicate import lower_condition
 
         fields = {key: table[slot] for key, slot in columns}
-        scoped = {
-            fields[field_read_key(read)].op(): read
-            for read in reads
-            if isinstance(read, TimeScopeFieldRead)
-            and read.entity == contribution.root
-            and not read.path
-            and read.at is None
-            and isinstance(registry.dimensions[read.field.ref.path].parse, HourPrefixParse)
-        }
-        required: dict[TimeScopeFieldRead, None] = {}
-        for condition in predicate_conditions if scoped else ():
-            lowered = lower_condition(condition, fields)
-            if lowered.checks:
-                continue
-            pending = [lowered.value.op()]
-            while pending:
-                atom = pending.pop()
-                scope_read = scoped.get(atom)
-                if scope_read is not None:
-                    required[scope_read] = None
-                elif isinstance(atom, ops.And):
-                    pending.extend((atom.left, atom.right))
+        # A check on any condition owns the unfiltered source domain. Pushing a
+        # different condition's range first could hide its domain errors.
+        eligible = (
+            ()
+            if any(lower_condition(condition, fields).checks for condition in predicate_conditions)
+            else predicate_conditions
+        )
         guards: list[ir.BooleanValue] = []
-        for read in required:
-            exact = value(read.field.ref.path, table, time_scope=read)
+        for read, (start, end) in _required_time_ranges(eligible).items():
+            if (
+                read.entity != contribution.root
+                or read.path
+                or read.at is not None
+                or not isinstance(registry.dimensions[read.field.ref.path].parse, HourPrefixParse)
+            ):
+                continue
+            value(read.field.ref.path, table, instant_read=True)
             encoded_raw, encoded_axis, encoded_authority, encoded_prefix, encoded_prefix_axis = (
                 time_encodings[read.field.ref.path]
             )
@@ -913,8 +925,8 @@ def prepare_fields(
                 encoded_raw,
                 encoded_axis,
                 encoded_authority,
-                start=read.scope_start,
-                end=read.scope_end,
+                start=start,
+                end=end,
                 prefix=encoded_prefix,
                 prefix_axis=encoded_prefix_axis,
                 engine=entity_engine(
@@ -922,11 +934,10 @@ def prepare_fields(
                 ),
                 use="filter",
             )
-            if filtered is not None and not filtered.equals(exact):
+            if filtered is not None:
                 guards.append(filtered)
         if guards:
-            # Keep the prepared Boolean values exact for all other consumers.
-            # Only direct/top-level AND membership permits this earlier filter.
+            # Keep the original comparisons as the authoritative condition.
             table = table.filter(*guards)
     if predicate_conditions and checks:
         from marivo._definition.expressions import RowExpression

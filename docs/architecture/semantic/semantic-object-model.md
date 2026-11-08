@@ -364,7 +364,7 @@ DATE contribution roles require day-or-coarser output/reset and finite boundarie
 at business midnight. Duration windows require positive integer multiples of
 24 hours and still reject non-midnight actual boundaries, including across DST.
 Use complete civil periods or a real timestamp source for other contributions.
-A pure `field.within(scope)` retains its midnight-point predicate meaning.
+A field comparison retains its business-day-start instant predicate meaning.
 
 #### Format specifiers: Python strptime vs MySQL
 

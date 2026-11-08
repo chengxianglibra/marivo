@@ -120,8 +120,8 @@ Bare Grain inputs reject. Custom calendar axes require a TimeScope selecting
 exactly one complete certified period and a Grain with a captured snapshot.
 
 Use `where=(scope, condition)` to conjoin a TimeScope and source conditions.
-`field.within(scope)` is a RowPredicate on a fixed source field. It can constrain
-a reduction without a clock and remains fixed throughout window evaluation.
+An explicit field comparison is a RowPredicate on a fixed source field. It can
+constrain a reduction without a clock and remains fixed throughout window evaluation.
 Window endpoints come from the report interval or selected report buckets.
 
 observe accepts one named Metric object, a nonempty list or tuple of them, or a

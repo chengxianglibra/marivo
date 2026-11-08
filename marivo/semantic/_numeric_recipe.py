@@ -6,7 +6,6 @@ branch demand before a source backend or the local operation adapter consumes th
 
 from __future__ import annotations
 
-import operator
 from collections.abc import Mapping
 from typing import TYPE_CHECKING
 
@@ -26,7 +25,6 @@ from ibis.common.deferred import (
 )
 
 from marivo._definition.deferred import RescaleResolver, attribute_name, canonical_recipe
-from marivo._definition.types import TimeScopeFieldRead
 from marivo._numeric_types import bind_numeric_literal
 
 if TYPE_CHECKING:
@@ -36,8 +34,6 @@ if TYPE_CHECKING:
 def lower_recipe(
     recipe: Resolver,
     inputs: tuple[NumericValue, ...],
-    *,
-    scopes: Mapping[str, TimeScopeFieldRead] | None = None,
 ) -> NumericValue:
     """Bind a checked recipe to actual typed slots, preserving per-use checks."""
     from marivo.semantic._numeric_lowering import numeric_failure
@@ -64,29 +60,6 @@ def lower_recipe(
         if type(item) is Sequence:
             return tuple(bind(value) for value in item.values)
         if type(item) is BinaryOperator:
-            # within is captured as one half-open comparison pair. Replace
-            # only that exact scoped pair, including inside AND/OR/NOT recipes.
-            if (
-                scopes
-                and item.func is operator.and_
-                and isinstance(item.left, BinaryOperator)
-                and item.left.func is operator.ge
-                and isinstance(item.left.left, Variable)
-                and isinstance(item.left.right, Just)
-                and isinstance(item.right, BinaryOperator)
-                and item.right.func is operator.lt
-                and isinstance(item.right.left, Variable)
-                and item.right.left.name == item.left.left.name
-                and isinstance(item.right.right, Just)
-            ):
-                name = item.left.left.name
-                scope = scopes.get(name)
-                if (
-                    scope is not None
-                    and item.left.right.value == scope.scope_start
-                    and item.right.right.value == scope.scope_end
-                ):
-                    return table[name]
             return item.func(bind(item.left), bind(item.right))
         if type(item) is UnaryOperator:
             return item.func(bind(item.arg))

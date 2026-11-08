@@ -686,6 +686,11 @@ def test_source_reduction_help_explains_optional_contribution_time(
     assert "field predicate can still filter source rows independently" in page
 
 
+def test_retired_time_field_within_is_not_a_help_target() -> None:
+    with pytest.raises((SemanticHelpTargetError, MarivoHelpTargetError)):
+        marivo.help("semantic.time_field.within")
+
+
 def test_metric_definition_help_explains_time_choices(capsys: pytest.CaptureFixture[str]) -> None:
     marivo.help("semantic.metric.define")
     page = capsys.readouterr().out
@@ -693,7 +698,7 @@ def test_metric_definition_help_explains_time_choices(capsys: pytest.CaptureFixt
     assert "time=field" in page and "default_time" in page
     assert "Composed Metrics retain their branch clocks" in page
     assert "where=scope or by=(scope.by(grain),)" in page
-    assert "where=field.within(scope)" in page
+    assert "explicit field comparisons" in page
     assert "TimeParameter" not in page
     assert "bind_time" not in page
 

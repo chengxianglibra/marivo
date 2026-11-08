@@ -190,7 +190,9 @@ def test_single_root_plan_reads_once_and_publishes_its_source_stage(
     region = _dimension(session, "sales.orders.region")
     time = catalog_value(session.catalog, "sales.orders.ordered_at", kind="time_dimension")
     scope = session.time_scope(start="2026-01-01", end="2026-02-01")
-    graph = _query(session, "revenue", where=(region == "APAC") & time.within(scope))
+    graph = _query(
+        session, "revenue", where=(region == "APAC") & ((time >= scope.start) & (time < scope.end))
+    )
     with (
         session._runtime.connection_service().operation() as connections,
         open_query_sources(connections, graph, session.catalog._state) as prepared,

@@ -301,7 +301,7 @@ def test_hour_prefix_public_filters_prune_both_iceberg_partitions(
                         f"SELECT count(*),sum(amount) FROM {target} WHERE day='20261028'"
                     ).fetchall()
                     day_stats = dict(read.stats)
-                    for mode in ("scope", "calendar", "within", "and"):
+                    for mode in ("scope", "calendar", "range", "and"):
                         source_trace.native_sql.clear()
                         if mode in ("scope", "calendar"):
                             frame = session.observe(
@@ -310,7 +310,7 @@ def test_hour_prefix_public_filters_prune_both_iceberg_partitions(
                                 where=None if mode == "calendar" else scope,
                             )
                         else:
-                            predicate = hour.within(scope)
+                            predicate = (hour >= scope.start) & (hour < scope.end)
                             if mode == "and":
                                 predicate = predicate & (identity > 0)
                             frame = session.observe(metrics, where=predicate)
@@ -364,7 +364,7 @@ def test_hour_prefix_public_filters_prune_both_iceberg_partitions(
                         )
                         assert read.execute(independent).fetchone() == expected_result
                         scope = session.time_scope(start=first, end=last)
-                        for mode in ("scope", "calendar", "within", "and"):
+                        for mode in ("scope", "calendar", "range", "and"):
                             source_trace.native_sql.clear()
                             if mode in ("scope", "calendar"):
                                 frame = session.observe(
@@ -373,7 +373,7 @@ def test_hour_prefix_public_filters_prune_both_iceberg_partitions(
                                     where=None if mode == "calendar" else scope,
                                 )
                             else:
-                                predicate = hour.within(scope)
+                                predicate = (hour >= scope.start) & (hour < scope.end)
                                 if mode == "and":
                                     predicate = predicate & (identity > 0)
                                 frame = session.observe(metrics, where=predicate)

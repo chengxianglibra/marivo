@@ -211,9 +211,9 @@ def test_date_contributions_reject_subday_and_non_midnight_windows(
     assert session.observe(
         {"revenue": revenue}, by=(scope.by(mv.grain("day")),)
     ).compute().to_pandas()["revenue"].tolist() == [20]
-    assert session.observe({"revenue": revenue}, where=at.within(scope)).compute().to_pandas()[
-        "revenue"
-    ].tolist() == [20]
+    assert session.observe(
+        {"revenue": revenue}, where=((at >= scope.start) & (at < scope.end))
+    ).compute().to_pandas()["revenue"].tolist() == [20]
     from marivo.datasource.adapters import CompiledRead, SourceSession
 
     execute = SourceSession.execute
@@ -380,7 +380,7 @@ def test_wall_membership_calendar_windows_and_population_agree(
     selected_scope = session.time_scope(start=clipped[0], end=clipped[1])
     members = session.members(
         catalog_value(session.catalog, "sales.orders", kind="entity"),
-        where=at.within(selected_scope),
+        where=((at >= selected_scope.start) & (at < selected_scope.end)),
     )
     assert session.frame(members).compute().to_pandas().iloc[:, 0].tolist() == selected_ids
     total = sum(2 ** (index - 1) for index in selected_ids)
@@ -1109,11 +1109,17 @@ def test_mixed_windows_discover_historical_categories_and_keep_formula_domain(
             list(rows[["ordinary", "rolling", "difference"]].itertuples(index=False, name=None))
             == expected
         )
-    restricted = session.observe(metrics, by=(days, region), where=at.within(scope)).compute()
+    restricted = session.observe(
+        metrics, by=(days, region), where=((at >= scope.start) & (at < scope.end))
+    ).compute()
     assert restricted.to_pandas()["region"].tolist() == ["west", "west"]
     assert restricted.to_pandas()["rolling"].tolist() == [0, 20]
     domain = mv.product(days, mv.coordinates(by=(region,), keys=(("east",), ("west",))))
-    complete = session.observe(metrics, by=domain, where=at.within(scope)).compute().to_pandas()
+    complete = (
+        session.observe(metrics, by=domain, where=((at >= scope.start) & (at < scope.end)))
+        .compute()
+        .to_pandas()
+    )
     east = complete.loc[complete["region"] == "east"]
     assert east["rolling"].tolist() == east["ordinary"].tolist() == [0, 0]
 

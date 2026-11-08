@@ -176,7 +176,11 @@ def last_by_booked_day():
         assert isinstance(booked, ms.Metric)
         metrics = {"paid_sample": follows, "created_sample": fixed, "booked_sample": booked}
         rows = (
-            session.observe(metrics, where=(november, paid.within(november))).compute().to_pandas()
+            session.observe(
+                metrics, where=(november, ((paid >= november.start) & (paid < november.end)))
+            )
+            .compute()
+            .to_pandas()
         )
         assert _row_values(rows, list(metrics)) == [170, 140, 140]
 

@@ -407,7 +407,7 @@ def test_public_parsed_time_predicate_and_calendar_keep_native_interpretation(
             start="2026-03-08T07:00:00+00:00", end="2026-03-08T07:10:00+00:00"
         )
         selected = session.observe(
-            {"value": amount.sum()}, by=(), where=point.within(scope)
+            {"value": amount.sum()}, by=(), where=((point >= scope.start) & (point < scope.end))
         ).compute()
         assert selected.to_pandas()["value"].tolist() == [sum(expected)]
         daily = session.observe(

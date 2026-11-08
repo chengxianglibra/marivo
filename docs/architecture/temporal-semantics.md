@@ -129,9 +129,11 @@ equality selects an exact instant rather than an entire day. DATE operands compa
 their source business-day-start instant even without an observation time role.
 This comparison read is distinct from the original DATE grouping/projection.
 Time-valued branches used by the comparison follow the same boundary rule.
-`TimeField.within(scope)` instead keeps the scope's already-frozen boundaries and
-timezone. Ordinary string Dimensions, physical identity values and fixed Frame
-Column comparisons retain their existing types. No DATE subday totals are inferred.
+Use `session.instant(value, timezone=...)` for explicit boundary timezones.
+Session scopes have instant bounds; certified scopes may retain civil dates,
+which require their boundary timezone when converted to instants. Ordinary string
+Dimensions, physical identity values and fixed Frame Column comparisons retain
+their existing types. No DATE subday totals are inferred.
 
 ## Output axes and observation time
 
@@ -155,7 +157,7 @@ can use represented samples without an observation period, regardless of
 `sample_interval`. The two Grain sample forms require clocks on all
 contributing branches. Builtin calendar samples use the Session report
 timezone and actual sample keys. A fixed source predicate such as
-`field.within(scope)` remains in force throughout a window and supplies no
+a field comparison remains in force throughout a window and supplies no
 report endpoint. Membership time, attribute time, Metric observation time and
 output coordinates remain independently specified.
 
@@ -373,7 +375,7 @@ Hour-prefix values use integers 0..23 or canonical strings `00`..`23`.
 Hour 24 and other noncanonical non-NULL values violate the declaration; native
 parser acceptance does not establish supported membership. SQL NULL retains
 native semantics. No source scan or uniform parse-error policy is introduced.
-For positive contribution filters and required direct/top-level-AND `within`
+For positive contribution filters and required direct/top-level-AND explicit time-boundary
 conditions, qualified physical date/hour pairs can use a same-day date equality
 and hour lower/upper bounds. MySQL string dates use equivalent ordered date
 bounds to avoid the backend compiler's binary cast on string equality.
@@ -387,7 +389,7 @@ unsupported expressions and unqualified endpoints retain the general path.
 The optimizations preserve the rows for which the native predicate is true;
 they are not replacements for nullable Boolean values. Negation, NULL inspection,
 Boolean projection and other compositions retain their exact expressions.
-Required `within` conditions may add raw scan guards while retaining their
+Required explicit boundary conditions may add raw scan guards while retaining their
 prepared Boolean values. No non-null declaration, source audit or partition
 enumeration is required. Actual partition pruning requires native plan evidence.
 

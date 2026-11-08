@@ -12,15 +12,18 @@ import ibis.expr.types as ir
 from marivo._timezones import normalize_timezone
 from marivo.analysis.compiler.source_time import (
     _complement,
+    _encoded_cutoff,
     _raw_lineage,
     _scalar_cutoff,
     endpoint_rewrite_safe,
 )
+from marivo.analysis.materialization.encoded_time import EncodedTime
 from marivo.datasource._temporal_expressions import (
     _localize_native,
     _render_native,
     governed_parse_operation,
 )
+from marivo.semantic.ir import StrptimeParse
 
 _PROBE = ibis.timestamp("2000-01-01")
 _LOCALIZE = type(_localize_native("UTC", _PROBE).op())
@@ -153,6 +156,53 @@ def _exact(node: ops.Value, parent: ops.Relation, engine: str) -> ir.BooleanValu
     """Translate only compiler-owned clocks with a retained physical field."""
     if not isinstance(node, _COMPARISONS):
         return None
+    encoded = _resolved(node.left)
+    encoded_bound = _bound(node.right)
+    reverse_encoded = False
+    if not isinstance(encoded, EncodedTime) or encoded_bound is None:
+        encoded = _resolved(node.right)
+        encoded_bound = _bound(node.left)
+        reverse_encoded = True
+    if isinstance(encoded, EncodedTime) and encoded_bound is not None:
+        raw = _raw_for(encoded.raw, parent)
+        if (
+            raw is None
+            or not _raw_lineage(raw)
+            or not endpoint_rewrite_safe(encoded_bound, encoded.timezone, engine)
+        ):
+            return None
+        parse = StrptimeParse(encoded.format)
+        operation = type(node)
+        if reverse_encoded:
+            operation = {
+                ops.Greater: ops.Less,
+                ops.GreaterEqual: ops.LessEqual,
+                ops.Less: ops.Greater,
+                ops.LessEqual: ops.GreaterEqual,
+            }.get(operation, operation)
+        try:
+            point = encoded_bound.astimezone(normalize_timezone(encoded.timezone).tz).replace(
+                tzinfo=None
+            )
+            if operation in (ops.GreaterEqual, ops.Less, ops.Greater, ops.LessEqual):
+                cutoff = _encoded_cutoff(
+                    raw, point, parse, inclusive=operation in (ops.GreaterEqual, ops.Less)
+                )
+                return (
+                    None
+                    if cutoff is None
+                    else _complement(cutoff)
+                    if operation in (ops.Less, ops.LessEqual)
+                    else cutoff
+                )
+            first = _encoded_cutoff(raw, point, parse, inclusive=True)
+            last = _encoded_cutoff(raw, point, parse, inclusive=False)
+            if first is None or last is None:
+                return None
+            equal = first & ~last
+            return equal if operation is ops.Equals else ~equal
+        except OverflowError:
+            return None
     clock, bound_node, reverse = _clock(node.left), node.right, False
     if clock is None:
         clock, bound_node, reverse = _clock(node.right), node.left, True

@@ -25,7 +25,7 @@ def test_source_predicate_topic_and_consumer_boundaries() -> None:
         "exact Frame's boolean Column",
         "Session report timezone",
         "aware inputs keep their instant",
-        "within(scope)",
+        "session.instant(value, timezone=...)",
         "session.observe({'revenue': revenue}",
     ):
         assert fact in text

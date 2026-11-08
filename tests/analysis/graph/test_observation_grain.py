@@ -333,12 +333,15 @@ def test_calendar_keeps_distinct_time_fields_and_relationship_roles(
     with monkeypatch.context() as guard:
         guard.setattr(SourceSession, "__enter__", forbidden)
         distinct_field = session.observe(
-            {"value": revenue}, by=(scope.by(month),), where=received_at.within(scope)
+            {"value": revenue},
+            by=(scope.by(month),),
+            where=((received_at >= scope.start) & (received_at < scope.end)),
         )
         distinct_path = session.observe(
             {"value": line_revenue},
             by=(scope.by(month),),
-            where=raw_time.via((alternate,)).within(scope),
+            where=(raw_time.via((alternate,)) >= scope.start)
+            & (raw_time.via((alternate,)) < scope.end),
         )
     for frame in (distinct_field, distinct_path):
         binding = source_graph(frame).signature.observation
@@ -390,7 +393,8 @@ history_link = ms.relationship(name='order_history', from_entity=orders, to_enti
         frame = session.observe(
             {"value": metric},
             by=(scope.by(mv.grain("month")),),
-            where=raw_time.via((path,)).at(second).within(scope),
+            where=(raw_time.via((path,)).at(second) >= scope.start)
+            & (raw_time.via((path,)).at(second) < scope.end),
         )
     binding = source_graph(frame).signature.observation
     assert binding is not None
