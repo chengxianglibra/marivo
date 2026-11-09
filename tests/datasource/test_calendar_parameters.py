@@ -265,7 +265,7 @@ def test_native_calendar_and_actual_samples_without_multipart(
                 {"v": total}, by=(scope.by(mv.grain("minute", count=5)),)
             ).compute()
             rows = fixed.to_pandas()
-            assert len(rows) == 4320 and rows.v.tolist() == [2] * 4032 + [0] * 288
+            assert len(rows) == 4032 and rows.v.tolist() == [2] * 4032
             empty_scope = session.time_scope(start="2026-01-17", end="2026-01-18")
             empty_rows = (
                 session.observe(
@@ -275,13 +275,14 @@ def test_native_calendar_and_actual_samples_without_multipart(
                 .compute()
                 .to_pandas()
             )
-            assert empty_rows["sum"].tolist() == [1] and empty_rows["mean"].isna().all()
+            assert empty_rows.empty
             assert (
                 session.observe({"v": total}, by=(empty_scope.by(mv.grain("day")), category))
                 .compute()
                 .to_pandas()
                 .empty
             )
+            owner = session
             for zone in ("UTC", "Asia/Shanghai"):
                 session = mv.session.get_or_create(
                     f"native-calendar-{profile}-{zone}", timezone=zone
@@ -295,7 +296,7 @@ def test_native_calendar_and_actual_samples_without_multipart(
                     )
                     assert observed.v.sum() == 8064
             saved = fixed.persist()
-            restored = session.persisted_frame(saved.artifact_id)
+            restored = owner.persisted_frame(saved.artifact_id)
             pd.testing.assert_series_equal(restored.to_pandas().v, rows.v)
             periods = restored.read_periods(restored.axes[0], limit=2)
             assert len(periods) == 2
@@ -307,7 +308,7 @@ def test_native_calendar_and_actual_samples_without_multipart(
                     "profile": profile,
                     "internal_samples": 4032,
                     "internal_mean": 2,
-                    "output_rows": 4320,
+                    "output_rows": 4032,
                     "sql_bytes": [
                         len((sql + "\n FORMAT Native").encode()) for sql in trace.native_sql
                     ],

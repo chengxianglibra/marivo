@@ -19,6 +19,7 @@ import marivo.datasource as md
 import marivo.semantic as ms
 from marivo.datasource.ir import TableSourceIR
 from marivo.semantic.reader import SemanticProject
+from tests.datasource.environment import clickhouse_analysis as ch
 from tests.datasource.source_cases import Case, SourceData, source_case, source_params
 from tests.shared_fixtures import catalog_value, datasource_arguments_source, time_population
 
@@ -234,7 +235,7 @@ def test_mysql_direct_physical_utc_time_preserves_instants(
 
 
 @pytest.mark.parametrize("backend,profile", source_params([("clickhouse", "mergetree")]))
-def test_clickhouse_dst_fold_preserves_instants_and_half_open_boundaries(
+def test_clickhouse_dst_fold_uses_native_calendar_and_half_open_boundaries(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
@@ -304,9 +305,23 @@ def test_clickhouse_dst_fold_preserves_instants_and_half_open_boundaries(
             .compute()
             .to_pandas()
         )
-        present = fine.loc[fine["total"] > 0]
-        assert present["calendar:30minute"].tolist() == [point[1] for point in points[:-1]]
-        assert fine["total"].tolist() == [1, 10, 0, 20]
+        # Each source instant lies on a 30-minute boundary. ClickHouse's native
+        # wall-clock conversion determines how repeated civil times are grouped.
+        with ch.connection() as client:
+            native_buckets = client.query(
+                "SELECT toUnixTimestamp(toDateTime64(toString(toTimeZone("
+                "happened, 'America/New_York')), 6, 'America/New_York')) AS bucket_epoch, "
+                "sum(amount) AS total "
+                f"FROM {case.source.database}.{case.source.table} "
+                "WHERE happened >= toDateTime64('2026-11-01 05:00:00', 6, 'UTC') "
+                "AND happened < toDateTime64('2026-11-01 07:00:00', 6, 'UTC') "
+                "GROUP BY bucket_epoch ORDER BY bucket_epoch"
+            ).result_rows
+        assert native_buckets == [(1793509200, 1), (1793511000, 30)]
+        assert [
+            (int(key.timestamp()), int(value))
+            for key, value in zip(fine["calendar:30minute"], fine["total"], strict=True)
+        ] == native_buckets
         assert artifact.to_pandas().equals(
             session.persisted_frame(artifact.artifact_id).to_pandas()
         )

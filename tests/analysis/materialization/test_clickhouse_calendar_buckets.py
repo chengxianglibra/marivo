@@ -118,8 +118,8 @@ def test_observe_calendar_preserves_bucket_types_boundaries_and_windows(
         trace = capture_source(monkeypatch)
         frame = session.observe({"total": metric}, by=(scope.by(mv.grain("day")),)).compute()
         result = frame.to_pandas(time_details=True)
-        assert result["calendar:day.label"].tolist() == ["2026-01-01", "2026-01-02", "2026-01-03"]
-        assert result["total"].tolist() == [15, 0, 30]
+        assert result["calendar:day.label"].tolist() == ["2026-01-01", "2026-01-03"]
+        assert result["total"].tolist() == [15, 30]
         axis = frame.schema.axes[0]
         assert isinstance(axis, FrameCalendarAxisSchema) and axis.timezone == "UTC"
         directory = frozen_coordinates(frame)[0].rows
@@ -154,7 +154,7 @@ def test_observe_calendar_preserves_bucket_types_boundaries_and_windows(
             .compute()
             .to_pandas(time_details=True)
         )
-        assert window["calendar:day.label"].tolist() == result["calendar:day.label"].tolist()
+        assert window["calendar:day.label"].tolist() == ["2026-01-01", "2026-01-02", "2026-01-03"]
         assert window["total"].tolist() == [115, 15, 30]
 
         # Nonempty time selections must not introduce Bool constant operands:

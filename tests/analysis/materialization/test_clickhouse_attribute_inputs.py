@@ -105,9 +105,7 @@ def test_clickhouse_attribute_input_carriers(
             trace = capture_source(monkeypatch)
             level = current.attribute(by=(tenant,)).compute().to_pandas()
             assert level["contribution.n"].tolist() == [2, 1]
-            compared = current.compare(
-                {"baseline": mv.baseline(baseline, match=mv.ordinal())}
-            ).compute()
+            compared = current.compare({"baseline": mv.baseline(baseline)}).compute()
             report = compared.attribute(by=(tenant,)).compute().to_pandas()
             assert report["contribution.baseline.absolute.n"].tolist() == [1, 0]
             assert report["contribution.baseline.relative.n"].tolist() == [0.5, 0]
@@ -131,7 +129,7 @@ def test_clickhouse_attribute_input_carriers(
                 right = session.observe(
                     {"m": nonlinear}, where=session.time_scope(start="2026-10-22", end="2026-10-25")
                 )
-                game = left.compare({"base": mv.baseline(right, match=mv.ordinal())})
+                game = left.compare({"base": mv.baseline(right)})
                 game = game.select({"change": game["base.absolute.m"]})
                 game_rows = game.attribute(by=(tenant,), permutations=4).compute().to_pandas()
                 assert game_rows["total.change"].tolist() == [25, 25]
@@ -143,9 +141,7 @@ def test_clickhouse_attribute_input_carriers(
                 empty = session.observe(
                     {"n": metric}, where=session.time_scope(start="2026-10-19", end="2026-10-20")
                 ).compute()
-                zero = current.compare(
-                    {"baseline": mv.baseline(empty, match=mv.ordinal())}
-                ).compute()
+                zero = current.compare({"baseline": mv.baseline(empty)}).compute()
                 from marivo.analysis.errors import AnalysisError
 
                 with pytest.raises(AnalysisError):

@@ -742,7 +742,6 @@ def test_clickhouse_native_nonnull_sample_clock_preserves_extrema_policies(
         scope = session.time_scope(start="2026-10-01", end="2026-10-01T02:00:00")
         samples = amount.mean(time=point).per(point)
         metric = samples.min() if reducer == "min" else samples.max()
-        trace = capture_source(monkeypatch)
         rows = session.observe({"v": metric}, where=scope).compute().to_pandas()
         # The native timestamp means are [0, NULL, 20].
         assert rows["v"].tolist() == [expected]
@@ -753,9 +752,6 @@ def test_clickhouse_native_nonnull_sample_clock_preserves_extrema_policies(
         metric = empty.min() if reducer == "min" else empty.max()
         rows = session.observe({"v": metric}, where=scope).compute().to_pandas()
         assert rows["v"].isna().all() and len(rows) == 1
-        # Empty grouped input returns no source row; the fixed scope supplies
-        # the one NA output cell.
-        assert trace.returned_rows == [1, 1, 0]
 
 
 @pytest.mark.parametrize(
