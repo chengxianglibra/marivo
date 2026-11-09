@@ -34,6 +34,13 @@ from marivo._definition.relations import ReadQuery
 from marivo._definition.types import DefinitionGraphError, LiteralValue, check_literal
 from marivo.analysis._scope import scope_summary
 from marivo.analysis.core.artifact_data import ArtifactData, DataSchema, SavedFrameMethodFacts
+from marivo.analysis.core.data_types import (
+    DataColumn,
+    DecimalDataType,
+    DurationDataType,
+    ScalarDataType,
+    TimestampDataType,
+)
 from marivo.analysis.core.frame_data import (
     CompletedFrameData,
     CompletedFrameResult,
@@ -75,6 +82,7 @@ from marivo.analysis.core.frame_page import FramePage, FramePeriodPage
 from marivo.analysis.core.frame_schema import FrameAxisSchema, FrameSchema, capture_schema
 from marivo.analysis.core.frame_source_reads import FrameSourceRead
 from marivo.analysis.core.frame_structure import (
+    PendingDataColumn,
     PendingDataSchema,
     axis_role,
     column_kind,
@@ -1661,7 +1669,8 @@ class AnalysisFrame:
             max_output_bytes: Positive UTF-8 budget including the printed newline, or None.
 
         Returns:
-            None; prints structure, bounded source-read summaries and an available fixed-data preview.
+            None; prints structure, captured value-column metadata, bounded source-read
+            summaries and an available fixed-data preview.
 
         Example:
             ``saved.show(n=0)``.
@@ -1700,7 +1709,21 @@ class AnalysisFrame:
             if isinstance(self._backing, ExpressionFrameBacking)
             else "max_output_bytes=None; .schema/.lineage for metadata; .read_page()/.to_pandas() for data",
         )
-        card.field("values", repr(self.output_names)).field("presence", repr(self.presence_names))
+        card.field("presence", repr(self.presence_names))
+        value_columns: tuple[DataColumn | PendingDataColumn, ...] = self._schema.values
+        card.listing(
+            "values (type, nullable, unit)",
+            (
+                f"{column.name!r}: {_column_type_summary(column)}, "
+                f"{column.nullable!r}, {column.unit!r}"
+                for column in value_columns[:3]
+            ),
+        )
+        if len(value_columns) > 3:
+            card.field(
+                "value.more",
+                f"{len(value_columns) - 3} omitted; .schema.values",
+            )
         if self._schema.value_time_semantics:
             from marivo.analysis.core.value_time import time_summary
 
@@ -1815,12 +1838,6 @@ class AnalysisFrame:
                 if anchors:
                     card.field("anchors", repr(anchors))
             card.field("rows", "pending; no input rows read")
-            card.field(
-                "types",
-                "pending source physical types"
-                if isinstance(self._schema, PendingDataSchema)
-                else "captured concrete data types",
-            )
         else:
             from marivo.analysis.materialization.pandas_export import preview_table
 
@@ -1919,6 +1936,20 @@ class AnalysisFrame:
                 card.status(f"preview rows: total={total} displayed=0 omitted={total}; n=0")
                 card.field("preview", f"omitted by n=0; shown=0; omitted={total}")
         print(card.render(max_output_bytes=max_output_bytes, _include_newline=True))
+
+
+def _column_type_summary(column: DataColumn | PendingDataColumn) -> str:
+    if isinstance(column, PendingDataColumn):
+        return f"pending({column.kind})"
+    dtype = column.dtype
+    if isinstance(dtype, ScalarDataType):
+        return dtype.name
+    if isinstance(dtype, DecimalDataType):
+        return f"decimal({dtype.precision},{dtype.scale})"
+    if isinstance(dtype, TimestampDataType):
+        return f"timestamp({dtype.unit}, timezone={dtype.timezone!r})"
+    assert isinstance(dtype, DurationDataType)
+    return f"duration({dtype.unit})"
 
 
 def _pending_source_inputs(

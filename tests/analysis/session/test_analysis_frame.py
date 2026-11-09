@@ -105,7 +105,9 @@ def test_literal_compute_is_runless_and_memory_compute_returns_self(
 
 
 def test_pending_export_rereads_sources_while_computed_inputs_keep_fixed_values(
-    analysis_dsl_case_factory: DslCaseFactory, monkeypatch: pytest.MonkeyPatch
+    analysis_dsl_case_factory: DslCaseFactory,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     case = analysis_dsl_case_factory("j1")
     session = case.session
@@ -124,6 +126,7 @@ def test_pending_export_rereads_sources_while_computed_inputs_keep_fixed_values(
     assert pending.schema.values["value"].unit == "CNY"
     assert "backing=expression" in repr(pending)
     pending.show(n=0)
+    assert "CNY" in capsys.readouterr().out
     assert trace.native_sql == []
     first = pending.to_pandas(axis_names={pending.axes[0].token: "area"})
     assert first["area"].tolist() == ["east"]
@@ -289,6 +292,42 @@ def test_show_is_metadata_only_for_pending_and_n_zero(
     assert copied[0]["key.0"].tolist() == ["B"]
     assert copied[0]["value.0"].tolist() == [10]
     assert copied[0]["presence.0"].tolist() == [False]
+
+
+def test_show_discloses_value_types_units_and_nullability(
+    local: LocalFrameServices, capsys: pytest.CaptureFixture[str]
+) -> None:
+    pending = values(
+        local,
+        columns={"revenue": "USD", "ratio": "1", "count": None},
+        rows=(((), {"revenue": 10, "ratio": 0.5, "count": 2}),),
+    )
+    fixed = pending.compute()
+    for frame, expected_types, nullable in (
+        (pending, ("pending(numeric)",) * 3, "None"),
+        (fixed, ("int64", "float64", "int64"), "False"),
+        (fixed.persist(), ("int64", "float64", "int64"), "False"),
+    ):
+        frame.show(n=0, max_output_bytes=None)
+        lines = capsys.readouterr().out.splitlines()
+        for name, dtype, unit in zip(
+            ("revenue", "ratio", "count"), expected_types, ("'USD'", "'1'", "None"), strict=True
+        ):
+            line = next(line for line in lines if line.strip().startswith(f"- '{name}':"))
+            assert line.split(": ", 1)[1].split(", ") == [dtype, nullable, unit]
+
+
+def test_show_bounds_value_metadata_and_points_to_complete_schema(
+    local: LocalFrameServices, capsys: pytest.CaptureFixture[str]
+) -> None:
+    columns = {f"column_{i}": "USD" for i in range(12)}
+    frame = values(local, columns=columns, rows=(((), dict.fromkeys(columns, 1)),))
+    frame.show(n=0)
+    output = capsys.readouterr().out
+    assert len(output.encode("utf-8")) <= 8192
+    assert "omitted" in output
+    assert ".schema.values" in output
+    assert tuple(frame.schema.values) == tuple(columns)
 
 
 def test_show_respects_row_and_byte_limits_with_exact_counts(

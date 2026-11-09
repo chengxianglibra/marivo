@@ -613,7 +613,7 @@ def provider() -> DisclosureProvider:
                 ),
             ),
             "None",
-            "Print captured structure, bounded source-read summaries and an existing result prefix without evaluation.",
+            "Print captured structure and value-column metadata, bounded source-read summaries and an existing result prefix without evaluation.",
             "result = frame.show(n=0)",
             ("frame",),
             "results.inspect",

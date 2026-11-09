@@ -138,6 +138,10 @@ saved_session_id = session.id
 saved_artifact_id = saved.artifact_id
 ```
 
+`show()` summarizes captured value-column types, nullability and units. Use
+`frame.schema.values` for the complete field metadata; an undeclared unit is
+distinct from the dimensionless unit `"1"`.
+
 <a id="observe-metrics"></a>
 
 ## observe — evaluate Metrics over a domain
