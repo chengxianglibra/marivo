@@ -1,0 +1,40 @@
+---
+slug: zh-cn/docs/latest/release-notes/0.6.4
+title: Marivo 0.6.4
+description: Marivo 0.6.4 版本说明。
+---
+
+发布于 2026 年 11 月 9 日。Marivo 0.6.4 支持通过 Python 读取已保存的 pandas DataFrame、
+直接导出待计算的 AnalysisFrame，以及通过项目服务读取语义 Catalog。DataFrame 引用和模型导入方式
+也发生了变化，请在升级前阅读迁移说明。
+
+## 亮点
+
+- 使用 `mv.read_dataframe(reference)` 读取已保存的 pandas DataFrame。返回的不可变
+  `DataFrameResult` 提供保存时的 schema 和元数据，并可导出隔离的数据表，无需 Session、
+  Catalog、数据源连接或 HTTP 服务。
+- 可直接对待计算的 Frame 调用 `AnalysisFrame.to_pandas()`。每次调用都会求值表达式，
+  不缓存或持久化结果；如果多次导出需要共享相同的来源值，请先计算得到固定 Frame。
+- 通过带认证的 HTTP v2 接口浏览语义定义及其依赖。显式重载在验证成功后原子替换服务的
+  Catalog 快照；重载失败时保留原快照。
+
+## 变更
+
+- `AnalysisFrame.show()` 现在会概述值列的类型、可空性和单位。使用 `frame.schema.values`
+  查看完整字段元数据；检查待计算的 Frame 不会读取其输入行。
+- **DataFrame 引用迁移：** 保存表格的引用改用 `marivo.dataframe_ref/v2`，包含解析后的项目根目录
+  绝对路径和结果 ID。Python 读取仅使用引用中记录的位置，不进行项目发现或重新定位，也不接受 v1 引用。
+  请为需要通过新 API 读取的表格创建新引用。
+- **模型导入：** 同一语义域或数据源目录内的文件请使用相对导入；不支持模型绝对导入。每次加载使用
+  独立命名空间，普通已安装依赖仍使用 Python 模块缓存；这些依赖发生变化后请重启 Python。
+
+## 修复
+
+- 隔离并发模型加载并同步 Session 初始化，保留此前捕获的 Catalog；初始化失败后可重试。
+- 捕获表达式时拒绝不兼容的行谓词和 Metric 谓词操作数。组合 TimeScope 和行谓词时，使用
+  `observe(..., where=(scope, predicate))`。
+- 当源文件在一个文件系统时间戳间隔内发生同大小修改时，加载当前模型定义，避免使用过期字节码。
+
+## 文档
+
+- 更新中英文建模、分析、结果读取和服务指南，补充 Catalog 分页及按名称恢复 Session 的说明。

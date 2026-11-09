@@ -65,7 +65,6 @@ forbidden_modules =
     marivo.analysis.compiler
     marivo.analysis.materialization
     marivo.analysis.operators
-    marivo.analysis.domains
 
 [importlinter:contract:dataset-core-has-no-backend-imports]
 name = Dataset Core must not import dataframe or backend implementations

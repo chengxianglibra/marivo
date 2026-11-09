@@ -1,0 +1,52 @@
+---
+slug: docs/v0.6/release-notes/0.6.4
+title: Marivo 0.6.4
+description: Release notes for Marivo 0.6.4.
+---
+
+Released on November 9, 2026. Marivo 0.6.4 adds native reads for saved pandas
+DataFrames, direct export of pending AnalysisFrames, and semantic Catalog reads
+through the project service. It also changes DataFrame references and model imports;
+review the migration notes before upgrading.
+
+## Highlights
+
+- Read a saved pandas DataFrame with `mv.read_dataframe(reference)`. The returned
+  immutable `DataFrameResult` exposes its saved schema and metadata and exports
+  an isolated table without a Session, Catalog, source connection, or HTTP service.
+- Call `AnalysisFrame.to_pandas()` directly on a pending Frame. Each call evaluates
+  the expression without caching or persisting it; compute a fixed Frame first when
+  multiple exports must share the same source values.
+- Browse semantic definitions and their dependencies through authenticated HTTP v2
+  endpoints. An explicit reload atomically replaces the service's Catalog snapshot
+  after successful validation; a failed reload retains the previous snapshot.
+
+## Changed
+
+- `AnalysisFrame.show()` now summarizes value-column types, nullability, and
+  units. Use `frame.schema.values` for complete field metadata; inspecting a
+  pending Frame does not read its input rows.
+- **DataFrame reference migration:** saved table references now use
+  `marivo.dataframe_ref/v2`, including the resolved absolute project root and result
+  ID. Native reads use that captured location without discovery or relocation;
+  v1 references are not accepted. Create new references for tables to read with
+  the new API.
+- **Model imports:** use relative imports between files inside the same semantic
+  domain or datasource directory; model absolute imports are unsupported. Each
+  load uses an independent namespace, while ordinary installed dependencies retain
+  Python's module cache. Restart Python after changes to those dependencies.
+
+## Fixed
+
+- Isolate concurrent model loads and Session initialization, preserving previously
+  captured Catalogs and allowing initialization to be retried after failure.
+- Reject incompatible row and Metric predicate operands when expressions are
+  captured. Combine a TimeScope with a row predicate using
+  `observe(..., where=(scope, predicate))`.
+- Load current model definitions when same-size source edits occur within one
+  filesystem timestamp interval, rather than using stale bytecode.
+
+## Documentation
+
+- Updated the English and Chinese modeling, analysis, result reading, and service
+  guides, including Catalog pagination and Session recovery by name.
