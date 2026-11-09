@@ -248,7 +248,7 @@ def provider() -> DisclosureProvider:
                 parameters=tuple(
                     P(
                         n,
-                        "Use an exact project-local name; an existing name is recovered."
+                        "Use an exact project-local name. To recover an existing Session, pass only name: mv.session.get_or_create(name). Omit question, timezone and domains to retain the saved context."
                         if name == "get_or_create" and n == "name"
                         else "None stores no description on creation and retains the saved description on recovery. Non-None values must match the saved question."
                         if name == "get_or_create" and n == "question"

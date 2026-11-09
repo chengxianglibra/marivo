@@ -65,7 +65,9 @@ def get_or_create(
     """Create a named Session or recover the same exact project-local name.
 
     Args:
-        name: Nonempty exact Session name without surrounding whitespace.
+        name: Nonempty exact Session name without surrounding whitespace. To recover
+            an existing Session, use mv.session.get_or_create(name) with no other
+            arguments to retain the saved question, timezone and domains.
         question: Creation-time description; a non-None value must match on recovery.
         timezone: Creation-time IANA or explicit UTC-offset timezone; a non-None
             value must match the saved normalized name on recovery.
