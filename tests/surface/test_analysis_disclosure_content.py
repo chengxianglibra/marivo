@@ -392,6 +392,7 @@ def test_construction_type_families_and_retired_surface() -> None:
     assert {d.canonical_id for d in registry.descriptors if isinstance(d, TypeInput)} == {
         "frame_reference",
         "dataframe_reference",
+        "dataframe_result",
         "frame_clocked_contribution",
         "frame_report_window_endpoint",
         "frame_contribution_sample_window_endpoint",
@@ -511,7 +512,7 @@ def test_construction_type_families_and_retired_surface() -> None:
         "value_statistic",
         "column",
     }
-    assert len([name for name in mv.__all__ if isinstance(getattr(mv, name), type)]) == 80
+    assert len([name for name in mv.__all__ if isinstance(getattr(mv, name), type)]) == 81
     descriptor = registry.by_canonical_id("value_statistic")
     assert isinstance(descriptor, TypeInput)
     assert tuple(f.name for f in descriptor.bindings[0].fields) == ("unit",)

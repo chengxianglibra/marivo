@@ -1,7 +1,8 @@
 # Persisted result service
 
-Marivo explicitly saves AnalysisFrames and pandas DataFrames. The project-bound
-HTTP service reads their exact saved identities. The plugin owns report layout,
+Marivo explicitly saves AnalysisFrames and pandas DataFrames. Python reads plain
+tables by exact saved reference; the project-bound HTTP service reads both kinds.
+The plugin owns report layout,
 text, data bindings, date policies, analysis programs and refresh execution.
 There are no script endpoints, current-result aliases or Catalog HTTP operations.
 
@@ -34,9 +35,10 @@ reference = mv.persist_dataframe(
 print(reference.to_dict())
 ```
 
-The DataFrame reference contains `schema: "marivo.dataframe_ref/v1"` and
-`result_id`. The explicit root is the exact existing directory; omission uses
-normal project discovery. Saving needs no Session, Analysis Store, Catalog,
+The DataFrame reference contains `schema: "marivo.dataframe_ref/v2"`, the resolved
+absolute `project_root` and `result_id`. Together the location and identity locate
+one fixed local snapshot. The explicit save root is the exact existing directory;
+omission uses normal project discovery. Saving needs no Session, Analysis Store, Catalog,
 source connection, running HTTP service or optional API dependencies. Every call
 creates a new fixed identity. Later edits to the original table do not affect it.
 Neither reference includes URLs, credentials, a report identity or producer code.
@@ -49,6 +51,60 @@ Unsupported nested/object values fail rather than becoming strings. Row/column
 order, zero-column row counts, empty typed columns and supported exact values
 are retained. `attrs` is not saved as semantic metadata. Plain tables do not gain
 inferred units, lineage, axes, periods or source freshness.
+
+## Native Python table reads
+
+`mv.read_dataframe(reference)` reads one complete saved table from its captured location.
+Pass the `DataFrameReference` returned by `persist_dataframe`, or its original
+three-field `to_dict()` dictionary, including one recovered from JSON:
+
+```python
+import json
+
+wire = json.loads(json.dumps(reference.to_dict()))
+result = mv.read_dataframe(wire)
+result.show()
+table = result.to_pandas()
+```
+
+`DataFrameResult` is immutable and acquired only from this reader. It exposes:
+
+| Field or method | Captured information |
+| --- | --- |
+| `kind` | `"dataframe"` |
+| `ref` | Exact saved `DataFrameReference` |
+| `committed_at` | Original UTC save time as an aware `datetime` |
+| `row_count` | Complete logical row count, including zero-column rows |
+| `schema` | Ordered `pyarrow.Schema` without internal metadata |
+| `to_pandas()` | Independent complete DataFrame with Arrow-backed columns |
+
+The schema retains saved integer widths, Decimal precision/scale and timestamp
+or duration units and timezone. `schema.names` gives ordered names; `len(schema)`
+gives the column count. Field nullability describes allowed values, not an audit
+of actual missingness. Exports retain saved null/NaN distinctions, exact numbers,
+row/column order, empty typed columns and zero-column row counts. Each export has
+empty attrs and an unnamed default RangeIndex. Original pandas dtype containers
+and attrs are not reconstructed. Convert explicitly for arithmetic when needed.
+
+The reader needs no Session, Catalog, Analysis Store, source or HTTP dependencies.
+It creates no state and closes the file before returning; subsequent exports
+work even when that file becomes unavailable. `reference.project_root` is an
+immutable `Path`; `to_dict()` serializes it as an absolute path string. The reader
+uses only that captured location and accepts no location override. Current working
+directory and `MARIVO_PROJECT_ROOT` do not affect reads. The captured directory
+must be accessible on this filesystem; moving it does not trigger discovery or
+relocation. Bare IDs, paths, JSON strings, v1 references, extra dictionary fields
+and AnalysisFrame references are rejected. HTTP responses contain the service's
+project path; remote HTTP clients still use their separately configured connection.
+
+Reads return the complete result or an `AnalysisError` with expected, received,
+location and repair. Missing results use `result_not_found`, invalid references
+use `invalid_result_reference`, corrupt files use `corrupt_dataframe`, and
+non-format I/O failures use `result_read_failed`. A malformed captured location
+uses `invalid_result_reference`; an absent project uses `result_not_found`.
+Repairs point to `analysis.read_dataframe`. Missing or corrupt
+snapshots never trigger recalculation. Memory grows with the full result; Python
+reads have no pagination or HTTP JSON limits. Commit time does not prove freshness.
 
 ## Start and connect
 
@@ -140,6 +196,7 @@ to return before releasing its slot. Errors contain `code`, `message`, `location
 Missing/corrupt data never triggers recalculation. The server logs unexpected
 failures without exposing tracebacks to HTTP clients.
 
-Use `marivo help analysis.persist_dataframe`,
+Use `marivo help analysis.persist_dataframe`, `marivo help analysis.read_dataframe`,
+`marivo help analysis.dataframe_result`,
 `marivo help analysis.analysis_frame.ref` and
 `marivo help analysis.results.service.http` for focused native contracts.

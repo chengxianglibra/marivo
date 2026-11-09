@@ -723,13 +723,18 @@ from weights and context origins from valid-pair selection. Valid-pair counts
 have context origins only. Direct-ratio components retain their own named Metric origins.
 Use ``marivo.help("analysis.frame_lineage")`` for fields and bounded display.
 
-Fixed result publication
-------------------------
+Fixed result publication and reading
+------------------------------------
 
 .. autofunction:: marivo.analysis.persist_dataframe
+
+.. autofunction:: marivo.analysis.read_dataframe
+
+.. autoclass:: marivo.analysis.DataFrameResult
+   :members: kind, ref, committed_at, row_count, schema, to_pandas
 
 .. autoclass:: marivo.analysis.FrameReference
    :members: kind, store_id, session_id, artifact_id, to_dict
 
 .. autoclass:: marivo.analysis.DataFrameReference
-   :members: kind, result_id, to_dict
+   :members: kind, project_root, result_id, to_dict

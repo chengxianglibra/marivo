@@ -6,6 +6,18 @@ its fixed identity through ``saved.ref.to_dict()``. Save a plain pandas table wi
 :func:`marivo.analysis.persist_dataframe`; no Analysis Session or HTTP service is
 required for table persistence. Keep the service connection separately.
 
+Read a saved table locally with :func:`marivo.analysis.read_dataframe`, passing
+only the reference object or its original ``to_dict()`` dictionary. The v2
+reference captures the absolute ``project_root`` and ``result_id``; working
+directory and project discovery do not affect reads. The captured path must be
+accessible locally; there is no location override or relocation fallback.
+:class:`marivo.analysis.DataFrameResult` contains the exact reference,
+UTC save time, logical row count and ordered Arrow schema. Its ``to_pandas()``
+returns an independent complete table with Arrow-backed types, empty attrs and a
+default RangeIndex. No Session, Catalog, sources, HTTP dependencies or state
+creation are involved. Files close before return. Memory grows with the complete
+result; reads never recompute missing or corrupt snapshots.
+
 Install ``marivo[api]``, configure ``MARIVO_API_TOKEN``, then run:
 
 .. code-block:: sh

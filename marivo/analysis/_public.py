@@ -7,6 +7,7 @@ from marivo._temporal import Grain as Grain
 from marivo._temporal import InstantAnchor as InstantAnchor
 from marivo._temporal import TimeScope as TimeScope
 from marivo.analysis import grain as grain
+from marivo.analysis.core.dataframe_result import DataFrameResult as DataFrameResult
 from marivo.analysis.core.frame_interpretation import (
     FrameAlignment as FrameAlignment,
 )
@@ -200,6 +201,7 @@ from marivo.analysis.dsl.windows import to_date as to_date
 from marivo.analysis.dsl.windows import trailing_duration as trailing_duration
 from marivo.analysis.dsl.windows import trailing_periods as trailing_periods
 from marivo.analysis.results import persist_dataframe as persist_dataframe
+from marivo.analysis.results import read_dataframe as read_dataframe
 from marivo.analysis.session.core import Session as Session
 
 __all__ = [
@@ -210,6 +212,7 @@ __all__ = [
     "ColumnLineage",
     "ComparisonBaseline",
     "DataFrameReference",
+    "DataFrameResult",
     "FrameAlignment",
     "FrameAlignmentAxis",
     "FrameAlignmentSide",
@@ -294,6 +297,7 @@ __all__ = [
     "ordinal",
     "persist_dataframe",
     "product",
+    "read_dataframe",
     "row_count",
     "session",
     "since",

@@ -276,6 +276,7 @@ def test_installed_base_persists_plain_table_without_api(
             "assert importlib.util.find_spec('uvicorn') is None; "
             "root = Path(sys.argv[1]); "
             "ref = mv.persist_dataframe(pd.DataFrame({'count': [9007199254740993]}), project_root=root); "
+            "assert mv.read_dataframe(ref.to_dict()).to_pandas()['count'].tolist() == [9007199254740993]; "
             "assert not (root / '.marivo/analysis').exists(); "
             "assert 'marivo.server' not in sys.modules; "
             "print(json.dumps(ref.to_dict()))",
@@ -283,6 +284,7 @@ def test_installed_base_persists_plain_table_without_api(
         ],
     )
     reference = obj(json.loads(output))
-    assert reference["schema"] == "marivo.dataframe_ref/v1"
-    assert set(reference) == {"schema", "result_id"}
+    assert reference["schema"] == "marivo.dataframe_ref/v2"
+    assert reference["project_root"] == str(project.resolve())
+    assert set(reference) == {"schema", "project_root", "result_id"}
     assert len(list((project / ".marivo/server/dataframes").glob("*.parquet"))) == 1

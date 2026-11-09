@@ -42,13 +42,38 @@ reference = mv.persist_dataframe(pd.DataFrame({'count': [9007199254740993]}), pr
 print(json.dumps(reference.to_dict()))
 """
     wire = json.loads(subprocess.check_output([sys.executable, "-c", script, str(tmp_path)]))
-    assert wire["schema"] == "marivo.dataframe_ref/v1"
-    assert set(wire) == {"schema", "result_id"}
+    assert wire["schema"] == "marivo.dataframe_ref/v2"
+    assert wire["project_root"] == str(tmp_path.resolve())
+    assert set(wire) == {"schema", "project_root", "result_id"}
     assert read(tmp_path, wire["result_id"])["data"] == {
         "layout": ["count"],
         "rows": [["9007199254740993"]],
         "row_count": 1,
     }
+    reader = """
+import json, sys, os
+from pathlib import Path
+sys.modules['uvicorn'] = None
+sys.modules['marivo.server'] = None
+import marivo.analysis as mv
+root = Path(sys.argv[1])
+os.chdir(root.parent)
+os.environ['MARIVO_PROJECT_ROOT'] = str(root / 'unrelated-project')
+result = mv.read_dataframe(json.loads(sys.argv[2]))
+assert result.schema.names == ['count']
+assert result.ref.project_root == root.resolve()
+assert not (root / '.marivo/analysis').exists()
+assert not (root / 'unrelated-project').exists()
+rows = result.to_pandas()
+print(json.dumps({'ref': result.ref.to_dict(), 'rows': rows['count'].tolist(),
+                 'dtype': str(rows['count'].dtype)}))
+"""
+    before = {path: path.read_bytes() for path in tmp_path.rglob("*") if path.is_file()}
+    cold = json.loads(
+        subprocess.check_output([sys.executable, "-c", reader, str(tmp_path), json.dumps(wire)])
+    )
+    assert cold == {"ref": wire, "rows": [9007199254740993], "dtype": "int64[pyarrow]"}
+    assert {path: path.read_bytes() for path in tmp_path.rglob("*") if path.is_file()} == before
 
 
 def test_reference_and_snapshot_do_not_follow_mutations(tmp_path: Path) -> None:
@@ -56,9 +81,11 @@ def test_reference_and_snapshot_do_not_follow_mutations(tmp_path: Path) -> None:
     old = mv.persist_dataframe(source, project_root=tmp_path)
     wire = old.to_dict()
     wire["result_id"] = "changed"
+    wire["project_root"] = str(tmp_path / "changed")
     source.loc[0, "count"] = 99
     new = mv.persist_dataframe(source, project_root=tmp_path)
     assert old.result_id != new.result_id and old.kind == "dataframe"
+    assert old.project_root == tmp_path.resolve()
     with pytest.raises(FrozenInstanceError):
         field = "result_id"
         setattr(old, field, "changed")
@@ -131,6 +158,8 @@ def test_retained_snapshot_background_session_is_not_required(tmp_path: Path) ->
     )
     snapshot = read(tmp_path, reference.result_id)
     assert snapshot["data"] == {"layout": ["count"], "rows": [["12"]], "row_count": 1}
+    result = mv.read_dataframe(reference)
+    assert result.to_pandas()["count"].tolist() == [12]
 
 
 def test_explicit_root_does_not_search_ancestors(
@@ -142,3 +171,5 @@ def test_explicit_root_does_not_search_ancestors(
     monkeypatch.setenv("MARIVO_PROJECT_ROOT", str(tmp_path))
     reference = mv.persist_dataframe(pd.DataFrame({"count": [1]}), project_root=child)
     assert read(child, reference.result_id)["kind"] == "dataframe"
+    assert reference.project_root == child.resolve()
+    assert mv.read_dataframe(reference).to_pandas()["count"].tolist() == [1]

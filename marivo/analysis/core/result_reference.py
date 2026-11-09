@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Literal, TypedDict
 
 from marivo.render import Card, RenderableResult
@@ -16,7 +17,8 @@ class FrameReferenceWire(TypedDict):
 
 
 class DataFrameReferenceWire(TypedDict):
-    schema: Literal["marivo.dataframe_ref/v1"]
+    schema: Literal["marivo.dataframe_ref/v2"]
+    project_root: str
     result_id: str
 
 
@@ -75,21 +77,25 @@ class FrameReference(RenderableResult):
 
 @dataclass(frozen=True, init=False, repr=False)
 class DataFrameReference(RenderableResult):
-    """Exact table identity returned by ``persist_dataframe``.
+    """Exact local table reference returned by ``persist_dataframe``.
 
-    Field: result_id identifies one project-bound snapshot.
+    Fields: project_root is the captured absolute project directory; result_id
+    identifies its fixed snapshot. Together they locate one saved table.
     Example: ``mv.persist_dataframe(table).to_dict()``.
-    Constraints: Immutable; no inferred Session or semantic metadata.
+    Constraints: Immutable local locator; no inferred Session or semantic metadata.
+    Read with mv.read_dataframe(reference) on a filesystem containing that path.
     """
 
+    project_root: Path
     result_id: str
 
     def __new__(cls) -> DataFrameReference:
         raise TypeError("Acquire a DataFrameReference from persist_dataframe().")
 
     @classmethod
-    def _create(cls, result_id: str) -> DataFrameReference:
+    def _create(cls, project_root: Path, result_id: str) -> DataFrameReference:
         value = object.__new__(cls)
+        object.__setattr__(value, "project_root", project_root)
         object.__setattr__(value, "result_id", result_id)
         return value
 
@@ -101,11 +107,15 @@ class DataFrameReference(RenderableResult):
     def to_dict(self) -> DataFrameReferenceWire:
         """Return a fresh serializable table reference.
 
-        Returns: The result identity and schema version.
+        Returns: The absolute project location, result identity and schema version.
         Example: ``reference.to_dict()``. No arguments or I/O; edits to the
         returned dictionary do not change this immutable reference.
         """
-        return {"schema": "marivo.dataframe_ref/v1", "result_id": self.result_id}
+        return {
+            "schema": "marivo.dataframe_ref/v2",
+            "project_root": str(self.project_root),
+            "result_id": self.result_id,
+        }
 
     def _repr_identity(self) -> str:
         return f"DataFrameReference kind={self.kind} result_id={self.result_id!r}"

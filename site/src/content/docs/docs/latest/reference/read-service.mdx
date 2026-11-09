@@ -1,6 +1,6 @@
 ---
 title: Persisted result service
-description: Save AnalysisFrames and pandas tables, then read exact fixed results over HTTP.
+description: Save AnalysisFrames and pandas tables, then read fixed results in Python or over HTTP.
 ---
 
 Marivo explicitly saves AnalysisFrames and pandas DataFrames. The project-bound
@@ -37,9 +37,10 @@ reference = mv.persist_dataframe(
 print(reference.to_dict())
 ```
 
-The DataFrame reference contains `schema: "marivo.dataframe_ref/v1"` and
-`result_id`. The explicit root is the exact existing directory; omission uses
-normal project discovery. Saving needs no Session, Analysis Store, Catalog,
+The DataFrame reference contains `schema: "marivo.dataframe_ref/v2"`, the resolved
+absolute `project_root` and `result_id`. Together they locate one saved snapshot.
+The explicit save root is the exact existing directory; omission uses normal
+project discovery. Saving needs no Session, Analysis Store, Catalog,
 source connection, running HTTP service or optional API dependencies. Every call
 creates a new fixed identity. Later edits to the original table do not affect it.
 Neither reference includes URLs, credentials, a report identity or producer code.
@@ -52,6 +53,57 @@ Unsupported nested/object values fail rather than becoming strings. Row/column
 order, zero-column row counts, empty typed columns and supported exact values
 are retained. `attrs` is not saved as semantic metadata. Plain tables do not gain
 inferred units, lineage, axes, periods or source freshness.
+
+## Read a table in Python
+
+Pass the saved reference object or its original `to_dict()` dictionary, including
+one recovered from JSON, to `mv.read_dataframe()`:
+
+```python
+import json
+
+wire = json.loads(json.dumps(reference.to_dict()))
+result = mv.read_dataframe(wire)
+result.show()
+table = result.to_pandas()
+```
+
+The immutable `DataFrameResult` contains:
+
+| Field or method | Meaning |
+| --- | --- |
+| `kind` | `"dataframe"` |
+| `ref` | Exact saved reference |
+| `committed_at` | Original UTC save time as an aware `datetime` |
+| `row_count` | Complete row count, including zero-column rows |
+| `schema` | Ordered Arrow schema with exact physical types |
+| `to_pandas()` | Complete, independently mutable pandas table |
+
+Use `result.schema.names` for column names, `len(result.schema)` for the column
+count, and `result.schema.field("orders").type` for one physical type. Internal
+metadata is omitted. Nullability describes the schema's allowance, not actual
+missingness. Arrow-backed exports retain saved large integers, Decimal
+precision/scale, time units/timezone and null/NaN distinctions. They preserve
+row/column order, empty typed columns and zero-column row counts, with empty
+attrs and an unnamed default RangeIndex. Original pandas dtype containers and
+attrs are not reconstructed; convert explicitly when needed for arithmetic.
+
+Reading requires no Session, Catalog, source connection, HTTP server or API
+dependencies. The file closes before return, so later exports remain available
+even if the file is removed. Reads create no state and return the complete result
+or an `AnalysisError` with concrete expected/received/location/repair fields.
+Missing or corrupt data never triggers recomputation. Memory grows with the whole
+table; Python reads have no pagination or HTTP response limits.
+
+The reference carries its location: `reference.project_root` is an immutable
+`Path`, serialized as an absolute path string by `to_dict()`. Reading accepts only
+the reference, with no project override. Working directory and
+`MARIVO_PROJECT_ROOT` do not affect reads. The captured path must be accessible
+on this filesystem; a missing location fails without searching other projects.
+HTTP responses carry the service's path; remote clients use their configured
+HTTP connection. Bare IDs, paths, JSON strings, v1 references, extra reference
+fields and AnalysisFrame references are rejected. Commit time records saving,
+not business freshness.
 
 ## Start and connect
 
@@ -143,6 +195,7 @@ to return before releasing its slot. Errors contain `code`, `message`, `location
 Missing/corrupt data never triggers recalculation. The server logs unexpected
 failures without exposing tracebacks to HTTP clients.
 
-Use `marivo help analysis.persist_dataframe`,
+Use `marivo help analysis.persist_dataframe`, `marivo help analysis.read_dataframe`,
+`marivo help analysis.dataframe_result`,
 `marivo help analysis.analysis_frame.ref` and
 `marivo help analysis.results.service.http` for focused native contracts.

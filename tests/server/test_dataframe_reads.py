@@ -54,7 +54,29 @@ def test_exact_values_and_cold_reader_without_store(tmp_path: Path) -> None:
     assert not (tmp_path / ".marivo/analysis").exists()
     payload = read(tmp_path, reference.result_id)
     assert payload["kind"] == "dataframe" and "session_id" not in payload
-    assert payload["ref"] == {"schema": "marivo.dataframe_ref/v1", "result_id": reference.result_id}
+    assert payload["ref"] == {
+        "schema": "marivo.dataframe_ref/v2",
+        "project_root": str(tmp_path.resolve()),
+        "result_id": reference.result_id,
+    }
+    native = mv.read_dataframe(json.loads(json.dumps(payload["ref"])))
+    assert native.ref.to_dict() == payload["ref"]
+    assert native.committed_at.isoformat() == payload["committed_at"]
+    assert native.row_count == 3 and native.schema.names == [
+        "id",
+        "amount",
+        "stamp",
+        "elapsed",
+        "ratio",
+    ]
+    rows = native.to_pandas()
+    assert rows["id"].tolist()[:2] == [9007199254740993, 9007199254740995]
+    assert rows["amount"].tolist()[::2] == [Decimal("9007199254740993.100"), Decimal("-0.010")]
+    assert pa.array(rows["stamp"]).cast(pa.int64()).to_pylist() == [
+        1700000000000000001,
+        -(2**63),
+        None,
+    ]
     assert payload["data"] == {
         "layout": ["id", "amount", "stamp", "elapsed", "ratio"],
         "row_count": 3,
@@ -183,6 +205,17 @@ def test_corrupt_metadata_missing_data_and_response_budget(tmp_path: Path) -> No
     with pytest.raises(ResultStorageError) as failure:
         read(tmp_path, saved.result_id)
     assert failure.value.code == "corrupt_dataframe"
+    # Corrupt a data page while retaining valid footer metadata. PyArrow uses
+    # plain OSError here; this is malformed data rather than a storage I/O failure.
+    pq.write_table(table, path)
+    with pq.ParquetFile(path) as file:
+        offset = file.metadata.row_group(0).column(0).data_page_offset
+    data = bytearray(path.read_bytes())
+    data[offset : offset + 8] = b"\x00" * 8
+    path.write_bytes(data)
+    with pytest.raises(ResultStorageError) as corrupt_page:
+        read(tmp_path, saved.result_id)
+    assert corrupt_page.value.code == "corrupt_dataframe"
     path.unlink()
     with pytest.raises(ResultStorageError) as failure:
         read(tmp_path, saved.result_id)

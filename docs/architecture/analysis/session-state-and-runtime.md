@@ -387,7 +387,18 @@ Plain pandas results use `mv.persist_dataframe(table, project_root=...)` and
 independent immutable Parquet snapshots under `.marivo/server/dataframes/`.
 They require no Analysis Session or Store. `saved.ref.to_dict()` exports an
 AnalysisFrame reference including Store identity; plain-table publication returns
-a DataFrameReference. The HTTP v2 service reads fixed identities only. Plugins own
+a DataFrameReference with its resolved absolute project_root and result_id.
+`mv.read_dataframe(reference)` reads that
+identity locally into a detached immutable DataFrameResult with saved UTC commit
+time, logical row count and ordered Arrow schema. Its `to_pandas()` returns an
+isolated complete table with Arrow-backed types, empty attrs and a default
+RangeIndex. Reads close files before returning, create no state and need no
+Session, Catalog, source or HTTP dependency. Reads use only the captured project
+path, independently of working directory and MARIVO_PROJECT_ROOT, with no location
+override or relocation fallback. The captured path must be accessible locally.
+Complete reads use memory
+proportional to the full result and never recalculate a missing/corrupt snapshot.
+The HTTP v2 service reads fixed identities only. Plugins own
 analysis programs, date parameters, report versions, text and refresh execution.
 
 ## Execution diagnostics and usage telemetry

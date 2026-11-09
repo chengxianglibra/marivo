@@ -52,6 +52,7 @@ STATUS: dict[ErrorCode, int] = {
     "invalid_result_reference": 409,
     "corrupt_dataframe": 422,
     "result_publication_failed": 500,
+    "result_read_failed": 500,
 }
 
 

@@ -138,7 +138,7 @@ def _map_error(error: Exception, operation: str) -> ServiceError:
             error.message,
             error.location or "result",
             error.repair.action if error.repair else "Check the saved result.",
-            "analysis.persist_dataframe",
+            f"analysis.{error.repair.help_target.canonical_id}" if error.repair else HELP,
         )
     if isinstance(error, ArtifactNotFoundError):
         return ServiceError(

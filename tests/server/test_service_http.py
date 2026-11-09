@@ -553,6 +553,14 @@ def test_plain_table_publication_and_retired_routes(tmp_path: Path) -> None:
         assert "session_id" not in result
         assert _ok(request("/v2/info"))["store_id"] is None
         _schema(spec, "DataFrameReport", result)
+        missing = _error(request("/v2/dataframes/df_" + "0" * 32), 404, "result_not_found")
+        assert missing["target"] == "analysis.read_dataframe"
+        assert (
+            "result_read_failed"
+            in spec["components"]["schemas"]["Error500"]["properties"]["error"]["properties"][
+                "code"
+            ]["enum"]
+        )
         for retired in (
             "/v1/info",
             "/v2/data/sales/total",

@@ -283,7 +283,9 @@ def _schemas() -> dict[str, JsonObject]:
                 )
             ),
         ),
-        "DataFrameRef": record(schema=literal("marivo.dataframe_ref/v1"), result_id=STRING),
+        "DataFrameRef": record(
+            schema=literal("marivo.dataframe_ref/v2"), project_root=STRING, result_id=STRING
+        ),
         "DataFrameType": either(
             record(
                 kind={

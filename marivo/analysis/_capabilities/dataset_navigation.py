@@ -218,7 +218,7 @@ _PAGES = (
     ),
     NavigationInput(
         "results",
-        "Inspect captured results or serve definitions and saved data over HTTP.",
+        "Inspect captured results, read saved pandas snapshots, or serve fixed data over HTTP.",
         (),
         "decision_hub",
     ),

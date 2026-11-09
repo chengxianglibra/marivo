@@ -1,6 +1,6 @@
 ---
 title: 持久化结果服务
-description: 保存 AnalysisFrame 和 pandas 表格，通过 HTTP 读取精确的固定结果。
+description: 保存 AnalysisFrame 和 pandas 表格，通过 Python 或 HTTP 读取固定结果。
 ---
 
 Marivo 负责显式保存结果和按固定身份读取。插件负责报告布局、文字、数据绑定、日期策略、
@@ -32,8 +32,9 @@ reference = mv.persist_dataframe(
 print(reference.to_dict())
 ```
 
-表格引用包含 `schema: "marivo.dataframe_ref/v1"` 和 `result_id`。显式目录是精确的
-已有目标目录，省略时按项目发现规则解析。保存不创建 Session、Analysis Store、Catalog
+表格引用包含 `schema: "marivo.dataframe_ref/v2"`、解析后的绝对 `project_root` 和
+`result_id`，位置与身份共同定位一份保存快照。显式保存目录是精确的已有目标目录，
+省略时按项目发现规则解析。保存不创建 Session、Analysis Store、Catalog
 或数据源连接，也不要求 HTTP 服务或可选 API 依赖。每次保存产生新身份；后续修改原表
 不影响快照。引用不含服务地址、凭据、报告身份或生产代码，插件单独保存服务连接。
 
@@ -41,6 +42,50 @@ print(reference.to_dict())
 整数、float32/64、Decimal、日期、时间戳和 duration。业务索引需显式移到列。
 不支持的嵌套/对象值明确报错，不会静默字符串化。保留行列顺序、零列行数、空表类型和
 受支持的精确值。`attrs` 不作为语义元数据保存，不推断单位、血缘、时间轴或新鲜度。
+
+## 在 Python 中读取表格
+
+将保存的引用对象或其原始 `to_dict()` 字典传给 `mv.read_dataframe()`；
+也可以使用从 JSON 恢复的引用字典：
+
+```python
+import json
+
+wire = json.loads(json.dumps(reference.to_dict()))
+result = mv.read_dataframe(wire)
+result.show()
+table = result.to_pandas()
+```
+
+返回不可变的 `DataFrameResult`：
+
+| 字段或方法 | 含义 |
+| --- | --- |
+| `kind` | `"dataframe"` |
+| `ref` | 精确的保存引用 |
+| `committed_at` | 原始保存时间，带 UTC 时区的 `datetime` |
+| `row_count` | 完整行数，包括零列表的行数 |
+| `schema` | 按列顺序排列的 Arrow schema，包含精确物理类型 |
+| `to_pandas()` | 完整、可独立修改的 pandas 表格 |
+
+通过 `result.schema.names` 获取列名，`len(result.schema)` 获取列数，
+`result.schema.field("orders").type` 获取具体类型。schema 不包含内部元数据；
+nullable 只描述字段允许性，不代表实际存在空值。Arrow-backed 导出保留保存后的
+大整数、Decimal precision/scale、时间单位/时区和 null/NaN 区别，同时保留行列顺序、
+空表类型和零列行数。输出具有空 attrs 和默认无名 RangeIndex，不重建原 pandas dtype
+容器或 attrs；需要算术类型转换时，由调用方显式执行。
+
+读取无需 Session、Catalog、源连接、HTTP 服务或 API 依赖，返回前关闭文件；
+即使随后移走文件，已有结果仍可导出。读取不创建状态，完整返回结果或抛出带具体
+expected/received/location/repair 信息的 `AnalysisError`。缺失或损坏不会触发重算。
+内存随完整表增长；Python 读取不分页，也不套用 HTTP 响应大小限制。
+
+引用携带位置：`reference.project_root` 是不可变 `Path`，`to_dict()` 将其序列化为绝对
+路径字符串。读取只接收引用，不再接收项目覆盖参数；当前工作目录和
+`MARIVO_PROJECT_ROOT` 不影响读取。捕获的路径需在当前文件系统可访问；原位置缺失时
+明确失败，不自动搜索其他项目。HTTP 响应携带服务端项目路径，远端客户端仍使用已配置
+的 HTTP 连接。不接受裸 ID、路径、JSON 字符串、v1 引用、多余引用字段或 AnalysisFrame 引用。
+提交时间表示保存时间，不证明业务数据新鲜度。
 
 ## 启动和连接
 
@@ -114,6 +159,7 @@ AnalysisFrame 使用现有 Store；普通表格使用原子写入的
 错误包含 code、message、location、repair 和可空 target。缺失或损坏不会触发重算。
 意外失败写入服务日志，HTTP 不暴露 traceback。
 
-使用 `marivo help analysis.persist_dataframe`、
+使用 `marivo help analysis.persist_dataframe`、`marivo help analysis.read_dataframe`、
+`marivo help analysis.dataframe_result`、
 `marivo help analysis.analysis_frame.ref` 和
 `marivo help analysis.results.service.http` 获取聚焦契约。

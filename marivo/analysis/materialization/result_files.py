@@ -19,28 +19,43 @@ ResultErrorCode: TypeAlias = Literal[
     "invalid_result_reference",
     "corrupt_dataframe",
     "result_publication_failed",
+    "result_read_failed",
 ]
 
 
 class ResultStorageError(AnalysisError):
     """A fixed result cannot be encoded, published or read."""
 
-    def __init__(self, code: ResultErrorCode, location: str, received: str, repair: str) -> None:
+    def __init__(
+        self,
+        code: ResultErrorCode,
+        location: str,
+        received: str,
+        repair: str,
+        *,
+        target: Literal["persist_dataframe", "read_dataframe"] = "persist_dataframe",
+        expected: str = "a supported complete result in the bound project",
+    ) -> None:
         self.code = code
         super().__init__(
             message=f"Persisted result: {received}.",
-            expected="a supported complete result in the bound project",
+            expected=expected,
             received=received,
             location=location,
             repair=AnalysisRepair(
                 kind="environment",
                 action=repair,
-                help_target=LiveHelpTarget(surface="analysis", canonical_id="persist_dataframe"),
+                help_target=LiveHelpTarget(surface="analysis", canonical_id=target),
             ),
         )
 
 
-def state_path(root: Path, relative: str) -> Path:
+def state_path(
+    root: Path,
+    relative: str,
+    *,
+    target: Literal["persist_dataframe", "read_dataframe"] = "persist_dataframe",
+) -> Path:
     path = root / ".marivo" / "server" / relative
     if any(item.is_symlink() for item in (path, *path.parents) if item != root.parent):
         raise ResultStorageError(
@@ -48,6 +63,7 @@ def state_path(root: Path, relative: str) -> Path:
             "state",
             "indirect filesystem path",
             "Keep result state in the bound project's local directory.",
+            target=target,
         )
     return path
 

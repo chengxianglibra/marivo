@@ -12,6 +12,7 @@ from marivo._temporal import Grain as Grain
 from marivo._temporal import TimeScope as TimeScope
 
 if TYPE_CHECKING:
+    from marivo.analysis.core.dataframe_result import DataFrameResult as DataFrameResult
     from marivo.analysis.core.frame_interpretation import (
         FrameClockedContribution as FrameClockedContribution,
     )
@@ -36,6 +37,7 @@ if TYPE_CHECKING:
     from marivo.analysis.core.result_reference import DataFrameReference as DataFrameReference
     from marivo.analysis.core.result_reference import FrameReference as FrameReference
     from marivo.analysis.results import persist_dataframe as persist_dataframe
+    from marivo.analysis.results import read_dataframe as read_dataframe
 
     __all__: list[str]
     from marivo._definition.correspondence import CalendarCorrespondence as CalendarCorrespondence
