@@ -1290,6 +1290,16 @@ def test_public_boolean_conditionals_preserve_predicate_results(
     assert status.kind == "dimension" and amount.kind == "measure" and revenue.kind == "metric"
     paid = status == "paid"
     for condition, expected in (
+        (paid & (amount > 5), 10.0),
+        (paid | (status == "refund"), 30.0),
+        (paid & True, 10.0),
+        (True & paid, 10.0),
+        (paid | False, 10.0),
+        (False | paid, 10.0),
+        (paid & False, 0.0),
+        (False & paid, 0.0),
+        (paid | True, 60.0),
+        (True | paid, 60.0),
         (paid.ifelse(True, False), 10.0),
         (paid.coalesce(False), 10.0),
         (paid.nullif(False), 10.0),
@@ -1319,15 +1329,25 @@ def test_public_boolean_conditionals_preserve_predicate_results(
     assert result["selected"].tolist() == pytest.approx([10 / 3])
     assert result["classified"].tolist() == [0.5]
     metric_condition = revenue > 0
-    for metric_predicate in (
-        metric_condition.ifelse(True, False),
-        metric_condition.coalesce(False),
-        metric_condition.cases((True, True), else_=False),
+    for metric_predicate, expected in (
+        (metric_condition & (revenue < 100), 60.0),
+        (metric_condition | (revenue < 0), 60.0),
+        (metric_condition & True, 60.0),
+        (True & metric_condition, 60.0),
+        (metric_condition | False, 60.0),
+        (False | metric_condition, 60.0),
+        (metric_condition & False, 0.0),
+        (False & metric_condition, 0.0),
+        (metric_condition | True, 60.0),
+        (True | metric_condition, 60.0),
+        (metric_condition.ifelse(True, False), 60.0),
+        (metric_condition.coalesce(False), 60.0),
+        (metric_condition.cases((True, True), else_=False), 60.0),
     ):
         result = (
             session.observe({"total": metric_predicate.ifelse(revenue, 0)}).compute().to_pandas()
         )
-        assert result["total"].tolist() == [60.0]
+        assert result["total"].tolist() == [expected]
         with pytest.raises(AnalysisError):
             session.observe(revenue, where=metric_predicate)  # type: ignore[arg-type]  # Metric predicate is invalid here.
     with pytest.raises(AnalysisError):

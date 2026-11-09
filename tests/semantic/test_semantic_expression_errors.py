@@ -2,12 +2,54 @@
 
 from __future__ import annotations
 
+import operator
+from collections.abc import Callable
+from pathlib import Path
+from typing import Literal
+
 import pytest
 from ibis.common.deferred import const
 
+import marivo.analysis as mv
 from marivo._definition.deferred import inspect_deferred
 from marivo._definition.types import DefinitionGraphError
 from marivo.semantic.errors import ErrorKind, SemanticError, SemanticExpressionError
+from tests.shared_fixtures import write_minimal_catalog_project
+
+
+@pytest.mark.parametrize("operation", [operator.and_, operator.or_], ids=["and", "or"])
+@pytest.mark.parametrize("reverse", [False, True], ids=["forward", "reflected"])
+@pytest.mark.parametrize("stage", ["row", "metric"])
+def test_boolean_composition_rejects_invalid_operands_at_capture(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    operation: Callable[[object, object], object],
+    reverse: bool,
+    stage: Literal["row", "metric"],
+) -> None:
+    write_minimal_catalog_project(tmp_path)
+    monkeypatch.setenv("MARIVO_PROJECT_ROOT", str(tmp_path))
+    session = mv.session.get_or_create("boolean-capture", timezone="UTC")
+    status = session.catalog.get("dimension:sales.orders.status")
+    revenue = session.catalog.get("metric:sales.revenue")
+    assert status.kind == "dimension" and revenue.kind == "metric"
+    row_predicate = status == "paid"
+    metric_predicate = revenue > 0
+    predicate = row_predicate if stage == "row" else metric_predicate
+    other_stage = metric_predicate if stage == "row" else row_predicate
+    scope = session.time_scope(start="2026-01-01", end="2026-02-01")
+
+    for invalid in (scope, 1, status, revenue, other_stage):
+        left, right = (invalid, predicate) if reverse else (predicate, invalid)
+        with pytest.raises(SemanticExpressionError) as raised:
+            operation(left, right)
+        assert raised.value.kind == ErrorKind.INVALID_EXPRESSION_STAGE.value
+        assert raised.value.expected and raised.value.received
+        assert raised.value.repair is not None
+        if invalid is scope:
+            assert raised.value.received == "TimeScope"
+            assert raised.value.repair.help_target is not None
+            assert raised.value.repair.help_target.canonical_id == "predicate"
 
 
 def test_expression_error_carries_expected_received_and_reauthor_repair() -> None:

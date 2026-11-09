@@ -262,7 +262,7 @@ def provider() -> DisclosureProvider:
                         if name == "observe" and n == "by"
                         else "Pass resolved fields or field or identity Grouping values; calendar and membership groupings are rejected. Use () for scalar literal rows."
                         if name == "values" and n == "by"
-                        else "None, RowPredicate, TimeScope or AND tuple; at most one TimeScope. mv.in_population(P) filters facts. Field comparisons stay fixed through windows and supply no endpoint. Population.count domains stay fixed."
+                        else "None, RowPredicate, TimeScope or AND tuple: where=(scope, predicate); at most one TimeScope. TimeScope cannot use & or |. mv.in_population(P) filters facts. Field comparisons stay fixed through windows and supply no endpoint. Population.count domains stay fixed."
                         if name == "observe" and n == "where"
                         else "Population with exactly one complete Entity identity axis, unowned or from this Session. Project that identity axis before reading a classified or multi-axis domain."
                         if name == "read" and n == "population"

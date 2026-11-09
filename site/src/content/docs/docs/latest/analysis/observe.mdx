@@ -103,7 +103,10 @@ to read all captured bindings. Clock availability does not certify a particular
 grain or the source's physical types.
 
 Use `where=(scope, status == "paid")` to conjoin one report range with a row
-predicate. An explicit field comparison such as `where=paid_at >= start` filters
+predicate. The comma creates the AND tuple; `&` and `|` combine predicates and
+boolean literals from the same stage. A TimeScope is a report selector, so
+`scope & predicate` and `predicate & scope` fail at expression construction.
+An explicit field comparison such as `where=paid_at >= start` filters
 a fixed source field and can filter a Metric with no contribution clock. It stays
 in force throughout window evaluation, including history before the report range.
 Window endpoints come from the report time context or an enclosing calendar

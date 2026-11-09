@@ -279,6 +279,10 @@ Use parenthesized &, | and ~, never Python and/or/not or bool. Field NA follows
 three-valued logic; only final True selects. Membership leaves test complete
 correlated tuples with null-safe field matching. Both sides retain dependencies,
 static checks and captured NULL/domain checks even with boolean constants.
+Typed predicate `&` and `|` operators accept only predicates from the same stage
+or Python bool literals; incompatible operand types reject at expression capture.
+A TimeScope is a report selector, not a predicate. Combine it with a row predicate
+using `session.observe(..., where=(scope, predicate))`.
 
 - Source observation, members and a single-source Metric.where can combine field
   and Population membership leaves on their own contribution/identity domain.

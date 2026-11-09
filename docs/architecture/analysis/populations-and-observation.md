@@ -114,6 +114,9 @@ without establishing the same business-object cohort.
 Business calendar keys use ordinary fields. The harness supplies explicit ranges and comparison mappings.
 
 Use `where=(scope, condition)` to conjoin a TimeScope and source conditions.
+The comma forms a tuple whose terms are ANDed by observe. TimeScope is not a
+predicate; `scope & condition`, `condition & scope` and their `|` variants reject
+when constructing the expression.
 An explicit field comparison is a RowPredicate on a fixed source field. It can
 constrain a reduction without a clock and remains fixed throughout window evaluation.
 Window endpoints come from the report interval or selected report buckets.

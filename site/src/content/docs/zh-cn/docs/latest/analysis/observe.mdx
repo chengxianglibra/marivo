@@ -91,6 +91,9 @@ Catalog Metric，可查看 `metric.definition.time_bindings`，或调用
 特定粒度或来源物理类型已经通过验证。
 
 用 `where=(scope, status == "paid")` 将一个报告范围与行谓词取交集。
+逗号构造按 AND 组合的元组；`&` 和 `|` 用于同阶段谓词与布尔字面量的组合。
+TimeScope 是报告范围选择器，因此 `scope & predicate` 和 `predicate & scope`
+会在构造表达式时立即报错。
 `where=paid_at >= start` 这样的显式字段比较是固定来源字段谓词，可筛选没有贡献时间的
 Metric；它在窗口求值期间持续生效，包括报告范围之前的历史。窗口端点由报告时间上下文
 或外层日历样本提供；独立分支在每个有效端点保留原有范围。

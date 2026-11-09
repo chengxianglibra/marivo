@@ -297,6 +297,39 @@ class _ExpressionCarrier(RenderableResult):
                 received=f"{type(self).__name__}[{self._role}]",
             )
 
+    def _require_boolean_operand(self, other: object) -> None:
+        self._require("boolean")
+        if isinstance(other, bool):
+            return
+        if (
+            isinstance(other, _ExpressionCarrier)
+            and other._role == "boolean"
+            and (
+                (isinstance(self, RowExpression) and isinstance(other, RowExpression))
+                or (isinstance(self, MetricExpression) and isinstance(other, MetricExpression))
+            )
+        ):
+            return
+        stage = "row" if isinstance(self, RowExpression) else "Metric"
+        raise SemanticExpressionError(
+            kind=ErrorKind.INVALID_EXPRESSION_STAGE,
+            message="Boolean composition requires predicates from the same stage or bool literals.",
+            expected=f"a {stage}-stage predicate or bool literal",
+            received=(
+                f"{type(other).__name__}[{other._role}]"
+                if isinstance(other, _ExpressionCarrier)
+                else type(other).__name__
+            ),
+            action=(
+                "Pass where=(scope, predicate) to session.observe to combine a report TimeScope "
+                "with a row predicate. TimeScope does not support & or |."
+                if isinstance(other, TimeScope) and isinstance(self, RowExpression)
+                else f"Combine {stage}-stage predicates or bool literals with & or |; "
+                "keep report TimeScopes separate in session.observe."
+            ),
+            help_target="predicate",
+        )
+
     def _method(
         self, name: str, args: tuple[object, ...] = (), kwargs: Mapping[str, object] | None = None
     ) -> Resolver:
@@ -707,7 +740,7 @@ class RowExpression(_ExpressionCarrier, Generic[_RowRoleT]):
         )
 
     def __and__(self: RowPredicate, other: RowPredicate | bool) -> RowPredicate:
-        self._require("boolean")
+        self._require_boolean_operand(other)
         return RowExpression(
             BinaryOperator(operator.and_, self._recipe, _parameter(other)),
             _merge(self, other),
@@ -715,7 +748,7 @@ class RowExpression(_ExpressionCarrier, Generic[_RowRoleT]):
         )
 
     def __or__(self: RowPredicate, other: RowPredicate | bool) -> RowPredicate:
-        self._require("boolean")
+        self._require_boolean_operand(other)
         return RowExpression(
             BinaryOperator(operator.or_, self._recipe, _parameter(other)),
             _merge(self, other),
@@ -723,7 +756,7 @@ class RowExpression(_ExpressionCarrier, Generic[_RowRoleT]):
         )
 
     def __rand__(self: RowPredicate, other: bool) -> RowPredicate:
-        self._require("boolean")
+        self._require_boolean_operand(other)
         return RowExpression(
             BinaryOperator(operator.and_, _parameter(other), self._recipe),
             _merge(self, other),
@@ -731,7 +764,7 @@ class RowExpression(_ExpressionCarrier, Generic[_RowRoleT]):
         )
 
     def __ror__(self: RowPredicate, other: bool) -> RowPredicate:
-        self._require("boolean")
+        self._require_boolean_operand(other)
         return RowExpression(
             BinaryOperator(operator.or_, _parameter(other), self._recipe),
             _merge(self, other),
@@ -1996,7 +2029,7 @@ class MetricExpression(_ExpressionCarrier, Generic[_MetricRoleT]):
         )
 
     def __and__(self: MetricPredicate, other: MetricPredicate | bool) -> MetricPredicate:
-        self._require("boolean")
+        self._require_boolean_operand(other)
         return MetricExpression(
             BinaryOperator(operator.and_, self._recipe, _parameter(other)),
             _merge(self, other),
@@ -2004,7 +2037,7 @@ class MetricExpression(_ExpressionCarrier, Generic[_MetricRoleT]):
         )
 
     def __or__(self: MetricPredicate, other: MetricPredicate | bool) -> MetricPredicate:
-        self._require("boolean")
+        self._require_boolean_operand(other)
         return MetricExpression(
             BinaryOperator(operator.or_, self._recipe, _parameter(other)),
             _merge(self, other),
@@ -2012,7 +2045,7 @@ class MetricExpression(_ExpressionCarrier, Generic[_MetricRoleT]):
         )
 
     def __rand__(self: MetricPredicate, other: bool) -> MetricPredicate:
-        self._require("boolean")
+        self._require_boolean_operand(other)
         return MetricExpression(
             BinaryOperator(operator.and_, _parameter(other), self._recipe),
             _merge(self, other),
@@ -2020,7 +2053,7 @@ class MetricExpression(_ExpressionCarrier, Generic[_MetricRoleT]):
         )
 
     def __ror__(self: MetricPredicate, other: bool) -> MetricPredicate:
-        self._require("boolean")
+        self._require_boolean_operand(other)
         return MetricExpression(
             BinaryOperator(operator.or_, _parameter(other), self._recipe),
             _merge(self, other),

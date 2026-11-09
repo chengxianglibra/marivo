@@ -343,7 +343,9 @@ class Session:
                 including keys without facts. Population does not filter contributions
                 and must cover their necessary output keys before sampling.
             where: A row predicate, a report TimeScope, or a tuple combining
-                them with AND. At most one TimeScope selects the report.
+                them with AND, such as ``where=(scope, predicate)``. TimeScope
+                cannot be combined with predicates using ``&`` or ``|``.
+                At most one TimeScope selects the report.
                 None adds no filter. Use mv.in_population(P) to restrict contributions.
                 If by's Population carries time, omit a separate report TimeScope.
                 A field comparison stays fixed and supplies no report endpoint.
