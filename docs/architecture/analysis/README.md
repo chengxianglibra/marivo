@@ -13,7 +13,7 @@ identity and captured source-read metadata directly.
 | Frame structure, carriers, names, correspondence and row order | [AnalysisFrame](analysis-frame.md) |
 | Nullable values, physical numeric carriers and current-row statistics | [Operators and Frames](operators-and-frames.md) |
 | Session ownership, evaluation, Store publication/recovery and reads | [Session and Runtime](session-state-and-runtime.md) |
-| Native saved DataFrame reads and project-level HTTP access to fixed results | [Read service](read-service.md) |
+| Native saved DataFrame reads and project-level HTTP access to results and semantic definitions | [Read service](read-service.md) |
 | Actual source reads, evaluation metadata and immutable method explanations | [Result and method facts](result-and-method-facts.md) |
 | Runnable source/fixed-data workflows | [Examples](examples.md) |
 | Conditional mathematical laws and actual optimizer coverage | [Core algebra](algebra-theory.md) |

@@ -1,10 +1,10 @@
 ---
-title: 持久化结果服务
-description: 保存 AnalysisFrame 和 pandas 表格，通过 Python 或 HTTP 读取固定结果。
+title: 项目读取服务
+description: 通过绑定项目的服务读取已保存结果和当前语义层定义。
 ---
 
 Marivo 负责显式保存结果和按固定身份读取。插件负责报告布局、文字、数据绑定、日期策略、
-分析程序和刷新执行。服务不再提供脚本端点、当前结果别名或 Catalog HTTP。
+分析程序和刷新执行。HTTP 服务还通过独立 Catalog 快照读取当前语义层定义。
 
 ## 保存和交付结果
 
@@ -110,15 +110,19 @@ marivo serve --project-root /srv/sales-project --host 0.0.0.0 --port 8765 \
 ```
 
 所有业务请求，包括 info 和 OpenAPI，要求 `Authorization: Bearer <token>`。
-合法 CORS 预检不要求令牌，允许 GET/OPTIONS 及 Authorization/Content-Type 头。
+合法 CORS 预检不要求令牌，允许 GET/POST/OPTIONS 及 Authorization/Content-Type 头。
 实际请求均需认证；允许的来源在错误响应中也收到 CORS 头。服务器间请求无需 Origin。
 
 ## HTTP v2
 
 | 方法和路径 | 结果 |
 | --- | --- |
-| `GET /v2/info` | API/Marivo 版本、当前 Store 身份或 null |
+| `GET /v2/info` | API/Marivo 版本、当前 Store 身份或 null、Catalog 加载状态 |
 | `GET /v2/openapi.json` | OpenAPI 3.1 请求、响应和错误契约 |
+| `GET /v2/semantic/objects` | 当前语义对象摘要，可按 kind/domain 筛选 |
+| `GET /v2/semantic/objects/{id}` | 捕获的语义定义和安全声明位置 |
+| `GET /v2/semantic/objects/{id}/related` | 依赖或反向依赖，必填 relation 参数 |
+| `POST /v2/semantic/reload` | 原子重载当前模型，请求体为空 |
 | `GET /v2/sessions` | 已保存 Session，按更新时间倒序 |
 | `GET /v2/sessions/{session_id}/frames` | 已提交 Frame，按提交时间倒序 |
 | `GET /v2/stores/{store_id}/sessions/{session_id}/frames/{artifact_id}` | 精确 AnalysisFrame |
@@ -140,9 +144,36 @@ marivo serve --project-root /srv/sales-project --host 0.0.0.0 --port 8765 \
 `{"float":"inf"}` 或 `{"float":"-inf"}`。空值与布尔 presence 独立。
 空行集为 `rows: []`，零列单行为 `rows: [[]]`。
 
+## 读取当前语义层定义
+
+服务保留一份当前 Catalog 快照，与已保存结果独立。第一次语义请求在新解释器中加载
+绑定项目的模型，不连接业务来源。`GET /v2/info` 返回 `catalog.loaded` 和
+`catalog.loaded_at`，不会触发加载。目录支持可选 `kind`、`domain` 筛选，后续页携带
+`next_cursor` 并保持相同筛选和 limit：
+
+```sh
+curl -H "Authorization: Bearer $MARIVO_API_TOKEN" \
+  'http://127.0.0.1:8765/v2/semantic/objects?kind=metric&domain=sales&limit=20'
+curl -H "Authorization: Bearer $MARIVO_API_TOKEN" \
+  'http://127.0.0.1:8765/v2/semantic/objects/metric%3Asales.revenue'
+curl -H "Authorization: Bearer $MARIVO_API_TOKEN" \
+  'http://127.0.0.1:8765/v2/semantic/objects/metric%3Asales.revenue/related?relation=dependencies'
+```
+
+对象使用规范 `kind:path` 身份，在路径中进行 URL 编码。目录返回摘要及可用 kind/domain。
+详情保留业务上下文、公式、单位、贡献时间绑定和项目内相对声明位置；省略连接字段、
+环境引用、文件/HTTP 来源地址及外部模型的绝对路径。关联导航接受 `dependencies` 或
+`dependents`，使用完整已加载范围，已知但未加载的依赖单列于 `outside_scope`。
+
+模型修改后，以空请求体调用 `POST /v2/semantic/reload`。独立加载成功后才原子替换快照，
+返回 `loaded_at` 和 `object_count`；失败返回 `catalog_load_failed` 并保留旧快照。
+已有加载进行时返回 `409 catalog_load_in_progress`。重载期间可继续读取旧快照；成功重载
+使旧 Catalog 游标失效。客户端断开后加载继续至加载期限，服务关闭时取消活动 worker。
+响应大小和时间限制也约束 Catalog 加载。重载不改变任何已保存 Frame 或 DataFrame。
+
 ## 保留与失败
 
-读取不依赖原进程、当前模型或源数据可用性，仅打开已有状态并验证提交归属和文件。
+固定结果读取不依赖原进程、当前模型或源数据可用性，仅打开已有状态并验证提交归属和文件。
 不执行脚本、恢复生产程序或查询来源。校验可能扫描/哈希完整文件，内部分批不限制总 I/O。
 
 AnalysisFrame 使用现有 Store；普通表格使用原子写入的

@@ -402,7 +402,8 @@ path, independently of working directory and MARIVO_PROJECT_ROOT, with no locati
 override or relocation fallback. The captured path must be accessible locally.
 Complete reads use memory
 proportional to the full result and never recalculate a missing/corrupt snapshot.
-The HTTP v2 service reads fixed identities only. Plugins own
+The HTTP v2 service reads these fixed identities independently of its separate
+current Catalog browsing and reload operations. Plugins own
 analysis programs, date parameters, report versions, text and refresh execution.
 
 ## Execution diagnostics and usage telemetry

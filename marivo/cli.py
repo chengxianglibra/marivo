@@ -223,7 +223,7 @@ def main(argv: list[str] | None = None) -> None:
     from marivo.server.wire import DEFAULT_MIB, DEFAULT_SECONDS
 
     serve_parser = subparsers.add_parser(
-        "serve", help="Serve explicitly persisted results over read-only HTTP"
+        "serve", help="Serve persisted results and semantic definitions over HTTP"
     )
     serve_parser.add_argument(
         "--project-root", type=Path, help="Bind an existing project directory"
@@ -252,7 +252,7 @@ def main(argv: list[str] | None = None) -> None:
         help=f"Time budget per read, in seconds (default {DEFAULT_SECONDS})",
     )
     serve_parser.epilog = (
-        "Set MARIVO_API_TOKEN in the environment for fixed-result reads. "
+        "Set MARIVO_API_TOKEN in the environment for result and semantic reads. "
         "See marivo help analysis.results.service.http."
     )
 

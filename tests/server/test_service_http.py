@@ -5,15 +5,18 @@ from __future__ import annotations
 import http.client
 import json
 import os
+import py_compile
 import select
 import sqlite3
 import ssl
 import subprocess
 import sys
 from collections.abc import Iterator, Mapping, Sequence
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from datetime import date, timedelta
 from pathlib import Path
+from time import monotonic, sleep
 from typing import Any, Protocol, TypeAlias
 from urllib.parse import urlencode
 
@@ -186,9 +189,20 @@ def test_complete_reports_restart_and_budget(tmp_path: Path) -> None:
         assert report["schema"]["values"]["event_time"]["nullable"] is False
         assert report["data"]["rows"][2][2] == "1677-09-21T00:12:43.145224192+00:00"
         assert report["periods"] == []
-        assert "catalog" not in _ok(request("/v2/info"))
+        assert _ok(request("/v2/info"))["catalog"] == {"loaded": False, "loaded_at": None}
         spec = _ok(request("/v2/openapi.json"))
-        assert len(spec["paths"]) == 6
+        assert set(spec["paths"]) == {
+            "/v2/info",
+            "/v2/openapi.json",
+            "/v2/sessions",
+            "/v2/sessions/{session_id}/frames",
+            "/v2/stores/{store_id}/sessions/{session_id}/frames/{artifact_id}",
+            "/v2/dataframes/{result_id}",
+            "/v2/semantic/objects",
+            "/v2/semantic/objects/{id}",
+            "/v2/semantic/objects/{id}/related",
+            "/v2/semantic/reload",
+        }
         assert spec["paths"]["/v2/stores/{store_id}/sessions/{session_id}/frames/{artifact_id}"][
             "get"
         ]["parameters"] == [
@@ -297,6 +311,213 @@ def test_complete_reports_restart_and_budget(tmp_path: Path) -> None:
         assert _ok(request(path)) == report
 
 
+def _models(root: Path, text: str, *, bad: bool = False, slow: bool = False) -> None:
+    sales = root / "models" / "semantic" / "sales"
+    datasources = root / "models" / "datasources"
+    sales.mkdir(parents=True, exist_ok=True)
+    datasources.mkdir(parents=True, exist_ok=True)
+    (root / "marivo.toml").write_text('[project]\nname = "service-test"\n')
+    (datasources / "warehouse.py").write_text(
+        "import marivo.datasource as md\n"
+        "md.duckdb(name='warehouse', path='private-storage-name.duckdb')\n"
+    )
+    (sales / "_domain.py").write_text(
+        "import marivo.semantic as ms\nms.domain(name='sales', owner='Finance')\n"
+    )
+    events = sales / "events.py"
+    events.write_text(
+        "def broken(:\n"
+        if bad
+        else (
+            ("import time\ntime.sleep(6)\n" if slow else "")
+            + "import os\n"
+            + "import marivo.datasource as md\nimport marivo.semantic as ms\n"
+            + "os.write(1, b'ordinary model output')\n"
+            + "warehouse = ms.ref.datasource('warehouse')\n"
+            + "events = ms.entity(name='events', datasource=warehouse, "
+            + "source=md.json('https://data.example.test/events?secret=private-source-token', "
+            + "columns={'amount': 'amount', 'created': 'created'}), "
+            + "default_time=ms.ref.time_dimension('sales.events.created'))\n"
+            + "created = ms.time_dimension_column(name='created', entity=events, column='created')\n"
+            + "amount = ms.measure_column(name='amount', entity=events, column='amount', "
+            + f"additivity=ms.additive_all(), unit='USD', ai_context=ms.ai_context(business_definition={text!r}))\n"
+            + "@ms.metric()\ndef total():\n    return amount.sum()\n"
+            + "@ms.metric()\ndef all_amount():\n    return amount.sum(time=None)\n"
+        )
+    )
+
+
+def test_current_catalog_reload_isolated_from_saved_report(tmp_path: Path) -> None:
+    ids = _produce(tmp_path)
+    _models(tmp_path, "before", bad=True)
+    with server(tmp_path, "--max-response-mib", "1") as request:
+        report = _ok(request(_path(ids)))
+        _error(request("/v2/semantic/objects"), 422, "catalog_load_failed")
+        assert _ok(request("/v2/info"))["catalog"]["loaded"] is False
+        assert _ok(request(_path(ids))) == report
+        _models(tmp_path, "before")
+        spec = _ok(request("/v2/openapi.json"))
+        first = _ok(request("/v2/semantic/objects?limit=1"))
+        _schema(spec, "ObjectDirectory", first)
+        assert "sales" in first["domains"] and "measure" in first["kinds"]
+        continuation = "/v2/semantic/objects?" + urlencode(
+            {"limit": 1, "cursor": first["next_cursor"]}
+        )
+        assert _ok(request(continuation))["items"][0]["id"] != first["items"][0]["id"]
+        metrics = _ok(request("/v2/semantic/objects?kind=metric&domain=sales&limit=1"))
+        assert [item["id"] for item in metrics["items"]] == ["metric:sales.all_amount"]
+        next_metrics = _ok(
+            request(
+                "/v2/semantic/objects?"
+                + urlencode(
+                    {
+                        "kind": "metric",
+                        "domain": "sales",
+                        "limit": 1,
+                        "cursor": metrics["next_cursor"],
+                    }
+                )
+            )
+        )
+        assert [item["id"] for item in next_metrics["items"]] == ["metric:sales.total"]
+        assert next_metrics["next_cursor"] is None
+        assert _ok(request("/v2/semantic/objects?domain=missing"))["items"] == []
+        _error(
+            request(
+                "/v2/semantic/objects?" + urlencode({"limit": 1, "cursor": metrics["next_cursor"]})
+            ),
+            409,
+            "invalid_cursor",
+        )
+        endpoint = "/v2/semantic/objects/measure%3Asales.events.amount"
+        detail = _ok(request(endpoint))
+        _schema(spec, "SemanticObject", detail)
+        assert detail["business_definition"] == "before"
+        assert detail["definition"]["unit"] == "USD"
+        assert detail["provenance"]["source_file"] == "models/semantic/sales/events.py"
+        assert set(detail) == {
+            "id",
+            "kind",
+            "path",
+            "name",
+            "domain",
+            "business_definition",
+            "definition",
+            "provenance",
+        }
+        related = _ok(request(endpoint + "/related?relation=dependencies"))
+        _schema(spec, "RelatedDirectory", related)
+        assert "entity:sales.events" in {item["id"] for item in related["items"]}
+        dependents = _ok(request(endpoint + "/related?relation=dependents"))
+        assert {item["id"] for item in dependents["items"]} == {
+            "metric:sales.all_amount",
+            "metric:sales.total",
+        }
+        entity = _ok(request("/v2/semantic/objects/entity%3Asales.events"))
+        _schema(spec, "SemanticObject", entity)
+        assert entity["definition"]["source"] == {"kind": "json"}
+        assert entity["definition"]["default_time"] == "time_dimension:sales.events.created"
+        assert "private-source-token" not in json.dumps(entity)
+        metric = _ok(request("/v2/semantic/objects/metric%3Asales.total"))
+        _schema(spec, "SemanticObject", metric)
+        (binding,) = metric["definition"]["time_bindings"]
+        assert binding["source"] == "entity_default"
+        assert binding["field"] == "time_dimension:sales.events.created"
+        assert binding["anchor"] is None
+        independent = _ok(request("/v2/semantic/objects/metric%3Asales.all_amount"))
+        _schema(spec, "SemanticObject", independent)
+        (no_time,) = independent["definition"]["time_bindings"]
+        assert no_time["source"] == "none" and no_time["reason"] == "explicit_none"
+        datasource = _ok(request("/v2/semantic/objects/datasource%3Awarehouse"))
+        _schema(spec, "SemanticObject", datasource)
+        assert datasource["definition"]["backend_type"] == "duckdb"
+        assert "private-storage-name" not in json.dumps(datasource)
+        _error(request(endpoint + "?as_of=yesterday"), 400, "invalid_parameter")
+        for suffix in ("?kind=invalid", "?domain=", "?limit=0", "?kind=metric&kind=entity"):
+            _error(request("/v2/semantic/objects" + suffix), 400, "invalid_parameter")
+        _error(request(endpoint + "/related"), 400, "invalid_parameter")
+        _error(request(endpoint + "/related?relation=invalid"), 400, "invalid_parameter")
+        _error(request("/v2/semantic/objects/not-an-id"), 400, "invalid_parameter")
+        _error(request("/v2/semantic/objects/metric%3Asales.missing"), 404, "not_found")
+        _error(request("/v2/semantic/reload"), 405, "method_not_allowed")
+        _error(request("/v2/semantic/reload", method="POST", body=b"{}"), 400, "invalid_parameter")
+        _error(request("/v2/semantic/objects", bearer=None), 401, "unauthorized")
+
+        _models(tmp_path, "after")
+        reload = _ok(request("/v2/semantic/reload", method="POST"))
+        _schema(spec, "Reload", reload)
+        assert reload["object_count"] == 8
+        assert _ok(request(endpoint))["business_definition"] == "after"
+        _error(request(continuation), 409, "invalid_cursor")
+        _models(tmp_path, "x" * (1024 * 1024))
+        _error(request("/v2/semantic/reload", method="POST"), 413, "response_too_large")
+        assert _ok(request(endpoint))["business_definition"] == "after"
+        _models(tmp_path, "bad", bad=True)
+        _error(request("/v2/semantic/reload", method="POST"), 422, "catalog_load_failed")
+        assert _ok(request("/v2/info"))["catalog"]["loaded_at"] == reload["loaded_at"]
+        assert _ok(request(endpoint))["business_definition"] == "after"
+        assert _ok(request(_path(ids))) == report
+
+
+@pytest.mark.parametrize("initial_method", ["GET", "POST"])
+def test_reload_rejects_active_load_then_reads_new_model(
+    tmp_path: Path, initial_method: str
+) -> None:
+    _models(tmp_path, "before")
+    events = tmp_path / "models/semantic/sales/events.py"
+    ready, release = tmp_path / "ready", tmp_path / "release"
+    with events.open("a") as model:
+        model.write(
+            "\nfrom pathlib import Path\nimport time\n"
+            f"Path({str(ready)!r}).touch()\n"
+            f"while not Path({str(release)!r}).exists():\n    time.sleep(0.01)\n"
+        )
+    with server(tmp_path) as request, ThreadPoolExecutor(max_workers=1) as pool:
+        initial_path = "/v2/semantic/objects" if initial_method == "GET" else "/v2/semantic/reload"
+        pending = pool.submit(request, initial_path, method=initial_method)
+        try:
+            deadline = monotonic() + 20
+            while not ready.exists():
+                assert monotonic() < deadline, "Catalog worker did not reach the model barrier"
+                sleep(0.01)
+            _models(tmp_path, "after")
+            reply = request("/v2/semantic/reload", method="POST")
+            _error(reply, 409, "catalog_load_in_progress")
+            _schema(_ok(request("/v2/openapi.json")), "Error409", reply[2])
+        finally:
+            release.touch()
+        _ok(pending.result(timeout=30))
+        endpoint = "/v2/semantic/objects/measure%3Asales.events.amount"
+        assert _ok(request(endpoint))["business_definition"] == "before"
+        _ok(request("/v2/semantic/reload", method="POST"))
+        assert _ok(request(endpoint))["business_definition"] == "after"
+
+
+def test_catalog_reads_current_source_despite_timestamp_valid_bytecode(tmp_path: Path) -> None:
+    models = tmp_path / "models/semantic/sales"
+    models.mkdir(parents=True)
+    (tmp_path / "marivo.toml").write_text('[project]\nname = "fresh-catalog"\n')
+    domain = models / "_domain.py"
+    source = "import marivo.semantic as ms\nms.domain(name='sales', owner='First')\n"
+    domain.write_text(source)
+    stamp = domain.stat().st_mtime_ns
+    cache_path = py_compile.compile(str(domain), doraise=True)
+    assert cache_path is not None
+    cached = Path(cache_path)
+    original_cache = cached.read_bytes()
+    domain.write_text(source.replace("First", "Other"))
+    os.utime(domain, ns=(stamp, stamp))
+
+    with server(tmp_path) as request:
+        endpoint = "/v2/semantic/objects/domain%3Asales"
+        assert _ok(request(endpoint))["definition"]["owner"] == "Other"
+        domain.write_text(source.replace("First", "Third"))
+        os.utime(domain, ns=(stamp, stamp))
+        _ok(request("/v2/semantic/reload", method="POST"))
+        assert _ok(request(endpoint))["definition"]["owner"] == "Third"
+    assert cached.read_bytes() == original_cache
+
+
 def test_missing_store_wrong_identity_and_corruption(tmp_path: Path) -> None:
     project = tmp_path / "producer"
     project.mkdir()
@@ -372,7 +593,7 @@ def test_tls_cors_and_cli_validation(tmp_path: Path) -> None:
         assert _ok(request("/v2/info"))["api_version"] == 2
         headers = {
             "Origin": _ORIGIN,
-            "Access-Control-Request-Method": "GET",
+            "Access-Control-Request-Method": "POST",
             "Access-Control-Request-Headers": "authorization, Content-Type",
         }
         status, cors, body = request(
@@ -381,7 +602,7 @@ def test_tls_cors_and_cli_validation(tmp_path: Path) -> None:
         assert status == 204 and body is None
         assert cors["access-control-allow-origin"] == _ORIGIN
         assert "access-control-allow-credentials" not in cors
-        assert cors["access-control-allow-methods"] == "GET, OPTIONS"
+        assert cors["access-control-allow-methods"] == "GET, POST, OPTIONS"
         assert cors["access-control-allow-headers"] == "Authorization, Content-Type"
         for override in (
             {"Origin": "https://other.example.test"},
@@ -399,7 +620,7 @@ def test_tls_cors_and_cli_validation(tmp_path: Path) -> None:
         _error(failure, 401, "unauthorized")
         assert failure[1]["access-control-allow-origin"] == _ORIGIN
         assert failure[1]["vary"] == "Origin"
-        assert "catalog" not in _ok(request("/v2/info"))
+        assert _ok(request("/v2/info"))["catalog"] == {"loaded": False, "loaded_at": None}
 
     no_token = {k: v for k, v in os.environ.items() if k != "MARIVO_API_TOKEN"}
     for opts, env in (
@@ -427,8 +648,9 @@ def test_tls_cors_and_cli_validation(tmp_path: Path) -> None:
         assert _TOKEN not in failed.stderr
 
 
-def test_read_timeout_covers_complete_report(tmp_path: Path) -> None:
+def test_read_timeout_covers_complete_report_and_catalog(tmp_path: Path) -> None:
     ids = _produce(tmp_path)
+    _models(tmp_path, "slow", slow=True)
     # Hold a real Frame read past the deadline at its file-read boundary.
     script = """
 from time import sleep
@@ -446,7 +668,8 @@ main()
         tmp_path, "--read-timeout-seconds", "1", command=[sys.executable, "-c", script]
     ) as request:
         _error(request(_path(ids)), 503, "read_timeout")
-        assert "catalog" not in _ok(request("/v2/info"))
+        _error(request("/v2/semantic/objects"), 503, "read_timeout")
+        assert _ok(request("/v2/info"))["catalog"] == {"loaded": False, "loaded_at": None}
         assert len(_ok(request("/v2/sessions"))["items"]) == 1
 
 
@@ -565,8 +788,6 @@ def test_plain_table_publication_and_retired_routes(tmp_path: Path) -> None:
             "/v1/info",
             "/v2/data/sales/total",
             "/v2/data/sales/total/refresh",
-            "/v2/semantic/objects",
-            "/v2/semantic/reload",
         ):
             _error(request(retired), 404, "not_found")
             _error(request(retired, method="POST"), 404, "not_found")

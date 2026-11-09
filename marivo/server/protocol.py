@@ -23,8 +23,15 @@ from marivo.analysis.core.frame_schema import CoordinateExportColumn, FieldExpor
 from marivo.analysis.core.frame_source_reads import FrameSourceRead
 from marivo.analysis.core.lineage import FrameLineage
 from marivo.analysis.session._lazy_read_model import SessionSummary
+from marivo.datasource.ir import AiContextIR
+from marivo.refs import SemanticKind
+from marivo.semantic import catalog_entries as entries
+from marivo.semantic import ir as semantic
+from marivo.server.catalog_projection import DEFINITION_FIELDS
 from marivo.server.frame_projection import _FIELDS
 from marivo.server.wire import API_VERSION, STATUS, JsonObject, JsonValue
+
+KINDS = tuple(kind.value for kind in SemanticKind)
 
 
 @dataclass(frozen=True)
@@ -34,7 +41,7 @@ class Route:
     response: str
     summary: str
     query: tuple[str, ...] = ()
-    method: Literal["GET"] = "GET"
+    method: Literal["GET", "POST"] = "GET"
     description: str = ""
 
     def match(self, path: str) -> dict[str, str] | None:
@@ -45,8 +52,40 @@ class Route:
 
 _PAGE = ("limit", "cursor")
 ROUTES = (
-    Route("info", "/v2/info", "Info", "Read service and Store identity"),
+    Route("info", "/v2/info", "Info", "Read service, Store and Catalog status"),
     Route("openapi", "/v2/openapi.json", "OpenAPI", "Read the HTTP protocol schema"),
+    Route(
+        "objects",
+        "/v2/semantic/objects",
+        "ObjectDirectory",
+        "List current semantic objects",
+        ("kind", "domain", *_PAGE),
+    ),
+    Route(
+        "object",
+        "/v2/semantic/objects/{id}",
+        "SemanticObject",
+        "Read a current semantic definition",
+    ),
+    Route(
+        "related",
+        "/v2/semantic/objects/{id}/related",
+        "RelatedDirectory",
+        "List semantic dependencies or dependents",
+        ("relation", *_PAGE),
+    ),
+    Route(
+        "reload",
+        "/v2/semantic/reload",
+        "Reload",
+        "Reload the semantic Catalog",
+        method="POST",
+        description=(
+            "Send an empty body. Start a new Catalog load; an active load returns "
+            "409 catalog_load_in_progress. The service owns the load, which continues "
+            "after a client disconnect until its deadline. Reload does not change saved results."
+        ),
+    ),
     Route("sessions", "/v2/sessions", "SessionDirectory", "List saved Sessions", _PAGE),
     Route(
         "frames", "/v2/sessions/{session_id}/frames", "FrameDirectory", "List saved Frames", _PAGE
@@ -111,7 +150,19 @@ def record(**fields: JsonObject) -> JsonObject:
 
 _NESTED: dict[type[object], str] = {
     **_FIELDS,
+    **DEFINITION_FIELDS,
     frame.FrameFixedAxis: "axis key origins",
+    AiContextIR: "business_definition guardrails aliases",
+    entries.DependencyContext: "id business_definition guardrails",
+    entries.MetricTimeFieldBinding: "branch source field path anchor",
+    entries.MetricNoTimeBinding: "branch source root reason",
+    semantic.SampleIntervalIR: "count unit",
+    semantic.DateParse: "kind timezone",
+    semantic.TimestampParse: "kind timezone",
+    semantic.StrptimeParse: "kind format timezone",
+    semantic.HourPrefixParse: "kind prefix",
+    semantic.SnapshotVersioningIR: "kind partition_field timezone",
+    semantic.ValidityVersioningIR: "kind valid_from valid_to interval open_end",
 }
 
 
@@ -194,6 +245,15 @@ def _nested() -> dict[str, JsonObject]:
                 fields[name] = roles[owner]
             else:
                 fields[name] = _type(_annotation(owner, name))
+        if owner is entries.EntityDefinition:
+            fields["source"] = either(
+                record(
+                    kind=literal("table"),
+                    table=nullable(STRING),
+                    database=either(STRING, arr(STRING), NULL),
+                ),
+                record(kind={"enum": ["csv", "parquet", "json"]}),
+            )
         result[owner.__name__] = record(**fields)
     return result
 
@@ -227,6 +287,24 @@ def _schemas() -> dict[str, JsonObject]:
     )
     key = arr(ref("TypedScalar"))
     endpoint = either(ref("CalendarPeriod"), ref("IntervalPeriod"))
+    summary = {
+        "id": STRING,
+        "path": STRING,
+        "name": STRING,
+        "domain": nullable(STRING),
+        "business_definition": nullable(STRING),
+    }
+    definitions = {
+        "datasource": entries.DatasourceDefinition,
+        "domain": entries.DomainDefinition,
+        "entity": entries.EntityDefinition,
+        "metric": entries.MetricDefinition,
+        "relationship": entries.RelationshipDefinition,
+        "dimension": entries.FieldDefinition,
+        "measure": entries.FieldDefinition,
+        "time_dimension": entries.FieldDefinition,
+    }
+    provenance = record(source_file=nullable(STRING), source_line=INT, python_symbol=STRING)
     frame_summary = {
         "ref": ref("FrameRef"),
         "description": nullable(STRING),
@@ -349,10 +427,26 @@ def _schemas() -> dict[str, JsonObject]:
             api_version={"type": "integer", "const": API_VERSION},
             marivo_version=STRING,
             store_id=nullable(STRING),
+            catalog=record(loaded=BOOL, loaded_at=nullable(DATETIME)),
         ),
+        "Reload": record(loaded_at=DATETIME, object_count=INT),
         "SessionSummary": record(session_id=STRING, **session_fields),
         "SessionDirectory": _directory("SessionSummary"),
         "FrameDirectory": _directory("FrameSummary"),
+        "SemanticSummary": record(**summary, kind={"enum": list(KINDS)}),
+        "SemanticObject": either(
+            *(
+                record(
+                    **summary,
+                    kind=literal(kind),
+                    definition=ref(definition.__name__),
+                    provenance=provenance,
+                )
+                for kind, definition in definitions.items()
+            )
+        ),
+        "ObjectDirectory": _directory("SemanticSummary", kinds=arr(STRING), domains=arr(STRING)),
+        "RelatedDirectory": _directory("SemanticSummary", outside_scope=arr(STRING)),
         **{
             f"Error{status}": record(
                 error=record(
@@ -371,6 +465,9 @@ def _schemas() -> dict[str, JsonObject]:
 QUERY_SCHEMAS: dict[str, JsonObject] = {
     "limit": {"type": "integer", "minimum": 1, "maximum": 100, "default": 20},
     "cursor": {"type": "string", "minLength": 1, "maxLength": 16384},
+    "kind": {"enum": list(KINDS)},
+    "domain": {"type": "string", "minLength": 1},
+    "relation": {"enum": ["dependencies", "dependents"]},
 }
 
 
@@ -386,7 +483,7 @@ def openapi() -> JsonObject:
             {
                 "name": name,
                 "in": "query",
-                "required": False,
+                "required": name == "relation",
                 "schema": QUERY_SCHEMAS[name],
             }
             for name in route.query

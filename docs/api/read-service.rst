@@ -1,5 +1,5 @@
-Marivo persisted result service
-===============================
+Marivo project read service
+===========================
 
 Save an AnalysisFrame with :meth:`marivo.analysis.AnalysisFrame.persist` and export
 its fixed identity through ``saved.ref.to_dict()``. Save a plain pandas table with
@@ -31,11 +31,26 @@ and tables with ``/v2/dataframes/{result_id}``. The Store identity must match.
 ``GET /v2/info``, ``GET /v2/sessions`` and
 ``GET /v2/sessions/{session_id}/frames`` provide status and saved-result discovery.
 
-Reads return complete fixed data or an error, preserve exact numeric/time/null
+Fixed-result reads return complete data or an error, preserve exact numeric/time/null
 values and never execute producers, load the Catalog or query sources. Tables
 retain physical schema and data; Frames additionally retain semantic metadata.
-There are no script endpoints, current aliases, refresh operations, Catalog HTTP
-or HTTP v1 compatibility routes. The plugin owns reports, text and refresh execution.
+The plugin owns reports, text and refresh execution.
+
+Read current semantic definitions with ``GET /v2/semantic/objects`` (optional
+``kind``/``domain`` filters and ``limit``/``cursor`` pagination),
+``GET /v2/semantic/objects/{id}`` and
+``GET /v2/semantic/objects/{id}/related?relation=dependencies`` (or ``dependents``).
+Use canonical ``kind:path`` identities, URL-encoded in paths. Details retain business
+context, formulas, units, time bindings and project-relative provenance while
+omitting connection fields and file/HTTP source locations.
+
+The first semantic request loads a Catalog in a fresh interpreter without querying
+business sources. ``GET /v2/info`` reports its load status. Send an empty body to
+``POST /v2/semantic/reload`` to load edited models and atomically replace the snapshot.
+Failure retains the previous snapshot; an active load returns
+``409 catalog_load_in_progress``. Reload invalidates old Catalog cursors and never
+changes saved results. No script endpoints, current-result aliases or HTTP v1
+compatibility routes are provided.
 
 TLS, exact-origin CORS, response budgets and read deadlines are configured through
 ``marivo serve --help``. Native Help is ``analysis.results.service.http``.

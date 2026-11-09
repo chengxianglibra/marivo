@@ -27,6 +27,8 @@ ErrorCode: TypeAlias = (
         "service_unavailable",
         "internal_error",
         "method_not_allowed",
+        "catalog_load_failed",
+        "catalog_load_in_progress",
     ]
 )
 API_VERSION = 2
@@ -36,6 +38,8 @@ HELP = "analysis.results.service"
 
 STATUS: dict[ErrorCode, int] = {
     "method_not_allowed": 405,
+    "catalog_load_failed": 422,
+    "catalog_load_in_progress": 409,
     "invalid_parameter": 400,
     "unauthorized": 401,
     "origin_not_allowed": 403,

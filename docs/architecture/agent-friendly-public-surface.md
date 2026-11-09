@@ -76,10 +76,9 @@ pages link to the owning callable instead of maintaining another example set,
 apart from the single analysis-root quick start. The root's example counts toward
 its explicit render budget; other task pages retain their navigation-only budgets.
 The project HTTP service also exposes bounded service reference pages under
-`analysis.results.service`. Its script reference owns one complete endpoint
-example because the script entry point is a service contract, not a Python
-callable exposed by Marivo. The HTTP reference owns connection, refresh and
-fixed-result facts; OpenAPI owns the machine-readable wire schema.
+`analysis.results.service`. The HTTP reference owns connection, fixed-result
+reads, current Catalog browsing and explicit Catalog reload facts; OpenAPI owns
+the machine-readable wire schema.
 
 Authoring offers direct project loading, Catalog reuse, connection setup,
 physical inspection, modeling, expressions and validation, with optional ontology
@@ -226,7 +225,7 @@ retain their original population, and typed audit never stores an agent's
 narrative as established truth. Terminal pandas/raw SQL work must state its own
 sample, denominator and interpretation limits.
 
-Result publication and read-only HTTP facts belong to native Help and the current
+Result publication and project HTTP facts belong to native Help and the current
 service guide. Plugins own project connections, credentials, user authorization,
 report publication and refresh execution. The packaged authoring and analysis
 skills retain their existing domain judgment; there is no separate service skill.

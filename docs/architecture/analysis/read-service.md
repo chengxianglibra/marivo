@@ -1,10 +1,10 @@
-# Persisted result service
+# Project read service
 
 Marivo explicitly saves AnalysisFrames and pandas DataFrames. Python reads plain
 tables by exact saved reference; the project-bound HTTP service reads both kinds.
 The plugin owns report layout,
 text, data bindings, date policies, analysis programs and refresh execution.
-There are no script endpoints, current-result aliases or Catalog HTTP operations.
+The HTTP service also reads current semantic definitions through a separate Catalog snapshot.
 
 ## Save and deliver results
 
@@ -133,7 +133,7 @@ marivo serve --project-root /srv/sales-project --host 0.0.0.0 --port 8765 \
 ```
 
 All business requests require `Authorization: Bearer <token>`, including info and
-OpenAPI. Valid CORS preflights require no token, allow GET/OPTIONS and the
+OpenAPI. Valid CORS preflights require no token, allow GET/POST/OPTIONS and the
 Authorization/Content-Type headers. Actual requests are authenticated. Allowed
 Origins receive CORS headers on errors too. Server-to-server requests need no Origin.
 
@@ -141,8 +141,12 @@ Origins receive CORS headers on errors too. Server-to-server requests need no Or
 
 | Method and path | Result |
 | --- | --- |
-| `GET /v2/info` | API/Marivo versions and current Store identity or null |
+| `GET /v2/info` | API/Marivo versions, current Store identity or null, Catalog load status |
 | `GET /v2/openapi.json` | OpenAPI 3.1 request, response and error schemas |
+| `GET /v2/semantic/objects` | Current semantic summaries; optional kind/domain filters |
+| `GET /v2/semantic/objects/{id}` | Captured semantic definition and safe provenance |
+| `GET /v2/semantic/objects/{id}/related` | Dependencies or dependents; required relation parameter |
+| `POST /v2/semantic/reload` | Atomically reload current models; empty body |
 | `GET /v2/sessions` | Saved Sessions, newest updated first |
 | `GET /v2/sessions/{session_id}/frames` | Committed Frames, newest committed first |
 | `GET /v2/stores/{store_id}/sessions/{session_id}/frames/{artifact_id}` | Exact AnalysisFrame result |
@@ -169,9 +173,43 @@ nonfinite values use `{"float":"nan"}`, `{"float":"inf"}` or `{"float":"-inf"}`.
 Null and Boolean presence remain independent. Empty rows use `rows: []`;
 a zero-column single row uses `rows: [[]]`.
 
+## Read current semantic definitions
+
+The service keeps one current Catalog snapshot, separate from saved results.
+The first semantic request loads the bound project's models in a fresh interpreter,
+without connecting to business sources. `GET /v2/info` reports `catalog.loaded`
+and `catalog.loaded_at` without triggering a load. Browse with optional `kind` and
+`domain` filters and follow `next_cursor` with the same filters and limit:
+
+```sh
+curl -H "Authorization: Bearer $MARIVO_API_TOKEN" \
+  'http://127.0.0.1:8765/v2/semantic/objects?kind=metric&domain=sales&limit=20'
+curl -H "Authorization: Bearer $MARIVO_API_TOKEN" \
+  'http://127.0.0.1:8765/v2/semantic/objects/metric%3Asales.revenue'
+curl -H "Authorization: Bearer $MARIVO_API_TOKEN" \
+  'http://127.0.0.1:8765/v2/semantic/objects/metric%3Asales.revenue/related?relation=dependencies'
+```
+
+Object IDs are canonical `kind:path` identities, URL-encoded in paths. Directories
+return summaries plus available kinds/domains. Details retain business context,
+formulas, units, contribution-time bindings and project-relative provenance.
+Connection fields and environment references, file/HTTP source locations and
+external absolute model paths are omitted. Related navigation accepts
+`dependencies` or `dependents`, uses the full loaded scope and reports known
+unloaded dependencies separately as `outside_scope`.
+
+After model edits, send an empty body to `POST /v2/semantic/reload`. The isolated
+load atomically replaces the snapshot only on success, returning `loaded_at` and
+`object_count`. Failure returns `catalog_load_failed` and retains the previous
+snapshot; an active load returns `409 catalog_load_in_progress`. Existing readers
+may continue using the old snapshot during reload. Successful reload invalidates
+old Catalog cursors. Loads continue after a client disconnect until the load
+deadline; shutdown cancels an active worker. Response size and time limits also
+bound Catalog loading. Reload never changes saved Frames or DataFrames.
+
 ## Ownership, retention and failures
 
-Reads operate independently of the producer process, source availability and
+Fixed-result reads operate independently of the producer process, source availability and
 current models. They open existing state and validate committed ownership and
 consumed files. They never replay producers, execute scripts or query sources.
 Read validation can scan/hash complete files; internal batches do not bound total I/O.

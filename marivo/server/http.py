@@ -13,6 +13,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from threading import Event
 from time import monotonic
+from typing import Literal
 from urllib.parse import parse_qsl
 
 from uvicorn._types import ASGIReceiveCallable, ASGISendCallable, Scope
@@ -21,10 +22,13 @@ from marivo import __version__
 from marivo.analysis.errors import AnalysisError, ArtifactNotFoundError
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.result_files import ResultStorageError
+from marivo.refs import SemanticKind
+from marivo.semantic.catalog import _make_ref
 from marivo.server import dataframes
+from marivo.server.catalog_reads import CatalogReads
 from marivo.server.dataframes import dataframe_id
 from marivo.server.frames import FrameReads
-from marivo.server.protocol import ROUTES, Route, openapi
+from marivo.server.protocol import KINDS, ROUTES, Route, openapi
 from marivo.server.wire import (
     API_VERSION,
     HELP,
@@ -37,7 +41,7 @@ from marivo.server.wire import (
 
 _WORKERS = 4
 _MAX_REQUESTS = 16
-_METHODS = (b"GET", b"OPTIONS")
+_METHODS = (b"GET", b"POST", b"OPTIONS")
 _HEADERS = {b"authorization", b"content-type"}
 
 
@@ -79,6 +83,12 @@ def _query(route: Route, raw: bytes) -> dict[str, str]:
                 "Use each declared parameter at most once with a valid value.",
             )
         values[name] = value
+    if "kind" in values and values["kind"] not in KINDS:
+        raise bad_request(
+            "kind", "Unknown semantic kind.", "Choose a kind from the object directory."
+        )
+    if "relation" in route.query and values.get("relation") not in ("dependencies", "dependents"):
+        raise bad_request("relation", "A relation is required.", "Use dependencies or dependents.")
     if "cursor" in values and (
         len(values["cursor"]) > 16384 or re.fullmatch(r"[A-Za-z0-9_-]+", values["cursor"]) is None
     ):
@@ -111,13 +121,21 @@ def _route(path: str, method: str) -> tuple[Route, dict[str, str]]:
                 raise bad_request(
                     name, "Invalid identity.", "Use an exact identity from the directory."
                 )
+            if name == "id":
+                kind, _, semantic_path = value.partition(":")
+                try:
+                    _make_ref(semantic_path, SemanticKind(kind))
+                except (ValueError, TypeError):
+                    raise bad_request(
+                        "id", "Invalid semantic identity.", "Use a canonical kind:path."
+                    ) from None
         return route, parameters
     if any(route.match(path) is not None for route in ROUTES):
         raise ServiceError(
             "method_not_allowed",
-            "This resource is read-only.",
+            "The method is not supported for this resource.",
             "method",
-            "Use GET for this resource.",
+            "Use the method declared in GET /v2/openapi.json.",
             HELP,
         )
     raise ServiceError(
@@ -191,6 +209,7 @@ class ReadApplication:
     ) -> None:
         self.root = root
         self.frames = FrameReads(root)
+        self.catalog = CatalogReads(root, limits)
         self.token = token
         self.origins = origins
         self.limits = limits
@@ -212,6 +231,7 @@ class ReadApplication:
             for event in self.active_workers:
                 event.set()
             self.pool.shutdown(wait=False, cancel_futures=True)
+            await self.catalog.close()
             await send({"type": "lifespan.shutdown.complete"})
             return
         if scope["type"] != "http":
@@ -247,7 +267,7 @@ class ReadApplication:
                     raise self._origin_error()
                 cors.extend(
                     [
-                        (b"access-control-allow-methods", b"GET, OPTIONS"),
+                        (b"access-control-allow-methods", b"GET, POST, OPTIONS"),
                         (b"access-control-allow-headers", b"Authorization, Content-Type"),
                     ]
                 )
@@ -409,13 +429,39 @@ class ReadApplication:
             )
         if name == "openapi":
             return await self._worker(budget, lambda: budget.encode(self.spec))
-        return await self._worker(
-            budget,
-            lambda: budget.encode(
-                {
-                    "api_version": API_VERSION,
-                    "marivo_version": __version__,
-                    "store_id": self.frames.store_id(),
-                }
-            ),
-        )
+        if name == "info":
+            current = self.catalog.current
+            return await self._worker(
+                budget,
+                lambda: budget.encode(
+                    {
+                        "api_version": API_VERSION,
+                        "marivo_version": __version__,
+                        "store_id": self.frames.store_id(),
+                        "catalog": {
+                            "loaded": current is not None,
+                            "loaded_at": current.loaded_at if current else None,
+                        },
+                    }
+                ),
+            )
+
+        snapshot = await self.catalog.get(reload=name == "reload")
+        if name == "reload":
+            return budget.encode(
+                {"loaded_at": snapshot.loaded_at, "object_count": len(snapshot.entries)}
+            )
+
+        def semantic_read() -> bytes:
+            if name == "objects":
+                result = snapshot.objects(query.get("kind"), query.get("domain"), limit, cursor)
+            elif name == "related":
+                relation: Literal["dependencies", "dependents"] = (
+                    "dependencies" if query["relation"] == "dependencies" else "dependents"
+                )
+                result = snapshot.related(params["id"], relation, limit, cursor)
+            else:
+                result = snapshot.detail(params["id"])
+            return budget.encode(result)
+
+        return await self._worker(budget, semantic_read)

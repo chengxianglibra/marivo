@@ -147,8 +147,11 @@ projections; stale/deleted members cannot reappear through vector reuse. No
 business datasource is read by load, search, get, show or related navigation.
 
 Catalog acquisition and browsing use the explicit Python operations above.
-The [project read service](../analysis/read-service.md) serves exact persisted
-AnalysisFrame and plain DataFrame results.
+The [project read service](../analysis/read-service.md) also exposes a separate
+current Catalog snapshot for HTTP object browsing, definition detail and dependency
+navigation. Its explicit reload atomically replaces that snapshot after an isolated
+load; failures retain the previous snapshot. Saved AnalysisFrame and plain DataFrame
+reads remain independent of the current Catalog.
 
 ## Validation boundaries
 
