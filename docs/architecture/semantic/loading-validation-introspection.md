@@ -63,13 +63,31 @@ is one discovery/lookup contract. Its canonical Help owners are
 to these native owners; it does not register parallel Catalog methods.
 
 Use `catalog.search(query, kind=..., domain=..., entity=..., limit=10)` to discover
-business objects. Empty query browses deterministically without model calls.
+business objects. Omit `query` or pass `""` to list all objects in the loaded
+Catalog scope, ordered by canonical identity, without model calls or text-search
+candidate-window limits. `catalog.search()` browses all kinds;
+`catalog.search(kind="metric")` browses Metrics. Add `domain="sales"` or
+`entity="sales.orders"` to narrow the list by owning domain or full Entity path.
+These filters do not load additional definitions.
 Every page contains immutable typed semantic objects, captured scope, explicit
 filters, query matching records, retrieval metadata and a continuation cursor.
-`candidate_count` counts the fixed candidate pool; it is not a global semantic
-match count. Display budgets do not change `items` or `next_cursor`; `.to_dict()`
-retains the full API page. Resume with the same query and filters; stale cursors
+Each call returns one page, with a default `limit=10`; `limit` accepts any positive
+integer. Follow `next_cursor` with the same query and filters until it is `None`
+to enumerate all results. For empty-query browsing, `candidate_count` is the
+complete filtered count in the loaded scope. For text search, it counts the fixed
+candidate pool, not every possible semantic match. Display budgets do not change
+`items` or `next_cursor`; `.to_dict()` retains the full API page. Stale cursors
 fail explicitly instead of silently reranking.
+
+```python
+page = catalog.search(kind="metric", limit=100)
+while True:
+    for metric in page.items:
+        print(metric.id, metric.name)
+    if page.next_cursor is None:
+        break
+    page = catalog.search(kind="metric", limit=100, cursor=page.next_cursor)
+```
 
 `catalog.get("metric:sales.revenue")` retrieves one canonical `kind:path`
 identity. Alternatively pass one uncomposed `ms.ref.*` lookup symbol, such as

@@ -1998,21 +1998,36 @@ class SemanticCatalog(RenderableResult):
         """Search captured business definitions, or browse with an empty query.
 
         Args:
-            query: Business intent, alias, name or identity.
+            query: Business intent, alias, name or identity. Omit or pass an empty
+                string to list all objects matching the filters in the loaded scope.
             kind: Exact semantic kind.
             domain: Owning domain filter.
             entity: Full owning Entity path.
-            limit: Page size from 1 to 100.
-            cursor: Previous page continuation.
+            limit: Positive integer page size; defaults to 10.
+            cursor: Previous page continuation. Keep the same query and filters.
 
         Returns:
             Complete typed page with scope, filters, query matches and retrieval facts.
 
         Example:
-            catalog.search("revenue", kind="metric", limit=5).show()
+            >>> catalog.search().show()  # First page of all loaded kinds
+            >>> catalog.search(kind="metric", domain="sales").show()
+            >>> page = catalog.search(kind="metric", limit=100)
+            >>> while True:
+            ...     for metric in page.items:
+            ...         print(metric.id, metric.name)
+            ...     if page.next_cursor is None:
+            ...         break
+            ...     page = catalog.search(kind="metric", limit=100, cursor=page.next_cursor)
+            >>> catalog.search("revenue", kind="metric", limit=5).show()
 
         Constraints:
-            Empty query invokes no model. Text search uses frozen configuration.
+            Empty query lists every filtered object in canonical identity order
+            across pages without model calls. candidate_count is the filtered total
+            for browsing, but only the candidate pool size for text search.
+            items contains the full current page even when show() truncates it;
+            follow next_cursor until None to enumerate all pages.
+            Text search uses frozen configuration.
             Search never accesses business datasources or changes the loaded scope.
         """
         if kind is not None and kind not in {item.value for item in SemanticKind}:

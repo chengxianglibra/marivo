@@ -1115,9 +1115,9 @@ def _navigation_descriptors(
             "Use closed Catalog values for analysis. Declaration lookup symbols capture a recipe and remain distinct from closed analysis inputs.",
             (
                 route(
-                    "discover business objects",
+                    "discover or list business objects",
                     "SemanticCatalog.search",
-                    "Search business meaning or browse with explicit filters.",
+                    "Search business meaning or list loaded objects by kind/domain/entity with an empty query.",
                 ),
                 route(
                     "retrieve and explain a definition",
@@ -3173,7 +3173,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
         _capability(
             "SemanticCatalog.search",
             "marivo.semantic.catalog.SemanticCatalog.search",
-            "Discover business objects with text and explicit kind/domain/entity filters. Empty query browses without models. Text uses the frozen lexical or configured hybrid profile; hybrid may call the configured model and write derived local caches. Filters precede both recall channels. Scores express relevance, not execution authority. Follow next_cursor using the same query and filters; candidate_count counts the fixed candidate pool, not every possible semantic match.",
+            "Search business meaning or list loaded definitions through this one entrypoint. Omit query or pass '' to browse all kinds; kind/domain/entity narrow the list. Empty query sorts by canonical identity, includes every filtered object in the loaded Catalog scope and calls no model. Each call returns one page (default limit=10; any positive integer). Follow next_cursor with the same query and filters until None to enumerate all results; show() may truncate the current page, while items retains it. For empty query, candidate_count is the filtered total. Text uses the frozen lexical or configured hybrid profile; filters precede both recall channels. Hybrid may call models and write derived local caches. Scores express relevance, not execution authority; text candidate_count counts the fixed candidate pool, not every possible semantic match.",
             kind="method",
             output="CatalogPage",
             inputs=(AuthoringInputRequirement(role="receiver", family="SemanticCatalog"),),
@@ -3183,7 +3183,19 @@ def _build_registry() -> SemanticCapabilityRegistry:
                 mutations=("project_state",),
                 flags=("may_call_model", "may_write_search_cache"),
             ),
-            example="page = catalog.search('accepted revenue', kind='metric', limit=5)\npage.show()",
+            example=(
+                "catalog.search().show()  # All loaded kinds, first page\n"
+                "catalog.search(kind='metric', domain='sales').show()\n"
+                "catalog.search(kind='dimension', entity='sales.orders').show()\n"
+                "page = catalog.search(kind='metric', limit=100)\n"
+                "while True:\n"
+                "    for metric in page.items:\n"
+                "        print(metric.id, metric.name)\n"
+                "    if page.next_cursor is None:\n"
+                "        break\n"
+                "    page = catalog.search(kind='metric', limit=100, cursor=page.next_cursor)\n"
+                "catalog.search('accepted revenue', kind='metric', limit=5).show()"
+            ),
             public_entrypoint="catalog.search",
         ),
     )
