@@ -2,8 +2,8 @@
 
 Analysis source construction captures explicit business definitions and domains.
 It does not read source schemas/rows or create a Run. Source evaluation happens
-through AnalysisFrame.compute/persist, after preparation checks actual types,
-method support and complete bindings. Fixed Frame operations consume saved data
+through AnalysisFrame.compute/persist or pending to_pandas, after preparation
+checks actual types, method support and complete bindings. Fixed Frame operations consume saved data
 without restoring those source definitions.
 
 ## Entry responsibilities

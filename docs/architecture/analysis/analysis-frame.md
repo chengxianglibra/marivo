@@ -31,7 +31,7 @@ compute 与同进程 persist 返回对象保留此引用；独立 reopen 不恢�
 
 | 载体 | compute | persist | artifact_id / source_reads | to_pandas |
 | --- | --- | --- | --- | --- |
-| 表达式 | 求值并返回完整内存根 | 完整求值后发布 | 要求先 persist | 要求先 compute/persist |
+| 表达式 | 求值并返回完整内存根 | 完整求值后发布 | 要求先 persist | 求值一次并导出隔离副本 |
 | 内存 | 返回自身 | 发布已有完成结果 | 要求先 persist | 隔离副本 |
 | 持久引用 | 完整验证并加载内存根 | 验证提交元数据后返回自身 | 同一提交的身份与源读取元信息 | 验证并导出当前数据 |
 
@@ -39,7 +39,7 @@ compute 与同进程 persist 返回对象保留此引用；独立 reopen 不恢�
 内存根只在其 Python 进程内可用。跨脚本继续须在生产进程退出前 persist 并输出或保存
 Session/Artifact ID；仅导出 DataFrame、打印内存卡片或恢复 Session 不保留该内存根。
 持续进程保留返回对象即可，一次性完成的问题无需保存；已有精确保存引用无需再次发布。
-派生运算保持惰性，其 artifact_id 不返回祖先提交身份，导出也不自动执行。
+派生运算保持惰性，其 artifact_id 不返回祖先提交身份；to_pandas 导出时自动求值。
 载体转换保留结果身份/计算元信息；多次发布一个内存根可以产生不同提交。
 已完成的 where/top 选择由完整父键、旧值和冻结时间对应固定；后续 attribute 不重跑历史筛选。
 保留声明不改变当前数据操作的读取基础，原值与本次新读父值分别通过 observed_total 与 total 展示。
@@ -214,11 +214,18 @@ axis_origins = lineage.axes[frame.axes[0].token]
 
 ## 完整 pandas 导出
 
-`to_pandas()` 只接受完整内存或持久 Frame，返回隔离副本；表达式须先显式
-`compute()` 或 `persist()` 并使用返回对象。固定数据上的派生运算同样保持惰性。
+`to_pandas()` 返回完整数据的隔离副本。待计算表达式（包括固定数据上的惰性派生）
+每次调用均通过 compute 求值一次，再导出；不修改原 Frame、不缓存结果、不自动持久化。
+来源表达式重复导出可能读取变化后的来源；需要多个视图共享同一批值时，先调用
+`fixed = frame.compute()`，再从返回的固定 Frame 派生。内存直接导出，持久根仍只校验和
+读取当前保存数据，不读取方法载荷或重新计算来源。show、schema 和 repr 不触发求值。
+
+```python
+rows = frame.top(10, by=frame["revenue"]).to_pandas()
+```
 
 导出为可读平面表，坐标在前，随后是完整值名和独立布尔 presence 名。
-普通轴默认取完整路径的末段；复合身份保持 tuple。全体列名必须唯一，冲突在读取载荷前报错。
+普通轴默认取完整路径的末段；复合身份保持 tuple。导出选项和全体列名唯一性在求值或读取载荷前校验。
 `axis_names={"full.axis.name": "name"}` 通过完整轴名或唯一 token 设置别名；不接受 FrameAxis、
 短名模糊匹配或重复指向同一轴的别名。重名轴使用 schema 中的唯一 token。别名只改变输出名称。
 

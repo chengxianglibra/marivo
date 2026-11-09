@@ -4,9 +4,11 @@ from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 
+import duckdb
 import pandas as pd
 import pytest
 
+import marivo.semantic as ms
 from marivo.analysis.core.artifact_data import DataAxis, DataColumn, DataSchema
 from marivo.analysis.core.data_types import ScalarDataType
 from marivo.analysis.core.frame_data import (
@@ -24,7 +26,8 @@ from marivo.analysis.dsl.frame_sources import values
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.materialization.frame_services import LocalFrameServices
 from marivo.analysis.materialization.graph_reading import FramePreview
-from tests.shared_fixtures import terminal_runs
+from tests.shared_fixtures import DslCaseFactory, catalog_value, terminal_runs
+from tests.support.source_trace import capture_source
 
 
 @pytest.fixture
@@ -76,6 +79,12 @@ def test_literal_compute_is_runless_and_memory_compute_returns_self(
     }
     pending = values(local, columns={"value": "USD"}, rows=(((), {"value": 7}),))
     before = tuple(terminal_runs(local))
+    backing = pending._backing
+    exported = pending.to_pandas()
+    assert exported["value"].tolist() == [7]
+    exported.loc[0, "value"] = 99
+    assert pending.to_pandas()["value"].tolist() == [7]
+    assert pending._backing is backing
     memory = pending.compute()
     assert memory.compute() is memory
     assert memory._input_id != pending._input_id
@@ -93,6 +102,106 @@ def test_literal_compute_is_runless_and_memory_compute_returns_self(
     } == before_files
     assert isinstance(second._backing, MemoryFrameBacking)
     assert second._backing.metadata.result_id != memory._backing.metadata.result_id
+
+
+def test_pending_export_rereads_sources_while_computed_inputs_keep_fixed_values(
+    analysis_dsl_case_factory: DslCaseFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    case = analysis_dsl_case_factory("j1")
+    session = case.session
+    region = catalog_value(session.catalog, "sales.customer.region", kind="field")
+    assert isinstance(region, ms.Dimension)
+    source = session.observe(
+        {"value": catalog_value(session.catalog, "sales.revenue", kind="metric")},
+        by=(region,),
+        where=session.time_scope(start="2026-08-01", end="2026-09-01"),
+    )
+    fixed = source.compute()
+    pending = source.top(1, by=source["value"])
+    backing = pending._backing
+    before = tuple(terminal_runs(session))
+    trace = capture_source(monkeypatch)
+    assert pending.schema.values["value"].unit == "CNY"
+    assert "backing=expression" in repr(pending)
+    pending.show(n=0)
+    assert trace.native_sql == []
+    first = pending.to_pandas(axis_names={pending.axes[0].token: "area"})
+    assert first["area"].tolist() == ["east"]
+    assert first["value"].tolist() == [600]
+    assert len(trace.native_sql) == 1
+    with duckdb.connect(str(case.database_path)) as connection:
+        connection.execute('UPDATE "order" SET amount = 900 WHERE order_id = ?', ["j1_c"])
+    second = pending.to_pandas()
+    assert second["region"].tolist() == ["south"]
+    assert second["value"].tolist() == [900]
+    assert len(trace.native_sql) == 2
+    frozen = fixed.top(1, by=fixed["value"]).to_pandas()
+    assert frozen["region"].tolist() == ["east"]
+    assert frozen["value"].tolist() == [600]
+    assert len(trace.native_sql) == 2
+
+    def unavailable(*args: object, **kwargs: object) -> None:
+        raise RuntimeError("source unavailable")
+
+    monkeypatch.setattr(
+        "marivo.analysis.materialization.frame_source_preparation.open_query_sources", unavailable
+    )
+    with pytest.raises(RuntimeError, match="source unavailable"):
+        pending.to_pandas()
+    assert pending._backing is backing
+    assert tuple(terminal_runs(session)) == before
+    assert session.persisted_frames().items == ()
+
+
+@pytest.mark.parametrize("stored", (False, True))
+def test_fixed_top_exports_without_source_reads_and_keeps_presence(
+    local: LocalFrameServices, monkeypatch: pytest.MonkeyPatch, stored: bool
+) -> None:
+    root = _memory(local)
+    if stored:
+        root = root.persist()
+
+    def forbidden(*args: object, **kwargs: object) -> None:
+        raise AssertionError("fixed export must not prepare sources")
+
+    monkeypatch.setattr(
+        "marivo.analysis.materialization.frame_source_preparation.open_query_sources", forbidden
+    )
+    before = tuple(terminal_runs(local))
+    rows = root.top(1, by=root["value"]).to_pandas()
+    assert rows.columns.tolist() == ["region", "value", "right_present"]
+    assert rows.iloc[0].tolist() == ["A", 100, True]
+    assert rows.attrs == {}
+    assert root.top(0, by=root["value"]).to_pandas().empty
+    assert tuple(terminal_runs(local)) == before
+
+
+def test_pending_export_validates_requests_before_evaluation(
+    analysis_dsl_case_factory: DslCaseFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    session = analysis_dsl_case_factory("j1").session
+    region = catalog_value(session.catalog, "sales.customer.region", kind="field")
+    assert isinstance(region, ms.Dimension)
+    pending = session.observe(
+        {"region": catalog_value(session.catalog, "sales.revenue", kind="metric")},
+        by=(region,),
+    )
+
+    def forbidden(*args: object, **kwargs: object) -> None:
+        raise AssertionError("invalid export must not prepare sources")
+
+    monkeypatch.setattr(
+        "marivo.analysis.materialization.frame_source_preparation.open_query_sources", forbidden
+    )
+    with pytest.raises(CoreRuleError) as collision:
+        pending.to_pandas()
+    assert collision.value.expected == "unique flat export column names"
+    with pytest.raises(CoreRuleError) as unknown:
+        pending.to_pandas(axis_names={"unknown": "area"})
+    assert unknown.value.location == "frame.to_pandas.axis_names.key"
+    with pytest.raises(CoreRuleError) as invalid:
+        pending.to_pandas(time_details=1)  # type: ignore[arg-type]  # Reject nonboolean controls.
+    assert invalid.value.expected == "a boolean time_details"
 
 
 def test_current_rows_select_where_top_reduce_and_presence(local: LocalFrameServices) -> None:
@@ -168,8 +277,10 @@ def test_show_is_metadata_only_for_pending_and_n_zero(
 
     monkeypatch.setattr(frame_paging, "memory_preview", preview)
     root.show(n=0)
+    capsys.readouterr()
     pending = root.select({"new": root["value"] + 1})
     pending.show(n=10)
+    assert "- .to_pandas()" in capsys.readouterr().out
     assert calls == []
     assert calls == []
     root.show(n=1)

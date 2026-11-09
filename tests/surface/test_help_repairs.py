@@ -111,16 +111,19 @@ def test_attribute_fact_read_repairs_are_exact_and_unrelated_errors_stay_at_root
     assert unrelated.repair.help_target.display == "analysis"
 
 
-def test_pending_export_repairs_with_the_returned_complete_frame(
+def test_pending_export_name_collision_repairs_with_an_axis_alias(
     literal_frame: mv.AnalysisFrame,
 ) -> None:
-    pending = literal_frame.select({"renamed": literal_frame["value"]})
+    pending = literal_frame.select({"region": literal_frame["value"]})
     with pytest.raises(CoreRuleError) as captured:
         pending.to_pandas()
     _assert_repair(captured.value, "analysis.analysis_frame.to_pandas")
-    assert captured.value.received == "expression"
+    assert captured.value.expected == "unique flat export column names"
     assert captured.value.repair is not None
-    assert pending.compute().to_pandas()["renamed"].tolist() == [1, 3]
+    assert "axis_names" in captured.value.repair.action
+    rows = pending.to_pandas(axis_names={pending.axes[0].token: "area"})
+    assert rows["region"].tolist() == [1, 3]
+    assert rows["area"].tolist() == ["east", "west"]
     with pytest.raises(CoreRuleError):
         pending.to_pandas()
 

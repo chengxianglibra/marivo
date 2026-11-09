@@ -15,7 +15,12 @@ from marivo.analysis.core.data_schema import (
     PairedDataAxis,
 )
 from marivo.analysis.core.data_types import DataColumn, DurationDataType, TimestampDataType
-from marivo.analysis.core.frame_schema import axis_export_layout, export_layout, selected_columns
+from marivo.analysis.core.frame_schema import (
+    LogicalSchema,
+    axis_export_layout,
+    export_layout,
+    selected_columns,
+)
 from marivo.analysis.core.frozen_calendar import FrozenKey, frozen_key_rows
 
 
@@ -39,9 +44,9 @@ def _axis_names(axis: DataAxis, name: str) -> tuple[str, ...]:
 
 
 def export_names(
-    schema: DataSchema, axis_names: tuple[str, ...], *, time_details: bool = False
+    schema: LogicalSchema, axis_names: tuple[str, ...], *, time_details: bool = False
 ) -> tuple[str, ...]:
-    """Validate the flat namespace before reading a stored payload."""
+    """Validate the captured flat namespace before evaluation or payload reads."""
     return tuple(
         column.name
         for column in export_layout(

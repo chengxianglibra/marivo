@@ -186,21 +186,14 @@ def test_public_composition_help_runs_its_actual_registry_examples_on_fixed_data
     for method in ("compute", "reduce", "over", "to_pandas"):
         descriptor = REGISTRY.by_canonical_id("analysis_frame." + method)
         assert isinstance(descriptor, CallableInput)
-        namespace: dict[str, object] = {"frame": frame}
+        example_frame = frame.select({"value": frame["value"]}) if method == "to_pandas" else frame
+        namespace: dict[str, object] = {"frame": example_frame}
         exec(compile(descriptor.example.code, "<" + method + "-help-example>", "exec"), namespace)
         result = namespace["result"]
-        if method == "to_pandas":
-            fixed = namespace["fixed"]
-            assert isinstance(fixed, mv.AnalysisFrame)
-            assert fixed.compute() is fixed
-            assert fixed.reduce({"total": fixed["value"].sum()}).compute().to_pandas()[
-                "total"
-            ].tolist() == [2]
         if method == "compute":
             derived = namespace["derived"]
             assert isinstance(derived, mv.AnalysisFrame)
-            with pytest.raises(AnalysisError):
-                derived.to_pandas()
+            assert derived.to_pandas()["scaled"].tolist() == [-2, 0, 6]
             assert isinstance(result, mv.AnalysisFrame)
             assert result.to_pandas()["scaled"].tolist() == [-2, 0, 6]
         elif method == "reduce":
@@ -229,20 +222,20 @@ def test_public_composition_help_runs_its_actual_registry_examples_on_fixed_data
             assert isinstance(values, pd.Series)
             assert values.tolist() == [-1, 0, 3]
             assert result.attrs == {}
-            fixed = namespace["fixed"]
-            assert isinstance(fixed, mv.AnalysisFrame)
-            axis, schema = fixed.axes[0], fixed.schema.axes[0]
+            retained = namespace["frame"]
+            assert isinstance(retained, mv.AnalysisFrame)
+            axis, schema = retained.axes[0], retained.schema.axes[0]
             assert (schema.token, axis.name, axis.key_names) == (
                 frame.axes[0].token,
                 "sales.customer.region",
                 ("sales.customer.region",),
             )
             assert schema.role == "field" and schema.at is None
-            assert {name: field.unit for name, field in fixed.schema.values.items()} == {
+            assert {name: field.unit for name, field in retained.schema.values.items()} == {
                 "value": None
             }
-            assert fixed.schema.comparisons == ()
-            assert frozen_coordinates(fixed) == ()
+            assert retained.schema.comparisons == ()
+            assert frozen_coordinates(frame) == ()
             assert result[frame.axes[0].name.rsplit(".", 1)[-1]].tolist() == [
                 "east",
                 "north",

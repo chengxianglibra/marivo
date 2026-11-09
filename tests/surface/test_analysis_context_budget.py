@@ -167,8 +167,7 @@ def test_task_context_budget(analysis_dsl_case_factory: DslCaseFactory) -> None:
     trace = traces["spearman"] = Trace(case.root)
     trace.help("analysis.analysis_frame.to_pandas")
     trace.help("analysis.analysis_frame.select")
-    trace.help(mv.AnalysisFrame.compute)
-    exported = amounts.compute().to_pandas()
+    exported = amounts.to_pandas()
     with pytest.warns(Warning):
         association = exported["count"].corr(exported["revenue"], method="spearman")
     trace.read("pandas association", lambda: print(association))
@@ -198,8 +197,7 @@ def test_task_context_budget(analysis_dsl_case_factory: DslCaseFactory) -> None:
     trace.help("analysis.analysis_frame.to_pandas")
     from tests.analysis.statistics.pandas_workflows import forecast
 
-    trace.help(mv.AnalysisFrame.compute)
-    future = forecast(daily.compute().to_pandas()["value"], model="drift")
+    future = forecast(daily.to_pandas()["value"], model="drift")
     trace.read("pandas forecast", lambda: print(future.to_string(index=False)))
     assert future["prediction"].tolist() == [10.0, 13.0]
 

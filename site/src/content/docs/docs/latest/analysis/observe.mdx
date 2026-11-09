@@ -10,8 +10,9 @@ head:
 ---
 
 `session.observe(...)` captures a metric calculation over a selected output
-domain and returns a pending `AnalysisFrame`. Call `compute()` to evaluate it,
-or `persist()` to complete and publish it.
+domain and returns a pending `AnalysisFrame`. Call `compute()` to retain a fixed
+Frame, `to_pandas()` to evaluate and export isolated values, or `persist()` to
+complete and publish it. Export does not cache or save the result.
 
 For a complete minimal example, start with `marivo.help("analysis")`. In a project
 with authored Metrics, search by business meaning:

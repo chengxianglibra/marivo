@@ -281,6 +281,11 @@ def test_composition_help_is_static_bounded_and_matches_cli(
 
     target = "analysis.analysis_frame." + method
     text = render_help_text(target)[0]
+    if method == "to_pandas":
+        assert "Pending inputs evaluate once per call" in text
+        assert "no mutation, cache or save" in text
+        assert "Fixed data needs no source reads" in text
+        assert "result = frame.to_pandas()" in descriptor.example.code
     assert descriptor.example.requires == ("frame",)
     budget = ANALYSIS_HELP_RENDER_BUDGETS["exact_callable"]
     assert len(text.splitlines()) <= budget.max_lines + 4

@@ -139,7 +139,7 @@ saved_artifact_id = saved.artifact_id
 
 ## observe：观察指定域内的指标
 
-`session.observe(metrics, by=..., where=...)` 捕获来源问题，返回待执行的 AnalysisFrame；直到 `compute()` 或 `persist()` 才读取所需的来源结构与业务行。
+`session.observe(metrics, by=..., where=...)` 捕获来源问题，返回待执行的 AnalysisFrame；直到 `compute()`、`persist()` 或 `to_pandas()` 才读取所需的来源结构与业务行。
 
 | 参数 | 必填 | 默认值 | 语义 |
 | --- | --- | --- | --- |
@@ -184,7 +184,12 @@ regional.show()
 
 `show()` 展示有界视图，`to_pandas()` 返回完整独立副本。Column 和 FrameAxis 句柄属于确切 Frame；派生新输入后应重新取得它们，不应复用旧输入的句柄。
 
-导出要求已完成的 Frame。即使 `fixed` 已完成，`fixed.select(...)` 等派生仍然惰性：应对派生结果调用 `compute()` 并使用返回对象。短组合示例见 `analysis.analysis_frame.compute`、`analysis.analysis_frame.reduce` 和 `analysis.analysis_frame.over`。
+`to_pandas()` 每次调用会对待计算 Frame 求值一次，包括 `fixed.select(...)` 等惰性派生，再返回完整的隔离 DataFrame。它不修改原 Frame、不缓存结果、不自动保存。重复导出待计算来源表达式可能读取变化后的数据。多个视图需要复用同一批值时，先保留 `fixed = frame.compute()`，再从 `fixed` 派生。短组合示例见 `analysis.analysis_frame.compute`、`analysis.analysis_frame.reduce` 和 `analysis.analysis_frame.over`。
+
+```python
+leaders = regional.top(1, by=regional["revenue"]).to_pandas()
+assert leaders["revenue"].tolist() == [600]
+```
 
 导出默认使用轴路径末段、完整值名和独立布尔 presence 名；复合身份保持 tuple。
 日历轴导出一个实际键时间戳列，区间轴导出真实半开边界 `.start`/`.end`，使用捕获时区。
@@ -192,7 +197,7 @@ regional.show()
 
 混合时区的合并区间轴统一使用 UTC 时间戳；原始边界时区保留在冻结元数据中。公共导出时区保存在区间轴描述中，空页同样使用该时区。固定偏移含非零秒数时也导出为 UTC，保持精确时间点；秒数为零时规范化为分钟偏移。详情列、分页和预览遵循相同规则，原始时区保留在冻结元数据中。
 
-列名必须唯一。用 `saved.to_pandas(axis_names={"sales.orders.region": "region"})` 按完整轴名或 schema 唯一 token 重命名，不接受 FrameAxis 键。冲突在读取载荷前报错。`read_page()` 使用相同选项，游标绑定这些选项。读取前须显式 `compute()` 或 `persist()`。
+列名必须唯一。用 `saved.to_pandas(axis_names={"sales.orders.region": "region"})` 按完整轴名或 schema 唯一 token 重命名，不接受 FrameAxis 键。导出选项和列名冲突在求值或读取载荷前校验。`read_page()` 使用相同选项，游标绑定这些选项；分页仍要求使用 `compute()` 或 `persist()` 返回的已完成 Frame。
 
 普通 TimeField 和日历轴各导出一个坐标列；区间 `.start`、`.end` 保留真实观察边界。
 日历键不承诺完整成员区间，保存的标签、顺序和选择进度见 `read_periods()`。`axis_names`

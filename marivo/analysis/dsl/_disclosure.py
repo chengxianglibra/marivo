@@ -83,7 +83,7 @@ def provider() -> DisclosureProvider:
             ),
             constraints=(
                 "Ordinary operations consume current data. An instance may retain a source declaration for explicit attribute rereads; independent reopen has no declaration.",
-                "Pending expressions capture without business reads. Continue from the Frame returned by compute or persist; to_pandas never executes a pending plan.",
+                "Pending construction does not read business data. compute returns a fixed Frame; to_pandas evaluates pending inputs and exports isolated data without caching or saving. Only persist publishes results.",
             ),
         ),
         value_type(
@@ -634,13 +634,13 @@ def provider() -> DisclosureProvider:
             ),
             "pandas.DataFrame",
             "Export complete, isolated data.",
-            "fixed = frame.compute()\nresult = fixed.to_pandas()\nvalues = result['value']",
+            "result = frame.to_pandas()\nvalues = result['value']",
             ("frame",),
             "results.inspect",
             (
-                "Example needs frame['value']; fixed only; no source reads. Typed: Frame; save IDs.",
+                "Pending inputs evaluate once per call; no mutation, cache or save. Use compute()'s returned Frame to reuse fixed values. Fixed data needs no source reads.",
                 "Axes first; composite tuples; TimeField/calendar: one key; interval: .start/.end, zone (mixed/sub-minute: UTC); pairs: .left/.right.",
-                "axis_names/select fix collisions; keep order/types/NA/presence.",
+                "Validate options/names before evaluation or reads; axis_names/select fix collisions. Keep order/types/NA/presence. Example needs frame['value'].",
                 "Large int64[pyarrow] / float may raise ArrowInvalid; approx: values.astype('float64')/3600.0 (may round; pd.NA -> NaN).",
                 "Empty attrs; interpretation: frame.schema. read_periods(): saved key/label/selection progress.",
             ),

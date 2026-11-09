@@ -69,6 +69,14 @@ not a timed Metric and cannot consume a report TimeScope or CalendarAxis.
 
 Use the returned ``compute()`` Frame for complete fixed memory data and the
 returned ``persist()`` Frame for committed data. Derived operations remain lazy.
+``to_pandas()`` evaluates pending inputs once per call and returns a complete
+isolated DataFrame. For example, ``frame.top(10, by=frame['revenue']).to_pandas()``
+needs no preceding compute. Export never mutates the Frame, caches its result or
+persists it; repeated source-expression exports can read changed data. Use
+``fixed = frame.compute()`` before deriving multiple views that must share values.
+Export options and name collisions are validated before evaluation or payload reads.
+Memory exports copy existing data; stored-root exports read saved data without
+source evaluation. ``show()``, ``schema`` and ``repr()`` remain non-evaluating.
 DuckDB HTTP JSON inputs keep concrete GET/POST query and body values in their
 ``md.json(...)`` semantic source definition. Evaluation checks all pending request
 parameters before acquisition, then reuses each response across consumers and
@@ -337,7 +345,7 @@ substitution is performed.
 including stored commit time and inputs/operations; it reads no method payloads. Positive show decodes the
 saved prefix plus needed frozen coordinate records, without full export/head.
 Receipt verification or Parquet decompression can read more than that prefix.
-``to_pandas()`` validates complete current data and its required attachments.
+Stored-root ``to_pandas()`` validates complete current data and its required attachments.
 ``method_facts`` explicitly reads complete immutable original explanation facts;
 on stored Frames it validates only the owned method payloads, without primary
 rows, Catalog or source access. Pending access requires compute/persist first.

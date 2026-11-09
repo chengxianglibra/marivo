@@ -150,12 +150,8 @@ def test_time_scope_by_help_example_executes(analysis_dsl_case_factory: DslCaseF
     assert isinstance(axis, mv.CalendarAxis)
     revenue = case.session.catalog.get("metric:sales.revenue")
     assert revenue.kind == "metric"
-    rows = (
-        case.session.observe(
-            {"value": revenue}, by=mv.product(axis, mv.coordinates(by=(), keys=((),)))
-        )
-        .compute()
-        .to_pandas(time_details=True)
-    )
+    rows = case.session.observe(
+        {"value": revenue}, by=mv.product(axis, mv.coordinates(by=(), keys=((),)))
+    ).to_pandas(time_details=True)
     assert rows["calendar:day.label"].tolist() == ["2026-08-01", "2026-08-02"]
     assert rows["value"].tolist() == [450, 0]

@@ -85,7 +85,7 @@ Older generations remain independent and require a compatible environment.
 
 ## Read evidence in context
 
-An `AnalysisFrame` may be a pending expression, completed in-memory data, or a saved result. `compute()` completes a Frame in memory; `persist()` saves the completed result. `show()` is a bounded preview, while `to_pandas()` exports complete fixed data.
+An `AnalysisFrame` may be a pending expression, completed in-memory data, or a saved result. `compute()` returns a completed Frame in memory; `persist()` saves the completed result. `show()` displays pending metadata or a bounded fixed-data preview without evaluation. `to_pandas()` evaluates pending inputs once per call and exports a complete isolated table, without mutating the Frame, caching results or saving them. Repeated exports of a pending source expression can read changed data; retain `compute()`'s returned Frame when several views must share the same values. Memory and saved Frames export their existing data without source reads. `schema` and `repr()` also remain non-evaluating.
 
 On a saved Frame, `session_id` and `artifact_id` identify the committed result. `show(n=0)` displays evaluation/commit times and bounded actual-read summaries without result rows or method payloads. `source_reads` exposes actual source reads consumed by this result; supported contribution analyses retain original explanations in `method_facts`. Pending and memory Frames require explicit `persist()` before source_reads access; the property never executes or saves a result.
 
@@ -269,7 +269,7 @@ with empty attrs; the page retains no full parent table. `read_stats` counts
 inspected data/coordinate rows and receipt hashing bytes, not all disk I/O or
 peak memory. Receipts and coordinate lookup may scan whole files. A page validates
 selected stored data and necessary coordinates; full stored `to_pandas()` additionally validates
-complete keys, data and mappings. Reading never executes or saves a pending Frame.
+complete keys, data and mappings. Page reads never execute or save a pending Frame.
 
 
 ## Attribute time and missing values

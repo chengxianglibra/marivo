@@ -206,7 +206,7 @@ _PAGES = (
         (),
         "decision_hub",
         guidance=(
-            "Choose retention before executing: compute fixes data in this Python process; retain the returned Frame for data operations. A one-shot answer needs no save. Derivations remain lazy and need compute/persist.",
+            "Choose retention before executing: compute fixes data in this Python process; retain the returned Frame for data operations. A one-shot answer needs no save. Derivations remain lazy; to_pandas evaluates them for isolated export without caching or saving.",
             "Only an explicit persist call saves a Frame. For cross-process reuse, retain its session_id and artifact_id, then resume the Session and reopen that Frame. Session recovery alone does not recover unsaved data. An existing saved Frame needs no new publication.",
         ),
         related=("session.persisted_frame",),
@@ -224,7 +224,7 @@ _PAGES = (
     ),
     NavigationInput(
         "results.inspect",
-        "Inspect Frame structure, read data or period pages, or export complete fixed values.",
+        "Inspect Frame structure, read fixed data or period pages, or evaluate and export complete values.",
         (),
         related=(
             "analysis_frame.schema",
@@ -233,7 +233,7 @@ _PAGES = (
             "analysis_frame.lineage",
         ),
         guidance=(
-            "schema exposes captured types, complete keys, result contexts, alignments, comparisons and decompositions without reads. Pending show reports captured facts without evaluation. Fixed show displays a bounded prefix; read_page returns ordered projected data with complete keys, read_periods returns saved time periods and consumed endpoint correspondences, and to_pandas exports complete fixed data with isolated axis metadata. Saved source_reads retains original actual reads, not complete filters or the current derived domain; method_facts explains the original method and denominator. These facts establish neither freshness nor cause. Other objects expose show/render through their type Help.",
+            "schema exposes captured types, complete keys, result contexts, alignments, comparisons and decompositions without reads. Pending show reports captured facts without evaluation. Fixed show displays a bounded prefix; read_page returns fixed projected data with complete keys, read_periods returns saved periods and endpoint correspondences. to_pandas evaluates pending inputs and exports isolated complete data without caching or saving. Saved source_reads retains original actual reads, not complete filters or the current derived domain; method_facts explains the original method and denominator. These facts establish neither freshness nor cause. Other objects expose show/render through their type Help.",
         ),
         discovery_group="results",
         route_summaries=(
@@ -250,7 +250,10 @@ _PAGES = (
             ("analysis_frame.lineage", "Inspect captured semantic origins without data reads."),
             ("analysis_frame.read_page", "Read a projected page of fixed data and complete keys."),
             ("analysis_frame.read_periods", "Read saved periods or consumed time correspondences."),
-            ("analysis_frame.to_pandas", "Export complete fixed data as an isolated DataFrame."),
+            (
+                "analysis_frame.to_pandas",
+                "Evaluate if pending and export an isolated complete DataFrame.",
+            ),
         ),
     ),
     NavigationInput(

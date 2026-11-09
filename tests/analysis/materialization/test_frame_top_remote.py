@@ -82,14 +82,14 @@ def test_native_read_top_retains_order_bounded_transport_and_fixed_boundary(
             (True, [("a", 1), ("b", 1), ("b", 2), ("a", 2)]),
             (False, [("b", 2), ("a", 1), ("b", 1), ("a", 2)]),
         ):
-            result = pending.top(4, by=pending["score"], descending=descending).compute()
+            result = pending.top(4, by=pending["score"], descending=descending)
             rows = result.to_pandas()
             assert rows.iloc[:, 0].tolist() == expected
             assert pd.isna(rows["score"].iloc[-1])
             assert str(rows["score"].dtype) == "int64[pyarrow]"
         top = pending.top(1, by=pending["score"]).compute()
         assert top.to_pandas().iloc[0].tolist() == [("a", 1), 2**53 + 1]
-        assert pending.top(0, by=pending["score"]).compute().to_pandas().empty
+        assert pending.top(0, by=pending["score"]).to_pandas().empty
         assert trace.returned_rows == [4, 4, 1, 1]
         assert all("ORDER BY" in sql for sql in trace.native_sql)
         trace.save(

@@ -10,7 +10,8 @@ head:
 ---
 
 调用 `session.observe(...)`，即可按所选输出域构造 Metric 计算，并返回待执行的
-`AnalysisFrame`。调用 `compute()` 执行计算；调用 `persist()` 则完成计算并发布结果。
+`AnalysisFrame`。调用 `compute()` 保留固定 Frame，调用 `to_pandas()` 计算并导出隔离值，
+调用 `persist()` 则完成计算并发布结果。导出不缓存或自动保存结果。
 
 完整的最小示例可直接查看 `marivo.help("analysis")`。在已有指标定义的项目中，
 先按业务含义搜索：

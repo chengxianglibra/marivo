@@ -98,7 +98,9 @@ Store, execution ownership or frozen defaults; receiver methods derive existing
 context. Public result types are acquired values, rather than user constructors.
 Lifecycle discovery is mv.session.get_or_create/resume/recent/inspect. Source captures,
 repr and metadata show do not evaluate. A completed Frame show explicitly reads
-current data; compute/persist are the evaluation boundaries.
+current data. compute/persist evaluate pending inputs; to_pandas also evaluates
+pending inputs before exporting complete isolated values. Export does not mutate,
+cache or save the Frame. Retain compute's returned Frame to reuse fixed values.
 
 Each source question supplies its actual Metric/field/domain/time dependencies.
 Finished data retains complete keys, values, presence and necessary frozen

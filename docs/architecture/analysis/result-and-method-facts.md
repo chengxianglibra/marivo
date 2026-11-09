@@ -167,11 +167,13 @@ facts.show(n=0) controls only display after that read. Native Help at
 analysis.frame_method_facts owns nested fields.
 
 Metadata/repr/cards and idempotent stored persist do not read full method files.
-to_pandas validates current rows/coordinates only; stored compute and evaluated
-derivatives consume both data and complete method facts. A corrupt method file
+Stored-root to_pandas validates current rows/coordinates only; stored compute and
+evaluated derivatives consume both data and complete method facts. A corrupt method file
 can leave current-data export usable while full consumption fails. A saved
 derivative copies its own payloads, so inherited origin does not require the
 original Artifact or a source/calendar rebuild.
+Pending to_pandas first evaluates through compute, including the method facts
+required by its inputs, before exporting the completed data.
 
 ## Interpretation
 

@@ -31,6 +31,10 @@ evaluation may precede admission; commit time belongs to the publishing Run.
 Memory persist never rereads sources. Stored persist checks commit metadata and
 returns itself without another Run. Reusing a pending source expression can
 read changed data; use the returned fixed root when exact prior values matter.
+Pending to_pandas evaluates through compute once per call and then exports an
+isolated DataFrame. It creates no Run, Artifact, result files or hidden cache and
+does not mutate the expression. Validate export options and names before evaluation.
+Completed memory and stored exports retain their existing fixed-data read paths.
 
 Choose retention before execution according to the caller's Python process lifetime.
 Keep the returned memory Frame in a persistent process, or complete one-shot work

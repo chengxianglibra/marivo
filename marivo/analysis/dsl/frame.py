@@ -1591,7 +1591,7 @@ class AnalysisFrame:
     def to_pandas(
         self, *, axis_names: Mapping[str, str] | None = None, time_details: bool = False
     ) -> pd.DataFrame:
-        """Export complete fixed data as a readable, isolated flat table.
+        """Export complete data as an isolated flat table, evaluating pending inputs.
 
         Args:
             axis_names: Optional full axis name or token to export name mapping. Names
@@ -1613,14 +1613,16 @@ class AnalysisFrame:
             attrs are empty; read axes, units and comparisons from frame.schema.
 
         Example:
-            ``fixed = frame.compute(); rows = fixed.to_pandas()``;
+            ``rows = frame.top(10, by=frame['amount']).to_pandas()``;
             ``amounts = rows["amount"]``. Rename an axis with
-            ``fixed.to_pandas(axis_names={"sales.region": "region"})``.
+            ``frame.to_pandas(axis_names={"sales.region": "region"})``.
 
         Constraints:
-            Pending expressions require compute/persist, including derivatives of
-            fixed data; use the returned Frame. Column names must be unique; resolve
-            collisions with axis_names or select(). Saved reads fully validate current
+            Pending expressions evaluate once per call, including derivatives of fixed
+            data, without mutating this Frame, caching results or persisting. Retain
+            compute()'s returned Frame to reuse fixed values across typed operations.
+            Validate export options and name collisions before evaluation or data reads;
+            resolve collisions with axis_names or select(). Saved reads fully validate current
             data without Catalog, source or method-payload reads. Value types, NA,
             presence and row order are preserved; no float coercion or zero filling.
             Large int64[pyarrow] values mixed with floats may raise ArrowInvalid.
@@ -1633,18 +1635,11 @@ class AnalysisFrame:
         """
         from marivo.analysis.materialization.pandas_export import export_frame, export_names
 
-        if isinstance(self._backing, ExpressionFrameBacking):
-            reject(
-                "a complete memory or stored Frame",
-                "expression",
-                "Call compute() or persist() before exporting.",
-                "frame.to_pandas",
-                canonical_id="analysis_frame.to_pandas",
-            )
         self._validate_time_details(time_details, "to_pandas")
         names = self._export_axis_names(axis_names, "to_pandas")
-        assert isinstance(self._schema, DataSchema)
         export_names(self._schema, tuple(names), time_details=time_details)
+        if isinstance(self._backing, ExpressionFrameBacking):
+            return self.compute().to_pandas(axis_names=axis_names, time_details=time_details)
         data = (
             self._local.read_data(self._backing)
             if isinstance(self._backing, StoredFrameBacking)
@@ -1692,7 +1687,7 @@ class AnalysisFrame:
         from marivo.render import Card
 
         available = (
-            (".compute()", ".persist()")
+            (".compute()", ".to_pandas()", ".persist()")
             if isinstance(self._backing, ExpressionFrameBacking)
             else (".read_page()", ".to_pandas()", ".persist()")
             if isinstance(self._backing, MemoryFrameBacking)
@@ -1701,7 +1696,7 @@ class AnalysisFrame:
         card = Card(
             identity=repr(self),
             available=(*available, *((".schema.alignments",) if self._schema.alignments else ())),
-            omission_recovery="max_output_bytes=None; .schema/.lineage for metadata; compute() for data"
+            omission_recovery="max_output_bytes=None; .schema/.lineage for metadata; .compute()/.to_pandas() for data"
             if isinstance(self._backing, ExpressionFrameBacking)
             else "max_output_bytes=None; .schema/.lineage for metadata; .read_page()/.to_pandas() for data",
         )
