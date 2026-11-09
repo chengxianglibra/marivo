@@ -6,7 +6,7 @@ Tests cover:
 - Sibling files loaded
 - Excluded files: _domain.py, _exports.py, .prefixed, test_*.py, *_test.py
 - Empty project directory is valid
-- sys.path injection and cleanup
+- Relative imports within independent load namespaces
 - Load result status (ready/errored)
 - Errors accumulate across model directories
 - load() on already-loaded project resets and re-loads
@@ -463,10 +463,6 @@ def test_empty_project_is_valid(semantic_project_factory: _SemanticProjectFactor
     project = semantic_project_factory({})
     assert project.is_ready()
 
-
-# ---------------------------------------------------------------------------
-# sys.path injection and cleanup
-# ---------------------------------------------------------------------------
 
 # ---------------------------------------------------------------------------
 # Load result status

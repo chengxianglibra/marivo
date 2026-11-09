@@ -45,8 +45,25 @@ reused within that load, while derived identities are refreshed as declarations
 are published. Failed loads discard this private state. Final publication copies
 and freezes the completed graph; caches never carry definitions across loads.
 
-Ordinary imported modules are not guaranteed to hot-reload. Restart Python after
-model edits/deletions or package changes when import state could be stale.
+Each load assigns a fresh synthetic Python package to each semantic and datasource
+root. Concurrent loads never share model module names, and a reload never purges
+another load's modules. Within one load, imported model files execute once.
+Successful and failed load modules remain in `sys.modules` until process exit;
+frequent reloads in a long-lived process therefore accumulate modules. Namespace
+identifiers are execution details, not semantic identities or definition fingerprints.
+
+Model-to-model imports use relative syntax within one domain or datasource
+directory, for example `from .fields import amount` or
+`from .helpers.constants import LABEL`. Cross-domain and external-root semantic
+dependencies use `ms.ref.*`; Python imports do not expand the selected domain scope.
+Loading never changes `sys.path`. Absolute model imports such as
+`from datasources import warehouse` are unsupported, even if the caller's environment
+happens to resolve them. Standard-library and installed dependencies keep normal
+absolute imports. No import interception or execution sandbox is introduced.
+
+A new load re-executes model files and their relative imports in its own namespace.
+Ordinary imported dependencies retain Python module caching; restart Python after
+package upgrades or changes to those dependencies when import state could be stale.
 
 An existing Catalog retains its loaded scope. Changing cwd, environment variables
 or a same-path file does not mutate that Catalog or an already closed expression.
@@ -56,8 +73,10 @@ A new load establishes a new scope; see [definition identity](semantic-object-mo
 
 `ms.load(...)` and `session.catalog` return the same `SemanticCatalog` type.
 The first loads the requested project/domain scope; the latter uses the Session's
-saved project and domain selection. They may be different snapshots, but there
-is one discovery/lookup contract. Its canonical Help owners are
+saved project and domain selection. Concurrent first access on one Session
+initializes its Catalog and source owner together; failure leaves initialization
+retryable. Later loads do not update another Session. They may be different
+snapshots, but there is one discovery/lookup contract. Its canonical Help owners are
 `semantic.semantic_catalog.search`, `semantic.semantic_catalog.get` and
 `semantic.readiness`. `analysis.inputs.catalog` explains acquisition and links
 to these native owners; it does not register parallel Catalog methods.

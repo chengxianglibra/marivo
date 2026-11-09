@@ -255,9 +255,17 @@ md.load().test(spec.ref).show()  # validated live round trip
   Semantic loading preserves this repair and reports `invalid_project`.
 - `md.remove(name)`, `md.load().list()`, and `md.load().describe(name)` manage and inspect the
   registered set. `md.load(workspace_dir=...)` returns a `DatasourceCatalog`.
-- Restart Python after package upgrades or model edits/deletions. Ordinary
-  imported dependencies are not guaranteed to hot-reload; Marivo does not purge
-  their module caches or delete bytecode. Execution errors preserve the original
+- Each declaration read uses an independent synthetic package; relative imports
+  within `models/datasources/` execute once in that read. Use, for example,
+  `from .settings import WAREHOUSE_PATH`. Model absolute imports are unsupported;
+  loading does not modify `sys.path`. Installed dependencies use ordinary imports.
+  Modules from successful and failed loads remain until process exit. No load
+  purges another load's modules, and load identifiers do not affect definition identity.
+  `DatasourceCatalog` retains its workspace and reads current declarations on each
+  catalog operation; it is not a frozen SemanticCatalog snapshot.
+- Restart Python after package upgrades or ordinary imported dependency changes.
+  Relative model imports use fresh namespaces; ordinary dependencies retain Python
+  module caching. Marivo does not delete bytecode. Execution errors preserve the original
   exception through `__cause__`, expose `exception_type` and `traceback`, and
   display the complete traceback by default. Duplicate errors retain both
   `declaration_paths`; if a source no longer exists, the repair requests a restart

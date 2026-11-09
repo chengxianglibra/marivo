@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from _thread import LockType
 from collections.abc import Mapping
 from datetime import date, datetime
 from pathlib import Path
+from threading import Lock
 from typing import TYPE_CHECKING, Literal
 
 from ibis.common.deferred import Deferred
@@ -81,7 +83,7 @@ class Session:
     Persisted Frame recovery reads exact commit metadata without loading semantics.
     """
 
-    __slots__ = ("_catalog_value", "_runtime", "_sources_value")
+    __slots__ = ("_catalog_value", "_runtime", "_sources_lock", "_sources_value")
 
     def __new__(cls) -> Session:
         raise TypeError("Use mv.session.get_or_create(name) or mv.session.resume(session_id).")
@@ -92,29 +94,33 @@ class Session:
         result._runtime = runtime
         result._sources_value = None
         result._catalog_value = None
+        result._sources_lock = Lock()
         return result
 
     _runtime: DatasetRuntime
     _sources_value: ObservationOwner | None
     _catalog_value: SemanticCatalog | None
+    _sources_lock: LockType
 
     def _sources(self) -> ObservationOwner:
-        if self._sources_value is None:
-            from marivo.datasource import credentials as cr
-            from marivo.semantic.catalog import load
+        with self._sources_lock:
+            if self._sources_value is None:
+                from marivo.datasource import credentials as cr
+                from marivo.semantic.catalog import load
 
-            config = self._runtime.connection_config
-            cr.check_binding(config.resolver)
-            with cr.bind_resolver(config.resolver):
-                catalog = load(workspace_dir=self.project_root, domains=self._record().domains)
+                config = self._runtime.connection_config
+                cr.check_binding(config.resolver)
+                with cr.bind_resolver(config.resolver):
+                    catalog = load(workspace_dir=self.project_root, domains=self._record().domains)
 
-            self._sources_value = self._runtime.sources(
-                semantic_registry=catalog._state.registry,
-                sidecar=catalog._state.sidecar,
-                catalog=catalog,
-            )
-            self._catalog_value = catalog
-        return self._sources_value
+                sources = self._runtime.sources(
+                    semantic_registry=catalog._state.registry,
+                    sidecar=catalog._state.sidecar,
+                    catalog=catalog,
+                )
+                self._catalog_value = catalog
+                self._sources_value = sources
+            return self._sources_value
 
     def __dir__(self) -> list[str]:
         return sorted(name for name in type(self).__dict__ if not name.startswith("_"))
@@ -173,7 +179,12 @@ class Session:
 
     @property
     def catalog(self) -> SemanticCatalog:
-        """Load and return this Session's authored semantic catalog without a query."""
+        """Return this Session's captured authored Catalog without a query.
+
+        Concurrent first access initializes one Catalog and source owner together.
+        A failed initialization can be retried. Later project loads do not replace
+        this Session's captured definitions.
+        """
         self._sources()
         assert self._catalog_value is not None
         return self._catalog_value

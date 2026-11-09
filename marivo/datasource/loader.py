@@ -6,11 +6,10 @@ import sys
 import types
 from collections.abc import Sequence
 from dataclasses import dataclass
-from hashlib import sha1
 from importlib import util as importlib_util
 from pathlib import Path
 
-from marivo._authoring.loading import _execution_diagnostic, _source_loading
+from marivo._authoring.loading import _execution_diagnostic, _new_module_prefix, _source_loading
 from marivo.config import AUTHORED_DIR, DATASOURCES_DIR, PROJECT_MANIFEST
 from marivo.datasource._builtin import require_user_datasource_name
 from marivo.datasource.authoring import _DATASOURCE_CTX, DatasourceLoaderContext
@@ -27,18 +26,6 @@ from marivo.datasource.ir import DatasourceIR
 class DatasourceLoadResult:
     datasources: tuple[DatasourceIR, ...]
     errors: tuple[Exception, ...]
-
-
-def _module_prefix(root: Path) -> str:
-    digest = sha1(str(root.resolve()).encode("utf-8")).hexdigest()[:12]
-    return f"_marivo_datasource_{digest}"
-
-
-def _purge_synthetic_modules(prefix: str) -> None:
-    descendant_prefix = prefix + "."
-    for name in list(sys.modules):
-        if name == prefix or name.startswith(descendant_prefix):
-            del sys.modules[name]
 
 
 def _ensure_package(name: str, path: Path) -> None:
@@ -165,14 +152,15 @@ def _load_datasource_directory(root: Path) -> DatasourceLoadResult:
             ),
         )
 
-    prefix = _module_prefix(root)
-    _purge_synthetic_modules(prefix)
+    prefix = _new_module_prefix("datasource")
     _ensure_package(prefix, root)
     ctx = DatasourceLoaderContext()
     for child in sorted(root.iterdir()):
         if not child.is_file() or child.suffix != ".py" or child.name.startswith("."):
             continue
-        _execute_file(child, ctx, errors, module_name=f"{prefix}.{child.stem}", package_name=prefix)
+        module_name = f"{prefix}.{child.stem}"
+        if module_name not in sys.modules:
+            _execute_file(child, ctx, errors, module_name=module_name, package_name=prefix)
 
     accepted: list[DatasourceIR] = []
     for datasource in ctx.pending_objects:

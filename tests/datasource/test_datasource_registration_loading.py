@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import sys
 from dataclasses import replace
 from pathlib import Path
 
@@ -101,28 +100,18 @@ def test_semantic_loading_preserves_registration_repair_without_writes(
     if entry == "semantic":
         _write_file(tmp_path, "models/datasources/a.py", "")
         _write_file(tmp_path, "models/semantic/demo/objects.py", declaration)
+    elif entry == "import":
+        _write_file(tmp_path, "models/semantic/demo/helpers/registration.py", declaration)
+        _write_file(
+            tmp_path, "models/semantic/demo/objects.py", "from .helpers import registration\n"
+        )
     else:
         _write_file(tmp_path, "models/datasources/a.py", declaration)
-        if entry == "import":
-            _write_file(tmp_path, "models/semantic/demo/objects.py", "from datasources import a\n")
-    saved_modules = {
-        name: module
-        for name, module in sys.modules.copy().items()
-        if name == "datasources" or name.startswith("datasources.")
-    }
-    for name in saved_modules:
-        del sys.modules[name]
-    try:
-        with pytest.raises(SemanticLoadFailed) as exc_info:
-            ms.load(workspace_dir=tmp_path)
-    finally:
-        for name in list(sys.modules):
-            if name == "datasources" or name.startswith("datasources."):
-                del sys.modules[name]
-        sys.modules.update(saved_modules)
+    with pytest.raises(SemanticLoadFailed) as exc_info:
+        ms.load(workspace_dir=tmp_path)
 
     errors = exc_info.value.errors
-    assert len(errors) == (2 if entry == "import" else 1)
+    assert len(errors) == 1
     for error in errors:
         assert error.kind == "invalid_project"
         _assert_registration_repair(error, "local")
@@ -131,6 +120,7 @@ def test_semantic_loading_preserves_registration_repair_without_writes(
         assert error.location_label in {
             str(tmp_path / "models/datasources/a.py"),
             str(tmp_path / "models/semantic/demo/objects.py"),
+            str(tmp_path / "models/semantic/demo/helpers/registration.py"),
         }
     assert _current_source_loading_file() is None
 

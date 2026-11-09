@@ -17,6 +17,33 @@ Each table lists constructor parameters and their Python defaults. An omitted op
 | ClickHouse | `md.clickhouse` | ClickHouse |
 | Trino | `md.trino` | Distributed catalogs |
 
+## Relative declaration imports
+
+Share configuration with relative imports inside `models/datasources/`:
+
+```python
+# models/datasources/settings.py
+WAREHOUSE_PATH = "warehouse.duckdb"
+```
+
+```python
+# models/datasources/warehouse.py
+import marivo.datasource as md
+from .settings import WAREHOUSE_PATH
+
+md.duckdb(name="warehouse", path=WAREHOUSE_PATH, wall_clock_timezone="UTC")
+```
+
+Each declaration read uses a fresh namespace and executes an imported file once.
+Loading does not modify `sys.path`; model absolute imports are unsupported.
+Standard-library and installed dependencies use ordinary imports and retain
+Python's module cache. Restart Python after changing those dependencies or
+upgrading packages. Modules from declaration loads remain until process exit.
+
+`md.load()` retains the selected workspace; its catalog methods read current
+declarations on each operation. A SemanticCatalog instead retains its captured
+snapshot, independently from later loads.
+
 ## DuckDB — `md.duckdb`
 
 | Parameter | Required | Default | Meaning |

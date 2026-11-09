@@ -6,6 +6,18 @@ marivo.semantic
 .. automodule:: marivo.semantic
    :no-members:
 
+Project loading and imports
+---------------------------
+
+Each ``ms.load()`` returns an independent semantic snapshot. Model files and
+relative imports use fresh synthetic namespaces without changing ``sys.path``;
+modules remain until process exit, including after failure. Repeated loads of
+unchanged definitions retain the same definition fingerprint. Import model
+siblings with ``from .fields import amount``; use ``ms.ref.*`` for cross-domain
+and external-root dependencies. Model absolute imports are unsupported.
+Ordinary dependencies retain Python import caching. A Session captures its
+Catalog once with synchronized first initialization; later loads do not update it.
+
 Declaration decorators
 ----------------------
 
@@ -74,7 +86,8 @@ references bind without replaying imports or calling authored functions.
 the reduction inherits its single contribution Entity's optional
 ``default_time``, which can name a native TimeDimension through a typed
 forward reference. Otherwise the reduction has no clock. Explicit
-``time=None`` is invalid. Metric composition retains individual branch
+``time=None`` disables default-time inheritance and leaves the branch without
+a contribution clock. Metric composition retains individual branch
 clocks. ``EntityDefinition.default_time`` records the declared field and
 ``MetricDefinition.time_bindings`` records each branch's fixed binding and
 provenance (``explicit`` or ``entity_default``) or the absence of a clock.

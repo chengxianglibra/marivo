@@ -209,8 +209,11 @@ def load(
         to modify project datasources.
         Reads include local and configured external model roots. Conflicting
         names fail; catalog methods retain the exact resolved workspace.
-        Restart Python after package upgrades or model edits/deletions;
-        ordinary imported dependencies are not guaranteed to hot-reload.
+        Model declarations and relative imports use fresh namespaces for each
+        declaration load, without modifying sys.path. Model-to-model absolute
+        imports are unsupported. Loaded modules remain until process exit.
+        Restart Python after package upgrades or changes to ordinary imported
+        dependencies; those dependencies retain standard Python module caching.
         Execution failures expose their original exception type and traceback.
     """
     if workspace_dir is None:

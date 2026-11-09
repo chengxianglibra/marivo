@@ -8,8 +8,15 @@ from contextvars import ContextVar
 from dataclasses import dataclass
 from pathlib import Path
 from traceback import TracebackException
+from typing import Literal
+from uuid import uuid4
 
 _SOURCE_LOADING_FILE: ContextVar[Path | None] = ContextVar("_SOURCE_LOADING_FILE", default=None)
+
+
+def _new_module_prefix(kind: Literal["datasource", "semantic"]) -> str:
+    """Own an independent import namespace, retained until process exit."""
+    return f"_marivo_{kind}_{uuid4().hex}"
 
 
 @dataclass(frozen=True)
@@ -25,7 +32,7 @@ def _execution_diagnostic(exc: Exception, filepath: Path) -> _ExecutionDiagnosti
     file, line = str(filepath), 0
     if isinstance(exc, SyntaxError):
         file, line = exc.filename or file, exc.lineno or 0
-        action = "Fix the syntax at the reported file and line, then restart Python and reload."
+        action = "Fix the syntax at the reported file and line, then reload the project."
     else:
         frame = exc.__traceback__
         while frame is not None:
@@ -34,12 +41,12 @@ def _execution_diagnostic(exc: Exception, filepath: Path) -> _ExecutionDiagnosti
         if isinstance(exc, RecursionError):
             action = (
                 "Read the original traceback to locate the recursive calls or import chain, "
-                "fix that cause, then restart Python and reload."
+                "fix that cause, then reload the project."
             )
         else:
             action = (
                 "Read the original exception and traceback, fix the reported failure, "
-                "then restart Python and reload."
+                "then reload the project."
             )
     return _ExecutionDiagnostic(
         exception_type=type(exc).__name__,

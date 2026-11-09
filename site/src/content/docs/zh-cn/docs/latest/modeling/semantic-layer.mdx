@@ -11,6 +11,30 @@ readiness 只检查选定语义闭包和物理声明，不打开数据源。普�
 
 物理访问配置见[数据源配置](/zh-cn/docs/latest/modeling/datasources/)，时间解析与日历见[日期与时间定义](/zh-cn/docs/latest/modeling/dates/)。下表默认值均为 Python API 默认值，`None` 不意味着自动推测业务规则。
 
+## 模型导入与独立加载
+
+同一业务域内的模型文件使用相对导入。例如，Metric 文件可以使用同目录
+`fields.py` 中声明的 Measure：
+
+```python
+# models/semantic/sales/metrics.py
+import marivo.semantic as ms
+from .fields import amount
+
+@ms.metric()
+def revenue():
+    return amount.sum()
+```
+
+跨业务域、外部模型的语义依赖使用 `ms.ref.*`。不支持模型文件间的绝对导入；
+加载器不会将项目目录加入 `sys.path`。标准库和已安装依赖仍使用普通绝对导入。
+
+每次 `ms.load()` 都捕获独立快照，并在新的命名空间中重新加载相对导入的模型。
+它不会更新已有 Catalog、已初始化的 Session 或已捕获的分析。同一 Session
+并发首次访问只初始化一个 Catalog；失败后可以重试。模型模块保留到进程退出，
+因此长驻进程频繁重载会累计模块。普通依赖仍使用 Python 导入缓存；修改这些
+依赖或升级包后应重启 Python。
+
 ## Domain：所属业务域
 
 | 参数 | 必填 | 默认值 | 语义 |

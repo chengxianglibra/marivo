@@ -19,14 +19,13 @@ import types
 from collections.abc import Mapping, Sequence
 from contextvars import ContextVar
 from dataclasses import dataclass, field
-from hashlib import sha1
 from importlib import util as importlib_util
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, cast
 
 from ibis.common.deferred import Deferred
 
-from marivo._authoring.loading import _execution_diagnostic, _source_loading
+from marivo._authoring.loading import _execution_diagnostic, _new_module_prefix, _source_loading
 from marivo._definition.deferred import resolver_of, root_declaration
 from marivo._definition.types import InputContext
 from marivo.config import AUTHORED_DIR
@@ -268,20 +267,6 @@ def _filter_model_dirs(
         for name in sorted(missing)
     ]
     return filtered, warnings
-
-
-def _module_prefix(root: Path) -> str:
-    """Return a stable synthetic package prefix for this semantic root."""
-    digest = sha1(str(root.resolve()).encode("utf-8")).hexdigest()[:12]
-    return f"_marivo_semantic_{digest}"
-
-
-def _purge_synthetic_modules(prefix: str) -> None:
-    """Remove previously loaded synthetic modules for a reload-safe project load."""
-    descendant_prefix = prefix + "."
-    for name in list(sys.modules):
-        if name == prefix or name.startswith(descendant_prefix):
-            del sys.modules[name]
 
 
 def _ensure_package(name: str, path: Path) -> None:
@@ -850,8 +835,8 @@ def load_project(
     2. Build registry, validate, and assemble the loaded objects.
 
     When *models* is specified, only those domain directories are loaded.
-    Cross-domain references to filtered-out domains produce warnings instead
-    of errors, so the registry remains usable.
+    Filtered Relationship references may warn; unresolved required Metric
+    dependencies fail loading.
 
     Note: Each domain directory is expected to contain a ``_domain.py`` file
     that calls ``ms.domain(name=...)``.
@@ -908,79 +893,65 @@ def load_project(
     all_contexts: list[LoaderContext] = []
     all_model_dirs: list[Path] = []
     datasource_irs: list[DatasourceIR] = [default_datasource()]
-    path_entries: list[str] = []
-    module_prefixes: list[str] = []
 
     datasource_roots = tuple(spec.models_root for spec in root_specs)
     errors.extend(_wrap_datasource_error(error) for error in _models_root_errors(datasource_roots))
     if errors:
         return LoadResult(status="errored", errors=tuple(errors))
 
-    for root_spec in root_specs:
-        module_prefix = _module_prefix(root_spec.semantic_root)
-        module_prefixes.append(module_prefix)
-        _purge_synthetic_modules(module_prefix)
-        path_entry = str(root_spec.semantic_root.parent)
-        path_entries.append(path_entry)
-        sys.path.insert(0, path_entry)
+    module_prefixes = [_new_module_prefix("semantic") for _ in root_specs]
 
-    try:
-        for root_spec, module_prefix in zip(root_specs, module_prefixes, strict=True):
-            _ensure_package(module_prefix, root_spec.semantic_root)
-            all_model_dirs.extend(_discover_model_dirs(root_spec.semantic_root))
+    for root_spec, module_prefix in zip(root_specs, module_prefixes, strict=True):
+        _ensure_package(module_prefix, root_spec.semantic_root)
+        all_model_dirs.extend(_discover_model_dirs(root_spec.semantic_root))
 
-        datasource_result = _load_models_datasources(datasource_roots)
-        errors.extend(_wrap_datasource_error(error) for error in datasource_result.errors)
-        datasource_irs.extend(datasource_result.datasources)
+    datasource_result = _load_models_datasources(datasource_roots)
+    errors.extend(_wrap_datasource_error(error) for error in datasource_result.errors)
+    datasource_irs.extend(datasource_result.datasources)
 
-        model_dirs, filter_warnings = _filter_model_dirs(all_model_dirs, models)
-        warnings.extend(filter_warnings)
-        errors.extend(_domain_duplicate_errors(model_dirs))
+    model_dirs, filter_warnings = _filter_model_dirs(all_model_dirs, models)
+    warnings.extend(filter_warnings)
+    errors.extend(_domain_duplicate_errors(model_dirs))
 
-        prefix_by_semantic_root = {
-            root_spec.semantic_root: module_prefix
-            for root_spec, module_prefix in zip(root_specs, module_prefixes, strict=True)
-        }
+    prefix_by_semantic_root = {
+        root_spec.semantic_root: module_prefix
+        for root_spec, module_prefix in zip(root_specs, module_prefixes, strict=True)
+    }
 
-        for model_dir in model_dirs:
-            semantic_root = model_dir.parent
-            module_prefix = prefix_by_semantic_root[semantic_root]
-            ctx = _load_model_dir(
-                model_dir,
-                semantic_root,
-                errors,
-                module_prefix=module_prefix,
-                project_root=project_root or root.parent.parent,
-                datasource_irs=tuple(datasource_irs),
-            )
-            if ctx is not None:
-                all_contexts.append(ctx)
-
-        registry, expression_sidecar, assembly_errors = _build_registry(
-            all_contexts,
+    for model_dir in model_dirs:
+        semantic_root = model_dir.parent
+        module_prefix = prefix_by_semantic_root[semantic_root]
+        ctx = _load_model_dir(
+            model_dir,
+            semantic_root,
+            errors,
+            module_prefix=module_prefix,
+            project_root=project_root or root.parent.parent,
             datasource_irs=tuple(datasource_irs),
         )
-        errors.extend(assembly_errors)
+        if ctx is not None:
+            all_contexts.append(ctx)
 
-        errors.extend(_semantic_duplicate_errors(all_contexts))
-        loaded_models_set = {d.name for d in model_dirs} if models is not None else None
-        asm_errors, asm_warnings = assembly_validate(
-            registry, expression_sidecar, loaded_models=loaded_models_set
-        )
-        errors.extend(asm_errors)
-        warnings.extend(asm_warnings)
-        if not errors:
-            compilation_graph = CompilationGraph.create(registry, expression_sidecar)
-            errors.extend(
-                _publish_declarations(
-                    all_contexts, registry, expression_sidecar, graph=compilation_graph
-                )
+    registry, expression_sidecar, assembly_errors = _build_registry(
+        all_contexts,
+        datasource_irs=tuple(datasource_irs),
+    )
+    errors.extend(assembly_errors)
+
+    errors.extend(_semantic_duplicate_errors(all_contexts))
+    loaded_models_set = {d.name for d in model_dirs} if models is not None else None
+    asm_errors, asm_warnings = assembly_validate(
+        registry, expression_sidecar, loaded_models=loaded_models_set
+    )
+    errors.extend(asm_errors)
+    warnings.extend(asm_warnings)
+    if not errors:
+        compilation_graph = CompilationGraph.create(registry, expression_sidecar)
+        errors.extend(
+            _publish_declarations(
+                all_contexts, registry, expression_sidecar, graph=compilation_graph
             )
-
-    finally:
-        for path_entry in path_entries:
-            if path_entry in sys.path:
-                sys.path.remove(path_entry)
+        )
 
     status: Literal["ready", "errored"] = "ready" if not errors else "errored"
     filtered_models_tuple = tuple(d.name for d in model_dirs) if models is not None else ()

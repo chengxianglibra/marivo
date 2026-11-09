@@ -11,6 +11,33 @@ The short declarations are model-file fragments, not commands to paste into an a
 
 Configure physical access on the [Datasource configuration](/docs/latest/modeling/datasources/) page. [Date and time definitions](/docs/latest/modeling/dates/) owns temporal parsing and calendars. Parameter defaults below are Python API defaults; `None` does not imply a guessed business rule.
 
+## Model imports and independent loads
+
+Use relative imports between files in the same domain. For example, a Metric
+module can consume a Measure declared in its sibling `fields.py`:
+
+```python
+# models/semantic/sales/metrics.py
+import marivo.semantic as ms
+from .fields import amount
+
+@ms.metric()
+def revenue():
+    return amount.sum()
+```
+
+Use `ms.ref.*` for cross-domain or external-model dependencies. Model absolute
+imports are unsupported; the loader does not add project directories to `sys.path`.
+Standard-library and installed packages keep normal absolute imports.
+
+Each `ms.load()` captures an independent snapshot and reloads relative model
+imports in a fresh namespace. It does not update existing Catalogs, initialized
+Sessions or captured analyses. Concurrent first access to one Session initializes
+one Catalog; failed initialization can be retried. Loaded modules remain until
+process exit, so frequent reloads in a long-lived process accumulate modules.
+Ordinary dependencies retain Python's import cache; restart Python after changing
+those dependencies or upgrading packages.
+
 ## Domain — owning business scope
 
 | Parameter | Required | Default | Meaning |

@@ -123,8 +123,8 @@ class SemanticProject:
 
         When *domains* is specified, only those domain directories are loaded.
         Pass a single domain name as a string or a list of names.
-        Cross-domain references to filtered-out domains produce warnings instead
-        of errors, so the registry remains usable.
+        Filtered Relationship references may warn; unresolved required Metric
+        dependencies fail loading.
         """
         if isinstance(domains, str):
             domains = [domains]

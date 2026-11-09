@@ -134,11 +134,11 @@ def test_multiple_execution_failures_have_separate_tracebacks(tmp_path: Path) ->
     assert all(error.traceback is not None for error in caught.value.errors)
 
 
-def test_ghost_duplicate_names_missing_source_and_retains_python_cache(tmp_path: Path) -> None:
+def test_relative_import_reload_does_not_reuse_deleted_source(tmp_path: Path) -> None:
     a = _write(
         tmp_path,
         "datasources/a.py",
-        "import marivo.datasource as md\nmd.duckdb(name='local')\nfrom datasources.local import declare\ndeclare()\n",
+        "import marivo.datasource as md\nmd.duckdb(name='local')\nfrom .local import declare\ndeclare()\n",
     )
     local = _write(
         tmp_path,
@@ -146,37 +146,27 @@ def test_ghost_duplicate_names_missing_source_and_retains_python_cache(tmp_path:
         "import marivo.datasource as md\ndef declare():\n    return md.duckdb(name='local')\n",
     )
     first = load_project(tmp_path / "models" / "semantic")
-    assert any(error.kind == "duplicate_name" for error in first.errors)
-    cached_module = sys.modules["datasources.local"]
+    duplicate = next(error for error in first.errors if error.kind == "duplicate_name")
+    assert isinstance(duplicate.__cause__, DatasourceDuplicateError)
+    assert duplicate.__cause__.declaration_paths == (str(a.resolve()), str(local.resolve()))
+    cached = {
+        name: module
+        for name, module in sys.modules.copy().items()
+        if getattr(module, "__file__", None) == str(local)
+    }
+    assert cached
     caches = tuple((local.parent / "__pycache__").glob("local.*.pyc"))
     assert caches
     before = {path: path.read_bytes() for path in caches}
     local.unlink()
     second = load_project(tmp_path / "models" / "semantic")
-    duplicate = next(error for error in second.errors if error.kind == "duplicate_name")
-    assert isinstance(duplicate.__cause__, DatasourceDuplicateError)
-    paths = (str(a.resolve()), str(local.resolve()))
-    assert duplicate.__cause__.declaration_paths == paths
-    assert duplicate.semantic_refs == ("local", *paths)
-    assert duplicate.repair is not None
-    assert all(str(path.resolve()) in duplicate.repair.action for path in caches)
-    assert sys.modules["datasources.local"] is cached_module
+    assert second.status == "errored"
+    assert second.errors[0].exception_type == "ModuleNotFoundError"
+    assert isinstance(second.errors[0].__cause__, DatasourceLoadError)
+    assert isinstance(second.errors[0].__cause__.__cause__, ModuleNotFoundError)
+    assert all(error.kind != "duplicate_name" for error in second.errors)
+    assert all(sys.modules[name] is module for name, module in cached.items())
     assert {path: path.read_bytes() for path in caches} == before
-
-    fresh = subprocess.run(
-        [
-            sys.executable,
-            "-c",
-            "import json, sys\nfrom pathlib import Path\nfrom marivo.semantic.loader import load_project\nr = load_project(Path(sys.argv[1]) / 'models' / 'semantic')\nprint(json.dumps([(e.kind, e.exception_type) for e in r.errors]))\n",
-            str(tmp_path),
-        ],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-    failures = json.loads(fresh.stdout)
-    assert any(exception_type == "ModuleNotFoundError" for _, exception_type in failures)
-    assert all(kind != "duplicate_name" for kind, _ in failures)
 
 
 def test_orphan_bytecode_is_ignored_and_real_duplicates_still_fail(tmp_path: Path) -> None:
@@ -255,28 +245,3 @@ def test_live_load_help_discloses_restart_and_execution_diagnostics(
     assert marivo.help is marivo_help
     marivo_help(f"{surface}.load")
     help_text = capsys.readouterr().out
-
-
-@pytest.mark.parametrize("loader_name", ("marivo.semantic.loader", "marivo.datasource.loader"))
-@pytest.mark.parametrize("root_present", (False, True))
-def test_synthetic_purge_keeps_prefix_neighbors_and_removes_orphan_descendants(
-    loader_name: str, root_present: bool, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    from importlib import import_module
-    from types import ModuleType, SimpleNamespace
-
-    loader = import_module(loader_name)
-    prefix = "_marivo_test_owned"
-    neighbor = ModuleType(prefix + "_other")
-    names: dict[str, ModuleType | None] = {
-        prefix + ".child": ModuleType(prefix + ".child"),
-        prefix + ".child.failed": None,
-        prefix + "_other": neighbor,
-        "ordinary": ModuleType("ordinary"),
-    }
-    if root_present:
-        names[prefix] = ModuleType(prefix)
-    monkeypatch.setattr(loader, "sys", SimpleNamespace(modules=names))
-    loader._purge_synthetic_modules(prefix)
-    assert tuple(names) == (prefix + "_other", "ordinary")
-    assert names[prefix + "_other"] is neighbor

@@ -216,3 +216,12 @@ remain available through ``marivo.help(type(value))``. Construct scopes with
 ``partition``, ``time_range`` or ``unpruned``; their record classes are not root
 module exports. Source descriptors likewise come from ``table``, ``csv``,
 ``parquet``, ``json`` and ``source_param`` rather than direct IR construction.
+
+Declaration imports
+-------------------
+
+Each declaration read uses fresh namespaces and supports relative imports such as
+``from .settings import WAREHOUSE_PATH`` without changing ``sys.path``. Model
+absolute imports are unsupported; installed dependencies use ordinary imports.
+Modules remain until process exit. A DatasourceCatalog retains its workspace and
+reads current declarations on each operation; it does not freeze a semantic snapshot.

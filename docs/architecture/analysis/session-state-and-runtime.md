@@ -8,7 +8,12 @@ complete data; publication commits that existing result. The
 ## Session and invocation ownership
 
 Session binds project Store identity, frozen timezone, Catalog/source construction
-and invocation-local services. Frames retain exact local ownership without
+and invocation-local services. Each Session serializes its own first semantic
+initialization, publishing the Catalog and source owner only after both are ready.
+Failure leaves initialization retryable. Different Sessions may load concurrently
+and retain independent snapshots; an explicit project reload never updates an
+already initialized Session. This initialization guarantee does not establish
+thread safety for arbitrary Session operations. Frames retain exact local ownership without
 capturing the producer Session/Catalog, source connection or bound callback.
 Frame/Column/FrameAxis dependencies stay alive while consumers need them; no
 Session result cache, automatic eviction/spill or public close/unpersist is added.

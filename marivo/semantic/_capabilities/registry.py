@@ -2673,7 +2673,8 @@ def _build_registry() -> SemanticCapabilityRegistry:
             output="SemanticCatalog",
             effects=_LOCAL,
             preconditions=(
-                "Restart Python after package upgrades or model edits/deletions; ordinary imports are not guaranteed to hot-reload.",
+                "Each declaration load uses fresh namespaces for relative model imports, without modifying sys.path; modules remain until process exit. Model absolute imports are unsupported.",
+                "Restart Python after package upgrades or ordinary dependency changes; ordinary imports retain Python module caching.",
                 "Execution failures expose exception_type and the complete original traceback.",
             ),
             example="catalog = ms.load()\ncatalog.show()",
