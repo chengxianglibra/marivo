@@ -42,7 +42,7 @@ def run(root: Path, phase: str, output: Path) -> None:
             assert [None if pd.isna(value) else value for value in values] == [2, None, 4]
             assert frame["value"].sum() == 6
             assert frame.loc[frame["value"] > 0].shape[0] == 2
-            result.show(n=1)
+            result.show()
         assert len(terminal_runs(session)) == before
         assert session._runtime.store.resources(session.id) == ()
     output.write_bytes(encode({"pid": os.getpid(), "phase": phase}))

@@ -413,9 +413,9 @@ def test_source_fact_filters_and_special_complete_keys_are_lossless(
     long_value = "x" * 6000 + tail
     candidates = (*(f"choice_{index}_abcdefgh" for index in range(400)), "Web", long_value)
     source = _observe(session, where=channel.isin(candidates))
-    source.show(n=0)
+    source.show()
     card = capsys.readouterr().out
-    assert len(card.encode("utf-8")) <= 8192
+    assert "backing=expression" in card
     fixed = source.compute()
     assert fixed.to_pandas()["ratio"].tolist() == [10]
     entity = catalog_value(session.catalog, "sales.facts", kind="entity")
@@ -542,7 +542,7 @@ def test_source_top_keeps_entire_frozen_calendar_directory(
 
     freeze = Mock(wraps=frame_calendar.freeze_calendar)
     monkeypatch.setattr(frame_calendar, "freeze_calendar", freeze)
-    source.show(n=20)
+    source.show()
     result = source.top(1, by=source["sales"]).compute()
     assert _memory(result).data.row_count == 1
     (directory,) = _memory(result).data.copy_attachments()
@@ -746,7 +746,7 @@ def test_membership_source_audit_survives_fixed_and_persisted_results_without_re
             "marivo.analysis.materialization.frame_source_preparation.open_query_sources", forbidden
         )
         guard.setattr("marivo.datasource.runtime.DatasourceConnectionConfig.operation", forbidden)
-        pending.show(n=0)
+        pending.show()
     card = capsys.readouterr().out
     fixed = pending.compute()
     assert fixed.to_pandas()["revenue"].tolist() == [20, 10]

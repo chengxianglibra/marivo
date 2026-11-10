@@ -237,7 +237,7 @@ def test_task_context_budget(analysis_dsl_case_factory: DslCaseFactory) -> None:
 
 @pytest.mark.slow
 def test_attribute_context_budget(analysis_dsl_case_factory: DslCaseFactory) -> None:
-    """Charge the new source-to-facts journey separately from historical savings."""
+    """Charge guidance separately from the unbounded completed data table."""
     case = analysis_dsl_case_factory("j2")
     session = case.session
     revenue = catalog_value(session.catalog, "sales.revenue", kind="metric")
@@ -257,9 +257,12 @@ def test_attribute_context_budget(analysis_dsl_case_factory: DslCaseFactory) -> 
     comparison = current.compare({"reference": mv.baseline(baseline, match=mv.ordinal())}).compute()
     targets = comparison.select({"revenue": comparison["reference.absolute.revenue"]})
     request = targets.attribute(by=(region,))
-    trace.read("attribute captured request", lambda: request.show(n=0))
+    trace.read("attribute captured request", lambda: request.show())
     fixed = request.compute()
-    trace.read("attribute fixed values", fixed.show)
+    output = StringIO()
+    with redirect_stdout(output):
+        fixed.show()
+    assert fixed.to_pandas().to_string() in output.getvalue()
     trace.help("analysis.analysis_frame.method_facts")
     trace.help("analysis.frame_method_facts")
     facts = fixed.method_facts

@@ -147,7 +147,7 @@ import marivo.analysis as mv
 
 scope = session.time_scope(start="2026-07-01", end="2026-08-01")
 observed = session.observe({"revenue": revenue}, by=(scope.by(mv.grain("day")),)).compute()
-observed.show(n=10)
+observed.show()
 ```
 
 A TimeScope in where selects contributions using each branch's fixed clock,

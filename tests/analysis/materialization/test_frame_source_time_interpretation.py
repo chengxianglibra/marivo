@@ -83,7 +83,7 @@ def test_source_time_facts_are_resolved_only_on_compute_and_preserved_on_fixed_o
         no_source.setattr(SourceSession, "__enter__", forbidden)
         assert pending.schema.source_times == ()
         pending.schema.show()
-        pending.show(n=0)
+        pending.show()
     fixed = pending.compute()
     facts = fixed.schema.source_times
     assert tuple((fact.axis, fact.kind, fact.consumption_timezone) for fact in facts) == (
@@ -112,7 +112,7 @@ def test_source_time_facts_are_resolved_only_on_compute_and_preserved_on_fixed_o
     assert reduced.compute().schema.source_times == facts
     assert fixed.align(fixed).compute().schema.source_times == facts
     assert fixed.compare(fixed).compute().schema.source_times == facts
-    fixed.show(n=0)
+    fixed.show()
     output = capsys.readouterr().out
     assert fixed.persist().schema.source_times == facts
 

@@ -1661,38 +1661,21 @@ class AnalysisFrame:
             time_details=time_details,
         )
 
-    def show(self, *, n: int = 20, max_output_bytes: int | None = 8192) -> None:
-        """Display current metadata and a bounded fixed-data prefix without evaluation.
-
-        Args:
-            n: Nonnegative integer excluding bool, default 20; zero is metadata only.
-            max_output_bytes: Positive UTF-8 budget including the printed newline, or None.
+    def show(self) -> None:
+        """Display current metadata and complete fixed data without evaluation.
 
         Returns:
-            None; prints structure, captured value-column metadata, bounded source-read
-            summaries and an available fixed-data preview.
+            None; prints structure, captured value-column metadata, source-read
+            summaries and available fixed data using pandas formatting.
 
         Example:
-            ``saved.show(n=0)``.
+            ``saved.show()``.
 
-        Constraints: Pending display never prepares schema; positive stored previews bound
-        decoded output, not receipt hashing or Parquet IO. n=0 reads only metadata,
-        including commit time for stored roots. Source-read summaries use captured metadata only. No publication, full-export/head, ancestor
-        rows, complete-result cache or fallback after a read error. Method facts
-        show only counts/origins and a .method_facts pointer; no method payload read.
+        Constraints: Pending display never evaluates or prepares schema. Stored data is
+        read in full; source-read summaries use captured metadata. No publication,
+        ancestor rows, complete-result cache or fallback after a read error. Method
+        facts show only counts/origins and a .method_facts pointer; no method payload read.
         """
-        if type(n) is not int or n < 0:
-            reject(
-                "a nonnegative integer preview count",
-                repr(n),
-                "Use n=0 for metadata only.",
-                "frame.show",
-                canonical_id="analysis_frame.show",
-            )
-        if max_output_bytes is not None and (
-            type(max_output_bytes) is not int or max_output_bytes < 1
-        ):
-            raise ValueError("max_output_bytes must be a positive integer or None")
         from marivo.render import Card
 
         available = (
@@ -1705,9 +1688,6 @@ class AnalysisFrame:
         card = Card(
             identity=repr(self),
             available=(*available, *((".schema.alignments",) if self._schema.alignments else ())),
-            omission_recovery="max_output_bytes=None; .schema/.lineage for metadata; .compute()/.to_pandas() for data"
-            if isinstance(self._backing, ExpressionFrameBacking)
-            else "max_output_bytes=None; .schema/.lineage for metadata; .read_page()/.to_pandas() for data",
         )
         card.field("presence", repr(self.presence_names))
         value_columns: tuple[DataColumn | PendingDataColumn, ...] = self._schema.values
@@ -1839,7 +1819,7 @@ class AnalysisFrame:
                     card.field("anchors", repr(anchors))
             card.field("rows", "pending; no input rows read")
         else:
-            from marivo.analysis.materialization.pandas_export import preview_table
+            from marivo.analysis.materialization.pandas_export import export_frame
 
             if isinstance(self._backing, MemoryFrameBacking):
                 total = self._backing.data.row_count
@@ -1906,36 +1886,16 @@ class AnalysisFrame:
                     else ".persist().source_reads",
                 )
             card.field("rows", str(total))
-            if n and total:
-                count = min(n, total)
-                if isinstance(self._backing, MemoryFrameBacking):
-                    from marivo.analysis.materialization.frame_paging import memory_preview
-
-                    prefix = memory_preview(self._backing.data, count)
-                    rows, attachments = prefix.rows, prefix.attachments
-                else:
-                    prefix = self._local.preview(self._backing, count)
-                    rows, attachments = prefix.rows, prefix.attachments
-                assert isinstance(self._schema, DataSchema)
-                columns, display_rows = preview_table(self._schema, rows, attachments)
-                if total > count:
-                    card.field("row_limit", f"n={n}; use .show(n={total}) to request all rows")
-                card.table(
-                    columns,
-                    display_rows,
-                    row_count=total,
-                    show_omission_counts=True,
-                    report_rows=True,
-                    bounded_row_limit=count,
-                    recovery=f".show(n={total}, max_output_bytes=None)",
-                )
-            elif n:
-                card.status("preview rows: total=0 displayed=0 omitted=0; empty result")
-                card.field("preview", "empty result")
-            else:
-                card.status(f"preview rows: total={total} displayed=0 omitted={total}; n=0")
-                card.field("preview", f"omitted by n=0; shown=0; omitted={total}")
-        print(card.render(max_output_bytes=max_output_bytes, _include_newline=True))
+            data = (
+                self._backing.data
+                if isinstance(self._backing, MemoryFrameBacking)
+                else self._local.read_data(self._backing)
+            )
+            table = export_frame(
+                data.schema, data.copy_rows(), data.copy_attachments(), validate_names=False
+            )
+            card.field("data", "\n" + table.to_string(max_rows=None, max_cols=None))
+        print(card.render(max_output_bytes=None))
 
 
 def _column_type_summary(column: DataColumn | PendingDataColumn) -> str:

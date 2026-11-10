@@ -39,7 +39,7 @@ result = session.observe(
     revenue,
     by=(period.by(mv.grain("day")),),
 ).compute()
-result.show(n=31)
+result.show()
 ```
 
 The range includes August 1 and excludes September 1 in the Session timezone.

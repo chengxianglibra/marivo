@@ -128,7 +128,6 @@ assert table["reference.absolute.revenue"].tolist() == [-100, -100]
 assert table["current.present"].all()
 assert table["reference.present"].all()
 saved.show()
-saved.show(n=0)  # Commit and source-read metadata only.
 reopened = session.persisted_frame(saved.artifact_id)
 assert reopened.to_pandas().equals(table)
 saved_session_id = session.id
@@ -185,7 +184,7 @@ regional.show()
 
 读取单条记录时，向 `session.read` 提供完整实体身份与命名字段。[对象选择指南](/zh-cn/docs/latest/analysis/dsl/#选择与筛选)提供可运行的订单示例。
 
-`show()` 展示有界视图，`to_pandas()` 返回完整独立副本。Column 和 FrameAxis 句柄属于确切 Frame；派生新输入后应重新取得它们，不应复用旧输入的句柄。
+`show()` 用 pandas 格式展示全部固定行，`to_pandas()` 返回完整独立副本。Column 和 FrameAxis 句柄属于确切 Frame；派生新输入后应重新取得它们，不应复用旧输入的句柄。
 
 `to_pandas()` 每次调用会对待计算 Frame 求值一次，包括 `fixed.select(...)` 等惰性派生，再返回完整的隔离 DataFrame。它不修改原 Frame、不缓存结果、不自动保存。重复导出待计算来源表达式可能读取变化后的数据。多个视图需要复用同一批值时，先保留 `fixed = frame.compute()`，再从 `fixed` 派生。短组合示例见 `analysis.analysis_frame.compute`、`analysis.analysis_frame.reduce` 和 `analysis.analysis_frame.over`。
 

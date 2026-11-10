@@ -6,6 +6,7 @@ from pathlib import Path
 
 import duckdb
 import pandas as pd
+import pyarrow as pa
 import pytest
 
 import marivo.semantic as ms
@@ -15,7 +16,6 @@ from marivo.analysis.core.frame_data import (
     CompletedFrameData,
     CompletedFrameResult,
     MemoryFrameBacking,
-    StoredFrameBacking,
 )
 from marivo.analysis.core.frame_metadata import EvaluationRecord, FrameResultMetadata
 from marivo.analysis.core.lineage import empty as empty_lineage
@@ -25,7 +25,6 @@ from marivo.analysis.dsl.frame import AnalysisFrame
 from marivo.analysis.dsl.frame_sources import values
 from marivo.analysis.materialization.admission import DatasetRuntime
 from marivo.analysis.materialization.frame_services import LocalFrameServices
-from marivo.analysis.materialization.graph_reading import FramePreview
 from tests.shared_fixtures import DslCaseFactory, catalog_value, terminal_runs
 from tests.support.source_trace import capture_source
 
@@ -125,7 +124,7 @@ def test_pending_export_rereads_sources_while_computed_inputs_keep_fixed_values(
     trace = capture_source(monkeypatch)
     assert pending.schema.values["value"].unit == "CNY"
     assert "backing=expression" in repr(pending)
-    pending.show(n=0)
+    pending.show()
     assert "CNY" in capsys.readouterr().out
     assert trace.native_sql == []
     first = pending.to_pandas(axis_names={pending.axes[0].token: "area"})
@@ -261,37 +260,18 @@ def test_select_rejects_non_mapping_with_structured_repair(
     assert error.repair.help_target.canonical_id == "analysis_frame.select"
 
 
-def test_show_is_metadata_only_for_pending_and_n_zero(
+def test_show_does_not_evaluate_pending_frame(
     local: LocalFrameServices, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    from marivo.analysis.materialization import frame_paging
-    from marivo.analysis.materialization.graph_reading import FramePreview
-
     root = _memory(local)
-    calls: list[int] = []
-    copied: list[pd.DataFrame] = []
-    original = frame_paging.memory_preview
-
-    def preview(data: CompletedFrameData, n: int) -> FramePreview:
-        calls.append(n)
-        result = original(data, n)
-        copied.append(result.rows)
-        return result
-
-    monkeypatch.setattr(frame_paging, "memory_preview", preview)
-    root.show(n=0)
-    capsys.readouterr()
     pending = root.select({"new": root["value"] + 1})
-    pending.show(n=10)
+
+    def forbidden(*args: object, **kwargs: object) -> None:
+        raise AssertionError("show must not evaluate pending data")
+
+    monkeypatch.setattr(AnalysisFrame, "compute", forbidden)
+    pending.show()
     assert "- .to_pandas()" in capsys.readouterr().out
-    assert calls == []
-    assert calls == []
-    root.show(n=1)
-    assert calls == [1]
-    assert len(copied[0]) == 1
-    assert copied[0]["key.0"].tolist() == ["B"]
-    assert copied[0]["value.0"].tolist() == [10]
-    assert copied[0]["presence.0"].tolist() == [False]
 
 
 def test_show_discloses_value_types_units_and_nullability(
@@ -308,7 +288,7 @@ def test_show_discloses_value_types_units_and_nullability(
         (fixed, ("int64", "float64", "int64"), "False"),
         (fixed.persist(), ("int64", "float64", "int64"), "False"),
     ):
-        frame.show(n=0, max_output_bytes=None)
+        frame.show()
         lines = capsys.readouterr().out.splitlines()
         for name, dtype, unit in zip(
             ("revenue", "ratio", "count"), expected_types, ("'USD'", "'1'", "None"), strict=True
@@ -322,25 +302,29 @@ def test_show_bounds_value_metadata_and_points_to_complete_schema(
 ) -> None:
     columns = {f"column_{i}": "USD" for i in range(12)}
     frame = values(local, columns=columns, rows=(((), dict.fromkeys(columns, 1)),))
-    frame.show(n=0)
+    frame.show()
     output = capsys.readouterr().out
-    assert len(output.encode("utf-8")) <= 8192
     assert "omitted" in output
     assert ".schema.values" in output
     assert tuple(frame.schema.values) == tuple(columns)
 
 
-def test_show_respects_row_and_byte_limits_with_exact_counts(
-    local: LocalFrameServices, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+def test_show_prints_all_rows_with_pandas_format_for_memory_and_stored(
+    local: LocalFrameServices, capsys: pytest.CaptureFixture[str]
 ) -> None:
     key = DataColumn("key", "cluster", ScalarDataType("string"), False)
-    value = DataColumn("value", "value", ScalarDataType("int64"), False)
+    value = DataColumn("value", "value", ScalarDataType("float64"), False)
     schema = DataSchema(
         (DataAxis("cluster", (key,), name="cluster"),), (value,), value_paths=(("value",),)
     )
     data = CompletedFrameData(
         schema,
-        pd.DataFrame({"key": [f"cluster-{i:02d}" for i in range(26)], "value": list(range(26))}),
+        pd.DataFrame(
+            {
+                "key": [f"cluster-{i:02d}-" + "x" * 400 for i in range(26)],
+                "value": [i + 0.123456789 for i in range(26)],
+            }
+        ),
     )
     frame = AnalysisFrame._from_memory(
         local,
@@ -348,64 +332,55 @@ def test_show_respects_row_and_byte_limits_with_exact_counts(
             data, replace(_memory_metadata(local), lineage=empty_lineage(data.schema))
         ),
     )
-    frame.show()
-    default = capsys.readouterr().out
-    frame.show(max_output_bytes=None)
-    row_limited = capsys.readouterr().out
-    combined_budget = len(row_limited.encode("utf-8"))
-    frame.show(max_output_bytes=combined_budget)
-    combined = capsys.readouterr().out
-    assert len(combined.encode("utf-8")) <= combined_budget
-    frame.show(n=26, max_output_bytes=None)
-    complete = capsys.readouterr().out
-    exact_budget = len(complete.encode("utf-8"))
-    frame.show(n=26, max_output_bytes=exact_budget)
-    assert len(capsys.readouterr().out.encode("utf-8")) <= exact_budget
-    frame.show(n=26, max_output_bytes=exact_budget - 1)
-    shorter = capsys.readouterr().out
-    assert len(shorter.encode("utf-8")) <= exact_budget - 1
-    frame.show(n=26, max_output_bytes=900)
-    bounded = capsys.readouterr().out
-    assert len(bounded.encode("utf-8")) <= 900
-    with pytest.raises(ValueError):
-        frame.show(n=26, max_output_bytes=1)
-    saved = frame.persist()
-    requests: list[int] = []
-    original = LocalFrameServices.preview
-
-    def preview(self: LocalFrameServices, backing: StoredFrameBacking, n: int) -> FramePreview:
-        requests.append(n)
-        return original(self, backing, n)
-
-    monkeypatch.setattr(LocalFrameServices, "preview", preview)
-    saved.show(n=0)
-    assert requests == []
-    saved.show(n=26, max_output_bytes=None)
-    assert requests == [26]
-
-
-@pytest.mark.parametrize("empty", (False, True))
-def test_show_metadata_only_preserves_row_counts_at_byte_limit(
-    local: LocalFrameServices,
-    capsys: pytest.CaptureFixture[str],
-    monkeypatch: pytest.MonkeyPatch,
-    empty: bool,
-) -> None:
-    frame = _memory(local)
-    if empty:
-        frame = frame.top(0, by=frame["value"]).compute()
-    saved = frame.persist()
-
-    def forbidden(*args: object, **kwargs: object) -> None:
-        raise AssertionError("metadata-only display must not read row or coordinate payloads")
-
-    monkeypatch.setattr(CompletedFrameData, "preview_rows", forbidden)
-    monkeypatch.setattr(CompletedFrameData, "copy_attachments", forbidden)
-    monkeypatch.setattr(LocalFrameServices, "preview", forbidden)
-    for root in (frame, saved):
-        root.show(n=20 if empty else 0, max_output_bytes=500)
+    expected = pd.DataFrame(
+        {
+            "cluster": [f"cluster-{i:02d}-" + "x" * 400 for i in range(26)],
+            "value": [i + 0.123456789 for i in range(26)],
+        }
+    ).to_string()
+    for root in (frame, frame.persist()):
+        root.show()
         output = capsys.readouterr().out
-        assert len(output.encode("utf-8")) <= 500
+        assert expected in output
+        assert len(output.encode("utf-8")) > 8192
+        assert "cluster-25" in output
+
+
+def test_show_uses_pandas_for_null_and_special_character_display(
+    local: LocalFrameServices, capsys: pytest.CaptureFixture[str]
+) -> None:
+    key = DataColumn("key", "label", ScalarDataType("string"), False)
+    value = DataColumn("value", "value", ScalarDataType("float64"), True)
+    schema = DataSchema(
+        (DataAxis("label", (key,), name="label"),), (value,), value_paths=(("value",),)
+    )
+    input_rows = pd.DataFrame(
+        {
+            "key": ["a|b", "line\nbreak", "nan"],
+            "value": pd.arrays.ArrowExtensionArray(
+                pa.array([1.23456789, None, float("nan")], type=pa.float64())
+            ),
+        }
+    )
+    data = CompletedFrameData(schema, input_rows)
+    frame = AnalysisFrame._from_memory(
+        local,
+        CompletedFrameResult(
+            data, replace(_memory_metadata(local), lineage=empty_lineage(data.schema))
+        ),
+    )
+    expected = pd.DataFrame(
+        {
+            "label": pd.arrays.ArrowExtensionArray(
+                pa.array(["a|b", "line\nbreak", "nan"], type=pa.large_string())
+            ),
+            "value": pd.arrays.ArrowExtensionArray(
+                pa.array([1.23456789, None, float("nan")], type=pa.float64())
+            ),
+        }
+    ).to_string()
+    frame.show()
+    assert expected in capsys.readouterr().out
 
 
 def test_export_values_are_isolated(local: LocalFrameServices) -> None:
@@ -551,8 +526,9 @@ def test_flat_export_aliases_conflicts_and_preview(
     assert rows["customer_region"].tolist() == ["B", "A"]
     assert rows["region"].tolist() == [10, 100]
     assert rows["right_present"].tolist() == [False, True]
-    frame.show(n=1)
+    frame.show()
     preview = capsys.readouterr().out
+    assert rows.rename(columns={"customer_region": "region"}).to_string() in preview
 
 
 def test_string_export_alias_survives_compute_and_rejects_invalid_requests(

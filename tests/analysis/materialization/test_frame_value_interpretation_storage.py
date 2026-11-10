@@ -151,7 +151,6 @@ assert json.loads(json.dumps({name: asdict(c) for name, c in schema.value_contex
 assert json.loads(json.dumps([asdict(a) for a in schema.alignments], default=str, sort_keys=True)) == expected['alignments']
 assert all(a.input_id == schema.input_id for a in schema.alignments)
 schema.show()
-saved.show(n=0)
 OutputRead._open = open_payload
 FrameReader.data = read_data
 derived = saved.select({'doubled': saved['left.share'] * 2}).compute()

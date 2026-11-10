@@ -481,8 +481,8 @@ def cold(project: Path) -> dict[str, object]:
         receipts = _numeric_receipts(saved, exports)
         assert receipts == state["snapshots"]
         for name, result in saved.items():
-            result.show(n=1)
-            result.show(n=0)
+            result.show()
+            result.show()
             assert isinstance(result.source_reads, tuple)
             continued = result.select({"value": result["value"]}).compute()
             pd.testing.assert_frame_equal(continued.to_pandas(), exports[name])

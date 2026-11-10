@@ -532,6 +532,3 @@ def test_schema_and_frame_cards_disclose_bounded_alignment_directory_without_row
         current.schema.show()
         schema_card = capsys.readouterr().out
         assert len(schema_card.encode()) <= 8192
-        current.show(n=0)
-        frame_card = capsys.readouterr().out
-        assert len(frame_card.encode()) <= 8192

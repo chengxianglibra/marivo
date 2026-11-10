@@ -251,8 +251,8 @@ def saved_read(project: Path) -> dict[str, object]:
     assert receipt == obj(state["snapshots"])["value"]
     assert run_count() == before
     assert session._runtime.store.resources(session.id) == ()
-    artifact.show(n=0)
-    artifact.show(n=0)
+    artifact.show()
+    artifact.show()
     assert not any(
         name == root or name.startswith(root + ".")
         for root in DRIVERS.values()

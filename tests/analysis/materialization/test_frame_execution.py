@@ -92,7 +92,7 @@ def test_completed_chain_and_memory_page_do_not_rescan_proven_keys(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from marivo.analysis.core import data_validation, frozen_calendar
-    from marivo.analysis.materialization.frame_paging import memory_preview
+    from marivo.analysis.materialization.frame_paging import _memory_range
 
     data = _data()
 
@@ -110,7 +110,7 @@ def test_completed_chain_and_memory_page_do_not_rescan_proven_keys(
     assert _keys(rows) == [None, "B"]
     assert rows["value.0"].tolist() == [40, 30]
     completed = CompletedFrameData(data.schema, data.copy_rows(), unique_keys=data.unique_keys)
-    page = memory_preview(completed, 2)
+    page, _ = _memory_range(completed, 0, 2, completed.schema.columns)
     assert _keys(page.rows) == ["C", "A"]
     page.rows.loc[0, "a"] = 999
     assert completed.copy_rows()["a"].tolist() == [10, 10, pd.NA, 5]

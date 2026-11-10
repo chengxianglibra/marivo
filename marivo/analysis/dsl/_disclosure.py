@@ -605,20 +605,14 @@ def provider() -> DisclosureProvider:
             AnalysisFrame,
             "analysis_frame",
             "show",
-            (
-                P("n", "Nonnegative integer, excluding bool; default 20, or 0 for metadata only."),
-                P(
-                    "max_output_bytes",
-                    "Positive UTF-8 display budget including the newline, or None for no byte limit; n still applies.",
-                ),
-            ),
+            (),
             "None",
-            "Print captured structure and value-column metadata, bounded source-read summaries and an existing result prefix without evaluation.",
-            "result = frame.show(n=0)",
+            "Print captured structure and metadata, and the complete fixed data as a pandas table without evaluating pending inputs.",
+            "result = frame.show()",
             ("frame",),
             "results.inspect",
             (
-                "Validate controls before reads. Pending cards never evaluate. n=0: metadata only. Positive previews show complete rows and columns with exact omission counts; use show(n=26, max_output_bytes=None) for 26 untruncated rows. Completed cards summarize inputs/operations, actual source-read counts and a bounded summary; stored cards add committed identity/time. No method payload reads. Positive previews resolve coordinates; receipt hashing may read whole files. Unread data is not certified.",
+                "Pending cards never evaluate. Completed cards summarize inputs/operations and actual source reads, and display all fixed rows using pandas formatting; stored cards add committed identity/time and read the complete saved data. No method payload reads. Pandas formatting can raise OverflowError for composite temporal coordinates outside Python's date range.",
             ),
         ),
         (
@@ -742,8 +736,6 @@ def provider() -> DisclosureProvider:
                     if owner is CalendarAxis and name == "shift"
                     else "ValueError: choose compatible frozen scope, Grain and calendar bounds."
                     if owner is TimeScope and name == "by"
-                    else "AnalysisError: repair an invalid n. ValueError: use a positive byte budget or None; a too-small budget reports the minimum."
-                    if owner is AnalysisFrame and name == "show"
                     else "AnalysisError: follow its repair."
                     if owner is AnalysisFrame and name in ("compute", "to_pandas")
                     else "AnalysisError: follow the concrete expected/received facts and repair.",

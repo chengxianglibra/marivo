@@ -88,9 +88,10 @@ must be a string. Every Frame exposes its captured ``session_id``. Stored roots
 expose ``artifact_id`` and ``source_reads`` directly.
 Pending and memory Frames require ``persist()`` for commit identity and source-read metadata.
 Identity attributes perform no Store reads. There is no public Artifact wrapper.
-``show(n=20, max_output_bytes=8192)`` combines metadata, source-read summaries and a
-whole-row preview with exact omission counts. ``show(n=0)`` reads metadata only;
-``max_output_bytes=None`` removes the byte limit while preserving the row limit.
+``show()`` combines metadata and source-read summaries with all fixed rows in
+pandas table format. Pending Frames show captured facts without evaluation. Pandas
+formatting can raise ``OverflowError`` for composite temporal coordinates outside
+Python's date range.
 ``schema`` returns captured immutable fields, exact types, complete axis keys and
 export layout without Store or payload I/O. Its ``fixed_axes``, ``value_contexts``,
 ``alignments``, ``comparisons`` and ``decompositions`` expose only current result
@@ -341,11 +342,10 @@ uses COUNT(DISTINCT), or ClickHouse uniqExact. Unsupported operations/types fail
 before business reads; no source-ranked simulation or exact/approximate
 substitution is performed.
 
-``show(n=0)`` reads captured metadata and bounded source-read summaries only,
-including stored commit time and inputs/operations; it reads no method payloads. Positive show decodes the
-saved prefix plus needed frozen coordinate records, without full export/head.
-Receipt verification or Parquet decompression can read more than that prefix.
-Stored-root ``to_pandas()`` validates complete current data and its required attachments.
+``show()`` includes captured metadata and source-read summaries, including stored
+commit time and inputs/operations; it reads no method payloads. On a stored Frame,
+it reads complete saved data and required coordinates. Stored-root ``to_pandas()``
+validates complete current data and its required attachments.
 ``method_facts`` explicitly reads complete immutable original explanation facts;
 on stored Frames it validates only the owned method payloads, without primary
 rows, Catalog or source access. Pending access requires compute/persist first.
@@ -366,13 +366,13 @@ Paired time axes use left/right prefixes. Composite identities remain tuples.
 FrameAxis keys are rejected. Duplicate output names fail before payload reads.
 Full and paged exports share these rules; cursors bind time_details as well.
 Compute/persist remains explicit. Exported tables cannot reenter computation.
-Bounded previews use the same default coordinate interpretation.
+Show uses the same default coordinate interpretation.
 
 Merged interval axes with multiple boundary timezones use UTC timestamps.
 The common export timezone is captured in the interval descriptor, including for
 empty pages. Fixed offsets with nonzero seconds also export in UTC without
 changing instants; zero seconds normalize to minute offsets. This applies to
-detail columns, pages and previews. Original zones remain in frozen metadata.
+detail columns, pages and show. Original zones remain in frozen metadata.
 
 The interval descriptor now requires a ``timezone`` field. Frozen boundary data
 is unchanged; older interval descriptor formats have no compatibility reader or

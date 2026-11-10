@@ -299,24 +299,22 @@ inspection or caller selection. Open a selected `artifact_id` through the
 existing `persisted_frame(id)` and inspect its schema, lineage or saved evidence.
 The directory does not establish which tool invocation created a candidate.
 
-## Metadata opening, preview and complete export
+## Metadata opening, complete display and paged export
 
 Pending Frame.show discloses captured structure and pending operations without
-parent row reads/schema preparation. All show calls validate nonnegative integer
-n (excluding bool) before reads. Memory/stored show(n=0) gives metadata only;
-Completed cards include bounded inputs/operations and actual source-read summaries;
-stored cards add commit time and a source_reads pointer. Summaries never load
-method payloads, Parquet or coordinate attachments.
+parent row reads or schema preparation. Completed show displays all fixed rows
+with pandas formatting and includes inputs/operations and actual source-read
+summaries; stored cards add commit time and a source_reads pointer. A stored show
+reads complete saved data and required coordinates, without loading method payloads
+or accessing sources.
 
-Positive show and read_page share the internal ordered range reader and resolve
-only necessary coordinates. They validate consumed file receipts, selected field
-physical types/nullability/numeric constraints, page-local complete keys,
-unique required coordinate resolution and required presence relations. They do
+read_page resolves only necessary coordinates and validates consumed file receipts,
+selected field physical types/nullability/numeric constraints, page-local complete
+keys, unique required coordinate resolution and required presence relations. It does
 not certify cross-page uniqueness, unread semantic fields/rows or the complete
 calendar domain/mapping. A consumed file's receipt mismatch fails even when the
 changed bytes belong to an unreturned row. No full-export/head, sampling, silent
-fallback or cached prefix may replace a bounded read. show's nonnegative n is
-independent of read_page's 10000-row page limit.
+fallback or cached prefix may replace a bounded read.
 
 read_page always retains full axis keys and readable coordinates, with optional
 full-name value/presence projection. Primary reads use selected columns and

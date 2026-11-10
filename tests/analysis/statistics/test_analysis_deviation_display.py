@@ -104,7 +104,7 @@ def test_saved_result_order_and_primary_receipt_are_required_for_preview(
     try:
         reopened = case.session.persisted_frame(artifact.artifact_id)
         with pytest.raises(AnalysisError):
-            reopened.show(n=3)
+            reopened.show()
         assert run_ids(case.session) == before
     finally:
         path.write_bytes(payload)

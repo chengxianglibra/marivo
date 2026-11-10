@@ -81,7 +81,7 @@ def test_member_construction_is_lazy_and_execution_retains_complete_keys(
         for record in submitted
     )
     capsys.readouterr()
-    captured.show(n=1)
+    captured.show()
     preview = capsys.readouterr().out
     assert len(frame) == 4
     saved = captured.persist()

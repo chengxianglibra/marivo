@@ -494,7 +494,7 @@ def journey(phase: str, project: Path, scenario_name: str, source: str) -> dict[
                 assert derived == state["derived"]
                 assert len(terminal_runs(session)) == before
         saved = artifacts["value"]
-        saved.show(n=2)
+        saved.show()
         assert all(callable(getattr(saved, name)) for name in ("where", "compare", "reduce"))
         before = len(terminal_runs(session))
         if "value" in saved.output_names:

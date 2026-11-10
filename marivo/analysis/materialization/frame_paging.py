@@ -166,12 +166,6 @@ def _memory_range(
     )
 
 
-def memory_preview(data: CompletedFrameData, n: int) -> FramePreview:
-    """Copy only the requested prefix and its necessary frozen coordinates."""
-    preview, _ = _memory_range(data, 0, n, data.schema.columns)
-    return preview
-
-
 def _coordinates(schema: DataSchema, rows: pd.DataFrame) -> dict[str, tuple[FrameKeyScalar, ...]]:
     result: dict[str, tuple[FrameKeyScalar, ...]] = {}
     for axis in schema.axes:

@@ -233,11 +233,11 @@ _PAGES = (
             "analysis_frame.lineage",
         ),
         guidance=(
-            "schema exposes captured types, complete keys, result contexts, alignments, comparisons and decompositions without reads. Pending show reports captured facts without evaluation. Fixed show displays a bounded prefix; read_page returns fixed projected data with complete keys, read_periods returns saved periods and endpoint correspondences. to_pandas evaluates pending inputs and exports isolated complete data without caching or saving. Saved source_reads retains original actual reads, not complete filters or the current derived domain; method_facts explains the original method and denominator. These facts establish neither freshness nor cause. Other objects expose show/render through their type Help.",
+            "schema exposes captured types, complete keys, result contexts, alignments, comparisons and decompositions without reads. Pending show reports captured facts without evaluation. Fixed show displays all rows using pandas formatting; read_page returns fixed projected data with complete keys, read_periods returns saved periods and endpoint correspondences. to_pandas evaluates pending inputs and exports isolated complete data without caching or saving. Saved source_reads retains original actual reads, not complete filters or the current derived domain; method_facts explains the original method and denominator. These facts establish neither freshness nor cause. Other objects expose show/render through their type Help.",
         ),
         discovery_group="results",
         route_summaries=(
-            ("analysis_frame.show", "Inspect captured facts or a bounded fixed-data prefix."),
+            ("analysis_frame.show", "Inspect captured facts or complete fixed data."),
             ("analysis_frame.schema", "Inspect captured fields, exact types, keys and layout."),
             (
                 "analysis_frame.source_reads",
@@ -369,7 +369,7 @@ def navigation(providers: tuple[DisclosureProvider, ...]) -> tuple[NavigationInp
                 "result = session.observe(\n"
                 "    revenue, by=(period.by(mv.grain('day')),),\n"
                 ").compute()\n"
-                "result.show(n=31)",
+                "result.show()",
                 (),
                 "result",
                 "Daily revenue.",

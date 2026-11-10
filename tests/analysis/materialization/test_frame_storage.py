@@ -282,7 +282,6 @@ def test_comparison_preview_closes_direct_and_fact_references(
     with monkeypatch.context() as patch:
         patch.setattr(OutputRead, "_open", forbidden)
         assert local.preview(_stored_backing(saved), 0).attachments == ()
-        saved.show(n=0)
 
 
 def test_required_comparison_map_rejects_corrupt_payload(local: LocalFrameServices) -> None:
@@ -348,13 +347,6 @@ def test_required_comparison_map_rejects_corrupt_payload(local: LocalFrameServic
         with pytest.raises(AnalysisError):
             consume()
     assert local.preview(backing, 0).attachments == ()
-    AnalysisFrame._from_stored(
-        local,
-        backing.data,
-        artifact_id=backing.artifact_id,
-        metadata=backing.metadata,
-        method_facts=backing.method_facts,
-    ).show(n=0)
 
 
 def counts(local: LocalFrameServices) -> tuple[int, int]:
@@ -566,7 +558,7 @@ def test_exports_are_isolated(local: LocalFrameServices) -> None:
             assert independent.to_pandas().iloc[0, -1] != 999
 
 
-def test_zero_preview_and_audit_do_not_open_payloads(
+def test_audit_does_not_open_payloads(
     local: LocalFrameServices, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     saved = calendar(local).persist()
@@ -575,7 +567,6 @@ def test_zero_preview_and_audit_do_not_open_payloads(
         raise AssertionError("metadata operation opened Parquet")
 
     monkeypatch.setattr(pq, "ParquetFile", forbidden)
-    saved.show(n=0)
     saved.persist()
     assert saved.source_reads == ()
 
@@ -597,7 +588,7 @@ def test_prefix_resolves_sparse_original_keys_and_only_selected_records(
     assert prefix.rows["bucket"].tolist() == [902159, 902142]
     assert prefix.attachments[0].rows["ordinal"].tolist() == [126, 127]
     assert calls == [2]
-    saved.show(n=1)
+    saved.show()
     assert counts(local) == (1, 1)
 
 
@@ -632,7 +623,7 @@ def test_paired_codec_and_prefix_keep_complete_mapping(local: LocalFrameServices
     prefix = local.preview(_stored_backing(saved), 1)
     assert len(prefix.rows) == 1
     assert all(len(part.rows) <= 1 for part in prefix.attachments)
-    saved.show(n=1)
+    saved.show()
     assert len(frozen_coordinates(saved)) == 3
 
 
@@ -696,7 +687,6 @@ def _assert_valid_minimum_temporal_ticks_survive_export_and_restore(
         assert pa.array(first_page.to_pandas()["observed"]).cast(pa.int64()).to_pylist() == [
             -(2**63)
         ]
-        frame.show(n=2)
 
 
 @pytest.mark.parametrize(
@@ -863,8 +853,8 @@ def test_missing_unconsumed_endpoint_is_not_a_preview_read(local: LocalFrameServ
     prefix = local.preview(_stored_backing(paired), 1)
     assert len(prefix.rows) == 1
     assert not next(part for part in prefix.attachments if part.name == right_name).rows.shape[0]
-    paired.show(n=0)
-    paired.show(n=0)
+    with pytest.raises(AnalysisError):
+        paired.show()
     with pytest.raises(AnalysisError):
         paired.compute()
 
@@ -1149,7 +1139,7 @@ def test_old_manifest_cannot_enter_any_current_read(local: LocalFrameServices) -
         lambda: local.preview(_stored_backing(saved), 0),
         lambda: saved.persist(),
         lambda: local.committed_at(_stored_backing(saved)),
-        lambda: saved.show(n=0),
+        lambda: saved.show(),
         lambda: selected_manifest(local.store, current),
         lambda: terminal_protocol.decode(frozen, ArtifactManifest),
     )
@@ -1254,7 +1244,10 @@ def test_date32_extreme_composite_coordinate_preserves_exact_value(
         scalar = coordinate[0]
         assert isinstance(scalar, pa.Scalar)
         assert scalar.is_valid and scalar.cast(pa.int32()).as_py() == -(2**31)
-        frame.show(n=1)
+        with pytest.raises(OverflowError):
+            frame.to_pandas().to_string()
+        with pytest.raises(OverflowError):
+            frame.show()
 
 
 @pytest.mark.parametrize("count", [0, 1])
@@ -1270,9 +1263,9 @@ def test_zero_column_preview_preserves_empty_vs_singleton(
     )
     for frame in (memory, memory.persist()):
         assert frame.to_pandas().shape == (count, 0)
-        frame.show(n=1)
+        frame.show()
         output = capsys.readouterr().out
-        frame.show(n=0)
+        assert frame.to_pandas().to_string() in output
 
 
 def _reduce_extreme_keys(
@@ -1821,14 +1814,13 @@ def test_pending_show_keeps_deep_shared_scope_and_stops_at_fixed_inputs(
     before = tuple(terminal_runs(case.session))
     for pending in (deep, shared):
         calls.clear()
-        pending.show(n=20)
+        pending.show()
         card = capsys.readouterr().out
         assert len(calls) == 1
-        assert len(card.encode()) <= 8193
-        pending.show(n=20)
+        pending.show()
     for pending in fixed_pending:
         calls.clear()
-        pending.show(n=20)
+        pending.show()
         card = capsys.readouterr().out
 
 
@@ -1883,16 +1875,14 @@ def test_pending_read_label_and_derived_anchor_are_captured_without_execution(
     monkeypatch.setattr(frame_source_preparation, "open_query_sources", forbidden)
     monkeypatch.setattr(LocalFrameServices, "read_complete", forbidden)
     monkeypatch.setattr(CompletedFrameData, "copy_rows", forbidden)
-    read.show(n=0)
+    read.show()
     card = capsys.readouterr().out
-    assert len(card.encode()) <= 8193
-    selected.show(n=0)
+    selected.show()
     card = capsys.readouterr().out
-    assert len(card.encode()) <= 8193
-    selected.show(n=0)
+    selected.show()
     assert observed == [read_scope, read_scope, read_scope]
     assert capture(graph.root, graph.signature.observation) == read_scope
-    anchored.show(n=0)
+    anchored.show()
     card = capsys.readouterr().out
 
 
@@ -2019,7 +2009,7 @@ def test_missing_preview_payload_has_typed_cause_and_never_affects_memory_or_aud
     handle = backing.rows if missing == "primary" else backing.attachments[0].rows
     (local.store.project_root / handle.receipt.project_relative_path / "data.parquet").unlink()
     before = counts(local)
-    for read in (lambda: saved.show(n=1), saved.compute, saved.to_pandas):
+    for read in (lambda: saved.show(), saved.compute, saved.to_pandas):
         with pytest.raises(MaterializationError) as caught:
             read()
         assert isinstance(caught.value.__cause__, FileNotFoundError)
@@ -2027,12 +2017,10 @@ def test_missing_preview_payload_has_typed_cause_and_never_affects_memory_or_aud
         assert caught.value.repair is not None
         assert caught.value.repair.help_target.canonical_id == "analysis_frame.compute"
         assert "original data files and exact receipts" in caught.value.repair.action
-    saved.show(n=0)
-    saved.show(n=0)
     assert saved.persist() is saved
     assert memory.compute() is memory
     assert len(memory.to_pandas()) == 128
-    memory.show(n=1)
+    memory.show()
 
 
 def interval(
@@ -2104,7 +2092,7 @@ with patch.object(Session, "catalog", property(forbidden)), patch.object(SourceS
         table = frame.to_pandas()
         assert len(table) == 1
         assert len(frozen_coordinates(frame)[0].rows) == expected
-        frame.show(n=1)
+        frame.show()
     assert sparse.axes[0].role == "interval" and paired.axes[0].role == "paired"
     assert paired.to_pandas()["left_present"].tolist() == [True]
     assert paired.to_pandas()["right_present"].tolist() == [True]
@@ -2173,7 +2161,7 @@ def test_stored_interval_reads_and_matches_without_current_timezone_rules(
     assert directory["timezone"].tolist() == ["Asia/Shanghai"]
     assert directory["start"].tolist() == [datetime(2024, 1, 1, tzinfo=timezone.utc)]
     assert directory["end"].tolist() == [datetime(2024, 1, 4, tzinfo=timezone.utc)]
-    first.show(n=1)
+    first.show()
     assert len(first.align(first).compute().to_pandas()) == 1
     paired = first.compare(
         {"base": mv.baseline(second, match=CalendarCorrespondence("ordinal"))}
@@ -2358,9 +2346,7 @@ def test_method_only_reads_and_lazy_data_paths_have_independent_damage_boundarie
 
     with monkeypatch.context() as patch:
         patch.setattr(OutputRead, "read", forbid_method)
-        saved.show(n=0)
-        saved.show(n=1)
-        saved.show(n=0)
+        saved.show()
         assert local.open_frame(saved.artifact_id) == _stored_backing(saved)
         assert saved.persist() is saved
         _ = saved.select({"q": saved["contribution.q"]})
@@ -2383,7 +2369,7 @@ def test_method_only_reads_and_lazy_data_paths_have_independent_damage_boundarie
     )
     target.unlink()
     assert len(saved.to_pandas()) == 2
-    saved.show(n=0)
+    saved.show()
     assert saved.persist() is saved
     for consume in (
         lambda: saved.method_facts,
@@ -2704,7 +2690,7 @@ def test_readable_calendar_projection_uses_sparse_keys_and_current_order(
         assert rows["amount"].tolist() == [2, 1]
         assert rows["date"].tolist() == [900000, 900017]
         assert str(rows["date"].dtype) == "int64[pyarrow]"
-        frame.show(n=1)
+        frame.show()
     empty = root.top(0, by=root["amount"]).compute().to_pandas(time_details=True)
     assert empty.empty and empty.columns.tolist() == ["day", "day.label", "amount"]
 
@@ -3170,7 +3156,7 @@ def test_fixed_offset_exports_are_readable_and_keep_exact_instants(
                 if cursor is None:
                     break
             pd.testing.assert_frame_equal(pd.concat(chunks, ignore_index=True), rows)
-            frame.show(n=1)
+            frame.show()
 
 
 @pytest.mark.parametrize("kind", ["calendar", "interval", "paired"])

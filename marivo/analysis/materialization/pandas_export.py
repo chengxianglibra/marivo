@@ -1,8 +1,6 @@
-"""Shared isolated Frame exports and bounded source-free result formatting."""
+"""Shared isolated Frame exports and source-free result formatting."""
 
 from __future__ import annotations
-
-from collections import Counter
 
 import pandas as pd
 import pyarrow as pa
@@ -17,7 +15,6 @@ from marivo.analysis.core.data_schema import (
 from marivo.analysis.core.data_types import DataColumn, DurationDataType, TimestampDataType
 from marivo.analysis.core.frame_schema import (
     LogicalSchema,
-    axis_export_layout,
     export_layout,
     selected_columns,
 )
@@ -37,10 +34,6 @@ def _coordinate_scalar(array: pa.Array, index: int, column: DataColumn) -> objec
             return scalar
         raise
     return value
-
-
-def _axis_names(axis: DataAxis, name: str) -> tuple[str, ...]:
-    return tuple(column.name for column in axis_export_layout(axis, name))
 
 
 def export_names(
@@ -156,12 +149,13 @@ def export_frame(
     axis_names: tuple[str, ...] | None = None,
     columns: tuple[str, ...] | None = None,
     time_details: bool = False,
+    validate_names: bool = True,
 ) -> pd.DataFrame:
     """Copy readable coordinates and exact value arrays into a table without attrs."""
     names = tuple(
         column.name
         for column in export_layout(
-            schema, axis_names, columns, validate_names=True, time_details=time_details
+            schema, axis_names, columns, validate_names=validate_names, time_details=time_details
         )
     )
     parts = {part.name: part for part in attachments}
@@ -177,78 +171,3 @@ def export_frame(
     result = pd.concat(series, axis=1) if series else pd.DataFrame(index=pd.RangeIndex(len(rows)))
     result.columns = pd.Index(names, dtype=object)
     return result
-
-
-def _cell(array: pa.Array, i: int, column: DataColumn) -> str:
-    if not array[i].is_valid:
-        return "NA"
-    if isinstance(column.dtype, (TimestampDataType, DurationDataType)):
-        # pandas scalar extraction maps a valid int64 minimum to NaT. Validity
-        # and exact physical ticks remain separate through presentation too.
-        return f"{array.cast(pa.int64())[i].as_py()} {array.type} ticks"
-    value = _coordinate_scalar(array, i, column)
-    if isinstance(value, pa.Scalar) and pa.types.is_date32(array.type):
-        return f"{array.cast(pa.int32())[i].as_py()} date32 day ticks"
-    return str(value)
-
-
-def preview_table(
-    schema: DataSchema, rows: pd.DataFrame, attachments: tuple[OutputAttachment, ...]
-) -> tuple[tuple[str, ...], tuple[tuple[str, ...], ...]]:
-    """Format the supplied prefix as complete, escaped rows and coordinates."""
-    from marivo._data_render import _text
-
-    if not schema.columns:
-        return ("row",), tuple(("()",) for _ in range(len(rows)))
-    parts = {part.name: part for part in attachments}
-    names: list[str] = []
-    origins: list[str] = []
-    data_columns: list[list[str]] = []
-    for axis in schema.axes:
-        axis_names = _axis_names(axis, axis.name.rsplit(".", 1)[-1])
-        names.extend(axis_names)
-        origins.extend([f"coordinate {axis.token}"] * len(axis_names))
-        if type(axis) is DataAxis:
-            arrays = tuple(
-                pa.array(rows[column.slot_id], from_pandas=True) for column in axis.columns
-            )
-            data_columns.append(
-                [
-                    _cell(arrays[0], i, axis.columns[0])
-                    if len(arrays) == 1
-                    else "("
-                    + ", ".join(
-                        _cell(array, i, column)
-                        for array, column in zip(arrays, axis.columns, strict=True)
-                    )
-                    + ")"
-                    for i in range(len(rows))
-                ]
-            )
-        else:
-            data_columns.extend(
-                [
-                    "NA" if value is None or value is pd.NA or value is pd.NaT else str(value)
-                    for value in series
-                ]
-                for series in _coordinate_columns(axis, rows, parts)
-            )
-    for role, columns in (("value", schema.values), ("presence", schema.presence)):
-        for column in columns:
-            array = pa.array(rows[column.slot_id], from_pandas=True)
-            names.append(column.name)
-            origins.append(role)
-            # Keep the Arrow validity bit separate from valid NaN and temporal ticks.
-            data_columns.append([_cell(array, i, column) for i in range(len(rows))])
-    counts = Counter(
-        name for axis in schema.axes for name in _axis_names(axis, axis.name.rsplit(".", 1)[-1])
-    )
-    counts.update(column.name for column in (*schema.values, *schema.presence))
-    display_names = tuple(
-        _text(name if counts[name] == 1 else f"{name} [{origin}]")
-        for name, origin in zip(names, origins, strict=True)
-    )
-    display_rows = tuple(
-        tuple(_text(column[i]) for column in data_columns) for i in range(len(rows))
-    )
-    return display_names, display_rows

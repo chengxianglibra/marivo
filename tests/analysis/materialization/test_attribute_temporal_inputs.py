@@ -281,7 +281,7 @@ def test_fixed_window_lookback_and_repeated_identity_independent_reads(
 
     monkeypatch.setattr(execution, "read_stage", read)
     pending = selected.attribute(by=(channel,))
-    pending.show(n=0)
+    pending.show()
     rows = pending.compute().to_pandas()
     assert sum(read.purpose != "analysis.calendar_index" for read in calls) == 4
     assert len(captured) == 4

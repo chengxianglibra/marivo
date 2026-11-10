@@ -43,7 +43,6 @@ from marivo.analysis.core.frame_data import (
 )
 from marivo.analysis.core.frame_interpretation import FrameCalendarAxisSchema
 from marivo.analysis.core.frame_metadata import EvaluationRecord, FrameResultMetadata
-from marivo.analysis.core.frozen_calendar import FrozenKey
 from marivo.analysis.core.lineage import empty as empty_lineage
 from marivo.analysis.dsl.frame import AnalysisFrame
 from marivo.analysis.errors import AnalysisError
@@ -54,7 +53,7 @@ from marivo.analysis.materialization.errors import (
     MaterializationError,
     RecoveryPendingError,
 )
-from marivo.analysis.materialization.graph_reading import ReadLayout, open_manifest
+from marivo.analysis.materialization.graph_reading import open_manifest
 from marivo.analysis.materialization.store import SessionStore
 from marivo.analysis.materialization.terminal_protocol import decode, encode
 from marivo.analysis.materialization.terminal_publication import reconcile
@@ -799,7 +798,6 @@ def test_metadata_and_records_need_no_parquet_or_current_model(
     monkeypatch.setattr(SourceSession, "execute", forbidden)
     reopened = session.persisted_frame(artifact.artifact_id)
     assert reopened.artifact_id == artifact.artifact_id
-    reopened.show(n=0)
     assert reopened.source_reads == artifact.source_reads
     assert reopened.source_reads
     with monkeypatch.context() as no_io:
@@ -897,7 +895,7 @@ def test_preview_bounds_batch_decoding_and_skips_unused_parts(
         )
         assert all(size <= POLICY.batch_rows for size in sizes)
         sizes.clear()
-    artifact.show(n=20)
+    artifact.show()
     sizes.clear()
     frame = session.persisted_frame(artifact.artifact_id).to_pandas()
     assert len(frame) == count and sum(sizes) == count
@@ -917,7 +915,7 @@ def test_preview_bounds_batch_decoding_and_skips_unused_parts(
     # by Store28 protocol/frozen-coordinate tests, rather than retaining a bypass.
 
 
-def test_wide_artifact_truncation_routes_to_callable_reads(
+def test_wide_artifact_shows_all_columns(
     session: Session, capsys: pytest.CaptureFixture[str]
 ) -> None:
     columns = {f"quantity_{i}_" + "x" * 150: None for i in range(60)}
@@ -925,17 +923,16 @@ def test_wide_artifact_truncation_routes_to_callable_reads(
     artifact = session.values(by=(), columns=columns, rows=(((), values),)).persist()
     artifact.show()
     text = capsys.readouterr().out
-    assert len(text.encode()) <= 8192
+    assert all(name in text for name in columns)
     assert artifact.to_pandas().shape == (1, 60)
     assert artifact.source_reads == ()
 
 
 @pytest.mark.parametrize("zone", ("Europe/Paris", "UTC+05:30"))
 def test_public_calendar_uses_saved_instants_and_boundaries(
-    session: Session, zone: str, monkeypatch: pytest.MonkeyPatch
+    session: Session, zone: str, capsys: pytest.CaptureFixture[str]
 ) -> None:
     session = mv.session.get_or_create("report-calendar", timezone=zone)
-    from marivo.analysis.materialization.graph_reading import OutputRead
 
     axis = session.time_scope(start="2026-03-28T06:00", end="2026-03-31").by(mv.grain("day"))
     artifact = calendar_constant(session, axis).persist()
@@ -964,16 +961,8 @@ def test_public_calendar_uses_saved_instants_and_boundaries(
     renamed = artifact.to_pandas(axis_names={artifact.axes[0].token: "bucket"}, time_details=True)
     assert renamed["bucket"].tolist() == exported[prefix].tolist()
     assert renamed["bucket.label"].tolist() == exported[prefix + ".label"].tolist()
-    original, consumed = OutputRead.select, []
-
-    def tracked(self: OutputRead, layout: ReadLayout, keys: set[FrozenKey]) -> pd.DataFrame:
-        result = original(self, layout, keys)
-        consumed.append(len(result))
-        return result
-
-    monkeypatch.setattr(OutputRead, "select", tracked)
-    artifact.show(n=1)
-    assert consumed == [1]
+    artifact.show()
+    assert artifact.to_pandas().to_string() in capsys.readouterr().out
 
 
 @pytest.mark.release

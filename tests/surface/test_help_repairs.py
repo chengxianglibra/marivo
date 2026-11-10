@@ -215,16 +215,6 @@ def test_shared_axis_mapping_repairs_keep_the_binary_consumer(
     assert rows[path].tolist() == [1, 3]
 
 
-def test_real_show_failure_has_a_precise_owner_and_executable_repair(
-    literal_frame: mv.AnalysisFrame,
-) -> None:
-    with pytest.raises(CoreRuleError) as captured:
-        literal_frame.show(n=-1)
-    _assert_repair(captured.value, "analysis.analysis_frame.show")
-    assert captured.value.expected == "a nonnegative integer preview count"
-    assert captured.value.received == "-1"
-
-
 def test_correlate_shared_pair_validation_keeps_the_frame_owner(
     literal_frame: mv.AnalysisFrame,
 ) -> None:
@@ -295,7 +285,7 @@ def test_invalid_select_name_keeps_its_owner_through_shared_name_validation(
         ("to_pandas", "read_data"),
         ("persist", "open_frame"),
         ("method_facts", "read_method_facts"),
-        ("show", "preview"),
+        ("show", "read_data"),
     ),
 )
 def test_frame_consumers_preserve_the_specialized_storage_failure(

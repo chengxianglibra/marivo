@@ -404,7 +404,7 @@ def test_postgres_attribute_default_preserves_exact_values_and_fixed_parents(
                 "absolute_q": compared["reference.absolute.q"],
             }
         )
-        pending.show(n=0)
+        pending.show()
         assert pending.output_names == ("left_q", "right_q", "absolute_q")
         assert pending.presence_names == ("current.present", "reference.present")
 

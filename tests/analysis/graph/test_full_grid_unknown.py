@@ -103,7 +103,7 @@ def test_public_full_grid_unknown(
     frame = _mask(raw)
     assert frame["value"].isna().sum() == 3
     assert sorted(frame["value"].dropna().tolist()) == [0] * 4 + [1, 7]
-    artifact.show(n=0)
+    artifact.show()
     text = capsys.readouterr().out
     # The terminal source result has no external business-completeness claim.
     # The mask belongs to this pandas workflow and never changes saved values.

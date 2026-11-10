@@ -47,8 +47,7 @@ change = current.compare(
     on=tuple(zip(current.axes, baseline.axes)),
     match=mv.ordinal(),
 ).persist()
-change.show(n=10)
-change.show(n=0)
+change.show()
 assert change.to_pandas()["reference.absolute.revenue"].tolist() == [-100, -100]
 ```
 
@@ -91,7 +90,7 @@ members = session.members(orders)
 keys = session.frame(members).compute()
 fixed_members = session.population_from(keys, on=((keys.axes[0], orders),))
 attributes = session.read(fixed_members, {"region": region, "amount": amount}).compute()
-attributes.show(n=10)
+attributes.show()
 member_count = session.observe({"orders": fixed_members.count()}).compute()
 assert member_count.to_pandas()["orders"].tolist() == [6]
 ```
@@ -198,7 +197,7 @@ import marivo.analysis as mv
 
 resumed = mv.session.resume(saved_session_id)
 restored = resumed.persisted_frame(saved_artifact_id)
-restored.show(n=0)
+restored.show()
 positive = restored.where(restored["revenue"] > 0).compute()
 positive.show()
 assert positive.to_pandas()["revenue"].tolist() == [200, 600]
@@ -225,7 +224,7 @@ rolling = session.observe(
     {"revenue": revenue.window(mv.trailing_duration(duration=timedelta(days=7)))},
     by=(august.by(day),),
 ).compute()
-rolling.show(n=5)
+rolling.show()
 ```
 
 The source equation completes at each exact endpoint. Summing these overlapping

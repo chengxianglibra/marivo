@@ -136,7 +136,7 @@ with pytest.MonkeyPatch.context() as patch:
     for receipt in state['outputs'].values():
         artifact=session.persisted_frame(receipt['artifact']); frame=artifact.to_pandas(time_details=True)
         assert snapshot(artifact,frame=frame)==receipt['snapshot']
-        artifact.show(n=2)
+        artifact.show()
 """
     completed = subprocess.run(
         [sys.executable, "-c", script, str(case.root)],

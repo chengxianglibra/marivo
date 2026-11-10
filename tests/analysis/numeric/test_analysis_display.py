@@ -1,4 +1,4 @@
-"""Bounded fixed Frame display and explicit pandas ranking workflows."""
+"""Fixed Frame display and explicit pandas ranking workflows."""
 
 from __future__ import annotations
 
@@ -104,8 +104,6 @@ def test_business_display_reads_saved_rows_and_preserves_state_summary(
 ) -> None:
     import duckdb
 
-    from marivo.analysis.core.data_types import DataColumn
-    from marivo.analysis.materialization.graph_reading import OutputRead, ReadLayout
     from marivo.datasource.adapters import SourceSession
 
     case = analysis_dsl_case_factory("j2")
@@ -125,37 +123,17 @@ def test_business_display_reads_saved_rows_and_preserves_state_summary(
     assert plain(ratio)["value"].isna().sum() == 4
     assert plain(category)["value"].tolist() == ["retained" * 200] * 11
     runs = len(terminal_runs(session))
-    read = OutputRead.range
-    decoded: list[int] = []
-
-    def counted(
-        self: OutputRead,
-        layout: ReadLayout,
-        start: int,
-        limit: int,
-        columns: tuple[DataColumn, ...],
-    ) -> pd.DataFrame:
-        frame = read(self, layout, start, limit, columns)
-        decoded.append(len(frame))
-        return frame
 
     def forbidden(*args: object, **kwargs: object) -> None:
-        raise AssertionError("show queried a source or called the complete pandas export")
+        raise AssertionError("show queried a source")
 
-    monkeypatch.setattr(OutputRead, "range", counted)
     monkeypatch.setattr(SourceSession, "__enter__", forbidden)
-    monkeypatch.setattr(type(values), "to_pandas", forbidden)
     for result in (values, table):
-        for n in (20, 2, 0):
-            before_reads = len(decoded)
-            result.show(n=n)
-            text = capsys.readouterr().out
-            assert len(decoded) == before_reads if n == 0 else decoded[-1] == min(n, 11)
-            assert len(text.encode()) <= 8192
+        result.show()
+        assert "value" in capsys.readouterr().out or result is table
     category.show()
-    text = capsys.readouterr().out
-    assert len(text.encode()) <= 8192
-    ratio.show(n=0)
+    assert "retained" in capsys.readouterr().out
+    ratio.show()
     assert len(terminal_runs(session)) == runs
 
 
@@ -196,7 +174,7 @@ def test_business_display_identifies_current_and_baseline_windows(
         for column in output._schema.values
         if not column.name.startswith("reference.relative.")
     } == {"CNY"}
-    output.show(n=0)
+    output.show()
 
 
 @pytest.mark.parametrize(("order", "ties"), [("ascending", "ordinal"), ("descending", "dense")])

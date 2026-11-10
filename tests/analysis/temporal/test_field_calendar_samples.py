@@ -443,7 +443,7 @@ def test_builtin_samples_freeze_session_timezone_independently_of_scope(
             scope = session.time_scope(start="2026-11-01", end="2026-11-03")
             for where in (None, scope):
                 pending = session.observe(metrics, where=where)
-                pending.show(n=0, max_output_bytes=None)
+                pending.show()
                 actual = pending.compute().to_pandas()
                 assert _row_values(actual, list(metrics)) == values * 2
             if session is utc:

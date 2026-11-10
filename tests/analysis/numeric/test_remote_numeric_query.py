@@ -1064,7 +1064,7 @@ with patch.object(SourceSession, '__init__', forbidden), patch.object(Session, '
     actual = artifact.to_pandas()
     expected = pd.read_pickle('saved-oracle.pkl')
     assert actual.equals(expected)
-    artifact.show(n=1)
+    artifact.show()
     assert artifact.source_reads
 """
     completed = subprocess.run(

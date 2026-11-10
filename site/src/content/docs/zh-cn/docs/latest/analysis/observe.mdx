@@ -36,7 +36,7 @@ result = session.observe(
     revenue,
     by=(period.by(mv.grain("day")),),
 ).compute()
-result.show(n=31)
+result.show()
 ```
 
 时间范围按 Session 时区包含 8 月 1 日、不包含 9 月 1 日。

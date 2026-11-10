@@ -85,8 +85,8 @@ def test_terminal_corruption_rejects_while_exported_copies_are_isolated(
             metadata = case.session.persisted_frame(artifact.artifact_id)
             assert metadata.artifact_id == artifact.artifact_id
             assert metadata.persist() is metadata
-            metadata.show(n=0)
-            metadata.show(n=0)
+            with pytest.raises(AnalysisError):
+                metadata.show()
             with pytest.raises(AnalysisError):
                 metadata.to_pandas()
         finally:
@@ -125,11 +125,9 @@ def test_every_saved_receipt_is_required_when_consumed(
             target.write_bytes(b"damaged terminal receipt")
         try:
             reopened = case.session.persisted_frame(artifact.artifact_id)
-            reopened.show(n=0)
-            reopened.show(n=0)
             assert reopened.persist() is reopened
             with pytest.raises(AnalysisError):
-                reopened.show(n=3)
+                reopened.show()
             with pytest.raises(AnalysisError):
                 reopened.to_pandas()
             with pytest.raises(AnalysisError):

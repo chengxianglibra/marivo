@@ -400,7 +400,7 @@ def test_additive_exact_values_and_independent_role_reads(
         session.observe({"q": amount.sum()}, where=phase == "base"),
         by=(channel,),
     )
-    pending.show(n=0)
+    pending.show()
     assert reads == []
     from unittest.mock import patch
 
@@ -556,7 +556,7 @@ def test_original_formula_error_keeps_owner_context_and_atomicity(
         by=(channel,),
     )
     pending = pending.where(pending.coord(pending.axes[0]) != "B")
-    pending.show(n=0)
+    pending.show()
     assert reads == []
     with pytest.raises(MaterializationError) as failure:
         pending.compute()

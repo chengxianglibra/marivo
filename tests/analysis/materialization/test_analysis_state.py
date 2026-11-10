@@ -72,7 +72,6 @@ def test_artifact_metadata_rejects_graph_and_continuation_fields_without_writes(
 
     with monkeypatch.context() as audit_only:
         audit_only.setattr(pq, "ParquetFile", forbidden)
-        value.show(n=0)
         assert case.session.persisted_frame(value.artifact_id).artifact_id == value.artifact_id
     assert len(terminal_runs(case.session)) == 1
     assert case.session.persisted_frame(value.artifact_id).to_pandas()["value"].tolist() == [

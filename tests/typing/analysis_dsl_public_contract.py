@@ -164,7 +164,7 @@ if TYPE_CHECKING:
         assert_type(axis.role, Literal["field", "identity", "calendar", "interval", "paired"])
         assert_type(axis.key_names, tuple[str, ...])
         assert_type(axis.show(), None)
-        assert_type(query.show(n=0), None)
+        assert_type(query.show(), None)
         assert_type(query.compute(), mv.AnalysisFrame)
         assert_type(query.persist(), mv.AnalysisFrame)
         assert_type(value + 1, mv.Column)

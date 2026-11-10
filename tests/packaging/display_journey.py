@@ -11,16 +11,10 @@ from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
-import pytest
 
 import marivo.analysis as mv
-from marivo.analysis.core.data_schema import DataColumn
 from marivo.analysis.core.frame_data import StoredFrameBacking
 from marivo.analysis.dsl.source_capture import ValueRow
-from marivo.analysis.materialization.graph_reading import (
-    OutputRead,
-    ReadLayout,
-)
 from tests.analysis.materialization.domain_recovery_worker import snapshot
 from tests.packaging.graph_journeys import _create, _frame, _offline, _remove_sources
 from tests.shared_fixtures import analysis_dsl_rows, catalog_get, catalog_value, run_ids
@@ -159,31 +153,11 @@ def journey(phase: str, project: Path) -> dict[str, object]:
         rows_result = _verify(_frame(table))
         assert _verify(rebuilt) == rows_result
         output = io.StringIO()
-        decoded: list[int] = []
-        requested: list[tuple[int, int]] = []
-        original_range = OutputRead.range
-
-        def counted(
-            reader: OutputRead,
-            layout: ReadLayout,
-            start: int,
-            limit: int,
-            columns: tuple[DataColumn, ...],
-        ) -> pd.DataFrame:
-            before_rows = reader.data_rows_read
-            result = original_range(reader, layout, start, limit, columns)
-            requested.append((start, limit))
-            decoded.append(reader.data_rows_read - before_rows)
-            return result
-
-        with pytest.MonkeyPatch.context() as patch:
-            patch.setattr(OutputRead, "range", counted)
-            with contextlib.redirect_stdout(output):
-                table.show(n=2)
+        with contextlib.redirect_stdout(output):
+            table.show()
         text = output.getvalue()
-        assert len(text.encode()) <= 8192
+        assert table.to_pandas().to_string(max_rows=None, max_cols=None) in text
         assert isinstance(table._backing, StoredFrameBacking)
-        assert requested == [(0, 2)] and decoded and all(2 <= count <= 12 for count in decoded)
         assert table._backing.data.rows.receipt.realized_row_count == 12
         assert run_ids(session) == before and session._runtime.store.resources(session.id) == ()
     return {

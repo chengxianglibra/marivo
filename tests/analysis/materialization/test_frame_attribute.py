@@ -92,7 +92,7 @@ def test_explicit_investigation_outer_presence_and_original_nullable_values(
         "reference.absolute.q",
         "reference.relative.q",
     )
-    pending.show(n=0)
+    pending.show()
     fixed = pending.compute()
     rows = fixed.to_pandas()
     assert rows.iloc[:, 0].tolist() == ["A", "C", "N", "B"]

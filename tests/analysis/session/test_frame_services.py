@@ -84,8 +84,6 @@ def test_local_metadata_reads_never_prepare_sources_mutate_or_read_payload(
     assert terminal_runs(local) == terminal_runs(session)
     backing = local.open_frame(artifact.artifact_id)
     assert local.preview(backing, 0).rows.empty
-    saved.show(n=0)
-    reopened.show(n=0)
     assert reopened.source_reads == artifact.source_reads == ()
     assert saved.persist() is saved
 

@@ -384,7 +384,7 @@ def test_calendar_metadata_show_and_completed_match_need_no_source_or_timezone(
     with monkeypatch.context() as context:
         context.setattr(CompletedFrameData, "copy_rows", forbidden)
         context.setattr(CompletedFrameData, "copy_attachments", forbidden)
-        pending.show(n=0)
+        pending.show()
     result = pending.compute()
     assert _memory_backing(result).data.copy_rows()[result._schema.values[2].slot_id].tolist() == [
         6

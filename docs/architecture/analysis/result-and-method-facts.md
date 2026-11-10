@@ -48,7 +48,7 @@ executes or saves a result. `session_id` remains available on every carrier.
 
 ```python
 saved = pending.persist()
-saved.show(n=0)
+saved.show()
 for read in saved.source_reads:
     print(read.read_id, read.completed_at, read.returned_rows)
     for scope in read.scopes:
@@ -76,9 +76,10 @@ regardless of equal scope. New source reads append to inherited reads; inherited
 periods are never relabeled as the current filtered domain. Literal results have
 no synthetic read. There is no read-ID lookup or source-execution capability.
 
-`source_reads` and `show(n=0)` use already captured metadata without Parquet,
-method-payload, Catalog or source access. Cards retain result/evaluation/commit
-identities and times, bounded inputs/operations and source-read summaries.
+`source_reads` uses already captured metadata without Parquet, method-payload,
+Catalog or source access. `show()` displays result/evaluation/commit identities,
+times, inputs/operations and source-read summaries alongside all saved rows, without
+method-payload, Catalog or source access.
 Required numeric, key and method checks still run and block invalid results;
 success does not create a general passed-check log.
 

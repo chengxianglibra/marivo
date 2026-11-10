@@ -23,7 +23,7 @@ if TYPE_CHECKING:
     assert_type(recovered.artifact_id, str)
     assert_type(recovered.session_id, str)
     assert_type(recovered.source_reads, tuple[mv.FrameSourceRead, ...])
-    assert_type(recovered.show(n=0), None)
+    assert_type(recovered.show(), None)
     revenue = session.catalog.get("metric:sales.revenue")
     assert revenue.kind == "metric"
     metric = revenue

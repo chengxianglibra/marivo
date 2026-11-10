@@ -21,7 +21,7 @@ def test_core_reject_passes_explicit_help_identity_independently_of_location() -
         reject(
             "valid input",
             "invalid",
-            "Use n=0 for metadata only.",
+            "Inspect the Frame.",
             "a private diagnostic location",
             canonical_id="analysis_frame.show",
         )

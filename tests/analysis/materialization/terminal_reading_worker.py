@@ -104,8 +104,8 @@ def period_read(name: str, identities: list[str]) -> None:
             pd.Timestamp("2027-02-01T00:00:00+00:00"),
         ]
         assert current_directory["selection"].tolist() == ["full", "full"]
-        baseline.show(n=1)
-        report.show(n=1)
+        baseline.show()
+        report.show()
         positive = report.where(report["base.absolute.total"] > 30)
         selected = positive.select({"delta": positive["base.absolute.total"]}).compute()
         assert selected.to_pandas()["delta"].tolist() == [60]
@@ -157,7 +157,7 @@ def main() -> None:
         artifact = session.persisted_frame(sys.argv[4])
         assert artifact.artifact_id == sys.argv[4]
         assert "backing=stored" in repr(artifact) and ".show()" in repr(artifact)
-        artifact.show(n=1)
+        artifact.show()
         frame = artifact.to_pandas()
         assert {
             (None if key is None or key is pd.NA else key): value
