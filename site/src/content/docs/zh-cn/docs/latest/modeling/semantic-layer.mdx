@@ -520,6 +520,22 @@ catalog.readiness(refs=[amount]).show()
 
 `catalog.get()` 接收 `kind:path` 身份字符串，例如 `catalog.get("metric:sales.revenue")`，也接收单个未组合的查找符号，例如 `catalog.get(ms.ref.metric("sales.revenue"))`。两种方式都在当前 Catalog 中按精确身份查找。分析需要使用返回的 closed object，不能直接使用符号；组合后的 Deferred 表达式不是查找身份。
 
+可以直接读取已加载的 Catalog Metric 的公式和计算说明。
+
+```python
+metric = catalog.get("metric:sales.revenue")
+assert metric.kind == "metric"
+print(metric.definition.formula)
+print(metric.definition.explanation)
+```
+
+公式使用单行展示记法，例如 `amount.sum(time=order_date).per(order_date).mean()`。
+英文说明会描述按实际出现的 `order_date` 值分组、组内对 `amount`
+求和、再对非 NULL 的组结果求等权平均的过程。这两个字段也可通过
+`metric.to_dict()["definition"]` 获取，无需读取数据。作者填写的业务定义见
+`metric.definition.context.business_definition`。可用
+`marivo.help("semantic.metric_definition")` 查看帮助。
+
 普通 Metric 预览支持 DuckDB、PostgreSQL、MySQL、Trino 和 ClickHouse。
 每个依赖 Entity 最多贡献 `min(scope.max_rows, 10_000)` 行输出；这些无序输入
 不代表总体样本，也不能用于估计或放大全量指标。预览复用 datasource 分区预检：

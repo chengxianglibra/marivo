@@ -98,6 +98,13 @@ Published Measure identities include their contribution Entity:
 ``catalog.get("measure:sales.orders.margin")``. Metric identities are domain-qualified:
 ``catalog.get("metric:sales.revenue")``.
 
+Read ``metric.definition.formula`` for concise, single-line display notation
+and ``metric.definition.explanation`` for its generated English calculation
+summary. Both are available in ``metric.to_dict()["definition"]`` and the
+Catalog Metric detail response. These fields use the captured definition without
+reading source data. Author-provided meaning is in
+``metric.definition.context.business_definition``.
+
 Semantic objects need not remain bound to their original definition versions;
 a same-path definition change alone does not reject an input. The agent/user
 accepts the consequences of semantic changes during analysis. Resolving consumers

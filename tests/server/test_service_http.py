@@ -420,6 +420,8 @@ def test_current_catalog_reload_isolated_from_saved_report(tmp_path: Path) -> No
         assert "private-source-token" not in json.dumps(entity)
         metric = _ok(request("/v2/semantic/objects/metric%3Asales.total"))
         _schema(spec, "SemanticObject", metric)
+        assert metric["definition"]["formula"] == "amount.sum(time=created)"
+        assert "sum of `amount`" in metric["definition"]["explanation"]
         (binding,) = metric["definition"]["time_bindings"]
         assert binding["source"] == "entity_default"
         assert binding["field"] == "time_dimension:sales.events.created"

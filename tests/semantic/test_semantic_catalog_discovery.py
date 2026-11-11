@@ -62,7 +62,7 @@ amount_value = amount""",
     metric = catalog.get("metric:sales.revenue")
     assert metric.kind == "metric"
     definition = metric.definition
-    assert "sum(measure:sales.orders.amount" in definition.formula
+    assert definition.formula == "amount.sum(time=settled_at)"
     assert isinstance(definition.time_bindings[0], MetricTimeFieldBinding)
     assert definition.time_bindings[0].field == "time_dimension:sales.orders.settled_at"
     assert definition.time_bindings[0].source == "explicit"
@@ -282,6 +282,60 @@ def test_readiness_promotes_only_directly_requested_physical_inputs(
         assert "measure:sales.orders.amount" in report.checked_ids
 
 
+def test_grouped_mean_formula_explains_both_reductions_without_source_rows(tmp_path: Path) -> None:
+    write_minimal_catalog_project(tmp_path)
+    source = tmp_path / "models/semantic/sales/objects.py"
+    source.write_text(
+        source.read_text()
+        + """
+@ms.metric()
+def grouped_mean():
+    return amount.sum(time=paid_at).per(paid_at).mean()
+"""
+    )
+    catalog = ms.load(workspace_dir=tmp_path)
+    metric = catalog.get("metric:sales.grouped_mean")
+    assert metric.kind == "metric"
+    definition = metric.definition
+
+    assert definition.formula == "amount.sum(time=paid_at).per(paid_at).mean()"
+    assert "each observed `paid_at` value" in definition.explanation
+    assert "sum of `amount`" in definition.explanation
+    assert (
+        "equally weighted arithmetic mean of the non-NULL sample results" in definition.explanation
+    )
+    assert any(".mean(): nulls=ignore" in rule for rule in definition.null_rules)
+    assert "ignore NULL sample results" in " ".join(definition.null_rules)
+    payload = json.loads(metric.to_json())["definition"]
+    assert payload["formula"] == definition.formula
+    assert payload["explanation"] == definition.explanation
+    card = metric.render(max_output_bytes=None)
+    assert definition.formula in card and definition.explanation in card
+
+
+def test_metric_formula_qualifies_colliding_names_and_keeps_time_none(tmp_path: Path) -> None:
+    write_minimal_catalog_project(tmp_path)
+    source = tmp_path / "models/semantic/sales/objects.py"
+    source.write_text(
+        source.read_text()
+        + """
+refunds = ms.entity(name="refunds", datasource=ms.ref.datasource("warehouse"),
+    source=md.table("refunds"), primary_key=["refund_id"])
+refund_amount = ms.measure_column(name="amount", entity=refunds, column="amount",
+    additivity=ms.additive_all(), unit="USD")
+
+@ms.metric()
+def net_amount():
+    return amount.sum(time=paid_at) - refund_amount.sum(time=None)
+"""
+    )
+    metric = ms.load(workspace_dir=tmp_path).get("metric:sales.net_amount")
+    assert metric.kind == "metric"
+    assert metric.definition.formula == (
+        "(orders.amount.sum(time=paid_at) - refunds.amount.sum(time=None))"
+    )
+
+
 def test_sample_reduction_definitions_preserve_quantile_and_null_parameters(tmp_path: Path) -> None:
     write_minimal_catalog_project(tmp_path)
     source = tmp_path / "models/semantic/sales/objects.py"
@@ -296,39 +350,32 @@ def median_revenue():
 @ms.metric()
 def tail_revenue():
     return revenue_value.per(paid_value).quantile(0.95)
+@ms.metric()
+def last_revenue():
+    return revenue_value.per(paid_value).last(order_by=paid_value, include_null=True)
+@ms.metric()
+def weighted_revenue():
+    return revenue_value.per(paid_value).weighted_mean(weight=revenue_value, nulls="error")
 """
     )
     catalog = ms.load(workspace_dir=tmp_path)
     median = catalog.get("metric:sales.median_revenue")
     tail = catalog.get("metric:sales.tail_revenue")
+    last = catalog.get("metric:sales.last_revenue")
+    weighted = catalog.get("metric:sales.weighted_revenue")
     assert median.kind == tail.kind == "metric"
+    assert last.kind == weighted.kind == "metric"
 
-    assert "q=0.5" in median.definition.formula
-    assert "q=0.95" in tail.definition.formula
-    assert median.definition != tail.definition
-    assert median.to_dict()["definition"] != tail.to_dict()["definition"]
-    assert "include_null=False" in tail.definition.formula
-    from dataclasses import replace
-
-    from marivo._definition.expressions import PerReduce, PerWeightedMean
-    from marivo.semantic._catalog_definition import formula
-    from marivo.semantic._deferred_semantics import consume_field, consume_metric
-
-    node = consume_metric(catalog._reg.declared_metrics["sales.tail_revenue"]).node
-    assert isinstance(node, PerReduce)
-    axis = catalog.get("time_dimension:sales.orders.paid_at")
-    assert axis.kind == "time_dimension"
-    ordering = consume_field(axis).reference
-    with_nulls = formula(replace(node, include_null=True, order_by=ordering))
+    assert median.definition.formula == "revenue.per(paid_at).quantile(q=0.5)"
+    assert tail.definition.formula == "revenue.per(paid_at).quantile(q=0.95)"
     assert (
-        "include_null=True" in with_nulls
-        and "order_by=time_dimension:sales.orders.paid_at" in with_nulls
+        last.definition.formula == "revenue.per(paid_at).last(order_by=paid_at, include_null=True)"
     )
-    assert with_nulls != formula(node)
-    weighted = PerWeightedMean(node.operand, node.operand, node.samples, nulls="error")
-    assert "nulls=error" in formula(weighted)
-    assert formula(weighted) != formula(replace(weighted, nulls="ignore"))
-    assert "rule_version=" in tail.definition.formula
+    assert weighted.definition.formula == (
+        'revenue.per(paid_at).weighted_mean(weight=revenue, nulls="error")'
+    )
+    assert "include NULL sample results" in " ".join(last.definition.null_rules)
+    assert "assert non-NULL demanded sample results" in " ".join(weighted.definition.null_rules)
 
 
 def test_entity_definition_retains_captured_filter_body(tmp_path: Path) -> None:

@@ -187,11 +187,16 @@ class MetricNoTimeBinding(MetricTimeBinding):
 
 @dataclass(frozen=True)
 class MetricDefinition:
-    """Captured formula, source reductions, time roles and null semantics."""
+    """Captured calculation, with display notation and an English explanation."""
 
     context: AiContextIR
     roots: tuple[str, ...]
-    formula: str
+    formula: str = dataclass_field(
+        metadata={"meaning": "Readable display notation for the captured Metric calculation."}
+    )
+    explanation: str = dataclass_field(
+        metadata={"meaning": "English calculation summary generated from the captured Metric."}
+    )
     reductions: tuple[str, ...]
     conditions: tuple[str, ...]
     time_bindings: tuple[MetricTimeFieldBinding | MetricNoTimeBinding, ...]

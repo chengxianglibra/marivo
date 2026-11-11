@@ -146,6 +146,39 @@ def cumulative_average():
     assert base.reducer == "mean"
 
 
+def test_catalog_formula_distinguishes_window_and_sample_order(tmp_path: Path) -> None:
+    root = _write_project(
+        tmp_path,
+        _MODEL
+        + """
+day = mv.grain("day")
+@ms.metric()
+def daily_in_window():
+    return amount.sum(time=paid_time).per(event_time, grain=day).mean().window(rule)
+@ms.metric()
+def window_per_day():
+    return amount.sum(time=paid_time).window(rule).per(event_time, grain=day).mean()
+""",
+    )
+    catalog = ms.load(workspace_dir=root)
+    outer_window = catalog.get("metric:sales.daily_in_window")
+    inner_window = catalog.get("metric:sales.window_per_day")
+    assert outer_window.kind == inner_window.kind == "metric"
+    assert outer_window.definition.formula == (
+        "amount.sum(time=paid_time).per(event_time, grain=grain('day')).mean().window(all_history())"
+    )
+    assert inner_window.definition.formula == (
+        "amount.sum(time=paid_time).window(all_history()).per(event_time, grain=grain('day')).mean()"
+    )
+    assert "each represented day bucket of `event_time`" in inner_window.definition.explanation
+    assert inner_window.definition.explanation.index("all_history()") < (
+        inner_window.definition.explanation.index("arithmetic mean")
+    )
+    assert outer_window.definition.explanation.index("all_history()") > (
+        outer_window.definition.explanation.index("arithmetic mean")
+    )
+
+
 def test_cumulative_preserves_explicit_time_with_multiple_roles(tmp_path: Path) -> None:
     root = _write_project(
         tmp_path,

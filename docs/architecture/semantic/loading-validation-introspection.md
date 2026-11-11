@@ -126,10 +126,26 @@ if entry.kind == "metric":
     revenue = entry
 ```
 
-`entry.definition` retains complete captured metadata, readable formulas, time
-bindings and context. `.show()` is a bounded projection; `.to_dict()` excludes
-internal computation and registries. Computing kinds implement explicit typed
-operations; no dynamic attribute proxy is involved. Query scores and snippets belong to pages, not definitions.
+`entry.definition` retains complete captured metadata, including time bindings
+and authored context. For a Catalog Metric, `definition.formula` uses single-line
+display notation. It shortens semantic names where unambiguous, shows the
+effective contribution time, and retains sample axes and non-default parameters.
+For example, `amount.sum(time=paid_at).per(paid_at).mean()` uses the exact
+represented `paid_at` values as samples and averages the completed group sums.
+The formula is display text, with no executable syntax or identity contract.
+
+`definition.explanation` describes the calculation in English from the same
+captured graph. For a sample mean it identifies the sample domain, the inner
+calculation and the equal-weight mean of valid sample results. The authored
+business meaning remains in `definition.context.business_definition`. Both
+display fields come from the loaded snapshot. `definition.time_bindings` retains
+each branch's canonical clock identity and its provenance or reason for absence.
+`definition.null_rules` covers both source and sample reducers.
+
+`.show()` is a bounded projection. Python JSON and HTTP Catalog detail expose
+the formula and explanation as strings alongside the captured facts. Query
+scores and snippets belong to pages. Computing kinds implement explicit typed
+operations.
 `entry.related("dependencies")` and reverse navigation use the full loaded
 Catalog scope, independently from discovery filters. Known unloaded identities
 are disclosed separately as `outside_scope`; navigation does not auto-load them.

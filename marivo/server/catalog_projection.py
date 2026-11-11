@@ -30,7 +30,7 @@ DEFINITION_FIELDS: dict[type[object], str] = {
     DomainDefinition: "context owner default members",
     EntityDefinition: "context datasource primary_key versioning default_time fields dependencies",
     FieldDefinition: "context entity expression unit additivity parse sample_interval dependencies dependency_context facts",
-    MetricDefinition: "context roots formula reductions conditions time_bindings unit null_rules dependencies dependency_context facts",
+    MetricDefinition: "context roots formula explanation reductions conditions time_bindings unit null_rules dependencies dependency_context facts",
     RelationshipDefinition: "context from_entity to_entity keys cardinality dependencies",
 }
 SUMMARY_FIELDS = ("id", "kind", "path", "name", "domain", "business_definition")

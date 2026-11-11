@@ -3660,7 +3660,7 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
         )
     time_definition_guidance = {
         EntityDefinition: "default_time is the canonical TimeDimension identity declared on the Entity, or None.",
-        MetricDefinition: "time_bindings retains each contributing branch's fixed clock or the reason it has none.",
+        MetricDefinition: "formula is display notation. explanation describes the captured calculation in English. time_bindings retains each contributing branch's clock or the reason it has none.",
         MetricTimeFieldBinding: "source is explicit or entity_default. field, path and anchor capture the bound TimeDimension, relationship route and optional exact version anchor.",
         MetricNoTimeBinding: "reason identifies a source reduction with no Entity default or a fixed member count. root is the contribution Entity when there is one.",
     }
@@ -3689,6 +3689,14 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
                     record_type,
                     "Immutable captured definition data, independent of display budgets and query matching metadata.",
                 ),
+            ),
+            example=(
+                "metric = catalog.get('metric:sales.revenue')\n"
+                "assert metric.kind == 'metric'\n"
+                "print(metric.definition.formula)\n"
+                "print(metric.definition.explanation)"
+                if record_type is MetricDefinition
+                else None
             ),
         )
 

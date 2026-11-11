@@ -14,7 +14,6 @@ from marivo._definition.expressions import (
     ContributionFilter,
     DeclaredMetricRef,
     EntityCount,
-    FieldCalendarSample,
     MeasureAssertion,
     MemberCount,
     MetricExpression,
@@ -35,6 +34,7 @@ from marivo.datasource.ir import AiContextIR
 from marivo.refs import Ref, SemanticKind, SemanticKindTag
 from marivo.semantic._compiled_state import PublishedDeclaration
 from marivo.semantic._deferred_semantics import MetricFacts, consume_metric, consume_row
+from marivo.semantic._formula_display import FormulaDisplay
 from marivo.semantic._metric_time import metric_time_occurrences
 from marivo.semantic.catalog_entries import (
     DatasourceDefinition,
@@ -83,134 +83,14 @@ def dependency_context(
     )
 
 
-def _recipe_text(recipe: object, operands: tuple[str, ...]) -> str:
-    """Render admitted native operations without exposing Marivo resolver records."""
-    from ibis.common.deferred import (
-        Attr,
-        BinaryOperator,
-        Call,
-        Item,
-        Just,
-        Sequence,
-        UnaryOperator,
-        Variable,
-    )
-
-    from marivo._definition.deferred import RescaleResolver
-
-    def render(value: object) -> str:
-        if isinstance(value, RescaleResolver):
-            return (
-                f"rescale({render(value.recipe)}, divisor={value.divisor!r}, unit={value.unit!r})"
-            )
-        if isinstance(value, Variable):
-            name = str(value.name)
-            if name.startswith("slot_"):
-                return operands[int(name.removeprefix("slot_"))]
-            return name
-        if isinstance(value, Just):
-            literal = value.value
-            return (
-                getattr(literal, "__name__", type(literal).__name__)
-                if callable(literal)
-                else repr(literal)
-            )
-        if isinstance(value, BinaryOperator):
-            operators = {
-                "add": "+",
-                "sub": "-",
-                "mul": "*",
-                "truediv": "/",
-                "floordiv": "//",
-                "pow": "**",
-                "mod": "%",
-                "eq": "==",
-                "ne": "!=",
-                "lt": "<",
-                "le": "<=",
-                "gt": ">",
-                "ge": ">=",
-                "and_": "&",
-                "or_": "|",
-                "xor": "^",
-            }
-            return f"({render(value.left)} {operators[value.func.__name__]} {render(value.right)})"
-        if isinstance(value, UnaryOperator):
-            operators = {"neg": "-", "pos": "+", "invert": "~"}
-            return f"{operators[value.func.__name__]}{render(value.arg)}"
-        if isinstance(value, Attr):
-            attribute = value.name.value if isinstance(value.name, Just) else render(value.name)
-            return f"{render(value.obj)}.{attribute}"
-        if isinstance(value, Item):
-            return f"{render(value.obj)}[{render(value.indexer)}]"
-        if isinstance(value, Call):
-            arguments = [
-                *(render(item) for item in value.args),
-                *(f"{name}={render(item)}" for name, item in value.kwargs.items()),
-            ]
-            return f"{render(value.func)}({', '.join(arguments)})"
-        if isinstance(value, Sequence):
-            return "(" + ", ".join(render(item) for item in value.values) + ")"
-        raise TypeError(f"Unsupported compiled formula node: {type(value).__name__}")
-
-    return render(recipe)
-
-
-def formula(node: RowNode | MetricNode | PredicateExpression) -> str:
-    """Readable native arithmetic with semantic identities in place of bound slots."""
-    if isinstance(node, RowField):
-        read = ""
-        if node.read is not None and (node.read.path or node.read.at is not None):
-            read = f".via({_inert_text(node.read.path)}).at({_inert_text(node.read.at)})"
-        return node.ref.ref.key + read
-    if isinstance(node, MeasureAssertion):
-        return f"assert_measure({formula(node.operand)}, unit={node.unit!r}, permission={_inert_text(node.permission)}, authorization={_inert_text(node.authorization)})"
-    if isinstance(node, RowExpression):
-        return _recipe_text(node.recipe, tuple(formula(item) for item in node.inputs))
-    if isinstance(node, MetricExpression):
-        return _recipe_text(node.recipe, tuple(formula(item) for item in node.operands))
-    if isinstance(node, PredicateExpression):
-        return _recipe_text(
-            node.recipe,
-            tuple(
-                formula(item) if isinstance(item, RowExpression) else _inert_text(item)
-                for item in node.inputs
-            ),
-        )
-    if isinstance(node, DeclaredMetricRef):
-        return node.ref.ref.key
-    if isinstance(node, SourceAggregate):
-        time = f", time={_inert_text(node.time)}" if node.time is not None else ""
-        q = f", q={node.q}" if node.q is not None else ""
-        return f"{node.reducer}({formula(node.operand)}{q}{time}, nulls={node.nulls}, rule_version={node.rule_version})"
-    if isinstance(node, EntityCount):
-        time = f", time={_inert_text(node.time)}" if node.time is not None else ""
-        return f"count({node.entity.ref.key}{time})"
-    if isinstance(node, SourceWeightedMean):
-        time = f", time={_inert_text(node.time)}" if node.time is not None else ""
-        return f"weighted_mean({formula(node.value)}, weight={formula(node.weight)}{time}, nulls={node.nulls}, rule_version={node.rule_version})"
-    if isinstance(node, ContributionFilter):
-        return f"{formula(node.operand)}.where({formula(node.predicate)})"
-    if isinstance(node, PerReduce):
-        return (
-            f"{formula(node.operand)}.per({_sample_text(node.samples)}).{node.reducer}("
-            f"q={node.q!r}, nulls={node.nulls}, order_by={_inert_text(node.order_by)}, "
-            f"include_null={node.include_null}, rule_version={node.rule_version})"
-        )
-    if isinstance(node, PerWeightedMean):
-        return f"weighted_mean({formula(node.value)}, weight={formula(node.weight)}, per={_sample_text(node.samples)}, nulls={node.nulls}, rule_version={node.rule_version})"
-    if isinstance(node, MetricWindow):
-        return f"{formula(node.operand)}.window({_inert_text(node.rule)})"
-    return f"member_count({_inert_text(node.population)})"
-
-
 def metric_time_bindings(
-    metric: MetricFacts,
+    metric: MetricFacts, display: FormulaDisplay | None = None
 ) -> tuple[MetricTimeFieldBinding | MetricNoTimeBinding, ...]:
     """Project each captured contribution occurrence without consulting a Catalog."""
+    display = display or FormulaDisplay()
     bindings: list[MetricTimeFieldBinding | MetricNoTimeBinding] = []
     for occurrence in metric_time_occurrences(metric.node, dict(metric._declared)):
-        branch = formula(occurrence.node)
+        branch = display.formula(occurrence.node)
         if occurrence.path:
             branch = f"{' / '.join(occurrence.path)}: {branch}"
         time = occurrence.binding
@@ -236,12 +116,6 @@ def metric_time_bindings(
     return tuple(bindings)
 
 
-def _sample_text(value: object) -> str:
-    if isinstance(value, FieldCalendarSample):
-        return f"{_inert_text(value.field.field)}, grain={_inert_text(value.grain)}"
-    return _inert_text(value)
-
-
 def _inert_text(value: object) -> str:
     """Only captured dataclass facts; never resolver or executable reprs."""
     from marivo._definition.types import ExactRef
@@ -254,26 +128,6 @@ def _inert_text(value: object) -> str:
         return _inert_text(value.value)
     if isinstance(value, (date, datetime, timedelta, Decimal)):
         return repr(value)
-    if isinstance(
-        value,
-        (
-            RowField,
-            MeasureAssertion,
-            RowExpression,
-            SourceAggregate,
-            SourceWeightedMean,
-            EntityCount,
-            ContributionFilter,
-            PerReduce,
-            PerWeightedMean,
-            MemberCount,
-            DeclaredMetricRef,
-            MetricExpression,
-            MetricWindow,
-            PredicateExpression,
-        ),
-    ):
-        return formula(value)
     if isinstance(value, Mapping):
         return (
             "{"
@@ -298,22 +152,26 @@ def _inert_text(value: object) -> str:
     return type(value).__name__
 
 
-def _source_null_rule(node: SourceAggregate | SourceWeightedMean | EntityCount) -> str:
+def _null_rule(
+    node: SourceAggregate | SourceWeightedMean | EntityCount | PerReduce | PerWeightedMean,
+) -> str:
     """Describe the captured reducer's policy without qualifying execution."""
     if isinstance(node, EntityCount):
         return "count counts source rows; empty input returns zero"
-    policy = (
-        "ignore NULL contributions"
-        if node.nulls == "ignore"
-        else "assert non-NULL demanded contributions; a demanded NULL raises an error"
-    )
-    if isinstance(node, SourceWeightedMean):
+    domain = "sample results" if isinstance(node, (PerReduce, PerWeightedMean)) else "contributions"
+    if node.nulls == "error":
+        policy = f"assert non-NULL demanded {domain}; a demanded NULL raises an error"
+    elif isinstance(node, PerReduce) and node.include_null:
+        policy = "include NULL sample results in the ordered selection"
+    else:
+        policy = f"ignore NULL {domain}"
+    if isinstance(node, (SourceWeightedMean, PerWeightedMean)):
         empty = "no valid pairs or zero paired weight sum returns NULL"
     elif node.reducer == "sum":
         empty = "empty input returns typed zero"
         if node.nulls == "ignore":
             empty += "; nonempty all-NULL input returns NULL"
-    elif node.reducer in {"count", "count_distinct", "nunique"}:
+    elif node.reducer in {"count", "count_distinct", "approx_nunique"}:
         empty = "empty input returns zero"
         if node.nulls == "ignore":
             empty += "; all-NULL input returns zero"
@@ -418,10 +276,11 @@ def definition_for(catalog: SemanticCatalog, ref: Ref[SemanticKindTag]) -> Entry
         metric = consume_metric(registry.declared_metrics[ref.path])
         reductions: list[str] = []
         conditions: list[str] = []
-        bindings = metric_time_bindings(metric)
         nulls: list[str] = []
         seen: set[int] = set()
         declared = dict(metric._declared)
+        display = FormulaDisplay(metric.node, *declared.values())
+        bindings = metric_time_bindings(metric, display)
 
         def visit(node: MetricNode | RowNode | PredicateExpression) -> None:
             if id(node) in seen:
@@ -430,11 +289,13 @@ def definition_for(catalog: SemanticCatalog, ref: Ref[SemanticKindTag]) -> Entry
             if isinstance(node, DeclaredMetricRef):
                 visit(declared[node.ref])
             if isinstance(node, (SourceAggregate, SourceWeightedMean, EntityCount)):
-                branch = formula(node)
-                reductions.append(branch)
-                nulls.append(f"{branch}: {_source_null_rule(node)}")
+                reductions.append(display.formula(node))
+            if isinstance(
+                node, (SourceAggregate, SourceWeightedMean, EntityCount, PerReduce, PerWeightedMean)
+            ):
+                nulls.append(f"{display.formula(node)}: {_null_rule(node)}")
             if isinstance(node, ContributionFilter):
-                conditions.append(formula(node.predicate))
+                conditions.append(display.formula(node.predicate))
             for edge in children(node):
                 child = edge.child
                 if isinstance(
@@ -449,6 +310,7 @@ def definition_for(catalog: SemanticCatalog, ref: Ref[SemanticKindTag]) -> Entry
                         ContributionFilter,
                         PerReduce,
                         PerWeightedMean,
+                        MemberCount,
                         MetricExpression,
                         MetricWindow,
                         DeclaredMetricRef,
@@ -461,7 +323,8 @@ def definition_for(catalog: SemanticCatalog, ref: Ref[SemanticKindTag]) -> Entry
         return MetricDefinition(
             context,
             tuple(item.ref.key for item in metric.roots),
-            formula(metric.node),
+            display.formula(metric.node),
+            display.explanation(metric.node),
             tuple(reductions),
             tuple(conditions),
             tuple(bindings),
@@ -474,7 +337,9 @@ def definition_for(catalog: SemanticCatalog, ref: Ref[SemanticKindTag]) -> Entry
     body = catalog._state.sidecar.bodies.get(ref)
     expression = body.source_syntax if body is not None else None
     if isinstance(captured, PublishedDeclaration):
-        expression = formula(consume_row(registry.declared_measures[ref.path]).node)
+        expression = FormulaDisplay().formula(
+            consume_row(registry.declared_measures[ref.path]).node
+        )
     if not expression:
         expression = (
             f"column({body.source_column!r})"

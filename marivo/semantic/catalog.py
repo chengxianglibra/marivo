@@ -711,6 +711,7 @@ class _SemanticObject(RenderableResult, Generic[CatalogEntryKindT]):
             from marivo.semantic._metric_time_disclosure import add_metric_time
 
             card.field("formula", definition.formula)
+            card.field("explanation", definition.explanation)
             card.field("unit", definition.unit or "(none)")
             add_metric_time(
                 card, definition.time_bindings, recovery="read .definition.time_bindings"
