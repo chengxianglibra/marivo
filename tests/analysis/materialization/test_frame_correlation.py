@@ -327,9 +327,9 @@ def test_degenerate_and_empty_scalar(
 
 @pytest.mark.filterwarnings("error::RuntimeWarning")
 @pytest.mark.parametrize(
-    "x,y,x_type",
+    ("x", "y", "x_type", "expected"),
     (
-        ((2**53, 2**53 + 1, 2**53 + 2), (1, 2, 3), ScalarDataType("int64")),
+        ((2**53, 2**53 + 1, 2**53 + 2), (1, 2, 3), ScalarDataType("int64"), None),
         (
             (
                 Decimal("1000000000000000000000000.00"),
@@ -338,9 +338,11 @@ def test_degenerate_and_empty_scalar(
             ),
             (1, 2, 3),
             DecimalDataType(27, 2),
+            None,
         ),
-        ((1.0, 1.0 + 2**-52, 1.0 + 2**-51), (1, 2, 3), ScalarDataType("float64")),
-        ((1e308, -1e308, 0.0), (1, -1, 0), ScalarDataType("float64")),
+        ((1.0, 1.0 + 2**-52, 1.0 + 2**-51), (1, 2, 3), ScalarDataType("float64"), None),
+        # y = x / 1e308 exactly, so Pearson and Spearman are both 1.
+        ((1e308, -1e308, 0.0), (1, -1, 0), ScalarDataType("float64"), 1.0),
         (
             (
                 0.0,
@@ -349,11 +351,13 @@ def test_degenerate_and_empty_scalar(
             ),
             (1, 2, 3),
             ScalarDataType("float64"),
+            None,
         ),
         (
             (1.3, 1.3 + 2**-52, 1.3 + 3 * 2**-52),
             (1, 2, 3),
             ScalarDataType("float64"),
+            None,
         ),
     ),
 )
@@ -362,15 +366,19 @@ def test_numeric_precision_witnesses(
     x: tuple[Number, ...],
     y: tuple[Number, ...],
     x_type: DataType,
+    expected: float | None,
 ) -> None:
-    """C06: preserve native coefficients for precision and scale edge cases."""
+    """C06: preserve native coefficients, including magnitudes that overflow products."""
     frame = _pairs(local, x, y, x_type=x_type)
     for method in ("pearson", "spearman"):
-        a, b = pd.Series(list(x)), pd.Series(list(y))
-        if method == "spearman":
-            a, b = a.rank(), b.rank()
-        with np.errstate(divide="ignore", invalid="ignore"):
-            oracle = a.corr(b)
+        if expected is None:
+            a, b = pd.Series(list(x)), pd.Series(list(y))
+            if method == "spearman":
+                a, b = a.rank(), b.rank()
+            with np.errstate(divide="ignore", invalid="ignore"):
+                oracle = float(a.corr(b))
+        else:
+            oracle = expected
         result = frame.correlate(frame["x"], frame["y"], method=method).compute()
         _assert_schema(result)
         table = result.to_pandas()
