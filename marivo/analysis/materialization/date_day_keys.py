@@ -1,5 +1,8 @@
 """Delay qualified source day keys until after their source aggregation."""
 
+# Keep __annotations__ in the class namespace for Ibis 12 on Python 3.14.
+from __future__ import annotations
+
 from collections.abc import Callable, Mapping
 from datetime import date, datetime
 

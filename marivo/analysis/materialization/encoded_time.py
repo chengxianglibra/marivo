@@ -1,5 +1,8 @@
 """Retain qualified encoded time authority until source filter lowering."""
 
+# Keep __annotations__ in the class namespace for Ibis 12 on Python 3.14.
+from __future__ import annotations
+
 from collections.abc import Mapping
 
 import ibis.expr.operations as ops
