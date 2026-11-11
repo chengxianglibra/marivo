@@ -103,6 +103,8 @@ CapturedSchema: TypeAlias = DataSchema | PendingDataSchema
 
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from marivo._grouping import Grouping
     from marivo.analysis.dsl.population import Population
     from marivo.semantic._expression_values import FieldExpression
@@ -1384,6 +1386,10 @@ class AnalysisFrame:
         Constraints: Read-only metadata; no Store, result or source reads.
         """
         return self._local.session_ref
+
+    @property
+    def _project_root(self) -> Path:
+        return self._local.store.project_root
 
     def _require_stored(self, member: str) -> StoredFrameBacking:
         if not isinstance(self._backing, StoredFrameBacking):

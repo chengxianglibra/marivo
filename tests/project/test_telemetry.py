@@ -5,6 +5,8 @@ from __future__ import annotations
 import inspect
 import json
 import os
+import subprocess
+import sys
 from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
@@ -15,6 +17,9 @@ import pytest
 
 import marivo.analysis as mv
 from marivo._compat import UTC
+from tests.shared_fixtures import DslCaseFactory, catalog_value
+from tests.support.execution_logs import execution_records
+from tests.support.paths import PROJECT_ROOT
 
 
 def _records(path: Path) -> list[dict[str, object]]:
@@ -66,6 +71,14 @@ def _capability_records(path: Path, capability_id: str) -> list[dict[str, object
         record
         for entry in _records(path)
         if (_attrs(record := _log_record(entry))).get("marivo.capability.id") == capability_id
+    ]
+
+
+def _analysis_events(root: Path) -> list[dict[str, object]]:
+    return [
+        attributes
+        for entry in _records(_event_path(root))
+        if (attributes := _attrs(_log_record(entry)))["marivo.surface"] == "analysis"
     ]
 
 
@@ -1200,7 +1213,328 @@ def test_registry_callables_are_telemetry_covered() -> None:
         SEMANTIC_REGISTRY._descriptors
     )
     assert "analysis_purpose" not in inspect.signature(mv.Session.members).parameters
-    assert not hasattr(mv.Session.members, "__wrapped__")
+
+
+def test_public_dsl_operators_emit_completion_events(
+    analysis_dsl_case_factory: DslCaseFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from marivo.analysis._capabilities.dataset_model import NavigationInput
+    from marivo.analysis._capabilities.registry import REGISTRY
+
+    monkeypatch.setenv("MARIVO_TELEMETRY", "on")
+    case = analysis_dsl_case_factory("j1")
+    session, catalog = case.session, case.catalog
+    customer = catalog_value(catalog, "sales.customer", kind="entity")
+    order = catalog_value(catalog, "sales.order", kind="entity")
+    region = catalog_value(catalog, "sales.customer.region", kind="dimension")
+    buyer = catalog_value(catalog, "sales.order_buyer", kind="relationship")
+    revenue = catalog_value(catalog, "sales.revenue", kind="metric")
+    before = len(_analysis_events(case.root))
+    sql_before = execution_records(case.root)
+
+    customers = session.members(customer)
+    orders = session.members(order)
+    keys = session.frame(customers)
+    session.population_from(keys, on=((keys.axes[0], customer),))
+    session.read(customers, {"region": region})
+    session.values(columns={"value": None}, rows=(((), {"value": 5}),))
+    frame = session.observe({"value": revenue}, by=(region,))
+    session.observe({"value": revenue}).attribute(by=(region,))
+    axis = frame.axis("sales.customer.region")
+    frame.coord(axis)
+    column = frame["value"]
+    frame.fix(axis, "east")
+    frame.select({"value": column})
+    frame.where(column > 0)
+    frame.top(1, by=column)
+    frame.reduce({"count": mv.row_count()})
+    frame.over(column.sum())
+    frame.correlate(column, column, method="pearson")
+    frame.align(frame)
+    frame.compare(frame)
+    column.share(along=(axis,))
+    column.is_null()
+    column.mean()
+    column.corr(column, method="pearson")
+    column.pair_count(column)
+
+    mv.identity(customer)
+    literal = mv.coordinates(by=(region,), keys=(("east",),))
+    mv.membership(region, via=((buyer,),), unmatched="exclude")
+    mv.product(literal, mv.coordinates(by=(), keys=((),)))
+    customers.count()
+    customers.project(by=customers.axes)
+    customers.classify(by=(region,))
+    customers.union(customers)
+    customers.intersection(customers)
+    customers.difference(customers)
+    customers.where(mv.in_population(customers))
+    orders.image(via=(buyer,))
+    orders.preimage(customers, via=(buyer,))
+
+    events = _analysis_events(case.root)[before:]
+    assert events and all(
+        event["marivo.operation.status"] == "ok"
+        and event["marivo.operation.origin"] == "explicit"
+        and "marivo.operation.duration_ms" in event
+        for event in events
+    )
+    operators = REGISTRY.by_canonical_id("operators")
+    assert isinstance(operators, NavigationInput)
+    assert {event["marivo.capability.id"] for event in events} == set(operators.members) | {
+        "analysis_frame.__getitem__",
+        "analysis_frame.axis",
+        "analysis_frame.coord",
+        "column.__gt__",
+        "column.corr",
+        "column.is_null",
+        "column.mean",
+        "column.pair_count",
+        "column.sum",
+        "coordinates",
+        "identity",
+        "in_population",
+        "membership",
+        "population.classify",
+        "population.difference",
+        "population.image",
+        "population.intersection",
+        "population.preimage",
+        "population.project",
+        "population.union",
+        "population.where",
+        "product",
+        "session.members",
+        "session.population_from",
+    }
+    assert execution_records(case.root) == sql_before
+
+
+def test_python_column_operators_emit_events_in_the_owning_project(
+    analysis_dsl_case_factory: DslCaseFactory, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("MARIVO_TELEMETRY", "on")
+    case = analysis_dsl_case_factory("j1")
+    frame = case.session.values(columns={"value": None}, rows=(((), {"value": 5}),))
+    x = frame["value"]
+    other_project = tmp_path / "other"
+    other_project.mkdir()
+    monkeypatch.setenv("MARIVO_PROJECT_ROOT", str(other_project))
+    before = len(_analysis_events(case.root))
+    literal = 817263549
+    p, q = x > literal, x < literal
+    results = (
+        x + literal,
+        literal + x,
+        x - literal,
+        literal - x,
+        x * literal,
+        literal * x,
+        x / literal,
+        literal / x,
+        x == literal,
+        x != literal,
+        x <= literal,
+        x >= literal,
+        p & q,
+        p | q,
+        -x,
+        ~p,
+    )
+    assert all(isinstance(result, mv.Column) for result in results)
+    events = _analysis_events(case.root)[before:]
+    assert [event["marivo.capability.id"] for event in events] == [
+        "column." + name
+        for name in (
+            "__gt__",
+            "__lt__",
+            "__add__",
+            "__radd__",
+            "__sub__",
+            "__rsub__",
+            "__mul__",
+            "__rmul__",
+            "__truediv__",
+            "__rtruediv__",
+            "__eq__",
+            "__ne__",
+            "__le__",
+            "__ge__",
+            "__and__",
+            "__or__",
+            "__neg__",
+            "__invert__",
+        )
+    ]
+    assert all(event["marivo.session.id"] == case.session.id for event in events)
+    assert str(literal) not in _event_path(case.root).read_text()
+    assert not (other_project / ".marivo").exists()
+
+
+def test_population_constructors_keep_the_captured_project(
+    analysis_dsl_case_factory: DslCaseFactory, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("MARIVO_TELEMETRY", "on")
+    case = analysis_dsl_case_factory("j1")
+    customer = catalog_value(case.catalog, "sales.customer", kind="entity")
+    region = catalog_value(case.catalog, "sales.customer.region", kind="dimension")
+    buyer = catalog_value(case.catalog, "sales.order_buyer", kind="relationship")
+    unit = mv.coordinates(by=(), keys=((),))
+    other = tmp_path / "other"
+    other.mkdir()
+    monkeypatch.setenv("MARIVO_PROJECT_ROOT", str(other))
+    before = len(_analysis_events(case.root))
+    mv.identity(customer)
+    population = mv.coordinates(by=(region,), keys=(("east",),))
+    mv.membership(region, via=((buyer,),), unmatched="exclude")
+    mv.product(unit, population)
+    assert [event["marivo.capability.id"] for event in _analysis_events(case.root)[before:]] == [
+        "identity",
+        "coordinates",
+        "membership",
+        "product",
+    ]
+    assert not (other / ".marivo").exists()
+
+
+def test_invalid_frame_signature_keeps_receiver_context(
+    analysis_dsl_case_factory: DslCaseFactory, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("MARIVO_TELEMETRY", "on")
+    case = analysis_dsl_case_factory("j1")
+    frame = case.session.values(columns={"value": None}, rows=(((), {"value": 5}),))
+    other = tmp_path / "other"
+    other.mkdir()
+    monkeypatch.setenv("MARIVO_PROJECT_ROOT", str(other))
+    before = len(_analysis_events(case.root))
+    compute: object = frame.compute
+    assert callable(compute)
+    with pytest.raises(TypeError, match="unexpected"):
+        compute(unexpected=True)
+    started, completed = _analysis_events(case.root)[before:]
+    assert started["marivo.session.id"] == completed["marivo.session.id"] == case.session.id
+    assert completed["marivo.operation.status"] == "error"
+    assert completed["marivo.error.class"] == "TypeError"
+    assert not (other / ".marivo").exists()
+
+
+def test_public_frame_execution_emits_one_pair_per_explicit_call(
+    analysis_dsl_case_factory: DslCaseFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from marivo.datasource.errors import DatasourceConnectionError
+
+    monkeypatch.setenv("MARIVO_TELEMETRY", "on")
+    case = analysis_dsl_case_factory("j1")
+    revenue = catalog_value(case.catalog, "sales.revenue", kind="metric")
+    scope = case.session.time_scope(start="2026-08-01", end="2026-09-01")
+    pending = case.session.observe({"value": revenue}, where=scope)
+    before = len(_analysis_events(case.root))
+    sql_before = len(execution_records(case.root))
+
+    fixed = pending.compute()
+    saved = pending.persist()
+    assert pending.to_pandas()["value"].tolist() == [1000]
+    assert fixed.schema.values == saved.schema.values
+    assert saved.artifact_id
+    events = _analysis_events(case.root)[before:]
+    assert len(events) == 6
+    for name, started, completed in zip(
+        ("compute", "persist", "to_pandas"), events[::2], events[1::2], strict=True
+    ):
+        assert (
+            started["marivo.capability.id"]
+            == completed["marivo.capability.id"]
+            == ("analysis_frame." + name)
+        )
+        assert started["marivo.operation.status"] == "started"
+        assert completed["marivo.operation.status"] == "ok"
+        assert started["marivo.operation.id"] == completed["marivo.operation.id"]
+        assert started["marivo.session.id"] == case.session.id
+        assert "marivo.phase.execute.duration_ms" in completed
+    assert events[-1]["marivo.result.row_count"] == "1"
+    submitted = [
+        entry
+        for entry in execution_records(case.root)[sql_before:]
+        if entry["event"] == "query.submitted"
+    ]
+    assert len(submitted) == 3
+    for event, query in zip(events[::2], submitted, strict=True):
+        assert event["marivo.operation.id"] in (
+            query["operation_id"],
+            query.get("parent_operation_id"),
+        )
+
+    with pytest.raises(mv.errors.AnalysisError):
+        pending.top(-1, by=pending["value"])
+    failed = _analysis_events(case.root)[-1]
+    assert failed["marivo.capability.id"] == "analysis_frame.top"
+    assert failed["marivo.operation.status"] == "error"
+    assert failed["marivo.error.domain"] == "analysis"
+
+    case.database_path.unlink()
+    before = len(_analysis_events(case.root))
+    with pytest.raises(DatasourceConnectionError):
+        pending.to_pandas()
+    started, inner, completed = _analysis_events(case.root)[before:]
+    assert (
+        started["marivo.capability.id"]
+        == completed["marivo.capability.id"]
+        == ("analysis_frame.to_pandas")
+    )
+    assert inner["marivo.capability.id"] == "analysis_frame.compute"
+    assert inner["marivo.operation.status"] == completed["marivo.operation.status"] == "error"
+    assert inner["marivo.operation.parent_id"] == started["marivo.operation.id"]
+
+
+def test_disabled_frame_telemetry_preserves_source_execution_logs(
+    analysis_dsl_case_factory: DslCaseFactory,
+) -> None:
+    case = analysis_dsl_case_factory("j1")
+    revenue = catalog_value(case.catalog, "sales.revenue", kind="metric")
+    scope = case.session.time_scope(start="2026-08-01", end="2026-09-01")
+    before = len(execution_records(case.root))
+    assert case.session.observe({"value": revenue}, where=scope).to_pandas()["value"].tolist() == [
+        1000
+    ]
+    submitted, completed = execution_records(case.root)[before:]
+    assert submitted["event"] == "query.submitted"
+    assert completed["event"] == "query.completed"
+    assert submitted["operation_id"] == completed["operation_id"]
+    assert not (case.root / ".marivo" / "telemetry").exists()
+
+
+def test_direct_session_import_instruments_real_frame_calls(
+    analysis_dsl_case_factory: DslCaseFactory,
+) -> None:
+    case = analysis_dsl_case_factory("j1")
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            """
+import sys
+from marivo.analysis.session import resume
+
+session = resume(sys.argv[1])
+frame = session.values(columns={"value": None}, rows=(((), {"value": 5}),))
+assert frame.to_pandas()["value"].tolist() == [5]
+""",
+            case.session.id,
+        ],
+        cwd=PROJECT_ROOT,
+        env={**os.environ, "MARIVO_TELEMETRY": "on"},
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert [event["marivo.capability.id"] for event in _analysis_events(case.root)] == [
+        "session.resume",
+        "session.values",
+        "analysis_frame.to_pandas",
+        "analysis_frame.to_pandas",
+    ]
 
 
 def test_execution_logs_share_operation_identity_without_disclosing_sql_to_telemetry(
@@ -1208,7 +1542,6 @@ def test_execution_logs_share_operation_identity_without_disclosing_sql_to_telem
 ) -> None:
     from marivo import _execution_log
     from marivo.telemetry import tracked_capability
-    from tests.support.execution_logs import execution_records
 
     @tracked_capability(
         surface="datasource",
@@ -1363,10 +1696,12 @@ def test_dataset_contract_render_does_not_instrument_shared_semantic_show(
         input_summary=ReadinessInputSummary(datasources=(), refs=(), tables=()),
         checked_at="2026-07-17T00:00:00+00:00",
     )
+    population = coordinates(by=(), keys=((),))
+    before = _records(_event_path(telemetry_project))
     report.show()
-    coordinates(by=(), keys=((),)).show()
+    population.show()
     capsys.readouterr()
-    assert not list((telemetry_project / ".marivo" / "telemetry").glob("events-*.jsonl"))
+    assert _records(_event_path(telemetry_project)) == before
 
 
 def test_successful_cli_help_and_read_only_doctor_do_not_write_events(

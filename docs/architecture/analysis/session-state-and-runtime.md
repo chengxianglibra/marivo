@@ -413,12 +413,12 @@ analysis programs, date parameters, report versions, text and refresh execution.
 
 Execution diagnostics are always-on project-local JSONL in
 `.marivo/logs/execution-YYYY-MM-DD.NNN.jsonl`. They record actual Marivo-owned SQL
-submissions before driver calls, completion outcomes, returned row counts and
-analysis phases. Governed source records retain compiled Ibis SQL and its
-purpose/source identity. Generated-only SQL, third-party bootstrap SQL and Store
-persistence SQL are outside coverage. Local pandas stages record timing/counts
-without inventing SQL. Operation/project context propagates into connectivity
-workers; Run admission adds the actual Run ID.
+submissions before driver calls, completion outcomes and returned row counts.
+Governed source records retain compiled Ibis SQL and its purpose/source identity.
+Generated-only SQL, third-party bootstrap SQL and Store persistence SQL are outside
+coverage. Operation/project context propagates into connectivity workers.
+Source evaluation runs before publication admission. Publication Run identity
+belongs to the Store, and local pandas stages do not write execution-log records.
 
 Each newly emitted record has `schema_version: 2` and a sink-owned `runtime`
 object: `marivo_version`, `python_version`, `python_executable`, `package_path`
@@ -449,11 +449,22 @@ Usage telemetry accepts only `on` and `off`, defaulting to `on`. The
 `marivo.toml`; invalid environment values are ignored, while invalid project
 values fail configuration validation. `ProjectConfig.telemetry_enabled` and
 `ProjectConfig.telemetry_mode` retain the parsed boolean and on/off setting.
-When enabled, explicit long operations emit start and completion events, while
-short operations emit completion only. Lightweight reads emit failures only.
-Analysis constructors and semantic references emit no events. Delegated and
-internal-load calls omit success events but retain eligible failures with their
-parent operation identity. Same-capability wrappers do not duplicate events.
+When enabled, every public Analysis DSL operator in `analysis.operators` emits a
+completion event for an explicit call. This also covers Population construction
+and set operations, Frame axis and column binding, and Column arithmetic,
+comparisons, predicates and statistics. These events measure the Python call that
+captures the expression. Explicit `AnalysisFrame.compute()`, `persist()` and
+`to_pandas()` emit correlated start and completion events, with timing for the
+whole execution boundary. DSL events omit operand values and result rows.
+Frame and Column calls use their captured project and Session, including invalid
+method signatures. Population constructors use the project captured by their
+semantic inputs or factors. Unbound constructors use the current project.
+
+Delegated and internal-load calls omit success events but retain eligible failures
+with their parent operation identity. For example, a successful `compute()` inside
+`to_pandas()` adds no events, while a failed evaluation can record both the nested
+failure and the export failure. Same-capability wrappers do not duplicate events.
+Lightweight instrumented reads emit failures only. Semantic references emit no events.
 Disabling telemetry preserves execution-log operation context and skips telemetry
 attribute preparation in public capability wrappers.
 

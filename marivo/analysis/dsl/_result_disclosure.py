@@ -596,6 +596,7 @@ def provider() -> DisclosureProvider:
                     "pair_count": ("frame_pair_statistic_context",),
                 }.get(name, ()),
                 discovery_group=group,
+                telemetry="short" if group == "inputs.frame" else False,
             )
         )
     for name, code in (
@@ -674,6 +675,7 @@ def provider() -> DisclosureProvider:
                     "result",
                     "Column",
                 ),
+                telemetry="short",
             )
         )
     return DisclosureProvider("analysis.dsl.results", tuple(descriptors), tuple(exports))

@@ -49,11 +49,23 @@ enabled = "off"
 Invalid environment values are ignored; invalid `[telemetry].enabled` values
 in `marivo.toml` fail configuration validation.
 
-With telemetry on, explicit long operations such as analysis execution,
-semantic loading and datasource queries emit start and completion events.
-Selected short operations emit a completion event, and some operations record
-failures only. Successful nested calls are omitted; an absent event does not
-prove that no work ran. Use execution logs to inspect SQL activity.
+With telemetry on, explicit calls to public Analysis DSL operators emit one
+completion event for success or failure. This includes `session.observe()`,
+Frame operations such as `where()` and `compare()`, Population operations, and
+Column arithmetic, predicates and statistics. These events measure the call
+that builds the expression.
+
+Explicit Frame `compute()`, `persist()` and `to_pandas()` calls emit a correlated
+start and completion pair. Semantic loading and datasource queries can also
+emit such pairs. Successful nested calls are omitted. For example, a successful
+`compute()` inside `to_pandas()` adds no events, while a failed nested call can
+record its failure with the parent operation ID. Analysis DSL events omit operand
+values and result rows. Use execution logs to inspect submitted SQL and its outcome.
+
+Frame and Column events stay with their owning project when the current directory
+or `MARIVO_PROJECT_ROOT` changes. Population construction uses the project captured
+by its semantic inputs or factors. Construction without a captured project uses
+the current project.
 
 ## Understand retention and sharing
 

@@ -41,7 +41,17 @@ enabled = "off"
 
 `MARIVO_TELEMETRY` 可设为 `on` 或 `off`，并覆盖项目设置。无效环境变量值会被忽略；`marivo.toml` 中无效的 `[telemetry].enabled` 值会导致配置校验失败。
 
-开启遥测后，分析执行、语义加载和数据源查询等显式长操作会记录开始与完成事件。选定的短操作只记录完成事件；部分操作仅在失败时记录。嵌套调用的成功事件会省略；没有事件并不表示没有执行操作。SQL 活动请查阅执行日志。
+开启遥测后，显式调用 Analysis DSL 的公开算子会写一条完成事件，记录成功或失败。
+覆盖范围包括 `session.observe()`、`where()` 和 `compare()` 等 Frame 算子、Population
+操作，以及 Column 算术、谓词和统计。事件记录的是构造表达式的调用耗时。
+
+显式调用 Frame 的 `compute()`、`persist()` 和 `to_pandas()` 会写入一对关联的开始和完成事件。
+语义加载和数据源查询也可以写入这类事件。嵌套调用成功时省略事件。例如，`to_pandas()`
+内部的 `compute()` 成功时没有额外事件，失败时可以写入带父操作 ID 的失败事件。Analysis DSL
+事件不包含操作数值或结果行。查看已提交的 SQL 及其执行结果时，请查阅执行日志。
+
+切换当前目录或 `MARIVO_PROJECT_ROOT` 后，Frame 和 Column 的事件仍写入其所属项目。
+Population 构造使用语义输入或因子携带的项目。没有捕获项目的构造调用使用当前项目。
 
 ## 理解保留与分享
 

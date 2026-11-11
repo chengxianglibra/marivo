@@ -363,15 +363,38 @@ def _path_from_value(value: object) -> Path | None:
     return None
 
 
-def _project_root(arguments: Mapping[str, object]) -> Path:
+def _captured_project_root(value: object) -> Path | None:
+    from marivo._definition.types import InputContext
+
+    if isinstance(value, tuple):
+        for item in value:
+            root = _captured_project_root(item)
+            if root is not None:
+                return root
+        return None
+    root = _path_from_value(value)
+    if root is not None:
+        return root
+    context = _safe_getattr(value, "_context")
+    return context.project_root if isinstance(context, InputContext) else None
+
+
+def _project_root(arguments: Mapping[str, object], *, captured_inputs: bool = False) -> Path:
     explicit = arguments.get("project_root")
     if isinstance(explicit, (str, Path)):
         return Path(explicit)
     workspace = arguments.get("workspace_dir")
     if isinstance(workspace, (str, Path)):
         return Path(workspace)
-    for value in arguments.values():
+    for name, value in arguments.items():
         root = _path_from_value(value)
+        if (
+            root is None
+            and captured_inputs
+            and name in {"entity", "target", "population", "by", "factors", "via"}
+        ):
+            # Only inspect binding arguments, never literal keys or result rows.
+            root = _captured_project_root(value)
         if root is not None:
             return root
     active = _CURRENT_OPERATION.get()
@@ -380,16 +403,24 @@ def _project_root(arguments: Mapping[str, object]) -> Path:
     return resolve_project_root()
 
 
-def _session_attributes(arguments: Mapping[str, object]) -> dict[str, TelemetryValue]:
+def _session_attributes(
+    arguments: Mapping[str, object], *, include_question: bool = True
+) -> dict[str, TelemetryValue]:
     for value in arguments.values():
         session_id = _safe_getattr(value, "id")
         project_root = _safe_getattr(value, "project_root")
         if isinstance(session_id, str) and isinstance(project_root, (str, Path)):
             attrs: dict[str, TelemetryValue] = {"marivo.session.id": session_id}
-            question = _safe_getattr(value, "question")
-            if isinstance(question, str) and question:
-                attrs["marivo.session.question"] = question
+            if include_question:
+                question = _safe_getattr(value, "question")
+                if isinstance(question, str) and question:
+                    attrs["marivo.session.question"] = question
             return attrs
+        if isinstance(_safe_getattr(value, "_project_root"), Path):
+            for name in ("session_id", "_session_id"):
+                session_id = _safe_getattr(value, name)
+                if isinstance(session_id, str) and session_id:
+                    return {"marivo.session.id": session_id}
         meta = _safe_getattr(value, "meta")
         session_id = _safe_getattr(meta, "session_id") if meta is not None else None
         if isinstance(session_id, str) and session_id:
@@ -865,7 +896,10 @@ def _bind_arguments(
     try:
         bound = signature.bind_partial(*args, **kwargs)
     except TypeError:
-        return dict(kwargs)
+        arguments = dict(kwargs)
+        if args and next(iter(signature.parameters), None) == "self":
+            arguments["self"] = args[0]
+        return arguments
     bound.apply_defaults()
     return dict(bound.arguments)
 
@@ -883,8 +917,13 @@ def tracked_capability(
     capability_id: str,
     capability_kind: str,
     default_stage: str | None = None,
+    capture_policy: CapturePolicy | None = None,
 ) -> Callable[[Callable[_P, _R]], Callable[_P, _R]]:
     """Decorate one public capability with mode-aware operation telemetry."""
+    capture = capture_policy or _capture_policy(
+        surface, capability_id, capability_kind, default_stage=default_stage
+    )
+    analysis_dsl = surface == "analysis" and capture_policy is not None
 
     def decorate(func: Callable[_P, _R]) -> Callable[_P, _R]:
         signature = inspect.signature(func)
@@ -911,7 +950,7 @@ def tracked_capability(
                 cast("tuple[object, ...]", args),
                 cast("dict[str, object]", kwargs),
             )
-            root = _project_root(arguments)
+            root = _project_root(arguments, captured_inputs=analysis_dsl)
             if surface == "analysis" and capability_id == "session.get_or_create":
                 try:
                     load_project_config(root)
@@ -926,7 +965,7 @@ def tracked_capability(
                     capability_id=capability_id,
                     capability_kind=capability_kind,
                     root=root,
-                    attributes=_session_attributes(arguments),
+                    attributes=_session_attributes(arguments, include_question=False),
                     mode=mode,
                 ):
                     token = (
@@ -939,10 +978,12 @@ def tracked_capability(
                     finally:
                         if token is not None:
                             _LOAD_POLICY.reset(token)
-            capture = _capture_policy(
-                surface, capability_id, capability_kind, default_stage=default_stage
+            # DSL operands can contain literal business keys and values.
+            attrs = (
+                _session_attributes(arguments, include_question=False)
+                if analysis_dsl
+                else _input_attributes(capability_id, arguments)
             )
-            attrs = _input_attributes(capability_id, arguments)
             attrs.update(_session_creation_attributes(root, capability_id, arguments))
             operation = _Operation(
                 surface=surface,
@@ -998,7 +1039,8 @@ def install_surface_instrumentation(
     """Install telemetry wrappers for registered public functions and methods."""
     installed: set[str] = set()
     for descriptor in descriptors:
-        if _safe_getattr(descriptor, "telemetry") is False:
+        telemetry = _safe_getattr(descriptor, "telemetry")
+        if telemetry is False:
             continue
         capability_id = _safe_getattr(descriptor, "id") or _safe_getattr(descriptor, "canonical_id")
         path = _safe_getattr(descriptor, "callable_path")
@@ -1021,41 +1063,39 @@ def install_surface_instrumentation(
         elif connection == "opens_connection":
             default_stage = "connect"
         elif (
-            surface == "analysis" and descriptor_kind in {"operator", "boundary"}
-        ) or data_access in {
-            "live_metadata_read",
-            "scoped_data_read",
-            "potentially_unbounded_read",
-        }:
+            telemetry == "long"
+            or (surface == "analysis" and descriptor_kind in {"operator", "boundary"})
+            or data_access
+            in {
+                "live_metadata_read",
+                "scoped_data_read",
+                "potentially_unbounded_read",
+            }
+        ):
             default_stage = "execute"
         else:
             default_stage = None
+        capture_policy: CapturePolicy | None = (
+            "long" if telemetry == "long" else "short" if telemetry == "short" else None
+        )
+        decorate = tracked_capability(
+            surface=surface,
+            capability_id=capability_id,
+            capability_kind=descriptor_kind,
+            default_stage=default_stage,
+            capture_policy=capture_policy,
+        )
         if isinstance(raw, staticmethod):
             original = raw.__func__
-            wrapped = tracked_capability(
-                surface=surface,
-                capability_id=capability_id,
-                capability_kind=descriptor_kind,
-                default_stage=default_stage,
-            )(original)
+            wrapped = decorate(original)
             replacement: object = staticmethod(wrapped)
         elif isinstance(raw, classmethod):
             original = raw.__func__
-            wrapped = tracked_capability(
-                surface=surface,
-                capability_id=capability_id,
-                capability_kind=descriptor_kind,
-                default_stage=default_stage,
-            )(original)
+            wrapped = decorate(original)
             replacement = classmethod(wrapped)
         elif callable(raw):
             original = cast("Callable[..., object]", raw)
-            wrapped = tracked_capability(
-                surface=surface,
-                capability_id=capability_id,
-                capability_kind=descriptor_kind,
-                default_stage=default_stage,
-            )(original)
+            wrapped = decorate(original)
             replacement = wrapped
         else:
             continue

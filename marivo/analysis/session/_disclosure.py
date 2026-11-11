@@ -298,7 +298,9 @@ def provider() -> DisclosureProvider:
                 )
                 else (effect,),
                 effects=effect,
-                telemetry=name in ("get_or_create", "resume"),
+                telemetry="short"
+                if name in ("get_or_create", "resume", "members", "population_from")
+                else False,
                 failures=(
                     "SessionStateError: explicit configuration conflicts identify the saved and requested values; error.repair.candidates contains the existing Session ID. Recovery also respects the resume writer guard."
                     if name == "get_or_create"

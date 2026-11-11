@@ -79,6 +79,8 @@ from marivo.semantic.catalog import Entity, Relationship
 from marivo.semantic.expressions import _Entity, entity_exact
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from marivo.semantic.catalog import SemanticCatalog
 
 
@@ -380,6 +382,15 @@ class Population(PopulationParameter):
     """
 
     _frame_inputs: tuple[FrameKeyInput, ...] = field(default=(), compare=False, repr=False)
+
+    @property
+    def _project_root(self) -> Path | None:
+        return self._context.project_root
+
+    @property
+    def _session_id(self) -> str | None:
+        owner = self._context.owner
+        return owner.session_id if owner is not None else None
 
     @property
     def axes(self) -> tuple[Grouping, ...]:

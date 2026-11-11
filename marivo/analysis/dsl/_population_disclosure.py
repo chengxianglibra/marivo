@@ -209,6 +209,7 @@ def provider() -> DisclosureProvider:
                 ),
                 example=ExampleInput(code, requires, "result", output),
                 discovery_group=group,
+                telemetry="short" if not is_window else False,
                 related=("observation_window", "semantic.metric.window")
                 if is_window
                 else ("semantic.predicate",)
@@ -355,6 +356,7 @@ def provider() -> DisclosureProvider:
                 effects="Capture or inspect only; no schema or business reads.",
                 failures=("AnalysisError: follow its exact axis, owner, path or version repair.",),
                 example=ExampleInput(code, method_requires, "result", output),
+                telemetry="short" if owner is Population and name != "show" else False,
                 discovery_group=(
                     None
                     if name == "show"

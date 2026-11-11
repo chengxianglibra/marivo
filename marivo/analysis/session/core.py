@@ -90,6 +90,10 @@ class Session:
 
     @classmethod
     def _from_runtime(cls, runtime: DatasetRuntime) -> Session:
+        from marivo.analysis import _initialize_public
+
+        # Direct imports of the Session facade must activate the same public methods.
+        _initialize_public()
         result = object.__new__(cls)
         result._runtime = runtime
         result._sources_value = None

@@ -22,6 +22,8 @@ from marivo.analysis.core.model import reject
 from marivo.analysis.core.value_types import literal_kind
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from marivo.analysis.dsl.frame import AnalysisFrame
     from marivo.analysis.dsl.frame_axis import FrameAxis
 
@@ -41,6 +43,14 @@ class Column:
     _kind: ValueKind
     _frame: AnalysisFrame | None = None
     _name: str | None = None
+
+    @property
+    def _project_root(self) -> Path | None:
+        return self._frame._project_root if self._frame is not None else None
+
+    @property
+    def _session_id(self) -> str | None:
+        return self._frame.session_id if self._frame is not None else None
 
     def __repr__(self) -> str:
         return f"<Column input={self._input_id[:16]} kind={self._kind}; use .show()>"

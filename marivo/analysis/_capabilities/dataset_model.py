@@ -70,7 +70,7 @@ class CallableInput:
     registration_ids: tuple[str, ...] = ()
     discovery_group: str | None = None
     unbound_default: bool = False
-    telemetry: bool = False
+    telemetry: Literal[False, "short", "long"] = False
     semantic_kinds: tuple[SemanticKind, ...] = ()
     related: tuple[str, ...] = ()
     discovery_family: str | None = None
@@ -97,7 +97,7 @@ def operation(
     bindings: tuple[CallableBinding, ...] = (),
     discovery_group: str | None = None,
     unbound_default: bool = False,
-    telemetry: bool = False,
+    telemetry: Literal[False, "short", "long"] = False,
     semantic_kinds: tuple[SemanticKind, ...] = (),
     related: tuple[str, ...] = (),
     discovery_family: str | None = None,
@@ -116,7 +116,7 @@ def operation(
         registration_ids,
         discovery_group,
         unbound_default,
-        telemetry,
+        telemetry or ("short" if discovery_group == "operators" else False),
         semantic_kinds,
         related,
         discovery_family,

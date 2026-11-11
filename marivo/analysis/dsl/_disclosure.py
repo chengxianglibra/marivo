@@ -742,6 +742,11 @@ def provider() -> DisclosureProvider:
                 ),
                 example=ExampleInput(code, requires, "result", output),
                 discovery_group=group,
+                telemetry="long"
+                if owner is AnalysisFrame and name in ("compute", "persist", "to_pandas")
+                else "short"
+                if owner is AnalysisFrame and name == "axis"
+                else False,
             )
         )
     from marivo.analysis.dsl._population_disclosure import provider as population_provider
