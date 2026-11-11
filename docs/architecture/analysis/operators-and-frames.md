@@ -287,10 +287,14 @@ no unit. Counts remain when the coefficient is undefined. Self pair_count is
 the expression's non-NA count. No source correlation pushdown is qualified.
 
 Correlation retains pair selection and constant/insufficient-pair rules, then uses
-pandas' native correlation (average ranks before Pearson for Spearman). It adds no
-finite scan or precision-preserving centering conversions. Native NaN coefficients
-remain valid NaN. NumPy divide-by-zero and invalid-operation warnings are silenced
-only during the pandas correlation call. The numeric implementation is owned by
+pandas' native correlation (average ranks before Pearson for Spearman). Spearman
+ranks the admitted values. Before Pearson, a finite endpoint is divided by its
+maximum absolute value when the centered float64 products would overflow. That
+positive scale preserves the coefficient for values float64 can represent, including
+an exact line such as `(1e308, -1e308, 0)` with `(1, -1, 0)`. Native NaN
+coefficients remain valid NaN. NumPy divide-by-zero and invalid-operation warnings
+are silenced only during the pandas correlation call. The numeric implementation is
+owned by
 [frame_correlation.py](../../../marivo/analysis/methods/frame_correlation.py).
 Group coefficients and counts cannot reconstruct pooled correlation.
 
