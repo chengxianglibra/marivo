@@ -1,0 +1,40 @@
+---
+slug: docs/v0.6/release-notes/0.6.5
+title: Marivo 0.6.5
+description: Release notes for Marivo 0.6.5.
+---
+
+Released on November 11, 2026. Marivo 0.6.5 expands AnalysisFrame display and
+local analysis telemetry, and fixes temporal expressions on Python 3.14 and
+Pearson correlation for large finite values.
+
+## Highlights
+
+- With usage telemetry enabled, explicit public Analysis DSL calls record a
+  completion event for success or failure. Explicit `compute()`, `persist()`,
+  and `to_pandas()` calls record a correlated start and completion. Analysis DSL
+  events stay in project-local files and omit operand values and result rows.
+
+## Changed
+
+- `AnalysisFrame.show()` prints all rows and columns of computed or saved data
+  using pandas formatting. Pending Frames still show metadata without evaluating
+  the expression. The `n` and `max_output_bytes` arguments have been removed.
+  Use `frame.read_page(...)` to inspect part of a large result.
+  Pandas formatting can raise `OverflowError` for composite temporal coordinates
+  outside Python's date range.
+
+## Fixed
+
+- Deferred day keys and encoded time predicates work with Ibis 12 on Python 3.14.
+- Pearson correlation rescales large finite inputs when intermediate products risk
+  overflowing `float64`, avoiding spurious `NaN` for cases such as perfectly
+  correlated values near the upper end of the `float64` range.
+
+## Documentation
+
+- Updated the English and Chinese guides for Frame display and local telemetry.
+
+## Internal
+
+- Regular CI now also runs on Python 3.14.

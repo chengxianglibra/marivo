@@ -132,7 +132,6 @@ assert table["reference.absolute.revenue"].tolist() == [-100, -100]
 assert table["current.present"].all()
 assert table["reference.present"].all()
 saved.show()
-saved.show(n=0)  # Commit and source-read metadata only.
 reopened = session.persisted_frame(saved.artifact_id)
 assert reopened.to_pandas().equals(table)
 saved_session_id = session.id
@@ -191,9 +190,9 @@ selected period and grouping; `compute` reads and evaluates it.
 
 To read individual records, provide complete Entity identities and named fields to `session.read`. The [population guide](/docs/v0.6/analysis/dsl/#select-and-filter) supplies a runnable order example.
 
-`show()` presents a bounded view. `to_pandas()` returns a complete isolated copy for further work. Column and FrameAxis handles belong to their exact Frame: obtain them again after deriving a new input rather than reusing handles from an earlier one.
+`show()` displays all fixed rows using pandas formatting. `to_pandas()` returns a complete isolated copy for further work. Column and FrameAxis handles belong to their exact Frame: obtain them again after deriving a new input rather than reusing handles from an earlier one.
 
-Export requires a completed Frame. A derivation such as `fixed.select(...)` is lazy even when `fixed` is already complete: call `compute()` on the derivative and use the returned object. Short composition examples are available at `analysis.analysis_frame.compute`, `analysis.analysis_frame.reduce` and `analysis.analysis_frame.over`.
+`to_pandas()` evaluates a pending Frame once per call, including lazy derivatives such as `fixed.select(...)`, then returns a complete isolated DataFrame. It does not mutate the Frame, cache results or save them. Repeated exports of a pending source expression may read changed data. To reuse the same values across several views, first retain `fixed = frame.compute()` and derive from `fixed`. Short composition examples are available at `analysis.analysis_frame.compute`, `analysis.analysis_frame.reduce` and `analysis.analysis_frame.over`.
 
 The export uses short axis names (final path components), full value names and independent boolean presence. Composite identities remain tuples. Calendar axes expose one actual key timestamp; interval axes expose genuine `.start`/`.end` bounds in their captured timezone. `time_details=True` adds calendar `.label`; named labels retain scalar types. Paired axes use `.left` and `.right` prefixes.
 

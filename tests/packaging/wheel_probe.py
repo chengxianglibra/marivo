@@ -122,9 +122,11 @@ def surface_snapshot() -> list[dict[str, object]]:
     assert not hasattr(mv.AnalysisFrame, "artifact")
     assert tuple(inspect.signature(mv.AnalysisFrame.show).parameters) == ("self",)
     for name in names:
-        value = getattr(mv, name)
+        value: object = getattr(mv, name)
         entry = exports[name]
-        assert value is entry.implementation
+        # Public telemetry wrappers preserve the native export's ownership.
+        implementation = inspect.unwrap(value) if callable(value) else value
+        assert implementation is entry.implementation
         signatures = (
             {"__call__": str(inspect.signature(value))}
             if callable(value) and not inspect.isclass(value)

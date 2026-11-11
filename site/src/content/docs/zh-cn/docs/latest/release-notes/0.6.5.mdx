@@ -1,0 +1,36 @@
+---
+slug: zh-cn/docs/latest/release-notes/0.6.5
+title: Marivo 0.6.5
+description: Marivo 0.6.5 版本说明。
+---
+
+发布于 2026 年 11 月 11 日。Marivo 0.6.5 扩展了 AnalysisFrame 的显示和本地分析遥测，
+并修复了 Python 3.14 上的时间表达式以及数值极大时的 Pearson 相关系数计算。
+
+## 亮点
+
+- 启用使用遥测后，显式调用公开的 Analysis DSL 操作会记录成功或失败的完成事件。
+  显式调用 `compute()`、`persist()` 和 `to_pandas()` 会记录相互关联的开始和完成事件。
+  Analysis DSL 事件保存在项目本地文件中，省略操作数的值和结果行。
+
+## 变更
+
+- `AnalysisFrame.show()` 使用 pandas 格式输出已计算或已保存数据的所有行和列。
+  待计算的 Frame 仍只显示元数据，不会求值。`n` 和 `max_output_bytes` 参数已移除。
+  查看大型结果的一部分时，可使用
+  `frame.read_page(...)`。复合时间坐标超出 Python 日期范围时，pandas 格式化可能抛出
+  `OverflowError`。
+
+## 修复
+
+- 修复 Python 3.14 上使用 Ibis 12 时延迟求值的日期键和编码时间谓词的兼容性问题。
+- 当中间乘积可能超出 `float64` 范围时，Pearson 相关系数计算会缩放极大的有限输入，
+  避免接近 `float64` 上限且完全相关的值错误地得到 `NaN`。
+
+## 文档
+
+- 更新中英文指南中的 Frame 显示和本地遥测说明。
+
+## 内部变更
+
+- 常规 CI 新增 Python 3.14 检查。

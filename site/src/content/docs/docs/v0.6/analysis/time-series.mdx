@@ -283,7 +283,7 @@ Row time selects an attribute for each original fact; a fixed anchor restates th
 ## Inspect captured source time interpretations
 
 After computing `daily`, inspect `daily.schema.source_times` or call
-`daily.show(n=0)`. Each immutable record identifies the consumed source field,
+`daily.show()`. Each immutable record identifies the consumed source field,
 physical type and consumption timezone. `instant` needs no source declaration;
 `wall_clock` and `civil_date` retain the effective source timezone and its
 `field` or `datasource` origin. Hour-prefix clocks also record `inherited_from`.

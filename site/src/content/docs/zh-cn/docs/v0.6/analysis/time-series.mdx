@@ -253,7 +253,7 @@ restated = session.observe(
 
 ## 检查捕获的源时间解释
 
-计算 `daily` 后，读取 `daily.schema.source_times` 或调用 `daily.show(n=0)`。
+计算 `daily` 后，读取 `daily.schema.source_times` 或调用 `daily.show()`。
 每条不可变记录标识实际消费的源字段、物理类型与消费时区。`instant` 不需要源时区声明；
 `wall_clock` 和 `civil_date` 保存最终生效的源时区及其 `field` 或 `datasource` 来源。
 hour-prefix 时钟还保存 `inherited_from`。待执行结果的显示不为补齐这些事实打开源连接。

@@ -34,7 +34,7 @@ session = mv.session.resume(session_id)
 reopened = session.persisted_frame(frame_id)
 rows = reopened.to_pandas()
 assert rows["reference.absolute.revenue"].tolist() == [-100, -100]
-reopened.show(n=0)
+reopened.show()
 rows.to_csv("comparison.csv", index=False)
 ```
 
@@ -86,9 +86,9 @@ Older generations remain independent and require a compatible environment.
 
 ## Read evidence in context
 
-An `AnalysisFrame` may be a pending expression, completed in-memory data, or a saved result. `compute()` completes a Frame in memory; `persist()` saves the completed result. `show()` is a bounded preview, while `to_pandas()` exports complete fixed data.
+An `AnalysisFrame` may be a pending expression, completed in-memory data, or a saved result. `compute()` returns a completed Frame in memory; `persist()` saves the completed result. `show()` displays pending metadata or all fixed data using pandas formatting, without evaluation. Pandas formatting can raise `OverflowError` for composite temporal coordinates outside Python's date range. `to_pandas()` evaluates pending inputs once per call and exports a complete isolated table, without mutating the Frame, caching results or saving them. Repeated exports of a pending source expression can read changed data; retain `compute()`'s returned Frame when several views must share the same values. Memory and saved Frames export their existing data without source reads. `schema` and `repr()` also remain non-evaluating.
 
-On a saved Frame, `session_id` and `artifact_id` identify the committed result. `show(n=0)` displays evaluation/commit times and bounded actual-read summaries without result rows or method payloads. `source_reads` exposes actual source reads consumed by this result; supported contribution analyses retain original explanations in `method_facts`. Pending and memory Frames require explicit `persist()` before source_reads access; the property never executes or saves a result.
+On a saved Frame, `session_id` and `artifact_id` identify the committed result. `show()` displays evaluation/commit times, actual-read summaries and all fixed rows without reading method payloads. `source_reads` exposes actual source reads consumed by this result; supported contribution analyses retain original explanations in `method_facts`. Pending and memory Frames require explicit `persist()` before source_reads access; the property never executes or saves a result.
 
 ```python
 saved = pending.persist()
