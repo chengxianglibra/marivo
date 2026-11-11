@@ -1,7 +1,7 @@
 # Agent-Facing Public Surface
 
 Marivo is consumed through a write-run-read loop. The library owns deterministic
-meaning, typed computation, bounded disclosure and concrete repair. The agent
+meaning, typed computation, explicit inspection boundaries and concrete repair. The agent
 owns the business question, evidence interpretation and conclusions.
 
 ## One public Help coordinator
@@ -46,6 +46,12 @@ rules supply constraints, effects and examples. Native registries assemble these
 facts and task navigation; renderers maintain no shadow capability inventory.
 Unknown-target repairs use real registered candidates and preserve the requested
 receiver. No executable compatibility alias supplies a second canonical entry.
+
+Public function docstrings cover purpose, parameters, return value, a usage
+example and constraints. Every public API symbol resolves through a focused
+`datasource.<target>`, `semantic.<target>` or `analysis.<target>` Help path.
+Top-level navigation excludes type aliases and internal handoff types; exact
+type pages own method discovery.
 
 ## Task navigation and exact reference
 
@@ -120,7 +126,7 @@ implicitly recover the original source declarations.
 | --- | --- |
 | Live Help | Static API, expression grammar, exact examples and navigation |
 | Logical object show / typed fields | Captured definitions, inputs, scopes and ownership |
-| Completed Frame show | Bounded current data and interpretation |
+| Completed Frame show | Complete fixed data using pandas formatting, with captured metadata |
 | Completed / persisted Frame | Values, captured source reads and method facts; persisted commit identity |
 | Structured error | Expected/received facts and concrete current repair |
 | Packaged skill | Workflow boundaries, judgment and handoff |
@@ -129,7 +135,21 @@ Read focused Help when syntax is unknown, and object facts when needed for the
 next decision. Related routes are navigation, rather than a mandatory checklist.
 Errors do not invent names, choose a different business meaning, silently widen
 a scope or retry on another execution target. Public result repr is bounded,
-single-line and points to show rather than dumping dataclass fields.
+single-line, identifies kind and identity, and points to show rather than dumping
+dataclass fields. Display limits belong to each receiver's contract below;
+completed Frame data is not subject to a universal bounded-output rule.
+
+Object cards disclose captured metadata in deterministic order and offer
+state-dependent continuations rather than a capability matrix. Typed fields
+retain complete facts when display is bounded. New public result types join an
+existing naming/protocol family or justify a new one. Prefer a single entry shape
+with closed, kind-dispatched variants over a bag of optional fields.
+
+Datasource and semantic authoring results disclose operations, effects, inputs,
+errors and typed repairs without a shared lifecycle graph. Analysis has no
+generic action contract; semantic definition and time identity contracts retain
+their own purposes. Terminal results such as RawSqlResult cannot enter typed
+analysis and do not acquire an analysis action contract.
 
 Analysis validation call sites explicitly supply the canonical Help identity of
 the public operation they own. Shared validators receive the actual consumer,
@@ -226,6 +246,7 @@ skills retain their existing domain judgment; there is no separate service skill
 Exports, callable/types, Help, result/error guidance and dynamic continuations
 form one disclosure contract. A change aligns native registries, independent
 export/reachability/budget tests, examples, CLI and latest English/Chinese docs.
+Public `__all__` sets are pinned by snapshot tests and exclude internal alternatives.
 Packaged skills retain workflow ownership and their explicit edit-authorization
 rule. Character/page budgets are proxies rather than measured model efficiency;
 journey correctness and failed lookups/repairs also matter.
