@@ -164,7 +164,9 @@ class _Fact(RenderableResult):
                 "values",
                 "key",
             ):
-                parts.append(f"{item.name}={len(getattr(self, item.name))}")
+                value = getattr(self, item.name)
+                if isinstance(value, tuple):
+                    parts.append(f"{item.name}={len(value)}")
         if isinstance(self, FrameFixedAxis):
             parts.append(f"axis={self.axis.token[:40]}")
         elif isinstance(self, FrameFixedGroup):

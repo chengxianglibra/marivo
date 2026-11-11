@@ -532,3 +532,55 @@ def test_schema_and_frame_cards_disclose_bounded_alignment_directory_without_row
         current.schema.show()
         schema_card = capsys.readouterr().out
         assert len(schema_card.encode()) <= 8192
+
+
+def test_comparison_schema_cards_disclose_names_without_reading_data(
+    local: LocalFrameServices,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from marivo.analysis.materialization import frame_evaluation
+    from marivo.analysis.materialization.graph_reading import FrameReader, OutputRead
+
+    frame = _frame(local)
+    current = frame.select({"revenue": frame["input.x"]})
+    pending = current.compare({"prior": mv.baseline(current)})
+    memory = pending.compute()
+    saved = memory.persist()
+
+    def forbidden(*args: object, **kwargs: object) -> None:
+        raise AssertionError("comparison metadata must not evaluate or read result payloads")
+
+    monkeypatch.setattr(frame_evaluation, "evaluate_frame", forbidden)
+    monkeypatch.setattr(FrameReader, "data", forbidden)
+    monkeypatch.setattr(FrameReader, "method_facts", forbidden)
+    monkeypatch.setattr(OutputRead, "_open", forbidden)
+    for result in (pending, memory, saved):
+        schema = result.schema
+        schema.show()
+        output = capsys.readouterr().out
+        assert len(output.encode()) <= 8192
+        for name in (
+            "group",
+            "sample",
+            "revenue",
+            "prior.baseline.revenue",
+            "prior.absolute.revenue",
+        ):
+            assert name in output
+        assert tuple(schema.values) == (
+            "revenue",
+            "prior.baseline.revenue",
+            "prior.absolute.revenue",
+            "prior.relative.revenue",
+        )
+        comparison = schema.comparisons[0]
+        assert "\n" not in repr(comparison)
+        assert ".show()" in repr(comparison)
+        comparison.show()
+        assert len(capsys.readouterr().out.encode()) <= 8192
+        assert comparison.presence is not None
+        comparison.presence.show()
+        presence_output = capsys.readouterr().out
+        assert "current.present" in presence_output
+        assert "prior.present" in presence_output
