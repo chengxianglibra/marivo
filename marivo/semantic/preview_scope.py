@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Literal, NoReturn, TypeAlias
 from marivo.datasource.ir import JsonSourceIR, QueryParamScalar, QueryParamScalarList
 from marivo.datasource.json_source import normalize_json_source_params
 from marivo.datasource.source import AuthoringScope, PartitionScope, UnprunedScope
-from marivo.preview import PREVIEW_DEFAULT_LIMIT, PreviewLimitError, validate_preview_limit
+from marivo.preview import PreviewLimitError, validate_preview_limit
 from marivo.refs import EntityKind, Ref, SemanticKind, SemanticKindTag
 from marivo.refs import ref as ref_factory
 from marivo.semantic.errors import ErrorKind, SemanticRuntimeError, _raise, repair
@@ -32,7 +32,7 @@ def normalize_preview_limit(limit: int, *, operation: Literal["preview", "previe
         return validate_preview_limit(limit)
     except PreviewLimitError as exc:
         _raise(
-            ErrorKind.MATERIALIZE_FAILED,
+            ErrorKind.INVALID_PARAMETER,
             f"catalog.{operation} received an invalid preview limit.",
             cls=SemanticRuntimeError,
             expected=f"an integer preview limit from {exc.min_limit} to {exc.max_limit} inclusive",
@@ -43,9 +43,9 @@ def normalize_preview_limit(limit: int, *, operation: Literal["preview", "previe
                 "preview rows; scope.max_rows separately guards source acquisition."
             ),
             repair_value=repair(
-                kind="reauthor",
+                kind="retry",
                 canonical_id=operation,
-                action=f"Retry catalog.{operation} with limit={PREVIEW_DEFAULT_LIMIT}.",
+                action=f"Choose a limit from {exc.min_limit} to {exc.max_limit} inclusive for the desired preview, then retry.",
             ),
         )
 
@@ -97,13 +97,25 @@ def preflight_preview_scope(
             _preflight_scope(inspection, scope=scope)
 
 
-def _blocked(ref: str, message: str, *, details: Mapping[str, object]) -> NoReturn:
+def _blocked(
+    ref: str,
+    message: str,
+    *,
+    details: Mapping[str, object],
+    action: str,
+    target: str = "preview",
+    kind: ErrorKind = ErrorKind.INVALID_PARAMETER,
+) -> NoReturn:
     _raise(
-        ErrorKind.MATERIALIZE_FAILED,
+        kind,
         message,
         cls=SemanticRuntimeError,
         refs=(ref,),
+        expected=message,
+        received=repr(dict(details)) if details else "invalid operation inputs",
+        hint=action,
         details={"query_executed": False, **details},
+        repair_value=repair(kind="retry", canonical_id=target, action=action),
     )
 
 
@@ -195,22 +207,31 @@ def _validate_scope(
     preview_ref: str,
     operation: str = "catalog.preview",
 ) -> AuthoringScope:
-    scope_label = "Preview scope" if operation == "catalog.preview" else "Online validation scope"
-    if not isinstance(scope, PartitionScope | UnprunedScope):
+    def blocked(ref: str, message: str, *, details: Mapping[str, object]) -> NoReturn:
         _blocked(
+            ref,
+            message,
+            details=details,
+            target=operation.removeprefix("catalog."),
+            action="Create a valid bounded scope with md.partition(), md.time_range(), or md.unpruned(), then retry.",
+        )
+
+    scope_label = "Online validation scope" if operation == "catalog.validate" else "Preview scope"
+    if not isinstance(scope, PartitionScope | UnprunedScope):
+        blocked(
             preview_ref,
             f"{operation}(..., scope=...) requires a scope from "
             "md.partition(), md.time_range(), or md.unpruned().",
             details={"received_type": type(scope).__name__},
         )
     if type(scope.max_rows) is not int or scope.max_rows < 1:
-        _blocked(
+        blocked(
             preview_ref,
             f"{scope_label} max_rows must be a positive integer.",
             details={},
         )
     if type(scope.timeout_seconds) is not int or scope.timeout_seconds < 1:
-        _blocked(
+        blocked(
             preview_ref,
             f"{scope_label} timeout_seconds must be a positive integer.",
             details={},
@@ -238,10 +259,10 @@ def _validate_scope(
     if invalid:
         partition_label = (
             "Preview partition scope"
-            if operation == "catalog.preview"
+            if operation != "catalog.validate"
             else "Online validation partition scope"
         )
-        _blocked(preview_ref, f"{partition_label} is invalid.", details={})
+        blocked(preview_ref, f"{partition_label} is invalid.", details={})
     return scope
 
 
@@ -253,10 +274,19 @@ def _normalize_scopes(
     operation: str = "catalog.preview",
     catalog: SemanticCatalog,
 ) -> tuple[tuple[str, AuthoringScope], ...]:
-    operation_label = "preview" if operation == "catalog.preview" else "online validation"
+    def blocked(ref: str, message: str, *, details: Mapping[str, object]) -> NoReturn:
+        _blocked(
+            ref,
+            message,
+            details=details,
+            target=operation.removeprefix("catalog."),
+            action="Pass one scope for a single Entity, or exactly one (Entity, scope) pair per dependency Entity, then retry.",
+        )
+
+    operation_label = "preview" if operation != "catalog.validate" else "online validation"
     if len(entity_ids) == 1:
         if isinstance(scope, Sequence | Mapping):
-            _blocked(
+            blocked(
                 preview_ref,
                 f"A single-entity {operation_label} requires one AuthoringScope, not an Entity pair sequence.",
                 details={"received_type": type(scope).__name__},
@@ -268,7 +298,7 @@ def _normalize_scopes(
             ),
         )
     if not isinstance(scope, Sequence) or isinstance(scope, str | bytes):
-        _blocked(
+        blocked(
             preview_ref,
             f"A multi-entity {operation_label} requires an Entity object/scope pair sequence.",
             details={"received_type": type(scope).__name__},
@@ -276,7 +306,7 @@ def _normalize_scopes(
     by_entity: dict[str, AuthoringScope] = {}
     for pair in scope:
         if not isinstance(pair, tuple) or len(pair) != 2:
-            _blocked(
+            blocked(
                 preview_ref,
                 "Scope entries must be (Entity object, AuthoringScope) pairs.",
                 details={},
@@ -289,7 +319,7 @@ def _normalize_scopes(
             catalog=catalog,
         )
         if entity_id in by_entity:
-            _blocked(
+            blocked(
                 preview_ref,
                 f"{operation_label.capitalize()} scope repeats entity {entity_id!r}.",
                 details={},
@@ -302,10 +332,10 @@ def _normalize_scopes(
     if set(by_entity) != set(entity_ids):
         mapping_label = (
             "Preview scope pairs"
-            if operation == "catalog.preview"
+            if operation != "catalog.validate"
             else "catalog.validate scope pairs"
         )
-        _blocked(
+        blocked(
             preview_ref,
             f"{mapping_label} must cover exactly the dependency entities.",
             details={
@@ -327,11 +357,21 @@ def _normalize_source_bindings(
     preview_ref: str,
     registry: Registry,
     catalog: SemanticCatalog,
+    operation: str = "preview",
 ) -> Mapping[str, Mapping[str, QueryParamScalar | QueryParamScalarList]]:
+    def blocked(ref: str, message: str, *, details: Mapping[str, object]) -> NoReturn:
+        _blocked(
+            ref,
+            message,
+            details=details,
+            target=operation,
+            action="Pass each dependency Entity at most once with the parameter mapping declared by its JSON source; omit bindings for other sources.",
+        )
+
     if source_bindings is not None and (
         not isinstance(source_bindings, Sequence) or isinstance(source_bindings, str | bytes)
     ):
-        _blocked(
+        blocked(
             preview_ref,
             "catalog.preview(..., source_bindings=...) requires an Entity object/parameter mapping pair sequence.",
             details={"received_type": type(source_bindings).__name__},
@@ -339,7 +379,7 @@ def _normalize_source_bindings(
     supplied: dict[str, Mapping[str, QueryParamScalar | QueryParamScalarList]] = {}
     for pair in source_bindings or ():
         if not isinstance(pair, tuple) or len(pair) != 2:
-            _blocked(
+            blocked(
                 preview_ref,
                 "Source binding entries must be (Entity object, parameter mapping) pairs.",
                 details={},
@@ -352,9 +392,9 @@ def _normalize_source_bindings(
             catalog=catalog,
         )
         if entity_id in supplied:
-            _blocked(preview_ref, f"Source bindings repeat entity {entity_id!r}.", details={})
+            blocked(preview_ref, f"Source bindings repeat entity {entity_id!r}.", details={})
         if not isinstance(value, Mapping):
-            _blocked(
+            blocked(
                 preview_ref,
                 "Source binding values must be parameter mappings.",
                 details={"entity": entity_id, "received_type": type(value).__name__},
@@ -362,7 +402,7 @@ def _normalize_source_bindings(
         supplied[entity_id] = value
     unrelated = tuple(entity_id for entity_id in supplied if entity_id not in entity_ids)
     if unrelated:
-        _blocked(
+        blocked(
             preview_ref,
             "Source bindings contain entities outside the preview dependency closure.",
             details={"unrelated": unrelated},
@@ -376,7 +416,7 @@ def _normalize_source_bindings(
             try:
                 params = normalize_json_source_params(source, binding)
             except (TypeError, ValueError) as exc:
-                _blocked(
+                blocked(
                     preview_ref,
                     f"Source bindings for entity {entity_id!r} are invalid: {exc}",
                     details={"entity": entity_id},
@@ -384,7 +424,7 @@ def _normalize_source_bindings(
             if params:
                 normalized[entity_id] = params
         elif binding is not None:
-            _blocked(
+            blocked(
                 preview_ref,
                 "Source bindings are supported only for parameterized JSON sources.",
                 details={"entity": entity_id, "source_kind": source.kind},
@@ -408,6 +448,7 @@ def normalize_preview_scope(
             ref,
             f"catalog.preview() does not support {kind} refs.",
             details={"kind": str(kind)},
+            action="Choose an executable semantic object for preview.",
         )
     scopes = _normalize_scopes(entity_ids, scope, preview_ref=ref, catalog=catalog)
     normalized_source_bindings = _normalize_source_bindings(
@@ -435,6 +476,7 @@ def _normalized_preview_scope(
     scopes: tuple[tuple[str, AuthoringScope], ...],
     source_bindings: Mapping[str, Mapping[str, QueryParamScalar | QueryParamScalarList]],
     registry: Registry,
+    operation: str = "preview",
 ) -> NormalizedPreviewScope:
     datasource_ids = tuple(registry.entities[entity_id].datasource for entity_id in entity_ids)
     if len(set(datasource_ids)) != 1:
@@ -442,6 +484,9 @@ def _normalized_preview_scope(
             ref,
             "Scoped preview requires all dependency entities to share one datasource backend.",
             details={"datasources": datasource_ids},
+            kind=ErrorKind.CROSS_DATASOURCE_NOT_SUPPORTED,
+            target=operation,
+            action="Choose inputs whose dependency Entities use one datasource, or inspect them separately.",
         )
     datasource = registry.datasources[datasource_ids[0]]
     return NormalizedPreviewScope(
@@ -474,14 +519,26 @@ def normalize_preview_batch_scopes(
     )
     if not entity_ids:
         _raise(
-            ErrorKind.MATERIALIZE_FAILED,
+            ErrorKind.INVALID_PARAMETER,
             "catalog.preview_many(refs, scope=...) requires at least one executable semantic ref.",
             cls=SemanticRuntimeError,
             refs=batch_refs,
             details={"query_executed": False},
+            hint="Choose at least one executable semantic object.",
+            repair_value=repair(
+                kind="retry",
+                canonical_id="preview_many",
+                action="Choose at least one executable semantic object for preview.",
+            ),
         )
     normalized_scopes = dict(
-        _normalize_scopes(entity_ids, scope, preview_ref=batch_refs[0], catalog=catalog)
+        _normalize_scopes(
+            entity_ids,
+            scope,
+            preview_ref=batch_refs[0],
+            operation="catalog.preview_many",
+            catalog=catalog,
+        )
     )
     normalized_bindings = _normalize_source_bindings(
         entity_ids,
@@ -489,6 +546,7 @@ def normalize_preview_batch_scopes(
         preview_ref=batch_refs[0],
         registry=registry,
         catalog=catalog,
+        operation="preview_many",
     )
     normalized: list[NormalizedPreviewScope] = []
     for ref, kind in refs:
@@ -507,6 +565,7 @@ def normalize_preview_batch_scopes(
                     if entity_id in normalized_bindings
                 },
                 registry=registry,
+                operation="preview_many",
             )
         )
     return tuple(normalized)

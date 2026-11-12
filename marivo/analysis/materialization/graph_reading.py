@@ -55,7 +55,7 @@ from marivo.analysis.core.model import reject
 from marivo.analysis.core.unique_keys import UniqueKeys
 from marivo.analysis.errors import ArtifactNotFoundError
 from marivo.analysis.materialization import terminal_store
-from marivo.analysis.materialization.errors import MaterializationError
+from marivo.analysis.materialization.errors import MaterializationError, StorageAccessError
 from marivo.analysis.materialization.frame_method_facts import decode_method_payload
 from marivo.analysis.materialization.storage import (
     _checked_path,
@@ -132,12 +132,12 @@ class OutputRead:
                         self.receipt_bytes_hashed += len(block)
                         hashed.update(block)
             if hashed.hexdigest() != handle.payload_digest:
-                raise invalid("Frame payload digest differs from its committed receipt")
+                raise StorageAccessError("mutated", stage="frame.read")
             expected_manifest = _manifest_bytes(receipt.file_manifest)
             with (directory / "manifest.json").open("rb") as manifest_stream:
                 saved_manifest = manifest_stream.read(len(expected_manifest) + 1)
             if saved_manifest != expected_manifest:
-                raise invalid("Frame file manifest differs from its receipt")
+                raise StorageAccessError("mutated", stage="frame.read")
             self._validated.add(handle)
         parquet, path = _open_payload(self.root, receipt)
         if (
@@ -347,6 +347,10 @@ def open_manifest(store: SessionStore, session_id: str, artifact_id: str) -> Art
 def _frame_read_boundary() -> Iterator[None]:
     try:
         yield
+    except FileNotFoundError as error:
+        raise StorageAccessError("missing", stage="frame.read") from error
+    except PermissionError as error:
+        raise StorageAccessError("unauthorized", stage="frame.read") from error
     except (
         pa.ArrowException,
         OSError,

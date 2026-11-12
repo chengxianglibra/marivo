@@ -96,6 +96,25 @@ def test_encoded_missing_timezone_is_readiness_blocker(
     assert any(issue.kind == "source_timezone_missing" for issue in report.blockers)
 
 
+def test_hour_prefix_missing_timezone_preserves_date_prefix_parser(
+    tmp_path: Path, semantic_project_factory: _SemanticProjectFactory
+) -> None:
+    catalog, _ = _project(
+        tmp_path,
+        semantic_project_factory,
+        fields=(
+            "day=ms.time_dimension_column(name='day',entity=events,column='day',parse=ms.date())\n"
+            "hour=ms.time_dimension_column(name='hour',entity=events,column='hh',parse=ms.hour_prefix(day))\n"
+        ),
+    )
+    report = catalog.readiness([catalog.get("time_dimension:sales.events.hour")])
+    issue = next(issue for issue in report.blockers if issue.refs == ("sales.events.hour",))
+    assert issue.repair is not None
+    assert "sales.events.day" in issue.repair.action
+    assert "ms.strptime" not in issue.repair.action
+    assert "parser type" in issue.repair.action
+
+
 @pytest.mark.parametrize("column", ["clock", "day"])
 def test_native_missing_timezone_rejects_before_business_read(
     tmp_path: Path,

@@ -122,12 +122,14 @@ def test_invalid_preview_limits_are_structured_before_connection(
             catalog.preview_many([amount], scope=default_scope(), limit=limit)  # type: ignore[arg-type]
 
     error = captured.value
+    assert error.kind == "invalid_parameter"
     assert error.expected == "an integer preview limit from 1 to 100 inclusive"
     assert error.received == f"{limit!r} ({type(limit).__name__})"
     assert error.details["query_executed"] is False
     assert error.hint is not None
     assert error.repair is not None
-    assert "limit=20" in error.repair.action
+    assert error.repair.kind == "retry"
+    assert "1 to 100" in error.repair.action
     assert error.repair.help_target.display == f"semantic.{operation}"
     rendered = str(error)
     marivo.help(error.repair.help_target.display)

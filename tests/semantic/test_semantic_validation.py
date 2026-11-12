@@ -542,7 +542,7 @@ def test_data_checks_require_scope_and_metadata_checks_forbid_it(
 ) -> None:
     catalog, _database_path = _catalog(tmp_path, monkeypatch, semantic_project_factory)
     scope = md.unpruned(max_rows=10, timeout_seconds=5)
-    with pytest.raises(SemanticRuntimeError):
+    with pytest.raises(SemanticRuntimeError) as missing_scope:
         catalog.validate(
             [catalog_get(catalog, "measure:sales.orders.amount", kind="measure")],
             checks=[
@@ -551,10 +551,48 @@ def test_data_checks_require_scope_and_metadata_checks_forbid_it(
                 )
             ],
         )
-    with pytest.raises(SemanticRuntimeError):
+    with pytest.raises(SemanticRuntimeError) as missing_checks:
         catalog.validate(
             [catalog_get(catalog, "measure:sales.orders.amount", kind="measure")], scope=scope
         )
+    for error in (missing_scope.value, missing_checks.value):
+        assert error.kind == "invalid_parameter"
+        assert error.details["query_executed"] is False
+        assert error.expected and error.received
+        assert error.repair is not None
+        assert error.repair.help_target.display == "semantic.validate"
+    assert missing_scope.value.repair is not None
+    assert missing_checks.value.repair is not None
+    assert "scope" in missing_scope.value.repair.action
+    assert "source_check" in missing_checks.value.repair.action
+
+
+def test_invalid_check_and_preview_scope_offer_operation_specific_repairs(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    semantic_project_factory: _SemanticProjectFactory,
+) -> None:
+    catalog, _ = _catalog(tmp_path, monkeypatch, semantic_project_factory)
+    amount = catalog_get(catalog, "measure:sales.orders.amount", kind="measure")
+    with pytest.raises(SemanticRuntimeError) as invalid_check:
+        catalog.validate([amount], checks=["not a source check"])  # type: ignore[list-item]
+    assert invalid_check.value.kind == "invalid_parameter"
+    assert invalid_check.value.repair is not None
+    assert "source_check" in invalid_check.value.repair.action
+    assert invalid_check.value.details["query_executed"] is False
+
+    with pytest.raises(SemanticRuntimeError) as invalid_scope:
+        catalog.preview(amount, scope=[])
+    assert invalid_scope.value.kind == "invalid_parameter"
+    assert invalid_scope.value.repair is not None
+    assert invalid_scope.value.repair.help_target.display == "semantic.preview"
+    assert invalid_scope.value.details["query_executed"] is False
+
+    with pytest.raises(SemanticRuntimeError) as invalid_batch_scope:
+        catalog.preview_many([amount], scope=[])
+    assert invalid_batch_scope.value.kind == "invalid_parameter"
+    assert invalid_batch_scope.value.repair is not None
+    assert invalid_batch_scope.value.repair.help_target.display == "semantic.preview_many"
 
 
 def test_online_validation_rejects_timezone_conflict_before_data_reads(

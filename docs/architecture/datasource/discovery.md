@@ -88,10 +88,12 @@ and a bounded predicate preview. Large partition predicates report omissions
 and point to `.values` for the exact mapping; unpruned scope is labeled as a
 broad read.
 
-ClickHouse acquisition uses native query timeout settings with throwing overflow. Connection, source-resolution, timeout, and
+ClickHouse acquisition uses native query timeout settings with throwing overflow. Connection, source-resolution, preparation, timeout, and
 post-execution failures surface as `DatasourceAuthoringError` values with
 `query_executed`, a sanitized backend summary, and one focused repair; they do
-not escape as raw driver exceptions.
+not escape as raw driver exceptions. `query_executed` records whether the
+bounded acquisition reached its backend query call; earlier metadata or source
+binding may have made separate backend requests.
 
 The snapshot card makes datasource/source/scope identity, selected columns,
 coverage, and value/cache state explicit; use `snapshot.show()` for

@@ -15,7 +15,7 @@ import pytest
 import marivo.datasource as md
 import marivo.semantic as ms
 from marivo.datasource.adapters import CompiledRead, SourceSession
-from marivo.datasource.errors import DatasourceAuthoringError
+from marivo.datasource.errors import DatasourceAuthoringError, DatasourceFieldInvalidError
 from marivo.datasource.inspection import SourceInspection
 from marivo.datasource.metadata import ColumnMetadata, PartitionMetadata
 from marivo.datasource.snapshot import DeterministicMatch, DiscoverySnapshot
@@ -564,6 +564,47 @@ def test_execution_failure_is_structured_redacted_and_disconnects(
     assert error.repair is not None
     assert error.repair.kind == "reacquire"
     assert disconnected == 1
+
+
+def test_compilation_failure_does_not_claim_a_sampling_query(
+    inspection: SourceInspection, monkeypatch: pytest.MonkeyPatch, query_spy: _QuerySpy
+) -> None:
+    def fail_compile(*_args: object, **_kwargs: object) -> None:
+        raise RuntimeError("compile failed")
+
+    monkeypatch.setattr(SourceSession, "compile", fail_compile)
+    with pytest.raises(DatasourceAuthoringError) as captured:
+        inspection.sample(scope=md.unpruned(max_rows=10, timeout_seconds=1), columns=("order_id",))
+    assert query_spy.user_data_queries == 0
+    assert captured.value.code == "acquisition_preparation_failed"
+    assert captured.value.effect_observed is not None
+    assert captured.value.effect_observed.query_executed is False
+    assert captured.value.repair is not None
+    assert captured.value.repair.kind == "inspect"
+
+
+@pytest.mark.parametrize(
+    ("call", "target"),
+    [
+        (lambda: md.partition({}, max_rows=1, timeout_seconds=1), "partition"),
+        (lambda: md.unpruned(max_rows=0, timeout_seconds=1), "unpruned"),
+        (
+            lambda: md.time_range(
+                "dt", start="2026-01-02", end="2026-01-01", max_rows=1, timeout_seconds=1
+            ),
+            "time_range",
+        ),
+    ],
+)
+def test_scope_input_errors_have_current_typed_repairs(call: object, target: str) -> None:
+    from collections.abc import Callable
+
+    with pytest.raises(DatasourceFieldInvalidError) as captured:
+        cast("Callable[[], object]", call)()
+    error = captured.value
+    assert error.expected and error.received
+    assert error.effect_observed is not None and not error.effect_observed.query_executed
+    assert error.repair is not None and error.repair.help_target.canonical_id == target
 
 
 def test_csv_acquisition_infers_source_type_during_read(

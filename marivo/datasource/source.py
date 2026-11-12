@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Literal, TypeAlias
 import ibis
 
 from marivo._compat import UTC
+from marivo.datasource.errors import DatasourceFieldInvalidError, DatasourceObservedEffects, repair
 from marivo.datasource.ir import (
     CsvSourceIR,
     JsonBodyParam,
@@ -140,9 +141,27 @@ def _apply_scope(table: ir.Table, scope: AuthoringScope) -> ir.Table:
     )
 
 
-def _require_positive(value: int, *, field: str) -> None:
+def _invalid_scope(
+    *, target: str, expected: str, received: str, action: str
+) -> DatasourceFieldInvalidError:
+    return DatasourceFieldInvalidError(
+        message="Invalid datasource acquisition scope.",
+        expected=expected,
+        received=received,
+        location=f"md.{target}",
+        effect_observed=DatasourceObservedEffects(query_executed=False),
+        repair=repair(kind="rescope", canonical_id=target, action=action),
+    )
+
+
+def _require_positive(value: int, *, field: str, target: str) -> None:
     if not isinstance(value, int) or isinstance(value, bool) or value < 1:
-        raise ValueError(f"{field} must be a positive integer.")
+        raise _invalid_scope(
+            target=target,
+            expected=f"a positive integer for {field}",
+            received=repr(value),
+            action=f"Pass a positive integer for {field}.",
+        )
 
 
 def partition(values: Mapping[str, str], *, max_rows: int, timeout_seconds: int) -> PartitionScope:
@@ -162,11 +181,23 @@ def partition(values: Mapping[str, str], *, max_rows: int, timeout_seconds: int)
     Constraints:
         All guards are required and positive; at least one partition field is required.
     """
+    if not isinstance(values, Mapping):
+        raise _invalid_scope(
+            target="partition",
+            expected="a non-empty mapping of partition fields to values",
+            received=type(values).__name__,
+            action="Pass a non-empty mapping of inspected partition fields to values.",
+        )
     normalized = tuple((str(key), str(value)) for key, value in values.items())
     if not normalized:
-        raise ValueError("md.partition(...) requires at least one partition field.")
-    _require_positive(max_rows, field="max_rows")
-    _require_positive(timeout_seconds, field="timeout_seconds")
+        raise _invalid_scope(
+            target="partition",
+            expected="at least one partition field",
+            received="an empty mapping",
+            action="Pass a non-empty mapping of inspected partition fields to values.",
+        )
+    _require_positive(max_rows, field="max_rows", target="partition")
+    _require_positive(timeout_seconds, field="timeout_seconds", target="partition")
     return PartitionScope(normalized, max_rows, timeout_seconds)
 
 
@@ -174,9 +205,19 @@ def _normalize_time_bound(value: date | datetime | str, *, field_name: str) -> d
     if type(value) is date or isinstance(value, datetime):
         return value
     if not isinstance(value, str):
-        raise TypeError(f"{field_name} must be an ISO date, datetime, or string.")
+        raise _invalid_scope(
+            target="time_range",
+            expected=f"an ISO date or datetime for {field_name}",
+            received=type(value).__name__,
+            action=f"Pass an ISO date or datetime for {field_name}.",
+        )
     if not value:
-        raise ValueError(f"{field_name} must be non-empty.")
+        raise _invalid_scope(
+            target="time_range",
+            expected=f"a non-empty ISO date or datetime for {field_name}",
+            received="an empty string",
+            action=f"Pass an ISO date or datetime for {field_name}.",
+        )
     if "T" not in value and " " not in value:
         try:
             return date.fromisoformat(value)
@@ -185,7 +226,12 @@ def _normalize_time_bound(value: date | datetime | str, *, field_name: str) -> d
     try:
         return datetime.fromisoformat(value.replace("Z", "+00:00"))
     except ValueError as exc:
-        raise ValueError(f"{field_name} must be an ISO date or datetime.") from exc
+        raise _invalid_scope(
+            target="time_range",
+            expected=f"an ISO date or datetime for {field_name}",
+            received=repr(value),
+            action=f"Pass a valid ISO date or datetime for {field_name}.",
+        ) from exc
 
 
 def time_range(
@@ -221,27 +267,52 @@ def time_range(
         missing boundary awareness.
     """
     if not isinstance(column, str):
-        raise TypeError("column must be str.")
+        raise _invalid_scope(
+            target="time_range",
+            expected="an inspected column name",
+            received=type(column).__name__,
+            action="Pass the inspected date or timestamp column name.",
+        )
     if not column:
-        raise ValueError("column must be non-empty.")
+        raise _invalid_scope(
+            target="time_range",
+            expected="a non-empty column name",
+            received="an empty string",
+            action="Pass the inspected date or timestamp column name.",
+        )
     normalized_start = _normalize_time_bound(start, field_name="start")
     normalized_end = _normalize_time_bound(end, field_name="end")
     if type(normalized_start) is not type(normalized_end):
-        raise ValueError("start and end must both be dates or both be datetimes.")
+        raise _invalid_scope(
+            target="time_range",
+            expected="start and end of the same date or datetime kind",
+            received=f"{type(normalized_start).__name__} and {type(normalized_end).__name__}",
+            action="Pass start and end as dates or both as datetimes.",
+        )
     if isinstance(normalized_start, datetime) and isinstance(normalized_end, datetime):
         start_aware = (
             normalized_start.tzinfo is not None and normalized_start.utcoffset() is not None
         )
         end_aware = normalized_end.tzinfo is not None and normalized_end.utcoffset() is not None
         if start_aware != end_aware:
-            raise ValueError("start and end datetimes must use matching timezone awareness.")
+            raise _invalid_scope(
+                target="time_range",
+                expected="matching datetime timezone awareness",
+                received=f"start aware={start_aware}, end aware={end_aware}",
+                action="Pass both datetimes with timezone offsets or both without offsets.",
+            )
         if start_aware:
             normalized_start = normalized_start.astimezone(UTC)
             normalized_end = normalized_end.astimezone(UTC)
     if normalized_start >= normalized_end:
-        raise ValueError("start must be earlier than end.")
-    _require_positive(max_rows, field="max_rows")
-    _require_positive(timeout_seconds, field="timeout_seconds")
+        raise _invalid_scope(
+            target="time_range",
+            expected="start earlier than end",
+            received=f"start={normalized_start!r}, end={normalized_end!r}",
+            action="Pass a non-empty half-open range with start earlier than end.",
+        )
+    _require_positive(max_rows, field="max_rows", target="time_range")
+    _require_positive(timeout_seconds, field="timeout_seconds", target="time_range")
     scope = PartitionScope(
         values=(),
         max_rows=max_rows,
@@ -275,26 +346,43 @@ def unpruned(*, max_rows: int, timeout_seconds: int) -> UnprunedScope:
     Constraints:
         Both guards are required positive integers.
     """
-    _require_positive(max_rows, field="max_rows")
-    _require_positive(timeout_seconds, field="timeout_seconds")
+    _require_positive(max_rows, field="max_rows", target="unpruned")
+    _require_positive(timeout_seconds, field="timeout_seconds", target="unpruned")
     return UnprunedScope(max_rows, timeout_seconds)
 
 
 def _normalize_source_columns(
     columns: Mapping[str, str] | None,
     *,
-    field: str,
+    target: Literal["table", "csv", "json"],
 ) -> tuple[tuple[str, str], ...]:
     if columns is None:
         return ()
+
+    def invalid(expected: str, received: str) -> DatasourceFieldInvalidError:
+        physical = "JSON field paths" if target == "json" else "physical column names"
+        return DatasourceFieldInvalidError(
+            message="Invalid source column projection.",
+            expected=expected,
+            received=received,
+            location=f"md.{target}(columns=...)",
+            effect_observed=DatasourceObservedEffects(query_executed=False),
+            repair=repair(
+                kind="reauthor",
+                canonical_id=target,
+                action=f"Pass a non-empty mapping of output names to {physical} as non-empty strings.",
+            ),
+        )
+
     if not isinstance(columns, Mapping):
-        raise TypeError(f"{field} must be a mapping of output names to source fields.")
+        raise invalid("a mapping of output names to source fields", type(columns).__name__)
     if not columns:
-        raise ValueError(f"{field} must contain at least one projected column when supplied.")
-    if any(not isinstance(name, str) or not name for name in columns):
-        raise TypeError(f"{field} output names must be non-empty strings.")
-    if any(not isinstance(source, str) or not source for source in columns.values()):
-        raise TypeError(f"{field} source fields must be non-empty strings.")
+        raise invalid("at least one projected column when supplied", "an empty mapping")
+    for name, source in columns.items():
+        if not isinstance(name, str) or not name:
+            raise invalid("non-empty string output names", repr(name))
+        if not isinstance(source, str) or not source:
+            raise invalid(f"a non-empty string source field for {name!r}", repr(source))
     return tuple(columns.items())
 
 
@@ -364,7 +452,7 @@ def table(
         Each projection value is a physical name, not an object describing
         a column or its type.
     """
-    normalized_columns = _normalize_source_columns(columns, field="md.table(columns=...)")
+    normalized_columns = _normalize_source_columns(columns, target="table")
     return TableSourceIR(table=name, database=database, columns=normalized_columns)
 
 
@@ -429,7 +517,7 @@ def csv(
     """
     return CsvSourceIR(
         path=path,
-        columns=_normalize_source_columns(columns, field="md.csv(columns=...)"),
+        columns=_normalize_source_columns(columns, target="csv"),
         header=header,
         delimiter=delimiter,
     )
@@ -511,7 +599,7 @@ def json(
         path=path,
         format=format,
         records_path=records_path,
-        columns=_normalize_source_columns(columns, field="md.json(columns=...)"),
+        columns=_normalize_source_columns(columns, target="json"),
         query_params=_normalize_query_params(query_params),
         method=method,
         body_json=body_json,

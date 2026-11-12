@@ -180,6 +180,32 @@ def test_raw_sdk_failure_is_sanitized(tmp_path: Path, monkeypatch: pytest.Monkey
     assert captured.value.reason == "unavailable"
 
 
+@pytest.mark.parametrize("source", [md.csv("orders.csv"), md.json("orders.json")])
+def test_file_inspection_preserves_denied_credential_repair(
+    source: md.TableSource, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    register_project(tmp_path, monkeypatch)
+
+    class DeniedResolver:
+        def resolve(self, request: md.CredentialRequest) -> md.SecretValue:
+            raise md.DatasourceCredentialError(
+                reason="denied",
+                reference=request.reference,
+                datasource=request.datasource,
+                fields=request.fields,
+            )
+
+    with (
+        md.credential_scope(resolver=DeniedResolver()),
+        pytest.raises(md.DatasourceCredentialError) as captured,
+    ):
+        md.inspect(ms.ref.datasource("warehouse"), source, workspace_dir=tmp_path)
+    assert captured.value.reason == "denied"
+    assert captured.value.reference == "FIXTURE_TOKEN"
+    assert captured.value.repair is not None
+    assert "grant access" in captured.value.repair.action
+
+
 def test_grouped_reference_and_runtime_binding(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

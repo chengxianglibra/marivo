@@ -103,6 +103,8 @@ def test_get_or_create_recovers_pending_work_and_respects_active_writers(
     ):
         mv.session.get_or_create("recover")
     assert caught.value.session_ref == original.id
+    assert caught.value.repair is not None
+    assert caught.value.repair.help_target.display == "analysis.session.get_or_create"
     assert terminal_run(original, "run_pending").lifecycle == "incomplete"
     recovered = mv.session.get_or_create("recover")
     assert recovered.id == original.id
@@ -154,6 +156,19 @@ def test_resume_recovers_pending_run_without_loading_catalog(
     assert terminal_run(recovered, "run_pending").lifecycle == "failed"
     stable = recovered._record()
     assert mv.session.resume(session.id)._record() == stable
+
+
+def test_resume_busy_repair_targets_resume(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    session = mv.session.get_or_create("guarded", timezone="UTC")
+    with (
+        session_writer_guard(session._runtime.store.layout.lock_path(session.id)),
+        pytest.raises(SessionBusyError) as caught,
+    ):
+        mv.session.resume(session.id)
+    assert caught.value.repair is not None
+    assert caught.value.repair.help_target.display == "analysis.session.resume"
+    assert mv.session.resume(session.id).id == session.id
 
 
 def test_recovery_respects_active_writer_and_run_ownership(

@@ -187,9 +187,7 @@ class DatasourceError(MarivoError):
             if self.repair.preserves_evidence is not None:
                 lines.append(f"  Preserves evidence: {self.repair.preserves_evidence}")
             target = self.repair.help_target
-            if target.canonical_id is not None:
-                qualified = f"{target.surface}.{target.canonical_id}"
-                lines.append(f"Help: marivo.help({qualified!r})")
+            lines.append(f"Help: marivo.help({target.display!r})")
         if self.traceback is not None:
             lines.extend(("", "Original traceback:", self.traceback.rstrip("\n")))
         return "\n".join(lines)

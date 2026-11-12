@@ -186,8 +186,17 @@ def test_invalid_wire_references_fail_without_state(tmp_path: Path, encoded: str
     assert failure.value.code == "invalid_result_reference"
     assert failure.value.location == "reference" and failure.value.expected
     assert failure.value.repair is not None
+    assert failure.value.repair.kind == "retry"
     assert failure.value.repair.help_target.canonical_id == "read_dataframe"
     assert list(tmp_path.iterdir()) == []
+
+
+def test_invalid_persist_input_requires_corrected_call(tmp_path: Path) -> None:
+    with pytest.raises(ResultStorageError) as failure:
+        mv.persist_dataframe("not a DataFrame", project_root=tmp_path)  # type: ignore[arg-type]
+    assert failure.value.code == "invalid_parameter"
+    assert failure.value.repair is not None and failure.value.repair.kind == "retry"
+    assert failure.value.repair.help_target.display == "analysis.persist_dataframe"
 
 
 @pytest.mark.parametrize("root", [None, False, 3, "", "relative", "../parent", "\x00"])
@@ -333,4 +342,5 @@ def test_path_failures_are_read_repairs(
         "invalid_result_reference" if fault == "symlink" else "result_read_failed"
     )
     assert failure.value.repair is not None
+    assert failure.value.repair.kind == "environment"
     assert failure.value.repair.help_target.canonical_id == "read_dataframe"

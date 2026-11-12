@@ -75,7 +75,11 @@ class DatasetRuntime:
         zone = resolve_system_timezone() if timezone is None else resolve_timezone(timezone)
         store = SessionStore(project_root)
         candidate_ref = "session_" + uuid4().hex
-        with session_writer_guard(store.layout.lock_path(candidate_ref), session_ref=candidate_ref):
+        with session_writer_guard(
+            store.layout.lock_path(candidate_ref),
+            session_ref=candidate_ref,
+            help_target="session.get_or_create",
+        ):
             record = store.create_session(
                 name,
                 session_ref=candidate_ref,

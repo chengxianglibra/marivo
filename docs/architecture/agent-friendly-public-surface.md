@@ -46,6 +46,10 @@ rules supply constraints, effects and examples. Native registries assemble these
 facts and task navigation; renderers maintain no shadow capability inventory.
 Unknown-target repairs use real registered candidates and preserve the requested
 receiver. No executable compatibility alias supplies a second canonical entry.
+The cross-surface Help coordinator reports its own target and rendering failures
+as `MarivoError` subtypes because an unqualified target need not belong to one
+domain. Their typed repairs use a null Help target for the global root and retain
+qualified registered candidates when available.
 
 Public function docstrings cover purpose, parameters, return value, a usage
 example and constraints. Every public API symbol resolves through a focused

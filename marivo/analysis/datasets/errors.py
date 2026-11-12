@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from marivo.analysis.errors import AnalysisError, AnalysisRepair
+from marivo.analysis.errors import AnalysisError, AnalysisRepair, RepairKind
 from marivo.introspection.live.model import LiveHelpTarget
 from marivo.introspection.live.targets import canonical_target
 
@@ -20,6 +20,7 @@ class DatasetConstructionError(AnalysisError):
         message: str = "Dataset contract validation failed.",
         help_target: str | None = None,
         received_limit: int = 320,
+        repair_kind: RepairKind = "retry",
     ) -> None:
         bounded_received = received[:received_limit]
         if received_limit > 320 and len(received) > received_limit:
@@ -31,7 +32,7 @@ class DatasetConstructionError(AnalysisError):
             location=location[:160],
             hint=repair[:480],
             repair=AnalysisRepair(
-                kind="retry",
+                kind=repair_kind,
                 action=repair[:480],
                 help_target=LiveHelpTarget(
                     surface="analysis",

@@ -9,7 +9,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Literal, TypeAlias
 
-from marivo.analysis.errors import AnalysisError, AnalysisRepair
+from marivo.analysis.errors import AnalysisError, AnalysisRepair, RepairKind
 from marivo.introspection.live.model import LiveHelpTarget
 
 ResultErrorCode: TypeAlias = Literal[
@@ -35,6 +35,7 @@ class ResultStorageError(AnalysisError):
         *,
         target: Literal["persist_dataframe", "read_dataframe"] = "persist_dataframe",
         expected: str = "a supported complete result in the bound project",
+        repair_kind: RepairKind | None = None,
     ) -> None:
         self.code = code
         super().__init__(
@@ -43,7 +44,13 @@ class ResultStorageError(AnalysisError):
             received=received,
             location=location,
             repair=AnalysisRepair(
-                kind="environment",
+                kind=repair_kind
+                or (
+                    "retry"
+                    if code
+                    in ("invalid_parameter", "unencodable_value", "invalid_result_reference")
+                    else "environment"
+                ),
                 action=repair,
                 help_target=LiveHelpTarget(surface="analysis", canonical_id=target),
             ),
@@ -64,6 +71,7 @@ def state_path(
             "indirect filesystem path",
             "Keep result state in the bound project's local directory.",
             target=target,
+            repair_kind="environment",
         )
     return path
 

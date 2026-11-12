@@ -12,6 +12,7 @@ import pytest
 import marivo.datasource as md
 import marivo.semantic as ms
 from marivo._symbolic import native_symbol_ref
+from marivo.datasource.errors import DatasourceFieldInvalidError
 from marivo.refs import ref as internal_ref
 from marivo.semantic.catalog import SemanticCatalog
 from marivo.semantic.errors import SemanticRuntimeError
@@ -107,7 +108,7 @@ def test_datasource_selectors_reject_internal_keys_before_inspection(tmp_path: P
     ):
         with pytest.raises(TypeError):
             md.inspect(invalid, md.table("orders"), workspace_dir=tmp_path)  # type: ignore[arg-type]  # Invalid selectors.
-        with pytest.raises(TypeError):
+        with pytest.raises(DatasourceFieldInvalidError):
             md.raw_sql(
                 invalid,  # type: ignore[arg-type]  # Invalid selector.
                 "SELECT 1",

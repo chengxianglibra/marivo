@@ -16,6 +16,7 @@ import pandas as pd
 from ibis.backends import BaseBackend
 
 from marivo import _execution_log
+from marivo._authoring.model import AuthoringRepair
 from marivo.datasource import backends, store
 from marivo.datasource import credentials as cr
 from marivo.datasource._lifetime import BackendLease
@@ -36,6 +37,7 @@ from marivo.datasource.ir import (
     QueryParamScalarList,
 )
 from marivo.datasource.json_source import JsonResponseCache
+from marivo.introspection.live.model import LiveHelpTarget
 
 DEFAULT_CONNECTION_TIMEOUT_SECONDS = 30
 _ResultT = TypeVar("_ResultT")
@@ -112,8 +114,7 @@ def load_datasource(name: str, project_root: Path | None) -> DatasourceIR:
             repair=repair(
                 kind="register",
                 canonical_id="register",
-                action="Register the datasource before retrying.",
-                snippet=f'md.register(md.duckdb(name={name!r}, path=":memory:"))',
+                action="Choose an existing datasource or register its actual backend and connection in this project before retrying.",
                 candidates=tuple(available),
             ),
         )
@@ -305,11 +306,10 @@ class DatasourceConnectionService:
             expected="a configured session datasource",
             received=datasource_name,
             location="datasource session",
-            repair=repair(
-                kind="register",
-                canonical_id="register",
-                action="Register the datasource or configure a session backend override.",
-                snippet=f'md.register(md.duckdb(name={datasource_name!r}, path=":memory:"))',
+            repair=AuthoringRepair(
+                kind="configure",
+                help_target=LiveHelpTarget(surface="datasource"),
+                action="Configure a backend override for this datasource or a backend factory in the owning connection service, or enable project datasource lookup when appropriate.",
                 candidates=tuple(sorted(self._backend_overrides)),
             ),
         )

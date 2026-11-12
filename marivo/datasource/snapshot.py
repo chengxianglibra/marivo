@@ -576,6 +576,18 @@ def acquire_snapshot(
                     received=failure.identity,
                     scope_state=inspection.partitioning.state,
                 ) from exc
+            if not any(
+                submission.query_executed
+                and submission.purpose == "datasource.snapshot"
+                and submission.source_identity == snapshot_id
+                for submission in session.submissions
+            ):
+                raise _acquisition_error(
+                    code="acquisition_preparation_failed",
+                    reason=f"bounded datasource acquisition could not be prepared: {failure.message}",
+                    received=failure.identity,
+                    scope_state=inspection.partitioning.state,
+                ) from exc
             raise _acquisition_error(
                 code="acquisition_execution_failed",
                 reason=(

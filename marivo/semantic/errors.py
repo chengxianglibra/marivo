@@ -124,6 +124,7 @@ class ErrorKind(StrEnum):
     # assembly-time
     DOMAIN_FILE_MISSING = "domain_file_missing"
     DOMAIN_FILE_MISMATCH = "domain_file_mismatch"
+    MISSING_DATASOURCE_REF = "missing_datasource_ref"
     MISSING_ENTITY_REF = "missing_entity_ref"
     MISSING_DIMENSION_REF = "missing_dimension_ref"
     MISSING_METRIC_REF = "missing_metric_ref"
@@ -167,6 +168,7 @@ class ErrorKind(StrEnum):
     ENTITY_NOT_FOUND = "entity_not_found"
     DIMENSION_NOT_FOUND = "dimension_not_found"
     METRIC_NOT_FOUND = "metric_not_found"
+    INVALID_PARAMETER = "invalid_parameter"
     MATERIALIZE_FAILED = "materialize_failed"
     BACKEND_MISMATCH = "backend_mismatch"
     COMPILE_ERROR = "compile_error"
@@ -337,7 +339,7 @@ class SourceTimezoneMissing(SemanticError):  # noqa: N818 - Exact public error c
         if isinstance(parse, StrptimeParse):
             parser = f"ms.strptime({parse.format!r}, timezone=...)"
         elif isinstance(parse, HourPrefixParse):
-            parser = f"ms.strptime(..., timezone=...) on prefix {parse.prefix!r}"
+            parser = parse.prefix
         elif isinstance(parse, DateParse) or physical_type == "date":
             parser = "ms.date(timezone=...)"
         else:
@@ -364,7 +366,11 @@ class SourceTimezoneMissing(SemanticError):  # noqa: N818 - Exact public error c
                         if datasource is not None and backend is not None
                         else "Declare a Datasource wall_clock_timezone, "
                     )
-                    + f"or set parse={parser} on the time field, then reload."
+                    + (
+                        f"or declare a timezone on prefix {parser!r} with a parser appropriate for its physical type, preserving any existing parser type, then reload."
+                        if isinstance(parse, HourPrefixParse)
+                        else f"or set parse={parser} on the time field, then reload."
+                    )
                 ),
             ),
         )

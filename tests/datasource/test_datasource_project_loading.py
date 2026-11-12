@@ -148,6 +148,7 @@ def test_project_selection_and_bound_catalog_methods(
         catalog.describe("missing")
     assert description_error.value.repair is not None
     assert description_error.value.repair.candidates == ("default", "explicit_source")
+    assert description_error.value.repair.snippet is None
     failure = catalog.test("missing")
     assert not failure.ok
     assert failure.repair is not None and failure.repair.candidates == (

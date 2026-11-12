@@ -717,10 +717,18 @@ def _normalize_checks(
 ) -> tuple[SourceCheck, ...]:
     if not isinstance(checks, Sequence) or isinstance(checks, str | bytes):
         _raise(
-            ErrorKind.INVALID_REF,
+            ErrorKind.INVALID_PARAMETER,
             "checks must be a sequence of source checks.",
             cls=SemanticRuntimeError,
             details={"parameter": "checks", "query_executed": False},
+            expected="a sequence of checks created with ms.source_check",
+            received=type(checks).__name__,
+            hint="Pass a sequence of checks created with ms.source_check.",
+            repair_value=repair(
+                kind="retry",
+                canonical_id="validate",
+                action="Pass a sequence of checks created with ms.source_check, or omit checks for metadata validation.",
+            ),
         )
     normalized = tuple(checks)
     for check in normalized:
@@ -734,10 +742,18 @@ def _normalize_checks(
             | RelationshipCardinalitySourceCheck,
         ):
             _raise(
-                ErrorKind.INVALID_REF,
+                ErrorKind.INVALID_PARAMETER,
                 "catalog.validate(checks=...) requires values from ms.source_check.",
                 cls=SemanticRuntimeError,
                 details={"query_executed": False, "received_type": type(check).__name__},
+                expected="a check created with ms.source_check",
+                received=type(check).__name__,
+                hint="Create checks with ms.source_check before passing them to catalog.validate.",
+                repair_value=repair(
+                    kind="retry",
+                    canonical_id="validate",
+                    action="Replace the invalid value with a check created using ms.source_check.",
+                ),
             )
         if (
             check._context.project_root is not None
@@ -1497,19 +1513,35 @@ def run_validation(
     )
     if normalized_checks and scope is None:
         _raise(
-            ErrorKind.MATERIALIZE_FAILED,
+            ErrorKind.INVALID_PARAMETER,
             "catalog.validate(..., checks=...) requires one explicit AuthoringScope or exact Entity mapping.",
             cls=SemanticRuntimeError,
             refs=tuple(ref.key for ref in refs),
             details={"query_executed": False},
+            expected="an explicit scope when checks are supplied",
+            received="checks without scope",
+            hint="Supply a bounded scope for the selected checks, or omit checks for metadata-only validation.",
+            repair_value=repair(
+                kind="rescope",
+                canonical_id="validate",
+                action="Supply an explicit bounded scope for the checks, or omit checks for metadata-only validation.",
+            ),
         )
     if not normalized_checks and scope is not None:
         _raise(
-            ErrorKind.MATERIALIZE_FAILED,
+            ErrorKind.INVALID_PARAMETER,
             "catalog.validate(..., scope=...) requires at least one explicit data check.",
             cls=SemanticRuntimeError,
             refs=tuple(ref.key for ref in refs),
             details={"query_executed": False},
+            expected="at least one explicit data check with a scope",
+            received="scope without checks",
+            hint="Supply checks from ms.source_check, or omit scope for metadata-only validation.",
+            repair_value=repair(
+                kind="retry",
+                canonical_id="validate",
+                action="Supply checks created with ms.source_check, or omit scope for metadata-only validation.",
+            ),
         )
     normalized_scopes = (
         dict(

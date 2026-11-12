@@ -16,6 +16,7 @@ from marivo.datasource import store as _store
 from marivo.datasource.errors import (
     DatasourceCredentialError,
     DatasourceCredentialScopeError,
+    DatasourceError,
     DatasourceMetadataError,
     DatasourceObservedEffects,
     _backend_failure_summary,
@@ -655,6 +656,8 @@ def _inspect_source_from_ir(
         )
     try:
         backend = connections.backend_for(datasource_ir)
+    except DatasourceError:
+        raise
     except Exception as exc:
         raise DatasourceMetadataError(
             message=f"failed to inspect datasource file source {datasource!r}.{source.path!r}: {exc}",

@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 import marivo.datasource as md
+from marivo.datasource.errors import DatasourceFieldInvalidError
 from marivo.datasource.ir import TableSourceIR, source_to_dict
 from marivo.semantic.ir import source_from_dict
 
@@ -80,5 +81,5 @@ def test_source_payload_rejects_type_declarations() -> None:
     ],
 )
 def test_table_projection_rejects_invalid_or_ambiguous_shapes(columns: object) -> None:
-    with pytest.raises((TypeError, ValueError)):
+    with pytest.raises(DatasourceFieldInvalidError):
         md.table("events", columns=columns)  # type: ignore[arg-type]

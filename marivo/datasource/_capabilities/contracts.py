@@ -80,6 +80,13 @@ def repair_for_authoring_code(code: str) -> AuthoringRepair:
             action="Validate the datasource connection before reacquiring bounded evidence.",
             preserves_evidence=True,
         )
+    if code == "acquisition_preparation_failed":
+        return repair(
+            kind="inspect",
+            canonical_id="source_inspection.sample",
+            action="Inspect the reported source or adapter failure before retrying bounded acquisition.",
+            preserves_evidence=True,
+        )
     if code == "acquisition_source_failed":
         return repair(
             kind="inspect",

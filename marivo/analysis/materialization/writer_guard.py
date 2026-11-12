@@ -35,7 +35,9 @@ os.register_at_fork(
 
 
 @contextmanager
-def session_writer_guard(lock_path: Path, *, session_ref: str | None = None) -> Iterator[None]:
+def session_writer_guard(
+    lock_path: Path, *, session_ref: str | None = None, help_target: str = "analysis_frame.persist"
+) -> Iterator[None]:
     """Hold process-local and OS exclusion without waiting or admitting a contender."""
     canonical = lock_path.absolute()
     if canonical.is_symlink() or any(parent.is_symlink() for parent in canonical.parents):
@@ -44,13 +46,13 @@ def session_writer_guard(lock_path: Path, *, session_ref: str | None = None) -> 
             received="an indirect lock path",
             repair="Place the project generation on a supported local filesystem.",
             stage="writer_guard",
-            help_target="analysis_frame.persist",
+            help_target=help_target,
         )
     key = (os.getpid(), str(canonical))
     with _MUTEX:
         process_lock = _LOCKS.setdefault(key, threading.Lock())
     if not process_lock.acquire(blocking=False):
-        raise SessionBusyError(session_ref=session_ref)
+        raise SessionBusyError(session_ref=session_ref, help_target=help_target)
     descriptor: int | None = None
     locked = False
     try:
@@ -61,7 +63,7 @@ def session_writer_guard(lock_path: Path, *, session_ref: str | None = None) -> 
         try:
             fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
-            raise SessionBusyError(session_ref=session_ref) from None
+            raise SessionBusyError(session_ref=session_ref, help_target=help_target) from None
         locked = True
         yield
     finally:

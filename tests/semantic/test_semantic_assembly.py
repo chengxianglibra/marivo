@@ -452,10 +452,13 @@ def test_missing_datasource_ref_includes_did_you_mean() -> None:
         location=_LOC,
     )
     errors, _warnings = assembly_validate(registry)
-    dym_errors = [e for e in errors if e.kind == ErrorKind.MISSING_ENTITY_REF]
+    dym_errors = [e for e in errors if e.kind == ErrorKind.MISSING_DATASOURCE_REF]
     assert len(dym_errors) >= 1
     dym = dym_errors[0].details.get("did_you_mean", [])
     assert "wh" in dym
+    assert dym_errors[0].received == "w"
+    assert dym_errors[0].repair is not None
+    assert "wh" in dym_errors[0].repair.candidates
 
 
 def test_missing_entity_ref_on_dimension_includes_did_you_mean() -> None:

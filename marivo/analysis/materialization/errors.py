@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Literal
 
 from marivo.analysis.datasets.errors import DatasetConstructionError
+from marivo.analysis.errors import RepairKind
 
 if TYPE_CHECKING:
     from marivo.analysis.core.attribute import AttributeFailureContext
@@ -23,6 +24,7 @@ class MaterializationError(DatasetConstructionError):
         help_target: str = "analysis_frame.compute",
         attribute_context: AttributeFailureContext | None = None,
         received_limit: int = 320,
+        repair_kind: RepairKind = "retry",
     ) -> None:
         self.stage = stage
         self.attribute_context = attribute_context
@@ -34,6 +36,7 @@ class MaterializationError(DatasetConstructionError):
             message="Dataset materialization contract failed.",
             help_target=help_target,
             received_limit=received_limit,
+            repair_kind=repair_kind,
         )
 
 
@@ -60,12 +63,19 @@ class StorageAccessError(IntegrityError):
         stage: str = "storage_access",
     ) -> None:
         self.storage_status = status
+        actions = {
+            "missing": "Restore the missing files for the exact committed backing, then retry reading the same saved Frame.",
+            "unauthorized": "Restore read permission for the exact committed backing, then retry reading the same saved Frame.",
+            "mutated": "Restore the original files for the exact committed backing, then retry reading the same saved Frame.",
+            "unknown": "Inspect storage availability and restore access to the exact committed backing, then retry reading the same saved Frame.",
+        }
         super().__init__(
             expected="authorized access to the exact committed storage version",
             received=f"selected storage is {status}",
-            repair="Restore access to the exact committed backing, then retry the same saved Frame through session.persisted_frame(artifact_id).",
+            repair=actions[status],
             stage=stage,
             help_target="session.persisted_frame",
+            repair_kind="environment",
         )
 
 
@@ -76,14 +86,16 @@ class RecoveryPendingError(MaterializationError):
 class SessionBusyError(MaterializationError):
     """Another action owns the Session writer boundary; no contender Run exists."""
 
-    def __init__(self, *, session_ref: str | None = None) -> None:
+    def __init__(
+        self, *, session_ref: str | None = None, help_target: str = "analysis_frame.persist"
+    ) -> None:
         self.session_ref = session_ref
         super().__init__(
             expected="one active writer for this Session",
             received="an active Session writer"
             if session_ref is None
             else f"an active writer for Session {session_ref}",
-            repair="Wait for the current Session action to finish, then retry the same definition.",
+            repair="Wait for the current Session action to finish, then retry the same operation.",
             stage="writer_guard",
-            help_target="analysis_frame.persist",
+            help_target=help_target,
         )

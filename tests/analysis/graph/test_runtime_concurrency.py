@@ -205,9 +205,11 @@ def test_competing_creation_releases_each_candidate_guard(
     observed: list[str] = []
 
     @contextmanager
-    def tracked_guard(path: Path, *, session_ref: str | None = None) -> Iterator[None]:
+    def tracked_guard(
+        path: Path, *, session_ref: str | None = None, help_target: str = "analysis_frame.persist"
+    ) -> Iterator[None]:
         assert not getattr(held, "active", False)
-        with session_writer_guard(path, session_ref=session_ref):
+        with session_writer_guard(path, session_ref=session_ref, help_target=help_target):
             assert session_ref is not None
             held.active = True
             observed.append(session_ref)

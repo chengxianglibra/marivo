@@ -153,7 +153,7 @@ def get_or_create(
                     candidates=(record.session_ref,),
                 ),
             )
-    return resume(record.session_ref)
+    return _resume(record.session_ref, help_target="session.get_or_create")
 
 
 def resume(session_id: str) -> Session:
@@ -164,6 +164,10 @@ def resume(session_id: str) -> Session:
     Example: ``session = mv.session.resume(session_id)``.
     Constraints: Never creates identity or loads current semantics and sources. An absent current Store or missing ID raises SessionNotFoundError; retained older Stores provide repair guidance without asserting ID ownership.
     """
+    return _resume(session_id, help_target="session.resume")
+
+
+def _resume(session_id: str, *, help_target: str) -> Session:
     from marivo.analysis.materialization.admission import DatasetRuntime
     from marivo.analysis.session import _lazy_history
 
@@ -186,7 +190,9 @@ def resume(session_id: str) -> Session:
             ),
         )
     runtime = DatasetRuntime.open(root, session_id)
-    with session_writer_guard(store.layout.lock_path(session_id), session_ref=session_id):
+    with session_writer_guard(
+        store.layout.lock_path(session_id), session_ref=session_id, help_target=help_target
+    ):
         reconcile_session(store, session_id, event=runtime._event)
     return Session._from_runtime(runtime)
 

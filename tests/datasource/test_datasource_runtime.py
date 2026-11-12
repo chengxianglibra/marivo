@@ -9,6 +9,7 @@ from marivo.datasource import runtime
 from marivo.datasource.adapters import SourceSubmission
 from marivo.datasource.authoring import _ir_from_spec
 from marivo.datasource.backends import BuiltDatasourceBackend
+from marivo.datasource.errors import DatasourceMissingError
 from marivo.datasource.ir import DatasourceIR, DatasourceSourceLocation
 
 
@@ -110,6 +111,30 @@ def test_session_backend_is_reused_until_close(
     assert len(created) == 1
     service.close_all()
     assert created[0].disconnect_calls == 1
+
+
+def test_disabled_datasource_lookup_repair_matches_available_service_routes(tmp_path: Path) -> None:
+    md.register(md.duckdb(name="warehouse"), project_root=tmp_path)
+    service = runtime.DatasourceConnectionService(project_root=tmp_path, use_datasources=False)
+    with pytest.raises(DatasourceMissingError) as captured:
+        service.session_backend("warehouse")
+    repair = captured.value.repair
+    assert repair is not None
+    assert repair.kind == "configure"
+    assert repair.help_target.surface == "datasource"
+    assert repair.help_target.canonical_id is None
+    assert "marivo.help('datasource')" in str(captured.value)
+    assert "override" in repair.action and "factory" in repair.action
+    assert "enable project datasource lookup" in repair.action
+
+    backend = FakeBackend()
+    configured = runtime.DatasourceConnectionService(
+        project_root=tmp_path,
+        backends={"warehouse": lambda: backend},
+        use_datasources=False,
+    )
+    assert configured.session_backend("warehouse") is backend
+    configured.close_all()
 
 
 @pytest.mark.parametrize("route", ["backend_for", "override", "factory", "build"])

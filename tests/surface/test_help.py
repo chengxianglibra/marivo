@@ -97,6 +97,8 @@ def test_public_help_wraps_unexpected_surface_failure(
     assert error.received == "datasource.duckdb"
     assert error.stage == "route_or_render"
     assert error.cause_type == "RuntimeError"
+    assert error.repair.kind == "environment"
+    assert error.repair.help_target is None
 
 
 def test_public_help_routes_core_targets_in_a_cold_start_process() -> None:
@@ -259,6 +261,21 @@ def test_unknown_target_raises_one_bounded_global_error() -> None:
     assert error.outcome == "unknown"
     assert error.received == "not-a-registered-target"
     assert len(error.candidates) <= SURFACE_LIMITS.help_suggestion_limit
+    assert error.expected
+    assert error.repair.kind == "inspect"
+    assert error.repair.help_target is None
+    assert error.repair.candidates == error.candidates
+
+
+def test_unknown_qualified_help_target_exposes_resolvable_repair_candidates() -> None:
+    with pytest.raises(MarivoHelpTargetError) as captured:
+        public_help("analysis.session.resum")
+
+    repair = captured.value.repair
+    assert repair.kind == "retry"
+    assert "analysis.session.resume" in repair.candidates
+    for candidate in repair.candidates:
+        help_render.render_help_text(candidate)
 
 
 def test_attribute_discovery_does_not_execute_getters(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -36,6 +36,7 @@ from marivo.datasource.errors import (
     DatasourceCredentialError,
     DatasourceCredentialScopeError,
     DatasourceError,
+    DatasourceFieldInvalidError,
     DatasourceMissingError,
     DatasourceObservedEffects,
     DatasourceRawSqlError,
@@ -364,8 +365,7 @@ def _describe_in_project(name: str, *, project_root: Path) -> DatasourceDescript
             repair=repair(
                 kind="register",
                 canonical_id="register",
-                action="Register the datasource before retrying.",
-                snippet=f'md.register(md.duckdb(name={name!r}, path=":memory:"))',
+                action="Choose an existing datasource or register its actual backend and connection in this project before retrying.",
                 candidates=tuple(_store.list_names(project_root)),
             ),
         )
@@ -614,15 +614,34 @@ def test_no_persist(
 
 def _require_raw_sql_reason(reason: str) -> str:
     if not isinstance(reason, str) or not reason.strip():
-        raise ValueError("reason must be non-empty.")
+        raise _invalid_raw_sql(
+            "a non-empty reason",
+            type(reason).__name__ if not isinstance(reason, str) else "an empty reason",
+            "Pass a non-empty reason for the terminal SQL query.",
+        )
     return reason.strip()
 
 
 def _require_nonempty_sql(sql: str) -> str:
     """Validate presence without parsing or rewriting the caller's SQL."""
     if not isinstance(sql, str) or not sql.strip():
-        raise ValueError("sql must be non-empty.")
+        raise _invalid_raw_sql(
+            "a non-empty SQL statement",
+            type(sql).__name__ if not isinstance(sql, str) else "an empty SQL statement",
+            "Pass the non-empty SQL statement to execute.",
+        )
     return sql
+
+
+def _invalid_raw_sql(expected: str, received: str, action: str) -> DatasourceFieldInvalidError:
+    return DatasourceFieldInvalidError(
+        message="Invalid raw SQL input.",
+        expected=expected,
+        received=received,
+        location="md.raw_sql",
+        effect_observed=DatasourceObservedEffects(query_executed=False),
+        repair=repair(kind="retry", canonical_id="raw_sql", action=action),
+    )
 
 
 def _extract_raw_sql_frame(
@@ -701,8 +720,16 @@ def raw_sql(
         cannot re-enter typed analysis. Display previews may omit rows; ``rows``
         contains the complete query result as Python records.
     """
-    if timeout_seconds < 1:
-        raise ValueError("timeout_seconds must be positive.")
+    if (
+        not isinstance(timeout_seconds, int)
+        or isinstance(timeout_seconds, bool)
+        or timeout_seconds < 1
+    ):
+        raise _invalid_raw_sql(
+            "a positive integer timeout_seconds",
+            repr(timeout_seconds),
+            "Pass a positive integer timeout_seconds.",
+        )
     reason_text = _require_raw_sql_reason(reason)
     statement = _require_nonempty_sql(sql)
     reference = _loaded_datasource_ref(datasource, project_root=cr.operation_root(project_root))
@@ -714,7 +741,11 @@ def raw_sql(
             else None
         )
     if reference is None:
-        raise TypeError("datasource must be a native datasource lookup symbol.")
+        raise _invalid_raw_sql(
+            "a native datasource lookup symbol",
+            type(datasource).__name__,
+            "Pass an exact datasource symbol from ms.ref.datasource(...) or a loaded datasource.",
+        )
     datasource_id = reference.path
     datasource_ir = _store.load_one(datasource_id, project_root=project_root)
     if datasource_ir is None:
@@ -726,8 +757,7 @@ def raw_sql(
             repair=repair(
                 kind="register",
                 canonical_id="register",
-                action="Register the datasource before retrying.",
-                snippet=f'md.register(md.duckdb(name={datasource_id!r}, path=":memory:"))',
+                action="Choose an existing datasource or register its actual backend and connection in this project before retrying.",
                 candidates=tuple(_store.list_names(project_root)),
             ),
         )

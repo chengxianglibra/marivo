@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Literal, TypeAlias
 
+from marivo._errors import MarivoError
 from marivo.introspection.live.model import HelpSurface, ResolvableHelpDescriptor
 from marivo.introspection.live.resolve import ResolvedLiveTarget
 
@@ -62,7 +63,28 @@ class SurfaceRootHelpRoute:
 HelpRoute: TypeAlias = NativeHelpRoute | SurfaceRootHelpRoute | TopicHelpRoute
 
 
-class MarivoHelpTargetError(ValueError):
+@dataclass(frozen=True)
+class GlobalHelpRepair:
+    """Repair for the cross-surface Help coordinator; None denotes root Help."""
+
+    kind: Literal["inspect", "retry", "environment"]
+    action: str
+    help_target: str | None = None
+    candidates: tuple[str, ...] = ()
+
+
+def _render_repair(repair: GlobalHelpRepair) -> str:
+    lines = ["Repair:", f"  {repair.action}"]
+    if repair.candidates:
+        lines.append(f"  Candidates: {', '.join(repair.candidates)}")
+    target = (
+        "marivo.help()" if repair.help_target is None else f"marivo.help({repair.help_target!r})"
+    )
+    lines.append(f"Help: {target}")
+    return "\n".join(lines)
+
+
+class MarivoHelpTargetError(MarivoError, ValueError):
     """Unified rejection for unknown or ambiguous public help targets."""
 
     def __init__(
@@ -76,6 +98,8 @@ class MarivoHelpTargetError(ValueError):
         self.outcome = outcome
         self.received = target if isinstance(target, str) else type(target).__name__
         self.candidates = candidates
+        self.expected = "a registered, unambiguous Marivo help target"
+        self.location = "marivo.help.target"
         if outcome == "ambiguous":
             message = (
                 f"Marivo help target is ambiguous: received {self.received!r}. "
@@ -86,12 +110,22 @@ class MarivoHelpTargetError(ValueError):
                 f"Marivo help target is not registered: received {self.received!r}. "
                 "Choose authoring or analysis, then follow its registered canonical targets."
             )
-        if candidates:
-            message += f" Candidates: {', '.join(candidates)}."
-        super().__init__(message)
+        self.message = message
+        self.repair = GlobalHelpRepair(
+            kind="retry" if candidates else "inspect",
+            action=(
+                "Choose a registered candidate and retry Help."
+                if candidates
+                else "Open root Help and choose a registered target."
+            ),
+            candidates=candidates,
+        )
+        super().__init__(
+            f"{message}\nExpected: {self.expected}\nReceived: {self.received!r}\n\n{_render_repair(self.repair)}"
+        )
 
 
-class MarivoHelpSurfaceError(RuntimeError):
+class MarivoHelpSurfaceError(MarivoError, RuntimeError):
     """Structured blocker for an unexpected live-help routing or render failure."""
 
     def __init__(
@@ -106,12 +140,17 @@ class MarivoHelpSurfaceError(RuntimeError):
         self.cause_type = cause_type
         self.received = target if isinstance(target, str) else type(target).__name__
         self.expected = "a registered, renderable Marivo help target"
-        self.repair = (
-            "Run doctor with the same interpreter and retry focused or root help. If help remains "
-            "unavailable, use local docs or installed package source as read-only recovery; "
-            "treat private implementation details as unverified and do not bypass public safety boundaries."
-        )
-        super().__init__(
+        self.location = "marivo.help"
+        self.message = (
             f"Marivo live help is unavailable for {self.received!r}: "
-            f"stage={stage!r}, cause={cause_type!r}. {self.repair}"
+            f"stage={stage!r}, cause={cause_type!r}."
         )
+        self.repair = GlobalHelpRepair(
+            kind="environment",
+            action=(
+                "Run doctor with the same interpreter and retry focused or root help. If help remains "
+                "unavailable, use local docs or installed package source as read-only recovery; "
+                "treat private implementation details as unverified and do not bypass public safety boundaries."
+            ),
+        )
+        super().__init__(f"{self.message}\n\n{_render_repair(self.repair)}")

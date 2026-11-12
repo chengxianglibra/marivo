@@ -261,6 +261,9 @@ earliest information-complete boundary. Construction never reads rows to guess
 an answer. A strict source failure cannot become a missing cell or be hidden by
 an output projection. Missing stored IDs use ArtifactNotFoundError; malformed
 protocol/coordinates are format failures, not a non-Frame-kind guess.
+Invalid plain DataFrame input or reference repairs require a corrected call;
+saved storage access failures require restoration of the exact committed backing
+before retrying. Session writer conflicts point to the operation being retried.
 
 Save Session ID and `saved.artifact_id`. Resume the same Session and call
 `session.persisted_frame(artifact_id)` with the exact string. This opens commit

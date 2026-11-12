@@ -318,6 +318,11 @@ Semantic errors retain structured expected/received facts, declaration locations
 and concrete repairs. Missing business definitions cannot be repaired by guessed
 source names. Execution failures preserve their original cause; inspect the
 specific owner rather than treating load, readiness and source access as one stage.
+An Entity whose datasource declaration is absent produces `missing_datasource_ref`,
+separate from a missing Entity reference. Preview scope and source-binding errors
+and invalid validation checks or check/scope combinations use `invalid_parameter`
+with a repair for the actual operation; backend execution failures remain
+`materialize_failed`.
 
 [loader.py](../../../marivo/semantic/loader.py) and
 [reader.py](../../../marivo/semantic/reader.py) own project assembly;

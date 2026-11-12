@@ -201,6 +201,7 @@ class SourceSubmission:
     state: Literal["submitted", "succeeded", "failed"] = "submitted"
     connection_disconnected: bool = False
     termination: Termination | None = None
+    query_executed: bool = False
 
 
 class SourceSession:
@@ -717,6 +718,7 @@ class SourceSession:
                             # Ibis' MySQL pandas fetcher coerces Decimal and nullable
                             # integer rows through float64. Decode this already-issued
                             # SQL on the same owned connection before that conversion.
+                            submission.query_executed = True
                             with self._backend.raw_sql(proof.sql) as cursor:
                                 decoded = decode_cursor_frame(
                                     cursor, include_types=False, max_rows=None
@@ -770,6 +772,7 @@ class SourceSession:
                             external = self._backend._collect_in_memory_tables(table, {})
                             external_data = self._backend._normalize_external_tables(external)
                             batches: list[pa.RecordBatch] = []
+                            submission.query_executed = True
                             with self._backend.con.query_column_block_stream(
                                 proof.sql, external_data=external_data
                             ) as blocks:
@@ -803,11 +806,13 @@ class SourceSession:
                             )
                         ):
                             # Preserve native numbers and floating validity before pandas conversion.
+                            submission.query_executed = True
                             arrow = self._backend.to_pyarrow(
                                 table, params=dict(proof.params), limit=None
                             )
                             result = arrow.to_pandas(types_mapper=_native_pandas_type)
                         else:
+                            submission.query_executed = True
                             result = self._backend.execute(
                                 table, params=dict(proof.params), limit=None
                             )

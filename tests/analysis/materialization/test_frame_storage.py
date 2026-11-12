@@ -9,7 +9,7 @@ from collections.abc import Callable
 from dataclasses import fields, replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import cast
+from typing import NoReturn, cast
 
 import pandas as pd
 import pyarrow as pa
@@ -69,6 +69,7 @@ from marivo.analysis.materialization.errors import (
     IntegrityError,
     MaterializationError,
     RecoveryPendingError,
+    StorageAccessError,
 )
 from marivo.analysis.materialization.frame_services import LocalFrameServices
 from marivo.analysis.materialization.graph_reading import (
@@ -819,6 +820,42 @@ def test_sequence_spans_batches_and_row_groups(
         / "data.parquet"
     ) as parquet:
         assert parquet.num_row_groups == 4
+
+
+@pytest.mark.parametrize("failure", ["missing", "unauthorized", "mutated", "manifest_mutated"])
+def test_saved_frame_storage_failure_preserves_recovery_action(
+    local: LocalFrameServices, monkeypatch: pytest.MonkeyPatch, failure: str
+) -> None:
+    saved = ordinary(local).persist()
+    payload = (
+        local.store.project_root
+        / manifest(saved).data.rows.receipt.project_relative_path
+        / "data.parquet"
+    )
+    if failure == "manifest_mutated":
+        payload = payload.with_name("manifest.json")
+    original = payload.read_bytes()
+    if failure == "missing":
+        payload.unlink()
+    elif failure in ("mutated", "manifest_mutated"):
+        payload.write_bytes(original + b"modified")
+    else:
+
+        def denied(_path: Path, *_args: object, **_kwargs: object) -> NoReturn:
+            raise PermissionError("denied")
+
+        monkeypatch.setattr(Path, "open", denied)
+    with pytest.raises(StorageAccessError) as caught:
+        saved.to_pandas()
+    assert caught.value.storage_status == ("mutated" if failure == "manifest_mutated" else failure)
+    assert caught.value.repair is not None
+    assert caught.value.repair.kind == "environment"
+    assert "exact committed backing" in caught.value.repair.action
+    monkeypatch.undo()
+    if failure in ("missing", "mutated", "manifest_mutated"):
+        payload.write_bytes(original)
+    values = saved.to_pandas()["amount"]
+    assert pd.isna(values.iloc[0]) and values.iloc[1:].tolist() == [1, 2]
 
 
 @pytest.mark.parametrize("generation", [11, 12, 13, 14, 16, 23, 24, 27])
@@ -2010,13 +2047,14 @@ def test_missing_preview_payload_has_typed_cause_and_never_affects_memory_or_aud
     (local.store.project_root / handle.receipt.project_relative_path / "data.parquet").unlink()
     before = counts(local)
     for read in (lambda: saved.show(), saved.compute, saved.to_pandas):
-        with pytest.raises(MaterializationError) as caught:
+        with pytest.raises(StorageAccessError) as caught:
             read()
         assert isinstance(caught.value.__cause__, FileNotFoundError)
         assert caught.value.stage == "frame.read"
         assert caught.value.repair is not None
-        assert caught.value.repair.help_target.canonical_id == "analysis_frame.compute"
-        assert "original data files and exact receipts" in caught.value.repair.action
+        assert caught.value.repair.help_target.canonical_id == "session.persisted_frame"
+        assert caught.value.repair.kind == "environment"
+        assert "exact committed backing" in caught.value.repair.action
     assert saved.persist() is saved
     assert memory.compute() is memory
     assert len(memory.to_pandas()) == 128

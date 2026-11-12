@@ -1779,9 +1779,18 @@ def assembly_validate(
         if ds_ir.datasource not in registry.datasources:
             errors.append(
                 SemanticLoadError(
-                    kind=ErrorKind.MISSING_ENTITY_REF,
+                    kind=ErrorKind.MISSING_DATASOURCE_REF,
                     message=f"Entity {ds_id!r} references unknown datasource {ds_ir.datasource!r}.",
                     refs=(ds_id, ds_ir.datasource),
+                    expected="a datasource declared in this project",
+                    received=ds_ir.datasource,
+                    hint="Choose a declared datasource or add the intended datasource declaration.",
+                    repair=repair(
+                        kind="reauthor",
+                        canonical_id="load",
+                        action="Choose a declared datasource or add the intended datasource declaration, then reload the project.",
+                        candidates=tuple(sorted(registry.datasources)),
+                    ),
                     details={
                         "missing_ref": ds_ir.datasource,
                         "did_you_mean": did_you_mean(

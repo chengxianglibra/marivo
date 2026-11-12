@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
+from typing import cast
+
 import pytest
 
 import marivo.datasource as md
+from marivo.datasource.errors import DatasourceFieldInvalidError
 
 
 def test_table_csv_and_json_sources_use_optional_projection_mappings() -> None:
@@ -81,13 +85,31 @@ def test_physical_types_cannot_be_declared_in_source_interfaces() -> None:
         md.json("events.json", schema={"event_id": "string"})  # type: ignore[call-arg]
 
 
-def test_table_and_csv_projection_mappings_validate_names() -> None:
-    with pytest.raises(ValueError):
-        md.table("orders", columns={})
-    with pytest.raises(ValueError):
-        md.csv("orders.csv", columns={})
-    with pytest.raises(TypeError):
-        md.table("orders", columns={"order_id": 42})  # type: ignore[dict-item]
+@pytest.mark.parametrize("target", ["table", "csv", "json"])
+@pytest.mark.parametrize(
+    "columns",
+    [{}, {"": "source"}, {"output": ""}, {"output": 42}, ["output"]],
+)
+def test_source_projection_errors_identify_the_owning_constructor(
+    target: str, columns: object
+) -> None:
+    projected = cast("Mapping[str, str]", columns)
+    with pytest.raises(DatasourceFieldInvalidError) as caught:
+        if target == "table":
+            md.table("orders", columns=projected)
+        elif target == "csv":
+            md.csv("orders.csv", columns=projected)
+        else:
+            md.json("events.json", columns=projected)
+    error = caught.value
+    assert error.expected and error.received
+    assert error.location == f"md.{target}(columns=...)"
+    assert error.effect_observed is not None and not error.effect_observed.query_executed
+    assert error.repair is not None
+    assert error.repair.help_target.canonical_id == target
+    assert error.repair.kind == "reauthor"
+    assert "non-empty mapping" in error.repair.action
+    assert "omit" not in error.repair.action.lower()
 
 
 @pytest.mark.parametrize("name", ["", "1start", "start-time", "开始"])

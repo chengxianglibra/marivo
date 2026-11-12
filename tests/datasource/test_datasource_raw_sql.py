@@ -14,6 +14,7 @@ from marivo.analysis.errors import AnalysisError
 from marivo.datasource import store
 from marivo.datasource.authoring import DuckDBSpec, TrinoSpec
 from marivo.datasource.errors import (
+    DatasourceFieldInvalidError,
     DatasourceRawSqlError,
     DatasourceSourceCapabilityError,
 )
@@ -719,8 +720,20 @@ def test_connectivity_worker_preserves_explicit_root_and_context(
 def test_raw_sql_requires_reason_before_connecting(tmp_path: Path) -> None:
     _register_raw_sql_fixture(tmp_path)
 
-    with pytest.raises(ValueError):
+    with pytest.raises(DatasourceFieldInvalidError) as error:
         md.raw_sql(ms.ref.datasource("warehouse"), "SELECT 1", reason="", project_root=tmp_path)
+    assert error.value.effect_observed is not None
+    assert error.value.effect_observed.query_executed is False
+    assert error.value.repair is not None
+    assert error.value.repair.help_target.canonical_id == "raw_sql"
+    assert "reason" in error.value.repair.action
+
+
+def test_raw_sql_rejects_empty_sql_with_own_repair(tmp_path: Path) -> None:
+    with pytest.raises(DatasourceFieldInvalidError) as error:
+        md.raw_sql(ms.ref.datasource("warehouse"), "", reason="inspect", project_root=tmp_path)
+    assert error.value.repair is not None
+    assert "SQL" in error.value.repair.action
 
 
 def test_raw_sql_result_cannot_reenter_typed_analysis(
