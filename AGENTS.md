@@ -105,9 +105,10 @@ for their respective submodules; there is no top-level `marivo.session`.
 - Project semantic/analysis state belongs in `<project_root>/.marivo/`. Declare credentials
   with `md.env(...)`; never store secrets in project state. User-global secret caching
   follows the [datasource credential contract](docs/architecture/datasource/README.md#credentials-and-secret-persistence).
-- Exceptions belong to `DatasourceError`, `SemanticError` or `AnalysisError`, with
-  structured fields and shared rendering. State expected/received input and a concrete
-  repair based on real state; never invent candidates or silently fall back.
+- Domain exceptions belong to `DatasourceError`, `SemanticError` or `AnalysisError`;
+  cross-surface Help exceptions may directly extend `MarivoError`. Use structured
+  fields and shared rendering. State expected/received input and a concrete repair
+  based on real state; never invent candidates or silently fall back.
 - Keep one canonical public entry per capability. Within the changed scope, remove
   retired aliases, migrations and dual reads unless the owning contract requires them;
   prior result reuse is a weak dependency.
