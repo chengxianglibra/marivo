@@ -488,6 +488,13 @@ def hour_prefix(
     uniform parse-error policy. Partition pruning depends on the backend's
     physical plan.
 
+    Use the loaded combined TimeDimension explicitly as a source reduction's
+    ``time=`` field for partition-hour reports. Report grain never replaces an
+    existing Metric's clock. Compared with its DATE prefix, NULL hours have no
+    time membership; changing to an event timestamp, timezone or range can also
+    change totals. Reconcile before replacing a Metric. A separate ordinary
+    hour-label Dimension can classify an unchanged DATE-clock Metric instead.
+
     Args:
         prefix: A native TimeField or native TimeDimension symbol for a day-level field that
             supplies the date context for this hour column.

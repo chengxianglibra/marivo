@@ -3019,7 +3019,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
         _capability(
             "hour_prefix",
             "marivo.semantic._authoring_values.hour_prefix",
-            "Combine a 0..23 integer or canonical '00'..'23' string with a civil-date prefix, inheriting its source timezone. Hour 24 violates the declaration; no source scan or uniform parse-error policy. Qualified positive same-day ranges, including midnight starts, compare original columns. Whole-day, cross-day and one-sided ranges can add qualified original date bounds while retaining the exact predicate. SQL NULL retains native semantics. Partition pruning depends on the backend plan. No independent timezone parameter.",
+            "Combine a 0..23 integer or canonical '00'..'23' string with a civil-date prefix, inheriting its source timezone. Use the loaded combined field explicitly as a source reduction's time= for partition-hour reports; report grain never replaces an existing Metric's clock. NULL hours have no time membership; changing clocks, timezones or ranges can change totals. To retain a DATE-clock Metric, classify by a separate ordinary hour-label Dimension. Hour 24 violates the declaration; no source scan or uniform parse-error policy. Qualified positive same-day ranges, including midnight starts, compare original columns. Whole-day, cross-day and one-sided ranges can add qualified original date bounds while retaining the exact predicate. SQL NULL retains native semantics. Partition pruning depends on the backend plan. No independent timezone parameter.",
             output="HourPrefixSpec",
             effects=_AUTHOR,
             example="ms.hour_prefix(log_date)",

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import replace
+from pathlib import Path
 
 import pytest
 
@@ -89,6 +90,33 @@ def test_observe_routes_identity_audit_details_to_source_checks() -> None:
     for target in ("analysis.session.observe", Session.observe):
         text = render_help_text(target)[0]
         assert "semantic.source_check" in text
+
+
+@pytest.mark.parametrize("target", ("analysis.session.observe", "analysis.time_scope.by"))
+def test_report_time_help_routes_to_partition_clock_authoring(
+    target: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    def forbidden(*args: object, **kwargs: object) -> None:
+        raise AssertionError("Static report-time Help must not inspect a Catalog")
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(mv.Session, "catalog", property(forbidden))
+    text = render_help_text(target)[0]
+    assert "semantic.hour_prefix" in text
+    assert "semantic.hour_prefix" in render_help_text("semantic.hour_prefix")[0]
+    budget = ANALYSIS_HELP_RENDER_BUDGETS["exact_callable"]
+    assert len(text) <= budget.max_codepoints
+    assert len(text.splitlines()) <= budget.max_lines + 4
+    main(["help", target])
+    cli = capsys.readouterr()
+    assert cli.err == "" and f"Target: {target}" in cli.out
+    python_routes = set(re.findall(r"marivo\.help\(['\"]([^'\"]+)['\"]\)", text))
+    cli_routes = set(re.findall(r"marivo help ([a-z0-9_.]+)", cli.out))
+    assert cli_routes == python_routes
+    assert not (tmp_path / ".marivo").exists()
 
 
 def test_output_naming_help_discloses_and_runs_both_entry_shapes(

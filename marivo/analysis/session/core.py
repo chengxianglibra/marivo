@@ -374,6 +374,13 @@ class Session:
             broadcast to existing keys. Time grouping needs a clocked
             branch or compatible Population count keys. A scope adds no axis;
             scope.by(grain) supplies candidates and the full time directory.
+            Report grain never replaces a Metric's clock. DATE clocks need complete
+            days and day-or-larger grains. For partition hours, explicitly rebuild
+            the source reduction with time= on an existing hour_prefix field;
+            preserve reducers, filters and branches. NULL hours, event clocks and
+            timezone/range changes can change totals; reconcile first. To retain
+            DATE-clock rows, classify by day plus an ordinary hour label including
+            NULL; this is not an hourly CalendarAxis.
             Bare Grains reject. Domains, predicates and calendar samples require
             Session timezone. Windows require endpoints; history can support rows.
             At existing keys, absent sum/count is zero; mean is NA.

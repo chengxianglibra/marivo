@@ -358,7 +358,7 @@ def prepare_fields(
             if authority.kind == "civil_date":
                 from marivo.analysis.binding.windows import validate_date_contribution
 
-                validate_date_contribution(contribution, path)
+                validate_date_contribution(contribution, path, registry)
                 if instant_read or (
                     contribution.time is not None and contribution.time.field.ref.path == path
                 ):

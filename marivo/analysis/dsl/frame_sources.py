@@ -19,6 +19,11 @@ from marivo._definition.types import (
 from marivo._grouping import Grouping
 from marivo._temporal import TimeScope
 from marivo.analysis.binding.lineage import observation_contexts
+from marivo.analysis.binding.time_guidance import (
+    REPORT_CLOCK_GUIDANCE,
+    partition_hour_candidates,
+    partition_hour_guidance,
+)
 from marivo.analysis.binding.value_time import observation_time_semantics
 from marivo.analysis.core.artifact_data import DataColumn
 from marivo.analysis.core.calendar_keys import time_key_type
@@ -73,6 +78,7 @@ from marivo.semantic._expression_values import (
     RowExpression,
     RowPredicate,
 )
+from marivo.semantic.catalog import TimeDimension
 
 
 def _utc(value: datetime | None) -> datetime | None:
@@ -214,12 +220,26 @@ def _source_by(
     for value in values:
         if isinstance(value, RowExpression):
             if value._role != "dimension":
+                candidates = (
+                    partition_hour_candidates(state.registry, value.path)
+                    if isinstance(value, TimeDimension)
+                    else ()
+                )
+                repair = "Use a Dimension for classification or scope.by(grain) for report time."
+                if value._role == "time":
+                    repair += (
+                        " A TimeDimension supplies time= on a source reduction or a field predicate; "
+                        "it is not an ordinary classification. "
+                        + REPORT_CLOCK_GUIDANCE
+                        + partition_hour_guidance(candidates)
+                    )
                 reject(
                     "ordinary classification dimensions",
                     repr(value),
-                    "Use a Dimension for classification or scope.by(grain) for report time.",
+                    repair,
                     "Session.observe.by",
                     canonical_id="session.observe",
+                    candidates=candidates,
                 )
             result.append(bind_field_in_state(value, state, project_root=project_root, owner=owner))
         elif isinstance(value, Grouping) or (isinstance(value, Population) and value is by):

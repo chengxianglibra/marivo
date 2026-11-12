@@ -30,11 +30,17 @@ from marivo._definition.windows import (
 from marivo._temporal import Grain, anchor_from_datetime, session_time_scope
 from marivo._temporal_grid import _floor, _next, bind_grid, instant
 from marivo._timezones import normalize_timezone
+from marivo.analysis.binding.time_guidance import (
+    REPORT_CLOCK_GUIDANCE,
+    partition_hour_candidates,
+    partition_hour_guidance,
+)
 from marivo.analysis.core.model import reject
 
 if TYPE_CHECKING:
     from marivo.analysis.binding.observe import ContributionBinding, ObservationPeriod
     from marivo.analysis.core.graph import BoundGraph
+    from marivo.semantic.validator import Registry
 
 
 def actual_window_axis(graph: BoundGraph) -> CalendarCoordinate | None:
@@ -106,7 +112,9 @@ def _reset(end: datetime, grain: Grain, zone: str) -> tuple[datetime, datetime]:
     )
 
 
-def validate_date_contribution(contribution: ContributionBinding, path: str) -> None:
+def validate_date_contribution(
+    contribution: ContributionBinding, path: str, registry: Registry
+) -> None:
     """Reject fabricated subday DATE contributions before a business read."""
     from marivo._definition.types import FieldRead
 
@@ -133,12 +141,18 @@ def validate_date_contribution(contribution: ContributionBinding, path: str) -> 
         return
 
     def fail(received: str) -> None:
+        candidates = partition_hour_candidates(registry, path) if is_role else ()
         reject(
             "civil DATE contributions at complete business-midnight boundaries",
             received,
-            "Use day-or-larger output and reset Grains with complete civil-date ranges, "
-            "or use a real timestamp TimeField for subday contributions.",
+            REPORT_CLOCK_GUIDANCE
+            + "Keep DATE contributions and samples at day-or-larger output/reset Grains with complete "
+            "civil-date ranges. For subday contributions, explicitly choose a timestamp "
+            "clock with the intended business meaning; changing clocks can change membership. "
+            + partition_hour_guidance(candidates),
             "session.observe",
+            canonical_id="session.observe",
+            candidates=candidates,
         )
 
     rule = contribution.window_rule

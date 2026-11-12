@@ -14,6 +14,7 @@ from marivo.analysis.binding.windows import _reset
 from marivo.analysis.core.data_schema import CalendarDataAxis
 from marivo.analysis.core.frame_data import MemoryFrameBacking
 from marivo.analysis.core.frozen_calendar import read_calendar_directory
+from marivo.analysis.core.model import CoreRuleError
 from marivo.analysis.errors import AnalysisError
 from marivo.analysis.session.core import Session
 from marivo.semantic.errors import ErrorKind, SemanticExpressionError
@@ -237,11 +238,16 @@ def test_date_contributions_reject_subday_and_non_midnight_windows(
         (revenue.window(mv.trailing_duration(duration=timedelta(hours=25))), scope),
         (revenue, session.time_scope(start="2026-10-07", end="2026-10-07T12:00Z")),
     ):
-        with pytest.raises(AnalysisError):
+        with pytest.raises(CoreRuleError) as caught:
             if isinstance(axis, mv.CalendarAxis):
                 session.observe({"revenue": metric}, by=(axis,)).compute()
             else:
                 session.observe({"revenue": metric}, where=axis).compute()
+        assert caught.value.repair is not None
+        # The fixture's hour_at uses a different date prefix, so it is no repair
+        # for ordered_at. Do not suggest it based on its name or entity alone.
+        assert caught.value.repair.candidates == ()
+        assert caught.value.repair.help_target.canonical_id == "session.observe"
     for start, end in (("2026-03-08", "2026-03-09"), ("2026-11-01", "2026-11-02")):
         session = mv.session.get_or_create("windows-dst", timezone="America/New_York")
         dst_scope = session.time_scope(start=start, end=end)

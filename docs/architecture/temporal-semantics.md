@@ -153,6 +153,25 @@ observed.show()
 A TimeScope in where selects contributions using each branch's fixed clock,
 without adding a report coordinate. A CalendarAxis in by captures both the
 finite report selection and its grain; it cannot accompany a TimeScope in where.
+
+Report grain never replaces a Metric's contribution clock. A DATE-clock Metric
+cannot become hourly by passing an hourly CalendarAxis or a bare TimeDimension
+in `by`. When an existing `hour_prefix(date_field)` TimeDimension represents the
+intended partition clock, explicitly author or rebuild the source reduction with
+`time=hour_field`, preserving its reducer, predicates and formula branches.
+This is a clock change, not an implicit refinement: NULL hours have no time
+membership, and event timestamps or different timezones/ranges can change totals.
+Reconcile against the original complete-day scope before replacing a Metric.
+For unchanged DATE-clock membership, declare a separate ordinary hour-label
+Dimension and classify by day plus label, including NULL. Those labels do not
+acquire hourly CalendarAxis or window semantics.
+
+DATE and bare-TimeDimension observation errors retain the rejection and route to
+observe Help. Their repairs may list at most three sorted exact `hour_prefix`
+TimeDimensions from the captured scope, restricted to the same Entity and exact
+date prefix (or the rejected hour field itself). Candidates are declaration facts,
+not verified source coverage or permission to substitute clocks. Help remains
+static; neither repairs nor Help read business rows or automatically change clocks.
 Bare Grain inputs in observe.by reject.
 An explicit Population can carry an exact interval or a finite calendar
 coordinate with its own frozen bounds.

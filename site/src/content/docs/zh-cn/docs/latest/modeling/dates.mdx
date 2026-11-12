@@ -100,6 +100,29 @@ event_hour = ms.time_dimension_column(
 )
 ```
 
+组合字段可以作为源归约的贡献时钟。**报表粒度不会替换指标时钟**：绑定 DATE 前缀的
+指标仍然拒绝小时桶，TimeDimension 本身也不能直接作为普通分类传入 `by`。
+
+已有 Session、完整日范围 `scope`、从 Catalog 取得的所属 Entity `entity`，以及
+已声明 `hour_prefix` 的 TimeDimension `partition_hour` 时，可以显式按分区小时计数：
+
+{/* example: partition-hour-observation */}
+
+```python
+import marivo.analysis as mv
+
+partition_counts = session.observe(
+    {"count": entity.count(time=partition_hour)},
+    by=(scope.by(mv.grain("hour")),),
+).compute()
+```
+
+其他指标显式改绑时钟时，应保留原归约、过滤条件与公式分支。NULL 小时不归属任何
+时间范围；改用提交或事件时间可能选中不同记录。日总量与小时合计对账要求小时合法且
+非空、过滤条件相同、输入数据稳定，并使用源与报告业务时区一致的完整日范围。
+替换已发布指标前先对账。若要保留原 DATE 时钟及全部选中记录，应另声明普通小时标签
+Dimension，按日加标签分组，并保留 NULL 组。这是普通分类标签，不是小时 CalendarAxis。
+
 同一源日期内的正向范围（如 `[03:00,04:00)`）在时区转换通过等价性检查时，
 可以直接比较原始日期列和小时列。该优化适用于观察范围，以及直接使用或位于顶层
 AND 中的必需 `event_hour` 显式边界比较，包括午夜起点。整日、跨日及单边范围可为

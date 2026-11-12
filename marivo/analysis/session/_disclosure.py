@@ -240,6 +240,7 @@ def provider() -> DisclosureProvider:
                 else (
                     "analysis_frame.compute",
                     "semantic.source_check",
+                    "semantic.hour_prefix",
                 )
                 if name == "observe"
                 else ("session.observe", "TimeScope.by")

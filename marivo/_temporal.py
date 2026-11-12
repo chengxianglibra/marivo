@@ -317,6 +317,10 @@ class TimeScope(BaseModel):
         Constraints: Uses this scope's frozen report timezone without source reads.
         Defines candidate positions, not result rows; ordinary observe does not fill
         missing buckets. Use an explicit output Population for complete time output.
+        Report grain never replaces a Metric's contribution clock. A DATE clock
+        cannot supply subday buckets; explicitly choose the source reduction's
+        time= field for that business meaning, including an existing hour_prefix
+        partition clock. Changing clocks can change membership and totals.
         """
         return calendar_axis(self, grain)
 

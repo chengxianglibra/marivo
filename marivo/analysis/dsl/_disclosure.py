@@ -523,6 +523,7 @@ def provider() -> DisclosureProvider:
             "inputs.time",
             (
                 "Use the scope report timezone and a natural Grain.",
+                "Report grain never replaces a Metric's contribution clock. DATE clocks cannot supply subday buckets. Explicitly choose the source reduction's time= field; hour_prefix can supply partition hours. Clock changes can change totals; see the linked observation and clock contracts.",
                 "Ordinary by=(scope.by(grain),) returns actual supported keys without filling buckets; use by=mv.product(axis, mv.coordinates(by=(), keys=((),))) for complete time output. Range-only totals use where=scope.",
             ),
         ),
@@ -726,6 +727,8 @@ def provider() -> DisclosureProvider:
                     "session.persisted_frames",
                 )
                 if owner is AnalysisFrame and name == "persist"
+                else ("session.observe", "semantic.hour_prefix")
+                if owner is TimeScope and name == "by"
                 else (),
                 parameters=parameters,
                 output=output,

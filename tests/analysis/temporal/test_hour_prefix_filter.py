@@ -4,6 +4,7 @@ from collections.abc import Callable
 from dataclasses import replace
 from datetime import date, datetime
 from pathlib import Path
+from typing import cast
 from zoneinfo import ZoneInfo
 
 import duckdb
@@ -17,6 +18,7 @@ from sqlglot import expressions as sge
 import marivo.analysis as mv
 import marivo.semantic as ms
 from marivo.analysis.compiler.source_time import source_time, source_time_predicate
+from marivo.analysis.core.model import CoreRuleError
 from marivo.analysis.core.time_authority import SourceTimeAuthority
 from marivo.analysis.materialization.temporal_sql import lower_temporal
 from marivo.semantic._source_timezone import DeclaredSourceTimezone
@@ -25,6 +27,7 @@ from marivo.semantic.reader import SemanticProject
 from tests.analysis.temporal.encoded_time_fixtures import axis
 from tests.analysis.temporal.test_calendar_native_keys import _maria
 from tests.datasource.source_cases import SourceData, source_case, source_params
+from tests.support.documentation import _example as documentation_example
 from tests.support.source_trace import SourceTrace
 
 
@@ -530,6 +533,87 @@ def test_public_observe_only_pushes_required_hour_membership(
     )
     assert has_day_equality == (mode in ("scope", "calendar", "midnight", "range", "and")), (
         source_trace.native_sql
+    )
+
+
+def test_partition_hour_repairs_keep_date_clock_and_expose_real_choices(
+    hour_session: mv.Session, tmp_path: Path, source_trace: SourceTrace
+) -> None:
+    model = tmp_path / "models/semantic/sales/events.py"
+    model.write_text(
+        model.read_text()
+        + "\nhour_label=ms.dimension_column(name='hour_label',entity=events,column='hour')\n"
+        + "other_day=ms.time_dimension_column(name='other_day',entity=events,column='day',parse=ms.strptime('%Y%m%d'))\n"
+        + "other_hour=ms.time_dimension_column(name='other_hour',entity=events,column='hour',parse=ms.hour_prefix(other_day))\n"
+        + "@ms.metric()\ndef daily_count():\n    return events.count(time=day)\n"
+    )
+    session = mv.session.get_or_create("partition-hour-repairs", timezone="Asia/Shanghai")
+    daily_count = _metric(session.catalog, "metric:sales.daily_count")
+    hour = _time_dimension(session.catalog, "time_dimension:sales.events.hour")
+    events = _entity(session.catalog, "entity:sales.events")
+    label = _dimension(session.catalog, "dimension:sales.events.hour_label")
+    scope = session.time_scope(start="2026-10-28", end="2026-10-29")
+    hourly = scope.by(mv.grain("hour"))
+    # Deliberately cross the typed classification boundary to check its runtime repair.
+    for by in ((hourly,), (cast("ms.Dimension", hour),)):
+        source_trace.native_sql.clear()
+        with pytest.raises(CoreRuleError) as caught:
+            session.observe({"n": daily_count}, by=by).compute()
+        repair = caught.value.repair
+        assert repair is not None
+        assert repair.candidates == ("time_dimension:sales.events.hour",)
+        assert repair.help_target.canonical_id == "session.observe"
+        assert session.catalog.get(repair.candidates[0]).id == hour.id
+        # Calendar metadata may execute, but rejected queries must not read facts.
+        assert not any('"events"' in sql for sql in source_trace.native_sql)
+
+    # The selected date contains six rows, one of which has no hour. Explicitly
+    # choosing the finer clock excludes that row; ordinary classification keeps it.
+    original = session.observe({"n": daily_count}, where=scope).compute().to_pandas()
+    assert original.n.tolist() == [6]
+    for edition in ("docs", "zh-cn/docs"):
+        namespace: dict[str, object] = {
+            "session": session,
+            "entity": events,
+            "partition_hour": hour,
+            "scope": scope,
+        }
+        code = documentation_example(edition, "partition-hour-observation", page="modeling/dates")
+        exec(compile(code, "<partition-hour-observation>", "exec"), namespace)
+        partition_counts = namespace["partition_counts"]
+        assert isinstance(partition_counts, mv.AnalysisFrame)
+        assert sorted(partition_counts.to_pandas()["count"].tolist()) == [1, 1, 1, 2]
+    classified = (
+        session.observe({"n": daily_count}, by=(scope.by(mv.grain("day")), label))
+        .compute()
+        .to_pandas(axis_names={"axis.1": "hour_label"})
+    )
+    assert classified.n.sum() == 6
+    assert classified.loc[classified.hour_label.isna(), "n"].tolist() == [1]
+
+
+def test_date_clock_repair_candidates_are_bounded_and_ordered(
+    hour_session: mv.Session, tmp_path: Path
+) -> None:
+    model = tmp_path / "models/semantic/sales/events.py"
+    model.write_text(
+        model.read_text()
+        + "\n".join(
+            f"{name}=ms.time_dimension_column(name='{name}',entity=events,column='hour',parse=ms.hour_prefix(day))"
+            for name in ("z_hour", "b_hour", "a_hour")
+        )
+        + "\n"
+    )
+    session = mv.session.get_or_create("bounded-hour-repairs", timezone="Asia/Shanghai")
+    events = _entity(session.catalog, "entity:sales.events")
+    day = _time_dimension(session.catalog, "time_dimension:sales.events.day")
+    scope = session.time_scope(start="2026-10-28", end="2026-10-29")
+    with pytest.raises(CoreRuleError) as caught:
+        session.observe({"n": events.count(time=day)}, by=(scope.by(mv.grain("hour")),)).compute()
+    repair = caught.value.repair
+    assert repair is not None
+    assert repair.candidates == tuple(
+        f"time_dimension:sales.events.{name}" for name in ("a_hour", "b_hour", "hour")
     )
 
 

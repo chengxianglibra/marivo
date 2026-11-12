@@ -26,6 +26,7 @@ class CoreRuleError(AnalysisError):
         repair: str,
         location: str,
         canonical_id: str | None = None,
+        candidates: tuple[str, ...] = (),
     ) -> None:
         super().__init__(
             message="Analysis core rule validation failed.",
@@ -35,6 +36,7 @@ class CoreRuleError(AnalysisError):
             repair=AnalysisRepair(
                 kind="retry",
                 action=repair,
+                candidates=candidates,
                 help_target=LiveHelpTarget(
                     surface="analysis",
                     canonical_id=canonical_id,
@@ -50,6 +52,7 @@ def reject(
     location: str,
     *,
     canonical_id: str | None = None,
+    candidates: tuple[str, ...] = (),
 ) -> NoReturn:
     raise CoreRuleError(
         expected=expected,
@@ -57,6 +60,7 @@ def reject(
         repair=repair,
         location=location,
         canonical_id=canonical_id,
+        candidates=candidates,
     )
 
 
