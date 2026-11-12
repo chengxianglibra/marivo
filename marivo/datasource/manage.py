@@ -271,7 +271,7 @@ class RawSqlResult(_DataResult):
         )
 
     def to_pandas(self) -> pd.DataFrame:
-        """Return a defensively isolated pandas DataFrame from bounded result rows.
+        """Return an isolated pandas DataFrame containing all retained query rows.
 
         The DataFrame is built in declared column order. Object-dtype columns
         are recursively deep-copied so mutations to the DataFrame or mutable
@@ -668,11 +668,14 @@ def raw_sql(
     Returns:
         A complete ``RawSqlResult`` labeled as ``terminal_only``. The result
         describes the submitted query, not necessarily the full source population.
+        Call ``result.to_pandas()`` to convert all returned rows to a pandas
+        DataFrame without re-executing SQL.
 
     Example:
         >>> import marivo.datasource as md
         >>> import marivo.semantic as ms
-        >>> md.raw_sql(ms.ref.datasource("default"), "SELECT 1 AS ok LIMIT 1", reason="check query path")
+        >>> result = md.raw_sql(ms.ref.datasource("default"), "SELECT 1 AS ok", reason="check query path")
+        >>> df = result.to_pandas()
 
     Constraints:
         Rejects empty reasons, empty SQL, and non-positive timeout before execution. SQL syntax and permissions are enforced by the selected backend. All returned rows are loaded into client memory;
@@ -696,7 +699,7 @@ def raw_sql(
         provisional and must be disclosed at closeout. The result carries no
         metric, time-scope, slice, lineage, or canonical analysis contract and
         cannot re-enter typed analysis. Display previews may omit rows; ``rows``
-        and ``to_pandas()`` expose the complete returned query result.
+        contains the complete query result as Python records.
     """
     if timeout_seconds < 1:
         raise ValueError("timeout_seconds must be positive.")

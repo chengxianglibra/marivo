@@ -172,6 +172,16 @@ def test_datasource_task_tree_exposes_direct_sql_and_conditioned_native_routes()
     )
 
 
+def test_raw_sql_help_exposes_pandas_conversion() -> None:
+    raw_sql_help, _, _ = render_help_text("datasource.raw_sql")
+    result_help, _, _ = render_help_text("datasource.raw_sql_result")
+    conversion_help, _, _ = render_help_text("datasource.raw_sql_result.to_pandas")
+
+    assert ".to_pandas()" in raw_sql_help
+    assert 'marivo.help("datasource.raw_sql_result.to_pandas")' in result_help
+    assert "Output family: pandas.DataFrame" in conversion_help
+
+
 @pytest.mark.parametrize("backend", ("duckdb", "postgres", "mysql", "trino", "clickhouse"))
 def test_timezone_declaration_help_has_inputs_and_static_spec_attribute(backend: str) -> None:
     constructor_help = render_help_text(f"datasource.{backend}")[0]

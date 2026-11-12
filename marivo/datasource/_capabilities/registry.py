@@ -51,6 +51,7 @@ INPUT_FAMILIES = frozenset(
         "SourceInspection",
         "DiscoverySnapshot",
         "DatasourceList",
+        "RawSqlResult",
         "Columns",
         "Column",
         "TableName",
@@ -99,6 +100,7 @@ OUTPUT_FAMILIES = frozenset(
         "PartitionInspection",
         "DiscoverySnapshot",
         "RawSqlResult",
+        "pandas.DataFrame",
         "Text",
         "None",
         "bool",
@@ -510,7 +512,8 @@ def _build_registry() -> DatasourceCapabilityRegistry:
             "and SQL LIMIT; LIMIT does not bound scan cost. Use read-only SQL and credentials. "
             "The backend enforces its native permissions, and write-capable credentials can allow changes. "
             "Native query timeout defaults to 600 seconds; connection settings remain 30 seconds. "
-            "Unsupported query timeouts are skipped. "
+            "Unsupported query timeouts are skipped. Call result.to_pandas() to convert all "
+            "returned rows to a pandas DataFrame. "
             "Results cannot enter typed analysis. Actual submitted SQL is recorded in .marivo/logs/ independently of telemetry.",
             output="RawSqlResult",
             inputs=_inputs(
@@ -525,8 +528,23 @@ def _build_registry() -> DatasourceCapabilityRegistry:
                 flags=(),
             ),
             constraints=constraints["configured"],
-            example='md.raw_sql(ms.ref.datasource("default"), "SELECT 1 LIMIT 1", reason="check connectivity")',
+            example=(
+                'result = md.raw_sql(ms.ref.datasource("default"), "SELECT 1 AS ok", '
+                'reason="check connectivity")\n'
+                "df = result.to_pandas()"
+            ),
             preconditions=("read-only SQL and credentials scoped to source reads",),
+        ),
+        _capability(
+            "RawSqlResult.to_pandas",
+            "marivo.datasource.manage.RawSqlResult.to_pandas",
+            "Convert all retained query rows to an isolated pandas DataFrame in result column "
+            "order without re-executing SQL. pandas infers dtypes from the retained values.",
+            kind="method",
+            output="pandas.DataFrame",
+            inputs=_inputs(("receiver", "RawSqlResult")),
+            example="df = result.to_pandas()",
+            public_entrypoint="result.to_pandas",
         ),
         _capability(
             "DatasourceCatalog.list",
@@ -1091,7 +1109,7 @@ def _type_contracts() -> Mapping[type, DatasourceTypeContract]:
             "returned_row_count",
             "warnings",
         ),
-        methods=show_render,
+        methods=(*show_render, "to_pandas"),
         type_page_methods=show_render,
         guidance=_display_help(),
     )

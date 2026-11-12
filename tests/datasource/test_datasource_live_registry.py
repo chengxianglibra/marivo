@@ -38,6 +38,7 @@ PUBLIC_CALLABLE_TARGETS = {
     "unpruned",
     "inspect",
     "raw_sql",
+    "raw_sql_result.to_pandas",
     "datasource_catalog.list",
     "datasource_catalog.describe",
     "datasource_catalog.test",
@@ -98,6 +99,7 @@ EXPECTED_EFFECTS = {
         mutations=("project_state",),
         flags=(),
     ),
+    "raw_sql_result.to_pandas": AuthoringEffects(data_access="none", connection="none"),
     "datasource_catalog.list": AuthoringEffects(
         data_access="local_metadata_read", connection="none"
     ),

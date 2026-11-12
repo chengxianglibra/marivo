@@ -26,6 +26,7 @@ _FACTS: dict[str, tuple[str, tuple[LiveHelpTarget, ...]]] = {
         _links("datasource_catalog.list"),
     ),
     "DatasourceCatalog": ("Load the intended workspace's connection declarations.", _links("load")),
+    "RawSqlResult": ("Use a result already returned by md.raw_sql().", _links("raw_sql")),
     "TableSource": (
         "Construct the physical table/file descriptor for this question.",
         _links("sources"),
