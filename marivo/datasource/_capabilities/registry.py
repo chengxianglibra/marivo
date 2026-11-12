@@ -383,7 +383,11 @@ def _build_registry() -> DatasourceCapabilityRegistry:
             "table",
             "marivo.datasource.source.table",
             (
-                "Build a catalog-backed table source. columns maps output names to physical "
+                "Build a table source descriptor, not a datasource. Pass the table name as "
+                "the sole positional argument; a dot is part of the name. Use the keyword "
+                "database= for a namespace string or tuple; omit it to leave namespace "
+                "resolution to the backend. Namespace interpretation depends on the backend. "
+                "columns maps output names to physical "
                 "column names (Mapping[str, str]); it does not declare types. Types come from "
                 "source metadata when needed at execution; md.inspect exposes current physical "
                 "names and types. Values must be physical names, not objects describing "
@@ -396,7 +400,7 @@ def _build_registry() -> DatasourceCapabilityRegistry:
             ),
             constraints=("projected_source_runtime_evidence",),
             example=(
-                'catalog_source = md.table("orders")\n'
+                'catalog_source = md.table("dwd_orders", database="iceberg_inf")\n'
                 'projected_source = md.table("events", columns={"event_time": "event.timestamp"})'
             ),
             see_also=(_target("inspect"), _target("raw_sql")),

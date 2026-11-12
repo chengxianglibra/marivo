@@ -430,8 +430,11 @@ def table(
     This descriptor identifies an internal table or view; it is not a datasource declaration.
 
     Args:
-        name: Table or view name inside the datasource.
-        database: Optional database/catalog name or namespace tuple.
+        name: Table or view name inside the datasource, passed as the sole
+            positional argument. A dot is part of the name, not a separator.
+        database: Optional keyword-only database or namespace as a string or
+            tuple. Omit to leave namespace resolution to the backend; namespace
+            interpretation depends on the backend.
         columns: Optional output-name to physical-column projection mapping
             (``Mapping[str, str]``). Values are names, not type declarations.
             Physical types come from source metadata when execution needs them;
@@ -441,7 +444,7 @@ def table(
         A validated ``TableSourceIR``.
 
     Example:
-        ``md.table("orders", database="sales")`` or
+        ``md.table("dwd_orders", database="iceberg_inf")`` or
         ``md.table("events", columns={"event_time": "event.timestamp"})``
 
     Constraints:
