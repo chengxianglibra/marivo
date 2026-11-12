@@ -1,0 +1,33 @@
+---
+slug: docs/latest/release-notes/0.6.6
+title: Marivo 0.6.6
+description: Release notes for Marivo 0.6.6.
+---
+
+Released on November 12, 2026. Marivo 0.6.6 makes Catalog Metric calculations
+more readable and improves source inspection and failure diagnostics.
+
+## Highlights
+
+- Catalog Metrics expose a readable `definition.formula` and an English
+  `definition.explanation` derived from the loaded calculation. Both are
+  available in Python and HTTP Catalog details without reading source data.
+  Formula text is for display, not executable syntax; authored business meaning
+  remains in `definition.context.business_definition`.
+
+## Fixed
+
+- Comparison Frame schemas render when their facts contain singular keys.
+- Trino partition inspection discovers partition table columns correctly.
+  If the optional partition-value probe fails after the base schema is available,
+  inspection retains the schema and known partition fields and reports a warning.
+- Datasource and semantic errors provide more specific failure categories and
+  operation-specific repairs. `catalog.validate()` retains redacted backend
+  diagnostics for unavailable checks and reports an unknown cause when the
+  available evidence cannot identify one.
+
+## Documentation
+
+- Datasource Help clarifies table namespaces and shows how
+  `RawSqlResult.to_pandas()` converts retained query rows without rerunning SQL.
+- Synchronized the English and Chinese v0.6 guides with the current documentation.

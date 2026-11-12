@@ -12,6 +12,30 @@ readiness 只检查选定语义闭包和物理声明，不打开数据源。普�
 
 物理访问配置见[数据源配置](/zh-cn/docs/v0.6/modeling/datasources/)，时间解析与日历见[日期与时间定义](/zh-cn/docs/v0.6/modeling/dates/)。下表默认值均为 Python API 默认值，`None` 不意味着自动推测业务规则。
 
+## 模型导入与独立加载
+
+同一业务域内的模型文件使用相对导入。例如，Metric 文件可以使用同目录
+`fields.py` 中声明的 Measure：
+
+```python
+# models/semantic/sales/metrics.py
+import marivo.semantic as ms
+from .fields import amount
+
+@ms.metric()
+def revenue():
+    return amount.sum()
+```
+
+跨业务域、外部模型的语义依赖使用 `ms.ref.*`。不支持模型文件间的绝对导入；
+加载器不会将项目目录加入 `sys.path`。标准库和已安装依赖仍使用普通绝对导入。
+
+每次 `ms.load()` 都捕获独立快照，并在新的命名空间中重新加载相对导入的模型。
+它不会更新已有 Catalog、已初始化的 Session 或已捕获的分析。同一 Session
+并发首次访问只初始化一个 Catalog；失败后可以重试。模型模块保留到进程退出，
+因此长驻进程频繁重载会累计模块。普通依赖仍使用 Python 导入缓存；修改这些
+依赖或升级包后应重启 Python。
+
 ## Domain：所属业务域
 
 | 参数 | 必填 | 默认值 | 语义 |
@@ -446,6 +470,41 @@ Measure 和 Metric 声明体不接收表参数，而是构造闭合表达式。�
 
 使用[本地教程的模型](/zh-cn/docs/v0.6/start/python/)。在项目根的新脚本中运行下面代码，根据当前疑问选择检查。
 
+### 浏览已加载的定义
+
+无需先知道搜索词，直接用 `catalog.search()` 列出定义。省略查询或传入 `""` 可浏览全部已加载类型，再用 `kind`、`domain` 和 `entity` 缩小范围。下面每次调用都返回第一页：
+
+{/* example: catalog-browse */}
+
+```python
+import marivo.semantic as ms
+
+catalog = ms.load()
+catalog.search().show()  # All loaded kinds
+catalog.search(kind="metric").show()  # All Metrics
+catalog.search(kind="metric", domain="sales").show()
+catalog.search(kind="dimension", entity="sales.orders").show()
+catalog.search("revenue", kind="metric", limit=5).show()  # Text search
+```
+
+空查询浏览会按规范身份排序，列出当前 Catalog 已加载范围内所有符合筛选条件的定义，不调用模型，也不受文本搜索候选窗口限制。筛选不会额外加载领域或定义。浏览时，`candidate_count` 是筛选后的完整数量；文本搜索时，它只表示固定候选池大小，不表示所有可能的语义匹配数量。
+
+每次调用返回一页：`limit` 默认为 10，接受任意正整数。保持相同查询和筛选条件，沿 `next_cursor` 翻页，直到它为 `None`，才能列出全部结果：
+
+{/* example: catalog-pagination */}
+
+```python
+page = catalog.search(kind="metric", limit=100)
+while True:
+    for metric in page.items:
+        print(metric.id, metric.name)
+    if page.next_cursor is None:
+        break
+    page = catalog.search(kind="metric", limit=100, cursor=page.next_cursor)
+```
+
+结果卡片报告当前页展示和遗漏的条目数及 `next_cursor`；使用 `page.show(max_output_bytes=None)` 或 `page.items` 获取完整当前页。取消展示预算不会自动获取后续页。查看某个已列出定义的详情时，可将其 `id` 传给 `catalog.get()`，或直接调用该定义的 `.show()`。
+
 ### 先检查定义，再检查数据
 
 {/* example: readiness-3 */}
@@ -462,7 +521,21 @@ catalog.readiness(refs=[amount]).show()
 
 `catalog.get()` 接收 `kind:path` 身份字符串，例如 `catalog.get("metric:sales.revenue")`，也接收单个未组合的查找符号，例如 `catalog.get(ms.ref.metric("sales.revenue"))`。两种方式都在当前 Catalog 中按精确身份查找。分析需要使用返回的 closed object，不能直接使用符号；组合后的 Deferred 表达式不是查找身份。
 
-Catalog 搜索返回一页结果。卡片报告当前页展示和遗漏的条目数及 `next_cursor`；使用 `page.show(max_output_bytes=None)` 或 `page.items` 获取完整当前页。后续页须通过 `next_cursor` 获取，取消展示预算不会自动翻页。
+可以直接读取已加载的 Catalog Metric 的公式和计算说明。
+
+```python
+metric = catalog.get("metric:sales.revenue")
+assert metric.kind == "metric"
+print(metric.definition.formula)
+print(metric.definition.explanation)
+```
+
+公式使用单行展示记法，例如 `amount.sum(time=order_date).per(order_date).mean()`。
+英文说明会描述按实际出现的 `order_date` 值分组、组内对 `amount`
+求和、再对非 NULL 的组结果求等权平均的过程。这两个字段也可通过
+`metric.to_dict()["definition"]` 获取，无需读取数据。作者填写的业务定义见
+`metric.definition.context.business_definition`。可用
+`marivo.help("semantic.metric_definition")` 查看帮助。
 
 普通 Metric 预览支持 DuckDB、PostgreSQL、MySQL、Trino 和 ClickHouse。
 每个依赖 Entity 最多贡献 `min(scope.max_rows, 10_000)` 行输出；这些无序输入

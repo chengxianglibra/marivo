@@ -138,11 +138,15 @@ saved_session_id = session.id
 saved_artifact_id = saved.artifact_id
 ```
 
+`show()` summarizes captured value-column types, nullability and units. Use
+`frame.schema.values` for the complete field metadata; an undeclared unit is
+distinct from the dimensionless unit `"1"`.
+
 <a id="observe-metrics"></a>
 
 ## observe — evaluate Metrics over a domain
 
-`session.observe(metrics, by=..., where=...)` captures a source question and returns a pending AnalysisFrame. It reads no schema or business rows until `compute()` or `persist()`.
+`session.observe(metrics, by=..., where=...)` captures a source question and returns a pending AnalysisFrame. It reads no schema or business rows until `compute()`, `persist()` or `to_pandas()`.
 
 | Parameter | Required | Default | Meaning |
 | --- | --- | --- | --- |
@@ -194,11 +198,16 @@ To read individual records, provide complete Entity identities and named fields 
 
 `to_pandas()` evaluates a pending Frame once per call, including lazy derivatives such as `fixed.select(...)`, then returns a complete isolated DataFrame. It does not mutate the Frame, cache results or save them. Repeated exports of a pending source expression may read changed data. To reuse the same values across several views, first retain `fixed = frame.compute()` and derive from `fixed`. Short composition examples are available at `analysis.analysis_frame.compute`, `analysis.analysis_frame.reduce` and `analysis.analysis_frame.over`.
 
+```python
+leaders = regional.top(1, by=regional["revenue"]).to_pandas()
+assert leaders["revenue"].tolist() == [600]
+```
+
 The export uses short axis names (final path components), full value names and independent boolean presence. Composite identities remain tuples. Calendar axes expose one actual key timestamp; interval axes expose genuine `.start`/`.end` bounds in their captured timezone. `time_details=True` adds calendar `.label`; named labels retain scalar types. Paired axes use `.left` and `.right` prefixes.
 
 Merged interval axes with multiple boundary timezones use UTC timestamps. The common export timezone is captured in the interval descriptor, including for empty pages. Fixed offsets with nonzero seconds also export in UTC without changing instants; zero seconds normalize to minute offsets. This applies to detail columns, pages and previews. Original zones remain in frozen metadata.
 
-Names must be unique. Use `saved.to_pandas(axis_names={"sales.orders.region": "region"})` to rename by full axis name or unique schema token; FrameAxis keys are rejected. Collisions fail before payload reads. `read_page()` shares these options and binds them into its cursor. Explicit `compute()` or `persist()` is required.
+Names must be unique. Use `saved.to_pandas(axis_names={"sales.orders.region": "region"})` to rename by full axis name or unique schema token; FrameAxis keys are rejected. Export options and name collisions fail before evaluation or payload reads. `read_page()` shares these options and binds them into its cursor; page reads still require a completed Frame returned by `compute()` or `persist()`.
 
 An ordinary TimeField or Calendar axis exports one coordinate column. Interval
 `.start` and `.end` remain genuine observation bounds. Calendar keys do not promise

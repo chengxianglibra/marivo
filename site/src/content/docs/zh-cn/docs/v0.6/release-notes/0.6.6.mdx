@@ -1,0 +1,29 @@
+---
+slug: zh-cn/docs/v0.6/release-notes/0.6.6
+title: Marivo 0.6.6
+description: Marivo 0.6.6 版本说明。
+---
+
+发布于 2026 年 11 月 12 日。Marivo 0.6.6 改进了 Catalog Metric 计算的可读性，
+以及数据源检查和故障诊断。
+
+## 亮点
+
+- Catalog Metric 提供可读的 `definition.formula` 和从已加载计算生成的英文
+  `definition.explanation`。Python 和 HTTP Catalog 详情都可获取这两个字段，
+  无需读取源数据。公式文本用于展示，不是可执行语法；作者填写的业务含义仍位于
+  `definition.context.business_definition`。
+
+## 修复
+
+- 修复事实中包含单个键时 Comparison Frame 模式的显示。
+- 修复 Trino 分区检查对分区表列的发现。基础模式可用后，如果可选的分区值探测失败，
+  检查结果仍保留基础模式和已知分区字段，并给出警告。
+- 数据源和语义错误提供更具体的故障分类和操作修复建议。`catalog.validate()`
+  对无法执行的检查保留脱敏后的后端诊断；现有证据无法确定原因时，报告未知原因。
+
+## 文档
+
+- 数据源 Help 说明表命名空间，并展示 `RawSqlResult.to_pandas()` 如何转换已保留的
+  查询行而不重新执行 SQL。
+- 将中英文 v0.6 指南与当前文档同步。

@@ -270,7 +270,7 @@ with empty attrs; the page retains no full parent table. `read_stats` counts
 inspected data/coordinate rows and receipt hashing bytes, not all disk I/O or
 peak memory. Receipts and coordinate lookup may scan whole files. A page validates
 selected stored data and necessary coordinates; full stored `to_pandas()` additionally validates
-complete keys, data and mappings. Reading never executes or saves a pending Frame.
+complete keys, data and mappings. Page reads never execute or save a pending Frame.
 
 
 ## Attribute time and missing values

@@ -18,6 +18,31 @@ Marivo 提供五种数据源构造函数。将声明保存在 `models/datasource
 
 `wall_clock_timezone` 是独立于连接选项存储的源声明。字段 parser 时区优先，`hour_prefix` 继承前缀字段的有效时区。它不影响物理瞬间，包括 MySQL TIMESTAMP 和 ClickHouse DateTime。无时区时间或业务日缺少声明时，应先补齐声明；连接、宿主机和报告时区都不补全它。Trino 使用私有 UTC 传输设置，没有公开 `timezone` 参数。
 
+## 声明文件的相对导入
+
+在 `models/datasources/` 内使用相对导入共享配置：
+
+```python
+# models/datasources/settings.py
+WAREHOUSE_PATH = "warehouse.duckdb"
+```
+
+```python
+# models/datasources/warehouse.py
+import marivo.datasource as md
+from .settings import WAREHOUSE_PATH
+
+md.duckdb(name="warehouse", path=WAREHOUSE_PATH, wall_clock_timezone="UTC")
+```
+
+每次读取声明使用独立命名空间，同一次读取中被导入的文件只执行一次。
+加载器不修改 `sys.path`，不支持模型文件间的绝对导入。标准库和已安装依赖
+继续使用普通导入及 Python 模块缓存；修改这些依赖或升级包后应重启 Python。
+声明加载产生的模块保留到进程退出。
+
+`md.load()` 保留选定的项目根目录，其 Catalog 方法每次操作都读取当前声明。
+SemanticCatalog 则保留捕获的快照，不受后续加载影响。
+
 ## DuckDB — `md.duckdb`
 
 | 参数 | 必填 | 默认值 | 语义 |

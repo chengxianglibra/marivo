@@ -12,6 +12,33 @@ The short declarations are model-file fragments, not commands to paste into an a
 
 Configure physical access on the [Datasource configuration](/docs/v0.6/modeling/datasources/) page. [Date and time definitions](/docs/v0.6/modeling/dates/) owns temporal parsing and calendars. Parameter defaults below are Python API defaults; `None` does not imply a guessed business rule.
 
+## Model imports and independent loads
+
+Use relative imports between files in the same domain. For example, a Metric
+module can consume a Measure declared in its sibling `fields.py`:
+
+```python
+# models/semantic/sales/metrics.py
+import marivo.semantic as ms
+from .fields import amount
+
+@ms.metric()
+def revenue():
+    return amount.sum()
+```
+
+Use `ms.ref.*` for cross-domain or external-model dependencies. Model absolute
+imports are unsupported; the loader does not add project directories to `sys.path`.
+Standard-library and installed packages keep normal absolute imports.
+
+Each `ms.load()` captures an independent snapshot and reloads relative model
+imports in a fresh namespace. It does not update existing Catalogs, initialized
+Sessions or captured analyses. Concurrent first access to one Session initializes
+one Catalog; failed initialization can be retried. Loaded modules remain until
+process exit, so frequent reloads in a long-lived process accumulate modules.
+Ordinary dependencies retain Python's import cache; restart Python after changing
+those dependencies or upgrading packages.
+
 ## Domain — owning business scope
 
 | Parameter | Required | Default | Meaning |
@@ -459,6 +486,41 @@ After editing, [validate the model](/docs/v0.6/modeling/semantic-layer/#load-and
 
 Start with the [local tutorial's model](/docs/v0.6/start/python/). Run these blocks in a new script from its project root. Choose the check that answers your current uncertainty.
 
+### Browse loaded definitions
+
+Use `catalog.search()` to list definitions without knowing a search term. Omit the query or pass `""` to browse all loaded kinds; use `kind`, `domain` and `entity` to narrow the list. These calls return the first page:
+
+{/* example: catalog-browse */}
+
+```python
+import marivo.semantic as ms
+
+catalog = ms.load()
+catalog.search().show()  # All loaded kinds
+catalog.search(kind="metric").show()  # All Metrics
+catalog.search(kind="metric", domain="sales").show()
+catalog.search(kind="dimension", entity="sales.orders").show()
+catalog.search("revenue", kind="metric", limit=5).show()  # Text search
+```
+
+Empty-query browsing lists every filtered definition in the current loaded Catalog scope, ordered by canonical identity, without model calls or text-search candidate-window limits. Filters do not load additional domains or definitions. For browsing, `candidate_count` is the complete filtered count; for text search, it counts the fixed candidate pool, not every possible semantic match.
+
+Each call returns one page: `limit` defaults to 10 and accepts any positive integer. Follow `next_cursor` with the same query and filters until it is `None` to list all results:
+
+{/* example: catalog-pagination */}
+
+```python
+page = catalog.search(kind="metric", limit=100)
+while True:
+    for metric in page.items:
+        print(metric.id, metric.name)
+    if page.next_cursor is None:
+        break
+    page = catalog.search(kind="metric", limit=100, cursor=page.next_cursor)
+```
+
+The result card reports current-page rows shown and omitted, plus `next_cursor`; use `page.show(max_output_bytes=None)` or `page.items` for the complete current page. Removing the display budget does not fetch later pages. To inspect one listed definition, pass its `id` to `catalog.get()` or call its `.show()` method.
+
 ### Check definitions, then inspect data
 
 {/* example: readiness-3 */}
@@ -475,7 +537,22 @@ catalog.readiness(refs=[amount]).show()
 
 `catalog.get()` accepts a `kind:path` identity string, such as `catalog.get("metric:sales.revenue")`, or one uncomposed lookup symbol, such as `catalog.get(ms.ref.metric("sales.revenue"))`. Both resolve the exact identity in the current Catalog. Analysis consumes the returned closed object; a symbol alone is not an analysis input. Composite Deferred expressions are not lookup identities.
 
-Catalog search returns one page. Its card reports current-page rows shown and omitted, plus `next_cursor`; use `page.show(max_output_bytes=None)` or `page.items` for the complete current page. Follow `next_cursor` to retrieve later pages: removing the display budget does not fetch them.
+Read the formula and calculation summary from a loaded Catalog Metric.
+
+```python
+metric = catalog.get("metric:sales.revenue")
+assert metric.kind == "metric"
+print(metric.definition.formula)
+print(metric.definition.explanation)
+```
+
+The formula uses single-line display notation, such as
+`amount.sum(time=order_date).per(order_date).mean()`. The English explanation
+describes how the Metric sums `amount` for each represented `order_date` value
+and takes the equally weighted mean of the non-NULL group sums. Both fields are
+available under `metric.to_dict()["definition"]` and need no data reads. Use
+`metric.definition.context.business_definition` for the author's business
+meaning. See `marivo.help("semantic.metric_definition")`.
 
 Ordinary Metric previews support DuckDB, PostgreSQL, MySQL, Trino and ClickHouse.
 Each dependency Entity contributes at most `min(scope.max_rows, 10_000)` output rows;
