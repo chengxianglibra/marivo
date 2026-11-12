@@ -1353,9 +1353,8 @@ def _captured_partitioning_for_fields(
             ),
         )
 
-    backend = None
+    backend = connections.backend_for(datasource_ir)
     try:
-        backend = connections.backend_for(datasource_ir)
         result = hook(
             PartitionProbeRequest(
                 backend=backend,
@@ -1395,10 +1394,11 @@ def _captured_partitioning_for_fields(
             ),
             warnings,
         )
-    except (DatasourceConnectionError, DatasourceCredentialError, DatasourceCredentialScopeError):
+    except (DatasourceCredentialError, DatasourceCredentialScopeError):
         raise
     except Exception as exc:
-        exc = cr.safe_backend_exception(exc, backend)
+        message = exc.message if isinstance(exc, DatasourceConnectionError) else str(exc)
+        message = cr.redact(message, cr.injected_values(backend))
         return (
             Partitioning(
                 state="known",
@@ -1411,7 +1411,7 @@ def _captured_partitioning_for_fields(
             (
                 MetadataWarning(
                     kind="metadata_query_failed",
-                    message=f"partition metadata value hook failed: {exc}",
+                    message=f"partition metadata value hook failed: {message}",
                     columns=tuple(field.name for field in fields),
                 ),
             ),

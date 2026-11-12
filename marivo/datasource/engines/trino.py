@@ -6,10 +6,12 @@ import re
 from collections.abc import Iterable, Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import replace
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, cast
 
+import ibis.expr.schema as sch
 import ibis.expr.types as ir
 from ibis.backends import BaseBackend
+from ibis.backends.sql.datatypes import TrinoType
 
 from marivo.datasource.capabilities import (
     ProviderStatement,
@@ -57,8 +59,41 @@ def connect(name: str, kwargs: Mapping[str, object]) -> BaseBackend:
         connect_kwargs["client_tags"] = list(tags)
     if "session_properties" in kwargs and isinstance(kwargs["session_properties"], dict):
         connect_kwargs["session_properties"] = dict(kwargs["session_properties"])
-    backend = ibis.trino.connect(**connect_kwargs)
+    backend: BaseBackend = ibis.trino.connect(**connect_kwargs)
+    _configure_partition_schema_lookup(backend)
     return backend
+
+
+def _configure_partition_schema_lookup(backend: BaseBackend) -> None:
+    """Resolve qualified partition metadata tables that the column catalog omits."""
+    original = getattr(backend, "get_schema", None)
+    if not callable(original):
+        return
+
+    def get_schema(
+        table_name: str,
+        *,
+        catalog: str | None = None,
+        database: str | None = None,
+    ) -> sch.Schema:
+        if catalog is None or database is None or not table_name.endswith("$partitions"):
+            # Ibis' backend methods are untyped, but get_schema returns an Ibis Schema.
+            return cast("sch.Schema", original(table_name, catalog=catalog, database=database))
+        rows = _trino_rows(
+            backend,
+            "trino.show_columns",
+            identifiers={"table_ref": (catalog, database, table_name)},
+        )
+        if not rows:
+            raise RuntimeError("SHOW COLUMNS returned no columns for the partition metadata table")
+        return sch.Schema(
+            {
+                str(row["Column"]): TrinoType.from_string(str(row["Type"]), nullable=True)
+                for row in rows
+            }
+        )
+
+    backend.get_schema = get_schema
 
 
 def table_name_parts(request: TableRefRequest) -> tuple[str, ...]:

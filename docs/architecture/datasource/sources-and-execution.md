@@ -393,9 +393,10 @@ connection's encoding. This does not change the server setting, split completed
 aggregates, or replace Ibis execution. Unknown view kind is `None`, not `False`. DuckDB catalog facts
 are qualified by database, schema, and table. Composite unique constraints
 retain their constraint identity and column order. A consumer requiring one
-of those facts rejects the affected cell. Trino `$partitions` and ClickHouse
-`system.tables` / `system.parts` partition-value reads continue through bound
-Ibis expressions. Authenticated DuckDB HTTP sources install a scoped temporary
+of those facts rejects the affected cell. Trino uses `SHOW COLUMNS` to bind
+`$partitions` relations because the column catalog can omit them. Trino
+`$partitions` and ClickHouse `system.tables` / `system.parts` partition-value
+reads use bound Ibis expressions. Authenticated DuckDB HTTP sources install a scoped temporary
 secret at connection time and send credentials only inside the declared
 HTTP secret `scope`; see [connection credentials](README.md#credentials-and-secret-persistence) for the declaration contract.
 

@@ -19,7 +19,9 @@ Its card identifies the requested edge, value source, completeness and
 truncation, shows bounded values, and derives a copyable `md.partition(...)`
 scope template. The result status is `complete` when the edge is exhaustive,
 `truncated` when the requested bound cuts off additional edge values, and
-`incomplete` only when partition metadata is unavailable or invalid. A
+`incomplete` only when partition metadata is unavailable or invalid. After the
+base table schema is available, failure of the optional partition-value probe
+adds a warning and retains the schema and known partition fields. A
 truncated edge is not an enumeration of every middle partition. A single
 transformed temporal partition instead produces a copyable `md.time_range(...)`
 template.
