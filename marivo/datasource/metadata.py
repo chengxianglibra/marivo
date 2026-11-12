@@ -20,6 +20,7 @@ from marivo.datasource.errors import (
     DatasourceMetadataError,
     DatasourceObservedEffects,
     _backend_failure_summary,
+    _BackendFailureSummary,
     repair,
 )
 from marivo.datasource.ir import (
@@ -77,10 +78,9 @@ class MetadataWarning:
 class _TableMetadataUnavailableError(Exception):
     """Internal classified table-resolution failure for projected inspection."""
 
-    def __init__(self, *, identity: str, message: str) -> None:
-        self.identity = identity
-        self.message = message
-        super().__init__(message)
+    def __init__(self, failure: _BackendFailureSummary) -> None:
+        self.failure = failure
+        super().__init__(failure.message)
 
 
 @dataclass(frozen=True)
@@ -476,6 +476,7 @@ def _inspect_table_from_ir(
                     f"failed to connect while inspecting datasource table "
                     f"{datasource!r}.{table!r}: {failure.message}"
                 ),
+                _backend_failure=failure,
                 expected="an inspectable datasource table",
                 received=failure.identity,
                 location=f"md.inspect({datasource!r}, {table!r})",
@@ -506,15 +507,13 @@ def _inspect_table_from_ir(
             exc = cr.safe_backend_exception(exc, backend)
             failure = _backend_failure_summary(exc)
             if unavailable == "metadata_unavailable":
-                raise _TableMetadataUnavailableError(
-                    identity=failure.identity,
-                    message=failure.message,
-                ) from exc
+                raise _TableMetadataUnavailableError(failure) from exc
             raise DatasourceMetadataError(
                 message=(
                     f"failed to resolve datasource table {datasource!r}.{table!r}: "
                     f"{failure.message}"
                 ),
+                _backend_failure=failure,
                 expected="an inspectable datasource table",
                 received=failure.identity,
                 location=f"md.inspect({datasource!r}, {table!r})",
@@ -523,7 +522,7 @@ def _inspect_table_from_ir(
                     canonical_id="inspect",
                     action="Verify the datasource connection and table name before retrying.",
                 ),
-            ) from cr.safe_backend_exception(exc, backend)
+            ) from exc
 
         try:
             metadata = profile.metadata.inspect_table(

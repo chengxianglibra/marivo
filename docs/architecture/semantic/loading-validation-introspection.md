@@ -316,8 +316,10 @@ Preview does not establish business completeness or publish calendar authority.
 
 Semantic errors retain structured expected/received facts, declaration locations
 and concrete repairs. Missing business definitions cannot be repaired by guessed
-source names. Execution failures preserve their original cause; inspect the
-specific owner rather than treating load, readiness and source access as one stage.
+source names. For unavailable checks, `catalog.validate()` reports a redacted
+backend diagnostic and classifies known causes such as permission denial,
+unsupported operations, missing sources, connection failures, and timeouts.
+If the diagnostic does not establish a cause, `observed.code` is `unknown`.
 An Entity whose datasource declaration is absent produces `missing_datasource_ref`,
 separate from a missing Entity reference. Preview scope and source-binding errors
 and invalid validation checks or check/scope combinations use `invalid_parameter`

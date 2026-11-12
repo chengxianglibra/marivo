@@ -14,6 +14,7 @@ from marivo.datasource.errors import (
     DatasourceConnectionError,
     DatasourceCredentialError,
     DatasourceCredentialScopeError,
+    _backend_failure_summary,
     repair,
 )
 from marivo.project import resolve_project_root
@@ -263,6 +264,7 @@ def redact(text: str, values: tuple[SecretValue, ...]) -> str:
 def connection_error(exc: Exception, values: tuple[SecretValue, ...]) -> DatasourceConnectionError:
     return DatasourceConnectionError(
         message=redact(str(exc), values),
+        _backend_failure=_backend_failure_summary(exc, redact=lambda text: redact(text, values)),
         expected="a successful datasource connection or query",
         received="backend operation failed",
         repair=repair(

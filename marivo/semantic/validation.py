@@ -869,27 +869,55 @@ def _result(
 
 def _unavailable_observed(exc: Exception) -> dict[str, object]:
     failure = _backend_failure_summary(exc)
-    message = f"{failure.identity} {failure.message}".lower()
-    if "permission" in message or "denied" in message or "not authorized" in message:
+    trino_error = failure.backend_name if failure.exception_type.startswith("Trino") else None
+    if trino_error == "PERMISSION_DENIED" or failure.exception_type == "PermissionError":
         code = "permission_denied"
-    elif any(
-        marker in message
-        for marker in (
-            "not found",
-            "missing",
-            "does not exist",
-            "tablenotfound",
-            "failed to resolve datasource table",
-        )
+    elif trino_error == "NOT_SUPPORTED":
+        code = "unsupported"
+    elif trino_error in {"TABLE_NOT_FOUND", "SCHEMA_NOT_FOUND", "CATALOG_NOT_FOUND"} or (
+        failure.exception_type in {"TableNotFound", "FileNotFoundError"}
     ):
         code = "source_unavailable"
-    else:
+    elif failure.exception_type in {"TimeoutError", "DatasourceConnectionTimeoutError"}:
+        code = "timeout"
+    elif failure.exception_type in {
+        "ConnectionError",
+        "ConnectionAbortedError",
+        "ConnectionRefusedError",
+        "ConnectionResetError",
+        "BrokenPipeError",
+        "TrinoConnectionError",
+    }:
         code = "connection_unavailable"
+    else:
+        code = "unknown"
     return {
         "code": code,
         "failure_identity": failure.identity,
         "message": failure.message,
     }
+
+
+def _unavailable_repair(observed: Mapping[str, object]) -> AuthoringRepair:
+    code = observed["code"]
+    match code:
+        case "permission_denied":
+            action = "Check access to the datasource operation or object named in the error."
+        case "unsupported":
+            action = "Check which datasource operations the backend supports."
+        case "source_unavailable":
+            action = "Verify the physical source name and namespace in the declaration."
+        case "connection_unavailable":
+            action = "Check datasource reachability and the declared connection settings."
+        case "timeout":
+            action = "Check backend responsiveness and the applicable timeout settings."
+        case _:
+            action = "Review the backend error details before retrying validation."
+    return repair(
+        kind="reconnect" if code in ("connection_unavailable", "timeout") else "inspect",
+        canonical_id="validate",
+        action=action,
+    )
 
 
 def _authoring_failure_observed(exc: DatasourceAuthoringError) -> dict[str, object]:
@@ -1176,6 +1204,7 @@ def _execute_field_check(
                 query_attempted = True
                 frame = _field_frame(resolver, registry, fields, scope)
     except Exception as exc:
+        failure_observed = _unavailable_observed(exc)
         return _result(
             kind=check.kind,
             status="unavailable",
@@ -1185,12 +1214,8 @@ def _execute_field_check(
             affected_refs=affected,
             checked_at=checked_at,
             inspection=inspections.get(entity_id),
-            observed=_unavailable_observed(exc),
-            repair_value=repair(
-                kind="reconnect",
-                canonical_id="validate",
-                action="Restore source access or repair the affected semantic field, then rerun online validation.",
-            ),
+            observed=failure_observed,
+            repair_value=_unavailable_repair(failure_observed),
             user_data_queried=query_attempted,
             scopes=((ref_factory.entity(entity_id), scope),),
         )
@@ -1375,6 +1400,7 @@ def _execute_relationship_check(
                     scopes,
                 )
     except Exception as exc:
+        failure_observed = _unavailable_observed(exc)
         return _result(
             kind=check.kind,
             status="unavailable",
@@ -1384,12 +1410,8 @@ def _execute_relationship_check(
             affected_refs=affected,
             checked_at=checked_at,
             inspection=inspections.get(relationship.from_entity),
-            observed=_unavailable_observed(exc),
-            repair_value=repair(
-                kind="reconnect",
-                canonical_id="validate",
-                action="Restore both relationship sources and permissions, then rerun online validation.",
-            ),
+            observed=failure_observed,
+            repair_value=_unavailable_repair(failure_observed),
             user_data_queried=query_attempted,
             scopes=bound_scopes,
         )
@@ -1599,11 +1621,7 @@ def run_validation(
                     repair_value=(
                         None
                         if connection_status == "current"
-                        else repair(
-                            kind="reconnect",
-                            canonical_id="validate",
-                            action="Restore datasource connectivity or permissions, then rerun online validation.",
-                        )
+                        else _unavailable_repair(connection_observed)
                     ),
                     user_data_queried=False,
                 )
@@ -1641,6 +1659,7 @@ def run_validation(
                 continue
             except Exception as exc:
                 inspections[entity_id] = None
+                failure_observed = _unavailable_observed(exc)
                 results.append(
                     _result(
                         kind="schema",
@@ -1651,12 +1670,8 @@ def run_validation(
                         affected_refs=affected,
                         checked_at=checked_at,
                         inspection=None,
-                        observed=_unavailable_observed(exc),
-                        repair_value=repair(
-                            kind="inspect",
-                            canonical_id="validate",
-                            action="Restore metadata access or the physical source, then rerun online validation.",
-                        ),
+                        observed=failure_observed,
+                        repair_value=_unavailable_repair(failure_observed),
                         user_data_queried=False,
                     )
                 )

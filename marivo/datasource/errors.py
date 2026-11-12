@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Literal
 
@@ -43,15 +44,26 @@ class _BackendFailureSummary:
         return " ".join(parts)
 
 
-def _backend_failure_summary(exc: Exception) -> _BackendFailureSummary:
+def _backend_failure_summary(
+    exc: Exception, *, redact: Callable[[str], str] = str
+) -> _BackendFailureSummary:
     """Return a bounded diagnostic that does not expose common secret shapes."""
-    raw_message = str(exc)
+    if isinstance(exc, DatasourceError) and (failure := exc._backend_failure) is not None:
+        return _BackendFailureSummary(
+            exception_type=redact(failure.exception_type),
+            backend_code=redact(failure.backend_code) if failure.backend_code is not None else None,
+            backend_name=redact(failure.backend_name) if failure.backend_name is not None else None,
+            message=redact(failure.message),
+        )
+    raw_message = redact(exc.message if isinstance(exc, DatasourceError) else str(exc))
     message = _URL_USERINFO_RE.sub("://<redacted>@", raw_message)
     message = _SECRET_VALUE_RE.sub(lambda match: f"{match.group('key')}=<redacted>", message)
     if len(message) > _MAX_BACKEND_MESSAGE_CODEPOINTS:
         message = message[: _MAX_BACKEND_MESSAGE_CODEPOINTS - 3] + "..."
 
-    raw_code = getattr(exc, "code", None)
+    raw_code = getattr(exc, "error_code", None)
+    if raw_code is None:
+        raw_code = getattr(exc, "code", None)
     if raw_code is None and exc.args and type(exc.args[0]) is int:
         raw_code = exc.args[0]
     if raw_code is None:
@@ -60,18 +72,20 @@ def _backend_failure_summary(exc: Exception) -> _BackendFailureSummary:
     else:
         backend_code = str(raw_code)
 
-    raw_name = getattr(exc, "name", None)
+    raw_name = getattr(exc, "error_name", getattr(exc, "name", None))
     backend_name: str | None
     if isinstance(raw_name, str) and re.fullmatch(r"[A-Z][A-Z0-9_]+", raw_name):
         backend_name = raw_name
+    elif hasattr(exc, "error_name"):
+        backend_name = None
     else:
         name_matches = _BACKEND_NAME_RE.findall(raw_message)
         backend_name = name_matches[-1] if name_matches else None
 
     return _BackendFailureSummary(
-        exception_type=type(exc).__name__,
-        backend_code=backend_code,
-        backend_name=backend_name,
+        exception_type=redact(type(exc).__name__),
+        backend_code=redact(backend_code) if backend_code is not None else None,
+        backend_name=redact(backend_name) if backend_name is not None else None,
         message=message,
     )
 
@@ -153,6 +167,7 @@ class DatasourceError(MarivoError):
         repair: AuthoringRepair | None = None,
         exception_type: str | None = None,
         traceback: str | None = None,
+        _backend_failure: _BackendFailureSummary | None = None,
     ) -> None:
         super().__init__(message)
         self.message = message
@@ -163,6 +178,7 @@ class DatasourceError(MarivoError):
         self.repair = repair
         self.exception_type = exception_type
         self.traceback = traceback
+        self._backend_failure = _backend_failure
 
     def __str__(self) -> str:
         lines = [f"{type(self).__name__}: {self.message}"]

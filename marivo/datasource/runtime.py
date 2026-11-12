@@ -68,6 +68,7 @@ def open_backend(
             if timeout_seconds is None:
                 raise DatasourceConnectionError(
                     message="The backend reported a native connection timeout.",
+                    _backend_failure=_backend_failure_summary(exc),
                     expected="a reachable datasource under its declared native settings",
                     received=type(exc).__name__,
                     location=f"datasource {datasource.name!r}",
@@ -87,6 +88,7 @@ def open_backend(
             failure = _backend_failure_summary(exc)
             raise DatasourceConnectionError(
                 message=f"The datasource backend could not be opened: {failure.message}",
+                _backend_failure=failure,
                 expected="a connection compatible with the declared datasource configuration",
                 received=failure.identity,
                 location=f"datasource {datasource.name!r}",

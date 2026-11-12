@@ -27,6 +27,7 @@ from marivo.datasource.errors import (
     DatasourceFieldInvalidError,
     DatasourceMetadataError,
     DatasourceObservedEffects,
+    _BackendFailureSummary,
     repair,
 )
 from marivo.datasource.ir import (
@@ -944,7 +945,7 @@ def _declared_only_table_metadata(
     datasource_name: str,
     datasource_ir: DatasourceIR,
     source: TableSourceIR,
-    failure: _TableMetadataUnavailableError,
+    failure: _BackendFailureSummary,
 ) -> TableMetadata:
     warnings = [
         MetadataWarning(
@@ -1667,10 +1668,11 @@ def _inspect_resolved_source(
                 raise DatasourceMetadataError(
                     message=(
                         "base table metadata is unavailable and an unprojected source has no "
-                        f"declared schema fallback: {exc.message}"
+                        f"declared schema fallback: {exc.failure.message}"
                     ),
+                    _backend_failure=exc.failure,
                     expected="an inspectable datasource table",
-                    received=exc.identity,
+                    received=exc.failure.identity,
                     location=f"md.inspect({datasource.path!r}, {source.table!r})",
                     repair=repair(
                         kind="reconnect",
@@ -1683,7 +1685,7 @@ def _inspect_resolved_source(
                 datasource_name=datasource_name,
                 datasource_ir=datasource_ir,
                 source=source,
-                failure=exc,
+                failure=exc.failure,
             )
         else:
             if source.columns:

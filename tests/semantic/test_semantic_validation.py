@@ -10,11 +10,13 @@ from typing import TYPE_CHECKING
 
 import duckdb
 import pytest
+from trino.exceptions import TrinoUserError
 
 import marivo.analysis as mv
 import marivo.datasource as md
 import marivo.semantic as ms
 import marivo.semantic.validation as validation_module
+from marivo.datasource.credentials import remember_injected
 from marivo.datasource.inspection import SourceInspection, _ibis_table_type, _inspect_in_project
 from marivo.datasource.metadata import ColumnMetadata
 from marivo.datasource.runtime import DatasourceConnectionService
@@ -468,24 +470,66 @@ def test_projected_validate_checks_the_actual_type_without_a_declared_type(
     assert schema.observed["field_types"] == {"measure:sales.projected_orders.amount": "string"}
 
 
-def test_permission_failure_is_distinct_from_failed_and_unknown(
+_CREDENTIAL_CANARY = "validation-credential-canary"
+_BACKEND_FAILURE_MESSAGE = f"Metadata lookup failed for {_CREDENTIAL_CANARY}"
+
+
+@pytest.mark.parametrize(
+    ("failure", "code", "identity", "repair_kind"),
+    [
+        (
+            TrinoUserError(
+                {
+                    "errorName": "PERMISSION_DENIED",
+                    "errorCode": 4,
+                    "message": _BACKEND_FAILURE_MESSAGE,
+                }
+            ),
+            "permission_denied",
+            "TrinoUserError code=4 name=PERMISSION_DENIED",
+            "inspect",
+        ),
+        (
+            TrinoUserError({"errorName": "NOT_SUPPORTED", "message": _BACKEND_FAILURE_MESSAGE}),
+            "unsupported",
+            "TrinoUserError name=NOT_SUPPORTED",
+            "inspect",
+        ),
+        (
+            ConnectionRefusedError(_BACKEND_FAILURE_MESSAGE),
+            "connection_unavailable",
+            "ConnectionRefusedError",
+            "reconnect",
+        ),
+        (RuntimeError(_BACKEND_FAILURE_MESSAGE), "unknown", "RuntimeError", "inspect"),
+    ],
+)
+def test_schema_validation_classifies_redacted_backend_failures(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     semantic_project_factory: _SemanticProjectFactory,
+    failure: Exception,
+    code: str,
+    identity: str,
+    repair_kind: str,
 ) -> None:
     catalog, _database_path = _catalog(tmp_path, monkeypatch, semantic_project_factory)
 
-    def deny_inspection(*_args: object, **_kwargs: object) -> object:
-        raise PermissionError("permission denied for source metadata")
+    def fail_backend_schema(backend: object, *_args: object, **_kwargs: object) -> object:
+        remember_injected(backend, (md.SecretValue(_CREDENTIAL_CANARY),))
+        raise failure
 
-    monkeypatch.setattr(validation_module, "_inspect_in_project", deny_inspection)
+    monkeypatch.setattr("ibis.backends.duckdb.Backend.get_schema", fail_backend_schema)
     report = catalog.validate([catalog_get(catalog, "measure:sales.orders.amount", kind="measure")])
     schema = next(check for check in report.checks if check.kind == "schema")
 
     assert report.status == "unavailable"
     assert schema.status == "unavailable"
-    assert schema.observed["code"] == "permission_denied"
-    assert schema.status not in {"failed", "unknown"}
+    assert schema.observed["code"] == code
+    assert schema.observed["failure_identity"] == identity
+    assert schema.repair is not None
+    assert schema.repair.kind == repair_kind
+    assert _CREDENTIAL_CANARY not in repr(schema.to_dict())
 
 
 def test_source_unavailability_has_its_own_code(
