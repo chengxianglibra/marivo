@@ -59,6 +59,11 @@ monthly_source.show()
 
 自然日历使用 `mv.grain(...)` 和明确的 `scope.by(grain)`。财务周期、节假日和工作日使用普通业务字段；harness 决定来源、范围和配对。参见[日期与时间](/zh-cn/docs/v0.6/modeling/dates/)。
 
+报表粒度不会替换指标的贡献时钟。DATE 时钟指标不能仅靠修改 `grain` 或直接把
+TimeDimension 传入 `by` 变成小时指标。已有 `hour_prefix` 字段可供显式选择为分区
+小时钟，但换钟可能改变记录范围与总量。参见
+[分区小时示例与普通分类替代路径](/zh-cn/docs/v0.6/modeling/dates/#独立小时列mshour_prefix)。
+
 {/* example: metric-window-query */}
 
 ```python

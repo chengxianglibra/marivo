@@ -67,6 +67,12 @@ monthly_source.show()
 
 Natural calendars use `mv.grain(...)` and explicit `scope.by(grain)`. Fiscal periods, holidays and working days use ordinary business fields; the harness chooses authority, ranges and pairing. See [dates and time](/docs/v0.6/modeling/dates/).
 
+Report grain never replaces the Metric's contribution clock. A DATE-clock Metric
+cannot become hourly by changing `grain` or passing a TimeDimension directly in
+`by`. An existing `hour_prefix` field can supply an explicitly chosen partition-hour
+clock; changing clocks may change membership and totals. See the
+[partition-hour example and classification alternative](/docs/v0.6/modeling/dates/#separate-hour-column-mshour_prefix).
+
 {/* example: metric-window-query */}
 
 ```python

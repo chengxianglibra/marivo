@@ -1,0 +1,34 @@
+---
+slug: zh-cn/docs/v0.6/release-notes/0.6.7
+title: Marivo 0.6.7
+description: Marivo 0.6.7 版本说明。
+---
+
+发布于 2026 年 11 月 13 日。Marivo 0.6.7 改进了 Catalog 发现与诊断，
+并为时间分区分析提供更清晰的指引。
+
+## 亮点
+
+- 数据源声明文件执行失败时，`ms.load(allow_partial=True)` 可以保留通过校验的
+  Catalog 子集供浏览。搜索结果标明范围不完整；`catalog.load_errors` 和
+  `catalog.excluded_refs` 分别说明故障与被排除的定义。Readiness、校验、预览
+  和分析 Session 仍要求严格加载成功。
+
+## 变更
+
+- `print(catalog.search())` 显示有输出上限的结果卡片，并列出已展示 Entity 的
+  数据源标识。`page.items` 保留完整的当前页，`next_cursor` 可继续翻页。
+- 语义检查诊断在可用时标明模型文件中的位置，默认输出简洁错误；传入
+  `--traceback` 可查看完整 Python 堆栈。
+
+## 修复
+
+- 部分加载隔离执行失败的数据源导入，排除不可用定义及其依赖项，同时保留结构、
+  依赖关系和标识冲突校验。
+- DATE 和 TimeDimension 观察错误可以提示已声明的 `hour_prefix` 字段，供显式选择
+  源时钟。修改报表粒度不会悄然替换 Metric 的贡献时钟。
+
+## 文档
+
+- 增加安全使用时间分区建模和过滤的指引，包括切换时钟对记录范围与总量的影响。
+- 将 read Help 直接链接到其成员，并同步中英文 v0.6 指南与当前文档。

@@ -32,9 +32,14 @@ def revenue():
 
 每次 `ms.load()` 都捕获独立快照，并在新的命名空间中重新加载相对导入的模型。
 它不会更新已有 Catalog、已初始化的 Session 或已捕获的分析。同一 Session
-并发首次访问只初始化一个 Catalog；失败后可以重试。模型模块保留到进程退出，
+并发首次访问只初始化一个 Catalog；失败后可以重试。严格加载会保留模块到进程退出，
 因此长驻进程频繁重载会累计模块。普通依赖仍使用 Python 导入缓存；修改这些
 依赖或升级包后应重启 Python。
+
+如果 datasource 声明执行失败，可以用 `ms.load(allow_partial=True)` 浏览仍通过
+校验的定义。搜索结果用 `scope.complete=False` 标明范围不完整。通过
+`catalog.load_errors` 查看根因，通过 `catalog.excluded_refs` 查看被排除的定义。
+Readiness、在线校验、预览和分析 Session 要求严格加载成功。
 
 ## Domain：所属业务域
 
@@ -480,11 +485,11 @@ Measure 和 Metric 声明体不接收表参数，而是构造闭合表达式。�
 import marivo.semantic as ms
 
 catalog = ms.load()
-catalog.search().show()  # All loaded kinds
-catalog.search(kind="metric").show()  # All Metrics
-catalog.search(kind="metric", domain="sales").show()
-catalog.search(kind="dimension", entity="sales.orders").show()
-catalog.search("revenue", kind="metric", limit=5).show()  # Text search
+print(catalog.search())  # All loaded kinds
+print(catalog.search(kind="entity"))  # Entities and their datasource bindings
+print(catalog.search(kind="metric", domain="sales"))
+print(catalog.search(kind="dimension", entity="sales.orders"))
+print(catalog.search("revenue", kind="metric", limit=5))  # Text search
 ```
 
 空查询浏览会按规范身份排序，列出当前 Catalog 已加载范围内所有符合筛选条件的定义，不调用模型，也不受文本搜索候选窗口限制。筛选不会额外加载领域或定义。浏览时，`candidate_count` 是筛选后的完整数量；文本搜索时，它只表示固定候选池大小，不表示所有可能的语义匹配数量。
@@ -503,7 +508,7 @@ while True:
     page = catalog.search(kind="metric", limit=100, cursor=page.next_cursor)
 ```
 
-结果卡片报告当前页展示和遗漏的条目数及 `next_cursor`；使用 `page.show(max_output_bytes=None)` 或 `page.items` 获取完整当前页。取消展示预算不会自动获取后续页。查看某个已列出定义的详情时，可将其 `id` 传给 `catalog.get()`，或直接调用该定义的 `.show()`。
+`print(page)` 显示有输出上限的结果卡片，其中包含当前页已展示和省略的条目数，以及 `next_cursor`。每个已展示的 Entity 行都包含它声明绑定的数据源标识。`repr(page)` 返回单行摘要。使用 `page.show(max_output_bytes=None)` 或 `page.items` 获取完整当前页。查看某个定义的详情时，可将其 `id` 传给 `catalog.get()`，或调用该定义的 `.show()`。
 
 ### 先检查定义，再检查数据
 

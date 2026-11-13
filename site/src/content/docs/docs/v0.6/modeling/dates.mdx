@@ -104,6 +104,35 @@ event_hour = ms.time_dimension_column(
 )
 ```
 
+The combined field can supply a source reduction's contribution clock. **Report
+grain does not replace a Metric's clock**: a Metric bound to the DATE prefix
+still rejects hourly buckets, and the TimeDimension itself is not a classification
+accepted directly in `by`.
+
+Given an existing Session, a complete-day `scope`, its loaded owning Entity
+`entity`, and the loaded `hour_prefix` TimeDimension `partition_hour`, explicitly
+count partition-hour contributions:
+
+{/* example: partition-hour-observation */}
+
+```python
+import marivo.analysis as mv
+
+partition_counts = session.observe(
+    {"count": entity.count(time=partition_hour)},
+    by=(scope.by(mv.grain("hour")),),
+).compute()
+```
+
+For other Metrics, preserve the original reducer, filters and formula branches
+when explicitly authoring a different clock. NULL hours have no time membership;
+changing to submission/event time can select different rows. Day-to-hour totals
+require valid non-NULL hours, matching predicates, stable input data, and complete
+days in the same source/report business timezone. Reconcile before replacing a
+published Metric. To keep the original DATE clock and all selected rows, declare
+a separate ordinary hour-label Dimension and group by day plus label, retaining
+the NULL group. These are classification labels, not an hourly CalendarAxis.
+
 A positive range such as `[03:00,04:00)` within one source day can compare the
 original date and hour columns directly when timezone conversion is qualified.
 This applies to observation ranges and required direct or top-level AND

@@ -34,10 +34,16 @@ Standard-library and installed packages keep normal absolute imports.
 Each `ms.load()` captures an independent snapshot and reloads relative model
 imports in a fresh namespace. It does not update existing Catalogs, initialized
 Sessions or captured analyses. Concurrent first access to one Session initializes
-one Catalog; failed initialization can be retried. Loaded modules remain until
+one Catalog; failed initialization can be retried. Strict loads retain modules until
 process exit, so frequent reloads in a long-lived process accumulate modules.
 Ordinary dependencies retain Python's import cache; restart Python after changing
 those dependencies or upgrading packages.
+
+When a datasource declaration fails to execute, use `ms.load(allow_partial=True)`
+to browse the definitions that still pass validation. Search pages report
+`scope.complete=False`. Inspect `catalog.load_errors` for the root causes and
+`catalog.excluded_refs` for omitted definitions. Readiness, validation, preview,
+and analysis Sessions require a successful strict load.
 
 ## Domain — owning business scope
 
@@ -496,11 +502,11 @@ Use `catalog.search()` to list definitions without knowing a search term. Omit t
 import marivo.semantic as ms
 
 catalog = ms.load()
-catalog.search().show()  # All loaded kinds
-catalog.search(kind="metric").show()  # All Metrics
-catalog.search(kind="metric", domain="sales").show()
-catalog.search(kind="dimension", entity="sales.orders").show()
-catalog.search("revenue", kind="metric", limit=5).show()  # Text search
+print(catalog.search())  # All loaded kinds
+print(catalog.search(kind="entity"))  # Entities and their datasource bindings
+print(catalog.search(kind="metric", domain="sales"))
+print(catalog.search(kind="dimension", entity="sales.orders"))
+print(catalog.search("revenue", kind="metric", limit=5))  # Text search
 ```
 
 Empty-query browsing lists every filtered definition in the current loaded Catalog scope, ordered by canonical identity, without model calls or text-search candidate-window limits. Filters do not load additional domains or definitions. For browsing, `candidate_count` is the complete filtered count; for text search, it counts the fixed candidate pool, not every possible semantic match.
@@ -519,7 +525,7 @@ while True:
     page = catalog.search(kind="metric", limit=100, cursor=page.next_cursor)
 ```
 
-The result card reports current-page rows shown and omitted, plus `next_cursor`; use `page.show(max_output_bytes=None)` or `page.items` for the complete current page. Removing the display budget does not fetch later pages. To inspect one listed definition, pass its `id` to `catalog.get()` or call its `.show()` method.
+`print(page)` displays a bounded card with the current page's displayed and omitted row counts and `next_cursor`. Each displayed Entity row includes its declared datasource identity. `repr(page)` gives a single-line summary. Use `page.show(max_output_bytes=None)` or `page.items` for the complete current page. To inspect one listed definition, pass its `id` to `catalog.get()` or call its `.show()` method.
 
 ### Check definitions, then inspect data
 
