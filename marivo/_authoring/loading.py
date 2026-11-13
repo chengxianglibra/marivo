@@ -19,6 +19,22 @@ def _new_module_prefix(kind: Literal["datasource", "semantic"]) -> str:
     return f"_marivo_{kind}_{uuid4().hex}"
 
 
+def _exception_chain_key(exc: BaseException | None) -> tuple[tuple[str, str, str, int], ...]:
+    """Identify causes without caller/import frames that vary across load paths."""
+    result: list[tuple[str, str, str, int]] = []
+    seen: set[int] = set()
+    while exc is not None and id(exc) not in seen:
+        seen.add(id(exc))
+        frame = exc.__traceback__
+        file, line = "", 0
+        while frame is not None:
+            file, line = frame.tb_frame.f_code.co_filename, frame.tb_lineno
+            frame = frame.tb_next
+        result.append((type(exc).__qualname__, str(exc), file, line))
+        exc = exc.__cause__ or (None if exc.__suppress_context__ else exc.__context__)
+    return tuple(result)
+
+
 @dataclass(frozen=True)
 class _ExecutionDiagnostic:
     exception_type: str
@@ -35,9 +51,14 @@ def _execution_diagnostic(exc: Exception, filepath: Path) -> _ExecutionDiagnosti
         action = "Fix the syntax at the reported file and line, then reload the project."
     else:
         frame = exc.__traceback__
+        authored: tuple[str, int] | None = None
         while frame is not None:
             file, line = frame.tb_frame.f_code.co_filename, frame.tb_lineno
+            if Path(file).is_absolute() and Path(file).is_relative_to(filepath.parent):
+                authored = file, line
             frame = frame.tb_next
+        if authored is not None:
+            file, line = authored
         if isinstance(exc, RecursionError):
             action = (
                 "Read the original traceback to locate the recursive calls or import chain, "
@@ -45,8 +66,7 @@ def _execution_diagnostic(exc: Exception, filepath: Path) -> _ExecutionDiagnosti
             )
         else:
             action = (
-                "Read the original exception and traceback, fix the reported failure, "
-                "then reload the project."
+                "Fix the reported failure at the declaration call site, then reload the project."
             )
     return _ExecutionDiagnostic(
         exception_type=type(exc).__name__,

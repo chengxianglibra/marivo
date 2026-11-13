@@ -563,6 +563,8 @@ def test_catalog_type_contract_uses_the_closed_directory_protocol() -> None:
         "definition_fingerprint",
         "semantic_root",
         "workspace_dir",
+        "load_errors",
+        "excluded_refs",
     )
     assert page_contract.public_properties == (
         "items",

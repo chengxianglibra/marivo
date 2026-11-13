@@ -33,10 +33,16 @@ Standard-library and installed packages keep normal absolute imports.
 Each `ms.load()` captures an independent snapshot and reloads relative model
 imports in a fresh namespace. It does not update existing Catalogs, initialized
 Sessions or captured analyses. Concurrent first access to one Session initializes
-one Catalog; failed initialization can be retried. Loaded modules remain until
+one Catalog; failed initialization can be retried. Strict loads retain modules until
 process exit, so frequent reloads in a long-lived process accumulate modules.
 Ordinary dependencies retain Python's import cache; restart Python after changing
 those dependencies or upgrading packages.
+
+When a datasource declaration fails to execute, use `ms.load(allow_partial=True)`
+to browse the definitions that still pass validation. Search pages report
+`scope.complete=False`. Inspect `catalog.load_errors` for the root causes and
+`catalog.excluded_refs` for omitted definitions. Readiness, validation, preview,
+and analysis Sessions require a successful strict load.
 
 ## Domain — owning business scope
 

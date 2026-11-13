@@ -25,7 +25,12 @@ from typing import TYPE_CHECKING, Any, Literal, cast
 
 from ibis.common.deferred import Deferred
 
-from marivo._authoring.loading import _execution_diagnostic, _new_module_prefix, _source_loading
+from marivo._authoring.loading import (
+    _exception_chain_key,
+    _execution_diagnostic,
+    _new_module_prefix,
+    _source_loading,
+)
 from marivo._definition.deferred import resolver_of, root_declaration
 from marivo._definition.types import InputContext
 from marivo.config import AUTHORED_DIR
@@ -35,7 +40,7 @@ from marivo.datasource.errors import (
     DatasourceError,
     DatasourceLoadError,
 )
-from marivo.datasource.ir import DatasourceIR
+from marivo.datasource.ir import DatasourceIR, DatasourceSourceLocation
 from marivo.datasource.loader import _load_models_datasources, _models_root_errors
 from marivo.refs import FieldKind, Ref, SemanticKind, SemanticKindTag
 from marivo.refs import ref as ref_factory
@@ -43,6 +48,8 @@ from marivo.semantic._compiled_state import (
     CompilationGraph,
     CompiledSemanticState,
     build_compiled_state,
+    definition_graph,
+    dependent_closure,
 )
 from marivo.semantic._expression_binding import CompiledExpressionSidecar
 from marivo.semantic._expression_values import _as_deferred, _ExpressionCarrier
@@ -57,6 +64,7 @@ from marivo.semantic.errors import (
 from marivo.semantic.ir import (
     DimensionIR,
     DomainIR,
+    EntityIR,
     MeasureIR,
     SourceLocation,
 )
@@ -138,12 +146,13 @@ def _wrap_datasource_error(error: Exception) -> SemanticLoadError:
             hint = "Keep each datasource name unique under models/datasources/."
         elif isinstance(error, DatasourceLoadError):
             kind = ErrorKind.INVALID_PROJECT
-            refs = (error.location,) if error.location else ()
+            refs = ()
             hint = "Check models/datasources/*.py datasource declarations."
         else:
             kind = ErrorKind.ORGANIZATION_ERROR
             refs = (error.received,) if error.received else ()
             hint = "Check models/datasources/*.py datasource declarations."
+        source = error.source_location
         wrapped = SemanticLoadError(
             kind=kind,
             message=error.message,
@@ -151,7 +160,8 @@ def _wrap_datasource_error(error: Exception) -> SemanticLoadError:
             hint=error.repair.action if error.repair is not None else hint,
             expected=error.expected,
             received=error.received,
-            location_label=error.location,
+            location=SourceLocation(source.file, source.line) if source else None,
+            location_label=error.location if source is None else None,
             repair=error.repair,
             exception_type=error.exception_type,
             traceback=error.traceback,
@@ -171,7 +181,7 @@ def _wrap_datasource_error(error: Exception) -> SemanticLoadError:
 class LoadResult:
     """Result of a project load attempt."""
 
-    status: Literal["ready", "errored"]
+    status: Literal["ready", "partial", "errored"]
     errors: tuple[SemanticError, ...] = ()
     warnings: tuple[StructuredWarning, ...] = ()
     registry: Registry | None = None
@@ -179,6 +189,7 @@ class LoadResult:
     compiled_state: CompiledSemanticState | None = None
     filtered_models: tuple[str, ...] = ()
     datasource_irs: tuple[DatasourceIR, ...] = ()
+    excluded_refs: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -400,22 +411,23 @@ def _execute_file(
                 diagnostic = _execution_diagnostic(exc, filepath)
                 exc.exception_type = diagnostic.exception_type
                 exc.traceback = diagnostic.traceback
+                if exc.location is None:
+                    exc.location = SourceLocation(diagnostic.file, diagnostic.line)
             errors.append(exc)
         elif isinstance(exc, DatasourceError):
             if exc.traceback is None:
                 diagnostic = _execution_diagnostic(exc, filepath)
                 exc.exception_type = diagnostic.exception_type
                 exc.traceback = diagnostic.traceback
+                exc.source_location = DatasourceSourceLocation(diagnostic.file, diagnostic.line)
             errors.append(_wrap_datasource_error(exc))
         else:
             diagnostic = _execution_diagnostic(exc, filepath)
             entity_decorator_error = _entity_constructor_decorator_error(filepath, exc)
             error = entity_decorator_error or SemanticLoadError(
                 kind=ErrorKind.ORGANIZATION_ERROR,
-                message=f"Error executing {filepath}: {diagnostic.exception_type}: {exc}",
+                message=str(exc),
                 location=SourceLocation(diagnostic.file, diagnostic.line),
-                expected="an executable semantic declaration",
-                received=f"{diagnostic.exception_type}: {exc}",
                 hint=diagnostic.action,
             )
             error.exception_type = diagnostic.exception_type
@@ -590,11 +602,20 @@ def _publish_declarations(
     sidecar: CompiledExpressionSidecar,
     *,
     graph: CompilationGraph | None = None,
+    excluded: set[Ref[SemanticKindTag]] | None = None,
+    original_registry: Registry | None = None,
 ) -> list[SemanticError]:
     """Bind all collected declarations in one complete, deterministic scope."""
     from marivo.semantic._symbolic_binding import publish_declarations
 
-    return publish_declarations(all_contexts, registry, sidecar, graph=graph)
+    return publish_declarations(
+        all_contexts,
+        registry,
+        sidecar,
+        graph=graph,
+        excluded=excluded,
+        original_registry=original_registry,
+    )
 
 
 def _defined_kinds(registry: Registry) -> dict[str, SemanticKind]:
@@ -738,6 +759,26 @@ def _build_registry(
     return registry, expression_sidecar, ()
 
 
+def _exclude_unavailable_sources(
+    registry: Registry, sidecar: CompiledExpressionSidecar, contexts: Sequence[LoaderContext]
+) -> set[Ref[SemanticKindTag]]:
+    """Remove unbound Entities and their physical dependents before assembly."""
+    definitions, dependencies = definition_graph(registry, sidecar)
+    roots = {
+        ref
+        for ref, definition in definitions.items()
+        if isinstance(definition, EntityIR) and definition.datasource not in registry.datasources
+    }
+    excluded = dependent_closure(roots, dependencies)
+    for context in contexts:
+        context.pending_definitions[:] = [
+            definition
+            for definition in context.pending_definitions
+            if definition.ref not in excluded
+        ]
+    return excluded
+
+
 def _models_root_from_path(path: Path, *, is_external: bool) -> ModelsRoot:
     models_root = Path(path).resolve()
     return ModelsRoot(
@@ -822,6 +863,7 @@ def load_project(
     models: Sequence[str] | None = None,
     models_roots: Sequence[Path] | None = None,
     project_root: Path | None = None,
+    allow_partial: bool = False,
 ) -> LoadResult:
     """Load domains from the semantic project root.
 
@@ -905,8 +947,44 @@ def load_project(
         _ensure_package(module_prefix, root_spec.semantic_root)
         all_model_dirs.extend(_discover_model_dirs(root_spec.semantic_root))
 
-    datasource_result = _load_models_datasources(datasource_roots)
-    errors.extend(_wrap_datasource_error(error) for error in datasource_result.errors)
+    datasource_result = _load_models_datasources(datasource_roots, isolate_failures=allow_partial)
+    source_errors: tuple[SemanticError, ...] = tuple(
+        _wrap_datasource_error(error) for error in datasource_result.errors
+    )
+    unique_source_errors: list[SemanticError] = []
+    seen_source_errors: set[
+        tuple[
+            SourceLocation, str, str | None, str, str | None, tuple[tuple[str, str, str, int], ...]
+        ]
+    ] = set()
+    for error in source_errors:
+        if error.location is not None:
+            cause = error.__cause__
+            key = (
+                error.location,
+                error.kind,
+                error.exception_type,
+                error.message,
+                error.received,
+                _exception_chain_key(cause.__cause__ if cause else None),
+            )
+            if key in seen_source_errors:
+                continue
+            seen_source_errors.add(key)
+        unique_source_errors.append(error)
+    source_errors = tuple(unique_source_errors)
+    partial = (
+        allow_partial
+        and bool(source_errors)
+        and all(
+            isinstance(error, DatasourceError)
+            and not isinstance(error, DatasourceDuplicateError)
+            and error.source_location is not None
+            for error in datasource_result.errors
+        )
+    )
+    if not partial:
+        errors.extend(source_errors)
     datasource_irs.extend(datasource_result.datasources)
 
     model_dirs, filter_warnings = _filter_model_dirs(all_model_dirs, models)
@@ -939,21 +1017,52 @@ def load_project(
     errors.extend(assembly_errors)
 
     errors.extend(_semantic_duplicate_errors(all_contexts))
+    excluded: set[Ref[SemanticKindTag]] = set()
+    original_registry: Registry | None = None
     loaded_models_set = {d.name for d in model_dirs} if models is not None else None
     asm_errors, asm_warnings = assembly_validate(
         registry, expression_sidecar, loaded_models=loaded_models_set
     )
+    if partial and not errors:
+        # Validate authored structure before pruning so an unavailable datasource
+        # cannot hide an invalid clock, field binding or relationship.
+        discarded_names = {item.name for item in datasource_result.discarded}
+        authored_errors, asm_errors = asm_errors, []
+        for error in authored_errors:
+            if error.kind == ErrorKind.MISSING_DATASOURCE_REF:
+                if error.received not in discarded_names:
+                    source_errors = (*source_errors, error)
+            else:
+                asm_errors.append(error)
+    if partial and not errors and not asm_errors:
+        excluded = _exclude_unavailable_sources(registry, expression_sidecar, all_contexts)
+        if excluded:
+            original_registry = registry
+            registry, expression_sidecar, assembly_errors = _build_registry(
+                all_contexts, datasource_irs=tuple(datasource_irs)
+            )
+            errors.extend(assembly_errors)
+            asm_errors, asm_warnings = assembly_validate(
+                registry, expression_sidecar, loaded_models=loaded_models_set
+            )
     errors.extend(asm_errors)
     warnings.extend(asm_warnings)
     if not errors:
         compilation_graph = CompilationGraph.create(registry, expression_sidecar)
         errors.extend(
             _publish_declarations(
-                all_contexts, registry, expression_sidecar, graph=compilation_graph
+                all_contexts,
+                registry,
+                expression_sidecar,
+                graph=compilation_graph,
+                excluded=excluded,
+                original_registry=original_registry,
             )
         )
 
-    status: Literal["ready", "errored"] = "ready" if not errors else "errored"
+    status: Literal["ready", "partial", "errored"] = (
+        "errored" if errors else "partial" if partial else "ready"
+    )
     filtered_models_tuple = tuple(d.name for d in model_dirs) if models is not None else ()
     compiled_state = (
         build_compiled_state(
@@ -965,18 +1074,19 @@ def load_project(
             filtered_domains=filtered_models_tuple,
             graph=compilation_graph,
         )
-        if status == "ready" and registry is not None and expression_sidecar is not None
+        if status != "errored" and registry is not None and expression_sidecar is not None
         else None
     )
     return LoadResult(
         status=status,
-        errors=tuple(errors),
+        errors=(*source_errors, *errors) if partial else tuple(errors),
         warnings=tuple(warnings),
-        registry=registry if status == "ready" else None,
-        expression_sidecar=expression_sidecar if status == "ready" else None,
+        registry=registry if status != "errored" else None,
+        expression_sidecar=expression_sidecar if status != "errored" else None,
         compiled_state=compiled_state,
         filtered_models=filtered_models_tuple,
         datasource_irs=tuple(datasource_irs),
+        excluded_refs=tuple(sorted(ref.key for ref in excluded)),
     )
 
 

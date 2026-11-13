@@ -12,23 +12,25 @@ from marivo.semantic.errors import SemanticError
 from marivo.semantic.reader import SemanticProject
 
 
-def _error_to_dict(error: SemanticError) -> dict[str, object]:
-    location = None
+def _error_to_dict(error: SemanticError, *, include_traceback: bool = False) -> dict[str, object]:
+    location: dict[str, object] | None = None
     if error.location is not None:
         location = {
             "file": error.location.file,
             "line": error.location.line,
         }
+    elif error.location_label is not None:
+        location = {"label": error.location_label}
     payload: dict[str, object] = {
         "kind": error.kind,
         "message": error.message,
         "refs": list(error.semantic_refs),
         "location": location,
-        "hint": error.hint,
+        "hint": error.repair.action if error.repair is not None else error.hint,
     }
     if error.exception_type is not None:
         payload["exception_type"] = error.exception_type
-    if error.traceback is not None:
+    if include_traceback and error.traceback is not None:
         payload["traceback"] = error.traceback
     return payload
 
@@ -83,6 +85,7 @@ def run_check(
     *,
     workspace_dir: str | Path | None = None,
     readiness: bool = False,
+    include_traceback: bool = False,
 ) -> dict[str, object]:
     if workspace_dir is None:
         project = SemanticProject(workspace_dir=resolve_project_root())
@@ -92,11 +95,17 @@ def run_check(
     result = project.load()
     payload: dict[str, object] = {
         "status": result.status,
-        "errors": [_error_to_dict(error) for error in result.errors],
+        "errors": [
+            _error_to_dict(error, include_traceback=include_traceback) for error in result.errors
+        ],
         "warnings": [_warning_to_dict(warning) for warning in result.warnings],
     }
 
     if readiness:
+        if result.errors:
+            # The load diagnostics already explain why readiness cannot run.
+            payload["status"] = "blocked"
+            return payload
         report = project.readiness()
         payload["readiness"] = report.to_dict()
         payload["status"] = report.status
@@ -114,6 +123,7 @@ def _parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--format", choices=("text", "json"), default="text")
     parser.add_argument("--readiness", action="store_true")
+    parser.add_argument("--traceback", action="store_true", help="Include original tracebacks")
     return parser
 
 
@@ -124,7 +134,16 @@ def _print_text(payload: dict[str, object]) -> None:
     if errors:
         print("Errors:")
         for error in errors:
-            print(f"- [{error['kind']}] {error['message']}")
+            location = error.get("location")
+            at = ""
+            if isinstance(location, dict):
+                at = (
+                    f"{location['file']}:{location['line']}: "
+                    if "file" in location
+                    else f"{location['label']}: "
+                )
+            cause = f"{error['exception_type']}: " if error.get("exception_type") else ""
+            print(f"- {at}[{error['kind']}] {cause}{error['message']}")
             if error.get("hint"):
                 print(f"  hint: {error['hint']}")
             if error.get("traceback"):
@@ -180,6 +199,7 @@ def main(argv: list[str] | None = None) -> int:
     payload = run_check(
         workspace_dir=args.workspace_dir,
         readiness=args.readiness,
+        include_traceback=args.traceback,
     )
     if args.format == "json":
         print(json.dumps(payload, indent=2, sort_keys=True))

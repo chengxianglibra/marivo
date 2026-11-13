@@ -171,6 +171,11 @@ _PARAMETERS: dict[str, tuple[str, str, tuple[LiveHelpTarget, ...]]] = {
         "None loads all domains; an explicit name or sequence must include every required dependency domain.",
         (),
     ),
+    "allow_partial": (
+        "bool",
+        "Defaults to False. True permits browsing the validated subset after datasource file execution failures.",
+        (),
+    ),
     "timezone": (
         "Text",
         "Use an IANA or fixed-offset timezone. snapshot requires a business-day boundary zone; DATE partition fields must declare the same zone.",
@@ -204,7 +209,7 @@ _PARAMETERS: dict[str, tuple[str, str, tuple[LiveHelpTarget, ...]]] = {
 }
 
 _EXTRAS: dict[str, tuple[str, ...]] = {
-    "load": ("workspace_dir", "domains"),
+    "load": ("workspace_dir", "domains", "allow_partial"),
     "snapshot": ("timezone",),
     "validity": ("interval", "open_end"),
     "domain": ("default", "ai_context"),

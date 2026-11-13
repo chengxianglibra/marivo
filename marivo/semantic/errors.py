@@ -300,7 +300,7 @@ class SemanticError(MarivoError):
             lines.append(f"  expected: {self.expected}")
         if self.received is not None:
             lines.append(f"  received: {self.received}")
-        if self.hint is not None:
+        if self.hint is not None and (self.repair is None or self.hint != self.repair.action):
             lines.append(f"  hint: {self.hint}")
         if self.exception_type is not None:
             lines.append(f"  exception type: {self.exception_type}")
@@ -317,8 +317,6 @@ class SemanticError(MarivoError):
             if target.canonical_id is not None:
                 qualified = f"{target.surface}.{target.canonical_id}"
                 lines.append(f"Help: marivo.help({qualified!r})")
-        if self.traceback is not None:
-            lines.extend(("", "Original traceback:", self.traceback.rstrip("\n")))
         return "\n".join(lines)
 
 
@@ -559,7 +557,7 @@ class SemanticContractScopeError(SemanticError):
         )
 
 
-class SemanticLoadFailed(Exception):  # noqa: N818
+class SemanticLoadFailed(SemanticError):  # noqa: N818
     """Raised when reader methods are called on an errored project.
 
     Wraps one or more SemanticError instances that prevented the
@@ -568,8 +566,16 @@ class SemanticLoadFailed(Exception):  # noqa: N818
 
     def __init__(self, errors: Sequence[SemanticError]) -> None:
         self.errors = tuple(errors)
-        joined = "\n\n".join(str(error) for error in self.errors)
-        super().__init__(joined)
+        count = len(self.errors)
+        first = f"\n{self.errors[0]}" if count else ""
+        remaining = f"\nInspect .errors for the other {count - 1} errors." if count > 1 else ""
+        super().__init__(
+            kind=ErrorKind.PROJECT_NOT_LOADED,
+            message=f"Semantic project failed to load ({count} errors).{first}{remaining}",
+        )
+
+    def __str__(self) -> str:
+        return self.message
 
 
 # ---------------------------------------------------------------------------

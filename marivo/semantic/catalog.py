@@ -126,6 +126,7 @@ from marivo.semantic.constraints import ConstraintId
 from marivo.semantic.dtos import PreviewBatchResult
 from marivo.semantic.errors import (
     ErrorKind,
+    SemanticError,
     SemanticExpressionError,
     SemanticLoadFailed,
     SemanticRuntimeError,
@@ -1567,7 +1568,9 @@ class SemanticCatalog(RenderableResult):
     __slots__ = (
         "_definitions",
         "_documents",
+        "_excluded_refs",
         "_index",
+        "_load_errors",
         "_project",
         "_reg",
         "_scope",
@@ -1583,6 +1586,8 @@ class SemanticCatalog(RenderableResult):
     _documents: tuple[SearchDocument, ...]
     _definitions: dict[Ref[SemanticKindTag], EntryDefinition]
     _scope: CatalogScope
+    _load_errors: tuple[SemanticError, ...]
+    _excluded_refs: tuple[str, ...]
 
     def __init__(self, project: SemanticProject) -> None:
         if project._compiled_state is None:
@@ -1590,6 +1595,8 @@ class SemanticCatalog(RenderableResult):
         object.__setattr__(self, "_project", project)
         object.__setattr__(self, "_state", project._compiled_state)
         object.__setattr__(self, "_reg", self._state.registry)
+        object.__setattr__(self, "_load_errors", project.errors())
+        object.__setattr__(self, "_excluded_refs", project._excluded_refs)
         object.__setattr__(self, "_definitions", {})
         object.__setattr__(self, "_index", _CatalogIndex(self, project, self._reg))
         from marivo.config import AUTHORED_DIR, load_semantic_layer_paths
@@ -1609,6 +1616,9 @@ class SemanticCatalog(RenderableResult):
                 ),
                 tuple(sorted(self._reg.domains)),
                 self.definition_fingerprint,
+                complete=not self._load_errors,
+                load_error_count=len(self._load_errors),
+                excluded_count=len(self._excluded_refs),
             ),
         )
         object.__setattr__(self, "_documents", self._search_documents())
@@ -1632,11 +1642,21 @@ class SemanticCatalog(RenderableResult):
         """Return the workspace directory path."""
         return self._project.workspace_dir
 
+    @property
+    def load_errors(self) -> tuple[SemanticError, ...]:
+        """Root diagnostics for a partial Catalog, empty for a complete load."""
+        return self._load_errors
+
+    @property
+    def excluded_refs(self) -> tuple[str, ...]:
+        """Known semantic identities excluded due to unavailable sources."""
+        return self._excluded_refs
+
     def _require_ready(self) -> Registry:
         reg = self._reg
-        if self._project.is_ready() and reg is not None:
+        if not self._load_errors and self._project.is_ready():
             return reg
-        errors = self._project.errors()
+        errors = self._load_errors or self._project.errors()
         if errors:
             raise SemanticLoadFailed(errors)
         _raise(
@@ -1646,19 +1666,21 @@ class SemanticCatalog(RenderableResult):
         )
 
     def _require_index(self) -> _CatalogIndex:
-        self._require_ready()
         return self._index
 
     def _repr_identity(self) -> str:
         fingerprint = self.definition_fingerprint[:12]
-        return f"SemanticCatalog fingerprint={fingerprint} objects={len(self._index._refs)}"
+        partial = " partial" if self._load_errors else ""
+        return (
+            f"SemanticCatalog{partial} fingerprint={fingerprint} objects={len(self._index._refs)}"
+        )
 
     def _card(self) -> Card:
         counts = tuple(
             (kind.value, str(sum(ref.kind is kind for ref in self._index._refs)))
             for kind in SemanticKind
         )
-        return (
+        card = (
             Card(
                 identity=self._repr_identity(),
                 available=(
@@ -1672,8 +1694,14 @@ class SemanticCatalog(RenderableResult):
             .field("model_roots", ", ".join(self._scope.model_roots))
             .field("loaded_domains", ", ".join(self._scope.domains))
             .field("definition_fingerprint", self.definition_fingerprint)
-            .table(columns=("kind", "count"), rows=counts, row_count=len(counts))
         )
+        if self._load_errors:
+            card.field(
+                "partial_catalog",
+                f"{len(self._load_errors)} load errors; {len(self._excluded_refs)} "
+                "semantic objects excluded. Inspect .load_errors and .excluded_refs.",
+            )
+        return card.table(columns=("kind", "count"), rows=counts, row_count=len(counts))
 
     @staticmethod
     def _entry_ref_symbol(ref: Ref[SemanticKindTag]) -> LookupSymbol:
@@ -1739,6 +1767,18 @@ class SemanticCatalog(RenderableResult):
         entry = self._index.entry(ref)
         if entry is not None:
             return cast("SemanticObject", entry)
+        if self._load_errors:
+            _raise(
+                ErrorKind.NOT_FOUND,
+                f"Canonical identity {identity!r} is unavailable in this partial Catalog.",
+                cls=SemanticRuntimeError,
+                refs=(identity,),
+                repair_value=repair(
+                    kind="reload",
+                    canonical_id="load",
+                    action="Inspect catalog.load_errors, fix the failed declarations, and reload.",
+                ),
+            )
         known_outside = any(ref in self._entry_dependencies(item) for item in self._index._refs)
         if known_outside:
             _raise(
@@ -3196,6 +3236,7 @@ def load(
     *,
     workspace_dir: str | Path | None = None,
     domains: str | Sequence[str] | None = None,
+    allow_partial: bool = False,
 ) -> SemanticCatalog:
     """Load a semantic project and return a browseable SemanticCatalog.
 
@@ -3216,6 +3257,9 @@ def load(
             Include every domain required by the selected declarations.
             Filtered Relationship references may warn; unresolved required
             Metric dependencies fail loading.
+        allow_partial: Browse the validated subset after datasource declaration
+            execution failures. Search pages disclose incomplete scope, and
+            catalog.load_errors and catalog.excluded_refs explain omissions.
 
     Returns:
         SemanticCatalog on success.
@@ -3228,14 +3272,15 @@ def load(
         >>> catalog.search(kind="domain").show()
 
     Constraints:
-        Raises a typed load error on failure. Does not return a partial catalog.
+        Strict by default. A partial Catalog supports discovery and lookup.
+        Readiness, validation and preview require a successful strict load.
         Does not query a datasource or print to stdout. Source validation is
         separate from this project-level static validation event.
         Configured layer paths must point at authored ``models/`` roots that
         contain both ``datasources/`` and ``semantic/``.
         Model declarations and relative imports use fresh namespaces for each
         declaration load, without modifying sys.path. Model-to-model absolute
-        imports are unsupported. Loaded modules remain until process exit.
+        imports are unsupported. Strict loads retain modules until process exit.
         Existing semantic snapshots are unchanged by later loads.
         Restart Python after package upgrades or changes to ordinary imported
         dependencies; those dependencies retain standard Python module caching.
@@ -3244,8 +3289,8 @@ def load(
     from marivo.semantic.reader import SemanticProject
 
     project = SemanticProject(workspace_dir=workspace_dir)
-    result = project.load(domains=domains)
-    if result.status != "ready":
+    result = project.load(domains=domains, allow_partial=allow_partial)
+    if result.status == "errored":
         from marivo.semantic.errors import SemanticLoadFailed
 
         raise SemanticLoadFailed(result.errors)

@@ -19,13 +19,14 @@ from marivo.datasource.errors import (
     DatasourceLoadError,
     repair,
 )
-from marivo.datasource.ir import DatasourceIR
+from marivo.datasource.ir import DatasourceIR, DatasourceSourceLocation
 
 
 @dataclass(frozen=True)
 class DatasourceLoadResult:
     datasources: tuple[DatasourceIR, ...]
     errors: tuple[Exception, ...]
+    discarded: tuple[DatasourceIR, ...] = ()
 
 
 def _ensure_package(name: str, path: Path) -> None:
@@ -43,7 +44,7 @@ def _execute_file(
     *,
     module_name: str,
     package_name: str,
-) -> None:
+) -> bool:
     token = _DATASOURCE_CTX.set(ctx)
     try:
         spec = importlib_util.spec_from_file_location(module_name, filepath)
@@ -55,24 +56,13 @@ def _execute_file(
         with _source_loading(filepath):
             spec.loader.exec_module(module)
     except Exception as exc:
+        diagnostic = _execution_diagnostic(exc, filepath)
         if isinstance(exc, DatasourceError):
-            if exc.traceback is None:
-                diagnostic = _execution_diagnostic(exc, filepath)
-                exc.exception_type = diagnostic.exception_type
-                exc.traceback = diagnostic.traceback
-            errors.append(exc)
+            error = exc
         else:
-            diagnostic = _execution_diagnostic(exc, filepath)
             error = DatasourceLoadError(
-                message=(
-                    f"Error executing {filepath}. Failure at {diagnostic.file}:{diagnostic.line}: "
-                    f"{diagnostic.exception_type}: {exc}"
-                ),
-                expected="a loadable datasource declaration",
-                received=f"{diagnostic.exception_type}: {exc}",
+                message=str(exc),
                 location=diagnostic.file,
-                exception_type=diagnostic.exception_type,
-                traceback=diagnostic.traceback,
                 repair=repair(
                     kind="reload",
                     canonical_id="load",
@@ -80,9 +70,16 @@ def _execute_file(
                 ),
             )
             error.__cause__ = exc
-            errors.append(error)
+        if error.traceback is None:
+            error.exception_type = diagnostic.exception_type
+            error.traceback = diagnostic.traceback
+        if error.source_location is None:
+            error.source_location = DatasourceSourceLocation(diagnostic.file, diagnostic.line)
+        errors.append(error)
+        return False
     finally:
         _DATASOURCE_CTX.reset(token)
+    return True
 
 
 def load_datasources(root: Path) -> DatasourceLoadResult:
@@ -100,7 +97,9 @@ def load_datasources(root: Path) -> DatasourceLoadResult:
     )
 
 
-def _load_datasource_directory(root: Path) -> DatasourceLoadResult:
+def _load_datasource_directory(
+    root: Path, *, isolate_failures: bool = False
+) -> DatasourceLoadResult:
     errors: list[Exception] = []
     if not root.exists():
         return DatasourceLoadResult(datasources=(), errors=())
@@ -155,12 +154,56 @@ def _load_datasource_directory(root: Path) -> DatasourceLoadResult:
     prefix = _new_module_prefix("datasource")
     _ensure_package(prefix, root)
     ctx = DatasourceLoaderContext()
+    discarded: list[DatasourceIR] = []
     for child in sorted(root.iterdir()):
         if not child.is_file() or child.suffix != ".py" or child.name.startswith("."):
             continue
         module_name = f"{prefix}.{child.stem}"
-        if module_name not in sys.modules:
-            _execute_file(child, ctx, errors, module_name=module_name, package_name=prefix)
+        if module_name in sys.modules:
+            continue
+        before = (
+            {name for name in sys.modules.copy() if name.startswith(f"{prefix}.")}
+            if isolate_failures
+            else set()
+        )
+        start = len(ctx.pending_objects)
+        success = _execute_file(child, ctx, errors, module_name=module_name, package_name=prefix)
+        if isolate_failures and success and len(ctx.pending_objects) > start:
+            # Python removes a failed relative import even when its caller catches
+            # the exception. Its registered declarations must be discarded as well.
+            imported_files = {
+                getattr(module, "__file__", None)
+                for name, module in sys.modules.copy().items()
+                if name.startswith(f"{prefix}.")
+            }
+            for item in ctx.pending_objects[start:]:
+                file = item.location.file
+                if Path(file).is_relative_to(root) and file not in imported_files:
+                    error = DatasourceLoadError(
+                        message="A relative import did not finish loading its datasource declarations.",
+                        location=file,
+                        repair=repair(
+                            kind="reload",
+                            canonical_id="load",
+                            action="Fix the failed import before loading its datasource declarations.",
+                        ),
+                    )
+                    error.source_location = item.location
+                    errors.append(error)
+                    success = False
+                    break
+        if isolate_failures and not success:
+            discarded.extend(ctx.pending_objects[start:])
+            del ctx.pending_objects[start:]
+            # A relative import can retain objects from a partially initialized
+            # module in a cycle. Roll back the whole new import batch.
+            for name in sys.modules.copy():
+                if name.startswith(f"{prefix}.") and name not in before:
+                    module = sys.modules.pop(name)
+                    parent_name, _, attribute = name.rpartition(".")
+                    parent = sys.modules.get(parent_name)
+                    if parent is not None and vars(parent).get(attribute) is module:
+                        delattr(parent, attribute)
 
     accepted: list[DatasourceIR] = []
     for datasource in ctx.pending_objects:
@@ -170,7 +213,9 @@ def _load_datasource_directory(root: Path) -> DatasourceLoadResult:
             errors.append(exc)
         else:
             accepted.append(datasource)
-    return DatasourceLoadResult(datasources=tuple(accepted), errors=tuple(errors))
+    return DatasourceLoadResult(
+        datasources=tuple(accepted), errors=tuple(errors), discarded=tuple(discarded)
+    )
 
 
 def _duplicate_errors(datasources: Sequence[DatasourceIR]) -> tuple[DatasourceDuplicateError, ...]:
@@ -287,13 +332,32 @@ def _models_root_errors(roots: Sequence[Path]) -> tuple[DatasourceLoadError, ...
     return tuple(errors)
 
 
-def _load_models_datasources(roots: Sequence[Path]) -> DatasourceLoadResult:
+def _load_models_datasources(
+    roots: Sequence[Path], *, isolate_failures: bool = False
+) -> DatasourceLoadResult:
     """Collect declarations from model roots validated by ``_models_root_errors``."""
     datasources: list[DatasourceIR] = []
     errors: list[Exception] = []
+    discarded: list[DatasourceIR] = []
     for root in roots:
-        result = _load_datasource_directory(root / "datasources")
+        result = _load_datasource_directory(root / "datasources", isolate_failures=isolate_failures)
         datasources.extend(result.datasources)
         errors.extend(result.errors)
-    errors.extend(_duplicate_errors(datasources))
-    return DatasourceLoadResult(datasources=tuple(datasources), errors=tuple(errors))
+        discarded.extend(result.discarded)
+    # Failed files still establish identity conflicts. Ignore repeated execution
+    # of the same declaration when collecting discarded import batches.
+    accepted = {(item.name, item.location) for item in datasources}
+    conflicts: list[DatasourceIR] = []
+    for item in discarded:
+        key = (item.name, item.location)
+        if key not in accepted:
+            conflicts.append(item)
+            accepted.add(key)
+            try:
+                require_user_datasource_name(item.name, location=item.location.file)
+            except DatasourceDuplicateError as error:
+                errors.append(error)
+    errors.extend(_duplicate_errors([*datasources, *conflicts]))
+    return DatasourceLoadResult(
+        datasources=tuple(datasources), errors=tuple(errors), discarded=tuple(discarded)
+    )

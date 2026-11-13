@@ -214,7 +214,8 @@ def load(
         imports are unsupported. Loaded modules remain until process exit.
         Restart Python after package upgrades or changes to ordinary imported
         dependencies; those dependencies retain standard Python module caching.
-        Execution failures expose their original exception type and traceback.
+        Execution failures expose the declaration location and exception type.
+        Inspect the error's traceback field for the original exception chain.
     """
     if workspace_dir is None:
         workspace_dir = resolve_project_root()

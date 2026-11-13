@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Literal, cast
@@ -264,6 +264,25 @@ def definition_graph(
             )
         )
     return definitions, dependencies
+
+
+def dependent_closure(
+    roots: set[Ref[SemanticKindTag]],
+    dependencies: Mapping[Ref[SemanticKindTag], Iterable[Ref[SemanticKindTag]]],
+) -> set[Ref[SemanticKindTag]]:
+    """Return the roots and every definition that depends on them."""
+    dependents: dict[Ref[SemanticKindTag], list[Ref[SemanticKindTag]]] = {}
+    for ref, inputs in dependencies.items():
+        for dependency in inputs:
+            dependents.setdefault(dependency, []).append(ref)
+    excluded = set(roots)
+    pending = list(roots)
+    while pending:
+        for dependent in dependents.get(pending.pop(), ()):
+            if dependent not in excluded:
+                excluded.add(dependent)
+                pending.append(dependent)
+    return excluded
 
 
 @dataclass(slots=True)

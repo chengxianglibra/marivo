@@ -126,8 +126,8 @@ def test_runtime_error_is_semantic_error() -> None:
     assert issubclass(errors_mod.SemanticRuntimeError, errors_mod.SemanticError)
 
 
-def test_load_failed_not_semantic_error() -> None:
-    assert issubclass(errors_mod.SemanticLoadFailed, Exception)
+def test_load_failed_is_semantic_error() -> None:
+    assert issubclass(errors_mod.SemanticLoadFailed, errors_mod.SemanticError)
 
 
 def test_load_failed_wraps_errors() -> None:

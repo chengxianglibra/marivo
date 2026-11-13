@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 from pydantic import BaseModel, ConfigDict
 
@@ -14,6 +14,9 @@ from marivo._authoring.model import AuthoringRepair
 from marivo._errors import MarivoError
 from marivo.introspection.live.errors import HelpTargetErrorPayload
 from marivo.introspection.live.model import LiveHelpTarget
+
+if TYPE_CHECKING:
+    from marivo.datasource.ir import DatasourceSourceLocation
 
 ScopeState = Literal["known", "none", "unknown"]
 
@@ -174,6 +177,7 @@ class DatasourceError(MarivoError):
         self.expected = expected
         self.received = received
         self.location = location
+        self.source_location: DatasourceSourceLocation | None = None
         self.effect_observed = effect_observed
         self.repair = repair
         self.exception_type = exception_type
@@ -182,8 +186,9 @@ class DatasourceError(MarivoError):
 
     def __str__(self) -> str:
         lines = [f"{type(self).__name__}: {self.message}"]
+        source = self.source_location
         for label, value in (
-            ("Location", self.location),
+            ("Location", f"{source.file}:{source.line}" if source else self.location),
             ("Expected", self.expected),
             ("Received", self.received),
             ("Exception type", self.exception_type),
@@ -204,8 +209,6 @@ class DatasourceError(MarivoError):
                 lines.append(f"  Preserves evidence: {self.repair.preserves_evidence}")
             target = self.repair.help_target
             lines.append(f"Help: marivo.help({target.display!r})")
-        if self.traceback is not None:
-            lines.extend(("", "Original traceback:", self.traceback.rstrip("\n")))
         return "\n".join(lines)
 
 

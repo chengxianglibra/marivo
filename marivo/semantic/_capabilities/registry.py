@@ -2673,9 +2673,10 @@ def _build_registry() -> SemanticCapabilityRegistry:
             output="SemanticCatalog",
             effects=_LOCAL,
             preconditions=(
-                "Each declaration load uses fresh namespaces for relative model imports, without modifying sys.path; modules remain until process exit. Model absolute imports are unsupported.",
+                "Each declaration load uses fresh namespaces for relative model imports, without modifying sys.path. Strict loads retain modules until process exit. Model absolute imports are unsupported.",
                 "Restart Python after package upgrades or ordinary dependency changes; ordinary imports retain Python module caching.",
-                "Execution failures expose exception_type and the complete original traceback.",
+                "Strict by default. allow_partial=True permits discovery of the validated subset after datasource file execution failures. Inspect page.scope.complete, catalog.load_errors and catalog.excluded_refs. Readiness, validation and preview require a successful strict load.",
+                "Execution failures report the declaration location and keep the original traceback on the error.",
             ),
             example="catalog = ms.load()\ncatalog.show()",
         ),
@@ -3590,7 +3591,13 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
         SemanticCatalog,
         "SemanticCatalog",
         ("load",),
-        properties=("definition_fingerprint", "semantic_root", "workspace_dir"),
+        properties=(
+            "definition_fingerprint",
+            "semantic_root",
+            "workspace_dir",
+            "load_errors",
+            "excluded_refs",
+        ),
         methods=(
             "get",
             "search",

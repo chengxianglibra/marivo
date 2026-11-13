@@ -99,14 +99,14 @@ def test_semantic_loading_preserves_registration_repair_without_writes(
     declaration = "import marivo.datasource as md\nmd.register(md.duckdb(name='local'))\n"
     if entry == "semantic":
         _write_file(tmp_path, "models/datasources/a.py", "")
-        _write_file(tmp_path, "models/semantic/demo/objects.py", declaration)
+        source = _write_file(tmp_path, "models/semantic/demo/objects.py", declaration)
     elif entry == "import":
-        _write_file(tmp_path, "models/semantic/demo/helpers/registration.py", declaration)
+        source = _write_file(tmp_path, "models/semantic/demo/helpers/registration.py", declaration)
         _write_file(
             tmp_path, "models/semantic/demo/objects.py", "from .helpers import registration\n"
         )
     else:
-        _write_file(tmp_path, "models/datasources/a.py", declaration)
+        source = _write_file(tmp_path, "models/datasources/a.py", declaration)
     with pytest.raises(SemanticLoadFailed) as exc_info:
         ms.load(workspace_dir=tmp_path)
 
@@ -117,11 +117,8 @@ def test_semantic_loading_preserves_registration_repair_without_writes(
         _assert_registration_repair(error, "local")
         assert error.repair is not None
         assert error.hint == error.repair.action
-        assert error.location_label in {
-            str(tmp_path / "models/datasources/a.py"),
-            str(tmp_path / "models/semantic/demo/objects.py"),
-            str(tmp_path / "models/semantic/demo/helpers/registration.py"),
-        }
+        assert error.location is not None
+        assert (error.location.file, error.location.line) == (str(source), 2)
     assert _current_source_loading_file() is None
 
 

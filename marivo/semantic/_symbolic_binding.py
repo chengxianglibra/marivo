@@ -39,7 +39,7 @@ from marivo._definition.types import DefinitionGraphError, FieldRead, SumNone
 from marivo._symbolic import SymbolResolver
 from marivo.refs import Ref, SemanticKind, SemanticKindTag
 from marivo.refs import ref as ref_factory
-from marivo.semantic._compiled_state import CompilationGraph
+from marivo.semantic._compiled_state import CompilationGraph, dependent_closure
 from marivo.semantic._deferred_semantics import (
     capture_source_time,
     consume_field,
@@ -338,6 +338,8 @@ def publish_declarations(
     sidecar: CompiledExpressionSidecar,
     *,
     graph: CompilationGraph | None = None,
+    excluded: set[Ref[SemanticKindTag]] | None = None,
+    original_registry: Registry | None = None,
 ) -> list[SemanticError]:
     """Index, order, and bind all declarations before publishing the closed scope."""
     from marivo.semantic.loader import _closure_scope_error, _declaration_site, _defined_kinds
@@ -348,6 +350,8 @@ def publish_declarations(
     by_recipe: dict[int, Ref[SemanticKindTag]] = {}
     errors: list[SemanticError] = []
     physical = _defined_kinds(registry)
+    authoring_registry = original_registry or registry
+    authored = physical if original_registry is None else _defined_kinds(original_registry)
 
     target: Ref[SemanticKindTag]
     for value in values:
@@ -374,7 +378,7 @@ def publish_declarations(
                 errors.append(error)
                 continue
         if declaration.kind == "measure":
-            roots = _row_roots(resolver_of(value), registry)
+            roots = _row_roots(resolver_of(value), authoring_registry)
             if len(roots) != 1:
                 errors.append(
                     SemanticExpressionError(
@@ -410,7 +414,7 @@ def publish_declarations(
                 )
                 continue
             target = ref_factory.metric(f"{domain}.{declaration.name}")
-        if target in indexed or target.path in physical:
+        if target in indexed or target.path in authored:
             errors.append(
                 SemanticLoadError(
                     kind=ErrorKind.DUPLICATE_NAME,
@@ -432,7 +436,8 @@ def publish_declarations(
         return errors
 
     dependencies: dict[Ref[SemanticKindTag], set[Ref[SemanticKindTag]]] = {}
-    available = {**physical, **{reference.path: reference.kind for reference in indexed}}
+    pruning_edges: dict[Ref[SemanticKindTag], set[Ref[SemanticKindTag]]] = {}
+    available = {**authored, **{reference.path: reference.kind for reference in indexed}}
     for target, value in indexed.items():
         inspection = inspect_capture(value)
         dependencies[target] = set(inspection.symbols)
@@ -444,6 +449,13 @@ def publish_declarations(
                 dependencies[target].add(declared)
             else:
                 pending.extend(_children(recipe))
+        if excluded:
+            pruning_edges[target] = dependencies[target] | {
+                exact.ref for exact in inspection.dependencies
+            }
+
+    for target in indexed:
+        value = indexed[target]
         for dependency in sorted(dependencies[target], key=lambda item: item.key):
             actual = available.get(dependency.path)
             if actual is not dependency.kind:
@@ -492,6 +504,10 @@ def publish_declarations(
             visit(target)
     except SemanticError as error:
         return [error]
+
+    if excluded:
+        excluded.update(dependent_closure(excluded, pruning_edges))
+        order = [target for target in order if target not in excluded]
 
     graph = CompilationGraph.create(registry, sidecar) if graph is None else graph
     resolver = _PublicationResolver(graph)

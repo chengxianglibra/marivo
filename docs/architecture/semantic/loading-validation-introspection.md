@@ -28,6 +28,21 @@ selects only those directories, without automatic dependency expansion. Include
 every domain required by the selected declarations. Filtered Relationship
 references may warn; unresolved required Metric dependencies fail loading.
 
+`ms.load(allow_partial=True)` can publish a validated Catalog subset when
+datasource declaration files fail to execute. It drops declarations produced by
+the failed execution and excludes semantic definitions with unavailable
+datasources and their transitive dependents. It still rejects global
+configuration and identity conflicts and validates the retained definitions.
+Search and related pages report `scope.complete=False` and omission counts.
+Inspect `catalog.load_errors` for root causes and `catalog.excluded_refs` for
+excluded semantic identities. Readiness, validation, preview, and analysis
+Sessions require a successful strict load.
+Structural validation of authored definitions and symbolic dependency/cycle checks
+run before exclusion. Missing datasource references whose identity cannot be
+attributed to a discarded declaration remain explicit load diagnostics. Duplicate
+datasource identities in failed files still reject the load. Diagnostic deduplication
+preserves distinct exception causes even when their outer message and location match.
+
 The loader inspects restricted source, captures declarations, resolves complete
 references and validates organization, kind, dependency cycles and expression
 contracts. It does not connect, inspect source schemas, prove key uniqueness or
@@ -47,10 +62,12 @@ and freezes the completed graph; caches never carry definitions across loads.
 
 Each load assigns a fresh synthetic Python package to each semantic and datasource
 root. Concurrent loads never share model module names, and a reload never purges
-another load's modules. Within one load, imported model files execute once.
-Successful and failed load modules remain in `sys.modules` until process exit;
+another load's modules. Within a strict load, imported model files execute once.
+Successful and failed strict load modules remain in `sys.modules` until process exit;
 frequent reloads in a long-lived process therefore accumulate modules. Namespace
 identifiers are execution details, not semantic identities or definition fingerprints.
+Partial loading discards newly imported datasource modules from failed execution
+batches so later declarations cannot reuse half-initialized modules.
 
 Model-to-model imports use relative syntax within one domain or datasource
 directory, for example `from .fields import amount` or
@@ -60,6 +77,14 @@ Loading never changes `sys.path`. Absolute model imports such as
 `from datasources import warehouse` are unsupported, even if the caller's environment
 happens to resolve them. Standard-library and installed dependencies keep normal
 absolute imports. No import interception or execution sandbox is introduced.
+
+Load diagnostics lead with the authored file and line when available. Python
+errors retain their original traceback on `error.traceback`. The semantic check
+CLI prints concise diagnostics by default. Use
+`python -m marivo.semantic.check --traceback` to include full traces in text or
+JSON output.
+With `--readiness`, load errors report a blocked status with the load diagnostics
+once. Readiness checks run after a successful load.
 
 A new load re-executes model files and their relative imports in its own namespace.
 Ordinary imported dependencies retain Python module caching; restart Python after

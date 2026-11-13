@@ -11,6 +11,8 @@ from pathlib import Path
 import pytest
 
 import marivo
+import marivo.analysis as mv
+import marivo.datasource as md
 import marivo.semantic as ms
 from marivo._help import help as marivo_help
 from marivo.datasource.errors import DatasourceDuplicateError, DatasourceLoadError
@@ -81,11 +83,11 @@ def test_execution_preserves_complete_exception_chain(tmp_path: Path, surface: s
     assert isinstance(error.__cause__.__cause__, ValueError)
     assert error.traceback is not None
     assert str(path.resolve()) in error.traceback or str(path) in error.traceback
-    assert str(path) in error.message or str(path.resolve()) in error.message
     if isinstance(error, SemanticError):
         assert error.location is not None and error.location.line == 5
     else:
         assert error.location == str(path)
+        assert error.source_location is not None and error.source_location.line == 5
 
 
 @pytest.mark.parametrize("surface", ["datasource", "semantic"])
@@ -101,27 +103,44 @@ def test_syntax_failure_reports_original_location(tmp_path: Path, surface: str) 
         assert str(path.resolve()) == error.location.file
     else:
         assert error.location == str(path)
+        assert error.source_location is not None and error.source_location.line == 2
 
 
 def test_datasource_diagnostics_survive_semantic_and_cli_conversion(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    _write(tmp_path, "datasources/a.py", "raise ValueError('source failure')\n")
+    path = _write(
+        tmp_path,
+        "datasources/a.py",
+        "import marivo.datasource as md\nmd.duckdb(name='warehouse', unexpected=True)\n",
+    )
     with pytest.raises(SemanticLoadFailed) as caught:
         ms.load(workspace_dir=tmp_path)
     error = caught.value.errors[0]
     assert isinstance(error.__cause__, DatasourceLoadError)
-    assert isinstance(error.__cause__.__cause__, ValueError)
+    assert isinstance(error.__cause__.__cause__, TypeError)
     assert error.repair is error.__cause__.repair
     assert error.traceback == error.__cause__.traceback
     payload = _error_to_dict(error)
-    assert payload["exception_type"] == "ValueError"
-    assert payload["traceback"] == error.traceback
+    assert payload["exception_type"] == "TypeError"
+    assert payload["location"] == {"file": str(path), "line": 2}
+    assert "traceback" not in payload
+    assert "telemetry" not in str(caught.value)
     assert main(["--workspace-dir", str(tmp_path), "--format", "json"]) == 1
     cli = json.loads(capsys.readouterr().out)
+    assert cli["errors"] == [payload]
+    assert main(["--workspace-dir", str(tmp_path), "--format", "json", "--readiness"]) == 1
+    cli = json.loads(capsys.readouterr().out)
+    assert cli["status"] == "blocked"
+    assert cli["errors"] == [payload]
+    assert "readiness" not in cli
+    assert main(["--workspace-dir", str(tmp_path), "--format", "json", "--traceback"]) == 1
+    cli = json.loads(capsys.readouterr().out)
+    assert isinstance(error.traceback, str) and "telemetry" in error.traceback
     assert cli["errors"][0]["traceback"] == error.traceback
     assert main(["--workspace-dir", str(tmp_path)]) == 1
-    plain = _error_to_dict(SemanticError(kind="test", message="static failure"))
+    display = capsys.readouterr().out
+    assert f"{path}:2" in display and "Original traceback" not in display
 
 
 def test_multiple_execution_failures_have_separate_tracebacks(tmp_path: Path) -> None:
@@ -132,6 +151,121 @@ def test_multiple_execution_failures_have_separate_tracebacks(tmp_path: Path) ->
     assert len(caught.value.errors) == 2
     rendered = str(caught.value)
     assert all(error.traceback is not None for error in caught.value.errors)
+    assert rendered.count("first failure") == 1
+    assert "Traceback" not in rendered
+
+
+def test_partial_catalog_excludes_failed_datasource_and_transitive_dependents(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _write(
+        tmp_path,
+        "datasources/broken.py",
+        "import marivo.datasource as md\n"
+        "broken = md.duckdb(name='broken')\n"
+        "raise ValueError('broken declaration')\n",
+    )
+    _write(
+        tmp_path,
+        "datasources/importer.py",
+        "import marivo.datasource as md\n"
+        "from .broken import broken\n"
+        "md.duckdb(name='from_broken')\n",
+    )
+    _write(
+        tmp_path,
+        "datasources/healthy.py",
+        "import marivo.datasource as md\nmd.duckdb(name='healthy')\n",
+    )
+    _write(
+        tmp_path,
+        "semantic/demo/_domain.py",
+        "import marivo.semantic as ms\nms.domain(name='demo', owner='Tester')\n",
+    )
+    _write(
+        tmp_path,
+        "semantic/demo/models.py",
+        "import marivo.datasource as md\nimport marivo.semantic as ms\n"
+        "good = ms.entity(name='good', datasource=ms.ref.datasource('healthy'), source=md.table('good'))\n"
+        "bad = ms.entity(name='bad', datasource=ms.ref.datasource('broken'), source=md.table('bad'))\n"
+        "amount = ms.measure_column(name='amount', entity=bad, column='amount', additivity=ms.additive_all())\n"
+        "@ms.measure()\ndef adjusted():\n    return amount * 2\n"
+        "@ms.metric()\ndef total():\n    return adjusted.sum()\n"
+        "total_ref = ms.ref.metric('demo.total')\n"
+        "@ms.metric()\ndef dependent():\n    return total_ref + total_ref\n"
+        "@ms.metric()\ndef good_count():\n    return good.count()\n",
+    )
+    monkeypatch.setenv("MARIVO_PROJECT_ROOT", str(tmp_path))
+
+    catalog = ms.load(allow_partial=True)
+    page = catalog.search(kind="metric")
+    assert [entry.id for entry in page.items] == ["metric:demo.good_count"]
+    assert page.scope.complete is False
+    assert page.scope.load_error_count == len(catalog.load_errors) == 1
+    assert "partial_catalog" in page.render()
+    assert catalog.excluded_refs == (
+        "entity:demo.bad",
+        "measure:demo.bad.adjusted",
+        "measure:demo.bad.amount",
+        "metric:demo.dependent",
+        "metric:demo.total",
+    )
+    assert {entry.id for entry in catalog.search(kind="datasource").items} == {
+        "datasource:default",
+        "datasource:healthy",
+    }
+    entity = catalog.get("entity:demo.good")
+    assert entity.related("dependencies").scope.complete is False
+    with pytest.raises(SemanticLoadFailed):
+        catalog.preview(entity, scope=md.unpruned(max_rows=1, timeout_seconds=1))
+    with pytest.raises(SemanticLoadFailed):
+        ms.load()
+    with pytest.raises(SemanticLoadFailed):
+        _ = mv.session.get_or_create("strict", timezone="UTC").catalog
+
+
+def test_partial_catalog_does_not_choose_a_winner_for_duplicate_datasources(
+    tmp_path: Path,
+) -> None:
+    _write(
+        tmp_path,
+        "datasources/a.py",
+        "import marivo.datasource as md\nmd.duckdb(name='warehouse')\n",
+    )
+    _write(
+        tmp_path,
+        "datasources/b.py",
+        "import marivo.datasource as md\nmd.duckdb(name='warehouse')\n"
+        "raise ValueError('broken declaration')\n",
+    )
+    with pytest.raises(SemanticLoadFailed) as caught:
+        ms.load(workspace_dir=tmp_path, allow_partial=True)
+    assert any(error.kind == "duplicate_name" for error in caught.value.errors)
+
+
+def test_partial_catalog_discards_declarations_from_caught_relative_import(
+    tmp_path: Path,
+) -> None:
+    helper = _write(
+        tmp_path,
+        "datasources/helpers/broken.py",
+        "import marivo.datasource as md\nmd.duckdb(name='unfinished')\n"
+        "raise ValueError('broken helper')\n",
+    )
+    _write(
+        tmp_path,
+        "datasources/importer.py",
+        "import marivo.datasource as md\n"
+        "try:\n    from .helpers import broken\nexcept ValueError:\n    pass\n"
+        "md.duckdb(name='from_importer')\n",
+    )
+
+    catalog = ms.load(workspace_dir=tmp_path, allow_partial=True)
+    page = catalog.search(kind="datasource")
+    assert not page.scope.complete
+    assert [entry.id for entry in page.items] == ["datasource:default"]
+    (error,) = catalog.load_errors
+    assert error.location is not None and error.location.file == str(helper)
 
 
 def test_relative_import_reload_does_not_reuse_deleted_source(tmp_path: Path) -> None:
@@ -245,3 +379,136 @@ def test_live_load_help_discloses_restart_and_execution_diagnostics(
     assert marivo.help is marivo_help
     marivo_help(f"{surface}.load")
     help_text = capsys.readouterr().out
+
+
+@pytest.mark.parametrize("defect", ["missing_field", "cycle", "invalid_time"])
+def test_partial_loading_keeps_independent_errors_on_excluded_objects(
+    tmp_path: Path, defect: str
+) -> None:
+    _write(tmp_path, "datasources/bad.py", "raise ValueError('broken source')\n")
+    _write(
+        tmp_path,
+        "semantic/demo/_domain.py",
+        "import marivo.semantic as ms\nms.domain(name='demo', owner='Tester')\n",
+    )
+    source = (
+        "import marivo.semantic as ms\nimport marivo.datasource as md\n"
+        "bad = ms.entity(name='bad', datasource=ms.ref.datasource('bad'), source=md.table('bad'))\n"
+        "amount = ms.measure_column(name='amount', entity=bad, column='amount', additivity=ms.additive_all())\n"
+    )
+    if defect == "missing_field":
+        source += (
+            "missing = ms.ref.measure('demo.bad.missing')\n"
+            "@ms.metric()\ndef total():\n    return (amount + missing).sum()\n"
+        )
+    elif defect == "cycle":
+        source += (
+            "loop = ms.ref.metric('demo.total')\n"
+            "@ms.metric()\ndef total():\n    return amount.sum() + loop\n"
+        )
+    else:
+        source = source.replace(
+            "source=md.table('bad'))",
+            "source=md.table('bad'), default_time=ms.ref.time_dimension('demo.bad.missing'))",
+        )
+    _write(tmp_path, "semantic/demo/objects.py", source)
+    with pytest.raises(SemanticLoadFailed) as caught:
+        ms.load(workspace_dir=tmp_path, allow_partial=True)
+    assert any(
+        error.kind
+        == {
+            "missing_field": "not_found",
+            "cycle": "definition_cycle",
+            "invalid_time": "invalid_time_path",
+        }[defect]
+        for error in caught.value.errors
+    )
+
+
+def test_partial_loading_keeps_duplicates_between_failed_files(tmp_path: Path) -> None:
+    for name in ("a", "b"):
+        _write(
+            tmp_path,
+            f"datasources/{name}.py",
+            "import marivo.datasource as md\nmd.duckdb(name='duplicate')\nraise ValueError('bad')\n",
+        )
+    with pytest.raises(SemanticLoadFailed) as caught:
+        ms.load(workspace_dir=tmp_path, allow_partial=True)
+    assert any(error.kind == "duplicate_name" for error in caught.value.errors)
+
+
+def test_load_deduplication_preserves_distinct_exception_causes(tmp_path: Path) -> None:
+    _write(
+        tmp_path,
+        "datasources/helper.py",
+        "def fail(reason):\n"
+        "    try:\n        raise ValueError(reason)\n"
+        "    except ValueError as cause:\n        raise RuntimeError('wrapper') from cause\n",
+    )
+    for name in ("a", "b"):
+        _write(tmp_path, f"datasources/{name}.py", f"from .helper import fail\nfail('{name}')\n")
+    catalog = ms.load(workspace_dir=tmp_path, allow_partial=True)
+    assert len(catalog.load_errors) == 2
+    assert {"ValueError: a", "ValueError: b"} <= {
+        line for error in catalog.load_errors for line in (error.traceback or "").splitlines()
+    }
+
+
+def test_partial_loading_rolls_back_import_cycle_and_reloads_independent_helper(
+    tmp_path: Path,
+) -> None:
+    _write(
+        tmp_path,
+        "datasources/a.py",
+        "import marivo.datasource as md\n"
+        "source = md.duckdb(name='unfinished')\n"
+        "from . import b, healthy\n"
+        "raise ValueError('cycle failure')\n",
+    )
+    _write(
+        tmp_path,
+        "datasources/b.py",
+        "import marivo.datasource as md\nfrom .a import source\nmd.duckdb(name='dependent')\n",
+    )
+    _write(
+        tmp_path,
+        "datasources/healthy.py",
+        "import marivo.datasource as md\nmd.duckdb(name='healthy')\n",
+    )
+    catalog = ms.load(workspace_dir=tmp_path, allow_partial=True)
+    assert {item.id for item in catalog.search(kind="datasource").items} == {
+        "datasource:default",
+        "datasource:healthy",
+    }
+    assert len(catalog.load_errors) == 1
+
+
+def test_partial_loading_discloses_unattributed_missing_datasource(tmp_path: Path) -> None:
+    _write(tmp_path, "datasources/a.py", "raise ValueError('source failure')\n")
+    _write(
+        tmp_path,
+        "semantic/demo/_domain.py",
+        "import marivo.semantic as ms\nms.domain(name='demo', owner='Tester')\n",
+    )
+    _write(
+        tmp_path,
+        "semantic/demo/objects.py",
+        "import marivo.semantic as ms\nimport marivo.datasource as md\n"
+        "ms.entity(name='bad', datasource=ms.ref.datasource('typo'), source=md.table('bad'))\n",
+    )
+    catalog = ms.load(workspace_dir=tmp_path, allow_partial=True)
+    assert any(
+        e.kind == "missing_datasource_ref" and e.received == "typo" for e in catalog.load_errors
+    )
+    assert catalog.excluded_refs == ("entity:demo.bad",)
+
+
+def test_partial_loading_preserves_reserved_identity_error_in_failed_file(tmp_path: Path) -> None:
+    _write(
+        tmp_path,
+        "datasources/a.py",
+        "import marivo.datasource as md\nmd.duckdb(name='default')\nraise ValueError('bad')\n",
+    )
+    with pytest.raises(SemanticLoadFailed) as caught:
+        ms.load(workspace_dir=tmp_path, allow_partial=True)
+    assert any(error.kind == "duplicate_name" for error in caught.value.errors)

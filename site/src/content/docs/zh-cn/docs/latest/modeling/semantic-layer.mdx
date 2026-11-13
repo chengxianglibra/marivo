@@ -31,9 +31,14 @@ def revenue():
 
 每次 `ms.load()` 都捕获独立快照，并在新的命名空间中重新加载相对导入的模型。
 它不会更新已有 Catalog、已初始化的 Session 或已捕获的分析。同一 Session
-并发首次访问只初始化一个 Catalog；失败后可以重试。模型模块保留到进程退出，
+并发首次访问只初始化一个 Catalog；失败后可以重试。严格加载会保留模块到进程退出，
 因此长驻进程频繁重载会累计模块。普通依赖仍使用 Python 导入缓存；修改这些
 依赖或升级包后应重启 Python。
+
+如果 datasource 声明执行失败，可以用 `ms.load(allow_partial=True)` 浏览仍通过
+校验的定义。搜索结果用 `scope.complete=False` 标明范围不完整。通过
+`catalog.load_errors` 查看根因，通过 `catalog.excluded_refs` 查看被排除的定义。
+Readiness、在线校验、预览和分析 Session 要求严格加载成功。
 
 ## Domain：所属业务域
 

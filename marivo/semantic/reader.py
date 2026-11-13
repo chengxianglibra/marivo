@@ -100,6 +100,7 @@ class SemanticProject:
             resolver=cr.current_resolver(),
         )
         self._datasource_irs: tuple[DatasourceIR, ...] = ()
+        self._excluded_refs: tuple[str, ...] = ()
 
     @property
     def semantic_root(self) -> Path:
@@ -118,7 +119,9 @@ class SemanticProject:
 
     # -- lifecycle -----------------------------------------------------------
 
-    def load(self, domains: str | Sequence[str] | None = None) -> LoadResult:
+    def load(
+        self, domains: str | Sequence[str] | None = None, *, allow_partial: bool = False
+    ) -> LoadResult:
         """Load the project from disk.
 
         When *domains* is specified, only those domain directories are loaded.
@@ -137,6 +140,7 @@ class SemanticProject:
             self._compiled_state = None
             self._runtime_metadata = {}
             self._datasource_irs = ()
+            self._excluded_refs = ()
         if self._semantic_root.exists() and not self._semantic_root.is_dir():
             _raise(
                 ErrorKind.INVALID_PROJECT,
@@ -170,6 +174,7 @@ class SemanticProject:
                 models=self._filtered_domains if self._filtered_domains else None,
                 models_roots=models_roots,
                 project_root=self._workspace_dir,
+                allow_partial=allow_partial,
             )
         self._status = result.status
         self._errors = result.errors
@@ -178,6 +183,7 @@ class SemanticProject:
         self._expression_sidecar = result.expression_sidecar
         self._compiled_state = result.compiled_state
         self._datasource_irs = result.datasource_irs
+        self._excluded_refs = result.excluded_refs
         return result
 
     def is_ready(self) -> bool:
@@ -200,9 +206,7 @@ class SemanticProject:
         ``SemanticCatalog``.  It is the same object that ``ms.load()`` returns;
         prefer ``ms.load(workspace_dir=...)`` for one-shot loading.
 
-        Raises ``SemanticLoadFailed`` if the project is not in the 'ready'
-        state (for example, when ``load()`` has not been called yet or
-        errored).
+        Raises ``SemanticLoadFailed`` unless loading produced a compiled scope.
         """
         from marivo.semantic.catalog import SemanticCatalog
 

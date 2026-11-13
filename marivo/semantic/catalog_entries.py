@@ -62,12 +62,15 @@ def _json_value(value: object) -> JsonValue:
 
 @dataclass(frozen=True)
 class CatalogScope:
-    """The complete loaded definition scope, independent of search filters."""
+    """The loaded definition scope, independent of search filters."""
 
     workspace_dir: str
     model_roots: tuple[str, ...]
     domains: tuple[str, ...]
     definition_fingerprint: str
+    complete: bool = True
+    load_error_count: int = 0
+    excluded_count: int = 0
 
 
 @dataclass(frozen=True)
@@ -261,7 +264,8 @@ class CatalogPage(RenderableResult, Generic[EntryT]):
         object.__setattr__(self, "matches", MappingProxyType(dict(self.matches)))
 
     def _repr_identity(self) -> str:
-        return f"CatalogPage items={len(self.items)} candidates={self.candidate_count}"
+        partial = " partial" if not self.scope.complete else ""
+        return f"CatalogPage{partial} items={len(self.items)} candidates={self.candidate_count}"
 
     def __str__(self) -> str:
         return self._card().render(_include_newline=True)
@@ -274,6 +278,12 @@ class CatalogPage(RenderableResult, Generic[EntryT]):
             available=(".items", ".to_dict()", ".to_json()", ".show()"),
         )
         card.field("page_items", str(len(self.items)))
+        if not self.scope.complete:
+            card.field(
+                "partial_catalog",
+                f"{self.scope.load_error_count} load errors; "
+                f"{self.scope.excluded_count} semantic objects excluded",
+            )
         card.field("next_cursor", self.next_cursor or "(end)")
         card.field("scope", json.dumps(_json_value(self.scope), ensure_ascii=False))
         card.field("filters", json.dumps(_json_value(self.filters), ensure_ascii=False))

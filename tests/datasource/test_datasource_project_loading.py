@@ -281,7 +281,7 @@ def test_semantic_loading_retains_errors_from_every_datasource_root(
     with pytest.raises(SemanticLoadFailed) as exc_info:
         ms.load(workspace_dir=root)
     assert len(exc_info.value.errors) == 2
-    assert {error.location_label for error in exc_info.value.errors} == {
+    assert {error.location.file for error in exc_info.value.errors if error.location} == {
         str(project / "models" / "datasources" / "bad.py") for project in (root, external)
     }
 
