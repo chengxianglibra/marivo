@@ -134,6 +134,23 @@ def test_read_help_requires_one_complete_identity_axis(
     assert case.session.read(projected, {"region": region}).output_names == ("region",)
 
 
+def test_read_help_example_reads_only_selected_members(
+    analysis_dsl_case_factory: DslCaseFactory,
+) -> None:
+    case = analysis_dsl_case_factory("j2")
+    descriptor = REGISTRY.by_canonical_id("session.read")
+    assert isinstance(descriptor, CallableInput)
+    namespace: dict[str, object] = {
+        "session": case.session,
+        "customer": case.catalog.get("entity:sales.customer"),
+        "region": case.catalog.get("dimension:sales.customer.region"),
+    }
+    exec(compile(descriptor.example.code, "<session-read-help>", "exec"), namespace)
+    result = namespace[descriptor.example.result]
+    assert isinstance(result, mv.AnalysisFrame)
+    assert result.to_pandas()["region"].tolist() == ["east", "east"]
+
+
 def test_method_fact_help_keeps_details_with_their_owning_record() -> None:
     value = render_help_text("analysis.frame_method_value")[0]
     assert len(value) < 1500

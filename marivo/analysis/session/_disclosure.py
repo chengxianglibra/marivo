@@ -116,7 +116,9 @@ def provider() -> DisclosureProvider:
             Session,
             "read",
             "AnalysisFrame",
-            "result = session.read(population, fields)",
+            "population = session.members(customer, where=region == 'east')\n"
+            "result = session.read(population, {'region': region}).compute()\n"
+            "result.show()",
             "Read named scalar attributes for complete identities, trusting source declarations; missing matches yield NULL. Numeric reads preserve NULL, NaN and Infinity; finite local operations validate their demanded inputs.",
         ),
         (
@@ -278,6 +280,8 @@ def provider() -> DisclosureProvider:
                         if name == "observe" and n == "where"
                         else ("inputs.catalog", "identity")
                         if name == "values" and n == "by"
+                        else ("session.members", "inputs.population")
+                        if name == "read" and n == "population"
                         else parameter_targets.get(n, ()),
                     )
                     for n in signature(value).parameters
@@ -327,7 +331,7 @@ def provider() -> DisclosureProvider:
                     if name == "observe"
                     else ("session", "population")
                     if name == "frame"
-                    else ("session", "population", "fields")
+                    else ("session", "customer", "region")
                     if name == "read"
                     else ("session", "entity")
                     if name == "members"

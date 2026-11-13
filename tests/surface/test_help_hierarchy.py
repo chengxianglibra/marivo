@@ -229,6 +229,7 @@ def test_column_operator_reference_remains_discoverable_without_flattening_task_
             ),
         ),
         ("session.observe", "where", ("semantic.predicate", "analysis.session.time_scope")),
+        ("session.read", "population", ("analysis.session.members",)),
         ("time_scope.by", "grain", ("analysis.grain.define",)),
         ("analysis_frame.reduce", "values", ("analysis.value_statistic", "analysis.column.sum")),
         ("analysis_frame.reduce", "by", ("analysis.analysis_frame.axis",)),
