@@ -246,7 +246,7 @@ EntryT = TypeVar("EntryT", bound=_EntryLike, covariant=True)
 
 @dataclass(frozen=True, repr=False)
 class CatalogPage(RenderableResult, Generic[EntryT]):
-    """One complete result page; display budgets never truncate its typed data."""
+    """One complete result page with a bounded card for ``print(page)``."""
 
     items: tuple[EntryT, ...]
     candidate_count: int
@@ -263,6 +263,9 @@ class CatalogPage(RenderableResult, Generic[EntryT]):
     def _repr_identity(self) -> str:
         return f"CatalogPage items={len(self.items)} candidates={self.candidate_count}"
 
+    def __str__(self) -> str:
+        return self._card().render(_include_newline=True)
+
     def _card(self) -> Card:
         from marivo._data_render import _text
 
@@ -276,7 +279,7 @@ class CatalogPage(RenderableResult, Generic[EntryT]):
         card.field("filters", json.dumps(_json_value(self.filters), ensure_ascii=False))
         card.field("retrieval", json.dumps(_json_value(self.retrieval), ensure_ascii=False))
         card.table(
-            columns=("id", "business definition / formula", "match"),
+            columns=("id", "definition summary", "match"),
             rows=(
                 (
                     _text(item.id),
@@ -376,4 +379,6 @@ def _page_summary(item: _EntryLike) -> str:
         extra = f" | formula: {definition.formula}"
     elif isinstance(definition, FieldDefinition):
         extra = f" | expression: {definition.expression}"
+    elif isinstance(definition, EntityDefinition):
+        extra = f" | datasource={definition.datasource}"
     return item.summary + extra

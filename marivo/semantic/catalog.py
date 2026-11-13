@@ -2011,8 +2011,8 @@ class SemanticCatalog(RenderableResult):
             Complete typed page with scope, filters, query matches and retrieval facts.
 
         Example:
-            >>> catalog.search().show()  # First page of all loaded kinds
-            >>> catalog.search(kind="metric", domain="sales").show()
+            >>> print(catalog.search())  # First page of all loaded kinds
+            >>> print(catalog.search(kind="entity", domain="sales"))  # Datasource bindings
             >>> page = catalog.search(kind="metric", limit=100)
             >>> while True:
             ...     for metric in page.items:
@@ -2020,13 +2020,14 @@ class SemanticCatalog(RenderableResult):
             ...     if page.next_cursor is None:
             ...         break
             ...     page = catalog.search(kind="metric", limit=100, cursor=page.next_cursor)
-            >>> catalog.search("revenue", kind="metric", limit=5).show()
+            >>> print(catalog.search("revenue", kind="metric", limit=5))
 
         Constraints:
             Empty query lists every filtered object in canonical identity order
             across pages without model calls. candidate_count is the filtered total
             for browsing, but only the candidate pool size for text search.
-            items contains the full current page even when show() truncates it;
+            print(page) and show() display a bounded card with Entity datasource
+            bindings. items contains the full current page even when display truncates it;
             follow next_cursor until None to enumerate all pages.
             Text search uses frozen configuration.
             Search never accesses business datasources or changes the loaded scope.

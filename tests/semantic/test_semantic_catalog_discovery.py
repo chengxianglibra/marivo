@@ -38,6 +38,26 @@ def test_complete_context_and_json_survive_bounded_display(
     assert payload["definition"]["context"]["guardrails"][-1] == "Guardrail 48"
     assert payload["definition"]["context"]["aliases"] == ["销售额", "gross revenue"]
 
+    page = catalog.search(kind="metric")
+    print(page)
+    output = capsys.readouterr().out
+    assert len(output.encode("utf-8")) <= _DEFAULT_MAX_OUTPUT_BYTES
+    assert "displayed=0 omitted=1" in output
+    assert [item.id for item in page.items] == ["metric:sales.revenue"]
+
+
+def test_print_catalog_search_shows_entity_datasource(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    write_minimal_catalog_project(tmp_path)
+    catalog = ms.load(workspace_dir=tmp_path)
+    page = catalog.search("orders", kind="entity")
+
+    print(page)
+    output = capsys.readouterr().out
+    row = next(line for line in output.splitlines() if line.startswith("entity:sales.orders |"))
+    assert "datasource:warehouse" in row
+
 
 def test_metric_definition_discloses_formula_effective_time_and_dependency_guardrails(
     tmp_path: Path,
@@ -111,6 +131,11 @@ def test_browse_pagination_is_complete_stable_and_snapshot_bound(
     second = catalog.search(kind="metric", limit=3, cursor=first.next_cursor)
     assert second.candidate_count == 13
     assert not {item.id for item in first.items} & {item.id for item in second.items}
+    print(first)
+    printed = capsys.readouterr().out
+    assert first.next_cursor in printed
+    assert "metric:sales.revenue_00 |" in printed
+    assert "metric:sales.revenue_03 |" not in printed
     reloaded = ms.load(workspace_dir=tmp_path)
     assert [
         item.id for item in reloaded.search(kind="metric", limit=3, cursor=first.next_cursor).items

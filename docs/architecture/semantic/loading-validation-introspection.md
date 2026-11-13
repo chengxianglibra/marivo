@@ -98,6 +98,12 @@ candidate pool, not every possible semantic match. Display budgets do not change
 `items` or `next_cursor`; `.to_dict()` retains the full API page. Stale cursors
 fail explicitly instead of silently reranking.
 
+`print(page)` displays the same bounded current-page card as `page.show()`,
+including displayed and omitted row counts, `next_cursor`, and the declared
+datasource identity on each displayed Entity row. `repr(page)` is a single-line
+summary. Use `page.show(max_output_bytes=None)` to display all current-page rows
+or `entity.definition.datasource` to read one Entity's captured binding.
+
 ```python
 page = catalog.search(kind="metric", limit=100)
 while True:
@@ -119,7 +125,7 @@ explicit ranges; they have no specialized Catalog object.
 
 ```python
 page = catalog.search("accepted revenue", kind="metric", limit=5)
-page.show()
+print(page)
 entry = catalog.get("metric:sales.revenue")
 if entry.kind == "metric":
     entry.show()

@@ -3174,7 +3174,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
         _capability(
             "SemanticCatalog.search",
             "marivo.semantic.catalog.SemanticCatalog.search",
-            "Search business meaning or list loaded definitions through this one entrypoint. Omit query or pass '' to browse all kinds; kind/domain/entity narrow the list. Empty query sorts by canonical identity, includes every filtered object in the loaded Catalog scope and calls no model. Each call returns one page (default limit=10; any positive integer). Follow next_cursor with the same query and filters until None to enumerate all results; show() may truncate the current page, while items retains it. For empty query, candidate_count is the filtered total. Text uses the frozen lexical or configured hybrid profile; filters precede both recall channels. Hybrid may call models and write derived local caches. Scores express relevance, not execution authority; text candidate_count counts the fixed candidate pool, not every possible semantic match.",
+            "Search business meaning or list loaded definitions through this one entrypoint. Omit query or pass '' to browse all kinds; kind/domain/entity narrow the list. Empty query sorts by canonical identity, includes every filtered object in the loaded Catalog scope and calls no model. Each call returns one page (default limit=10; any positive integer). Use print(page) for a bounded card with Entity datasource bindings. items retains the complete current page; follow next_cursor with the same query and filters until None to enumerate all results. For empty query, candidate_count is the filtered total. Text uses the frozen lexical or configured hybrid profile; filters precede both recall channels. Hybrid may call models and write derived local caches. Scores express relevance, not execution authority; text candidate_count counts the fixed candidate pool, not every possible semantic match.",
             kind="method",
             output="CatalogPage",
             inputs=(AuthoringInputRequirement(role="receiver", family="SemanticCatalog"),),
@@ -3185,9 +3185,9 @@ def _build_registry() -> SemanticCapabilityRegistry:
                 flags=("may_call_model", "may_write_search_cache"),
             ),
             example=(
-                "catalog.search().show()  # All loaded kinds, first page\n"
-                "catalog.search(kind='metric', domain='sales').show()\n"
-                "catalog.search(kind='dimension', entity='sales.orders').show()\n"
+                "print(catalog.search())  # All loaded kinds, first page\n"
+                "print(catalog.search(kind='entity', domain='sales'))  # Datasource bindings\n"
+                "print(catalog.search(kind='dimension', entity='sales.orders'))\n"
                 "page = catalog.search(kind='metric', limit=100)\n"
                 "while True:\n"
                 "    for metric in page.items:\n"
@@ -3195,7 +3195,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
                 "    if page.next_cursor is None:\n"
                 "        break\n"
                 "    page = catalog.search(kind='metric', limit=100, cursor=page.next_cursor)\n"
-                "catalog.search('accepted revenue', kind='metric', limit=5).show()"
+                "print(catalog.search('accepted revenue', kind='metric', limit=5))"
             ),
             public_entrypoint="catalog.search",
         ),
@@ -3618,8 +3618,8 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
         ),
         methods=("to_dict", "to_json", "show", "render"),
         guidance=(
-            "candidate_count is the fixed candidate pool size; next_cursor resumes API pages, independent of display truncation.",
-            "The card counts displayed and omitted current-page items. show(max_output_bytes=None), items and to_json() recover the current page; follow next_cursor for later pages.",
+            "candidate_count is the filtered total for browsing or the fixed candidate pool size for text search. next_cursor resumes API pages, independent of display truncation.",
+            "print(page) displays a bounded current-page card with Entity datasource bindings and displayed/omitted counts. show(max_output_bytes=None) displays all current-page rows. items and to_json() retain the complete captured page.",
         ),
     )
     for entry_type in (

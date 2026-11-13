@@ -337,14 +337,20 @@ optional reranking. Search configuration is frozen at load. The optional
 model or input-length failures are explicit. Derived vector/index/ranking caches
 live in ``<project_root>/.marivo/semantic/search/``. No business datasource is read.
 
+``print(page)`` displays the default bounded current-page card, including the
+declared datasource identity for each displayed Entity. ``repr(page)`` is a
+single-line summary. Use ``page.show(max_output_bytes=None)`` to display all
+current-page rows.
+
 ``catalog.get("metric:sales.revenue")`` returns one immutable object by canonical
 identity. Narrow ``object.kind`` and consume the object directly in operations
 allowed by its kind. Domain/Datasource do not acquire arithmetic.
 ``entry.related("dependencies")`` uses the complete loaded scope independently
 from search filters; unloaded identities are separate ``outside_scope`` metadata.
 Complete definitions and ``to_dict()/to_json()`` are independent of display
-budgets. Query scores/snippets remain on pages. ``candidate_count`` is a fixed
-candidate-pool count, and cursors bind that ranking across short-lived processes.
+budgets. Query scores/snippets remain on pages. ``candidate_count`` is the
+filtered total for browsing and the fixed candidate-pool count for text search.
+Cursors bind the ordering across short-lived processes.
 Changed scope, definitions, configuration or missing cached results rejects a
 cursor and requires restarting the search.
 
