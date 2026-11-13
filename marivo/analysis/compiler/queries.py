@@ -136,10 +136,15 @@ def plan_read(
     source = next(stage for stage in plan.stages if stage.stage_id == plan.publish)
     groups = plan.output_groups
     columns = {column.slot_id: column for column in source.columns}
+    input_keys = tuple(slot for group in groups[: len(root.by)] for slot in group)
     keys = tuple(
-        replace(columns[slot], slot_id=f"key.{index}") for index, slot in enumerate(groups[0])
+        replace(columns[slot], slot_id=f"key.{index}") for index, slot in enumerate(input_keys)
     )
     key_names = tuple(column.slot_id for column in keys)
+    output_groups = tuple(
+        tuple(key_names[input_keys.index(slot)] for slot in group)
+        for group in groups[: len(root.by)]
+    )
     values = tuple(
         replace(
             columns[groups[position][0]],
@@ -163,7 +168,7 @@ def plan_read(
             source.keys,
             source_graph.signature.axes,
             groups,
-            (key_names,),
+            output_groups,
         ),
         unique_keys=UniqueKeys(tuple(c.slot_id for c in (*keys, *values)), (key_names,)),
     )
@@ -178,7 +183,7 @@ def plan_read(
             for item in stages
         ),
         stage.stage_id,
-        (key_names,),
+        output_groups,
     )
 
 

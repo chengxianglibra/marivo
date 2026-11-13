@@ -425,7 +425,9 @@ def test_fold_reaggregates_aligned_samples_before_time(
     for kind in expected:
         assert overall[kind].tolist() == [10]
     region = catalog_value(session.catalog, "sales.customer.region", kind="dimension")
-    regional_population = mv.product(calendar.scope, members.classify(by=(region,)))
+    regional_population = mv.product(
+        calendar.scope, members.classify(by=(region,)).project(by=(region,))
+    )
     assert isinstance(regional_population, mv.Population)
     regional = session.observe(
         {
@@ -692,7 +694,7 @@ def test_selected_groups_keep_sample_selection_before_execution(
         on=((selected_rows.axes[0], _entity(session.catalog, "entity:sales.customer")),),
     )
     calendar = session.time_scope(start="2026-08-01", end="2026-09-01").by(mv.grain("day"))
-    selected_groups = selected.classify(by=(region,))
+    selected_groups = selected.classify(by=(region,)).project(by=(region,))
     assert isinstance(selected_groups, mv.Population)
     query = session.observe(
         {

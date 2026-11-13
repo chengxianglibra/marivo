@@ -117,7 +117,11 @@ def test_time_binding_has_one_public_entry_per_operation() -> None:
     where = str(parameters["where"].annotation)
     assert all(family in by for family in ("DimensionExpression", "Grouping", "Population"))
     assert all(family in where for family in ("RowPredicate", "TimeScope", "tuple", "None"))
-    assert tuple(inspect.signature(mv.Session.read).parameters) == ("self", "population", "fields")
+    read = inspect.signature(mv.Session.read).parameters
+    assert tuple(read) == ("self", "population", "fields", "on")
+    assert read["on"].kind is inspect.Parameter.KEYWORD_ONLY
+    assert str(read["on"].annotation) == "Grouping | None"
+    assert read["on"].default is None
 
 
 def _free_names(code: str) -> set[str]:

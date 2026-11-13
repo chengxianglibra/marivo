@@ -46,11 +46,27 @@ expression ``path``, declared ``metric`` and contribution ``root`` when
 available, and a ``reason`` of ``no_entity_default`` or ``fixed_member_count``.
 The error text lists at most six occurrences and reports any omitted count.
 
-``identity(entity)`` declares one complete identity rule.
+``identity(entity)`` declares one direct complete identity rule.
+``identity(path(...))`` declares a distinct routed identity role. For versioned
+source member selection use ``session.members(entity, at=...)``. Direct axes
+remain compatible across selection times.
 ``coordinates(by=(identity(entity),), keys=((("C1",),),))`` declares a finite
 requested identity domain. Every identity value is a complete primary-key tuple.
 Coordinates also accepts field coordinates and correlated field/identity tuples.
-``population.axes`` reuses grouping definitions without selected keys.
+``population.axes`` exposes grouping definitions without selected keys.
+``population.classify(by=..., on=...)`` appends single-valued fields or complete
+identity roles. ``population.where(predicate)`` filters on existing values.
+``population.project(by=...)`` chooses and reorders existing axes.
+``population.identities(on=...)`` deduplicates one existing identity axis on its
+direct Entity axis. ``session.read(population, fields, on=...)`` keeps complete
+Population keys and adds named scalar values. For classify and read, specify
+``on`` when several existing identity roles qualify.
+
+``mv.path(*steps, source_at=...)`` builds a directed relationship path.
+``relationship.at(anchor)`` fixes the step's target version when a consumer
+requires that row. ``population.image(via=path, on=...)`` returns distinct
+direct target identities; ``population.preimage(targets, via=path, on=...)``
+retains complete receiver tuples that reach any target.
 ``by=population`` retains exactly its complete output keys, including keys
 without facts. A Population may carry one fieldless time coordinate; construct
 it with ``product`` over an explicit interval or calendar domain.
@@ -62,10 +78,11 @@ sampling. Internal sample domains may select subsets.
 ``population.count()`` counts complete distinct tuples as a lazy integer Metric,
 including Null categories and references without source facts. Empty domains
 count 0; the zero-axis unit domain counts 1. Ordinary grouping coordinates must
-already exist in the Population. Classify a new attribute while retaining identity
+already exist in the Population. Classify to append a new attribute
 before counting members by it. Projecting to the attribute alone counts categories.
 Row predicates leave the count's captured domain fixed. A Population count is
-not a timed Metric and cannot consume a report TimeScope or CalendarAxis.
+report independent. It broadcasts along missing report time coordinates and
+matches any compatible time coordinates it already captures.
 
 Use the returned ``compute()`` Frame for complete fixed memory data and the
 returned ``persist()`` Frame for committed data. Derived operations remain lazy.
@@ -256,6 +273,9 @@ variable pairs. Group coefficients/counts do not reconstruct pooled correlation.
 ``session.population_from(frame, on=...)`` projects jointly selected ordinary
 complete axes onto explicitly supplied Field/Entity bindings. ``on`` is required
 and may be empty. Calendar/paired axes and arbitrary value columns cannot bridge.
+The same captured direct field can keep an unanchored ordinary axis. For a new
+versioned field binding, declare its target version with
+``field.at(session.instant(...))``.
 
 ``align`` preserves left/right values and general paired time unions.
 ``compare`` accepts one same-Session Frame with fixed alias ``reference``, or a
@@ -568,6 +588,8 @@ Canonical public exports
    FrameAxis
    Column
    Population
+   Path
+   RelationshipStep
    Grouping
    CalendarCorrespondence
    ComparisonBaseline
@@ -649,6 +671,7 @@ Canonical public exports
    product
    in_population
    identity
+   path
    baseline
    row_count
    ordinal

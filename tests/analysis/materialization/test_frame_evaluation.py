@@ -733,7 +733,7 @@ def test_membership_source_audit_survives_fixed_and_persisted_results_without_re
         catalog_value(session.catalog, "sales.order_links", kind="relationship"),
         catalog_value(session.catalog, "sales.link_tags", kind="relationship"),
     )
-    buckets = mv.membership(label, via=(path,), unmatched="exclude")
+    buckets = mv.membership(label, via=(mv.path(*path),), unmatched="exclude")
     pending = session.observe({"revenue": revenue}, by=(buckets,))
     before = _inventory(session)
 

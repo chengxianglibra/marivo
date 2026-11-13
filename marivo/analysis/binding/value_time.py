@@ -121,9 +121,17 @@ def observation_time_semantics(
         )
     elif isinstance(axis, IntervalCoordinate):
         report_axis = FrameIntervalEndpoint("interval", None, axis.timezone)
-        report_cells = (
-            (_instant(axis.start), _instant(axis.end), _instant(axis.start), _instant(axis.end)),
-        )
+        if observation is None or (
+            observation.pending_interval is None and not observation.empty_interval
+        ):
+            report_cells = (
+                (
+                    _instant(axis.start),
+                    _instant(axis.end),
+                    _instant(axis.start),
+                    _instant(axis.end),
+                ),
+            )
 
     declared = dict(graph.signature.declared_metrics)
     result: list[tuple[str, FrameValueTimeSemantics]] = []

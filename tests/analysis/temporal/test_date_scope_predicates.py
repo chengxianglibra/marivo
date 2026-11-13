@@ -138,6 +138,24 @@ def test_date_boundaries_preserves_date_identity_coordinates(
     assert result.schema.axes[0].keys[0].dtype == ScalarDataType("date")
 
 
+def test_population_time_membership_uses_native_civil_day_start(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    semantic_project_factory: Callable[[dict[str, str]], SemanticProject],
+) -> None:
+    _project(tmp_path, monkeypatch, semantic_project_factory, "Asia/Tokyo")
+    session = mv.session.get_or_create("date-population-membership", timezone="UTC")
+    day = _time_dimension(session.catalog, "time_dimension:sales.facts.day")
+    amount = _measure(session.catalog, "measure:sales.facts.amount")
+    unit = mv.coordinates(by=(), keys=((),))
+    scope = session.time_scope(start="2026-07-01", end="2026-07-02")
+    domain = mv.product(scope, unit)
+    metric = amount.sum(time=day)
+    result = session.observe({"value": metric}, where=mv.in_population(domain))
+    # Tokyo July 2 starts at 15:00 UTC on July 1, and a NULL date never matches.
+    assert result.compute().to_pandas()["value"].tolist() == [20]
+
+
 def test_date_boundaries_composition_preserves_raw_projection_and_exact_equality(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -281,7 +299,11 @@ def test_date_boundaries_through_versioned_relationship_retain_field_read(
     amount = _measure(session.catalog, "measure:sales.facts.amount")
     assert isinstance(day, ms.TimeDimension) and isinstance(amount, ms.Measure)
     assert isinstance(relationship, ms.Relationship)
-    historical_day = day.via((relationship,)).at(session.instant("2026-06-30T16:00Z"))
+    historical_day = day.via(
+        mv.path(
+            relationship,
+        )
+    ).at(session.instant("2026-06-30T16:00Z"))
     scope = session.time_scope(start="2026-07-01", end="2026-07-02")
     selected = session.members(
         _entity(session.catalog, "entity:sales.facts"),

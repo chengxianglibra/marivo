@@ -59,7 +59,11 @@ def time_key_type(
 
 def time_keys(axis: CalendarCoordinate | IntervalCoordinate) -> tuple[datetime | int, ...]:
     """Keep the complete selected directory's order without renumbering its keys."""
-    return tuple(cell[0] for cell in axis.cells) if isinstance(axis, CalendarCoordinate) else (0,)
+    return (
+        tuple(cell[0] for cell in axis.cells)
+        if isinstance(axis, CalendarCoordinate)
+        else tuple(range(len(axis.bounds)))
+    )
 
 
 def time_key_series(axis: CalendarCoordinate | IntervalCoordinate) -> pd.Series:

@@ -336,8 +336,12 @@ def read(
     connection: DatasourceConnectionConfig,
     population: Population,
     fields: Mapping[str, Deferred | FieldExpression],
+    *,
+    on: Grouping | None = None,
 ) -> AnalysisFrame:
     validate_context(population._context, project_root=connection.project_root, owner=local.owner)
+    if isinstance(on, Grouping):
+        validate_context(on._context, project_root=connection.project_root, owner=local.owner)
     bound_fields = {
         name: bind_field_in_state(
             value, state, project_root=connection.project_root, owner=local.owner
@@ -346,7 +350,7 @@ def read(
         else value
         for name, value in fields.items()
     }
-    graph = capture_read(population, bound_fields, local.owner, state)
+    graph = capture_read(population, bound_fields, local.owner, on=on)
     for name in fields:
         value_name(name, location="frame.read")
     return _capture(

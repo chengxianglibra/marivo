@@ -188,7 +188,11 @@ output coordinates remain independently specified.
 
 Versioned membership requires an exact instant anchor. `field.at(anchor)` uses
 one fixed attribute version for the entire question, including changes exactly at
-that instant. `dimension.via((relationship,)).at(fact_time)` instead selects a
+that instant. Population membership time selects source identities. A later
+lookup selects its own version with a field or Path anchor. Each Path node can
+carry one effective version anchor, supplied by `source_at`, the relationship
+step, or the terminal field as applicable.
+`dimension.via(mv.path(relationship)).at(fact_time)` selects a
 version for each original fact in ordinary same-source, single-root observe
 classification (`by` and label `where`) on DuckDB and Trino. The control is one
 named, unanchored, path-free TimeDimension on an unversioned or snapshot fact root.

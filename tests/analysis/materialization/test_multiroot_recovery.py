@@ -162,12 +162,20 @@ def test_native_independent_multiroot_fixed_and_cold(
             left_members = session.members(
                 catalog_value(session.catalog, "sales.left", kind="entity")
             )
-            auto_read = session.read(left_members, {"value": owner_field})
+            subjects = mv.identity(
+                mv.path(catalog_value(session.catalog, "sales.left_subject", kind="relationship"))
+            )
+            classified = left_members.classify(by=(subjects,))
+            auto_read = session.read(classified, {"value": owner_field}, on=subjects)
             explicit_read = session.read(
-                left_members,
+                classified,
                 {
                     "value": owner_field.via(
-                        (catalog_value(session.catalog, "sales.left_subject", kind="relationship"),)
+                        mv.path(
+                            catalog_value(
+                                session.catalog, "sales.left_subject", kind="relationship"
+                            )
+                        )
                     )
                 },
             )

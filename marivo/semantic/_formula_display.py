@@ -238,7 +238,7 @@ class FormulaDisplay:
                 )
                 paths = _tuple_text(
                     tuple(
-                        _tuple_text(tuple(self._name(step.ref) for step in path))
+                        _tuple_text(tuple(self._name(step.ref) for step in path.relationships))
                         for path in membership.paths
                     )
                 )

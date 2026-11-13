@@ -219,7 +219,9 @@ class NavigationInput:
     canonical_id: str
     summary: str
     members: tuple[str, ...]
-    render_class: Literal["root", "decision_hub", "navigation", "service_reference"] = "navigation"
+    render_class: Literal[
+        "root", "decision_hub", "navigation", "population_workflow", "service_reference"
+    ] = "navigation"
     guidance: tuple[str, ...] = ()
     related: tuple[str, ...] = ()
     discovery_group: str | None = None

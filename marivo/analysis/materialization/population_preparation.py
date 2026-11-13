@@ -69,6 +69,26 @@ def _domain_table(prepared: PreparedPopulation) -> ir.Table:
     return table.select(__population_unit=ibis.literal(True)).distinct()
 
 
+def _retain_checks(result: PreparedPopulation, *inputs: PreparedPopulation) -> PreparedPopulation:
+    """Carry required input checks even when a set operation removes all keys."""
+    table = result.table
+    checks = list(result.checks)
+    presence = result.presence
+    for operand in inputs:
+        if not operand.checks:
+            continue
+        if presence is None:
+            presence = "__population_present"
+            table = table.mutate(**{presence: ibis.literal(True)})
+        flags = {}
+        for name, expected, received in operand.checks:
+            alias = f"__population_input_check_{len(checks)}"
+            flags[alias] = operand.table[name].any().fill_null(False)
+            checks.append((alias, expected, received))
+        table = operand.table.aggregate(**flags).left_join(table, ibis.literal(True))
+    return PreparedPopulation(table, result.key_groups, tuple(checks), presence)
+
+
 def population_entities(
     definition: PopulationDependency, state: CompiledSemanticState | None = None
 ) -> tuple[str, ...]:
@@ -103,7 +123,10 @@ def population_entities(
         elif isinstance(node, (PopulationProject, PopulationClassify)):
             entities.update(population_entities(node.operand, state))
             if isinstance(node, PopulationClassify):
-                for read in node.fields:
+                subject = node.operand.axes[node.subject]
+                assert isinstance(subject, AxisBinding)
+                entities.add(subject.entity.ref.path)
+                for read in node.reads:
                     entities.add(read.entity.ref.path)
                     if state is not None:
                         for field_step in read.path:
@@ -115,7 +138,7 @@ def population_entities(
                 entities.update(population_entities(domain, state))
         elif isinstance(node, (PopulationImage, PopulationPreimage)):
             entities.update(population_entities(node.operand, state))
-            for step in node.path:
+            for step in node.path.relationships:
                 entities.update((step.from_entity.ref.path, step.to_entity.ref.path))
             if isinstance(node, PopulationPreimage):
                 entities.update(population_entities(node.targets, state))
@@ -396,8 +419,9 @@ def prepare_population(
             source_times=source_times,
             consumption_timezone=consumption_timezone,
         )
-        table = prepared.table
+        table = _domain_table(prepared)
         marks: dict[PopulationDependency, str] = {}
+        dependencies = [prepared]
         for index, domain in enumerate(condition_populations(node.predicate)):
             selected = prepare_population(
                 domain,
@@ -406,24 +430,23 @@ def prepare_population(
                 source_times=source_times,
                 consumption_timezone=consumption_timezone,
             )
+            dependencies.append(selected)
             marker = f"__population_selected_{index}"
             rename = {
                 name: f"__population_test_{index}_{offset}"
                 for offset, name in enumerate(selected.key_columns)
             }
-            allowed = (
-                (
-                    _domain_table(selected).select(
-                        **{new: selected.table[old] for old, new in rename.items()}
-                    )
-                    if rename
-                    else _domain_table(selected)
-                )
-                .distinct()
-                .mutate(**{marker: ibis.literal(True)})
-            )
+            allowed = _domain_table(selected).view()
+            if rename:
+                allowed = allowed.select(**{new: allowed[old] for old, new in rename.items()})
+            allowed = allowed.mutate(**{marker: ibis.literal(True)})
             pairs = [
-                (left, rename[right])
+                (
+                    left,
+                    rename[right],
+                    definition.axes[coordinate_position(definition.axes, axis)],
+                    axis,
+                )
                 for axis, group in zip(domain.axes, selected.key_groups, strict=True)
                 for left, right in zip(
                     prepared.key_groups[coordinate_position(definition.axes, axis)],
@@ -431,33 +454,72 @@ def prepare_population(
                     strict=True,
                 )
             ]
-            predicates = [table[left].identical_to(allowed[right]) for left, right in pairs]
+            predicates: list[ir.BooleanValue] = []
+            for left, right, actual, expected in pairs:
+                if isinstance(actual, IntervalCoordinate) and isinstance(
+                    expected, IntervalCoordinate
+                ):
+                    mapped = tuple(
+                        (index, expected.bounds.index(bounds))
+                        for index, bounds in enumerate(actual.bounds)
+                        if bounds in expected.bounds
+                    )
+                    predicates.append(
+                        ibis.or_(*((table[left] == a) & (allowed[right] == b) for a, b in mapped))
+                        if mapped
+                        else ibis.literal(False)
+                    )
+                else:
+                    predicates.append(table[left].identical_to(allowed[right]))
             table = table.left_join(allowed, predicates or ibis.literal(True)).select(
                 table, allowed[marker]
             )
             marks[domain] = marker
 
+        from marivo._definition.population_builders import predicate_fields
         from marivo.analysis.compiler.predicate import lower_condition, population_key
 
         markers = {
             population_key(domain): table[marker].fill_null(False)
             for domain, marker in marks.items()
         }
-        filtered = table.filter(lower_condition(node.predicate, markers).value)
-        return PreparedPopulation(
+        fields = {
+            name: table[prepared.key_groups[position][0]]
+            for name, position in predicate_fields(definition.axes, node.predicate)
+        }
+        lowered = lower_condition(node.predicate, {**fields, **markers})
+        if lowered.checks:
+            presence = "__population_predicate_selected"
+            checks = tuple(
+                (f"__population_predicate_check_{i}", check.expected, check.received)
+                for i, check in enumerate(lowered.checks)
+            )
+            table = table.select(
+                *prepared.key_columns,
+                **{presence: lowered.value.fill_null(False)},
+                **{
+                    name: check.violation
+                    for (name, _, _), check in zip(checks, lowered.checks, strict=True)
+                },
+            )
+            return _retain_checks(
+                PreparedPopulation(table, key_groups, checks, presence), *dependencies
+            )
+        filtered = table.filter(lowered.value)
+        result = PreparedPopulation(
             filtered.select(*prepared.key_columns)
             if columns
             else filtered.select(__population_unit=ibis.literal(True)).distinct(),
             key_groups,
             presence="__population_unit" if not columns else None,
         )
+        return _retain_checks(result, *dependencies)
     if isinstance(node, (PopulationImage, PopulationPreimage)):
         from marivo.analysis.materialization.population_relations import (
             prepare_relationship_population,
         )
 
         return prepare_relationship_population(
-            definition,
             node,
             entities,
             state,
@@ -481,45 +543,46 @@ def prepare_population(
             **{null_key: ibis.or_(*(source[key].isnull() for key in keys))},
             **({name: source[name] for name, _, _ in checks} if summary is None else {}),
         )
-        presence = None
+        selected_presence = None
         if summary is not None:
-            presence = "__identity_selected"
+            selected_presence = "__identity_selected"
             output = summary.left_join(
-                output.mutate(**{presence: ibis.literal(True)}), ibis.literal(True)
+                output.mutate(**{selected_presence: ibis.literal(True)}), ibis.literal(True)
             )
         return PreparedPopulation(
             output,
             key_groups,
             (*checks, (null_key, "non-null complete identity keys", node.entity.ref.path)),
-            presence,
+            selected_presence,
         )
     if isinstance(node, PopulationSet):
-        left = _domain_table(
-            prepare_population(
-                node.left,
-                entities,
-                state,
-                source_times=source_times,
-                consumption_timezone=consumption_timezone,
-            )
+        left_operand = prepare_population(
+            node.left,
+            entities,
+            state,
+            source_times=source_times,
+            consumption_timezone=consumption_timezone,
         )
-        right = _domain_table(
-            prepare_population(
-                node.right,
-                entities,
-                state,
-                source_times=source_times,
-                consumption_timezone=consumption_timezone,
-            )
+        right_operand = prepare_population(
+            node.right,
+            entities,
+            state,
+            source_times=source_times,
+            consumption_timezone=consumption_timezone,
         )
+        left, right = _domain_table(left_operand), _domain_table(right_operand)
         if node.operation == "union":
             table = left.union(right, distinct=True)
         elif node.operation == "intersection":
             table = left.intersect(right, distinct=True)
         else:
             table = left.difference(right, distinct=True)
-        return PreparedPopulation(
-            table, key_groups, presence="__population_unit" if not columns else None
+        return _retain_checks(
+            PreparedPopulation(
+                table, key_groups, presence="__population_unit" if not columns else None
+            ),
+            left_operand,
+            right_operand,
         )
     if isinstance(node, PopulationProject):
         source = prepare_population(
@@ -532,18 +595,29 @@ def prepare_population(
         old = tuple(column for index in node.positions for column in source.key_groups[index])
         table = _domain_table(source)
         if not columns:
-            return PreparedPopulation(
-                table.select(__population_unit=ibis.literal(True)).distinct(),
-                key_groups,
-                presence="__population_unit",
+            return _retain_checks(
+                PreparedPopulation(
+                    table.select(__population_unit=ibis.literal(True)).distinct(),
+                    key_groups,
+                    presence="__population_unit",
+                ),
+                source,
             )
-        projected = table.select(
-            **{new: table[old_name] for new, old_name in zip(columns, old, strict=True)}
-        )
+        projected_columns = {
+            new: table[old_name] for new, old_name in zip(columns, old, strict=True)
+        }
+        for position, interval_keys in node.interval_keys:
+            (name,) = key_groups[position]
+            projected_columns[name] = (
+                projected_columns[name]
+                .cases(*((index, key) for index, key in enumerate(interval_keys)))
+                .cast("int64")
+            )
+        projected = table.select(**projected_columns)
         # Selecting every complete axis only reorders an already unique tuple.
         if len(node.positions) != len(source.key_groups):
             projected = projected.distinct()
-        return PreparedPopulation(projected, key_groups)
+        return _retain_checks(PreparedPopulation(projected, key_groups), source)
     if isinstance(node, PopulationProduct):
         factors = tuple(
             prepare_population(
@@ -576,13 +650,16 @@ def prepare_population(
         for factor_table in tables[1:]:
             table = table.cross_join(factor_table)
         if not columns:
-            return PreparedPopulation(
-                table.select(__population_unit=ibis.literal(True)),
-                key_groups,
-                presence="__population_unit",
+            return _retain_checks(
+                PreparedPopulation(
+                    table.select(__population_unit=ibis.literal(True)),
+                    key_groups,
+                    presence="__population_unit",
+                ),
+                *factors,
             )
         # Each factor is a set, and all factor keys survive the Cartesian product.
-        return PreparedPopulation(table.select(*columns), key_groups)
+        return _retain_checks(PreparedPopulation(table.select(*columns), key_groups), *factors)
     if isinstance(node, PopulationClassify):
         from marivo.analysis.materialization.population_relations import prepare_member_fields
 

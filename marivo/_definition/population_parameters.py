@@ -23,13 +23,14 @@ from marivo._definition import population_builders as build
 from marivo._definition.correspondence import ComparisonAxis
 from marivo._definition.deferred import (
     DeclarationResolver,
-    NamedResolver,
     PopulationContainsResolver,
     PopulationCountResolver,
     RelationshipParameter,
     RescaleResolver,
     _FrozenResolver,
+    _PathValue,
     _RelationshipValue,
+    captured_relationship,
     inspect_capture,
     relationship_carrier,
     resolver_of,
@@ -53,6 +54,8 @@ from marivo._definition.types import (
     FieldRead,
     InputContext,
     IntervalCoordinate,
+    PathParameter,
+    RelationshipStepParameter,
     check_literal,
     invalid,
     merge_input_contexts,
@@ -68,22 +71,21 @@ from marivo._temporal import (
 from marivo._temporal_grid import instant
 from marivo.refs import Ref, SemanticKind, SemanticKindTag
 
-PathValue: TypeAlias = Deferred | RelationshipParameter
+PathValue: TypeAlias = Deferred | PathParameter
 AxisValue: TypeAlias = Deferred | Grouping
 FactorValue: TypeAlias = Deferred | PopulationParameter | CalendarAxis | TimeScope
 
 
 @dataclass(frozen=True, slots=True, eq=False)
 class IdentityParameter:
-    target: Deferred | ExactRef | tuple[PathValue, ...]
-    at: InstantAnchor | None
+    target: Deferred | ExactRef | PathParameter
     _context: InputContext = dataclass_field(default=InputContext(), kw_only=True)
 
 
 @dataclass(frozen=True, slots=True, eq=False)
 class MembershipParameter:
     fields: tuple[Deferred, ...]
-    paths: tuple[tuple[PathValue, ...], ...]
+    paths: tuple[PathValue, ...]
     unmatched: Literal["exclude", "null"]
     _context: InputContext = dataclass_field(default=InputContext(), kw_only=True)
 
@@ -110,20 +112,30 @@ class ContainsParameter:
     _context: InputContext = dataclass_field(default=InputContext(), kw_only=True)
 
 
+@dataclass(frozen=True, slots=True, eq=False)
+class PathRecipe:
+    steps: tuple[Deferred | RelationshipStepParameter, ...]
+    source_at: InstantAnchor | None
+    _context: InputContext = dataclass_field(default=InputContext(), kw_only=True)
+
+
 Parameter: TypeAlias = (
     IdentityParameter
     | MembershipParameter
     | CoordinatesParameter
     | ProductParameter
     | ContainsParameter
+    | PathRecipe
 )
-ParameterRole: TypeAlias = Literal["population", "grouping", "axes", "predicate", "metric"]
+ParameterRole: TypeAlias = Literal["population", "grouping", "axes", "predicate", "metric", "path"]
 
 
 def parameter_role(recipe: Resolver) -> ParameterRole | None:
     """Identify finite helper results without treating count as a Population."""
     if isinstance(recipe, ParameterResolver):
         value = recipe.parameter
+        if isinstance(value, PathRecipe):
+            return "path"
         if isinstance(value, (IdentityParameter, MembershipParameter)):
             return "grouping"
         if isinstance(value, ContainsParameter):
@@ -136,6 +148,8 @@ def parameter_role(recipe: Resolver) -> ParameterRole | None:
     if isinstance(recipe, DeclarationResolver) and recipe.declaration.kind == "metric":
         return "metric"
     if isinstance(recipe, Just):
+        if isinstance(recipe.value, (PathParameter, _PathValue)):
+            return "path"
         if isinstance(recipe.value, PopulationParameter):
             return "population"
         if isinstance(recipe.value, Grouping):
@@ -163,6 +177,7 @@ def parameter_role(recipe: Resolver) -> ParameterRole | None:
             "intersection",
             "difference",
             "classify",
+            "identities",
             "image",
             "preimage",
             "where",
@@ -198,9 +213,13 @@ def validate_parameter_call(recipe: Resolver, path: tuple[str, ...] = ()) -> Non
         if name != "axes":
             invalid("Population parameters expose only axes as an attribute", path=path)
         return
-    required = {"project": {"by"}, "classify": {"by"}, "image": {"via"}, "preimage": {"via"}}.get(
-        name, set()
-    )
+    required = {
+        "project": {"by"},
+        "classify": {"by"},
+        "identities": {"on"},
+        "image": {"via"},
+        "preimage": {"via"},
+    }.get(name, set())
     if required - set(recipe.kwargs):
         invalid(
             f"Population.{name} requires explicit {', '.join(sorted(required))} parameters",
@@ -216,30 +235,32 @@ def validate_parameter_call(recipe: Resolver, path: tuple[str, ...] = ()) -> Non
                 f"Population.{name} requires by=(field_or_grouping, ...) or Population.axes",
                 path=path,
             )
-    if name in {"image", "preimage"}:
-        via = recipe.kwargs["via"]
-        if not isinstance(via, Sequence) or not via.values:
-            invalid(f"Population.{name} requires a nonempty directed relationship tuple", path=path)
-        for index, step in enumerate(via.values):
-            _validate_relationship_recipe(step, (*path, "via", str(index)))
-        at = recipe.kwargs.get("at")
-        if at is not None and (
-            not isinstance(at, Just)
-            or (at.value is not None and not isinstance(at.value, InstantAnchor))
-        ):
-            invalid("Population.image requires an exact InstantAnchor at parameter", path=path)
+    if name in {"image", "preimage"} and parameter_role(recipe.kwargs["via"]) != "path":
+        invalid(f"Population.{name} requires via=mv.path(...)", path=path)
+    on = recipe.kwargs.get("on")
+    if (
+        on is not None
+        and parameter_role(on) != "grouping"
+        and not (isinstance(on, Just) and on.value is None and name != "identities")
+    ):
+        invalid(f"Population.{name} requires an identity Grouping for on", path=path)
 
 
 def _validate_relationship_recipe(recipe: Resolver, path: tuple[str, ...]) -> None:
-    if type(recipe) is SymbolResolver and recipe.reference.kind is SemanticKind.RELATIONSHIP:
+    if captured_relationship(recipe):
         return
-    if isinstance(recipe, NamedResolver) and recipe.reference.ref.kind is SemanticKind.RELATIONSHIP:
-        return
-    if isinstance(recipe, Just) and isinstance(
-        recipe.value, (RelationshipParameter, _RelationshipValue)
+    if (
+        isinstance(recipe, Call)
+        and isinstance(recipe.func, Attr)
+        and isinstance(recipe.func.name, Just)
+        and recipe.func.name.value == "at"
+        and captured_relationship(recipe.func.obj)
+        and len(recipe.args) == 1
+        and not recipe.kwargs
+        and isinstance(recipe.args[0], Just)
+        and isinstance(recipe.args[0].value, InstantAnchor)
+        and recipe.args[0].value.utcoffset() is not None
     ):
-        return
-    if relationship_carrier(recipe) is not None:
         return
     invalid(
         "via requires native Relationship symbols or closed Relationship values; expressions and literals cannot form a relationship path",
@@ -308,7 +329,7 @@ class ParameterResolver(_FrozenResolver):
 def _contexts(*values: object) -> InputContext:
     contexts: list[InputContext] = []
     for value in values:
-        if isinstance(value, _RelationshipValue):
+        if isinstance(value, (_RelationshipValue, PathParameter)):
             contexts.append(value._context)
         elif isinstance(value, (Deferred, Resolver, Grouping, PopulationParameter)):
             contexts.append(
@@ -329,6 +350,8 @@ def _keys(*values: object) -> tuple[tuple[str, tuple[str, ...]], ...]:
         items = (
             value._identity_keys
             if isinstance(value, (Grouping, PopulationParameter))
+            else ((value.target.ref.key, value.steps[-1].relationship.target_keys),)
+            if isinstance(value, PathParameter)
             else _keys(*value)
             if isinstance(value, tuple)
             else ()
@@ -343,17 +366,13 @@ def _keys(*values: object) -> tuple[tuple[str, tuple[str, ...]], ...]:
 def parameter_inputs(recipe: ParameterResolver) -> tuple[Deferred, ...]:
     value = recipe.parameter
     if isinstance(value, IdentityParameter):
-        return (
-            (value.target,)
-            if isinstance(value.target, Deferred)
-            else tuple(item for item in value.target if isinstance(item, Deferred))
-            if isinstance(value.target, tuple)
-            else ()
-        )
+        return (value.target,) if isinstance(value.target, Deferred) else ()
+    if isinstance(value, PathRecipe):
+        return tuple(item for item in value.steps if isinstance(item, Deferred))
     if isinstance(value, MembershipParameter):
         return (
             *value.fields,
-            *(item for path in value.paths for item in path if isinstance(item, Deferred)),
+            *(item for item in value.paths if isinstance(item, Deferred)),
         )
     if isinstance(value, CoordinatesParameter):
         return tuple(item for item in value.by if isinstance(item, Deferred))
@@ -367,19 +386,27 @@ def validate_parameter(
 ) -> tuple[Deferred, ...]:
     value = recipe.parameter
     if isinstance(value, IdentityParameter):
-        build.anchor(value.at)
         if isinstance(value.target, Deferred):
             reference = native_symbol_ref(value.target)
-            if reference is None or reference.kind is not SemanticKind.ENTITY:
-                invalid("identity requires a native Entity symbol", path=path)
-        elif isinstance(value.target, tuple):
-            if not value.target:
-                invalid("identity requires a nonempty relationship path", path=path)
-            _validate_paths((value.target,), path)
+            if (reference is None or reference.kind is not SemanticKind.ENTITY) and (
+                parameter_role(resolver_of(value.target)) != "path"
+            ):
+                invalid("identity requires an Entity or mv.path(...)", path=path)
+    elif isinstance(value, PathRecipe):
+        build.anchor(value.source_at)
+        if not value.steps:
+            invalid("mv.path requires at least one directed relationship", path=path)
+        for index, step in enumerate(value.steps):
+            if isinstance(step, Deferred):
+                _validate_relationship_recipe(resolver_of(step), (*path, "step", str(index)))
     elif isinstance(value, MembershipParameter):
         if not value.fields or value.unmatched not in ("exclude", "null"):
             invalid("membership requires fields and an explicit exclude or null policy", path=path)
-        _validate_paths(value.paths, path)
+        if any(
+            isinstance(item, Deferred) and parameter_role(resolver_of(item)) != "path"
+            for item in value.paths
+        ):
+            invalid("membership via requires Paths constructed with mv.path(...)", path=path)
         for index, item in enumerate(value.fields):
             _validate_field_recipe(resolver_of(item), (*path, "field", str(index)), grouping=False)
     elif isinstance(value, CoordinatesParameter):
@@ -412,17 +439,6 @@ def validate_parameter(
     return parameter_inputs(recipe)
 
 
-def _validate_paths(paths: tuple[tuple[PathValue, ...], ...], path: tuple[str, ...]) -> None:
-    for steps in paths:
-        if not steps:
-            invalid("relationship paths must be nonempty", path=path)
-        for step in steps:
-            if isinstance(step, Deferred):
-                _validate_relationship_recipe(resolver_of(step), path)
-            elif not isinstance(step, RelationshipParameter):
-                invalid("paths require closed relationship facts", path=path)
-
-
 def parameter(value: Parameter) -> Deferred:
     recipe = ParameterResolver(value)
     validate_parameter(recipe)
@@ -451,7 +467,7 @@ def interval(scope: TimeScope) -> PopulationParameter:
 def _literal(value: Deferred) -> object:
     recipe = resolver_of(value)
     if isinstance(recipe, Just):
-        return recipe.value
+        return recipe.value._parameter if isinstance(recipe.value, _PathValue) else recipe.value
     if relationship_carrier(recipe) is not None:
         return recipe.value
     return value
@@ -481,22 +497,14 @@ def bind_parameter(
     *,
     field: Callable[[Deferred], FieldRead],
     predicate: Callable[[Deferred], PredicateExpression],
-) -> Grouping | PopulationParameter | Resolver:
+) -> Grouping | PopulationParameter | PathParameter | Resolver:
     value = recipe.parameter
 
-    def path(steps: tuple[PathValue, ...]) -> tuple[RelationshipParameter, ...]:
-        values: list[RelationshipParameter] = []
-        for step in steps:
-            if isinstance(step, Deferred):
-                reference = native_symbol_ref(step)
-                values.append(
-                    _relationship(resolve(reference))
-                    if reference is not None
-                    else _relationship(_literal(bind(step)))
-                )
-            else:
-                values.append(_relationship(step))
-        return tuple(values)
+    def path(item: PathValue) -> PathParameter:
+        current = _literal(bind(item)) if isinstance(item, Deferred) else item
+        if not isinstance(current, PathParameter):
+            invalid("This parameter requires a bound Path from mv.path(...)")
+        return current
 
     def by(items: tuple[AxisValue, ...]) -> tuple[ComparisonAxis, ...]:
         result: list[ComparisonAxis] = []
@@ -513,21 +521,28 @@ def bind_parameter(
                 invalid("Population axes require closed fields or coordinate groupings")
         return build.axes(tuple(result))
 
+    if isinstance(value, PathRecipe):
+        steps: list[RelationshipStepParameter] = []
+        for step in value.steps:
+            current = _literal(bind(step)) if isinstance(step, Deferred) else step
+            steps.append(
+                current
+                if isinstance(current, RelationshipStepParameter)
+                else RelationshipStepParameter(_relationship(current))
+            )
+        return PathParameter(tuple(steps), value.source_at, _context=value._context)
     if isinstance(value, IdentityParameter):
         if isinstance(value.target, Deferred):
             reference = native_symbol_ref(value.target)
-            assert reference is not None
-            target = _entity(resolve(reference))
-        elif isinstance(value.target, tuple):
-            return _CoordinateGrouping(build.identity(path(value.target), value.at), value._context)
+            target = _entity(resolve(reference)) if reference is not None else path(value.target)
         else:
             target = value.target
-        return _CoordinateGrouping(build.identity(target, value.at), value._context)
+        return _CoordinateGrouping(build.identity(target), value._context, _keys(target))
     if isinstance(value, MembershipParameter):
         return _MembershipGrouping(
             build.membership(
                 tuple(field(bind(item)) for item in value.fields),
-                tuple(path(steps) for steps in value.paths),
+                tuple(path(item) for item in value.paths),
                 value.unmatched,
             ),
             value._context,
@@ -569,7 +584,6 @@ def bind_parameter(
 def bind_parameter_call(
     recipe: Resolver,
     bind: Callable[[Deferred], Deferred],
-    resolve: Callable[[Ref[SemanticKindTag]], object],
     *,
     field: Callable[[Deferred], FieldRead],
     predicate: Callable[[Deferred], PredicateExpression],
@@ -579,7 +593,9 @@ def bind_parameter_call(
     def bound(item: Resolver) -> object:
         current = resolver_of(bind(Deferred(item)))
         if isinstance(current, Just):
-            return current.value
+            return (
+                current.value._parameter if isinstance(current.value, _PathValue) else current.value
+            )
         carrier = relationship_carrier(current)
         if carrier is not None:
             return carrier
@@ -621,6 +637,15 @@ def bind_parameter_call(
         return None
     if not isinstance(recipe, Call) or not isinstance(recipe.func, Attr):
         return None
+    if (
+        isinstance(recipe.func.name, Just)
+        and recipe.func.name.value == "at"
+        and captured_relationship(recipe.func.obj)
+    ):
+        _validate_relationship_recipe(recipe, ())
+        anchor = bound(recipe.args[0])
+        assert isinstance(anchor, InstantAnchor)
+        return Just(RelationshipStepParameter(_relationship(bound(recipe.func.obj)), anchor))
     receiver = bound(recipe.func.obj)
     if not isinstance(receiver, PopulationParameter) or not isinstance(recipe.func.name, Just):
         return None
@@ -632,9 +657,10 @@ def bind_parameter_call(
         if args or kwargs:
             invalid(f"Population.{method} does not accept these arguments")
 
-    def axes_arg() -> tuple[ComparisonAxis, ...]:
+    def axes_arg() -> tuple[tuple[ComparisonAxis, ...], tuple[bool, ...]]:
         value = kwargs.get("by")
-        if args or set(kwargs) != {"by"} or not isinstance(value, tuple):
+        allowed = {"by", "on"} if method == "classify" else {"by"}
+        if args or set(kwargs) - allowed or not isinstance(value, tuple):
             invalid(f"Population.{method} requires by=(field_or_grouping, ...)")
         result: list[ComparisonAxis] = []
         for item in value:
@@ -644,18 +670,31 @@ def bind_parameter_call(
                 result.append(build.axis(field(item)))
             else:
                 invalid("Population coordinates require closed fields or groupings")
-        return build.axes(tuple(result))
+        return tuple(result), tuple(isinstance(item, Grouping) for item in value)
+
+    def subject() -> ComparisonAxis | None:
+        value = kwargs.get("on")
+        if value is None:
+            return None
+        if not isinstance(value, Grouping) or isinstance(value._binding, MembershipBinding):
+            invalid(f"Population.{method} requires on=identity_grouping")
+        return value._binding
 
     if method == "count":
         empty()
         return PopulationCountResolver(receiver)
     if method in ("project", "classify"):
-        values = axes_arg()
+        values, exact = axes_arg()
         definition = (
             build.project(receiver._definition, values)
             if method == "project"
-            else build.classify(receiver._definition, values)
+            else build.classify(receiver._definition, values, subject(), exact=exact)
         )
+    elif method == "identities":
+        selected = subject()
+        if args or set(kwargs) != {"on"} or selected is None:
+            invalid("Population.identities requires on=identity_grouping")
+        definition = build.identities(receiver._definition, selected)
     elif method in ("union", "intersection", "difference"):
         if len(args) != 1 or kwargs or not isinstance(args[0], PopulationParameter):
             invalid(f"Population.{method} requires one Population")
@@ -665,32 +704,17 @@ def bind_parameter_call(
             invalid("Population.where requires one Deferred membership predicate")
         definition = build.where(receiver._definition, predicate(args[0]))
     elif method in ("image", "preimage"):
-        steps = kwargs.get("via")
-        if not isinstance(steps, tuple) or not steps:
-            invalid(f"Population.{method} requires an explicit nonempty via tuple")
-        path: list[RelationshipParameter] = []
-        for step in steps:
-            reference = native_symbol_ref(step)
-            path.append(
-                _relationship(resolve(reference)) if reference is not None else _relationship(step)
-            )
+        path = kwargs.get("via")
+        if not isinstance(path, PathParameter) or set(kwargs) - {"via", "on"}:
+            invalid(f"Population.{method} requires via=mv.path(...) and optional on=")
         if method == "image":
-            at = kwargs.get("at")
-            if (
-                args
-                or set(kwargs) - {"via", "at"}
-                or (at is not None and not isinstance(at, InstantAnchor))
-            ):
-                invalid("Population.image requires via and an optional exact at anchor")
-            definition = build.image(receiver._definition, tuple(path), at)
+            if args:
+                invalid("Population.image uses keyword arguments via= and on=")
+            definition = build.image(receiver._definition, path, subject())
         else:
-            if (
-                len(args) != 1
-                or set(kwargs) != {"via"}
-                or not isinstance(args[0], PopulationParameter)
-            ):
+            if len(args) != 1 or not isinstance(args[0], PopulationParameter):
                 invalid("Population.preimage requires one target Population and via")
-            definition = build.preimage(receiver._definition, args[0]._definition, tuple(path))
+            definition = build.preimage(receiver._definition, args[0]._definition, path, subject())
     else:
         invalid(f"Unsupported symbolic Population operation {method!r}")
     return Just(

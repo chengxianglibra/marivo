@@ -27,6 +27,7 @@ from marivo._definition.deferred import (
     RescaleResolver,
     SemanticInput,
     SemanticResolver,
+    _PathValue,
     attribute_name,
     inspect_capture,
     relationship_carrier,
@@ -35,7 +36,13 @@ from marivo._definition.deferred import (
 )
 from marivo._definition.expressions import PredicateExpression
 from marivo._definition.graph import walk
-from marivo._definition.types import DefinitionGraphError, FieldRead, SumNone
+from marivo._definition.types import (
+    DefinitionGraphError,
+    FieldRead,
+    PathParameter,
+    RelationshipStepParameter,
+    SumNone,
+)
 from marivo._symbolic import SymbolResolver
 from marivo.refs import Ref, SemanticKind, SemanticKindTag
 from marivo.refs import ref as ref_factory
@@ -141,10 +148,12 @@ def bind_recipe(
     def field(value: Deferred) -> FieldRead:
         facts = consume_field(value)
 
-        return facts.field_read or FieldRead(facts.reference, facts.root)
+        return facts.field_read or FieldRead(
+            facts.reference, facts.root, versioned=facts.versioned, unit=facts.unit
+        )
 
     def predicate(value: Deferred) -> PredicateExpression:
-        return consume_predicate(value).node
+        return consume_predicate(value, coordinates=True).node
 
     if isinstance(recipe, ParameterResolver):
         parameter_value = bind_parameter(
@@ -163,9 +172,7 @@ def bind_recipe(
             )
         return CapturedDefaultTimeResolver(consume_field(current).reference)
     if isinstance(recipe, (Call, Attr, Item)):
-        parameter = bind_parameter_call(
-            recipe, bind_value, lookup, field=field, predicate=predicate
-        )
+        parameter = bind_parameter_call(recipe, bind_value, field=field, predicate=predicate)
         if parameter is not None:
             return parameter
     if isinstance(recipe, (SymbolResolver, NamedResolver)):
@@ -195,6 +202,8 @@ def bind_recipe(
             ).kind.value,
             action="Use this identity only in its matching declaration parameter.",
         )
+    if isinstance(recipe, Just) and isinstance(recipe.value, _PathValue):
+        return Just(recipe.value._parameter)
     if isinstance(recipe, RescaleResolver):
         return RescaleResolver(bind(recipe.recipe), recipe.divisor, recipe.unit)
     if isinstance(recipe, DeclarationResolver):
@@ -290,6 +299,7 @@ def bind_recipe(
 def _row_roots(recipe: Resolver, registry: Registry) -> set[str]:
     """Infer only row-root identity; symbols never supply units or permissions."""
     from marivo._definition.deferred import attribute_name
+    from marivo._definition.population_parameters import ParameterResolver, PathRecipe
 
     if isinstance(recipe, SemanticResolver):
         return {recipe.input.root.ref.path}
@@ -308,21 +318,19 @@ def _row_roots(recipe: Resolver, registry: Registry) -> set[str]:
     if isinstance(recipe, Call) and isinstance(recipe.func, Attr):
         if attribute_name(recipe.func) == "via" and len(recipe.args) == 1:
             path = recipe.args[0]
-            if isinstance(path, RecipeSequence) and path.values:
-                first = path.values[0]
+            if isinstance(path, Just) and isinstance(path.value, PathParameter):
+                return {path.value.source.ref.path}
+            if isinstance(path, ParameterResolver) and isinstance(path.parameter, PathRecipe):
+                step = path.parameter.steps[0]
+                if isinstance(step, RelationshipStepParameter):
+                    return {step.relationship.from_entity.ref.path}
+                first = resolver_of(step)
+                if isinstance(first, Call) and isinstance(first.func, Attr):
+                    first = first.func.obj
                 if isinstance(first, SymbolResolver):
                     relation = registry.relationships.get(first.reference.path)
                     if relation is not None:
                         return {relation.from_entity}
-                elif isinstance(first, Just):
-                    from marivo._definition.deferred import RelationshipParameter
-
-                    value = first.value
-                    relation_parameter = (
-                        value._parameter if isinstance(value, Relationship) else value
-                    )
-                    if isinstance(relation_parameter, RelationshipParameter):
-                        return {relation_parameter.from_entity.ref.path}
         return _row_roots(recipe.func.obj, registry) | set().union(
             *(_row_roots(argument, registry) for argument in recipe.args)
         )

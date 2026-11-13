@@ -56,9 +56,21 @@ def test_observation_completeness_depends_on_exact_matching_assumptions(
     route = catalog_get(session.catalog, "relationship:sales.order_buyer", kind="relationship")
     region = catalog_value(session.catalog, "sales.customer.region", kind="dimension")
     orders = session.members(catalog_get(session.catalog, "entity:sales.order", kind="entity"))
-    inferred = session.read(orders, {"region": region}).persist().to_pandas()
-    explicit = session.read(orders, {"region": region.via((route,))}).persist().to_pandas()
-    assert inferred.equals(explicit)
+    explicit = (
+        session.read(
+            orders,
+            {
+                "region": region.via(
+                    mv.path(
+                        route,
+                    )
+                )
+            },
+        )
+        .persist()
+        .to_pandas()
+    )
+    assert explicit["region"].tolist() == ["east", "east", "south", "east", "east"]
 
 
 def test_related_field_null_is_counted_and_missing_owner_remains_null(
@@ -71,7 +83,16 @@ def test_related_field_null_is_counted_and_missing_owner_remains_null(
     orders = session.members(catalog_get(session.catalog, "entity:sales.order", kind="entity"))
     region = catalog_value(session.catalog, "sales.customer.region", kind="dimension")
     buyer = catalog_get(session.catalog, "relationship:sales.order_buyer", kind="relationship")
-    values = session.read(orders, {"value": region.via((buyer,))})
+    values = session.read(
+        orders,
+        {
+            "value": region.via(
+                mv.path(
+                    buyer,
+                )
+            )
+        },
+    )
     reads = _reads(monkeypatch)
     result = values.persist()
     frame = result.to_pandas()
@@ -125,7 +146,16 @@ def test_shared_matching_assumption_never_becomes_completed_evidence(
         relation = catalog_get(
             session.catalog, "relationship:cost.facts_subject", kind="relationship"
         )
-        values = session.read(members, {"value": field.via((relation,))})
+        values = session.read(
+            members,
+            {
+                "value": field.via(
+                    mv.path(
+                        relation,
+                    )
+                )
+            },
+        )
         trusted = values.persist()
         frame = trusted.to_pandas()
         assert frame["value"].tolist() == [index % 15 for index in range(64)]

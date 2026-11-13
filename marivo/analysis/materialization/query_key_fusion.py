@@ -286,6 +286,8 @@ def _population_relation(
     def matches(
         condition: PredicateExpression, operand: PopulationDependency, value: _NativePopulation
     ) -> _NativePopulation | str:
+        if any(not isinstance(leaf, PopulationContains) for leaf in condition.inputs):
+            return "Field predicates retain the checked coordinate kernel."
         table = value.expression.view()
         original = tuple(table.columns)
         values: dict[str, object] = {}
@@ -327,6 +329,8 @@ def _population_relation(
             return "Population relation requires a planned checked atom"
         node = domain.root
         if isinstance(node, PopulationProject):
+            if node.interval_keys:
+                return "Interval key remapping retains the checked coordinate kernel."
             value = rows(node.operand)
             return value if isinstance(value, str) else project(value, node.positions)
         if isinstance(node, PopulationSet):
@@ -870,7 +874,15 @@ def native_query_relation(
                 )
                 if issue is not None:
                     return issue
-            admitted = {"__identity_null"}
+            admitted = {
+                name
+                for name, expected, _ in stage.preparation_checks
+                if expected
+                in (
+                    "non-null complete identity keys",
+                    "a non-null complete identity for every input tuple",
+                )
+            }
             reduction = read_reduction(stage)
             if reduction is None:
                 if owner.provider.name == "postgres" and any(
@@ -1075,7 +1087,11 @@ def native_query_relation(
         operation = program.operation
         if isinstance(operation, ReadFields):
             columns = (
-                *program.key_groups[0],
+                *(
+                    slot
+                    for group in program.key_groups[: len(program.output_groups)]
+                    for slot in group
+                ),
                 *(program.key_groups[i][0] for i in operation.positions),
             )
             expression = expression.select(
@@ -2649,7 +2665,6 @@ def _fold_output_coverage(prepared: PreparedSources, lowered: LoweredQuery) -> L
                 or ibis.literal(True),
             )
             name = "__query_population_uncovered"
-            summary = missing.aggregate(**{name: missing.count() > 0})
             witnesses = (
                 missing.order_by(
                     *(missing[key].asc(nulls_first=False) for key in candidate.keys)
@@ -2670,7 +2685,7 @@ def _fold_output_coverage(prepared: PreparedSources, lowered: LoweredQuery) -> L
                 if checks
                 else None
             )
-            diagnostics = summary.filter(summary[name]).cross_join(witnesses)
+            diagnostics = witnesses
             if failures is not None:
                 diagnostics = diagnostics.cross_join(failures)
             diagnostics = diagnostics.select(
@@ -2685,7 +2700,7 @@ def _fold_output_coverage(prepared: PreparedSources, lowered: LoweredQuery) -> L
                 **{name: ibis.literal(True)},
             )
             expression = (
-                expression.semi_join(summary.filter(~summary[name]), ibis.literal(True))
+                expression.anti_join(witnesses, ibis.literal(True))
                 .mutate(**{name: ibis.literal(False)})
                 .union(diagnostics)
             )

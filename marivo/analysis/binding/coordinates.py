@@ -15,7 +15,7 @@ from marivo.analysis.core.model import reject
 from marivo.analysis.errors import AnalysisError, AnalysisRepair
 from marivo.analysis.observation.relationship_binding import RelationshipResolver
 from marivo.introspection.live.model import LiveHelpTarget
-from marivo.refs import SemanticKind, ref
+from marivo.refs import Ref, RelationshipKind, SemanticKind, ref
 from marivo.semantic.expressions import _Resolver
 from marivo.semantic.ir import SnapshotVersioningIR
 from marivo.semantic.validator import Registry, normalize_target_relationship
@@ -25,6 +25,8 @@ def identity_projection(
     read: IdentityRead, root: ExactRef, registry: Registry
 ) -> tuple[str, ...] | None:
     """Use complete declared foreign keys without reading a target profile."""
+    if read.source_at is not None or read.at is not None or len(read.path) > 1:
+        return None
     if not read.path:
         return (
             tuple(registry.entities[root.ref.path].primary_key)
@@ -63,26 +65,58 @@ def bind_identity(
         else None,
         target="session.observe",
     )
-    if entity.versioning is not None and read.entity.ref != root.ref and read.at is None:
-        reject(
-            "an exact attribute anchor for a versioned identity",
-            read.entity.ref.path,
-            "Select identities at session.instant(...).",
-            "session.observe",
-        )
-    if entity.versioning is None and read.at is not None:
-        reject(
-            "a versioned identity for an attribute anchor",
-            read.entity.ref.path,
-            "Remove the anchor from the unversioned identity.",
-            "session.observe",
-        )
-    return IdentityRead(
-        resolver.entity_ref(read.entity.ref.path),
-        tuple(resolver.exact(step) for step in path),
-        read.at,
-        tuple(entity.primary_key),
+    terminal_read = False
+    if path:
+        relation = paths.by_ref[path[-1].path]
+        terminal_read = not set(entity.primary_key).issubset(right for _, right in relation.keys)
+    _validate_route_versions(read, path, root, registry, paths, terminal_read=terminal_read)
+    return replace(
+        read,
+        entity=resolver.entity_ref(read.entity.ref.path),
+        path=tuple(resolver.exact(step) for step in path),
+        components=tuple(entity.primary_key),
     )
+
+
+def _validate_route_versions(
+    read: FieldRead | IdentityRead,
+    path: tuple[Ref[RelationshipKind], ...],
+    root: ExactRef,
+    registry: Registry,
+    paths: RelationshipResolver,
+    *,
+    terminal_read: bool,
+) -> None:
+    if read.source_at is not None and registry.entities[root.ref.path].versioning is None:
+        reject("a versioned Path source", root.ref.key, "Remove source_at.", "session.observe")
+    if not terminal_read and read.at is not None:
+        reject(
+            "no anchor for an identity determined by its complete foreign key",
+            read.entity.ref.key,
+            "Remove terminal relationship.at(...).",
+            "session.observe",
+        )
+    for index, step in enumerate(path):
+        entity = paths.by_ref[step.path].to_entity_ref.path
+        final = index == len(path) - 1
+        if final and not terminal_read:
+            continue
+        anchor = read.at if final else read.step_ats[index] if index < len(read.step_ats) else None
+        versioned = registry.entities[entity].versioning is not None
+        if versioned and anchor is None:
+            reject(
+                "an exact version anchor for the required relationship node",
+                f"node {index + 1} ({entity})",
+                "Select the node with relationship.at(session.instant(...)).",
+                "session.observe",
+            )
+        if not versioned and anchor is not None:
+            reject(
+                "a versioned Entity for a Path node anchor",
+                f"node {index + 1} ({entity})",
+                "Remove the node anchor.",
+                "session.observe",
+            )
 
 
 def bind_read(
@@ -121,7 +155,7 @@ def bind_read(
             location="session.observe",
             repair=AnalysisRepair(
                 kind="user_choice" if error.repair and error.repair.candidates else "inspect",
-                action="Resolve a declared single-valued path and bind the field with field.via((relationship, ...)); use separate observations for incompatible roots.",
+                action="Bind the field with field.via(mv.path(relationship, ...)); use separate observations for incompatible roots.",
                 candidates=error.repair.candidates if error.repair else (),
                 help_target=LiveHelpTarget(surface="analysis", canonical_id="session.observe"),
             ),
@@ -167,18 +201,7 @@ def bind_read(
             "Bind the field with field.at(session.instant(...)).",
             "session.observe",
         )
-    for step in path:
-        relation = registry.relationships[step.path]
-        if (
-            relation.to_entity != read.entity.ref.path
-            and registry.entities[relation.to_entity].versioning is not None
-        ):
-            reject(
-                "a path with resolved intermediate versions",
-                relation.to_entity,
-                "Choose a path without unbound versioned intermediates.",
-                "session.observe",
-            )
+    _validate_route_versions(read, path, root, registry, paths, terminal_read=True)
     return replace(
         read,
         field=current.field,

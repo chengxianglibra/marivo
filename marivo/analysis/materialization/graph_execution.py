@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from typing import TypeVar
 
 from marivo.analysis.compiler.graph_plan import (
@@ -29,11 +29,39 @@ def run_query_plan(
     frame_keys: Callable[[FrameKeysInput], StageValue] | None = None,
     frame: Callable[[FrameCompute, tuple[StageValue, ...]], StageValue] | None = None,
     finish: Callable[[QueryStage, StageValue], StageValue] | None = None,
+    available: Mapping[str, StageValue] | None = None,
 ) -> StageValue:
     """Run each owner to completion before finishing and releasing its inputs."""
     outputs: dict[str, StageValue] = {}
-    remaining = {stage_id: len(consumers) for stage_id, consumers in plan.consumers}
+    cached = {} if available is None else available
+    stages = {stage.stage_id: stage for stage in plan.stages}
+    remaining = dict.fromkeys(stages, 0)
+    required: set[str] = set()
+
+    def demand(identifier: str) -> None:
+        if identifier in required:
+            return
+        required.add(identifier)
+        if identifier in cached:
+            return
+        for dependency in stages[identifier].inputs:
+            remaining[dependency] += 1
+            demand(dependency)
+
+    if cached:
+        demand(plan.publish)
+    else:
+        required.update(stages)
+        remaining = {stage_id: len(consumers) for stage_id, consumers in plan.consumers}
     for stage in plan.stages:
+        if stage.stage_id not in required:
+            continue
+        if stage.stage_id in cached:
+            output = cached[stage.stage_id]
+            if finish is not None:
+                output = finish(stage, output)
+            outputs[stage.stage_id] = output
+            continue
         missing = tuple(item for item in stage.inputs if item not in outputs)
         if missing:
             reject(

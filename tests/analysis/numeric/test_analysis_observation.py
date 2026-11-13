@@ -134,12 +134,12 @@ def test_explicit_field_paths_preserve_hop_order_without_source_read(
         raise AssertionError("Path construction read business rows")
 
     monkeypatch.setattr(SourceSession, "execute", forbidden)
-    read = consume_field(region.via((line_order, buyer))).field_read
+    read = consume_field(region.via(mv.path(line_order, buyer))).field_read
     assert read is not None
     assert tuple(item.ref.path for item in read.path) == ("sales.line_order", "sales.order_buyer")
     assert terminal_runs(case.session) == ()
     with pytest.raises(SemanticError):
-        consume_field(region.via((buyer, line_order)))
+        consume_field(region.via(mv.path(buyer, line_order)))
 
 
 def test_observe_ratio_over_two_contribution_roots(

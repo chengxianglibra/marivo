@@ -618,6 +618,8 @@ def test_actual_source_plus_fixed_uses_one_binary_plan(
         observe_read: Callable[[SourceRead, LoweredRead, StageOutput], None] | None = None,
         observe_local: Callable[[LocalCompute | FrameCompute | SourceRead, StageOutput], None]
         | None = None,
+        completed_frames: Mapping[str, StageOutput] | None = None,
+        retain_inputs: dict[str, StageOutput] | None = None,
     ) -> StageOutput:
         schedules.append(tuple(type(s) for s in compiled.lowered.plan.stages))
         return original(
@@ -627,6 +629,8 @@ def test_actual_source_plus_fixed_uses_one_binary_plan(
             adapt_source=adapt_source,
             observe_read=observe_read,
             observe_local=observe_local,
+            completed_frames=completed_frames,
+            retain_inputs=retain_inputs,
         )
 
     monkeypatch.setattr(evaluator, "run_frame_plan", run)

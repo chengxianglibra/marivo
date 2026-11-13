@@ -9,7 +9,8 @@ computation fingerprints and executable dependency resolution.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
+from dataclasses import field as dataclass_field
 from typing import TYPE_CHECKING, Literal, TypeAlias
 
 from ibis.common.deferred import Resolver
@@ -81,7 +82,7 @@ class RowField:
     unit: str | None
     permission: SumPermission
     read: FieldRead | None = None
-    origins: tuple[ExactRef, ...] = field(default=(), compare=False, repr=False)
+    origins: tuple[ExactRef, ...] = dataclass_field(default=(), compare=False, repr=False)
 
     def __post_init__(self) -> None:
         if self.ref.ref.kind not in _FIELD_KINDS:
@@ -108,7 +109,7 @@ class MeasureAssertion:
     unit: str | None
     permission: SumPermission | None
     authorization: Authorization
-    origins: tuple[ExactRef, ...] = field(default=(), compare=False, repr=False)
+    origins: tuple[ExactRef, ...] = dataclass_field(default=(), compare=False, repr=False)
 
     def __post_init__(self) -> None:
         if self.unit is None and self.permission is None:
@@ -129,7 +130,7 @@ class RowExpression:
 
     recipe: Resolver
     inputs: tuple[RowField | MeasureAssertion, ...]
-    origins: tuple[ExactRef, ...] = field(default=(), compare=False, repr=False)
+    origins: tuple[ExactRef, ...] = dataclass_field(default=(), compare=False, repr=False)
 
 
 RowNode: TypeAlias = RowField | MeasureAssertion | RowExpression
@@ -147,6 +148,8 @@ class TimeBinding:
     path: tuple[ExactRef, ...] = ()
     at: InstantAnchor | None = None
     source: Literal["explicit", "entity_default"] = "explicit"
+    source_at: InstantAnchor | None = dataclass_field(default=None, kw_only=True)
+    step_ats: tuple[InstantAnchor | None, ...] = dataclass_field(default=(), kw_only=True)
 
     def __post_init__(self) -> None:
         if self.field.ref.kind is not SemanticKind.TIME_DIMENSION:

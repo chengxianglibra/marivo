@@ -106,6 +106,8 @@ def prepare_sample_window_plan(
     state: CompiledSemanticState,
     timezone: str,
     frame_schemas: Mapping[str, DataSchema],
+    *,
+    checked_inputs: dict[str, StageOutput] | None = None,
 ) -> tuple[LoweredQuery, PreparedSources]:
     """Discover sample keys with source conditions before evaluating their windows."""
     assert isinstance(graph.root, ObserveQuery) and graph.signature.observation is not None
@@ -134,8 +136,13 @@ def prepare_sample_window_plan(
         sources={source.datasource.semantic_id: source for source in prepared.sources.values()},
         consumption_timezone=timezone,
         frame_schemas=frame_schemas,
+        reuse_sources=prepared if checked_inputs else None,
     )
     plan = plan_query(candidate, sources.schemas)
+    if checked_inputs:
+        from marivo.analysis.materialization.interval_reports import restrict_plan
+
+        plan = restrict_plan(plan, checked_inputs, empty=False)
     candidates = tuple(
         next(
             stage
@@ -156,7 +163,14 @@ def prepare_sample_window_plan(
     }
     keys = tuple(keys_by_id.values())
     assert plan.original is not None
-    populations = plan.original.populations
+    endpoint_formula = next(stage for stage in plan.stages if stage.stage_id == plan.publish)
+    from marivo.analysis.compiler.graph_plan import LocalCompute
+    from marivo.analysis.compiler.observation import FormulaProgram
+
+    assert isinstance(endpoint_formula, LocalCompute) and isinstance(
+        endpoint_formula.program, FormulaProgram
+    )
+    populations = endpoint_formula.program.populations
     finish = SourceRead(
         "sample-windows",
         prepared.source.datasource.semantic_id,
@@ -172,6 +186,7 @@ def prepare_sample_window_plan(
             originals,
             populations,
             plan.original.counts,
+            bool(checked_inputs),
         ),
         (),
         (),
@@ -656,12 +671,23 @@ def run_sample_windows(
         sources={source.datasource.semantic_id: source for source in prepared.sources.values()},
         consumption_timezone=program.timezone,
         frame_schemas=dict(program.frame_schemas),
+        reuse_sources=prepared if program.reuse_population_outputs else None,
     )
     for item, selected, selected_columns, width in restrictions:
         _restrict(sources, item, selected, selected_columns, width)
     # Source reductions remain native; the existing local sample kernel consumes
     # the frozen domains, including samples whose windows have no contributions.
     plan = plan_query(rebound, sources.schemas)
+    population_outputs = None
+    if program.reuse_population_outputs:
+        from marivo.analysis.materialization.interval_reports import restrict_plan
+
+        population_outputs = dict(
+            zip(
+                (binding.stage_id for binding in program.populations), inputs[key_end:], strict=True
+            )
+        )
+        plan = restrict_plan(plan, population_outputs, empty=False)
     lowered = lower_query(plan, sources.relations)
     qualify_query_sources(sources, lowered)
     output = execute_numeric_query(
@@ -675,6 +701,7 @@ def run_sample_windows(
         frame_key_inputs=dict(
             zip(program.key_inputs, inputs[len(program.candidates) : key_end], strict=True)
         ),
+        checked_inputs=population_outputs,
     )
     return replace(
         output,

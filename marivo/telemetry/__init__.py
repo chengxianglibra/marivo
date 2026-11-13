@@ -391,7 +391,7 @@ def _project_root(arguments: Mapping[str, object], *, captured_inputs: bool = Fa
         if (
             root is None
             and captured_inputs
-            and name in {"entity", "target", "population", "by", "factors", "via"}
+            and name in {"entity", "target", "population", "by", "factors", "via", "steps"}
         ):
             # Only inspect binding arguments, never literal keys or result rows.
             root = _captured_project_root(value)

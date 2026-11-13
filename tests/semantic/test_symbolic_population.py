@@ -121,8 +121,9 @@ def test_symbolic_identity_classify_and_relationship_programs_match_closed_helpe
         semantic_project_factory,
         """
 orders_domain = mv.coordinates(by=(mv.identity(orders),), keys=((("t1", 1),), (("t2", 1),)))
-customers_domain = orders_domain.image(via=(customer,))
-selected = orders_domain.preimage(customers_domain, via=(customer,)).classify(by=(orders_domain.axes[0], region))
+route = mv.path(customer)
+customers_domain = orders_domain.image(via=route)
+selected = orders_domain.preimage(customers_domain, via=route).classify(by=(region,), on=orders_domain.axes[0])
 captured_count = selected.count()
 @ms.metric()
 def selected_count():
@@ -134,8 +135,9 @@ def selected_count():
     region = catalog_value(catalog, "sales.orders.region", kind="dimension")
     domain = mv.coordinates(by=(mv.identity(orders),), keys=((("t1", 1),), (("t2", 1),)))
     assert isinstance(domain, mv.Population)
-    expected = domain.preimage(domain.image(via=(customer,)), via=(customer,)).classify(
-        by=(domain.axes[0], region)
+    route = mv.path(customer)
+    expected = domain.preimage(domain.image(via=route), via=route).classify(
+        by=(region,), on=domain.axes[0]
     )
     assert isinstance(expected, mv.Population)
     assert computation_fingerprint(_population(catalog)._definition) == computation_fingerprint(
@@ -250,8 +252,8 @@ def test_population_path_is_rejected_by_public_decorator_capture(
             "sales/objects.py": _MODEL
             + f"""
 selected = mv.coordinates(by=(mv.identity(orders),), keys=((("tenant", 1),),))
-targets = selected.image(via=(customer,))
-counted = selected.{operation}({argument}via=({invalid_step},)).count()
+targets = selected.image(via=mv.path(customer))
+counted = selected.{operation}({argument}via=mv.path({invalid_step})).count()
 @ms.metric()
 def selected_count():
     return counted
@@ -280,8 +282,9 @@ def test_population_path_capture_keeps_closed_relationship_values(
         """
 from _population_closed_path_test import relationship
 selected = mv.coordinates(by=(mv.identity(orders),), keys=((("tenant", 1),),))
-targets = selected.image(via=(relationship,))
-counted = selected.preimage(targets, via=(relationship,)).count()
+route = mv.path(relationship)
+targets = selected.image(via=route)
+counted = selected.preimage(targets, via=route).count()
 @ms.metric()
 def selected_count():
     return counted
@@ -290,4 +293,4 @@ def selected_count():
     definition = _population(catalog)._definition
     assert isinstance(definition, PopulationProgram)
     assert isinstance(definition.root, PopulationPreimage)
-    assert definition.root.path[0].ref.ref.path == "sales.customer"
+    assert definition.root.path.steps[0].relationship.ref.ref.path == "sales.customer"

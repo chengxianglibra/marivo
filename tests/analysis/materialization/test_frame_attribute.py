@@ -536,7 +536,7 @@ def test_correlated_overlapping_parent_membership_is_preserved_for_investigation
         catalog_value(session.catalog, "sales.fact_links", kind="relationship"),
         catalog_value(session.catalog, "sales.link_tags", kind="relationship"),
     )
-    membership = mv.membership((label, kind), via=(route,), unmatched="exclude")
+    membership = mv.membership((label, kind), via=(mv.path(*route),), unmatched="exclude")
     parents = mv.coordinates(by=(label, kind), keys=(("x", "online"), ("y", "store")))
     observed = session.observe(
         {"q": amount},
@@ -674,7 +674,7 @@ def test_fix_keeps_allocated_parent_membership_for_attribute(
         catalog_value(session.catalog, "sales.fact_links", kind="relationship"),
         catalog_value(session.catalog, "sales.link_tags", kind="relationship"),
     )
-    membership = mv.membership((label, kind), via=(route,), unmatched="exclude")
+    membership = mv.membership((label, kind), via=(mv.path(*route),), unmatched="exclude")
     frame = session.observe({"q": amount}, by=(membership, kind))
     fixed = frame.fix(frame.axes[0], "x")
     if fix_remaining:

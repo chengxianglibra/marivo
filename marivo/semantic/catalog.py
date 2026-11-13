@@ -172,7 +172,9 @@ if TYPE_CHECKING:
     from ibis.backends import BaseBackend
 
     from marivo._authoring.model import AuthoringRepair
+    from marivo._temporal import InstantAnchor
     from marivo.semantic._compiled_state import CompiledSemanticState
+    from marivo.semantic._paths import RelationshipStep
     from marivo.semantic.reader import SemanticProject
     from marivo.semantic.readiness import ReadinessReport
     from marivo.semantic.resolver import SemanticResolver
@@ -1012,6 +1014,27 @@ class Relationship(_SemanticObject[RelationshipKind], _RelationshipValue):
     @property
     def cardinality(self) -> str:
         return self.definition.cardinality
+
+    def at(self, anchor: InstantAnchor) -> RelationshipStep:
+        """Select an exact version of this step's target Entity.
+
+        Args: anchor: An InstantAnchor from session.instant(...).
+        Returns: A RelationshipStep for mv.path(...).
+        Example: ``mv.path(order_customer.at(customer_time), customer_region)``.
+        Constraints: The target must be versioned. The consuming operation must use its version row.
+        """
+        from marivo.semantic._paths import _step
+
+        if anchor is None:
+            raise SemanticExpressionError(
+                kind=ErrorKind.INVALID_TIME_PATH,
+                message="Relationship.at requires an exact instant.",
+                expected="an InstantAnchor from session.instant(...)",
+                received="None",
+                action="Pass session.instant(...) or use the unanchored Relationship directly.",
+                help_target="relationship.at",
+            )
+        return _step(self, anchor)
 
 
 SemanticObject: TypeAlias = (

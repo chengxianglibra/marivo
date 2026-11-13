@@ -143,8 +143,12 @@ other=ms.relationship(name='other',from_entity=customers,to_entity=countries,key
 
         buyer = catalog_get(session.catalog, "relationship:sales.buyer", kind="relationship")
         home = catalog_get(session.catalog, "relationship:sales.home", kind="relationship")
-        short = field("customers.region_label").via((buyer,))
-        long = field("countries.name").via((buyer, home))
+        short = field("customers.region_label").via(
+            mv.path(
+                buyer,
+            )
+        )
+        long = field("countries.name").via(mv.path(buyer, home))
         axes = (short, long)
         expected = [
             ("North", "A", 10),
@@ -158,11 +162,18 @@ other=ms.relationship(name='other',from_entity=customers,to_entity=countries,key
             expected = [(right, left, total) for left, right, total in expected]
         elif order == "fork":
             other = catalog_get(session.catalog, "relationship:sales.other", kind="relationship")
-            axes = (long, field("countries.name").via((buyer, other)))
+            axes = (long, field("countries.name").via(mv.path(buyer, other)))
             expected = [("A", "B", 10), ("B", "A", 20), ("C", "A", 30), (None, None, 150)]
         elif order == "other_role":
             seller = catalog_get(session.catalog, "relationship:sales.seller", kind="relationship")
-            axes = (long, field("customers.region").via((seller,)))
+            axes = (
+                long,
+                field("customers.region").via(
+                    mv.path(
+                        seller,
+                    )
+                ),
+            )
             expected = [
                 ("A", "South", 10),
                 ("B", "North", 20),

@@ -58,7 +58,7 @@ def _values(
     domain = (
         ()
         if overall
-        else mv.product(scope, members.classify(by=(field,)))
+        else mv.product(scope, members.classify(by=(field,)).project(by=(field,)))
         if grouped
         else mv.product(scope, members.classify(by=(members.axes[0], field)))
         if region

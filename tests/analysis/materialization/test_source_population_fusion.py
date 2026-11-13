@@ -143,7 +143,7 @@ def test_relationship_population_only_returns_consumed_domain_or_value(
         catalog_value(session.catalog, "sales.order_links", kind="relationship"),
         catalog_value(session.catalog, "sales.link_tags", kind="relationship"),
     )
-    image = _population(orders.image(via=path))
+    image = _population(orders.image(via=mv.path(*path)))
     if operation == "image":
         query = session.frame(image)
     elif operation == "image_count":
@@ -173,7 +173,7 @@ def test_relationship_population_only_returns_consumed_domain_or_value(
                 chosen,
                 on=((chosen.axes[0], catalog_value(session.catalog, "sales.tags", kind="entity")),),
             )
-        selected = _population(orders.preimage(targets, via=path))
+        selected = _population(orders.preimage(targets, via=mv.path(*path)))
         query = session.observe(
             {"v": catalog_value(session.catalog, "sales.revenue", kind="metric")},
             where=mv.in_population(selected),
@@ -205,7 +205,7 @@ def test_relationship_population_identity_failure_survives_empty_top(
     )
     with duckdb.connect(str(tmp_path / "population.duckdb")) as db:
         db.execute("INSERT INTO orders VALUES (NULL,0,1)")
-    selected = _population(orders.image(via=path))
+    selected = _population(orders.image(via=mv.path(*path)))
     metric = (
         catalog_value(session.catalog, "sales.tags.id", kind="dimension")
         .count()
@@ -238,7 +238,7 @@ def test_relationship_member_count_returns_completed_count(
         by=(mv.identity(catalog_value(session.catalog, "sales.tags", kind="entity")),),
         keys=(((1,),),),
     )
-    selected = _population(orders.preimage(targets, via=path))
+    selected = _population(orders.preimage(targets, via=mv.path(*path)))
     metrics = {"n": selected.count()}
     if with_sum:
         metrics["v"] = catalog_value(session.catalog, "sales.revenue", kind="metric")
@@ -268,7 +268,7 @@ def test_relationship_image_missing_source_uses_empty_set(
     )
     selected = _population(
         missing.image(
-            via=(
+            via=mv.path(
                 catalog_value(session.catalog, "sales.order_links", kind="relationship"),
                 catalog_value(session.catalog, "sales.link_tags", kind="relationship"),
             )
@@ -599,12 +599,12 @@ def test_remote_relationship_domains_and_explicit_frame_targets(
             catalog_value(session.catalog, "sales.order_links", kind="relationship"),
             catalog_value(session.catalog, "sales.link_tags", kind="relationship"),
         )
-        image = _population(source.image(via=path))
+        image = _population(source.image(via=mv.path(*path)))
         one_tag = mv.coordinates(
             by=(mv.identity(catalog_value(session.catalog, "sales.tags", kind="entity")),),
             keys=(((1,),),),
         )
-        counted = _population(source.preimage(one_tag, via=path))
+        counted = _population(source.preimage(one_tag, via=mv.path(*path)))
         with monkeypatch.context() as count_patch:
             count_trace = capture_source(count_patch, measure_cost=True)
             for metrics in (
@@ -649,7 +649,7 @@ def test_remote_relationship_domains_and_explicit_frame_targets(
                 chosen,
                 on=((chosen.axes[0], catalog_value(session.catalog, "sales.tags", kind="entity")),),
             )
-            selected = _population(source.preimage(targets, via=path))
+            selected = _population(source.preimage(targets, via=mv.path(*path)))
             frame = (
                 session.observe(
                     {"v": catalog_value(session.catalog, "sales.revenue", kind="metric")},
@@ -672,13 +672,15 @@ def test_remote_relationship_domains_and_explicit_frame_targets(
         required = session.observe(
             {"v": catalog_value(session.catalog, "sales.revenue", kind="metric").per(empty).mean()},
             by=incomplete,
-            where=mv.in_population(_population(source.preimage(image, via=path))),
+            where=mv.in_population(_population(source.preimage(image, via=mv.path(*path)))),
         )
+        coverage_read_start = len(trace.returned_rows)
         with pytest.raises(MaterializationError) as error:
             required.top(0, by=required["v"]).compute()
         assert error.value.stage == "population_coverage"
         assert error.value.received is not None
         assert "key.0" in error.value.received
+        assert trace.returned_rows[coverage_read_start:] == [6]
         if backend != "postgres":
             assert trace.uploaded_key_rows == [1, 0], {
                 "rows": trace.returned_rows,
@@ -699,7 +701,7 @@ def test_output_coverage_survives_source_population_fusion_and_empty_top(
         catalog_value(session.catalog, "sales.link_tags", kind="relationship"),
     )
     # The independent relationship image is source-fused into the fact predicate.
-    selected = _population(orders.image(via=path))
+    selected = _population(orders.image(via=mv.path(*path)))
     identifier = catalog_value(session.catalog, "sales.orders.id", kind="dimension")
     incomplete = mv.coordinates(by=(identifier,), keys=())
     empty = mv.coordinates(
@@ -708,7 +710,7 @@ def test_output_coverage_survives_source_population_fusion_and_empty_top(
     query = session.observe(
         {"v": revenue.per(empty).mean()},
         by=incomplete,
-        where=mv.in_population(_population(orders.preimage(selected, via=path))),
+        where=mv.in_population(_population(orders.preimage(selected, via=mv.path(*path)))),
     )
     trace = capture_source(monkeypatch)
     with pytest.raises(MaterializationError) as error:
@@ -716,6 +718,7 @@ def test_output_coverage_survives_source_population_fusion_and_empty_top(
     assert error.value.stage == "population_coverage"
     assert error.value.received is not None
     assert "key.0" in error.value.received
+    assert trace.returned_rows == [6]
 
 
 @pytest.mark.parametrize("dialect", ("duckdb", "trino", "clickhouse"))

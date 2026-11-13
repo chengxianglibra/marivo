@@ -13,8 +13,8 @@ from marivo.analysis._capabilities.dataset_model import (
 )
 
 # Each provider owns primary capability membership. These pages own task choices,
-# short decision summaries and secondary links. The root owns one quick-start example;
-# exact callable and service reference pages retain their own examples.
+# short decision summaries and secondary links. The analysis root and Population
+# workflow introduce runnable examples; exact pages own operation-specific examples.
 _PAGES = (
     NavigationInput(
         "inputs",
@@ -34,14 +34,23 @@ _PAGES = (
         "inputs.population",
         "Construct, select or map complete member and coordinate domains.",
         (),
+        "population_workflow",
         guidance=(
-            "Construction and member conditions: members, identity, coordinates, membership, product and in_population.",
-            "Set projection: project, union, intersection, difference and where preserve explicit domain meaning.",
-            "Mapping and classification: image/preimage follow declared relationships; classify can introduce source attribute dependencies.",
-            "Fixed-key bridge: population_from explicitly binds selected complete ordinary Frame keys for a new source question.",
-            "Population.count counts complete distinct tuples, including members without facts, and returns a Metric for observe. It is not the current Frame row count.",
+            "Example inputs: a Session, a Customer Entity and its region field from that Catalog.",
         ),
-        related=("population.count", "semantic.predicate"),
+        example=ExampleInput(
+            "import marivo.analysis as mv\n"
+            "members = session.members(customer)\n"
+            "classified = members.classify(by=(region,))\n"
+            "selected = classified.where(region == 'east')\n"
+            "east = selected.project(by=(mv.identity(customer),))\n"
+            "result = session.observe({'customers': east.count()}).compute()\n"
+            "result.show()",
+            ("session", "customer", "region"),
+            "result",
+            "Count of complete customer identities classified in the east region.",
+        ),
+        related=("population.count", "semantic.predicate", "session.read", "session.instant"),
         discovery_group="inputs",
         route_summaries=(
             (
@@ -50,23 +59,41 @@ _PAGES = (
             ),
             ("identity", "Describe complete Entity identity coordinates."),
             ("coordinates", "Supply finite complete coordinate tuples."),
-            ("membership", "Choose correlated member fields and directed allocation paths."),
             ("product", "Combine disjoint complete coordinate domains."),
             ("in_population", "Build a complete-tuple membership condition."),
             ("population.project", "Select and reorder existing axes."),
             ("population.union", "Keep tuples from either matching domain."),
             ("population.intersection", "Keep tuples shared by matching domains."),
             ("population.difference", "Remove tuples present in another domain."),
-            ("population.where", "Filter existing tuples by membership conditions."),
-            ("population.image", "Map identities forward along declared relationships."),
-            ("population.preimage", "Select identities reaching chosen target identities."),
-            ("population.classify", "Add same-Entity fields to one identity domain."),
+            ("population.where", "Filter tuples by predicates over existing coordinates."),
+            ("population.classify", "Append single-valued fields or complete identity roles."),
+            ("session.read", "Read named scalar values from one eligible identity role."),
+            ("inputs.population.paths", "Build paths, add or erase roles, and map identities."),
+            ("session.instant", "Choose an exact version anchor."),
             (
                 "session.population_from",
                 "Bind selected fixed Frame keys to explicit semantic targets.",
             ),
             ("population.count", "Count complete domain tuples, including members without facts."),
             ("semantic.predicate", "Choose valid source and membership condition syntax."),
+        ),
+    ),
+    NavigationInput(
+        "inputs.population.paths",
+        "Bind and consume a directed Path or an existing identity role.",
+        (),
+        related=("path", "relationship_step", "semantic.relationship.at", "semantic.field.via"),
+        discovery_group="inputs.population",
+        route_summaries=(
+            ("path.define", "Build a Path from contiguous relationship steps."),
+            ("population.image", "Return distinct direct target identities."),
+            ("population.preimage", "Retain full receiver tuples reaching any chosen target."),
+            ("population.identities", "Deduplicate an existing role onto a direct Entity axis."),
+            ("membership", "Allocate contributions over correlated member fields."),
+            ("path", "Inspect typed endpoints, steps and source anchor."),
+            ("relationship_step", "Inspect one relationship and its target anchor."),
+            ("semantic.relationship.at", "Choose the version at a step’s target."),
+            ("semantic.field.via", "Bind a scalar field through a single-valued Path."),
         ),
     ),
     NavigationInput(

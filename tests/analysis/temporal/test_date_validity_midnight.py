@@ -111,7 +111,11 @@ def test_aware_control_respects_native_date_midnight(
     fact_day = _time_dimension(session.catalog, "time_dimension:sales.facts.fact_day")
     category = _dimension(session.catalog, "dimension:sales.profiles.category")
     relationship = _relationship(session.catalog, "relationship:sales.profile")
-    historical_category = category.via((relationship,)).at(fact_day)
+    historical_category = category.via(
+        mv.path(
+            relationship,
+        )
+    ).at(fact_day)
     period = session.time_scope(start="2025-11-02", end="2025-11-03")
     result = session.observe(
         {"value": _measure(session.catalog, "measure:sales.facts.amount").sum(time=fact_day)},
@@ -121,7 +125,11 @@ def test_aware_control_respects_native_date_midnight(
     data = result.to_pandas(axis_names={result.axes[-1].token: "category"})
 
     # Native Havana Nov 2 midnight selects the later fold at 05:00Z, after the fact.
-    fixed_category = category.via((relationship,)).at(session.instant("2025-11-02T04:30:00+00:00"))
+    fixed_category = category.via(
+        mv.path(
+            relationship,
+        )
+    ).at(session.instant("2025-11-02T04:30:00+00:00"))
     fixed = session.observe(
         {"value": _measure(session.catalog, "measure:sales.facts.amount").sum(time=fact_day)},
         by=(fixed_category,),

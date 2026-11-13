@@ -193,10 +193,12 @@ def source_lineage(
     population = observation.coordinates.population if observation is not None else None
     if isinstance(graph.root, ReadQuery):
         classified = graph.root.population
-        assert isinstance(classified, PopulationProgram) and isinstance(
-            classified.root, PopulationClassify
-        )
-        population = classified.root.operand
+        if (
+            len(classified.axes) > len(graph.root.by)
+            and isinstance(classified, PopulationProgram)
+            and isinstance(classified.root, PopulationClassify)
+        ):
+            population = classified.root.operand
     if observation is not None:
         domain = union(
             domain,

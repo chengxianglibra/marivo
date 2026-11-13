@@ -832,6 +832,14 @@ class _Resolver:
                 to_entity=self.entity_ref(contract.to_entity_ref.path),
                 cardinality=contract.cardinality,
                 _from_default_time=self.default_time(contract.from_entity_ref.path),
+                from_versioned=self._registry.entities[contract.from_entity_ref.path].versioning
+                is not None,
+                to_versioned=self._registry.entities[contract.to_entity_ref.path].versioning
+                is not None,
+                target_keys=tuple(self._registry.entities[contract.to_entity_ref.path].primary_key),
+                target_keys_covered=set(
+                    self._registry.entities[contract.to_entity_ref.path].primary_key
+                ).issubset(right for _, right in contract.keys),
             ),
             _facts=self.facts(ref_factory.relationship(path)),
         )
@@ -931,6 +939,9 @@ def author_value(value: ResolvedValue) -> ResolvedValue:
                     value.root,
                     tuple(step._parameter.ref for step in value.path),
                     value.anchor,
+                    path_facts=tuple(step._parameter for step in value.path),
+                    versioned=value._versioned,
+                    unit=value.unit if isinstance(value, Measure) else None,
                 ),
             )
         )

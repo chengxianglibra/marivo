@@ -119,7 +119,7 @@ def provider() -> DisclosureProvider:
             "population = session.members(customer, where=region == 'east')\n"
             "result = session.read(population, {'region': region}).compute()\n"
             "result.show()",
-            "Read named scalar attributes for complete identities, trusting source declarations; missing matches yield NULL. Numeric reads preserve NULL, NaN and Infinity; finite local operations validate their demanded inputs.",
+            "Read named scalar values from one eligible identity role while preserving all Population keys. Existing coordinates can supply captured values. Missing matches yield NULL.",
         ),
         (
             Session,
@@ -184,15 +184,15 @@ def provider() -> DisclosureProvider:
     )
     acquisition = {
         "frame": "Same-Session AnalysisFrame; IDs, refs and raw tables reject.",
-        "on": "Required immutable tuple of (FrameAxis, closed Field/Entity) pairs; () selects zero axes. Names/types never infer targets.",
+        "on": "Pass (FrameAxis, closed Field or Entity) pairs as a tuple; () selects zero axes. Use field.at(session.instant(...)) for a new versioned field binding.",
         "value": "Pass an ISO string, date, aware datetime or existing InstantAnchor.",
         "timezone": "None uses the frozen Session timezone unless explicitly overridden.",
         "start": "Choose the inclusive exact boundary.",
         "end": "Choose the exclusive exact boundary, strictly after start.",
-        "where": "Pass a Deferred combining field and Population membership conditions. Source receivers may read fields needed for membership; AnalysisFrame.where accepts only a same-input boolean Column.",
+        "where": "Pass a row predicate combining field and Population membership conditions. Source receivers can read fields required by the predicate.",
         "at": "Pass an exact InstantAnchor from session.instant(...) for versioned identity selection.",
         "population": "Pass a complete Population with no owner or the same Session owner.",
-        "fields": "Pass a nonempty named mapping of resolved scalar fields with explicit paths and required version anchors.",
+        "fields": "Map output names to resolved scalar fields. Use single-valued Paths and explicit anchors for required version reads.",
         "columns": "Map each literal value name to its one declared unit, or None.",
         "rows": "Pass finite complete key tuples paired with every declared literal value name.",
         "max_output_bytes": "Use the default byte budget or explicitly request a tighter output bound.",
@@ -206,12 +206,12 @@ def provider() -> DisclosureProvider:
     parameter_targets: dict[str, tuple[str, ...]] = {
         "metrics": ("inputs.catalog", "semantic.expressions"),
         "entity": ("inputs.catalog",),
-        "fields": ("inputs.catalog", "semantic.field"),
+        "fields": ("inputs.catalog", "semantic.field", "path.define"),
         "population": ("inputs.population",),
         "frame": ("AnalysisFrame",),
         "where": ("semantic.predicate",),
         "at": ("session.instant",),
-        "on": ("FrameAxis", "inputs.catalog"),
+        "on": ("FrameAxis", "inputs.catalog", "session.instant"),
         "session_id": ("session.recent",),
         "artifact_id": ("analysis_frame.artifact_id", "session.persisted_frames"),
     }
@@ -267,8 +267,10 @@ def provider() -> DisclosureProvider:
                         if name == "values" and n == "by"
                         else "None, RowPredicate, TimeScope or AND tuple: where=(scope, predicate); at most one TimeScope. TimeScope cannot use & or |. mv.in_population(P) filters facts. Field comparisons stay fixed through windows and supply no endpoint. Population.count domains stay fixed."
                         if name == "observe" and n == "where"
-                        else "Population with exactly one complete Entity identity axis, unowned or from this Session. Project that identity axis before reading a classified or multi-axis domain."
+                        else "Pass a complete Population, either unowned or from this Session. Reading preserves all input axes."
                         if name == "read" and n == "population"
+                        else "Choose one existing complete identity Grouping when several roles can supply new values. None selects the unique eligible role; captured fields can be reused directly."
+                        if name == "read" and n == "on"
                         else acquisition[n],
                         (
                             "inputs.catalog",
@@ -282,6 +284,8 @@ def provider() -> DisclosureProvider:
                         if name == "values" and n == "by"
                         else ("session.members", "inputs.population")
                         if name == "read" and n == "population"
+                        else ("population.axes",)
+                        if name == "read" and n == "on"
                         else parameter_targets.get(n, ()),
                     )
                     for n in signature(value).parameters

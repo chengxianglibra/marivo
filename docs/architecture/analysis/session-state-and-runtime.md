@@ -107,7 +107,7 @@ or compute does not refresh updated_at; it records committed state changes.
 Session recovery checks the original publishing transaction and owned resources
 without source recomputation and refuses an active writer. Run records and
 identities remain internal; no public Run history or targeted reconciliation is
-exposed. `session.members(entity, ...)` accepts a resolved Entity with the existing identity/version/at contract. `values` defaults
+exposed. `session.members(entity, ...)` selects represented identities from a resolved Entity. Its exact version anchor selects membership for this call. Later field and relationship reads carry their own anchors. `values` defaults
 to `by=()`. Source-free typed literal frames and `population_from(..., on=())` need
 no unrelated Catalog load. Session has no source_bindings or graph method.
 

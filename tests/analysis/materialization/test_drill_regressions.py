@@ -111,7 +111,7 @@ def test_drill_after_original_operations_prepares_related_fields(
     )
     if explicit_path:
         added = catalog_value(session.catalog, "sales.countries.name", kind="dimension").via(
-            (
+            mv.path(
                 catalog_value(session.catalog, "sales.buyer", kind="relationship"),
                 catalog_value(session.catalog, "sales.home", kind="relationship"),
             )

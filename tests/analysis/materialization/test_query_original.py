@@ -284,7 +284,10 @@ def test_drill_attribute_template_preserves_declared_single_matches(
     session = original_source_session
     region = catalog_value(session.catalog, "sales.orders.region", kind="dimension")
     channel = catalog_value(session.catalog, "sales.orders.channel", kind="dimension")
-    segment = catalog_value(session.catalog, "sales.profiles.segment", kind="dimension")
+    profile = catalog_value(session.catalog, "sales.profile", kind="relationship")
+    segment = catalog_value(session.catalog, "sales.profiles.segment", kind="dimension").via(
+        mv.path(profile)
+    )
     east = session.members(
         catalog_value(session.catalog, "sales.orders", kind="entity"), where=region == "East"
     )

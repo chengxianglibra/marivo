@@ -5,7 +5,7 @@ description: 选择完整成员与坐标域，区分输出键和贡献筛选，�
 
 分析对象集合（Population）是完整坐标元组的有限集合，例如订单、客户、地区或多个相关坐标轴组成的组合。它描述分析所覆盖的范围，观察则为其中的成员计算度量值。`customer_id` 这样的字段本身不是客户身份；身份包含全部有序主键字段。字段值为 `NULL` 时可以作为类别，Entity 身份的主键值必须非空。
 
-先完成[快速开始](/zh-cn/docs/latest/start/python/)，并将 [DSL 共享示例](/zh-cn/docs/latest/analysis/dsl/#完整示例与后续输入)保存为 `analysis.py`。在项目根目录中，将本页代码块保存为 `population.py`，然后运行 `.venv/bin/python population.py`。Population 的构造采用延迟求值：`session.frame(P).compute()` 生成完整键，`session.observe({"count": P.count()}).compute()` 计算域的大小。
+先完成[快速开始](/zh-cn/docs/latest/start/python/)，并将 [DSL 共享示例](/zh-cn/docs/latest/analysis/dsl/#完整示例与后续输入)保存为 `analysis.py`。在项目根目录中，将本页未标注标题的代码块保存为 `population.py`，然后运行 `.venv/bin/python population.py`。Population 的构造采用延迟求值：`session.frame(P).compute()` 生成完整键，`session.observe({"count": P.count()}).compute()` 计算域的大小。
 
 ```python
 from analysis import mv, session, revenue, region, august, current
@@ -44,8 +44,10 @@ assert requested_count.to_pandas()["members"].tolist() == [4]
 
 | 参数 | 必填 | 默认值 | 语义 |
 | --- | --- | --- | --- |
-| `target` | 是 | — | Entity 或显式有向关系路径，用来定义身份轴。 |
-| `at` | 否 | `None` | 版本化身份使用的精确 `session.instant(...)` 锚点；非版本化 Entity 使用 `None`。 |
+| `target` | 是 | — | Entity 对应直接身份轴；`mv.path(...)` 对应买方、卖方等身份角色。 |
+
+通过 `session.members(..., at=...)` 选择指定时刻的成员。同一 Entity 的直接身份轴
+即使来自不同快照，也可参与集合运算。随后读取版本化属性时，在字段或 Path 上显式指定时刻。
 
 ## 来源成员：`session.members`
 
@@ -64,6 +66,19 @@ assert east_count.to_pandas()["members"].tolist() == [4]
 
 这里的成员是跨两个月的订单 1、2、4、5。成员时间应与 `Metric` 的观察时段分别选择。快照或有效期 Entity 须显式提供 `at=session.instant(...)`。
 
+对比版本化客户 Entity 的两个快照时，分别显式选择成员。交集保留两个快照均有的客户身份，
+下例地区字段按 9 月快照读取。
+
+```python title="Versioned customers model"
+august_time = session.instant("2026-08-01")
+september_time = session.instant("2026-09-01")
+august_customers = session.members(Customers, at=august_time)
+september_customers = session.members(Customers, at=september_time)
+retained = august_customers.intersection(september_customers)
+report_region = customer_region.at(september_time)
+classified_customers = retained.classify(by=(report_region,))
+```
+
 ## 输出域与贡献筛选
 
 `by=P` 选择完整输出键。若还要将贡献限制在这些成员内，使用 `where=mv.in_population(P)`。筛选后，输出域必须包含所有必要的贡献键，否则求值会抛出覆盖错误。相关坐标轴应作为完整元组保留；分别列出各轴的值无法保留它们的组合关系。
@@ -73,6 +88,9 @@ assert east_count.to_pandas()["members"].tolist() == [4]
 | 参数 | 必填 | 默认值 | 语义 |
 | --- | --- | --- | --- |
 | `population` | 是 | — | 用于判断成员关系的完整选定域。 |
+
+来源谓词包含时间坐标时，按贡献时钟和普通坐标联合匹配。区间包含起点、排除终点。
+含区间轴的 Population 用作报告域时，最多可有一个实际区间。若区间由来源或 Frame 键决定，Marivo 会先求值并检查输出域，再读取依赖它的 Metric。空域产生空报告。
 
 
 ### 笛卡尔积：`mv.product`
@@ -97,7 +115,11 @@ assert sorted(observed.to_pandas()["revenue"].tolist()) == [0, 100, 100, 600]
 
 | 参数 | 必填 | 默认值 | 语义 |
 | --- | --- | --- | --- |
-| `by` | 是 | — | 一个身份 `Entity` 的直接属性，可同时保留身份轴。求值时读取这些属性。 |
+| `by` | 是 | — | 要追加的单值字段或身份分组。已有坐标会被复用；`()` 保留原域。 |
+| `on` | 否 | `None` | 指定读取主体的已有身份 Grouping。只有一个可用角色时可省略。 |
+
+分类保留完整输入元组。缺失的标量属性为 NULL。追加身份角色时，每个输入元组
+都必须具有完整的非空身份。
 
 ### `P.project`
 
@@ -108,16 +130,18 @@ assert sorted(observed.to_pandas()["revenue"].tolist()) == [0, 100, 100, 600]
 
 ```python
 all_orders = session.members(Orders)
-classified = all_orders.classify(by=(all_orders.axes[0], region))
-regions = classified.project(by=(region,))
+classified = all_orders.classify(by=(region,))
+selected = classified.where(region == "east")
+order_keys = selected.project(by=(mv.identity(Orders),))
+regions = selected.project(by=(region,))
 counts = session.observe(
-    {"orders": classified.count(), "regions": regions.count()}
+    {"orders": order_keys.count(), "regions": regions.count()}
 ).compute()
-assert counts.to_pandas()["orders"].tolist() == [6]
-assert counts.to_pandas()["regions"].tolist() == [2]
+assert counts.to_pandas()["orders"].tolist() == [4]
+assert counts.to_pandas()["regions"].tolist() == [1]
 ```
 
-`P.count()` 返回延迟的 `Metric`，用于统计不同的完整元组，其中包括 `NULL` 字段类别和来源中没有记录的显式请求身份。保留身份时统计六笔订单，先投影到地区再统计则得到两个地区。`Entity.count()` 统计来源贡献，`mv.row_count()` 统计 Frame 中的行。`P.axes` 列出坐标规则；要保留选定成员集合，请传入 `P` 本身。Population 计数独立于报告时间。报告范围和窗口不重选其成员；缺少报告时间坐标时复用计数，已有兼容时间坐标时按键匹配。
+`P.count()` 返回延迟的 `Metric`，用于统计不同的完整元组，其中包括 `NULL` 字段类别和来源中没有记录的显式请求身份。上例选中的范围包含四笔订单和一个地区。`Entity.count()` 统计来源贡献，`mv.row_count()` 统计 Frame 中的行。`P.axes` 列出坐标规则；要保留选定成员集合，请传入 `P` 本身。Population 计数独立于报告时间。报告范围和窗口不重选其成员；缺少报告时间坐标时复用计数，已有兼容时间坐标时按键匹配。
 
 ## 集合选择与关系映射
 
@@ -125,27 +149,32 @@ assert counts.to_pandas()["regions"].tolist() == [2]
 
 | 参数 | 必填 | 默认值 | 语义 |
 | --- | --- | --- | --- |
-| `predicate` | 是 | — | 由 `mv.in_population(...)`、`&`、`\|` 和 `~` 组合的成员谓词。谓词中的 `Population` 只能使用接收方已有的坐标轴。 |
+| `predicate` | 是 | — | 作用于已有坐标的行谓词。可比较字段、使用 `isin` 或 `isnull`，并用 `&`、`\|` 和 `~` 组合 `mv.in_population(...)`。 |
+
+仅保留结果为 True 的元组。需按尚未捕获的坐标筛选时，先用 `classify` 添加它。
+`session.members(..., where=...)` 和 `session.observe(..., where=...)`
+可读取各自来源域中的属性来求值。
 
 ### `P.union / P.intersection / P.difference`
 
 | 参数 | 必填 | 默认值 | 语义 |
 | --- | --- | --- | --- |
-| `other` | 是 | — | 具有兼容完整绑定轴的 Population。`union` 合并域，`intersection` 保留共有元组，`difference` 从当前域移除匹配元组。 |
+| `other` | 是 | — | 具有兼容完整绑定轴的 Population。结果保留左侧轴顺序。`union` 合并域，`intersection` 保留共有元组，`difference` 从当前域移除匹配元组。 |
 
 ### `P.image`
 
 | 参数 | 必填 | 默认值 | 语义 |
 | --- | --- | --- | --- |
-| `via` | 是 | — | 通向目标身份的非空、显式、连续有向关系路径。 |
-| `at` | 否 | `None` | 需要版本选择时，指定目标的精确时刻；`None` 表示不设锚点。 |
+| `via` | 是 | — | 由 `mv.path(...)` 构造的有向 `Path`。 |
+| `on` | 否 | `None` | 已有起点身份 Grouping。只有一个可用角色时可省略。 |
 
 ### `P.preimage`
 
 | 参数 | 必填 | 默认值 | 语义 |
 | --- | --- | --- | --- |
-| `targets` | 是 | — | 选定的兼容目标身份域；返回结果仍受接收方 P 限制。 |
-| `via` | 是 | — | 从接收方身份到目标的显式有向关系路径。 |
+| `targets` | 是 | — | 选定的直接目标身份域。 |
+| `via` | 是 | — | 由 `mv.path(...)` 构造的有向 `Path`。 |
+| `on` | 否 | `None` | 已有起点身份 Grouping。只有一个可用角色时可省略。 |
 
 
 ```python
@@ -158,7 +187,17 @@ assert set_counts.to_pandas()["present"].tolist() == [3]
 assert set_counts.to_pandas()["missing"].tolist() == [1]
 ```
 
-`P.image` 可以包含目标记录缺失的外键身份；之后读取该成员的属性时可能得到 `NULL`。`P.preimage` 选择当前 Population 中能到达任一目标的身份，不会因关系多重性重复身份。订单映射到客户再映射回来时，会选中这些客户的所有订单，因此结果范围可能大于原订单子集。
+`P.image` 返回去重后的直接目标身份。完整外键可以提供缺少目标记录的身份。
+`P.preimage` 保留能到达至少一个目标的完整输入元组。如果一个元组可以到达
+多个目标，对它再次取像可能得到原先未选中的其他目标。
+
+通过 `mv.path(relationship, source_at=anchor)` 指定版本化起点的读取时刻。
+当某一步需要读取其目标版本时，使用 `relationship.at(anchor)`。末端时刻要求实际
+读取目标行。需要检查目标是否在某时刻存在时，用 `session.members(Target, at=anchor)`
+构造目标域。
+
+`P.identities(on=grouping)` 保留指定轴上的完整身份值，消去路径角色，并在直接
+Entity 轴上去重。需要保留身份角色或其他选定轴时，使用 `P.project`。
 
 ## 从 Frame 选择继续：`session.population_from`
 
@@ -175,4 +214,20 @@ chosen_count = session.observe({"regions": chosen_regions.count()}).compute()
 assert chosen_count.to_pandas()["regions"].tolist() == [1]
 ```
 
-由于 `current` 是已计算的 8 月结果，`population_from` 会记录选中的地区。后续观察可将 `chosen_regions` 传给 `where=mv.in_population(chosen_regions)`，这样仍选中 west，无需重新排名。用 `session.frame(P)` 计算 Population 的键，用 `session.read(P, fields)` 读取单一 Entity 身份域的属性。创建和使用 Population 时，应使用其所属的分析会话。精确参考：`analysis.population`、`analysis.coordinates`、`analysis.session.members`、`analysis.session.population_from`。
+由于 `current` 是已计算的 8 月结果，`population_from` 会记录选中的地区。后续观察可将 `chosen_regions` 传给 `where=mv.in_population(chosen_regions)`，这样仍选中 west，无需重新排名。用 `session.frame(P)` 计算 Population 的键。`session.read(P, fields, on=...)` 保留全部输入键，并添加命名标量值。多个角色均可提供这些字段时，请指定已有身份 Grouping。创建和使用 Population 时，应使用其所属的分析会话。精确参考：`analysis.population`、`analysis.coordinates`、`analysis.session.members`、`analysis.session.population_from`。
+
+版本化字段的已有直接轴未设锚点时，可映射到同一未设锚点的字段并复用其值。建立新的版本化字段绑定时，请用 `field.at(session.instant(...))` 显式指定版本。
+
+### 筛选已固定的坐标值
+
+完成带分类坐标的键 Frame，然后将坐标轴映射到明确的业务绑定。下例沿用前面
+classify 调用的轴顺序。最终筛选直接使用已捕获的地区值，可在来源离线时执行。
+
+```python
+fixed = session.frame(classified).compute()
+captured = session.population_from(
+    fixed, on=((fixed.axes[0], Orders), (fixed.axes[1], region))
+)
+east_keys = session.frame(captured.where(region == "east")).compute()
+assert len(east_keys.to_pandas()) == 4
+```

@@ -340,7 +340,7 @@ def test_membership_parent_overlap_is_independent_and_correlated(session: Sessio
         catalog_value(session.catalog, "sales.fact_links", kind="relationship"),
         catalog_value(session.catalog, "sales.link_tags", kind="relationship"),
     )
-    membership = mv.membership((label, kind), via=(path,), unmatched="exclude")
+    membership = mv.membership((label, kind), via=(mv.path(*path),), unmatched="exclude")
     prepared = evaluate_attribute_inputs(
         _level_inputs(session.observe({"q": value.sum()}, by=(membership,)), by=(channel,))
     )
@@ -367,7 +367,7 @@ def test_identical_membership_assignments_are_idempotent(session: Session, tmp_p
         catalog_value(session.catalog, "sales.fact_links", kind="relationship"),
         catalog_value(session.catalog, "sales.link_tags", kind="relationship"),
     )
-    membership = mv.membership(label, via=(path,), unmatched="exclude")
+    membership = mv.membership(label, via=(mv.path(*path),), unmatched="exclude")
     prepared = evaluate_attribute_inputs(
         _level_inputs(
             session.observe({"q": value.sum()}, where=fact_id == 1, by=()), by=(membership,)
@@ -858,7 +858,7 @@ def test_native_mean_originals_follow_correlated_null_membership_parent_keys(
         catalog_value(session.catalog, "sales.fact_links", kind="relationship"),
         catalog_value(session.catalog, "sales.link_tags", kind="relationship"),
     )
-    membership = mv.membership((label, kind), via=(route,), unmatched="null")
+    membership = mv.membership((label, kind), via=(mv.path(*route),), unmatched="null")
     endpoint = session.observe({"q": value.mean()}, by=(membership,))
     output = evaluate_attribute_inputs(_comparison_inputs(endpoint, endpoint, by=(channel,)))
     for root in output.attribute_inputs:
@@ -1395,7 +1395,7 @@ def test_attribute_aggregate_and_diagnostic_sql_compiles_for_native_backends(
             mv.membership(
                 label,
                 via=(
-                    (
+                    mv.path(
                         catalog_value(session.catalog, "sales.fact_links", kind="relationship"),
                         catalog_value(session.catalog, "sales.link_tags", kind="relationship"),
                     ),
@@ -1436,7 +1436,7 @@ def test_paired_rate_mix_membership_requires_one_joint_group_per_fact(
     membership = mv.membership(
         label,
         via=(
-            (
+            mv.path(
                 catalog_value(session.catalog, "sales.fact_links", kind="relationship"),
                 catalog_value(session.catalog, "sales.link_tags", kind="relationship"),
             ),

@@ -34,7 +34,7 @@ from tests.support.paths import PROJECT_ROOT
 
 
 def _classify(population: mv.Population, region: ms.Dimension) -> mv.Population:
-    result = population.classify(by=(region,))
+    result = population.classify(by=(region,)).project(by=(region,))
     assert isinstance(result, mv.Population)
     return result
 

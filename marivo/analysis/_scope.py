@@ -152,13 +152,18 @@ def _node_summary(node: DefinitionNode) -> str:
     if isinstance(node, PopulationProject):
         return f"PopulationProject positions={node.positions}"
     if isinstance(node, PopulationClassify):
-        return "PopulationClassify fields=" + ", ".join(
-            field.field.ref.path for field in node.fields[:6]
+        from marivo._definition.types import FieldRead
+
+        return "PopulationClassify reads=" + ", ".join(
+            (read.field if isinstance(read, FieldRead) else read.entity).ref.path
+            for read in node.reads[:6]
         )
     if isinstance(node, (PopulationImage, PopulationPreimage)):
-        return (
-            type(node).__name__ + " path=" + ", ".join(item.ref.ref.path for item in node.path[:6])
+        path = ", ".join(
+            f"{step.relationship.ref.ref.path}@{attribute_time_key(step.target_at)}"
+            for step in node.path.steps[:6]
         )
+        return f"{type(node).__name__} subject={node.subject} source_at={node.path.source_at} path={path}"
     if isinstance(node, IntervalKeys):
         interval = node.interval
         return f"IntervalKeys [{interval.start.isoformat()}, {interval.end.isoformat()}) {interval.timezone}"
@@ -215,7 +220,10 @@ def scope_summary(
             if binding not in memberships:
                 memberships.add(binding)
                 fields = tuple(field.field.ref.path for field in binding.fields)
-                paths = tuple(tuple(item.ref.ref.path for item in route) for route in binding.paths)
+                paths = tuple(
+                    tuple(item.ref.ref.path for item in route.relationships)
+                    for route in binding.paths
+                )
                 lines.append(
                     _bounded(
                         f"{label}: MembershipBinding fields={fields}; paths={paths}; unmatched={binding.unmatched}",

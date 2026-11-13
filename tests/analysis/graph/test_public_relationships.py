@@ -49,7 +49,11 @@ def test_authored_relationship_keys_execute_metric(relationship_project: Path) -
         )
     session = mv.session.get_or_create("relationship", timezone="UTC")
     route = catalog_get(session.catalog, "relationship:sales.event_order", kind="relationship")
-    region = catalog_value(session.catalog, "sales.orders.region", kind="dimension").via((route,))
+    region = catalog_value(session.catalog, "sales.orders.region", kind="dimension").via(
+        mv.path(
+            route,
+        )
+    )
     observed = session.observe(
         {"value": catalog_get(session.catalog, "metric:sales.event_count", kind="metric")},
         by=(region,),
@@ -66,7 +70,15 @@ def test_membership_ref_and_members_entity_have_typed_repairs(relationship_proje
     session = mv.session.get_or_create("relationship-inputs", timezone="UTC")
     region = catalog_value(session.catalog, "sales.orders.region", kind="dimension")
     relationship_ref = ms.ref.relationship("sales.event_order")
-    membership = mv.membership(region, via=((relationship_ref,),), unmatched="exclude")
+    membership = mv.membership(
+        region,
+        via=(
+            mv.path(
+                relationship_ref,
+            ),
+        ),
+        unmatched="exclude",
+    )
     assert isinstance(membership, Deferred)
     with pytest.raises(CoreRuleError) as invalid_path:
         session.observe(
@@ -81,7 +93,18 @@ def test_membership_ref_and_members_entity_have_typed_repairs(relationship_proje
     relationship = catalog_get(
         session.catalog, "relationship:sales.event_order", kind="relationship"
     )
-    assert mv.membership(region, via=((relationship,),), unmatched="exclude").kind == "membership"
+    assert (
+        mv.membership(
+            region,
+            via=(
+                mv.path(
+                    relationship,
+                ),
+            ),
+            unmatched="exclude",
+        ).kind
+        == "membership"
+    )
 
     with pytest.raises(CoreRuleError) as invalid_entity:
         session.members(ms.ref.entity("sales.events"))  # type: ignore[arg-type]  # Deliberately invalid public input.

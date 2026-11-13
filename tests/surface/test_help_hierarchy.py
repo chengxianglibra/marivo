@@ -136,6 +136,10 @@ def test_required_secondary_routes_keep_their_real_native_owners() -> None:
         ),
         ("analysis.inputs.population", ("analysis.population.count", "semantic.predicate")),
         (
+            "analysis.inputs.population.paths",
+            ("analysis.path.define", "analysis.relationship_step", "semantic.relationship.at"),
+        ),
+        (
             "analysis.operators",
             ("semantic.entity.count", "analysis.row_count", "analysis.session.observe"),
         ),
@@ -230,6 +234,8 @@ def test_column_operator_reference_remains_discoverable_without_flattening_task_
         ),
         ("session.observe", "where", ("semantic.predicate", "analysis.session.time_scope")),
         ("session.read", "population", ("analysis.session.members",)),
+        ("session.read", "on", ("analysis.population.axes",)),
+        ("path.define", "steps", ("semantic.relationship", "semantic.relationship.at")),
         ("time_scope.by", "grain", ("analysis.grain.define",)),
         ("analysis_frame.reduce", "values", ("analysis.value_statistic", "analysis.column.sum")),
         ("analysis_frame.reduce", "by", ("analysis.analysis_frame.axis",)),

@@ -288,6 +288,8 @@ def test_one_final_schedule_resolves_every_compiler_leaf(
         observe_read: Callable[[SourceRead, LoweredRead, StageOutput], None] | None = None,
         observe_local: Callable[[LocalCompute | FrameCompute | SourceRead, StageOutput], None]
         | None = None,
+        completed_frames: Mapping[str, StageOutput] | None = None,
+        retain_inputs: dict[str, StageOutput] | None = None,
     ) -> StageOutput:
         plans.append(compiled)
         assert not any(isinstance(stage, FrameKeysInput) for stage in compiled.lowered.plan.stages)
@@ -302,6 +304,8 @@ def test_one_final_schedule_resolves_every_compiler_leaf(
             adapt_source=adapt_source,
             observe_read=observe_read,
             observe_local=observe_local,
+            completed_frames=completed_frames,
+            retain_inputs=retain_inputs,
         )
 
     monkeypatch.setattr(evaluator, "run_frame_plan", run)
@@ -579,6 +583,18 @@ def test_frame_key_set_logic_and_explicit_product_use_actual_complete_domains(
     assert len(_observe(session, gated).compute().to_pandas()) == 5
 
 
+def test_captured_field_predicate_keeps_only_true(session: Session) -> None:
+    original = _population(session, _memory(session)).union(
+        _population(session, _memory(session, null=True))
+    )
+    region = catalog_value(session.catalog, "sales.facts.region", kind="dimension")
+    assert isinstance(original, Population)
+    selected = original.where(region.notnull() & region.isin(("east", "west")))
+    assert isinstance(selected, Population)
+    rows = session.frame(selected).compute().to_pandas()
+    assert sorted(rows.iloc[:, 0].tolist()) == ["east", "west"]
+
+
 def test_source_relationship_preimage_retains_frame_target_keys(
     semantic_project_factory: Callable[..., SemanticProject],
     tmp_path: Path,
@@ -608,7 +624,7 @@ def test_source_relationship_preimage_retains_frame_target_keys(
         catalog_get(session.catalog, "relationship:sales.order_links", kind="relationship"),
         catalog_get(session.catalog, "relationship:sales.link_tags", kind="relationship"),
     )
-    selected = orders.preimage(targets, via=path)
+    selected = orders.preimage(targets, via=mv.path(*path))
     result = (
         frame_sources.observe(
             session._runtime.local,

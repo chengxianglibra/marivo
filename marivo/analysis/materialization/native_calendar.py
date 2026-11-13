@@ -762,7 +762,21 @@ def freeze_output_calendars(
                 coordinate, token=axis.token, name=axis.name, key=axis.columns[0]
             )
             axes.append(frozen_interval.axis)
-            attachments.append(frozen_interval.directory)
+            directory = frozen_interval.directory
+            if (
+                graph.signature.observation is not None
+                and isinstance(graph.root, ObserveQuery)
+                and graph.root.metrics
+            ):
+                represented = rows[axis.columns[0].slot_id].unique()
+                key = directory.schema.key_fields[0]
+                directory = replace(
+                    directory,
+                    rows=directory.rows.loc[directory.rows[key].isin(represented)].reset_index(
+                        drop=True
+                    ),
+                )
+            attachments.append(directory)
         else:
             axes.append(axis)
     return replace(schema, axes=tuple(axes)), tuple(attachments)

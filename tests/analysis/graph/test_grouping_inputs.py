@@ -288,7 +288,15 @@ def test_interleaved_rules_and_nested_samples_have_independent_numeric_oracles(
     buyer = catalog_get(session.catalog, "relationship:sales.order_buyer", kind="relationship")
     scope = session.time_scope(start="2026-08-01", end="2026-09-01")
     channels = mv.membership((channel, status), via=(), unmatched="exclude")
-    customers = mv.membership((customer, region), via=((buyer,),), unmatched="exclude")
+    customers = mv.membership(
+        (customer, region),
+        via=(
+            mv.path(
+                buyer,
+            ),
+        ),
+        unmatched="exclude",
+    )
     # R=(channel,status), S=(customer,region); (R,S,status,region) gives a,c,b,d.
     ordinary_status = mv.coordinates(by=(status,), keys=()).axes[0]
     pending = session.observe(

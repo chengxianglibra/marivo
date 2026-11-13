@@ -9,6 +9,7 @@ from ibis.common.deferred import Deferred
 
 from marivo._definition.correspondence import ComparisonAxis
 from marivo._definition.graph import direct_refs
+from marivo._definition.population_builders import axis as field_axis
 from marivo._definition.relations import (
     AttributeKeys,
     FrameKeyAxis,
@@ -20,11 +21,8 @@ from marivo._definition.relations import (
 from marivo._definition.types import (
     AxisBinding,
     CalendarCoordinate,
-    FieldRead,
-    IdentityRead,
     InputContext,
     IntervalCoordinate,
-    fixed_attribute_time,
 )
 from marivo._grouping import Grouping
 from marivo.analysis.binding.attribute_rules import (
@@ -202,10 +200,7 @@ def source_inputs(
                 axis
                 for item in bound_by
                 for axis in (
-                    tuple(
-                        AxisBinding(read.entity, read.field, read.path, "field", read.at)
-                        for read in item._binding.fields
-                    )
+                    tuple(field_axis(read) for read in item._binding.fields)
                     if isinstance(item, Grouping) and isinstance(item._binding, MembershipBinding)
                     else _axes((item,))
                 )
@@ -229,7 +224,7 @@ def source_inputs(
                     required.add(axis.field)
         for membership in fine_memberships:
             for path in membership.paths:
-                for relationship in path:
+                for relationship in path.relationships:
                     required.update(
                         (relationship.ref, relationship.from_entity, relationship.to_entity)
                     )
@@ -359,11 +354,7 @@ def source_inputs(
         assert fine_by is None or isinstance(fine_by, Population)
         axes = (*source_axes, *fine_axes)
         reads = tuple(
-            axis
-            if isinstance(axis, (CalendarCoordinate, IntervalCoordinate))
-            else FieldRead(axis.field, axis.entity, axis.path, axis.at)
-            if axis.field is not None
-            else IdentityRead(axis.entity, axis.path, fixed_attribute_time(axis.at))
+            axis if isinstance(axis, (CalendarCoordinate, IntervalCoordinate)) else axis.as_read()
             for axis in axes
         )
         # Qualified source bundling uses the complete joint parent_scope, including
@@ -748,10 +739,7 @@ def attribute(
                     for item in by
                     if isinstance(item, (Deferred, RowExpression, Grouping))
                     for axis in (
-                        tuple(
-                            AxisBinding(read.entity, read.field, read.path, "field", read.at)
-                            for read in item._binding.fields
-                        )
+                        tuple(field_axis(read) for read in item._binding.fields)
                         if isinstance(item, Grouping)
                         and isinstance(item._binding, MembershipBinding)
                         else _axes((item,))

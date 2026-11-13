@@ -1260,17 +1260,20 @@ def test_public_dsl_operators_emit_completion_events(
 
     mv.identity(customer)
     literal = mv.coordinates(by=(region,), keys=(("east",),))
-    mv.membership(region, via=((buyer,),), unmatched="exclude")
+    route = mv.path(buyer)
+    mv.membership(region, via=(route,), unmatched="exclude")
     mv.product(literal, mv.coordinates(by=(), keys=((),)))
     customers.count()
     customers.project(by=customers.axes)
-    customers.classify(by=(region,))
+    customers.classify(by=(region,)).project(by=(region,))
     customers.union(customers)
     customers.intersection(customers)
     customers.difference(customers)
     customers.where(mv.in_population(customers))
-    orders.image(via=(buyer,))
-    orders.preimage(customers, via=(buyer,))
+    orders.image(via=route)
+    orders.preimage(customers, via=route)
+    buyer_role = mv.identity(route)
+    orders.classify(by=(buyer_role,)).identities(on=buyer_role)
 
     events = _analysis_events(case.root)[before:]
     assert events and all(
@@ -1295,8 +1298,10 @@ def test_public_dsl_operators_emit_completion_events(
         "identity",
         "in_population",
         "membership",
+        "path.define",
         "population.classify",
         "population.difference",
+        "population.identities",
         "population.image",
         "population.intersection",
         "population.preimage",
@@ -1386,11 +1391,15 @@ def test_population_constructors_keep_the_captured_project(
     before = len(_analysis_events(case.root))
     mv.identity(customer)
     population = mv.coordinates(by=(region,), keys=(("east",),))
-    mv.membership(region, via=((buyer,),), unmatched="exclude")
+    route = mv.path(buyer)
+    mv.identity(route)
+    mv.membership(region, via=(route,), unmatched="exclude")
     mv.product(unit, population)
     assert [event["marivo.capability.id"] for event in _analysis_events(case.root)[before:]] == [
         "identity",
         "coordinates",
+        "path.define",
+        "identity",
         "membership",
         "product",
     ]

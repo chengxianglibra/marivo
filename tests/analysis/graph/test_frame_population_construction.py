@@ -275,8 +275,8 @@ def test_classify_image_preimage_and_product_retain_carriers(session: Session) -
             by=(catalog_value(session.catalog, "sales.facts.region", kind="dimension"),)
         )
     ) == _ids(selected)
-    assert _ids(selected.image(via=(relationship,))) == _ids(selected)
-    assert _ids(selected.preimage(targets, via=(relationship,))) == (
+    assert _ids(selected.image(via=mv.path(relationship))) == _ids(selected)
+    assert _ids(selected.preimage(targets, via=mv.path(relationship))) == (
         *_ids(selected),
         *_ids(targets),
     )
@@ -385,7 +385,7 @@ def test_explicit_field_path_is_retained_and_rebound(session: Session) -> None:
     frame = _fields(session)
     relationship = catalog_get(session.catalog, "relationship:sales.customer", kind="relationship")
     segment = catalog_value(session.catalog, "sales.customers.segment", kind="dimension").via(
-        (relationship,)
+        mv.path(relationship)
     )
     population = population_from(
         session._runtime.local, session.catalog._state, frame, on=((frame.axes[0], segment),)

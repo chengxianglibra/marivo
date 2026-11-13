@@ -10,7 +10,6 @@ import pytest
 import marivo.analysis as mv
 import marivo.datasource as md
 import marivo.semantic as ms
-from marivo.analysis.core.frame_data import ExpressionFrameBacking, SourceFrameBinding
 from marivo.analysis.errors import AnalysisError
 from marivo.datasource.adapters import SourceSession, provider_for
 from marivo.datasource.ir import TableSourceIR
@@ -123,17 +122,18 @@ def test_complete_versioned_members(
         with monkeypatch.context() as construction:
             construction.setattr(SourceSession, "bind", no_construction_read)
             construction.setattr(SourceSession, "execute", no_construction_read)
-            unanchored = session.members(entity)
-            unanchored_read = session.read(
-                unanchored,
-                {"amount": catalog_value(session.catalog, "sales.subjects.amount", kind="field")},
-            )
+            with pytest.raises(AnalysisError):
+                session.members(entity)
             current = session.members(entity, at=august)
-        assert calls == [] and len(terminal_runs(session)) == before_runs
-        with monkeypatch.context() as preparation:
-            preparation.setattr(SourceSession, "execute", no_construction_read)
             with pytest.raises(AnalysisError) as missing_version:
-                unanchored_read.compute()
+                session.read(
+                    current,
+                    {
+                        "amount": catalog_value(
+                            session.catalog, "sales.subjects.amount", kind="field"
+                        )
+                    },
+                )
         assert calls == [] and len(terminal_runs(session)) == before_runs
         assert (
             missing_version.value.expected
@@ -300,14 +300,9 @@ def test_scalar_path_scopes_complete_keys_and_trusts_cardinality(
         members = session.members(_entity(session.catalog, "entity:sales.subjects"))
         field = catalog_value(session.catalog, "sales.attributes.amount", kind="field")
         via = _relationship(session.catalog, "relationship:sales.attributes_path")
-        inferred = session.read(members, {"value": field})
-        explicit = session.read(members, {"value": field.via((via,))})
-        inferred_backing, explicit_backing = inferred._backing, explicit._backing
-        assert isinstance(inferred_backing, ExpressionFrameBacking)
-        assert isinstance(explicit_backing, ExpressionFrameBacking)
-        assert isinstance(inferred_backing.root, SourceFrameBinding)
-        assert isinstance(explicit_backing.root, SourceFrameBinding)
-        assert inferred_backing.root.graph.fingerprint == explicit_backing.root.graph.fingerprint
+        with pytest.raises(AnalysisError):
+            session.read(members, {"value": field})
+        explicit = session.read(members, {"value": field.via(mv.path(via))})
         category = session.read(
             members,
             {"tenant": catalog_value(session.catalog, "sales.subjects.tenant", kind="field")},
@@ -317,7 +312,7 @@ def test_scalar_path_scopes_complete_keys_and_trusts_cardinality(
             selected_values,
             on=((selected_values.axes[0], _entity(session.catalog, "entity:sales.subjects")),),
         )
-        scoped_result = session.read(selected, {"value": field.via((via,))}).compute()
+        scoped_result = session.read(selected, {"value": field.via(mv.path(via))}).compute()
         scoped = scoped_result.to_pandas()
         assert len(scoped) == 2
         assert scoped["value"].dropna().tolist() == [10]

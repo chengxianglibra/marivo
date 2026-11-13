@@ -104,7 +104,11 @@ def test_utc_date_control_selects_previous_los_angeles_business_day(
     fact_day = _time_dimension(session.catalog, "time_dimension:sales.facts.fact_day")
     category = _dimension(session.catalog, "dimension:sales.profiles.category")
     relationship = _relationship(session.catalog, "relationship:sales.profile")
-    historical_category = category.via((relationship,)).at(fact_day)
+    historical_category = category.via(
+        mv.path(
+            relationship,
+        )
+    ).at(fact_day)
     period = session.time_scope(start="2026-07-01", end="2026-07-02")
     result = session.observe(
         {"value": _measure(session.catalog, "measure:sales.facts.amount").sum(time=fact_day)},
@@ -120,7 +124,11 @@ def test_utc_date_control_selects_previous_los_angeles_business_day(
 
     historical_day = (
         _time_dimension(session.catalog, "time_dimension:sales.profiles.day")
-        .via((relationship,))
+        .via(
+            mv.path(
+                relationship,
+            )
+        )
         .at(session.instant("2026-07-01T00:00:00Z"))
     )
     amount = _measure(session.catalog, "measure:sales.facts.amount")

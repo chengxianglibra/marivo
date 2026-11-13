@@ -28,6 +28,7 @@ from marivo._definition.types import (
     ExactRef,
     FieldRead,
     IdentityRead,
+    IntervalCoordinate,
     RowAttributeTime,
     TimeInstantFieldRead,
     coordinate_read_keys,
@@ -241,14 +242,22 @@ def prepare_fields(
         *contribution.coordinates,
     )
     from marivo.analysis.binding.coordinates import identity_projection
+    from marivo.analysis.materialization.population_condition import (
+        membership_time_axes,
+        population_time_ranges,
+        requires_path_witness,
+    )
 
     scalar_reads = (
         *scalar_reads,
         *(
             read
             for _, read in contribution.population_reads
-            if not isinstance(read, IdentityRead)
-            or identity_projection(read, contribution.root, registry) is None
+            if not requires_path_witness(read)
+            and (
+                not isinstance(read, IdentityRead)
+                or identity_projection(read, contribution.root, registry) is None
+            )
         ),
     )
     for read in scalar_reads:
@@ -534,7 +543,7 @@ def prepare_fields(
     checks: list[tuple[str, str, str]] = []
     match_flag = unique("__route_matched")
     routes: dict[
-        tuple[tuple[ExactRef, ...], AttributeTime | None],
+        tuple[tuple[ExactRef | None, AttributeTime | None], ...],
         tuple[ir.Table, dict[str, str]],
     ] = {}
     from marivo.analysis.binding.membership import membership_reads
@@ -551,7 +560,11 @@ def prepare_fields(
             (
                 *contribution.reads,
                 *contribution.coordinates,
-                *(read for _, read in contribution.population_reads),
+                *(
+                    read
+                    for _, read in contribution.population_reads
+                    if not requires_path_witness(read)
+                ),
             )
         )
         if read not in member_reads
@@ -566,6 +579,8 @@ def prepare_fields(
             and read.field == contribution.time.field
             and read.path == contribution.time.path
             and read.at == contribution.time.at
+            and read.source_at == contribution.time.source_at
+            and read.step_ats == contribution.time.step_ats
         ),
         None,
     )
@@ -585,6 +600,7 @@ def prepare_fields(
     )
     pending_calendars: list[tuple[str, str, CalendarCoordinate]] = []
     day_clocks: dict[str, tuple[ir.Value, TargetDimensionContract, SourceTimeAuthority]] = {}
+    predicate_time_axes = membership_time_axes(contribution)
     for index, (read, component, read_key) in enumerate(parts):
         extras: dict[str, ir.Value] = {}
         extra_keys: dict[str, str] = {}
@@ -598,6 +614,34 @@ def prepare_fields(
             extra_keys: dict[str, str] = extra_keys,
         ) -> dict[str, ir.Value]:
             if read == time_read:
+                assert isinstance(read, FieldRead)
+                encoding = time_encodings.get(read.field.ref.path)
+                if (
+                    predicate_time_axes
+                    and encoding is not None
+                    and encoding[2].kind == "civil_date"
+                ):
+                    from marivo.analysis.binding.windows import validate_date_contribution
+
+                    for axis in predicate_time_axes:
+                        scopes = (
+                            tuple(
+                                replace(
+                                    contribution,
+                                    calendars=(),
+                                    period=ObservationPeriod(start, end, axis.timezone),
+                                )
+                                for _, start, end in population_time_ranges(axis)
+                            )
+                            if isinstance(axis, IntervalCoordinate)
+                            else (
+                                replace(
+                                    contribution, calendars=(("membership", axis),), period=None
+                                ),
+                            )
+                        )
+                        for scope in scopes:
+                            validate_date_contribution(scope, read.field.ref.path, registry)
                 for key, calendar in contribution.calendars:
                     if isinstance(calendar, BuiltinSampleCoordinate):
                         continue
@@ -628,7 +672,7 @@ def prepare_fields(
                     else:
                         extras[name] = period_condition(
                             expression, calendar.start, calendar.end, calendar.timezone
-                        ).ifelse(ibis.literal(0).cast("!int64"), ibis.null())
+                        ).ifelse(ibis.literal(calendar.report_key).cast("!int64"), ibis.null())
                     extra_keys[name] = calendar_field(key)
                 if selected_calendars:
                     name = unique("__time_selected")
@@ -671,17 +715,30 @@ def prepare_fields(
             dependencies.append(expression)
             originals.append((slot, expression))
             table = table.mutate(**{slot: expression})
-        elif not read.path and read.at is None:
+        elif not read.path and read.at is None and read.source_at is None:
             expression = read_value(table)
             dependencies.append(expression)
             originals.append((slot, expression))
             table = table.mutate(**{slot: expression}, **time_columns(expression))
         else:
             current = {name: name for name in entities[contribution.root.ref.path].columns}
-            steps = read.path or (None,)
-            for step_index, step in enumerate(steps):
+            route: tuple[tuple[ExactRef | None, AttributeTime | None], ...] = tuple(
+                (
+                    step,
+                    read.at
+                    if index == len(read.path) - 1
+                    else read.step_ats[index]
+                    if index < len(read.step_ats)
+                    else None,
+                )
+                for index, step in enumerate(read.path)
+            ) or ((None, read.at),)
+            if read.source_at is not None:
+                route = ((None, read.source_at), *route)
+            for step_index, (step, anchor) in enumerate(route):
+                final = step_index == len(route) - 1
                 if step is None:
-                    target_path = read.entity.ref.path
+                    target_path = read.entity.ref.path if final else contribution.root.ref.path
                     keys = tuple(
                         (name, name) for name in registry.entities[target_path].primary_key
                     )
@@ -689,8 +746,16 @@ def prepare_fields(
                     relation = normalize_target_relationship(registry, step.ref.path)
                     target_path = relation.to_entity_ref.path
                     keys = relation.keys
-                final = step_index == len(steps) - 1
-                route_key = (read.path[: step_index + 1], read.at if final else None)
+                    if final and isinstance(read, IdentityRead):
+                        foreign_keys = {right: left for left, right in keys}
+                        if all(name in foreign_keys for name in read.components):
+                            assert component is not None
+                            expression = table[current[foreign_keys[component]]]
+                            dependencies.append(expression)
+                            originals.append((slot, expression))
+                            table = table.mutate(**{slot: expression})
+                            break
+                route_key = route[: step_index + 1]
                 if route_key in routes:
                     # Match through retained columns, never a fresh target relation.
                     target, current = routes[route_key]
@@ -714,13 +779,13 @@ def prepare_fields(
                 row_condition: ir.BooleanValue | None = None
                 for left, right in keys:
                     dependencies.extend((table[current[left]], target[right]))
-                if target_path == read.entity.ref.path and read.at is not None:
+                if anchor is not None:
                     contract = normalize_target_entity(registry, target_path)
-                    if isinstance(read.at, RowAttributeTime):
+                    if isinstance(anchor, RowAttributeTime):
                         from marivo.analysis.compiler.member_version import row_version_predicate
 
-                        control = value(read.at.field.ref.path, table)
-                        control_authority = time_encodings[read.at.field.ref.path][2]
+                        control = value(anchor.field.ref.path, table)
+                        control_authority = time_encodings[anchor.field.ref.path][2]
                         row_condition = row_version_predicate(
                             target,
                             contract.version,
@@ -733,7 +798,7 @@ def prepare_fields(
                         )
                     else:
                         selection = normalize_target_version_selection(
-                            contract, boundary=read.at, interpretation="instant"
+                            contract, boundary=anchor, interpretation="instant"
                         )
                         version_condition = version_predicate(
                             target,
@@ -905,7 +970,13 @@ def prepare_fields(
     from marivo.analysis.materialization.population_condition import prepare_condition_memberships
 
     prepared_memberships = prepare_condition_memberships(
-        table, contribution, dict(columns), entities, state
+        table,
+        contribution,
+        dict(columns),
+        entities,
+        state,
+        field_value=value,
+        source_times=source_times,
     )
     table = prepared_memberships[0]
     columns.extend(prepared_memberships[1])

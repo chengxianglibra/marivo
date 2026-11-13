@@ -65,12 +65,14 @@ def test_window_attribute_identifies_its_public_constructor() -> None:
             ),
         ),
         (mv.FrameAxis, "frame_axis", ("token", "name", "role", "key_names")),
+        (mv.Path, "path", ("source", "target", "steps", "source_at")),
+        (mv.RelationshipStep, "relationship_step", ("relationship", "target_at")),
         (mv.FrameLineage, "frame_lineage", ("values", "axes", "presence")),
         (mv.ColumnLineage, "column_lineage", ("value_origins", "context_origins")),
         (mv.SemanticObjectIdentity, "semantic_object_identity", ("kind", "path", "definition_id")),
     ),
 )
-def test_frame_metadata_help_is_static_without_getter_execution(
+def test_value_metadata_help_is_static_without_getter_execution(
     owner: type[object],
     target: str,
     members: tuple[str, ...],

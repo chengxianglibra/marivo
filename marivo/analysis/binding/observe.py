@@ -82,20 +82,6 @@ def _predicate_reads(
     )
 
 
-def _attribute_calendar(
-    axis: AxisBinding | CalendarCoordinate | IntervalCoordinate, domain: PopulationDependency
-) -> bool:
-    """Keep calendar predicates confined to the explicit Attribute projection."""
-    from marivo._definition.relations import AttributeKeys, PopulationProgram
-
-    return (
-        isinstance(axis, CalendarCoordinate)
-        and isinstance(domain, PopulationProgram)
-        and isinstance(domain.root, AttributeKeys)
-        and axis == domain.root.calendar
-    )
-
-
 def bind_observation(
     metrics: tuple[tuple[str, MetricNode], ...],
     declared: dict[ExactRef, MetricNode],
@@ -107,6 +93,8 @@ def bind_observation(
     memberships: tuple[MembershipBinding, ...] = (),
     population: PopulationDependency | None = None,
     report_period: ObservationPeriod | None = None,
+    pending_interval: int | None = None,
+    empty_interval: bool = False,
 ) -> ObservationBinding:
     if not isinstance(by, tuple) or any(
         not isinstance(field, (FieldRead, IdentityRead, CalendarCoordinate, IntervalCoordinate))
@@ -133,6 +121,8 @@ def bind_observation(
     period = report_period or (
         ObservationPeriod(time_axis.start, time_axis.end, time_axis.timezone)
         if isinstance(time_axis, IntervalCoordinate)
+        and pending_interval is None
+        and not empty_interval
         else ObservationPeriod(
             min(cell[2] for cell in time_axis.cells),
             max(cell[3] for cell in time_axis.cells),
@@ -305,7 +295,12 @@ def bind_observation(
                 for axis in (*axes, *sample_axes)
                 if isinstance(axis, (CalendarCoordinate, IntervalCoordinate))
             )
-            if contribution_period is None and coordinate_calendar_axes:
+            if (
+                contribution_period is None
+                and coordinate_calendar_axes
+                and pending_interval is None
+                and not empty_interval
+            ):
                 cells = tuple(
                     cell
                     for axis in coordinate_calendar_axes
@@ -330,7 +325,13 @@ def bind_observation(
             ]
             if node.time is not None and time_read is not None:
                 reads.append(
-                    FieldRead(time_read.field, time_read.entity, node.time.path, node.time.at)
+                    replace(
+                        time_read,
+                        path=node.time.path,
+                        at=node.time.at,
+                        source_at=node.time.source_at,
+                        step_ats=node.time.step_ats,
+                    )
                 )
             predicates = (*filters, *((condition,) if condition is not None else ()))
             for predicate in predicates:
@@ -341,20 +342,17 @@ def bind_observation(
             for predicate in predicates:
                 for domain in condition_populations(predicate):
                     for axis in domain.axes:
-                        if _attribute_calendar(axis, domain):
+                        if isinstance(axis, (CalendarCoordinate, IntervalCoordinate)):
+                            if node.time is None:
+                                reject(
+                                    "a contribution clock for time coordinates in in_population",
+                                    f"{root.ref.key} has no contribution clock for {type(axis).__name__}",
+                                    "Use a Metric with the intended TimeField or project the time axis out of the predicate Population.",
+                                    "Metric.where",
+                                    canonical_id="in_population",
+                                )
                             continue
-                        if not isinstance(axis, AxisBinding):
-                            reject(
-                                "entity or field coordinates for a source predicate",
-                                "CalendarAxis",
-                                "Select source identities before applying in_population.",
-                                "Metric.where",
-                            )
-                        read = (
-                            FieldRead(axis.field, axis.entity, axis.path, axis.at)
-                            if axis.field is not None
-                            else IdentityRead(axis.entity, axis.path, fixed_attribute_time(axis.at))
-                        )
+                        read = axis.as_read()
                         parent_read = next(
                             (
                                 allocated
@@ -368,6 +366,19 @@ def bind_observation(
                             ),
                             None,
                         )
+                        if read.path_facts and any(
+                            step.cardinality in ("one_to_many", "many_to_many")
+                            for step in read.path_facts
+                        ):
+                            if read.path_root is None or read.path_root.ref != root.ref:
+                                reject(
+                                    "an explicit relationship role starting at the contribution Entity",
+                                    repr(read.path_root),
+                                    "Use mv.identity(mv.path(...)) starting at this Metric's contribution root.",
+                                    "Metric.where",
+                                )
+                            population_reads[axis] = read
+                            continue
                         population_reads[axis] = (
                             parent_read
                             if parent_read is not None
@@ -385,6 +396,8 @@ def bind_observation(
                     field=bound_time.field,
                     path=bound_time.path,
                     at=fixed_attribute_time(bound_time.at),
+                    source_at=bound_time.source_at,
+                    step_ats=bound_time.step_ats,
                 )
             all_memberships = tuple(
                 dict.fromkeys(
@@ -400,11 +413,7 @@ def bind_observation(
                 *(
                     (
                         tuple(
-                            FieldRead(axis.field, axis.entity, axis.path, axis.at)
-                            if axis.field is not None
-                            else IdentityRead(axis.entity, axis.path, fixed_attribute_time(axis.at))
-                            for axis in layer.axes
-                            if isinstance(axis, AxisBinding)
+                            axis.as_read() for axis in layer.axes if isinstance(axis, AxisBinding)
                         ),
                         layer.memberships,
                     )
@@ -638,7 +647,18 @@ def bind_observation(
     )
     from marivo.analysis.binding.windows import bind_windows
 
-    bound_contributions = bind_windows(tuple(contributions), metrics, declared, period, calendar)
+    bound_contributions = (
+        tuple(contributions)
+        if pending_interval is not None or empty_interval
+        else bind_windows(
+            tuple(contributions),
+            metrics,
+            declared,
+            period,
+            calendar,
+            interval=time_axis if isinstance(time_axis, IntervalCoordinate) else None,
+        )
+    )
     if (
         not contributions
         and count_populations
@@ -668,4 +688,6 @@ def bind_observation(
         bound_contributions,
         tuple(count_populations.items()),
         tuple(calendar_samples),
+        pending_interval,
+        empty_interval,
     )

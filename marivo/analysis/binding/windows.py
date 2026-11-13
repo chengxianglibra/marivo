@@ -18,7 +18,7 @@ from marivo._definition.expressions import (
 )
 from marivo._definition.graph import DefinitionNode, children, walk
 from marivo._definition.observations import SampleWindow
-from marivo._definition.types import CalendarCoordinate, ExactRef
+from marivo._definition.types import CalendarCoordinate, ExactRef, IntervalCoordinate
 from marivo._definition.windows import (
     AllHistory,
     ObservationWindow,
@@ -200,6 +200,7 @@ def bind_windows(
     period: ObservationPeriod | None,
     calendar: CalendarCoordinate | None,
     *,
+    interval: IntervalCoordinate | None = None,
     native_starts: Mapping[tuple[ObservationWindow, datetime], datetime] | None = None,
 ) -> tuple[ContributionBinding, ...]:
     """Expand each window usage into independent source reads per output endpoint."""
@@ -405,6 +406,13 @@ def bind_windows(
         cells = calendar.cells if calendar is not None else ()
         endpoints = tuple(cell[3] for cell in cells) if cells else (period.end,)
         for index, end in enumerate(endpoints):
+            window_key = (
+                calendar.cells[index][0]
+                if calendar is not None
+                else interval.report_key
+                if interval is not None
+                else index
+            )
             native_start = (
                 native_starts.get((rule, calendar.cells[index][0]))
                 if native_starts is not None and calendar is not None
@@ -471,9 +479,7 @@ def bind_windows(
                     occurrence=(*contribution.occurrence, index),
                     logical_occurrence=contribution.occurrence,
                     window_rule=rule,
-                    window_key=(calendar.cells[index][0] if calendar is not None else index)
-                    if contribution.calendars
-                    else None,
+                    window_key=window_key if contribution.calendars else None,
                     period=ObservationPeriod(
                         None if start is None else anchor_from_datetime(start),
                         anchor_from_datetime(end),

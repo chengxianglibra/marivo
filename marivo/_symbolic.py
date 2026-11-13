@@ -21,6 +21,7 @@ TimeDimensionSymbol = NewType("TimeDimensionSymbol", Deferred)
 MeasureSymbol = NewType("MeasureSymbol", Deferred)
 MetricSymbol = NewType("MetricSymbol", Deferred)
 RelationshipSymbol = NewType("RelationshipSymbol", Deferred)
+PathSymbol = NewType("PathSymbol", Deferred)
 
 LookupSymbol: TypeAlias = (
     DomainSymbol

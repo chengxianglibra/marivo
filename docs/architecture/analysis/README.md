@@ -51,7 +51,10 @@ before searching project definitions. The sessions topic owns exact recovery and
 optional caller description and captured schema.
 
 Inputs routes to Catalog discovery, shared semantic expressions, Population,
-time, existing Frame handles and comparison inputs. `analysis.inputs.frame`
+time, existing Frame handles and comparison inputs. `analysis.inputs.population`
+shows how to select members, append a field, filter existing values, project
+identity and count. Follow its Path topic for explicit anchors, identity roles
+and relationship mapping. `analysis.inputs.frame`
 explains exact-input Columns, axes and statistics; `analysis.inputs.comparison`
 prepares baselines and endpoint rules. Operators lists analytical intent, input
 and output without expanding signatures. Exact operation parameters link to

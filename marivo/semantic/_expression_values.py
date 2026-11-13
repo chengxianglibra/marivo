@@ -37,7 +37,8 @@ from marivo.semantic.errors import ErrorKind, SemanticExpressionError
 if TYPE_CHECKING:
     from marivo._definition.relations import PopulationParameter
     from marivo._grouping import Grouping
-    from marivo.semantic.catalog import Relationship
+    from marivo._symbolic import PathSymbol
+    from marivo.semantic._paths import Path
 
 RowRole: TypeAlias = Literal["dimension", "time", "numeric", "boolean"]
 MetricRole: TypeAlias = Literal["numeric", "boolean"]
@@ -103,12 +104,15 @@ def _parameter(value: object) -> Resolver:
     from marivo._definition.deferred import RelationshipParameter
     from marivo._definition.relations import PopulationParameter
     from marivo._grouping import Grouping
+    from marivo.semantic._paths import Path
     from marivo.semantic.catalog import Relationship
 
     if isinstance(value, _ExpressionCarrier):
         return value._recipe
     if isinstance(value, Deferred):
         return resolver_of(value)
+    if isinstance(value, Path):
+        return Just(value._parameter)
     if isinstance(value, Relationship):
         from marivo._definition.deferred import NamedResolver
 
@@ -152,9 +156,10 @@ def _parameter(value: object) -> Resolver:
 def _contexts(value: object) -> tuple[InputContext, ...]:
     from marivo._definition.relations import PopulationParameter
     from marivo._grouping import Grouping
+    from marivo.semantic._paths import Path
     from marivo.semantic.catalog import _SemanticObject
 
-    if isinstance(value, (Grouping, PopulationParameter)):
+    if isinstance(value, (Grouping, Path, PopulationParameter)):
         return (value._context,)
     if isinstance(value, _SemanticObject):
         return (value._context,)
@@ -1249,7 +1254,7 @@ class RowExpression(_ExpressionCarrier, Generic[_RowRoleT]):
             _error("isin requires an immutable literal tuple or a list captured at this call.")
         return RowExpression(self._method("isin", (tuple(values),)), self._context, "boolean")
 
-    def via(self, path: tuple[Relationship, ...]) -> RowExpression[_RowRoleT]:
+    def via(self, path: Path | PathSymbol) -> RowExpression[_RowRoleT]:
         """Capture a field through one explicit directed relationship path.
 
         Args:
@@ -1259,23 +1264,29 @@ class RowExpression(_ExpressionCarrier, Generic[_RowRoleT]):
             A typed expression with the stage and role indicated by this method.
 
         Examples:
-            ``region.via((buyer,))``.
+            ``region.via(mv.path(buyer))``.
 
         Notes:
             Constraints: Captures immutable inputs without source access. The receiving
             scope validates roots, roles, units, time and operation-specific rules.
         """
-        from marivo.semantic.catalog import Relationship
+        from marivo.semantic._paths import Path
 
-        if (
-            type(path) is not tuple
-            or not path
-            or any(type(step) is not Relationship for step in path)
-        ):
-            _error("via requires a non-empty ordered tuple of loaded Relationship objects.")
-        return RowExpression(
-            self._method("via", (path,)), _merge(self, path), cast("_RowRoleT", self._role)
-        )
+        if not isinstance(path, (Path, Deferred)):
+            _error("via requires a Path from mv.path(...).")
+        return self._bind_field_version("via", path)
+
+    def _bind_field_version(
+        self, operation: Literal["via", "at"], value: object
+    ) -> RowExpression[_RowRoleT]:
+        from marivo._definition.population_parameters import has_parameters
+        from marivo.semantic._deferred_semantics import consume_field
+
+        recipe = self._method(operation, (value,))
+        result = RowExpression(recipe, _merge(self, value), cast("_RowRoleT", self._role))
+        if not has_parameters(recipe):
+            consume_field(result)
+        return result
 
     def at(self, anchor: InstantAnchor | TimeExpression) -> RowExpression[_RowRoleT]:
         """Capture a versioned attribute at a fixed instant or each fact's time.
@@ -1289,7 +1300,7 @@ class RowExpression(_ExpressionCarrier, Generic[_RowRoleT]):
             A typed expression with the stage and role indicated by this method.
 
         Examples:
-            ``region.via((buyer,)).at(order_time)``.
+            ``region.via(mv.path(buyer)).at(order_time)``.
 
         Notes:
             Constraints: A fixed instant applies one attribute definition to the
@@ -1298,9 +1309,7 @@ class RowExpression(_ExpressionCarrier, Generic[_RowRoleT]):
             classify, windows and internal samples require fixed anchors.
             Captures without source access.
         """
-        return RowExpression(
-            self._method("at", (anchor,)), _merge(self, anchor), cast("_RowRoleT", self._role)
-        )
+        return self._bind_field_version("at", anchor)
 
     def sum(
         self: RowExpression[Literal["numeric"]],

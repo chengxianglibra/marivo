@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from dataclasses import replace
 from typing import TypeAlias
 
 from ibis.common.deferred import Deferred
@@ -10,13 +11,14 @@ from ibis.common.deferred import Deferred
 from marivo._definition.correspondence import ComparisonAxis
 from marivo._definition.expressions import DeclaredMetricRef, MetricNode
 from marivo._definition.grouping import normalize_groupings
+from marivo._definition.population_builders import axis as field_axis
+from marivo._definition.population_builders import extend
 from marivo._definition.query import (
     ResultQuery,
 )
 from marivo._definition.relations import (
     MembershipBinding,
     ObserveQuery,
-    PopulationProgram,
     ReadQuery,
     condition_populations,
 )
@@ -26,12 +28,9 @@ from marivo._definition.types import (
     CoordinateValue,
     DefinitionGraphError,
     ExactRef,
-    FieldRead,
-    IdentityRead,
     IntervalCoordinate,
     LiteralValue,
     Owner,
-    fixed_attribute_time,
 )
 from marivo._grouping import Grouping
 from marivo._temporal import CalendarAxis, TimeScope
@@ -50,8 +49,11 @@ from marivo.analysis.core.value_types import literal_kind
 from marivo.analysis.dsl.population import (
     Population,
     _axes,
+    _closed,
     _interval_coordinate,
     _owner,
+    _read,
+    _subject,
 )
 from marivo.semantic._compiled_state import CompiledSemanticState
 from marivo.semantic._deferred_semantics import (
@@ -137,31 +139,16 @@ def capture_read(
     population: Population,
     fields: Mapping[str, Deferred],
     owner: Owner,
-    state: CompiledSemanticState,
+    *,
+    on: Grouping | None = None,
 ) -> BoundGraph:
     from marivo._definition.observations import CoordinateBinding, ObservationBinding
-    from marivo._definition.relations import PopulationClassify
-    from marivo.analysis.binding.coordinates import bind_read
-    from marivo.analysis.observation.relationship_binding import RelationshipResolver
-    from marivo.semantic._deferred_semantics import consume_field
-    from marivo.semantic.expressions import _Resolver
 
     if _owner(population._definition) not in (None, owner):
         reject(
             "a Population from this Session",
             "another Session owner",
             "Read the domain through its owning Session.",
-            "Session.read",
-        )
-    if (
-        len(population._definition.axes) != 1
-        or not isinstance(population._definition.axes[0], AxisBinding)
-        or population._definition.axes[0].field is not None
-    ):
-        reject(
-            "one Entity identity axis",
-            repr(population._definition.axes),
-            "Project one complete identity axis before reading attributes.",
             "Session.read",
         )
     if not isinstance(fields, Mapping) or not fields:
@@ -171,45 +158,26 @@ def capture_read(
             "Pass session.read(people, {'region': region}).",
             "Session.read",
         )
-    identity = population._definition.axes[0]
-    resolver = _Resolver(state)
-    paths = RelationshipResolver.build(state.registry)
-    reads = []
-    quantities = []
-    for name, value in fields.items():
-        field = consume_field(value)
-        read = field.field_read or FieldRead(field.reference, field.root)
-        from marivo._definition.types import RowAttributeTime
-
-        if isinstance(read.at, RowAttributeTime):
-            reject(
-                "a fixed InstantAnchor for session.read",
-                read.at.field.ref.key,
-                "Use observe by/where for fact-row attribute time, or pass session.instant(...) to read a fixed version.",
-                "session.read",
-            )
-        if read.at is None and identity.at is not None and read.entity.ref == identity.entity.ref:
-            from dataclasses import replace
-
-            read = replace(read, at=identity.at)
-        reads.append(bind_read(read, identity.entity, state.registry, resolver, paths))
-        quantities.append(
-            ResultQuantity(
-                name,
-                field.unit,
-                "unresolved",
-            )
-        )
-    unique = tuple(dict.fromkeys(reads))
-    axes = (
-        identity,
-        *(AxisBinding(read.entity, read.field, read.path, "field", read.at) for read in unique),
+    reads = tuple(_read(value) for value in fields.values())
+    definition, positions = _closed(
+        lambda: extend(
+            population._definition,
+            tuple(field_axis(read) for read in reads),
+            _subject(on, "session.read"),
+        ),
+        "session.read",
     )
-    definition = PopulationProgram(PopulationClassify(population._definition, unique), owner, axes)
-    binding = ObservationBinding(None, None, CoordinateBinding(axes, "grouped", definition), ())
+    axes = population._definition.axes
+    quantities = tuple(
+        ResultQuantity(name, read.unit, "unresolved")
+        for name, read in zip(fields, reads, strict=True)
+    )
+    binding = ObservationBinding(
+        None, None, CoordinateBinding(definition.axes, "grouped", definition), ()
+    )
     return BoundGraph(
-        ReadQuery(definition, tuple(unique.index(read) + 1 for read in reads), (identity,), owner),
-        BoundSignature(owner, tuple(quantities), (identity,), observation=binding),
+        ReadQuery(definition, positions, axes, owner),
+        BoundSignature(owner, quantities, axes, observation=binding),
     )
 
 
@@ -456,8 +424,39 @@ def capture_metrics(
         )
     source_axes: list[AxisBinding | CalendarCoordinate | IntervalCoordinate] = []
     time_axes = 0
+    pending_interval: int | None = None
+    empty_interval = False
     for index, axis in enumerate(axes):
         if isinstance(axis, (CalendarCoordinate, IntervalCoordinate)):
+            if isinstance(axis, IntervalCoordinate) and population is not None:
+                from marivo._definition.relations import population_keys
+
+                finite = population_keys(population)
+                selected = {row[index] for row in finite} if finite is not None else set()
+                if finite is None:
+                    pending_interval = index
+                elif not selected:
+                    empty_interval = True
+                if len(selected) > 1:
+                    reject(
+                        "at most one distinct report interval in observe by",
+                        repr(
+                            tuple(
+                                axis.bounds[key]
+                                for key in sorted(k for k in selected if type(k) is int)
+                            )
+                        ),
+                        "Observe each interval separately or select a single interval in the Population.",
+                        "Session.observe.by",
+                        canonical_id="session.observe",
+                    )
+                if selected:
+                    (key,) = selected
+                    assert type(key) is int
+                    start, end = axis.bounds[key]
+                    axis = replace(
+                        axis, start=start, end=end, intervals=axis.bounds, report_key=key
+                    )
             _validate_report_timezone(axis, timezone, location=f"Session.observe.by[{index}]")
             time_axes += 1
             source_axes.append(axis)
@@ -483,11 +482,7 @@ def capture_metrics(
             canonical_id="session.observe",
         )
     reads = tuple(
-        axis
-        if isinstance(axis, (CalendarCoordinate, IntervalCoordinate))
-        else FieldRead(axis.field, axis.entity, axis.path, axis.at)
-        if axis.field is not None
-        else IdentityRead(axis.entity, axis.path, fixed_attribute_time(axis.at))
+        axis if isinstance(axis, (CalendarCoordinate, IntervalCoordinate)) else axis.as_read()
         for axis in source_axes
     )
     condition = consume_predicate(where).node if where is not None else None
@@ -516,6 +511,8 @@ def capture_metrics(
         memberships=bindings,
         population=population,
         report_period=period,
+        pending_interval=pending_interval,
+        empty_interval=empty_interval,
     )
     signature = BoundSignature(
         owner,

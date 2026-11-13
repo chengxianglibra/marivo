@@ -23,6 +23,8 @@ def normalize_groupings(
     population_axes: tuple[ComparisonAxis, ...] | None = None,
 ) -> tuple[tuple[ComparisonAxis, ...], tuple[MembershipBinding, ...]]:
     """Expand rules after collecting every explicit field position in this layer."""
+    from marivo._definition.population_builders import axis as field_axis
+
     bindings = tuple(item for item in items if isinstance(item, MembershipBinding))
     explicit = tuple(item for item in items if not isinstance(item, MembershipBinding))
     if population_axes is not None:
@@ -34,7 +36,7 @@ def normalize_groupings(
     for item in items:
         if isinstance(item, MembershipBinding):
             for index, read in enumerate(item.fields):
-                axis = AxisBinding(read.entity, read.field, read.path, "field", read.at)
+                axis = field_axis(read)
                 positioned = any(coordinate_matches(axis, candidate) for candidate in explicit)
                 if positioned and index == 0:
                     invalid("a membership first field cannot also have an explicit position")

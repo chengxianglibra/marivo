@@ -11,14 +11,13 @@ import duckdb
 import ibis
 import ibis.expr.types as ibis_ir
 import pytest
-from ibis.common.deferred import Deferred, var
+from ibis.common.deferred import Deferred, Just, var
 
 import marivo.analysis as mv
 import marivo.datasource as md
 import marivo.semantic as ms
 from marivo._definition.deferred import (
     DeclarationRecord,
-    RelationshipParameter,
     resolver_of,
     root_declaration,
     semantic_input,
@@ -42,6 +41,7 @@ from marivo._definition.types import AxisBinding, ExactRef, SumAll, SumAllExcept
 from marivo.analysis.errors import AnalysisError
 from marivo.refs import Ref, SemanticKindTag
 from marivo.refs import ref as ref_factory
+from marivo.semantic import Relationship
 from marivo.semantic._deferred_semantics import (
     MetricFacts,
     RowFacts,
@@ -62,7 +62,7 @@ from marivo.semantic.expressions import (
     _Entity as Entity,
 )
 from marivo.semantic.expressions import (
-    _Relationship as Relationship,
+    _Relationship as CapturedRelationship,
 )
 from marivo.semantic.expressions import (
     resolve as resolve_private,
@@ -77,6 +77,13 @@ _DOMAIN_PY = (
     'import marivo.semantic as ms\nms.domain(name="sales", owner="Analytics", default=True)\n'
 )
 _OBJECTS_PY = 'import marivo.datasource as md\nimport marivo.semantic as ms\n\norders = ms.entity(\n    name="orders",\n    datasource=ms.ref.datasource("warehouse"),\n    source=md.table("orders"),\n    primary_key=["order_id"],\n)\ncustomers = ms.entity(\n    name="customers",\n    datasource=ms.ref.datasource("warehouse"),\n    source=md.table("customers"),\n    primary_key=["id"],\n)\n\nstatus = ms.dimension_column(name="status", entity=orders, column="status")\ncustomer_id = ms.dimension_column(name="customer_id", entity=orders, column="customer_id")\nid = ms.dimension_column(name="id", entity=customers, column="id")\npaid_at = ms.time_dimension_column(\n    name="paid_at",\n    entity=orders,\n    column="paid_at",\n    \n    parse=ms.timestamp(timezone="UTC"),\n)\ncreated_at = ms.time_dimension_column(\n    name="created_at",\n    entity=customers,\n    column="created_at",\n    \n    parse=ms.timestamp(timezone="UTC"),\n)\n\namount = ms.measure_column(\n    name="amount", entity=orders, column="amount", additivity=ms.additive_all(), unit="CNY"\n)\nunit_price = ms.measure_column(\n    name="unit_price", entity=orders, column="unit_price", additivity=ms.non_additive(), unit="CNY"\n)\nquantity = ms.measure_column(\n    name="quantity", entity=orders, column="quantity", additivity=ms.additive_over(status)\n)\ncost = ms.measure_column(\n    name="cost", entity=orders, column="cost", additivity=ms.additive_all(), unit="CNY"\n)\namount_usd = ms.measure_column(\n    name="amount_usd", entity=orders, column="amount_usd", additivity=ms.additive_all(), unit="USD"\n)\ncredit = ms.measure_column(\n    name="credit", entity=customers, column="credit", additivity=ms.additive_all(), unit="CNY"\n)\nbalance = ms.measure_column(\n    name="balance",\n    entity=orders,\n    column="balance",\n    additivity=ms.additive_except(paid_at),\n    unit="CNY",\n)\n\nms.relationship(\n    name="orders_to_customers",\n    from_entity=orders,\n    to_entity=customers,\n    keys=[ms.join_on(customer_id, id)],\n)\n\nregions = ms.entity(\n    name="regions",\n    datasource=ms.ref.datasource("warehouse"),\n    source=md.table("regions"),\n    primary_key=["id"],\n)\nregion_id = ms.dimension_column(name="region_id", entity=customers, column="region_id")\nregion_key = ms.dimension_column(name="id", entity=regions, column="id")\nopened_at = ms.time_dimension_column(\n    name="opened_at",\n    entity=regions,\n    column="opened_at",\n    \n    parse=ms.timestamp(timezone="UTC"),\n)\nms.relationship(\n    name="customers_to_regions",\n    from_entity=customers,\n    to_entity=regions,\n    keys=[ms.join_on(region_id, region_key)],\n)\nms.relationship(\n    name="customers_to_orders",\n    from_entity=customers,\n    to_entity=orders,\n    keys=[ms.join_on(id, customer_id)],\n)\n'
+_OBJECTS_PY += """
+order_key = ms.dimension_column(name="order_key", entity=orders, column="order_id")
+ms.relationship(
+    name="self_role", from_entity=orders, to_entity=orders,
+    keys=[ms.join_on(order_key, order_key)],
+)
+"""
 ProjectFactory: TypeAlias = Callable[..., SemanticProject]
 
 
@@ -175,18 +182,35 @@ def _reference(value: ExactRef) -> Ref[SemanticKindTag]: ...
 
 @overload
 def _reference(
-    value: Deferred | _ExpressionCarrier | Entity | Relationship | Field,
+    value: Deferred
+    | _ExpressionCarrier
+    | Entity
+    | ms.Entity
+    | Relationship
+    | CapturedRelationship
+    | Field,
 ) -> ExactRef: ...
 
 
 def _reference(
-    value: ExactRef | Deferred | _ExpressionCarrier | Entity | Relationship | Field,
+    value: ExactRef
+    | Deferred
+    | _ExpressionCarrier
+    | Entity
+    | ms.Entity
+    | Relationship
+    | CapturedRelationship
+    | Field,
 ) -> ExactRef | Ref[SemanticKindTag]:
     if isinstance(value, (Deferred, _ExpressionCarrier)):
         return consume_field(value).reference
+    if isinstance(value, ms.Entity):
+        native = resolve_private(value._catalog, value._ref)
+        assert isinstance(native, Entity)
+        return native._exact_ref
     if isinstance(value, Entity):
         return value._exact_ref
-    if isinstance(value, Relationship):
+    if isinstance(value, (Relationship, CapturedRelationship)):
         return value._parameter.ref
     return value.ref
 
@@ -214,9 +238,11 @@ def _resolved_entity(catalog: SemanticCatalog, selector: object) -> Entity:
 
 
 def _resolved_relationship(catalog: SemanticCatalog, selector: object) -> Relationship:
-    result = resolve(catalog, selector)
-    assert isinstance(result, Relationship)
-    return result
+    reference = as_ref(selector)
+    assert reference is not None
+    entry = catalog.get(reference.key)
+    assert isinstance(entry, Relationship)
+    return entry
 
 
 def _physical(scope: SemanticCatalog, target: object) -> Deferred:
@@ -365,8 +391,8 @@ def test_declared_constructors_capture_catalog_versions_without_business_reads(
         assert isinstance(captured, Deferred)
         value = resolve(finalized, captured)
         loaded = resolve(catalog, key)
-        assert isinstance(value, (Deferred, Entity, Relationship))
-        assert isinstance(loaded, (Deferred, Entity, Relationship))
+        assert isinstance(value, (Deferred, Entity, CapturedRelationship))
+        assert isinstance(loaded, (Deferred, Entity, CapturedRelationship))
         assert _reference(value) == _reference(loaded)
     amount = _resolved_field(finalized, ms.ref.measure("sales.orders.amount"))
     paid_at = _resolved_field(finalized, ms.ref.time_dimension("sales.orders.paid_at"))
@@ -639,7 +665,9 @@ def test_metric_reflected_comparisons_match_ordinary_composition(catalog: Semant
     import textwrap
 
     source = textwrap.dedent(
-        inspect.getsource(test_metric_reflected_comparisons_match_ordinary_composition)
+        inspect.getsource(
+            inspect.unwrap(test_metric_reflected_comparisons_match_ordinary_composition)
+        )
     )
     literal_left = [
         node
@@ -809,7 +837,7 @@ def test_retired_declaration_syntax_has_specific_reauthoring_errors(
         (ms.metric, {"fanout_policy": "aggregate_then_join"}, "mv.membership"),
         (ms.metric, {"empty": "null"}, "without an empty policy"),
         (ms.measure_column, {"status_time_fold": None}, "per("),
-        (ms.metric, {"time_via": (ms.ref.relationship("sales.orders_to_customers"),)}, "via("),
+        (ms.metric, {"time_via": (ms.ref.relationship("sales.orders_to_customers"),)}, "mv.path("),
     ):
         with pytest.raises(SemanticExpressionError) as caught:
             _consume_value(factory(**kwargs))
@@ -1072,18 +1100,19 @@ def test_measure_assertions_validate_real_axes_and_retain_fixed_time(
 def test_additivity_rejects_routed_time_coordinates(catalog: SemanticCatalog) -> None:
     policy: str
     for policy in ("over", "except_"):
-        paid_at = _resolved_field(catalog, ms.ref.time_dimension("sales.customers.created_at"))
+        paid_at = catalog.get("time_dimension:sales.customers.created_at")
+        assert paid_at.kind == "time_dimension"
         relationship = _resolved_relationship(
             catalog, ms.ref.relationship("sales.orders_to_customers")
         )
-        routed = paid_at.via((relationship,))
+        routed = paid_at.via(mv.path(relationship))
         field_read = consume_field(routed).field_read
         assert field_read is not None and field_read.path
         with pytest.raises(SemanticError) as caught:
             if policy == "over":
-                ms.additive_over(routed)
+                ms.additive_over(_as_deferred(routed))
             else:
-                ms.additive_except(routed)
+                ms.additive_except(_as_deferred(routed))
         assert caught.value.kind == ErrorKind.INVALID_TIME_PATH
         assert caught.value.expected and caught.value.received and caught.value.repair
         assert caught.value.repair.action
@@ -1868,26 +1897,28 @@ def _relationship(catalog: SemanticCatalog, name: str) -> Relationship:
 
 
 def test_via_binds_one_and_two_hop_time_paths_with_exact_refs(catalog: SemanticCatalog) -> None:
-    amount = _measure(catalog, "amount")
-    orders = _resolved_entity(catalog, ms.ref.entity("sales.orders"))
+    amount = catalog.get("measure:sales.orders.amount")
+    assert amount.kind == "measure"
+    orders = catalog.get("entity:sales.orders")
+    assert orders.kind == "entity"
     buyer = _relationship(catalog, "orders_to_customers")
     region = _relationship(catalog, "customers_to_regions")
-    created_at = _resolved_field(catalog, ms.ref.time_dimension("sales.customers.created_at"))
-    opened_at = _resolved_field(catalog, ms.ref.time_dimension("sales.regions.opened_at"))
-    buyer_created = created_at.via((buyer,))
-    assert type(buyer_created) is Deferred
+    created_at = catalog.get("time_dimension:sales.customers.created_at")
+    assert created_at.kind == "time_dimension"
+    opened_at = catalog.get("time_dimension:sales.regions.opened_at")
+    assert opened_at.kind == "time_dimension"
+    buyer_created = created_at.via(mv.path(buyer))
     field_read = consume_field(buyer_created).field_read
     assert field_read is not None and field_read.path == (buyer._parameter.ref,)
     assert _reference(buyer_created) == _reference(created_at)
     assert _row_facts(buyer_created).root == buyer._parameter.from_entity
-    assert isinstance(buyer_created, Deferred)
     one_hop = amount.sum(time=buyer_created)
     assert isinstance(_node_facts(one_hop).node, SourceAggregate)
     assert _aggregate_node(one_hop).time == TimeBinding(
         _reference(created_at), (_reference(buyer),)
     )
     assert _reference(buyer).version.startswith("sha256:")
-    two_hop = orders.count(time=opened_at.via((buyer, region)))
+    two_hop = orders.count(time=opened_at.via(mv.path(buyer, region)))
     assert _node_facts(two_hop).node == EntityCount(
         _reference(orders),
         TimeBinding(_reference(opened_at), (_reference(buyer), _reference(region))),
@@ -1896,18 +1927,20 @@ def test_via_binds_one_and_two_hop_time_paths_with_exact_refs(catalog: SemanticC
     assert computation_fingerprint(_node_facts(one_hop).node) != computation_fingerprint(
         _node_facts(native).node
     )
-    again = amount.sum(time=created_at.via((buyer,)))
+    again = amount.sum(time=created_at.via(mv.path(buyer)))
     assert computation_fingerprint(_node_facts(again).node) == computation_fingerprint(
         _node_facts(one_hop).node
     )
-    weighted = amount.weighted_mean(weight=_measure(catalog, "quantity"), time=buyer_created)
+    quantity = catalog.get("measure:sales.orders.quantity")
+    assert quantity.kind == "measure"
+    weighted = amount.weighted_mean(weight=quantity, time=buyer_created)
     assert isinstance(_node_facts(weighted).node, SourceWeightedMean)
     assert _weighted_node(weighted).time == TimeBinding(
         _reference(created_at), (_reference(buyer),)
     )
-    filtered = amount.sum(time=buyer_created).where(
-        _resolved_field(catalog, ms.ref.dimension("sales.orders.status")) == "paid"
-    )
+    status = catalog.get("dimension:sales.orders.status")
+    assert status.kind == "dimension"
+    filtered = amount.sum(time=buyer_created).where(status == "paid")
     assert isinstance(_node_facts(filtered).node, ContributionFilter)
 
 
@@ -1915,52 +1948,50 @@ def test_via_rejects_malformed_disconnected_and_fanout_paths(catalog: SemanticCa
     buyer = _relationship(catalog, "orders_to_customers")
     region = _relationship(catalog, "customers_to_regions")
     fanout = _relationship(catalog, "customers_to_orders")
-    created_at = _resolved_field(catalog, ms.ref.time_dimension("sales.customers.created_at"))
-    opened_at = _resolved_field(catalog, ms.ref.time_dimension("sales.regions.opened_at"))
-    paid_at = _resolved_field(catalog, ms.ref.time_dimension("sales.orders.paid_at"))
-    cases: list[tuple[object, str]] = [
-        ((), "()"),
-        ([buyer], "list"),
-        (buyer, "Relationship"),
-        ((ms.ref.relationship("sales.orders_to_customers"),), "Ref"),
-    ]
-    for path, label in cases:
-        with pytest.raises(SemanticExpressionError) as malformed:
-            _consume_value(created_at.via(path))
-        assert malformed.value.kind == (
-            ErrorKind.INVALID_EXPRESSION_VALUE if label == "Ref" else ErrorKind.INVALID_TIME_PATH
-        ), label
-        assert malformed.value.repair is not None
+    created_at = catalog.get("time_dimension:sales.customers.created_at")
+    assert created_at.kind == "time_dimension"
+    opened_at = catalog.get("time_dimension:sales.regions.opened_at")
+    assert opened_at.kind == "time_dimension"
+    paid_at = catalog.get("time_dimension:sales.orders.paid_at")
+    assert paid_at.kind == "time_dimension"
+    with pytest.raises(SemanticExpressionError, match="Path") as raw_tuple:
+        _consume_value(created_at.via((buyer,)))  # type: ignore[arg-type]  # Runtime rejects retired tuples.
+    assert raw_tuple.value.repair is not None
     with pytest.raises(SemanticExpressionError) as many:
-        _consume_value(paid_at.via((fanout,)))
+        _consume_value(paid_at.via(mv.path(fanout)))
     assert many.value.kind == ErrorKind.INVALID_TIME_PATH.value
-    assert many.value.expected == "one_to_one or many_to_one relationships"
+    assert "single-valued Path" in str(many.value.expected)
     with pytest.raises(SemanticExpressionError) as disconnected:
-        _consume_value(opened_at.via((region, region)))
+        mv.path(region, region)
     assert disconnected.value.kind == ErrorKind.INVALID_TIME_PATH.value
     with pytest.raises(SemanticExpressionError) as wrong_end:
-        _consume_value(opened_at.via((buyer,)))
+        _consume_value(opened_at.via(mv.path(buyer)))
     assert wrong_end.value.kind == ErrorKind.INVALID_TIME_PATH.value
-    assert wrong_end.value.received == "disconnected or empty path"
+    assert wrong_end.value.received == "entity:sales.customers"
     with pytest.raises(SemanticExpressionError) as twice:
-        _consume_value(created_at.via((buyer,)).via((buyer,)))
+        _consume_value(created_at.via(mv.path(buyer)).via(mv.path(buyer)))
     assert twice.value.kind == ErrorKind.INVALID_TIME_PATH.value
 
 
 def test_via_time_requires_root_start_and_keeps_native_reductions(catalog: SemanticCatalog) -> None:
-    amount = _measure(catalog, "amount")
-    customers = _resolved_entity(catalog, ms.ref.entity("sales.customers"))
-    credit = _physical(catalog, ms.ref.measure("sales.customers.credit"))
+    amount = catalog.get("measure:sales.orders.amount")
+    assert amount.kind == "measure"
+    customers = catalog.get("entity:sales.customers")
+    assert customers.kind == "entity"
+    credit = catalog.get("measure:sales.customers.credit")
+    assert credit.kind == "measure"
     buyer = _relationship(catalog, "orders_to_customers")
     region = _relationship(catalog, "customers_to_regions")
-    created_at = _resolved_field(catalog, ms.ref.time_dimension("sales.customers.created_at"))
-    opened_at = _resolved_field(catalog, ms.ref.time_dimension("sales.regions.opened_at"))
-    buyer_created = created_at.via((buyer,))
+    created_at = catalog.get("time_dimension:sales.customers.created_at")
+    assert created_at.kind == "time_dimension"
+    opened_at = catalog.get("time_dimension:sales.regions.opened_at")
+    assert opened_at.kind == "time_dimension"
+    buyer_created = created_at.via(mv.path(buyer))
     with pytest.raises(SemanticExpressionError) as start:
-        _consume_value(credit.sum(time=opened_at.via((buyer, region))))
+        _consume_value(credit.sum(time=opened_at.via(mv.path(buyer, region))))
     assert start.value.kind == ErrorKind.INVALID_TIME_PATH.value
     assert start.value.received == "entity:sales.orders"
-    assert _metric_facts(credit.sum(time=opened_at.via((region,)))).roots == (
+    assert _metric_facts(credit.sum(time=opened_at.via(mv.path(region)))).roots == (
         _reference(customers),
     )
     with pytest.raises(SemanticExpressionError) as entity_start:
@@ -1970,14 +2001,14 @@ def test_via_time_requires_root_start_and_keeps_native_reductions(catalog: Seman
         field_node = _row_node(predicate).inputs[0]
         assert isinstance(field_node, RowField) and field_node.read is not None
         assert field_node.read.path == (_reference(buyer),)
-    misuses: tuple[Callable[[], object], ...] = (
-        lambda: buyer_created.count(),
-        lambda: amount.sum().per(buyer_created),
+    misuses: tuple[tuple[Callable[[], object], ErrorKind], ...] = (
+        (lambda: buyer_created.count(), ErrorKind.INVALID_TIME_PATH),
+        (lambda: amount.sum().per(buyer_created), ErrorKind.INVALID_EXPRESSION_VALUE),
     )
-    for misuse in misuses:
+    for misuse, kind in misuses:
         with pytest.raises(SemanticExpressionError) as role:
             _consume_value(misuse())
-        assert role.value.kind == ErrorKind.INVALID_TIME_PATH.value
+        assert role.value.kind == kind
         assert role.value.repair is not None
         assert role.value.expected and role.value.received
         assert role.value.repair.action
@@ -1993,9 +2024,12 @@ def test_via_construction_reads_no_business_source(
 
     monkeypatch.setattr(backends, "_build_backend_from_effective", forbidden)
     buyer = _relationship(catalog, "orders_to_customers")
-    created_at = _resolved_field(catalog, ms.ref.time_dimension("sales.customers.created_at"))
-    metric = _measure(catalog, "amount").sum(time=created_at.via((buyer,)))
-    assert isinstance(metric, Deferred)
+    created_at = catalog.get("time_dimension:sales.customers.created_at")
+    assert created_at.kind == "time_dimension"
+    amount = catalog.get("measure:sales.orders.amount")
+    assert amount.kind == "measure"
+    metric = amount.sum(time=created_at.via(mv.path(buyer)))
+    assert isinstance(metric, ms.MetricExpression)
 
 
 def test_measure_versions_follow_additivity_axis_definitions(
@@ -2121,15 +2155,12 @@ def test_permission_intersection_and_time_paths_compare_semantic_references(
     assert isinstance(_measure_facts(old_row + excluded).permission, SumNone)
     paid_at = _resolved_field(catalog, ms.ref.time_dimension("sales.orders.paid_at"))
     changed_root = ExactRef(_row_facts(paid_at).root.ref, "updated-entity-definition")
-    path = Relationship(
-        RelationshipParameter(
-            ExactRef(ref_factory.relationship("sales.self_role"), "relationship-definition"),
-            changed_root,
-            changed_root,
-            "many_to_one",
-        )
-    )
-    routed = paid_at.via((path,))
+    relationship = _relationship(catalog, "self_role")
+    paid_at = semantic_input(dataclasses.replace(consume_field(paid_at), root=changed_root))
+    route = mv.path(relationship)
+    routed = paid_at.via(Deferred(Just(route._parameter)))
     result = amount.sum(time=routed)
     assert isinstance(_node_facts(result).node, SourceAggregate)
-    assert _aggregate_node(result).time == TimeBinding(_reference(paid_at), (_reference(path),))
+    assert _aggregate_node(result).time == TimeBinding(
+        _reference(paid_at), (_reference(relationship),)
+    )

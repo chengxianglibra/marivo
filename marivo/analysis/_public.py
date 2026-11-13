@@ -203,6 +203,9 @@ from marivo.analysis.dsl.windows import trailing_periods as trailing_periods
 from marivo.analysis.results import persist_dataframe as persist_dataframe
 from marivo.analysis.results import read_dataframe as read_dataframe
 from marivo.analysis.session.core import Session as Session
+from marivo.semantic._paths import Path as Path
+from marivo.semantic._paths import RelationshipStep as RelationshipStep
+from marivo.semantic._paths import path as path
 
 __all__ = [
     "AnalysisFrame",
@@ -282,7 +285,9 @@ __all__ = [
     "Grain",
     "Grouping",
     "InstantAnchor",
+    "Path",
     "Population",
+    "RelationshipStep",
     "SemanticObjectIdentity",
     "Session",
     "TimeScope",
@@ -295,6 +300,7 @@ __all__ = [
     "membership",
     "offset",
     "ordinal",
+    "path",
     "persist_dataframe",
     "product",
     "read_dataframe",

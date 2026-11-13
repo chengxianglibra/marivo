@@ -24,7 +24,7 @@ _REPAIRS = {
     "status_time_dimension": "Keep the status-time role on the physical Measure and express temporal reduction with per(time_field).reducer().",
     "status_time_fold": "Express the original spatial-before-temporal order explicitly with per(status_time_field).reducer(); keep the source status axis and sampling interval.",
     "fold": "Express the original spatial-before-temporal order explicitly with per(status_time_field).reducer().",
-    "time_via": "Pass time=time_field.via((relationship, ...)) on the source reduction, preserving the original time field and ordered path.",
+    "time_via": "Capture route = mv.path(relationship, ...) at module scope. Pass time=time_field.via(route) on the source reduction, preserving the original time field and ordered path.",
     "fanout_policy": (
         "Remove fanout_policy. For existence filtering, use Population.preimage(...) and "
         "mv.in_population(...); for overlapping labels, pass mv.membership(...) through "

@@ -434,7 +434,7 @@ def _produce(
             {"value": count},
             by=mv.product(session.time_scope(start="2026-08-01", end="2026-09-01"), targets),
         )
-        regions = targets.classify(by=(region,))
+        regions = targets.classify(by=(region,)).project(by=(region,))
         assert isinstance(regions, mv.Population)
         groups = session.observe(
             {"value": count},

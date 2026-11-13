@@ -264,7 +264,23 @@ class Session:
                 "Construct at with session.instant(...).",
                 "session.members",
             )
-        axis = AxisBinding(entity_exact(resolved), None, (), "identity", at)
+        versioned = (
+            self.catalog._state.registry.entities[entity_exact(resolved).ref.path].versioning
+            is not None
+        )
+        if versioned != (at is not None):
+            reject(
+                "an exact version anchor for a versioned Entity"
+                if versioned
+                else "an unversioned Entity without a version anchor",
+                entity.id,
+                "Pass at=session.instant(...) for this Entity."
+                if versioned
+                else "Remove at= from session.members(...).",
+                "session.members",
+                canonical_id="session.members",
+            )
+        axis = AxisBinding(entity_exact(resolved), None, (), "identity", versioned=versioned)
         if predicate is not None and any(
             _owner(domain) not in (None, Owner(self.id, self._runtime.store.store_id))
             for domain in condition_populations(predicate.node)
@@ -525,21 +541,28 @@ class Session:
             population,
         )
 
-    def read(self, population: Population, fields: Mapping[str, FieldExpression]) -> AnalysisFrame:
-        """Capture named scalar attributes for one complete Entity identity domain.
+    def read(
+        self,
+        population: Population,
+        fields: Mapping[str, FieldExpression],
+        *,
+        on: Grouping | None = None,
+    ) -> AnalysisFrame:
+        """Capture named scalar fields while retaining all input axes.
 
         Args:
-            population: One Entity identity axis.
+            population: Complete input coordinate domain.
             fields: Nonempty named Fields.
+            on: Existing identity Grouping for new reads when multiple subjects qualify.
 
         Returns:
-            A pending AnalysisFrame preserving every requested complete identity.
+            A pending AnalysisFrame preserving each complete input tuple.
 
         Example:
             ``attributes = session.read(customers, {'region': region}).compute()``.
 
-        Constraints: Checks Session ownership, scalar paths and captured time anchors;
-        source declarations are trusted and missing attribute matches yield NULL.
+        Constraints: Reuses already captured field coordinates. New reads use one
+        identity subject and explicit version anchors. Missing field matches yield NULL.
         Source construction does not read schema or
         business rows. Numeric reads preserve NULL, NaN and Infinity; finite local
         operations validate their demanded inputs. Value names follow the Frame name rules.
@@ -580,6 +603,7 @@ class Session:
             self._runtime.connection_config,
             population,
             bound_fields,
+            on=on,
         )
 
     def values(
@@ -697,8 +721,9 @@ class Session:
 
         Args:
             frame: An AnalysisFrame owned by this exact Store and Session.
-            on: Required tuple of current FrameAxis and resolved Field/Entity pairs. An empty
-                tuple projects the empty joint key.
+            on: Required tuple of FrameAxis and resolved Field/Entity pairs.
+                Use () for the empty joint key. Give new versioned field bindings
+                an explicit target version.
 
         Returns:
             A lazy Population retaining the explicit Frame data dependency.
@@ -706,15 +731,10 @@ class Session:
         Example:
             ``parents = session.population_from(chosen, on=((chosen.axes[0], region),))``.
 
-        Constraints: Checks Frame type and ownership before resolving Catalog.
-            Construction reads no rows or source schema. Use ordinary field or
-            complete identity axes. Fixed choices stay fixed; pending choices
-            evaluate anew. Caller targets establish new semantic bindings after
-            joint key projection; validate Catalog, role, complete key types,
-            units and time, not original Entity/Field equality.
-            Compatible Customer keys may bind Product; shipping-city keys may bind
-            billing-city; neither proves semantic identity. Ordinary fields cannot
-            become identities.
+        Constraints: Capture uses metadata only. Choose ordinary field or
+            complete identity axes from the same Frame. Completed keys stay fixed.
+            A matching captured direct field can keep an unanchored time
+            interpretation. Targets must preserve axis role, key types and units.
         """
         from marivo.analysis.core.model import reject
         from marivo.analysis.dsl.frame import AnalysisFrame

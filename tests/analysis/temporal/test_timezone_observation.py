@@ -469,7 +469,11 @@ def test_population_time_predicate_uses_source_authority_and_owns_its_period(
             assert query.compute().to_pandas()["value"].tolist() == [expected_total]
     # Image and set selection consume the same already governed identity selection.
     buyer = _relationship(session.catalog, "relationship:sales.buyer")
-    image = members.image(via=(buyer,))
+    image = members.image(
+        via=mv.path(
+            buyer,
+        )
+    )
     intersection = members.intersection(members)
     difference = members.difference(members)
     assert isinstance(image, mv.Population)

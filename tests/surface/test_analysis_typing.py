@@ -42,6 +42,13 @@ def rejected(query: mv.AnalysisFrame, artifact: object, field: ms.Dimension, met
     session.frame(artifact)  # invalid: terminal domain input
     session.read(artifact, {'category': field})  # invalid: terminal attribute input
     session.read(population, {'category': relationship})  # invalid: relationship is not a field
+    session.read(population, {'category': field}, on=query.axes[0])  # invalid: on needs a Grouping
+    population.classify(by=(field,), on=query.axes[0])  # invalid: FrameAxis is not a role
+    population.identities(on=field)  # invalid: field does not identify a role
+    mv.identity(resolved_entity, at=session.instant('2026-01-01'))  # invalid: identity has no selection anchor
+    mv.identity((relationship,))  # invalid: path must be explicit
+    field.via((relationship,))  # invalid: path must be explicit
+    population.image(via=(relationship,))  # invalid: path must be explicit
     session.values(by=(), columns={'budget': {'unit': 'CNY'}}, rows=(((), {'budget': 1}),))  # invalid: nested column declaration
     query.where(True)  # invalid: ordinary boolean predicate
     query.select({'value': field})  # invalid: source field in result selection
@@ -120,7 +127,7 @@ def rejected(query: mv.AnalysisFrame, artifact: object, field: ms.Dimension, met
 import marivo.analysis as mv
 import marivo.semantic as ms
 from ibis.common.deferred import Deferred
-from marivo.semantic import Entity
+from marivo.semantic import Entity, Relationship
 from typing_extensions import assert_type
 
 session = mv.session.get_or_create('static', timezone='UTC')
@@ -143,6 +150,20 @@ assert_type(query.compute(), mv.AnalysisFrame)
 assert_type(query.persist(), mv.AnalysisFrame)
 assert_type(population.project(by=()), mv.Population | Deferred)
 assert_type(population.where(mv.in_population(population)), mv.Population | Deferred)
+assert_type(population.classify(by=(region,)), mv.Population)
+
+def path_values(relationship: Relationship, field: ms.Dimension) -> None:
+    step = relationship.at(session.instant('2026-01-01'))
+    assert_type(step, mv.RelationshipStep)
+    route = mv.path(step)
+    assert_type(route, mv.Path)
+    assert_type(route.source, Entity)
+    assert_type(route.steps, tuple[mv.RelationshipStep, ...])
+    assert_type(mv.identity(route), mv.Grouping)
+    assert_type(population.identities(on=population.axes[0]), mv.Population)
+    assert_type(population.image(via=route), mv.Population)
+    assert_type(population.preimage(population, via=route), mv.Population)
+    assert_type(session.read(population, {'region': field}, on=population.axes[0]), mv.AnalysisFrame)
 assert_type(session.observe({'revenue': amount.sum()}, by=()), mv.AnalysisFrame)
 
 def current_receivers(query: mv.AnalysisFrame, other: mv.AnalysisFrame, field: ms.Dimension) -> None:

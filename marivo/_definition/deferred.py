@@ -40,6 +40,8 @@ from marivo._definition.types import (
     ExactRef,
     FieldRead,
     InputContext,
+    PathParameter,
+    RelationshipStepParameter,
     RowAttributeTime,
     SourceLocation,
     SumAll,
@@ -52,6 +54,9 @@ from marivo._definition.types import (
     invalid,
     literal_token,
     merge_input_contexts,
+)
+from marivo._definition.types import (
+    RelationshipParameter as RelationshipParameter,
 )
 from marivo._definition.windows import AllHistory, Since, ToDate, TrailingDuration, TrailingPeriods
 from marivo._symbolic import SymbolResolver
@@ -161,18 +166,6 @@ class SemanticInput:
     default_time: ExactRef | None = None
 
 
-@dataclass(frozen=True, slots=True)
-class RelationshipParameter:
-    """Frozen directed relationship facts accepted as semantic path parameters."""
-
-    ref: ExactRef
-    from_entity: ExactRef
-    to_entity: ExactRef
-    cardinality: Literal["one_to_one", "many_to_one", "one_to_many", "many_to_many"]
-    # Capture context for a new via-based reduction. Relationship use alone does not read it.
-    _from_default_time: ExactRef | None = field(default=None, compare=False, repr=False)
-
-
 class _RelationshipValue:
     """Controlled nominal bridge for captured directed relationship parameters."""
 
@@ -200,6 +193,13 @@ def relationship_carrier(recipe: Resolver) -> _RelationshipValue | None:
     else:
         return None
     return candidate if isinstance(candidate, _RelationshipValue) else None
+
+
+class _PathValue:
+    """Controlled literal bridge for a closed Path in native recipes."""
+
+    __slots__ = ()
+    _parameter: PathParameter
 
 
 @dataclass(frozen=True, slots=True)
@@ -456,7 +456,7 @@ def _captured_scalar_path(recipe: Resolver) -> bool:
     return False
 
 
-def _captured_relationship(recipe: Resolver) -> bool:
+def captured_relationship(recipe: Resolver) -> bool:
     if isinstance(recipe, NamedResolver):
         return recipe.reference.ref.kind is SemanticKind.RELATIONSHIP
     return (
@@ -609,11 +609,18 @@ class _Inspector:
 
         if isinstance(recipe, ParameterResolver):
             self.contexts.append(recipe.parameter._context)
-            from marivo._definition.population_parameters import CoordinatesParameter
+            from marivo._definition.population_parameters import CoordinatesParameter, PathRecipe
 
             if isinstance(recipe.parameter, CoordinatesParameter):
                 self.capture_identity_keys(recipe.parameter._identity_keys)
             self.token("parameter", type(recipe.parameter).__name__)
+            if isinstance(recipe.parameter, PathRecipe):
+                self.token("source_at", attribute_time_key(recipe.parameter.source_at))
+                for index, path_step in enumerate(recipe.parameter.steps):
+                    if isinstance(path_step, RelationshipStepParameter):
+                        self.literal(path_step, (*path, f"step:{index}"))
+                    else:
+                        self.token("symbolic_step", str(index))
             for index, parameter_value in enumerate(validate_parameter(recipe, path)):
                 self.visit(resolver_of(parameter_value), (*path, f"input:{index}"), identity=True)
         elif type(recipe) is SymbolResolver:
@@ -678,6 +685,8 @@ class _Inspector:
                     self.dependency(read.at.field)
                     self.dependency(read.at.root)
                 self.token("at", attribute_time_key(read.at))
+                self.token("source_at", attribute_time_key(read.source_at))
+                self.token("step_ats", *(attribute_time_key(anchor) for anchor in read.step_ats))
             self.token("versioned", str(value.versioned))
             self.token("end_semantic")
         elif type(recipe) is RescaleResolver:
@@ -777,6 +786,8 @@ class _Inspector:
         if isinstance(value, _RelationshipValue):
             self.contexts.append(value._context)
             value = value._parameter
+        if isinstance(value, _PathValue):
+            value = value._parameter
 
         if isinstance(value, Grouping):
             self.contexts.append(value._context)
@@ -837,6 +848,15 @@ class _Inspector:
             grain = value.grain
             if isinstance(grain, Grain):
                 self.token("window", "to_date", grain.unit, str(grain.count))
+        elif isinstance(value, PathParameter):
+            self.contexts.append(value._context)
+            self.token("path", attribute_time_key(value.source_at))
+            for index, step in enumerate(value.steps):
+                self.literal(step, (*path, f"step:{index}"))
+            self.token("end_path")
+        elif isinstance(value, RelationshipStepParameter):
+            self.token("target_at", attribute_time_key(value.target_at))
+            self.literal(value.relationship, path)
         elif isinstance(value, RelationshipParameter):
             self.token("relationship", value.cardinality)
             for reference in (value.ref, value.from_entity, value.to_entity):
@@ -895,6 +915,7 @@ class _Inspector:
                     "intersection",
                     "difference",
                     "classify",
+                    "identities",
                     "image",
                     "preimage",
                     "where",
@@ -1031,12 +1052,13 @@ class _Inspector:
             signatures = {
                 "count": (0, 0, set()),
                 "project": (0, 0, {"by"}),
-                "classify": (0, 0, {"by"}),
+                "classify": (0, 0, {"by", "on"}),
+                "identities": (0, 0, {"on"}),
                 "union": (1, 1, set()),
                 "intersection": (1, 1, set()),
                 "difference": (1, 1, set()),
-                "image": (0, 0, {"via", "at"}),
-                "preimage": (1, 1, {"via"}),
+                "image": (0, 0, {"via", "on"}),
+                "preimage": (1, 1, {"via", "on"}),
                 "where": (1, 1, set()),
             }
         elif symbol in reducers:
@@ -1113,18 +1135,10 @@ class _Inspector:
             ):
                 invalid("cast requires one immutable dtype string.", path=path)
             if symbol == "via":
-                via = recipe.args[0]
-                if not isinstance(via, Sequence) or via.typ is not tuple or not via.values:
-                    invalid(
-                        "via requires a nonempty ordered tuple of relationship parameters.",
-                        path=path,
-                    )
-                for index, step in enumerate(via.values):
-                    if not _captured_relationship(step):
-                        invalid(
-                            "via requires native Relationship symbols or closed Relationship facts.",
-                            path=(*path, "path", f"item:{index}"),
-                        )
+                from marivo._definition.population_parameters import parameter_role
+
+                if parameter_role(recipe.args[0]) != "path":
+                    invalid("via requires a Path constructed with mv.path(...).", path=path)
             for parameter in ("time", "order_by"):
                 value = recipe.kwargs.get(parameter)
                 if (
@@ -1167,7 +1181,10 @@ class _Inspector:
                     and isinstance(recipe.args[0].value, InstantAnchor)
                     and recipe.args[0].value.utcoffset() is not None
                 )
-                and _captured_field_kind(recipe.args[0]) is not SemanticKind.TIME_DIMENSION
+                and (
+                    _captured_field_kind(recipe.args[0]) is not SemanticKind.TIME_DIMENSION
+                    or captured_relationship(recipe.func.obj)
+                )
             ):
                 invalid(
                     "at requires session.instant(...) for a fixed attribute time, or a named "
@@ -1208,6 +1225,8 @@ class _Inspector:
             ):
                 invalid("cases requires immutable (match, value) branch pairs.", path=path)
         receiver = recipe.func.obj if isinstance(recipe.func, Attr) else None
+        if receiver is not None and symbol == "at" and captured_relationship(receiver):
+            return
         if not population and receiver is not None and symbol in {"via", "at", "within"}:
             kind = _captured_field_kind(receiver)
             if kind is None or (symbol == "within" and kind is not SemanticKind.TIME_DIMENSION):
@@ -1252,7 +1271,8 @@ class _Inspector:
             self.visit(
                 arg,
                 (*path, role),
-                identity=(symbol == "via" and index == 1) or (symbol == "count" and index == 0),
+                identity=(symbol == "via" and index == 1)
+                or (symbol in {"count", "at"} and index == 0),
             )
         for key, value in sorted(kwargs.items()):
             self.token("parameter", key)

@@ -33,19 +33,17 @@ from tests.support.paths import PROJECT_ROOT
 def _ratio(case: DslCase, *, coordinates: tuple[str, ...] = ()) -> mv.AnalysisFrame:
     session = case.session
     members = session.members(catalog_get(session.catalog, "entity:sales.customer", kind="entity"))
+    fields = tuple(
+        catalog_value(session.catalog, "sales.order." + name, kind="field") for name in coordinates
+    )
     domain = (
         members
         if not coordinates
         else mv.product(
             members,
-            session.members(
-                catalog_get(session.catalog, "entity:sales.order", kind="entity")
-            ).classify(
-                by=tuple(
-                    catalog_value(session.catalog, "sales.order." + name, kind="field")
-                    for name in coordinates
-                )
-            ),
+            session.members(catalog_get(session.catalog, "entity:sales.order", kind="entity"))
+            .classify(by=fields)
+            .project(by=fields),
         )
     )
     assert isinstance(domain, mv.Population)

@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from datetime import timedelta
+from typing import TYPE_CHECKING
 
 from marivo._definition.query import (
     PairStatistic,
@@ -72,6 +73,9 @@ from marivo.analysis.core.frame_expression import (
 from marivo.analysis.core.frame_structure import PendingDataSchema, require_complete_structure
 from marivo.analysis.core.model import reject
 
+if TYPE_CHECKING:
+    from marivo.analysis.materialization.graph_exchange import StageOutput
+
 
 @dataclass(frozen=True, slots=True)
 class CompiledSourceFrame:
@@ -80,6 +84,7 @@ class CompiledSourceFrame:
     native: bool = False
     native_reads: tuple[SourceRead, ...] = ()
     native_value_slots: tuple[str, ...] = ()
+    checked_inputs: tuple[tuple[str, StageOutput], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -89,6 +94,7 @@ class CompiledFramePlan:
     source_stages: tuple[tuple[str, str], ...]
     source_outputs: tuple[tuple[str, str], ...]
     frame_operations: tuple[tuple[str, FrameOperation], ...]
+    checked_inputs: tuple[tuple[str, StageOutput], ...] = ()
 
 
 def _name(names: Mapping[str, str], identifier: str, namespace: str) -> str:
@@ -243,6 +249,7 @@ def plan_frame(
     operations: dict[int, tuple[str, DataSchema]] = {}
     operation_nodes: dict[int, FrameOperation] = {}
     attribute_preparations: list[FrameCompute] = []
+    checked_inputs: list[tuple[str, StageOutput]] = []
 
     def visit(node: FrameExpression) -> tuple[str, DataSchema]:
         if isinstance(node, (SourceFrameInput, FixedFrameInput)) and node.input_id in leaves:
@@ -311,6 +318,7 @@ def plan_frame(
                 if not isinstance(s, FrameKeysInput)
             }
             names.update(external)
+            checked_inputs.extend((names[name], value) for name, value in child.checked_inputs)
             prefixed = tuple(
                 _prefix(s, names, namespace)
                 for s in child.lowered.plan.stages
@@ -739,6 +747,7 @@ def plan_frame(
             (stage_id, operation_nodes[identifier])
             for identifier, (stage_id, _) in operations.items()
         ),
+        tuple(checked_inputs),
     )
 
 

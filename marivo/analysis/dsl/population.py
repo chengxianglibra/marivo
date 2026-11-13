@@ -14,7 +14,6 @@ from marivo._definition.correspondence import (
 )
 from marivo._definition.deferred import (
     PopulationContainsResolver,
-    RelationshipParameter,
     inspect_capture,
 )
 from marivo._definition.graph import computation_fingerprint
@@ -54,11 +53,12 @@ from marivo._definition.types import (
     InputContext,
     IntervalCoordinate,
     Owner,
+    PathParameter,
     merge_input_contexts,
 )
 from marivo._grouping import Grouping
-from marivo._symbolic import EntitySymbol, RelationshipSymbol
-from marivo._temporal import CalendarAxis, InstantAnchor, TimeScope
+from marivo._symbolic import EntitySymbol, PathSymbol
+from marivo._temporal import CalendarAxis, TimeScope
 from marivo.analysis._scope import scope_summary
 from marivo.analysis.core.model import reject
 from marivo.analysis.dsl._frame_inputs import (
@@ -75,11 +75,12 @@ from marivo.semantic._expression_values import (
     RowPredicate,
     _as_deferred,
 )
-from marivo.semantic.catalog import Entity, Relationship
+from marivo.semantic._paths import Path
+from marivo.semantic.catalog import Entity
 from marivo.semantic.expressions import _Entity, entity_exact
 
 if TYPE_CHECKING:
-    from pathlib import Path
+    from pathlib import Path as FilesystemPath
 
     from marivo.semantic.catalog import SemanticCatalog
 
@@ -103,7 +104,7 @@ def _context(*values: object) -> InputContext:
     for value in values:
         if isinstance(
             value,
-            (Entity, Relationship, RowExpression, MetricExpression, Grouping, PopulationParameter),
+            (Entity, Path, RowExpression, MetricExpression, Grouping, PopulationParameter),
         ):
             contexts.append(value._context)
         elif isinstance(value, Deferred):
@@ -221,12 +222,29 @@ def _closed(action: Callable[[], _T], location: str) -> _T:
             str(error),
             "Use compatible complete axes, connected paths and one Session owner.",
             location,
+            canonical_id=location
+            if location
+            in {
+                "population.classify",
+                "population.identities",
+                "population.project",
+                "population.where",
+                "population.image",
+                "population.preimage",
+                "population.union",
+                "population.intersection",
+                "population.difference",
+                "session.read",
+            }
+            else None,
         )
 
 
 def _read(value: Deferred | FieldExpression) -> FieldRead:
     field = consume_field(_as_deferred(value) if isinstance(value, RowExpression) else value)
-    return field.field_read or FieldRead(field.reference, field.root)
+    return field.field_read or FieldRead(
+        field.reference, field.root, versioned=field.versioned, unit=field.unit
+    )
 
 
 def _axis(read: FieldRead) -> AxisBinding:
@@ -235,6 +253,8 @@ def _axis(read: FieldRead) -> AxisBinding:
 
 def _axes(
     by: tuple[Deferred | FieldExpression | Grouping | TimeScope, ...],
+    *,
+    distinct: bool = True,
 ) -> tuple[ComparisonAxis, ...]:
     axes: list[ComparisonAxis] = []
     for item in by:
@@ -252,8 +272,7 @@ def _axes(
             else:
                 axes.append(binding)
         elif isinstance(item, (Deferred, RowExpression)):
-            field = consume_field(_as_deferred(item) if isinstance(item, RowExpression) else item)
-            axes.append(_axis(field.field_read or FieldRead(field.reference, field.root)))
+            axes.append(_axis(_read(item)))
         else:
             reject(
                 "a semantic field or Grouping",
@@ -261,7 +280,25 @@ def _axes(
                 "Use a resolved field, mv.identity(entity), or population.axes.",
                 "population",
             )
-    return _closed(lambda: build.axes(tuple(axes)), "population")
+    return _closed(lambda: build.axes(tuple(axes)), "population") if distinct else tuple(axes)
+
+
+def _subject(on: Grouping | None, location: str) -> ComparisonAxis | None:
+    if on is None and location != "population.identities":
+        return None
+    if (
+        not isinstance(on, Grouping)
+        or not isinstance(on._binding, AxisBinding)
+        or on.kind != "identity"
+    ):
+        reject(
+            "an existing complete identity Grouping",
+            on.kind if isinstance(on, Grouping) else type(on).__name__,
+            "Choose an identity from population.axes and pass it as on=.",
+            location,
+            canonical_id=location,
+        )
+    return on._binding
 
 
 def _native(value: object) -> Deferred:
@@ -269,30 +306,24 @@ def _native(value: object) -> Deferred:
     return value
 
 
-def _facts_path(
-    values: tuple[Deferred | RelationshipParameter, ...],
-) -> tuple[RelationshipParameter, ...]:
-    if any(not isinstance(value, RelationshipParameter) for value in values):
-        reject(
-            "closed relationship facts",
-            repr(values),
-            "Load the symbolic model and obtain closed Catalog relationships.",
-            "population",
-        )
-    return tuple(value for value in values if isinstance(value, RelationshipParameter))
+def _capture_population_call(
+    receiver: Population, method: str, *args: object, **kwargs: object
+) -> Deferred:
+    value = _native(getattr(Deferred(Just(receiver)), method)(*args, **kwargs))
+    inspect_capture(value)
+    return value
 
 
-def _capture_path(
-    values: tuple[Relationship | RelationshipSymbol, ...],
-) -> tuple[Deferred | RelationshipParameter, ...]:
-    if any(not isinstance(value, (Relationship, Deferred)) for value in values):
+def _capture_path(value: Path | PathSymbol) -> PathParameter | Deferred:
+    if not isinstance(value, (Path, Deferred)):
         reject(
-            "a directed path of Relationship values or native symbols",
-            repr(values),
-            "Use Catalog relationships or ms.ref.relationship(...).",
-            "population",
+            "a Path from mv.path(...)",
+            type(value).__name__,
+            "Pass each directed Relationship as an argument to mv.path(...).",
+            "path.define",
+            canonical_id="path.define",
         )
-    return tuple(value if isinstance(value, Deferred) else value._parameter for value in values)
+    return value if isinstance(value, Deferred) else value._parameter
 
 
 def _entity_exact(value: Entity) -> ExactRef:
@@ -302,29 +333,18 @@ def _entity_exact(value: Entity) -> ExactRef:
 
 
 @overload
-def identity(
-    target: Entity | tuple[Relationship, ...], *, at: InstantAnchor | None = None
-) -> Grouping: ...
+def identity(target: Entity | Path) -> Grouping: ...
 
 
 @overload
-def identity(
-    target: EntitySymbol | tuple[Relationship | RelationshipSymbol, ...],
-    *,
-    at: InstantAnchor | None = None,
-) -> Grouping | Deferred: ...
+def identity(target: EntitySymbol | PathSymbol) -> Deferred: ...
 
 
-def identity(
-    target: Entity | EntitySymbol | tuple[Relationship | RelationshipSymbol, ...],
-    *,
-    at: InstantAnchor | None = None,
-) -> Grouping | Deferred:
+def identity(target: Entity | EntitySymbol | Path | PathSymbol) -> Grouping | Deferred:
     """Capture grouping by one complete Entity identity, without selecting members.
 
     Args:
-        target: A closed Entity, native Entity symbol, or nonempty directed relationship path.
-        at: Exact version selection instant for a versioned target.
+        target: A Catalog Entity or a directed Path from mv.path(...).
 
     Returns:
         An immutable Grouping for closed input, or a Deferred parameter for symbols; no source keys are enumerated.
@@ -336,33 +356,30 @@ def identity(
         primary-key component through a single-valued route. Use mv.coordinates
         for a finite requested key domain, or session.members for source members.
     """
-    if not isinstance(target, (Entity, Deferred, tuple)):
+    if not isinstance(target, (Entity, Deferred, Path)):
         reject(
             "a closed Entity, native Entity symbol or relationship path",
             type(target).__name__,
-            "Use a Catalog Entity, ms.ref.entity(...), or explicit relationship tuple.",
+            "Use a Catalog Entity, ms.ref.entity(...), or mv.path(...).",
             "identity",
         )
     captured = (
         target
         if isinstance(target, Deferred)
-        else _capture_path(target)
-        if isinstance(target, tuple)
+        else target._parameter
+        if isinstance(target, Path)
         else _entity_exact(target)
     )
-    if isinstance(captured, Deferred) or _has_parameters(captured):
+    if isinstance(captured, Deferred):
         return _closed(
-            lambda: parameter(IdentityParameter(captured, at, _context=_context(target))),
+            lambda: parameter(IdentityParameter(captured, _context=_context(target))),
             "identity",
         )
-    facts = _facts_path(captured) if isinstance(captured, tuple) else captured
     return _closed(
         lambda: _CoordinateGrouping(
-            build.identity(facts, at),
+            build.identity(captured),
             _context(target),
-            _identity_keys(target[-1].to_entity)
-            if isinstance(target, tuple) and target and isinstance(target[-1], Relationship)
-            else _identity_keys(target),
+            _identity_keys(target.target if isinstance(target, Path) else target),
         ),
         "identity",
     )
@@ -384,7 +401,7 @@ class Population(PopulationParameter):
     _frame_inputs: tuple[FrameKeyInput, ...] = field(default=(), compare=False, repr=False)
 
     @property
-    def _project_root(self) -> Path | None:
+    def _project_root(self) -> FilesystemPath | None:
         return self._context.project_root
 
     @property
@@ -448,12 +465,22 @@ class Population(PopulationParameter):
         Example: ``population.show()``.
         Constraints: No schema/source reads or evaluation; full axes remain in axes.
         """
+        from marivo.analysis.core.frame_data import MemoryFrameBacking, StoredFrameBacking
+
         owner = _owner(self._definition)
+        fixed_frames = sum(
+            isinstance(item.frame._backing, (MemoryFrameBacking, StoredFrameBacking))
+            for item in self._frame_inputs
+        )
         facts = (
             ("axes", str(len(self._definition.axes))),
             ("definition", computation_fingerprint(self._definition)),
             ("scope", scope_summary(self._definition, max_bytes=600)),
             ("owner", owner.session_id if owner is not None else "unbound"),
+            (
+                "frame_inputs",
+                f"{fixed_frames} fixed, {len(self._frame_inputs) - fixed_frames} pending",
+            ),
             (
                 "keys",
                 f"{len(self._definition.keys)} captured complete literal coordinates"
@@ -465,9 +492,9 @@ class Population(PopulationParameter):
                     f"axis[{index}]",
                     f"calendar={axis.grain} timezone={axis.timezone} cells={len(axis.cells)}"
                     if isinstance(axis, CalendarCoordinate)
-                    else f"interval={axis.start}/{axis.end} timezone={axis.timezone}"
+                    else f"intervals={len(axis.bounds)} timezone={axis.timezone}"
                     if isinstance(axis, IntervalCoordinate)
-                    else f"{axis.field.ref.key if axis.field else axis.entity.ref.key}; path={axis.path}; at={axis.at}",
+                    else f"{axis.field.ref.key if axis.field else axis.entity.ref.key}; path={tuple(step.ref.key for step in axis.path)}; source_at={axis.source_at}; intermediate_at={axis.step_ats}; at={axis.at}",
                 )
                 for index, axis in enumerate(self._definition.axes[:6])
             ),
@@ -500,7 +527,7 @@ class Population(PopulationParameter):
         if _has_parameters(by):
             return _native(Deferred(Just(self)).project(by=_native_axes(by)))
         return Population(
-            _closed(lambda: build.project(self._definition, _axes(by)), "Population.project"),
+            _closed(lambda: build.project(self._definition, _axes(by)), "population.project"),
             self._frame_inputs,
             _context=context,
             _identity_keys=_identity_keys(self, by),
@@ -537,33 +564,81 @@ class Population(PopulationParameter):
         """Subtract matching complete domain keys from this domain."""
         return self._set(other, "difference")
 
+    @overload
     def classify(
-        self, *, by: tuple[Deferred | FieldExpression | Grouping, ...]
-    ) -> Population | Deferred:
-        """Read direct member attributes into a correlated coordinate domain.
+        self, *, by: tuple[FieldExpression | Grouping, ...], on: Grouping | None = None
+    ) -> Population: ...
 
-        Args: by: Direct fields owned by this identity Entity, or its existing identity.
-        Returns: A lazy complete domain of correlated classification tuples.
-        Example: ``members.classify(by=(members.axes[0], region))``.
-        Constraints: Requires one identity axis; routed fields and time axes are unsupported.
+    @overload
+    def classify(
+        self,
+        *,
+        by: tuple[Deferred | FieldExpression | Grouping, ...] | Deferred,
+        on: Deferred | Grouping | None = None,
+    ) -> Population | Deferred: ...
+
+    def classify(
+        self,
+        *,
+        by: tuple[Deferred | FieldExpression | Grouping, ...] | Deferred,
+        on: Deferred | Grouping | None = None,
+    ) -> Population | Deferred:
+        """Append new single-valued coordinates while retaining all existing axes.
+
+        Args:
+            by: Fields, explicit path identities or existing axes to reuse.
+            on: Existing identity Grouping for new reads when multiple subjects qualify.
+        Returns: A lazy domain retaining its complete input tuples.
+        Example: ``members.classify(by=(region,))``.
+        Constraints: New identity roles require a complete non-null result from a
+        single-valued Path. Missing field matches are NULL.
         """
-        context = _context(self, by)
-        if _has_parameters(by):
-            return _native(Deferred(Just(self)).classify(by=_native_axes(by)))
+        context = _context(self, by, on)
+        if isinstance(by, Deferred) or _has_parameters(by) or isinstance(on, Deferred):
+            native_by = by if isinstance(by, Deferred) else _native_axes(by)
+            return _native(Deferred(Just(self)).classify(by=native_by, on=on))
         return Population(
-            _closed(lambda: build.classify(self._definition, _axes(by)), "population.classify"),
+            _closed(
+                lambda: build.classify(
+                    self._definition,
+                    _axes(by, distinct=False),
+                    _subject(on, "population.classify"),
+                    exact=tuple(isinstance(value, Grouping) for value in by),
+                ),
+                "population.classify",
+            ),
             self._frame_inputs,
             _context=context,
-            _identity_keys=_identity_keys(self, by),
+            _identity_keys=_identity_keys(self, by, on),
+        )
+
+    @overload
+    def identities(self, *, on: Grouping) -> Population: ...
+
+    @overload
+    def identities(self, *, on: Deferred) -> Deferred: ...
+
+    def identities(self, *, on: Grouping | Deferred) -> Population | Deferred:
+        """Project the captured complete keys of one identity role as direct identities."""
+        if isinstance(on, Deferred):
+            return _native(Deferred(Just(self)).identities(on=on))
+        location = "population.identities"
+        subject = _subject(on, location)
+        assert subject is not None
+        return Population(
+            _closed(lambda: build.identities(self._definition, subject), location),
+            self._frame_inputs,
+            _context=_context(self, on),
+            _identity_keys=_identity_keys(self, on),
         )
 
     def where(self, predicate: Deferred | RowPredicate) -> Population | Deferred:
-        """Filter complete coordinates using closed Population membership logic.
+        """Filter complete coordinates using predicates over their captured values.
 
-        Args: predicate: ``in_population(other)`` combined with ``&``, ``|`` or ``~``.
+        Args: predicate: Existing fields and complete membership predicates combined with ``&``, ``|`` or ``~``.
         Returns: A lazy subset with unchanged axes.
         Example: ``domain.where(mv.in_population(allowed))``.
-        Constraints: Every predicate domain must project from the receiver axes.
+        Constraints: Every predicate input must bind to existing receiver axes. Only True is retained.
         """
         context = _context(self, predicate)
         if _has_parameters(predicate):
@@ -575,7 +650,7 @@ class Population(PopulationParameter):
         native = _as_deferred(predicate) if isinstance(predicate, RowExpression) else predicate
         frame_inputs = collect_frame_key_inputs(native)
         definition = _closed(
-            lambda: build.where(self._definition, consume_predicate(native).node),
+            lambda: build.where(self._definition, consume_predicate(native, coordinates=True).node),
             "population.where",
         )
         return Population(
@@ -585,46 +660,85 @@ class Population(PopulationParameter):
             _identity_keys=self._identity_keys,
         )
 
+    @overload
+    def image(self, *, via: Path, on: Grouping | None = None) -> Population: ...
+
+    @overload
     def image(
-        self, *, via: tuple[Relationship | RelationshipSymbol, ...], at: InstantAnchor | None = None
+        self, *, via: Path | PathSymbol, on: Grouping | Deferred | None = None
+    ) -> Population | Deferred: ...
+
+    def image(
+        self, *, via: Path | PathSymbol, on: Grouping | Deferred | None = None
     ) -> Population | Deferred:
         """Map selected identities to reached identities through a directed path.
 
-        Args: via: Nonempty directed relationship path. at: Exact target version anchor.
+        Args: via: Directed Path from mv.path(...). on: Explicit receiver identity role when needed.
         Returns: A deduplicated target identity domain, preserving missing-reference keys.
-        Example: ``orders.image(via=(order_customer,))``.
-        Constraints: Requires one identity axis and explicit connected relationships.
+        Example: ``orders.image(via=mv.path(order_customer))``.
+        Constraints: Selects one compatible identity role and returns a direct target identity domain.
         """
-        context = _context(self, via)
+        context = _context(self, via, on)
         captured = _capture_path(via)
-        if _has_parameters(captured):
-            return _native(Deferred(Just(self)).image(via=captured, at=at))
+        if isinstance(captured, Deferred) or isinstance(on, Deferred):
+            return _closed(
+                lambda: _capture_population_call(self, "image", via=captured, on=on),
+                "population.image",
+            )
         return Population(
             _closed(
-                lambda: build.image(self._definition, _facts_path(captured), at), "population.image"
+                lambda: build.image(self._definition, captured, _subject(on, "population.image")),
+                "population.image",
             ),
             self._frame_inputs,
             _context=context,
-            _identity_keys=_identity_keys(self, via[-1].to_entity)
-            if via and isinstance(via[-1], Relationship)
-            else self._identity_keys,
+            _identity_keys=(
+                (captured.target.ref.key, captured.steps[-1].relationship.target_keys),
+            ),
         )
 
+    @overload
     def preimage(
-        self, targets: Population | Deferred, *, via: tuple[Relationship | RelationshipSymbol, ...]
+        self, targets: Population, *, via: Path, on: Grouping | None = None
+    ) -> Population: ...
+
+    @overload
+    def preimage(
+        self,
+        targets: Population | Deferred,
+        *,
+        via: Path | PathSymbol,
+        on: Grouping | Deferred | None = None,
+    ) -> Population | Deferred: ...
+
+    def preimage(
+        self,
+        targets: Population | Deferred,
+        *,
+        via: Path | PathSymbol,
+        on: Grouping | Deferred | None = None,
     ) -> Population | Deferred:
         """Keep receiver identities that reach a selected target identity.
 
-        Args: targets: One compatible target identity domain. via: Directed path.
+        Args: targets: One direct target identity domain. via: Directed Path. on: Explicit receiver identity role when needed.
         Returns: A lazy subset of this domain.
-        Example: ``orders.preimage(customers, via=(order_customer,))``.
+        Example: ``orders.preimage(customers, via=mv.path(order_customer))``.
         Constraints: Relationship mapping uses complete declared identity keys.
         """
         captured = _capture_path(via)
-        if isinstance(targets, Deferred) or _has_parameters(captured):
-            return _native(Deferred(Just(self)).preimage(targets, via=captured))
+        if (
+            isinstance(targets, Deferred)
+            or isinstance(captured, Deferred)
+            or isinstance(on, Deferred)
+        ):
+            return _closed(
+                lambda: _capture_population_call(self, "preimage", targets, via=captured, on=on),
+                "population.preimage",
+            )
         definition = _closed(
-            lambda: build.preimage(self._definition, targets._definition, _facts_path(captured)),
+            lambda: build.preimage(
+                self._definition, targets._definition, captured, _subject(on, "population.preimage")
+            ),
             "population.preimage",
         )
         return Population(
@@ -632,7 +746,7 @@ class Population(PopulationParameter):
             merge_frame_key_inputs(
                 self._frame_inputs, targets._frame_inputs, owner=definition.owner
             ),
-            _context=_context(self, targets, via),
+            _context=_context(self, targets, via, on),
             _identity_keys=_identity_keys(self, targets),
         )
 
@@ -659,8 +773,8 @@ def in_population(population: Population | Deferred) -> Deferred | RowPredicate:
 
     Constraints:
         Captures complete tuples with null-safe matching and performs no
-        source access. Population.where accepts only membership combinations;
-        source consumers may also combine field conditions.
+        source access. Population.where binds membership and field predicates to
+        existing axes. Source consumers may read the required coordinates.
     """
     if isinstance(population, Deferred):
         return _closed(
@@ -715,7 +829,7 @@ def _calendar_population(calendar: CalendarAxis) -> Population:
 def membership(
     by: FieldExpression | tuple[FieldExpression, ...],
     *,
-    via: tuple[tuple[Relationship, ...], ...],
+    via: tuple[Path, ...],
     unmatched: Literal["exclude", "null"],
 ) -> Grouping: ...
 
@@ -724,7 +838,7 @@ def membership(
 def membership(
     by: Deferred | FieldExpression | tuple[Deferred | FieldExpression, ...],
     *,
-    via: tuple[tuple[Relationship | RelationshipSymbol, ...], ...],
+    via: tuple[Path | PathSymbol, ...],
     unmatched: Literal["exclude", "null"],
 ) -> Grouping | Deferred: ...
 
@@ -732,7 +846,7 @@ def membership(
 def membership(
     by: Deferred | FieldExpression | tuple[Deferred | FieldExpression, ...],
     *,
-    via: tuple[tuple[Relationship | RelationshipSymbol, ...], ...],
+    via: tuple[Path | PathSymbol, ...],
     unmatched: Literal["exclude", "null"],
 ) -> Grouping | Deferred:
     """Capture correlated member fields and explicit allocation paths.
@@ -741,13 +855,13 @@ def membership(
         directed paths, possibly empty. unmatched: ``exclude`` or ``null``.
 
     Returns: An immutable Grouping for closed input, or a Deferred parameter for symbols.
-    Example: ``mv.membership(tag, via=((order_tags,),), unmatched='exclude')``.
+    Example: ``mv.membership(tag, via=(mv.path(order_tags),), unmatched='exclude')``.
     Constraints: Captures metadata only; no source or Session is opened.
     """
     fields = tuple(by) if isinstance(by, tuple) else (by,)
     context = _context(fields, via)
     paths = tuple(_capture_path(path) for path in via)
-    if _has_parameters((fields, paths)):
+    if _has_parameters(fields) or any(isinstance(path, Deferred) for path in paths):
         return _closed(
             lambda: parameter(
                 MembershipParameter(
@@ -765,7 +879,9 @@ def membership(
     reads = tuple(_read(item) for item in fields)
     return _closed(
         lambda: _MembershipGrouping(
-            build.membership(reads, tuple(_facts_path(path) for path in paths), unmatched),
+            build.membership(
+                reads, tuple(path for path in paths if isinstance(path, PathParameter)), unmatched
+            ),
             context,
         ),
         "membership",

@@ -437,6 +437,7 @@ def analysis_dsl_project_files(
     """Return current expression declarations for isolated DSL journeys."""
     n = names
     models = f"""\
+import marivo.analysis as mv
 import marivo.datasource as md
 import marivo.semantic as ms
 
@@ -489,9 +490,11 @@ def {n.revenue}():
 def {n.order_count}():
     return orders_value.count(time=time_value)
 
+line_order_path = mv.path(line_order_value)
+
 @ms.metric()
 def {n.line_revenue}():
-    return line_amount_value.sum(time=time_value.via((line_order_value,)))
+    return line_amount_value.sum(time=time_value.via(line_order_path))
 
 @ms.metric()
 def {n.aov}():

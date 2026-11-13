@@ -192,7 +192,7 @@ def test_population_source_execution_cost(
         catalog_value(session.catalog, "sales.link_tags", kind="relationship"),
     )
     if scenario == "image_count":
-        image = orders.image(via=path)
+        image = orders.image(via=mv.path(*path))
         assert isinstance(image, mv.Population)
         query = session.observe(
             {
@@ -212,7 +212,7 @@ def test_population_source_execution_cost(
             fixed,
             on=((fixed.axes[0], catalog_value(session.catalog, "sales.tags", kind="entity")),),
         )
-        preimage = orders.preimage(targets, via=path)
+        preimage = orders.preimage(targets, via=mv.path(*path))
         assert isinstance(preimage, mv.Population)
         query = session.observe(
             {"metric": catalog_value(session.catalog, "sales.revenue", kind="metric")},

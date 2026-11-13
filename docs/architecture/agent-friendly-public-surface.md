@@ -83,8 +83,11 @@ compose operations to show exact-input handles, lazy derivation from fixed data,
 statistic consumption or export access. They remain static text: rendering Help
 does not execute examples, create Sessions or read project/source data. Task
 pages link to the owning callable instead of maintaining another example set,
-apart from the single analysis-root quick start. The root's example counts toward
-its explicit render budget; other task pages retain their navigation-only budgets.
+apart from the analysis-root quick start and the Population workflow in
+`analysis.inputs.population`. Each example counts toward its page's render budget.
+The Population example starts with members, appends an attribute, filters captured
+values, projects identity, and counts. The page routes version, Path, identity
+role and fixed Frame questions to their exact owners.
 The project HTTP service also exposes bounded service reference pages under
 `analysis.results.service`. The HTTP reference owns connection, fixed-result
 reads, current Catalog browsing and explicit Catalog reload facts; OpenAPI owns
@@ -164,8 +167,10 @@ retain surface guidance; more specific underlying errors keep their own repairs.
 ## Computation and inspection
 
 Population and Frame source construction are silent and source-I/O free.
-Pending Frame.show discloses captured structure, without schema preparation or
-parent-row reads. compute returns complete immutable memory data; persist
+Population.show and the Path and RelationshipStep cards expose bounded captured
+structure. Typed fields retain complete axes or path steps. Unevaluated source
+membership has no established row count. Pending Frame.show discloses captured
+structure, without schema preparation or parent-row reads. compute returns complete immutable memory data; persist
 publishes an existing completed result, computing it first for a pending input.
 Only the returned completed object fixes values and keys.
 

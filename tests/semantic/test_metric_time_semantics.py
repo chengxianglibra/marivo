@@ -221,7 +221,7 @@ def test_entity_default_closes_forward_reference_for_all_source_reduction_shapes
         orders.count(),
         amount.weighted_mean(weight=quantity),
         status.count_distinct(),
-        amount.sum(where=segment.via((buyer,)) == "north"),
+        amount.sum(where=segment.via(mv.path(buyer)) == "north"),
     ):
         assert _clock_facts(reduction) == ((paid, "entity_default"),)
 
@@ -301,7 +301,7 @@ def test_aliases_keep_repeated_occurrences_and_independent_clocks(
     )
     assert grouped.sort_values("calendar:month")["difference"].tolist() == [-100, 100]
     classified = (
-        session.observe({"amount": amount.sum()}, by=(segment.via((buyer,)),), where=november)
+        session.observe({"amount": amount.sum()}, by=(segment.via(mv.path(buyer)),), where=november)
         .compute()
         .to_pandas()
     )

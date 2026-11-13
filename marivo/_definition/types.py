@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass, field
+from dataclasses import dataclass
+from dataclasses import field as dataclass_field
 from datetime import date, datetime, timedelta
 from decimal import Decimal
+from itertools import pairwise
 from pathlib import Path
 from typing import TYPE_CHECKING, Final, Literal, NoReturn, TypeAlias, overload
 
@@ -144,6 +146,77 @@ class ExactRef:
 
 
 @dataclass(frozen=True, slots=True)
+class RelationshipParameter:
+    """Captured relationship and endpoint facts used in path admission."""
+
+    ref: ExactRef
+    from_entity: ExactRef
+    to_entity: ExactRef
+    cardinality: Literal["one_to_one", "many_to_one", "one_to_many", "many_to_many"]
+    _from_default_time: ExactRef | None = dataclass_field(default=None, compare=False, repr=False)
+    from_versioned: bool = False
+    to_versioned: bool = False
+    target_keys: tuple[str, ...] = ()
+    target_keys_covered: bool = True
+
+
+@dataclass(frozen=True, slots=True)
+class RelationshipStepParameter:
+    relationship: RelationshipParameter
+    target_at: InstantAnchor | None = None
+
+    def __post_init__(self) -> None:
+        check_path_anchor(
+            self.target_at, self.relationship.to_entity, self.relationship.to_versioned
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class PathParameter:
+    steps: tuple[RelationshipStepParameter, ...]
+    source_at: InstantAnchor | None = None
+    _context: InputContext = dataclass_field(
+        default_factory=lambda: InputContext(), compare=False, repr=False, kw_only=True
+    )
+
+    def __post_init__(self) -> None:
+        if not self.steps or any(
+            left.relationship.to_entity.ref != right.relationship.from_entity.ref
+            for left, right in pairwise(self.steps)
+        ):
+            invalid("Use mv.path with a nonempty sequence of connected directed Relationships.")
+        check_path_anchor(self.source_at, self.source, self.steps[0].relationship.from_versioned)
+
+    @property
+    def source(self) -> ExactRef:
+        return self.steps[0].relationship.from_entity
+
+    @property
+    def target(self) -> ExactRef:
+        return self.steps[-1].relationship.to_entity
+
+    @property
+    def relationships(self) -> tuple[RelationshipParameter, ...]:
+        return tuple(step.relationship for step in self.steps)
+
+    @property
+    def step_ats(self) -> tuple[InstantAnchor | None, ...]:
+        """Intermediate node anchors, with trailing unanchored positions omitted."""
+        anchors = tuple(step.target_at for step in self.steps[:-1])
+        last = max((i for i, anchor in enumerate(anchors) if anchor is not None), default=-1)
+        return anchors[: last + 1]
+
+
+def check_path_anchor(value: InstantAnchor | None, entity: ExactRef, versioned: bool) -> None:
+    if value is None:
+        return
+    if not isinstance(value, InstantAnchor) or value.utcoffset() is None:
+        invalid(f"Use session.instant(...) to anchor {entity.ref.key} in mv.path.")
+    if not versioned:
+        invalid(f"Remove the version anchor for unversioned node {entity.ref.key}.")
+
+
+@dataclass(frozen=True, slots=True)
 class Owner:
     """Existing Session ownership carried by a lazy Population or Query definition."""
 
@@ -241,6 +314,37 @@ class AxisBinding:
     path: tuple[ExactRef, ...]
     role: Literal["identity", "field"]
     at: AttributeTime | None = None
+    source_at: InstantAnchor | None = dataclass_field(default=None, kw_only=True)
+    step_ats: tuple[InstantAnchor | None, ...] = dataclass_field(default=(), kw_only=True)
+    path_root: ExactRef | None = dataclass_field(default=None, kw_only=True)
+    path_facts: tuple[RelationshipParameter, ...] = dataclass_field(default=(), kw_only=True)
+    versioned: bool = dataclass_field(default=False, kw_only=True)
+    unit: str | None = dataclass_field(default=None, kw_only=True)
+
+    def as_read(self) -> FieldRead | IdentityRead:
+        """Carry the complete explicit path binding into source preparation."""
+        if self.field is None:
+            return IdentityRead(
+                self.entity,
+                self.path,
+                fixed_attribute_time(self.at),
+                source_at=self.source_at,
+                step_ats=self.step_ats,
+                path_root=self.path_root,
+                path_facts=self.path_facts,
+            )
+        return FieldRead(
+            self.field,
+            self.entity,
+            self.path,
+            self.at,
+            source_at=self.source_at,
+            step_ats=self.step_ats,
+            path_root=self.path_root,
+            path_facts=self.path_facts,
+            versioned=self.versioned,
+            unit=self.unit,
+        )
 
     def __post_init__(self) -> None:
         if self.entity.ref.kind is not SemanticKind.ENTITY:
@@ -265,6 +369,12 @@ class FieldRead:
     entity: ExactRef
     path: tuple[ExactRef, ...] = ()
     at: AttributeTime | None = None
+    source_at: InstantAnchor | None = dataclass_field(default=None, kw_only=True)
+    step_ats: tuple[InstantAnchor | None, ...] = dataclass_field(default=(), kw_only=True)
+    path_root: ExactRef | None = dataclass_field(default=None, kw_only=True)
+    path_facts: tuple[RelationshipParameter, ...] = dataclass_field(default=(), kw_only=True)
+    versioned: bool = dataclass_field(default=False, kw_only=True)
+    unit: str | None = dataclass_field(default=None, kw_only=True)
 
 
 @dataclass(frozen=True, slots=True)
@@ -280,17 +390,26 @@ class IdentityRead:
     path: tuple[ExactRef, ...] = ()
     at: InstantAnchor | None = None
     components: tuple[str, ...] = ()
+    source_at: InstantAnchor | None = dataclass_field(default=None, kw_only=True)
+    step_ats: tuple[InstantAnchor | None, ...] = dataclass_field(default=(), kw_only=True)
+    path_root: ExactRef | None = dataclass_field(default=None, kw_only=True)
+    path_facts: tuple[RelationshipParameter, ...] = dataclass_field(default=(), kw_only=True)
 
 
 def field_read_key(read: FieldRead | IdentityRead) -> str:
     """Identify a physical field usage including its path and attribute anchor."""
+    times = (
+        attribute_time_key(read.source_at),
+        tuple(attribute_time_key(anchor) for anchor in read.step_ats),
+        attribute_time_key(read.at),
+    )
     if isinstance(read, TimeInstantFieldRead):
         return repr(
             (
                 "instant",
                 read.field.ref.path,
                 tuple(step.ref.path for step in read.path),
-                attribute_time_key(read.at) if read.at is not None else None,
+                times,
             )
         )
     if isinstance(read, IdentityRead):
@@ -299,7 +418,7 @@ def field_read_key(read: FieldRead | IdentityRead) -> str:
                 "identity",
                 read.entity.ref.path,
                 tuple(step.ref.path for step in read.path),
-                read.at.isoformat() if read.at else None,
+                times,
             )
         )
     if not read.path and read.at is None:
@@ -308,7 +427,7 @@ def field_read_key(read: FieldRead | IdentityRead) -> str:
         (
             read.field.ref.path,
             tuple(step.ref.path for step in read.path),
-            attribute_time_key(read.at) if read.at is not None else None,
+            times,
         )
     )
 
@@ -331,6 +450,14 @@ class IntervalCoordinate:
     start: InstantAnchor
     end: InstantAnchor
     timezone: str
+    intervals: tuple[tuple[InstantAnchor, InstantAnchor], ...] | None = dataclass_field(
+        default=None, kw_only=True
+    )
+    report_key: int = dataclass_field(default=0, kw_only=True)
+
+    @property
+    def bounds(self) -> tuple[tuple[InstantAnchor, InstantAnchor], ...]:
+        return self.intervals if self.intervals is not None else ((self.start, self.end),)
 
 
 def _merge_time_ranges(
@@ -367,9 +494,11 @@ class CalendarCoordinate:
     timezone: str
     cells: tuple[tuple[InstantAnchor, InstantAnchor, InstantAnchor, InstantAnchor], ...]
     origin: CalendarOrigin | None = None
-    civil_bounds: tuple[CivilBounds, ...] = field(kw_only=True)
-    ranges: tuple[tuple[InstantAnchor, InstantAnchor], ...] = field(default=(), kw_only=True)
-    actual_only: bool = field(default=False, kw_only=True)
+    civil_bounds: tuple[CivilBounds, ...] = dataclass_field(kw_only=True)
+    ranges: tuple[tuple[InstantAnchor, InstantAnchor], ...] = dataclass_field(
+        default=(), kw_only=True
+    )
+    actual_only: bool = dataclass_field(default=False, kw_only=True)
 
     def __post_init__(self) -> None:
         if len(self.civil_bounds) != len(self.cells):

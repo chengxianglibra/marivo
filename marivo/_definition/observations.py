@@ -105,6 +105,8 @@ class ObservationBinding:
     contributions: tuple[ContributionBinding, ...]
     count_populations: tuple[tuple[PopulationDependency, PopulationDependency], ...] = ()
     calendar_samples: tuple[tuple[tuple[int, ...], BuiltinSampleCoordinate], ...] = ()
+    pending_interval: int | None = None
+    empty_interval: bool = False
 
     @property
     def fingerprint(self) -> str:

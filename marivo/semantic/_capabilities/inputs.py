@@ -97,6 +97,25 @@ _FAMILIES: dict[str, tuple[str, tuple[LiveHelpTarget, ...]]] = {
         "Compare fields and combine same-stage conditions with &, | and ~; metric-stage booleans are not source filters.",
         _links("predicate"),
     ),
+    "Path": (
+        "Use mv.path(...) with contiguous single-valued steps ending at the field's Entity.",
+        (LiveHelpTarget(surface="analysis", canonical_id="path.define"),),
+    ),
+    "InstantAnchor": (
+        "Use an exact InstantAnchor from the owning Session.",
+        (LiveHelpTarget(surface="analysis", canonical_id="session.instant"),),
+    ),
+    "Relationship": (
+        "Select the directed Relationship from the current Catalog.",
+        _links("SemanticCatalog.get"),
+    ),
+    "InstantAnchor | TimeExpression": (
+        "Supply a fixed Session instant or the qualified native fact-root TimeDimension used as row time.",
+        (
+            LiveHelpTarget(surface="analysis", canonical_id="session.instant"),
+            *_links("objects.time_dimension"),
+        ),
+    ),
     "TimeExpression": (
         "Use a loaded TimeDimension or a legal typed time field binding with the required native role.",
         _links("objects.time_dimension", "field"),

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from datetime import date, datetime, timedelta
 
+import ibis
+import ibis.expr.datatypes as dt
 import pandas as pd
 import pyarrow as pa
 
@@ -17,8 +19,9 @@ from marivo._definition.relations import (
     PopulationProject,
     PopulationSet,
     population_keys,
+    project_population_row,
 )
-from marivo._definition.types import AxisBinding
+from marivo._definition.types import AxisBinding, IntervalCoordinate
 from marivo.analysis.core.model import reject
 
 _TICK_SCALES = {"s": 10**9, "ms": 10**6, "us": 10**3, "ns": 1}
@@ -127,9 +130,7 @@ def evaluate_population(
                 if (key in rhs) == (node.operation == "intersection")
             )
         if isinstance(node, PopulationProject):
-            return unique(
-                tuple(tuple(row[index] for index in node.positions) for row in rows(node.operand))
-            )
+            return unique(tuple(project_population_row(node, row) for row in rows(node.operand)))
         if isinstance(node, PopulationProduct):
             return unique(
                 tuple(
@@ -139,27 +140,68 @@ def evaluate_population(
             )
         if isinstance(node, PopulationFilter):
             # Resolve every leaf first so constant branches retain producer checks.
-            members = {
-                index: {_token(key) for key in rows(leaf.population)}
-                for index, leaf in enumerate(node.predicate.inputs)
-                if isinstance(leaf, PopulationContains)
-            }
+            from marivo._definition.population_builders import predicate_fields
+            from marivo.analysis.compiler.predicate import lower_condition, population_key
+            from marivo.analysis.methods._ibis_numeric import evaluate_numeric
+            from marivo.semantic._numeric_lowering import numeric_failure
 
-            def matches(row: tuple[object, ...]) -> bool:
-                values: dict[str, object] = {}
-                for index, leaf in enumerate(node.predicate.inputs):
-                    assert isinstance(leaf, PopulationContains)
-                    projected = tuple(
-                        row[coordinate_position(domain.axes, axis)] for axis in leaf.population.axes
-                    )
-                    values[f"slot_{index}"] = pd.Series(
-                        [_token(projected) in members[index]], dtype="boolean"
-                    )
-                result = node.predicate.recipe.resolve(values)
-                assert isinstance(result, pd.Series)
-                return bool(result.iloc[0])
+            operand = rows(node.operand)
+            values: dict[str, pd.Series] = {}
+            for leaf in node.predicate.inputs:
+                if not isinstance(leaf, PopulationContains):
+                    continue
+                positions = tuple(
+                    coordinate_position(domain.axes, axis) for axis in leaf.population.axes
+                )
 
-            return tuple(row for row in rows(node.operand) if matches(row))
+                def member_key(
+                    values: tuple[object, ...], axes: tuple[ComparisonAxis, ...]
+                ) -> object:
+                    return _token(
+                        tuple(
+                            axis.bounds[int(value)]
+                            if isinstance(axis, IntervalCoordinate) and isinstance(value, int)
+                            else value
+                            for value, axis in zip(values, axes, strict=True)
+                        )
+                    )
+
+                members = {member_key(key, leaf.population.axes) for key in rows(leaf.population)}
+                actual = tuple(domain.axes[i] for i in positions)
+                values[population_key(leaf.population)] = pd.Series(
+                    [
+                        member_key(tuple(row[i] for i in positions), actual) in members
+                        for row in operand
+                    ],
+                    dtype="boolean[pyarrow]",
+                )
+            for key, position in predicate_fields(domain.axes, node.predicate):
+                raw = [row[position] for row in operand]
+                physical = next((item.type for item in raw if isinstance(item, pa.Scalar)), None)
+                array = pa.array(raw, type=physical, from_pandas=False)
+                values[key] = pd.Series(pd.arrays.ArrowExtensionArray(array))
+            if not operand:
+                return ()
+            inputs = ibis.table(
+                {
+                    key: dt.DataType.from_pyarrow(dtype.pyarrow_dtype)
+                    for key, value in values.items()
+                    if isinstance(dtype := value.dtype, pd.ArrowDtype)
+                },
+                name="_population_coordinates",
+            )
+            predicate = lower_condition(node.predicate, {key: inputs[key] for key in values})
+            index = pd.RangeIndex(len(operand))
+            for check in predicate.checks:
+                failures = evaluate_numeric(check.violation.op(), values, index)
+                if failures.astype("boolean").fillna(False).any():
+                    numeric_failure(check.expected, check.received)
+            selected = evaluate_numeric(predicate.value.op(), values, index)
+            return tuple(
+                row
+                for row, keep in zip(operand, selected.astype("boolean").fillna(False), strict=True)
+                if keep
+            )
         reject(
             "a planned complete Population input",
             type(node).__name__,

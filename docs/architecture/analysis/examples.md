@@ -96,8 +96,9 @@ assert member_count.to_pandas()["orders"].tolist() == [6]
 ```
 
 frame accepts general Population keys and can have no values. read requires a
-single Entity identity domain and nonempty fields. P.count counts its complete
-distinct tuples; projecting identity away changes what is counted. A literal
+eligible identity axis and nonempty fields, while retaining all Population
+coordinates. Pass `on` to choose an existing identity axis when several qualify.
+P.count counts its complete distinct tuples; projecting identity away changes what is counted. A literal
 identity can be in the domain without proving a source record exists.
 
 ## Compute statistics of represented rows

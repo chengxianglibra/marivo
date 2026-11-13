@@ -703,9 +703,11 @@ def test_frame_key_product_projection_and_filter_preserve_domain(
     source = _attributes(session)
     selected = _identities(session, source.where(source["amount"] >= 20).compute())
     region = catalog_value(session.catalog, "sales.orders.region", kind="dimension")
-    classifications = session.members(
-        catalog_value(session.catalog, "sales.orders", kind="entity")
-    ).classify(by=(region,))
+    classifications = (
+        session.members(catalog_value(session.catalog, "sales.orders", kind="entity"))
+        .classify(by=(region,))
+        .project(by=(region,))
+    )
     assert isinstance(classifications, mv.Population)
     product = mv.product(selected, classifications)
     population = (

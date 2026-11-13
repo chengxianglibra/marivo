@@ -345,7 +345,7 @@ def test_window_partition_context_is_scoped_before_classification(
         catalog_value(session.catalog, "sales.fact_links", kind="relationship"),
         catalog_value(session.catalog, "sales.link_tags", kind="relationship"),
     )
-    membership = mv.membership(label, via=(path,), unmatched="exclude")
+    membership = mv.membership(label, via=(mv.path(*path),), unmatched="exclude")
     calendar_scope = session.time_scope(start="2026-08-01", end="2026-08-03")
     metric = amount.sum(time=day).window(mv.all_history())
     endpoint = session.observe(
@@ -686,7 +686,7 @@ def test_paired_source_failure_retains_original_full_parent(
             catalog_value(session.catalog, "sales.fact_links", kind="relationship"),
             catalog_value(session.catalog, "sales.link_tags", kind="relationship"),
         )
-        membership = mv.membership(label, via=(path,), unmatched="exclude")
+        membership = mv.membership(label, via=(mv.path(*path),), unmatched="exclude")
         left = session.observe(
             {"q": original}, by=(current_scope.by(mv.grain("day")), region), where=identifier == 1
         )

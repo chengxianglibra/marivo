@@ -445,6 +445,8 @@ def test_source_plus_fixed_calendar_match_runs_one_existing_schedule(
         observe_read: Callable[[SourceRead, LoweredRead, StageOutput], None] | None = None,
         observe_local: Callable[[LocalCompute | FrameCompute | SourceRead, StageOutput], None]
         | None = None,
+        completed_frames: Mapping[str, StageOutput] | None = None,
+        retain_inputs: dict[str, StageOutput] | None = None,
     ) -> StageOutput:
         schedules.append(compiled)
         return original(
@@ -454,6 +456,8 @@ def test_source_plus_fixed_calendar_match_runs_one_existing_schedule(
             adapt_source=adapt_source,
             observe_read=observe_read,
             observe_local=observe_local,
+            completed_frames=completed_frames,
+            retain_inputs=retain_inputs,
         )
 
     def forbidden(*args: object, **kwargs: object) -> None:

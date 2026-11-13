@@ -294,6 +294,12 @@ def evaluate_numeric(
             )
         if isinstance(node, ops.Not):
             return unary(node.arg, lambda value: not value)
+        if isinstance(node, ops.InValues):
+            value = visit(node.value)
+            result = pd.Series(False, index=index, dtype="boolean")
+            for option in node.options:
+                result |= (value == visit(option)).astype("boolean")
+            return result.mask(~active)
         if isinstance(node, ops.IsNan):
             return unary(
                 node.arg, lambda value: isinstance(value, float) and math.isnan(value), nulls=True

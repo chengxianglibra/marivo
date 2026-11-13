@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING, Literal, NoReturn, TypeAlias, cast
 
 import ibis
 import ibis.expr.types as ir
-from ibis.common.deferred import Deferred
+from ibis.common.deferred import Attr, Call, Deferred
 
 from marivo._definition.types import InputContext
 from marivo.refs import (
@@ -433,10 +433,11 @@ class _DeclarationExpressionBuilder:
         if isinstance(value, _ExpressionCarrier):
             self.input_contexts.append(value._context)
             value = _as_deferred(value)
+        from marivo.semantic._paths import Path, RelationshipStep
         from marivo.semantic.catalog import Entity as CatalogEntity
         from marivo.semantic.catalog import Relationship as CatalogRelationship
 
-        if isinstance(value, CatalogEntity | CatalogRelationship):
+        if isinstance(value, (CatalogEntity, CatalogRelationship, Path, RelationshipStep)):
             # Preserve the named boundary; controlled count/path capture owns conversion.
             self.input_contexts.append(value._context)
             return value
@@ -502,6 +503,7 @@ class _DeclarationExpressionBuilder:
             trailing_duration,
             trailing_periods,
         )
+        from marivo.semantic._paths import path
         from marivo.semantic._rescale import rescale
 
         semantic_factories = (
@@ -511,6 +513,7 @@ class _DeclarationExpressionBuilder:
             trailing_duration,
             trailing_periods,
             rescale,
+            path,
         )
 
         value: object = None
@@ -520,6 +523,12 @@ class _DeclarationExpressionBuilder:
             module = self.symbols.get(node.value.id)
             if module is ibis:
                 value = vars(ibis).get(node.attr)
+            elif (
+                isinstance(module, ModuleType)
+                and module.__name__ == "marivo.analysis"
+                and node.attr == "path"
+            ):
+                value = path
             elif isinstance(module, ModuleType) and module.__name__ in {
                 "marivo.analysis",
                 "marivo.semantic",
@@ -680,6 +689,11 @@ class _DeclarationExpressionBuilder:
                     deferred_receiver = (receiver, name)
                 elif isinstance(receiver, (Entity, CatalogEntity)) and name == "count":
                     method = receiver.count
+                else:
+                    from marivo.semantic.catalog import Relationship as CatalogRelationship
+
+                    if isinstance(receiver, CatalogRelationship) and name == "at":
+                        method = receiver.at
             if method is None:
                 self.fail(
                     node,
@@ -702,6 +716,13 @@ class _DeclarationExpressionBuilder:
                 from marivo.semantic._expression_values import _parameter
 
                 target, operation = deferred_receiver
+                if operation == "via" and not kwargs:
+                    return Deferred(
+                        Call(
+                            Attr(resolver_of(target), operation),
+                            *(_parameter(value) for value in args),
+                        )
+                    )
                 default = capture_source_time(
                     resolver_of(target),
                     _parameter(kwargs["time"]) if "time" in kwargs else None,

@@ -171,6 +171,8 @@ def reduction_input(
                 contribution.root,
                 contribution.time.path,
                 contribution.time.at,
+                source_at=contribution.time.source_at,
+                step_ats=contribution.time.step_ats,
             )
         )
         if contribution.time

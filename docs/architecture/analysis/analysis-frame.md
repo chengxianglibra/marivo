@@ -270,6 +270,9 @@ mv.row_count() 是输入无关的未完成请求，消费时绑定；其它统�
 Frame 轴保留完整物理键类型、identity/field/time 角色、显示名和时间解释，不保留原
 Entity/Field 名义绑定。identity 角色与显示路径不能证明业务身份。显式 on 或
 population_from 的目标由调用方声明；系统仍检查结构、单位、时间和所有权约束。
+`session.population_from(frame, on=...)` 读取选定普通轴的完整联合键；完成或重新打开的 Frame
+提供已固定的坐标。对重绑的已有字段使用 `Population.where` 时直接比较捕获值。
+显式 `classify` 或 `session.read` 需要新字段时，才增加对应的读取依赖。
 
 ## 名称与 presence
 

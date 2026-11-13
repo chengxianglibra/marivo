@@ -282,6 +282,7 @@ def source_value_keys(plan: QueryPlan) -> dict[str, tuple[str, ...]]:
             result[source.stage_id] = tuple(
                 population.keys[receiver.keys.index(slot)]
                 for position in stage.program.operation.positions
+                if position >= len(stage.program.output_groups)
                 for slot in stage.program.key_groups[position]
             )
     return result

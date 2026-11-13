@@ -539,13 +539,15 @@ def test_construction_type_families_and_retired_surface() -> None:
         "frame_division_method",
         "instant_anchor",
         "calendar_axis",
+        "path",
         "population",
+        "relationship_step",
         "grouping",
         "observation_window",
         "value_statistic",
         "column",
     }
-    assert len([name for name in mv.__all__ if isinstance(getattr(mv, name), type)]) == 81
+    assert len([name for name in mv.__all__ if isinstance(getattr(mv, name), type)]) == 83
     descriptor = registry.by_canonical_id("value_statistic")
     assert isinstance(descriptor, TypeInput)
     assert tuple(f.name for f in descriptor.bindings[0].fields) == ("unit",)

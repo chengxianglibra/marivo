@@ -8,8 +8,9 @@ from dataclasses import dataclass
 import ibis
 import ibis.expr.types as ir
 
+from marivo._definition.population_builders import membership_anchor
 from marivo._definition.relations import MembershipBinding
-from marivo._definition.types import ExactRef, field_read_key, fixed_attribute_time
+from marivo._definition.types import ExactRef, field_read_key
 from marivo.analysis.binding.membership import membership_path, membership_reads
 from marivo.analysis.compiler.member_version import prepare_version_filter
 from marivo.analysis.core.frame_interpretation import FrameSourceTime
@@ -60,25 +61,50 @@ def prepare_memberships(
             **{slot: source[key] for key, slot in zip(keys, key_slots, strict=True)}
         )
         current = {name: name for name in source.columns}
-        for index, step in enumerate(path):
-            relation = normalize_target_relationship(state.registry, step.ref.ref.path)
+        if path is not None and path.source_at is not None:
+            assert root_contract.version is not None
+            anchored = prepare_version_filter(
+                source.view(),
+                root_contract.version,
+                normalize_target_version_selection(
+                    root_contract, boundary=path.source_at, interpretation="instant"
+                ),
+                state=state,
+                dependencies=dependencies,
+                source_times=source_times,
+            )
+            root_columns = {
+                name: unique(f"__member_{group}_source_{name}") for name in source.columns
+            }
+            anchored = anchored.rename(**{new: old for old, new in root_columns.items()})
+            allocation = allocation.join(
+                anchored,
+                [
+                    allocation[key] == anchored[root_columns[key]]
+                    for key in root_contract.primary_key
+                ],
+                how="left" if binding.unmatched == "null" else "inner",
+            ).select(allocation, anchored)
+            current = root_columns
+        steps = () if path is None else path.steps
+        for index, step in enumerate(steps):
+            assert path is not None
+            relation = normalize_target_relationship(state.registry, step.relationship.ref.ref.path)
             target = entities[relation.to_entity_ref.path].view()
             contract = normalize_target_entity(state.registry, relation.to_entity_ref.path)
             if contract.version is not None:
-                anchors = {field.at for field in binding.fields}
-                if (
-                    relation.to_entity_ref.path != binding.fields[0].entity.ref.path
-                    or len(anchors) != 1
-                    or None in anchors
-                ):
+                anchor = (
+                    membership_anchor(binding.fields, path)
+                    if index == len(steps) - 1
+                    else step.target_at
+                )
+                if anchor is None:
                     reject(
                         "an exact member version anchor",
                         relation.to_entity_ref.path,
-                        "Bind each member field at the same explicit instant.",
+                        "Anchor this Path step with relationship.at(session.instant(...)).",
                         "membership.prepare",
                     )
-                anchor = fixed_attribute_time(next(iter(anchors)))
-                assert anchor is not None
                 selection = normalize_target_version_selection(
                     contract, boundary=anchor, interpretation="instant"
                 )

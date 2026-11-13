@@ -57,7 +57,7 @@ def _observe(
     domain = (
         ()
         if overall
-        else mv.product(scope, population.classify(by=(region,)))
+        else mv.product(scope, population.classify(by=(region,)).project(by=(region,)))
         if grouped
         else mv.product(scope, population.classify(by=(population.axes[0], region)))
         if classified
@@ -211,7 +211,7 @@ def test_original_mean_merges_support_not_finished_values(
     model = case.root / "models/semantic/sales/models.py"
     model.write_text(
         model.read_text()
-        + "\n@ms.metric()\ndef mean_amount():\n    return line_amount_value.mean(time=time_value.via((line_order_value,)))\n"
+        + "\n@ms.metric()\ndef mean_amount():\n    return line_amount_value.mean(time=time_value.via(line_order_path))\n"
     )
     ms.load(workspace_dir=case.root)
     session = case.session
@@ -417,7 +417,7 @@ def test_combined_member_classifications_do_not_expand_facts(
     session = case.session
     region = catalog_value(session.catalog, "sales.customer.region", kind="dimension")
     cohort = catalog_value(session.catalog, "sales.customer.cohort", kind="dimension")
-    population = _members(case).classify(by=(region, cohort))
+    population = _members(case).classify(by=(region, cohort)).project(by=(region, cohort))
     assert isinstance(population, mv.Population)
     grouped = session.observe(
         {"value": _metric(session.catalog, "metric:sales.revenue")},
@@ -460,7 +460,7 @@ def test_invalid_classification_rejects(retained_coordinates_case: DslCase) -> N
         connection.execute("UPDATE customer SET region=NULL WHERE customer_id='C'")
     # Source Null is a real None classification in the current Field-axis contract.
     field = catalog_value(case.session.catalog, "sales.customer.region", kind="dimension")
-    domain = _members(case).classify(by=(field,))
+    domain = _members(case).classify(by=(field,)).project(by=(field,))
     assert isinstance(domain, mv.Population)
     grouped = (
         case.session.observe(
@@ -531,7 +531,7 @@ def test_typed_integer_classification_and_singleton(retained_coordinates_case: D
     ms.load(workspace_dir=case.root)
     session = case.session
     band = catalog_value(session.catalog, "sales.customer.band", kind="dimension")
-    band_population = _members(case).classify(by=(band,))
+    band_population = _members(case).classify(by=(band,)).project(by=(band,))
     assert isinstance(band_population, mv.Population)
     grouped = session.observe(
         {"value": _metric(session.catalog, "metric:sales.revenue")},

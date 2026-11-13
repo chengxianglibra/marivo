@@ -13,7 +13,7 @@ without restoring those source definitions.
 | session.members(entity, at=..., where=...) | Source identities with exact membership/version scope | Population |
 | mv.coordinates(by=..., keys=...) | Literal complete coordinates | Population |
 | session.observe(metrics, by=..., where=...) | Named Metric evaluation on an explicit output domain | AnalysisFrame |
-| session.read(population, fields) | Nonempty attributes on one Entity identity domain | AnalysisFrame |
+| session.read(population, fields, on=...) | Named scalar values on one eligible identity role, preserving all input keys | AnalysisFrame |
 | session.frame(population) | Complete keys of a general Population | AnalysisFrame, possibly with no values |
 | session.values(by=..., columns=..., rows=...) | Literal keys and named values under the Session owner | AnalysisFrame |
 | frame.attribute(by=...) | Fresh contributions for retained source targets and fixed parent keys | AnalysisFrame |
@@ -42,8 +42,9 @@ A plain customer_id Dimension does not become a Customer identity.
 
 members returns source-represented identities. Versioned Entities require their
 exact instant anchor; the observation's later period cannot supply membership
-time implicitly. Literal identity coordinates state requested keys without
-proving source records exist. See [versioning](../semantic/semantic-object-model.md#versioning-snapshot-and-validity).
+time implicitly. Direct identity axes are compatible across selections at
+different instants. Literal identity coordinates declare requested keys. A routed
+identity from `mv.identity(path)` represents a distinct business role. See [versioning](../semantic/semantic-object-model.md#versioning-snapshot-and-validity).
 
 Source analysis trusts declared identity, relationship cardinality and version
 grain. Physical identity columns may be nullable in source metadata: semantic
@@ -64,8 +65,9 @@ path continues or forks beyond another. Relationship identity and the selected
 fixed or row-dependent version condition distinguish bindings. Read ordering
 does not change the shared matches. Missing scalar matches produce NULL even
 when the target field supplies a default for a matched row's NULL value.
-Read/classify retain the
-requested identity domain with NULL attributes. Relationship traversal uses its
+Read and classify retain complete input keys and represent missing scalar
+attributes as NULL. Classification of a new identity role requires every input
+tuple to supply the complete target identity. Relationship traversal uses its
 actual joins and set semantics when a source record is absent. Invalid declared
 uniqueness can multiply contributions; analysis does not repair it by choosing an
 arbitrary row. Use explicit source_check for source data-quality expectations.
@@ -78,22 +80,34 @@ checks remain. Their numeric requirements follow the owning
 [arithmetic and method contracts](operators-and-frames.md#null-empty-and-arithmetic-policies),
 rather than a separate declaration-audit policy.
 
-project selects/reorders existing axes and deduplicates complete projected
-tuples. classify reads explicit attributes from one identity Entity when new
-fields are needed; existing-axis classification is projection. product combines
-Population and calendar/interval factors without guessing correlated membership.
-union/intersection/difference require compatible complete bound axes.
-Population.where filters membership leaves over existing coordinates, without
-implicitly acquiring new attributes. Full predicate grammar is owned by
-[Semantic expressions](../semantic/expressions.md#predicates-and-scalar-paths).
+`classify(by=..., on=...)` appends single-valued fields and complete identity
+roles. Existing compatible axes are reused and the receiver's complete tuples
+are retained. An empty `by` leaves the domain as is. `session.read(P, fields, on=...)`
+uses the same scalar lookup rules for named values and retains all of P's axes.
+Omit `on` when the requested fields or roles have exactly one eligible identity
+axis. If several axes qualify, pass the intended existing identity Grouping.
+Reusing only existing coordinates needs no identity subject. State required version times on the field or Path used by the lookup.
 
-image(via=(...)) maps identities along a declared directed path and preserves
-complete target foreign-key identities even if a target archive is absent.
-preimage(targets, via=(...)) selects receiver identities reaching any target;
-relationship multiplicity does not duplicate identities. The receiver bounds
-the returned set. An order's customer image followed by preimage can include
-other orders of that customer, so it does not reconstruct the original subset.
-Paths must be explicit, contiguous and legal for the consumer.
+`project(by=...)` selects and reorders existing axes, deduplicating complete
+projected tuples. `identities(on=...)` selects one existing complete identity
+axis and returns its distinct keys on the direct Entity axis. `mv.product`
+combines disjoint Population and calendar/interval factors. Union, intersection,
+and difference align compatible bound axes and retain left-side order.
+`Population.where` evaluates row predicates against existing coordinate values.
+Classify a missing field before filtering on it. Membership leaves compare
+complete null-safe keys; field conditions select only when the result is True.
+See [Semantic expressions](../semantic/expressions.md#predicates-and-scalar-paths).
+
+`image(via=path, on=...)` returns distinct direct target identities. Complete
+foreign keys retain target identities even if the target row is absent.
+`preimage(targets, via=path, on=...)` retains every receiver tuple that can
+reach at least one selected direct target identity, preserving all receiver
+axes. A new image can include additional reachable targets. Build the directed
+route with `mv.path(*steps, source_at=...)`; select a step's target version with
+`relationship.at(anchor)`. A terminal version anchor is meaningful when the
+consumer reads that target row. To test target existence at a particular
+instant, build an explicit `session.members(Target, at=...)` domain and use
+intersection or preimage.
 
 ## Observation domain, contributions and counts
 
@@ -211,11 +225,23 @@ consumed contribution keys must satisfy the external domain's coverage contract.
 Use where=mv.in_population(P) explicitly when the question restricts facts to P.
 Internal explicit sample domains can instead select their own subset.
 
+In source predicates, a Population with calendar buckets or interval values
+matches time on each source leaf's own contribution clock, jointly with all
+ordinary coordinates. Intervals use exact half-open bounds. Overlapping interval
+values can each match a contribution and yield one membership decision.
+A source leaf without a contribution clock rejects a time membership predicate.
+`Population.where` compares existing time coordinate values as keys.
+An observation with an interval Population axis accepts at most one represented
+report interval. When the interval depends on source or Frame keys, evaluation
+completes the output domain and its checks before reading dependent Metrics.
+An empty domain yields an empty report. Interval endpoints are coordinate values and can participate in
+Population set operations.
+
 P.count() captures its complete distinct tuples as a lazy integer Metric. It
 includes Null categories and explicit identities without source records. Empty
 P counts zero; the zero-axis unit domain counts one. P and Q count independently.
 Grouping matches only coordinates already in P: to count identities by a new
-attribute, classify while retaining identity first. Projecting identity away
+attribute, classify to append the attribute first. Projecting identity away
 counts distinct resulting categories. Fact conditions/windows do not reselect a
 captured count denominator; ineffective count-only conditions/windows reject.
 A fixed Population count is report independent. It broadcasts along a missing report
@@ -302,6 +328,10 @@ target Catalog, role, complete key type, unit and time constraints still apply.
 The caller declares business correspondence: compatible key shapes do not prove
 original semantic identity. Ordinary fields cannot be promoted into Entity identity.
 Interval/calendar/paired axes and arbitrary value columns are not bridge inputs.
+An unanchored versioned field can carry an existing unanchored ordinary axis for
+the same direct field. For a new versioned field binding, specify the target's
+version with `field.at(session.instant(...))`. An existing fixed or row-time axis
+retains its captured time facts.
 
 The bridge is lazy. It completes input checks and selection before a new source
 consumer reads its keys. A completed input fixes those keys; a pending selection
@@ -577,7 +607,7 @@ The fixed keys do not restore declarations after independent reopen.
 ## Per-row temporal classification
 
 Ordinary single-root observe supports a versioned Dimension with
-`label.via((relationship,)).at(fact_time)` in by and label predicates. It accepts
+`label.via(mv.path(relationship)).at(fact_time)` in by and label predicates. It accepts
 an unversioned or snapshot contribution root, including its native snapshot
 partition TimeDimension as control. Validity contribution roots require a fixed
 anchor. Matching runs before aggregation in one same-source left join on qualified DuckDB/Trino

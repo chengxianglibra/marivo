@@ -206,7 +206,7 @@ class FrozenSourceInterval:
 def freeze_interval(
     coordinate: IntervalCoordinate, *, token: str, name: str, key: DataColumn
 ) -> FrozenSourceInterval:
-    """Freeze the sole declared scope using an inert key and exact UTC bounds."""
+    """Freeze exact UTC bounds for each inert interval key."""
     from marivo.analysis.core.frozen_calendar import (
         FrozenIntervalBucket,
         FrozenIntervalDirectory,
@@ -221,12 +221,17 @@ def freeze_interval(
         timezone=coordinate.timezone,
         name=name,
     )
-    start, end = (
-        datetime.fromisoformat(value.astimezone(timezone.utc).isoformat())
-        for value in (coordinate.start, coordinate.end)
-    )
     directory = FrozenIntervalDirectory(
-        axis, (FrozenIntervalBucket(((key.dtype, 0),), start, end, coordinate.timezone),)
+        axis,
+        tuple(
+            FrozenIntervalBucket(
+                ((key.dtype, index),),
+                datetime.fromisoformat(start.astimezone(timezone.utc).isoformat()),
+                datetime.fromisoformat(end.astimezone(timezone.utc).isoformat()),
+                coordinate.timezone,
+            )
+            for index, (start, end) in enumerate(coordinate.bounds)
+        ),
     )
     return FrozenSourceInterval(
         axis,

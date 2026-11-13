@@ -112,7 +112,12 @@ def test_member_and_contribution_grouping(analysis_dsl_case_factory: DslCaseFact
     members = _members(case)
     region = catalog_value(session.catalog, "sales.customer.region", kind="dimension")
     channel = catalog_value(session.catalog, "sales.order.channel", kind="dimension")
-    grouped = _query(case, by=members.classify(by=(region,)), members=members, during=_august(case))
+    grouped = _query(
+        case,
+        by=members.classify(by=(region,)).project(by=(region,)),
+        members=members,
+        during=_august(case),
+    )
     assert _keyed(grouped.persist()) == {("east",): 600, ("south",): 400, ("west",): 0}
     channels = _query(case, by=(channel,), members=members, during=_august(case))
     assert _keyed(channels.persist()) == {("mobile",): 150, ("web",): 850}
@@ -127,7 +132,10 @@ def test_member_and_contribution_grouping(analysis_dsl_case_factory: DslCaseFact
         ),
     )
     saved = _query(
-        case, by=selected.classify(by=(region,)), members=selected, during=_august(case)
+        case,
+        by=selected.classify(by=(region,)).project(by=(region,)),
+        members=selected,
+        during=_august(case),
     ).persist()
     assert _keyed(saved) == {("east",): 600}
     assert session.persisted_frame(saved.artifact_id).to_pandas().equals(saved.to_pandas())
@@ -204,7 +212,7 @@ def test_member_classification_survives_rollup_for_additive_comparison(
             case,
             by=members.classify(by=(members.axes[0], region))
             if keep_member
-            else members.classify(by=(region,)),
+            else members.classify(by=(region,)).project(by=(region,)),
             members=members,
             during=session.time_scope(start=f"2026-{month:02}-01", end=f"2026-{month + 1:02}-01"),
         )
@@ -237,7 +245,9 @@ def test_grid_observation_keeps_time_without_member_axis(
     observed = _query(case, during=calendar, members=_members(case))
     assert observed.persist().to_pandas()["value"].tolist() == [1000, 99]
     region = catalog_value(session.catalog, "sales.customer.region", kind="dimension")
-    region_domain = mv.product(_members(case).classify(by=(region,)), calendar)
+    region_domain = mv.product(
+        _members(case).classify(by=(region,)).project(by=(region,)), calendar
+    )
     region_rows = _query(case, by=region_domain, members=_members(case)).persist().to_pandas()
     assert len(region_rows) == 6
     channel = catalog_value(session.catalog, "sales.order.channel", kind="dimension")
@@ -265,7 +275,11 @@ def test_calendar_rejects_raw_observation_time_before_source_reads(
     )
     if explicit_path:
         path = catalog_value(session.catalog, "sales.line_order", kind="relationship")
-        raw_time = raw_time.via((path,))
+        raw_time = raw_time.via(
+            mv.path(
+                path,
+            )
+        )
     scope = session.time_scope(start="2026-08-01", end="2026-10-01")
     before = terminal_runs(session)
 
@@ -335,8 +349,22 @@ def test_calendar_keeps_distinct_time_fields_and_relationship_roles(
         distinct_path = session.observe(
             {"value": line_revenue},
             by=(scope.by(month),),
-            where=(raw_time.via((alternate,)) >= scope.start)
-            & (raw_time.via((alternate,)) < scope.end),
+            where=(
+                raw_time.via(
+                    mv.path(
+                        alternate,
+                    )
+                )
+                >= scope.start
+            )
+            & (
+                raw_time.via(
+                    mv.path(
+                        alternate,
+                    )
+                )
+                < scope.end
+            ),
         )
     for frame in (distinct_field, distinct_path):
         binding = source_graph(frame).signature.observation
@@ -377,7 +405,11 @@ history_link = ms.relationship(name='order_history', from_entity=orders, to_enti
     path = catalog_value(session.catalog, "sales.order_history", kind="relationship")
     amount = catalog_value(session.catalog, "sales.order.amount", kind="measure")
     first, second = session.instant("2026-08-01"), session.instant("2026-09-01")
-    source_time = raw_time.via((path,)).at(first)
+    source_time = raw_time.via(
+        mv.path(
+            path,
+        )
+    ).at(first)
     metric = amount.sum(time=source_time)
 
     def forbidden(*args: object, **kwargs: object) -> None:
@@ -388,8 +420,22 @@ history_link = ms.relationship(name='order_history', from_entity=orders, to_enti
         frame = session.observe(
             {"value": metric},
             by=(scope.by(mv.grain("month")),),
-            where=(raw_time.via((path,)).at(second) >= scope.start)
-            & (raw_time.via((path,)).at(second) < scope.end),
+            where=(
+                raw_time.via(
+                    mv.path(
+                        path,
+                    )
+                ).at(second)
+                >= scope.start
+            )
+            & (
+                raw_time.via(
+                    mv.path(
+                        path,
+                    )
+                ).at(second)
+                < scope.end
+            ),
         )
     binding = source_graph(frame).signature.observation
     assert binding is not None
@@ -510,7 +556,10 @@ def test_direct_aggregate_uses_selected_contributions(
             ),
         )
         completed = _query(
-            case, metric=metric, by=selected.classify(by=(region,)), members=selected
+            case,
+            metric=metric,
+            by=selected.classify(by=(region,)).project(by=(region,)),
+            members=selected,
         ).persist()
         assert _keyed(completed) == {("east",): 1}
         assert (
@@ -639,7 +688,9 @@ def test_multiple_member_classifications_keep_complete_time_keys(
             ),
         )
     calendar = session.time_scope(start="2026-08-01", end="2026-10-01").by(mv.grain("month"))
-    domain = mv.product(members.classify(by=(region, identity)), calendar)
+    domain = mv.product(
+        members.classify(by=(region, identity)).project(by=(region, identity)), calendar
+    )
     observed = _query(case, by=domain, members=members)
     saved = observed.persist()
     frame = saved.to_pandas()
@@ -675,7 +726,7 @@ def test_member_groups_preserve_live_and_fixed_comparisons(
     case = analysis_dsl_case_factory("j2")
     session = case.session
     region = catalog_value(session.catalog, "sales.customer.region", kind="dimension")
-    domain = _members(case).classify(by=(region,))
+    domain = _members(case).classify(by=(region,)).project(by=(region,))
 
     def endpoint(month: int) -> mv.AnalysisFrame:
         return _query(

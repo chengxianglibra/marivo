@@ -287,11 +287,16 @@ using `session.observe(..., where=(scope, predicate))`.
 - Source observation, members and a single-source Metric.where can combine field
   and Population membership leaves on their own contribution/identity domain.
 - A source reduction's where= accepts field leaves.
-- Population.where accepts membership leaves over existing coordinates only.
+- Population.where evaluates the same grammar using existing coordinate values.
+  Use classify to add a field before filtering on it.
 - AnalysisFrame.where consumes a boolean Column from that exact input.
 
-Single-valued field.via((relationship, ...)) captures an explicit directed scalar
-path. field.at(anchor) captures a fixed versioned attribute instant for the whole question.
+`field.via(mv.path(relationship, ...))` captures a single-valued directed
+scalar path. The path's target must be the field's Entity. Each intermediate
+node shares its version binding with the next step's source. Use
+`mv.path(..., source_at=anchor)` for the source version, `relationship.at(anchor)`
+for a step's target version, or `field.at(anchor)` for the terminal attribute's
+version. Choose one declaration for the terminal node.
 A Dimension can use field.at(fact_time) for per-row observe by/where classification
 on qualified same-source DuckDB/Trino inputs; the named TimeDimension must be native
 to an unversioned or snapshot fact root, without its own path or anchor. A snapshot

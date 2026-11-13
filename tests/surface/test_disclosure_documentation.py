@@ -465,6 +465,12 @@ def test_documentation_scripts_run_without_fixture_model_loading(tmp_path: Path)
                 'assert adjusted.to_pandas()["average"].tolist() == [100, 600]\n'
             )
         write(tmp_path, filename, source)
+    zh_population = root / "site/src/content/docs/zh-cn/docs/latest/analysis/population.mdx"
+    write(
+        tmp_path,
+        "population_examples_zh.py",
+        "\n".join(re.findall(r"```python\n(.*?)```", zh_population.read_text(), re.DOTALL)),
+    )
     write(
         tmp_path,
         "model_checks.py",
@@ -477,6 +483,7 @@ def test_documentation_scripts_run_without_fixture_model_loading(tmp_path: Path)
             "quick.py",
             "dsl_examples.py",
             "population_examples.py",
+            "population_examples_zh.py",
             "time_examples.py",
             "statistics_examples.py",
             "model_checks.py",

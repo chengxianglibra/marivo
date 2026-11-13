@@ -21,9 +21,13 @@ def test_dynamic_sample_domain_is_transported_with_actual_leaf_batches(
     amount = catalog_value(session.catalog, "sales.order.amount", kind="measure")
     customer = catalog_value(session.catalog, "sales.customer.customer_id", kind="dimension")
     channel = catalog_value(session.catalog, "sales.order.channel", kind="dimension")
-    samples = session.members(
-        catalog_value(session.catalog, "sales.customer", kind="entity"), where=customer != "D"
-    ).classify(by=(customer,))
+    samples = (
+        session.members(
+            catalog_value(session.catalog, "sales.customer", kind="entity"), where=customer != "D"
+        )
+        .classify(by=(customer,))
+        .project(by=(customer,))
+    )
     assert isinstance(samples, mv.Population)
     metric = amount.sum().per(samples).mean()
     trace = capture_source(monkeypatch)
@@ -211,9 +215,11 @@ def test_dynamic_sample_domain_transports_distinct_complete_coordinates(
     amount = catalog_value(session.catalog, "sales.order.amount", kind="measure")
     customer = catalog_value(session.catalog, "sales.order.customer_id", kind="dimension")
     channel = catalog_value(session.catalog, "sales.order.channel", kind="dimension")
-    samples = session.members(
-        catalog_value(session.catalog, "sales.order", kind="entity")
-    ).classify(by=(customer,))
+    samples = (
+        session.members(catalog_value(session.catalog, "sales.order", kind="entity"))
+        .classify(by=(customer,))
+        .project(by=(customer,))
+    )
     assert isinstance(samples, mv.Population)
     metric = amount.sum().per(samples).mean()
     trace = capture_source(monkeypatch)

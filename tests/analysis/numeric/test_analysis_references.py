@@ -34,7 +34,7 @@ def _entity(catalog: ms.SemanticCatalog, path: str) -> ms.Entity:
 
 
 def _classify(members: mv.Population, region: ms.Dimension) -> mv.Population:
-    result = members.classify(by=(region,))
+    result = members.classify(by=(region,)).project(by=(region,))
     assert isinstance(result, mv.Population)
     return result
 

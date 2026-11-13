@@ -96,7 +96,9 @@ def run(root: Path, phase: str) -> dict[str, Json]:
         coordinates = session.observe(
             {"value": metric}, by=(device, sensor), where=(scope, mv.in_population(members))
         )
-        category_domain = mv.product(scope, members.classify(by=(category,)))
+        category_domain = mv.product(
+            scope, members.classify(by=(category,)).project(by=(category,))
+        )
         classified_domain = mv.product(scope, members.classify(by=(members.axes[0], category)))
         assert isinstance(category_domain, mv.Population)
         assert isinstance(classified_domain, mv.Population)

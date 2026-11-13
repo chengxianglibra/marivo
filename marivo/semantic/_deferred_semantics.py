@@ -10,7 +10,6 @@ import operator
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 from decimal import Decimal
-from itertools import pairwise
 from typing import TYPE_CHECKING, Literal, NoReturn, TypeAlias, cast
 
 from ibis.common.deferred import (
@@ -33,7 +32,6 @@ from marivo._definition.deferred import (
     NamedResolver,
     PopulationContainsResolver,
     PopulationCountResolver,
-    RelationshipParameter,
     RescaleResolver,
     SemanticInput,
     SemanticResolver,
@@ -64,6 +62,8 @@ from marivo._definition.expressions import (
     TimeBinding,
 )
 from marivo._definition.grouping import normalize_groupings
+from marivo._definition.population_builders import axis as field_axis
+from marivo._definition.population_builders import validate_path_read
 from marivo._definition.relations import (
     LiteralPopulation,
     MembershipBinding,
@@ -80,6 +80,7 @@ from marivo._definition.types import (
     ExactRef,
     FieldRead,
     IntervalCoordinate,
+    PathParameter,
     RowAttributeTime,
     SumNone,
     SumPermission,
@@ -586,9 +587,7 @@ def _sample_domain(
             binding = value._binding
             if domain is None:
                 for read in binding.fields:
-                    _native_sample_axis(
-                        AxisBinding(read.entity, read.field, read.path, "field", read.at)
-                    )
+                    _native_sample_axis(field_axis(read))
             items.append(binding)
             continue
         if domain is not None or isinstance(value, PopulationParameter):
@@ -780,6 +779,8 @@ def _time(recipe: Resolver | None, row: RowFacts) -> TimeBinding | None:
         value.field.reference,
         read.path if read is not None else (),
         fixed_attribute_time(read.at) if read is not None else None,
+        source_at=read.source_at if read is not None else None,
+        step_ats=read.step_ats if read is not None else (),
     )
 
 
@@ -1249,8 +1250,19 @@ def _consume(recipe: Resolver) -> _Facts:
                     and isinstance(anchor, (InstantAnchor, RowAttributeTime))
                 )
                 native = receiver.field.field_read or FieldRead(
-                    receiver.field.reference, receiver.field.root
+                    receiver.field.reference,
+                    receiver.field.root,
+                    versioned=receiver.field.versioned,
+                    unit=receiver.field.unit,
                 )
+                if native.at is not None:
+                    _fail(
+                        "Two time authorities bind the same field node.",
+                        kind=ErrorKind.INVALID_TIME_PATH,
+                        expected="one version anchor at the terminal path node",
+                        received=receiver.field.reference.ref.key,
+                        action="Keep either the terminal relationship.at(...) or the field.at(...) anchor.",
+                    )
                 read = replace(native, at=anchor)
                 field = replace(receiver.field, field_read=read)
                 return replace(
@@ -1274,9 +1286,9 @@ def _consume(recipe: Resolver) -> _Facts:
                     or recipe.kwargs
                 ):
                     _fail(
-                        "via requires a semantic field and one path tuple.",
+                        "via requires a semantic field and a Path.",
                         kind=ErrorKind.INVALID_TIME_PATH,
-                        expected="Field.via((relationship, ...))",
+                        expected="Field.via(mv.path(relationship, ...))",
                         received="invalid receiver or arguments",
                     )
                 assert isinstance(receiver, RowFacts) and receiver.field is not None
@@ -1287,50 +1299,62 @@ def _consume(recipe: Resolver) -> _Facts:
                         expected="one explicit complete path",
                         received="repeated via",
                     )
-                path_recipe = recipe.args[0]
-                if not isinstance(path_recipe, Sequence) or path_recipe.typ is not tuple:
+                path = _constant(recipe.args[0])
+                if not isinstance(path, PathParameter):
                     _fail(
-                        "via requires an ordered tuple of relationships.",
+                        "via requires a bound Path.",
                         kind=ErrorKind.INVALID_TIME_PATH,
-                        expected="a relationship tuple",
-                        received=type(path_recipe).__name__,
+                        expected="mv.path(relationship, ...)",
+                        received=type(path).__name__,
                     )
-                parts = path_recipe.values if isinstance(path_recipe, Sequence) else (path_recipe,)
-                relationships: list[RelationshipParameter] = []
-                for part in parts:
-                    relation = _constant(part)
-                    if not isinstance(
-                        relation, RelationshipParameter
-                    ) or relation.cardinality not in ("one_to_one", "many_to_one"):
-                        _fail(
-                            "via requires a directed single-valued path.",
-                            kind=ErrorKind.INVALID_TIME_PATH,
-                            expected="one_to_one or many_to_one relationships",
-                            received=type(relation).__name__,
-                        )
-                    assert isinstance(relation, RelationshipParameter)
-                    relationships.append(relation)
-                if (
-                    not relationships
-                    or relationships[-1].to_entity.ref != receiver.field.root.ref
-                    or any(a.to_entity.ref != b.from_entity.ref for a, b in pairwise(relationships))
-                ):
+                if path.target.ref != receiver.field.root.ref:
                     _fail(
                         "via path does not connect to the field owner.",
                         kind=ErrorKind.INVALID_TIME_PATH,
                         expected=receiver.field.root.ref.key,
-                        received="disconnected or empty path",
+                        received=path.target.ref.key,
                     )
+                at = receiver.field.field_read.at if receiver.field.field_read is not None else None
+                terminal_at = path.steps[-1].target_at
+                if at is not None and terminal_at is not None:
+                    _fail(
+                        "Two time authorities bind the same field node.",
+                        kind=ErrorKind.INVALID_TIME_PATH,
+                        expected=f"one anchor at node {len(path.steps)} ({path.target.ref.key})",
+                        received="terminal relationship.at(...) and field.at(...)",
+                        action="Keep either the terminal relationship.at(...) or the field.at(...) anchor.",
+                    )
+                at = at if at is not None else terminal_at
+                try:
+                    validate_path_read(
+                        path, at, True, source_row=True, scalar=True, terminal_required=False
+                    )
+                except DefinitionGraphError as error:
+                    _fail(
+                        "The field's directed Path cannot provide a scalar read.",
+                        kind=ErrorKind.INVALID_TIME_PATH,
+                        expected="a directed single-valued Path with required node anchors",
+                        received=str(error),
+                        action="Bind every required versioned node and choose a directed to-one Path.",
+                        help_target="field.via",
+                    )
+                relationships = path.relationships
                 read = FieldRead(
                     receiver.field.reference,
                     receiver.field.root,
                     tuple(item.ref for item in relationships),
-                    receiver.field.field_read.at if receiver.field.field_read is not None else None,
+                    at,
+                    source_at=path.source_at,
+                    step_ats=path.step_ats,
+                    path_root=path.source,
+                    path_facts=relationships,
+                    versioned=receiver.field.versioned,
+                    unit=receiver.field.unit,
                 )
                 field = replace(receiver.field, field_read=read)
                 return replace(
                     receiver,
-                    root=relationships[0].from_entity,
+                    root=path.source,
                     field=field,
                     default_time=relationships[0]._from_default_time,
                     node=RowField(
@@ -1585,7 +1609,7 @@ def _require_condition_roots(predicate: PredicateFacts, roots: tuple[ExactRef, .
             )
 
 
-def _consume_predicate_recipe(recipe: Resolver) -> PredicateFacts:
+def _consume_predicate_recipe(recipe: Resolver, *, coordinates: bool = False) -> PredicateFacts:
     inputs: list[RowExpression | PopulationContains] = []
     roots: dict[str, ExactRef] = {}
 
@@ -1594,6 +1618,16 @@ def _consume_predicate_recipe(recipe: Resolver) -> PredicateFacts:
             slot = Variable(f"slot_{len(inputs)}")
             inputs.append(PopulationContains(item.population._definition))
             return slot
+        if (
+            coordinates
+            and isinstance(item, BinaryOperator)
+            and item.func
+            in (
+                operator.and_,
+                operator.or_,
+            )
+        ):
+            return BinaryOperator(item.func, capture(item.left), capture(item.right))
         if not _contains_population(item):
             if isinstance(item, Just) and type(item.value) is bool:
                 return item
@@ -1638,7 +1672,7 @@ def _consume_predicate_recipe(recipe: Resolver) -> PredicateFacts:
             received="a bare boolean constant",
             help_target="predicate",
         )
-    if len(roots) > 1:
+    if not coordinates and len(roots) > 1:
         _fail(
             "Predicate field leaves belong to different contribution roots.",
             kind=ErrorKind.INVALID_WHERE_SCOPE,
@@ -1650,9 +1684,11 @@ def _consume_predicate_recipe(recipe: Resolver) -> PredicateFacts:
     return PredicateFacts(PredicateExpression(normalized, tuple(inputs)), tuple(roots.values()))
 
 
-def consume_predicate(value: Deferred | _ExpressionCarrier) -> PredicateFacts:
+def consume_predicate(
+    value: Deferred | _ExpressionCarrier, *, coordinates: bool = False
+) -> PredicateFacts:
     """Capture the native boolean structure without reading or evaluating sources."""
-    return _consume_predicate_recipe(_inspect(value).recipe)
+    return _consume_predicate_recipe(_inspect(value).recipe, coordinates=coordinates)
 
 
 def consume_metric_in_state(value: Deferred, state: CompiledSemanticState) -> MetricFacts:

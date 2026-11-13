@@ -83,7 +83,12 @@ def test_public_multi_input_source_and_exported_pandas(
     amount = session.observe(
         {"amount": revenue, "twice": revenue + revenue},
         by=grouping,
-        where=region.via((buyer,)) == "east",
+        where=region.via(
+            mv.path(
+                buyer,
+            )
+        )
+        == "east",
     )
     facts = analysis_dsl_rows("j2")
     east = {member for member, region in facts.customers if region == "east"}

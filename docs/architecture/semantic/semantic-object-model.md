@@ -503,7 +503,7 @@ dependencies. Analysis consumes these definitions through its explicit
 
 A fixed `field.at(session.instant(...))` applies one representation to the whole
 question. For ordinary observe classification, a Dimension can instead use
-`.via((relationship,)).at(fact_time)`, with one native fact-root TimeDimension.
+`.via(mv.path(relationship)).at(fact_time)`, with one native fact-root TimeDimension.
 The fact root can be unversioned or snapshot-versioned, and a snapshot partition
 TimeDimension can control its original rows. Validity fact roots require a fixed anchor.
 Same-source DuckDB/Trino joins preserve missing versions as NULL labels, keep

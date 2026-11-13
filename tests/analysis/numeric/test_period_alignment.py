@@ -52,13 +52,8 @@ def period(
         start=f"2026-{month:02d}-01", end=f"2026-{month:02d}-{length + 1:02d}"
     ).by(mv.grain("day"))
     members = session.members(_entity(session.catalog, "entity:sales.customer"))
-    domain = (
-        members.classify(
-            by=(catalog_value(session.catalog, "sales.customer.region", kind="dimension"),)
-        )
-        if grouped
-        else members
-    )
+    region = catalog_value(session.catalog, "sales.customer.region", kind="dimension")
+    domain = members.classify(by=(region,)).project(by=(region,)) if grouped else members
     assert isinstance(domain, mv.Population)
     return axis, session.observe(
         {"value": catalog_value(session.catalog, "sales." + metric, kind="metric")},

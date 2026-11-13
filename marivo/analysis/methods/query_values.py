@@ -334,7 +334,7 @@ def evaluate_result(stage: LocalCompute, inputs: tuple[pd.DataFrame, ...]) -> pd
     frame = inputs[0].reset_index(drop=True).copy()
     if isinstance(operation, ReadFields):
         columns = [
-            *program.key_groups[0],
+            *(slot for group in program.key_groups[: len(program.output_groups)] for slot in group),
             *(program.key_groups[position][0] for position in operation.positions),
         ]
         result = frame.loc[:, columns].copy()

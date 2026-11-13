@@ -10,9 +10,9 @@ from __future__ import annotations
 import json
 import operator
 from bisect import bisect_left
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime
-from typing import TYPE_CHECKING, Literal, TypeAlias
+from typing import TYPE_CHECKING, Literal, TypeAlias, TypeVar
 
 from ibis.common.deferred import BinaryOperator, Just, Resolver, UnaryOperator, Variable
 
@@ -21,7 +21,6 @@ from marivo._definition.correspondence import (
     coordinate_matches,
     coordinate_position,
 )
-from marivo._definition.deferred import RelationshipParameter
 from marivo._definition.query import ResultQuery
 from marivo._definition.types import (
     AxisBinding,
@@ -29,10 +28,12 @@ from marivo._definition.types import (
     CoordinateValue,
     ExactRef,
     FieldRead,
+    IdentityRead,
     InputContext,
     IntervalCoordinate,
     LiteralValue,
     Owner,
+    PathParameter,
     check_literal,
     invalid,
     literal_token,
@@ -49,7 +50,7 @@ class MembershipBinding:
     """One correlated member tuple and explicit contribution allocation paths."""
 
     fields: tuple[FieldRead, ...]
-    paths: tuple[tuple[RelationshipParameter, ...], ...]
+    paths: tuple[PathParameter, ...]
     unmatched: Literal["exclude", "null"]
 
 
@@ -66,11 +67,13 @@ def validate_memberships(
     axes: tuple[ComparisonAxis, ...], bindings: tuple[MembershipBinding, ...]
 ) -> None:
     """Require each consumer coordinate to have at most one explicit allocation."""
+    from marivo._definition.population_builders import axis as field_axis
+
     allocated: set[int] = set()
     for binding in bindings:
         positions: list[int] = []
         for read in binding.fields:
-            axis = AxisBinding(read.entity, read.field, read.path, "field", read.at)
+            axis = field_axis(read)
             if not any(coordinate_matches(axis, candidate) for candidate in axes):
                 invalid("membership fields must already occur in the consuming coordinates")
             position = coordinate_position(axes, axis)
@@ -91,9 +94,9 @@ def _coordinate_token(
     lengths: dict[int, int],
 ) -> tuple[str, str]:
     if isinstance(axis, IntervalCoordinate):
-        if type(value) is not int or value != 0:
+        if type(value) is not int or not 0 <= value < len(axis.bounds):
             invalid("interval coordinates must come from their frozen TimeScope")
-        return ("interval", str(value))
+        return ("interval", repr(tuple(point.isoformat() for point in axis.bounds[value])))
     if isinstance(axis, CalendarCoordinate):
         if not isinstance(value, datetime) or value.tzinfo is None:
             invalid("calendar coordinates must come from their frozen CalendarAxis")
@@ -274,6 +277,46 @@ class PopulationSet:
 class PopulationProject:
     operand: PopulationDependency
     positions: tuple[int, ...]
+    interval_keys: tuple[tuple[int, tuple[int, ...]], ...] = ()
+
+
+def merge_time_axis(left: ComparisonAxis, right: ComparisonAxis) -> ComparisonAxis:
+    """Merge compatible directories without deriving membership from their bounds."""
+    if left == right:
+        return left
+    if isinstance(left, IntervalCoordinate) and isinstance(right, IntervalCoordinate):
+        bounds = tuple(sorted({*left.bounds, *right.bounds}))
+        return replace(left, intervals=bounds)
+    if isinstance(left, CalendarCoordinate) and isinstance(right, CalendarCoordinate):
+        from marivo._definition.types import _merge_time_ranges
+
+        positions = {
+            cell[0]: (cell, civil)
+            for axis in (left, right)
+            for cell, civil in zip(axis.cells, axis.civil_bounds, strict=True)
+        }
+        entries = tuple(positions[key] for key in sorted(positions))
+        return replace(
+            left,
+            cells=tuple(cell for cell, _ in entries),
+            civil_bounds=tuple(civil for _, civil in entries),
+            ranges=_merge_time_ranges((*left.ranges, *right.ranges)),
+        )
+    return left
+
+
+_Coordinate = TypeVar("_Coordinate")
+
+
+def project_population_row(
+    project: PopulationProject, values: tuple[_Coordinate, ...]
+) -> tuple[_Coordinate | int, ...]:
+    keys = dict(project.interval_keys)
+    result = tuple(values[index] for index in project.positions)
+    return tuple(
+        keys[index][value] if index in keys and isinstance(value, int) else value
+        for index, value in enumerate(result)
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -284,7 +327,8 @@ class PopulationProduct:
 @dataclass(frozen=True, slots=True)
 class PopulationClassify:
     operand: PopulationDependency
-    fields: tuple[FieldRead, ...]
+    subject: int
+    reads: tuple[FieldRead | IdentityRead, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -301,15 +345,16 @@ class PopulationFilter:
 @dataclass(frozen=True, slots=True)
 class PopulationImage:
     operand: PopulationDependency
-    path: tuple[RelationshipParameter, ...]
-    at: InstantAnchor | None = None
+    path: PathParameter
+    subject: int
 
 
 @dataclass(frozen=True, slots=True)
 class PopulationPreimage:
     operand: PopulationDependency
     targets: PopulationDependency
-    path: tuple[RelationshipParameter, ...]
+    path: PathParameter
+    subject: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -405,6 +450,8 @@ def population_keys(
     if isinstance(node, CalendarKeys):
         return tuple((cell[0],) for cell in node.calendar.cells)
     if isinstance(node, PopulationFilter):
+        if any(not isinstance(item, PopulationContains) for item in node.predicate.inputs):
+            return None  # Field conditions require the consuming physical key types.
         source = population_keys(node.operand)
         domains = condition_populations(node.predicate)
         if source is None or any(population_keys(domain) is None for domain in domains):
@@ -423,15 +470,21 @@ def population_keys(
                 )
 
                 def token_key(
-                    key: tuple[CoordinateValue, ...],
-                    axes: tuple[ComparisonAxis, ...] = condition.population.axes,
+                    key: tuple[CoordinateValue, ...], axes: tuple[ComparisonAxis, ...]
                 ) -> tuple[tuple[str, str], ...]:
                     return tuple(
                         _coordinate_token(axis, value, index, {})
                         for index, (axis, value) in enumerate(zip(axes, key, strict=True))
                     )
 
-                values.append(token_key(projection) in {token_key(key) for key in keys})
+                projected_axes = tuple(
+                    definition.axes[coordinate_position(definition.axes, axis)]
+                    for axis in condition.population.axes
+                )
+                values.append(
+                    token_key(projection, projected_axes)
+                    in {token_key(key, condition.population.axes) for key in keys}
+                )
             return _condition_value(node.predicate.recipe, tuple(values))
 
         return tuple(row for row in source if matches(row))
@@ -445,7 +498,7 @@ def population_keys(
         source = population_keys(node.operand)
         if source is None:
             return None
-        rows = tuple(tuple(row[index] for index in node.positions) for row in source)
+        rows = tuple(project_population_row(node, row) for row in source)
     elif isinstance(node, PopulationProduct):
         factors = tuple(population_keys(factor) for factor in node.factors)
         if any(factor is None for factor in factors):

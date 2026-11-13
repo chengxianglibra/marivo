@@ -1883,11 +1883,17 @@ def test_pending_read_label_and_derived_anchor_are_captured_without_execution(
     read = case.session.read(members, {"region": region})
     selected = read.select({"selected_region": read["region"]})
     instant = case.session.instant("2026-08-01T00:00:00Z")
-    anchored = case.session.frame(
-        case.session.members(
-            catalog_value(case.catalog, "sales.customer", kind="entity"), at=instant
-        )
-    ).reduce({"rows": mv.row_count()})
+    versioned_source = case.root / "models" / "semantic" / case.names.domain / "display_snapshot.py"
+    versioned_source.write_text(
+        "import marivo.datasource as md\nimport marivo.semantic as ms\n"
+        "snapshot = ms.entity(name='display_snapshot', datasource=ms.ref.datasource('warehouse'), "
+        "source=md.table('customer'), primary_key=['customer_id'], "
+        "versioning=ms.snapshot(partition_field=ms.ref.time_dimension('sales.display_snapshot.day'), timezone='UTC'))\n"
+        "day = ms.time_dimension_column(name='day', entity=snapshot, column='day')\n"
+    )
+    display = mv.session.get_or_create("display-snapshot", timezone="UTC")
+    snapshot = catalog_value(display.catalog, "sales.display_snapshot", kind="entity")
+    anchored = display.frame(display.members(snapshot, at=instant)).reduce({"rows": mv.row_count()})
 
     capture = scope_summary
     assert isinstance(read._backing, ExpressionFrameBacking)

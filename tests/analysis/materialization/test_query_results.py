@@ -251,6 +251,8 @@ def test_explicit_source_read_preserves_snapshot_row_identity(
 import marivo.semantic as ms
 orders=ms.entity(name='orders',datasource=ms.ref.datasource('warehouse'),source=md.table('orders'),primary_key=['id'],versioning=ms.snapshot(partition_field=ms.ref.time_dimension('sales.orders.snapshot_day'),timezone='UTC'))
 snapshot_day=ms.time_dimension_column(name='snapshot_day',entity=orders,column='snapshot_day')
+order_id=ms.dimension_column(name='order_id',entity=orders,column='id')
+related_order=ms.relationship(name='related_order',from_entity=orders,to_entity=orders,keys=[ms.join_on(order_id,order_id)])
 region=ms.dimension_column(name='region',entity=orders,column='region')
 channel=ms.dimension_column(name='channel',entity=orders,column='channel')
 amount=ms.measure_column(name='amount',entity=orders,column='amount',additivity=ms.additive_all())
@@ -266,7 +268,7 @@ amount=ms.measure_column(name='amount',entity=orders,column='amount',additivity=
     entity = catalog_value(session.catalog, "sales.orders", kind="entity")
     at = session.instant("2026-01-01")
     existing = session.members(entity, at=at)
-    requested = mv.coordinates(by=(mv.identity(entity, at=at),), keys=(((1,),), ((999,),)))
+    requested = mv.coordinates(by=(mv.identity(entity),), keys=(((1,),), ((999,),)))
     intersection = existing.intersection(requested)
     assert isinstance(intersection, mv.Population)
     assert session.frame(intersection).compute().to_pandas().iloc[:, 0].tolist() == [1]
@@ -282,6 +284,30 @@ amount=ms.measure_column(name='amount',entity=orders,column='amount',additivity=
     assert session.observe(
         {"total": amount.sum()}, where=mv.in_population(chosen)
     ).compute().to_pandas()["total"].tolist() == [40]
+
+    fixed = selected.compute()
+    fixed_keys = _population(session, fixed, region)
+    east_keys = fixed_keys.where(region == "East")
+    assert isinstance(east_keys, mv.Population)
+    assert session.frame(east_keys).to_pandas().iloc[:, 0].tolist() == ["East"]
+    with pytest.raises(AnalysisError) as different_field:
+        _population(session, fixed, channel)
+    assert different_field.value.repair is not None
+    assert different_field.value.repair.help_target.display == "analysis.session.population_from"
+    remapped = _population(session, fixed, channel.at(at))
+    assert session.frame(remapped).to_pandas().iloc[:, 0].tolist() == ["East"]
+
+    anchored = session.observe({"total": amount.sum()}, by=(region.at(at),))
+    with pytest.raises(AnalysisError, match="matching captured unanchored field"):
+        _population(session, anchored, region)
+
+    relationship = catalog_value(session.catalog, "sales.related_order", kind="relationship")
+    related_region = region.via(mv.path(relationship.at(at)))
+    routed = session.observe({"total": amount.sum()}, by=(related_region,)).compute()
+    with pytest.raises(AnalysisError, match="matching captured unanchored field"):
+        _population(session, routed, region)
+    routed_keys = _population(session, routed, related_region)
+    assert session.frame(routed_keys).to_pandas().iloc[:, 0].tolist() == ["East", "West"]
 
 
 def test_result_fixed_null_division_and_exact_input_binding(result_session: Session) -> None:
@@ -481,8 +507,6 @@ def test_explicit_members_and_member_count(result_session: Session) -> None:
     projected = requested.project(by=(requested.axes[0],))
     assert isinstance(projected, mv.Population)
     assert session.frame(projected).compute().to_pandas().iloc[:, 0].tolist() == [1, 3, 999]
-    with pytest.raises(AnalysisError):
-        session.observe({"total": amount.sum()}, by=(mv.identity(()),))
     regions = mv.coordinates(
         by=(catalog_value(session.catalog, "sales.orders.region", kind="dimension"),),
         keys=(("A",),),

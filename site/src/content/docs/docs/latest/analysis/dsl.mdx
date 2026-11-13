@@ -750,7 +750,7 @@ Use source field predicates for source filtering, `mv.in_population(...)` for me
 
 See [scope and grain](/docs/latest/analysis/dsl/#scope-and-grain) before changing a denominator.
 
-`session.read(population, fields)` reads named attributes at complete Entity identities. `frame.select({...})` projects or calculates named Columns; `frame.where(predicate)` keeps current rows; `frame.top(n, by=column)` selects a global ranking. Columns and axes must come from the exact receiver. Reacquire them after deriving a new Frame.
+`session.read(population, fields, on=...)` keeps all Population keys and adds named scalar values. If several identity axes qualify, select one with `on`. `frame.select({...})` projects or calculates named Columns; `frame.where(predicate)` keeps current rows; `frame.top(n, by=column)` selects a global ranking. Columns and axes must come from the exact receiver. Reacquire them after deriving a new Frame.
 
 ## Scope and grain
 

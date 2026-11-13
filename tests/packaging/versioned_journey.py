@@ -231,7 +231,7 @@ def run(root: Path, phase: str) -> dict[str, Json]:
         profile = catalog_value(
             session.catalog, "sales.subjects_snapshot.amount", kind="field"
         ).via(
-            (
+            mv.path(
                 catalog_get(
                     session.catalog, "relationship:sales.subject_profiles", kind="relationship"
                 ),

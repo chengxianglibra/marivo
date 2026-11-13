@@ -13,6 +13,7 @@ from uuid import uuid4
 from marivo._errors import MarivoError
 from marivo.analysis.compiler.frame_plan import (
     CompiledFramePlan,
+    CompiledSourceFrame,
     plan_frame,
 )
 from marivo.analysis.compiler.frame_top import bound_pending_frame_top
@@ -23,7 +24,7 @@ from marivo.analysis.compiler.graph_plan import (
     LocalCompute,
     SourceRead,
 )
-from marivo.analysis.core.artifact_data import CalendarDataAxis, OutputAttachment
+from marivo.analysis.core.artifact_data import CalendarDataAxis, DataSchema, OutputAttachment
 from marivo.analysis.core.frame_data import (
     CompletedFrameData,
     CompletedFrameResult,
@@ -34,6 +35,7 @@ from marivo.analysis.core.frame_data import (
 )
 from marivo.analysis.core.frame_expression import (
     FrameExpression,
+    SourceFrameInput,
 )
 from marivo.analysis.core.frame_metadata import (
     EvaluationRecord,
@@ -46,12 +48,14 @@ from marivo.analysis.core.frame_source_reads import (
     FrameSourceReadScope,
     merge_source_reads,
 )
+from marivo.analysis.core.graph import BoundGraph
 from marivo.analysis.core.model import reject
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.materialization.frame_inputs import capture_frame_inputs
 from marivo.analysis.materialization.frame_source_preparation import prepare_frame_sources
 from marivo.analysis.materialization.graph_exchange import StageOutput
 from marivo.analysis.materialization.graph_source_execution import (
+    PreparedSources,
     run_frame_plan,
 )
 from marivo.analysis.materialization.query_runtime_types import effective_frame_schema
@@ -237,49 +241,101 @@ def _evaluate_frame(
         return read_input(input_id).method_facts
 
     source_reads: list[FrameSourceRead] = []
-    with _SourceContexts() as stack:
-        prepared = prepare_frame_sources(captured, stack)
-        prepared_by_input = prepared.prepared
-        source_plans = prepared.plans
-        source_schemas = prepared.schemas
-        inputs = prepared.inputs
-        operations = prepared.operations
-        compiled = plan_frame(captured.root, source_plans, frame_inputs=expressions)
-        compiled = bound_pending_frame_top(
-            compiled,
-            {
-                input_id: source.source.provider.name
-                for input_id, source in prepared_by_input.items()
-            },
-        )
-        operation_inputs = {
-            id(expression): identifier for identifier, expression in expressions.items()
-        }
+    completed_frames: dict[str, StageOutput] = {}
+    operation_inputs = {
+        id(expression): identifier for identifier, expression in expressions.items()
+    }
+
+    def checkpoint_operations(
+        plan: CompiledFramePlan,
+    ) -> Callable[[LocalCompute | FrameCompute | SourceRead, StageOutput], None]:
         operation_stages = {
             stage: operation_inputs[id(expression)]
-            for stage, expression in compiled.frame_operations
+            for stage, expression in plan.frame_operations
             if id(expression) in operation_inputs
         }
-        stage_inputs = dict(compiled.source_stages)
-        calendar_owners: dict[str, dict[str, dict[datetime, SourceSession]]] = {}
 
-        def read_fixed(stage: FrameInput) -> CompletedFrameData:
-            return read_input(stage.input_id).data
+        def checkpoint(
+            stage: LocalCompute | FrameCompute | SourceRead, output: StageOutput
+        ) -> None:
+            input_id = operation_stages.get(stage.stage_id)
+            if declaration_keys is None or input_id is None or output.frame_schema is None:
+                return
+            from marivo.analysis.core.frame_derivation import key_checkpoint
 
-        def adapt_source(input_id: str, output: StageOutput) -> StageOutput:
+            declaration_keys[input_id] = key_checkpoint(
+                CompletedFrameData(
+                    output.frame_schema,
+                    output.table,
+                    output.frame_attachments,
+                    unique_keys=output.unique_keys,
+                )
+            )
+
+        return checkpoint
+
+    with _SourceContexts() as stack:
+
+        def run_domain(
+            input_id: str,
+            domain_plan: CompiledSourceFrame,
+            domain_graph: BoundGraph,
+            domain_sources: PreparedSources | None,
+            plans: dict[str, CompiledSourceFrame],
+            schemas: dict[str, DataSchema],
+            graphs: dict[str, BoundGraph],
+            sources: dict[str, PreparedSources],
+        ) -> StageOutput:
+            domain_input = SourceFrameInput(input_id, domain_graph)
+            compiled_domain = plan_frame(
+                domain_input, {**plans, input_id: domain_plan}, frame_inputs=expressions
+            )
+            prepared_domain = {**sources, **({input_id: domain_sources} if domain_sources else {})}
+
+            def adapt_domain(identifier: str, output: StageOutput) -> StageOutput:
+                if identifier == input_id:
+                    return output
+                return adapt_completed_source(
+                    identifier, output, schemas, graphs, prepared_domain, {}
+                )
+
+            retained: dict[str, StageOutput] = {}
+            result = run_frame_plan(
+                compiled_domain,
+                source_prepared=prepared_domain,
+                read_fixed=lambda stage: read_input(stage.input_id).data,
+                adapt_source=adapt_domain,
+                observe_read=lambda stage, request, output: record_read(stage, output),
+                observe_local=checkpoint_operations(compiled_domain),
+                completed_frames=completed_frames,
+                retain_inputs=retained,
+            )
+            completed_frames.update(
+                (identifier, output)
+                for identifier, output in retained.items()
+                if identifier != input_id
+            )
+            return result
+
+        def adapt_completed_source(
+            input_id: str,
+            output: StageOutput,
+            schemas: Mapping[str, DataSchema],
+            graphs: Mapping[str, BoundGraph],
+            sources: Mapping[str, PreparedSources],
+            calendar_owners: dict[str, dict[str, dict[datetime, SourceSession]]],
+        ) -> StageOutput:
             current = source_frames[input_id]
             backing = current._backing
             assert isinstance(backing, ExpressionFrameBacking)
-            binding = backing.root
-            schema = effective_frame_schema(source_schemas[input_id], output.columns)
+            schema = effective_frame_schema(schemas[input_id], output.columns)
             attachments: tuple[OutputAttachment, ...] = ()
-            if isinstance(binding, SourceFrameBinding):
+            if isinstance(backing.root, SourceFrameBinding):
                 from marivo.analysis.materialization.native_calendar import freeze_output_calendars
 
-                owner = prepared_by_input.get(input_id)
-                native_graph = prepared.graphs[input_id]
+                owner = sources.get(input_id)
                 schema, attachments = freeze_output_calendars(
-                    native_graph,
+                    graphs[input_id],
                     schema,
                     output.table,
                     owner.source if owner is not None else None,
@@ -303,21 +359,7 @@ def _evaluate_frame(
                 attribute_state_captures=output.attribute_state_captures,
             )
 
-        def observe_read(stage: SourceRead, request: LoweredRead, output: StageOutput) -> None:
-            input_id = stage_inputs.get(stage.stage_id)
-            # Native attribution coalitions consume fixed parent keys; they do
-            # not introduce reporting calendar positions for a source Frame.
-            if input_id is not None:
-                prepared_source = prepared_by_input[input_id]
-                source = prepared_source.sources.get(stage.source_id, prepared_source.source)
-                for axis in source_schemas[input_id].axes:
-                    if not isinstance(axis, CalendarDataAxis):
-                        continue
-                    slot = axis.columns[0].slot_id
-                    if slot in output.table:
-                        owners = calendar_owners.setdefault(input_id, {}).setdefault(axis.token, {})
-                        for value in output.table[slot].dropna().unique():
-                            owners.setdefault(_plain(value), source)
+        def record_read(stage: SourceRead, output: StageOutput) -> None:
             scopes = tuple(
                 dict.fromkeys(
                     FrameSourceReadScope(
@@ -334,32 +376,61 @@ def _evaluate_frame(
                 )
             )
             source_reads.append(
-                FrameSourceRead(
-                    uuid4().hex,
-                    datetime.now(timezone.utc),
-                    scopes,
-                    output.source_rows,
-                )
+                FrameSourceRead(uuid4().hex, datetime.now(timezone.utc), scopes, output.source_rows)
             )
+
+        prepared = prepare_frame_sources(captured, stack, run_interval_domain=run_domain)
+        prepared_by_input = prepared.prepared
+        source_plans = prepared.plans
+        source_schemas = prepared.schemas
+        inputs = prepared.inputs
+        operations = prepared.operations
+        compiled = plan_frame(captured.root, source_plans, frame_inputs=expressions)
+        compiled = bound_pending_frame_top(
+            compiled,
+            {
+                input_id: source.source.provider.name
+                for input_id, source in prepared_by_input.items()
+            },
+        )
+        checkpoint = checkpoint_operations(compiled)
+        stage_inputs = dict(compiled.source_stages)
+        calendar_owners: dict[str, dict[str, dict[datetime, SourceSession]]] = {}
+
+        def read_fixed(stage: FrameInput) -> CompletedFrameData:
+            return read_input(stage.input_id).data
+
+        def adapt_source(input_id: str, output: StageOutput) -> StageOutput:
+            return adapt_completed_source(
+                input_id,
+                output,
+                source_schemas,
+                prepared.graphs,
+                prepared_by_input,
+                calendar_owners,
+            )
+
+        def observe_read(stage: SourceRead, request: LoweredRead, output: StageOutput) -> None:
+            input_id = stage_inputs.get(stage.stage_id)
+            # Native attribution coalitions consume fixed parent keys; they do
+            # not introduce reporting calendar positions for a source Frame.
+            if input_id is not None:
+                prepared_source = prepared_by_input[input_id]
+                source = prepared_source.sources.get(stage.source_id, prepared_source.source)
+                for axis in source_schemas[input_id].axes:
+                    if not isinstance(axis, CalendarDataAxis):
+                        continue
+                    slot = axis.columns[0].slot_id
+                    if slot in output.table:
+                        owners = calendar_owners.setdefault(input_id, {}).setdefault(axis.token, {})
+                        for value in output.table[slot].dropna().unique():
+                            owners.setdefault(_plain(value), source)
+            record_read(stage, output)
 
         def observe_local(
             stage: LocalCompute | FrameCompute | SourceRead, output: StageOutput
         ) -> None:
-            if (
-                declaration_keys is not None
-                and stage.stage_id in operation_stages
-                and output.frame_schema is not None
-            ):
-                from marivo.analysis.core.frame_derivation import key_checkpoint
-
-                declaration_keys[operation_stages[stage.stage_id]] = key_checkpoint(
-                    CompletedFrameData(
-                        output.frame_schema,
-                        output.table,
-                        output.frame_attachments,
-                        unique_keys=output.unique_keys,
-                    )
-                )
+            checkpoint(stage, output)
             method_productions.extend(
                 (stage.stage_id, payload) for payload in output.attribute_methods
             )
@@ -372,6 +443,7 @@ def _evaluate_frame(
                 adapt_source=adapt_source,
                 observe_read=observe_read,
                 observe_local=observe_local,
+                completed_frames=completed_frames,
             )
         except SemanticExpressionError as error:
             from marivo.analysis.core.attribute import AttributeFailureContext

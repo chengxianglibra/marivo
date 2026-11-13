@@ -200,7 +200,7 @@ def test_local_loaded_authorization_preserves_project_and_rechecks_receiving_axe
             return amount
 
     with pytest.raises(SemanticError):
-        status.via([relationship])  # type: ignore[arg-type]  # A tuple is required.
+        status.via([relationship])  # type: ignore[arg-type]  # A Path is required.
     source = first_root / "models/semantic/sales/objects.py"
     source.write_text(source.read_text().replace('name="status"', 'name="state"'))
     changed = ms.load(workspace_dir=first_root)
@@ -330,14 +330,16 @@ def test_local_relationship_dependency_matches_direct_routed_formula(
         and status.kind == "dimension"
     )
 
+    route = mv.path(relationship)
+
     @ms.metric()
     def local_routed() -> ms.MetricExpression[Literal["numeric"]]:
-        return amount.sum().where(status.via((relationship,)) == "paid")
+        return amount.sum().where(status.via(route) == "paid")
 
     rows = (
         session.observe(
             {
-                "direct": amount.sum().where(status.via((relationship,)) == "paid"),
+                "direct": amount.sum().where(status.via(route) == "paid"),
                 "local": local_routed,
             }
         )

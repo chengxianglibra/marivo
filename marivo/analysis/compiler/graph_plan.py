@@ -193,6 +193,12 @@ class SampleWindowRead:
     candidates: tuple[ContributionBinding, ...]
     populations: tuple[PopulationInput, ...]
     counts: tuple[MemberInput, ...]
+    reuse_population_outputs: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class CheckedOutput:
+    """Publish a result already completed by an earlier invocation phase."""
 
 
 SourceProgram: TypeAlias = (
@@ -206,6 +212,7 @@ SourceProgram: TypeAlias = (
     | AttributeCoalitionRead
     | ActualWindowRead
     | SampleWindowRead
+    | CheckedOutput
 )
 
 
@@ -469,6 +476,12 @@ class QueryPlan:
         )
 
 
+def checked_output(
+    identifier: str, columns: tuple[DataColumn, ...], keys: tuple[str, ...]
+) -> SourceRead:
+    return SourceRead(identifier, identifier, (), columns, keys, CheckedOutput(), (), (), None)
+
+
 def _stage_id(occurrence: tuple[int, ...]) -> str:
     return "read:" + ".".join(str(index) for index in occurrence)
 
@@ -577,6 +590,8 @@ def _plan_source_reads(
                             contribution.root,
                             contribution.time.path,
                             contribution.time.at,
+                            source_at=contribution.time.source_at,
+                            step_ats=contribution.time.step_ats,
                         )
                     )
                 ).column,
@@ -709,7 +724,12 @@ def _plan_query(
     from marivo._definition.graph import computation_fingerprint, walk
     from marivo._definition.observations import CalendarGrouping
     from marivo._definition.query import PopulationValues
-    from marivo._definition.relations import LiteralPopulation, PopulationProduct, PopulationProgram
+    from marivo._definition.relations import (
+        LiteralPopulation,
+        PopulationProduct,
+        PopulationProgram,
+        PopulationSet,
+    )
     from marivo._definition.types import (
         CalendarCoordinate,
         IntervalCoordinate,
@@ -958,13 +978,20 @@ def _plan_query(
             tuple(column_slots[column] for column in group)
             for group in population_schema.key_groups
         )
-        if isinstance(population, PopulationProgram) and isinstance(
-            population.root, PopulationProduct
-        ):
-            # Reuse checked factor keys, including factors consumed directly by the formula.
+        domain_node = population.root if isinstance(population, PopulationProgram) else None
+        operands = (
+            domain_node.factors
+            if isinstance(domain_node, PopulationProduct)
+            else (domain_node.left, domain_node.right)
+            if isinstance(domain_node, PopulationSet)
+            and all(population_keys(item) is None for item in (domain_node.left, domain_node.right))
+            else None
+        )
+        if operands is not None:
+            # Reuse the checked complete inputs in both local and fused execution.
             factors = tuple(
                 next(item for item in population_inputs if item.definition == factor)
-                for factor in population.root.factors
+                for factor in operands
                 if population_keys(factor) is None
             )
             population_stages.append(

@@ -108,6 +108,7 @@ OUTPUT_FAMILIES = frozenset(
         "Deferred",
         "MetricSamples",
         "Relationship",
+        "RelationshipStep",
         "Number",
         "bool",
         "Text",
@@ -121,6 +122,7 @@ INPUT_FAMILIES = frozenset(
     {
         "InstantAnchor",
         "InstantAnchor | TimeExpression",
+        "Path",
         "TimeScope",
         "WindowRule",
         "Expression",
@@ -952,7 +954,7 @@ def _object_contracts() -> tuple[SemanticObjectContract, ...]:
                     "requires", "objects.entity", "Both directed endpoints are exact Entity refs."
                 ),
             ),
-            supporting=("join_on", "ai_context"),
+            supporting=("join_on", "ai_context", "Relationship.at"),
             checks=(
                 "load",
                 "readiness",
@@ -2021,8 +2023,8 @@ def _ref_role(kind: SemanticKind) -> tuple[str, tuple[LiveHelpTarget, ...]]:
             (_target("Metric.per"), _target("metric")),
         ),
         SemanticKind.RELATIONSHIP: (
-            "Parameter-only directed relationship for explicit via paths and relationship checks; no numeric operations.",
-            (_target("Field.via"), _target("relationship")),
+            "Directed relationship for mv.path(...) and relationship checks.",
+            (_target("Field.via"), _target("relationship"), _target("Relationship.at")),
         ),
     }
     return roles[kind]
@@ -2316,8 +2318,8 @@ def _expression_capabilities() -> tuple[AuthoringCapability, ...]:
                 )
                 example = "orders.count(time=paid_at)"
             else:
-                inputs.append(_parameter_input("dependency", "Relationship", "path"))
-                example = "payment_time.via((orders_to_payments,))"
+                inputs.append(_parameter_input("dependency", "Path", "path"))
+                example = "payment_time.via(mv.path(orders_to_payments))"
             if method in {"quantile", "approx_quantile"}:
                 inputs.append(_parameter_input("dependency", "Number", "q"))
             if method == "weighted_mean":
@@ -2517,8 +2519,8 @@ def _expression_capabilities() -> tuple[AuthoringCapability, ...]:
             "via",
             "Dimension | TimeField | Measure",
             "path",
-            "Relationship",
-            "region.via((orders_to_customers,))",
+            "Path",
+            "region.via(mv.path(orders_to_customers))",
         ),
         (
             "Field.at",
@@ -2534,7 +2536,9 @@ def _expression_capabilities() -> tuple[AuthoringCapability, ...]:
             _capability(
                 target,
                 f"marivo.semantic._expression_values.RowExpression.{_method}",
-                "Construct an immutable scalar field binding. Directed paths must be single-valued. at selects one fixed InstantAnchor for the whole question, or a native TimeDimension on an unversioned or snapshot fact root for same-source, single-root observe by/where on DuckDB/Trino. Row time excludes validity fact roots, read/classify, windows, internal samples and IANA local clocks. DATE control selects target business dates; timestamp validity needs timestamp control. Missing versions and NULL control retain NULL labels. No schema or business reads.",
+                "Bind a field to the target of a single-valued directed Path. A target anchor can come from the final step or field.at(...). Supply one declaration."
+                if _method == "via"
+                else "Select a fixed InstantAnchor or use a native TimeDimension on an unversioned or snapshot fact root for qualified same-source, single-root observe by/where on DuckDB/Trino. Row time excludes validity fact roots, read/classify, windows, internal samples and IANA local clocks. DATE control selects target business dates; timestamp validity needs timestamp control. Missing versions and NULL control retain NULL labels.",
                 kind="method",
                 output="RowExpression",
                 inputs=(
@@ -2544,9 +2548,31 @@ def _expression_capabilities() -> tuple[AuthoringCapability, ...]:
                 effects=_NONE,
                 example=example,
                 public_entrypoint=example.split("(", 1)[0],
-                see_also=(_target("expressions"),),
+                see_also=(_target("Field.at"), _target("expressions"))
+                if _method == "via"
+                else (_target("Field.via"), _target("expressions")),
             )
         )
+    rows.append(
+        _capability(
+            "Relationship.at",
+            "marivo.semantic.catalog.Relationship.at",
+            "Capture an exact version anchor at this relationship step’s versioned target. The next step in mv.path(...) uses that same node version.",
+            kind="method",
+            output="RelationshipStep",
+            inputs=(
+                AuthoringInputRequirement(role="receiver", family="Relationship"),
+                _parameter_input("dependency", "InstantAnchor", "anchor"),
+            ),
+            preconditions=("The consuming operation must read the target version row.",),
+            example="order_customer.at(session.instant('2026-01-01'))",
+            public_entrypoint="relationship.at",
+            see_also=(
+                LiveHelpTarget(surface="analysis", canonical_id="path.define"),
+                LiveHelpTarget(surface="analysis", canonical_id="relationship_step"),
+            ),
+        )
+    )
     for stage, owner in (("row", "RowExpression"), ("Metric", "MetricExpression")):
         for method, _arguments, example in (
             ("abs", (), "value.abs()"),
@@ -3350,8 +3376,8 @@ def _build_registry() -> SemanticCapabilityRegistry:
                     "only a final True selects a contribution. Both boolean sides retain static "
                     "validation, numeric checks and producer dependencies, even under True/False. "
                     "Observe, single-source Metric.where and members accept mixed conditions on "
-                    "their own contribution/identity domain. Population.where accepts membership "
-                    "leaves only over existing axes. Source reduction where= accepts field leaves "
+                    "their own contribution/identity domain. Population.where evaluates field and membership "
+                    "leaves over existing axes. Classify missing fields before filtering. Source reduction where= accepts field leaves "
                     "only. TimeField comparisons freeze ISO strings and dates in the receiving "
                     "Session report timezone, as session.time_scope does; aware inputs keep their "
                     "instant. Naive datetimes and ambiguous/nonexistent civil boundaries reject. "

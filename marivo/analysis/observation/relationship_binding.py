@@ -37,7 +37,7 @@ def binding_error(
             candidates=choices,
             snippet="choices = (\n"
             + "\n".join(
-                "    ("
+                "    mv.path("
                 + ", ".join(
                     "session.catalog.get(" + repr("relationship:" + item.path) + ")"
                     for item in path
@@ -113,21 +113,18 @@ class RelationshipResolver:
     ) -> Path:
         if explicit is not None:
             current = start
-            visited = {start}
             for item in explicit:
                 if item.path not in self.registry.relationships:
                     raise binding_error("a loaded Relationship Ref", item.path, target=target)
                 mapping = self.by_ref[item.path]
-                if mapping.from_entity_ref.path != current or mapping not in self.outgoing.get(
-                    current, ()
+                if mapping.from_entity_ref.path != current or mapping.cardinality not in (
+                    "one_to_one",
+                    "many_to_one",
                 ):
                     raise binding_error(
                         "a contiguous directed to-one path", item.path, target=target
                     )
                 current = mapping.to_entity_ref.path
-                if current in visited:
-                    raise binding_error("an acyclic directed path", item.path, target=target)
-                visited.add(current)
             if current != end:
                 raise binding_error(
                     "a path to the exact owner respecting declared roles",

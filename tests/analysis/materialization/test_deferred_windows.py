@@ -862,9 +862,11 @@ def test_source_population_calendar_product(window_session: Session) -> None:
     session = window_session
     revenue = catalog_value(session.catalog, "sales.revenue", kind="metric")
     customer = catalog_value(session.catalog, "sales.orders.customer", kind="dimension")
-    customers = session.members(
-        catalog_value(session.catalog, "sales.orders", kind="entity")
-    ).classify(by=(customer,))
+    customers = (
+        session.members(catalog_value(session.catalog, "sales.orders", kind="entity"))
+        .classify(by=(customer,))
+        .project(by=(customer,))
+    )
     assert isinstance(customers, mv.Population)
     calendar = session.time_scope(start="2026-10-07", end="2026-10-09").by(mv.grain("day"))
     samples = mv.product(customers, calendar)

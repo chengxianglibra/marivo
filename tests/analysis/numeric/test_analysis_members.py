@@ -109,7 +109,7 @@ def _read(
 ) -> mv.AnalysisFrame:
     value: FieldExpression = catalog_value(session.catalog, field, kind="field")
     if via is not None:
-        value = value.via((catalog_value(session.catalog, via, kind="relationship"),))
+        value = value.via(mv.path(catalog_value(session.catalog, via, kind="relationship")))
     if at is not None:
         value = value.at(session.instant(at))
     return session.read(population, {"value": value})
@@ -174,7 +174,7 @@ def test_observation_classification_reads_explicit_version(members_session: Sess
     metric = catalog_value(session.catalog, f"{prefix}.observed_total", kind="metric")
     route = catalog_value(session.catalog, f"{prefix}.to_snapshot", kind="relationship")
     field = catalog_value(session.catalog, f"{prefix}.snapshot.category", kind="dimension")
-    category = field.via((route,)).at(session.instant("2026-08-01"))
+    category = field.via(mv.path(route)).at(session.instant("2026-08-01"))
     observed = session.observe({"value": metric}, by=(category,)).compute().to_pandas()
     assert observed.set_index(observed.columns[0])["value"].to_dict() == {
         "west": 10,
@@ -185,7 +185,7 @@ def test_observation_classification_reads_explicit_version(members_session: Sess
     selected = _identity_population(
         session, selected_values, catalog_value(session.catalog, f"{prefix}.plain", kind="entity")
     )
-    later = field.via((route,)).at(session.instant("2026-09-01"))
+    later = field.via(mv.path(route)).at(session.instant("2026-09-01"))
     read = session.read(selected, {"value": later})
     assert _values(read.compute()) == ["east"]
     frame = (
@@ -207,7 +207,7 @@ def test_mixed_predicate_uses_nullable_missing_scalar_matches(
     route = catalog_value(session.catalog, f"{prefix}.to_snapshot", kind="relationship")
     later = (
         catalog_value(session.catalog, f"{prefix}.snapshot.category", kind="dimension")
-        .via((route,))
+        .via(mv.path(route))
         .at(session.instant("2026-09-01"))
     )
     metric = catalog_value(session.catalog, f"{prefix}.observed_total", kind="metric")
@@ -414,7 +414,7 @@ to_subject = ms.relationship(name="to_subject", from_entity=instances, to_entity
     relationship = session.catalog.get("relationship:test.to_subject")
     assert entity.kind == "entity" and relationship.kind == "relationship"
     domain = session.members(entity)
-    image = domain.image(via=(relationship,))
+    image = domain.image(via=mv.path(relationship))
     assert isinstance(image, mv.Population)
     result = session.frame(image).persist()
     assert result.to_pandas().iloc[:, 0].tolist() == [(7, "A"), (7, "B")]
@@ -490,14 +490,17 @@ def test_wrong_role_and_many_mapping_reject_before_io(
     with monkeypatch.context() as patch:
         patch.setattr(SourceSession, "bind", forbidden)
         with pytest.raises((AnalysisError, SemanticExpressionError)):
-            session.read(members, {"value": field.via((many,)).at(at)})
+            session.read(members, {"value": field.via(mv.path(many)).at(at)})
         versioned = session.members(
             catalog_value(session.catalog, f"{prefix}.snapshot", kind="entity"), at=at
         )
         with pytest.raises((AnalysisError, SemanticExpressionError)):
-            session.read(versioned, {"value": field.via((route,)).at(at)})
-    assert _values(session.read(members, {"value": field.at(at)}).compute()) == [10, 20]
-    assert _values(session.read(members, {"value": field.via((route,)).at(at)}).compute()) == [
+            session.read(versioned, {"value": field.via(mv.path(route)).at(at)})
+    with pytest.raises(AnalysisError):
+        session.read(members, {"value": field.at(at)})
+    assert _values(
+        session.read(members, {"value": field.via(mv.path(route)).at(at)}).compute()
+    ) == [
         10,
         20,
     ]
@@ -575,7 +578,7 @@ def test_grid_classification_uses_grid_point(members_session: Session) -> None:
     category = catalog_value(session.catalog, f"{prefix}.snapshot.category", kind="dimension").at(
         anchor
     )
-    categories = members.classify(by=(category,))
+    categories = members.classify(by=(category,)).project(by=(category,))
     assert isinstance(categories, mv.Population)
     grid = session.time_scope(
         start="2026-08-01T00:00:00+00:00", end="2026-08-01T02:00:00+00:00"
@@ -615,32 +618,134 @@ def test_composite_subject_predicates(members_session: Session) -> None:
     assert frame.loc[mask].iloc[:, 0].tolist() == [(1, "A")]
 
 
-def test_identity_grouping_binds_an_explicit_versioned_path(members_session: Session) -> None:
+def test_identity_grouping_preserves_complete_versioned_foreign_key(
+    members_session: Session,
+) -> None:
     session = members_session
     prefix = _domain(session)
     route = catalog_value(session.catalog, f"{prefix}.to_snapshot", kind="relationship")
-    target = catalog_value(session.catalog, f"{prefix}.snapshot", kind="entity")
     instant = session.instant("2026-08-01")
     metric = catalog_value(session.catalog, f"{prefix}.observed_total", kind="metric")
-    path = mv.identity((route,), at=instant)
-    automatic = mv.identity(target, at=instant)
-    from tests.analysis.graph.execution_fixtures import source_graph
-
-    explicit_frame = session.observe({"value": metric}, by=(path,))
-    inferred_frame = session.observe({"value": metric}, by=(automatic,))
-    explicit_binding = source_graph(explicit_frame).signature.observation
-    inferred_binding = source_graph(inferred_frame).signature.observation
-    assert explicit_binding is not None and inferred_binding is not None
-    assert explicit_binding.contributions == inferred_binding.contributions
-    rows = explicit_frame.compute().to_pandas()
+    identity = mv.identity(mv.path(route))
+    rows = session.observe({"value": metric}, by=(identity,)).compute().to_pandas()
     assert rows.set_index(rows.columns[0])["value"].to_dict() == {
         (1, "A"): 10,
         (1, "B"): 20,
     }
-    with pytest.raises(AnalysisError):
-        session.observe({"value": metric}, by=(mv.identity((route,)),))
-    with pytest.raises(AnalysisError):
-        mv.identity((route, route), at=instant)
+    with pytest.raises(AnalysisError, match="complete foreign key"):
+        mv.identity(mv.path(route.at(instant)))
+    with pytest.raises(SemanticExpressionError):
+        mv.path(route, route)
     many = catalog_value(session.catalog, f"{prefix}.many_snapshot", kind="relationship")
-    with pytest.raises(AnalysisError):
-        session.observe({"value": metric}, by=(mv.identity((many,), at=instant),))
+    subjects = session.members(catalog_value(session.catalog, f"{prefix}.plain", kind="entity"))
+    with pytest.raises(AnalysisError, match="to-one"):
+        subjects.classify(by=(mv.identity(mv.path(many.at(instant))),))
+
+
+def test_snapshot_members_set_algebra_and_explicit_new_read(members_session: Session) -> None:
+    session = members_session
+    prefix = _domain(session)
+    entity = catalog_value(session.catalog, f"{prefix}.snapshot", kind="entity")
+    category = catalog_value(session.catalog, f"{prefix}.snapshot.category", kind="dimension")
+    start, end = session.instant("2026-08-01"), session.instant("2026-09-01")
+    first, last = session.members(entity, at=start), session.members(entity, at=end)
+    for domain, expected in (
+        (first.union(last), {(1, "A"), (1, "B")}),
+        (first.intersection(last), {(1, "A")}),
+        (first.difference(last), {(1, "B")}),
+    ):
+        assert isinstance(domain, mv.Population)
+        assert set(session.frame(domain).compute().to_pandas().iloc[:, 0]) == expected
+    retained = first.intersection(last)
+    assert isinstance(retained, mv.Population)
+    with pytest.raises(AnalysisError, match="exact version anchor"):
+        retained.classify(by=(category,))
+    rows = session.read(retained, {"new_category": category.at(end)}).compute().to_pandas()
+    assert list(rows.itertuples(index=False, name=None)) == [((1, "A"), "east")]
+
+
+def test_classify_preserves_conflicting_captured_tuples_and_read_reuses_values(
+    members_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    session = members_session
+    prefix = _domain(session)
+    entity = catalog_value(session.catalog, f"{prefix}.plain", kind="entity")
+    category = catalog_value(session.catalog, f"{prefix}.plain.category", kind="dimension")
+    enabled = catalog_value(session.catalog, f"{prefix}.plain.enabled", kind="dimension")
+    identity = mv.identity(entity)
+    west = mv.coordinates(by=(identity, category), keys=(((1, "A"), "west"),))
+    east = mv.coordinates(by=(category, identity), keys=(("east", (1, "A")),))
+    both = west.union(east)
+    assert isinstance(both, mv.Population)
+    classified = both.classify(by=(category, enabled, enabled))
+    rows = session.frame(classified).compute().to_pandas()
+    assert set(rows.itertuples(index=False, name=None)) == {
+        ((1, "A"), "east", True),
+        ((1, "A"), "west", True),
+    }
+    assert classified.classify(by=classified.axes)._definition == classified._definition
+    fixed_frame = session.frame(classified).compute()
+    fixed = session.population_from(
+        fixed_frame, on=tuple(zip(fixed_frame.axes, (entity, category, enabled), strict=True))
+    )
+
+    def forbidden(*args: object, **kwargs: object) -> None:
+        raise AssertionError("captured field reuse accessed the source")
+
+    monkeypatch.setattr(SourceSession, "bind", forbidden)
+    monkeypatch.setattr(SourceSession, "execute", forbidden)
+    result = session.read(fixed.classify(by=()), {"captured": category}).compute().to_pandas()
+    assert set(result.itertuples(index=False, name=None)) == {
+        ((1, "A"), "east", True, "east"),
+        ((1, "A"), "west", True, "west"),
+    }
+
+
+def test_classify_adds_complete_identity_and_can_erase_only_its_role(
+    members_session: Session,
+) -> None:
+    session = members_session
+    prefix = _domain(session)
+    entity = catalog_value(session.catalog, f"{prefix}.plain", kind="entity")
+    target = catalog_value(session.catalog, f"{prefix}.snapshot", kind="entity")
+    route = catalog_value(session.catalog, f"{prefix}.to_snapshot", kind="relationship")
+    category = catalog_value(session.catalog, f"{prefix}.snapshot.category", kind="dimension")
+    path = mv.path(route)
+    identity = mv.identity(path)
+    start = session.instant("2026-08-01")
+    members = session.members(entity)
+    classified = members.classify(by=(identity,))
+    assert set(
+        session.frame(classified).compute().to_pandas().itertuples(index=False, name=None)
+    ) == {
+        ((1, "A"), (1, "A")),
+        ((1, "B"), (1, "B")),
+    }
+    direct = classified.identities(on=identity)
+    retained = direct.intersection(session.members(target, at=start))
+    assert isinstance(retained, mv.Population)
+    assert set(session.frame(retained).compute().to_pandas().iloc[:, 0]) == {(1, "A"), (1, "B")}
+
+    # A literal path role is interpreted as the provided complete key, even
+    # though the declared relationship from the other captured key reaches A.
+    literal = mv.coordinates(by=(mv.identity(entity), identity), keys=(((1, "A"), (1, "B")),))
+    with_role = literal.classify(by=(category.at(start),), on=identity)
+    assert with_role.project(by=(category.via(path).at(start),)).axes == (with_role.axes[-1],)
+    read = session.read(literal, {"value": category.at(start)}, on=identity).compute().to_pandas()
+    assert list(read.itertuples(index=False, name=None)) == [((1, "A"), (1, "B"), "east")]
+    with_direct_target = mv.product(literal, session.members(target, at=start))
+    with pytest.raises(AnalysisError, match="Multiple identity subjects"):
+        session.read(with_direct_target, {"value": category.at(start)})
+    values = session.read(with_direct_target, {"value": category.at(start)}, on=identity).compute()
+    rows = values.to_pandas(
+        axis_names={values.axes[1].token: "routed", values.axes[2].token: "direct"}
+    )
+    assert set(rows.itertuples(index=False, name=None)) == {
+        ((1, "A"), (1, "B"), (1, "A"), "east"),
+        ((1, "A"), (1, "B"), (1, "B"), "east"),
+    }
+
+    absent = mv.coordinates(by=(mv.identity(entity),), keys=(((1, "absent"),),))
+    invalid = absent.classify(by=(identity,)).identities(on=identity)
+    with pytest.raises(AnalysisError, match="non-null complete identity"):
+        session.frame(invalid).compute()

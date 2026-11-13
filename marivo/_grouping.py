@@ -86,7 +86,7 @@ class Grouping(ABC):
             for read in binding.fields[:8]:
                 print(read.field.ref.key[:200])
             for path in binding.paths[:8]:
-                print("via=" + " -> ".join(step.ref.ref.key for step in path)[:400])
+                print("via=" + " -> ".join(step.ref.ref.key for step in path.relationships)[:400])
         else:
             print(f"path={tuple(step.ref.key for step in binding.path)!r}"[:600])
             print(f"at={binding.at}")

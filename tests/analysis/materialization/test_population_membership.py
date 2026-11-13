@@ -8,7 +8,9 @@ import pandas as pd
 import pytest
 
 import marivo.analysis as mv
+from marivo._definition.types import CoordinateValue
 from marivo.analysis.dsl.population import population_keys
+from marivo.analysis.errors import AnalysisError
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.analysis.session.core import Session
 from marivo.semantic.reader import SemanticProject
@@ -108,7 +110,12 @@ def test_members_scalar_predicate_retains_its_relationship_sources(
     buyer = catalog_value(session.catalog, "sales.order_buyer", kind="relationship")
     orders = session.members(
         catalog_value(session.catalog, "sales.order", kind="entity"),
-        where=region.via((buyer,)) == "east",
+        where=region.via(
+            mv.path(
+                buyer,
+            )
+        )
+        == "east",
     )
     keys = session.frame(orders).compute().to_pandas()
     assert keys.iloc[:, 0].tolist() == ["j1_a", "j1_b", "j1_july", "j1_september"]
@@ -139,7 +146,7 @@ def test_members_scalar_predicate_retains_intermediate_relationship_sources(
     )
     lines = session.members(
         catalog_value(session.catalog, "sales.order_line", kind="entity"),
-        where=customer_id.via(path) == "A",
+        where=customer_id.via(mv.path(*path)) == "A",
     )
     keys = session.frame(lines).compute().to_pandas()
     assert keys.iloc[:, 0].tolist() == ["j3_l1", "j3_l2"]
@@ -231,18 +238,20 @@ def test_membership_deduplicates_root_bucket_and_complete_domain(
         catalog_value(session.catalog, "sales.order_links", kind="relationship"),
         catalog_value(session.catalog, "sales.link_tags", kind="relationship"),
     )
-    buckets = mv.membership(label, via=(path,), unmatched="exclude")
+    buckets = mv.membership(label, via=(mv.path(*path),), unmatched="exclude")
     full = mv.coordinates(by=(label,), keys=(("A",), ("B",), ("C",)))
     result = session.observe({"revenue": revenue}, by=(buckets,)).compute().to_pandas()
     assert result["revenue"].tolist() == [20, 10]
-    unmatched = mv.membership(label, via=(path,), unmatched="null")
+    unmatched = mv.membership(label, via=(mv.path(*path),), unmatched="null")
     with_null = session.observe({"revenue": revenue}, by=(unmatched,)).compute().to_pandas()
     assert sorted(with_null["revenue"].tolist()) == [10, 20, 100]
     samples = session.observe({"mean": revenue.per((full, buckets)).mean()}).compute().to_pandas()
     assert samples["mean"].tolist() == [10]
-    classified = session.members(
-        catalog_value(session.catalog, "sales.tags", kind="entity")
-    ).classify(by=(label,))
+    classified = (
+        session.members(catalog_value(session.catalog, "sales.tags", kind="entity"))
+        .classify(by=(label,))
+        .project(by=(label,))
+    )
     assert isinstance(classified, mv.Population)
     observed = session.observe({"mean": revenue.per((classified, buckets)).mean()})
     assert observed.compute().to_pandas()["mean"].tolist() == [10]
@@ -261,9 +270,9 @@ def test_membership_correlated_tuple_differs_from_independent_product(
         catalog_value(session.catalog, "sales.order_links", kind="relationship"),
         catalog_value(session.catalog, "sales.link_tags", kind="relationship"),
     )
-    joint = mv.membership((label, channel), via=(path,), unmatched="exclude")
-    tags = mv.membership(label, via=(path,), unmatched="exclude")
-    channels = mv.membership(channel, via=(path,), unmatched="exclude")
+    joint = mv.membership((label, channel), via=(mv.path(*path),), unmatched="exclude")
+    tags = mv.membership(label, via=(mv.path(*path),), unmatched="exclude")
+    channels = mv.membership(channel, via=(mv.path(*path),), unmatched="exclude")
     correlated = session.observe({"revenue": revenue}, by=(joint,)).compute().to_pandas()
     independent = session.observe({"revenue": revenue}, by=(tags, channels)).compute().to_pandas()
     assert len(correlated) == 2
@@ -290,10 +299,14 @@ def test_nested_per_keeps_each_layers_membership_rule(
         catalog_value(session.catalog, "sales.order_links", kind="relationship"),
         catalog_value(session.catalog, "sales.link_tags", kind="relationship"),
     )
-    association = mv.membership(label, via=(association_path,), unmatched="null")
+    association = mv.membership(label, via=(mv.path(*association_path),), unmatched="null")
     direct = mv.membership(
         label,
-        via=((catalog_value(session.catalog, "sales.order_direct", kind="relationship"),),),
+        via=(
+            mv.path(
+                catalog_value(session.catalog, "sales.order_direct", kind="relationship"),
+            ),
+        ),
         unmatched="null",
     )
     inner, outer = (association, direct) if outer_route == "direct" else (direct, association)
@@ -354,10 +367,10 @@ def test_population_filters_and_relationship_images_preserve_typed_keys(
         catalog_value(session.catalog, "sales.order_links", kind="relationship"),
         catalog_value(session.catalog, "sales.link_tags", kind="relationship"),
     )
-    reached = orders.image(via=path)
+    reached = orders.image(via=mv.path(*path))
     assert isinstance(reached, mv.Population)
     assert session.frame(reached).compute().to_pandas().iloc[:, 0].tolist() == [1, 2]
-    inverse = orders.preimage(selected, via=path)
+    inverse = orders.preimage(selected, via=mv.path(*path))
     assert isinstance(inverse, mv.Population)
     assert session.frame(inverse).compute().to_pandas().iloc[:, 0].tolist() == [1, 2]
     with duckdb.connect(str(tmp_path / "population.duckdb")) as connection:
@@ -387,6 +400,171 @@ def test_metric_population_condition_selects_facts_without_multiplicity(
     )
     assert result["selected"].tolist() == [40]
     assert result["other"].tolist() == [100]
+
+
+def test_interval_membership_uses_joint_keys_and_one_match_per_fact(
+    semantic_project_factory: Callable[..., SemanticProject],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    model = _MODEL.replace(
+        "# Named expressions",
+        'day = ms.time_dimension_column(name="day", entity=orders, column="day")',
+    )
+    session = _session(semantic_project_factory, tmp_path, monkeypatch, model=model)
+    with duckdb.connect(str(tmp_path / "population.duckdb")) as connection:
+        connection.execute("ALTER TABLE orders ADD day DATE")
+        connection.execute("UPDATE orders SET day = DATE '2026-08-01' + CAST(id - 1 AS INTEGER)")
+    clock = catalog_value(session.catalog, "sales.orders.day", kind="time_dimension")
+    amount = catalog_value(session.catalog, "sales.orders.amount", kind="measure")
+    customer = catalog_value(session.catalog, "sales.orders.customer", kind="dimension")
+    clocked = amount.sum(time=clock)
+    first = session.time_scope(start="2026-08-01", end="2026-08-03")
+    second = session.time_scope(start="2026-08-02", end="2026-08-04")
+    one = mv.product(first, mv.coordinates(by=(customer,), keys=((1,),)))
+    two = mv.product(second, mv.coordinates(by=(customer,), keys=((1,),)))
+    assert isinstance(one, mv.Population) and isinstance(two, mv.Population)
+    both = one.union(two)
+    assert isinstance(both, mv.Population)
+    result = session.observe({"v": clocked.where(mv.in_population(both))}).compute().to_pandas()
+    assert result["v"].tolist() == [40]
+    with pytest.raises(AnalysisError, match="at most one distinct report interval"):
+        session.observe({"v": clocked}, by=both)
+    with pytest.raises(AnalysisError, match="contribution clock"):
+        session.observe({"v": amount.sum(time=None).where(mv.in_population(both))})
+
+
+def test_multivalued_path_membership_is_existential_per_fact(
+    semantic_project_factory: Callable[..., SemanticProject],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session = _session(semantic_project_factory, tmp_path, monkeypatch)
+    revenue = catalog_value(session.catalog, "sales.revenue", kind="metric")
+    route = mv.path(
+        catalog_value(session.catalog, "sales.order_links", kind="relationship"),
+        catalog_value(session.catalog, "sales.link_tags", kind="relationship"),
+    )
+    tag = mv.identity(route)
+    a = mv.coordinates(by=(tag,), keys=(((1,),),))
+    b = mv.coordinates(by=(tag,), keys=(((2,),),))
+    joint = (
+        session.observe({"v": revenue}, where=mv.in_population(a) & mv.in_population(b))
+        .compute()
+        .to_pandas()
+    )
+    assert joint["v"].tolist() == [10]
+    targets = a.union(b)
+    assert isinstance(targets, mv.Population)
+    union = session.observe({"v": revenue}, where=mv.in_population(targets))
+    assert union.compute().to_pandas()["v"].tolist() == [40]
+
+
+@pytest.mark.parametrize("prefix_first", [False, True])
+def test_joint_membership_matches_complete_identity_and_its_descendant_on_one_row(
+    semantic_project_factory: Callable[..., SemanticProject],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    prefix_first: bool,
+) -> None:
+    model = _MODEL.replace(
+        'source=md.table("links"), primary_key=["id"]',
+        'source=md.table("links"), primary_key=["id", "order_id"]',
+    )
+    session = _session(semantic_project_factory, tmp_path, monkeypatch, model=model)
+    revenue = catalog_value(session.catalog, "sales.revenue", kind="metric")
+    order_links = catalog_value(session.catalog, "sales.order_links", kind="relationship")
+    link_tags = catalog_value(session.catalog, "sales.link_tags", kind="relationship")
+    link = mv.identity(mv.path(order_links))
+    tag = mv.identity(mv.path(order_links, link_tags))
+    keys: tuple[tuple[CoordinateValue, ...], ...]
+    if prefix_first:
+        axes = (link, tag)
+        keys = (((1, 1), (1,)), ((2, 1), (1,)), ((4, 2), (2,)), ((4, 1), (1,)))
+    else:
+        axes = (tag, link)
+        keys = (((1,), (1, 1)), ((1,), (2, 1)), ((2,), (4, 2)), ((1,), (4, 1)))
+    allowed = mv.coordinates(by=axes, keys=keys)
+    condition = mv.in_population(allowed)
+    # Two qualifying link rows contribute order 1's amount once. Order 2's
+    # link reaches tag 1, but its composite identity is (4, 2), not (4, 1).
+    result = session.observe(
+        {"matched": revenue.where(condition), "other": revenue.where(~condition)}
+    )
+    assert result.compute().to_pandas().to_dict("list") == {"matched": [10], "other": [130]}
+    impossible = mv.coordinates(by=(link, tag), keys=(((1, 1), (2,)),))
+    assert session.observe(
+        {"v": revenue}, where=mv.in_population(impossible)
+    ).compute().to_pandas()["v"].tolist() == [0]
+
+
+def test_joint_membership_reuses_anchored_prefix_before_branching(
+    semantic_project_factory: Callable[..., SemanticProject],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    model = (
+        _MODEL.replace(
+            'source=md.table("links"), primary_key=["id"]',
+            'source=md.table("links"), primary_key=["id"], '
+            'versioning=ms.snapshot(partition_field=ms.ref.time_dimension("sales.links.day"), timezone="UTC")',
+        )
+        + """
+day = ms.time_dimension_column(name="day", entity=links, column="day")
+alt_tag_id = ms.dimension_column(name="alt_tag_id", entity=links, column="alt_tag_id")
+alt_link_tags = ms.relationship(name="alt_link_tags", from_entity=links, to_entity=tags, keys=[ms.join_on(alt_tag_id, tid)])
+alt_order_links = ms.relationship(name="alt_order_links", from_entity=orders, to_entity=links, keys=[ms.join_on(oid, order_id)])
+"""
+    )
+    session = _session(semantic_project_factory, tmp_path, monkeypatch, model=model)
+    with duckdb.connect(str(tmp_path / "population.duckdb")) as connection:
+        connection.execute("ALTER TABLE links ADD COLUMN day DATE DEFAULT DATE '2026-08-01'")
+        connection.execute("ALTER TABLE links ADD COLUMN alt_tag_id BIGINT DEFAULT 3")
+        connection.execute("UPDATE links SET alt_tag_id=2 WHERE id IN (3, 4)")
+        connection.execute("INSERT INTO links VALUES (1, 1, 3, '2026-09-01', 2)")
+    revenue = catalog_value(session.catalog, "sales.revenue", kind="metric")
+    order_links = catalog_value(session.catalog, "sales.order_links", kind="relationship")
+    alt_order_links = catalog_value(session.catalog, "sales.alt_order_links", kind="relationship")
+    link_tags = catalog_value(session.catalog, "sales.link_tags", kind="relationship")
+    alt_link_tags = catalog_value(session.catalog, "sales.alt_link_tags", kind="relationship")
+    early = session.instant("2026-08-01")
+    late = session.instant("2026-09-01")
+    tag = mv.identity(mv.path(order_links.at(early), link_tags))
+    cases = (
+        (mv.identity(mv.path(order_links.at(early), alt_link_tags)), 30),
+        (mv.identity(mv.path(alt_order_links.at(early), alt_link_tags)), 40),
+        (mv.identity(mv.path(order_links.at(late), alt_link_tags)), 10),
+    )
+    for other_tag, expected in cases:
+        # At the shared early node, only order 2 has both tag 1 and alt tag 2
+        # on one row. The distinct role can use order 1's separate early rows.
+        # The late node contributes alt tag 2 only for order 1.
+        allowed = mv.coordinates(by=(tag, other_tag), keys=(((1,), (2,)),))
+        result = session.observe({"v": revenue}, where=mv.in_population(allowed))
+        assert result.compute().to_pandas()["v"].tolist() == [expected]
+
+
+def test_joint_membership_reads_attribute_on_the_same_related_identity(
+    semantic_project_factory: Callable[..., SemanticProject],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session = _session(semantic_project_factory, tmp_path, monkeypatch)
+    with duckdb.connect(str(tmp_path / "population.duckdb")) as connection:
+        connection.execute("INSERT INTO links VALUES (5, 3, 99)")
+    revenue = catalog_value(session.catalog, "sales.revenue", kind="metric")
+    order_links = catalog_value(session.catalog, "sales.order_links", kind="relationship")
+    link_tags = catalog_value(session.catalog, "sales.link_tags", kind="relationship")
+    label = catalog_value(session.catalog, "sales.tags.label", kind="dimension")
+    link = mv.identity(mv.path(order_links))
+    tag = mv.identity(mv.path(order_links, link_tags))
+    labeled = mv.coordinates(by=(tag,), keys=(((1,),),)).classify(by=(label,), on=tag)
+    tag_label = labeled.axes[1]
+    cases = (((1,), "B", 0), ((3,), "B", 10), ((5,), None, 100))
+    for key, value, total in cases:
+        allowed = mv.coordinates(by=(link, tag_label), keys=((key, value),))
+        result = session.observe({"v": revenue}, where=mv.in_population(allowed))
+        assert result.compute().to_pandas()["v"].tolist() == [total]
 
 
 @pytest.mark.parametrize("source", ["members", "query", "product"])
@@ -442,7 +620,7 @@ def test_medium_complete_identity_domain_materializes_and_filters_preimage(
     )
     selected = session.members(
         catalog_value(session.catalog, "sales.orders", kind="entity")
-    ).preimage(targets, via=path)
+    ).preimage(targets, via=mv.path(*path))
     assert isinstance(selected, mv.Population)
     revenue = catalog_value(session.catalog, "sales.revenue", kind="metric")
     result = (
@@ -464,7 +642,7 @@ def test_observed_allocations_and_internal_subset_have_distinct_domains(
         catalog_value(session.catalog, "sales.order_links", kind="relationship"),
         catalog_value(session.catalog, "sales.link_tags", kind="relationship"),
     )
-    allocation = mv.membership((label, channel), via=(path,), unmatched="exclude")
+    allocation = mv.membership((label, channel), via=(mv.path(*path),), unmatched="exclude")
     selected = mv.coordinates(by=(label, channel), keys=(("A", "web"),))
     # Selecting a fact through A still retains that fact's B allocation.
     observed = (
@@ -578,7 +756,7 @@ def test_membership_keeps_null_allocation_and_independent_fact_roots(
         catalog_value(session.catalog, "sales.order_links", kind="relationship"),
         catalog_value(session.catalog, "sales.link_tags", kind="relationship"),
     )
-    allocation = mv.membership(label, via=(path,), unmatched="null")
+    allocation = mv.membership(label, via=(mv.path(*path),), unmatched="null")
     result = session.observe({"v": revenue}, by=(allocation,)).compute().to_pandas()
     assert dict(zip(result.iloc[:, 0].fillna("<null>"), result["v"], strict=True)) == {
         "A": 40,
@@ -587,7 +765,12 @@ def test_membership_keeps_null_allocation_and_independent_fact_roots(
     }
     independent = mv.membership(
         label,
-        via=(path, (catalog_value(session.catalog, "sales.refund_tags", kind="relationship"),)),
+        via=(
+            mv.path(*path),
+            mv.path(
+                catalog_value(session.catalog, "sales.refund_tags", kind="relationship"),
+            ),
+        ),
         unmatched="exclude",
     )
     result = session.observe({"v": revenue + refunded}, by=(independent,)).compute().to_pandas()
@@ -609,7 +792,7 @@ def test_internal_membership_exclusion_preserves_parent_coordinates(
         catalog_value(session.catalog, "sales.order_links", kind="relationship"),
         catalog_value(session.catalog, "sales.link_tags", kind="relationship"),
     )
-    allocation = mv.membership(label, via=(path,), unmatched="exclude")
+    allocation = mv.membership(label, via=(mv.path(*path),), unmatched="exclude")
     samples = mv.coordinates(by=(label,), keys=(("A",), ("B",), ("C",)))
     metric = revenue.per((allocation,) if sampling == "open" else (samples, allocation)).mean()
     if sampling == "nested":

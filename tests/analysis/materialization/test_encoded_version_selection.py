@@ -89,10 +89,16 @@ def test_encoded_daily_snapshot_selects_same_identity_and_version(
         assert values["label"].tolist() == ["new"]
         links = session.members(links_entity)
         selected = session.members(
-            links_entity, where=label.via((scalar_relation,)).at(anchor) == "new"
+            links_entity,
+            where=label.via(
+                mv.path(
+                    scalar_relation,
+                )
+            ).at(anchor)
+            == "new",
         )
         assert session.frame(selected).compute().to_pandas().iloc[:, 0].tolist() == [100]
-        image = links.image(via=(relation,), at=anchor)
+        image = links.image(via=mv.path(relation.at(anchor)))
         assert isinstance(image, mv.Population)
         assert session.frame(image).compute().to_pandas().iloc[:, 0].tolist() == [1]
 
@@ -152,7 +158,11 @@ def test_row_attribute_time_preserves_facts_and_explains_current_axis(
         session = mv.session.get_or_create("iana-row-rejection", timezone="UTC")
         label = (
             catalog_value(session.catalog, "sales.profiles.label", kind="dimension")
-            .via((catalog_value(session.catalog, "sales.profile", kind="relationship"),))
+            .via(
+                mv.path(
+                    catalog_value(session.catalog, "sales.profile", kind="relationship"),
+                )
+            )
             .at(catalog_value(session.catalog, "sales.facts.event_time", kind="time_dimension"))
         )
         with pytest.raises(AnalysisError):
@@ -243,7 +253,11 @@ def _assert_snapshot_row_result() -> None:
     label = catalog_value(session.catalog, "sales.profiles.label", kind="dimension")
     route = catalog_value(session.catalog, "sales.profile", kind="relationship")
     metric = catalog_value(session.catalog, "sales.facts.amount", kind="measure").sum(time=control)
-    historical = label.via((route,)).at(control)
+    historical = label.via(
+        mv.path(
+            route,
+        )
+    ).at(control)
     pending = session.observe({"value": metric}, by=(historical,))
     assert isinstance(pending.schema.axes[0].at, mv.FrameRowAttributeTime)
     result = pending.compute()
@@ -261,7 +275,13 @@ def _assert_snapshot_row_result() -> None:
     assert authored.to_pandas()["value"].tolist() == [11]
     fixed = session.observe(
         {"value": metric},
-        by=(label.via((route,)).at(session.instant("2026-09-03T00:00:00+00:00")),),
+        by=(
+            label.via(
+                mv.path(
+                    route,
+                )
+            ).at(session.instant("2026-09-03T00:00:00+00:00")),
+        ),
     ).compute()
     fixed_data = fixed.to_pandas(axis_names={fixed.axes[0].token: "label"})
     assert fixed_data.loc[fixed_data.label == "B", "value"].tolist() == [18]
@@ -311,7 +331,7 @@ def _row_project(
         {
             "datasources/warehouse.py": datasource_model,
             "sales/_domain.py": "import marivo.semantic as ms\nms.domain(name='sales',owner='Test',default=True)\n",
-            "sales/models.py": "import marivo.datasource as md\nimport marivo.semantic as ms\n"
+            "sales/models.py": "import marivo.analysis as mv\nimport marivo.datasource as md\nimport marivo.semantic as ms\n"
             + f"profiles=ms.entity(name='profiles',datasource=ms.ref.datasource('warehouse'),source={profiles_source},primary_key=['tenant','id'],versioning={declaration})\n"
             + f"point=ms.time_dimension_column(name='point',entity=profiles,column='point'{profile_parse})\nending=ms.time_dimension_column(name='ending',entity=profiles,column='ending'{profile_parse})\n"
             + "label=ms.dimension_column(name='label',entity=profiles,column='label')\npid=ms.dimension_column(name='id',entity=profiles,column='id')\nptenant=ms.dimension_column(name='tenant',entity=profiles,column='tenant')\n"
@@ -323,7 +343,7 @@ def _row_project(
             + "fid=ms.dimension_column(name='profile_id',entity=facts,column='profile_id')\nftenant=ms.dimension_column(name='tenant',entity=facts,column='tenant')\n"
             + "profile=ms.relationship(name='profile',from_entity=facts,to_entity=profiles,keys=[ms.join_on(ftenant,ptenant),ms.join_on(fid,pid)])\n"
             + "other_profile=ms.relationship(name='other_profile',from_entity=facts,to_entity=profiles,keys=[ms.join_on(ftenant,ptenant),ms.join_on(fid,pid)])\n"
-            + "historical_label=ms.ref.dimension('sales.profiles.label').via((profile,)).at(event_time)\n"
+            + "historical_label=ms.ref.dimension('sales.profiles.label').via(mv.path(profile,)).at(event_time)\n"
             + "@ms.metric()\ndef historical_b():\n    return amount.sum().where(historical_label == 'B')\n",
         }
     )
@@ -335,7 +355,11 @@ def _assert_row_result(tmp_path: Path, *, extended: bool = True) -> None:
     control = catalog_value(session.catalog, "sales.facts.event_time", kind="time_dimension")
     route = catalog_value(session.catalog, "sales.profile", kind="relationship")
     metric = catalog_value(session.catalog, "sales.facts.amount", kind="measure").sum()
-    historical = label.via((route,)).at(control)
+    historical = label.via(
+        mv.path(
+            route,
+        )
+    ).at(control)
     pending = session.observe({"value": metric}, by=(historical,))
     assert isinstance(pending.schema.axes[0].at, mv.FrameRowAttributeTime)
     complete = pending.compute()
@@ -370,7 +394,16 @@ def _assert_row_result(tmp_path: Path, *, extended: bool = True) -> None:
     # Session which acquired a Catalog, owns their closed interpretation.
     other = mv.session.get_or_create("other-row-owner", timezone="UTC")
     shared_control = catalog_value(other.catalog, "sales.facts.event_time", kind="time_dimension")
-    session.observe({"value": metric}, by=(label.via((route,)).at(shared_control),))
+    session.observe(
+        {"value": metric},
+        by=(
+            label.via(
+                mv.path(
+                    route,
+                )
+            ).at(shared_control),
+        ),
+    )
     domain = mv.coordinates(by=(historical,), keys=(("A",), ("B",), ("tenant2",), (None,)))
     covered = session.observe({"value": metric}, by=domain).compute()
     assert covered.to_pandas()["value"].sum() == 67
@@ -384,7 +417,13 @@ def _assert_row_result(tmp_path: Path, *, extended: bool = True) -> None:
     assert fixed_axis.to_pandas()["value"].tolist() == [11]
     fixed = session.observe(
         {"value": metric},
-        by=(label.via((route,)).at(session.instant("2026-09-03T00:00:00+00:00")),),
+        by=(
+            label.via(
+                mv.path(
+                    route,
+                )
+            ).at(session.instant("2026-09-03T00:00:00+00:00")),
+        ),
     ).compute()
     fixed_data = fixed.to_pandas()
     assert fixed_data.loc[fixed_data.iloc[:, 0] == "B", "value"].tolist() == [35]
@@ -495,7 +534,11 @@ def test_trino_row_version_join_and_daily_statement_count(
         control = catalog_value(session.catalog, "sales.facts.event_time", kind="time_dimension")
         label = (
             catalog_value(session.catalog, "sales.profiles.label", kind="dimension")
-            .via((catalog_value(session.catalog, "sales.profile", kind="relationship"),))
+            .via(
+                mv.path(
+                    catalog_value(session.catalog, "sales.profile", kind="relationship"),
+                )
+            )
             .at(control)
         )
         metric = catalog_value(session.catalog, "sales.facts.amount", kind="measure").sum(
@@ -552,7 +595,11 @@ def test_trino_snapshot_fact_row_time_uses_one_business_query(
         control = catalog_value(session.catalog, "sales.facts.event_time", kind="time_dimension")
         historical = (
             catalog_value(session.catalog, "sales.profiles.label", kind="dimension")
-            .via((catalog_value(session.catalog, "sales.profile", kind="relationship"),))
+            .via(
+                mv.path(
+                    catalog_value(session.catalog, "sales.profile", kind="relationship"),
+                )
+            )
             .at(control)
         )
         metric = catalog_value(session.catalog, "sales.facts.amount", kind="measure").sum(
@@ -583,10 +630,18 @@ def _assert_shared_routes(monkeypatch: pytest.MonkeyPatch, backend: str, target_
     control = catalog_value(session.catalog, "sales.facts.event_time", kind="time_dimension")
     other = catalog_value(session.catalog, "sales.facts.other_time", kind="time_dimension")
     route = catalog_value(session.catalog, "sales.profile", kind="relationship")
-    label = catalog_value(session.catalog, "sales.profiles.label", kind="dimension").via((route,))
+    label = catalog_value(session.catalog, "sales.profiles.label", kind="dimension").via(
+        mv.path(
+            route,
+        )
+    )
     member = (
         catalog_value(session.catalog, "sales.profiles.id", kind="dimension")
-        .via((route,))
+        .via(
+            mv.path(
+                route,
+            )
+        )
         .at(control)
     )
     amount = catalog_value(session.catalog, "sales.facts.amount", kind="measure")
@@ -596,7 +651,11 @@ def _assert_shared_routes(monkeypatch: pytest.MonkeyPatch, backend: str, target_
         (label.at(other), 2),
         (
             catalog_value(session.catalog, "sales.profiles.label", kind="dimension")
-            .via((catalog_value(session.catalog, "sales.other_profile", kind="relationship"),))
+            .via(
+                mv.path(
+                    catalog_value(session.catalog, "sales.other_profile", kind="relationship"),
+                )
+            )
             .at(control),
             2,
         ),

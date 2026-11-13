@@ -62,7 +62,8 @@ def _model(
     fanout: bool = False,
     sampled: bool = False,
 ) -> str:
-    code = """import marivo.datasource as md
+    code = """import marivo.analysis as mv
+import marivo.datasource as md
 import marivo.semantic as ms
 warehouse = ms.ref.datasource("warehouse")
 customers = ms.entity(name="customers", datasource=warehouse, source=md.table("customers"), primary_key=["id"])
@@ -241,7 +242,11 @@ def test_explicit_field_routes_and_during_none_are_frozen(
     catalog = session.catalog
     region = catalog_value(catalog, "sales.customers.region", kind="dimension")
     buyer = catalog_get(catalog, "relationship:sales.buyer", kind="relationship")
-    routed = region.via((buyer,))
+    routed = region.via(
+        mv.path(
+            buyer,
+        )
+    )
     query = session.observe(
         {"revenue": catalog_get(catalog, "metric:sales.revenue", kind="metric")},
         by=(routed,),
@@ -303,7 +308,18 @@ def test_time_role_is_optional_but_explicit_cross_entity_time_keeps_its_path(
     time = catalog_value(catalog, "sales.customers.created_at", kind="time_dimension")
     buyer = catalog_get(catalog, "relationship:sales.buyer", kind="relationship")
     amount = catalog_value(catalog, "sales.orders.amount", kind="measure")
-    query = session.observe({"revenue": amount.sum(time=time.via((buyer,)))}, where=scope)
+    query = session.observe(
+        {
+            "revenue": amount.sum(
+                time=time.via(
+                    mv.path(
+                        buyer,
+                    )
+                )
+            )
+        },
+        where=scope,
+    )
     contribution = _captured_observation(query).contributions[0]
     assert contribution.time is not None
     assert contribution.time.field == consume_field(time).reference
@@ -377,9 +393,11 @@ def test_attribute_anchor_preserves_exact_exclusive_endpoint(
     region = catalog_value(catalog, "sales.customers.region", kind="dimension")
     revenue = catalog_get(catalog, "metric:sales.revenue", kind="metric")
     scope = session.time_scope(start="2026-01-01", end="2026-02-01")
-    field = region.via((catalog_get(catalog, "relationship:sales.buyer", kind="relationship"),)).at(
-        scope.end
-    )
+    field = region.via(
+        mv.path(
+            catalog_get(catalog, "relationship:sales.buyer", kind="relationship"),
+        )
+    ).at(scope.end)
     query = session.observe({"revenue": revenue}, by=(field,), where=field == "APAC")
     binding = _captured_observation(query)
     assert binding is not None
@@ -421,7 +439,7 @@ field_value = {field_name}
 buyer_value = buyer
 @ms.metric()
 def filtered():
-    return amount_value.sum().where(field_value.via((buyer_value,)) == {literal})
+    return amount_value.sum().where(field_value.via(mv.path(buyer_value,)) == {literal})
 """
     semantic_project_factory(
         {
@@ -448,7 +466,9 @@ def filtered():
     )
     assert contribution.reads[-1].field.ref.path == f"sales.customers.{field_name}"
     routed = catalog_value(catalog, f"sales.customers.{field_name}", kind="field").via(
-        (catalog_get(catalog, "relationship:sales.buyer", kind="relationship"),)
+        mv.path(
+            catalog_get(catalog, "relationship:sales.buyer", kind="relationship"),
+        )
     )
     assert terminal_runs(session) == ()
 

@@ -165,6 +165,8 @@ def _execute(
         observe_read: Callable[[SourceRead, LoweredRead, StageOutput], None] | None = None,
         observe_local: Callable[[LocalCompute | FrameCompute | SourceRead, StageOutput], None]
         | None = None,
+        completed_frames: Mapping[str, StageOutput] | None = None,
+        retain_inputs: dict[str, StageOutput] | None = None,
     ) -> StageOutput:
         def local(stage: LocalCompute | FrameCompute | SourceRead, output: StageOutput) -> None:
             frame_events.append(stage.stage_id)
@@ -184,6 +186,8 @@ def _execute(
             adapt_source=adapt_source,
             observe_read=source,
             observe_local=local,
+            completed_frames=completed_frames,
+            retain_inputs=retain_inputs,
         )
         captured.append((output, compiled.lowered.plan))
         return output

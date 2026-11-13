@@ -672,6 +672,7 @@ def _query_entities(graph: BoundGraph, state: CompiledSemanticState) -> tuple[st
 
             if (
                 isinstance(read, IdentityRead)
+                and bool(read.components)
                 and identity_projection(read, contribution.root, state.registry) is not None
             ):
                 continue
@@ -705,6 +706,7 @@ def prepare_query_sources(
     memo: InvocationMemo | None = None,
     consumption_timezone: str = "UTC",
     frame_schemas: Mapping[str, DataSchema] | None = None,
+    reuse_sources: PreparedSources | None = None,
 ) -> PreparedSources:
     """Prepare fields and relationships, acquiring HTTP JSON to infer its types."""
     from marivo._definition.relations import ReadQuery
@@ -719,6 +721,7 @@ def prepare_query_sources(
             memo=memo,
             frame_schemas=frame_schemas,
             consumption_timezone=consumption_timezone,
+            reuse_sources=reuse_sources,
         )
 
     from marivo.analysis.materialization.query_preparation import prepare_fields
@@ -726,10 +729,12 @@ def prepare_query_sources(
 
     available = sources or {source.datasource.semantic_id: source}
     registry, sidecar = state.registry, state.sidecar
-    entities: dict[str, ir.Table] = {}
-    bounds: dict[str, BoundSource] = {}
-    owners: dict[str, SourceSession] = {}
+    entities: dict[str, ir.Table] = {} if reuse_sources is None else dict(reuse_sources.entities)
+    bounds: dict[str, BoundSource] = {} if reuse_sources is None else dict(reuse_sources.bound)
+    owners: dict[str, SourceSession] = {} if reuse_sources is None else dict(reuse_sources.sources)
     for path in _query_entities(graph, state):
+        if path in entities:
+            continue
         contract = normalize_target_entity(registry, path)
         owner = available[contract.datasource_ref.path]
         try:
@@ -1190,6 +1195,7 @@ def open_query_sources(
     consumption_timezone: str = "UTC",
     frame_schemas: Mapping[str, DataSchema] | None = None,
     json_responses: dict[str, JsonResponseCache] | None = None,
+    reuse_sources: PreparedSources | None = None,
 ) -> Iterator[PreparedSources]:
     """Open sources, sharing HTTP responses only inside the caller's evaluation."""
     entities = qualify_source_inputs(graph, state)
@@ -1199,8 +1205,17 @@ def open_query_sources(
     )
     binding_scope = object()
     with ExitStack() as stack:
-        sources: dict[str, SourceSession] = {}
+        sources: dict[str, SourceSession] = (
+            {}
+            if reuse_sources is None
+            else {
+                source.datasource.semantic_id: source
+                for source in (reuse_sources.source, *reuse_sources.sources.values())
+            }
+        )
         for name in datasources:
+            if name in sources:
+                continue
             datasource = state.registry.datasources[name]
             namespace = dumps(
                 (name, datasource.backend_type, dict(datasource.fields), dict(datasource.env_refs)),
@@ -1232,6 +1247,7 @@ def open_query_sources(
             sources=sources,
             memo=memo,
             frame_schemas=frame_schemas,
+            reuse_sources=reuse_sources,
         )
         yield replace(prepared, graph=native_graph)
 
@@ -2002,6 +2018,14 @@ def _source_check_failure(
                 stage="population_identity",
                 help_target="analysis_frame.compute",
             )
+        if expected == "a non-null complete identity for every input tuple":
+            raise MaterializationError(
+                expected=expected,
+                received=received,
+                repair="Supply a complete target key for each input identity, or use image/preimage to select existing mappings.",
+                stage="population_identity",
+                help_target="population.classify",
+            )
     numeric_failure(expected, received)
 
 
@@ -2254,6 +2278,8 @@ def execute_numeric_query(
     frame_key_inputs: Mapping[str, StageOutput] | None = None,
     report_domain: pd.DataFrame | None = None,
     sample_domains: Mapping[tuple[int, ...], pd.DataFrame] | None = None,
+    checked_inputs: Mapping[str, StageOutput] | None = None,
+    retain_inputs: dict[str, StageOutput] | None = None,
 ) -> StageOutput:
     """Execute the fixed numeric schedule and return invocation-local pandas data."""
     from marivo.analysis.core.model import reject
@@ -2455,8 +2481,15 @@ def execute_numeric_query(
                     "Freeze the explicit source output.",
                     "frame.source",
                 )
-            output = adapt_source(source_outputs[stage.stage_id], output)
-        return transport(stage.stage_id, output)
+            if output.frame_schema is None:
+                output = adapt_source(source_outputs[stage.stage_id], output)
+        output = transport(stage.stage_id, output)
+        if retain_inputs is not None:
+            if isinstance(stage, FrameInput):
+                retain_inputs[stage.input_id] = output
+            if source_outputs is not None and stage.stage_id in source_outputs:
+                retain_inputs[source_outputs[stage.stage_id]] = output
+        return output
 
     result = run_query_plan(
         lowered.plan,
@@ -2469,6 +2502,7 @@ def execute_numeric_query(
         frame_keys=(lambda stage: frame_key_inputs[stage.stage_id])
         if frame_key_inputs is not None
         else None,
+        available=checked_inputs,
     )
     from marivo.analysis.materialization.graph_exchange import source_columns
 
@@ -2488,6 +2522,8 @@ def run_frame_plan(
     observe_read: Callable[[SourceRead, LoweredRead, StageOutput], None] | None = None,
     observe_local: Callable[[LocalCompute | FrameCompute | SourceRead, StageOutput], None]
     | None = None,
+    completed_frames: Mapping[str, StageOutput] | None = None,
+    retain_inputs: dict[str, StageOutput] | None = None,
 ) -> StageOutput:
     """Bind explicit inputs to the existing one-invocation numeric scheduler."""
     from marivo.analysis.materialization.attribute_native_execution import prepare_native_game
@@ -2502,6 +2538,20 @@ def run_frame_plan(
         for stage_id, input_id in compiled.source_stages
         if input_id in source_prepared
     }
+    completed = {} if completed_frames is None else completed_frames
+    checked_inputs = {
+        **dict(compiled.checked_inputs),
+        **{
+            stage.stage_id: completed[stage.input_id]
+            for stage in compiled.lowered.plan.stages
+            if isinstance(stage, FrameInput) and stage.input_id in completed
+        },
+        **{
+            stage_id: completed[input_id]
+            for stage_id, input_id in compiled.source_outputs
+            if input_id in completed
+        },
+    }
     return execute_numeric_query(
         None,
         compiled.lowered,
@@ -2513,6 +2563,8 @@ def run_frame_plan(
         source_outputs=dict(compiled.source_outputs),
         observe_frame=observe_local,
         native_prepared=native,
+        checked_inputs=checked_inputs,
+        retain_inputs=retain_inputs,
     )
 
 
@@ -2682,6 +2734,7 @@ def prepare_attribute_sources(
                 if observation.coordinates.parent_scope is None
                 else observation.coordinates.parent_scope.axes
             )
+            from marivo._definition.population_builders import axis as field_axis
             from marivo._definition.relations import AttributeKeys, PopulationProgram
 
             scope = observation.coordinates.parent_scope
@@ -2694,9 +2747,7 @@ def prepare_attribute_sources(
                 rule
                 for rule in first.memberships
                 if all(
-                    AxisBinding(read.entity, read.field, read.path, "field", read.at)
-                    in (*parent_axes, *fixed_parent_axes)
-                    for read in rule.fields
+                    field_axis(read) in (*parent_axes, *fixed_parent_axes) for read in rule.fields
                 )
             )
             new_memberships = tuple(

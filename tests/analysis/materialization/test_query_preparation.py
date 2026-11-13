@@ -34,7 +34,8 @@ from marivo.semantic.errors import SemanticExpressionError
 from marivo.semantic.reader import SemanticProject
 from tests.shared_fixtures import catalog_value
 
-MODEL = """import marivo.datasource as md
+MODEL = """import marivo.analysis as mv
+import marivo.datasource as md
 import marivo.semantic as ms
 from marivo._temporal import InstantAnchor
 warehouse = ms.ref.datasource("warehouse")
@@ -59,7 +60,7 @@ amount_value = amount
 region_value = region
 buyer_value = buyer
 anchor = InstantAnchor.fromisoformat("2026-01-01T00:00:00+00:00")
-anchored_region = region_value.via((buyer_value,)).at(anchor)
+anchored_region = region_value.via(mv.path(buyer_value,)).at(anchor)
 @ms.metric()
 def total():
     return amount_value.sum(time=stamp)
@@ -188,9 +189,21 @@ def test_paths_anchors_and_computed_fields(prepared_session: Session) -> None:
     )
     buyer = catalog_value(session.catalog, "sales.buyer", kind="relationship")
     seller = catalog_value(session.catalog, "sales.seller", kind="relationship")
-    old = region.via((buyer,)).at(session.instant("2026-01-15"))
-    new = region.via((buyer,)).at(session.instant("2026-02-15"))
-    other = region.via((seller,)).at(session.instant("2026-01-15"))
+    old = region.via(
+        mv.path(
+            buyer,
+        )
+    ).at(session.instant("2026-01-15"))
+    new = region.via(
+        mv.path(
+            buyer,
+        )
+    ).at(session.instant("2026-02-15"))
+    other = region.via(
+        mv.path(
+            seller,
+        )
+    ).at(session.instant("2026-01-15"))
     output = compute(session, {"sum": amount.sum()}, by=(old, new, other), where=doubled > 0)
     assert output.table.to_dict("list") == {
         "key.0": ["old", "other"],
@@ -266,7 +279,11 @@ def test_window_excludes_unrelated_bad_mapping(prepared_session: Session) -> Non
         region, (ms.RowExpression, ms.MetricExpression)
     )
     buyer = catalog_value(session.catalog, "sales.buyer", kind="relationship")
-    group = region.via((buyer,)).at(session.instant("2026-01-15"))
+    group = region.via(
+        mv.path(
+            buyer,
+        )
+    ).at(session.instant("2026-01-15"))
     stamp = catalog_value(session.catalog, "sales.orders.stamp", kind="time_dimension")
     result = compute(
         session,
@@ -465,10 +482,18 @@ def test_snapshot_attribute_uses_exact_date(prepared_session: Session) -> None:
         region, (ms.RowExpression, ms.MetricExpression)
     )
     buyer = catalog_value(session.catalog, "sales.buyer", kind="relationship")
-    group = region.via((buyer,)).at(session.instant("2025-01-01T00:00:00+00:00"))
+    group = region.via(
+        mv.path(
+            buyer,
+        )
+    ).at(session.instant("2025-01-01T00:00:00+00:00"))
     result = compute(session, {"sum": amount.sum()}, by=(group,))
     assert sorted(result.table["value.0"].tolist()) == [10, 20]
-    missing = region.via((buyer,)).at(session.instant("2025-01-02T00:00:00+00:00"))
+    missing = region.via(
+        mv.path(
+            buyer,
+        )
+    ).at(session.instant("2025-01-02T00:00:00+00:00"))
     output = compute(session, {"sum": amount.sum()}, by=(missing,)).table
     assert output["key.0"].isna().all()
     assert output["value.0"].tolist() == [30]

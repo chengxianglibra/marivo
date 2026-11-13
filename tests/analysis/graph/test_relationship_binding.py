@@ -104,9 +104,16 @@ def test_inference_and_root_identity(analysis_dsl_case_factory: DslCaseFactory) 
     )
     region = catalog_value(session.catalog, REGION.path, kind="dimension")
     buyer = catalog_value(session.catalog, BUYER.path, kind="relationship")
-    inferred = session.read(orders, {"region": region})
-    explicit = session.read(orders, {"region": region.via((buyer,))})
-    assert source_graph(inferred).fingerprint == source_graph(explicit).fingerprint
+    with pytest.raises(AnalysisError, match="No existing complete identity"):
+        session.read(orders, {"region": region})
+    explicit = session.read(orders, {"region": region.via(mv.path(buyer))})
+    assert explicit.compute().to_pandas()["region"].tolist() == [
+        "east",
+        "east",
+        "south",
+        "east",
+        "east",
+    ]
     assert (
         source_graph(session.read(customers, {"region": region})).signature.owner
         == source_graph(automatic).signature.owner
@@ -172,14 +179,29 @@ def test_roles_and_independent_read_paths(analysis_dsl_case_factory: DslCaseFact
         {"A": 150, "B": 400, "C": 450, "D": 0},
     )
     for route, expected in zip((buyer, recipient), expected_roles, strict=True):
-        axis = customer_id.via((route,))
+        axis = customer_id.via(
+            mv.path(
+                route,
+            )
+        )
         complete = mv.coordinates(by=(axis,), keys=(("A",), ("B",), ("C",), ("D",)))
         observed = session.observe(
             {"value": revenue}, by=mv.product(_window(session), complete)
         ).persist()
         frame = observed.to_pandas()
         assert frame.set_index(ordinary_columns(observed)[0])["value"].to_dict() == expected
-    buyer_region, recipient_region = region.via((buyer,)), region.via((recipient,))
+    buyer_region, recipient_region = (
+        region.via(
+            mv.path(
+                buyer,
+            )
+        ),
+        region.via(
+            mv.path(
+                recipient,
+            )
+        ),
+    )
     current_frame = session.observe(
         {"value": revenue}, by=(buyer_region, recipient_region), where=_window(session)
     ).persist()
@@ -216,10 +238,8 @@ def test_roles_and_independent_read_paths(analysis_dsl_case_factory: DslCaseFact
     }
 
 
-@pytest.mark.parametrize("explicit", (False, True))
 def test_classification_read_preserves_missing_owner_as_null(
     analysis_dsl_case_factory: DslCaseFactory,
-    explicit: bool,
 ) -> None:
     case = analysis_dsl_case_factory("j1")
     session = _extend(case)
@@ -227,7 +247,7 @@ def test_classification_read_preserves_missing_owner_as_null(
         connection.execute("UPDATE order_line SET product_id='missing' WHERE line_id='outside'")
     category_field = catalog_value(session.catalog, CATEGORY.path, kind="dimension")
     route = catalog_value(session.catalog, LINE_PRODUCT.path, kind="relationship")
-    category = category_field.via((route,)) if explicit else category_field
+    category = category_field.via(mv.path(route))
     attributes = (
         session.read(
             session.members(catalog_value(session.catalog, LINE.path, kind="entity")),
@@ -271,7 +291,15 @@ def test_branch_and_consumed_coverage(analysis_dsl_case_factory: DslCaseFactory)
     metric = catalog_value(session.catalog, LINE_REVENUE.path, kind="metric")
     automatic = session.observe({"value": metric}, by=(category,), where=_window(session))
     explicit = session.observe(
-        {"value": metric}, by=(category.via((route,)),), where=_window(session)
+        {"value": metric},
+        by=(
+            category.via(
+                mv.path(
+                    route,
+                )
+            ),
+        ),
+        where=_window(session),
     )
     automatic_axis = next(
         axis
@@ -343,8 +371,10 @@ def test_multiroot_branch_arithmetic(analysis_dsl_case_factory: DslCaseFactory) 
     buckets = mv.membership(
         category,
         via=(
-            (catalog_value(session.catalog, LINE_PRODUCT.path, kind="relationship"),),
-            (
+            mv.path(
+                catalog_value(session.catalog, LINE_PRODUCT.path, kind="relationship"),
+            ),
+            mv.path(
                 catalog_get(
                     session.catalog, "relationship:sales.order_product", kind="relationship"
                 ),

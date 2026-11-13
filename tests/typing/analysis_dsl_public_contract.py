@@ -94,10 +94,33 @@ if TYPE_CHECKING:
         assert_type(fixed.intersection(members), mv.Population | Deferred)
         assert_type(fixed.difference(members), mv.Population | Deferred)
         assert_type(fixed.project(by=(fixed.axes[0],)), mv.Population | Deferred)
-        assert_type(fixed.classify(by=(region,)), mv.Population | Deferred)
-        assert_type(fixed.image(via=(relation,)), mv.Population | Deferred)
-        assert_type(fixed.preimage(members, via=(relation,)), mv.Population | Deferred)
-        descriptor = mv.membership(region, via=((relation,),), unmatched="exclude")
+        assert_type(fixed.classify(by=(region,)).project(by=(region,)), mv.Population | Deferred)
+        assert_type(
+            fixed.image(
+                via=mv.path(
+                    relation,
+                )
+            ),
+            mv.Population,
+        )
+        assert_type(
+            fixed.preimage(
+                members,
+                via=mv.path(
+                    relation,
+                ),
+            ),
+            mv.Population,
+        )
+        descriptor = mv.membership(
+            region,
+            via=(
+                mv.path(
+                    relation,
+                ),
+            ),
+            unmatched="exclude",
+        )
         assert_type(descriptor, mv.Grouping)
         scope = session.time_scope(start="2026-01-01", end="2026-02-01")
         assert_type(mv.product(complete, members), mv.Population)
@@ -211,7 +234,7 @@ if TYPE_CHECKING:
         assert customer.kind == "entity"
         people = session.members(customer)
         assert_type(mv.identity(customer), mv.Grouping)
-        assert_type(people.classify(by=(people.axes[0], field)), mv.Population | Deferred)
+        assert_type(people.classify(by=(people.axes[0], field)), mv.Population)
         assert_type(people.project(by=(people.axes[0],)), mv.Population | Deferred)
         assert_type(session.read(people, {"category": field}), mv.AnalysisFrame)
         assert_type(

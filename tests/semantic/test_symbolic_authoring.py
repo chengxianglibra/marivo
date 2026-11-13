@@ -31,7 +31,8 @@ from tests.shared_fixtures import (
 
 ProjectFactory = Callable[..., SemanticProject]
 _DOMAIN = 'import marivo.semantic as ms\nms.domain(name="sales", owner="Analytics")\n'
-_PHYSICAL = """import marivo.datasource as md
+_PHYSICAL = """import marivo.analysis as mv
+import marivo.datasource as md
 import marivo.semantic as ms
 orders = ms.entity(name="orders", datasource=ms.ref.datasource("warehouse"), source=md.table("orders"), primary_key=["id"])
 amount = ms.measure_column(name="amount", entity=orders, column="amount", unit="CNY", additivity=ms.additive_all())
@@ -256,9 +257,10 @@ customer_id = ms.dimension_column(name="customer_id", entity=orders, column="cus
 id = ms.dimension_column(name="id", entity=customers, column="id")
 credit = ms.measure_column(name="credit", entity=customers, column="credit", unit="CNY", additivity=ms.additive_all())
 buyer = ms.relationship(name="buyer", from_entity=orders, to_entity=customers, keys=[ms.join_on(customer_id, id)])
+buyer_path = mv.path(buyer)
 @ms.measure()
 def adjusted():
-    return credit.via((buyer,))
+    return credit.via(buyer_path)
 @ms.measure()
 def margin():
     return amount - cost

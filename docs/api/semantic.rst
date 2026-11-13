@@ -138,6 +138,12 @@ no lookup. Named leaf references resolve in the receiving Catalog or Session's
 completed scope after project and owner checks. Display remains bound to the
 original captured definition.
 
+``field.via(mv.path(...))`` captures a directed scalar route ending at the
+field's Entity. Use ``relationship.at(anchor)`` for a step's target version
+and ``source_at`` for the path's source version. A scalar field can also
+specify the terminal version with ``field.at(anchor)``; use one declaration
+per node.
+
 ``RowExpression`` has the closed roles ``dimension``, ``time``, ``numeric`` and
 ``boolean``; ``MetricExpression`` has ``numeric`` and ``boolean`` roles. Numeric
 comparisons return the same stage's boolean role. Anonymous expressions have no

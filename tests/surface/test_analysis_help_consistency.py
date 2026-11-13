@@ -11,7 +11,6 @@ from marivo._help.render import render_help_text
 from marivo.analysis._capabilities.dataset_model import CallableInput
 from marivo.analysis._capabilities.registry import REGISTRY
 from marivo.analysis.core.data_types import DurationDataType
-from marivo.analysis.errors import AnalysisError
 from marivo.semantic import Entity
 from tests.shared_fixtures import (
     DslCaseFactory,
@@ -23,6 +22,7 @@ from tests.shared_fixtures import (
     ("target", "output"),
     (
         ("identity", "Grouping | Deferred"),
+        ("path.define", "Path | PathSymbol"),
         ("coordinates", "Population | Deferred"),
         ("membership", "Grouping | Deferred"),
         ("product", "Population | Deferred"),
@@ -31,6 +31,7 @@ from tests.shared_fixtures import (
             for method in (
                 "project",
                 "classify",
+                "identities",
                 "union",
                 "intersection",
                 "difference",
@@ -61,12 +62,15 @@ def test_symbolic_population_branches_remain_deferred(
     region = ms.ref.dimension("sales.customer.region")
     customer = ms.ref.entity("sales.customer")
     buyer = ms.ref.relationship("sales.buyer")
+    route = mv.path(buyer)
     symbolic = mv.coordinates(by=(region,), keys=(("east",),))
     identities = mv.coordinates(by=(mv.identity(customer),), keys=((("A",),),))
     for value in (
+        route,
+        mv.identity(route),
         mv.identity(customer),
         symbolic,
-        mv.membership(region, via=((buyer,),), unmatched="exclude"),
+        mv.membership(region, via=(route,), unmatched="exclude"),
         mv.product(symbolic, identities),
         customers.project(by=(region,)),
         customers.classify(by=(region,)),
@@ -74,8 +78,8 @@ def test_symbolic_population_branches_remain_deferred(
         customers.intersection(identities),
         customers.difference(identities),
         customers.where(mv.in_population(identities)),
-        orders.image(via=(buyer,)),
-        orders.preimage(identities, via=(buyer,)),
+        orders.image(via=route),
+        orders.preimage(identities, via=route),
     ):
         assert isinstance(value, Deferred)
 
@@ -117,7 +121,7 @@ def test_operator_help_preserves_duration_units_and_boolean_null_rules(
     assert rows["or"].tolist() == [True]
 
 
-def test_read_help_requires_one_complete_identity_axis(
+def test_read_help_preserves_classified_axes_and_values(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
     case = analysis_dsl_case_factory("j2")
@@ -125,13 +129,12 @@ def test_read_help_requires_one_complete_identity_axis(
     region = catalog_value(case.catalog, "sales.customer.region", kind="field")
     assert isinstance(entity, Entity) and isinstance(region, ms.Dimension)
     members = case.session.members(entity)
-    classified = members.classify(by=(*members.axes, region))
+    classified = members.classify(by=(region,))
     assert isinstance(classified, mv.Population)
-    with pytest.raises(AnalysisError):
-        case.session.read(classified, {"region": region})
-    projected = classified.project(by=(classified.axes[0],))
-    assert isinstance(projected, mv.Population)
-    assert case.session.read(projected, {"region": region}).output_names == ("region",)
+    actual = case.session.read(classified, {"named_region": region}).compute()
+    assert len(actual.axes) == 2
+    assert actual.output_names == ("named_region",)
+    assert actual.to_pandas()["named_region"].tolist().count("east") == 2
 
 
 def test_read_help_example_reads_only_selected_members(

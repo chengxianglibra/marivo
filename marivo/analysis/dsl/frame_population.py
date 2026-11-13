@@ -4,22 +4,23 @@ from __future__ import annotations
 
 from ibis.common.deferred import Deferred
 
+from marivo._definition.correspondence import coordinate_matches
+from marivo._definition.population_builders import axis as field_axis
 from marivo._definition.relations import FrameKeyAxis, FrameKeys, PopulationProgram
-from marivo._definition.types import AxisBinding, FieldRead, InputContext
-from marivo._temporal import anchor_from_datetime
+from marivo._definition.types import AxisBinding, InputContext
 from marivo.analysis.binding.coordinates import bind_read, native_read
 from marivo.analysis.core.frame_structure import axis_role, column_kind
+from marivo.analysis.core.lineage import ColumnLineage
 from marivo.analysis.core.model import reject
 from marivo.analysis.dsl._frame_inputs import FrameKeyInput, merge_frame_key_inputs
 from marivo.analysis.dsl.frame import AnalysisFrame
 from marivo.analysis.dsl.frame_axis import FrameAxis
-from marivo.analysis.dsl.population import Population
+from marivo.analysis.dsl.population import Population, _read
 from marivo.analysis.materialization.frame_services import LocalFrameServices
 from marivo.analysis.observation.relationship_binding import RelationshipResolver
 from marivo.refs import SemanticKind
 from marivo.semantic._compiled_state import CompiledSemanticState
 from marivo.semantic._consumption import bind_field_in_state, validate_context
-from marivo.semantic._deferred_semantics import consume_field
 from marivo.semantic._expression_values import FieldExpression, RowExpression
 from marivo.semantic.catalog import Entity as EntityObject
 from marivo.semantic.expressions import _Entity as Entity
@@ -27,8 +28,7 @@ from marivo.semantic.expressions import _Resolver, entity_exact
 
 
 def _field_axis(value: Deferred, state: CompiledSemanticState, resolver: _Resolver) -> AxisBinding:
-    field = consume_field(value)
-    read = field.field_read or FieldRead(field.reference, field.root)
+    read = _read(value)
     root = read.entity
     if read.path:
         first = state.registry.relationships.get(read.path[0].ref.path)
@@ -43,7 +43,22 @@ def _field_axis(value: Deferred, state: CompiledSemanticState, resolver: _Resolv
     current = bind_read(
         read, root, state.registry, resolver, RelationshipResolver.build(state.registry)
     )
-    return AxisBinding(current.entity, current.field, current.path, "field", current.at)
+    return field_axis(current)
+
+
+def _is_captured_direct_field(binding: AxisBinding, axis_name: str, lineage: ColumnLineage) -> bool:
+    # Lineage provides field and relationship identities, without ordered node anchors.
+    assert binding.field is not None
+    target = binding.field.ref
+    return (
+        not binding.path
+        and axis_name == target.path
+        and any(
+            origin.kind == target.kind.value and origin.path == target.path
+            for origin in lineage.value_origins
+        )
+        and all(origin.kind != "relationship" for origin in lineage.value_origins)
+    )
 
 
 def population_from(
@@ -71,7 +86,8 @@ def population_from(
     resolver = _Resolver(state) if state is not None else None
     bindings: list[FrameKeyAxis] = []
     selected: set[int] = set()
-    targets: set[AxisBinding] = set()
+    targets: list[AxisBinding] = []
+    identity_keys: list[tuple[str, tuple[str, ...]]] = []
     inputs = merge_frame_key_inputs((FrameKeyInput(frame._input_id, frame),), owner=local.owner)
     for axis, target in on:
         assert state is not None and resolver is not None
@@ -124,24 +140,35 @@ def population_from(
                     "Map a complete identity axis with the target primary-key width.",
                     "frame.population",
                 )
-            from marivo.analysis.core.frame_interpretation import FrameRowAttributeTime
-
-            assert not isinstance(captured.at, FrameRowAttributeTime)
-            at = anchor_from_datetime(captured.at) if captured.at is not None else None
-            if (
-                at is not None
-                and state.registry.entities[entity_exact(entity).ref.path].versioning is None
-            ):
-                reject(
-                    "a versioned target Entity for the captured identity anchor",
-                    entity_exact(entity).ref.key,
-                    "Select a compatible versioned Entity or an unanchored identity axis.",
-                    "frame.population",
-                )
-            binding = AxisBinding(entity_exact(entity), None, (), "identity", at)
+            exact = entity_exact(entity)
+            binding = AxisBinding(
+                exact,
+                None,
+                (),
+                "identity",
+                versioned=state.registry.entities[exact.ref.path].versioning is not None,
+            )
+            identity_keys.append((exact.ref.key, entity.primary_key))
         elif role == "field" and isinstance(target, Deferred):
             binding = _field_axis(target, state, resolver)
             assert binding.field is not None
+            if (
+                binding.versioned
+                and binding.at is None
+                and (
+                    captured.at is not None
+                    or not _is_captured_direct_field(
+                        binding, captured.name, frame.lineage.axes[axis.token]
+                    )
+                )
+            ):
+                reject(
+                    "a matching captured unanchored field or an explicit version for the target",
+                    f"{captured.name} at {captured.at!r} -> {binding.field.ref.key}",
+                    "Bind the target with field.at(session.instant(...)) to declare its version.",
+                    "frame.population",
+                    canonical_id="session.population_from",
+                )
             native = native_read(binding.field, state.registry, resolver)
             unit = (
                 resolver.measure(native.field.ref.path).unit
@@ -173,14 +200,14 @@ def population_from(
                 "Use complete ordinary coordinate handles and explicitly resolved Catalog targets.",
                 "frame.population",
             )
-        if binding in targets:
+        if any(coordinate_matches(binding, previous) for previous in targets):
             reject(
                 "each target coordinate once",
                 repr(binding),
                 "Remove the repeated target coordinate from on.",
                 "frame.population",
             )
-        targets.add(binding)
+        targets.append(binding)
         bindings.append(FrameKeyAxis(axis.token, axis.key_names, binding))
     definition = PopulationProgram(
         FrameKeys(frame._input_id, tuple(bindings)),
@@ -188,5 +215,8 @@ def population_from(
         tuple(binding.target for binding in bindings),
     )
     return Population(
-        definition, inputs, _context=InputContext(local.store.project_root, local.owner)
+        definition,
+        inputs,
+        _context=InputContext(local.store.project_root, local.owner),
+        _identity_keys=tuple(identity_keys),
     )

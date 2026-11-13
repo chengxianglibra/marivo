@@ -123,7 +123,7 @@ def canonical_value(value: object) -> object:
         return {
             field.name: canonical_value(getattr(value, field.name))
             for field in fields(value)
-            if field.name != "_from_default_time"
+            if field.name not in {"_from_default_time", "_context"}
         }
     if isinstance(value, (tuple, list)):
         return [canonical_value(item) for item in value]
@@ -311,7 +311,7 @@ def _encode(
             **{
                 field.name: _encode(getattr(value, field.name), memo, payloads)
                 for field in fields(value)
-                if field.name != "_from_default_time"
+                if field.name not in {"_from_default_time", "_context"}
             },
         }
         # Captured dataclasses are immutable. Keep the input alive against ID
@@ -403,7 +403,7 @@ def _collect_refs(value: object, into: set[ExactRef]) -> None:
             _collect_refs(item, into)
     elif is_dataclass(value) and not isinstance(value, type) and not _is_node(value):
         for field in fields(value):
-            if field.name != "_from_default_time":
+            if field.name not in {"_from_default_time", "_context"}:
                 _collect_refs(getattr(value, field.name), into)
 
 

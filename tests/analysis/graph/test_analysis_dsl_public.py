@@ -139,9 +139,11 @@ def test_public_grouped_foreign_entity_observation_infers_unique_route(
     case = analysis_dsl_case_factory("j1")
     session = case.session
     region = catalog_value(session.catalog, "sales.customer.region", kind="dimension")
-    population = session.members(
-        catalog_get(session.catalog, "entity:sales.customer", kind="entity")
-    ).classify(by=(region,))
+    population = (
+        session.members(catalog_get(session.catalog, "entity:sales.customer", kind="entity"))
+        .classify(by=(region,))
+        .project(by=(region,))
+    )
     assert isinstance(population, mv.Population)
     query = session.observe(
         {"value": catalog_get(session.catalog, "metric:sales.revenue", kind="metric")},
@@ -317,6 +319,15 @@ def test_public_wrong_relationship_rejects_before_execution(
     wrong = catalog_get(session.catalog, "relationship:sales.line_order", kind="relationship")
     region = catalog_value(session.catalog, "sales.customer.region", kind="dimension")
     with pytest.raises(SemanticExpressionError) as route:
-        session.read(members, {"region": region.via((wrong,))})
+        session.read(
+            members,
+            {
+                "region": region.via(
+                    mv.path(
+                        wrong,
+                    )
+                )
+            },
+        )
     assert route.value.repair is not None
     assert route.value.repair.help_target is not None

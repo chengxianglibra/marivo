@@ -209,6 +209,9 @@ if TYPE_CHECKING:
     from marivo.analysis.dsl.population import product as product
     from marivo.analysis.dsl.temporal import CalendarAxis as CalendarAxis
     from marivo.analysis.session.core import Session as Session
+    from marivo.semantic._paths import Path as Path
+    from marivo.semantic._paths import RelationshipStep as RelationshipStep
+    from marivo.semantic._paths import path as path
 
 
 if not TYPE_CHECKING:

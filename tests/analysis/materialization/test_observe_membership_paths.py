@@ -94,8 +94,20 @@ seller = ms.relationship(name='seller', from_entity=orders, to_entity=people, ke
         amount = catalog_value(session.catalog, "sales.orders.amount", kind="measure")
         buyer = catalog_get(session.catalog, "relationship:sales.buyer", kind="relationship")
         seller = catalog_get(session.catalog, "relationship:sales.seller", kind="relationship")
-        allocation = mv.membership(region, via=((buyer,),), unmatched="exclude")
-        seller_region = region.via((seller,))
+        allocation = mv.membership(
+            region,
+            via=(
+                mv.path(
+                    buyer,
+                ),
+            ),
+            unmatched="exclude",
+        )
+        seller_region = region.via(
+            mv.path(
+                seller,
+            )
+        )
         grouped = session.observe({"v": amount.sum()}, by=(allocation, seller_region))
         fixed = grouped.compute()
         actual = {
