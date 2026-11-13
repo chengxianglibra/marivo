@@ -142,6 +142,24 @@ continue the parts of the task that construction and existing checks can
 establish. Follow structured reauthoring errors without changing the intended
 business meaning merely to make a declaration pass.
 
+## Performance: time partition modeling
+
+When choosing an Entity's default time or a Metric's business contribution time,
+prefer a TimeDimension backed by physical time partition columns among candidates
+that satisfy the established business meaning, required precision and timezone.
+This lets downstream time filters target partition columns and can reduce scans.
+Establish partition facts from source metadata and time meaning from business
+authority; a partition column's name alone establishes neither.
+
+Use an Entity default only for an established shared clock, and an explicit
+Metric clock for a distinct business time role. Keep ingestion or snapshot time
+separate from event time when their meanings differ. A daily partition cannot
+replace a timestamp needed for intraday membership; expose both when needed so
+analysis can combine a safe partition bound with the exact business-time filter.
+Preserve physical column mappings and declared encodings through supported time
+definitions. Partition-backed modeling enables optimization but does not prove
+backend pruning.
+
 ## Delivery and return to the parent task
 
 Leave authoring when its selected exit is satisfied. For analysis handoff, pass

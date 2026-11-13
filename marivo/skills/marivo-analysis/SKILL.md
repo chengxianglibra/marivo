@@ -49,6 +49,22 @@ is not additive across time. Use an established Metric for the intended
 time role, or route unresolved reusable meaning to semantic authoring.
 Clarify the business time role when plausible choices would change the answer.
 
+## Performance: time partition filtering
+
+For time-bounded analysis, first consider filters on governed TimeDimensions
+backed by physical time partition columns to reduce source scans. Prefer them
+when they preserve the requested business time, precision, timezone and row
+membership. Keep the Metric's contribution clocks and exact business-time
+conditions; a coarse partition range can supplement a finer time condition.
+
+Add a partition bound only when established partition semantics show that it
+includes every required contribution, including history needed by windows and
+each formula branch. Explicit field predicates remain fixed when windows expand.
+Do not assume ingestion partitions match event time or exclude late arrivals and
+backfills. If a safe bound is unknown, retain the correct time filter without
+inventing one. Partition predicates enable optimization; claim actual pruning
+only with backend plan evidence.
+
 ## Analytical judgment
 
 Apply only the distinctions that affect the requested answer; these are not a
