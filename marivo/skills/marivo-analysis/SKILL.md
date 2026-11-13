@@ -147,8 +147,12 @@ expressions or method execution support; repeat it only for a missing input.
 ### Choose the next useful step
 
 Choose work that can materially change a required answer, recommendation, or
-limitation. Prefer the smallest sufficient typed analysis chain and batch known,
-compatible work into one decision round.
+limitation. Prefer the smallest sufficient typed analysis chain for the next
+decision. Batch known, compatible work when it shares meaningful computation
+or its results are needed together. When the host supports staged delivery,
+hand off the first checked result that answers a core part of the question
+before preparing independent follow-up work. Keep any batch within the host's
+delivery milestones, including the user's requested result order.
 
 Choose disclosure for the current gap:
 
@@ -173,12 +177,14 @@ or reconstruct signatures before trying a documented call. Logical construction
 can proceed without values; evaluate when the next decision needs values.
 Connectivity and readiness do not qualify the selected method.
 
-Arrange execution around the data needed for the next decision. Compose known,
-compatible operations before evaluation, and continue from the returned complete
-Frame. Retain memory data while it remains accessible; when a concrete continuation
-needs the same values in another process, explicitly persist the needed Frame and
-retain its exact identity before ending execution. A one-shot answer needs no save;
-do not persist every intermediate result in anticipation of unspecified future work.
+Compose compatible operations for the next decision before evaluation, and
+continue from the returned complete Frame. For independent analyses that need
+the same costly input, reuse its retained result if it preserves the required
+scope, grain, fields, coverage, and freshness. Compare retention and read costs
+with separately filtered source evaluations. Keep the Frame in memory while
+accessible. When a concrete continuation needs the same values in another
+process, persist the needed Frame and retain its exact identity before ending
+execution. A one-shot answer can stay in memory.
 Use `marivo help analysis.execution` for evaluation, retention and reopening mechanics.
 
 Keep method changes separate from data refresh. When correcting an operation or

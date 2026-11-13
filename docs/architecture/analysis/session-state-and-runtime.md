@@ -50,6 +50,12 @@ has exited. Session acquisition alone does not recover unsaved results. An exist
 exact saved reference needs no new publication; explicit new source evaluation
 remains the way to obtain fresh values.
 
+The [analysis skill](../../../marivo/skills/marivo-analysis/SKILL.md) groups
+compatible work around the next decision and hands off checked results at the
+host's delivery milestones. Independent continuations can reuse the same fixed
+input when its scope, grain, coverage and freshness fit. This uses the same
+explicit retention and recovery contract.
+
 A source capture resolves named semantic leaves in the Session's completed Catalog
 scope after project and owner checks. Same-project objects from another Catalog
 may be used by exact kind/path without an original-version lock. Anonymous
