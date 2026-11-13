@@ -20,14 +20,22 @@ from marivo._definition.expressions import (
     PerReduce,
     PerWeightedMean,
 )
-from marivo._definition.graph import children
-from marivo._definition.relations import LiteralPopulation, PopulationDependency, sample_population
+from marivo._definition.graph import children, walk
+from marivo._definition.query import PopulationValues
+from marivo._definition.relations import (
+    LiteralPopulation,
+    PopulationDependency,
+    SourceIdentities,
+    condition_populations,
+    sample_population,
+)
 from marivo._definition.types import AxisBinding
 from marivo._temporal import Grain
 from marivo.analysis.compiler.graph_lowering import LoweredQuery, LoweredRead
 from marivo.analysis.compiler.graph_plan import (
     LocalCompute,
     NativeRead,
+    QueryStage,
     SourceRead,
     read_components,
     read_members,
@@ -35,7 +43,7 @@ from marivo.analysis.compiler.graph_plan import (
 )
 from marivo.analysis.compiler.observation import FormulaInput, FormulaProgram
 from marivo.analysis.compiler.optimization import RuleDecision, required_slots
-from marivo.analysis.compiler.query_program import SourceParameter
+from marivo.analysis.compiler.query_program import ResultProgram, SourceParameter
 from marivo.analysis.compiler.sample_reductions import (
     SampleLowerer,
     SampleReductionUnavailableError,
@@ -58,6 +66,7 @@ def fuse_sample_reductions(prepared: PreparedSources, lowered: LoweredQuery) -> 
     }
     stages = list(lowered.plan.stages)
     reads = list(lowered.reads)
+    checks_by_id: dict[str, SourceRead] = {}
     decisions = list(lowered.plan.optimization_decisions)
     adopted = False
     for original in lowered.plan.stages:
@@ -410,6 +419,15 @@ def fuse_sample_reductions(prepared: PreparedSources, lowered: LoweredQuery) -> 
         populations = tuple(
             item for item in program.populations if item.definition in required_domains
         )
+        check_stages = _membership_checks(prepared, lowered, program, required_domains)
+        check_ids = tuple(stage.stage_id for stage, _ in check_stages)
+        replacements = [
+            replace(stage, inputs=(*stage.inputs, *check_ids)) for stage in replacements
+        ]
+        for check_stage, read in check_stages:
+            if check_stage.stage_id not in checks_by_id:
+                checks_by_id[check_stage.stage_id] = check_stage
+                reads.append(read)
         updated = replace(
             original,
             inputs=tuple(value.stage_id for value in values)
@@ -424,8 +442,8 @@ def fuse_sample_reductions(prepared: PreparedSources, lowered: LoweredQuery) -> 
         reads = [read for read in reads if read.stage_id not in removed]
     if not adopted:
         return lowered
+    by_id = {**{stage.stage_id: stage for stage in stages}, **checks_by_id}
     retained: set[str] = set()
-    by_id = {stage.stage_id: stage for stage in stages}
 
     def retain(identifier: str) -> None:
         if identifier in retained:
@@ -435,7 +453,22 @@ def fuse_sample_reductions(prepared: PreparedSources, lowered: LoweredQuery) -> 
             retain(dependency)
 
     retain(lowered.plan.publish)
-    stages = [stage for stage in stages if stage.stage_id in retained]
+    scheduled: dict[str, QueryStage] = {}
+
+    def schedule(identifier: str) -> None:
+        if identifier in scheduled:
+            return
+        stage = by_id[identifier]
+        for dependency in stage.inputs:
+            schedule(dependency)
+        scheduled[identifier] = stage
+
+    # A plain sibling may become the output coverage carrier. Run its shared
+    # validation before value reads without making the sibling depend on it.
+    for stage in (*checks_by_id.values(), *stages):
+        if stage.stage_id in retained:
+            schedule(stage.stage_id)
+    stages = list(scheduled.values())
     reads = [read for read in reads if read.stage_id in retained]
     plan = replace(
         lowered.plan,
@@ -444,6 +477,95 @@ def fuse_sample_reductions(prepared: PreparedSources, lowered: LoweredQuery) -> 
         optimization_decisions=tuple(decisions),
     )
     return LoweredQuery(replace(plan, required_slots=required_slots(plan)), tuple(reads))
+
+
+def _membership_checks(
+    prepared: PreparedSources,
+    lowered: LoweredQuery,
+    program: FormulaProgram,
+    required_domains: set[PopulationDependency],
+) -> tuple[tuple[SourceRead, LoweredRead], ...]:
+    """Retain source checks for predicate Populations whose key transport was pruned."""
+    by_id = {stage.stage_id: stage for stage in lowered.plan.stages}
+    roots = {
+        domain
+        for value in program.values
+        if isinstance(source := by_id[value.stage_id], SourceRead)
+        for member in read_members(source) or (source,)
+        for predicate in member.predicates
+        for domain in condition_populations(predicate)
+    }
+    # A source identity selection consumes its predicate Population's keys.
+    # Its own preparation checks do not carry that predicate's domain checks.
+    roots.update(
+        domain
+        for node in walk(roots, resolve=lambda _: None).order
+        if isinstance(node, SourceIdentities) and node.predicate is not None
+        for domain in condition_populations(node.predicate)
+    )
+    needed: set[str] = set()
+
+    def require(identifier: str) -> None:
+        if identifier not in needed:
+            needed.add(identifier)
+            for dependency in by_id[identifier].inputs:
+                require(dependency)
+
+    for binding in program.populations:
+        if binding.definition in required_domains:
+            require(binding.stage_id)
+    checked: set[str] = set()
+
+    def collect(identifier: str) -> None:
+        if identifier in needed or identifier in checked:
+            return
+        stage = by_id[identifier]
+        if isinstance(stage, SourceRead) and stage.preparation_checks:
+            checked.add(identifier)
+        elif (
+            isinstance(stage, LocalCompute)
+            and isinstance(stage.program, ResultProgram)
+            and isinstance(stage.program.operation, PopulationValues)
+        ):
+            # Set/product stages can retain separate native owners for factors.
+            for dependency in stage.inputs:
+                collect(dependency)
+
+    for binding in program.populations:
+        if binding.definition in roots:
+            collect(binding.stage_id)
+
+    checks = []
+    for source in lowered.plan.stages:
+        if not isinstance(source, SourceRead) or source.stage_id not in checked:
+            continue
+        raw = prepared.relations.get(source.stage_id, prepared.relations.get(source.source_id))
+        assert raw is not None
+        descriptors = source.preparation_checks
+        summary = raw.aggregate(
+            **{name: raw[name].any().fill_null(False) for name, _, _ in descriptors}
+        )
+        # These flags may summarize a failed input tuple that never reached the
+        # predicate Population. Returning one of its output keys is misleading.
+        expression = summary.filter(ibis.or_(*(summary[name] for name, _, _ in descriptors)))
+        identifier = "source:population-check:" + source.stage_id
+        check_stage = replace(
+            source, stage_id=identifier, program=NativeRead(()), columns=(), keys=()
+        )
+        checks.append(
+            (
+                check_stage,
+                LoweredRead(
+                    identifier,
+                    expression,
+                    tuple(
+                        (name, NumericCheck(expression[name], expected, received))
+                        for name, expected, received in descriptors
+                    ),
+                ),
+            )
+        )
+    return tuple(checks)
 
 
 def _share_folds(

@@ -680,7 +680,7 @@ def test_remote_relationship_domains_and_explicit_frame_targets(
         assert error.value.stage == "population_coverage"
         assert error.value.received is not None
         assert "key.0" in error.value.received
-        assert trace.returned_rows[coverage_read_start:] == [6]
+        assert trace.returned_rows[coverage_read_start:] == [0, 6]
         if backend != "postgres":
             assert trace.uploaded_key_rows == [1, 0], {
                 "rows": trace.returned_rows,
@@ -718,7 +718,66 @@ def test_output_coverage_survives_source_population_fusion_and_empty_top(
     assert error.value.stage == "population_coverage"
     assert error.value.received is not None
     assert "key.0" in error.value.received
-    assert trace.returned_rows == [6]
+    assert trace.returned_rows == [0, 6]
+
+
+@pytest.mark.parametrize("mode", ("complete", "implicit", "no-facts", "sibling", "multiple"))
+def test_native_sample_retains_nested_population_identity_checks(
+    semantic_project_factory: Callable[..., SemanticProject],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    mode: str,
+) -> None:
+    session = _case(semantic_project_factory, tmp_path, monkeypatch, size=4)
+    revenue = catalog_value(session.catalog, "sales.revenue", kind="metric")
+    entity = catalog_value(session.catalog, "sales.orders", kind="entity")
+    identifier = catalog_value(session.catalog, "sales.orders.id", kind="dimension")
+    path = mv.path(
+        catalog_value(session.catalog, "sales.order_links", kind="relationship"),
+        catalog_value(session.catalog, "sales.link_tags", kind="relationship"),
+    )
+    orders = session.members(entity)
+    targets = _population(orders.image(via=path))
+    selected = _population(orders.preimage(targets, via=path))
+    predicate = mv.in_population(selected)
+    if mode == "no-facts":
+        predicate = predicate & (identifier < 0)
+    elif mode == "multiple":
+        clean_orders = session.members(entity, where=identifier >= 0)
+        clean_targets = _population(clean_orders.image(via=path))
+        clean_members = _population(clean_orders.preimage(clean_targets, via=path))
+        predicate = mv.in_population(clean_members) | predicate
+    empty = mv.coordinates(by=(identifier,), keys=())
+    # Distinct requested samples and report keys establish independent scope.
+    query = session.observe(
+        {"sample": revenue.per(empty).mean(), **({"plain": revenue} if mode == "sibling" else {})},
+        by=mv.coordinates(by=(identifier,), keys=((0,), (1,), (2,), (3,)))
+        if mode == "complete"
+        else (identifier,),
+        where=predicate,
+    )
+    trace = capture_source(monkeypatch)
+    rows = query.compute().to_pandas()
+    assert rows["id"].tolist() == ([] if mode == "no-facts" else [0, 1, 2, 3])
+    assert rows["sample"].isna().all()
+    if mode == "sibling":
+        assert rows["plain"].tolist() == [1, 1, 1, 1]
+    assert any("sample:0" in statement for statement in trace.native_sql)
+    assert trace.returned_rows[: 2 if mode == "multiple" else 1] == [0] * (
+        2 if mode == "multiple" else 1
+    )
+    assert trace.uploaded_key_rows == []
+
+    with duckdb.connect(str(tmp_path / "population.duckdb")) as db:
+        db.execute("INSERT INTO orders VALUES (NULL,0,1)")
+    before = len(trace.returned_rows)
+    with pytest.raises(MaterializationError) as error:
+        query.top(0, by=query["sample"]).compute()
+    assert error.value.stage == "population_identity"
+    assert error.value.expected == "non-null complete identity keys"
+    assert error.value.received is not None and "sales.orders" in error.value.received
+    assert trace.returned_rows[before:] == ([0, 1] if mode == "multiple" else [1])
+    assert trace.uploaded_key_rows == []
 
 
 @pytest.mark.parametrize("dialect", ("duckdb", "trino", "clickhouse"))
