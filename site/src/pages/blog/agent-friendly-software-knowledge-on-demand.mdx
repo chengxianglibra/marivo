@@ -1,0 +1,205 @@
+---
+title: "Building Agent-Friendly Tools: Knowledge When It’s Needed"
+description: How Skills, Help, result displays, and error feedback can provide information as an agent works, and how real tasks can put these design choices to the test.
+layout: ../../layouts/BlogArticleLayout.astro
+publishedAt: November 13, 2026
+series: Lessons from Building Marivo
+locale: en
+readingTime: About 10 minutes
+translationAvailable: true
+---
+
+Beyond designing APIs and implementing features, one question has kept coming up as I build Marivo:
+how can agents use it efficiently for data analysis, with as little friction as possible? Agents have
+been Marivo’s intended users from the start. When an agent encounters an unfamiliar library, how does
+it learn to use it correctly without filling its context window with irrelevant information? That
+question continues to shape the design.
+
+Developers have long relied on clear APIs, well-organized documentation, and useful error messages to
+make software easier to use. Those practices still matter, but a change in how users reason and
+interact with software brings new design tradeoffs. This article draws on the experience of building
+Marivo to explore how libraries, APIs, and other developer tools can organize information for agents,
+with lessons for developers working on similar problems.
+
+## Start with the agent loop
+
+To understand these design questions, it helps to look at how a tool fits into an agent’s work. An agent
+works through repeated cycles: decide what to do based on the task and the information available, call
+a tool or run code, read the feedback, then decide whether to continue, adjust, or stop. The output of
+one operation informs the next action. The agent’s runtime framework, or harness, coordinates tool
+execution and the delivery of results. Libraries and APIs participate in the loop through these steps.
+
+Looking up instructions, checking state, and handling errors are themselves actions that move the task
+forward. An agent does not need to learn everything about a library or API before using it. It can
+fill in gaps as it goes. If it knows which operation it needs but is unsure about the arguments, it
+can look up the parameters first. If submitting a job returns an ID, it can use the reported status to
+decide whether to check again.
+
+A call does more than perform its immediate function. The information it returns also shapes the
+agent’s next decision. Missing facts can lead to extra searches or unsupported guesses; too much
+information consumes context needed for later work. What an interface reveals, and when, are therefore
+part of its design.
+
+## What an agent needs to learn about an unfamiliar library
+
+When given a task, an agent first needs to determine whether the library can help. It can then choose
+an operation, prepare the inputs, and execute it. After a successful call, it needs to understand the
+result and decide whether to continue. After a failure, it needs to work out what went wrong and how
+to recover. The knowledge it needs changes as the task progresses. A complete list of functions
+answers only some of these questions.
+
+This information usually already exists in a conventional project, but in different places:
+
+| What the agent needs to know | Where it is commonly found |
+| --- | --- |
+| What problems the tool solves and when to use it | README, project homepage, overview documentation |
+| What the core concepts are and how to complete a task | Tutorials, guides, example projects |
+| What inputs an operation accepts, where to get them, and what the defaults mean | API reference, type definitions, function signatures, docstrings |
+| What a call does and what state its result is in | Interface documentation, object attributes, return values, logs |
+| Why an operation failed and how to fix it | Exception types, error messages, troubleshooting guides |
+| Whether the result satisfies the task, and when to continue or stop | Domain documentation, working practices, the user’s experience |
+
+All of this remains valuable, but scattered sources take more effort to find and piece together.
+Connecting them helps an agent bring the information it needs into context at the right time.
+The next question is where that information should come from at each stage of the loop.
+
+## Provide information at each stage of the loop
+
+**During discovery, explain when to use the tool and where to begin.** READMEs and quickstarts help
+developers decide whether a library fits their needs and how to get started. For an agent to find
+that guidance, it needs to be accessible through the agent’s own discovery mechanism. Take Skills
+as an example: an agent first identifies a relevant tool from a Skill’s name and description, then
+loads the full instructions. A Skill is therefore a useful home for essential concepts, workflows,
+guidance on what the agent can decide and what requires further input, and pointers to more information.
+It answers “When should I use this tool, and how do I begin?” before the agent looks for specific
+capabilities. This preserves the guidance needed to get started without loading every parameter
+definition or the current runtime state into context upfront.
+
+**Before an operation, provide enough guidance to make the call.** Signatures, types, and API references
+already describe what an interface accepts. Developers can also use tutorials and editor hints to
+prepare a call. Organizing this material into a directly queryable Help interface lets an agent consult
+it as it works. Alongside argument syntax, Help can explain where inputs come from, what happens when
+an argument is omitted, and the operation’s preconditions and effects. This reduces the need to piece
+together several documents before making a call.
+
+**When reading results, use a consistent display interface to help the agent assess the outcome.**
+Returned objects and structured fields let programs continue processing results. Developers can inspect them through a
+debugger, an interactive environment, or printed fields. For an agent that runs code, obtaining the
+object is only the first step: relevant information must be output before it can enter the model’s
+context. A consistent entry point such as `.show()` gives the agent a familiar way to inspect different
+results, with less ad hoc printing code and less guessing about which fields exist.
+
+The display itself also benefits from a stable structure: what the object is, its current state, the
+key results, whether anything has been omitted, and where to look next. Different objects can show
+different content, while consistent labels, ordering, and guidance on where to look next help the agent
+interpret the result and check it against expectations. For example, `.show()` on a Marivo Frame
+displays its structure while computation is pending, then its fixed data and associated metadata once
+computation is complete. It also points to available next steps based on the current state.
+
+Related methods can serve different levels of inspection. A short `repr` identifies the object;
+`.show()` prints readable information directly. Result objects that support `.render()` can also
+return that display as text. Structured fields remain available for further processing in code. The
+display and the fields draw on the same underlying result, so what the agent reads corresponds to the data
+the program continues to use.
+
+**When an operation fails, provide facts that help resolve this particular failure.** Exception types,
+error codes, and stack traces help developers locate a problem, while troubleshooting guides explain
+common causes and remedies. If the error also reports the actual inputs, unmet conditions, and any
+effects the operation has already had, the agent is better placed to decide what to do next. Repair
+guidance can use those facts to suggest a concrete action, reducing guesswork based solely on the
+error category. If an argument can be corrected, the error can point to it. If a business decision is
+missing, it can explain what the user needs to confirm. For instance, when a time zone cannot be
+determined, the message can explain how to specify one explicitly. Choosing the appropriate time zone
+for the business context still requires the caller’s judgment.
+
+## Organize progressive disclosure around use cases
+
+Once we know when to provide information, the next questions are how much to provide at once and how
+to connect it. Documentation already uses tables of contents, topic guides, and cross-references to
+help readers explore in more depth. Applying that organization to the agent loop also means asking
+whether each lookup gives the agent enough to take its next step. Splitting information too finely
+creates extra round trips; returning everything introduces irrelevant material. A useful unit is a
+coherent sequence of actions within the current task.
+
+**Structure Help in layers: capability overview, use case, precise API reference.** Documentation sites
+commonly separate overviews, guides, and references in their navigation. A Help interface can use the
+same hierarchy, with each layer returning the relevant explanation and paths to more specific
+information. The overview helps the agent find its bearings, use cases show how common operations fit
+together, and the detailed reference covers all parameters and constraints. Marivo’s analysis Help,
+for example, points to inputs, operators, execution, and results. An agent can go deeper where it needs more information or
+look up a known interface directly, without working through every layer.
+
+**Group APIs that are used together, so one lookup supports a sequence of actions.** An API reference
+organized by module and class makes individual interfaces easy to find; tutorials show how they work
+together. Putting a complete sequence from a tutorial into Help for that use case brings those
+instructions into context in a single lookup. Marivo’s introductory analysis example groups finding a
+metric, choosing a scope, computing, and viewing the result. It shows how each step’s output becomes
+the next step’s input, reducing the work of looking up functions individually and assembling the
+sequence. These examples offer a path to follow without requiring every task to repeat every step.
+
+**Keep parameter guidance close to the call, with necessary constraints visible before execution.**
+Types and defaults are the foundation of parameter documentation, but instructions for constructing
+an input object or understanding what a default means in practice may live elsewhere. Keeping the
+information that affects the call near its parameters, with pointers to where inputs can be obtained,
+reduces navigation. For example, Marivo documents how to find and obtain metrics alongside the metric
+parameter of `observe()`. It also explains that omitting the filter argument adds no extra filtering.
+While consulting Help, the agent can therefore learn how to prepare inputs and whether the defaults
+fit the task, with less need to discover the rules through failed attempts.
+
+**Use the same API contract as the source for each layer of documentation.** Generating API references
+from code and docstrings is a common way to keep documentation aligned with implementation. Help and use-case
+guides can follow the same approach, reusing current signatures, types, and defaults so that
+progressive disclosure does not create separate descriptions of the same API that can drift apart.
+Marivo’s Help takes signatures from the actual methods, while developers maintain explanations of
+what inputs mean, what constraints apply, and what operations do. The default page size, for example,
+can come from a signature; whether reading a page triggers computation still needs an explicit explanation. Generation reduces
+duplicate maintenance, but it cannot replace these descriptions of behavior.
+
+**When showing only part of a result, make the limits clear and provide a way to read more.** Summaries
+and pagination already help control output size. Developers can consult documentation or follow UI
+prompts to keep reading. Tool results also need to state what has been shown, whether more remains,
+and how to retrieve it. Marivo’s `read_page()`, for example, returns the total row count, whether more
+data is available, and a cursor for the next page. With that information, the agent can decide whether
+the task calls for further inspection and distinguish “not shown here” from “absent from the full result.”
+
+## Evaluate the design through real tasks
+
+A set of common tasks can serve as a benchmark for actual agent runs. First record completion rates
+and result correctness across all tasks. Then compare three efficiency measures for successful tasks:
+rounds until the first task-related operation, total rounds, and total token consumption. Keep failure
+causes and execution traces separately, so excluding failures does not produce a misleading picture
+of efficiency.
+
+Here, one round means one model decision. Multiple tool calls initiated in the same round do not count
+as additional rounds; tool calls can be counted separately. The “first task-related operation” is the
+first successful operation directly related to the task’s objective, giving an indication of the
+cost of discovery and preparation. Necessary lookups and checks still have value, so a higher round
+count alone does not establish inefficiency. To compare the effect of a change, run the same tasks
+repeatedly in the same environment with the same model configuration, reducing the influence of variation
+between individual runs.
+
+Another practice I use regularly is to have an agent analyze data with Marivo and then summarize the
+friction it encountered. This feedback suggests where to improve. The actual call traces can then
+show where it got stuck, whether it fetched the same information repeatedly, and which explanations
+it misunderstood. Bringing task-based evaluation and feedback into development makes it possible to
+track how changes affect the experience, rather than relying only on the developer’s sense of whether
+an interface is easy to use.
+
+## Closing thoughts
+
+The usability of a tool for agents also depends on the connections between discovery, execution, and
+feedback. Those connections need to be tested as an agent works through real tasks.
+
+At a deeper level, software abstractions distribute cognitive responsibility: which details can be
+hidden, which rules can be delegated to a program, and which information must remain available for
+the user’s judgment. Encapsulation can make an operation easier while also hiding facts that matter
+to a decision. Making knowledge available when it is needed means simplifying use while preserving
+ways to understand and verify what happened. Users need not face every detail all the time, but they
+should still be able to find out what an operation did, where a result came from, and what remains uncertain.
+
+Large language models broaden the range of problems software can understand and address. They also
+introduce more ways of using it than designers can enumerate in advance. Clear contracts, inspectable
+state, and specific feedback can make parts of that open-ended interaction dependable. Programs enforce
+rules that have already been established; agents and users make the remaining judgments in light of
+their goals and circumstances. Whether the user is a person or an agent, deciding where that boundary
+belongs, and how to keep exploration grounded in facts, remains an ongoing question for software design.
