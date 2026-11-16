@@ -466,5 +466,44 @@ class DatasourceMetadataError(DatasourceError):
     pass
 
 
+_RawSqlFailureCode = Literal[
+    "invalid_sql",
+    "permission_denied",
+    "connection_unavailable",
+    "timeout",
+    "timeout_configuration",
+    "unknown",
+]
+
+
 class DatasourceRawSqlError(DatasourceError):
-    pass
+    """Raw SQL failure with a classification based on the available backend evidence.
+
+    The code is invalid_sql, permission_denied, connection_unavailable, timeout,
+    timeout_configuration, or unknown. The received field retains the redacted
+    backend diagnostic. An attempted statement may have changed the source even
+    when the call fails to return results.
+    """
+
+    def __init__(
+        self,
+        *,
+        code: _RawSqlFailureCode,
+        message: str,
+        expected: str,
+        received: str,
+        location: str,
+        effect_observed: DatasourceObservedEffects,
+        repair: AuthoringRepair,
+        _backend_failure: _BackendFailureSummary,
+    ) -> None:
+        super().__init__(
+            message=message,
+            expected=expected,
+            received=received,
+            location=location,
+            effect_observed=effect_observed,
+            repair=repair,
+            _backend_failure=_backend_failure,
+        )
+        self.code = code

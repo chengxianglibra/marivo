@@ -104,9 +104,9 @@ def provider() -> DisclosureProvider:
             ),
         ),
     ]
-    for owner, target, producer in (
-        (FrameReference, "frame_reference", "analysis_frame.ref"),
-        (DataFrameReference, "dataframe_reference", "persist_dataframe"),
+    for owner, target, producer, wire_type in (
+        (FrameReference, "frame_reference", "analysis_frame.ref", "FrameReferenceWire"),
+        (DataFrameReference, "dataframe_reference", "persist_dataframe", "DataFrameReferenceWire"),
     ):
         descriptors.append(
             value_type(
@@ -134,7 +134,7 @@ def provider() -> DisclosureProvider:
                 bindings=(bind(owner.to_dict, owner),),
                 summary="Export a fresh concrete wire reference.",
                 parameters=(),
-                output="a typed identity dictionary",
+                output=wire_type,
                 constraints=("No I/O; modifying the dictionary cannot modify the reference.",),
                 effects="Copy captured identity fields.",
                 failures=(),

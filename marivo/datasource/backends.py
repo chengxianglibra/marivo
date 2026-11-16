@@ -16,8 +16,18 @@ from marivo.datasource.engines import (
 from marivo.datasource.engines import (
     require_profile_for_backend_type,
 )
-from marivo.datasource.errors import DatasourceConnectionError, DatasourceFieldInvalidError, repair
+from marivo.datasource.errors import (
+    DatasourceConnectionError,
+    DatasourceFieldInvalidError,
+    DatasourceSourceCapabilityError,
+    _backend_failure_summary,
+    repair,
+)
 from marivo.datasource.ir import DatasourceIR
+
+
+class _NativeQueryTimeoutError(DatasourceSourceCapabilityError):
+    """A native query timeout could not be installed while opening the backend."""
 
 
 @dataclass(frozen=True)
@@ -231,11 +241,28 @@ def _build_backend_from_effective(
             if datasource.backend_type in {"postgres", "trino", "mysql"}:
                 backend._marivo_terminal_timeout_seconds = terminal_timeout_seconds
             if datasource.backend_type == "mysql" and profile.native_query_timeout is not None:
-                with profile.native_query_timeout(backend, terminal_timeout_seconds):
-                    pass
+                try:
+                    with profile.native_query_timeout(backend, terminal_timeout_seconds):
+                        pass
+                except DatasourceSourceCapabilityError as exc:
+                    failure = _backend_failure_summary(
+                        exc, redact=lambda text: cr.redact(text, effective.injected)
+                    )
+                    raise _NativeQueryTimeoutError(
+                        message=failure.message,
+                        expected=cr.redact(exc.expected, effective.injected)
+                        if exc.expected is not None
+                        else None,
+                        received=cr.redact(exc.received, effective.injected)
+                        if exc.received is not None
+                        else None,
+                        location=exc.location,
+                        repair=exc.repair,
+                        _backend_failure=failure,
+                    ) from None
     except BaseException as exc:
         built.disconnect()
-        if isinstance(exc, DatasourceConnectionError):
+        if isinstance(exc, (DatasourceConnectionError, _NativeQueryTimeoutError)):
             raise
         if effective.injected and isinstance(exc, Exception):
             raise cr.connection_error(exc, effective.injected) from None

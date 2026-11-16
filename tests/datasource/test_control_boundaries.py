@@ -185,6 +185,78 @@ def test_trino_terminal_session_timeout_and_timezone_are_effective() -> None:
 
 @pytest.mark.runtime
 @pytest.mark.skipif(
+    os.environ.get("MARIVO_TRINO_ANALYSIS_TEST") != "1", reason="opt-in Trino service"
+)
+def test_trino_raw_sql_repairs_guide_qualified_column_discovery(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("MARIVO_RAW_SQL_TEST_USER", "analysis_reader")
+    spec = md.trino(
+        name="warehouse",
+        host="127.0.0.1",
+        port=18080,
+        catalog="iceberg",
+        user=md.env("MARIVO_RAW_SQL_TEST_USER"),
+    )
+    md.register(spec, project_root=tmp_path)
+    for sql, native_name, kind in (
+        ('SELECT * FROM "runtime.nodes" LIMIT 0', "MISSING_SCHEMA_NAME", "retry"),
+        ("SELECT marivo_missing_column FROM system.runtime.nodes", "COLUMN_NOT_FOUND", "inspect"),
+    ):
+        with pytest.raises(DatasourceRawSqlError) as caught:
+            md.raw_sql(spec.ref, sql, reason="verify Trino SQL repair", project_root=tmp_path)
+        error = caught.value
+        assert error.code == "invalid_sql"
+        assert error.received is not None and f"name={native_name}" in error.received
+        assert error.repair is not None and error.repair.kind == kind
+
+    result = md.raw_sql(
+        spec.ref,
+        'SHOW COLUMNS FROM "system"."runtime"."nodes"',
+        reason="verify the qualified metadata route",
+        project_root=tmp_path,
+    )
+    assert "node_id" in {row["Column"] for row in result.rows}
+
+
+@pytest.mark.runtime
+@pytest.mark.skipif(
+    os.environ.get("MARIVO_MYSQL_ANALYSIS_TEST") != "1", reason="opt-in MySQL service"
+)
+def test_mysql_raw_sql_classifies_native_timeout_preflight_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from tests.datasource.environment import mysql_analysis as mysql
+
+    monkeypatch.setenv("MARIVO_RAW_SQL_TEST_USER", mysql.READER)
+    monkeypatch.setenv("MARIVO_RAW_SQL_TEST_PASSWORD", mysql.password())
+    spec = md.mysql(
+        name="warehouse",
+        host=mysql.HOST,
+        port=mysql.PORT,
+        database=mysql.DATABASE,
+        user=md.env("MARIVO_RAW_SQL_TEST_USER"),
+        password=md.env("MARIVO_RAW_SQL_TEST_PASSWORD"),
+    )
+    md.register(spec, project_root=tmp_path)
+
+    with pytest.raises(DatasourceRawSqlError) as caught:
+        md.raw_sql(
+            spec.ref,
+            "SELECT 1",
+            reason="verify the MySQL timeout range",
+            timeout_seconds=4_294_968,
+            project_root=tmp_path,
+        )
+    failure = caught.value
+    assert failure.code == "timeout_configuration"
+    assert failure.effect_observed is not None and not failure.effect_observed.query_executed
+    assert failure.expected is not None and "1..4294967" in failure.expected
+    assert failure.repair is not None and failure.repair.kind == "configure"
+
+
+@pytest.mark.runtime
+@pytest.mark.skipif(
     os.environ.get("MARIVO_CLICKHOUSE_ANALYSIS_TEST") != "1",
     reason="opt-in ClickHouse service",
 )

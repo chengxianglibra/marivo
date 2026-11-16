@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 import re
 from collections import Counter
 from itertools import pairwise
@@ -16,7 +17,10 @@ from marivo._help.route import route_help_target
 from marivo.analysis._capabilities.dataset_model import CallableInput, NavigationInput
 from marivo.analysis._capabilities.model import ANALYSIS_HELP_RENDER_BUDGETS
 from marivo.analysis._capabilities.registry import REGISTRY
+from marivo.datasource._capabilities.registry import REGISTRY as DATASOURCE_REGISTRY
 from marivo.datasource.adapters import SourceSession
+from marivo.introspection.live.reflect import import_registered_callable, return_annotation_text
+from marivo.semantic._capabilities.registry import REGISTRY as SEMANTIC_REGISTRY
 from tests.shared_fixtures import DslCaseFactory
 
 
@@ -297,35 +301,8 @@ def test_discovery_and_parameter_links_support_a_fresh_question(
 
 
 def test_authoring_parameters_keep_complete_native_acquisition_and_real_links() -> None:
-    import inspect
-
     from marivo._authoring.model import AuthoringCapability
-    from marivo.introspection.live.reflect import import_registered_callable
-    from marivo.semantic._capabilities.registry import REGISTRY as SEMANTIC_REGISTRY
 
-    for target in (
-        "domain.define",
-        "entity.define",
-        "dimension.define",
-        "dimension.from_column",
-        "time_dimension.define",
-        "time_dimension.from_column",
-        "measure.define",
-        "measure.from_column",
-        "metric.define",
-        "relationship.define",
-        "load",
-    ):
-        descriptor = SEMANTIC_REGISTRY.by_canonical_id(target)
-        assert descriptor.callable_path is not None
-        callable_value = import_registered_callable(descriptor.callable_path)
-        assert callable(callable_value)
-        signature = inspect.signature(callable_value)
-        assert {
-            name
-            for requirement in descriptor.input_requirements
-            for name in requirement.parameter_names
-        } == set(signature.parameters)
     expected = {
         "entity.define": {
             "datasource": "semantic.ref.datasource",
@@ -342,45 +319,123 @@ def test_authoring_parameters_keep_complete_native_acquisition_and_real_links() 
         "time_dimension.from_column": {"parse": "semantic.time.parsing"},
         "relationship.define": {"keys": "semantic.join_on"},
     }
-    for target, parameters in expected.items():
+    for target, producers in expected.items():
         descriptor = SEMANTIC_REGISTRY.by_canonical_id(target)
         assert isinstance(descriptor, AuthoringCapability)
-        for name, producer in parameters.items():
+        for name, producer in producers.items():
             requirement = next(
                 r for r in descriptor.input_requirements if name in r.parameter_names
             )
             assert requirement.description
             assert producer in {link.display for link in requirement.acquisition}
             assert producer in _links("semantic." + target)
-    # Resolve every rendered parameter edge, including cross-surface producers.
-    from marivo.datasource._capabilities.registry import REGISTRY as DATASOURCE_REGISTRY
-
-    for backend in ("duckdb", "trino", "mysql", "postgres", "clickhouse"):
-        connection = DATASOURCE_REGISTRY.by_canonical_id(backend)
-        assert connection.callable_path is not None
-        callable_value = import_registered_callable(connection.callable_path)
-        assert callable(callable_value)
-        signature = inspect.signature(callable_value)
-        assert {
-            name
-            for requirement in connection.input_requirements
-            for name in requirement.parameter_names
-        } == set(signature.parameters)
-        for requirement in connection.input_requirements:
-            for name in requirement.parameter_names:
-                assert (requirement.min_count == 0) == (
-                    signature.parameters[name].default is not inspect.Parameter.empty
-                )
-
-    for surface, descriptors in (
-        ("semantic", SEMANTIC_REGISTRY.descriptors),
-        ("datasource", DATASOURCE_REGISTRY._descriptors),
+    for registry, complete in (
+        (
+            SEMANTIC_REGISTRY,
+            (
+                "load",
+                "domain.define",
+                "entity.define",
+                "dimension.define",
+                "dimension.from_column",
+                "time_dimension.define",
+                "time_dimension.from_column",
+                "measure.define",
+                "measure.from_column",
+                "metric.define",
+                "relationship.define",
+            ),
+        ),
+        (
+            DATASOURCE_REGISTRY,
+            (
+                "env",
+                "s3_secret",
+                "http_bearer_secret",
+                "http_headers_secret",
+                "duckdb",
+                "trino",
+                "mysql",
+                "postgres",
+                "clickhouse",
+                "load",
+                "inspect",
+                "raw_sql",
+            ),
+        ),
     ):
+        for canonical_id in complete:
+            descriptor = registry.by_canonical_id(canonical_id)
+            assert isinstance(descriptor, AuthoringCapability)
+            assert descriptor.callable_path is not None
+        descriptors = (
+            registry.by_canonical_id(canonical_id) for canonical_id in registry.canonical_ids()
+        )
         for descriptor in descriptors:
+            if not isinstance(descriptor, AuthoringCapability) or descriptor.callable_path is None:
+                continue
+            value = import_registered_callable(descriptor.callable_path)
+            assert callable(value)
+            parameters = inspect.signature(value).parameters
+            target = descriptor.live_target.display
+            links = _links(target)
+            for link_name in links:
+                route_help_target(link_name)
+            names = [
+                name
+                for requirement in descriptor.input_requirements
+                for name in requirement.parameter_names
+            ]
+            assert len(names) == len(set(names)), target
+            assert set(names) <= parameters.keys(), target
+            if descriptor.canonical_id in complete:
+                assert set(names) == parameters.keys() - {"self", "cls"}, target
             for requirement in descriptor.input_requirements:
+                for name in requirement.parameter_names:
+                    parameter = parameters[name]
+                    if parameter.kind not in (parameter.VAR_POSITIONAL, parameter.VAR_KEYWORD):
+                        optional = parameter.default is not inspect.Parameter.empty
+                        assert (requirement.min_count == 0) == optional, (target, name)
                 for link in requirement.acquisition:
-                    assert link.display in _links(f"{surface}.{descriptor.canonical_id}")
-                    route_help_target(link.display)
+                    assert link.display in links
+
+
+def test_analysis_exact_callable_returns_and_links_match_live_api() -> None:
+    def members(annotation: str) -> set[str]:
+        # The pandas alias is used by the annotations. Other qualifiers are significant.
+        return {
+            "pandas.DataFrame" if member == "pd.DataFrame" else member
+            for member in annotation.split(" | ")
+        }
+
+    for descriptor in REGISTRY.descriptors:
+        if not isinstance(descriptor, CallableInput):
+            continue
+        target = f"analysis.{descriptor.canonical_id}"
+        links = _links(target)
+        for link in links:
+            route_help_target(link)
+        for parameter in descriptor.parameters:
+            for link in parameter.targets:
+                qualified = (
+                    link
+                    if link.startswith(("semantic.", "datasource.", "analysis."))
+                    else f"analysis.{link}"
+                )
+                assert qualified in links, (target, parameter.name, qualified)
+        for binding in descriptor.bindings:
+            assert callable(binding.implementation)
+            annotation = binding.signature.return_annotation
+            actual = (
+                annotation.__name__
+                if isinstance(annotation, type)
+                else return_annotation_text(binding.implementation)
+            )
+            assert actual is not None and members(actual) == members(descriptor.output), (
+                target,
+                actual,
+                descriptor.output,
+            )
 
 
 def test_retired_task_topics_fail_without_aliases() -> None:

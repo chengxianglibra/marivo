@@ -5,20 +5,16 @@ from __future__ import annotations
 import hashlib
 from pathlib import Path
 
-import pytest
-
 from tests.support.typing import check
 
 
-@pytest.mark.slow
-@pytest.mark.release
 def test_public_analysis_and_deviation_typing_contracts(tmp_path: Path) -> None:
     probe_id = hashlib.sha256(str(tmp_path).encode()).hexdigest()[:12]
     source = tmp_path / f"bad_public_analysis_{probe_id}.py"
     program = """
 import marivo.analysis as mv
+import marivo.datasource as md
 import marivo.semantic as ms
-from ibis.common.deferred import Deferred
 from marivo.semantic import Relationship
 
 mv.LogicalNumericRelation  # invalid: retired logical type
@@ -31,11 +27,15 @@ session = mv.session.get_or_create('static', timezone='UTC')
 resolved_entity = session.catalog.get('entity:sales.customer')
 assert resolved_entity.kind == 'entity'
 population = session.members(resolved_entity)
+raw = md.raw_sql(ms.ref.datasource('warehouse'), 'SELECT 1', reason='check query path')
+md.trino('warehouse', host='example.test', catalog='hive', user=md.env('TRINO_USER'), user_env='TRINO_USER')  # invalid: retired credential keyword
+md.trino('warehouse', host='example.test', catalog='hive', user='reader')  # invalid: plaintext credential
 session.members(ms.ref.metric('sales.revenue'))  # invalid: entity kind
 mv.identity(ms.ref.datasource('warehouse'))  # invalid: Entity identity role
 
 def rejected(query: mv.AnalysisFrame, artifact: object, field: ms.Dimension, metric: ms.Metric, relationship: Relationship) -> None:
     session.observe({'value': artifact})  # invalid: terminal metric input
+    session.observe({'value': raw})  # invalid: raw SQL is terminal
     session.observe({'value': metric}, by=(artifact,))  # invalid: grouping stage
     session.observe({'value': metric}, via=(relationship,))  # invalid: observer route injection
     session.observe({'value': metric}, where=query['value'] > 0)  # invalid: result predicate at source
@@ -125,11 +125,16 @@ def rejected(query: mv.AnalysisFrame, artifact: object, field: ms.Dimension, met
     valid_source.write_text(
         """
 import marivo.analysis as mv
+import marivo.datasource as md
 import marivo.semantic as ms
+import pandas as pd
 from ibis.common.deferred import Deferred
 from marivo.semantic import Entity, Relationship
 from typing_extensions import assert_type
 
+md.trino('warehouse', host='example.test', catalog='hive', user=md.env('TRINO_USER'))
+raw = md.raw_sql(ms.ref.datasource('warehouse'), 'SELECT 1', reason='check query path')
+assert_type(raw.to_pandas(), pd.DataFrame)
 session = mv.session.get_or_create('static', timezone='UTC')
 resolved_entity = session.catalog.get('entity:sales.customer')
 assert resolved_entity.kind == 'entity'
@@ -139,7 +144,7 @@ resolved_entity = session.catalog.get('entity:sales.customer')
 assert resolved_entity.kind == 'entity'
 assert_type(resolved_entity, Entity)
 assert_type(mv.coordinates(by=(mv.identity(resolved_entity),), keys=((('C1',),),)), mv.Population)
-assert_type(mv.identity(ms.ref.entity('sales.customer')), mv.Grouping | Deferred)
+assert_type(mv.identity(ms.ref.entity('sales.customer')), Deferred)
 assert_type(mv.coordinates(by=(ms.ref.dimension('sales.customer.region'),), keys=(('east',),)), mv.Population | Deferred)
 amount: ms.Measure
 region: ms.Dimension
@@ -240,23 +245,20 @@ def rejected(session: mv.Session, members: mv.Population, query: mv.AnalysisFram
     # Run all public typing probes in one mypy process so xdist workers do not
     # repeat the same dependency analysis with separate cold caches.
     completed = check(source, valid_source, statistics_source)
-    assert completed.returncode != 0
+    assert completed.returncode == 1, completed.stdout + completed.stderr
     output = completed.stdout + completed.stderr
-    for line, text in enumerate(program.splitlines(), 1):
-        if "# invalid:" in text:
-            assert f"{source}:{line}: error:" in output, text + "\n" + output
-    assert not any(
-        f"{valid_source}:" in line and ": error:" in line for line in output.splitlines()
-    )
-    statistics_errors = [
-        line
-        for line in output.splitlines()
-        if f"{statistics_source}:" in line and ": error:" in line
-    ]
-    error_locations = {line.split(": error:", maxsplit=1)[0] for line in statistics_errors}
     expected = {
-        f"{statistics_source}:{statistics_body.splitlines().index('    ' + call) + 1}"
-        for call in calls
+        *(
+            f"{source}:{line}"
+            for line, text in enumerate(program.splitlines(), 1)
+            if "# invalid:" in text
+        ),
+        *(
+            f"{statistics_source}:{statistics_body.splitlines().index('    ' + call) + 1}"
+            for call in calls
+        ),
+    }
+    error_locations = {
+        line.split(": error:", maxsplit=1)[0] for line in output.splitlines() if ": error:" in line
     }
     assert error_locations == expected, output
-    assert len(statistics_errors) == len(calls), output

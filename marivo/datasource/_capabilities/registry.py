@@ -69,6 +69,7 @@ INPUT_FAMILIES = frozenset(
         "SnapshotPersistencePolicy",
         "SqlText",
         "RawSqlReason",
+        "RawSqlTypeLabels",
         "HelpTarget",
     }
 )
@@ -518,13 +519,18 @@ def _build_registry() -> DatasourceCapabilityRegistry:
             "Native query timeout defaults to 600 seconds; connection settings remain 30 seconds. "
             "Unsupported query timeouts are skipped. Call result.to_pandas() to convert all "
             "returned rows to a pandas DataFrame. "
+            "For Trino, quote catalog, schema, and table separately, and verify columns with SHOW COLUMNS. "
             "Results cannot enter typed analysis. Actual submitted SQL is recorded in .marivo/logs/ independently of telemetry.",
             output="RawSqlResult",
-            inputs=_inputs(
-                ("subject", "DatasourceSymbol"),
-                ("dependency", "SqlText"),
-                ("dependency", "RawSqlReason"),
-                ("scope", "PositiveTimeoutGuard"),
+            inputs=(
+                *_inputs(
+                    ("subject", "DatasourceSymbol"),
+                    ("dependency", "SqlText"),
+                    ("dependency", "RawSqlReason"),
+                ),
+                _optional_input("scope", "PositiveTimeoutGuard"),
+                _optional_input("dependency", "RawSqlTypeLabels"),
+                _optional_input("scope", "WorkspaceRoot"),
             ),
             effects=_effects(
                 "potentially_unbounded_read",
@@ -538,6 +544,7 @@ def _build_registry() -> DatasourceCapabilityRegistry:
                 "df = result.to_pandas()"
             ),
             preconditions=("read-only SQL and credentials scoped to source reads",),
+            repair_kinds=("retry", "inspect", "configure", "reconnect"),
         ),
         _capability(
             "RawSqlResult.to_pandas",

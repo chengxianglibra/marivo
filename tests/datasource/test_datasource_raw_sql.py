@@ -3,16 +3,22 @@
 from __future__ import annotations
 
 from pathlib import Path
+from traceback import format_exception
 
 import ibis
 import pytest
+from requests.exceptions import ConnectionError as HttpConnectionError
+from requests.exceptions import InvalidHeader, ReadTimeout
+from trino.exceptions import TrinoConnectionError, TrinoUserError
 
 import marivo.analysis as mv
 import marivo.datasource as md
 import marivo.semantic as ms
+from marivo._help.render import render_help_text
 from marivo.analysis.errors import AnalysisError
 from marivo.datasource import store
 from marivo.datasource.authoring import DuckDBSpec, TrinoSpec
+from marivo.datasource.credentials import remember_injected
 from marivo.datasource.errors import (
     DatasourceFieldInvalidError,
     DatasourceRawSqlError,
@@ -664,6 +670,139 @@ def test_raw_sql_error_includes_execution_context(tmp_path: Path) -> None:
     assert err.location is not None
     assert "warehouse" in err.location
     assert err.repair is not None
+    assert err.repair.kind == "inspect"
+
+
+_RAW_SQL_CANARY = "raw-sql-injected-credential-canary"
+
+
+def _trino_http_failure(cause: Exception) -> TrinoConnectionError:
+    failure = TrinoConnectionError(f"failed to fetch: {cause}")
+    failure.__context__ = cause
+    return failure
+
+
+@pytest.mark.parametrize(
+    ("failure", "code", "kind", "target", "guidance"),
+    (
+        (
+            TrinoUserError({"errorName": "MISSING_SCHEMA_NAME", "message": _RAW_SQL_CANARY}),
+            "invalid_sql",
+            "retry",
+            "datasource.raw_sql",
+            "catalog.schema.table",
+        ),
+        (
+            TrinoUserError({"errorName": "COLUMN_NOT_FOUND", "message": _RAW_SQL_CANARY}),
+            "invalid_sql",
+            "inspect",
+            "datasource.raw_sql",
+            "SHOW COLUMNS",
+        ),
+        (
+            TrinoUserError({"errorName": "SYNTAX_ERROR", "message": _RAW_SQL_CANARY}),
+            "invalid_sql",
+            "retry",
+            "datasource.raw_sql",
+            "position",
+        ),
+        (
+            TrinoUserError({"errorName": "PERMISSION_DENIED", "message": _RAW_SQL_CANARY}),
+            "permission_denied",
+            "inspect",
+            "datasource.raw_sql",
+            "identity",
+        ),
+        (
+            TrinoUserError({"errorName": "EXCEEDED_TIME_LIMIT", "message": _RAW_SQL_CANARY}),
+            "timeout",
+            "inspect",
+            "datasource.raw_sql",
+            "query cost",
+        ),
+        (
+            _trino_http_failure(HttpConnectionError(_RAW_SQL_CANARY)),
+            "connection_unavailable",
+            "reconnect",
+            "datasource.datasource_catalog.test",
+            "connectivity",
+        ),
+        (
+            _trino_http_failure(ReadTimeout(_RAW_SQL_CANARY)),
+            "timeout",
+            "inspect",
+            "datasource.raw_sql",
+            "HTTP request timeout",
+        ),
+        (
+            _trino_http_failure(InvalidHeader(_RAW_SQL_CANARY)),
+            "unknown",
+            "inspect",
+            "datasource.raw_sql",
+            "native error",
+        ),
+        (
+            RuntimeError(f"Unknown failure (PERMISSION_DENIED) {_RAW_SQL_CANARY}"),
+            "unknown",
+            "inspect",
+            "datasource.raw_sql",
+            "native error",
+        ),
+    ),
+)
+@pytest.mark.parametrize("injected", (False, True))
+def test_raw_sql_repairs_use_native_failure_evidence(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    failure: Exception,
+    code: str,
+    kind: str,
+    target: str,
+    guidance: str,
+    injected: bool,
+) -> None:
+    md.register(
+        TrinoSpec(
+            name="warehouse", host="trino.example", catalog="hive", user=md.env("TRINO_USER")
+        ),
+        project_root=tmp_path,
+    )
+
+    class FailingBackend(_RawSqlBackend):
+        def raw_sql(self, sql: str) -> _FakeCursor:
+            self.calls.append(sql)
+            raise failure
+
+    backend = FailingBackend({})
+    if injected:
+        remember_injected(backend, (md.SecretValue(_RAW_SQL_CANARY),))
+    service = _RawSqlService(backend)
+    monkeypatch.setattr(
+        "marivo.datasource.manage.DatasourceConnectionService", lambda _root: service
+    )
+    _patch_trino_timeout_to_noop(monkeypatch)
+
+    with pytest.raises(DatasourceRawSqlError) as caught:
+        md.raw_sql(
+            ms.ref.datasource("warehouse"),
+            "SELECT col FROM orders",
+            reason="verify driver failure",
+            project_root=tmp_path,
+        )
+    error = caught.value
+    assert backend.calls == ["SELECT col FROM orders"]
+    assert error.effect_observed is not None and error.effect_observed.query_executed
+    assert error.code == code
+    assert error.repair is not None and error.repair.kind == kind
+    assert error.repair.help_target.display == target
+    assert guidance in error.repair.action
+    render_help_text(target)
+    assert error.received is not None and type(failure).__name__ in error.received
+    if isinstance(failure, TrinoUserError):
+        assert f"name={failure.error_name}" in error.received
+    if injected:
+        assert "<redacted>" in error.received
+        assert _RAW_SQL_CANARY not in "".join(format_exception(error))
 
 
 def test_raw_sql_logs_native_statement_consumption_and_failure(

@@ -172,13 +172,10 @@ def test_registry_input_contracts_match_required_datasource_arguments() -> None:
         for requirement in REGISTRY.by_canonical_id("time_range").input_requirements
     ) == ("TemporalColumn", "TemporalBound", "PositiveRowGuard", "PositiveTimeoutGuard")
     assert tuple(
-        requirement.family for requirement in REGISTRY.by_canonical_id("raw_sql").input_requirements
-    ) == (
-        "DatasourceSymbol",
-        "SqlText",
-        "RawSqlReason",
-        "PositiveTimeoutGuard",
-    )
+        requirement.family
+        for requirement in REGISTRY.by_canonical_id("raw_sql").input_requirements
+        if requirement.min_count > 0
+    ) == ("DatasourceSymbol", "SqlText", "RawSqlReason")
 
 
 def test_registry_retains_direct_inspection_and_acquisition_facts() -> None:

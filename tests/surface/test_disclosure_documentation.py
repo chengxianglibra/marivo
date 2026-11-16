@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+import inspect
 import re
 from collections.abc import Callable
 from pathlib import Path
@@ -10,15 +11,100 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
+import marivo
 import marivo.analysis as mv
 import marivo.datasource as md
 import marivo.semantic as ms
+from marivo._authoring.model import AuthoringCapability
 from marivo.analysis._capabilities.dataset_model import CallableInput
 from marivo.analysis._capabilities.registry import REGISTRY
 from marivo.analysis.core.frame_method_facts import FrameAdditiveMethod, FrameShapleyMethod
 from marivo.analysis.errors import AnalysisError
+from marivo.datasource._capabilities.registry import REGISTRY as DATASOURCE_REGISTRY
+from marivo.semantic._capabilities.registry import REGISTRY as SEMANTIC_REGISTRY
 from marivo.semantic.reader import SemanticProject
 from tests.shared_fixtures import DslCaseFactory, catalog_value, frozen_coordinates
+from tests.support.paths import PROJECT_ROOT
+
+
+def _check_public_calls(code: str, location: str) -> None:
+    aliases = {"marivo": marivo, "md": md, "ms": ms, "mv": mv}
+    for call in ast.walk(ast.parse(code, filename=location)):
+        if not isinstance(call, ast.Call):
+            continue
+        attributes: list[str] = []
+        root = call.func
+        while isinstance(root, ast.Attribute):
+            attributes.append(root.attr)
+            root = root.value
+        if not isinstance(root, ast.Name) or root.id not in aliases or not attributes:
+            continue
+        module = aliases[root.id]
+        assert attributes[-1] in module.__all__, (location, ast.unparse(call.func))
+        value: object = module
+        for attribute in reversed(attributes):
+            assert hasattr(value, attribute), (location, ast.unparse(call.func))
+            value = getattr(value, attribute)
+        assert callable(value), (location, ast.unparse(call.func))
+        signature = inspect.signature(value)
+        keywords = {kw.arg: None for kw in call.keywords if kw.arg is not None}
+        try:
+            if any(isinstance(arg, ast.Starred) for arg in call.args):
+                signature.bind_partial(**keywords)
+            else:
+                bind = (
+                    signature.bind
+                    if len(keywords) == len(call.keywords)
+                    else signature.bind_partial
+                )
+                bind(*([None] * len(call.args)), **keywords)
+        except TypeError as exc:
+            pytest.fail(f"{location} {ast.unparse(call.func)}: {exc}")
+
+
+def test_current_guide_examples_use_valid_public_call_shapes() -> None:
+    directories = (
+        "docs/architecture",
+        "site/src/content/docs/docs/latest",
+        "site/src/content/docs/zh-cn/docs/latest",
+    )
+    for directory in directories:
+        for path in sorted((PROJECT_ROOT / directory).rglob("*.md*")):
+            relative = path.relative_to(PROJECT_ROOT)
+            if "release-notes" in relative.parts:
+                continue
+            content = path.read_text(encoding="utf-8")
+            for match in re.finditer(
+                r"^```(?:py|python)(?:[ \t][^\n]*)?\n(.*?)^```[ \t]*$", content, re.M | re.S
+            ):
+                line = content.count("\n", 0, match.start()) + 2
+                _check_public_calls(match[1], f"{relative}:{line}")
+
+
+def test_native_help_examples_use_valid_public_call_shapes() -> None:
+    for registry in (DATASOURCE_REGISTRY, SEMANTIC_REGISTRY):
+        for canonical_id in registry.canonical_ids():
+            descriptor = registry.by_canonical_id(canonical_id)
+            if isinstance(descriptor, AuthoringCapability) and descriptor.minimal_example:
+                _check_public_calls(descriptor.minimal_example, descriptor.live_target.display)
+    for analysis_descriptor in REGISTRY.descriptors:
+        if isinstance(analysis_descriptor, CallableInput):
+            _check_public_calls(
+                analysis_descriptor.example.code, f"analysis.{analysis_descriptor.canonical_id}"
+            )
+
+
+def test_raw_sql_help_example_runs_on_builtin_datasource(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    descriptor = DATASOURCE_REGISTRY.by_canonical_id("raw_sql")
+    assert descriptor.minimal_example is not None
+    namespace: dict[str, object] = {"md": md, "ms": ms}
+    exec(compile(descriptor.minimal_example, "<datasource.raw_sql>", "exec"), namespace)
+    frame = namespace["df"]
+    assert isinstance(frame, pd.DataFrame)
+    assert frame.to_dict(orient="records") == [{"ok": 1}]
 
 
 @pytest.mark.parametrize(

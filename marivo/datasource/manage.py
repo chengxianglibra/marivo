@@ -6,7 +6,7 @@ import builtins
 import copy
 import time
 from collections.abc import Callable, Iterator
-from contextlib import nullcontext
+from contextlib import ExitStack, nullcontext
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, TypeAlias
@@ -27,10 +27,10 @@ from marivo.datasource.authoring import (
     _loaded_datasource_ref,
     _storage_name,
 )
-from marivo.datasource.backends import BuiltDatasourceBackend
+from marivo.datasource.backends import BuiltDatasourceBackend, _NativeQueryTimeoutError
 from marivo.datasource.credential_inputs import credential_labels
 from marivo.datasource.engines import require_profile_for_backend_type
-from marivo.datasource.engines.base import decode_cursor_frame
+from marivo.datasource.engines.base import decode_cursor_frame, structured_exception_chain
 from marivo.datasource.errors import (
     DatasourceConnectionTimeoutError,
     DatasourceCredentialError,
@@ -41,6 +41,7 @@ from marivo.datasource.errors import (
     DatasourceObservedEffects,
     DatasourceRawSqlError,
     _backend_failure_summary,
+    _RawSqlFailureCode,
     repair,
 )
 from marivo.datasource.runtime import (
@@ -660,6 +661,127 @@ def _extract_raw_sql_frame(
     return frame.columns, frame.rows, frame.types
 
 
+def _raw_sql_diagnostic(
+    exc: Exception, backend_type: str, *, query_started: bool
+) -> tuple[_RawSqlFailureCode, AuthoringRepair]:
+    if not query_started:
+        if isinstance(exc, DatasourceError) and exc.repair is not None:
+            return "timeout_configuration", exc.repair
+        return "timeout_configuration", repair(
+            kind="configure",
+            canonical_id="raw_sql",
+            action="Check the reported native timeout setting and whether the connection permits it.",
+        )
+    name: str | None = None
+    connection_unavailable = isinstance(exc, ConnectionError)
+    if backend_type == "trino":
+        from requests.exceptions import ConnectionError as HttpConnectionError
+        from requests.exceptions import Timeout as HttpTimeout
+        from trino.exceptions import TrinoConnectionError, TrinoQueryError
+
+        if isinstance(exc, TrinoQueryError):
+            name = exc.error_name
+        elif isinstance(exc, TrinoConnectionError):
+            # Trino wraps every HTTP RequestException in this class, including
+            # timeouts and invalid request configuration. Inspect the cause.
+            chain = structured_exception_chain(exc)
+            if any(isinstance(cause, HttpTimeout) for cause in chain):
+                return "timeout", repair(
+                    kind="inspect",
+                    canonical_id="raw_sql",
+                    action=(
+                        "Check the coordinator response and HTTP request timeout. "
+                        "Confirm any source changes before resubmitting the SQL."
+                    ),
+                )
+            connection_unavailable = any(
+                isinstance(cause, (ConnectionError, HttpConnectionError)) for cause in chain
+            )
+    if name == "MISSING_SCHEMA_NAME":
+        return "invalid_sql", repair(
+            kind="retry",
+            canonical_id="raw_sql",
+            action=(
+                "Qualify the table as catalog.schema.table and quote each identifier separately "
+                'when needed, for example "catalog"."schema"."table$partitions". '
+                "To use unqualified names, configure the intended default schema in the Trino datasource."
+            ),
+        )
+    if name in ("COLUMN_NOT_FOUND", "TABLE_NOT_FOUND", "SCHEMA_NOT_FOUND", "CATALOG_NOT_FOUND"):
+        return "invalid_sql", repair(
+            kind="inspect",
+            canonical_id="raw_sql",
+            action=(
+                "Verify the catalog, schema, table and column names. "
+                "Run SHOW COLUMNS FROM catalog.schema.table for the intended table, then correct the SQL."
+            ),
+        )
+    if name == "SYNTAX_ERROR":
+        return "invalid_sql", repair(
+            kind="retry",
+            canonical_id="raw_sql",
+            action="Correct the SQL at the position reported by Trino.",
+        )
+    if name == "PERMISSION_DENIED":
+        return "permission_denied", repair(
+            kind="inspect",
+            canonical_id="raw_sql",
+            action="Check that the datasource identity can access the objects in the statement.",
+        )
+    if name == "EXCEEDED_TIME_LIMIT" or isinstance(exc, TimeoutError):
+        return "timeout", repair(
+            kind="inspect",
+            canonical_id="raw_sql",
+            action="Check the native timeout and query cost. Narrow the query or adjust the applicable timeout.",
+        )
+    if connection_unavailable:
+        return "connection_unavailable", repair(
+            kind="reconnect",
+            canonical_id="datasource_catalog.test",
+            action="Test connectivity to the datasource. Confirm any source changes before retrying the SQL.",
+        )
+    return "unknown", repair(
+        kind="inspect",
+        canonical_id="raw_sql",
+        action="Inspect the native error and confirm any source changes before retrying.",
+    )
+
+
+def _raw_sql_failure(
+    exc: Exception,
+    datasource_id: str,
+    backend_type: str,
+    *,
+    query_started: bool,
+    values: tuple[cr.SecretValue, ...] = (),
+) -> DatasourceRawSqlError:
+    code, next_step = _raw_sql_diagnostic(exc, backend_type, query_started=query_started)
+    failure = _backend_failure_summary(exc, redact=lambda text: cr.redact(text, values))
+    expected = (
+        "SQL the datasource backend can execute under its connection permissions"
+        if query_started
+        else "native timeout settings supported by this connection"
+    )
+    received = f"{failure.identity}: {failure.message}"
+    if isinstance(exc, DatasourceError):
+        if exc.expected is not None:
+            expected = cr.redact(exc.expected, values)
+        if exc.received is not None:
+            received += f" ({cr.redact(exc.received, values)})"
+    return DatasourceRawSqlError(
+        code=code,
+        message="raw_sql execution or result fetching failed."
+        if query_started
+        else "raw_sql native timeout configuration failed before execution.",
+        expected=expected,
+        received=received,
+        location=f"md.raw_sql({datasource_id!r}) backend_type={backend_type!r}",
+        effect_observed=DatasourceObservedEffects(query_executed=query_started),
+        repair=next_step,
+        _backend_failure=failure,
+    )
+
+
 def raw_sql(
     datasource: DatasourceSymbol | Datasource,
     sql: str,
@@ -709,9 +831,14 @@ def raw_sql(
 
         Query timeout coverage follows the backend's native semantics; it does
         not guarantee a total execution-and-fetching deadline. Unsupported native
-        query timeouts do not block execution. Configuration, execution or fetching failures raise a
+        query timeouts do not block execution. Query timeout setup, execution or fetching failures raise a
         ``DatasourceRawSqlError`` without returning a partial result, and the
         backend is always disconnected. Errors do not certify absence of side effects.
+
+        In Trino, qualify the table with catalog and schema if no default schema
+        is configured. Quote identifier components separately and use
+        ``SHOW COLUMNS FROM catalog.schema.table`` to check column names, including
+        for metadata tables such as ``"catalog"."schema"."table$partitions"``.
 
         This is a normal source-exploration option when inspection or a generic
         sample cannot answer the current question. Inferred semantics remain
@@ -765,10 +892,13 @@ def raw_sql(
     profile = require_profile_for_backend_type(backend_type)
     timeout = profile.native_query_timeout
     service = DatasourceConnectionService(project_root)
-    with service.use_backend(
-        datasource_id,
-        terminal_timeout_seconds=timeout_seconds,
-    ) as backend:
+    with ExitStack() as stack:
+        try:
+            backend = stack.enter_context(
+                service.use_backend(datasource_id, terminal_timeout_seconds=timeout_seconds)
+            )
+        except _NativeQueryTimeoutError as exc:
+            raise _raw_sql_failure(exc, datasource_id, backend_type, query_started=False) from None
         start = time.monotonic()
         query_started = False
         try:
@@ -795,34 +925,16 @@ def raw_sql(
                         close = getattr(cursor, "close", None)
                         if backend_type != "duckdb" and callable(close):
                             close()
-        except DatasourceError:
-            raise
         except Exception as exc:
-            if not query_started:
-                raise DatasourceRawSqlError(
-                    message="raw_sql native timeout configuration failed before execution.",
-                    expected="native timeout settings supported by this connection",
-                    received=type(exc).__name__,
-                    location=f"md.raw_sql({datasource_id!r}) backend_type={backend_type!r}",
-                    effect_observed=DatasourceObservedEffects(query_executed=False),
-                    repair=repair(
-                        kind="configure",
-                        canonical_id="raw_sql",
-                        action="Repair the reported native connection settings or permissions and retry.",
-                    ),
-                ) from exc
-            raise DatasourceRawSqlError(
-                message="raw_sql execution or result fetching failed.",
-                expected="SQL the datasource backend can execute under its connection permissions",
-                received=cr.redact(str(exc), cr.injected_values(backend)),
-                location=f"md.raw_sql({datasource_id!r}) backend_type={backend_type!r}",
-                effect_observed=DatasourceObservedEffects(query_executed=True),
-                repair=repair(
-                    kind="reconnect",
-                    canonical_id="raw_sql",
-                    action="Inspect the native error and confirm any source changes before retrying.",
-                ),
-            ) from cr.safe_backend_exception(exc, backend)
+            if query_started and isinstance(exc, DatasourceError):
+                raise
+            raise _raw_sql_failure(
+                exc,
+                datasource_id,
+                backend_type,
+                query_started=query_started,
+                values=cr.injected_values(backend),
+            ) from None
         duration_ms = int((time.monotonic() - start) * 1000)
         rows = extracted_rows
         warnings = [

@@ -80,7 +80,6 @@ release-test: pypi-build pypi-check
 		tests/analysis/materialization/test_frame_storage.py \
 		tests/analysis/materialization/test_frame_attribute_contribution.py \
 		tests/analysis/materialization/test_terminal_publication.py \
-		tests/surface/test_analysis_typing.py \
 		tests/analysis/materialization/test_relation_recovery.py \
 		tests/analysis/statistics/test_analysis_deviation_domains.py \
 		tests/analysis/statistics/test_deviation_contributions.py \

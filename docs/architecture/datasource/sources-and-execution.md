@@ -433,6 +433,19 @@ SQL as a diagnostic. Each call uses a dedicated connection and applies its
 declared settings and native permissions. Use read-only SQL and source-reader
 credentials. With write-capable credentials, submitted SQL can change the
 source even if fetching the result fails.
+Native timeout setup, statement and fetch failures report a
+`DatasourceRawSqlError` with a structured `code`, the observed execution state
+and a bounded, redacted backend diagnostic. Recognized Trino statement errors
+point to SQL, object names, permissions or time limits. Explicit connection
+failures point to the datasource test. Unrecognized failures use `unknown` and
+ask the caller to inspect the native diagnostic. A failure after submission can
+still leave source changes.
+
+In Trino, qualify names with catalog and schema when there is no default schema.
+Quote each identifier separately as needed, for example
+`"catalog"."schema"."table$partitions"`. Use `SHOW COLUMNS FROM catalog.schema.table`
+to discover columns on the intended table or metadata relation.
+
 The result retains all rows returned by the query, plus columns, types and
 execution context. Control query size in SQL with predicates, aggregation and
 an explicit LIMIT. Complete query rows are loaded into client memory; a LIMIT
