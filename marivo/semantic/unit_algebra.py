@@ -65,6 +65,11 @@ def _bytewise_sorted(atoms: Sequence[str]) -> tuple[str, ...]:
     return tuple(sorted(atoms, key=lambda atom: atom.encode("ascii")))
 
 
+def _cancel_factor_counts(numerator: int, denominator: int) -> tuple[int, int]:
+    cancelled = min(numerator, denominator)
+    return numerator - cancelled, denominator - cancelled
+
+
 def _reduce_factors(
     numerator: Sequence[str],
     denominator: Sequence[str],
@@ -72,9 +77,9 @@ def _reduce_factors(
     numerator_counts = Counter(numerator)
     denominator_counts = Counter(denominator)
     for atom in numerator_counts.keys() & denominator_counts.keys():
-        cancelled = min(numerator_counts[atom], denominator_counts[atom])
-        numerator_counts[atom] -= cancelled
-        denominator_counts[atom] -= cancelled
+        numerator_counts[atom], denominator_counts[atom] = _cancel_factor_counts(
+            numerator_counts[atom], denominator_counts[atom]
+        )
     reduced_numerator = [atom for atom, count in numerator_counts.items() for _ in range(count)]
     reduced_denominator = [atom for atom, count in denominator_counts.items() for _ in range(count)]
     return _bytewise_sorted(reduced_numerator), _bytewise_sorted(reduced_denominator)

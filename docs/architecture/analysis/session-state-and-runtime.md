@@ -155,7 +155,9 @@ Every logical binding keeps full keys, types, presence and required checks. Cons
 control sharing/release; self-combination reads one shared input while retaining
 both consumers. Preparation checks and demanded numeric flags retain their source
 or formula owners and finish before downstream projection/Top-0 can hide failures.
-Conditional branches retain their existing demand policy.
+Conditional branches retain their existing demand policy. When a completed
+reduction supplies demand-aware flags, the formula remains local so that a
+source-wide check summary cannot reject undemanded branches or coordinates.
 Checks on the same source relation share a multi-column aggregate summary;
 source completion dispatches each retained obligation once. Summary-only rows
 carry required failures even for empty data and are removed before public output.

@@ -23,6 +23,7 @@ from ibis.common.deferred import (
     UnaryOperator,
     Variable,
 )
+from ibis.common.exceptions import IbisTypeError
 
 from marivo._definition.deferred import RescaleResolver, attribute_name, canonical_recipe
 from marivo._numeric_types import bind_numeric_literal
@@ -85,7 +86,14 @@ def lower_recipe(
         )
     if not isinstance(expression, ir.Value):
         expression = ibis.literal(expression)
-    return _lower_operation(expression.op(), dict(zip(names, inputs, strict=True)))
+    try:
+        return _lower_operation(expression.op(), dict(zip(names, inputs, strict=True)))
+    except IbisTypeError as error:
+        # Replacing provisional literals with exact types can invalidate an
+        # operation that Ibis accepted before binding.
+        numeric_failure(
+            "physical types admitted by the numeric recipe", f"{type(error).__name__}: {error}"
+        )
 
 
 def _masked(checks: tuple[NumericCheck, ...], demand: ir.Value) -> tuple[NumericCheck, ...]:

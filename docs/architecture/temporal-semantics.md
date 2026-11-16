@@ -213,8 +213,9 @@ and declared to-one cardinality remain authoritative. No source identity audit
 is added. Multi-root, read/classify, numeric reductions, windows and internal
 samples require fixed anchors in this release.
 
-Internal before-endpoint consumers retain strict left-limit semantics without
-subtracting a tick. [Entity versioning](semantic/semantic-object-model.md#versioning-snapshot-and-validity)
+The version normalizer and compiler support internal before-endpoint selection
+with strict left-limit semantics. The current fixed-anchor callers request
+instant selection. [Entity versioning](semantic/semantic-object-model.md#versioning-snapshot-and-validity)
 owns snapshot and validity selection.
 
 ## Grain and bucket structure

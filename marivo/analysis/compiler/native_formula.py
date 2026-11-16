@@ -137,6 +137,10 @@ def lower_native_formula(
             return "formula has no exact complete Attribute parent relation"
     if not program.values:
         return "formula has no ordinary source reductions"
+    if any(binding.checks for binding in program.values):
+        # Terminal fusion summarizes source checks over the entire input. A
+        # formula can demand a reduction only on selected branches and keys.
+        return "formula retains demand-aware source reduction checks"
     grouped_tables: dict[ops.Relation, tuple[ir.Table, list[str]]] = {}
     for binding in program.values:
         if isinstance(binding.column.dtype, DurationDataType):

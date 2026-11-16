@@ -1,4 +1,4 @@
-.PHONY: test runtime-test release-test test-changed typecheck lint format \
+.PHONY: test runtime-test release-test test-changed verify-formal typecheck lint format \
 	check check-fast release-check docs-api docs-api-incremental \
 	pypi-build pypi-check pypi-clean
 
@@ -55,6 +55,15 @@ test: export ARROW_IO_THREADS = $(PYTEST_NATIVE_THREADS)
 test:
 	@./scripts/require-venv.sh pytest
 	@$(VENV_PYTEST) $(PYTEST_FLAGS) -n $(if $(findstring ::,$(TESTS)),0,$(PYTEST_WORKERS)) $(TESTS)
+
+verify-formal:
+	@./scripts/require-venv.sh z3
+	@$(MAKE) --no-print-directory test TESTS='$(FORMAL_TESTS)'
+
+FORMAL_TESTS := tests/formal/verify_solver_contract.py tests/formal/verify_unit_algebra.py tests/formal/verify_population.py \
+	tests/formal/verify_temporal_boundaries.py tests/formal/verify_expression_scope.py \
+	tests/formal/verify_frame_presence.py tests/formal/verify_query_rewrites.py \
+	tests/formal/verify_publication_recovery.py
 
 runtime-test:
 	@./scripts/require-venv.sh pytest

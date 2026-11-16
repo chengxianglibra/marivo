@@ -59,7 +59,7 @@ from tests.shared_fixtures import (
     catalog_value,
     terminal_runs,
 )
-from tests.support.source_trace import capture_source
+from tests.support.source_trace import SourceTrace, capture_source
 
 
 @pytest.fixture
@@ -377,6 +377,37 @@ def test_unselected_native_branch_keeps_its_dynamic_checks_masked(
     guarded = (total >= 0).ifelse(total, total / 0)
     query = session.observe({"safe": guarded}, by=(region,))
     _same(session, query)
+
+
+def test_observe_terminal_fusion_respects_unselected_strict_reduction(
+    optimization_session: Session,
+) -> None:
+    session = optimization_session
+    amount = catalog_value(session.catalog, "sales.orders.exact", kind="measure")
+    total = amount.sum()
+    guarded = (total > 0).ifelse(total, amount.sum(nulls="error"))
+
+    result = session.observe({"guarded": guarded}).compute().to_pandas()
+
+    assert result["guarded"].tolist() == [Decimal("60.06")]
+
+
+def test_observe_rejects_incompatible_decimal_comparison_before_reading(
+    optimization_session: Session, source_trace: SourceTrace
+) -> None:
+    session = optimization_session
+    amount = catalog_value(session.catalog, "sales.orders.exact", kind="measure")
+    query = session.observe({"selected": (amount.sum() > Decimal("0.001")).ifelse(1, 0)})
+
+    with pytest.raises(SemanticExpressionError) as rejected:
+        query.compute()
+
+    error = rejected.value
+    assert error.expected == "physical types admitted by the numeric recipe"
+    assert "decimal(38, 2)" in (error.received or "")
+    assert "decimal(3, 3)" in (error.received or "")
+    assert error.repair is not None
+    assert source_trace.native_sql == []
 
 
 def test_explicit_source_occurrences_and_formula_finish_are_never_collapsed(
