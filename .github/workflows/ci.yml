@@ -12,26 +12,83 @@ concurrency:
   group: ci-${{ github.event_name }}-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+permissions:
+  contents: read
+  actions: write
+
 jobs:
-  check:
+  typecheck:
+    name: typecheck (${{ matrix.python-version }})
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         python-version: ["3.10", "3.12", "3.13", "3.14"]
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: ./.github/actions/bootstrap
         with:
           python-version: ${{ matrix.python-version }}
-          cache: "pip"
+          save-cache: "true"
 
-      - name: Bootstrap environment
+      - name: Lint
+        if: matrix.python-version == '3.12'
+        run: make lint
+
+      - name: Docs
+        if: matrix.python-version == '3.12'
+        run: make docs-api
+
+      - name: Shard map
+        if: matrix.python-version == '3.12'
+        run: .venv/bin/python scripts/ci_shard_files.py --check
+
+      - name: Typecheck
+        run: make typecheck MYPY_PYTHON_VERSION="${{ matrix.python-version }}"
+
+  tests:
+    name: tests (${{ matrix.python-version }} shard ${{ matrix.shard }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.12", "3.13", "3.14"]
+        shard: [1, 2, 3, 4]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/bootstrap
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Run shard
         run: |
-          python -m venv .venv
-          .venv/bin/python -m pip install --upgrade pip
-          .venv/bin/python -m pip install -e ".[dev,duckdb,trino,docs]"
+          mapfile -t files < <(.venv/bin/python scripts/ci_shard_files.py --shard "${{ matrix.shard }}")
+          if ((${#files[@]} == 0)); then
+            echo "shard ${{ matrix.shard }} selected no tests" >&2
+            exit 1
+          fi
+          make test TESTS="${files[*]}"
 
-      - name: Run checks
-        run: make check MYPY_PYTHON_VERSION="${{ matrix.python-version }}"
+  check:
+    name: check (${{ matrix.python-version }})
+    needs: [typecheck, tests]
+    if: always() && !cancelled()
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.12", "3.13", "3.14"]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Require this Python version
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          python3 scripts/ci_require_checks.py \
+            --python-version "${{ matrix.python-version }}" \
+            --shards 4

@@ -1,0 +1,44 @@
+name: Bootstrap
+description: Restore a cached virtualenv and install the CI extras
+inputs:
+  python-version:
+    description: Python version passed to setup-python
+    required: true
+  save-cache:
+    description: Save the virtualenv when this exact key was not restored
+    required: false
+    default: "false"
+runs:
+  using: composite
+  steps:
+    - name: Set up Python
+      id: python
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ inputs.python-version }}
+        cache: pip
+
+    - name: Restore virtualenv
+      id: venv
+      uses: actions/cache/restore@v4
+      with:
+        path: .venv
+        key: venv-${{ runner.os }}-${{ runner.arch }}-py${{ steps.python.outputs.python-version }}-${{ hashFiles('pyproject.toml') }}
+
+    - name: Install project
+      shell: bash
+      run: |
+        if [[ ! -x .venv/bin/python ]]; then
+          python -m venv .venv
+        fi
+        .venv/bin/python -m pip install --upgrade pip
+        .venv/bin/python -m pip install -e ".[dev,duckdb,trino,docs]"
+        .venv/bin/python -c "import marivo, pytest, mypy, ruff"
+
+    - name: Save virtualenv
+      if: inputs.save-cache == 'true' && steps.venv.outputs.cache-hit != 'true'
+      continue-on-error: true
+      uses: actions/cache/save@v4
+      with:
+        path: .venv
+        key: venv-${{ runner.os }}-${{ runner.arch }}-py${{ steps.python.outputs.python-version }}-${{ hashFiles('pyproject.toml') }}
