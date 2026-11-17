@@ -460,6 +460,8 @@ class ReadApplication:
                     "dependencies" if query["relation"] == "dependencies" else "dependents"
                 )
                 result = snapshot.related(params["id"], relation, limit, cursor)
+            elif name == "datasource_properties":
+                result = snapshot.datasource_properties(params["id"])
             else:
                 result = snapshot.detail(params["id"])
             return budget.encode(result)

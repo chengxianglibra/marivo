@@ -201,6 +201,7 @@ def test_complete_reports_restart_and_budget(tmp_path: Path) -> None:
             "/v2/semantic/objects",
             "/v2/semantic/objects/{id}",
             "/v2/semantic/objects/{id}/related",
+            "/v2/semantic/objects/{id}/datasource-properties",
             "/v2/semantic/reload",
         }
         assert spec["paths"]["/v2/stores/{store_id}/sessions/{session_id}/frames/{artifact_id}"][
@@ -451,14 +452,69 @@ def test_current_catalog_reload_isolated_from_saved_report(tmp_path: Path) -> No
         assert reload["object_count"] == 8
         assert _ok(request(endpoint))["business_definition"] == "after"
         _error(request(continuation), 409, "invalid_cursor")
+        properties_endpoint = "/v2/semantic/objects/datasource%3Awarehouse/datasource-properties"
+        properties_before_failure = _ok(request(properties_endpoint))
         _models(tmp_path, "x" * (1024 * 1024))
         _error(request("/v2/semantic/reload", method="POST"), 413, "response_too_large")
         assert _ok(request(endpoint))["business_definition"] == "after"
+        assert _ok(request(properties_endpoint)) == properties_before_failure
         _models(tmp_path, "bad", bad=True)
         _error(request("/v2/semantic/reload", method="POST"), 422, "catalog_load_failed")
         assert _ok(request("/v2/info"))["catalog"]["loaded_at"] == reload["loaded_at"]
         assert _ok(request(endpoint))["business_definition"] == "after"
         assert _ok(request(_path(ids))) == report
+
+
+def test_datasource_properties_are_authenticated_snapshot_reads(tmp_path: Path) -> None:
+    _models(tmp_path, "before")
+    datasource = tmp_path / "models/datasources/warehouse.py"
+    trino = tmp_path / "models/datasources/remote.py"
+    trino.write_text(
+        "import marivo.datasource as md\n"
+        "md.trino(name='remote', host='coordinator.example', port=8080, "
+        "catalog='hive', source='client', client_tags=['standby'], "
+        "user=md.env('PRIVATE_USER'), session_properties={'password':'hidden-value'})\n"
+    )
+    endpoint = "/v2/semantic/objects/datasource%3Awarehouse/datasource-properties"
+    remote = "/v2/semantic/objects/datasource%3Aremote/datasource-properties"
+    with server(tmp_path) as request:
+        _error(request(endpoint, bearer=None), 401, "unauthorized")
+        spec = _ok(request("/v2/openapi.json"))
+        before = _ok(request(endpoint))
+        _schema(spec, "DatasourceProperties", before)
+        assert before["properties"]["path"] == "private-storage-name.duckdb"
+        detail = _ok(request("/v2/semantic/objects/datasource%3Awarehouse"))
+        assert "private-storage-name" not in json.dumps(detail)
+        properties = _ok(request(remote))
+        assert properties["properties"]["host"] == "coordinator.example"
+        assert properties["properties"]["client_tags"] == ["standby"]
+        assert properties["has_omitted_fields"] is True
+        assert "hidden-value" not in json.dumps(properties)
+        assert "PRIVATE_USER" not in json.dumps(properties)
+        _error(
+            request("/v2/semantic/objects/metric%3Asales.total/datasource-properties"),
+            404,
+            "not_found",
+        )
+        _error(
+            request("/v2/semantic/objects/datasource%3Amissing/datasource-properties"),
+            404,
+            "not_found",
+        )
+        _error(request(endpoint + "?unrecognized=1"), 400, "invalid_parameter")
+
+        old_stat = datasource.stat()
+        updated = datasource.read_text().replace("private-storage-name", "another-storage-name")
+        assert len(updated) == old_stat.st_size
+        datasource.write_text(updated)
+        os.utime(datasource, ns=(old_stat.st_atime_ns, old_stat.st_mtime_ns))
+        assert _ok(request(endpoint)) == before
+        _ok(request("/v2/semantic/reload", method="POST"))
+        after = _ok(request(endpoint))
+        assert after["properties"]["path"] == "another-storage-name.duckdb"
+        datasource.write_text("def invalid(:\n")
+        _error(request("/v2/semantic/reload", method="POST"), 422, "catalog_load_failed")
+        assert _ok(request(endpoint)) == after
 
 
 @pytest.mark.parametrize("initial_method", ["GET", "POST"])
@@ -671,6 +727,11 @@ main()
     ) as request:
         _error(request(_path(ids)), 503, "read_timeout")
         _error(request("/v2/semantic/objects"), 503, "read_timeout")
+        _error(
+            request("/v2/semantic/objects/datasource%3Awarehouse/datasource-properties"),
+            503,
+            "read_timeout",
+        )
         assert _ok(request("/v2/info"))["catalog"] == {"loaded": False, "loaded_at": None}
         assert len(_ok(request("/v2/sessions"))["items"]) == 1
 

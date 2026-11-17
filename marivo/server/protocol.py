@@ -75,6 +75,12 @@ ROUTES = (
         ("relation", *_PAGE),
     ),
     Route(
+        "datasource_properties",
+        "/v2/semantic/objects/{id}/datasource-properties",
+        "DatasourceProperties",
+        "Read approved datasource configuration from the current Catalog snapshot",
+    ),
+    Route(
         "reload",
         "/v2/semantic/reload",
         "Reload",
@@ -447,6 +453,15 @@ def _schemas() -> dict[str, JsonObject]:
         ),
         "ObjectDirectory": _directory("SemanticSummary", kinds=arr(STRING), domains=arr(STRING)),
         "RelatedDirectory": _directory("SemanticSummary", outside_scope=arr(STRING)),
+        "DatasourceProperties": record(
+            backend_type=STRING,
+            wall_clock_timezone=nullable(STRING),
+            properties={
+                "type": "object",
+                "additionalProperties": either(STRING, INT, BOOL, arr(STRING)),
+            },
+            has_omitted_fields=BOOL,
+        ),
         **{
             f"Error{status}": record(
                 error=record(

@@ -4,12 +4,48 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
 
+from marivo.datasource.ir import AiContextIR
+from marivo.semantic.catalog_entries import DatasourceDefinition
+from marivo.server.catalog_projection import _datasource_properties
 from marivo.server.catalog_reads import CatalogReads
 from marivo.server.wire import JsonObject, Limits, ServiceError
+
+
+def test_datasource_projection_filters_unapproved_or_unsafe_shapes() -> None:
+    definition = DatasourceDefinition(
+        context=AiContextIR(),
+        backend_type="trino",
+        wall_clock_timezone=None,
+        fields=(
+            ("host", "user:password@example.test"),
+            ("port", True),
+            ("catalog", "hive"),
+            ("path", "/unrelated/private"),
+            ("client_tags", ("standby", "token=private")),
+            ("session_properties", {"password": "hidden"}),
+        ),
+        env_refs=(("user", "PRIVATE_USER"),),
+        entities=(),
+    )
+    assert _datasource_properties(definition) == {
+        "backend_type": "trino",
+        "wall_clock_timezone": None,
+        "properties": {"catalog": "hive"},
+        "has_omitted_fields": True,
+    }
+    # Even allowlisted keys are rejected before materializing nested or oversized values.
+    nested = replace(definition, fields=(("client_tags", (("hidden",),)),))
+    assert _datasource_properties(nested)["properties"] == {}
+    oversized = replace(definition, fields=(("client_tags", ("ok",) * 51),))
+    assert _datasource_properties(oversized)["properties"] == {}
+    unknown = replace(definition, backend_type="unknown", fields=(("host", "host.test"),))
+    assert _datasource_properties(unknown)["properties"] == {}
+    assert _datasource_properties(unknown)["has_omitted_fields"] is True
 
 
 def test_disconnected_reader_does_not_cancel_shared_catalog_load(

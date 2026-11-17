@@ -145,6 +145,7 @@ Origins receive CORS headers on errors too. Server-to-server requests need no Or
 | `GET /v2/semantic/objects` | Current semantic summaries; optional kind/domain filters |
 | `GET /v2/semantic/objects/{id}` | Captured semantic definition and safe provenance |
 | `GET /v2/semantic/objects/{id}/related` | Dependencies or dependents; required relation parameter |
+| `GET /v2/semantic/objects/{id}/datasource-properties` | Approved datasource configuration from the current Catalog snapshot |
 | `POST /v2/semantic/reload` | Atomically reload current models; empty body |
 | `GET /v2/sessions` | Saved Sessions, newest updated first |
 | `GET /v2/sessions/{session_id}/frames` | Committed Frames, newest committed first |
@@ -196,6 +197,24 @@ Connection fields and environment references, file/HTTP source locations and
 external absolute model paths are omitted. Related navigation accepts
 `dependencies` or `dependents`, uses the full loaded scope and reports known
 unloaded dependencies separately as `outside_scope`.
+
+The dedicated datasource-properties endpoint accepts an exact `datasource:<name>`
+identity and returns `backend_type`, `wall_clock_timezone`, `properties` and
+`has_omitted_fields`. It returns 404 for absent or non-datasource identities. It
+projects a bounded allowlist of literal fields by backend and omits environment
+references, credentials, arbitrary nested options and unapproved or unsafe-shaped
+values. The ordinary semantic detail remains unchanged. This endpoint intentionally
+exposes approved connection settings and DuckDB paths to **every holder of the
+project's API token**. Hosts must enforce their own user/project authorization.
+Allowed literal values cannot be proven secret-free by their field name or format:
+Marivo merges `extra` into literal fields before the snapshot. Authors must keep
+secrets in credential references, not literal configuration. `has_omitted_fields`
+indicates omitted literal fields, not credential availability or connection status.
+
+Properties are captured in the same isolated, bounded Catalog load as semantic
+objects. Warm requests read the immutable snapshot without starting a new process or
+connecting to the datasource. The existing first-load, atomic reload, failed-reload
+retention and response/worker budgets apply equally to this endpoint.
 
 After model edits, send an empty body to `POST /v2/semantic/reload`. The isolated
 load atomically replaces the snapshot only on success, returning `loaded_at` and

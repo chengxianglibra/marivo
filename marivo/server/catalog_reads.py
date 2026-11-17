@@ -22,10 +22,14 @@ from marivo.server.wire import HELP, JsonObject, JsonValue, Limits, ServiceError
 Relation = Literal["dependencies", "dependents"]
 
 
-class Entry(TypedDict):
+class _EntryRequired(TypedDict):
     detail: JsonObject
     related: dict[Relation, list[str]]
     outside_scope: list[str]
+
+
+class Entry(_EntryRequired, total=False):
+    datasource_properties: JsonObject
 
 
 def not_found() -> ServiceError:
@@ -73,6 +77,12 @@ class Snapshot:
         if entry is None:
             raise not_found()
         return entry["detail"]
+
+    def datasource_properties(self, identity: str) -> JsonObject:
+        entry = self.entries.get(identity)
+        if entry is None or (properties := entry.get("datasource_properties")) is None:
+            raise not_found()
+        return properties
 
     def related(
         self, identity: str, relation: Relation, limit: int, cursor: str | None

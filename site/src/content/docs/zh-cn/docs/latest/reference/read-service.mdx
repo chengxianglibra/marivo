@@ -122,6 +122,7 @@ marivo serve --project-root /srv/sales-project --host 0.0.0.0 --port 8765 \
 | `GET /v2/semantic/objects` | 当前语义对象摘要，可按 kind/domain 筛选 |
 | `GET /v2/semantic/objects/{id}` | 捕获的语义定义和安全声明位置 |
 | `GET /v2/semantic/objects/{id}/related` | 依赖或反向依赖，必填 relation 参数 |
+| `GET /v2/semantic/objects/{id}/datasource-properties` | 当前 Catalog 快照中允许公开的数据源配置 |
 | `POST /v2/semantic/reload` | 原子重载当前模型，请求体为空 |
 | `GET /v2/sessions` | 已保存 Session，按更新时间倒序 |
 | `GET /v2/sessions/{session_id}/frames` | 已提交 Frame，按提交时间倒序 |
@@ -164,6 +165,18 @@ curl -H "Authorization: Bearer $MARIVO_API_TOKEN" \
 详情保留业务上下文、公式、单位、贡献时间绑定和项目内相对声明位置；省略连接字段、
 环境引用、文件/HTTP 来源地址及外部模型的绝对路径。关联导航接受 `dependencies` 或
 `dependents`，使用完整已加载范围，已知但未加载的依赖单列于 `outside_scope`。
+
+独立的 datasource-properties 接口接受精确的 `datasource:<name>` 身份，返回
+`backend_type`、`wall_clock_timezone`、`properties` 和 `has_omitted_fields`。
+缺失或非数据源身份返回 404。接口按引擎和数据形状投影允许公开的字面属性，省略
+环境引用、凭据、任意嵌套选项及不符合条件的值；普通语义详情的投影不变。
+该接口会向**所有持有项目 API token 的调用方**展示允许的连接配置与 DuckDB 路径，
+宿主需要自行实施用户和项目授权。字段名或格式无法证明字面值不含秘密：Marivo
+在快照前合并 `extra` 和字面字段，作者应使用凭据引用保存秘密。
+`has_omitted_fields` 只表示字面配置有字段被省略，不代表凭据或连接状态。
+
+属性与语义对象在同一隔离、有界 Catalog 加载中捕获。快照就绪后读取无需新启进程，
+也不连接数据源；首次加载、原子重载、失败保留旧快照及读取预算沿用 Catalog 规则。
 
 模型修改后，以空请求体调用 `POST /v2/semantic/reload`。独立加载成功后才原子替换快照，
 返回 `loaded_at` 和 `object_count`；失败返回 `catalog_load_failed` 并保留旧快照。

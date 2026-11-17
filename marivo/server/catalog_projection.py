@@ -35,6 +35,61 @@ DEFINITION_FIELDS: dict[type[object], str] = {
 }
 SUMMARY_FIELDS = ("id", "kind", "path", "name", "domain", "business_definition")
 
+# These fields are intentionally available only through the authenticated
+# datasource-properties endpoint, never through the ordinary Catalog detail.
+_DATASOURCE_FIELDS: dict[str, frozenset[str]] = {
+    "duckdb": frozenset({"path", "read_only"}),
+    "trino": frozenset(
+        {"host", "port", "catalog", "schema", "source", "http_scheme", "client_tags"}
+    ),
+    "mysql": frozenset({"host", "port", "database", "autocommit"}),
+    "postgres": frozenset({"host", "port", "database", "schema", "autocommit"}),
+    "clickhouse": frozenset({"host", "port", "database", "secure"}),
+}
+_DATASOURCE_TEXT = frozenset(
+    {"host", "catalog", "schema", "database", "source", "path", "http_scheme"}
+)
+_DATASOURCE_VALUE = re.compile(r"[\w./:@+ -]{1,512}\Z")
+_SENSITIVE_MARKER = re.compile(r"password|passwd|secret|token|credential|api[_-]?key", re.I)
+
+
+def _datasource_properties(definition: DatasourceDefinition) -> JsonObject:
+    properties: JsonObject = {}
+    for key, frozen in definition.fields:
+        if key not in _DATASOURCE_FIELDS.get(definition.backend_type, frozenset()):
+            continue
+        # Validate the frozen value before materializing it: an approved key
+        # may still contain an arbitrarily large or deeply nested value.
+        value = frozen
+        if (
+            (
+                key in _DATASOURCE_TEXT
+                and isinstance(value, str)
+                and _DATASOURCE_VALUE.fullmatch(value)
+                and not _SENSITIVE_MARKER.search(value)
+                and "://" not in value
+                and "@" not in value
+            )
+            or (key == "port" and type(value) is int and 1 <= value <= 65535)
+            or (key in {"read_only", "secure", "autocommit"} and type(value) is bool)
+        ):
+            properties[key] = value
+        elif key == "client_tags" and isinstance(value, tuple) and len(value) <= 50:
+            tags = [tag for tag in value if isinstance(tag, str)]
+            if len(tags) == len(value) and all(
+                len(tag) <= 128
+                and re.fullmatch(r"[\w. -]+(?:=[\w. -]+)?", tag)
+                and not _SENSITIVE_MARKER.search(tag)
+                for tag in tags
+            ):
+                properties[key] = list(tags)
+    return {
+        "backend_type": definition.backend_type,
+        "wall_clock_timezone": definition.wall_clock_timezone,
+        "properties": properties,
+        "has_omitted_fields": len(properties) < len(definition.fields),
+    }
+
 
 def _safe_identifier(value: str) -> bool:
     return re.fullmatch(r"[\w .-]+", value) is not None
@@ -124,9 +179,10 @@ def _catalog(root: Path, output: BinaryIO, maximum: int) -> None:
             if not first:
                 write(",")
             first = False
-            for part in encoder.iterencode(
-                {"detail": detail, "related": related, "outside_scope": outside}
-            ):
+            projected: JsonObject = {"detail": detail, "related": related, "outside_scope": outside}
+            if isinstance(entry.definition, DatasourceDefinition):
+                projected["datasource_properties"] = _datasource_properties(entry.definition)
+            for part in encoder.iterencode(projected):
                 write(part)
         cursor = page.next_cursor
         if cursor is None:
