@@ -8,6 +8,7 @@
 
 | 模块 | 入口与职责 |
 | --- | --- |
+| 领域语言 | [Marivo Domain Language](domain-objects/README.md)：业务含义、总体、贡献、观察、时间与分析代数 |
 | Datasource | [连接与凭据](datasource/README.md)、[物理来源与执行](datasource/sources-and-execution.md)、[发现与证据](datasource/discovery.md) |
 | Semantic | [总览](semantic/overview.md)、[对象模型](semantic/semantic-object-model.md)、[表达式](semantic/expressions.md)、[加载与验证](semantic/loading-validation-introspection.md)、[编写工作流](semantic/authoring-workflow.md)、[业务时间数据](semantic/temporal-authority.md) |
 | Analysis | [分析架构](analysis/README.md)：Population、来源观察、Frame 运算、执行与持久化 |
