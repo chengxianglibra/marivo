@@ -27,7 +27,7 @@ from marivo.analysis.compiler.graph_plan import (
     FrameCompute,
     LocalCompute,
     QueryPlan,
-    SourceRead,
+    SourceReadStage,
     local_result,
 )
 from marivo.analysis.compiler.observation import FormulaProgram, formula_columns
@@ -273,7 +273,7 @@ def source_value_keys(plan: QueryPlan) -> dict[str, tuple[str, ...]]:
             if population.definition != receiver.program.output_population:
                 continue
             source = by_id[population.stage_id]
-            if not isinstance(source, SourceRead) or plan.consumers_of(source.stage_id) != (
+            if not isinstance(source, SourceReadStage) or plan.consumers_of(source.stage_id) != (
                 receiver.stage_id,
             ):
                 continue

@@ -23,6 +23,7 @@ from marivo._definition.deferred import (
     semantic_input,
 )
 from marivo._definition.expressions import (
+    ContributionClockBinding,
     ContributionFilter,
     EntityCount,
     MeasureAssertion,
@@ -34,7 +35,6 @@ from marivo._definition.expressions import (
     RowField,
     SourceAggregate,
     SourceWeightedMean,
-    TimeBinding,
 )
 from marivo._definition.graph import children, computation_fingerprint
 from marivo._definition.types import AxisBinding, ExactRef, SumAll, SumAllExcept, SumAxes, SumNone
@@ -458,7 +458,7 @@ def test_constructor_snapshots_bind_explicit_time_in_either_declaration_order(
         forward = _node_facts((amount + cost).sum(time=paid_at)).node
         reverse = _node_facts((cost + amount).sum(time=paid_at)).node
         assert isinstance(forward, SourceAggregate) and isinstance(reverse, SourceAggregate)
-        assert forward.time == reverse.time == TimeBinding(_reference(paid_at))
+        assert forward.time == reverse.time == ContributionClockBinding(_reference(paid_at))
 
 
 def test_constructor_snapshots_accept_later_declared_permission_axis(
@@ -792,7 +792,7 @@ def test_later_file_adds_an_explicit_time_field_to_complete_scope(catalog: Seman
     count = _resolved_entity(complete, orders).count(time=resolved_time)
     count_node = consume_metric(count).node
     assert isinstance(count_node, EntityCount)
-    assert count_node.time == TimeBinding(_reference(resolved_time))
+    assert count_node.time == ContributionClockBinding(_reference(resolved_time))
 
 
 def test_finalized_capture_imports_once_and_matches_catalog(
@@ -822,7 +822,7 @@ def revenue():
     cost = catalog_value(loaded, "sales.orders.cost", kind="measure")
     normalized = catalog_value(loaded, "sales.orders.normalized", kind="dimension")
     paid_at = catalog_value(loaded, "sales.orders.paid_at", kind="time_dimension")
-    expected = TimeBinding(_reference(paid_at))
+    expected = ContributionClockBinding(_reference(paid_at))
     assert _aggregate_node((amount + cost).sum(time=paid_at)).time == expected
     assert _aggregate_node((cost + amount).sum(time=paid_at)).time == expected
     assert consume_field(normalized).reference.version.startswith("sha256:")
@@ -1531,7 +1531,7 @@ def test_margin_sum_has_no_time_role_unless_supplied(catalog: SemanticCatalog) -
     assert isinstance(implicit.node, SourceAggregate) and isinstance(explicit.node, SourceAggregate)
     assert implicit.node.reducer == "sum" and implicit.node.nulls == "ignore"
     assert implicit.node.time is None
-    assert explicit.node.time == TimeBinding(_reference(paid_at))
+    assert explicit.node.time == ContributionClockBinding(_reference(paid_at))
     assert computation_fingerprint(implicit.node) != computation_fingerprint(explicit.node)
     assert (implicit.roots, implicit.unit) == ((_row_facts(amount).root,), "CNY")
     strict = (amount - cost).sum(nulls="error")
@@ -1574,7 +1574,7 @@ def test_counts_have_unit_one_and_entity_count_reads_whole_rows(catalog: Semanti
     assert _unit_facts(_measure(catalog, "amount").count()).unit == "1"
     order_count = orders.count(time=paid_at)
     assert _node_facts(order_count).node == EntityCount(
-        _reference(orders), TimeBinding(_reference(paid_at))
+        _reference(orders), ContributionClockBinding(_reference(paid_at))
     )
     assert (_metric_facts(order_count).roots, _unit_facts(order_count).unit) == (
         (_reference(orders),),
@@ -1591,7 +1591,7 @@ def test_quantile_and_policy_inputs_are_validated(catalog: SemanticCatalog) -> N
     assert _node_facts(amount.quantile(0.95, time=paid_at)).node == SourceAggregate(
         amount_facts.node,
         "quantile",
-        TimeBinding(_reference(paid_at)),
+        ContributionClockBinding(_reference(paid_at)),
         q=0.95,
         contribution_root=amount_facts.root,
     )
@@ -1914,14 +1914,14 @@ def test_via_binds_one_and_two_hop_time_paths_with_exact_refs(catalog: SemanticC
     assert _row_facts(buyer_created).root == buyer._parameter.from_entity
     one_hop = amount.sum(time=buyer_created)
     assert isinstance(_node_facts(one_hop).node, SourceAggregate)
-    assert _aggregate_node(one_hop).time == TimeBinding(
+    assert _aggregate_node(one_hop).time == ContributionClockBinding(
         _reference(created_at), (_reference(buyer),)
     )
     assert _reference(buyer).version.startswith("sha256:")
     two_hop = orders.count(time=opened_at.via(mv.path(buyer, region)))
     assert _node_facts(two_hop).node == EntityCount(
         _reference(orders),
-        TimeBinding(_reference(opened_at), (_reference(buyer), _reference(region))),
+        ContributionClockBinding(_reference(opened_at), (_reference(buyer), _reference(region))),
     )
     native = amount.sum()
     assert computation_fingerprint(_node_facts(one_hop).node) != computation_fingerprint(
@@ -1935,7 +1935,7 @@ def test_via_binds_one_and_two_hop_time_paths_with_exact_refs(catalog: SemanticC
     assert quantity.kind == "measure"
     weighted = amount.weighted_mean(weight=quantity, time=buyer_created)
     assert isinstance(_node_facts(weighted).node, SourceWeightedMean)
-    assert _weighted_node(weighted).time == TimeBinding(
+    assert _weighted_node(weighted).time == ContributionClockBinding(
         _reference(created_at), (_reference(buyer),)
     )
     status = catalog.get("dimension:sales.orders.status")
@@ -2119,7 +2119,7 @@ def test_updated_root_identity_does_not_reject_stored_expression_inputs(
     assert _measure_facts(combined).permission == _measure_facts(old_amount).permission
     reduced = combined.sum(time=paid_at)
     assert isinstance(_node_facts(reduced).node, SourceAggregate)
-    assert _aggregate_node(reduced).time == TimeBinding(_reference(paid_at))
+    assert _aggregate_node(reduced).time == ContributionClockBinding(_reference(paid_at))
     filtered = reduced.where(status == "paid")
     assert isinstance(_node_facts(filtered).node, ContributionFilter)
     assert _filtered_node(filtered).predicate == consume_predicate(status == "paid").node
@@ -2161,6 +2161,6 @@ def test_permission_intersection_and_time_paths_compare_semantic_references(
     routed = paid_at.via(Deferred(Just(route._parameter)))
     result = amount.sum(time=routed)
     assert isinstance(_node_facts(result).node, SourceAggregate)
-    assert _aggregate_node(result).time == TimeBinding(
+    assert _aggregate_node(result).time == ContributionClockBinding(
         _reference(paid_at), (_reference(relationship),)
     )

@@ -11,6 +11,7 @@ from ibis.common.deferred import const, var
 
 from marivo._definition.deferred import resolver_of
 from marivo._definition.expressions import (
+    ContributionClockBinding,
     ContributionFilter,
     DeclaredMetricRef,
     MeasureAssertion,
@@ -21,9 +22,15 @@ from marivo._definition.expressions import (
     RowExpression,
     RowField,
     SourceAggregate,
-    TimeBinding,
 )
-from marivo._definition.graph import children, computation_fingerprint, walk
+from marivo._definition.graph import (
+    _encode,
+    _encoded_fingerprint,
+    children,
+    computation_fingerprint,
+    walk,
+)
+from marivo._definition.observations import SampleWindowContext
 from marivo._definition.relations import (
     LiteralPopulation,
     PopulationContains,
@@ -34,6 +41,7 @@ from marivo._definition.types import (
     Authorization,
     AxisBinding,
     DefinitionGraphError,
+    EntityIdentityRead,
     ExactRef,
     Owner,
     SumAll,
@@ -43,7 +51,7 @@ from marivo.refs import ref
 
 ORDERS = ExactRef(ref.entity("sales.orders"), "v1")
 PAID_AT = ExactRef(ref.time_dimension("sales.orders.paid_at"), "v1")
-PAID = TimeBinding(PAID_AT)
+PAID = ContributionClockBinding(PAID_AT)
 CUSTOMER = AxisBinding(
     entity=ExactRef(ref.entity("sales.customers"), "v1"), field=None, path=(), role="identity"
 )
@@ -92,6 +100,26 @@ def _margin() -> SourceAggregate:
 
 def _no_declarations(_ref: ExactRef) -> MetricNode | None:
     return None
+
+
+def test_internal_name_changes_preserve_definition_encoding() -> None:
+    # Baselines captured before renaming the three internal dataclasses.
+    values = (
+        (
+            ContributionClockBinding(PAID_AT),
+            "6e94c1f83004de8c0fb7387ff441aa7cc1a99b707a188e6b3982bf212e0085b1",
+        ),
+        (
+            EntityIdentityRead(ORDERS),
+            "6b2d3f65dd064366c9cbd56b15644b14a0995b6b17f98b36530cb90a0822a123",
+        ),
+        (
+            SampleWindowContext((1, 2), 3),
+            "22e8c4188960f94d1441b2cfd58875a81b1f0ac4ede2b8a1270c9853814b39bb",
+        ),
+    )
+    for value, previous_identity in values:
+        assert _encoded_fingerprint(_encode(value, {})) == previous_identity
 
 
 def test_repeated_use_keeps_two_ordered_edges() -> None:
@@ -293,14 +321,16 @@ def test_definition_records_reject_invalid_names_and_values() -> None:
 def test_time_binding_path_is_part_of_the_computation() -> None:
     buyer = ExactRef(ref.relationship("sales.orders_to_customers"), "v1")
     created_at = ExactRef(ref.time_dimension("sales.customers.created_at"), "v1")
-    native = SourceAggregate(_field("amount"), "sum", time=TimeBinding(created_at))
-    via = SourceAggregate(_field("amount"), "sum", time=TimeBinding(created_at, (buyer,)))
+    native = SourceAggregate(_field("amount"), "sum", time=ContributionClockBinding(created_at))
+    via = SourceAggregate(
+        _field("amount"), "sum", time=ContributionClockBinding(created_at, (buyer,))
+    )
 
     assert computation_fingerprint(native) != computation_fingerprint(via)
     with pytest.raises(DefinitionGraphError):
-        TimeBinding(ExactRef(ref.dimension("sales.orders.status"), "v1"))
+        ContributionClockBinding(ExactRef(ref.dimension("sales.orders.status"), "v1"))
     with pytest.raises(DefinitionGraphError):
-        TimeBinding(created_at, (ORDERS,))
+        ContributionClockBinding(created_at, (ORDERS,))
 
 
 def test_row_comparisons_are_predicate_edges_and_sum_except_needs_an_axis() -> None:
@@ -351,6 +381,12 @@ def test_encoded_fingerprints_match_original_recursive_canonical_encoder(
     from marivo._temporal import Grain
     from marivo.refs import Ref
 
+    original_names: dict[type[object], str] = {
+        ContributionClockBinding: "TimeBinding",
+        EntityIdentityRead: "IdentityRead",
+        SampleWindowContext: "SampleWindow",
+    }
+
     def legacy_encode(value: object, memo: dict[int, str], payloads: object = None) -> object:
         # Keep the original dispatch and recursive payload construction as an
         # independent compatibility oracle for the optimized encoder.
@@ -368,7 +404,7 @@ def test_encoded_fingerprints_match_original_recursive_canonical_encoder(
             return [legacy_encode(item, memo) for item in value]
         if is_dataclass(value) and not isinstance(value, type):
             return {
-                "type": type(value).__name__,
+                "type": original_names.get(type(value), type(value).__name__),
                 **{
                     field.name: legacy_encode(getattr(value, field.name), memo)
                     for field in fields(value)

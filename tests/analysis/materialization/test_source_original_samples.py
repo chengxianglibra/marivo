@@ -209,7 +209,7 @@ def test_empty_actual_read_retains_zero_or_unknown_original_count(
     from dataclasses import replace
 
     from marivo.analysis.compiler.graph_lowering import LoweredRead
-    from marivo.analysis.compiler.graph_plan import SourceRead
+    from marivo.analysis.compiler.graph_plan import SourceReadStage
     from marivo.analysis.materialization import graph_source_execution
     from marivo.analysis.materialization.graph_exchange import StageOutput
 
@@ -222,7 +222,7 @@ def test_empty_actual_read_retains_zero_or_unknown_original_count(
 
     def without_count(
         prepared: graph_source_execution.PreparedSources,
-        stage: SourceRead,
+        stage: SourceReadStage,
         request: LoweredRead,
         *,
         value_keys: tuple[str, ...] = (),

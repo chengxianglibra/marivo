@@ -11,7 +11,7 @@ def _capture_role_inventory(
     monkeypatch: pytest.MonkeyPatch,
 ) -> list[tuple[str, str, tuple[str, ...]]]:
     from marivo.analysis.compiler.graph_lowering import LoweredRead
-    from marivo.analysis.compiler.graph_plan import SourceRead, read_attribute
+    from marivo.analysis.compiler.graph_plan import SourceReadStage, read_attribute
     from marivo.analysis.materialization import graph_source_execution
     from marivo.analysis.materialization.graph_exchange import StageOutput
     from marivo.analysis.materialization.graph_source_execution import PreparedSources
@@ -21,7 +21,7 @@ def _capture_role_inventory(
 
     def read(
         prepared: PreparedSources,
-        stage: SourceRead,
+        stage: SourceReadStage,
         lowered: LoweredRead,
         *,
         value_keys: tuple[str, ...] = (),

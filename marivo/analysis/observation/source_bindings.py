@@ -23,12 +23,12 @@ from marivo.refs import EntityKind, Ref, RefPayloadV1, SemanticKind
 from marivo.semantic.ir import TargetEntityContract
 from marivo.semantic.validator import Registry, _snapshot_target_source
 
-SourceBindingScalar: TypeAlias = str | bool | int | float
-SourceBindingValue: TypeAlias = (
-    SourceBindingScalar | list[SourceBindingScalar] | tuple[SourceBindingScalar, ...]
+SourceParameterScalar: TypeAlias = str | bool | int | float
+SourceParameterValue: TypeAlias = (
+    SourceParameterScalar | list[SourceParameterScalar] | tuple[SourceParameterScalar, ...]
 )
-SourceBindingMap: TypeAlias = Mapping[Ref[EntityKind], Mapping[str, SourceBindingValue]]
-_CapturedValue: TypeAlias = SourceBindingScalar | tuple[SourceBindingScalar, ...]
+SourceParameterMap: TypeAlias = Mapping[Ref[EntityKind], Mapping[str, SourceParameterValue]]
+_CapturedValue: TypeAlias = SourceParameterScalar | tuple[SourceParameterScalar, ...]
 _TOKEN = object()
 _SECRET_NAME = re.compile(
     r"password|passwd|(?:^|[_-])pwd(?:$|[_-])|secret|token|credential|"
@@ -46,7 +46,7 @@ def _error(expected: str, received: str) -> ObservationBindingError:
     )
 
 
-def _scalar(value: object) -> SourceBindingScalar:
+def _scalar(value: object) -> SourceParameterScalar:
     if type(value) is str:
         return value
     if type(value) is bool:
@@ -185,7 +185,7 @@ def _required(entity: _BindingDeclaration) -> tuple[str, ...]:
     return names
 
 
-class SourceBindingScopes:
+class SourceParameterScopes:
     """One private Session source factory's isolated authoring scopes."""
 
     __slots__ = ("_active", "_entities")
@@ -201,7 +201,7 @@ class SourceBindingScopes:
         )
 
     @classmethod
-    def from_registry(cls, registry: Registry) -> SourceBindingScopes:
+    def from_registry(cls, registry: Registry) -> SourceParameterScopes:
         """Snapshot parameter declarations without validating unrelated identity facts."""
         declarations: list[_BindingDeclaration] = []
         for entity in registry.entities.values():
@@ -227,7 +227,7 @@ class SourceBindingScopes:
         )
 
     @contextmanager
-    def scope(self, bindings: SourceBindingMap) -> Iterator[None]:
+    def scope(self, bindings: SourceParameterMap) -> Iterator[None]:
         """Replace the complete active map and restore it even after an exception."""
         if not isinstance(bindings, Mapping):
             raise _error("exact Entity-to-parameter mapping", "invalid binding mapping")

@@ -21,7 +21,7 @@ from marivo.analysis.compiler.graph_plan import (
     FrameInput,
     FrameKeysInput,
     LocalCompute,
-    SourceRead,
+    SourceReadStage,
 )
 from marivo.analysis.core.artifact_data import DataAxis, DataColumn, DataSchema
 from marivo.analysis.core.data_types import ScalarDataType
@@ -285,8 +285,8 @@ def test_one_final_schedule_resolves_every_compiler_leaf(
         source_prepared: Mapping[str, PreparedSources],
         read_fixed: Callable[[FrameInput], CompletedFrameData],
         adapt_source: Callable[[str, StageOutput], StageOutput],
-        observe_read: Callable[[SourceRead, LoweredRead, StageOutput], None] | None = None,
-        observe_local: Callable[[LocalCompute | FrameCompute | SourceRead, StageOutput], None]
+        observe_read: Callable[[SourceReadStage, LoweredRead, StageOutput], None] | None = None,
+        observe_local: Callable[[LocalCompute | FrameCompute | SourceReadStage, StageOutput], None]
         | None = None,
         completed_frames: Mapping[str, StageOutput] | None = None,
         retain_inputs: dict[str, StageOutput] | None = None,
@@ -370,7 +370,7 @@ def test_producer_checks_survive_top_zero_before_dependent_source_read(
 
     def read(
         prepared: PreparedSources,
-        stage: SourceRead,
+        stage: SourceReadStage,
         lowered: LoweredRead,
         *,
         value_keys: tuple[str, ...] = (),

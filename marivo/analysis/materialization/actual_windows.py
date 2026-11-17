@@ -17,7 +17,7 @@ from marivo.analysis.compiler.graph_lowering import LoweredQuery, LoweredRead, l
 from marivo.analysis.compiler.graph_plan import (
     ActualWindowRead,
     FrameKeysInput,
-    SourceRead,
+    SourceReadStage,
     plan_query,
 )
 from marivo.analysis.compiler.observation import calendar_field, reduction_input
@@ -95,7 +95,7 @@ def prepare_actual_window_plan(
     )
     key_inputs = tuple(stage for stage in finish_shape.stages if isinstance(stage, FrameKeysInput))
     candidate_ids = {stage.stage_id for stage in candidate_plan.stages}
-    finish = SourceRead(
+    finish = SourceReadStage(
         "actual-windows",
         prepared.source.datasource.semantic_id,
         (),
@@ -244,11 +244,11 @@ def _restrict_window_reads(
 
 def run_actual_windows(
     prepared: PreparedSources,
-    stage: SourceRead,
+    stage: SourceReadStage,
     program: ActualWindowRead,
     inputs: tuple[StageOutput, ...],
     *,
-    observe_read: Callable[[SourceRead, LoweredRead, StageOutput], None] | None,
+    observe_read: Callable[[SourceReadStage, LoweredRead, StageOutput], None] | None,
 ) -> StageOutput:
     """Expand W from captured O without replaying Frame keys or widening O."""
     candidates, *key_outputs = inputs

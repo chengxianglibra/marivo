@@ -49,7 +49,7 @@ INPUT_FAMILIES = frozenset(
         "UnprunedScope",
         "AuthoringScope",
         "SourceInspection",
-        "DiscoverySnapshot",
+        "DiscoveryEvidence",
         "DatasourceList",
         "RawSqlResult",
         "Columns",
@@ -99,7 +99,7 @@ OUTPUT_FAMILIES = frozenset(
         "SourceInspection",
         "PhysicalColumnName",
         "PartitionInspection",
-        "DiscoverySnapshot",
+        "DiscoveryEvidence",
         "RawSqlResult",
         "pandas.DataFrame",
         "Text",
@@ -645,7 +645,7 @@ def _build_registry() -> DatasourceCapabilityRegistry:
             "refresh=True forces another read. A source read uses the credential scope active at the call; "
             "a cache hit does not resolve credentials.",
             kind="method",
-            output="DiscoverySnapshot",
+            output="DiscoveryEvidence",
             inputs=(
                 *_inputs(
                     ("receiver", "SourceInspection"),
@@ -944,7 +944,7 @@ def _type_contracts() -> Mapping[type, DatasourceTypeContract]:
         DatasourceTestResult,
         RawSqlResult,
     )
-    from marivo.datasource.snapshot import DiscoverySnapshot
+    from marivo.datasource.snapshot import DiscoveryEvidence
     from marivo.datasource.source import PartitionScope, UnprunedScope
 
     show_render = ("show", "render")
@@ -1223,8 +1223,8 @@ def _type_contracts() -> Mapping[type, DatasourceTypeContract]:
         ),
     )
     add(
-        DiscoverySnapshot,
-        "DiscoverySnapshot",
+        DiscoveryEvidence,
+        "DiscoveryEvidence",
         ("SourceInspection.sample",),
         properties=(
             "id",

@@ -110,8 +110,8 @@ from marivo.semantic.catalog_entries import (
     EntryProvenance,
     FieldDefinition,
     JsonValue,
+    MetricContributionTimeRole,
     MetricDefinition,
-    MetricTimeBinding,
     RelationshipDefinition,
     _json_value,
 )
@@ -159,7 +159,7 @@ from marivo.semantic.ir import (
 from marivo.semantic.preview_scope import (
     NormalizedPreviewScope,
     PreviewScope,
-    PreviewSourceBindings,
+    PreviewSourceParameters,
     normalize_preview_batch_scopes,
     normalize_preview_limit,
     normalize_preview_scope,
@@ -198,8 +198,8 @@ __all__ = [
     "FieldDefinition",
     "Measure",
     "Metric",
+    "MetricContributionTimeRole",
     "MetricDefinition",
-    "MetricTimeBinding",
     "Relationship",
     "RelationshipDefinition",
     "SemanticCatalog",
@@ -2545,7 +2545,7 @@ class SemanticCatalog(RenderableResult):
         /,
         *,
         scope: PreviewScope,
-        source_bindings: PreviewSourceBindings | None = None,
+        source_parameters: PreviewSourceParameters | None = None,
         limit: int = PREVIEW_DEFAULT_LIMIT,
         include_types: bool = True,
         context_columns: Iterable[str] | None = None,
@@ -2559,7 +2559,7 @@ class SemanticCatalog(RenderableResult):
                 multiple entities. Use ``md.unpruned`` for no pruning,
                 ``md.time_range`` for a physical time range, or ``md.partition``
                 for physical partition values; each requires row/time guards.
-            source_bindings: Optional exact entity-to-parameter bindings for
+            source_parameters: Optional exact entity-to-parameter mappings for
                 parameterized JSON sources.
             limit: Integer from 1 to 100 inclusive bounding retained preview rows.
             include_types: Include physical type facts in the result.
@@ -2600,7 +2600,7 @@ class SemanticCatalog(RenderableResult):
             ref=target.path,
             kind=target.kind,
             scope=scope,
-            source_bindings=source_bindings,
+            source_parameters=source_parameters,
             registry=self._require_ready(),
             catalog=self,
         )
@@ -2620,7 +2620,7 @@ class SemanticCatalog(RenderableResult):
         /,
         *,
         scope: PreviewScope,
-        source_bindings: PreviewSourceBindings | None = None,
+        source_parameters: PreviewSourceParameters | None = None,
         limit: int = PREVIEW_DEFAULT_LIMIT,
         include_types: bool = True,
     ) -> PreviewBatchResult:
@@ -2630,7 +2630,7 @@ class SemanticCatalog(RenderableResult):
             refs: A non-empty ordered sequence of named semantic objects.
             scope: One explicit authoring scope when all refs share one entity,
                 or exact entity-to-scope bindings otherwise.
-            source_bindings: Optional exact entity-to-parameter bindings for
+            source_parameters: Optional exact entity-to-parameter mappings for
                 parameterized JSON sources.
             limit: Integer from 1 to 100 inclusive bounding retained rows per result.
             include_types: Include physical type facts in each result.
@@ -2731,7 +2731,7 @@ class SemanticCatalog(RenderableResult):
         normalized = normalize_preview_batch_scopes(
             refs=resolved,
             scope=scope,
-            source_bindings=source_bindings,
+            source_parameters=source_parameters,
             registry=reg,
             catalog=self,
         )
@@ -2741,7 +2741,6 @@ class SemanticCatalog(RenderableResult):
                 normalized=normalized,
                 connections=connections,
                 stack=stack,
-                source_bindings=source_bindings,
                 limit=limit,
                 include_types=include_types,
             )
@@ -3016,7 +3015,6 @@ class SemanticCatalog(RenderableResult):
         normalized: tuple[NormalizedPreviewScope, ...],
         connections: DatasourceConnectionService,
         stack: ExitStack,
-        source_bindings: PreviewSourceBindings | None,
         limit: int,
         include_types: bool,
     ) -> PreviewBatchResult:

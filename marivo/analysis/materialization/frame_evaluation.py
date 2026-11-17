@@ -22,7 +22,7 @@ from marivo.analysis.compiler.graph_plan import (
     FrameCompute,
     FrameInput,
     LocalCompute,
-    SourceRead,
+    SourceReadStage,
 )
 from marivo.analysis.core.artifact_data import CalendarDataAxis, DataSchema, OutputAttachment
 from marivo.analysis.core.frame_data import (
@@ -248,7 +248,7 @@ def _evaluate_frame(
 
     def checkpoint_operations(
         plan: CompiledFramePlan,
-    ) -> Callable[[LocalCompute | FrameCompute | SourceRead, StageOutput], None]:
+    ) -> Callable[[LocalCompute | FrameCompute | SourceReadStage, StageOutput], None]:
         operation_stages = {
             stage: operation_inputs[id(expression)]
             for stage, expression in plan.frame_operations
@@ -256,7 +256,7 @@ def _evaluate_frame(
         }
 
         def checkpoint(
-            stage: LocalCompute | FrameCompute | SourceRead, output: StageOutput
+            stage: LocalCompute | FrameCompute | SourceReadStage, output: StageOutput
         ) -> None:
             input_id = operation_stages.get(stage.stage_id)
             if declaration_keys is None or input_id is None or output.frame_schema is None:
@@ -359,7 +359,7 @@ def _evaluate_frame(
                 attribute_state_captures=output.attribute_state_captures,
             )
 
-        def record_read(stage: SourceRead, output: StageOutput) -> None:
+        def record_read(stage: SourceReadStage, output: StageOutput) -> None:
             scopes = tuple(
                 dict.fromkeys(
                     FrameSourceReadScope(
@@ -410,7 +410,7 @@ def _evaluate_frame(
                 calendar_owners,
             )
 
-        def observe_read(stage: SourceRead, request: LoweredRead, output: StageOutput) -> None:
+        def observe_read(stage: SourceReadStage, request: LoweredRead, output: StageOutput) -> None:
             input_id = stage_inputs.get(stage.stage_id)
             # Native attribution coalitions consume fixed parent keys; they do
             # not introduce reporting calendar positions for a source Frame.
@@ -428,7 +428,7 @@ def _evaluate_frame(
             record_read(stage, output)
 
         def observe_local(
-            stage: LocalCompute | FrameCompute | SourceRead, output: StageOutput
+            stage: LocalCompute | FrameCompute | SourceReadStage, output: StageOutput
         ) -> None:
             checkpoint(stage, output)
             method_productions.extend(

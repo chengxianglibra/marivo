@@ -2,9 +2,10 @@
 
 ## Business domain and semantic model
 
-A **Business Domain** is an area of business meaning with an accountable owner,
+A **Domain** is an area of business meaning with an accountable owner,
 such as sales, subscription, or fulfilment. It provides a context for naming and
-interpreting business concepts.
+interpreting business concepts. This business Domain is distinct from the
+coordinate and input domains used in analysis.
 
 A **Semantic Model** is the set of governed definitions that connects business
 concepts to data and computation. It establishes identity, attributes,

@@ -4,16 +4,16 @@ from __future__ import annotations
 
 from marivo.render import Card
 from marivo.semantic.catalog_entries import (
-    MetricNoTimeBinding,
-    MetricTimeBinding,
-    MetricTimeFieldBinding,
+    MetricContributionClockBinding,
+    MetricContributionTimeRole,
+    MetricNoContributionClockBinding,
 )
 
 
-def metric_time_binding_text(binding: MetricTimeBinding) -> str:
-    if isinstance(binding, MetricTimeFieldBinding):
+def metric_time_binding_text(binding: MetricContributionTimeRole) -> str:
+    if isinstance(binding, MetricContributionClockBinding):
         return f"{binding.field} ({binding.source})"
-    if isinstance(binding, MetricNoTimeBinding):
+    if isinstance(binding, MetricNoContributionClockBinding):
         return (
             f"{binding.root} (report independent: {binding.reason})"
             if binding.root is not None
@@ -24,7 +24,7 @@ def metric_time_binding_text(binding: MetricTimeBinding) -> str:
 
 def add_metric_time(
     card: Card,
-    bindings: tuple[MetricTimeFieldBinding | MetricNoTimeBinding, ...],
+    bindings: tuple[MetricContributionClockBinding | MetricNoContributionClockBinding, ...],
     *,
     recovery: str,
 ) -> None:

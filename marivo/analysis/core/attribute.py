@@ -60,7 +60,7 @@ from marivo.analysis.core.frozen_calendar import FrozenKey
 from marivo.analysis.core.model import CoreRuleError, reject
 
 if TYPE_CHECKING:
-    from marivo._definition.expressions import TimeBinding
+    from marivo._definition.expressions import ContributionClockBinding
     from marivo._definition.observations import ObservationPeriod
     from marivo._definition.types import CalendarCoordinate
     from marivo.analysis.compiler.observation import FormulaProgram
@@ -100,7 +100,7 @@ class AttributeWindowFiber:
     fiber: AttributeParentFiber | AttributeFineFiber
     window_key: int | datetime
     period: ObservationPeriod
-    time: TimeBinding
+    time: ContributionClockBinding
     calendar: CalendarCoordinate
 
 
@@ -174,7 +174,7 @@ class AttributeWindowInput:
     window_key: int | datetime
     calendar_slot: str
     period: ObservationPeriod
-    time: TimeBinding
+    time: ContributionClockBinding
     calendar: CalendarCoordinate
 
 

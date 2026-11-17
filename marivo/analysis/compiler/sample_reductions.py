@@ -141,7 +141,7 @@ class SampleLowerer:
     def bindings(self, path: tuple[int, ...]) -> tuple[FormulaInput, ...]:
         return tuple(item for item in self.program.values if item.occurrence[: len(path)] == path)
 
-    def domain(self, keys: tuple[str, ...], path: tuple[int, ...]) -> ir.Table:
+    def sample_domain(self, keys: tuple[str, ...], path: tuple[int, ...]) -> ir.Table:
         while path and not self.bindings(path):
             path = path[:-1]
         if not keys:
@@ -378,7 +378,7 @@ class SampleLowerer:
             table = self.shared_input(operands, keys) if forced is None else None
             if table is None:
                 table = self.align(
-                    self.domain(keys, path) if forced is None else forced, operands, keys
+                    self.sample_domain(keys, path) if forced is None else forced, operands, keys
                 )
             values = {
                 (*path, i): NumericValue(
@@ -435,12 +435,12 @@ class SampleLowerer:
         sample_keys = tuple(key for group in sample_groups for key in group)
         complete_keys = (*keys, *sample_keys)
         children = (node.operand,) if isinstance(node, PerReduce) else (node.value, node.weight)
-        parent = self.domain(keys, path) if forced is None else forced
-        sample_domain = self.domain(complete_keys, path)
+        parent = self.sample_domain(keys, path) if forced is None else forced
+        sample_domain = self.sample_domain(complete_keys, path)
         definition = sample_population(node.samples)
         if definition is not None and keys == self.keys and forced is None:
             # Explicit internal domains consume the complete enclosing output domain.
-            parent = self.domain(keys, ())
+            parent = self.sample_domain(keys, ())
             if (
                 isinstance(self.program.calendar, CalendarCoordinate)
                 and not self.program.calendar.actual_only

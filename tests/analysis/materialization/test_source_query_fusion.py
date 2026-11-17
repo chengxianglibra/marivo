@@ -14,7 +14,7 @@ from marivo.analysis.compiler.graph_plan import (
     FrameCompute,
     LocalCompute,
     NativeRead,
-    SourceRead,
+    SourceReadStage,
 )
 from marivo.analysis.compiler.query_program import FrameProgram, ResultProgram
 from marivo.analysis.materialization import graph_local_execution, graph_source_execution
@@ -31,11 +31,11 @@ from tests.support.source_trace import capture_source
 def _capture_stages(
     monkeypatch: pytest.MonkeyPatch,
 ) -> tuple[
-    list[tuple[SourceRead, LoweredRead]],
+    list[tuple[SourceReadStage, LoweredRead]],
     list[StageOutput],
     list[tuple[LocalCompute | FrameCompute, tuple[StageOutput, ...], StageOutput]],
 ]:
-    reads: list[tuple[SourceRead, LoweredRead]] = []
+    reads: list[tuple[SourceReadStage, LoweredRead]] = []
     outputs: list[StageOutput] = []
     locals_: list[tuple[LocalCompute | FrameCompute, tuple[StageOutput, ...], StageOutput]] = []
     read_stage = graph_source_execution.read_stage
@@ -43,7 +43,7 @@ def _capture_stages(
 
     def read(
         prepared: PreparedSources,
-        stage: SourceRead,
+        stage: SourceReadStage,
         request: LoweredRead,
         *,
         value_keys: tuple[str, ...] = (),

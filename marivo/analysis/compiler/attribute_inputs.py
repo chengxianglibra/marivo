@@ -50,7 +50,7 @@ from marivo.semantic._numeric_lowering import (
 
 if TYPE_CHECKING:
     from marivo.analysis.binding.attribute_rules import AttributeRule
-    from marivo.analysis.compiler.graph_plan import QueryPlan, QueryStage, SourceRead
+    from marivo.analysis.compiler.graph_plan import QueryPlan, QueryStage, SourceReadStage
     from marivo.analysis.compiler.query_program import SourceParameter
     from marivo.analysis.core.attribute import (
         AttributeFailureContext,
@@ -67,7 +67,7 @@ if TYPE_CHECKING:
 @dataclass(frozen=True, slots=True)
 class AttributeLeafInput:
     request: AttributeSourceRequest
-    read: SourceRead
+    read: SourceReadStage
     roles: tuple[tuple[AttributeComponentRole, DataColumn], ...]
     support: DataColumn
     effective: DataColumn
@@ -192,7 +192,7 @@ def bundle_attribute_plan(
 ) -> QueryPlan:
     """Replace each root's ordered occurrences by one governed physical read."""
     from marivo.analysis.binding.attribute_rules import component_requests
-    from marivo.analysis.compiler.graph_plan import LocalCompute, SourceRead
+    from marivo.analysis.compiler.graph_plan import LocalCompute, SourceReadStage
 
     parent_keys = tuple(
         key for position in parent_positions for key in plan.output_groups[position]
@@ -200,9 +200,9 @@ def bundle_attribute_plan(
     requests = tuple(item for _, rule in rules for item in component_requests(rule))
     metrics = tuple(name for name, _ in rules)
     by_occurrence = {request.binding.occurrence: request for request in requests}
-    roots: dict[str, list[SourceRead]] = {}
+    roots: dict[str, list[SourceReadStage]] = {}
     for stage in plan.stages:
-        if isinstance(stage, SourceRead) and stage.occurrence in by_occurrence:
+        if isinstance(stage, SourceReadStage) and stage.occurrence in by_occurrence:
             roots.setdefault(stage.source_id, []).append(stage)
     for request in requests:
         if request.binding.window_key is not None:
@@ -248,7 +248,7 @@ def bundle_attribute_plan(
         )
     native_bindings: dict[int, tuple[str, DataColumn]] = {}
     aliases: dict[str, str] = {}
-    bundles: dict[str, SourceRead] = {}
+    bundles: dict[str, SourceReadStage] = {}
     for root, members in roots.items():
         first = members[0]
         leaves: list[AttributeLeafInput] = []
@@ -464,7 +464,7 @@ def bundle_attribute_plan(
         )
     stages: list[QueryStage] = []
     for stage in plan.stages:
-        if isinstance(stage, SourceRead) and stage.stage_id in aliases:
+        if isinstance(stage, SourceReadStage) and stage.stage_id in aliases:
             if stage.stage_id in bundles:
                 stages.append(bundles[attribute_parent_key(stage.stage_id)])
                 stages.append(bundles[stage.stage_id])

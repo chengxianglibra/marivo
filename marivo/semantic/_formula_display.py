@@ -7,6 +7,7 @@ from collections import Counter
 from typing_extensions import assert_never
 
 from marivo._definition.expressions import (
+    ContributionClockBinding,
     ContributionFilter,
     DeclaredMetricRef,
     EntityCount,
@@ -25,7 +26,6 @@ from marivo._definition.expressions import (
     SampleDomainSpec,
     SourceAggregate,
     SourceWeightedMean,
-    TimeBinding,
 )
 from marivo._definition.graph import direct_refs
 from marivo._definition.relations import LiteralPopulation, PopulationDependency, SampleDomain
@@ -196,7 +196,7 @@ class FormulaDisplay:
             text += f".at({anchor})"
         return text
 
-    def _time(self, binding: TimeBinding | None) -> str:
+    def _time(self, binding: ContributionClockBinding | None) -> str:
         return "time=" + (
             "None" if binding is None else self._read(binding.field, binding.path, binding.at)
         )

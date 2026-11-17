@@ -9,7 +9,7 @@ import pytest
 
 import marivo.semantic as ms
 from marivo.render import _DEFAULT_MAX_OUTPUT_BYTES
-from marivo.semantic.catalog_entries import MetricTimeFieldBinding
+from marivo.semantic.catalog_entries import MetricContributionClockBinding
 from marivo.semantic.errors import SemanticError
 from tests.shared_fixtures import write_minimal_catalog_project
 
@@ -83,7 +83,7 @@ amount_value = amount""",
     assert metric.kind == "metric"
     definition = metric.definition
     assert definition.formula == "amount.sum(time=settled_at)"
-    assert isinstance(definition.time_bindings[0], MetricTimeFieldBinding)
+    assert isinstance(definition.time_bindings[0], MetricContributionClockBinding)
     assert definition.time_bindings[0].field == "time_dimension:sales.orders.settled_at"
     assert definition.time_bindings[0].source == "explicit"
     assert definition.unit == "USD"

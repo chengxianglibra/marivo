@@ -39,7 +39,7 @@ semantic-role owner; navigation does not duplicate their contracts.
 | --- | --- |
 | Connections, secret resolution and datasource registration | [Datasource](../datasource/README.md) |
 | Physical descriptors and provider execution | [Sources and execution](../datasource/sources-and-execution.md) |
-| Inspection, bounded sampling and discovery snapshots | [Discovery](../datasource/discovery.md) |
+| Inspection, bounded sampling and discovery evidence | [Discovery](../datasource/discovery.md) |
 | Domain, stable identity, versioning, fields and relationships | [Object model](semantic-object-model.md) |
 | Physical capture, Deferred grammar, units and reductions | [Expressions](expressions.md) |
 | Loading, Catalog, readiness, preview and online validation | [Loading and validation](loading-validation-introspection.md) |

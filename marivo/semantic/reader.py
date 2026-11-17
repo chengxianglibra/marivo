@@ -222,7 +222,7 @@ class SemanticProject:
         ``refs`` to scope which semantic objects to check; by default all loaded
         objects are checked.
 
-        Ordinary discovery snapshots and preview history never affect this
+        Ordinary discovery evidence and preview history never affect this
         report; readiness never executes datasource calls itself.
 
         Args:

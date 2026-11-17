@@ -563,7 +563,7 @@ def test_authoring_help_examples_publish_a_cross_file_metric_from_empty_project(
     entry = catalog.get("metric:sales.revenue")
     assert entry.kind == "metric"
     (binding,) = entry.definition.time_bindings
-    assert isinstance(binding, ms.MetricTimeFieldBinding)
+    assert isinstance(binding, ms.MetricContributionClockBinding)
     assert binding.field == "time_dimension:sales.orders.paid_at"
     assert binding.source == "entity_default"
     assert catalog.search("sales.revenue", kind="metric").items[0].id == entry.id

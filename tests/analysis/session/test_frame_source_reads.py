@@ -9,7 +9,7 @@ import pytest
 
 import marivo.analysis as mv
 from marivo.analysis.compiler.graph_lowering import LoweredRead
-from marivo.analysis.compiler.graph_plan import SourceRead
+from marivo.analysis.compiler.graph_plan import SourceReadStage
 from marivo.analysis.core.frame_data import MemoryFrameBacking
 from marivo.analysis.core.frame_source_reads import (
     FrameSourceRead,
@@ -94,7 +94,7 @@ def test_missing_raw_count_does_not_fall_back_to_completed_row_count(
 
     def unknown_count(
         prepared: PreparedSources,
-        stage: SourceRead,
+        stage: SourceReadStage,
         lowered: LoweredRead,
         *,
         value_keys: tuple[str, ...] = (),

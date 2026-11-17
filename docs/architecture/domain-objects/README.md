@@ -31,12 +31,15 @@ then transform those domains, definitions, or results with explicit meanings.
 ## Canonical vocabulary
 
 Use the full term wherever a shorter word could have more than one meaning.
-Capitalization in this guide identifies a defined concept. Ordinary prose can
-use sentence case, and code can follow its language's naming conventions.
+The public names Domain and Grain retain their established meanings below;
+qualify their meaning in context when it could be confused with another kind
+of domain or grain. Capitalization in this guide identifies a defined concept.
+Ordinary prose can use sentence case, and code can follow its language's naming
+conventions.
 
 | Preferred term | Definition owner |
 | --- | --- |
-| Business Domain, Semantic Model, Semantic Catalog, Semantic Identity, Definition Identity | [Business meaning](business-meaning.md#business-domain-and-semantic-model) |
+| Domain, Semantic Model, Semantic Catalog, Semantic Identity, Definition Identity | [Business meaning](business-meaning.md#business-domain-and-semantic-model) |
 | Entity, Entity Instance, Entity Identity, Entity Version | [Business identity](business-meaning.md#entity-and-identity) |
 | Attribute, Dimension, Time Dimension, Measure, Unit | [Attributes and quantities](business-meaning.md#attributes-and-quantities) |
 | Metric, Metric Value, Expression, Additivity | [Computational meaning](business-meaning.md#metric-and-expression) |
@@ -50,7 +53,7 @@ use sentence case, and code can follow its language's naming conventions.
 | Analysis Context, Observation, Output Domain, Grouping, Predicate | [Observations](populations-and-observations.md#observation-and-analysis-context) |
 | Sample Unit, Sample Domain, Effective Sample | [Internal samples](populations-and-observations.md#sample-unit-and-sample-domain) |
 | Instant, Civil Date, Timezone, Time Scope, Contribution Clock | [Time and clocks](time.md#instants-scopes-and-clocks) |
-| Calendar Grain, Calendar Period, Calendar Axis, Window, Window Endpoint, Reporting Endpoint | [Periods and windows](time.md#calendar-grain-period-and-window) |
+| Grain, Calendar Period, Calendar Axis, Window, Window Endpoint, Reporting Endpoint | [Periods and windows](time.md#calendar-grain-period-and-window) |
 | Membership Time, Attribute Time, Snapshot, Validity Interval | [Historical selection](time.md#membership-time-attribute-time-and-versions) |
 | Correspondence, Alignment, Comparison, Baseline, Share, Attribution | [Analysis algebra](analysis-algebra.md#alignment-comparison-and-reference) |
 | Reference Value, Weight, Weighted Mean, Correlation, Attribution Target, Attribution Contribution | [Reference and method meaning](analysis-algebra.md#alignment-comparison-and-reference) |
@@ -68,9 +71,9 @@ use sentence case, and code can follow its language's naming conventions.
 
 | Word | Use the term that states the intended meaning |
 | --- | --- |
-| Domain | Business Domain for a responsibility and naming boundary, Population for a selected coordinate domain, Contribution Domain for occurrences consumed by a calculation, Output Domain for result keys, Admissible Input Domain for inputs on which a calculation is defined. |
+| Domain | Domain for a business responsibility and naming boundary, Population for a selected coordinate domain, Contribution Domain for occurrences consumed by a calculation, Output Domain for result keys, Admissible Input Domain for inputs on which a calculation is defined. |
 | Identity | Entity Identity for a business instance, Semantic Identity for a named model concept, Definition Identity for its captured definition, Result Reference for a particular retained answer. |
-| Grain | Entity grain for what one business record represents, Output Grain for what one result row represents, Calendar Grain for the width of a calendar bucket. |
+| Grain | Entity grain for what one business record represents, Output Grain for what one result row represents, Grain for the calendar unit and width of a bucket. |
 | Time | Contribution Clock, Membership Time, Attribute Time, Time Scope, or Evaluation Time, according to the question being answered. |
 | Filter | Population selection, contribution filtering, or result filtering. State which object is being restricted. |
 | Count | Member count, contribution count, distinct-value count, or result-row count. State what one counted unit represents. |

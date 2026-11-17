@@ -14,7 +14,7 @@ from ibis.common.deferred import Deferred
 import marivo.datasource as md
 import marivo.semantic as ms
 from marivo._definition.expressions import DeclaredMetricRef
-from marivo.datasource.snapshot import DiscoverySnapshot
+from marivo.datasource.snapshot import DiscoveryEvidence
 from marivo.refs import (
     DimensionKind,
     MeasureKind,
@@ -316,7 +316,7 @@ def _preview_catalog_and_snapshot(
     semantic_project_factory: _SemanticProjectFactory,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
-) -> tuple[SemanticCatalog, DiscoverySnapshot]:
+) -> tuple[SemanticCatalog, DiscoveryEvidence]:
     database_path = tmp_path / "warehouse.duckdb"
     backend = _preview_backend(str(database_path))
     backend.disconnect()

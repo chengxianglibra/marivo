@@ -30,7 +30,7 @@ from marivo.analysis.compiler.graph_plan import (
     LocalCompute,
     QueryPlan,
     QueryStage,
-    SourceRead,
+    SourceReadStage,
     read_attribute,
     require_attribute,
     with_unique_keys,
@@ -82,7 +82,7 @@ class CompiledSourceFrame:
     lowered: LoweredQuery
     schema: DataSchema
     native: bool = False
-    native_reads: tuple[SourceRead, ...] = ()
+    native_reads: tuple[SourceReadStage, ...] = ()
     native_value_slots: tuple[str, ...] = ()
     checked_inputs: tuple[tuple[str, StageOutput], ...] = ()
 
@@ -119,7 +119,7 @@ def _required_formula(
 
 def _prefix(stage: QueryStage, names: Mapping[str, str], namespace: str) -> QueryStage:
     inputs = tuple(_name(names, name, namespace) for name in stage.inputs)
-    if isinstance(stage, SourceRead):
+    if isinstance(stage, SourceReadStage):
         source_program = stage.program
         if isinstance(source_program, (CommonRead, AttributeRead, AttributeFrequencyRead)):
             source_program = replace(
@@ -150,9 +150,11 @@ def _prefix(stage: QueryStage, names: Mapping[str, str], namespace: str) -> Quer
     return replace(stage, stage_id=_name(names, stage.stage_id, namespace), inputs=inputs)
 
 
-def _prefix_read(stage: SourceRead, names: Mapping[str, str], namespace: str) -> SourceRead:
+def _prefix_read(
+    stage: SourceReadStage, names: Mapping[str, str], namespace: str
+) -> SourceReadStage:
     result = _prefix(stage, names, namespace)
-    assert isinstance(result, SourceRead)
+    assert isinstance(result, SourceReadStage)
     return result
 
 
@@ -459,7 +461,7 @@ def plan_frame(
                 from marivo.analysis.compiler.attribute_native_queries import native_game_stage
 
                 assert len(endpoint_ids) == 2
-                compute: FrameCompute | SourceRead = native_game_stage(
+                compute: FrameCompute | SourceReadStage = native_game_stage(
                     f"frame:{len(stages)}",
                     (parent, left, right, *bridges),
                     game_program,
@@ -552,7 +554,7 @@ def plan_frame(
                     tuple(
                         require_attribute(s)
                         for s in stages
-                        if isinstance(s, SourceRead)
+                        if isinstance(s, SourceReadStage)
                         and read_attribute(s) is not None
                         and s.stage_id in input_stage.inputs[5:]
                     ),
@@ -587,7 +589,7 @@ def plan_frame(
                 tuple(
                     require_attribute(stage)
                     for stage in source_plans[endpoint.input_id].lowered.plan.stages
-                    if isinstance(stage, SourceRead) and read_attribute(stage) is not None
+                    if isinstance(stage, SourceReadStage) and read_attribute(stage) is not None
                 )
                 for endpoint in node.inputs[1:]
                 if isinstance(endpoint, SourceFrameInput)
@@ -630,7 +632,7 @@ def plan_frame(
                 assert isinstance(endpoint_node, SourceFrameInput)
                 for stage_index, source_stage in enumerate(stages):
                     if (
-                        isinstance(source_stage, SourceRead)
+                        isinstance(source_stage, SourceReadStage)
                         and read_attribute(source_stage) is not None
                         and source_owners.get(source_stage.stage_id) == endpoint_node.input_id
                     ):

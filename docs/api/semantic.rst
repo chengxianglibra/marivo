@@ -327,9 +327,9 @@ Captured definitions
    EntityDefinition
    FieldDefinition
    MetricDefinition
-   MetricTimeBinding
-   MetricTimeFieldBinding
-   MetricNoTimeBinding
+   MetricContributionTimeRole
+   MetricContributionClockBinding
+   MetricNoContributionClockBinding
    RelationshipDefinition
 
 Catalog & objects

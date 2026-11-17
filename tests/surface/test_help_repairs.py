@@ -47,7 +47,7 @@ def _assert_repair(error: AnalysisError, target: str) -> None:
 @pytest.mark.parametrize(
     ("requested", "expected"),
     [
-        ("analysis.discovery_snapshot", "datasource.discovery_snapshot"),
+        ("analysis.discovery_evidence", "datasource.discovery_evidence"),
         ("analysis.semantic_catalog", "semantic.semantic_catalog"),
         ("semantic.raw_sql_result", "datasource.raw_sql_result"),
         ("semantic.analysis_frame.output_names", "analysis.analysis_frame.output_names"),
@@ -315,11 +315,11 @@ def test_frame_consumers_preserve_the_specialized_storage_failure(
 
 def test_cli_cross_surface_repair_can_be_followed(capsys: pytest.CaptureFixture[str]) -> None:
     with pytest.raises(SystemExit) as captured:
-        main(["help", "analysis.discovery_snapshot"])
+        main(["help", "analysis.discovery_evidence"])
     assert captured.value.code == 2
     failure = capsys.readouterr()
     assert failure.out == ""
-    main(["help", "datasource.discovery_snapshot"])
+    main(["help", "datasource.discovery_evidence"])
     repaired = capsys.readouterr()
     assert repaired.err == ""
 

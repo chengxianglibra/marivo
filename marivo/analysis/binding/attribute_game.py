@@ -23,6 +23,7 @@ from marivo._definition.expressions import (
     SourceAggregate,
     SourceWeightedMean,
 )
+from marivo._definition.graph import dataclass_identity_name
 from marivo._definition.types import ExactRef
 from marivo.analysis.core.attribute_game_errors import AttributeGameError
 
@@ -308,7 +309,7 @@ def game_signature(game: AttributeGame) -> tuple[object, ...]:
             return tuple(input_signature(item) for item in value)
         if is_dataclass(value) and not isinstance(value, type):
             return (
-                type(value).__name__,
+                dataclass_identity_name(value),
                 tuple(
                     (field.name, input_signature(getattr(value, field.name)))
                     for field in fields(value)

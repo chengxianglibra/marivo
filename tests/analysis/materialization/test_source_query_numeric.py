@@ -13,7 +13,7 @@ from trino.exceptions import TrinoUserError
 
 import marivo.analysis as mv
 from marivo.analysis.compiler.graph_lowering import lower_query
-from marivo.analysis.compiler.graph_plan import ProjectionRead, QueryPlan, SourceRead
+from marivo.analysis.compiler.graph_plan import ProjectionRead, QueryPlan, SourceReadStage
 from marivo.analysis.core.data_types import DataColumn, ScalarDataType
 from marivo.analysis.materialization.errors import MaterializationError
 from marivo.semantic.reader import SemanticProject
@@ -74,7 +74,7 @@ def _data(boundary: str = "ordinary") -> SourceData:
 def test_source_fields_have_no_native_finite_checks(provider: str) -> None:
     table = ibis.table({"value": "float64"}, name="facts")
     column = DataColumn("value", "value", ScalarDataType("float64"), True)
-    stage = SourceRead(
+    stage = SourceReadStage(
         "read", "facts", (), (column,), (), ProjectionRead((("value", "value"),)), (), (), None
     )
     plan = QueryPlan((stage,), (), "read", ())

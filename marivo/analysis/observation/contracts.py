@@ -15,7 +15,7 @@ from marivo.semantic.validator import Registry
 
 if TYPE_CHECKING:
     from marivo.analysis.observation.source_bindings import (
-        SourceBindingScopes,
+        SourceParameterScopes,
     )
 
 
@@ -29,7 +29,7 @@ class ObservationOwner:
     report_time: ReportTimeAuthority = field(default_factory=ReportTimeAuthority, kw_only=True)
     semantic_registry: Registry = field(kw_only=True)
     sidecar: CompiledExpressionSidecar = field(kw_only=True)
-    binding_scopes: SourceBindingScopes = field(kw_only=True)
+    binding_scopes: SourceParameterScopes = field(kw_only=True)
 
 
 def construction_error(

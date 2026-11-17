@@ -22,14 +22,14 @@ def test_unknown_keyless_stage_does_not_gain_scalar_proof_after_filter() -> None
         LocalCompute,
         ProjectionRead,
         QueryPlan,
-        SourceRead,
+        SourceReadStage,
         with_unique_keys,
     )
     from marivo.analysis.compiler.query_program import ResultProgram
     from marivo.analysis.materialization.graph_local_execution import run_local
 
     columns = (DataColumn("value", "value", ScalarDataType("int64"), False),)
-    source = SourceRead(
+    source = SourceReadStage(
         "source", "source", (), columns, (), ProjectionRead((("value", "value"),)), (), (), None
     )
     operation = FilterValues(ValueBinary("ge", ValueSlot(0), ValueLiteral(0)))

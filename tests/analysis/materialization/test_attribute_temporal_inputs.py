@@ -9,7 +9,7 @@ import pytest
 
 import marivo.analysis as mv
 from marivo._grouping import Grouping
-from marivo.analysis.compiler.graph_plan import SourceRead, require_reduction
+from marivo.analysis.compiler.graph_plan import SourceReadStage, require_reduction
 from marivo.analysis.core.frame_data import MemoryFrameBacking
 from marivo.analysis.session.core import Session
 from marivo.datasource.adapters import CompiledRead
@@ -270,7 +270,7 @@ def test_fixed_window_lookback_and_repeated_identity_independent_reads(
 
     def read(
         prepared: PreparedSources,
-        stage: SourceRead,
+        stage: SourceReadStage,
         lowered: LoweredRead,
         *,
         value_keys: tuple[str, ...] = (),
@@ -830,7 +830,7 @@ def test_weighted_integer_pair_sums_preserve_native_admitted_range(
 
     def read(
         prepared: PreparedSources,
-        stage: SourceRead,
+        stage: SourceReadStage,
         lowered: LoweredRead,
         *,
         value_keys: tuple[str, ...] = (),

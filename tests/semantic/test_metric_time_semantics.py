@@ -197,7 +197,7 @@ def test_entity_default_closes_forward_reference_for_all_source_reduction_shapes
     ):
         metric = catalog_get(catalog, f"metric:sales.{name}", kind="metric")
         (binding,) = metric.definition.time_bindings
-        assert isinstance(binding, ms.MetricTimeFieldBinding)
+        assert isinstance(binding, ms.MetricContributionClockBinding)
         assert (binding.field, binding.path, binding.anchor, binding.source) == (
             paid,
             (),
@@ -206,7 +206,7 @@ def test_entity_default_closes_forward_reference_for_all_source_reduction_shapes
         )
     explicit = catalog_get(catalog, "metric:sales.explicit_created", kind="metric")
     (binding,) = explicit.definition.time_bindings
-    assert isinstance(binding, ms.MetricTimeFieldBinding)
+    assert isinstance(binding, ms.MetricContributionClockBinding)
     assert (binding.field, binding.source) == (created, "explicit")
     same_clock = catalog_get(catalog, "metric:sales.revenue", kind="metric")
     assert _clock_facts(same_clock) == ((paid, "explicit"),)
@@ -323,7 +323,7 @@ def test_missing_time_stays_complete_for_totals_readiness_preview_and_ordinary_s
     raw = catalog_get(catalog, "metric:sales.customer_time_samples", kind="metric")
     ordinary = catalog_get(catalog, "metric:sales.customer_category_samples", kind="metric")
     (fact,) = count.definition.time_bindings
-    assert isinstance(fact, ms.MetricNoTimeBinding)
+    assert isinstance(fact, ms.MetricNoContributionClockBinding)
     assert (fact.root, fact.reason) == ("entity:sales.customers", "no_entity_default")
     assert catalog.readiness(refs=[count]).status == "ready"
     source_scope = md.unpruned(max_rows=10, timeout_seconds=10)

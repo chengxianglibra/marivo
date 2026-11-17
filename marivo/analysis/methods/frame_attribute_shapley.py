@@ -182,7 +182,7 @@ class _LeafState:
             int(cell[row_slot] or 0) - int(cell[valid_slot] or 0) for cell in self.selected(mask)
         )
 
-    def invalid_domain(self) -> Domain:
+    def invalid_count_domain(self) -> Domain:
         valid_slot = (
             0 if self.leaf.kind == "count" else 2 if self.leaf.kind == "weighted_mean" else 1
         )
@@ -252,7 +252,7 @@ class _LeafState:
             value = None if any(cell[2] for cell in selected) else 0
         return _series(value, self.output)
 
-    def domain(self) -> Domain:
+    def value_domain(self) -> Domain:
         if any(
             isinstance(value, float) and not math.isfinite(value)
             for cell in (*self.current, *self.baseline)
@@ -395,7 +395,7 @@ class _QuantileState:
             for i in range(len(self.game.current))
         )
 
-    def invalid_domain(self) -> Domain:
+    def invalid_count_domain(self) -> Domain:
         pairs = [
             (a.null_count, b.null_count)
             for a, b in zip(self.game.baseline, self.game.current, strict=True)
@@ -404,7 +404,7 @@ class _QuantileState:
             Fraction(sum(min(pair) for pair in pairs)), Fraction(sum(max(pair) for pair in pairs))
         )
 
-    def domain(self) -> Domain:
+    def value_domain(self) -> Domain:
         valid = sum(
             min(a.valid_count, b.valid_count)
             for a, b in zip(self.game.baseline, self.game.current, strict=True)
@@ -540,8 +540,8 @@ def _sample(
             alias = aliases[index]
             types[f"leaf_{alias}"] = ibis_type(state.column.dtype)
             types[f"invalid_{alias}"] = dt.int64
-            fields[f"leaf_{alias}"] = state.domain()
-            fields[f"invalid_{alias}"] = state.invalid_domain()
+            fields[f"leaf_{alias}"] = state.value_domain()
+            fields[f"invalid_{alias}"] = state.invalid_count_domain()
         table = ibis.table(types, name="_attribute_game")
         leaves = {
             state.leaf.occurrence: NumericValue(

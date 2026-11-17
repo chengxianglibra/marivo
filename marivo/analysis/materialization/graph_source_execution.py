@@ -62,7 +62,7 @@ from marivo.analysis.compiler.graph_plan import (
     LocalCompute,
     QueryStage,
     SourceField,
-    SourceRead,
+    SourceReadStage,
     SourceSchema,
     read_native_reductions,
 )
@@ -262,7 +262,7 @@ def qualify_original_strings(
 
 def qualify_original_source(
     prepared: PreparedSources,
-    reads: tuple[SourceRead, ...],
+    reads: tuple[SourceReadStage, ...],
     raw: ir.Table,
     *,
     sampled: bool = False,
@@ -463,7 +463,7 @@ def qualify_attribute_game_sources(prepared: PreparedSources, plan: QueryPlan) -
                 f"{owner.provider.name}: replacement capture lacks qualified physical input/collation metadata",
             )
     for stage in plan.stages:
-        if not isinstance(stage, SourceRead):
+        if not isinstance(stage, SourceReadStage):
             continue
         relation = prepared.relations.get(stage.stage_id)
         if relation is None:
@@ -667,11 +667,11 @@ def _query_entities(graph: BoundGraph, state: CompiledSemanticState) -> tuple[st
             *contribution.coordinates,
             *(read for _, read in contribution.population_reads),
         ):
-            from marivo._definition.types import IdentityRead
+            from marivo._definition.types import EntityIdentityRead
             from marivo.analysis.binding.coordinates import identity_projection
 
             if (
-                isinstance(read, IdentityRead)
+                isinstance(read, EntityIdentityRead)
                 and bool(read.components)
                 and identity_projection(read, contribution.root, state.registry) is not None
             ):
@@ -1253,7 +1253,7 @@ def open_query_sources(
 
 
 def _qualify_query_read(
-    prepared: PreparedSources, stage: SourceRead, lowered: LoweredRead
+    prepared: PreparedSources, stage: SourceReadStage, lowered: LoweredRead
 ) -> tuple[QualifiedSource, ...]:
     expression = lowered.expression
     source = prepared.sources.get(stage.source_id, prepared.source)
@@ -1271,7 +1271,7 @@ def _qualify_query_read(
 def qualify_query_sources(prepared: PreparedSources, lowered: LoweredQuery) -> None:
     """Qualify every schema-bound read template before a Run is admitted."""
     for read in lowered.reads:
-        stage = lowered.plan.source_read(read.stage_id)
+        stage = lowered.plan.source_read_stage(read.stage_id)
         from marivo.analysis.materialization.query_parameters import instantiate
 
         expression = read.expression
@@ -1364,7 +1364,7 @@ def _qualify_clickhouse_joins(
             )
 
 
-def _admit_numeric_method(source: SourceSession, stage: SourceRead, read: LoweredRead) -> None:
+def _admit_numeric_method(source: SourceSession, stage: SourceReadStage, read: LoweredRead) -> None:
     from marivo._definition.expressions import SourceAggregate
     from marivo._source_aggregates import native_aggregate
 
@@ -1398,7 +1398,7 @@ def _admit_numeric_method(source: SourceSession, stage: SourceRead, read: Lowere
 
 
 def _native_query_expression(
-    prepared: PreparedSources, stage: SourceRead, read: LoweredRead
+    prepared: PreparedSources, stage: SourceReadStage, read: LoweredRead
 ) -> ir.Table:
     from marivo.analysis.materialization.temporal_sql import lower_temporal
 
@@ -1526,12 +1526,12 @@ def _mysql_source_timezones(sql: str) -> tuple[str, ...]:
 
 def read_stage(
     prepared: PreparedSources,
-    stage: SourceRead,
+    stage: SourceReadStage,
     lowered: LoweredRead,
     *,
     value_keys: tuple[str, ...] = (),
 ) -> StageOutput:
-    """Submit one lowered SourceRead and normalize its pandas result."""
+    """Submit one lowered SourceReadStage and normalize its pandas result."""
     if read_attribute(stage) is not None and require_attribute(stage).parent_context is None:
         from marivo.analysis.compiler.attribute_inputs import input_failure
 
@@ -1669,7 +1669,7 @@ def read_stage(
 
 
 def _capture_attribute_state(
-    stage: SourceRead, raw: pd.DataFrame, output: StageOutput, provider: str
+    stage: SourceReadStage, raw: pd.DataFrame, output: StageOutput, provider: str
 ) -> StageOutput:
     from marivo.analysis.compiler.attribute_frequencies import AttributeStateCapture
 
@@ -1725,7 +1725,7 @@ def _capture_attribute_state(
 
 
 def complete_attribute_frequencies(
-    stage: SourceRead,
+    stage: SourceReadStage,
     frame: pd.DataFrame,
     numeric_checks: tuple[tuple[str, NumericCheck], ...],
 ) -> StageOutput:
@@ -1886,7 +1886,7 @@ def complete_attribute_frequencies(
 
 
 def _validate_source_checks(
-    stage: SourceRead,
+    stage: SourceReadStage,
     frame: pd.DataFrame,
     numeric_checks: tuple[tuple[str, NumericCheck], ...],
 ) -> None:
@@ -1989,7 +1989,7 @@ def _validate_source_checks(
 
 
 def _source_check_failure(
-    stage: SourceRead,
+    stage: SourceReadStage,
     name: str,
     expected: str,
     received: str,
@@ -2030,7 +2030,7 @@ def _source_check_failure(
 
 
 def _attribute_source_check_failure(
-    stage: SourceRead,
+    stage: SourceReadStage,
     name: str,
     expected: str,
     received: str,
@@ -2051,7 +2051,7 @@ def _attribute_source_check_failure(
 
 
 def _complete_source_frame(
-    stage: SourceRead,
+    stage: SourceReadStage,
     frame: pd.DataFrame,
     numeric_checks: tuple[tuple[str, NumericCheck], ...],
     *,
@@ -2143,7 +2143,7 @@ def _complete_source_frame(
 
 
 def _complete_common_read(
-    stage: SourceRead,
+    stage: SourceReadStage,
     frame: pd.DataFrame,
     numeric_checks: tuple[tuple[str, NumericCheck], ...],
 ) -> StageOutput:
@@ -2267,13 +2267,13 @@ def execute_numeric_query(
     prepared: PreparedSources | None,
     lowered: LoweredQuery,
     *,
-    observe_read: Callable[[SourceRead, LoweredRead, StageOutput], None] | None = None,
+    observe_read: Callable[[SourceReadStage, LoweredRead, StageOutput], None] | None = None,
     observe_local: Callable[[LocalCompute, StageOutput], None] | None = None,
     prepared_by_stage: Mapping[str, PreparedSources] | None = None,
     read_fixed: Callable[[FrameInput], CompletedFrameData] | None = None,
     adapt_source: Callable[[str, StageOutput], StageOutput] | None = None,
     source_outputs: Mapping[str, str] | None = None,
-    observe_frame: Callable[[FrameCompute | SourceRead, StageOutput], None] | None = None,
+    observe_frame: Callable[[FrameCompute | SourceReadStage, StageOutput], None] | None = None,
     native_prepared: Mapping[str, PreparedNativeGame] | None = None,
     frame_key_inputs: Mapping[str, StageOutput] | None = None,
     report_domain: pd.DataFrame | None = None,
@@ -2313,7 +2313,7 @@ def execute_numeric_query(
             population_frames=output.population_frames if required.retain_populations else (),
         )
 
-    def read(stage: SourceRead) -> StageOutput:
+    def read(stage: SourceReadStage) -> StageOutput:
         selected = (
             prepared_by_stage.get(stage.stage_id) if prepared_by_stage is not None else prepared
         )
@@ -2344,7 +2344,7 @@ def execute_numeric_query(
             observe_local(stage, output)
         return output
 
-    def dependent(stage: SourceRead, inputs: tuple[StageOutput, ...]) -> StageOutput:
+    def dependent(stage: SourceReadStage, inputs: tuple[StageOutput, ...]) -> StageOutput:
         if isinstance(stage.program, AttributeCoalitionRead):
             from marivo.analysis.materialization.attribute_native_execution import run_native_game
 
@@ -2519,8 +2519,8 @@ def run_frame_plan(
     source_prepared: Mapping[str, PreparedSources],
     read_fixed: Callable[[FrameInput], CompletedFrameData],
     adapt_source: Callable[[str, StageOutput], StageOutput],
-    observe_read: Callable[[SourceRead, LoweredRead, StageOutput], None] | None = None,
-    observe_local: Callable[[LocalCompute | FrameCompute | SourceRead, StageOutput], None]
+    observe_read: Callable[[SourceReadStage, LoweredRead, StageOutput], None] | None = None,
+    observe_local: Callable[[LocalCompute | FrameCompute | SourceReadStage, StageOutput], None]
     | None = None,
     completed_frames: Mapping[str, StageOutput] | None = None,
     retain_inputs: dict[str, StageOutput] | None = None,
@@ -2531,7 +2531,7 @@ def run_frame_plan(
     native = {
         stage.stage_id: prepare_native_game(stage, source_prepared)
         for stage in compiled.lowered.plan.stages
-        if isinstance(stage, SourceRead) and isinstance(stage.program, AttributeCoalitionRead)
+        if isinstance(stage, SourceReadStage) and isinstance(stage.program, AttributeCoalitionRead)
     }
     prepared = {
         stage_id: source_prepared[input_id]
@@ -2615,7 +2615,7 @@ def prepare_attribute_endpoint(
     reads = tuple(
         stage
         for stage in original.stages
-        if isinstance(stage, SourceRead) and read_components(stage) is not None
+        if isinstance(stage, SourceReadStage) and read_components(stage) is not None
     )
     for root in dict.fromkeys(stage.source_id for stage in reads):
         group = tuple(stage for stage in reads if stage.source_id == root)

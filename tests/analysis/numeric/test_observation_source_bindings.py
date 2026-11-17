@@ -11,8 +11,8 @@ import pytest
 
 from marivo.analysis.observation.errors import ObservationBindingError
 from marivo.analysis.observation.source_bindings import (
-    SourceBindingScopes,
-    SourceBindingValue,
+    SourceParameterScopes,
+    SourceParameterValue,
 )
 from marivo.datasource.ir import (
     AiContextIR,
@@ -75,8 +75,8 @@ def _entity(
 
 def test_capture_is_ordered_immutable_and_survives_scope_exit() -> None:
     entity = _entity()
-    scopes = SourceBindingScopes((entity,))
-    values: dict[str, SourceBindingValue] = {"end": 100, "start": [1, "TOPIC_VALUES_398712"]}
+    scopes = SourceParameterScopes((entity,))
+    values: dict[str, SourceParameterValue] = {"end": 100, "start": [1, "TOPIC_VALUES_398712"]}
     with scopes.scope({ref.entity(entity.ref.path): values}):
         captured = scopes.capture((entity,))[0]
         assert captured.ordered_parameter_names == ("start", "end")
@@ -98,9 +98,9 @@ def test_capture_is_ordered_immutable_and_survives_scope_exit() -> None:
 
 def test_scalar_type_and_sequence_order_are_exact_identity() -> None:
     entity = _entity()
-    scopes = SourceBindingScopes((entity,))
+    scopes = SourceParameterScopes((entity,))
     digests: list[str] = []
-    samples: tuple[SourceBindingValue, ...] = (True, 1, 1.0, "1", 0.0, -0.0, [1, 2], [2, 1])
+    samples: tuple[SourceParameterValue, ...] = (True, 1, 1.0, "1", 0.0, -0.0, [1, 2], [2, 1])
     for value in samples:
         with scopes.scope({ref.entity(entity.ref.path): {"start": value, "end": 10}}):
             digests.append(scopes.capture((entity,))[0].exact_value_digest)
@@ -111,7 +111,7 @@ def test_scalar_type_and_sequence_order_are_exact_identity() -> None:
 
 def test_inner_scope_replaces_complete_map_and_restores_after_failure() -> None:
     entity, other = _entity(), _entity("other")
-    scopes = SourceBindingScopes((entity, other))
+    scopes = SourceParameterScopes((entity, other))
     outer = {
         ref.entity(entity.ref.path): {"start": 1, "end": 2},
         ref.entity(other.ref.path): {"start": 3, "end": 4},
@@ -134,8 +134,8 @@ def test_inner_scope_replaces_complete_map_and_restores_after_failure() -> None:
 
 def test_unreachable_bindings_and_other_source_factory_do_not_change_capture() -> None:
     entity, other = _entity(), _entity("other")
-    scopes = SourceBindingScopes((entity, other))
-    foreign_scopes = SourceBindingScopes((entity,))
+    scopes = SourceParameterScopes((entity, other))
+    foreign_scopes = SourceParameterScopes((entity,))
     with scopes.scope({ref.entity(entity.ref.path): {"start": 1, "end": 2}}):
         first = scopes.capture((entity,))
         with pytest.raises(ObservationBindingError):
@@ -155,7 +155,7 @@ def test_unreachable_bindings_and_other_source_factory_do_not_change_capture() -
 )
 def test_invalid_values_fail_without_rendering_values(value: object) -> None:
     entity = _entity()
-    scopes = SourceBindingScopes((entity,))
+    scopes = SourceParameterScopes((entity,))
     with (
         pytest.raises(ObservationBindingError) as failure,
         scopes.scope({ref.entity(entity.ref.path): {"start": value, "end": 2}}),  # type: ignore[dict-item]
@@ -171,7 +171,7 @@ def test_nonparameterized_and_non_json_entities_reject_scope_bindings() -> None:
         CsvSourceIR(path="fixture.csv", columns=(("id", "id"),)),
     ):
         entity = _entity(source=source)
-        scopes = SourceBindingScopes((entity,))
+        scopes = SourceParameterScopes((entity,))
         assert scopes.capture((entity,)) == ()
 
 
@@ -209,7 +209,7 @@ def test_registry_scope_assembly_does_not_normalize_unrelated_identity_types() -
             )
         },
     )
-    scopes = SourceBindingScopes.from_registry(registry)
+    scopes = SourceParameterScopes.from_registry(registry)
     selected = normalize_target_entity(registry, "sales.api")
     with scopes.scope({ref.entity("sales.api"): {"tenant": "customer"}}):
         assert scopes.capture((selected,))[0].private_canonical_typed_values == ("customer",)
@@ -217,7 +217,7 @@ def test_registry_scope_assembly_does_not_normalize_unrelated_identity_types() -
 
 def test_async_contexts_do_not_share_active_values() -> None:
     entity = _entity()
-    scopes = SourceBindingScopes((entity,))
+    scopes = SourceParameterScopes((entity,))
 
     async def capture(value: int) -> tuple[object, ...]:
         with scopes.scope({ref.entity(entity.ref.path): {"start": value, "end": 10}}):

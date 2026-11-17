@@ -29,14 +29,15 @@ source-time meaning.
 
 | Term | Definition | Example |
 | --- | --- | --- |
-| **Calendar Grain** | A calendar unit and width used to partition time. | Day, month, or an admitted subday width. |
+| **Grain** | A calendar unit and width used to partition time. | Day, month, or an admitted subday width. |
 | **Calendar Period** | One bounded bucket under a calendar interpretation. | August 2026 in Asia/Shanghai. |
 | **Calendar Axis** | A finite selection of calendar periods with their grain, timezone, order, and boundaries. | The daily periods within August. |
 | **Window** | A rule determining the contribution interval evaluated at a selected endpoint. | Trailing seven days or month to date. |
 | **Window Endpoint** | The boundary supplied by the enclosing report or internal sample context for evaluating a window. | The end of the current internal daily sample. |
 | **Reporting Endpoint** | The boundary of a report interval or bucket that can supply a Window Endpoint. | The excluded end of a daily output bucket. |
 
-A calendar grain determines output buckets. A window determines which
+A Grain determines calendar output buckets; it is distinct from an Entity's
+grain or an Output Grain. A window determines which
 contributions enter the calculation at each endpoint. A daily result can report
 a trailing seven-day Metric. The overlap between its windows means one event
 can contribute to several daily output values.

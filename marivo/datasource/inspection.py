@@ -50,7 +50,7 @@ from marivo.datasource.metadata import (
     _TableMetadataUnavailableError,
 )
 from marivo.datasource.runtime import DatasourceConnectionService
-from marivo.datasource.snapshot import DiscoverySnapshot, acquire_snapshot
+from marivo.datasource.snapshot import DiscoveryEvidence, acquire_snapshot
 from marivo.datasource.source import (
     AuthoringScope,
     PartitionScope,
@@ -471,7 +471,7 @@ class SourceInspection(RenderableResult):
             ]
             | None
         ) = None,
-    ) -> DiscoverySnapshot:
+    ) -> DiscoveryEvidence:
         """Acquire a bounded snapshot after metadata preflight.
 
         Args:
@@ -488,7 +488,7 @@ class SourceInspection(RenderableResult):
                 ``md.source_param(...)`` on a JSON source.
 
         Returns:
-            One immutable ``DiscoverySnapshot`` whose local projections issue no query.
+            One immutable ``DiscoveryEvidence`` whose local projections issue no query.
 
         Example:
             ``snapshot = inspection.sample(scope=scope, columns=("id", "region"))``

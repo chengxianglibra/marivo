@@ -11,7 +11,7 @@ from marivo.analysis.compiler.graph_plan import (
     LocalCompute,
     QueryPlan,
     ReductionRead,
-    SourceRead,
+    SourceReadStage,
     require_reduction,
 )
 from marivo.analysis.compiler.observation import FormulaProgram
@@ -63,7 +63,7 @@ class AttributeFrequencyCapture:
     finisher: Literal["rank_bounds", "duckdb_native", "postgres_native"]
 
 
-def frequency_read(stage: SourceRead) -> SourceRead:
+def frequency_read(stage: SourceReadStage) -> SourceReadStage:
     """Request exact frequencies using the existing prepared observation input."""
     reduction = require_reduction(stage)
     node = reduction.node
@@ -86,9 +86,9 @@ def frequency_read(stage: SourceRead) -> SourceRead:
 
 def share_frequency_reads(plan: QueryPlan) -> QueryPlan:
     """Share an identical prepared distribution, retaining every scalar finisher."""
-    groups: list[list[SourceRead]] = []
+    groups: list[list[SourceReadStage]] = []
 
-    def identity(stage: SourceRead) -> tuple[object, ...]:
+    def identity(stage: SourceReadStage) -> tuple[object, ...]:
         reduction = require_reduction(stage)
         node = reduction.node
         assert isinstance(node, SourceAggregate)
@@ -121,7 +121,7 @@ def share_frequency_reads(plan: QueryPlan) -> QueryPlan:
 
     for stage in plan.stages:
         if (
-            not isinstance(stage, SourceRead)
+            not isinstance(stage, SourceReadStage)
             or not isinstance(stage.program, AttributeFrequencyRead)
             or not stage.binding_id
         ):
@@ -148,7 +148,7 @@ def share_frequency_reads(plan: QueryPlan) -> QueryPlan:
 
     stages = []
     for stage in plan.stages:
-        if isinstance(stage, SourceRead):
+        if isinstance(stage, SourceReadStage):
             if stage.stage_id in aliases and stage.stage_id not in heads:
                 continue
             if stage.stage_id in heads:
@@ -182,7 +182,7 @@ def share_frequency_reads(plan: QueryPlan) -> QueryPlan:
 
 
 def frequency_finishers(
-    stage: SourceRead, fields: Mapping[str, ir.Value]
+    stage: SourceReadStage, fields: Mapping[str, ir.Value]
 ) -> tuple[tuple[str, Literal["rank_bounds", "duckdb_native", "postgres_native"]], ...]:
     """Retain each original reducer's already-qualified numeric finish recipe."""
     from marivo._source_aggregates import native_aggregate

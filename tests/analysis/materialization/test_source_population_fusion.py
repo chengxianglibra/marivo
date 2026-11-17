@@ -386,7 +386,7 @@ def test_source_check_batches_compile_as_one_summary_per_scope(dialect: str) -> 
     import ibis.expr.operations as ops
 
     from marivo.analysis.compiler.graph_lowering import LoweredRead
-    from marivo.analysis.compiler.graph_plan import ProjectionRead, QueryPlan, SourceRead
+    from marivo.analysis.compiler.graph_plan import ProjectionRead, QueryPlan, SourceReadStage
     from marivo.analysis.core.data_types import DataColumn, ScalarDataType
     from marivo.analysis.materialization.query_key_fusion import (
         NativeQueryRelation,
@@ -399,7 +399,7 @@ def test_source_check_batches_compile_as_one_summary_per_scope(dialect: str) -> 
         name="facts",
     )
     columns = (DataColumn("key.0", "id", ScalarDataType("int64"), False),)
-    stage = SourceRead(
+    stage = SourceReadStage(
         "read",
         "facts",
         (),
@@ -800,7 +800,7 @@ def test_check_witness_preserves_duckdb_collation_with_empty_output(collation_sc
     import ibis
 
     from marivo.analysis.compiler.graph_lowering import LoweredRead
-    from marivo.analysis.compiler.graph_plan import NativeRead, QueryPlan, SourceRead
+    from marivo.analysis.compiler.graph_plan import NativeRead, QueryPlan, SourceReadStage
     from marivo.analysis.core.data_types import DataColumn, ScalarDataType
     from marivo.analysis.materialization.query_key_fusion import (
         NativeQueryRelation,
@@ -825,7 +825,7 @@ def test_check_witness_preserves_duckdb_collation_with_empty_output(collation_sc
             DataColumn(keys[0], "label", ScalarDataType("string"), True),
             DataColumn(keys[1], "id", ScalarDataType("int64"), False),
         )
-        stage = SourceRead("read", "facts", (), columns, keys, NativeRead(()), (), (), None)
+        stage = SourceReadStage("read", "facts", (), columns, keys, NativeRead(()), (), (), None)
         check = NumericCheck(table.bad, "valid inputs", "invalid input")
         native = NativeQueryRelation(
             table,

@@ -247,8 +247,8 @@ bounds retained preview rows per result. The scope.max_rows acquisition guard
 is independent. Invalid limits raise a structured SemanticRuntimeError before
 connection acquisition, with the accepted bounds and a repair. Multiple dependency
 Entities use an ordered sequence of `(Entity, AuthoringScope)` pairs. JSON preview can supply explicit non-secret
-source_bindings as `(Entity, parameter_mapping)` pairs. A single Entity scope
-still accepts one AuthoringScope; source_bindings always explicitly names its Entity.
+source_parameters as `(Entity, parameter_mapping)` pairs. A single Entity scope
+still accepts one AuthoringScope; source_parameters always explicitly names its Entity.
 Duplicate, missing and unrelated Entity pairs fail before source access. Ordinary preview reads the current datasource and does not
 persist a general validation checkpoint.
 

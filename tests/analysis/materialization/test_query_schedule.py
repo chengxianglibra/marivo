@@ -19,7 +19,7 @@ from marivo._temporal import TimeScope
 from marivo.analysis.compiler.graph_lowering import lower_query
 from marivo.analysis.compiler.graph_plan import (
     LocalCompute,
-    SourceRead,
+    SourceReadStage,
     plan_query,
 )
 from marivo.analysis.core.data_types import DataColumn, DecimalDataType, ScalarDataType
@@ -199,7 +199,7 @@ def test_single_root_plan_reads_once_and_publishes_its_source_stage(
     ):
         assert prepared.source.submissions == []
         plan = plan_query(graph, prepared.schemas)
-        assert len(plan.stages) == 1 and isinstance(plan.stages[0], SourceRead)
+        assert len(plan.stages) == 1 and isinstance(plan.stages[0], SourceReadStage)
         assert plan.publish == plan.stages[0].stage_id and plan.consumers == ()
         assert plan_query(graph, prepared.schemas) == plan
         output = _run(prepared, graph)
@@ -232,7 +232,7 @@ def test_multi_root_plan_combines_locally_without_mutating_shared_reads(
         open_query_sources(connections, graph, session.catalog._state) as prepared,
     ):
         plan = plan_query(graph, prepared.schemas)
-        reads = [stage for stage in plan.stages if isinstance(stage, SourceRead)]
+        reads = [stage for stage in plan.stages if isinstance(stage, SourceReadStage)]
         combine = plan.stages[-1]
         assert isinstance(combine, LocalCompute) and combine.kernel == QUERY_COMBINE_KERNEL
         assert {read.source_id for read in reads} == {"sales.orders", "sales.refunds"}
@@ -241,7 +241,7 @@ def test_multi_root_plan_combines_locally_without_mutating_shared_reads(
         outputs: dict[str, StageOutput] = {}
         lowered = lower_query(plan, prepared.relations)
 
-        def read(stage: SourceRead) -> StageOutput:
+        def read(stage: SourceReadStage) -> StageOutput:
             outputs[stage.stage_id] = read_stage(prepared, stage, lowered.read(stage.stage_id))
             return outputs[stage.stage_id]
 
@@ -330,7 +330,7 @@ def test_planning_is_pure_over_prepared_schema_facts(warehouse_session: Session)
         schemas = prepared.schemas
     plan = plan_query(graph, schemas)
     assert [stage.stage_id for stage in plan.stages][-1] == plan.publish
-    reads = [stage for stage in plan.stages if isinstance(stage, SourceRead)]
+    reads = [stage for stage in plan.stages if isinstance(stage, SourceReadStage)]
     assert all(read.period is None for read in reads)
     with pytest.raises(CoreRuleError):
         plan_query(graph, schemas[:1])
@@ -366,7 +366,7 @@ def test_real_source_checks_and_strict_formula_keep_occurrence_order(
     validate = execution._validate_source_checks
 
     def checked(
-        stage: SourceRead,
+        stage: SourceReadStage,
         frame: pd.DataFrame,
         numeric_checks: tuple[tuple[str, NumericCheck], ...],
     ) -> None:
@@ -389,7 +389,7 @@ def test_real_source_checks_and_strict_formula_keep_occurrence_order(
         open_query_sources(connections, graph, session.catalog._state) as prepared,
     ):
         plan = plan_query(graph, prepared.schemas)
-        reads = tuple(stage for stage in plan.stages if isinstance(stage, SourceRead))
+        reads = tuple(stage for stage in plan.stages if isinstance(stage, SourceReadStage))
         assert len(reads) == 2 and reads[0].occurrence != reads[1].occurrence
         if same_root:
             assert reads[0].source_id == reads[1].source_id == "sales.orders"
@@ -806,7 +806,7 @@ def test_source_free_numeric_plan_never_reads(warehouse_session: Session) -> Non
     plan = plan_query(graph, ())
     assert len(plan.stages) == 1 and isinstance(plan.stages[0], LocalCompute)
 
-    def forbidden(stage: SourceRead) -> StageOutput:
+    def forbidden(stage: SourceReadStage) -> StageOutput:
         raise AssertionError("source-free formula submitted a read")
 
     output = run_query_plan(

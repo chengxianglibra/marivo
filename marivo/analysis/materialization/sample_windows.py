@@ -21,7 +21,11 @@ from marivo._definition.expressions import (
     PerWeightedMean,
 )
 from marivo._definition.graph import children
-from marivo._definition.observations import ContributionBinding, ObservationPeriod, SampleWindow
+from marivo._definition.observations import (
+    ContributionBinding,
+    ObservationPeriod,
+    SampleWindowContext,
+)
 from marivo._definition.relations import (
     ObserveQuery,
     PopulationDependency,
@@ -43,7 +47,7 @@ from marivo.analysis.compiler.graph_plan import (
     FrameKeysInput,
     QueryStage,
     SampleWindowRead,
-    SourceRead,
+    SourceReadStage,
     plan_query,
     read_reduction,
 )
@@ -83,7 +87,7 @@ def _consumers(stages: tuple[QueryStage, ...]) -> tuple[tuple[str, tuple[str, ..
     )
 
 
-def _sample_slot(graph: BoundGraph, item: ContributionBinding, context: SampleWindow) -> str:
+def _sample_slot(graph: BoundGraph, item: ContributionBinding, context: SampleWindowContext) -> str:
     width = sum(
         len(coordinate_read_keys(read)) for read in item.coordinates[: item.output_axis_count]
     )
@@ -147,7 +151,7 @@ def prepare_sample_window_plan(
         next(
             stage
             for stage in plan.stages
-            if isinstance(stage, SourceRead)
+            if isinstance(stage, SourceReadStage)
             and stage.occurrence == item.occurrence
             and stage.source_id == item.root.ref.path
             and read_reduction(stage) is not None
@@ -171,7 +175,7 @@ def prepare_sample_window_plan(
         endpoint_formula.program, FormulaProgram
     )
     populations = endpoint_formula.program.populations
-    finish = SourceRead(
+    finish = SourceReadStage(
         "sample-windows",
         prepared.source.datasource.semantic_id,
         (),
@@ -301,8 +305,10 @@ def _select_parent_samples(
                 if not isinstance(sample, BuiltinSampleCoordinate)
                 and coordinate_matches(sample, axis)
             )
-            start = int(_sample_slot(graph, item, SampleWindow((), depth + offset))[4:]) + 1
-            end = int(_sample_slot(graph, item, SampleWindow((), depth + offset + 1))[4:]) + 1
+            start = int(_sample_slot(graph, item, SampleWindowContext((), depth + offset))[4:]) + 1
+            end = (
+                int(_sample_slot(graph, item, SampleWindowContext((), depth + offset + 1))[4:]) + 1
+            )
             slots.extend(f"key.{index}" for index in range(start, end))
         keys = _population_domain(population, tuple(slots), populations)
         domain = (
@@ -539,11 +545,11 @@ def _required_report_domain(
 
 def run_sample_windows(
     prepared: PreparedSources,
-    stage: SourceRead,
+    stage: SourceReadStage,
     program: SampleWindowRead,
     inputs: tuple[StageOutput, ...],
     *,
-    observe_read: Callable[[SourceRead, LoweredRead, StageOutput], None] | None,
+    observe_read: Callable[[SourceReadStage, LoweredRead, StageOutput], None] | None,
 ) -> StageOutput:
     """Evaluate each window at its sample endpoint, then fold the captured domain."""
     candidates = inputs[: len(program.candidates)]

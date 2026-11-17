@@ -46,7 +46,7 @@ from marivo.analysis.compiler.graph_plan import (
     QueryPlan,
     QueryStage,
     ReductionRead,
-    SourceRead,
+    SourceReadStage,
     SourceSchema,
     common_program,
     local_result,
@@ -113,7 +113,7 @@ def _support(stage: QueryStage) -> set[str]:
     required = set(stage.keys)
     if isinstance(stage, (FrameInput, FrameCompute, FrameKeysInput)):
         return {column.slot_id for column in stage.columns}
-    if isinstance(stage, SourceRead):
+    if isinstance(stage, SourceReadStage):
         required.update(
             column.slot_id
             for column in stage.columns
@@ -230,7 +230,7 @@ def required_slots(plan: QueryPlan) -> tuple[RequiredSlots, ...]:
         )
         if not stage.inputs:
             continue
-        if isinstance(stage, SourceRead):
+        if isinstance(stage, SourceReadStage):
             for source in stage.inputs:
                 wanted[source].update(stages[source].keys)
             continue
@@ -271,10 +271,10 @@ def _fuse(plan: QueryPlan) -> QueryPlan:
     groups: dict[str, FusionGroup] = {}
     decisions: list[RuleDecision] = []
     consumers = {stage_id: set(values) for stage_id, values in _consumers(plan.stages)}
-    source_roots: dict[str, SourceRead] = {}
+    source_roots: dict[str, SourceReadStage] = {}
     for original in plan.stages:
         stage = stages[original.stage_id]
-        if isinstance(stage, SourceRead):
+        if isinstance(stage, SourceReadStage):
             if read_reduction(stage) is not None and stage.source_id in source_roots:
                 prior = source_roots[stage.source_id]
                 decisions.append(
@@ -382,7 +382,7 @@ def _fuse(plan: QueryPlan) -> QueryPlan:
     )
 
 
-def _source_merge_issue(stage: SourceRead, *, ordinary_samples: bool = False) -> str | None:
+def _source_merge_issue(stage: SourceReadStage, *, ordinary_samples: bool = False) -> str | None:
     """Explain the first physical boundary that prevents a common aggregate."""
     reduction = require_reduction(stage)
     value = next(column for column in stage.columns if column.slot_id == reduction.value_slot)
@@ -468,12 +468,12 @@ def _ordinary_sample_formula(stage: QueryStage) -> bool:
 def _common_sources(plan: QueryPlan) -> QueryPlan:
     """Share one actual bound aggregate input while retaining each occurrence."""
     groups: dict[
-        tuple[str, str, str, tuple[str, ...], type[object], bool, bool], list[SourceRead]
+        tuple[str, str, str, tuple[str, ...], type[object], bool, bool], list[SourceReadStage]
     ] = {}
     consumers = dict(plan.consumers)
     ordinary_samples = {stage.stage_id for stage in plan.stages if _ordinary_sample_formula(stage)}
     for stage in plan.stages:
-        if not isinstance(stage, SourceRead) or read_reduction(stage) is None:
+        if not isinstance(stage, SourceReadStage) or read_reduction(stage) is None:
             continue
         reduction = require_reduction(stage)
         node = reduction.node
@@ -551,7 +551,7 @@ def _common_sources(plan: QueryPlan) -> QueryPlan:
     heads = {group[0].stage_id: group for group in selected}
     stages: list[QueryStage] = []
     for stage in plan.stages:
-        if isinstance(stage, SourceRead):
+        if isinstance(stage, SourceReadStage):
             if stage.stage_id in aliases and stage.stage_id not in heads:
                 continue
             if stage.stage_id in heads:
@@ -637,7 +637,7 @@ def optimize_query(plan: QueryPlan) -> QueryPlan:
     for stage in planned.stages:
         demand = by_stage[stage.stage_id]
         columns = tuple(column for column in stage.columns if column.slot_id in demand.columns)
-        if isinstance(stage, SourceRead):
+        if isinstance(stage, SourceReadStage):
             layout = read_components(stage)
             if layout is not None and layout.reduction.value_slot not in demand.components:
                 stage = replace(stage, program=ReductionRead(require_reduction(stage)))
@@ -852,7 +852,7 @@ def retain_components(plan: QueryPlan, schemas: tuple[SourceSchema, ...]) -> Que
     stages = []
     for stage in plan.stages:
         if (
-            not isinstance(stage, SourceRead)
+            not isinstance(stage, SourceReadStage)
             or read_reduction(stage) is None
             or read_components(stage) is not None
         ):

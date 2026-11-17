@@ -25,7 +25,7 @@ from marivo.analysis.compiler.graph_plan import (
     FrameInput,
     LocalCompute,
     QueryPlan,
-    SourceRead,
+    SourceReadStage,
     plan_query,
     read_members,
     read_projections,
@@ -139,7 +139,7 @@ def _execute(
                 events.append(stage.stage_id)
                 actual[stage.stage_id] = tuple(output.table.columns)
 
-            def source(stage: SourceRead, request: LoweredRead, output: StageOutput) -> None:
+            def source(stage: SourceReadStage, request: LoweredRead, output: StageOutput) -> None:
                 actual[stage.stage_id] = tuple(output.table.columns)
 
             result = execute_numeric_query(
@@ -162,19 +162,21 @@ def _execute(
         source_prepared: Mapping[str, PreparedSources],
         read_fixed: Callable[[FrameInput], CompletedFrameData],
         adapt_source: Callable[[str, StageOutput], StageOutput],
-        observe_read: Callable[[SourceRead, LoweredRead, StageOutput], None] | None = None,
-        observe_local: Callable[[LocalCompute | FrameCompute | SourceRead, StageOutput], None]
+        observe_read: Callable[[SourceReadStage, LoweredRead, StageOutput], None] | None = None,
+        observe_local: Callable[[LocalCompute | FrameCompute | SourceReadStage, StageOutput], None]
         | None = None,
         completed_frames: Mapping[str, StageOutput] | None = None,
         retain_inputs: dict[str, StageOutput] | None = None,
     ) -> StageOutput:
-        def local(stage: LocalCompute | FrameCompute | SourceRead, output: StageOutput) -> None:
+        def local(
+            stage: LocalCompute | FrameCompute | SourceReadStage, output: StageOutput
+        ) -> None:
             frame_events.append(stage.stage_id)
             frame_actual[stage.stage_id] = tuple(output.table.columns)
             if observe_local is not None:
                 observe_local(stage, output)
 
-        def source(stage: SourceRead, request: LoweredRead, output: StageOutput) -> None:
+        def source(stage: SourceReadStage, request: LoweredRead, output: StageOutput) -> None:
             frame_actual[stage.stage_id] = tuple(output.table.columns)
             if observe_read is not None:
                 observe_read(stage, request, output)
@@ -286,12 +288,14 @@ def test_source_attributes_keep_complete_keys_and_inherited_checks(
     result, after, _, after_actual = _execute(session, source, optimized=True)
     pd.testing.assert_frame_equal(result.table, baseline.table)
     reads = tuple(
-        stage for stage in after.stages if isinstance(stage, SourceRead) and read_projections(stage)
+        stage
+        for stage in after.stages
+        if isinstance(stage, SourceReadStage) and read_projections(stage)
     )
     assert reads
     for stage in reads:
         original = next(item for item in before.stages if item.stage_id == stage.stage_id)
-        assert isinstance(original, SourceRead)
+        assert isinstance(original, SourceReadStage)
         # Attribute fields belong to this source's complete Population key.
         # They cannot be treated as removable value slots before ReadFields.
         assert stage.keys == original.keys
@@ -420,7 +424,7 @@ def test_explicit_source_occurrences_and_formula_finish_are_never_collapsed(
     reads = [
         item
         for stage in plan.stages
-        if isinstance(stage, SourceRead)
+        if isinstance(stage, SourceReadStage)
         for item in (read_members(stage) or (stage,))
     ]
     assert len(reads) == 3 and len({stage.occurrence for stage in reads}) == 3
@@ -556,7 +560,8 @@ def test_exact_source_common_block_preserves_values_and_occurrences(
     assert result.table["value.1"].tolist() == [3]
     assert count == 2 and len(calls) - count == 1
     assert any(
-        isinstance(stage, SourceRead) and len(read_members(stage)) == 2 for stage in plan.stages
+        isinstance(stage, SourceReadStage) and len(read_members(stage)) == 2
+        for stage in plan.stages
     )
 
 
@@ -645,7 +650,7 @@ def test_observe_different_fields_share_one_actual_aggregate(
         where=scope if domain == "interval" else None,
     )
     _, plan, _, _ = _same(session, query)
-    assert len([stage for stage in plan.stages if isinstance(stage, SourceRead)]) == 1
+    assert len([stage for stage in plan.stages if isinstance(stage, SourceReadStage)]) == 1
     trace = capture_source(monkeypatch)
     result = query.compute().to_pandas()
     assert len(trace.native_sql) == (2 if domain == "calendar" else 1)
@@ -715,7 +720,7 @@ def test_mixed_observation_executes_once_per_contribution_domain(
     result = query.compute().to_pandas()
     # Terminal native fusion may carry both independently grouped reads in
     # one statement; the common-aggregate planner still has exactly two groups.
-    assert len([stage for stage in plan.stages if isinstance(stage, SourceRead)]) == 2
+    assert len([stage for stage in plan.stages if isinstance(stage, SourceReadStage)]) == 2
     assert len(trace.native_sql) <= 2
     assert result.iloc[0].tolist() == [60, Decimal("60.06"), 50, Decimal("50.05")]
 
@@ -892,7 +897,7 @@ def test_same_shape_different_datasources_never_share_a_physical_block(
     other = catalog_value(session.catalog, "sales.other.amount", kind="measure")
     query = session.observe({"primary": amount.sum(), "other": other.sum()})
     result, plan, _, _ = _same(session, query)
-    reads = tuple(stage for stage in plan.stages if isinstance(stage, SourceRead))
+    reads = tuple(stage for stage in plan.stages if isinstance(stage, SourceReadStage))
     assert len(reads) == 2 and len({stage.binding_id for stage in reads}) == 2
     assert result.table["value.0"].tolist() == [60]
     assert result.table["value.1"].tolist() == [600]
@@ -915,7 +920,9 @@ def test_physical_binding_ids_do_not_change_logical_fingerprints_or_artifacts(
         ):
             plan = optimize_query(plan_query(_source_graph(query), prepared.schemas))
             bindings.append(
-                next(stage.binding_id for stage in plan.stages if isinstance(stage, SourceRead))
+                next(
+                    stage.binding_id for stage in plan.stages if isinstance(stage, SourceReadStage)
+                )
             )
         assert _source_graph(query).fingerprint == fingerprint
     assert bindings[0] != bindings[1]
@@ -1261,7 +1268,9 @@ def test_grouped_common_completion_preserves_joint_rows_without_merge(
     sort_values = pd.DataFrame.sort_values
 
     def complete_joint(
-        stage: SourceRead, frame: pd.DataFrame, numeric_checks: tuple[tuple[str, NumericCheck], ...]
+        stage: SourceReadStage,
+        frame: pd.DataFrame,
+        numeric_checks: tuple[tuple[str, NumericCheck], ...],
     ) -> StageOutput:
         # A nondefault index must not turn positional completion into label alignment.
         frame = frame.set_axis(range(10, 10 + len(frame)))
@@ -1304,7 +1313,7 @@ def test_joint_extended_reducers_preserve_empty_and_null_groups(
         where=value > 1000 if empty else value.isnull(),
     )
     result, plan, _, _ = _same(session, query)
-    assert len([stage for stage in plan.stages if isinstance(stage, SourceRead)]) == 1
+    assert len([stage for stage in plan.stages if isinstance(stage, SourceReadStage)]) == 1
     assert result.table.iloc[0, :2].tolist() == [0, 0]
     assert result.table.iloc[0, 2:].isna().all()
 
@@ -1334,7 +1343,7 @@ def test_frequency_payload_survives_ordinary_aggregate_optimization(
         plan = plan_query(graph, prepared.schemas)
         stages = []
         for stage in plan.stages:
-            if isinstance(stage, SourceRead):
+            if isinstance(stage, SourceReadStage):
                 node = require_reduction(stage).node
                 if isinstance(node, SourceAggregate) and node.reducer == "quantile":
                     stage = frequency_read(stage)
@@ -1344,7 +1353,7 @@ def test_frequency_payload_survives_ordinary_aggregate_optimization(
             sum(
                 isinstance(s.program, AttributeFrequencyRead)
                 for s in optimized.stages
-                if isinstance(s, SourceRead)
+                if isinstance(s, SourceReadStage)
             )
             == 2
         )
@@ -1380,7 +1389,7 @@ def test_joint_weighted_components_retain_both_raw_operands(
             retain_components(plan_query(graph, prepared.schemas), prepared.schemas)
         )
         lowered = lower_query(plan, prepared.relations)
-        reads = [stage for stage in lowered.plan.stages if isinstance(stage, SourceRead)]
+        reads = [stage for stage in lowered.plan.stages if isinstance(stage, SourceReadStage)]
         assert len(reads) == 1
         output = read_stage(prepared, reads[0], lowered.read(reads[0].stage_id))
         assert len(output.components) == 2

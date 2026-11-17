@@ -6,9 +6,9 @@ from dataclasses import replace
 
 from marivo._definition.observations import CoordinateBinding as CoordinateBinding
 from marivo._definition.types import (
+    EntityIdentityRead,
     ExactRef,
     FieldRead,
-    IdentityRead,
     RowAttributeTime,
 )
 from marivo.analysis.core.model import reject
@@ -22,7 +22,7 @@ from marivo.semantic.validator import Registry, normalize_target_relationship
 
 
 def identity_projection(
-    read: IdentityRead, root: ExactRef, registry: Registry
+    read: EntityIdentityRead, root: ExactRef, registry: Registry
 ) -> tuple[str, ...] | None:
     """Use complete declared foreign keys without reading a target profile."""
     if read.source_at is not None or read.at is not None or len(read.path) > 1:
@@ -49,12 +49,12 @@ def identity_projection(
 
 
 def bind_identity(
-    read: IdentityRead,
+    read: EntityIdentityRead,
     root: ExactRef,
     registry: Registry,
     resolver: _Resolver,
     paths: RelationshipResolver,
-) -> IdentityRead:
+) -> EntityIdentityRead:
     """Bind all identity components through the same single-valued route."""
     entity = registry.entities[read.entity.ref.path]
     path = paths.resolve(
@@ -79,7 +79,7 @@ def bind_identity(
 
 
 def _validate_route_versions(
-    read: FieldRead | IdentityRead,
+    read: FieldRead | EntityIdentityRead,
     path: tuple[Ref[RelationshipKind], ...],
     root: ExactRef,
     registry: Registry,

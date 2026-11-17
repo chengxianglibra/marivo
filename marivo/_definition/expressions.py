@@ -134,7 +134,7 @@ RowNode: TypeAlias = RowField | MeasureAssertion | RowExpression
 
 
 @dataclass(frozen=True, slots=True)
-class TimeBinding:
+class ContributionClockBinding:
     """Business time role of a source reduction: a time field and its single-valued path.
 
     An empty path reads a time field native to the contribution root; a non-empty
@@ -176,7 +176,7 @@ class SourceAggregate:
 
     operand: RowNode
     reducer: Reducer
-    time: TimeBinding | None
+    time: ContributionClockBinding | None
     q: float | None = None
     nulls: NullPolicy = "ignore"
     rule_version: int = RULE_VERSION
@@ -190,7 +190,7 @@ class SourceAggregate:
 @dataclass(frozen=True, slots=True)
 class EntityCount:
     entity: ExactRef
-    time: TimeBinding | None
+    time: ContributionClockBinding | None
     independent_origin: Literal["explicit_none", "no_entity_default"] = "no_entity_default"
 
 
@@ -200,7 +200,7 @@ class SourceWeightedMean:
 
     value: RowNode
     weight: RowNode
-    time: TimeBinding | None
+    time: ContributionClockBinding | None
     nulls: NullPolicy = "ignore"
     rule_version: int = NUMERIC_RULE_VERSION
     contribution_root: ExactRef | None = None

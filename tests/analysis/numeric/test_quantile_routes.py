@@ -10,7 +10,7 @@ import pytest
 
 from marivo._definition.expressions import RowField, SourceAggregate
 from marivo._definition.types import ExactRef, SumAll
-from marivo.analysis.compiler.graph_plan import ReductionRead, SourceRead
+from marivo.analysis.compiler.graph_plan import ReductionRead, SourceReadStage
 from marivo.analysis.compiler.observation import ReductionInput, lower_observation
 from marivo.analysis.core.data_types import DataColumn, ScalarDataType
 from marivo.analysis.core.value_types import data_type
@@ -122,7 +122,7 @@ def test_native_quantiles_and_typed_results(
             raw = connection.to_pyarrow(expression).to_pandas(types_mapper=pd.ArrowDtype)
             # Native aggregate transport is independent of input cardinality.
             assert len(raw) == 1, (values, dtype, q)
-            stage = SourceRead(
+            stage = SourceReadStage(
                 "read:0",
                 "facts",
                 (0,),
@@ -152,7 +152,7 @@ def test_native_quantiles_keep_strict_null_checks_and_nonfinite_values(bad: floa
             table = connection.sql(f"SELECT CAST({literal} AS DOUBLE) AS x UNION ALL SELECT 10.0")
             reduction = _reduction("duckdb", 0.95, strict=True)
             expression, checks = lower_observation(reduction, table, {"sales.facts.x": "x"}, ())
-            stage = SourceRead(
+            stage = SourceReadStage(
                 "read:0",
                 "facts",
                 (0,),
@@ -223,7 +223,7 @@ def test_native_interpolation_preserves_infinity_and_valid_nan(
         assert math.isnan(native[0]) if math.isnan(expected) else native[0] == expected
         reduction = _reduction("duckdb", q)
         expression, checks = lower_observation(reduction, table, {"sales.facts.x": "x"}, ())
-        stage = SourceRead(
+        stage = SourceReadStage(
             "read:0",
             "facts",
             (0,),

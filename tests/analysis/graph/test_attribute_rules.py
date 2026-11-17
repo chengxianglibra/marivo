@@ -9,6 +9,7 @@ import pytest
 from ibis.common.deferred import BinaryOperator, Just, Resolver, UnaryOperator, Variable
 
 from marivo._definition.expressions import (
+    ContributionClockBinding,
     ContributionFilter,
     DeclaredMetricRef,
     EntityCount,
@@ -24,7 +25,6 @@ from marivo._definition.expressions import (
     RowField,
     SourceAggregate,
     SourceWeightedMean,
-    TimeBinding,
 )
 from marivo._definition.graph import children
 from marivo._definition.observations import ContributionBinding, ObservationPeriod
@@ -76,7 +76,7 @@ def field(name: str = "amount", permission: SumPermission = ALL_AXES) -> RowFiel
 
 
 def total(name: str = "amount", permission: SumPermission = ALL_AXES) -> SourceAggregate:
-    return SourceAggregate(field(name, permission), "sum", TimeBinding(TIME))
+    return SourceAggregate(field(name, permission), "sum", ContributionClockBinding(TIME))
 
 
 def formula(recipe: Resolver, *operands: MetricNode) -> MetricExpression:
@@ -327,7 +327,7 @@ def test_signature_does_not_gate_on_definition_versions_or_row_recipe() -> None:
             BinaryOperator(operator.mul, Variable("slot_0"), Just(3)),
             (replace(field(), root=changed_root, ref=replace(field().ref, version="v2")),),
         ),
-        time=TimeBinding(replace(TIME, version="v2")),
+        time=ContributionClockBinding(replace(TIME, version="v2")),
     )
     captured = tuple(
         replace(item, root=changed_root, coordinates=(FieldRead(changed_group, changed_root),))
@@ -344,7 +344,9 @@ def test_signature_rejects_changed_root_time_and_classification_roles() -> None:
     cases = (
         replace(
             bindings(node)[0],
-            time=TimeBinding(ExactRef(ref.time_dimension("sales.order.shipped_at"), "v1")),
+            time=ContributionClockBinding(
+                ExactRef(ref.time_dimension("sales.order.shipped_at"), "v1")
+            ),
         ),
         replace(bindings(node)[0], coordinates=(FieldRead(TIME, ROOT),)),
     )

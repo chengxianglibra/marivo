@@ -88,12 +88,12 @@ Inspection & snapshots
 
    inspect
    SourceInspection
-   DiscoverySnapshot
+   DiscoveryEvidence
    PartitionInspection
    raw_sql
 
 ``snapshot.show()`` displays captured facts without a source query
-for a ``DiscoverySnapshot``, including its selected columns, retained-row shape, and value
+for a ``DiscoveryEvidence``, including its selected columns, retained-row shape, and value
 evidence state. When ``persist_values=True``, ``snapshot.retained_values`` is a
 tuple of dictionaries keyed by the selected column names; with the default
 ``persist_values=False`` it remains unavailable and no follow-up query occurs.

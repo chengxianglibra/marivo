@@ -23,7 +23,7 @@ from marivo.analysis.compiler.graph_lowering import lower_query
 from marivo.analysis.compiler.graph_plan import (
     LocalCompute,
     QueryPlan,
-    SourceRead,
+    SourceReadStage,
     checked_output,
     plan_query,
 )
@@ -292,8 +292,8 @@ def _verify_native_differential(
         optimized = optimize_query(original)
         assert any(group.law == "source_block" for group in optimized.fusion_groups)
         assert (
-            sum(isinstance(stage, SourceRead) for stage in original.stages),
-            sum(isinstance(stage, SourceRead) for stage in optimized.stages),
+            sum(isinstance(stage, SourceReadStage) for stage in original.stages),
+            sum(isinstance(stage, SourceReadStage) for stage in optimized.stages),
         ) == reads
         start = len(trace.native_sql)
         first = execute_numeric_query(prepared, lower_query(original, prepared.relations))

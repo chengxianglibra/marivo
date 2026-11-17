@@ -125,7 +125,7 @@ class AttributeFrequencyRead:
 
     reduction: ReductionInput
     input_type: DataType | None = None
-    members: tuple[SourceRead, ...] = ()
+    members: tuple[SourceReadStage, ...] = ()
     finishers: tuple[
         tuple[str, Literal["rank_bounds", "duckdb_native", "postgres_native"]], ...
     ] = ()
@@ -138,14 +138,14 @@ class ComponentRead:
 
 @dataclass(frozen=True, slots=True)
 class CommonRead:
-    members: tuple[SourceRead, ...]
+    members: tuple[SourceReadStage, ...]
 
 
 @dataclass(frozen=True, slots=True)
 class AttributeRead:
     layout: AttributeRootLayout
     representative: ReductionInput
-    members: tuple[SourceRead, ...] = ()
+    members: tuple[SourceReadStage, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -159,7 +159,7 @@ class NativeEndpoint:
     """Original captured reducer templates and their prepared source input."""
 
     input_id: str
-    reads: tuple[tuple[tuple[int, ...], SourceRead], ...]
+    reads: tuple[tuple[tuple[int, ...], SourceReadStage], ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -217,8 +217,8 @@ SourceProgram: TypeAlias = (
 
 
 @dataclass(frozen=True, slots=True)
-class SourceRead:
-    """One governed source read with one closed execution program."""
+class SourceReadStage:
+    """One planned source-read stage with a closed execution program."""
 
     stage_id: str
     source_id: str
@@ -235,7 +235,7 @@ class SourceRead:
     attribute_parent: AttributeSourceParentBinding | None = None
     binding_id: str = ""
     native_reductions: tuple[ReductionInput, ...] = ()
-    native_reads: tuple[SourceRead, ...] = ()
+    native_reads: tuple[SourceReadStage, ...] = ()
     attribute_state: bool = False
     attribute_input_types: tuple[tuple[str, tuple[DataType, ...]], ...] = ()
     attribute_native: bool = False
@@ -248,7 +248,7 @@ class SourceRead:
         )
 
 
-def read_reduction(stage: SourceRead) -> ReductionInput | None:
+def read_reduction(stage: SourceReadStage) -> ReductionInput | None:
     program = stage.program
     if isinstance(program, (ReductionRead, AttributeFrequencyRead)):
         return program.reduction
@@ -261,21 +261,21 @@ def read_reduction(stage: SourceRead) -> ReductionInput | None:
     return None
 
 
-def require_reduction(stage: SourceRead) -> ReductionInput:
+def require_reduction(stage: SourceReadStage) -> ReductionInput:
     reduction = read_reduction(stage)
     assert reduction is not None
     return reduction
 
 
-def read_components(stage: SourceRead) -> ComponentLayout | None:
+def read_components(stage: SourceReadStage) -> ComponentLayout | None:
     return stage.program.layout if isinstance(stage.program, ComponentRead) else None
 
 
-def read_attribute(stage: SourceRead) -> AttributeRootLayout | None:
+def read_attribute(stage: SourceReadStage) -> AttributeRootLayout | None:
     return stage.program.layout if isinstance(stage.program, AttributeRead) else None
 
 
-def read_members(stage: SourceRead) -> tuple[SourceRead, ...]:
+def read_members(stage: SourceReadStage) -> tuple[SourceReadStage, ...]:
     return (
         stage.program.members
         if isinstance(stage.program, (CommonRead, AttributeRead, AttributeFrequencyRead))
@@ -284,45 +284,45 @@ def read_members(stage: SourceRead) -> tuple[SourceRead, ...]:
 
 
 def common_program(
-    stage: SourceRead, members: tuple[SourceRead, ...]
+    stage: SourceReadStage, members: tuple[SourceReadStage, ...]
 ) -> CommonRead | AttributeRead:
     if isinstance(stage.program, AttributeRead):
         return replace(stage.program, members=members)
     return CommonRead(members)
 
 
-def read_finish(stage: SourceRead) -> NativeQueryFinish | None:
+def read_finish(stage: SourceReadStage) -> NativeQueryFinish | None:
     return stage.program.finish if isinstance(stage.program, NativeRead) else None
 
 
-def require_components(stage: SourceRead) -> ComponentLayout:
+def require_components(stage: SourceReadStage) -> ComponentLayout:
     layout = read_components(stage)
     assert layout is not None
     return layout
 
 
-def require_attribute(stage: SourceRead) -> AttributeRootLayout:
+def require_attribute(stage: SourceReadStage) -> AttributeRootLayout:
     layout = read_attribute(stage)
     assert layout is not None
     return layout
 
 
-def require_finish(stage: SourceRead) -> NativeQueryFinish:
+def require_finish(stage: SourceReadStage) -> NativeQueryFinish:
     finish = read_finish(stage)
     assert finish is not None
     return finish
 
 
-def read_native_reductions(stage: SourceRead) -> tuple[ReductionInput, ...]:
+def read_native_reductions(stage: SourceReadStage) -> tuple[ReductionInput, ...]:
     native = stage.program.reductions if isinstance(stage.program, NativeRead) else ()
     return (*native, *stage.native_reductions)
 
 
-def read_projections(stage: SourceRead) -> tuple[tuple[str, str], ...]:
+def read_projections(stage: SourceReadStage) -> tuple[tuple[str, str], ...]:
     return stage.program.projections if isinstance(stage.program, ProjectionRead) else ()
 
 
-def read_presence(stage: SourceRead) -> str | None:
+def read_presence(stage: SourceReadStage) -> str | None:
     return stage.program.presence if isinstance(stage.program, ProjectionRead) else None
 
 
@@ -445,7 +445,7 @@ class FrameKeysInput:
         return tuple(column.slot_id for column in self.columns)
 
 
-QueryStage: TypeAlias = SourceRead | LocalCompute | FrameInput | FrameCompute | FrameKeysInput
+QueryStage: TypeAlias = SourceReadStage | LocalCompute | FrameInput | FrameCompute | FrameKeysInput
 
 
 @dataclass(frozen=True, slots=True)
@@ -464,9 +464,9 @@ class QueryPlan:
     def consumers_of(self, stage_id: str) -> tuple[str, ...]:
         return dict(self.consumers).get(stage_id, ())
 
-    def source_read(self, stage_id: str) -> SourceRead:
+    def source_read_stage(self, stage_id: str) -> SourceReadStage:
         for stage in self.stages:
-            if stage.stage_id == stage_id and isinstance(stage, SourceRead):
+            if stage.stage_id == stage_id and isinstance(stage, SourceReadStage):
                 return stage
         reject(
             "a source stage in the current executable plan",
@@ -478,8 +478,8 @@ class QueryPlan:
 
 def checked_output(
     identifier: str, columns: tuple[DataColumn, ...], keys: tuple[str, ...]
-) -> SourceRead:
-    return SourceRead(identifier, identifier, (), columns, keys, CheckedOutput(), (), (), None)
+) -> SourceReadStage:
+    return SourceReadStage(identifier, identifier, (), columns, keys, CheckedOutput(), (), (), None)
 
 
 def _stage_id(occurrence: tuple[int, ...]) -> str:
@@ -492,7 +492,7 @@ def _plan_source_reads(
 ) -> QueryPlan:
     """Fix source stages and output slots without any I/O.
 
-    Each contribution occurrence becomes one SourceRead. A single contribution
+    Each contribution occurrence becomes one SourceReadStage. A single contribution
     publishes its read directly; several are combined by the later Query
     planner with the exact slots its local program declares.
     """
@@ -513,7 +513,7 @@ def _plan_source_reads(
     from marivo._definition.types import FieldRead, coordinate_read_keys, field_read_key
     from marivo.analysis.compiler.predicate import population_key
 
-    reads: list[SourceRead] = []
+    reads: list[SourceReadStage] = []
     for contribution in contributions:
         source_id = contribution.root.ref.path
         schema = next(
@@ -601,7 +601,7 @@ def _plan_source_reads(
                 predicate_prepared=any(item.field == "__time_period" for item in schema.fields),
             )
         reads.append(
-            SourceRead(
+            SourceReadStage(
                 stage_id,
                 source_id,
                 contribution.occurrence,
@@ -764,11 +764,11 @@ def _plan_query(
         ),
         None,
     )
-    reads: list[SourceRead] = []
+    reads: list[SourceReadStage] = []
     values: list[FormulaInput] = []
     keys: tuple[DataColumn, ...] = ()
     calendar_key = "key.0"
-    source_stages = tuple(stage for stage in base.stages if isinstance(stage, SourceRead))
+    source_stages = tuple(stage for stage in base.stages if isinstance(stage, SourceReadStage))
     if not source_stages and calendar is not None:
         keys = (DataColumn(calendar_key, time_name(calendar), time_key_type(calendar), False),)
     for stage, contribution in zip(source_stages, contributions, strict=True):
@@ -934,7 +934,7 @@ def _plan_query(
             )
         )
     population_inputs: list[PopulationInput] = []
-    population_stages: list[SourceRead | LocalCompute] = []
+    population_stages: list[SourceReadStage | LocalCompute] = []
     output_population = observation.coordinates.population if observation is not None else None
     parent_scope = observation.coordinates.parent_scope if observation is not None else None
     closure = walk(
@@ -1014,7 +1014,7 @@ def _plan_query(
             )
         else:
             population_stages.append(
-                SourceRead(
+                SourceReadStage(
                     identifier,
                     identifier,
                     (),

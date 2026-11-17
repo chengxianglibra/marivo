@@ -36,7 +36,7 @@ from marivo.analysis.compiler.graph_plan import (
     LocalCompute,
     NativeRead,
     QueryStage,
-    SourceRead,
+    SourceReadStage,
     read_components,
     read_members,
     read_reduction,
@@ -62,11 +62,11 @@ def fuse_sample_reductions(prepared: PreparedSources, lowered: LoweredQuery) -> 
     from marivo.analysis.materialization.query_key_fusion import _consumers, native_query_relation
 
     sources = {
-        stage.stage_id: stage for stage in lowered.plan.stages if isinstance(stage, SourceRead)
+        stage.stage_id: stage for stage in lowered.plan.stages if isinstance(stage, SourceReadStage)
     }
     stages = list(lowered.plan.stages)
     reads = list(lowered.reads)
-    checks_by_id: dict[str, SourceRead] = {}
+    checks_by_id: dict[str, SourceReadStage] = {}
     decisions = list(lowered.plan.optimization_decisions)
     adopted = False
     for original in lowered.plan.stages:
@@ -88,7 +88,7 @@ def fuse_sample_reductions(prepared: PreparedSources, lowered: LoweredQuery) -> 
             ),
         )
         values = list(program.values)
-        replacements: list[SourceRead] = []
+        replacements: list[SourceReadStage] = []
         removed: set[str] = set()
         lowerers: dict[SourceSession, SampleLowerer] = {}
         active_parameters: dict[SourceSession, dict[str, SourceParameter]] = {}
@@ -99,7 +99,7 @@ def fuse_sample_reductions(prepared: PreparedSources, lowered: LoweredQuery) -> 
             keys: tuple[str, ...],
             program: FormulaProgram = program,
             original: LocalCompute = original,
-            replacements: list[SourceRead] = replacements,
+            replacements: list[SourceReadStage] = replacements,
             removed: set[str] = removed,
             reads: list[LoweredRead] = reads,
             lowerers: dict[SourceSession, SampleLowerer] = lowerers,
@@ -166,7 +166,7 @@ def fuse_sample_reductions(prepared: PreparedSources, lowered: LoweredQuery) -> 
                     read.stage_id: read.expression
                     for read in lowered.reads
                     if prepared.sources.get(
-                        lowered.plan.source_read(read.stage_id).source_id, prepared.source
+                        lowered.plan.source_read_stage(read.stage_id).source_id, prepared.source
                     )
                     is owner
                 }
@@ -264,7 +264,9 @@ def fuse_sample_reductions(prepared: PreparedSources, lowered: LoweredQuery) -> 
                         owner.provider.name,
                         population,
                         {
-                            value.stage_id: lowered.plan.source_read(value.stage_id).binding_id
+                            value.stage_id: lowered.plan.source_read_stage(
+                                value.stage_id
+                            ).binding_id
                             or value.stage_id
                             for value in program.values
                             if value.stage_id in sources
@@ -325,7 +327,7 @@ def fuse_sample_reductions(prepared: PreparedSources, lowered: LoweredQuery) -> 
                         for member in (read_members(stage) or (stage,))
                     )
                 )
-                source = SourceRead(
+                source = SourceReadStage(
                     identifier,
                     source_stages[0].source_id,
                     path,
@@ -484,13 +486,13 @@ def _membership_checks(
     lowered: LoweredQuery,
     program: FormulaProgram,
     required_domains: set[PopulationDependency],
-) -> tuple[tuple[SourceRead, LoweredRead], ...]:
+) -> tuple[tuple[SourceReadStage, LoweredRead], ...]:
     """Retain source checks for predicate Populations whose key transport was pruned."""
     by_id = {stage.stage_id: stage for stage in lowered.plan.stages}
     roots = {
         domain
         for value in program.values
-        if isinstance(source := by_id[value.stage_id], SourceRead)
+        if isinstance(source := by_id[value.stage_id], SourceReadStage)
         for member in read_members(source) or (source,)
         for predicate in member.predicates
         for domain in condition_populations(predicate)
@@ -520,7 +522,7 @@ def _membership_checks(
         if identifier in needed or identifier in checked:
             return
         stage = by_id[identifier]
-        if isinstance(stage, SourceRead) and stage.preparation_checks:
+        if isinstance(stage, SourceReadStage) and stage.preparation_checks:
             checked.add(identifier)
         elif (
             isinstance(stage, LocalCompute)
@@ -537,7 +539,7 @@ def _membership_checks(
 
     checks = []
     for source in lowered.plan.stages:
-        if not isinstance(source, SourceRead) or source.stage_id not in checked:
+        if not isinstance(source, SourceReadStage) or source.stage_id not in checked:
             continue
         raw = prepared.relations.get(source.stage_id, prepared.relations.get(source.source_id))
         assert raw is not None
@@ -569,16 +571,16 @@ def _membership_checks(
 
 
 def _share_folds(
-    stages: list[SourceRead],
+    stages: list[SourceReadStage],
     reads: list[LoweredRead],
     values: list[FormulaInput],
     prepared: PreparedSources,
-) -> tuple[list[SourceRead], list[LoweredRead], list[FormulaInput]]:
+) -> tuple[list[SourceReadStage], list[LoweredRead], list[FormulaInput]]:
     """Share an actual aggregate, rather than repeated references to a CTE."""
     payloads = {read.stage_id: read for read in reads}
     groups: dict[
         tuple[SourceSession, ops.Relation, tuple[str, ...], tuple[SourceParameter, ...]],
-        list[SourceRead],
+        list[SourceReadStage],
     ] = {}
     aggregates: dict[str, tuple[ops.Aggregate, dict[str, str]]] = {}
     for stage in stages:

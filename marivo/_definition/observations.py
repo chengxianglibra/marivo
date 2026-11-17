@@ -9,9 +9,9 @@ from typing import Literal, TypeAlias
 from marivo._definition.correspondence import ComparisonAxis
 from marivo._definition.expressions import (
     BuiltinSampleCoordinate,
+    ContributionClockBinding,
     MetricNode,
     PredicateExpression,
-    TimeBinding,
 )
 from marivo._definition.relations import (
     MembershipBinding,
@@ -20,9 +20,9 @@ from marivo._definition.relations import (
 from marivo._definition.types import (
     AxisBinding,
     CalendarCoordinate,
+    EntityIdentityRead,
     ExactRef,
     FieldRead,
-    IdentityRead,
     IntervalCoordinate,
 )
 from marivo._definition.windows import ObservationWindow
@@ -59,7 +59,7 @@ class ObservationPeriod:
 
 
 @dataclass(frozen=True, slots=True)
-class SampleWindow:
+class SampleWindowContext:
     """The enclosing calendar sample that supplies a window's endpoints."""
 
     occurrence: tuple[int, ...]
@@ -76,8 +76,8 @@ class ContributionBinding:
     intrinsic_conditions: tuple[PredicateExpression, ...]
     common_condition: PredicateExpression | None
     reads: tuple[FieldRead, ...]
-    coordinates: tuple[FieldRead | IdentityRead, ...]
-    time: TimeBinding | None
+    coordinates: tuple[FieldRead | EntityIdentityRead, ...]
+    time: ContributionClockBinding | None
     period: ObservationPeriod | None
     physical_dtype: Literal["unresolved"] = "unresolved"
     logical_occurrence: tuple[int, ...] | None = None
@@ -88,9 +88,9 @@ class ContributionBinding:
     calendars: tuple[tuple[str, CalendarGrouping], ...] = ()
     coordinate_slots: tuple[str, ...] = ()
     sample_calendar_reads: tuple[tuple[str, FieldRead], ...] = ()
-    population_reads: tuple[tuple[AxisBinding, FieldRead | IdentityRead], ...] = ()
+    population_reads: tuple[tuple[AxisBinding, FieldRead | EntityIdentityRead], ...] = ()
     window_rule: ObservationWindow | None = None
-    sample_window: SampleWindow | None = None
+    sample_window: SampleWindowContext | None = None
     window_coordinates: tuple[tuple[str, int | datetime], ...] = ()
     metric: str = ""
 

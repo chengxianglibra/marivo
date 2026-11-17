@@ -42,9 +42,9 @@ from marivo._definition.relations import (
 from marivo._definition.types import (
     AxisBinding,
     CalendarCoordinate,
+    EntityIdentityRead,
     ExactRef,
     FieldRead,
-    IdentityRead,
     IntervalCoordinate,
     RowAttributeTime,
     field_read_key,
@@ -86,7 +86,7 @@ def bind_observation(
     metrics: tuple[tuple[str, MetricNode], ...],
     declared: dict[ExactRef, MetricNode],
     *,
-    by: tuple[FieldRead | IdentityRead | CalendarCoordinate | IntervalCoordinate, ...],
+    by: tuple[FieldRead | EntityIdentityRead | CalendarCoordinate | IntervalCoordinate, ...],
     where: PredicateExpression | None,
     timezone: str,
     state: CompiledSemanticState | None,
@@ -97,7 +97,9 @@ def bind_observation(
     empty_interval: bool = False,
 ) -> ObservationBinding:
     if not isinstance(by, tuple) or any(
-        not isinstance(field, (FieldRead, IdentityRead, CalendarCoordinate, IntervalCoordinate))
+        not isinstance(
+            field, (FieldRead, EntityIdentityRead, CalendarCoordinate, IntervalCoordinate)
+        )
         for field in by
     ):
         reject(
@@ -338,7 +340,7 @@ def bind_observation(
                 reads.extend(_predicate_reads(predicate, state, resolver))
             from marivo._definition.relations import condition_populations
 
-            population_reads: dict[AxisBinding, FieldRead | IdentityRead] = {}
+            population_reads: dict[AxisBinding, FieldRead | EntityIdentityRead] = {}
             for predicate in predicates:
                 for domain in condition_populations(predicate):
                     for axis in domain.axes:
@@ -407,7 +409,7 @@ def bind_observation(
                     )
                 )
             )
-            coordinate_list: list[FieldRead | IdentityRead] = []
+            coordinate_list: list[FieldRead | EntityIdentityRead] = []
             coordinate_layers = (
                 (by, memberships),
                 *(
@@ -431,7 +433,7 @@ def bind_observation(
                 for coordinate_read in layer_reads:
                     if isinstance(coordinate_read, (CalendarCoordinate, IntervalCoordinate)):
                         continue
-                    if isinstance(coordinate_read, IdentityRead):
+                    if isinstance(coordinate_read, EntityIdentityRead):
                         coordinate_list.append(
                             bind_identity(coordinate_read, root, state.registry, resolver, paths)
                         )

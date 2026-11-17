@@ -21,7 +21,7 @@ if TYPE_CHECKING:
     from marivo.semantic.validator import Registry
 
 PreviewScope: TypeAlias = AuthoringScope | Sequence[tuple["Entity", AuthoringScope]]
-PreviewSourceBindings: TypeAlias = Sequence[
+PreviewSourceParameters: TypeAlias = Sequence[
     tuple["Entity", Mapping[str, QueryParamScalar | QueryParamScalarList]]
 ]
 
@@ -350,9 +350,9 @@ def _normalize_scopes(
     return tuple((entity_id, by_entity[entity_id]) for entity_id in entity_ids)
 
 
-def _normalize_source_bindings(
+def _normalize_source_parameters(
     entity_ids: tuple[str, ...],
-    source_bindings: PreviewSourceBindings | None,
+    source_parameters: PreviewSourceParameters | None,
     *,
     preview_ref: str,
     registry: Registry,
@@ -365,38 +365,38 @@ def _normalize_source_bindings(
             message,
             details=details,
             target=operation,
-            action="Pass each dependency Entity at most once with the parameter mapping declared by its JSON source; omit bindings for other sources.",
+            action="Pass each dependency Entity at most once in source_parameters with the parameter mapping declared by its JSON source; omit other sources.",
         )
 
-    if source_bindings is not None and (
-        not isinstance(source_bindings, Sequence) or isinstance(source_bindings, str | bytes)
+    if source_parameters is not None and (
+        not isinstance(source_parameters, Sequence) or isinstance(source_parameters, str | bytes)
     ):
         blocked(
             preview_ref,
-            "catalog.preview(..., source_bindings=...) requires an Entity object/parameter mapping pair sequence.",
-            details={"received_type": type(source_bindings).__name__},
+            f"catalog.{operation}(..., source_parameters=...) requires an Entity object/parameter mapping pair sequence.",
+            details={"received_type": type(source_parameters).__name__},
         )
     supplied: dict[str, Mapping[str, QueryParamScalar | QueryParamScalarList]] = {}
-    for pair in source_bindings or ():
+    for pair in source_parameters or ():
         if not isinstance(pair, tuple) or len(pair) != 2:
             blocked(
                 preview_ref,
-                "Source binding entries must be (Entity object, parameter mapping) pairs.",
+                "Source parameter entries must be (Entity object, parameter mapping) pairs.",
                 details={},
             )
         key, value = pair
         entity_id = _normalize_entity_key(
             key,
             preview_ref=preview_ref,
-            parameter="catalog.preview(..., source_bindings=...) pairs",
+            parameter=f"catalog.{operation}(..., source_parameters=...) pairs",
             catalog=catalog,
         )
         if entity_id in supplied:
-            blocked(preview_ref, f"Source bindings repeat entity {entity_id!r}.", details={})
+            blocked(preview_ref, f"Source parameters repeat entity {entity_id!r}.", details={})
         if not isinstance(value, Mapping):
             blocked(
                 preview_ref,
-                "Source binding values must be parameter mappings.",
+                "Source parameter values must be parameter mappings.",
                 details={"entity": entity_id, "received_type": type(value).__name__},
             )
         supplied[entity_id] = value
@@ -404,7 +404,7 @@ def _normalize_source_bindings(
     if unrelated:
         blocked(
             preview_ref,
-            "Source bindings contain entities outside the preview dependency closure.",
+            "Source parameters contain entities outside the preview dependency closure.",
             details={"unrelated": unrelated},
         )
 
@@ -418,7 +418,7 @@ def _normalize_source_bindings(
             except (TypeError, ValueError) as exc:
                 blocked(
                     preview_ref,
-                    f"Source bindings for entity {entity_id!r} are invalid: {exc}",
+                    f"Source parameters for entity {entity_id!r} are invalid: {exc}",
                     details={"entity": entity_id},
                 )
             if params:
@@ -426,7 +426,7 @@ def _normalize_source_bindings(
         elif binding is not None:
             blocked(
                 preview_ref,
-                "Source bindings are supported only for parameterized JSON sources.",
+                "Source parameters are supported only for parameterized JSON sources.",
                 details={"entity": entity_id, "source_kind": source.kind},
             )
     return normalized
@@ -437,7 +437,7 @@ def normalize_preview_scope(
     ref: str,
     kind: SemanticKind,
     scope: PreviewScope,
-    source_bindings: PreviewSourceBindings | None,
+    source_parameters: PreviewSourceParameters | None,
     registry: Registry,
     catalog: SemanticCatalog,
 ) -> NormalizedPreviewScope:
@@ -451,9 +451,9 @@ def normalize_preview_scope(
             action="Choose an executable semantic object for preview.",
         )
     scopes = _normalize_scopes(entity_ids, scope, preview_ref=ref, catalog=catalog)
-    normalized_source_bindings = _normalize_source_bindings(
+    normalized_source_bindings = _normalize_source_parameters(
         entity_ids,
-        source_bindings,
+        source_parameters,
         preview_ref=ref,
         registry=registry,
         catalog=catalog,
@@ -504,7 +504,7 @@ def normalize_preview_batch_scopes(
     *,
     refs: Sequence[tuple[str, SemanticKind]],
     scope: PreviewScope,
-    source_bindings: PreviewSourceBindings | None,
+    source_parameters: PreviewSourceParameters | None,
     registry: Registry,
     catalog: SemanticCatalog,
 ) -> tuple[NormalizedPreviewScope, ...]:
@@ -540,9 +540,9 @@ def normalize_preview_batch_scopes(
             catalog=catalog,
         )
     )
-    normalized_bindings = _normalize_source_bindings(
+    normalized_bindings = _normalize_source_parameters(
         entity_ids,
-        source_bindings,
+        source_parameters,
         preview_ref=batch_refs[0],
         registry=registry,
         catalog=catalog,

@@ -43,9 +43,9 @@ from marivo.semantic.catalog_entries import (
     EntityDefinition,
     EntryDefinition,
     FieldDefinition,
+    MetricContributionClockBinding,
     MetricDefinition,
-    MetricNoTimeBinding,
-    MetricTimeFieldBinding,
+    MetricNoContributionClockBinding,
     RelationshipDefinition,
     _freeze_json,
 )
@@ -85,10 +85,10 @@ def dependency_context(
 
 def metric_time_bindings(
     metric: MetricFacts, display: FormulaDisplay | None = None
-) -> tuple[MetricTimeFieldBinding | MetricNoTimeBinding, ...]:
+) -> tuple[MetricContributionClockBinding | MetricNoContributionClockBinding, ...]:
     """Project each captured contribution occurrence without consulting a Catalog."""
     display = display or FormulaDisplay()
-    bindings: list[MetricTimeFieldBinding | MetricNoTimeBinding] = []
+    bindings: list[MetricContributionClockBinding | MetricNoContributionClockBinding] = []
     for occurrence in metric_time_occurrences(metric.node, dict(metric._declared)):
         branch = display.formula(occurrence.node)
         if occurrence.path:
@@ -97,7 +97,7 @@ def metric_time_bindings(
         if time is None:
             assert occurrence.reason is not None
             bindings.append(
-                MetricNoTimeBinding(
+                MetricNoContributionClockBinding(
                     branch,
                     occurrence.root.ref.key if occurrence.root is not None else None,
                     occurrence.reason,
@@ -105,7 +105,7 @@ def metric_time_bindings(
             )
         else:
             bindings.append(
-                MetricTimeFieldBinding(
+                MetricContributionClockBinding(
                     branch,
                     time.field.ref.key,
                     tuple(item.ref.key for item in time.path),

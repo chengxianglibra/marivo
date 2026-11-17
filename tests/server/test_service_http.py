@@ -358,6 +358,11 @@ def test_current_catalog_reload_isolated_from_saved_report(tmp_path: Path) -> No
         assert _ok(request(_path(ids))) == report
         _models(tmp_path, "before")
         spec = _ok(request("/v2/openapi.json"))
+        schemas = spec["components"]["schemas"]
+        assert "MetricContributionClockBinding" in schemas
+        assert "MetricNoContributionClockBinding" in schemas
+        assert "MetricTimeFieldBinding" not in schemas
+        assert "MetricNoTimeBinding" not in schemas
         first = _ok(request("/v2/semantic/objects?limit=1"))
         _schema(spec, "ObjectDirectory", first)
         assert "sales" in first["domains"] and "measure" in first["kinds"]

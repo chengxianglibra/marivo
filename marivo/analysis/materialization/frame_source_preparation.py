@@ -17,7 +17,7 @@ from marivo.analysis.compiler.graph_lowering import lower_query
 from marivo.analysis.compiler.graph_plan import (
     QueryPlan,
     QueryStage,
-    SourceRead,
+    SourceReadStage,
     SourceSchema,
     plan_query,
 )
@@ -349,7 +349,7 @@ def prepare_frame_sources(
         sparse_window = actual_window_axis(active_graph)
         if sparse_window is not None and (input_id in requested or input_id in captured.games):
             require_finite_attribution_scope(active_graph)
-        native_reads: tuple[SourceRead, ...] = ()
+        native_reads: tuple[SourceReadStage, ...] = ()
         native_value_slots: list[str] = []
         if sample_windows:
             assert prepared is not None and isinstance(binding, SourceFrameBinding)
@@ -392,7 +392,7 @@ def prepare_frame_sources(
             native_reads = tuple(
                 replace(stage, native_relation_id=stage.stage_id)
                 for stage in plan.stages
-                if isinstance(stage, SourceRead)
+                if isinstance(stage, SourceReadStage)
             )
             if input_id in captured.games:
                 from marivo._definition.expressions import SourceAggregate
@@ -411,7 +411,7 @@ def prepare_frame_sources(
                 qualify_attribute_game_sources(prepared, plan)
                 qualified_stages: list[QueryStage] = []
                 for stage in plan.stages:
-                    if not isinstance(stage, SourceRead):
+                    if not isinstance(stage, SourceReadStage):
                         qualified_stages.append(stage)
                         continue
                     reduction = read_reduction(stage)
@@ -501,7 +501,7 @@ def prepare_frame_sources(
             tuple(native_value_slots) if input_id not in requested else (),
             tuple(checked_inputs.items()),
         )
-        has_reads = any(isinstance(stage, SourceRead) for stage in lowered.plan.stages)
+        has_reads = any(isinstance(stage, SourceReadStage) for stage in lowered.plan.stages)
         inputs.append(SourceInput(input_id) if has_reads else LiteralInput(input_id))
         operations.insert(0, "source" if has_reads else "literal")
     for input_id, current in fixed_frames.items():

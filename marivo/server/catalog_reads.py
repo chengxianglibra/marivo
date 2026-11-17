@@ -43,7 +43,7 @@ def not_found() -> ServiceError:
 
 
 @dataclass(frozen=True)
-class Snapshot:
+class CatalogSnapshot:
     key: str
     loaded_at: str
     entries: dict[str, Entry]
@@ -118,10 +118,10 @@ class CatalogReads:
     def __init__(self, root: Path, limits: Limits) -> None:
         self.root = root
         self.limits = limits
-        self.current: Snapshot | None = None
-        self._task: asyncio.Task[Snapshot] | None = None
+        self.current: CatalogSnapshot | None = None
+        self._task: asyncio.Task[CatalogSnapshot] | None = None
 
-    async def get(self, *, reload: bool = False) -> Snapshot:
+    async def get(self, *, reload: bool = False) -> CatalogSnapshot:
         if self.current is not None and not reload:
             return self.current
         if reload and self._task is not None and not self._task.done():
@@ -143,7 +143,7 @@ class CatalogReads:
             with contextlib.suppress(asyncio.CancelledError):
                 await self._task
 
-    async def _load(self) -> Snapshot:
+    async def _load(self) -> CatalogSnapshot:
         deadline = self.limits.deadline()
         try:
             payload = await asyncio.wait_for(self._run_worker(), deadline - monotonic())
@@ -159,7 +159,7 @@ class CatalogReads:
         # The isolated worker is the same installed code and emits this closed
         # protocol after safe projection. No HTTP input is decoded as a snapshot.
         entries = cast("list[Entry]", payload["entries"])
-        snapshot = Snapshot(
+        snapshot = CatalogSnapshot(
             uuid4().hex,
             datetime.now(timezone.utc).isoformat(),
             {str(entry["detail"]["id"]): entry for entry in entries},
@@ -214,7 +214,7 @@ class CatalogReads:
                 await process.communicate()
 
 
-def _observe_failure(task: asyncio.Task[Snapshot]) -> None:
+def _observe_failure(task: asyncio.Task[CatalogSnapshot]) -> None:
     if not task.cancelled():
         task.exception()
 

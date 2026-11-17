@@ -256,8 +256,8 @@ snapshot = inspection.sample(
 snapshot.show()
 ```
 `source_params` must provide exactly the declared parameter names. Each value is
-a scalar or flat, non-empty scalar list; the normalized binding enters snapshot
-identity. A discovery snapshot is bounded physical evidence, not a typed
+a scalar or flat, non-empty scalar list; the normalized binding enters evidence
+identity. Discovery evidence is bounded physical evidence, not a typed
 Analysis input.
 
 Datasource sampling and Semantic preview accept explicit JSON parameter bindings.

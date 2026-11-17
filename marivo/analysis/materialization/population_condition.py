@@ -17,8 +17,8 @@ from marivo._definition.relations import (
 from marivo._definition.types import (
     AxisBinding,
     CalendarCoordinate,
+    EntityIdentityRead,
     FieldRead,
-    IdentityRead,
     IntervalCoordinate,
     PathParameter,
     RelationshipStepParameter,
@@ -252,12 +252,12 @@ def prepare_condition_memberships(
     return table, tuple((population_key(domain), marker) for domain, marker in marks.items())
 
 
-def requires_path_witness(read: FieldRead | IdentityRead) -> bool:
+def requires_path_witness(read: FieldRead | EntityIdentityRead) -> bool:
     """Identify a captured explicit role with a fanout occurrence."""
     return any(step.cardinality in ("one_to_many", "many_to_many") for step in read.path_facts)
 
 
-def _witness_path(read: FieldRead | IdentityRead) -> PathParameter:
+def _witness_path(read: FieldRead | EntityIdentityRead) -> PathParameter:
     anchors = (
         *read.step_ats,
         *(None for _ in range(len(read.path_facts) - len(read.step_ats) - 1)),

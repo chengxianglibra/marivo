@@ -14,7 +14,7 @@ from marivo.analysis.compiler.graph_plan import (
     AttributeCoalitionRead,
     NativeEndpoint,
     ReductionRead,
-    SourceRead,
+    SourceReadStage,
     read_reduction,
 )
 from marivo.analysis.compiler.observation import _reduction_axes, lower_observation, temporal_bound
@@ -43,7 +43,7 @@ def native_game_stage(
     program: AttributeGameProgram,
     endpoint_ids: tuple[str, str],
     source_plans: Mapping[str, CompiledSourceFrame],
-) -> SourceRead:
+) -> SourceReadStage:
     """Capture original leaf reads without carrying source handles into a core program."""
     endpoints = []
     dependencies = list(inputs)
@@ -68,7 +68,7 @@ def native_game_stage(
                 if name not in dependencies:
                     dependencies.append(name)
         endpoints.append(NativeEndpoint(input_id, tuple(reads)))
-    return SourceRead(
+    return SourceReadStage(
         stage_id,
         endpoint_ids[0],
         (),
@@ -83,7 +83,7 @@ def native_game_stage(
 
 
 def _selected_rows(
-    stage: SourceRead, table: ir.Table, keys: tuple[tuple[object, ...], ...], prefix: str
+    stage: SourceReadStage, table: ir.Table, keys: tuple[tuple[object, ...], ...], prefix: str
 ) -> tuple[ir.Table, ir.Table | None, tuple[tuple[str, NumericCheck], ...]]:
     from marivo.analysis.compiler.predicate import lower_condition
 
@@ -165,15 +165,15 @@ def _selected_rows(
 
 
 def lower_native_coalition(
-    current: SourceRead,
-    baseline: SourceRead,
+    current: SourceReadStage,
+    baseline: SourceReadStage,
     current_table: ir.Table,
     baseline_table: ir.Table,
     current_keys: tuple[tuple[object, ...], ...],
     baseline_keys: tuple[tuple[object, ...], ...],
     *,
     stage_id: str,
-) -> tuple[SourceRead, LoweredRead]:
+) -> tuple[SourceReadStage, LoweredRead]:
     """Reduce the native UNION ALL with the original typed reducer and checks."""
     from marivo.analysis.compiler.graph_lowering import LoweredRead
 

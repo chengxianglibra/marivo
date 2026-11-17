@@ -354,7 +354,7 @@ def test_cross_datasource_preview_fails_before_connection(
         )
 
 
-def test_json_source_bindings_use_native_entity_pairs(
+def test_json_source_parameters_use_native_entity_pairs(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     semantic_project_factory: _SemanticProjectFactory,
@@ -395,14 +395,22 @@ def test_json_source_bindings_use_native_entity_pairs(
     )
     entity = catalog_value(catalog, "sales.events", kind="entity")
 
+    with pytest.raises(TypeError, match="unexpected keyword argument 'source_bindings'"):
+        catalog.preview(entity, scope=default_scope(), source_bindings=((entity, {"start": 1}),))  # type: ignore[call-arg]  # Exercise the retired keyword.
+    with pytest.raises(TypeError, match="unexpected keyword argument 'source_bindings'"):
+        catalog.preview_many(
+            [entity], scope=default_scope(), source_bindings=((entity, {"start": 1}),)
+        )  # type: ignore[call-arg]  # Exercise the retired keyword.
+
     with pytest.raises(SemanticRuntimeError):
         catalog.preview(entity, scope=default_scope())
-    with pytest.raises(SemanticRuntimeError):
+    with pytest.raises(SemanticRuntimeError) as error:
         catalog.preview(
             entity,
             scope=default_scope(),
-            source_bindings=(("sales.events", {"start": 1}),),  # type: ignore[arg-type]  # Exercise an invalid pair.
+            source_parameters=(("sales.events", {"start": 1}),),  # type: ignore[arg-type]  # Exercise an invalid pair.
         )
+    assert "source_parameters" in str(error.value)
 
     invalid_bindings: tuple[tuple[object, str], ...] = (
         (
@@ -425,7 +433,7 @@ def test_json_source_bindings_use_native_entity_pairs(
     )
     for bindings, message in invalid_bindings:
         with pytest.raises(SemanticRuntimeError):
-            catalog.preview(entity, scope=default_scope(), source_bindings=bindings)  # type: ignore[arg-type]  # Invalid binding forms.
+            catalog.preview(entity, scope=default_scope(), source_parameters=bindings)  # type: ignore[arg-type]  # Invalid parameter forms.
 
     captured: dict[str, object] = {}
 
@@ -452,17 +460,24 @@ def test_json_source_bindings_use_native_entity_pairs(
     result = catalog.preview(
         entity,
         scope=default_scope(),
-        source_bindings=((entity, {"start": 1}),),
+        source_parameters=((entity, {"start": 1}),),
     )
     assert result.returned_row_count == 2
     assert captured == {"params": {"start": 1}}
     second = catalog.preview(
         entity,
         scope=default_scope(),
-        source_bindings=((entity, {"start": 2}),),
+        source_parameters=((entity, {"start": 2}),),
     )
     assert [row["event_id"] for row in second.rows] == [2, 3]
     assert captured == {"params": {"start": 2}}
+    batch = catalog.preview_many(
+        [entity],
+        scope=default_scope(),
+        source_parameters=((entity, {"start": 3}),),
+    )
+    assert [row["event_id"] for row in batch.results[0].rows] == [3, 4]
+    assert captured == {"params": {"start": 3}}
 
 
 def test_metric_input_cap_is_exact_and_disclosed(

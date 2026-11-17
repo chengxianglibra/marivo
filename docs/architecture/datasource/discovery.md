@@ -26,6 +26,9 @@ truncated edge is not an enumeration of every middle partition. A single
 transformed temporal partition instead produces a copyable `md.time_range(...)`
 template.
 
+`SourceInspection.sample()` returns `DiscoveryEvidence`: bounded rows, profiles,
+coverage, and source facts captured by one explicit acquisition.
+
 Physical extent always carries provenance and scope. For a ClickHouse
 `Distributed` source, Marivo may inspect the resolved local table through
 `system.parts`, but the source-wide row count and size remain `unknown`; the

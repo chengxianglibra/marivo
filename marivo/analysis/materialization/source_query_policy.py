@@ -8,7 +8,7 @@ import ibis.expr.types as ir
 from marivo._definition.expressions import EntityCount, SourceAggregate, SourceWeightedMean
 from marivo._definition.query import PairStatistic, ReduceValues
 from marivo.analysis.compiler.graph_lowering import LoweredRead
-from marivo.analysis.compiler.graph_plan import SourceRead, read_reduction, require_reduction
+from marivo.analysis.compiler.graph_plan import SourceReadStage, read_reduction, require_reduction
 from marivo.analysis.compiler.query_program import ResultProgram
 from marivo.analysis.core.data_types import DecimalDataType, ScalarDataType
 from marivo.datasource.adapters import SourceSession
@@ -22,7 +22,7 @@ def qualified_query_provider(owner: SourceSession) -> bool:
 
 def qualify_query_source(
     owner: SourceSession,
-    stage: SourceRead,
+    stage: SourceReadStage,
     read: LoweredRead,
     identity_slots: frozenset[str],
     attribute_slots: frozenset[str] = frozenset(),

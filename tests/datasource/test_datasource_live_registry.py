@@ -9,7 +9,7 @@ from marivo.datasource._capabilities.surface import DATASOURCE_LIVE_SURFACE
 from marivo.datasource._capabilities.validation import validate_datasource_live_surface
 from marivo.datasource.constraints import constraints_for_symbol
 from marivo.datasource.inspection import SourceInspection
-from marivo.datasource.snapshot import DiscoverySnapshot
+from marivo.datasource.snapshot import DiscoveryEvidence
 
 PUBLIC_CALLABLE_TARGETS = {
     "env",
@@ -197,9 +197,9 @@ def test_type_contracts_list_registered_consumption_methods() -> None:
         "source_inspection.source_column",
         "source_inspection.sample",
     )
-    assert TYPE_CONTRACTS[DiscoverySnapshot].consumers == ()
-    assert TYPE_CONTRACTS[DiscoverySnapshot].public_methods == ("show", "render")
-    assert "retained_values" in TYPE_CONTRACTS[DiscoverySnapshot].public_properties
+    assert TYPE_CONTRACTS[DiscoveryEvidence].consumers == ()
+    assert TYPE_CONTRACTS[DiscoveryEvidence].public_methods == ("show", "render")
+    assert "retained_values" in TYPE_CONTRACTS[DiscoveryEvidence].public_properties
 
 
 def test_registry_resolves_functions_and_bound_methods() -> None:

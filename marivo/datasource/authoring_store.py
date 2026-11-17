@@ -25,7 +25,7 @@ from marivo.datasource.ir import DatasourceIR, QueryParamScalar, QueryParamScala
 from marivo.datasource.snapshot import (
     ColumnProfile,
     DeterministicMatch,
-    DiscoverySnapshot,
+    DiscoveryEvidence,
     JsonScalar,
     SnapshotCoverage,
 )
@@ -48,7 +48,7 @@ JsonValue = TypeAliasType(  # type: ignore[misc]
 CacheMissStatus: TypeAlias = Literal["fresh", "stale", "mismatched"]
 
 
-_SNAPSHOT_MEMORY: dict[str, DiscoverySnapshot] = {}
+_SNAPSHOT_MEMORY: dict[str, DiscoveryEvidence] = {}
 
 _SNAPSHOT_PAYLOAD_FIELDS = frozenset(
     {
@@ -79,7 +79,7 @@ _COVERAGE_FIELDS = frozenset(field.name for field in fields(SnapshotCoverage))
 class SnapshotCacheLookup:
     """Internal cache lookup result for the single-query acquisition path."""
 
-    snapshot: DiscoverySnapshot | None
+    snapshot: DiscoveryEvidence | None
     status: CacheMissStatus
     now: datetime
 
@@ -731,7 +731,7 @@ class AuthoringStore:
         datasource: Ref[DatasourceKind],
         datasource_fingerprint: str,
         source: TableSource,
-    ) -> DiscoverySnapshot | None:
+    ) -> DiscoveryEvidence | None:
         payload = self._read_payload(path)
         if payload is None:
             return None
@@ -819,7 +819,7 @@ class AuthoringStore:
                     )
                     for profile in profiles
                 )
-            return DiscoverySnapshot(
+            return DiscoveryEvidence(
                 id=snapshot_id,
                 _datasource=datasource,
                 source=source,
@@ -849,7 +849,7 @@ class AuthoringStore:
         datasource_fingerprint: str,
         source: TableSource,
         now: datetime | None = None,
-    ) -> tuple[DiscoverySnapshot, ...]:
+    ) -> tuple[DiscoveryEvidence, ...]:
         """Read structurally valid persisted snapshot metadata without using memory.
 
         Snapshot age is reported through ``cache_status`` and ``expires_at``;
@@ -858,7 +858,7 @@ class AuthoringStore:
         if not self.snapshot_dir.is_dir():
             return ()
         checked_at = now or _utc_now()
-        snapshots: list[DiscoverySnapshot] = []
+        snapshots: list[DiscoveryEvidence] = []
         for path in self.snapshot_dir.glob("*.json"):
             snapshot = self._read_valid_snapshot(
                 path,
@@ -971,7 +971,7 @@ class AuthoringStore:
 
     def write_snapshot(
         self,
-        snapshot: DiscoverySnapshot,
+        snapshot: DiscoveryEvidence,
         *,
         datasource_fingerprint: str,
     ) -> None:

@@ -19,7 +19,7 @@ from marivo.datasource.inspection import (
     PhysicalExtent,
     SourceInspection,
 )
-from marivo.datasource.snapshot import DiscoverySnapshot, SnapshotCoverage
+from marivo.datasource.snapshot import DiscoveryEvidence, SnapshotCoverage
 from marivo.introspection.live.model import SURFACE_LIMITS
 from marivo.refs import ref as ref_factory
 
@@ -92,7 +92,7 @@ def datasource_runtime_targets(tmp_path: Path) -> tuple[object, ...]:
         warnings=(),
         _project_root=tmp_path,
     )
-    snapshot = DiscoverySnapshot(
+    snapshot = DiscoveryEvidence(
         id="snapshot-1",
         _datasource=ref,
         source=source,
@@ -206,7 +206,7 @@ def test_removed_conveniences_have_no_help_redirect() -> None:
 def test_snapshot_has_direct_fields_and_no_action_contract(
     datasource_runtime_targets: tuple[object, ...],
 ) -> None:
-    snapshot = next(t for t in datasource_runtime_targets if isinstance(t, DiscoverySnapshot))
+    snapshot = next(t for t in datasource_runtime_targets if isinstance(t, DiscoveryEvidence))
     assert not hasattr(snapshot, "contract")
 
 

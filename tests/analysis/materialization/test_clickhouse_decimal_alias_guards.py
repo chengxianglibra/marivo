@@ -7,7 +7,7 @@ import pytest
 from ibis.backends.clickhouse import Backend
 
 from marivo.analysis.compiler.graph_lowering import LoweredRead
-from marivo.analysis.compiler.graph_plan import ProjectionRead, SourceRead
+from marivo.analysis.compiler.graph_plan import ProjectionRead, SourceReadStage
 from marivo.analysis.materialization.graph_source_execution import (
     PreparedSources,
     _native_query_expression,
@@ -17,7 +17,9 @@ from tests.datasource.source_cases import datasource
 
 
 def _rewrite(expression: ir.Table) -> ir.Table:
-    stage = SourceRead("finite-check", "native", (), (), (), ProjectionRead((), None), (), (), None)
+    stage = SourceReadStage(
+        "finite-check", "native", (), (), (), ProjectionRead((), None), (), (), None
+    )
     source = SourceSession(
         provider_for("clickhouse"), datasource("clickhouse", {}), Backend(), owns_backend=False
     )

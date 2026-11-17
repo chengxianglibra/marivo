@@ -14,7 +14,12 @@ import pytest
 import marivo.analysis as mv
 from marivo.analysis.compiler.frame_plan import CompiledFramePlan
 from marivo.analysis.compiler.graph_lowering import LoweredRead
-from marivo.analysis.compiler.graph_plan import FrameCompute, FrameInput, LocalCompute, SourceRead
+from marivo.analysis.compiler.graph_plan import (
+    FrameCompute,
+    FrameInput,
+    LocalCompute,
+    SourceReadStage,
+)
 from marivo.analysis.core.data_schema import DataAxis, DataSchema
 from marivo.analysis.core.data_types import (
     DataColumn,
@@ -615,8 +620,8 @@ def test_actual_source_plus_fixed_uses_one_binary_plan(
         source_prepared: Mapping[str, PreparedSources],
         read_fixed: Callable[[FrameInput], CompletedFrameData],
         adapt_source: Callable[[str, StageOutput], StageOutput],
-        observe_read: Callable[[SourceRead, LoweredRead, StageOutput], None] | None = None,
-        observe_local: Callable[[LocalCompute | FrameCompute | SourceRead, StageOutput], None]
+        observe_read: Callable[[SourceReadStage, LoweredRead, StageOutput], None] | None = None,
+        observe_local: Callable[[LocalCompute | FrameCompute | SourceReadStage, StageOutput], None]
         | None = None,
         completed_frames: Mapping[str, StageOutput] | None = None,
         retain_inputs: dict[str, StageOutput] | None = None,

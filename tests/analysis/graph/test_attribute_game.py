@@ -8,11 +8,11 @@ import pytest
 from ibis.common.deferred import BinaryOperator, Just, Variable
 
 from marivo._definition.expressions import (
+    ContributionClockBinding,
     DeclaredMetricRef,
     MetricExpression,
     RowField,
     SourceAggregate,
-    TimeBinding,
 )
 from marivo._definition.types import AxisBinding, ExactRef, SumAll
 from marivo.analysis.binding.attribute_game import (
@@ -55,7 +55,7 @@ def test_formula_identity_ignores_definition_versions_and_declared_aliases() -> 
         SourceAggregate(
             FIELD,
             "quantile",
-            TimeBinding(ExactRef(ref.time_dimension("sales.facts.other_time"), "v1")),
+            ContributionClockBinding(ExactRef(ref.time_dimension("sales.facts.other_time"), "v1")),
             q=0.5,
         ),
     ],
@@ -177,6 +177,34 @@ def test_filter_population_keeps_keys_without_pinning_semantic_versions() -> Non
         )
 
     require_games_match(filtered("v1", "A"), filtered("v2", "A"), metric="change")
+
+
+def test_filter_classified_identity_preserves_formula_id() -> None:
+    from marivo._definition.expressions import ContributionFilter, PredicateExpression
+    from marivo._definition.relations import (
+        LiteralPopulation,
+        PopulationClassify,
+        PopulationContains,
+        PopulationProgram,
+    )
+    from marivo._definition.types import EntityIdentityRead
+
+    literal = LiteralPopulation(BY, (("A",),), "coordinates-v1")
+    classified = PopulationProgram(
+        PopulationClassify(literal, 0, (EntityIdentityRead(ROOT),)), None
+    )
+    game = build_game(
+        ContributionFilter(
+            SourceAggregate(FIELD, "sum", None),
+            PredicateExpression(Variable("slot_0"), (PopulationContains(classified),)),
+        ),
+        {},
+        metric="q",
+        by=BY,
+    )
+
+    # Generated with the same game using the pre-rename implementation at HEAD.
+    assert formula_id(game) == "7de8f2776070b8c755819725a025c849ab38018e5a3c8b019de067a22f69b7ba"
 
 
 def test_original_approximate_distinct_never_claims_a_mergeable_count_state() -> None:

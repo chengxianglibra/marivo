@@ -13,7 +13,7 @@ from marivo._definition.query import TopValues, ValueSlot
 from marivo._definition.relations import ReadQuery
 from marivo.analysis.compiler.frame_plan import CompiledFramePlan
 from marivo.analysis.compiler.graph_lowering import LoweredRead
-from marivo.analysis.compiler.graph_plan import FrameCompute, NativeRead, SourceRead
+from marivo.analysis.compiler.graph_plan import FrameCompute, NativeRead, SourceReadStage
 from marivo.analysis.compiler.native_query import NativeFrameTopFinish, NativeQueryFinish
 from marivo.analysis.compiler.optimization import RuleDecision
 from marivo.analysis.compiler.query_program import FrameProgram
@@ -25,8 +25,12 @@ from marivo.semantic._numeric_lowering import NumericCheck
 
 
 def _bounded_read(
-    stage: SourceRead, read: LoweredRead, schema: DataSchema, operation: TopValues, provider: str
-) -> tuple[SourceRead, LoweredRead]:
+    stage: SourceReadStage,
+    read: LoweredRead,
+    schema: DataSchema,
+    operation: TopValues,
+    provider: str,
+) -> tuple[SourceReadStage, LoweredRead]:
     expression = read.expression
     data = (
         expression.filter(expression["__numeric_present"].fill_null(False))
@@ -151,7 +155,7 @@ def bound_pending_frame_top(
     owners = dict(compiled.source_stages)
     boundaries = dict(compiled.source_outputs)
     decisions: list[RuleDecision] = []
-    replacements: dict[str, SourceRead] = {}
+    replacements: dict[str, SourceReadStage] = {}
     reads: dict[str, LoweredRead] = {}
     for top in plan.stages:
         if not (
@@ -168,7 +172,7 @@ def bound_pending_frame_top(
         if (
             isinstance(node.inputs[0], SourceFrameInput)
             and isinstance(node.inputs[0].graph.root, ReadQuery)
-            and isinstance(source, SourceRead)
+            and isinstance(source, SourceReadStage)
             and boundaries.get(source.stage_id) == owners.get(source.stage_id)
         ):
             reason = "this provider has no admitted native field-read Top route"

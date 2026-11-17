@@ -12,7 +12,7 @@ from marivo.analysis.compiler.graph_plan import (
     LocalCompute,
     QueryPlan,
     QueryStage,
-    SourceRead,
+    SourceReadStage,
 )
 from marivo.analysis.core.model import reject
 
@@ -21,9 +21,9 @@ StageValue = TypeVar("StageValue")
 
 def run_query_plan(
     plan: QueryPlan,
-    read: Callable[[SourceRead], StageValue],
+    read: Callable[[SourceReadStage], StageValue],
     local: Callable[[LocalCompute, tuple[StageValue, ...]], StageValue],
-    dependent_read: Callable[[SourceRead, tuple[StageValue, ...]], StageValue] | None = None,
+    dependent_read: Callable[[SourceReadStage, tuple[StageValue, ...]], StageValue] | None = None,
     *,
     fixed: Callable[[FrameInput], StageValue] | None = None,
     frame_keys: Callable[[FrameKeysInput], StageValue] | None = None,
@@ -70,7 +70,7 @@ def run_query_plan(
                 "Plan producers before their consumers.",
                 "analysis.query_schedule",
             )
-        if isinstance(stage, SourceRead):
+        if isinstance(stage, SourceReadStage):
             if stage.inputs:
                 if dependent_read is None:
                     reject(

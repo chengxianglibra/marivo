@@ -105,7 +105,7 @@ class ColumnProfile:
 
 
 @dataclass(frozen=True, repr=False)
-class DiscoverySnapshot(RenderableResult):
+class DiscoveryEvidence(RenderableResult):
     """Immutable bounded rows and profiles from one explicit source acquisition."""
 
     id: str
@@ -132,7 +132,7 @@ class DiscoverySnapshot(RenderableResult):
 
     def _repr_identity(self) -> str:
         return (
-            f"DiscoverySnapshot id={self.id} datasource={self._datasource.path} "
+            f"DiscoveryEvidence id={self.id} datasource={self._datasource.path} "
             f"columns={len(self.columns)} rows={self.coverage.retained_row_count}"
         )
 
@@ -438,7 +438,7 @@ def acquire_snapshot(
     persist_values: bool,
     refresh: bool,
     source_params: Mapping[str, QueryParamScalar | QueryParamScalarList] | None = None,
-) -> DiscoverySnapshot:
+) -> DiscoveryEvidence:
     """Acquire and locally profile one selected-column, limit-plus-one sample."""
     from marivo.datasource.authoring_store import (
         SNAPSHOT_TTL,
@@ -640,7 +640,7 @@ def acquire_snapshot(
                 return value.isoformat()
         return cast("JsonScalar", normalized)
 
-    snapshot = DiscoverySnapshot(
+    snapshot = DiscoveryEvidence(
         id=snapshot_id,
         _datasource=inspection._datasource,
         source=inspection.source,

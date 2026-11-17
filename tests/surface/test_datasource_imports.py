@@ -156,7 +156,7 @@ def test_datasource_public_exports() -> None:
         "MySQLSpec",
         "PostgresSpec",
         "ClickHouseSpec",
-        "DiscoverySnapshot",
+        "DiscoveryEvidence",
         "SourceInspection",
         "TableSource",
         "inspect",

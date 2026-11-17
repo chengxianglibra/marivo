@@ -40,6 +40,7 @@ from marivo._definition.deferred import (
     relationship_carrier,
 )
 from marivo._definition.expressions import (
+    ContributionClockBinding,
     ContributionFilter,
     DeclaredMetricRef,
     EntityCount,
@@ -59,7 +60,6 @@ from marivo._definition.expressions import (
     SampleDomainSpec,
     SourceAggregate,
     SourceWeightedMean,
-    TimeBinding,
 )
 from marivo._definition.grouping import normalize_groupings
 from marivo._definition.population_builders import axis as field_axis
@@ -733,7 +733,7 @@ def capture_source_time(
     return CapturedDefaultTimeResolver(row.default_time)
 
 
-def _time(recipe: Resolver | None, row: RowFacts) -> TimeBinding | None:
+def _time(recipe: Resolver | None, row: RowFacts) -> ContributionClockBinding | None:
     if recipe is None or isinstance(recipe, CapturedDefaultTimeResolver):
         default = row.default_time if recipe is None else recipe.field
         if default is None:
@@ -746,7 +746,7 @@ def _time(recipe: Resolver | None, row: RowFacts) -> TimeBinding | None:
                 received=default.ref.key,
                 action="Construct the reduction again from its current contribution fields.",
             )
-        return TimeBinding(default, source="entity_default")
+        return ContributionClockBinding(default, source="entity_default")
     if isinstance(recipe, Just) and recipe.value is None:
         return None
     value = _consume(recipe)
@@ -775,7 +775,7 @@ def _time(recipe: Resolver | None, row: RowFacts) -> TimeBinding | None:
             expected=row.root.ref.key,
             received=value.root.ref.key,
         )
-    return TimeBinding(
+    return ContributionClockBinding(
         value.field.reference,
         read.path if read is not None else (),
         fixed_attribute_time(read.at) if read is not None else None,

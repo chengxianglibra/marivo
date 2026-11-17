@@ -36,9 +36,9 @@ from marivo._definition.types import (
     AxisBinding,
     CalendarCoordinate,
     CoordinateValue,
+    EntityIdentityRead,
     ExactRef,
     FieldRead,
-    IdentityRead,
     IntervalCoordinate,
     Owner,
     PathParameter,
@@ -355,7 +355,7 @@ def _subject_axis(definition: PopulationDependency, index: int) -> AxisBinding:
 
 def _read_axis(
     value: AxisBinding, subject: AxisBinding
-) -> tuple[AxisBinding, FieldRead | IdentityRead]:
+) -> tuple[AxisBinding, FieldRead | EntityIdentityRead]:
     """Bind reads relative to captured subject keys and normalize their output roles."""
     if isinstance(value.at, RowAttributeTime):
         invalid(
@@ -394,7 +394,7 @@ def _read_axis(
     elif not value.versioned and at is not None:
         invalid(f"{axis_description(value)} is unversioned. Remove field.at(...).")
     if value.field is None:
-        read: FieldRead | IdentityRead = IdentityRead(
+        read: FieldRead | EntityIdentityRead = EntityIdentityRead(
             value.entity,
             value.path,
             at,
@@ -510,7 +510,7 @@ def extend(
     subject_index = select_subject(definition, tuple(roots), on)
     subject = _subject_axis(definition, subject_index)
     output = definition.axes
-    reads: list[FieldRead | IdentityRead] = []
+    reads: list[FieldRead | EntityIdentityRead] = []
     positions = []
     for value, captured in requests:
         if not captured:

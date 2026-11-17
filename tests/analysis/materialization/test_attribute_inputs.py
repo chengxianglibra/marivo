@@ -14,7 +14,7 @@ from marivo._grouping import Grouping
 from marivo.analysis.binding.frame_attribute import source_inputs
 from marivo.analysis.binding.frame_attribute_inputs import AttributeInputRequest
 from marivo.analysis.compiler.frame_plan import CompiledFramePlan, CompiledSourceFrame, plan_frame
-from marivo.analysis.compiler.graph_plan import SourceRead, read_attribute, require_reduction
+from marivo.analysis.compiler.graph_plan import SourceReadStage, read_attribute, require_reduction
 from marivo.analysis.core.frame_expression import FrameExpression
 from marivo.analysis.dsl.frame import AnalysisFrame
 from marivo.analysis.dsl.population import Population
@@ -569,7 +569,7 @@ def test_additional_root_has_two_independent_roles_without_fact_fanout(
 def test_plan_and_mutating_execute_batches_bind_parent_and_all_fine_inputs(
     session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from marivo.analysis.compiler.graph_plan import FrameCompute, SourceRead
+    from marivo.analysis.compiler.graph_plan import FrameCompute, SourceReadStage
     from marivo.analysis.core.attribute import AttributeInputProgram
     from marivo.analysis.materialization import frame_evaluation
     from marivo.datasource.adapters import SourceSession
@@ -617,7 +617,7 @@ def test_plan_and_mutating_execute_batches_bind_parent_and_all_fine_inputs(
     roots = [
         stage
         for stage in stages
-        if isinstance(stage, SourceRead) and read_attribute(stage) is not None
+        if isinstance(stage, SourceReadStage) and read_attribute(stage) is not None
     ]
     bridges = [stage for stage in stages if stage.stage_id.startswith("attribute-bridge:")]
     assert len(roots) == 4 and len(bridges) == 2
@@ -1101,7 +1101,7 @@ def test_original_numeric_failure_uses_actual_aggregate_coordinate_scope(
     failure = graph_source_execution._source_check_failure
 
     def failed(
-        stage: SourceRead, name: str, expected: str, received: str, rows: pd.DataFrame
+        stage: SourceReadStage, name: str, expected: str, received: str, rows: pd.DataFrame
     ) -> NoReturn:
         coordinates.append(rows.to_dict(orient="records"))
         failure(stage, name, expected, received, rows)

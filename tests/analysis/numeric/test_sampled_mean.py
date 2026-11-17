@@ -176,7 +176,7 @@ def test_sample_presence_filters_rows_without_discarding_present_nulls(marker: s
     result = lowerer.lower(node, (0,), ("key.0",))
     backend = ibis.duckdb.connect()
     try:
-        domain = backend.execute(lowerer.domain(("key.0",), (0,)).order_by("key.0"))
+        domain = backend.execute(lowerer.sample_domain(("key.0",), (0,)).order_by("key.0"))
         rows = backend.execute(result.table.order_by("key.0"))
     finally:
         backend.disconnect()

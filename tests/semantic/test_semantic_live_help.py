@@ -85,6 +85,16 @@ def test_registered_preview_string_paths_resolve_to_one_descriptor(target: str) 
     assert resolved.canonical_id == "preview"
 
 
+@pytest.mark.parametrize("target", ("preview", "preview_many"))
+def test_preview_help_names_source_parameters(
+    target: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    marivo.help("semantic." + target)
+    output = capsys.readouterr().out
+    assert "source_parameters" in output
+    assert "source_bindings" not in output
+
+
 @pytest.mark.parametrize(
     ("raiser_name", "ref", "operation", "surface", "canonical_id"),
     (),

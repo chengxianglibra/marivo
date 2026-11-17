@@ -18,7 +18,7 @@ from marivo.datasource.adapters import CompiledRead, SourceSession
 from marivo.datasource.errors import DatasourceAuthoringError, DatasourceFieldInvalidError
 from marivo.datasource.inspection import SourceInspection
 from marivo.datasource.metadata import ColumnMetadata, PartitionMetadata
-from marivo.datasource.snapshot import DeterministicMatch, DiscoverySnapshot
+from marivo.datasource.snapshot import DeterministicMatch, DiscoveryEvidence
 from marivo.datasource.source import AuthoringScope, PartitionScope, UnprunedScope
 from marivo.render import AgentResult
 
@@ -92,9 +92,9 @@ def _projected_orders_inspection(inspection: SourceInspection) -> SourceInspecti
 
 
 def test_sample_return_annotation_is_runtime_resolvable() -> None:
-    assert get_type_hints(SourceInspection.sample)["return"] is DiscoverySnapshot
+    assert get_type_hints(SourceInspection.sample)["return"] is DiscoveryEvidence
     assert inspect.signature(SourceInspection.sample, eval_str=True).return_annotation is (
-        DiscoverySnapshot
+        DiscoveryEvidence
     )
 
 

@@ -120,8 +120,8 @@ def test_raw_sql_help_example_runs_on_builtin_datasource(
                 "change": mv.AnalysisFrame,
             },
         ),
-        ("docs/architecture/datasource/discovery.md", {"snapshot": md.DiscoverySnapshot}),
-        ("docs/api/datasource.rst", {"snapshot": md.DiscoverySnapshot}),
+        ("docs/architecture/datasource/discovery.md", {"snapshot": md.DiscoveryEvidence}),
+        ("docs/api/datasource.rst", {"snapshot": md.DiscoveryEvidence}),
     ),
 )
 def test_documented_disclosure_calls_resolve_to_live_members(

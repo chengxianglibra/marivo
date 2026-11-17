@@ -321,10 +321,10 @@ class AxisBinding:
     versioned: bool = dataclass_field(default=False, kw_only=True)
     unit: str | None = dataclass_field(default=None, kw_only=True)
 
-    def as_read(self) -> FieldRead | IdentityRead:
+    def as_read(self) -> FieldRead | EntityIdentityRead:
         """Carry the complete explicit path binding into source preparation."""
         if self.field is None:
-            return IdentityRead(
+            return EntityIdentityRead(
                 self.entity,
                 self.path,
                 fixed_attribute_time(self.at),
@@ -383,7 +383,7 @@ class TimeInstantFieldRead(FieldRead):
 
 
 @dataclass(frozen=True, slots=True)
-class IdentityRead:
+class EntityIdentityRead:
     """Complete declared primary-key coordinates through one scalar path."""
 
     entity: ExactRef
@@ -396,7 +396,7 @@ class IdentityRead:
     path_facts: tuple[RelationshipParameter, ...] = dataclass_field(default=(), kw_only=True)
 
 
-def field_read_key(read: FieldRead | IdentityRead) -> str:
+def field_read_key(read: FieldRead | EntityIdentityRead) -> str:
     """Identify a physical field usage including its path and attribute anchor."""
     times = (
         attribute_time_key(read.source_at),
@@ -412,7 +412,7 @@ def field_read_key(read: FieldRead | IdentityRead) -> str:
                 times,
             )
         )
-    if isinstance(read, IdentityRead):
+    if isinstance(read, EntityIdentityRead):
         return repr(
             (
                 "identity",
@@ -432,12 +432,12 @@ def field_read_key(read: FieldRead | IdentityRead) -> str:
     )
 
 
-def coordinate_read_keys(read: FieldRead | IdentityRead) -> tuple[str, ...]:
+def coordinate_read_keys(read: FieldRead | EntityIdentityRead) -> tuple[str, ...]:
     """Physical key names; identity components stay separate, ordered columns."""
     base = field_read_key(read)
     return (
         tuple(f"{base}:component:{i}" for i in range(len(read.components)))
-        if isinstance(read, IdentityRead)
+        if isinstance(read, EntityIdentityRead)
         else (base,)
     )
 

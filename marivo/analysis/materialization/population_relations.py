@@ -49,7 +49,7 @@ def prepare_member_fields(
 
     from marivo._definition.expressions import EntityCount
     from marivo._definition.observations import ContributionBinding
-    from marivo._definition.types import IdentityRead, coordinate_read_keys
+    from marivo._definition.types import EntityIdentityRead, coordinate_read_keys
     from marivo.analysis.materialization.population_preparation import _domain_table, _retain_checks
     from marivo.analysis.materialization.query_preparation import prepare_fields
 
@@ -161,7 +161,7 @@ def prepare_member_fields(
     checks = list(prepared.checks)
     flags = {name: attributes[name].fill_null(False) for name, _, _ in checks}
     for index, (read, slots) in enumerate(zip(reads, field_slots, strict=True)):
-        if isinstance(read, IdentityRead):
+        if isinstance(read, EntityIdentityRead):
             output_axis = definition.axes[len(operand.key_groups) + index]
             assert isinstance(output_axis, AxisBinding)
             from marivo._definition.population_builders import axis_description

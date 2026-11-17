@@ -13,7 +13,7 @@ from ibis.backends.clickhouse import Backend as ClickHouseBackend
 from ibis.backends.duckdb import Backend as DuckDBBackend
 
 from marivo.analysis.compiler.graph_lowering import LoweredRead
-from marivo.analysis.compiler.graph_plan import ProjectionRead, SourceRead
+from marivo.analysis.compiler.graph_plan import ProjectionRead, SourceReadStage
 from marivo.analysis.materialization import temporal_sql
 from marivo.analysis.materialization.graph_source_execution import (
     PreparedSources,
@@ -49,8 +49,8 @@ def temporal_calls(monkeypatch: pytest.MonkeyPatch) -> list[tuple[ops.Node, str]
     return calls
 
 
-def _stage() -> SourceRead:
-    return SourceRead("read", "native", (), (), (), ProjectionRead((), None), (), (), None)
+def _stage() -> SourceReadStage:
+    return SourceReadStage("read", "native", (), (), (), ProjectionRead((), None), (), (), None)
 
 
 def test_native_rewrite_reuses_expression_not_stage_or_invocation(

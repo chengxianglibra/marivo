@@ -12,7 +12,7 @@ from marivo.analysis.compiler.graph_plan import (
     FrameKeysInput,
     LocalCompute,
     QueryPlan,
-    SourceRead,
+    SourceReadStage,
     SourceSchema,
     _plan_query,
 )
@@ -111,7 +111,7 @@ def plan_parameters(
         )
     stages = {stage.stage_id: stage for plan in producers.values() for stage in plan.stages}
     for stage in base.stages:
-        if not isinstance(stage, SourceRead):
+        if not isinstance(stage, SourceReadStage):
             stages[stage.stage_id] = stage
             continue
         schema = next(

@@ -26,9 +26,9 @@ from marivo._definition.types import (
     AxisBinding,
     CalendarCoordinate,
     CoordinateValue,
+    EntityIdentityRead,
     ExactRef,
     FieldRead,
-    IdentityRead,
     InputContext,
     IntervalCoordinate,
     LiteralValue,
@@ -328,7 +328,7 @@ class PopulationProduct:
 class PopulationClassify:
     operand: PopulationDependency
     subject: int
-    reads: tuple[FieldRead | IdentityRead, ...]
+    reads: tuple[FieldRead | EntityIdentityRead, ...]
 
 
 @dataclass(frozen=True, slots=True)

@@ -110,7 +110,7 @@ terminal. To bring an answer into typed Analysis, author an upstream governed
 view or a qualified Ibis expression and bind it through normal Semantic facts;
 neither provenance text nor terminal raw-query rows are Analysis inputs.
 
-A `DiscoverySnapshot` retains generic bounded rows, profiles, source evidence,
+A `DiscoveryEvidence` retains generic bounded rows, profiles, source evidence,
 coverage, and cache identity. Its `.show()` displays captured facts without a source query;
 when `persist_values=True`, `retained_values` is a tuple of dictionaries keyed
 by the selected column names. It does not produce semantic-shaped projections

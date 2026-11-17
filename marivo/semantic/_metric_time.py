@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import Literal
 
 from marivo._definition.expressions import (
+    ContributionClockBinding,
     ContributionFilter,
     DeclaredMetricRef,
     EntityCount,
@@ -21,7 +22,6 @@ from marivo._definition.expressions import (
     SampleDomainSpec,
     SourceAggregate,
     SourceWeightedMean,
-    TimeBinding,
 )
 from marivo._definition.relations import LiteralPopulation, PopulationProgram, SampleDomain
 from marivo._definition.types import CalendarCoordinate, ExactRef, IntervalCoordinate
@@ -39,7 +39,7 @@ class MetricTimeOccurrence:
     path: tuple[str, ...]
     metric: ExactRef | None
     root: ExactRef | None
-    binding: TimeBinding | None
+    binding: ContributionClockBinding | None
     reason: IndependentTimeOrigin | None
     node: _TimeLeaf
 

@@ -14,10 +14,10 @@ from ibis.common.deferred import BinaryOperator, Just, Resolver, Variable
 
 from marivo._definition.expressions import (
     BuiltinSampleCoordinate,
+    ContributionClockBinding,
     PredicateExpression,
     RowExpression,
     RowField,
-    TimeBinding,
 )
 from marivo._definition.observations import CalendarGrouping, ObservationPeriod, SampleAxis
 from marivo._definition.relations import MembershipBinding
@@ -25,9 +25,9 @@ from marivo._definition.types import (
     AttributeTime,
     AxisBinding,
     CalendarCoordinate,
+    EntityIdentityRead,
     ExactRef,
     FieldRead,
-    IdentityRead,
     IntervalCoordinate,
     RowAttributeTime,
     TimeInstantFieldRead,
@@ -138,12 +138,12 @@ class SourceInputContract:
     source_fingerprint: str
     root: ExactRef
     reads: tuple[FieldRead, ...]
-    coordinates: tuple[FieldRead | IdentityRead, ...]
-    time: TimeBinding | None
+    coordinates: tuple[FieldRead | EntityIdentityRead, ...]
+    time: ContributionClockBinding | None
     period: ObservationPeriod | None
     predicates: tuple[PredicateExpression, ...]
     memberships: tuple[MembershipBinding, ...]
-    population_reads: tuple[tuple[AxisBinding, FieldRead | IdentityRead], ...]
+    population_reads: tuple[tuple[AxisBinding, FieldRead | EntityIdentityRead], ...]
     window_key: int | datetime | None
     sample_axes: tuple[SampleAxis, ...]
     calendars: tuple[tuple[str, CalendarGrouping], ...]
@@ -255,7 +255,7 @@ def prepare_fields(
             for _, read in contribution.population_reads
             if not requires_path_witness(read)
             and (
-                not isinstance(read, IdentityRead)
+                not isinstance(read, EntityIdentityRead)
                 or identity_projection(read, contribution.root, registry) is None
             )
         ),
@@ -593,7 +593,7 @@ def prepare_fields(
         (read, component, key)
         for read in reads
         for component, key in zip(
-            read.components if isinstance(read, IdentityRead) else (None,),
+            read.components if isinstance(read, EntityIdentityRead) else (None,),
             coordinate_read_keys(read),
             strict=True,
         )
@@ -607,7 +607,7 @@ def prepare_fields(
 
         def time_columns(
             expression: ir.Value,
-            read: FieldRead | IdentityRead = read,
+            read: FieldRead | EntityIdentityRead = read,
             read_key: str = read_key,
             index: int = index,
             extras: dict[str, ir.Value] = extras,
@@ -690,7 +690,7 @@ def prepare_fields(
         def read_value(
             relation: ir.Table,
             component: str | None = component,
-            read: FieldRead | IdentityRead = read,
+            read: FieldRead | EntityIdentityRead = read,
         ) -> ir.Value:
             if component is not None:
                 return relation[component]
@@ -706,11 +706,11 @@ def prepare_fields(
 
         projection = (
             identity_projection(read, contribution.root, registry)
-            if isinstance(read, IdentityRead)
+            if isinstance(read, EntityIdentityRead)
             else None
         )
         if projection is not None and component is not None:
-            assert isinstance(read, IdentityRead)
+            assert isinstance(read, EntityIdentityRead)
             expression = table[projection[read.components.index(component)]]
             dependencies.append(expression)
             originals.append((slot, expression))
@@ -746,7 +746,7 @@ def prepare_fields(
                     relation = normalize_target_relationship(registry, step.ref.path)
                     target_path = relation.to_entity_ref.path
                     keys = relation.keys
-                    if final and isinstance(read, IdentityRead):
+                    if final and isinstance(read, EntityIdentityRead):
                         foreign_keys = {right: left for left, right in keys}
                         if all(name in foreign_keys for name in read.components):
                             assert component is not None

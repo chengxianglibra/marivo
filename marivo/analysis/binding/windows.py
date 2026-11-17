@@ -17,7 +17,7 @@ from marivo._definition.expressions import (
     PerWeightedMean,
 )
 from marivo._definition.graph import DefinitionNode, children, walk
-from marivo._definition.observations import SampleWindow
+from marivo._definition.observations import SampleWindowContext
 from marivo._definition.types import CalendarCoordinate, ExactRef, IntervalCoordinate
 from marivo._definition.windows import (
     AllHistory,
@@ -207,16 +207,16 @@ def bind_windows(
     from marivo.analysis.binding.observe import ObservationPeriod
 
     rules: dict[tuple[int, ...], ObservationWindow] = {}
-    sample_windows: dict[tuple[int, ...], SampleWindow] = {}
-    sample_grains: dict[SampleWindow, Grain] = {}
+    sample_windows: dict[tuple[int, ...], SampleWindowContext] = {}
+    sample_grains: dict[SampleWindowContext, Grain] = {}
 
     def visit(
         node: DefinitionNode,
         path: tuple[int, ...],
         rule: ObservationWindow | None,
-        sample: SampleWindow | None = None,
+        sample: SampleWindowContext | None = None,
         depth: int = 0,
-        window_sample: SampleWindow | None = None,
+        window_sample: SampleWindowContext | None = None,
     ) -> None:
         if isinstance(node, DeclaredMetricRef):
             visit(declared[node.ref], (*path, 0), rule, sample, depth, window_sample)
@@ -261,7 +261,7 @@ def bind_windows(
                 else len(domain if isinstance(domain, tuple) else domain.axes)
             )
             if isinstance(domain, (Grain, FieldCalendarSample)):
-                sample = SampleWindow(path, depth)
+                sample = SampleWindowContext(path, depth)
                 sample_grains[sample] = (
                     domain.grain if isinstance(domain, FieldCalendarSample) else domain
                 )

@@ -47,7 +47,7 @@ from marivo.datasource.manage import (
     register,
     remove,
 )
-from marivo.datasource.snapshot import DiscoverySnapshot
+from marivo.datasource.snapshot import DiscoveryEvidence
 from marivo.datasource.source import (
     TableSource,
     csv,
@@ -72,7 +72,7 @@ __all__ = [
     "DatasourceSpec",
     "DatasourceSummary",
     "DatasourceTestResult",
-    "DiscoverySnapshot",
+    "DiscoveryEvidence",
     "DuckDBSpec",
     "EnvRef",
     "HttpBearerSecret",

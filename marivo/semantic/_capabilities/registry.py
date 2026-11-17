@@ -3066,7 +3066,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
                 _parameter_input(
                     "dependency",
                     "Sequence[tuple[Entity, JSON source parameter mapping]]",
-                    "source_bindings",
+                    "source_parameters",
                     optional=True,
                 ),
             ),
@@ -3104,7 +3104,7 @@ def _build_registry() -> SemanticCapabilityRegistry:
                 _parameter_input(
                     "dependency",
                     "Sequence[tuple[Entity, JSON source parameter mapping]]",
-                    "source_bindings",
+                    "source_parameters",
                     optional=True,
                 ),
             ),
@@ -3522,10 +3522,10 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
         EntityDefinition,
         EntryProvenance,
         FieldDefinition,
+        MetricContributionClockBinding,
+        MetricContributionTimeRole,
         MetricDefinition,
-        MetricNoTimeBinding,
-        MetricTimeBinding,
-        MetricTimeFieldBinding,
+        MetricNoContributionClockBinding,
         RelationshipDefinition,
     )
 
@@ -3694,8 +3694,8 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
     time_definition_guidance = {
         EntityDefinition: "default_time is the canonical TimeDimension identity declared on the Entity, or None.",
         MetricDefinition: "formula is display notation. explanation describes the captured calculation in English. time_bindings retains each contributing branch's clock or the reason it has none.",
-        MetricTimeFieldBinding: "source is explicit or entity_default. field, path and anchor capture the bound TimeDimension, relationship route and optional exact version anchor.",
-        MetricNoTimeBinding: "reason identifies a source reduction with no Entity default or a fixed member count. root is the contribution Entity when there is one.",
+        MetricContributionClockBinding: "source is explicit or entity_default. field, path and anchor capture the bound TimeDimension, relationship route and optional exact version anchor.",
+        MetricNoContributionClockBinding: "reason identifies a source reduction with no Entity default or a fixed member count. root is the contribution Entity when there is one.",
     }
 
     for record_type in (
@@ -3707,9 +3707,9 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
         EntityDefinition,
         FieldDefinition,
         MetricDefinition,
-        MetricNoTimeBinding,
-        MetricTimeBinding,
-        MetricTimeFieldBinding,
+        MetricNoContributionClockBinding,
+        MetricContributionTimeRole,
+        MetricContributionClockBinding,
         RelationshipDefinition,
     ):
         add(

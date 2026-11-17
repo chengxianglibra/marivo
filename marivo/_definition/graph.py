@@ -21,6 +21,7 @@ from typing import Literal, TypeAlias, TypeGuard, get_args
 from typing_extensions import assert_never
 
 from marivo._definition.expressions import (
+    ContributionClockBinding,
     ContributionFilter,
     DeclaredMetricRef,
     EntityCount,
@@ -38,6 +39,7 @@ from marivo._definition.expressions import (
     SourceAggregate,
     SourceWeightedMean,
 )
+from marivo._definition.observations import SampleWindowContext
 from marivo._definition.query import (
     ResultQuery,
 )
@@ -66,6 +68,7 @@ from marivo._definition.relations import (
 from marivo._definition.types import (
     NUMERIC_RULE_VERSION,
     RULE_VERSION,
+    EntityIdentityRead,
     ExactRef,
     LiteralValue,
     Owner,
@@ -264,6 +267,18 @@ def _is_node(value: object) -> TypeGuard[DefinitionNode]:
 _PLAIN_LITERAL_TYPES = frozenset({str, bool, int, float, Decimal, date, datetime, InstantAnchor})
 _EncodingPayloads: TypeAlias = dict[int, tuple[object, dict[str, object]]]
 
+# Keep computation and observation identities stable when internal names change.
+_DATACLASS_IDENTITY_TYPES: dict[type[object], str] = {
+    ContributionClockBinding: "TimeBinding",
+    EntityIdentityRead: "IdentityRead",
+    SampleWindowContext: "SampleWindow",
+}
+
+
+def dataclass_identity_name(value: object) -> str:
+    """Return the stable identity label for an internal dataclass value."""
+    return _DATACLASS_IDENTITY_TYPES.get(type(value), type(value).__name__)
+
 
 def _plain_literal(value: object) -> TypeGuard[LiteralValue]:
     return value is None or type(value) in _PLAIN_LITERAL_TYPES
@@ -298,7 +313,7 @@ def _encode(
         if cached is not None:
             return cached[1]
         encoded = {
-            "type": type(value).__name__,
+            "type": dataclass_identity_name(value),
             **{
                 field.name: _encode(getattr(value, field.name), memo, payloads)
                 for field in fields(value)

@@ -163,14 +163,14 @@ class FieldDefinition:
 
 
 @dataclass(frozen=True)
-class MetricTimeBinding:
+class MetricContributionTimeRole:
     """Contribution time role of a single source reduction."""
 
     branch: str
 
 
 @dataclass(frozen=True)
-class MetricTimeFieldBinding(MetricTimeBinding):
+class MetricContributionClockBinding(MetricContributionTimeRole):
     """A source reduction bound to a concrete TimeDimension."""
 
     field: str
@@ -180,7 +180,7 @@ class MetricTimeFieldBinding(MetricTimeBinding):
 
 
 @dataclass(frozen=True)
-class MetricNoTimeBinding(MetricTimeBinding):
+class MetricNoContributionClockBinding(MetricContributionTimeRole):
     """A report-independent source reduction or captured member count."""
 
     root: str | None
@@ -202,7 +202,7 @@ class MetricDefinition:
     )
     reductions: tuple[str, ...]
     conditions: tuple[str, ...]
-    time_bindings: tuple[MetricTimeFieldBinding | MetricNoTimeBinding, ...]
+    time_bindings: tuple[MetricContributionClockBinding | MetricNoContributionClockBinding, ...]
     unit: str | None
     null_rules: tuple[str, ...]
     dependencies: tuple[str, ...]

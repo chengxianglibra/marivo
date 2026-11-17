@@ -1,4 +1,4 @@
-"""Exact quantile capture reaches the existing governed SourceRead boundary."""
+"""Exact quantile capture reaches the existing governed SourceReadStage boundary."""
 
 from dataclasses import replace
 from decimal import Decimal
@@ -17,7 +17,7 @@ from marivo.analysis.compiler.graph_plan import (
     AttributeFrequencyRead,
     QueryPlan,
     ReductionRead,
-    SourceRead,
+    SourceReadStage,
 )
 from marivo.analysis.compiler.observation import ReductionInput
 from marivo.analysis.core.data_types import DataColumn
@@ -34,7 +34,7 @@ from tests.datasource.source_cases import SourceData, source_case, source_params
 
 def _stage(
     table: ir.Table, backend: str, *, strict: bool = False, distinct: bool = False, q: float = 0.5
-) -> SourceRead:
+) -> SourceReadStage:
     operand = RowField(
         ExactRef(ref.measure("sales.facts.amount"), "v1"),
         ExactRef(ref.entity("sales.facts"), "v1"),
@@ -53,7 +53,7 @@ def _stage(
         "value",
         provider=backend,
     )
-    return SourceRead(
+    return SourceReadStage(
         "read:0",
         "facts",
         (0,),
@@ -147,7 +147,7 @@ def test_native_frequency_read_preserves_groups_counts_and_decimal_carrier(
         prepared = PreparedSources(case.session, (), {"facts": bound.relation}, {"facts": bound})
         qualify_attribute_game_sources(prepared, plan)
         output = read_stage(
-            prepared, lowered.plan.source_read(stage.stage_id), lowered.read(stage.stage_id)
+            prepared, lowered.plan.source_read_stage(stage.stage_id), lowered.read(stage.stage_id)
         )
         (capture,) = output.attribute_frequencies
         states = dict(capture.groups)
@@ -239,7 +239,7 @@ def test_native_frequency_capture_keeps_full_uint64_values(
         lowered = lower_query(QueryPlan((stage,), (), stage.stage_id), {"facts": bound.relation})
         output = read_stage(
             PreparedSources(case.session, (), {"facts": bound.relation}, {"facts": bound}),
-            lowered.plan.source_read(stage.stage_id),
+            lowered.plan.source_read_stage(stage.stage_id),
             lowered.read(stage.stage_id),
         )
         (capture,) = output.attribute_frequencies
@@ -281,7 +281,7 @@ def test_frequency_capture_retains_original_period_before_grouping(
         lowered = lower_query(QueryPlan((stage,), (), stage.stage_id), {"facts": bound.relation})
         output = read_stage(
             PreparedSources(case.session, (), {"facts": bound.relation}, {"facts": bound}),
-            lowered.plan.source_read(stage.stage_id),
+            lowered.plan.source_read_stage(stage.stage_id),
             lowered.read(stage.stage_id),
         )
         (capture,) = output.attribute_frequencies
@@ -302,7 +302,7 @@ def test_frequency_query_plan_aggregates_one_fact_scan(
         lowered = lower_query(QueryPlan((stage,), (), stage.stage_id), {"facts": bound.relation})
         read_stage(
             PreparedSources(case.session, (), {"facts": bound.relation}, {"facts": bound}),
-            lowered.plan.source_read(stage.stage_id),
+            lowered.plan.source_read_stage(stage.stage_id),
             lowered.read(stage.stage_id),
         )
         sql = case.session.submissions[0].sql
@@ -352,7 +352,7 @@ def test_actual_shared_frequency_input_retains_separate_q_and_scalar_outputs(
         lowered = lower_query(plan, {"facts": bound.relation})
         output = read_stage(
             PreparedSources(case.session, (), {"facts": bound.relation}, {"facts": bound}),
-            lowered.plan.source_read(first.stage_id),
+            lowered.plan.source_read_stage(first.stage_id),
             lowered.read(first.stage_id),
         )
         assert len(case.session.submissions) == 1
@@ -491,7 +491,7 @@ def test_original_native_quantile_finisher_matches_fixed_frequency_endpoints(
         lowered = lower_query(plan, {"facts": bound.relation})
         prepared = PreparedSources(case.session, (), {"facts": bound.relation}, {"facts": bound})
         output = read_stage(
-            prepared, lowered.plan.source_read(plan.publish), lowered.read(plan.publish)
+            prepared, lowered.plan.source_read_stage(plan.publish), lowered.read(plan.publish)
         )
         assert {capture.finisher for capture in output.attribute_frequencies} == {
             f"{backend}_native" if backend in ("duckdb", "postgres") else "rank_bounds"
@@ -502,7 +502,7 @@ def test_original_native_quantile_finisher_matches_fixed_frequency_endpoints(
             )
             expected = read_stage(
                 prepared,
-                reference.plan.source_read(original_read.stage_id),
+                reference.plan.source_read_stage(original_read.stage_id),
                 reference.read(original_read.stage_id),
             )
             slot = f"value{index}"

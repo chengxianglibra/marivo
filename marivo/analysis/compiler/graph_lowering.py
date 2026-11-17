@@ -18,7 +18,7 @@ from marivo.analysis.compiler.graph_plan import (
     ProjectionRead,
     QueryPlan,
     SampleWindowRead,
-    SourceRead,
+    SourceReadStage,
     read_attribute,
     read_components,
     read_members,
@@ -91,11 +91,11 @@ def _query_predicate(
 
 
 def lower_query(plan: QueryPlan, relations: dict[str, ir.Table]) -> LoweredQuery:
-    """Lower every SourceRead over its bound relation, keeping its exact source ID."""
+    """Lower every SourceReadStage over its bound relation, keeping its exact source ID."""
     lowered: list[LoweredRead] = []
-    effective_stages: dict[str, SourceRead] = {}
+    effective_stages: dict[str, SourceReadStage] = {}
     for stage in plan.stages:
-        if not isinstance(stage, SourceRead):
+        if not isinstance(stage, SourceReadStage):
             continue
         from marivo.analysis.compiler.graph_plan import CheckedOutput
 
@@ -312,7 +312,7 @@ def lower_query(plan: QueryPlan, relations: dict[str, ir.Table]) -> LoweredQuery
     # Facts describe the data relation, before diagnostic rows are separated by
     # execution. Raw component and Attribute unions cannot use aggregate facts.
     for read in lowered:
-        stage = effective_stages.get(read.stage_id, plan.source_read(read.stage_id))
+        stage = effective_stages.get(read.stage_id, plan.source_read_stage(read.stage_id))
         source = relations.get(stage.stage_id)
         if source is None:
             source = relations[stage.source_id]

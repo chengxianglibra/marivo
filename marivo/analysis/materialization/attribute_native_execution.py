@@ -15,7 +15,11 @@ from marivo._definition.expressions import EntityCount, SourceAggregate, SourceW
 from marivo.analysis.binding.attribute_game import formula_id
 from marivo.analysis.compiler.attribute_native_queries import lower_native_coalition, native_failure
 from marivo.analysis.compiler.graph_lowering import LoweredRead
-from marivo.analysis.compiler.graph_plan import AttributeCoalitionRead, SourceRead, read_reduction
+from marivo.analysis.compiler.graph_plan import (
+    AttributeCoalitionRead,
+    SourceReadStage,
+    read_reduction,
+)
 from marivo.analysis.core.attribute_game import CoalitionValue, CompletedGame, GameContext
 from marivo.analysis.core.data_types import DataColumn, DataType
 from marivo.analysis.core.frame_method_facts import (
@@ -53,8 +57,8 @@ NativeCache: TypeAlias = dict[NativeCacheKey, StageOutput]
 @dataclass(frozen=True, slots=True)
 class NativePair:
     occurrence: tuple[int, ...]
-    current: SourceRead
-    baseline: SourceRead
+    current: SourceReadStage
+    baseline: SourceReadStage
     current_table: ir.Table
     baseline_table: ir.Table
     prepared: PreparedSources
@@ -67,7 +71,7 @@ class PreparedNativeGame:
 
 
 def prepare_native_game(
-    stage: SourceRead, prepared_sources: Mapping[str, PreparedSources]
+    stage: SourceReadStage, prepared_sources: Mapping[str, PreparedSources]
 ) -> PreparedNativeGame:
     """Rebind foreign physical recipes to one compatible owner and precompile."""
     from marivo.analysis.compiler.graph_lowering import LoweredQuery
@@ -148,7 +152,7 @@ def prepare_native_game(
         qualify_query_sources(selected, LoweredQuery(plan, (lowered,)))
         from marivo._definition.graph import computation_fingerprint
 
-        def identity(read: SourceRead, relation: ir.Table) -> tuple[object, ...]:
+        def identity(read: SourceReadStage, relation: ir.Table) -> tuple[object, ...]:
             reduction = read_reduction(read)
             assert reduction is not None
             return (
@@ -205,11 +209,11 @@ def _query_fact(
 
 
 def run_native_game(
-    stage: SourceRead,
+    stage: SourceReadStage,
     inputs: tuple[StageOutput, ...],
     prepared: PreparedNativeGame,
     cache: NativeCache,
-    observe_read: Callable[[SourceRead, LoweredRead, StageOutput], None] | None,
+    observe_read: Callable[[SourceReadStage, LoweredRead, StageOutput], None] | None,
 ) -> StageOutput:
     """Execute unseen native leaf requests and assemble the shared pure game report."""
     from marivo.analysis.materialization.graph_source_execution import read_stage
