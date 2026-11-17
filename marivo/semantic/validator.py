@@ -1799,10 +1799,6 @@ def assembly_validate(
                     },
                 )
             )
-        # Warn on string datasource ref
-        # (String refs are the norm currently, so skip warning for now.
-        #  This will become meaningful when typed refs are more common.)
-
         versioning = ds_ir.versioning
         projected_names = {name for name, _physical in _target_columns(ds_ir)}
         missing_projected_key = bool(projected_names) and any(
@@ -1980,9 +1976,6 @@ def assembly_validate(
     # -- Cross-model cycle detection (basic) --------------------------------
 
     # -- Warnings -----------------------------------------------------------
-    # String ref warnings: datasource names are intentionally strings in the
-    # target API, and cross-file refs are common, so skip string-ref warnings.
-
     # Partition pushdown advisory warnings
     for f_id, f_ir in registry.dimensions.items():
         field_ref = (

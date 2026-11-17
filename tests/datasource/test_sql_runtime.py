@@ -110,25 +110,10 @@ def test_public_sql_owner_audit(
 
             monkeypatch.setattr(SourceSession, "execute", observe)
             session = mv.session.get_or_create("sql_ownership-sql-owner", timezone="UTC")
-            if backend == "duckdb":
-                facts = session.catalog.get("entity:sales.facts")
-                assert facts.kind == "entity"
-                result = session.observe({"rows": facts.count()}).compute()
-                assert result.to_pandas()["rows"].tolist() == [len(ROWS)]
-            else:
-                # Remote Query qualification belongs to later acceptance; retain
-                # the SQL-owner witness through its governed datasource owner.
-                bound = case.session.bind(case.source, source_identity="sql_ownership.facts")
-                qualified = case.session.qualify(
-                    bound, PhysicalRequirement("sql_ownership.facts", 1, frozenset({"scan"}))
-                )
-                read = case.session.compile(
-                    qualified,
-                    bound.relation,
-                    purpose="sql_ownership.facts",
-                    expected_schema=bound.relation.schema().to_pyarrow(),
-                )
-                assert len(case.session.execute(read)) == len(ROWS)
+            facts = session.catalog.get("entity:sales.facts")
+            assert facts.kind == "entity"
+            result = session.observe({"rows": facts.count()}).compute()
+            assert result.to_pandas()["rows"].tolist() == [len(ROWS)]
             statement = "SELECT 7 AS marker"
             terminal = md.raw_sql(
                 reference,
@@ -152,11 +137,21 @@ def test_public_sql_owner_audit(
             assert len(terminal_reads) == 1 and terminal_reads[0].sql == statement
             assert all(item.purpose for item in audit.submissions if item.category == "provider")
             logged = [r for r in execution_records(tmp_path) if r["event"] == "query.submitted"]
-            assert governed
+            assert any(purpose.startswith(("analysis.", "query.")) for purpose, _ in governed)
+            native_governed = [
+                item
+                for item in audit.submissions
+                if item.category == "governed_ibis"
+                and item.owner == "SourceSession.execute"
+                and item.state == "succeeded"
+            ]
+            assert Counter(governed) == Counter(
+                (item.purpose, item.sql) for item in native_governed
+            )
             assert Counter(governed) == Counter(
                 (str(r["purpose"]), str(r["sql"]))
                 for r in logged
-                if str(r.get("purpose", "")).startswith(("analysis.", "query.", "sql_ownership."))
+                if str(r.get("purpose", "")).startswith(("analysis.", "query."))
             )
             completed = [r for r in execution_records(tmp_path) if r["event"] == "query.completed"]
             assert {r["query_id"] for r in logged} == {r["query_id"] for r in completed}

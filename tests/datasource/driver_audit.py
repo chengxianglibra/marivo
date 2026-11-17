@@ -367,6 +367,17 @@ class DuckDBConnectionWitness:
             lambda: operation(query, *args, **kwargs),
         )
 
+    def sql(self, query: object, *args: object, **kwargs: object) -> object:
+        operation = getattr(self._native, "sql", None)
+        assert callable(operation)
+        return self._audit.submit(
+            "duckdb",
+            "DuckDBPyConnection.sql",
+            self._native,
+            query,
+            lambda: operation(query, *args, **kwargs),
+        )
+
 
 class SQLiteCursorWitness(sqlite3.Cursor):
     """Observe the native cursor input before SQLite expands parameters or pragmas."""
@@ -541,6 +552,7 @@ def native_audit(monkeypatch: pytest.MonkeyPatch, backend: str) -> Iterator[Driv
             http = importlib.import_module("clickhouse_connect.driver.httpclient")
             for cls, name in (
                 (client.Client, "query"),
+                (client.Client, "query_column_block_stream"),
                 (client.Client, "query_rows_stream"),
                 (http.HttpClient, "raw_query"),
                 (http.HttpClient, "command"),
