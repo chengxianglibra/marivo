@@ -1,13 +1,13 @@
 ---
 slug: docs/v0.6/reference/read-service
-title: Persisted result service
-description: Save AnalysisFrames and pandas tables, then read exact fixed results over HTTP.
+title: Project read service
+description: Read saved results and current semantic definitions through a project-bound service.
 ---
 
 Marivo explicitly saves AnalysisFrames and pandas DataFrames. The project-bound
 HTTP service reads their exact saved identities. The plugin owns report layout,
 text, data bindings, date policies, analysis programs and refresh execution.
-There are no script endpoints, current-result aliases or Catalog HTTP operations.
+The HTTP service also reads current semantic definitions through a separate Catalog snapshot.
 
 ## Save and deliver results
 
@@ -38,9 +38,10 @@ reference = mv.persist_dataframe(
 print(reference.to_dict())
 ```
 
-The DataFrame reference contains `schema: "marivo.dataframe_ref/v1"` and
-`result_id`. The explicit root is the exact existing directory; omission uses
-normal project discovery. Saving needs no Session, Analysis Store, Catalog,
+The DataFrame reference contains `schema: "marivo.dataframe_ref/v2"`, the resolved
+absolute `project_root` and `result_id`. Together they locate one saved snapshot.
+The explicit save root is the exact existing directory; omission uses normal
+project discovery. Saving needs no Session, Analysis Store, Catalog,
 source connection, running HTTP service or optional API dependencies. Every call
 creates a new fixed identity. Later edits to the original table do not affect it.
 Neither reference includes URLs, credentials, a report identity or producer code.
@@ -53,6 +54,57 @@ Unsupported nested/object values fail rather than becoming strings. Row/column
 order, zero-column row counts, empty typed columns and supported exact values
 are retained. `attrs` is not saved as semantic metadata. Plain tables do not gain
 inferred units, lineage, axes, periods or source freshness.
+
+## Read a table in Python
+
+Pass the saved reference object or its original `to_dict()` dictionary, including
+one recovered from JSON, to `mv.read_dataframe()`:
+
+```python
+import json
+
+wire = json.loads(json.dumps(reference.to_dict()))
+result = mv.read_dataframe(wire)
+result.show()
+table = result.to_pandas()
+```
+
+The immutable `DataFrameResult` contains:
+
+| Field or method | Meaning |
+| --- | --- |
+| `kind` | `"dataframe"` |
+| `ref` | Exact saved reference |
+| `committed_at` | Original UTC save time as an aware `datetime` |
+| `row_count` | Complete row count, including zero-column rows |
+| `schema` | Ordered Arrow schema with exact physical types |
+| `to_pandas()` | Complete, independently mutable pandas table |
+
+Use `result.schema.names` for column names, `len(result.schema)` for the column
+count, and `result.schema.field("orders").type` for one physical type. Internal
+metadata is omitted. Nullability describes the schema's allowance, not actual
+missingness. Arrow-backed exports retain saved large integers, Decimal
+precision/scale, time units/timezone and null/NaN distinctions. They preserve
+row/column order, empty typed columns and zero-column row counts, with empty
+attrs and an unnamed default RangeIndex. Original pandas dtype containers and
+attrs are not reconstructed; convert explicitly when needed for arithmetic.
+
+Reading requires no Session, Catalog, source connection, HTTP server or API
+dependencies. The file closes before return, so later exports remain available
+even if the file is removed. Reads create no state and return the complete result
+or an `AnalysisError` with concrete expected/received/location/repair fields.
+Missing or corrupt data never triggers recomputation. Memory grows with the whole
+table; Python reads have no pagination or HTTP response limits.
+
+The reference carries its location: `reference.project_root` is an immutable
+`Path`, serialized as an absolute path string by `to_dict()`. Reading accepts only
+the reference, with no project override. Working directory and
+`MARIVO_PROJECT_ROOT` do not affect reads. The captured path must be accessible
+on this filesystem; a missing location fails without searching other projects.
+HTTP responses carry the service's path; remote clients use their configured
+HTTP connection. Bare IDs, paths, JSON strings, v1 references, extra reference
+fields and AnalysisFrame references are rejected. Commit time records saving,
+not business freshness.
 
 ## Start and connect
 
@@ -81,7 +133,7 @@ marivo serve --project-root /srv/sales-project --host 0.0.0.0 --port 8765 \
 ```
 
 All business requests require `Authorization: Bearer <token>`, including info and
-OpenAPI. Valid CORS preflights require no token, allow GET/OPTIONS and the
+OpenAPI. Valid CORS preflights require no token, allow GET/POST/OPTIONS and the
 Authorization/Content-Type headers. Actual requests are authenticated. Allowed
 Origins receive CORS headers on errors too. Server-to-server requests need no Origin.
 
@@ -89,8 +141,13 @@ Origins receive CORS headers on errors too. Server-to-server requests need no Or
 
 | Method and path | Result |
 | --- | --- |
-| `GET /v2/info` | API/Marivo versions and current Store identity or null |
+| `GET /v2/info` | API/Marivo versions, current Store identity or null, Catalog load status |
 | `GET /v2/openapi.json` | OpenAPI 3.1 request, response and error schemas |
+| `GET /v2/semantic/objects` | Current semantic summaries; optional kind/domain filters |
+| `GET /v2/semantic/objects/{id}` | Captured semantic definition and safe provenance |
+| `GET /v2/semantic/objects/{id}/related` | Dependencies or dependents; required relation parameter |
+| `GET /v2/semantic/objects/{id}/datasource-properties` | Approved datasource configuration from the current Catalog snapshot |
+| `POST /v2/semantic/reload` | Atomically reload current models; empty body |
 | `GET /v2/sessions` | Saved Sessions, newest updated first |
 | `GET /v2/sessions/{session_id}/frames` | Committed Frames, newest committed first |
 | `GET /v2/stores/{store_id}/sessions/{session_id}/frames/{artifact_id}` | Exact AnalysisFrame result |
@@ -117,9 +174,61 @@ nonfinite values use `{"float":"nan"}`, `{"float":"inf"}` or `{"float":"-inf"}`.
 Null and Boolean presence remain independent. Empty rows use `rows: []`;
 a zero-column single row uses `rows: [[]]`.
 
+## Read current semantic definitions
+
+The service keeps one current Catalog snapshot, separate from saved results.
+The first semantic request loads the bound project's models in a fresh interpreter,
+without connecting to business sources. `GET /v2/info` reports `catalog.loaded`
+and `catalog.loaded_at` without triggering a load. Browse with optional `kind` and
+`domain` filters and follow `next_cursor` with the same filters and limit:
+
+```sh
+curl -H "Authorization: Bearer $MARIVO_API_TOKEN" \
+  'http://127.0.0.1:8765/v2/semantic/objects?kind=metric&domain=sales&limit=20'
+curl -H "Authorization: Bearer $MARIVO_API_TOKEN" \
+  'http://127.0.0.1:8765/v2/semantic/objects/metric%3Asales.revenue'
+curl -H "Authorization: Bearer $MARIVO_API_TOKEN" \
+  'http://127.0.0.1:8765/v2/semantic/objects/metric%3Asales.revenue/related?relation=dependencies'
+```
+
+Object IDs are canonical `kind:path` identities, URL-encoded in paths. Directories
+return summaries plus available kinds/domains. Details retain business context,
+formulas, units, contribution-time bindings and project-relative provenance.
+Connection fields and environment references, file/HTTP source locations and
+external absolute model paths are omitted. Related navigation accepts
+`dependencies` or `dependents`, uses the full loaded scope and reports known
+unloaded dependencies separately as `outside_scope`.
+
+The dedicated datasource-properties endpoint accepts an exact `datasource:<name>`
+identity and returns `backend_type`, `wall_clock_timezone`, `properties` and
+`has_omitted_fields`. It returns 404 for absent or non-datasource identities. It
+projects a bounded allowlist of literal fields by backend and omits environment
+references, credentials, arbitrary nested options and unapproved or unsafe-shaped
+values. The ordinary semantic detail remains unchanged. This endpoint intentionally
+exposes approved connection settings and DuckDB paths to **every holder of the
+project's API token**. Hosts must enforce their own user/project authorization.
+Allowed literal values cannot be proven secret-free by their field name or format:
+Marivo merges `extra` into literal fields before the snapshot. Authors must keep
+secrets in credential references, not literal configuration. `has_omitted_fields`
+indicates omitted literal fields, not credential availability or connection status.
+
+Properties are captured in the same isolated, bounded Catalog load as semantic
+objects. Warm requests read the immutable snapshot without starting a new process or
+connecting to the datasource. The existing first-load, atomic reload, failed-reload
+retention and response/worker budgets apply equally to this endpoint.
+
+After model edits, send an empty body to `POST /v2/semantic/reload`. The isolated
+load atomically replaces the snapshot only on success, returning `loaded_at` and
+`object_count`. Failure returns `catalog_load_failed` and retains the previous
+snapshot; an active load returns `409 catalog_load_in_progress`. Existing readers
+may continue using the old snapshot during reload. Successful reload invalidates
+old Catalog cursors. Loads continue after a client disconnect until the load
+deadline; shutdown cancels an active worker. Response size and time limits also
+bound Catalog loading. Reload never changes saved Frames or DataFrames.
+
 ## Ownership, retention and failures
 
-Reads operate independently of the producer process, source availability and
+Fixed-result reads operate independently of the producer process, source availability and
 current models. They open existing state and validate committed ownership and
 consumed files. They never replay producers, execute scripts or query sources.
 Read validation can scan/hash complete files; internal batches do not bound total I/O.
@@ -144,6 +253,7 @@ to return before releasing its slot. Errors contain `code`, `message`, `location
 Missing/corrupt data never triggers recalculation. The server logs unexpected
 failures without exposing tracebacks to HTTP clients.
 
-Use `marivo help analysis.persist_dataframe`,
+Use `marivo help analysis.persist_dataframe`, `marivo help analysis.read_dataframe`,
+`marivo help analysis.dataframe_result`,
 `marivo help analysis.analysis_frame.ref` and
 `marivo help analysis.results.service.http` for focused native contracts.

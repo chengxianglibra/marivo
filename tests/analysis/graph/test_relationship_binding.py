@@ -318,7 +318,10 @@ def test_branch_and_consumed_coverage(analysis_dsl_case_factory: DslCaseFactory)
     automatic_binding = source_graph(automatic).signature.observation
     explicit_binding = source_graph(explicit).signature.observation
     assert automatic_binding is not None and explicit_binding is not None
-    assert automatic_binding.contributions == explicit_binding.contributions
+    assert len(automatic_binding.contributions) == len(explicit_binding.contributions) == 1
+    (automatic_read,) = automatic_binding.contributions[0].coordinates
+    (explicit_read,) = explicit_binding.contributions[0].coordinates
+    assert automatic_read.path == explicit_read.path
     fixed = automatic.persist()
     frame = fixed.to_pandas()
     assert frame.set_index(ordinary_columns(fixed)[0])["value"].to_dict() == {

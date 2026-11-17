@@ -1,0 +1,61 @@
+---
+slug: docs/latest/release-notes/0.6.8
+title: Marivo 0.6.8
+description: Release notes for Marivo 0.6.8.
+---
+
+Released on November 17, 2026. Marivo 0.6.8 unifies Population operations,
+improves source error diagnostics, and fixes analysis correctness issues.
+
+## Highlights
+
+- Population classification now appends fields or identity roles while
+  preserving complete input tuples. Use `project` to select axes explicitly,
+  and use `where` to filter existing coordinate values.
+- Relationship traversal uses explicit `mv.path(...)` objects for scalar
+  fields, identity roles, image, and preimage. Paths can carry source and target
+  version anchors. Image returns distinct target identities; preimage retains
+  complete receiver tuples.
+- The authenticated read service exposes approved datasource configuration at
+  `/v2/semantic/objects/{id}/datasource-properties` from its current Catalog
+  snapshot. Project token holders can see allowed connection settings and DuckDB
+  paths; hosts must enforce user authorization, and secrets belong in credential
+  references rather than literal configuration.
+
+## Changed
+
+- **Population migration:** `mv.identity` describes an identity axis; choose
+  membership time with `session.members(..., at=...)`. Build relationship routes
+  with `mv.path(...)` and specify source and step versions on the path instead
+  of using relationship tuples or `image(..., at=...)`. Because `classify`
+  retains existing axes, use `project` when fewer axes are needed.
+- `session.read(..., on=...)` preserves Population keys and can select an
+  identity role explicitly. `identities(on=...)` extracts distinct direct
+  Entity identities from a role. Captured Frame coordinates can support later
+  filtering without rereading the source.
+- Raw SQL failures include a structured cause, observed execution state, and
+  bounded, redacted backend diagnostics, with targeted repairs when recognized.
+
+## Fixed
+
+- Native sample reductions retain required identity and membership checks,
+  including for empty samples. Source reductions also retain required branch
+  demand during query preparation.
+- Incompatible Decimal comparisons now raise structured semantic errors.
+- Unsupported aggregate errors no longer claim that no business rows were read
+  when an interval domain was checked first.
+- Time-coordinate membership uses the selected time and ordinary coordinates
+  together. When an interval report depends on source or Frame keys, its output
+  domain is checked before dependent Metrics are read.
+
+## Documentation
+
+- Updated the Population and source guides, including versioned paths and
+  Trino SQL troubleshooting. Added a bilingual article on agent-friendly tools.
+- Aligned the v0.6 read-service guides with the current DataFrame reference and
+  Catalog endpoints.
+
+## Internal
+
+- Added an opt-in formal verification gate and strengthened public Help, typing,
+  and guide consistency checks.

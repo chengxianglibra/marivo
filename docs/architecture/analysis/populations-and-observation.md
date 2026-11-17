@@ -2,8 +2,11 @@
 
 Analysis source construction captures explicit business definitions and domains.
 It does not read source schemas/rows or create a Run. Source evaluation happens
-through AnalysisFrame.compute/persist or pending to_pandas, after preparation
-checks actual types, method support and complete bindings. Fixed Frame operations consume saved data
+through AnalysisFrame.compute/persist or pending to_pandas. Preparation checks
+bindings and qualifies operations before executing their aggregate queries. An
+interval report may first read its output domain to check the selected interval
+before qualifying or reading dependent Metrics. HTTP JSON source preparation
+can also acquire rows to infer types. Fixed Frame operations consume saved data
 without restoring those source definitions.
 
 ## Entry responsibilities
@@ -234,8 +237,9 @@ A source leaf without a contribution clock rejects a time membership predicate.
 An observation with an interval Population axis accepts at most one represented
 report interval. When the interval depends on source or Frame keys, evaluation
 completes the output domain and its checks before reading dependent Metrics.
-An empty domain yields an empty report. Interval endpoints are coordinate values and can participate in
-Population set operations.
+An empty domain yields an empty report when its dependent Metrics qualify.
+Interval endpoints are coordinate values and can participate in Population set
+operations.
 
 P.count() captures its complete distinct tuples as a lazy integer Metric. It
 includes Null categories and explicit identities without source records. Empty

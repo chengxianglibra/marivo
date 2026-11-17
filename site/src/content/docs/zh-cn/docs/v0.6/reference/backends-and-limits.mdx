@@ -104,6 +104,10 @@ md.raw_sql(
 `md.raw_sql()` 应使用只读 SQL 和只读凭据。访问权限由 backend 的原生连接设置和数据库权限决定。它会把查询返回的全部
 行加载到内存。可使用筛选、聚合或 SQL `LIMIT` 控制结果大小；`LIMIT` 不限制来源扫描成本。
 
+Trino 没有默认 schema 时，请使用 `catalog.schema.table`。需要引号时，分别引用每段标识符，
+例如 `"catalog"."schema"."table$partitions"`。用 `SHOW COLUMNS FROM catalog.schema.table`
+核对实际列名。查询失败后，先按报告的原因和 Repair 排查，再决定是否重新提交。
+
 数值精度和溢出遵循后端与数据类型。整数 SUM 使用 `int64` 结果：本地求和可能回绕，
 较宽的来源端累计值也可能在通过 Ibis 传输时失败；ClickHouse 可能返回回绕值。来源读取
 后再转换无法恢复已经丢失的精度。MySQL SUM 会先保留服务器返回的宽精度 Decimal，再安全

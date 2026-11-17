@@ -33,6 +33,7 @@ def test_terminal_native_timeout_is_not_analysis_cancellation(
     monkeypatch.setenv("MARIVO_PROJECT_ROOT", str(tmp_path))
     submitted: list[str] = []
     disconnected: list[bool] = []
+    native_errors: list[Exception] = []
     original = DatasourceConnectionService.use_backend
 
     @contextmanager
@@ -58,7 +59,11 @@ def test_terminal_native_timeout_is_not_analysis_cancellation(
 
             def execute(statement: str, **kwargs: object) -> object:
                 submitted.append(statement)
-                return raw(statement, **kwargs)
+                try:
+                    return raw(statement, **kwargs)
+                except Exception as error:
+                    native_errors.append(error)
+                    raise
 
             monkeypatch.setattr(owner, "raw_sql", execute)
             yield owner
@@ -94,8 +99,10 @@ def test_terminal_native_timeout_is_not_analysis_cancellation(
         assert 0.9 < elapsed < 5
         assert refused.value.effect_observed is not None
         assert refused.value.effect_observed.query_executed is True
-        cause = refused.value.__cause__
-        assert cause is not None
+        assert len(native_errors) == 1
+        cause = native_errors[0]
+        assert refused.value.received is not None
+        assert type(cause).__name__ in refused.value.received
         if backend == "postgres":
             assert getattr(cause, "sqlstate", None) == "57014"
         elif backend == "mysql":

@@ -97,5 +97,6 @@ def aggregate_repair_action(
     return (
         f"{route} {backend} cannot compile {reducer}({input_type}) through a qualified native "
         "algorithm. Change the definition only if that matches the intended metric. "
-        "Exact and approximate algorithms are never substituted. No business row was read."
+        "Exact and approximate algorithms are never substituted. "
+        "The unsupported source aggregate was not executed."
     )

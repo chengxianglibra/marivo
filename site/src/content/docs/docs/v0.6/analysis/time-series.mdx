@@ -271,7 +271,7 @@ control = session.catalog.get("time_dimension:sales.facts.event_time")
 label = session.catalog.get("dimension:sales.profiles.label")
 route = session.catalog.get("relationship:sales.profile")
 amount = session.catalog.get("measure:sales.facts.amount")
-historical = label.via((route,)).at(control)
+historical = label.via(mv.path(route)).at(control)
 scope = session.time_scope(start="2026-08-25", end="2026-09-08")
 day = mv.grain("day")
 daily = session.observe(
@@ -279,7 +279,7 @@ daily = session.observe(
 ).compute()
 restated = session.observe(
     {"value": amount.sum(time=control)},
-    by=(scope.by(day), label.via((route,)).at(session.instant("2026-09-03T00:00:00+00:00"))),
+    by=(scope.by(day), label.via(mv.path(route)).at(session.instant("2026-09-03T00:00:00+00:00"))),
 ).compute()
 ```
 

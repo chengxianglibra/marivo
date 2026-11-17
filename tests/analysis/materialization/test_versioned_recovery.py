@@ -111,16 +111,18 @@ def test_native_versioned_members_independent_fixed_and_cold(
             with monkeypatch.context() as construction:
                 construction.setattr(SourceSession, "execute", forbidden)
                 construction.setattr(SourceSession, "compile", forbidden)
-                unanchored = session.members(entity)
-                missing = session.read(
-                    unanchored,
-                    {
-                        "value": catalog_value(
-                            session.catalog, "sales.subjects_" + kind + ".amount", kind="field"
-                        )
-                    },
-                )
+                with pytest.raises(AnalysisError) as refused:
+                    session.members(entity)
                 current = session.members(entity, at=august)
+                with pytest.raises(AnalysisError):
+                    session.read(
+                        current,
+                        {
+                            "value": catalog_value(
+                                session.catalog, "sales.subjects_" + kind + ".amount", kind="field"
+                            )
+                        },
+                    )
                 boundary = session.time_scope(start="2026-08-01", end="2026-09-01")
                 with pytest.raises(AnalysisError):
                     # A manually copied anchor without a timezone is not an exact instant.
@@ -128,10 +130,6 @@ def test_native_versioned_members_independent_fixed_and_cold(
                         entity,
                         at=mv.InstantAnchor(2026, 9, 1),
                     )
-            with monkeypatch.context() as preparation:
-                preparation.setattr(SourceSession, "execute", forbidden)
-                with pytest.raises(AnalysisError) as refused:
-                    missing.persist()
             assert refused.value.expected and refused.value.received and refused.value.repair
             for label, point in (
                 ("august", august),

@@ -212,10 +212,29 @@ def test_native_distribution(
                 observed.persist()
             failure = caught.value
             assert failure.expected and failure.received and failure.repair
-            assert not submissions
-            assert len(source_trace.native_sql) == native_before
+            assert "The unsupported source aggregate was not executed." in failure.repair.action
+            assert len(submissions) == 1
+            domain_sql = submissions[0]["sql"]
+            assert isinstance(subject.source, TableSourceIR)
+            assert isinstance(facts.source, TableSourceIR)
+            assert subject.source.table in domain_sql
+            assert facts.source.table not in domain_sql
+            assert source_trace.native_sql[native_before:] == [domain_sql]
             assert set((tmp_path / ".marivo").rglob("*.parquet")) == before
             assert run_ids(session) == before_runs
+            if backend == "postgres" and kind == "approx_distinct" and carrier == "int64":
+                empty = members.difference(members)
+                empty_domain = mv.product(
+                    session.time_scope(start="2026-08-01", end="2026-08-02"), empty
+                )
+                assert isinstance(empty_domain, mv.Population)
+                before_empty = len(submissions)
+                with pytest.raises(AnalysisError) as empty_failure:
+                    session.observe({"value": metric}, by=empty_domain).compute()
+                assert empty_failure.value.received == failure.received
+                assert all(
+                    facts.source.table not in read["sql"] for read in submissions[before_empty:]
+                )
             return
         fixed = observed.persist()
         source_trace.record(fixed)

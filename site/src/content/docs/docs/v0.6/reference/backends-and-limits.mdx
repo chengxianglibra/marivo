@@ -123,6 +123,12 @@ Use read-only SQL and credentials with `md.raw_sql()`. The backend applies its n
 It loads all returned rows into memory. Use filters, aggregation or SQL `LIMIT` to control
 result size; `LIMIT` does not bound source scan cost.
 
+In Trino, use `catalog.schema.table` when there is no default schema. Quote each
+identifier separately when needed, as in `"catalog"."schema"."table$partitions"`.
+Use `SHOW COLUMNS FROM catalog.schema.table` to check the actual column names.
+On failure, follow the Repair for the reported cause before deciding whether to
+resubmit the statement.
+
 Numeric precision and overflow follow the backend and type. Integer SUM uses an `int64`
 result: local sums can wrap, while a wider source accumulator may fail when the result
 crosses the Ibis transport boundary. ClickHouse can return wrapped values. Conversion after
