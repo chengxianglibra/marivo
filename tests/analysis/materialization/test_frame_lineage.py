@@ -82,7 +82,6 @@ def test_source_columns_context_and_fixed_lifecycle(
         == saved.lineage.values["total"]
     )
     with pytest.raises(TypeError):
-        # Intentionally mutate the read-only mapping to check its runtime contract.
         operator.setitem(reopened.lineage.values, "bad", lineage)  # type: ignore[call-overload]
     with pytest.raises(FrozenInstanceError):
         lineage.value_origins = ()  # type: ignore[misc]  # Verify frozen instances reject writes.

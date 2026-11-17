@@ -147,7 +147,6 @@ def test_additive_source_and_fixed(analysis_dsl_case_factory: DslCaseFactory) ->
     inputs = _inputs(case)
     frame = allocation(*(basis(value) for value in inputs), method="count")
     assert {(r.member, r.channel): r.contribution for r in frame.itertuples()} == _expected_counts()
-    # Request the complete classification explicitly and check independent facts.
     for month, artifact in zip((8, 7), inputs, strict=True):
         direct = plain(_count(case, month).compute())
         expected = basis(artifact).groupby(["member", "channel"]).size().to_dict()

@@ -18,7 +18,7 @@ export function materializeSharedDocs(root, entries, { check = false } = {}) {
     }
     return path;
   };
-  // Validate the complete batch before writing any generated page.
+  // Validate the full batch first to avoid leaving partial output on failure.
   const pages = entries.map((entry) => {
     if (targets.has(entry.source)) throw new Error('Shared document sources must be authored');
     const source = readFileSync(pathFor(entry.source), 'utf8');

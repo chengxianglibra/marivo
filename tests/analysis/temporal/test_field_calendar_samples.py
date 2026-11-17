@@ -310,10 +310,8 @@ def test_new_sample_shape_validates_grain_and_windows(
         (mv.coordinates(by=(region,), keys=(("East",),)), day),
     ):
         with pytest.raises(SemanticExpressionError):
-            # Invalid field and grain combinations exercise runtime validation.
             revenue.per(field, grain=grain)  # type: ignore[arg-type]
     with pytest.raises(TypeError):
-        # A second positional argument is intentionally invalid.
         revenue.per(created, day)  # type: ignore[call-overload]
     window = mv.all_history()
     for expression in (
@@ -598,7 +596,6 @@ def test_fixed_offset_samples_split_at_civil_midnight(
             .compute()
             .to_pandas()
         )
-        # The first two events are in the final civil second of November 1.
         assert _row_values(actual, ["minimum", "maximum", "mean", "count"]) == [18, 23, 20.5, 2]
 
 

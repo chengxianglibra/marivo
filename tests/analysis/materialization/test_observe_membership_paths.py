@@ -55,7 +55,6 @@ def test_membership_preserves_explicit_coordinate_and_predicate_paths(
             case = stack.enter_context(source_case(backend, profile, tmp_path, monkeypatch, data))
             cases.append(case)
             if backend == "duckdb":
-                # Release the read-only handle before creating the next fixture table.
                 case.session.close()
         sources = []
         for case in cases:

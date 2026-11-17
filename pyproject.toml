@@ -107,17 +107,17 @@ exclude = [
 
 [tool.ruff.lint]
 select = [
-    "E",      # pycodestyle errors
-    "W",      # pycodestyle warnings
-    "F",      # pyflakes
-    "I",      # isort (import sorting)
-    "N",      # pep8-naming
-    "UP",     # pyupgrade
-    "B",      # flake8-bugbear
-    "C4",     # flake8-comprehensions
-    "SIM",    # flake8-simplify
-    "TCH",    # flake8-type-checking
-    "RUF",    # Ruff-specific rules
+    "E",
+    "W",
+    "F",
+    "I",
+    "N",
+    "UP",
+    "B",
+    "C4",
+    "SIM",
+    "TCH",
+    "RUF",
 ]
 ignore = [
     "E501",   # line too long (handled by formatter)
@@ -134,14 +134,14 @@ ignore = [
     "F401",    # re-exports not in __all__ are intentional facade imports
 ]
 "tests/**/*.py" = [
-    "S101",    # allow assert in tests
-    "RUF012",  # allow mutable class attributes in tests
-    "N802",    # allow non-lowercase function names (test helpers)
-    "F841",    # allow unused variables (test setup)
-    "E731",    # allow lambda assignments (test fixtures)
-    "B007",    # allow unused loop variables
-    "B017",    # allow assertRaises(Exception)
-    "RUF059",  # allow unused unpacked variables
+    "S101",
+    "RUF012",
+    "N802",
+    "F841",
+    "E731",
+    "B007",
+    "B017",
+    "RUF059",
 ]
 
 [tool.ruff.lint.isort]

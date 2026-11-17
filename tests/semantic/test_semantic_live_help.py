@@ -68,10 +68,8 @@ def test_registry_graph_reaches_every_required_semantic_leaf_within_four_edges()
         assert distances[qualified] <= 4
 
 
-# ---------------------------------------------------------------------------
 # Help target matrix — string, callable, type, error type, cross-surface
 # rejections, unknown string, private object, no-runtime-effects.
-# ---------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize(

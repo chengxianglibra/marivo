@@ -130,7 +130,6 @@ def test_checked_pairing_checks_unknown_images_and_reuses_proven_images(
         ratios = paired.select({"value": paired["left.value"] / paired["right.value"]}).persist()
         expected = sum(isinstance(row["y"], int) and row["y"] > 20 for row in work.rows)
         assert ratios.to_pandas()["value"].tolist() == [1.0] * expected
-        # Same-input Columns retain their original rows and values.
         shared = values.select({"value": values["value"] / values["value"]}).persist()
         assert shared.to_pandas()["value"].tolist() == [1.0] * 64
         assert session.persisted_frame(ratios.artifact_id).to_pandas().equals(ratios.to_pandas())

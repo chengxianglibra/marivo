@@ -168,7 +168,6 @@ def test_new_roots_require_concrete_schema_and_named_axes(local: LocalFrameServi
     )
     assert pending.values[0].nullable is None
     with pytest.raises(CoreRuleError):
-        # Exercise the runtime rejection of an intentionally invalid schema type.
         call_attribute = "__call__"
         validate: object = getattr(require_complete_structure, call_attribute)
         assert callable(validate)

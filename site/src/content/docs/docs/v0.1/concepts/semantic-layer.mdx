@@ -502,9 +502,9 @@ import marivo.semantic as ms
 
 catalog = ms.load()                       # SemanticCatalog
 catalog.list().show()                     # everything, grouped
-catalog.list(kind="metric").show()        # just metrics
-revenue = catalog.get("sales.revenue")           # one object
-region = catalog.get("sales.orders.region")      # also an object
+catalog.list(kind="metric").show()
+revenue = catalog.get("sales.revenue")
+region = catalog.get("sales.orders.region")
 ```
 
 Before any analysis, check **readiness** — the structural gate that keeps

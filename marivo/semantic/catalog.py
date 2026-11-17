@@ -337,11 +337,6 @@ def _preview_execution_limits(bindings: NormalizedPreviewScope) -> PreviewExecut
     )
 
 
-# ---------------------------------------------------------------------------
-# Kind-specific details
-# ---------------------------------------------------------------------------
-
-
 def _source_location_text(source_location: SourceLocation) -> str:
     return f"{source_location.file}:{source_location.line}"
 
@@ -1082,11 +1077,6 @@ def _object_from_details(
     )
 
 
-# ---------------------------------------------------------------------------
-# Internal helpers
-# ---------------------------------------------------------------------------
-
-
 _ENTRY_TYPE_BY_KIND: dict[SemanticKind, type[_SemanticObject[SemanticKindTag]]] = {
     SemanticKind.ENTITY: Entity,
     SemanticKind.DIMENSION: Dimension,
@@ -1479,11 +1469,6 @@ def _preview_timezones_for_field(
 _PreviewCell: TypeAlias = str | int | float | bool | None
 
 
-# ---------------------------------------------------------------------------
-# _CatalogIndex — private query layer for typed catalog objects
-# ---------------------------------------------------------------------------
-
-
 class _CatalogIndex:
     """Immutable exact-ref and scoped-navigation index for one catalog.
 
@@ -1566,11 +1551,6 @@ class _CatalogIndex:
         self, ref: Ref[SemanticKindTag], *, scope_ref: Ref[SemanticKindTag] | None
     ) -> bool:
         return scope_ref is None or scope_ref in self._scopes[ref]
-
-
-# ---------------------------------------------------------------------------
-# SemanticCatalog
-# ---------------------------------------------------------------------------
 
 
 class SemanticCatalog(RenderableResult):

@@ -202,13 +202,11 @@ def test_direct_column_decimal_measure_regression(computation_session: mv.Sessio
     assert rows["value"].iloc[0] == Decimal("20.00")
 
 
-# ---------------------------------------------------------------------------
 # Remote backend matrix (plan section 4): computed measures, Linear, decimal
 # units on the opt-in services. Rows: amount=15.75 with weight 3, amount=4.25
 # with weight 1. net = amount * weight sums to 51.50; the amount sum is 20.00;
 # the MySQL mean publishes scale s+4 = 6; the decimal linear cell keeps the
 # exact decimal result. Every expectation is a hand-computed Decimal constant.
-# ---------------------------------------------------------------------------
 
 
 def _opt_in_backend(backend: str) -> None:
@@ -406,10 +404,8 @@ def test_mysql_decimal_mean_preserves_declared_carrier(
         _drop_remote_table(backend, table)
 
 
-# ---------------------------------------------------------------------------
 # Trino preserves native DECIMAL arithmetic and SUM. AVG retains the native
 # input scale and rounding rather than requiring higher-precision emulation.
-# ---------------------------------------------------------------------------
 
 _TRINO_PHYSICAL = (
     "CREATE TABLE {table}(id BIGINT, amount DECIMAL(12,2), weight BIGINT)",

@@ -702,7 +702,6 @@ def test_source_read_frame_bridge_uses_bounded_key_transport(
             [large, count],
         )
     result = consumer.compute().to_pandas()
-    # The selected amounts are the first count // 2 odd positive integers.
     assert result["total"].tolist() == [(count // 2) ** 2]
     assert len(keys) == 1 and keys[0].num_rows == count // 2
     assert set(keys[0].column(0).to_pylist()) == {large + i for i in range(0, count, 2)}

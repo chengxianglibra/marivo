@@ -220,7 +220,6 @@ def test_decorator_help_example_loads_the_declared_object(
     catalog = ms.load(workspace_dir=tmp_path)
     value = catalog_value(catalog, path, kind="metric" if target == "metric" else "field")
     if target in {"measure", "metric"}:
-        # R1.4 publishes module-level declarations under their function name.
         if target == "measure":
             assert isinstance(value, ms.Measure)
             assert value.name == "order_amount"

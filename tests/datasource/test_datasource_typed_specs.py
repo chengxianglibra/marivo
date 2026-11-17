@@ -42,9 +42,6 @@ def _ir(
     )
 
 
-# -- Public spec class tests (validation, serialization, IR mapping) --
-
-
 def test_duckdb_spec_defaults_to_memory_path() -> None:
     spec = DuckDBSpec(name="local")
     ir = _ir(spec)
@@ -270,9 +267,6 @@ def test_spec_ai_context_maps_to_ir() -> None:
     assert ir.ai_context.guardrails == ("Do not use for production freshness checks.",)
 
 
-# -- Public convenience function signatures --
-
-
 def test_trino_helper_signature_has_current_fields() -> None:
     signature = inspect.signature(md.trino)
 
@@ -287,9 +281,6 @@ def test_duckdb_helper_signature_has_current_fields() -> None:
     assert "name" in signature.parameters
     assert "path" in signature.parameters
     assert "ai_context" in signature.parameters
-
-
-# -- Store persistence tests --
 
 
 def test_store_writes_convenience_function_call(
@@ -404,9 +395,6 @@ def test_catalog_show_uses_one_current_declaration_snapshot(
 
     assert catalog.show() is None  # type: ignore[func-returns-value]  # Verify the runtime return.
     assert calls == [tmp_path, tmp_path]
-
-
-# -- Public spec field visibility --
 
 
 def test_declared_spec_fields_are_visible_to_dataclasses_help() -> None:

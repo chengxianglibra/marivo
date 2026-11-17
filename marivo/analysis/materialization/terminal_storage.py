@@ -120,7 +120,6 @@ def write_output(
         final.relative_to(root).as_posix(), (entry,), len(frame), entry.size_bytes + len(manifest)
     )
     handle = ParquetHandle(receipt, payload_digest(root, staging, receipt))
-    # Verify the produced physical layout before the publication transaction.
     with pq.ParquetFile(data) as parquet:
         if not parquet.schema_arrow.equals(
             target, check_metadata=True

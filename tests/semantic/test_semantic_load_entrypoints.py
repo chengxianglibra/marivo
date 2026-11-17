@@ -43,11 +43,6 @@ def test_ms_load_returns_semantic_catalog(tmp_path: Path) -> None:
     assert isinstance(catalog, SemanticCatalog)
 
 
-# ---------------------------------------------------------------------------
-# loader.load_project is the low-level pipeline returning a LoadResult.
-# ---------------------------------------------------------------------------
-
-
 def test_load_project_returns_load_result(tmp_path: Path) -> None:
     _write_minimal_project(tmp_path)
     semantic_root = tmp_path / "models" / "semantic"
@@ -67,11 +62,6 @@ def test_load_project_rejects_workspace_root_with_ms_load_hint(tmp_path: Path) -
     assert result.errors
     hints = " ".join((getattr(e, "hint", "") or "") for e in result.errors)
     assert "ms.load(workspace_dir=" in hints
-
-
-# ---------------------------------------------------------------------------
-# SemanticProject.catalog() is the explicit bridge: LoadResult -> SemanticCatalog.
-# ---------------------------------------------------------------------------
 
 
 def test_project_catalog_returns_semantic_catalog(tmp_path: Path) -> None:

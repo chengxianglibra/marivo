@@ -3903,7 +3903,6 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
             "Bounded source-free definition facts; analysis computation belongs to AnalysisFrame.compute()/persist().",
         ),
     )
-    # Identity types
     add(
         type(ref_factory),
         "ref",
@@ -3911,14 +3910,12 @@ def _type_contracts() -> Mapping[type, SemanticTypeContract]:
         methods=factory_methods("ref"),
     )
 
-    # IR types
     add(
         JoinKey,
         "JoinKey",
         ("join_on",),
         properties=("from_key", "to_key"),
     )
-    # Enum and value types
     add(
         SemanticKind,
         "SemanticKind",

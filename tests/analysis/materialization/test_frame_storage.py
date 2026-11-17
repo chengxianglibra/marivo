@@ -2550,13 +2550,11 @@ def test_method_manifest_is_bounded_and_zero_parent_payload_is_valid(
     assert saved.method_facts == original.method_facts
     assert saved.method_facts[0].coordinates[0].rows == ()
     with pytest.raises(AnalysisError):
-        # A complete method payload intentionally violates the stored descriptor type.
         replace(
             _stored_backing(saved),
             method_facts=(cast("SavedFrameMethodFacts", original.method_facts[0]),),
         )
     with pytest.raises(AnalysisError):
-        # A mutable list intentionally violates the immutable tuple payload contract.
         replace(
             _memory_backing(original).result,
             method_facts=cast("tuple[FrameMethodFacts, ...]", [original.method_facts[0]]),

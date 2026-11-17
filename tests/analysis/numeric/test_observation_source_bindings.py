@@ -89,7 +89,6 @@ def test_capture_is_ordered_immutable_and_survives_scope_exit() -> None:
         assert scopes.capture((entity,))[0].exact_value_digest == original_digest
     assert captured.exact_value_digest == original_digest
     with pytest.raises(FrozenInstanceError):
-        # Verify the frozen object rejects mutation at runtime.
         captured.exact_value_digest = "changed"  # type: ignore[misc]
     with pytest.raises(ObservationBindingError):
         pickle.dumps(captured)
@@ -159,7 +158,6 @@ def test_invalid_values_fail_without_rendering_values(value: object) -> None:
     scopes = SourceBindingScopes((entity,))
     with (
         pytest.raises(ObservationBindingError) as failure,
-        # Invalid values deliberately cross the typed input boundary.
         scopes.scope({ref.entity(entity.ref.path): {"start": value, "end": 2}}),  # type: ignore[dict-item]
     ):
         raise AssertionError("Invalid value was admitted")

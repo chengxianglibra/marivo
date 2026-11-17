@@ -115,7 +115,6 @@ def test_invalid_preview_limits_are_structured_before_connection(
     )
 
     with pytest.raises(SemanticRuntimeError) as captured:
-        # Runtime invalid inputs deliberately bypass the annotated int contract.
         if operation == "preview":
             catalog.preview(amount, scope=default_scope(), limit=limit)  # type: ignore[arg-type]
         else:

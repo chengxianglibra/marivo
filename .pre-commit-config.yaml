@@ -1,4 +1,4 @@
-fail_fast: true  # Stop after the first failing hook.
+fail_fast: true
 
 repos:
   - repo: https://github.com/astral-sh/ruff-pre-commit

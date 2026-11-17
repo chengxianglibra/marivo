@@ -59,7 +59,6 @@ def test_numeric_column_supports_separate_dimension_and_measure_roles(
     session = mv.session.get_or_create("dual-role-fields", timezone="UTC")
     dimension = catalog_value(session.catalog, "sales.orders.quantity_axis", kind="dimension")
     quantity = catalog_value(session.catalog, "sales.orders.quantity", kind="measure")
-    # Deliberately exercise aggregate operations on a non-numeric dimension.
     for expression in (dimension.mean(), dimension.sum()):  # type: ignore[misc]
         with pytest.raises(SemanticExpressionError):
             consume_metric(expression)

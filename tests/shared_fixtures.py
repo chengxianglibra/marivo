@@ -48,9 +48,6 @@ if TYPE_CHECKING:
     from marivo.semantic.loader import LoaderContext, LoadResult
     from marivo.semantic.reader import SemanticProject
 
-# ---------------------------------------------------------------------------
-# Named DuckDB templates (versioned, cached in /tmp)
-# ---------------------------------------------------------------------------
 # Bump the version string when seeded schema or rows change so cached
 # copies rebuild automatically.
 
@@ -334,7 +331,6 @@ def observation_temporal(
     return TemporalExecution(report=ReportTimeAuthority(), axes=(authority,))
 
 
-# The S0 DSL journeys share declarations, but each journey owns its source rows.
 DslScenario = Literal[
     "j1",
     "j2",
@@ -841,11 +837,6 @@ def sales_backends(
     return {"warehouse": lambda: con}
 
 
-# ---------------------------------------------------------------------------
-# Project directory builders
-# ---------------------------------------------------------------------------
-
-
 def bootstrap_sales_project(tmp_path: Path, *, with_time: bool = True) -> None:
     """Write a sales project directly into each test's isolated directory.
 
@@ -894,21 +885,6 @@ def bootstrap_sales_project(tmp_path: Path, *, with_time: bool = True) -> None:
     (tmp_path / "marivo.toml").write_text('[project]\nname = "test"\n')
 
 
-# ---------------------------------------------------------------------------
-# Lightweight MetricFrame helpers
-# ---------------------------------------------------------------------------
-
-
-# ---------------------------------------------------------------------------
-# Authoring session helper (metric-split foundation tests)
-# ---------------------------------------------------------------------------
-
-
-# ---------------------------------------------------------------------------
-# Inline semantic project loader (metric-split resolution tests)
-# ---------------------------------------------------------------------------
-
-
 @contextmanager
 def load_inline_semantic(
     source: str,
@@ -945,11 +921,6 @@ def load_inline_semantic(
         (semantic_dir / "models.py").write_text(source)
         result = load_project(semantic_dir.parent)
         yield result
-
-
-# ---------------------------------------------------------------------------
-# Multi-metric sales project (two entities, three metrics)
-# ---------------------------------------------------------------------------
 
 
 def bootstrap_multi_metric_sales_project(tmp_path: Path) -> None:

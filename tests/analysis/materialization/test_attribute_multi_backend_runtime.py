@@ -365,7 +365,6 @@ def test_native_paired_rate_mix_matches_symmetric_oracle(
         report = selected.attribute(by=(category,)).compute()
         rows = report.to_pandas()
         assert rows.iloc[:, 0].tolist() == ["A", "B"]
-        # Independent Fraction arithmetic from the four source rows.
         assert rows["contribution.ratio"].tolist() == [-2.5, -2.5]
         assert rows["total.ratio"].tolist() == [-5.0, -5.0]
         assert rows["effect.within.ratio"].tolist() == pytest.approx([0, float(Fraction(-25, 6))])
@@ -376,7 +375,6 @@ def test_native_paired_rate_mix_matches_symmetric_oracle(
         assert rows["contribution.weighted"].tolist() == [-25.0, 25.0]
         assert rows["total.weighted"].tolist() == [0, 0]
         assert rows["contribution_share.weighted"].isna().all()
-        # Two independent endpoint parent/fine bundles, with no identity preflight.
         assert len(trace.native_sql) == 4
         assert sorted(trace.returned_rows) == [1, 1, 2, 2]
         saved = report.persist()

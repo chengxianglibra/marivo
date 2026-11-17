@@ -1,6 +1,6 @@
 <clickhouse>
     <!-- Qualification cluster topology; the same file binds both nodes.
-         Nodes keep the default internal native port 9000 so the pods can
+         Nodes keep the default internal native port 9000 so containers can
          reach each other; only the HTTP listener moves per node. -->
     <max_server_memory_usage>2147483648</max_server_memory_usage>
     <logger>

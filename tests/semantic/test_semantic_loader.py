@@ -30,9 +30,6 @@ from marivo.semantic.reader import SemanticProject
 if TYPE_CHECKING:
     from tests.conftest import _SemanticProjectFactory
 
-# ---------------------------------------------------------------------------
-# Minimal model files
-# ---------------------------------------------------------------------------
 
 _MINIMAL_DOMAIN_PY = textwrap.dedent("""\
     import marivo.datasource as md
@@ -82,11 +79,6 @@ _SHARED_DATASOURCE_MODEL_B = textwrap.dedent("""    import marivo.datasource as 
     def refunds_total():
         return amount.sum()
 """)
-
-
-# ---------------------------------------------------------------------------
-# Happy path: single model loads
-# ---------------------------------------------------------------------------
 
 
 def test_global_datasource_can_be_reused_across_models(
@@ -163,11 +155,6 @@ def test_model_only_no_sibling_files(semantic_project_factory: _SemanticProjectF
         }
     )
     assert project.is_ready()
-
-
-# ---------------------------------------------------------------------------
-# _domain.py validation
-# ---------------------------------------------------------------------------
 
 
 def test_missing_domain_py(semantic_project_factory: _SemanticProjectFactory) -> None:
@@ -358,11 +345,6 @@ def test_model_name_mismatch(semantic_project_factory: _SemanticProjectFactory) 
     assert ErrorKind.DOMAIN_FILE_MISMATCH in kind_values
 
 
-# ---------------------------------------------------------------------------
-# Load-error recovery hints
-# ---------------------------------------------------------------------------
-
-
 def test_missing_domain_file_error_has_typed_repair(
     semantic_project_factory: _SemanticProjectFactory,
 ) -> None:
@@ -428,15 +410,9 @@ def test_ai_context_raw_dict_load_error_names_canonical_form(
     ai_errors = [e for e in result.errors if e.kind == ErrorKind.INVALID_AI_CONTEXT]
     assert ai_errors, "expected an INVALID_AI_CONTEXT error"
     combined = str(ai_errors[0])
-    # Canonical constructor form and all accepted fields.
     assert "ms.ai_context(" in combined
     assert "business_definition" in combined
     assert "guardrails" in combined
-
-
-# ---------------------------------------------------------------------------
-# Excluded files
-# ---------------------------------------------------------------------------
 
 
 def test_excluded_files_are_not_loaded(semantic_project_factory: _SemanticProjectFactory) -> None:
@@ -454,19 +430,9 @@ def test_excluded_files_are_not_loaded(semantic_project_factory: _SemanticProjec
     assert project.is_ready()
 
 
-# ---------------------------------------------------------------------------
-# Empty project
-# ---------------------------------------------------------------------------
-
-
 def test_empty_project_is_valid(semantic_project_factory: _SemanticProjectFactory) -> None:
     project = semantic_project_factory({})
     assert project.is_ready()
-
-
-# ---------------------------------------------------------------------------
-# Load result status
-# ---------------------------------------------------------------------------
 
 
 def test_errored_load_result(semantic_project_factory: _SemanticProjectFactory) -> None:
@@ -487,11 +453,6 @@ def test_errored_load_result(semantic_project_factory: _SemanticProjectFactory) 
     assert project._expression_sidecar is None
 
 
-# ---------------------------------------------------------------------------
-# Errors accumulate
-# ---------------------------------------------------------------------------
-
-
 def test_errors_accumulate_across_models(semantic_project_factory: _SemanticProjectFactory) -> None:
     bad_model_a = textwrap.dedent("""\
         raise ValueError("error in model A")
@@ -508,7 +469,6 @@ def test_errors_accumulate_across_models(semantic_project_factory: _SemanticProj
     )
     result = project.load()
     assert result.status == "errored"
-    # Should have at least one error per model
     assert len(result.errors) >= 2
 
 
@@ -526,14 +486,8 @@ def test_one_bad_model_does_not_block_good_one(
         load=False,
     )
     result = project.load()
-    # The valid model contributes no error: only the broken model is reported.
     assert result.status == "errored"
     assert {ref for error in result.errors for ref in error.semantic_refs} == {"bad"}
-
-
-# ---------------------------------------------------------------------------
-# re-load
-# ---------------------------------------------------------------------------
 
 
 def test_load_on_already_loaded_project(semantic_project_factory: _SemanticProjectFactory) -> None:
@@ -546,11 +500,6 @@ def test_load_on_already_loaded_project(semantic_project_factory: _SemanticProje
     result = project.load()
     assert project.is_ready()
     assert result.status == "ready"
-
-
-# ---------------------------------------------------------------------------
-# Multiple sibling files
-# ---------------------------------------------------------------------------
 
 
 def test_multiple_sibling_files(semantic_project_factory: _SemanticProjectFactory) -> None:
@@ -582,11 +531,6 @@ def test_multiple_sibling_files(semantic_project_factory: _SemanticProjectFactor
     assert project.is_ready()
 
 
-# ---------------------------------------------------------------------------
-# Directories are not recursive
-# ---------------------------------------------------------------------------
-
-
 def test_subdirectories_not_scanned(semantic_project_factory: _SemanticProjectFactory) -> None:
     sub_content = textwrap.dedent("""\
         raise RuntimeError("subdirectory file was loaded!")
@@ -598,11 +542,6 @@ def test_subdirectories_not_scanned(semantic_project_factory: _SemanticProjectFa
         }
     )
     assert project.is_ready()
-
-
-# ---------------------------------------------------------------------------
-# SemanticProject init
-# ---------------------------------------------------------------------------
 
 
 def test_reader_project_unloaded() -> None:
@@ -623,11 +562,6 @@ def test_reader_project_nonexistent_root() -> None:
     # A workspace that does not exist is an empty project, not a load failure.
     assert result.status == "ready"
     assert result.errors == ()
-
-
-# ---------------------------------------------------------------------------
-# Cross-file ref resolution
-# ---------------------------------------------------------------------------
 
 
 def test_cross_file_dataset_metric_resolution(
@@ -836,11 +770,6 @@ def test_cross_file_missing_entity_ref(semantic_project_factory: _SemanticProjec
     assert any(e.kind == ErrorKind.MISSING_ENTITY_REF for e in errors)
 
 
-# ---------------------------------------------------------------------------
-# Registry and Sidecar access
-# ---------------------------------------------------------------------------
-
-
 def test_warnings_accessible_after_load(semantic_project_factory: _SemanticProjectFactory) -> None:
     """A valid project exposes no structured warnings after load."""
     project = semantic_project_factory(
@@ -850,11 +779,6 @@ def test_warnings_accessible_after_load(semantic_project_factory: _SemanticProje
     )
 
     assert project.warnings() == ()
-
-
-# ---------------------------------------------------------------------------
-# Two-pass: collect then resolve
-# ---------------------------------------------------------------------------
 
 
 def test_two_pass_separates_discovery_from_validation(
@@ -904,11 +828,6 @@ def test_two_pass_separates_discovery_from_validation(
     assert reg is not None
     assert "sales.revenue" in reg.declared_metrics
     assert "sales.orders" in reg.entities
-
-
-# ---------------------------------------------------------------------------
-# Loading with relationships
-# ---------------------------------------------------------------------------
 
 
 def test_loading_with_relationships(semantic_project_factory: _SemanticProjectFactory) -> None:
@@ -990,11 +909,6 @@ def test_relationship_empty_keys_rejected_via_loader(
     assert any(e.kind == ErrorKind.INVALID_REF for e in errors)
 
 
-# ---------------------------------------------------------------------------
-# Field-ref expression sidecar compiled after load
-# ---------------------------------------------------------------------------
-
-
 def test_field_ref_resolver_wired_after_load(
     semantic_project_factory: _SemanticProjectFactory,
 ) -> None:
@@ -1005,7 +919,6 @@ def test_field_ref_resolver_wired_after_load(
 
         orders = ms.entity(name="orders", datasource=ms.ref.datasource("wh"), source=md.table("orders"))
     """)
-    # The field ref is stored in a module-level variable
     fields_py = textwrap.dedent("""\
         import marivo.datasource as md
         import marivo.semantic as ms
@@ -1040,7 +953,6 @@ def test_field_ref_resolves_after_load(semantic_project_factory: _SemanticProjec
     con.con.execute("CREATE TABLE orders (order_id INT, amount FLOAT, region TEXT)")
     con.con.execute("INSERT INTO orders VALUES (1, 100.0, 'US'), (2, 200.0, 'EU')")
 
-    # The field ref is created during file loading
     fields_py = textwrap.dedent("""\
         import marivo.datasource as md
         import marivo.semantic as ms
@@ -1092,11 +1004,6 @@ def test_field_ref_resolves_after_load(semantic_project_factory: _SemanticProjec
 
     field_expr = resolver.dimension(ref_factory.dimension("sales.orders.region"))
     assert field_expr.get_name() == "region"
-
-
-# ---------------------------------------------------------------------------
-# find_project tests
-# ---------------------------------------------------------------------------
 
 
 def test_find_project_in_current_dir(tmp_path: Path) -> None:
@@ -1184,17 +1091,11 @@ def test_load_raises_when_semantic_is_a_file(tmp_path: Path) -> None:
     (tmp_path / "marivo.toml").write_text('[project]\nname = "test"\n')
     marivo_dir = tmp_path / "models"
     marivo_dir.mkdir()
-    # Create 'semantic' as a file, not a directory
     (marivo_dir / "semantic").write_text("not a directory")
     project = SemanticProject(workspace_dir=tmp_path)
     with pytest.raises(SemanticLoadError) as exc_info:
         project.load()
     assert exc_info.value.kind == ErrorKind.INVALID_PROJECT
-
-
-# ---------------------------------------------------------------------------
-# workspace_dir and MARIVO_PROJECT_ROOT
-# ---------------------------------------------------------------------------
 
 
 def test_reader_project_default_workspace_dir_is_cwd(
@@ -1246,11 +1147,6 @@ def test_reader_project_workspace_dir_does_not_scan_non_marivo_dirs(tmp_path: Pa
     # scripts/ should NOT appear as a model dir — only models/semantic/ is scanned
     assert result.status == "ready"
     assert SemanticCatalog(project).search(kind="domain").items == ()
-
-
-# ---------------------------------------------------------------------------
-# Ibis-aligned table access via materializer
-# ---------------------------------------------------------------------------
 
 
 def test_materialize_dataset_passes_short_table_name_through_for_trino(
@@ -1379,10 +1275,6 @@ def test_materialize_dataset_accepts_explicit_database_for_trino(
     )
     assert isinstance(result, ibis.expr.types.Table)
 
-
-# ---------------------------------------------------------------------------
-# models parameter on load()
-# ---------------------------------------------------------------------------
 
 _FINANCE_DOMAIN_PY = textwrap.dedent("""\
     import marivo.datasource as md

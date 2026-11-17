@@ -650,7 +650,6 @@ def test_invalid_session_resume_selector_is_shape_only_in_telemetry(
     resume_call = {"by": selector}
 
     with pytest.raises(TypeError):
-        # The invalid selector is deliberately outside the static Literal contract.
         resume: object = mv.session.resume
         assert callable(resume)
         resume("known-session", **resume_call)

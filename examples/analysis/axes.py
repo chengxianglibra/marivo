@@ -54,7 +54,6 @@ association = aligned.correlate(
 ).compute()
 association.show()
 
-# Pair repeated coordinates on one explicit grid, then correlate within groups.
 scope = session.time_scope(start=start, end=end)
 series = session.observe({"value": metric}, by=(scope.by(day), group)).compute()
 composed = session.observe({"value": metric + metric}, by=(scope.by(day), group)).compute()

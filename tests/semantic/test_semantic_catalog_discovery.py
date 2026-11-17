@@ -424,7 +424,6 @@ def unpaid_orders(raw):
     assert "unpaid" in unpaid.definition.expression
     assert paid.definition != unpaid.definition
     assert paid.to_dict()["definition"] != unpaid.to_dict()["definition"]
-    # The public projection stays captured after the authored source changes.
     source.write_text("raise RuntimeError('must not replay entity code')\n")
     assert "paid" in paid.definition.expression
 

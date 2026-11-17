@@ -8,10 +8,6 @@ from typing import Literal
 
 from marivo._compat import tomllib
 
-# ---------------------------------------------------------------------------
-# Path constants — single source of truth for directory names
-# ---------------------------------------------------------------------------
-
 PROJECT_MANIFEST = "marivo.toml"
 
 AUTHORED_DIR = "models"
@@ -31,11 +27,6 @@ AGENTS_SKILLS_DIR = ".agents/skills"
 SKILL_SEMANTIC = "marivo-semantic"
 SKILL_ANALYSIS = "marivo-analysis"
 PACKAGED_SKILLS = (SKILL_SEMANTIC, SKILL_ANALYSIS)
-
-
-# ---------------------------------------------------------------------------
-# Project configuration
-# ---------------------------------------------------------------------------
 
 
 @dataclass(frozen=True)
@@ -184,11 +175,6 @@ def load_semantic_layer_paths(project_root: Path) -> tuple[Path, ...]:
         returns only its semantic-layer path projection.
     """
     return load_project_config(project_root).semantic_layer_paths
-
-
-# ---------------------------------------------------------------------------
-# Project discovery
-# ---------------------------------------------------------------------------
 
 
 def find_project_root(start: Path | None = None) -> Path | None:

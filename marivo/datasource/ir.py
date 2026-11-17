@@ -138,11 +138,6 @@ class DatasourceIR:
         )
 
 
-# ---------------------------------------------------------------------------
-# Physical source descriptors
-# ---------------------------------------------------------------------------
-
-
 def _require_non_empty_str(value: object, field_name: str) -> str:
     if not isinstance(value, str):
         raise TypeError(f"{field_name} must be str, got {type(value).__name__}.")

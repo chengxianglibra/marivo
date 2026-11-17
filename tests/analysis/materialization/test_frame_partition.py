@@ -444,7 +444,6 @@ def test_partition_evaluation_reuses_typed_results_without_sorting() -> None:
         {"group": [2, 1, 2, None], "row": [0, 1, 2, 3], "x": [10, 20, 30, 40]}, dtype=object
     )
     total = ValuePartition(Statistic("sum", ValueSlot(0)), (0,))
-    # Separately constructed equal expressions also share the completed result.
     denominator = ValuePartition(Statistic("sum", ValueSlot(0)), (0,))
     program = frame_program(
         schema,

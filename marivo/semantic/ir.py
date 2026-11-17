@@ -80,11 +80,6 @@ __all__ = [
 DatasourceAiContextIR = AiContextIR
 
 
-# ---------------------------------------------------------------------------
-# Enums
-# ---------------------------------------------------------------------------
-
-
 class DimensionKind(StrEnum):
     """Kind of dimension: categorical or time."""
 
@@ -106,11 +101,6 @@ class EntityProvenance(StrEnum):
     IBIS_TABLE = "ibis_table"
     TABLE_PROJECTION = "table_projection"
     SQL_VIEW = "sql_view"
-
-
-# ---------------------------------------------------------------------------
-# Core dataclasses
-# ---------------------------------------------------------------------------
 
 
 @dataclass(frozen=True)
@@ -453,11 +443,6 @@ class SampleIntervalIR:
         return f"{self.count}{self.unit}"
 
 
-# ---------------------------------------------------------------------------
-# Time parse value objects (closed variants)
-# ---------------------------------------------------------------------------
-
-
 @dataclass(frozen=True)
 class DateParse:
     """Declare a native DATE and its optional business-day timezone."""
@@ -520,11 +505,6 @@ class HourPrefixParse:
 
 
 SemanticParse = DateParse | TimestampParse | StrptimeParse | HourPrefixParse
-
-
-# ---------------------------------------------------------------------------
-# Join-key value objects
-# ---------------------------------------------------------------------------
 
 
 @dataclass(frozen=True)
@@ -692,15 +672,6 @@ class TargetRelationshipContract:
     from_version_resolution_required: bool
     to_version_resolution_required: bool
 
-
-# ---------------------------------------------------------------------------
-# Ref types
-# ---------------------------------------------------------------------------
-
-
-# ---------------------------------------------------------------------------
-# Strptime format classification (shared by semantic and analysis)
-# ---------------------------------------------------------------------------
 
 _DATE_DIRECTIVES = frozenset({"%Y", "%y", "%m", "%d", "%j", "%U", "%W"})
 _HOUR_DIRECTIVES = frozenset({"%H", "%I", "%k", "%l"})

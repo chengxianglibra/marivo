@@ -91,7 +91,6 @@ def test_invalid_controls_reject_before_reading(result: PreviewResult | RawSqlRe
     for argument in ("n", "max_output_bytes"):
         for value in invalid_values:
             with pytest.raises(ValueError):
-                # Runtime invalid inputs deliberately bypass static signatures.
                 result.show(**{argument: value})  # type: ignore[arg-type]  # Invalid controls.
 
 

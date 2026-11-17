@@ -1045,7 +1045,6 @@ def test_remote_saved_values_cold_read_without_sources(
         ).persist()
         saved.to_pandas().to_pickle(tmp_path / "saved-oracle.pkl")
         artifact_id = saved.artifact_id
-    # The real source table is dropped before the independent reader starts.
     (tmp_path / "models").rename(tmp_path / "retired-models")
     code = """
 import sys

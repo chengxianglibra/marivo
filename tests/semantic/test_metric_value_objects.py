@@ -8,10 +8,6 @@ import marivo.semantic as ms
 from marivo.semantic import authoring
 from marivo.semantic.errors import ErrorKind, SemanticDecoratorError
 
-# ---------------------------------------------------------------------------
-# Closed additivity policy builders
-# ---------------------------------------------------------------------------
-
 
 def test_status_time_policy_keeps_fixed_axis() -> None:
     order_date = ms.ref.time_dimension("sales.orders.order_date")
@@ -55,11 +51,6 @@ def test_additivity_builders_require_nonempty_unique_native_axes(
         builder((region,))  # type: ignore[arg-type]  # intentional rejection input
     assert packed.value.kind == ErrorKind.INVALID_REF
     assert packed.value.expected and packed.value.received and packed.value.repair
-
-
-# ---------------------------------------------------------------------------
-# @ms.metric (tier-2 body)
-# ---------------------------------------------------------------------------
 
 
 def test_metric_global_additivity_requires_reauthoring() -> None:

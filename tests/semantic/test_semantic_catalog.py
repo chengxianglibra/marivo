@@ -78,12 +78,6 @@ def _make_loc() -> SourceLocation:
     return SourceLocation(file="models/semantic/sales/_domain.py", line=5)
 
 
-# --- Kind-specific details ---
-
-
-# --- Fixtures ---
-
-
 _MINIMAL_DOMAIN_PY = textwrap.dedent("""\
     import marivo.datasource as md
     import marivo.semantic as ms
@@ -190,20 +184,6 @@ def _make_rich_catalog(semantic_project_factory: _SemanticProjectFactory) -> Sem
         }
     )
     return SemanticCatalog(project)
-
-
-# --- Collection selection returns entries or expression values ---
-
-
-# --- Agent result protocol ---
-
-
-# --- Top-level typed collections ---
-
-
-# --- Collection lookup ---
-
-# --- ms.load() ---
 
 
 def test_ms_load_defaults_to_cwd(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -319,9 +299,6 @@ def test_ms_load_with_domains_returns_different_filtered_catalog(
     refs = {obj._ref.path for obj in reloaded.search(kind="domain").items}
     assert "ops" in refs
     assert {obj._ref.path for obj in catalog.search(kind="domain").items} == {"sales"}
-
-
-# --- catalog.preview() ---
 
 
 def _preview_backend(path: str) -> Backend:
@@ -456,9 +433,6 @@ def _dimension_ref(field: Deferred) -> Ref[DimensionKind]:
     return ref_factory.dimension(reference.path)
 
 
-# --- catalog.readiness() ---
-
-
 def test_catalog_readiness_normalizes_named_objects_to_same_public_payload(
     semantic_project_factory: _SemanticProjectFactory,
 ) -> None:
@@ -580,9 +554,6 @@ def test_dimension_ref_rejects_domain_level_path(
     del semantic_project_factory
     with pytest.raises(ValueError):
         ms.ref.dimension("sales.region")
-
-
-# --- metric unit passthrough ---
 
 
 _UNIT_DATASETS_PY = (

@@ -46,11 +46,6 @@ __all__ = [
 ]
 
 
-# ---------------------------------------------------------------------------
-# Repair helper
-# ---------------------------------------------------------------------------
-
-
 def repair(
     *,
     kind: Literal[
@@ -85,11 +80,6 @@ def repair(
     )
 
 
-# ---------------------------------------------------------------------------
-# ErrorKind enum
-# ---------------------------------------------------------------------------
-
-
 class ErrorKind(StrEnum):
     """Canonical error kind identifiers.
 
@@ -97,7 +87,6 @@ class ErrorKind(StrEnum):
     Every ``SemanticError.kind`` must be a member of this enum.
     """
 
-    # decorator-time
     DUPLICATE_NAME = "duplicate_name"
     MISSING_DOMAIN = "missing_domain"
     MISSING_ENTITIES = "missing_entities"
@@ -113,7 +102,6 @@ class ErrorKind(StrEnum):
     IBIS_ATTR_SHADOW = "ibis_attr_shadow"
     ENTITY_CONSTRUCTOR_AS_DECORATOR = "entity_constructor_as_decorator"
 
-    # expression construction
     INVALID_EXPRESSION_STAGE = "invalid_expression_stage"
     INVALID_EXPRESSION_VALUE = "invalid_expression_value"
     CROSS_ROOT_ROW_EXPRESSION = "cross_root_row_expression"
@@ -121,7 +109,6 @@ class ErrorKind(StrEnum):
     INVALID_WHERE_SCOPE = "invalid_where_scope"
     INVALID_TIME_PATH = "invalid_time_path"
 
-    # assembly-time
     DOMAIN_FILE_MISSING = "domain_file_missing"
     DOMAIN_FILE_MISMATCH = "domain_file_mismatch"
     MISSING_DATASOURCE_REF = "missing_datasource_ref"
@@ -161,7 +148,6 @@ class ErrorKind(StrEnum):
     MISSING_STATUS_TIME_DIMENSION = "missing_status_time_dimension"
     INVALID_STATUS_TIME_DIMENSION = "invalid_status_time_dimension"
 
-    # runtime
     CATALOG_SEARCH_FAILED = "catalog_search_failed"
     CATALOG_SEARCH_STALE_CURSOR = "catalog_search_stale_cursor"
     NOT_FOUND = "not_found"
@@ -190,11 +176,6 @@ class ErrorKind(StrEnum):
     FILTER_VALUE_RUNTIME_INCOMPATIBLE = "filter_value_runtime_incompatible"
 
 
-# ---------------------------------------------------------------------------
-# Catalog-backed hint factories
-# ---------------------------------------------------------------------------
-
-
 def _hint_from_catalog(kind: ErrorKind, **_kwargs: Any) -> str:
     hint = default_hint_for_error_kind(kind.value)
     if hint is not None:
@@ -205,11 +186,6 @@ def _hint_from_catalog(kind: ErrorKind, **_kwargs: Any) -> str:
 HINTS: dict[ErrorKind, Callable[..., str]] = {
     kind: (lambda _kind=kind, **kwargs: _hint_from_catalog(_kind, **kwargs)) for kind in ErrorKind
 }
-
-
-# ---------------------------------------------------------------------------
-# Error classes
-# ---------------------------------------------------------------------------
 
 
 class SemanticError(MarivoError):
@@ -582,11 +558,6 @@ class SemanticLoadFailed(SemanticError):  # noqa: N818
         return self.message
 
 
-# ---------------------------------------------------------------------------
-# Warning types
-# ---------------------------------------------------------------------------
-
-
 class WarningKind(StrEnum):
     """Canonical warning kind identifiers for non-fatal issues."""
 
@@ -628,11 +599,6 @@ class StructuredWarning:
             f"StructuredWarning(kind={self.kind!r}, message={self.message!r}, "
             f"refs={self.refs!r}, location={self.location!r})"
         )
-
-
-# ---------------------------------------------------------------------------
-# Single raise helper
-# ---------------------------------------------------------------------------
 
 
 def _raise(

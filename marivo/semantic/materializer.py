@@ -137,8 +137,6 @@ class Materializer:
         self._dimension_cache: dict[str, ir.Value] = {}
         self._measure_cache: dict[str, ir.Value] = {}
 
-    # -- backend management ---------------------------------------------------
-
     def _get_backend(self, datasource_semantic_id: str) -> IbisBackend:
         """Get or create a backend for the given datasource."""
         return self._backend_factory(datasource_semantic_id)
@@ -200,8 +198,6 @@ class Materializer:
         if is_time_dimension:
             return cast("Ref[SemanticKindTag]", ref_factory.time_dimension(semantic_id))
         return cast("Ref[SemanticKindTag]", ref_factory.dimension(semantic_id))
-
-    # -- entity --------------------------------------------------------------
 
     def entity(self, semantic_id: str) -> ibis.Table:
         """Materialize an entity through the shared output-relation boundary.
@@ -276,7 +272,6 @@ class Materializer:
                 min(self._sample_size, scope.max_rows) if scope is not None else self._sample_size
             )
 
-        # Cache the result
         self._entity_cache[semantic_id] = table
 
         self._detect_and_store_provenance(semantic_id, ds_ir.source, source_table)
@@ -512,8 +507,6 @@ class Materializer:
         )
         self._project._runtime_metadata[semantic_id] = meta
 
-    # -- dimension ---------------------------------------------------------------
-
     def dimension(self, semantic_id: str) -> ir.Value:
         """Materialize a dimension, returning an ibis Value expression."""
         if semantic_id in self._dimension_cache:
@@ -530,7 +523,6 @@ class Materializer:
                 refs=(semantic_id,),
             )
 
-        # Materialize parent entity first
         parent_table = self.entity(field_ir.entity)
         value = self._evaluate_expression(
             self._dimension_ref(
@@ -563,8 +555,6 @@ class Materializer:
             (ref_factory.entity(field_ir.entity),),
             (table,),
         )
-
-    # -- measure ---------------------------------------------------------------
 
     def measure(self, semantic_id: str) -> ir.Value:
         """Materialize a measure, returning an ibis Value expression."""

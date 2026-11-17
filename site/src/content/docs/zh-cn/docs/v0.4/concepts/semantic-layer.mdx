@@ -698,8 +698,8 @@ catalog.metrics.show()                    # just metrics across all domains
 
 sales = catalog.domains.get("sales")
 orders = sales.entities.get("orders")
-revenue = orders.metrics.get("revenue")   # one metric object
-region = orders.dimensions.get("region")  # one dimension object
+revenue = orders.metrics.get("revenue")
+region = orders.dimensions.get("region")
 ```
 
 每个类型化集合都接受当前范围内的本地名称、精确 full 路径或同类型引用。

@@ -289,8 +289,3 @@ def test_semantic_input_stale_missing_path_requires_explicit_current_choice(
     assert exc_info.value.repair.kind == "inspect"
     assert exc_info.value.repair.snippet is None
     assert exc_info.value.repair.candidates == ("domain:sales",)
-
-
-# ---------------------------------------------------------------------------
-# Self-describing navigation and bounded repr
-# ---------------------------------------------------------------------------

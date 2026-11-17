@@ -204,7 +204,6 @@ def _check(
 def _apply(
     operation: Callable[..., object], left: _Operand, right: _Operand, expected: _Judgment | None
 ) -> None:
-    # Deliberately call the normal Python operators on ill-typed pairs as well.
     _check(
         lambda: operation(left.value, right.value),
         expected,
@@ -258,7 +257,6 @@ def test_exhaustive_numeric_conditional_stage_judgments(projects: _Projects) -> 
                 else None
             )
             assert isinstance(condition.value, (ms.RowExpression, ms.MetricExpression))
-            # The negative cases intentionally pass branches of the wrong public type.
             conditional = cast("Callable[[object, object], object]", condition.value.ifelse)
             _check(
                 partial(conditional, yes.value, no.value),

@@ -264,7 +264,6 @@ def semantic_project_factory(tmp_path: Path) -> _SemanticProjectFactory:
         from marivo.semantic.reader import SemanticProject
 
         effective_dir = workspace_dir if workspace_dir is not None else tmp_path
-        # Write project manifest for discovery
         (effective_dir / "marivo.toml").write_text('[project]\nname = "test"\n')
         marivo_root = effective_dir / "models"
         root = marivo_root / "semantic"
@@ -320,7 +319,6 @@ def plan_tier_entry(funnel_session: Any) -> Any:
 
 def bootstrap_sales_project(tmp_path: Path, *, with_time: bool = True) -> None:
     """Create a ready semantic project on disk for analysis tests."""
-    # Write project manifest for discovery
     (tmp_path / "marivo.toml").write_text('[project]\nname = "test"\n')
     semantic_dir = tmp_path / "models" / "semantic" / "sales"
     semantic_dir.mkdir(parents=True, exist_ok=True)

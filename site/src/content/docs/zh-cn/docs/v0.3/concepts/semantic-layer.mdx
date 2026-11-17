@@ -582,8 +582,8 @@ import marivo.semantic as ms
 catalog = ms.load()                       # SemanticCatalog
 catalog.list("domain").show()                     # top-level domains
 catalog.list("metric").show()                     # just metrics across all domains
-revenue = catalog.get("metric.sales.revenue")           # one object
-region = catalog.get("dimension.sales.orders.region")      # also an object
+revenue = catalog.get("metric.sales.revenue")
+region = catalog.get("dimension.sales.orders.region")
 ```
 
 在任何分析之前，运行**就绪检查**。这是把未完整声明的对象挡在分析之外的结构性门禁：

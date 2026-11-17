@@ -87,7 +87,6 @@ class AnalysisError(MarivoError):
         self.message = message
         self._context: dict[str, object] = dict(context) if context else {}
 
-        # Derive stable fields from context if not explicitly provided.
         derived = self._derive_fields()
         self.expected: str | None = expected if expected is not None else derived.get("expected")
         self.received: str | None = received if received is not None else derived.get("received")

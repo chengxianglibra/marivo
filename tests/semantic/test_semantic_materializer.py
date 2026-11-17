@@ -30,10 +30,6 @@ if TYPE_CHECKING:
     from marivo.semantic.reader import SemanticProject
     from tests.conftest import _SemanticProjectFactory
 
-# ---------------------------------------------------------------------------
-# DuckDB backend fixture
-# ---------------------------------------------------------------------------
-
 
 @pytest.fixture
 def duckdb_backend() -> ibis.duckdb.DuckDBBackend:
@@ -60,11 +56,6 @@ def backend_factory(
     return _factory
 
 
-# ---------------------------------------------------------------------------
-# Fake DatasourceConnectionService for patching
-# ---------------------------------------------------------------------------
-
-
 def _materialize_dataset(
     project: SemanticProject,
     connections: object,
@@ -86,11 +77,6 @@ def _materialize_field(project: SemanticProject, connections: object, ref: str) 
         ._semantic_resolver(connections=connections)
         .dimension(ref_factory.dimension(ref))
     )
-
-
-# ---------------------------------------------------------------------------
-# Model file templates
-# ---------------------------------------------------------------------------
 
 
 _DOMAIN_PY = textwrap.dedent("""\
@@ -166,11 +152,6 @@ _SQL_VIEW_DATASET_PY = textwrap.dedent("""\
 """)
 
 
-# ---------------------------------------------------------------------------
-# Dataset materialize
-# ---------------------------------------------------------------------------
-
-
 def test_dataset_materialize(
     semantic_project_factory: _SemanticProjectFactory,
     backend_factory: Callable[[str], ibis.duckdb.DuckDBBackend],
@@ -187,7 +168,6 @@ def test_dataset_materialize(
     with patch_semantic_connections(project, backend_factory) as connections:
         table = _materialize_dataset(project, connections, "sales.orders")
     assert isinstance(table, ibis.Table)
-    # The table should have the expected columns
     assert "amount" in table.columns
     assert "region" in table.columns
     rows = table.to_pandas()
@@ -319,7 +299,6 @@ def test_dataset_projected_table_uses_observed_lookup_schema(
     with patch_semantic_connections(project, lambda _: _LookupOnlyBackend()) as connections:
         table = _materialize_dataset(project, connections, "sales.orders")
 
-    # Projection applies the declared output aliases to the observed schema.
     assert table.columns == ("order_key", "value")
 
 
@@ -532,11 +511,6 @@ def test_dataset_json_source_requires_backend_reader(
     assert exc_info.value.kind == ErrorKind.MATERIALIZE_FAILED
 
 
-# ---------------------------------------------------------------------------
-# Field materialize
-# ---------------------------------------------------------------------------
-
-
 def test_field_materialize(
     semantic_project_factory: _SemanticProjectFactory,
     backend_factory: Callable[[str], ibis.duckdb.DuckDBBackend],
@@ -552,11 +526,6 @@ def test_field_materialize(
         field_expr = _materialize_field(project, connections, "sales.orders.amount")
     assert isinstance(field_expr, ibis.expr.types.Value)
     assert field_expr.get_name() == "amount"
-
-
-# ---------------------------------------------------------------------------
-# Column helper parity
-# ---------------------------------------------------------------------------
 
 
 def test_column_helper_catalog_details_and_preview_requires_snapshot(
@@ -602,11 +571,6 @@ def test_materializer_dimension_on_uses_supplied_table(
     value = mat.dimension_on("sales.orders.amount", supplied)
 
     assert isinstance(value, ibis.expr.types.Value)
-
-
-# ---------------------------------------------------------------------------
-# SQL escape hatch rejection
-# ---------------------------------------------------------------------------
 
 
 def test_dataset_decorator_body_rejected(semantic_project_factory: _SemanticProjectFactory) -> None:
@@ -706,11 +670,6 @@ def test_shadowed_semantic_alias_keeps_general_runtime_diagnostic(
     assert result.errors[0].kind == ErrorKind.ORGANIZATION_ERROR
 
 
-# ---------------------------------------------------------------------------
-# Not found errors
-# ---------------------------------------------------------------------------
-
-
 def test_missing_semantic_refs_raise_not_found(
     semantic_project_factory: _SemanticProjectFactory,
     backend_factory: Callable[[str], ibis.duckdb.DuckDBBackend],
@@ -733,11 +692,6 @@ def test_missing_semantic_refs_raise_not_found(
             assert exc_info.value.kind == ErrorKind.NOT_FOUND
 
 
-# ---------------------------------------------------------------------------
-# EntityRuntimeMetadata on project
-# ---------------------------------------------------------------------------
-
-
 def test_runtime_metadata_lifecycle(
     semantic_project_factory: _SemanticProjectFactory, duckdb_backend: ibis.duckdb.DuckDBBackend
 ) -> None:
@@ -753,10 +707,8 @@ def test_runtime_metadata_lifecycle(
         }
     )
 
-    # Before materialization, no metadata
     assert project._runtime_metadata.get("sales.orders") is None
 
-    # After materialization
     with patch_semantic_connections(project, factory) as connections:
         _materialize_dataset(project, connections, "sales.orders")
     meta = project._runtime_metadata.get("sales.orders")
@@ -768,11 +720,6 @@ def test_runtime_metadata_lifecycle(
 
     project.load()
     assert project._runtime_metadata.get("sales.orders") is None
-
-
-# ---------------------------------------------------------------------------
-# Project must be loaded before materialize
-# ---------------------------------------------------------------------------
 
 
 def test_materialization_sample_size_bounds_entity_output(

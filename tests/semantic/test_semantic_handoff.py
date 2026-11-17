@@ -70,7 +70,6 @@ def test_project_handoff_separates_static_and_physical_evidence(
 
     scope = md.unpruned(max_rows=10, timeout_seconds=30)
     preview = catalog.preview(amount, scope=scope)
-    # The published revenue Metric sums these rows; its own execution arrives in R2.
     values = [row["amount"] for row in preview.rows]
     assert all(isinstance(value, float) for value in values)
     assert sum(value for value in values if isinstance(value, float)) == 751.5

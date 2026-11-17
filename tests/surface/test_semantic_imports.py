@@ -43,10 +43,6 @@ from marivo.semantic.ir import (
 )
 from tests.support.refs import as_ref
 
-# ---------------------------------------------------------------------------
-# __all__ importability
-# ---------------------------------------------------------------------------
-
 
 def test_all_symbols_importable() -> None:
     for name in ms.__all__:
@@ -63,11 +59,6 @@ def test_typing_submodule() -> None:
 
 def test_errors_submodule() -> None:
     assert ms.errors is errors_mod
-
-
-# ---------------------------------------------------------------------------
-# Error hierarchy
-# ---------------------------------------------------------------------------
 
 
 def test_semantic_error_base() -> None:
@@ -152,10 +143,6 @@ def test_raise_helper() -> None:
     assert err.hint is not None  # auto-populated from HINTS
     assert err.constraint_id == "unique_semantic_name"
 
-
-# ---------------------------------------------------------------------------
-# ErrorKind enum
-# ---------------------------------------------------------------------------
 
 _EXPECTED_DECORATOR_KINDS = {
     "duplicate_name",
@@ -274,10 +261,6 @@ def test_hints_cover_all_kinds() -> None:
         assert kind in errors_mod.HINTS, f"Missing hint for {kind.value}"
 
 
-# ---------------------------------------------------------------------------
-# IR dataclasses are frozen
-# ---------------------------------------------------------------------------
-
 _FROZEN_CLASSES = [
     SourceLocation,
     AiContextIR,
@@ -294,11 +277,6 @@ def test_ir_frozen(cls: type) -> None:
     assert dataclasses.is_dataclass(cls)
     assert getattr(cls, "__dataclass_params__", None) is not None
     assert cls.__dataclass_params__.frozen  # type: ignore[attr-defined]
-
-
-# ---------------------------------------------------------------------------
-# IR enum types
-# ---------------------------------------------------------------------------
 
 
 def test_symbol_kind_values() -> None:
@@ -337,11 +315,6 @@ def test_field_kind_is_str_enum() -> None:
     assert isinstance(DimensionKind.CATEGORICAL, str)
     assert DimensionKind.CATEGORICAL.value == "categorical"
     assert DimensionKind.CATEGORICAL.__eq__("categorical") is True
-
-
-# ---------------------------------------------------------------------------
-# Ref types
-# ---------------------------------------------------------------------------
 
 
 def test_dataset_ref() -> None:
@@ -406,11 +379,6 @@ def test_relationship_ref() -> None:
     assert reference.kind == SemanticKind.RELATIONSHIP
 
 
-# ---------------------------------------------------------------------------
-# typing module
-# ---------------------------------------------------------------------------
-
-
 def test_ibis_backend_protocol() -> None:
     assert hasattr(typing_mod, "IbisBackend")
 
@@ -425,11 +393,6 @@ def test_ai_context_value_fields() -> None:
 
 def test_ai_context_value_uses_existing_typing_namespace() -> None:
     assert isinstance(ms.ai_context(), ms.typing.AiContextValue)
-
-
-# ---------------------------------------------------------------------------
-# Loader module
-# ---------------------------------------------------------------------------
 
 
 def test_loader_context_dataclass() -> None:
@@ -448,7 +411,6 @@ def test_load_result_dataclass() -> None:
     assert result.status == "ready"
     assert result.errors == ()
 
-    # LoadResult is frozen
     with pytest.raises(dataclasses.FrozenInstanceError):
         result.status = "errored"  # type: ignore[misc]
 
@@ -467,19 +429,8 @@ def test_structured_warning_is_frozen() -> None:
     assert warn.refs == ("ref1",)
     assert warn.location is None
 
-    # StructuredWarning is frozen
     with pytest.raises(dataclasses.FrozenInstanceError):
         warn.kind = "string_ref"  # type: ignore[misc]
-
-
-# ---------------------------------------------------------------------------
-# Removed SQL provenance entry
-# ---------------------------------------------------------------------------
-
-
-# ---------------------------------------------------------------------------
-# SemanticProject basic
-# ---------------------------------------------------------------------------
 
 
 def test_reader_project_init() -> None:

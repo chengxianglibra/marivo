@@ -84,7 +84,6 @@ def _write_datasource_file(
     path = datasource_path(spec.name, project_root)
     path.parent.mkdir(parents=True, exist_ok=True)
     func_name = require_profile_for_backend_type(spec.backend_type).authoring_func
-    # Separate declared fields from extra fields.
     declared_names = {
         f.name for f in dataclass_fields(spec) if f.name not in ("fields", "env_refs")
     }

@@ -70,9 +70,6 @@ def _check_quantile(reducer: Reducer, q: float | None) -> None:
         invalid(f"{reducer} does not accept q; received {q!r}. Remove q or use quantile.")
 
 
-# Row stage ---------------------------------------------------------------
-
-
 @dataclass(frozen=True, slots=True)
 class RowField:
     """Declared field on one contribution root, with its inherited unit and sum permission."""
@@ -165,18 +162,12 @@ class TimeBinding:
                 )
 
 
-# Source predicates -------------------------------------------------------
-
-
 @dataclass(frozen=True, slots=True)
 class PredicateExpression:
     """Native boolean recipe over inert field subtrees and membership leaves."""
 
     recipe: Resolver
     inputs: tuple[RowExpression | PopulationContains, ...]
-
-
-# Metric stage ------------------------------------------------------------
 
 
 @dataclass(frozen=True, slots=True)
@@ -328,9 +319,6 @@ MetricNode: TypeAlias = (
     | MetricExpression
     | MetricWindow
 )
-
-
-# Declarations ------------------------------------------------------------
 
 
 def _check_name(name: str) -> None:

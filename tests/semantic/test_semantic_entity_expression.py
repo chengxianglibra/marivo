@@ -89,11 +89,6 @@ def daily_orders(raw: ibis_ir.Table) -> object:
     return raw
 
 
-# ---------------------------------------------------------------------------
-# Decorator form and dispatch
-# ---------------------------------------------------------------------------
-
-
 def test_entity_without_name_returns_decorator_that_registers_ref() -> None:
     ctx = _enter_ctx(default_domain="sales")
     try:
@@ -164,11 +159,6 @@ def test_entity_duplicate_name_via_decorator_collides_with_direct() -> None:
         assert exc_info.value.kind == ErrorKind.DUPLICATE_NAME
     finally:
         _exit_ctx()
-
-
-# ---------------------------------------------------------------------------
-# Body shape validation
-# ---------------------------------------------------------------------------
 
 
 def test_entity_body_rejects_two_positional_parameters() -> None:
@@ -302,11 +292,6 @@ def test_entity_body_rejects_variadic_parameter() -> None:
     assert exc_info.value.kind == ErrorKind.COMPILE_ERROR
 
 
-# ---------------------------------------------------------------------------
-# Identity: body hash normalization
-# ---------------------------------------------------------------------------
-
-
 def test_entity_body_hash_ignores_parameter_name_and_docstring() -> None:
     def body_a(raw: ibis_ir.Table) -> object:
         """Docstring one."""
@@ -331,11 +316,6 @@ def test_entity_body_hash_changes_with_expression_change() -> None:
     assert _compile_entity_body(body_a).body_ast_hash != _compile_entity_body(body_b).body_ast_hash
 
 
-# ---------------------------------------------------------------------------
-# Ref family parity
-# ---------------------------------------------------------------------------
-
-
 def test_decorator_entity_ref_joins_same_ref_family() -> None:
     ctx = _enter_ctx(default_domain="sales")
     try:
@@ -353,11 +333,6 @@ def test_decorator_entity_ref_joins_same_ref_family() -> None:
         assert as_ref(decorator_ref) == as_ref(direct_ref)
     finally:
         _exit_ctx()
-
-
-# ---------------------------------------------------------------------------
-# Definition identity: body digests in dependency fingerprints
-# ---------------------------------------------------------------------------
 
 
 _IDENTITY_DIRECT = """\

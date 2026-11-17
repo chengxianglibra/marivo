@@ -208,7 +208,6 @@ def test_observe_invalid_grouping_shape_has_structured_repair(
     session = analysis_dsl_case_factory("j1").session
     revenue = catalog_get(session.catalog, "metric:sales.revenue", kind="metric")
     with pytest.raises(AnalysisError) as caught:
-        # Exercise the runtime boundary with deliberately invalid public inputs.
         session.observe({"value": revenue}, by=invalid_by)  # type: ignore[arg-type]
     assert caught.value.expected and caught.value.received and caught.value.repair
 

@@ -104,9 +104,6 @@ EdgeRole: TypeAlias = Literal[
 ]
 
 
-# Canonical encoding ------------------------------------------------------
-
-
 def canonical_value(value: object) -> object:
     """Convert supported typed payloads to deterministic JSON values."""
     if isinstance(value, Enum):
@@ -148,9 +145,6 @@ def canonical_bytes(value: object) -> bytes:
 def fingerprint(value: object) -> str:
     """Return the lowercase SHA-256 fingerprint of canonical bytes."""
     return hashlib.sha256(canonical_bytes(value)).hexdigest()
-
-
-# Edges -------------------------------------------------------------------
 
 
 @dataclass(frozen=True, slots=True)
@@ -258,9 +252,6 @@ def children(node: DefinitionNode) -> tuple[Edge, ...]:
             )
         case _:
             assert_never(node)
-
-
-# Fingerprints ------------------------------------------------------------
 
 
 _NODE_TYPES: tuple[type, ...] = get_args(DefinitionNode)
@@ -380,9 +371,6 @@ def computation_fingerprint(node: DefinitionNode) -> str:
     versions, exact dependency versions, and explicit Measure assertions do.
     """
     return _fingerprint_node(node, {})
-
-
-# Traversal ---------------------------------------------------------------
 
 
 @dataclass(frozen=True, slots=True)

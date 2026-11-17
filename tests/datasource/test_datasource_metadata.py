@@ -1965,8 +1965,9 @@ def test_inspect_table_clickhouse_distributed_dereferences_local_table(
     backend = _FakeBackend(
         {"event_id": "string", "time_iso": "datetime", "lag_count": "float64"},
         {},
+        # The identical table-metadata queries inspect the Distributed table first
+        # and its local target after the intervening column-metadata query.
         sequential_results=[
-            # 1st query: system.tables for Distributed table
             _FakeQueryResult(
                 ("comment", "partition_key", "engine", "engine_full"),
                 [
@@ -1978,7 +1979,6 @@ def test_inspect_table_clickhouse_distributed_dereferences_local_table(
                     )
                 ],
             ),
-            # 2nd query: system.columns for column metadata
             _FakeQueryResult(
                 ("name", "type", "is_nullable", "comment", "position"),
                 [
@@ -1987,7 +1987,6 @@ def test_inspect_table_clickhouse_distributed_dereferences_local_table(
                     ("lag_count", "Nullable(Float64)", 1, "", 3),
                 ],
             ),
-            # 3rd query: system.tables for local table dereference
             _FakeQueryResult(
                 ("comment", "partition_key", "engine", "engine_full"),
                 [("Local events", "toYYYYMMDD(time_iso)", "ReplicatedMergeTree", "")],
@@ -2175,11 +2174,6 @@ def test_inspect_table_trino_short_name_is_not_rejected(
     assert backend.table_calls == [("orders", None)]
 
 
-# ---------------------------------------------------------------------------
-# TableMetadata render / show / repr
-# ---------------------------------------------------------------------------
-
-
 def _make_table_metadata(
     *,
     comment: str | None = None,
@@ -2338,7 +2332,6 @@ def test_non_duckdb_backend_emits_primary_keys_unavailable_warning(
     )
     result = _with_primary_key_capability_warning(metadata)
     assert any(w.kind == "primary_keys_unavailable" for w in result.warnings)
-    # DuckDB metadata is passed through unchanged.
     duck = TableMetadata(
         datasource="wh",
         table="orders",
@@ -2353,7 +2346,6 @@ def test_non_duckdb_backend_emits_primary_keys_unavailable_warning(
 
 
 def test_duckdb_constraint_query_failure_is_warning(project_root: Path) -> None:
-    # A table without constraints still inspects cleanly with empty pk/uq.
     db_path = project_root / "warehouse.duckdb"
     con = ibis.duckdb.connect(str(db_path))
     con.raw_sql("CREATE TABLE plain (a INTEGER, b VARCHAR)")

@@ -12,10 +12,6 @@ from marivo.semantic.errors import SemanticLoadFailed
 from marivo.semantic.ir import ValidityVersioningIR
 from marivo.semantic.reader import SemanticProject
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
 _DOMAIN_FILE = "import marivo.datasource as md\nimport marivo.semantic as ms\nms.domain(name='sales', owner='Mina Zhang')\n"
 
 # Typed temporal bounds are row coordinates, separate from stable Entity identity.
@@ -32,11 +28,6 @@ user_history = ms.entity(
     versioning=ms.validity(valid_from=valid_from, valid_to=valid_to, interval='closed_open', open_end=(None,)),
 )
 """
-
-
-# ---------------------------------------------------------------------------
-# Test 1: validity round-trip
-# ---------------------------------------------------------------------------
 
 
 def test_validity_versioning_round_trip(
@@ -61,11 +52,6 @@ def test_validity_versioning_round_trip(
     assert versioning.valid_to == "sales.user_history.valid_to"
     assert versioning.interval == "closed_open"
     assert versioning.open_end == (None,)
-
-
-# ---------------------------------------------------------------------------
-# Test 2: empty open_end is rejected
-# ---------------------------------------------------------------------------
 
 
 def test_validity_empty_open_end_rejected(
@@ -105,11 +91,6 @@ def test_validity_empty_open_end_rejected(
     assert error.details.get("field") == "open_end"
 
 
-# ---------------------------------------------------------------------------
-# Test 3: invalid interval is rejected
-# ---------------------------------------------------------------------------
-
-
 def test_validity_invalid_interval_rejected(
     semantic_project_factory: Callable[..., SemanticProject],
 ) -> None:
@@ -147,11 +128,6 @@ def test_validity_invalid_interval_rejected(
     assert error.details.get("field") == "interval"
 
 
-# ---------------------------------------------------------------------------
-# Test 4: valid_from in primary_key is rejected
-# ---------------------------------------------------------------------------
-
-
 def test_validity_valid_from_in_primary_key_rejected(
     semantic_project_factory: Callable[..., SemanticProject],
 ) -> None:
@@ -175,11 +151,6 @@ def test_validity_valid_from_in_primary_key_rejected(
     error = errors[0]
     assert error.kind == "identity_version_overlap"
     assert error.expected == "stable identity K separate from validity coordinates"
-
-
-# ---------------------------------------------------------------------------
-# Test 5: unknown field ref is rejected
-# ---------------------------------------------------------------------------
 
 
 def test_validity_rejects_unknown_field_ref(

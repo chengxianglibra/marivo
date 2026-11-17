@@ -709,7 +709,6 @@ def test_tls_cors_and_cli_validation(tmp_path: Path) -> None:
 def test_read_timeout_covers_complete_report_and_catalog(tmp_path: Path) -> None:
     ids = _produce(tmp_path)
     _models(tmp_path, "slow", slow=True)
-    # Hold a real Frame read past the deadline at its file-read boundary.
     script = """
 from time import sleep
 from marivo.analysis.materialization.graph_reading import FrameReader

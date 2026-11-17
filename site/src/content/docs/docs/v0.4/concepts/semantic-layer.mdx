@@ -758,8 +758,8 @@ catalog.metrics.show()                    # just metrics across all domains
 
 sales = catalog.domains.get("sales")
 orders = sales.entities.get("orders")
-revenue = orders.metrics.get("revenue")   # one metric object
-region = orders.dimensions.get("region")  # one dimension object
+revenue = orders.metrics.get("revenue")
+region = orders.dimensions.get("region")
 ```
 
 Each typed collection accepts a local name, an exact full path, or a same-kind

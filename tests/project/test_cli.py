@@ -14,10 +14,6 @@ from marivo import __version__
 from marivo._compat import tomllib
 from marivo.cli import init_project, main
 
-# ---------------------------------------------------------------------------
-# init_project creates all artifacts
-# ---------------------------------------------------------------------------
-
 
 def test_creates_marivo_toml(tmp_path: Path) -> None:
     init_project(project_dir=tmp_path)
@@ -68,23 +64,12 @@ def test_init_command_accepts_explicit_project_root(tmp_path: Path) -> None:
     assert (project_root / ".marivo").is_dir()
 
 
-# ---------------------------------------------------------------------------
-# init_project warns but continues when artifacts exist (no --force)
-# ---------------------------------------------------------------------------
-
-
 def test_warns_but_creates_missing_artifacts(tmp_path: Path) -> None:
     """When some artifacts exist, missing ones are still created."""
     (tmp_path / "marivo.toml").write_text('[project]\nname = "x"\n')
     init_project(project_dir=tmp_path)
-    # marivo.toml was skipped (already exists), but models/ and .marivo/ were created
     assert (tmp_path / "models").is_dir()
     assert (tmp_path / ".marivo").is_dir()
-
-
-# ---------------------------------------------------------------------------
-# init_project with force=True replaces existing artifacts
-# ---------------------------------------------------------------------------
 
 
 def test_force_overwrites_marivo_toml(tmp_path: Path) -> None:
@@ -95,38 +80,21 @@ def test_force_overwrites_marivo_toml(tmp_path: Path) -> None:
     assert data["project"]["name"] == tmp_path.name
 
 
-# ---------------------------------------------------------------------------
-# --force deletes and recreates non-empty .marivo/
-# ---------------------------------------------------------------------------
-
-
 def test_force_deletes_nonempty_dot_marivo(tmp_path: Path) -> None:
     (tmp_path / ".marivo").mkdir()
     (tmp_path / ".marivo" / "analysis").mkdir()
     (tmp_path / ".marivo" / "analysis" / "session.json").write_text("{}")
     init_project(force=True, project_dir=tmp_path)
-    # .marivo/ was deleted and recreated, so the old file is gone
     assert not (tmp_path / ".marivo" / "analysis" / "session.json").exists()
     assert (tmp_path / ".marivo").is_dir()
-
-
-# ---------------------------------------------------------------------------
-# --force overwrites invalid TOML
-# ---------------------------------------------------------------------------
 
 
 def test_force_overwrites_invalid_toml(tmp_path: Path) -> None:
     (tmp_path / "marivo.toml").write_text("this is not valid [[toml")
     init_project(force=True, project_dir=tmp_path)
-    # marivo.toml should now be valid and contain the project name
     with open(tmp_path / "marivo.toml", "rb") as f:
         data = tomllib.load(f)
     assert data["project"]["name"] == tmp_path.name
-
-
-# ---------------------------------------------------------------------------
-# Invalid TOML without --force still errors
-# ---------------------------------------------------------------------------
 
 
 def test_rejects_invalid_toml_without_force(tmp_path: Path) -> None:
@@ -134,11 +102,6 @@ def test_rejects_invalid_toml_without_force(tmp_path: Path) -> None:
     with pytest.raises(SystemExit) as exc_info:
         init_project(project_dir=tmp_path)
     assert exc_info.value.code == 1
-
-
-# ---------------------------------------------------------------------------
-# No subcommand prints help and exits 0
-# ---------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize("arguments", ((), ("--help",)))

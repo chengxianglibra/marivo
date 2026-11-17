@@ -73,7 +73,6 @@ def _init_project_impl(force: bool = False, project_dir: Path | None = None) -> 
 
     print(f"Initializing Marivo project in {project_dir}")
 
-    # --- Guard: refuse to skip invalid marivo.toml without --force ---
     if not force:
         manifest_path = project_dir / PROJECT_MANIFEST
         if manifest_path.is_file():
@@ -88,7 +87,6 @@ def _init_project_impl(force: bool = False, project_dir: Path | None = None) -> 
                 )
                 raise SystemExit(1) from None
 
-    # --- Force: remove existing artifacts ---
     if force:
         for _, path in artifacts.items():
             if path.is_symlink():
@@ -98,7 +96,6 @@ def _init_project_impl(force: bool = False, project_dir: Path | None = None) -> 
             elif path.is_file():
                 path.unlink()
 
-    # --- Create marivo.toml ---
     manifest_path = project_dir / PROJECT_MANIFEST
     if not manifest_path.exists():
         project_name = project_dir.name
@@ -108,7 +105,6 @@ def _init_project_impl(force: bool = False, project_dir: Path | None = None) -> 
     else:
         print(f"  Warning: {PROJECT_MANIFEST} already exists — skipping", file=sys.stderr)
 
-    # --- Create models/ ---
     models_path = project_dir / AUTHORED_DIR
     if not models_path.exists():
         models_path.mkdir(exist_ok=True)
@@ -116,7 +112,6 @@ def _init_project_impl(force: bool = False, project_dir: Path | None = None) -> 
     else:
         print(f"  Warning: {AUTHORED_DIR}/ already exists — skipping", file=sys.stderr)
 
-    # --- Create .marivo/ ---
     state_path = project_dir / STATE_DIR
     if not state_path.exists():
         state_path.mkdir(exist_ok=True)
@@ -124,7 +119,6 @@ def _init_project_impl(force: bool = False, project_dir: Path | None = None) -> 
     else:
         print(f"  Warning: {STATE_DIR}/ already exists — skipping", file=sys.stderr)
 
-    # --- Install skills ---
     for agent_dir_name, agent_label in [
         (AGENTS_SKILLS_DIR, "Agents"),
         (CLAUDE_SKILLS_DIR, "Claude Code"),

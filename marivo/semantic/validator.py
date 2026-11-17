@@ -77,11 +77,6 @@ __all__ = [
 ]
 
 
-# ---------------------------------------------------------------------------
-# Registry type
-# ---------------------------------------------------------------------------
-
-
 @dataclass
 class Registry:
     """Holds all loaded IR objects, indexed by semantic_id."""
@@ -690,7 +685,6 @@ def _time_dimension_dtype_advisory(
     compatible = _CAST_TARGET_TO_DECLARED.get(inferred)
     if compatible is None:
         return None
-    # The parse declaration determines the semantic expression's expected kind.
     parse = field_ir.parse
     data_type_val: str | None = None
     if parse is None:
@@ -708,11 +702,6 @@ def _time_dimension_dtype_advisory(
     return None
 
 
-# ---------------------------------------------------------------------------
-# Layer 1: decorator-time validation
-# ---------------------------------------------------------------------------
-
-
 def validate_decorator_call(kind: str, payload: dict[str, Any]) -> None:
     """Layer 1: decorator-time validation.  Raises SemanticDecoratorError.
 
@@ -720,11 +709,6 @@ def validate_decorator_call(kind: str, payload: dict[str, Any]) -> None:
     in the authoring module.  This function exists as an extension point
     for future decorator-level checks.
     """
-
-
-# ---------------------------------------------------------------------------
-# Layer 2: AST whitelist validation
-# ---------------------------------------------------------------------------
 
 
 def _ast_spec_for(constraint_id: ConstraintId) -> ASTSpec:
@@ -735,7 +719,6 @@ def _ast_spec_for(constraint_id: ConstraintId) -> ASTSpec:
 
 _EXPR_BODY_AST_SPEC = _ast_spec_for(ConstraintId.AST_SINGLE_RETURN)
 
-# Names that indicate a raw SQL escape hatch when used as an attribute.
 _SQL_ESCAPE_ATTRS = frozenset(_EXPR_BODY_AST_SPEC.forbidden_attributes)
 
 # ibis Table method/property names that shadow column access via dot notation.
@@ -749,7 +732,6 @@ try:
 except ImportError:
     _IBIS_TABLE_ATTRS = frozenset()
 
-# AST node types that are FORBIDDEN as statements in metric bodies.
 _AST_TRY_STAR = cast("type[ast.stmt]", getattr(ast, "TryStar", ast.Try))
 
 _FORBIDDEN_STMT_TYPES: frozenset[type[ast.stmt]] = frozenset(
@@ -842,16 +824,12 @@ class _BaseMetricASTValidator(ast.NodeVisitor):
                 "a zero-argument declaration over already constructed fields",
                 ast.unparse(node.args),
             )
-        # Extract parameter names and build parent map for context-sensitive checks.
         self._param_names = {arg.arg for arg in (*node.args.posonlyargs, *node.args.args)}
         self._parent_map = {
             child: parent for parent in ast.walk(node) for child in ast.iter_child_nodes(parent)
         }
 
-        # Validate the function body structure
-
         # Must have exactly one top-level Return (no nested returns in if/else/etc.)
-        # Recursively find all Return nodes in the entire function body
         all_returns: list[ast.Return] = []
         for child in ast.walk(node):
             if isinstance(child, ast.Return):
@@ -872,12 +850,10 @@ class _BaseMetricASTValidator(ast.NodeVisitor):
                 constraint_id=ConstraintId.AST_SINGLE_RETURN,
             )
 
-        # Check for forbidden statement types anywhere in the body
         leading_docstring = node.body[0] if node.body and _is_docstring_stmt(node.body[0]) else None
         for child in ast.walk(node):
             if child is node:
                 continue
-            # Skip expression nodes — we only check statement nodes
             if not isinstance(child, ast.stmt):
                 continue
             if child is leading_docstring:
@@ -1015,7 +991,6 @@ class _BaseMetricASTValidator(ast.NodeVisitor):
     def visit_Attribute(self, node: ast.Attribute) -> None:
         if self._pure_declaration:
             return
-        # Check for .sql / .raw_sql escape hatches
         if node.attr in _SQL_ESCAPE_ATTRS:
             self._add_error(
                 ErrorKind.SQL_ESCAPE_HATCH,
@@ -1023,7 +998,6 @@ class _BaseMetricASTValidator(ast.NodeVisitor):
                 f"which is not allowed. Use an Ibis expression body instead.",
                 constraint_id=ConstraintId.AST_SQL_ESCAPE_HATCH,
             )
-        # Check for ibis Table attribute shadowing (e.g. orders.schema instead of orders["schema"])
         if (
             _IBIS_TABLE_ATTRS
             and isinstance(node.value, ast.Name)
@@ -1069,7 +1043,6 @@ class _BaseMetricASTValidator(ast.NodeVisitor):
             f"{self.body_label} of {self.fn_name!r} contains a lambda expression, which is not allowed.",
             constraint_id=ConstraintId.AST_FORBIDDEN_STATEMENT,
         )
-        # Don't recurse into lambda body
 
 
 def _is_docstring_stmt(node: ast.stmt) -> bool:
@@ -1150,12 +1123,10 @@ def validate_metric_body_ast(
         func_node = _function
         body_hash = _body_hash_without_docstring(func_node)
     else:
-        # Compute body AST hash
         try:
             source = inspect.getsource(fn)
             source = textwrap.dedent(source)
             tree = ast.parse(source)
-            # Find the function definition node
             func_node = None
             for node in ast.walk(tree):
                 if isinstance(node, ast.FunctionDef) and node.name == fn.__name__:
@@ -1291,11 +1262,6 @@ def validate_entity_table_body_ast(fn: Callable[..., Any]) -> str:
                 constraint_id=ConstraintId.AST_FORBIDDEN_STATEMENT,
             )
     return _body_hash_without_docstring(func_node)
-
-
-# ---------------------------------------------------------------------------
-# Layer 3: assembly-time cross-object validation
-# ---------------------------------------------------------------------------
 
 
 _AGGREGATE_METHODS = {"sum", "mean", "avg", "count", "nunique", "max", "min"}
@@ -1755,7 +1721,6 @@ def assembly_validate(
 
     errors.extend(_validate_projected_source_aliases(registry, sidecar))
 
-    # -- Validate datasource refs on entities --------------------------------
     for ds_id, ds_ir in registry.entities.items():
         default = ds_ir.default_time
         if default is not None:
@@ -1811,7 +1776,6 @@ def assembly_validate(
         ):
             _validate_entity_versioning(errors, ds_id, registry)
 
-    # -- Validate entity refs on dimensions ----------------------------------
     for f_id, f_ir in registry.dimensions.items():
         if f_ir.entity not in registry.entities:
             if _is_filtered_domain_ref(f_ir.entity, loaded_models):
@@ -1831,17 +1795,11 @@ def assembly_validate(
                     )
                 )
 
-    # -- Validate measure entity refs -----------------------------------------
-    # -- Validate period-calendar source-field ownership --------------------
-    # -- Validate temporal-set source-field ownership -----------------------
-
-    # -- Validate measure entity refs -----------------------------------------
     errors.extend(_validate_measure_refs(registry))
     errors.extend(_validate_dsl_declarations(registry))
 
     if sidecar is not None:
         errors.extend(_validate_expression_bindings(registry, sidecar))
-    # -- Validate dimension refs in relationships -----------------------------
     for r_id, r_ir in registry.relationships.items():
         if r_ir.from_entity not in registry.entities:
             if _is_filtered_domain_ref(r_ir.from_entity, loaded_models):
@@ -1869,7 +1827,6 @@ def assembly_validate(
                         refs=(r_id, r_ir.to_entity),
                     )
                 )
-        # Validate dimension refs via JoinKey pairs
         for join_key in r_ir.keys:
             ff = join_key.from_key
             if ff not in registry.dimensions:
@@ -1921,7 +1878,6 @@ def assembly_validate(
             except SemanticError as error:
                 errors.append(error)
 
-    # -- Validate HourPrefixParse prefix cross-reference ---------------------
     for f_id, f_ir in registry.dimensions.items():
         if f_ir.is_time_dimension and isinstance(f_ir.parse, HourPrefixParse):
             prefix_name = f_ir.parse.prefix
@@ -1973,10 +1929,6 @@ def assembly_validate(
                     )
                 )
 
-    # -- Cross-model cycle detection (basic) --------------------------------
-
-    # -- Warnings -----------------------------------------------------------
-    # Partition pushdown advisory warnings
     for f_id, f_ir in registry.dimensions.items():
         field_ref = (
             ref_factory.time_dimension(f_id)
@@ -2004,7 +1956,6 @@ def assembly_validate(
                 )
             )
 
-    # Warn when the expression casts away from its declared temporal parse result.
     for f_id, f_ir in registry.dimensions.items():
         field_ref = (
             ref_factory.time_dimension(f_id)

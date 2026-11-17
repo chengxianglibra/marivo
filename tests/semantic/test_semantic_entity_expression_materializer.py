@@ -74,11 +74,6 @@ def _expr_project(semantic_project_factory: _SemanticProjectFactory, model: str)
     return project
 
 
-# ---------------------------------------------------------------------------
-# Output relation, grain, and shared-resolver execution
-# ---------------------------------------------------------------------------
-
-
 def test_expression_entity_materializes_output_rows_and_metric(
     semantic_project_factory: _SemanticProjectFactory,
 ) -> None:
@@ -152,11 +147,6 @@ branch_amount = ms.measure_column(
     assert sorted(rows["amount"].tolist()) == [20.0, 25.0, 30.0, 30.0]
 
 
-# ---------------------------------------------------------------------------
-# Budget placement: physical scope before the body, row limits after it
-# ---------------------------------------------------------------------------
-
-
 def test_partition_scope_applies_before_entity_body(
     semantic_project_factory: _SemanticProjectFactory,
 ) -> None:
@@ -212,11 +202,6 @@ def test_metric_sample_size_limits_entity_output_before_aggregation(
     assert rows["order_count"].tolist() in ([3], [2])
 
 
-# ---------------------------------------------------------------------------
-# Single-Source boundary enforcement
-# ---------------------------------------------------------------------------
-
-
 def test_expression_entity_rejects_captured_memtable_root(
     semantic_project_factory: _SemanticProjectFactory,
 ) -> None:
@@ -266,7 +251,6 @@ def test_expression_entity_rejects_scope_bypass_through_op_ancestors(
     assert exc_info.value.kind == ErrorKind.SQL_ESCAPE_HATCH
     assert "sales.unscoped" in str(exc_info.value)
 
-    # The same rejection guards the public preview path.
     catalog = SemanticCatalog(project)
     with (
         patch_semantic_connections(project, lambda _name: connection),
@@ -404,11 +388,6 @@ def test_expression_entity_scalar_return_fails_at_materialization(
     assert exc_info.value.kind == ErrorKind.BINDING_RESULT_INVALID
 
 
-# ---------------------------------------------------------------------------
-# Direct declarations stay on the identity relation
-# ---------------------------------------------------------------------------
-
-
 def test_direct_entity_materialization_unchanged(
     semantic_project_factory: _SemanticProjectFactory,
 ) -> None:
@@ -442,11 +421,6 @@ def test_expression_entity_provenance_reports_physical_source(
     # view; provenance keeps describing the physical declared Source.
     assert meta.entity_provenance is EntityProvenance.IBIS_TABLE
     assert meta.raw_sql_snippet is None
-
-
-# ---------------------------------------------------------------------------
-# Preview disclosure over Entity output
-# ---------------------------------------------------------------------------
 
 
 def test_entity_preview_reports_output_columns(

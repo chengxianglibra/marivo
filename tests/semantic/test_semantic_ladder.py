@@ -71,9 +71,6 @@ def _duckdb_project_with_entity(
     )
 
 
-# -- Project-level loading and exact lookup -----------------------------------
-
-
 def test_require_entity_is_static_without_audit_side_effects(
     tmp_path: Path, semantic_project_factory: _SemanticProjectFactory
 ) -> None:
@@ -94,7 +91,6 @@ def test_require_entity_uses_current_loaded_project(
     first = ms.SemanticCatalog(project).get("entity:sales.orders")
     assert first.id == "entity:sales.orders"
 
-    # Rewrite the entity with a different source table name
     import ibis
 
     db_path = tmp_path / "warehouse.duckdb"
@@ -122,14 +118,10 @@ def test_require_entity_uses_current_loaded_project(
     assert second.provenance.definition_fingerprint != first.provenance.definition_fingerprint
 
 
-# -- verify_object with project load failure ----------------------------------
-
-
 def test_catalog_construction_reports_project_load_failed(
     semantic_project_factory: _SemanticProjectFactory,
 ) -> None:
     """A catalog is unavailable when its project failed to compile."""
-    # Create a project whose metrics file calls a non-existent ms.max()
     project = semantic_project_factory(
         {
             "cdn/_domain.py": (

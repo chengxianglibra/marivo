@@ -378,7 +378,6 @@ def test_exact_boundaries_calendar_and_host_independence(
     assert reopened.by(mv.grain("day")) == axis
     assert _validate_time_scope_data(scope._model_dump(mode="json")) == scope
     with pytest.raises(ValueError):
-        # Intentionally pass a retired string shape to the runtime validator.
         by: object = scope.by
         assert callable(by)
         by("day")

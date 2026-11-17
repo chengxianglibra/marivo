@@ -404,7 +404,6 @@ def _parse_clickhouse_partition_key(
 
     if not partition_key or partition_key == "tuple()":
         return ()
-    # Split on commas only outside parentheses (depth-aware).
     elements: list[str] = []
     depth = 0
     start = 0

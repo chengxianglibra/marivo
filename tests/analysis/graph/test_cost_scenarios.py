@@ -72,7 +72,6 @@ def test_duckdb_local_original_sum_consumes_group_input(
             "started": -1.0,
             "finished": 1.0,
         }
-        # Current-row reduction sums the explicitly observed group values.
         result = grouped.reduce({"value": grouped["value"].sum()}).persist()
         assert work.validate(result)["passed"] is True
         source_trace.record(result)

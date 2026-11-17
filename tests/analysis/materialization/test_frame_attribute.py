@@ -191,7 +191,6 @@ def test_joint_product_and_correlated_population_keep_complete_keys(session: Ses
         rows = source.compute().to_pandas()
         assert list(rows.itertuples(index=False, name=None)) == oracle
     with pytest.raises(AnalysisError):
-        # Deliberately pass a Population inside a tuple to exercise runtime rejection.
         session.observe({"q": amount}).attribute(by=(domains[1], channel))  # type: ignore[arg-type]
 
 

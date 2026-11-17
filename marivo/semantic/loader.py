@@ -134,7 +134,6 @@ class LoaderContextManager:
             _LOADER_CTX.reset(self._token)
 
 
-# Alias for convenient use at the call site
 loader_context = LoaderContextManager
 
 
@@ -200,11 +199,6 @@ class ModelsRoot:
     semantic_root: Path
     datasource_root: Path
     is_external: bool = False
-
-
-# ---------------------------------------------------------------------------
-# File loading helpers
-# ---------------------------------------------------------------------------
 
 
 def _is_excluded_file(filename: str) -> bool:
@@ -454,7 +448,6 @@ def _load_model_dir(
     model_file = model_dir / "_domain.py"
     model_name = model_dir.name
 
-    # Check _domain.py exists
     if not model_file.exists():
         errors.append(
             SemanticLoadError(
@@ -470,7 +463,6 @@ def _load_model_dir(
         )
         return None
 
-    # Execute _domain.py
     ctx = LoaderContext(
         model_name=model_name,
         file_path=str(model_file),
@@ -488,7 +480,6 @@ def _load_model_dir(
         package_name=model_package,
     )
 
-    # Validate ms.domain() was called and name matches directory
     model_names = [
         pending.definition.name
         for pending in ctx.pending_definitions
@@ -510,7 +501,6 @@ def _load_model_dir(
         )
         return None
 
-    # Check model name matches directory name
     if model_names[0] != model_name:
         errors.append(
             SemanticLoadError(
@@ -521,14 +511,12 @@ def _load_model_dir(
         )
         return None
 
-    # Set default_domain from the model declaration
     for pending in ctx.pending_definitions:
         ir = pending.definition
         if isinstance(ir, DomainIR) and ir.default:
             ctx.default_domain = ir.name
             break
 
-    # Execute sibling .py files (exclude _domain.py, _exports.py, etc.)
     sibling_files: list[Path] = []
     for child in sorted(model_dir.iterdir()):
         if not child.is_file():
@@ -699,11 +687,6 @@ def _closure_scope_error(
             location_label=_declaration_site(value),
         )
     return None
-
-
-# ---------------------------------------------------------------------------
-# Metric additivity resolution (runs after _build_registry, before validation)
-# ---------------------------------------------------------------------------
 
 
 def _build_registry(
@@ -1118,6 +1101,5 @@ def find_project(start_dir: str | Path = ".") -> Any:
 
         parent = current.parent
         if parent == current:
-            # Reached filesystem root
             return None
         current = parent

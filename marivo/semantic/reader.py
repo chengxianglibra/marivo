@@ -46,11 +46,6 @@ __all__ = [
 ]
 
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
 class SemanticProject:
     """Primary reader for a loaded semantic project.
 
@@ -116,8 +111,6 @@ class SemanticProject:
     def workspace_dir(self) -> Path:
         """Return the workspace directory path."""
         return self._workspace_dir
-
-    # -- lifecycle -----------------------------------------------------------
 
     def load(
         self, domains: str | Sequence[str] | None = None, *, allow_partial: bool = False
@@ -211,8 +204,6 @@ class SemanticProject:
         from marivo.semantic.catalog import SemanticCatalog
 
         return SemanticCatalog(self)
-
-    # -- readiness ----------------------------------------------------------
 
     def _connection_operation(self) -> AbstractContextManager[DatasourceConnectionService]:
         """Create an operation owner using this reader's captured resolver."""

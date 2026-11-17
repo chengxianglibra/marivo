@@ -88,7 +88,6 @@ def _native_float(
                     or pa.types.is_decimal(pa.array(series).type)
                 )
             ):
-                # This models the admitted provider handoff, including its rounding.
                 frame[name] = pd.Series(
                     [float(value) if not pd.isna(value) else None for value in series],
                     dtype="float64",

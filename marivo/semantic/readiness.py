@@ -512,7 +512,6 @@ def build_readiness_report(
             )
         )
 
-    # Cross-datasource physical dependencies.
     if reg is not None:
         for ref in cross_datasource_refs:
             path = _display_path(ref)
@@ -530,7 +529,6 @@ def build_readiness_report(
                 )
             )
 
-    # Forward load warnings as readiness warnings.
     checked_paths = {_display_path(ref) for ref in checked_refs}
     for sw in project.warnings():
         if scoped_keys is not None and sw.refs and checked_paths.isdisjoint(sw.refs):

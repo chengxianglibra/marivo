@@ -72,10 +72,6 @@ from tests.shared_fixtures import captured_catalog, in_memory_datasource_ir
 from tests.shared_fixtures import resolve_test_symbol as resolve
 from tests.support.refs import as_ref
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
 
 def _required_ref_path(value: object) -> str:
     reference = as_ref(value)
@@ -155,11 +151,6 @@ def _clean_ctx() -> Iterator[None]:
     _exit_ctx()
 
 
-# ---------------------------------------------------------------------------
-# Outside-loader-context guard
-# ---------------------------------------------------------------------------
-
-
 def test_model_outside_context_raises() -> None:
     with pytest.raises(SemanticDecoratorError) as exc_info:
         ms.domain(name="sales", owner="Mina Zhang")
@@ -222,16 +213,10 @@ def test_relationship_outside_context_raises() -> None:
     assert exc_info.value.kind == ErrorKind.OUTSIDE_LOADER_CONTEXT
 
 
-# ---------------------------------------------------------------------------
-# ms.domain() call
-# ---------------------------------------------------------------------------
-
-
 def test_model_creates_model_ir() -> None:
     ctx = _enter_ctx()
     try:
         ref = ms.domain(name="sales", owner="Mina Zhang", default=True)
-        # Should have one pending object
         assert len(_pending_objects(ctx)) == 1
         ir, callable_ = _pending_objects(ctx)[0]
         assert isinstance(ir, DomainIR)
@@ -241,7 +226,6 @@ def test_model_creates_model_ir() -> None:
         assert ir.owner == "Mina Zhang"
         assert ir.default is True
         assert ctx.default_domain == "sales"
-        # model() is not a decorator — no callable
         assert callable_ is None
     finally:
         _exit_ctx()
@@ -285,11 +269,6 @@ def test_field_accepts_model_ref() -> None:
         assert _required_ref_path(region) == "sales.orders.region"
     finally:
         _exit_ctx()
-
-
-# ---------------------------------------------------------------------------
-# ms.entity() decorator
-# ---------------------------------------------------------------------------
 
 
 def test_entity_without_name_returns_expression_decorator() -> None:
@@ -437,11 +416,6 @@ def test_entity_accepts_json_source(
         "body": None,
         "body_params": [],
     }
-
-
-# ---------------------------------------------------------------------------
-# ms.dimension() decorator
-# ---------------------------------------------------------------------------
 
 
 def test_field_name_defaults_to_function_name() -> None:
@@ -683,11 +657,6 @@ def test_measure_column_rejects_string_entity() -> None:
         _exit_ctx()
 
     assert exc_info.value.kind == ErrorKind.INVALID_REF
-
-
-# ---------------------------------------------------------------------------
-# ms.time_dimension() decorator
-# ---------------------------------------------------------------------------
 
 
 def test_time_dimension_body_error_uses_time_dimension_label() -> None:
@@ -1394,11 +1363,6 @@ def test_status_fold_requires_status_time() -> None:
         _exit_ctx()
 
 
-# ---------------------------------------------------------------------------
-# ms.aggregate() call
-# ---------------------------------------------------------------------------
-
-
 def test_retired_aggregate_rejects_before_registration() -> None:
     ctx = _enter_ctx(default_domain="sales")
     try:
@@ -1409,11 +1373,6 @@ def test_retired_aggregate_rejects_before_registration() -> None:
         assert ctx.pending_definitions == []
     finally:
         _exit_ctx()
-
-
-# ---------------------------------------------------------------------------
-# ms.count() call
-# ---------------------------------------------------------------------------
 
 
 def test_entity_count_retains_exact_root() -> None:
@@ -1441,11 +1400,6 @@ def test_count_rejects_string_entity() -> None:
         ms.count(name="order_count", entity="sales.orders")
     assert caught.value.kind == ErrorKind.INVALID_COMPONENT_BODY
     assert caught.value.repair is not None and "Entity.count" in caught.value.repair.action
-
-
-# ---------------------------------------------------------------------------
-# ms.where() filtered count / aggregate
-# ---------------------------------------------------------------------------
 
 
 def test_where_requires_at_least_one_condition() -> None:
@@ -1555,11 +1509,6 @@ def test_aggregate_rejects_non_where_filter() -> None:
         _exit_ctx()
 
 
-# ---------------------------------------------------------------------------
-# ms.ratio() derived registration
-# ---------------------------------------------------------------------------
-
-
 def test_metric_division_keeps_source_nodes_and_local_name() -> None:
     ctx = _enter_ctx(default_domain="sales")
     try:
@@ -1642,11 +1591,6 @@ def test_metric_rejects_empty_entities() -> None:
         assert ctx.pending_definitions == []
     finally:
         _exit_ctx()
-
-
-# ---------------------------------------------------------------------------
-# ms.relationship() call
-# ---------------------------------------------------------------------------
 
 
 def test_relationship_returns_resolved_value() -> None:
@@ -1736,11 +1680,6 @@ def test_relationship_rejects_non_join_key_entries() -> None:
         assert exc_info.value.kind == ErrorKind.INVALID_REF
     finally:
         _exit_ctx()
-
-
-# ---------------------------------------------------------------------------
-# Ref factories
-# ---------------------------------------------------------------------------
 
 
 def test_authoring_reference_parameters_reject_naked_strings() -> None:
@@ -1897,11 +1836,6 @@ def test_authoring_reference_parameters_reject_wrong_ref_kind() -> None:
             _exit_ctx()
 
 
-# ---------------------------------------------------------------------------
-# Duplicate name detection
-# ---------------------------------------------------------------------------
-
-
 def test_duplicate_dataset_name_raises() -> None:
     _enter_ctx(default_domain="sales")
     try:
@@ -1991,21 +1925,6 @@ def test_field_and_time_field_same_name_same_dataset_collides() -> None:
         _exit_ctx()
 
 
-# ---------------------------------------------------------------------------
-# Keyword-only enforcement
-# ---------------------------------------------------------------------------
-
-
-# ---------------------------------------------------------------------------
-# AiContext handling
-# ---------------------------------------------------------------------------
-
-
-# ---------------------------------------------------------------------------
-# AiContext validation
-# ---------------------------------------------------------------------------
-
-
 def test_ai_context_invalid_key_raises_type_error() -> None:
     """ms.ai_context() rejects unsupported metadata keys."""
     key: str
@@ -2065,7 +1984,6 @@ def test_ai_context_error_location_points_to_user_code() -> None:
     with pytest.raises(SemanticDecoratorError) as exc_info:
         ms.ai_context(business_definition=42)  # type: ignore[arg-type]
     assert exc_info.value.location is not None
-    # The location should point to this test file, not to authoring.py
     assert "test_semantic_authoring" in exc_info.value.location.file
     assert exc_info.value.location.line > 0
 
@@ -2076,11 +1994,6 @@ def test_ai_context_value_post_init_rejects_invalid_types() -> None:
         ms.typing.AiContextValue(business_definition=42)  # type: ignore[arg-type]  # Invalid payload.
     with pytest.raises(TypeError):
         ms.typing.AiContextValue(guardrails=("ok", 1))  # type: ignore[arg-type]  # Invalid payload.
-
-
-# ---------------------------------------------------------------------------
-# Dataset-scoped field IDs
-# ---------------------------------------------------------------------------
 
 
 def test_two_datasets_same_column_name_distinct_ids() -> None:
@@ -2132,9 +2045,6 @@ def test_field_model_mismatch_with_dataset_raises() -> None:
         assert exc_info.value.kind == "invalid_ref"
     finally:
         _exit_ctx()
-
-
-# metric unit field
 
 
 def test_metric_inherits_row_unit() -> None:
@@ -2200,11 +2110,6 @@ def test_ratio_unit_rejects_whitespace_and_empty() -> None:
             )
         assert caught.value.kind == ErrorKind.INVALID_COMPONENT_BODY
         assert "unit" in str(caught.value.received)
-
-
-# ---------------------------------------------------------------------------
-# ms.cumulative() derived registration
-# ---------------------------------------------------------------------------
 
 
 def test_sampled_encoding_requires_an_hour_component() -> None:

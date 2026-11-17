@@ -1,4 +1,3 @@
-# Python
 __pycache__/
 *.py[cod]
 *.pyo
@@ -8,52 +7,42 @@ dist/
 build/
 .eggs/
 
-# obsidian
 docs/.obsidian
 docs/.obsidian/workspace.json
 
-# Virtual environment
 .venv
 .venv/
 uv.lock
 
-# Testing
 .pytest_cache/
 .testmondata*
 .coverage
 htmlcov/
 coverage.xml
 
-# Ruff cache
 .ruff_cache/
 
-# Mypy cache
 .mypy_cache/
 
-# Data files (generated at runtime)
 data/
 *.duckdb.wal
 
-# IDE
 .idea/
 .vscode/
 *.swp
 *.swo
 *~
 
-# OS
 .DS_Store
 /.DS_Store
 Thumbs.db
 
-# Local editor metadata
 .agent/
 marivo-skill/marivo/.obsidian/
 spec/.obsidian/
 spec/semantic/semantic-layer-management-design.zh.md
 TODOS.md
 
-# Playwright
 .playwright/
 .playwrite-cli/
 .playwright-cli/
@@ -75,12 +64,10 @@ site/public/api/
 # Config (contains local paths/credentials)
 marivo.yaml
 
-# Local runtime workspace
 .marivo/
 marivo.toml
 models/
 
-# Claude Code
 .mcp.json
 .claude/
 .codex/
@@ -94,7 +81,6 @@ models/
 !.agents/skills/marivo-test-fixtures/
 !.agents/skills/marivo-skill-maintainer/
 
-# Plan
 plan/
 
 .superpowers/
@@ -148,7 +134,6 @@ plan/
 /site/src/content/docs/zh-cn/docs/v0.2/contributing.mdx
 /site/src/content/docs/zh-cn/docs/v0.5/contributing.mdx
 
-# Local-only documentation categories
 /docs/design/
 /docs/implementation/
 /docs/testing/

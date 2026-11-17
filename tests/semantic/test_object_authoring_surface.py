@@ -33,10 +33,6 @@ from tests.shared_fixtures import captured_catalog, in_memory_datasource_ir
 from tests.shared_fixtures import resolve_test_symbol as resolve
 from tests.support.refs import as_ref
 
-# ---------------------------------------------------------------------------
-# Semantic IR value objects
-# ---------------------------------------------------------------------------
-
 
 def test_measure_ref_and_kind_are_first_class() -> None:
     ref = ms.ref.measure("sales.orders.amount")
@@ -86,11 +82,6 @@ def test_join_key_rejects_invalid_payloads() -> None:
         JoinKey(from_key=42, to_key="sales.customers.id")  # type: ignore[arg-type]  # Invalid key.
     with pytest.raises(ValueError):
         JoinKey(from_key="sales.orders.customer_id", to_key="")
-
-
-# ---------------------------------------------------------------------------
-# Semantic Authoring Surface (measure, metric, join_on)
-# ---------------------------------------------------------------------------
 
 
 def test_measure_dimension_metric_and_aggregate_authoring() -> None:
@@ -224,11 +215,6 @@ def test_relationship_uses_join_key_pairs() -> None:
     assert relationship_ir.keys[0].to_key == "sales.customers.id"
 
 
-# ---------------------------------------------------------------------------
-# Time parse variant constructors
-# ---------------------------------------------------------------------------
-
-
 def test_time_dimension_uses_parse_value_object() -> None:
     ctx = LoaderContext(
         model_name="sales",
@@ -292,13 +278,3 @@ def test_hour_prefix_rejects_unrepresentable_minute_sampling() -> None:
             )
             def hh(orders_table: ibis_ir.Table) -> ibis_ir.Column:
                 return orders_table["hh"]
-
-
-# ---------------------------------------------------------------------------
-# Registry and error vocabulary
-# ---------------------------------------------------------------------------
-
-
-# ---------------------------------------------------------------------------
-# Measure ref kind for internal resolution
-# ---------------------------------------------------------------------------

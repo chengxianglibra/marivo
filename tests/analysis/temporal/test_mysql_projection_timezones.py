@@ -30,5 +30,4 @@ def test_generated_mysql_sql_keeps_required_conversion_zones(consumer: str) -> N
     assert _mysql_source_timezones(sql) == (
         () if consumer == "raw_count" else ("+00:00", "America/New_York")
     )
-    # Inspection must not mutate the actual generated query text.
     assert sql == str(ibis.to_sql(lower_temporal(expression, "mysql"), dialect="mysql"))

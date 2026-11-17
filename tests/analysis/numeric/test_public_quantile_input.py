@@ -68,7 +68,6 @@ def test_defined_quantiles_survive_source_offline_recovery(
         assert frame.loc["A", name] == 187.875
         assert frame.loc[["B", "C", "D"], name].isna().all()
     assert frame.loc["A", "approximate_p95"] == 250.5
-    # The algorithm belongs to the definition and actual source statement.
     submitted = [
         str(record["sql"]).upper()
         for record in execution_records(case.root)

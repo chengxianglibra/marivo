@@ -825,7 +825,7 @@ catalog.metrics.show()                    # just metrics across all domains
 sales = catalog.domains.get("sales")
 orders = sales.entities.get("orders")
 revenue = orders.metrics.get("metric:sales.revenue")  # 从 .show() 复制的规范键
-region = orders.dimensions.get("region")  # one dimension object
+region = orders.dimensions.get("region")
 ```
 
 每个类型化集合都接受当前范围内的本地名称、精确完整路径、展示出的同类型规范键

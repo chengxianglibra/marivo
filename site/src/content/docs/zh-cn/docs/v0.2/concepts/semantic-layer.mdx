@@ -490,9 +490,9 @@ import marivo.semantic as ms
 
 catalog = ms.load()                       # SemanticCatalog
 catalog.list().show()                     # everything, grouped
-catalog.list(kind="metric").show()        # just metrics
-revenue = catalog.get("sales.revenue")           # one object
-region = catalog.get("sales.orders.region")      # also an object
+catalog.list(kind="metric").show()
+revenue = catalog.get("sales.revenue")
+region = catalog.get("sales.orders.region")
 ```
 
 在任何分析之前，检查 **就绪检查** —— 把未完整声明的对象挡在分析之外的结构性闸门：

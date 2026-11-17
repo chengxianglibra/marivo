@@ -624,8 +624,8 @@ import marivo.semantic as ms
 catalog = ms.load()                       # SemanticCatalog
 catalog.list("domain").show()                     # top-level domains
 catalog.list("metric").show()                     # just metrics across all domains
-revenue = catalog.get("metric.sales.revenue")           # one object
-region = catalog.get("dimension.sales.orders.region")      # also an object
+revenue = catalog.get("metric.sales.revenue")
+region = catalog.get("dimension.sales.orders.region")
 ```
 
 Before any analysis, check **readiness** — the structural gate that keeps

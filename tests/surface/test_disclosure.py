@@ -26,9 +26,6 @@ if TYPE_CHECKING:
     from tests.conftest import _SemanticProjectFactory
     from tests.shared_fixtures import DslCaseFactory
 
-# ---------------------------------------------------------------------------
-# Minimal project files for tests that need a loaded SemanticProject
-# ---------------------------------------------------------------------------
 
 _DOMAIN_PY = textwrap.dedent("""\
     import marivo.datasource as md
@@ -85,11 +82,6 @@ def _make_catalog(semantic_project_factory: _SemanticProjectFactory) -> Semantic
     return SemanticCatalog(_make_project(semantic_project_factory))
 
 
-# ---------------------------------------------------------------------------
-# No-stdout contract on public APIs
-# ---------------------------------------------------------------------------
-
-
 def test_catalog_metrics_is_silent(
     semantic_project_factory: _SemanticProjectFactory, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -114,11 +106,6 @@ def test_readiness_is_silent(
     assert capsys.readouterr().out == ""
 
 
-# ---------------------------------------------------------------------------
-# repr() is one line and hints .show()
-# ---------------------------------------------------------------------------
-
-
 def test_logical_metric_repr_is_bounded_and_has_identity(
     analysis_dsl_case_factory: DslCaseFactory,
 ) -> None:
@@ -136,11 +123,6 @@ def test_catalog_page_repr_is_one_line(semantic_project_factory: _SemanticProjec
     result = catalog.search(kind="metric")
     r = repr(result)
     assert r.count("\n") == 0
-
-
-# ---------------------------------------------------------------------------
-# render() + show() contract (result types that own render())
-# ---------------------------------------------------------------------------
 
 
 def test_datasource_catalog_render_uses_card_listing_shape(tmp_path: Path) -> None:

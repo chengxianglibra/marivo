@@ -21,7 +21,6 @@ from tests.datasource.source_cases import (
     source_params,
 )
 
-# Shared local source-profile assertions use DuckDB.
 CASES = [(backend, profile) for backend, profiles in PROFILES.items() for profile in profiles]
 
 

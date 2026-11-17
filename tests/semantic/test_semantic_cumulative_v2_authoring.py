@@ -101,11 +101,9 @@ def test_cumulative_explicit_all_history_anchor() -> None:
         assert isinstance(node.rule, AllHistory)
 
 
-# ---------------------------------------------------------------------------
 # Native declaration loading retains complete formulas and explicit time
 # roles under each window rule. Output-grain compatibility belongs to the
 # consuming observation, after its actual calendar is available.
-# ---------------------------------------------------------------------------
 
 _CUMULATIVE_PROJECT = """import marivo.datasource as md
 import marivo.semantic as ms

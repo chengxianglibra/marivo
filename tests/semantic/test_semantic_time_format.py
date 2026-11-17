@@ -35,7 +35,6 @@ def test_normalize_rejects_non_percent_prefixed_input() -> None:
         normalize_strptime("int")
 
 
-# --- python_to_mysql_strptime ---
 #
 # Trino/Presto ``date_parse`` uses MySQL format specifiers, which disagree with
 # Python strptime on several tokens (notably ``%M``: Python = minute, MySQL =
@@ -102,7 +101,6 @@ def test_p2m_rejects_stray_percent() -> None:
         python_to_mysql_strptime("%Y-%")
 
 
-# --- python_to_postgres_strptime ---
 #
 # PostgreSQL ``TO_TIMESTAMP`` uses template patterns, which agree with Python
 # strptime on the calendar fields but not the sub-day ones (Python ``%M`` is

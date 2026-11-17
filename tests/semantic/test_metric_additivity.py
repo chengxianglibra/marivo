@@ -10,10 +10,6 @@ from marivo.semantic._deferred_semantics import consume_metric
 from marivo.semantic.errors import ErrorKind, SemanticDecoratorError
 from tests.shared_fixtures import load_inline_semantic
 
-# ---------------------------------------------------------------------------
-# loader — _resolve_metric_additivity resolution pass
-# ---------------------------------------------------------------------------
-
 _PHYSICAL = """import marivo.datasource as md
 import marivo.semantic as ms
 
@@ -103,11 +99,6 @@ def bad():
         assert "test.orders weighted by test.refunds" in (errors[0].received or "")
 
 
-# ---------------------------------------------------------------------------
-# additivity coordinates require Dimension refs
-# ---------------------------------------------------------------------------
-
-
 def test_additivity_coordinate_must_be_dimension() -> None:
     entity = ref_factory.entity("test.snap")
 
@@ -115,11 +106,6 @@ def test_additivity_coordinate_must_be_dimension() -> None:
         authoring.additive_except(entity)  # type: ignore[arg-type]  # Exercise invalid Entity input.
 
     assert exc_info.value.kind == ErrorKind.INVALID_REF
-
-
-# ---------------------------------------------------------------------------
-# validator — sum on non-additive measure is rejected
-# ---------------------------------------------------------------------------
 
 
 def test_sum_on_non_additive_measure_is_rejected() -> None:

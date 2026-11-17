@@ -328,7 +328,6 @@ def test_planning_is_pure_over_prepared_schema_facts(warehouse_session: Session)
         open_query_sources(connections, graph, session.catalog._state) as prepared,
     ):
         schemas = prepared.schemas
-    # The source session is closed; planning consumes only the frozen schema facts.
     plan = plan_query(graph, schemas)
     assert [stage.stage_id for stage in plan.stages][-1] == plan.publish
     reads = [stage for stage in plan.stages if isinstance(stage, SourceRead)]

@@ -917,7 +917,7 @@ catalog.metrics.show()                    # just metrics across all domains
 sales = catalog.domains.get("sales")
 orders = sales.entities.get("orders")
 revenue = orders.metrics.get("metric:sales.revenue")  # key copied from .show()
-region = orders.dimensions.get("region")  # one dimension object
+region = orders.dimensions.get("region")
 ```
 
 Each typed collection accepts a local name, an exact full path, a displayed

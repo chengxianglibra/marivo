@@ -53,7 +53,6 @@ def run(root: Path, phase: str, output: Path) -> None:
                 continue
             left, right = current, baseline
             if method == "ratio":
-                # This fixture's original ratio is sum(amount)/sum(amount).
                 left, right = (frame.assign(weight=frame.amount) for frame in (left, right))
             result = allocation(left, right, method=method, top_k=top_k)
             assert result.current.shape == result.baseline.shape == result.contribution.shape
@@ -66,7 +65,6 @@ def run(root: Path, phase: str, output: Path) -> None:
         assert len(terminal_runs(session)) == before
         for value in inputs:
             with pytest.raises(AnalysisError) as caught:
-                # Exercise rejection of an unresolved reference on a retained Frame.
                 value.attribute(by=(ms.ref.dimension("sales.order.channel"),))  # type: ignore[arg-type]
             assert caught.value.expected == "a retained source declaration on this Frame instance"
             assert not hasattr(value, "drill")

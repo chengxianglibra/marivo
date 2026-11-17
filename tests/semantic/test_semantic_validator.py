@@ -27,10 +27,6 @@ import marivo.semantic as ms
 from marivo.semantic.errors import ErrorKind, SemanticLoadError
 from marivo.semantic.validator import validate_metric_body_ast
 
-# ---------------------------------------------------------------------------
-# Base metric: valid bodies
-# ---------------------------------------------------------------------------
-
 
 def test_base_field_ref_bind() -> None:
     """Explicit semantic field binding is allowed in base metrics."""
@@ -100,11 +96,6 @@ def test_base_none_literal() -> None:
 
     result = validate_metric_body_ast(fallback, "base")
     assert isinstance(result, str)
-
-
-# ---------------------------------------------------------------------------
-# Base metric: forbidden bodies
-# ---------------------------------------------------------------------------
 
 
 def test_base_unused_local_binding_allowed() -> None:
@@ -366,11 +357,6 @@ def test_base_multiple_returns_error() -> None:
     assert has_multi_return
 
 
-# ---------------------------------------------------------------------------
-# Hash stability
-# ---------------------------------------------------------------------------
-
-
 def test_body_ast_hash_deterministic() -> None:
     """Same function body produces the same hash."""
 
@@ -414,11 +400,6 @@ def test_leading_docstring_excluded_from_body_hash() -> None:
         return revenue
 
     assert validate_metric_body_ast(first(), "base") == validate_metric_body_ast(second(), "base")
-
-
-# ---------------------------------------------------------------------------
-# _time_dimension_dtype_advisory tests
-# ---------------------------------------------------------------------------
 
 
 def test_time_dimension_dtype_advisory_cast_date_declared_datetime() -> None:
@@ -519,11 +500,6 @@ def test_time_dimension_dtype_advisory_no_cast_no_advisory() -> None:
         location=SourceLocation(file="test.py", line=1),
     )
     assert _time_dimension_dtype_advisory(field_ir, order_date) is None
-
-
-# ---------------------------------------------------------------------------
-# ibis Table attribute shadowing
-# ---------------------------------------------------------------------------
 
 
 def test_base_ibis_attr_shadow_schema() -> None:

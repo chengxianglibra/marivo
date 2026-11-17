@@ -1,4 +1,3 @@
-/* Shared reading rhythm for Starlight documentation. */
 :root {
   --sl-color-accent-low: #d8ebe4;
   --sl-color-accent: #147d64;
@@ -38,7 +37,6 @@
   letter-spacing: 0;
 }
 
-/* Keep the title and article in one visual flow. */
 .content-panel + .content-panel {
   border-top: 0;
   padding-top: 0;

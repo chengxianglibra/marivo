@@ -49,10 +49,6 @@ from marivo.semantic.ir import (
 from marivo.semantic.reader import SemanticProject
 from marivo.semantic.validator import Registry, assembly_validate
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
 _LOC = SourceLocation(file="<test>", line=0)
 
 
@@ -129,11 +125,6 @@ def _make_registry(**overrides: object) -> Registry:
         source_column="order_date",
     )
     return registry
-
-
-# ---------------------------------------------------------------------------
-# HourPrefixParse prefix cross-reference validation
-# ---------------------------------------------------------------------------
 
 
 def test_hour_prefix_with_invalid_prefix() -> None:
@@ -233,11 +224,6 @@ def test_raw_partition_time_field_has_no_pushdown_advisory_warning() -> None:
     assert errors == []
 
 
-# ---------------------------------------------------------------------------
-# Invalid relationship endpoint
-# ---------------------------------------------------------------------------
-
-
 def test_invalid_relationship_from_dataset() -> None:
     registry = _make_registry()
     registry.relationships["sales.bad_rel"] = RelationshipIR(
@@ -325,11 +311,6 @@ def test_relationship_field_arity_mismatch() -> None:
     assert any(error.kind == ErrorKind.INVALID_RELATIONSHIP_MAPPING for error in rel_errors)
 
 
-# ---------------------------------------------------------------------------
-# Valid project produces no errors
-# ---------------------------------------------------------------------------
-
-
 def test_valid_registry_no_errors() -> None:
     registry = _make_registry()
     errors, warnings = assembly_validate(registry)
@@ -340,11 +321,6 @@ def test_empty_registry_no_errors() -> None:
     registry = Registry()
     errors, warnings = assembly_validate(registry)
     assert len(errors) == 0
-
-
-# ---------------------------------------------------------------------------
-# Cross-file refs resolve correctly (integration via SemanticProject)
-# ---------------------------------------------------------------------------
 
 
 @pytest.fixture
@@ -433,11 +409,6 @@ def test_invalid_relationship_via_loader(
     assert any(e.kind == ErrorKind.INVALID_RELATIONSHIP_ENDPOINT for e in errors)
 
 
-# ---------------------------------------------------------------------------
-# did_you_mean in MISSING_*_REF errors
-# ---------------------------------------------------------------------------
-
-
 def test_missing_datasource_ref_includes_did_you_mean() -> None:
     registry = _make_registry()
     registry.entities["sales.bad_ds"] = EntityIR(
@@ -500,9 +471,6 @@ def test_missing_dimension_ref_includes_did_you_mean() -> None:
     assert "sales.orders.amount" in dym
 
 
-# ---------------------------------------------------------------------------
-# Semi-additive metric validation (SemiAdditive struct)
-# ---------------------------------------------------------------------------
 # In the metric-split model, semi-additivity is expressed as:
 #   additivity=SemiAdditive(over="field_id", fold=TimeFoldIR(...))
 # The old string additivity="semi_additive" + status_time_dimension field no
