@@ -21,10 +21,11 @@ from marivo.analysis.compiler.member_version import prepare_version_filter
 from marivo.analysis.compiler.source_predicates import string_bytes
 from marivo.analysis.core.frame_interpretation import FrameSourceTime
 from marivo.analysis.core.model import reject
+from marivo.analysis.core.unique_keys import UniqueKeys
 from marivo.analysis.materialization.population_preparation import (
     PreparedPopulation,
-    _identity_source,
     prepare_population,
+    scoped_checks,
 )
 from marivo.semantic._compiled_state import CompiledSemanticState
 from marivo.semantic.validator import (
@@ -43,6 +44,7 @@ def prepare_member_fields(
     *,
     source_times: list[FrameSourceTime] | None = None,
     consumption_timezone: str = "UTC",
+    prepared: dict[str, PreparedPopulation] | None = None,
 ) -> PreparedPopulation:
     """Extend complete input tuples from the selected captured subject keys."""
     from dataclasses import replace
@@ -59,6 +61,7 @@ def prepare_member_fields(
         state,
         source_times=source_times,
         consumption_timezone=consumption_timezone,
+        prepared=prepared,
     )
     axis = node.operand.axes[node.subject]
     assert isinstance(axis, AxisBinding)
@@ -89,12 +92,8 @@ def prepare_member_fields(
         or all(not read.path and read.at == member_node.at for read in reads)
     )
     if isinstance(member_node, SourceIdentities) and reuse_members:
-        source, _, _ = _identity_source(
-            member_node,
-            entities,
-            state,
-            consumption_timezone=consumption_timezone,
-        )
+        assert operand.member_source is not None
+        source = operand.member_source
         if contract.version is not None:
             reads = tuple(replace(read, at=None) for read in reads)
     elif contract.version is not None:
@@ -106,7 +105,7 @@ def prepare_member_fields(
                 for key, slot in zip(contract.primary_key, subject_keys, strict=True)
             }
         )
-        if len(operand.key_groups) != 1:
+        if not operand.unique_keys.proves(subject_keys):
             source = source.distinct()
     else:
         source = original.view()
@@ -115,7 +114,7 @@ def prepare_member_fields(
     contribution = ContributionBinding(
         (), EntityCount(axis.entity, None), axis.entity, (), None, (), reads, None, None
     )
-    prepared = prepare_fields(
+    fields = prepare_fields(
         contribution,
         entities,
         state,
@@ -123,9 +122,9 @@ def prepare_member_fields(
         consumption_timezone=consumption_timezone,
     )
     if source_times is not None:
-        source_times.extend(prepared.source_times)
-    table = prepared.table
-    columns = dict(prepared.columns)
+        source_times.extend(fields.source_times)
+    table = fields.table
+    columns = dict(fields.columns)
     added = groups[len(operand.key_groups) :]
     field_slots = tuple(
         tuple(f"__classify_value_{index}_{part}" for part in range(len(group)))
@@ -138,7 +137,7 @@ def prepare_member_fields(
             for read, slots in zip(reads, field_slots, strict=True)
             for name, key in zip(slots, coordinate_read_keys(read), strict=True)
         },
-        **{name: table[name] for name, _, _ in prepared.checks},
+        **{name: table[name] for name, _, _ in fields.checks},
     )
     joined = (
         attributes
@@ -158,7 +157,7 @@ def prepare_member_fields(
         for group, slots in zip(added, field_slots, strict=True)
         for name, slot in zip(group, slots, strict=True)
     )
-    checks = list(prepared.checks)
+    checks = list(fields.checks)
     flags = {name: attributes[name].fill_null(False) for name, _, _ in checks}
     for index, (read, slots) in enumerate(zip(reads, field_slots, strict=True)):
         if isinstance(read, EntityIdentityRead):
@@ -175,7 +174,14 @@ def prepare_member_fields(
                     axis_description(output_axis),
                 )
             )
-    result = PreparedPopulation(joined.select(**values, **flags), groups, tuple(checks))
+    result = joined.select(**values, **flags)
+    keys = tuple(name for group in groups for name in group)
+    result = PreparedPopulation(
+        result.select(*keys),
+        groups,
+        scoped_checks(result, tuple(checks), operand.key_columns),
+        unique_keys=operand.unique_keys.project(keys),
+    )
     return _retain_checks(result, operand)
 
 
@@ -323,6 +329,7 @@ def prepare_relationship_population(
     *,
     source_times: list[FrameSourceTime] | None = None,
     consumption_timezone: str = "UTC",
+    prepared: dict[str, PreparedPopulation] | None = None,
 ) -> PreparedPopulation:
     """Traverse distinct subject keys and retain complete tuples for a preimage."""
     from marivo.analysis.materialization.population_preparation import _domain_table, _retain_checks
@@ -333,6 +340,7 @@ def prepare_relationship_population(
         state,
         source_times=source_times,
         consumption_timezone=consumption_timezone,
+        prepared=prepared,
     )
     source_entity = node.path.source.ref.path
     contract = normalize_target_entity(state.registry, source_entity)
@@ -346,7 +354,16 @@ def prepare_relationship_population(
         assert isinstance(predicate, ir.BooleanValue)
         return predicate
 
-    if contract.version is not None:
+    selection = node.operand.root if isinstance(node.operand, PopulationProgram) else None
+    direct_source = (
+        isinstance(selection, SourceIdentities)
+        and selection.entity.ref == node.path.source.ref
+        and selection.at == node.path.source_at
+    )
+    if direct_source:
+        assert operand.member_source is not None
+        source = operand.member_source
+    elif contract.version is not None:
         if node.path.source_at is None:
             reject(
                 "an exact path source version instant",
@@ -368,16 +385,8 @@ def prepare_relationship_population(
     origin_names = tuple(f"__path_source_{index}" for index in range(len(origin)))
     while set(origin_names).intersection(source.columns):
         origin_names = tuple(name + "_" for name in origin_names)
-    selection = node.operand.root if isinstance(node.operand, PopulationProgram) else None
-    direct_source = (
-        isinstance(selection, SourceIdentities)
-        and selection.entity.ref == node.path.source.ref
-        and selection.predicate is None
-        and selection.at == node.path.source_at
-    )
     if direct_source:
-        # The path's bound source is exactly the unfiltered identity selection.
-        # Keep its check summary, but avoid joining the same keys back twice.
+        # Keep the exact selection and carry its checks independently.
         source = source.filter(*(source[key].notnull() for key in contract.primary_key))
         allocation = source.mutate(
             **{
@@ -388,7 +397,9 @@ def prepare_relationship_population(
     else:
         identities = domain.select(
             **{name: domain[slot] for name, slot in zip(origin_names, origin, strict=True)}
-        ).distinct()
+        )
+        if not operand.unique_keys.proves(origin):
+            identities = identities.distinct()
         allocation = source.inner_join(
             identities,
             [
@@ -411,7 +422,12 @@ def prepare_relationship_population(
                 for slot, column in zip(key_groups[0], reached, strict=True)
             }
         ).distinct()
-        return _retain_checks(PreparedPopulation(output, key_groups), operand)
+        return _retain_checks(
+            PreparedPopulation(
+                output, key_groups, unique_keys=UniqueKeys(key_groups[0], (key_groups[0],))
+            ),
+            operand,
+        )
 
     targets = prepare_population(
         node.targets,
@@ -419,30 +435,39 @@ def prepare_relationship_population(
         state,
         source_times=source_times,
         consumption_timezone=consumption_timezone,
+        prepared=prepared,
     )
     target_rows = _domain_table(targets).view()
-    selected = (
-        allocation.inner_join(
-            target_rows,
-            [
-                same_identity(allocation[left], target_rows[right])
-                for left, right in zip(reached, targets.key_groups[0], strict=True)
-            ],
-        )
-        .select(*(allocation[name] for name in origin_names))
-        .distinct()
+    target_matches = [
+        same_identity(allocation[left], target_rows[right])
+        for left, right in zip(reached, targets.key_groups[0], strict=True)
+    ]
+    fanout = any(
+        step.relationship.cardinality in ("one_to_many", "many_to_many") for step in node.path.steps
     )
-    output = (
-        selected.select(
+    semijoin = provider in ("duckdb", "postgres")
+    if not semijoin:
+        # Keep Distributed GLOBAL JOIN and avoid nested correlated EXISTS
+        # on providers where the planner does not handle that shape well.
+        selected = (
+            allocation.inner_join(target_rows, target_matches).select(*origin_names).distinct()
+        )
+    else:
+        selected = allocation.semi_join(target_rows, target_matches).select(*origin_names)
+    if direct_source and (not fanout or not semijoin):
+        output = selected.select(
             **{slot: selected[name] for slot, name in zip(origin, origin_names, strict=True)}
         )
-        if direct_source
-        else domain.inner_join(
-            selected,
-            [
-                same_identity(domain[left], selected[right])
-                for left, right in zip(origin, origin_names, strict=True)
-            ],
-        ).select(domain)
+    else:
+        origin_matches = [
+            same_identity(domain[left], selected[right])
+            for left, right in zip(origin, origin_names, strict=True)
+        ]
+        output = (
+            domain.inner_join(selected, origin_matches).select(domain)
+            if not semijoin
+            else domain.semi_join(selected, origin_matches)
+        )
+    return _retain_checks(
+        PreparedPopulation(output, key_groups, unique_keys=operand.unique_keys), operand, targets
     )
-    return _retain_checks(PreparedPopulation(output, key_groups), operand, targets)

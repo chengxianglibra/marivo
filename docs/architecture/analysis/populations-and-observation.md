@@ -112,6 +112,16 @@ consumer reads that target row. To test target existence at a particular
 instant, build an explicit `session.members(Target, at=...)` domain and use
 intersection or preimage.
 
+Population preparation carries complete key groups and proven candidate keys
+on the data relation. Projections that retain a complete candidate key need no
+key deduplication. A qualified preimage can filter by existence instead of
+returning each matching path witness. Its result retains all receiver axes.
+Validation retains its original input scope separately from the selected data.
+A qualified same-source consumer can apply a predicate Population at the source
+and return only the aggregate and bounded diagnostics, including when the
+selected data is empty. A Population used as an output or sample domain still
+supplies its complete keys to that consumer.
+
 ## Observation domain, contributions and counts
 
 Use one fieldless report TimeScope in `where` for range-only totals, or put one
@@ -289,7 +299,9 @@ Outer and inner rules are independent. Separate descriptors form independent
 factors. Repeated `(contribution identity, bucket)` pairs are set occurrences;
 equal-valued distinct contributions remain separate. unmatched is explicit
 exclude or Null. Membership repeats the full contribution in each distinct
-bucket without renormalizing after selection.
+bucket without renormalizing after selection. An unversioned same-root rule with
+no path takes its bucket directly from the contribution row. A matched row with
+a NULL field still supplies a NULL bucket.
 
 External P must cover all necessary complete output keys after explicit fact
 conditions, time constraints and unmatched handling, before internal sampling or

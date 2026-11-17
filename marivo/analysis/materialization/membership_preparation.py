@@ -55,6 +55,28 @@ def prepare_memberships(
     dependencies: list[ir.Value] = []
     for group, binding in enumerate(bindings):
         path = membership_path(binding, root)
+        reads = membership_reads(binding, root)
+        sample_position = None if sample_positions is None else sample_positions.get(binding)
+        if (
+            path is None
+            and root_contract.version is None
+            and all(not read.path and read.at is None and read.source_at is None for read in reads)
+        ):
+            inline: dict[str, ir.Value] = {}
+            for index, read in enumerate(reads):
+                slot = unique(f"__member_{group}_field_{index}")
+                expression = value(read.field.ref.path, table)
+                inline[slot] = expression
+                columns.append((field_read_key(read), slot))
+                originals.append((slot, expression))
+                dependencies.append(expression)
+            if sample_position is not None:
+                marker = unique(f"__member_{group}_assigned")
+                inline[marker] = ibis.literal(True)
+                columns.append((f"__sample_assigned_{sample_position}", marker))
+                originals.append((marker, inline[marker]))
+            table = table.mutate(**inline)
+            continue
         source = entities[root.ref.path].view()
         key_slots = tuple(unique(f"__member_{group}_key_{index}") for index in range(len(keys)))
         allocation = source.mutate(
@@ -148,7 +170,6 @@ def prepare_memberships(
         # Internal allocation must retain the incoming parent coordinates even
         # when no sample bucket exists. Its marker keeps that carrier row out
         # of the numeric contribution and sample domains below this layer.
-        sample_position = None if sample_positions is None else sample_positions.get(binding)
         assigned = unique(f"__member_{group}_assigned") if sample_position is not None else None
         if assigned is not None:
             pairs = pairs.mutate(**{assigned: ibis.literal(True)})
@@ -166,7 +187,6 @@ def prepare_memberships(
             table = table.mutate(**{assigned: table[assigned].fill_null(False)})
             columns.append((f"__sample_assigned_{sample_position}", assigned))
             originals.append((assigned, table[assigned]))
-        reads = membership_reads(binding, root)
         columns.extend(
             (field_read_key(read), slot) for read, slot in zip(reads, slots, strict=True)
         )

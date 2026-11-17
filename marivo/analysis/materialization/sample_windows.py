@@ -218,7 +218,7 @@ def prepare_sample_window_plan(
         required_slots=(),
         output_groups=shape.output_groups,
     )
-    return lower_query(plan, sources.relations), replace(
+    return lower_query(plan, sources.relations, sources.population_checks), replace(
         sources, source_times=prepared.source_times, sources={**prepared.sources, **sources.sources}
     )
 
@@ -694,7 +694,7 @@ def run_sample_windows(
             )
         )
         plan = restrict_plan(plan, population_outputs, empty=False)
-    lowered = lower_query(plan, sources.relations)
+    lowered = lower_query(plan, sources.relations, sources.population_checks)
     qualify_query_sources(sources, lowered)
     output = execute_numeric_query(
         sources,

@@ -55,6 +55,7 @@ from marivo._definition.relations import LiteralPopulation, PopulationDependency
 from marivo.analysis.compiler.graph_lowering import (
     LoweredQuery,
     LoweredRead,
+    PopulationCheck,
 )
 from marivo.analysis.compiler.graph_plan import (
     FrameCompute,
@@ -112,6 +113,7 @@ class PreparedSources:
     entities: dict[str, ir.Table] = field(default_factory=dict)
     graph: BoundGraph | None = None
     source_times: tuple[FrameSourceTime, ...] = ()
+    population_checks: dict[str, tuple[PopulationCheck, ...]] = field(default_factory=dict)
     native_expressions: dict[tuple[str, ops.Node], ir.Table] = field(default_factory=dict)
     # Unparameterized reads qualified before admission are issued once and executed as-is.
     compiled_reads: dict[tuple[SourceSession, ops.Node], CompiledRead] = field(default_factory=dict)
@@ -958,10 +960,13 @@ def prepare_query_sources(
     from marivo._definition.graph import computation_fingerprint
     from marivo.analysis.dsl.population import population_keys
     from marivo.analysis.materialization.population_preparation import (
+        PreparedPopulation,
         population_entities,
         prepare_population,
     )
 
+    population_checks: dict[str, tuple[PopulationCheck, ...]] = {}
+    prepared_populations: dict[str, PreparedPopulation] = {}
     for population in _query_populations(graph):
         required = population_entities(population, state)
         datasources = {state.registry.entities[path].datasource for path in required}
@@ -978,6 +983,7 @@ def prepare_query_sources(
             state,
             source_times=source_times,
             consumption_timezone=consumption_timezone,
+            prepared=prepared_populations,
         )
         source_id = "population:" + computation_fingerprint(population)
         schema = prepared_population.table.schema().to_pyarrow()
@@ -990,13 +996,14 @@ def prepare_query_sources(
                 source_id,
                 keys,
                 (),
-                preparation_checks=prepared_population.checks,
+                unique_keys=prepared_population.unique_keys,
                 key_groups=prepared_population.key_groups,
                 presence=prepared_population.presence,
             )
         )
         if not finite:
             relations[source_id] = prepared_population.table
+            population_checks[source_id] = prepared_population.checks
             owners[source_id] = owners[required[0]] if required else source
     own_schemas = []
     scope_id = graph.fingerprint if memo is None else memo.fingerprint(graph)
@@ -1010,11 +1017,10 @@ def prepare_query_sources(
             if schema.occurrence is not None
             else relations.get(schema.source_id)
         )
-        names = (
-            {node.name for node in relation.op().find(ops.UnboundTable)}
-            if relation is not None
-            else set()
+        scopes = (() if relation is None else (relation,)) + tuple(
+            check.relation for check in population_checks.get(schema.source_id, ())
         )
+        names = {node.name for scope in scopes for node in scope.op().find(ops.UnboundTable)}
         inline = (
             population_definitions.get(schema.source_id)
             if relation is not None
@@ -1036,6 +1042,7 @@ def prepare_query_sources(
         )
     for index, dependency in enumerate(dependency_inputs):
         relations.update(dependency.relations)
+        population_checks.update(dependency.population_checks)
         bounds.update(
             {f"parameter:{index}:{path}": bound for path, bound in dependency.bound.items()}
         )
@@ -1056,6 +1063,7 @@ def prepare_query_sources(
         bounds,
         owners,
         entities,
+        population_checks=population_checks,
         source_times=merge_source_times(
             tuple(source_times), *(dependency.source_times for dependency in dependency_inputs)
         ),
@@ -1270,8 +1278,12 @@ def _qualify_query_read(
 
 def qualify_query_sources(prepared: PreparedSources, lowered: LoweredQuery) -> None:
     """Qualify every schema-bound read template before a Run is admitted."""
+    from marivo.analysis.materialization.query_key_fusion import finish_population_checks
+
     for read in lowered.reads:
         stage = lowered.plan.source_read_stage(read.stage_id)
+        source = prepared.sources.get(stage.source_id, prepared.source)
+        stage, read = finish_population_checks(stage, read, source.provider.name)
         from marivo.analysis.materialization.query_parameters import instantiate
 
         expression = read.expression
@@ -1539,9 +1551,12 @@ def read_stage(
             "missing_component_proof",
             "the source read lacks its checked original-parent association",
         )
+    from marivo.analysis.materialization.query_key_fusion import finish_population_checks
+
+    source = prepared.sources.get(stage.source_id, prepared.source)
+    stage, lowered = finish_population_checks(stage, lowered, source.provider.name)
     expression = _native_query_expression(prepared, stage, lowered)
     lowered = replace(lowered, expression=expression)
-    source = prepared.sources.get(stage.source_id, prepared.source)
     purpose = f"query.{stage.stage_id}"
     qualified_read = prepared.compiled_reads.get((source, expression.op()))
     if qualified_read is not None:
@@ -2374,9 +2389,13 @@ def execute_numeric_query(
             return run_actual_windows(
                 selected, stage, stage.program, inputs, observe_read=observe_read
             )
-        request = lowered.read(stage.stage_id)
-        expression = request.expression
+        from marivo.analysis.materialization.query_key_fusion import finish_population_checks
+
         owner = selected.sources.get(stage.source_id, selected.source)
+        stage, request = finish_population_checks(
+            stage, lowered.read(stage.stage_id), owner.provider.name
+        )
+        expression = request.expression
         for parameter in stage.parameters:
             source = inputs[stage.inputs.index(parameter.stage_id)]
             try:

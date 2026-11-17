@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
 
 import ibis
 import ibis.expr.datatypes as dt
@@ -37,9 +37,11 @@ from marivo._definition.types import (
     LiteralValue,
 )
 from marivo._numeric_types import exact_unsigned
+from marivo.analysis.compiler.graph_lowering import PopulationCheck
 from marivo.analysis.compiler.member_version import prepare_version_filter
 from marivo.analysis.core.frame_interpretation import FrameSourceTime
 from marivo.analysis.core.model import reject
+from marivo.analysis.core.unique_keys import UniqueKeys
 from marivo.analysis.core.value_types import data_type
 from marivo.refs import ref
 from marivo.semantic._compiled_state import CompiledSemanticState
@@ -51,8 +53,10 @@ from marivo.semantic.validator import normalize_target_entity, normalize_target_
 class PreparedPopulation:
     table: ir.Table
     key_groups: tuple[tuple[str, ...], ...]
-    checks: tuple[tuple[str, str, str], ...] = ()
+    checks: tuple[PopulationCheck, ...] = ()
     presence: str | None = None
+    unique_keys: UniqueKeys = field(default_factory=UniqueKeys)
+    member_source: ir.Table | None = None
 
     @property
     def key_columns(self) -> tuple[str, ...]:
@@ -71,22 +75,18 @@ def _domain_table(prepared: PreparedPopulation) -> ir.Table:
 
 def _retain_checks(result: PreparedPopulation, *inputs: PreparedPopulation) -> PreparedPopulation:
     """Carry required input checks even when a set operation removes all keys."""
-    table = result.table
-    checks = list(result.checks)
-    presence = result.presence
-    for operand in inputs:
-        if not operand.checks:
-            continue
-        if presence is None:
-            presence = "__population_present"
-            table = table.mutate(**{presence: ibis.literal(True)})
-        flags = {}
-        for name, expected, received in operand.checks:
-            alias = f"__population_input_check_{len(checks)}"
-            flags[alias] = operand.table[name].any().fill_null(False)
-            checks.append((alias, expected, received))
-        table = operand.table.aggregate(**flags).left_join(table, ibis.literal(True))
-    return PreparedPopulation(table, result.key_groups, tuple(checks), presence)
+    checks = dict.fromkeys((*result.checks, *(check for item in inputs for check in item.checks)))
+    return replace(result, checks=tuple(checks))
+
+
+def scoped_checks(
+    table: ir.Table,
+    flags: tuple[tuple[str, str, str], ...],
+    keys: tuple[str, ...],
+) -> tuple[PopulationCheck, ...]:
+    return tuple(
+        PopulationCheck(table, name, expected, received, keys) for name, expected, received in flags
+    )
 
 
 def population_entities(
@@ -173,7 +173,7 @@ def _identity_source(
     *,
     source_times: list[FrameSourceTime] | None = None,
     consumption_timezone: str = "UTC",
-) -> tuple[ir.Table, tuple[tuple[str, str, str], ...], ir.Table | None]:
+) -> tuple[ir.Table, tuple[PopulationCheck, ...]]:
     """Prepare the exact selected source and its pre-filter check summary."""
     source = entities[node.entity.ref.path].view()
     contract = normalize_target_entity(state.registry, node.entity.ref.path)
@@ -191,8 +191,7 @@ def _identity_source(
         source = prepare_version_filter(
             source, contract.version, selection, state=state, source_times=source_times
         )
-    checks: tuple[tuple[str, str, str], ...] = ()
-    summary: ir.Table | None = None
+    checks: tuple[PopulationCheck, ...] = ()
     if node.predicate is not None:
         from marivo.analysis.compiler.predicate import lower_condition
         from marivo.analysis.materialization.query_preparation import prepare_fields
@@ -217,13 +216,9 @@ def _identity_source(
                 "Evaluate the checked quantity before selecting its identity domain.",
                 "population.prepare",
             )
-        checks = identity_fields.checks
-        if checks:
-            summary = source.aggregate(
-                **{name: source[name].any().fill_null(False) for name, _, _ in checks}
-            )
+        checks = scoped_checks(source, identity_fields.checks, contract.primary_key)
         source = source.filter(lowered.value)
-    return source, checks, summary
+    return source, checks
 
 
 def _field(read: FieldRead, table: ir.Table, state: CompiledSemanticState) -> ir.Value:
@@ -254,6 +249,27 @@ def prepare_population(
     *,
     source_times: list[FrameSourceTime] | None = None,
     consumption_timezone: str = "UTC",
+    prepared: dict[str, PreparedPopulation] | None = None,
+) -> PreparedPopulation:
+    """Share prepared relations within one exact source binding and time context."""
+    from marivo._definition.graph import computation_fingerprint
+
+    cache = {} if prepared is None else prepared
+    key = computation_fingerprint(definition)
+    if key not in cache:
+        cache[key] = _prepare_population(
+            definition, entities, state, source_times, consumption_timezone, cache
+        )
+    return cache[key]
+
+
+def _prepare_population(
+    definition: PopulationDependency,
+    entities: Mapping[str, ir.Table],
+    state: CompiledSemanticState,
+    source_times: list[FrameSourceTime] | None,
+    consumption_timezone: str,
+    cache: dict[str, PreparedPopulation],
 ) -> PreparedPopulation:
     """Build a real Ibis relation without submitting business reads.
 
@@ -418,10 +434,12 @@ def prepare_population(
             state,
             source_times=source_times,
             consumption_timezone=consumption_timezone,
+            prepared=cache,
         )
         table = _domain_table(prepared)
         marks: dict[PopulationDependency, str] = {}
         dependencies = [prepared]
+        facts = prepared.unique_keys
         for index, domain in enumerate(condition_populations(node.predicate)):
             selected = prepare_population(
                 domain,
@@ -429,6 +447,7 @@ def prepare_population(
                 state,
                 source_times=source_times,
                 consumption_timezone=consumption_timezone,
+                prepared=cache,
             )
             dependencies.append(selected)
             marker = f"__population_selected_{index}"
@@ -471,6 +490,16 @@ def prepare_population(
                     )
                 else:
                     predicates.append(table[left].identical_to(allowed[right]))
+            comparable_keys = tuple(
+                key
+                for key in selected.key_columns
+                if not allowed[rename[key]].type().is_string()
+                and not allowed[rename[key]].type().is_floating()
+            )
+            if domain.axes and not selected.unique_keys.proves(comparable_keys):
+                # Population.where uses native comparisons and may have no
+                # at-most-one match proof for the marker join.
+                facts = UniqueKeys(prepared.key_columns)
             table = table.left_join(allowed, predicates or ibis.literal(True)).select(
                 table, allowed[marker]
             )
@@ -503,7 +532,14 @@ def prepare_population(
                 },
             )
             return _retain_checks(
-                PreparedPopulation(table, key_groups, checks, presence), *dependencies
+                PreparedPopulation(
+                    table,
+                    key_groups,
+                    scoped_checks(table, checks, columns),
+                    presence,
+                    facts,
+                ),
+                *dependencies,
             )
         filtered = table.filter(lowered.value)
         result = PreparedPopulation(
@@ -512,6 +548,7 @@ def prepare_population(
             else filtered.select(__population_unit=ibis.literal(True)).distinct(),
             key_groups,
             presence="__population_unit" if not columns else None,
+            unique_keys=facts,
         )
         return _retain_checks(result, *dependencies)
     if isinstance(node, (PopulationImage, PopulationPreimage)):
@@ -526,9 +563,10 @@ def prepare_population(
             key_groups,
             source_times=source_times,
             consumption_timezone=consumption_timezone,
+            prepared=cache,
         )
     if isinstance(node, SourceIdentities):
-        source, checks, summary = _identity_source(
+        source, source_checks = _identity_source(
             node,
             entities,
             state,
@@ -541,19 +579,20 @@ def prepare_population(
         output = source.select(
             **{slot: source[key] for slot, key in zip(columns, keys, strict=True)},
             **{null_key: ibis.or_(*(source[key].isnull() for key in keys))},
-            **({name: source[name] for name, _, _ in checks} if summary is None else {}),
         )
-        selected_presence = None
-        if summary is not None:
-            selected_presence = "__identity_selected"
-            output = summary.left_join(
-                output.mutate(**{selected_presence: ibis.literal(True)}), ibis.literal(True)
-            )
         return PreparedPopulation(
-            output,
+            output.select(*columns),
             key_groups,
-            (*checks, (null_key, "non-null complete identity keys", node.entity.ref.path)),
-            selected_presence,
+            (
+                *source_checks,
+                *scoped_checks(
+                    output,
+                    ((null_key, "non-null complete identity keys", node.entity.ref.path),),
+                    columns,
+                ),
+            ),
+            unique_keys=UniqueKeys(columns, (columns,)),
+            member_source=source,
         )
     if isinstance(node, PopulationSet):
         left_operand = prepare_population(
@@ -562,6 +601,7 @@ def prepare_population(
             state,
             source_times=source_times,
             consumption_timezone=consumption_timezone,
+            prepared=cache,
         )
         right_operand = prepare_population(
             node.right,
@@ -569,6 +609,7 @@ def prepare_population(
             state,
             source_times=source_times,
             consumption_timezone=consumption_timezone,
+            prepared=cache,
         )
         left, right = _domain_table(left_operand), _domain_table(right_operand)
         if node.operation == "union":
@@ -579,7 +620,10 @@ def prepare_population(
             table = left.difference(right, distinct=True)
         return _retain_checks(
             PreparedPopulation(
-                table, key_groups, presence="__population_unit" if not columns else None
+                table,
+                key_groups,
+                presence="__population_unit" if not columns else None,
+                unique_keys=UniqueKeys(columns, (columns,)),
             ),
             left_operand,
             right_operand,
@@ -591,6 +635,7 @@ def prepare_population(
             state,
             source_times=source_times,
             consumption_timezone=consumption_timezone,
+            prepared=cache,
         )
         old = tuple(column for index in node.positions for column in source.key_groups[index])
         table = _domain_table(source)
@@ -614,10 +659,15 @@ def prepare_population(
                 .cast("int64")
             )
         projected = table.select(**projected_columns)
-        # Selecting every complete axis only reorders an already unique tuple.
-        if len(node.positions) != len(source.key_groups):
+        remapped = {key_groups[position][0] for position, _ in node.interval_keys}
+        mapping = {
+            prior: name for prior, name in zip(old, columns, strict=True) if name not in remapped
+        }
+        facts = source.unique_keys.project(tuple(mapping)).project(columns, mapping)
+        if len(node.positions) != len(source.key_groups) and not facts.proves(columns):
             projected = projected.distinct()
-        return _retain_checks(PreparedPopulation(projected, key_groups), source)
+            facts = facts.add(columns)
+        return _retain_checks(PreparedPopulation(projected, key_groups, unique_keys=facts), source)
     if isinstance(node, PopulationProduct):
         factors = tuple(
             prepare_population(
@@ -626,15 +676,25 @@ def prepare_population(
                 state,
                 source_times=source_times,
                 consumption_timezone=consumption_timezone,
+                prepared=cache,
             )
             for factor in node.factors
         )
         tables: list[ir.Table] = []
+        candidates: tuple[str, ...] = ()
+        proven = True
         offset = 0
         for index, factor in enumerate(factors):
             width = len(factor.key_columns)
             names = columns[offset : offset + width]
             factor_table = _domain_table(factor)
+            facts = factor.unique_keys.project(
+                names, dict(zip(factor.key_columns, names, strict=True))
+            )
+            if facts.keys:
+                candidates = (*candidates, *facts.keys[0])
+            elif width:
+                proven = False
             tables.append(
                 factor_table.select(
                     **{
@@ -659,7 +719,14 @@ def prepare_population(
                 *factors,
             )
         # Each factor is a set, and all factor keys survive the Cartesian product.
-        return _retain_checks(PreparedPopulation(table.select(*columns), key_groups), *factors)
+        return _retain_checks(
+            PreparedPopulation(
+                table.select(*columns),
+                key_groups,
+                unique_keys=UniqueKeys(columns, (candidates,) if proven else ()),
+            ),
+            *factors,
+        )
     if isinstance(node, PopulationClassify):
         from marivo.analysis.materialization.population_relations import prepare_member_fields
 
@@ -671,6 +738,7 @@ def prepare_population(
             key_groups,
             source_times=source_times,
             consumption_timezone=consumption_timezone,
+            prepared=cache,
         )
     reject(
         "an executable captured population program",

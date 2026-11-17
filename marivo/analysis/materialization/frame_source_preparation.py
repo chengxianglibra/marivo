@@ -284,7 +284,9 @@ def prepare_frame_sources(
                     )
                 )
                 domain_lowered = lower_query(
-                    domain_plan, {} if domain_sources is None else domain_sources.relations
+                    domain_plan,
+                    {} if domain_sources is None else domain_sources.relations,
+                    None if domain_sources is None else domain_sources.population_checks,
                 )
                 if domain_sources is not None:
                     from marivo.analysis.materialization.query_key_fusion import (
@@ -448,7 +450,11 @@ def prepare_frame_sources(
             if not checked_inputs:
                 plan = optimize_query(plan)
         if sparse_window is None and not sample_windows:
-            lowered = lower_query(plan, {} if prepared is None else prepared.relations)
+            lowered = lower_query(
+                plan,
+                {} if prepared is None else prepared.relations,
+                None if prepared is None else prepared.population_checks,
+            )
         if (
             prepared is not None
             and input_id not in requested

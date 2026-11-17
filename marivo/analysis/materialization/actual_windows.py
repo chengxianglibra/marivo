@@ -132,9 +132,9 @@ def prepare_actual_window_plan(
         original=finish_shape.original,
         output_groups=finish_shape.output_groups,
     )
-    return lower_query(plan, candidate_sources.relations), replace(
-        candidate_sources, source_times=prepared.source_times
-    )
+    return lower_query(
+        plan, candidate_sources.relations, candidate_sources.population_checks
+    ), replace(candidate_sources, source_times=prepared.source_times)
 
 
 def _bind_actual_windows(
@@ -274,7 +274,7 @@ def run_actual_windows(
     )
     selected = _restrict_window_reads(selected, graph, candidates)
     plan = optimize_query(plan_query(graph, selected.schemas))
-    lowered = lower_query(plan, selected.relations)
+    lowered = lower_query(plan, selected.relations, selected.population_checks)
     qualify_query_sources(selected, lowered)
     output = execute_numeric_query(
         selected,

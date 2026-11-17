@@ -50,17 +50,16 @@ from marivo._definition.relations import (
     PopulationContains,
     PopulationDependency,
     PopulationFilter,
-    PopulationImage,
-    PopulationPreimage,
     PopulationProduct,
     PopulationProgram,
     PopulationProject,
     PopulationSet,
+    condition_populations,
     population_keys,
     sample_population,
 )
 from marivo._definition.types import AxisBinding
-from marivo.analysis.compiler.graph_lowering import LoweredQuery, LoweredRead
+from marivo.analysis.compiler.graph_lowering import LoweredQuery, LoweredRead, PopulationCheck
 from marivo.analysis.compiler.graph_plan import (
     FrameKeysInput,
     LocalCompute,
@@ -101,6 +100,7 @@ from marivo.analysis.core.data_types import (
     ScalarDataType,
     TimestampDataType,
 )
+from marivo.analysis.core.unique_keys import UniqueKeys
 from marivo.analysis.core.value_types import expression_value, ibis_type
 from marivo.analysis.materialization.query_parameters import _replace_parameter
 from marivo.analysis.materialization.source_query_policy import (
@@ -544,11 +544,16 @@ def _physical_owner(
     return bool(leaves) and leaves <= allowed | allowed_parameters
 
 
+def _read_scopes(read: LoweredRead) -> tuple[ir.Table, ...]:
+    return (read.expression, *(check.relation for check in read.population_checks))
+
+
 def _native_member_counts(
     program: FormulaProgram,
     relations: dict[str, ir.Table],
     keys: tuple[str, ...],
     providers: Mapping[str, str],
+    unique_keys: Mapping[str, UniqueKeys],
 ) -> tuple[FormulaProgram, dict[str, ir.Table]] | str:
     """Complete distinct member tuples before composing ordinary count formulas."""
     if (
@@ -598,12 +603,13 @@ def _native_member_counts(
             )
             if len(selected) != len(keys):
                 return "member count output does not match its complete coordinates"
-            table = _distinct(
+            table = (
                 table.select(*binding.keys)
                 if binding.keys
-                else table.select(__population_unit=ibis.literal(True)),
-                provider,
+                else table.select(__population_unit=ibis.literal(True))
             )
+            if not unique_keys.get(binding.stage_id, UniqueKeys()).proves(binding.keys):
+                table = _distinct(table, provider)
             slot = "__member_count_" + "_".join(str(index) for index in occurrence)
             identifier = binding.stage_id + ":" + slot
             grouped = {
@@ -831,10 +837,9 @@ def native_query_relation(
                 if relation is None:
                     return "Attribute parent parameter is unavailable"
                 allowed_parameters = frozenset(relation.op().find(ops.UnboundTable))
-            if prepared.sources.get(
-                stage.source_id, prepared.source
-            ) is not owner or not _physical_owner(
-                read.expression, owner, prepared, allowed_parameters=allowed_parameters
+            if prepared.sources.get(stage.source_id, prepared.source) is not owner or any(
+                not _physical_owner(scope, owner, prepared, allowed_parameters=allowed_parameters)
+                for scope in _read_scopes(read)
             ):
                 return "producer physical inputs do not belong to the consumer SourceSession"
             if read_finish(stage) is not None:
@@ -908,6 +913,15 @@ def native_query_relation(
                     name for name, _ in read.numeric_checks
                 } != {name for name, _, _ in stage.preparation_checks}:
                     return "field producer retains an unsupported check"
+                if any(
+                    check.expected
+                    not in (
+                        "non-null complete identity keys",
+                        "a non-null complete identity for every input tuple",
+                    )
+                    for check in read.population_checks
+                ):
+                    return "field producer retains an unsupported Population check"
             elif (
                 not qualified_query_provider(owner)
                 or (
@@ -1003,6 +1017,11 @@ def native_query_relation(
                     relations,
                     stage.keys,
                     {binding.stage_id: owner.provider.name for binding in formula.populations},
+                    {
+                        stage.stage_id: stage.unique_keys
+                        for stage in plan.stages
+                        if isinstance(stage, SourceReadStage)
+                    },
                 )
                 if isinstance(folded, str):
                     return folded
@@ -1342,6 +1361,88 @@ def _check_summary(
     return summary
 
 
+def _population_check_summary(
+    obligations: tuple[PopulationCheck, ...],
+    provider: str,
+    offset: int,
+) -> tuple[ir.Table | None, tuple[tuple[str, NumericCheck], ...]]:
+    """Summarize each checked scope once, outside the business relation."""
+    checks: list[tuple[str, NumericCheck]] = []
+    seen: set[tuple[ops.Node, str, str, str, tuple[str, ...]]] = set()
+    grouped: dict[ops.Node, list[tuple[str, PopulationCheck]]] = {}
+    for obligation in obligations:
+        relation = obligation.relation.op()
+        key = (relation, obligation.flag, obligation.expected, obligation.received, obligation.keys)
+        if key in seen:
+            continue
+        alias = f"__population_check_{offset + len(seen)}"
+        seen.add(key)
+        grouped.setdefault(relation, []).append((alias, obligation))
+    if not grouped:
+        return None, ()
+    summaries = []
+    # Keep the original check order even when scopes are shared.
+    ordered: dict[str, NumericCheck] = {}
+    for batch in grouped.values():
+        relation_expr = batch[0][1].relation
+        summary = _check_summary(
+            relation_expr,
+            tuple((alias, relation_expr[check.flag], check.keys) for alias, check in batch),
+            combined=provider in ("duckdb", "trino", "clickhouse"),
+            provider=provider,
+        )
+        summaries.append(summary)
+        for alias, check in batch:
+            ordered[alias] = NumericCheck(summary[alias], check.expected, check.received)
+    for index in range(offset, offset + len(ordered)):
+        alias = f"__population_check_{index}"
+        checks.append((alias, ordered[alias]))
+    summary = summaries[0]
+    for other in summaries[1:]:
+        summary = summary.cross_join(other)
+    return summary, tuple(checks)
+
+
+def _attach_population_checks(
+    expression: ir.Table,
+    obligations: tuple[PopulationCheck, ...],
+    provider: str,
+    offset: int,
+) -> tuple[ir.Table, tuple[tuple[str, NumericCheck], ...]]:
+    summary, checks = _population_check_summary(obligations, provider, offset)
+    if summary is None:
+        return expression, ()
+    if "__numeric_present" not in expression.columns:
+        expression = expression.mutate(__numeric_present=ibis.literal(True))
+    return summary.left_join(expression, ibis.literal(True)), checks
+
+
+def finish_population_checks(
+    stage: SourceReadStage, read: LoweredRead, provider: str
+) -> tuple[SourceReadStage, LoweredRead]:
+    """Render deferred Population diagnostics for a standalone physical read."""
+    if not read.population_checks:
+        return stage, read
+    expression, checks = _attach_population_checks(
+        read.expression, read.population_checks, provider, len(read.numeric_checks)
+    )
+    return (
+        replace(
+            stage,
+            preparation_checks=(
+                *stage.preparation_checks,
+                *((name, check.expected, check.received) for name, check in checks),
+            ),
+        ),
+        replace(
+            read,
+            expression=expression,
+            numeric_checks=(*read.numeric_checks, *checks),
+            population_checks=(),
+        ),
+    )
+
+
 def _attach_relation_checks(
     expression: ir.Table,
     native: NativeQueryRelation,
@@ -1496,6 +1597,16 @@ def _attach_relation_checks(
             (alias, NumericCheck(summary[alias], check.expected, check.received))
             for alias, check in batch
         )
+    expression, population_checks = _attach_population_checks(
+        expression,
+        tuple(check for source in native.sources for check in source.population_checks),
+        provider,
+        len(checks),
+    )
+    prepared_checks.extend(
+        (name, check.expected, check.received) for name, check in population_checks
+    )
+    checks.extend(population_checks)
     return expression, tuple(prepared_checks), tuple(checks)
 
 
@@ -1715,7 +1826,11 @@ def fuse_query_terminal(prepared: PreparedSources, lowered: LoweredQuery) -> Low
 def _qualified_parameter_consumer(
     prepared: PreparedSources, stage: SourceReadStage, read: LoweredRead, owner: SourceSession
 ) -> bool:
-    if prepared.sources.get(stage.source_id, prepared.source) is not owner:
+    if (
+        prepared.sources.get(stage.source_id, prepared.source) is not owner
+        or read.population_checks
+    ):
+        # Deferred checks can carry parameters outside the consumer's data relation.
         return False
     placeholders = {parameter.placeholder for parameter in stage.parameters}
     allowed = frozenset(
@@ -2153,7 +2268,7 @@ def _fuse_parameter_blocks(prepared: PreparedSources, lowered: LoweredQuery) -> 
 
 
 def _fold_population_checks(prepared: PreparedSources, lowered: LoweredQuery) -> LoweredQuery:
-    """Retain relationship-domain checks without transporting unused identity sets."""
+    """Retain obligated checks without transporting unused Population keys."""
     for candidate in tuple(lowered.plan.stages):
         if (
             not isinstance(candidate, LocalCompute)
@@ -2171,14 +2286,12 @@ def _fold_population_checks(prepared: PreparedSources, lowered: LoweredQuery) ->
             ).order
         ):
             continue
-        if not any(
-            isinstance(node, (PopulationImage, PopulationPreimage))
-            for node in walk(
-                (binding.definition for binding in program.populations), resolve=lambda _: None
-            ).order
+        if (
+            program.counts
+            or program.parent_scope is not None
+            or program.calendar_samples
+            or program.window_endpoints
         ):
-            continue
-        if bool(program.counts) and candidate.keys:
             continue
         by_id = {stage.stage_id: stage for stage in lowered.plan.stages}
         if candidate.stage_id not in by_id:
@@ -2211,6 +2324,29 @@ def _fold_population_checks(prepared: PreparedSources, lowered: LoweredQuery) ->
         )
         if not qualified_query_provider(owner):
             continue
+        domains: tuple[PopulationDependency, ...]
+        if program.output_population is not None:
+            domains = (program.output_population,)
+        else:
+            graph = prepared.graph
+            observation = None if graph is None else graph.signature.observation
+            if observation is None:
+                continue
+            occurrences = {
+                carrier_stage.occurrence,
+                *(member.occurrence for member in read_members(carrier_stage)),
+            }
+            domains = tuple(
+                domain
+                for contribution in observation.contributions
+                if contribution.occurrence in occurrences
+                for condition in (*contribution.intrinsic_conditions, contribution.common_condition)
+                if condition is not None
+                for domain in condition_populations(condition)
+            )
+        consumed = walk(domains, resolve=dict(program.declared).get).order
+        if any(binding.definition not in consumed for binding in redundant):
+            continue
         removed = {binding.stage_id for binding in redundant}
         if any(
             lowered.plan.consumers_of(identifier) != (candidate.stage_id,) for identifier in removed
@@ -2222,16 +2358,17 @@ def _fold_population_checks(prepared: PreparedSources, lowered: LoweredQuery) ->
             stage = by_id[identifier]
             if isinstance(stage, SourceReadStage):
                 request = lowered.read(identifier)
+                scopes = _read_scopes(request)
                 placeholders = {parameter.placeholder for parameter in stage.parameters}
                 allowed = frozenset(
                     node
-                    for node in request.expression.op().find(ops.UnboundTable)
+                    for scope in scopes
+                    for node in scope.op().find(ops.UnboundTable)
                     if node.name in placeholders
                 )
-                if prepared.sources.get(
-                    stage.source_id, prepared.source
-                ) is not owner or not _physical_owner(
-                    request.expression, owner, prepared, allowed_parameters=allowed
+                if prepared.sources.get(stage.source_id, prepared.source) is not owner or any(
+                    not _physical_owner(scope, owner, prepared, allowed_parameters=allowed)
+                    for scope in scopes
                 ):
                     compatible = False
                     break
@@ -2270,20 +2407,16 @@ def _fold_population_checks(prepared: PreparedSources, lowered: LoweredQuery) ->
         order = {identifier: index for index, identifier in enumerate(by_id)}
         if any(order[identifier] >= order[carrier_id] for identifier in inputs):
             continue
-        native = NativeQueryRelation(carrier.expression, frozenset(removed), tuple(sources))
-        expression, preparation, checks = _attach_relation_checks(
-            carrier.expression,
-            native,
-            lowered.plan,
-            lowered.plan.source_read_stage(carrier.stage_id).preparation_checks,
-            carrier.numeric_checks,
-            prepared=prepared,
+        if any(source.numeric_checks for source in sources):
+            continue
+        checks = (
+            *carrier.population_checks,
+            *(check for source in sources for check in source.population_checks),
         )
         stage = replace(
             lowered.plan.source_read_stage(carrier.stage_id),
             inputs=inputs,
             parameters=tuple(parameters.values()),
-            preparation_checks=preparation,
             native_reads=_logical_reads(
                 (
                     lowered.plan.source_read_stage(carrier.stage_id),
@@ -2330,7 +2463,7 @@ def _fold_population_checks(prepared: PreparedSources, lowered: LoweredQuery) ->
                     "source_population_check_fusion",
                     "adopted",
                     (carrier_id, *sorted(removed)),
-                    "Unused relationship Population identities remain source check summaries; only the consumed output domain or reduced values are transported.",
+                    "Unused Population keys remain source check summaries; only the consumed output domain or reduced values are transported.",
                 ),
             ),
         )
@@ -2338,9 +2471,7 @@ def _fold_population_checks(prepared: PreparedSources, lowered: LoweredQuery) ->
         lowered = LoweredQuery(
             plan,
             tuple(
-                replace(
-                    request, stage_id=stage.stage_id, expression=expression, numeric_checks=checks
-                )
+                replace(request, population_checks=checks)
                 if request.stage_id == carrier_id
                 else request
                 for request in lowered.reads
@@ -2400,7 +2531,10 @@ def _fold_member_count_reads(prepared: PreparedSources, lowered: LoweredQuery) -
                     binding.stage_id == item.stage_id and binding.definition in closure
                     for binding in program.populations
                 )
-                and lowered.read(item.stage_id).numeric_checks
+                and (
+                    lowered.read(item.stage_id).numeric_checks
+                    or lowered.read(item.stage_id).population_checks
+                )
             )
             native = replace(
                 native,
@@ -2412,7 +2546,17 @@ def _fold_member_count_reads(prepared: PreparedSources, lowered: LoweredQuery) -
             relations[population_binding.stage_id] = native.expression
             providers[population_binding.stage_id] = owner.provider.name
         else:
-            folded = _native_member_counts(program, relations, candidate.keys, providers)
+            folded = _native_member_counts(
+                program,
+                relations,
+                candidate.keys,
+                providers,
+                {
+                    stage.stage_id: stage.unique_keys
+                    for stage in lowered.plan.stages
+                    if isinstance(stage, SourceReadStage)
+                },
+            )
             if isinstance(folded, str):
                 continue
             updated, relations = folded
@@ -2422,7 +2566,18 @@ def _fold_member_count_reads(prepared: PreparedSources, lowered: LoweredQuery) -
                 original_id = binding.stage_id.rsplit(":__member_count_", 1)[0]
                 native = natives[original_id]
                 expression, preparation, checks = _attach_relation_checks(
-                    relations[binding.stage_id], native, lowered.plan, prepared=prepared
+                    relations[binding.stage_id],
+                    replace(
+                        native,
+                        sources=tuple(
+                            replace(read, population_checks=()) for read in native.sources
+                        ),
+                    ),
+                    lowered.plan,
+                    prepared=prepared,
+                )
+                obligations = tuple(
+                    check for read in native.sources for check in read.population_checks
                 )
                 added.append(
                     SourceReadStage(
@@ -2451,7 +2606,7 @@ def _fold_member_count_reads(prepared: PreparedSources, lowered: LoweredQuery) -
                         ),
                     )
                 )
-                reads.append(LoweredRead(binding.stage_id, expression, checks))
+                reads.append(LoweredRead(binding.stage_id, expression, checks, obligations))
             compute = replace(
                 candidate,
                 program=updated,

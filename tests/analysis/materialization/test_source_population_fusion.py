@@ -4,6 +4,7 @@ import json
 import os
 from collections.abc import Callable
 from pathlib import Path
+from typing import Literal
 
 import duckdb
 import pandas as pd
@@ -625,6 +626,19 @@ def test_remote_relationship_domains_and_explicit_frame_targets(
                 if "v" in metrics:
                     assert result["v"].tolist() == [500]
             assert sum(count_trace.returned_rows) <= 3
+        with monkeypatch.context() as ordinary_patch:
+            ordinary_trace = capture_source(ordinary_patch)
+            entity = catalog_value(session.catalog, "sales.orders", kind="entity")
+            customer = catalog_value(session.catalog, "sales.orders.customer", kind="dimension")
+            revenue = catalog_value(session.catalog, "sales.revenue", kind="metric")
+            selected = session.members(entity, where=customer == 1).classify(by=(customer,))
+            total = session.observe({"v": revenue}, where=mv.in_population(selected))
+            assert total.compute().to_pandas()["v"].tolist() == [100]
+            assert ordinary_trace.returned_rows == [1]
+            membership = mv.membership(customer, via=(), unmatched="null")
+            groups = session.observe({"v": revenue}, by=(membership,)).compute().to_pandas()
+            assert groups["v"].tolist() == [100] * 10
+            assert " JOIN " not in ordinary_trace.native_sql[-1].upper()
         trace = capture_source(monkeypatch)
         assert len(session.frame(image).compute().to_pandas()) == 2
         count = (
@@ -980,3 +994,77 @@ def test_remote_tuple_check_summary_preserves_nulls_and_real_rows(
                 else (False, False, None, None, None, None)
             )
             assert rows == [expected]
+
+
+@pytest.mark.parametrize("classify", (False, True))
+def test_predicate_only_members_return_only_the_reduction_and_preserve_checks(
+    semantic_project_factory: Callable[..., SemanticProject],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    classify: bool,
+) -> None:
+    session = _case(semantic_project_factory, tmp_path, monkeypatch, size=100)
+    entity = catalog_value(session.catalog, "sales.orders", kind="entity")
+    customer = catalog_value(session.catalog, "sales.orders.customer", kind="dimension")
+    revenue = catalog_value(session.catalog, "sales.revenue", kind="metric")
+    population = session.members(entity, where=customer == 1)
+    if classify:
+        population = population.classify(by=(customer,))
+    query = session.observe({"v": revenue}, where=mv.in_population(population))
+    trace = capture_source(monkeypatch)
+    assert query.compute().to_pandas()["v"].tolist() == [10]
+    assert trace.returned_rows == [1]
+    assert len(trace.native_sql) == 1
+    assert "SELECT DISTINCT" not in trace.native_sql[0].upper()
+    assert trace.native_sql[0].upper().count("BOOL_OR") == 1
+
+    with duckdb.connect(str(tmp_path / "population.duckdb")) as db:
+        db.execute("INSERT INTO orders VALUES (NULL,1,50)")
+    with pytest.raises(MaterializationError) as caught:
+        query.top(0, by=query["v"]).compute()
+    assert caught.value.stage == "population_identity"
+
+
+def test_preserved_identity_does_not_require_a_second_set_operation(
+    semantic_project_factory: Callable[..., SemanticProject],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session = _case(semantic_project_factory, tmp_path, monkeypatch, size=10)
+    entity = catalog_value(session.catalog, "sales.orders", kind="entity")
+    customer = catalog_value(session.catalog, "sales.orders.customer", kind="dimension")
+    classified = session.members(entity).classify(by=(customer,))
+    identities = classified.identities(on=classified.axes[0])
+    trace = capture_source(monkeypatch)
+    assert session.frame(identities).compute().to_pandas().iloc[:, 0].tolist() == list(range(10))
+    assert session.observe({"n": identities.count()}).compute().to_pandas()["n"].tolist() == [10]
+    assert trace.returned_rows == [10, 1]
+    assert all("SELECT DISTINCT" not in sql.upper() for sql in trace.native_sql)
+    assert all(sql.upper().count("BOOL_OR") == 1 for sql in trace.native_sql)
+
+
+@pytest.mark.parametrize("unmatched", ("exclude", "null"))
+def test_same_root_membership_uses_the_fact_row_including_null_bucket(
+    semantic_project_factory: Callable[..., SemanticProject],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    unmatched: Literal["exclude", "null"],
+) -> None:
+    session = _session(semantic_project_factory, tmp_path, monkeypatch)
+    with duckdb.connect(str(tmp_path / "population.duckdb")) as db:
+        db.execute("UPDATE orders SET customer=NULL WHERE id=3")
+    customer = catalog_value(session.catalog, "sales.orders.customer", kind="dimension")
+    revenue = catalog_value(session.catalog, "sales.revenue", kind="metric")
+    grouping = mv.membership(customer, via=(), unmatched=unmatched)
+    trace = capture_source(monkeypatch)
+    result = session.observe({"v": revenue}, by=(grouping,)).compute().to_pandas()
+    assert {
+        None if pd.isna(key) else key: value
+        for key, value in result.itertuples(index=False, name=None)
+    } == {
+        1: 40,
+        None: 100,
+    }
+    assert len(trace.native_sql) == 1
+    assert " JOIN " not in trace.native_sql[0].upper()
+    assert "SELECT DISTINCT" not in trace.native_sql[0].upper()

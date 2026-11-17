@@ -240,7 +240,9 @@ def fuse_sample_reductions(prepared: PreparedSources, lowered: LoweredQuery) -> 
                     if (
                         isinstance(native, str)
                         or native.checks
-                        or any(read.numeric_checks for read in native.sources)
+                        or any(
+                            read.numeric_checks or read.population_checks for read in native.sources
+                        )
                     ):
                         raise SampleReductionUnavailableError(
                             "sample Population retains independent checks or a local boundary"
@@ -522,7 +524,7 @@ def _membership_checks(
         if identifier in needed or identifier in checked:
             return
         stage = by_id[identifier]
-        if isinstance(stage, SourceReadStage) and stage.preparation_checks:
+        if isinstance(stage, SourceReadStage) and lowered.read(identifier).population_checks:
             checked.add(identifier)
         elif (
             isinstance(stage, LocalCompute)
@@ -537,36 +539,30 @@ def _membership_checks(
         if binding.definition in roots:
             collect(binding.stage_id)
 
+    from marivo.analysis.materialization.query_key_fusion import _population_check_summary
+
     checks = []
     for source in lowered.plan.stages:
         if not isinstance(source, SourceReadStage) or source.stage_id not in checked:
             continue
-        raw = prepared.relations.get(source.stage_id, prepared.relations.get(source.source_id))
-        assert raw is not None
-        descriptors = source.preparation_checks
-        summary = raw.aggregate(
-            **{name: raw[name].any().fill_null(False) for name, _, _ in descriptors}
-        )
-        # These flags may summarize a failed input tuple that never reached the
-        # predicate Population. Returning one of its output keys is misleading.
-        expression = summary.filter(ibis.or_(*(summary[name] for name, _, _ in descriptors)))
+        owner = prepared.sources.get(source.source_id, prepared.source)
+        obligations = lowered.read(source.stage_id).population_checks
+        summary, numeric = _population_check_summary(obligations, owner.provider.name, 0)
+        assert summary is not None
+        # Emit only the diagnostic row when a check fails.
+        expression = summary.filter(ibis.or_(*(summary[name] for name, _ in numeric)))
         identifier = "source:population-check:" + source.stage_id
         check_stage = replace(
-            source, stage_id=identifier, program=NativeRead(()), columns=(), keys=()
+            source,
+            stage_id=identifier,
+            program=NativeRead(()),
+            columns=(),
+            keys=(),
+            preparation_checks=tuple(
+                (name, check.expected, check.received) for name, check in numeric
+            ),
         )
-        checks.append(
-            (
-                check_stage,
-                LoweredRead(
-                    identifier,
-                    expression,
-                    tuple(
-                        (name, NumericCheck(expression[name], expected, received))
-                        for name, expected, received in descriptors
-                    ),
-                ),
-            )
-        )
+        checks.append((check_stage, LoweredRead(identifier, expression, numeric)))
     return tuple(checks)
 
 

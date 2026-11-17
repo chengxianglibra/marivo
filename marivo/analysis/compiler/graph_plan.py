@@ -84,6 +84,7 @@ class SourceSchema:
     binding_id: str = ""
     time_authorities: tuple[SourceTimeAuthority, ...] = ()
     provider: str = "duckdb"
+    unique_keys: UniqueKeys = field(default_factory=UniqueKeys)
 
     def field(self, path: str) -> SourceField:
         for item in self.fields:
@@ -1035,7 +1036,7 @@ def _plan_query(
                     (),
                     None,
                     preparation_checks=population_schema.preparation_checks,
-                    unique_keys=UniqueKeys(slots, (slots,)),
+                    unique_keys=population_schema.unique_keys.project(slots, column_slots),
                 )
             )
         population_inputs.append(

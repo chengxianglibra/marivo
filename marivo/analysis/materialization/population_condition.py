@@ -127,8 +127,21 @@ def prepare_condition_memberships(
             )
             # Complete identity tuples already form a set. Native DISTINCT can
             # collapse byte-distinct string identities before their byte match.
-            if not domain.axes or not all(
-                isinstance(axis, AxisBinding) and axis.field is None for axis in domain.axes
+            exact_keys = tuple(
+                key
+                for key in selected.key_columns
+                if key in identity_columns
+                or (
+                    not allowed[renamed[key]].type().is_string()
+                    and not allowed[renamed[key]].type().is_floating()
+                )
+            )
+            if (
+                domain.axes
+                and not selected.unique_keys.proves(exact_keys)
+                and not all(
+                    isinstance(axis, AxisBinding) and axis.field is None for axis in domain.axes
+                )
             ):
                 allowed = allowed.distinct()
             private_endpoint = any(

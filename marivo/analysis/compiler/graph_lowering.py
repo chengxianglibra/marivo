@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, replace
 
 import ibis
@@ -35,12 +36,24 @@ from marivo.semantic._numeric_lowering import NumericCheck
 
 
 @dataclass(frozen=True, slots=True, eq=False)
+class PopulationCheck:
+    """One Population obligation in its original row scope."""
+
+    relation: ir.Table
+    flag: str
+    expected: str
+    received: str
+    keys: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True, eq=False)
 class LoweredRead:
     """An Ibis payload associated with the authoritative plan stage by ID."""
 
     stage_id: str
     expression: ir.Table
     numeric_checks: tuple[tuple[str, NumericCheck], ...] = ()
+    population_checks: tuple[PopulationCheck, ...] = ()
 
 
 @dataclass(frozen=True, slots=True, eq=False)
@@ -90,7 +103,11 @@ def _query_predicate(
     return value
 
 
-def lower_query(plan: QueryPlan, relations: dict[str, ir.Table]) -> LoweredQuery:
+def lower_query(
+    plan: QueryPlan,
+    relations: dict[str, ir.Table],
+    population_checks: Mapping[str, tuple[PopulationCheck, ...]] | None = None,
+) -> LoweredQuery:
     """Lower every SourceReadStage over its bound relation, keeping its exact source ID."""
     lowered: list[LoweredRead] = []
     effective_stages: dict[str, SourceReadStage] = {}
@@ -308,7 +325,14 @@ def lower_query(plan: QueryPlan, relations: dict[str, ir.Table]) -> LoweredQuery
             expression, checks = _attach_preparation_checks(
                 expression, table, (), stage.preparation_checks
             )
-            lowered.append(LoweredRead(stage.stage_id, expression, checks))
+            lowered.append(
+                LoweredRead(
+                    stage.stage_id,
+                    expression,
+                    checks,
+                    (population_checks or {}).get(stage.source_id, ()),
+                )
+            )
     # Facts describe the data relation, before diagnostic rows are separated by
     # execution. Raw component and Attribute unions cannot use aggregate facts.
     for read in lowered:
