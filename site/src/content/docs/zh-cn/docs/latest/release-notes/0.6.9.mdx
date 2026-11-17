@@ -1,0 +1,39 @@
+---
+slug: zh-cn/docs/latest/release-notes/0.6.9
+title: Marivo 0.6.9
+description: Marivo 0.6.9 版本说明。
+---
+
+发布于 2026 年 11 月 17 日。Marivo 0.6.9 简化了符合条件的 Population 查询，
+并使公共名称与所描述的领域概念保持一致。
+
+## 亮点
+
+- Population 准备过程可以避免不必要的键去重，对符合条件的 preimage 使用存在性
+  检查，并在聚合前应用符合条件的同源筛选。输出坐标和必要校验仍保留原有范围，
+  空筛选结果也不例外。
+- 没有关联路径的未版本化同根成员规则，可以直接使用贡献行的分桶值，包括空值分桶。
+
+## 变更
+
+- **公共名称迁移：**`md.DiscoverySnapshot` 改为 `md.DiscoveryEvidence`；
+  `ms.MetricTimeBinding`、`ms.MetricTimeFieldBinding` 和 `ms.MetricNoTimeBinding`
+  分别改为 `ms.MetricContributionTimeRole`、`ms.MetricContributionClockBinding`
+  和 `ms.MetricNoContributionClockBinding`。旧公共名称不再导出；请相应更新导入、
+  类型检查、Help 查询目标及读取服务的 schema 消费方。
+- `catalog.preview(...)` 和 `catalog.preview_many(...)` 使用
+  `source_parameters=...` 替代 `source_bindings=...` 传入 JSON 数据源参数；
+  仍需显式提供 Entity 与参数映射的配对。
+
+## 修复
+
+- 预览的数据源参数序列无效时，错误提示会指出接收参数的是 `preview` 还是
+  `preview_many`。
+
+## 文档
+
+- 新增覆盖数据源、业务含义、Population、时间、分析代数和结果证据的领域术语文档。
+
+## 内部
+
+- 新增真实后端审计，对照 Query 读取、驱动提交和执行日志。

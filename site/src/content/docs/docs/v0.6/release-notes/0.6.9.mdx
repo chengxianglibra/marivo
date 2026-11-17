@@ -1,0 +1,44 @@
+---
+slug: docs/v0.6/release-notes/0.6.9
+title: Marivo 0.6.9
+description: Release notes for Marivo 0.6.9.
+---
+
+Released on November 17, 2026. Marivo 0.6.9 simplifies eligible Population
+queries and aligns public names with the domain concepts they describe.
+
+## Highlights
+
+- Population preparation can avoid unnecessary key deduplication, use
+  existence checks for eligible preimages, and apply eligible same-source
+  predicates before aggregation. Output coordinates and required validation
+  retain their established scope, including for empty selections.
+- Unversioned, same-root membership rules without a relationship path can use
+  the contribution row's bucket directly, including a null bucket.
+
+## Changed
+
+- **Public name migration:** `md.DiscoverySnapshot` is now
+  `md.DiscoveryEvidence`. `ms.MetricTimeBinding`, `ms.MetricTimeFieldBinding`,
+  and `ms.MetricNoTimeBinding` are now `ms.MetricContributionTimeRole`,
+  `ms.MetricContributionClockBinding`, and `ms.MetricNoContributionClockBinding`,
+  respectively. The old public names are no longer exported; update imports,
+  type checks, Help targets, and read-service schema consumers accordingly.
+- `catalog.preview(...)` and `catalog.preview_many(...)` now accept JSON source
+  parameters as `source_parameters=...` instead of `source_bindings=...`.
+  Continue to provide explicit Entity-to-parameter mapping pairs.
+
+## Fixed
+
+- An invalid source-parameter sequence now identifies whether `preview` or
+  `preview_many` received it in the error guidance.
+
+## Documentation
+
+- Added a domain vocabulary covering data sources, business meaning,
+  populations, time, analysis algebra, and result evidence.
+
+## Internal
+
+- Added a real-backend audit that reconciles Query reads with driver submissions
+  and execution logs.
