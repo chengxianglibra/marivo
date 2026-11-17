@@ -22,7 +22,7 @@ from marivo.datasource.errors import (
 from marivo.datasource.loader import load_datasources
 from marivo.datasource.source import TableSource
 from marivo.semantic.loader import load_project
-from tests.shared_fixtures import bootstrap_sales_project_from_template
+from tests.shared_fixtures import bootstrap_sales_project
 
 
 @pytest.fixture
@@ -107,7 +107,7 @@ def test_managed_connections_have_independent_memory(project_root: Path) -> None
 
 @pytest.mark.parametrize("format", ["csv", "parquet", "json"])
 def test_builtin_file_sources_and_semantic_preview(project_root: Path, format: str) -> None:
-    bootstrap_sales_project_from_template(project_root, with_time=False)
+    bootstrap_sales_project(project_root, with_time=False)
     (project_root / "models" / "datasources" / "warehouse.py").unlink()
     (project_root / "models" / "datasources").rmdir()
     rows = pd.DataFrame({"region": ["US", "CN"], "amount": [10, 20]})

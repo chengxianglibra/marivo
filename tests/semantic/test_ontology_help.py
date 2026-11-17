@@ -9,14 +9,14 @@ import pytest
 
 import marivo.ontology as mo
 from marivo._help.render import render_help_text
-from tests.shared_fixtures import bootstrap_sales_project_from_template
+from tests.shared_fixtures import bootstrap_sales_project
 
 
 @pytest.mark.parametrize("target", ("influences", "related_to"))
 def test_ontology_help_examples_load_the_authored_declaration(
     target: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    bootstrap_sales_project_from_template(tmp_path, with_time=False)
+    bootstrap_sales_project(tmp_path, with_time=False)
     model = tmp_path / "models" / "semantic" / "sales" / "datasets.py"
     model.write_text(
         model.read_text()

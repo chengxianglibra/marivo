@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import os
-import shutil
 import tempfile
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager, suppress
@@ -843,28 +842,20 @@ def sales_backends(
 
 
 # ---------------------------------------------------------------------------
-# Project directory templates (versioned, cached in /tmp)
+# Project directory builders
 # ---------------------------------------------------------------------------
 
-_SALES_PROJECT_V = "v4"
 
+def bootstrap_sales_project(tmp_path: Path, *, with_time: bool = True) -> None:
+    """Write a sales project directly into each test's isolated directory.
 
-def sales_project_template(*, with_time: bool = True) -> Path:
-    """Cached directory tree with models/semantic/sales/ project files.
-
-    Bump _SALES_PROJECT_V when the project files change.
+    Direct construction avoids inheriting an incomplete or stale template
+    from another test run.
     """
-    tag = "with_time" if with_time else "no_time"
-    cache = _template_cache_dir() / f"sales_project_{_SALES_PROJECT_V}" / tag
-    if cache.exists():
-        return cache
-
-    cache.parent.mkdir(parents=True, exist_ok=True)
-    building = Path(tempfile.mkdtemp(dir=cache.parent, prefix=f"{tag}.building."))
-    (building / "marivo.toml").write_text('[project]\nname = "test"\n')
-    semantic_dir = building / "models" / "semantic" / "sales"
+    (tmp_path / "models").mkdir()
+    semantic_dir = tmp_path / "models" / "semantic" / "sales"
     semantic_dir.mkdir(parents=True)
-    datasource_dir = building / "models" / "datasources"
+    datasource_dir = tmp_path / "models" / "datasources"
     datasource_dir.mkdir(parents=True, exist_ok=True)
     (datasource_dir / "warehouse.py").write_text(
         "import marivo.datasource as md\nmd.duckdb(name='warehouse', wall_clock_timezone='UTC', path=':memory:')\n"
@@ -900,25 +891,7 @@ def sales_project_template(*, with_time: bool = True) -> Path:
         "def revenue():\n"
         "    return amount_value.sum()\n"
     )
-    try:
-        os.replace(building, cache)
-    except OSError:
-        if not cache.exists():
-            raise
-    finally:
-        if building.exists():
-            shutil.rmtree(building)
-    return cache
-
-
-def bootstrap_sales_project_from_template(tmp_path: Path, *, with_time: bool = True) -> None:
-    """Copy the cached sales project template into tmp_path/.
-
-    Faster than writing files individually per test.
-    """
-    src = sales_project_template(with_time=with_time)
-    shutil.copytree(src / "models", tmp_path / "models")
-    shutil.copy2(src / "marivo.toml", tmp_path / "marivo.toml")
+    (tmp_path / "marivo.toml").write_text('[project]\nname = "test"\n')
 
 
 # ---------------------------------------------------------------------------

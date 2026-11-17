@@ -16,7 +16,7 @@ from marivo.ontology.errors import (
     InvalidSemanticEdgeError,
     OntologyLoadError,
 )
-from tests.shared_fixtures import bootstrap_sales_project_from_template as bootstrap_sales_project
+from tests.shared_fixtures import bootstrap_sales_project
 
 
 @pytest.fixture(autouse=True)
